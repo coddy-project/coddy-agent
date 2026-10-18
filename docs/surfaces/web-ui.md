@@ -697,18 +697,21 @@ SSE payloads
   - `tool_call`
   - `tool_call_update`
   - `plan`
+  - `operator_command` (an [operator command](../features/operator-commands.md) request; its run streams on the call's `tool_call_update` frames, in `_meta.coddy.operatorCommand`)
   - `token_usage` (the counters of a finished model call; **`reasoningTokens`** is the part of its output spent reasoning, when the provider reports it)
   - `usage_update` (`used` / `size` for the current model context; emitted again after compaction)
   - Default (no `event:`): chat completion chunk deltas, including `delta.content` and optional `delta.reasoning_content`, which carries the model's reasoning whichever field the provider sent it in (`reasoning_content`, `reasoning` or `thinking`)
 
 ## Operator command card
 
-An [operator command](../features/operator-commands.md) - a command the agent was refused and asks you to run - is a card at its place in the chat (**`messages/OperatorCommandCard.tsx`**; **`DESIGN.md`**, *Operator command card*). Every streaming turn the web UI sends declares that it answers them (**`metadata.coddy_operator_commands`**), so the server offers the tool only to it.
+An [operator command](../features/operator-commands.md) - a command the agent was refused and asks you to run - is a card at its place in the chat (**`messages/OperatorCommandCard.tsx`**; **`DESIGN.md`**, *Operator command card*). Every streaming turn the web UI sends declares that it answers them (**`metadata.coddy_operator_commands`**), so the server offers the tool on those turns (the console declares it too), as long as the tool is on and the turn allows it (see [where it is offered](../features/operator-commands.md#where-it-is-offered)).
 
 - The card shows the agent's reason, the shell and the host as badges, the shell's executable, the folder, and the whole command in the read-only shell block (copy only). If the card's chunk does not load, the command stays readable with **Decline** and **Retry**. Nothing on it is an input, and nothing takes the focus when it appears.
-- **Run** and **Decline** answer **`POST /coddy/sessions/{id}/operator-command`**; the first answer from any tab or console following the session wins, and a card whose request another surface answered says so (*Already answered elsewhere*).
+- **Run**, **Decline** and **Stop** / **Kill** answer **`POST /coddy/sessions/{id}/operator-command`**; the first answer from any tab or console following the session wins, and a card whose request another surface answered says so (*Already answered elsewhere*).
 - While the command runs, the card shows the last lines of its output and **Stop**, which becomes **Kill** once a stop is on its way.
-- When it ends the card says how (*Exit code N*, *Stopped (exit code N)*, *Declined*) and keeps the output; after a reload it is rebuilt from the call's result, which names the shell, the host and the folder.
+- When it ends the card says how (*Exit code N*, *Stopped (exit code N)*, *Declined*, *Did not run* for a command that could not start) and keeps the output; after a reload it is rebuilt from the call's result, which names the shell, the host and the folder.
+- A command that outlived a cancelled turn shows *Stopping…* and **Kill**, after a reload too, until it ends; a **Kill** that finds the request over says *This request has ended* and takes the button away.
+- When the run is inside tmux or screen, *Watch it in a terminal* holds the command that attaches to its window while it runs.
 - A request still waiting survives a reload of the tab (sessionStorage), and the card offers Run and Decline again.
 
 ## Long sessions

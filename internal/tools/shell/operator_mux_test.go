@@ -126,6 +126,25 @@ func TestOperatorMuxGivesTheCommandATerminal(t *testing.T) {
 	}
 }
 
+// TestOperatorMuxTurnsThePagersOff: on a terminal git log, systemctl status
+// and man start a pager of their own and wait for keys nobody presses; the
+// command asks nothing, so the window's pagers print and return.
+func TestOperatorMuxTurnsThePagersOff(t *testing.T) {
+	for _, name := range []string{"tmux", "screen"} {
+		t.Run(name, func(t *testing.T) {
+			mux := muxUnderTest(t, name)
+			run, err := mux.Start(`printf '%s,%s,%s,%s' "$PAGER" "$GIT_PAGER" "$SYSTEMD_PAGER" "$MANPAGER"`, t.TempDir(), posixShell(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitRun(t, run)
+			if out := normalizeOutput(run.Output()); out != "cat,cat,cat,cat" {
+				t.Fatalf("pagers in %s: %q (%s)", name, out, goneReason(run))
+			}
+		})
+	}
+}
+
 func TestOperatorMuxStopInterruptsAndCleansUp(t *testing.T) {
 	for _, name := range []string{"tmux", "screen"} {
 		t.Run(name, func(t *testing.T) {
@@ -380,14 +399,26 @@ func operatorTempDirs(dir string) []string {
 }
 
 // TestOperatorMuxAttachCommandNamesTheCommandsWindow: the operator attaches to
-// type into the command, not into the session's idle window.
+// watch the command's window, not the session's idle window, on Coddy's own
+// server or session.
 func TestOperatorMuxAttachCommandNamesTheCommandsWindow(t *testing.T) {
 	for _, name := range []string{"tmux", "screen"} {
 		t.Run(name, func(t *testing.T) {
 			mux := muxUnderTest(t, name)
 			win := windowName(mux.(interface{ requestIDForTest() string }).requestIDForTest())
-			if got := mux.AttachCommand(); !strings.Contains(got, win) {
+			got := mux.AttachCommand()
+			if !strings.Contains(got, win) {
 				t.Fatalf("attach command %q does not name the window %s", got, win)
+			}
+			want := ""
+			switch m := mux.(type) {
+			case *tmuxMux:
+				want = "tmux -L " + m.socket + " attach -t '=" + m.session + ":="
+			case *screenMux:
+				want = "screen -r " + m.session + " -p "
+			}
+			if want == "" || !strings.HasPrefix(got, want) {
+				t.Fatalf("attach command %q does not reach Coddy's own server and session (%q)", got, want)
 			}
 		})
 	}

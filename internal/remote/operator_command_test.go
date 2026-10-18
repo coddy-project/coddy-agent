@@ -46,6 +46,18 @@ func (c *operatorConsole) RequestOperatorCommand(ctx context.Context, req acp.Op
 // posts Run, forwards the operator's Stop, and ends the local request when the
 // server's tool call ends.
 func TestRemoteConsoleRunsAndStopsAnOperatorCommand(t *testing.T) {
+	remoteOperatorRunAndStop(t, http.StatusNoContent)
+}
+
+// TestRemoteConsoleStopsARunWhoseAnswerWasLost: the server took the Run but
+// its answer never came back (a dropped connection, a proxy's 502); the
+// command may be running there, so the operator's Stop is still forwarded.
+func TestRemoteConsoleStopsARunWhoseAnswerWasLost(t *testing.T) {
+	remoteOperatorRunAndStop(t, http.StatusBadGateway)
+}
+
+func remoteOperatorRunAndStop(t *testing.T, runStatus int) {
+	t.Helper()
 	answers := make(chan map[string]string, 4)
 	declared := make(chan string, 1)
 	mux := http.NewServeMux()
@@ -81,6 +93,10 @@ func TestRemoteConsoleRunsAndStopsAnOperatorCommand(t *testing.T) {
 		var a map[string]string
 		_ = json.NewDecoder(r.Body).Decode(&a)
 		answers <- a
+		if a["action"] == "run" {
+			w.WriteHeader(runStatus)
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 	srv := httptest.NewServer(mux)

@@ -193,3 +193,29 @@ func TestLocalShellRefusesAShellThatIsNotThere(t *testing.T) {
 		t.Fatalf("the block does not name the missing shell:\n%s", text)
 	}
 }
+
+// TestQuittingTheConsoleEndsTheCommandItRan: a console that quits leaves
+// nobody to stop a command it ran, so it kills it; one still waiting is
+// declined.
+func TestQuittingTheConsoleEndsTheCommandItRan(t *testing.T) {
+	a := newTestApp(t)
+	s := &sender{app: a}
+	tickets := make(chan *acp.OperatorCommandTicket, 1)
+	go func() {
+		req := <-a.opCh
+		_ = req.ticket.Answer(acp.OperatorActionRun, "")
+		tickets <- req.ticket
+	}()
+	d, err := s.RequestOperatorCommand(context.Background(), sampleOperatorRequest())
+	if err != nil || d.Action != acp.OperatorActionRun {
+		t.Fatalf("decision %+v, %v", d, err)
+	}
+	tk := <-tickets
+	close(a.closed)
+	select {
+	case <-d.Kill:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("the command the console ran was not killed when it quit: %s", tk.State())
+	}
+	d.Done()
+}

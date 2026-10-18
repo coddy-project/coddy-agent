@@ -11,7 +11,10 @@ import {
   parseOperatorCommandResult,
   type OperatorCommandOutcome,
 } from "../chat/operatorCommandResult";
-import { markOperatorCommandAnswered } from "../chat/operatorCommandSessionStore";
+import {
+  dropOperatorCommandRecord,
+  markOperatorCommandAnswered,
+} from "../chat/operatorCommandSessionStore";
 import { useT } from "../i18n/I18nProvider";
 import { Chevron } from "../components/Chevron";
 import "./OperatorCommandCard.css";
@@ -75,6 +78,9 @@ export function OperatorCommandCard(props: {
   // The request is gone or another surface took it: Run and Decline would only
   // be refused again.
   const [settled, setSettled] = useState(false);
+  // The server says the request is over (404 to an answer): what the last
+  // frame claimed - running, stopping - is stale, and Stop would be refused.
+  const [requestEnded, setRequestEnded] = useState(false);
   const [note, setNote] = useState("");
   const [loadingFull, setLoadingFull] = useState(false);
 
@@ -121,17 +127,23 @@ export function OperatorCommandCard(props: {
         }
         return;
       }
-      if (res.status === 409) {
+      if (res.status === 409 && action !== "stop") {
         setNote(t("operatorCommand.alreadyAnswered"));
-        if (action !== "stop") setSettled(true);
-      } else if (res.status === 404) {
+        setSettled(true);
+      } else if (res.status === 404 || res.status === 409) {
+        // A Stop refused with 409 is for a request that is not running any
+        // more: nothing was answered elsewhere.
         setNote(t("operatorCommand.ended"));
         setSettled(true);
+        setRequestEnded(true);
+        // Nothing waits on the server any more: a reload must not bring the
+        // request back.
+        dropOperatorCommandRecord(sessionId, props.toolCallId);
       } else {
         setNote(t("operatorCommand.sendFailed"));
       }
     },
-    [requestId, sessionId, t],
+    [props.toolCallId, requestId, sessionId, t],
   );
 
   const resultSource = props.fullResultText || props.resultText || "";
@@ -168,6 +180,27 @@ export function OperatorCommandCard(props: {
       output = outcome.note
         ? t("operatorCommand.declinedNote", { note: outcome.note })
         : "";
+    } else if (
+      (phase === "stopped" || phase === "ended") &&
+      (!terminal || status === "cancelled")
+    ) {
+      // Between the last frame and the call's end, or a call cancelled while
+      // its command ran on: the frame says how the run ended.
+      const code = state?.exitCode;
+      if (code === undefined) {
+        endLine =
+          phase === "stopped"
+            ? t("operatorCommand.stopped")
+            : t("operatorCommand.endedPlain");
+        endTone = phase === "stopped" ? "bad" : "muted";
+      } else {
+        endLine =
+          phase === "stopped"
+            ? t("operatorCommand.stoppedExit", { code })
+            : t("operatorCommand.exitCode", { code });
+        endTone = phase === "ended" && code === 0 ? "ok" : "bad";
+      }
+      output = state?.output ?? "";
     } else if (outcome?.kind === "other") {
       endLine =
         status === "failed"
@@ -177,14 +210,6 @@ export function OperatorCommandCard(props: {
             : "";
       endTone = status === "completed" ? "muted" : "bad";
       output = outcome.text;
-    } else if (!terminal && phase) {
-      const code = state?.exitCode ?? 0;
-      endLine =
-        phase === "stopped"
-          ? t("operatorCommand.stoppedExit", { code })
-          : t("operatorCommand.exitCode", { code });
-      endTone = phase === "ended" && code === 0 ? "ok" : "bad";
-      output = state?.output ?? "";
     } else if (status === "cancelled") {
       endLine = t("operatorCommand.cancelled");
       endTone = "bad";
@@ -217,7 +242,7 @@ export function OperatorCommandCard(props: {
     }
   }, [props.onFetchToolCallFull, props.toolCallId]);
 
-  const live = view === "running" || view === "stopping";
+  const live = (view === "running" || view === "stopping") && !requestEnded;
   const killNext = view === "stopping" || stopsSent > 0;
   const dropped = live ? (state?.droppedBytes ?? 0) : 0;
 
@@ -300,7 +325,7 @@ export function OperatorCommandCard(props: {
           className="operator-command-shell"
         />
       ) : null}
-      {attachCommand && view !== "finished" ? (
+      {attachCommand && live ? (
         <details className="operator-command-attach">
           <summary>
             <Chevron className="operator-command-attach-chevron" />

@@ -542,12 +542,12 @@ func UISchemaMap() map[string]interface{} {
 					"The operator_command tool: a command the agent was refused, shown to you exactly as it will run, with Run, Decline and Stop. Its output goes back to the agent. The shell also runs the console's !! commands.",
 					map[string]interface{}{
 						// On when the key is absent: the switch must say so.
-						"enable": boolPropDefault("Enabled", "Offer the operator_command tool (default true). It is offered only where a person can answer: the web UI and the console.", true),
+						"enable": boolPropDefault("Enabled", "Offer the operator_command tool (default true). It is offered only where a person can answer: the web UI and the console, and never in Ask mode, to subagents or to scheduled jobs.", true),
 						"shell":  strProp("Shell", "A name on PATH (bash, zsh, pwsh, cmd) or a path. Empty uses PowerShell on Windows and bash on Linux, macOS and Android."),
 						"multiplexer": map[string]interface{}{
 							"type":        "string",
 							"title":       "Run inside",
-							"description": "macOS and Linux: run each command in a detached tmux or screen session, for long runs on a real terminal. Empty runs it directly.",
+							"description": "macOS and Linux: run each command in a detached tmux or screen session, for long runs on a real terminal; attaching is for watching, the command still asks nothing. Empty runs it directly.",
 							"enum":        []string{"", OperatorMultiplexerTmux, OperatorMultiplexerScreen},
 						},
 					},

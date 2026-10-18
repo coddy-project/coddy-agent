@@ -119,7 +119,7 @@ func operatorCommandDescription(settings *tooling.OperatorCommandSettings) strin
 		"The result is the command's output and exit code. Never use this tool for a command run_command is allowed to run. " +
 		"One command per call. The command runs in " + shellName + " on the machine of the session, " + operatorTerminalNote(settings) +
 		" The command must not wait for input: nobody types into it. Write the non-interactive form: sudo -n, not sudo " +
-		"(it runs only what sudoers allows without a password), apt-get -y, ssh -o BatchMode=yes, git with GIT_TERMINAL_PROMPT=0, " +
+		"(it never prompts, so it runs only what needs no password), apt-get -y, ssh -o BatchMode=yes, git with GIT_TERMINAL_PROMPT=0, " +
 		"no editor or pager. When a command cannot run without a password or an answer, do not call this tool: " +
 		"give the command to the operator in your reply and ask them to run it themselves." +
 		" A decline is final for that command in this turn: do not ask again."
@@ -132,7 +132,10 @@ func operatorTerminalNote(settings *tooling.OperatorCommandSettings) string {
 	if settings != nil && settings.Multiplexer != "" && runtime.GOOS != "windows" {
 		return "in a " + settings.Multiplexer + " window: a prompt there does not fail, it hangs until the operator stops the command."
 	}
-	return "with no terminal and no input: a prompt fails at once."
+	if runtime.GOOS == "windows" {
+		return "with no terminal and empty input; its console has no window, so a program that reads the console hangs until the operator stops the command."
+	}
+	return "with no terminal and empty input: a prompt usually fails at once, and one that retries or opens a window of its own hangs until the operator stops the command."
 }
 
 func executeOperatorCommand(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
@@ -221,6 +224,24 @@ func executeOperatorCommand(ctx context.Context, argsJSON string, env *tooling.E
 		}
 		return out, nil
 	}
+	// A Run that lands while the turn is cancelled starts nothing: the turn
+	// would interrupt the command at once and leave it half done.
+	if err := ctx.Err(); err != nil {
+		if decision.Done != nil {
+			decision.Done()
+		}
+		return "", err
+	}
+	// The folder shown is the folder the command runs in: a link swapped
+	// into its path while the card waited is refused.
+	if again, err := operatorCWD(env.CWD, args.CWD); err != nil || again != cwd {
+		frame := operatorFrame{env: env, req: req, args: argsJSON}
+		frame.send(OperatorPhaseEnded, "", -1, 0)
+		if decision.Done != nil {
+			decision.Done()
+		}
+		return "", fmt.Errorf("the folder %s changed while the operator decided; the command was not run", cwd)
+	}
 	var run operatorRun
 	if mux != nil {
 		run, err = mux.Start(args.Command, cwd, commandShell)
@@ -228,11 +249,11 @@ func executeOperatorCommand(ctx context.Context, argsJSON string, env *tooling.E
 		run, err = StartOperatorToolCommand(args.Command, cwd, commandShell)
 	}
 	if err != nil {
+		frame := operatorFrame{env: env, req: req, args: argsJSON}
+		frame.send(OperatorPhaseEnded, "", -1, 0)
 		if decision.Done != nil {
 			decision.Done()
 		}
-		frame := operatorFrame{env: env, req: req, args: argsJSON}
-		frame.send(OperatorPhaseEnded, "", -1, 0)
 		return "", fmt.Errorf("the operator's command did not start: %w", err)
 	}
 	return superviseOperatorRunAndRelease(ctx, env, req, argsJSON, run, decision)
@@ -261,6 +282,9 @@ func superviseOperatorRunAndRelease(ctx context.Context, env *tooling.Env, req a
 		for {
 			select {
 			case <-run.Done():
+				// The turn was cancelled, and a cancel is a stop: what
+				// the shell left in its group ends with it.
+				endLeftovers(run)
 				release()
 				return
 			case <-stop:
@@ -307,12 +331,7 @@ func superviseOperatorRun(ctx context.Context, env *tooling.Env, req acp.Operato
 			phase := OperatorPhaseEnded
 			if stopped {
 				phase = OperatorPhaseStopped
-				// The shell is gone, but what it started in the group may
-				// not be: a stop ends the whole command. Not on Windows,
-				// where the reaped pid can already name another process.
-				if runtime.GOOS != "windows" {
-					run.Kill(0)
-				}
+				endLeftovers(run)
 			}
 			frame.send(phase, out, code, run.Dropped())
 			return operatorResult(req, out, run.Dropped(), code, stopped), nil
@@ -331,7 +350,10 @@ func superviseOperatorRun(ctx context.Context, env *tooling.Env, req acp.Operato
 			escalate = nil
 			go killIfRunning(run, operatorStopGrace)
 		case <-ctx.Done():
+			// A cancel is a stop: the interrupt goes out now, and the card
+			// says so at once.
 			run.Interrupt()
+			frame.send(OperatorPhaseStopping, run.Output(), 0, run.Dropped())
 			go func() {
 				time.Sleep(operatorInterruptWait())
 				killIfRunning(run, operatorStopGrace)
@@ -341,8 +363,15 @@ func superviseOperatorRun(ctx context.Context, env *tooling.Env, req acp.Operato
 			for {
 				select {
 				case <-run.Done():
+					endLeftovers(run)
 					frame.send(OperatorPhaseStopped, run.Output(), run.ExitCode(), run.Dropped())
 					return "", ctx.Err()
+				case <-stop:
+					// The interrupt already went out with the cancel, so
+					// the operator's Stop is the kill.
+					stop = nil
+					go killIfRunning(run, 0)
+					continue
 				case <-kill:
 					// A second Stop during the drain kills at once.
 					kill = nil
@@ -371,6 +400,15 @@ func superviseOperatorRun(ctx context.Context, env *tooling.Env, req acp.Operato
 
 // killIfRunning terminates a run that has not ended yet. A run that has is
 // left alone: on Windows its pid may already name another process.
+// endLeftovers ends what a stopped command's shell left running in its group:
+// a stop or a cancel ends the whole command, not only the shell. Not on
+// Windows, where the reaped pid can already name another process.
+func endLeftovers(run operatorRun) {
+	if runtime.GOOS != "windows" {
+		run.Kill(0)
+	}
+}
+
 func killIfRunning(run operatorRun, grace time.Duration) {
 	select {
 	case <-run.Done():
@@ -381,8 +419,8 @@ func killIfRunning(run operatorRun, grace time.Duration) {
 }
 
 // operatorInterruptWait is how long a stop waits after the interrupt before it
-// terminates the group. Windows has no interrupt to wait for: the command has
-// no console to deliver Ctrl+C to, so the terminate follows at once.
+// terminates the group. Windows has no interrupt to wait for: the command's
+// console is not Coddy's to deliver Ctrl+C to, so the terminate follows at once.
 func operatorInterruptWait() time.Duration {
 	if runtime.GOOS == "windows" {
 		return 0

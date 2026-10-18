@@ -12,7 +12,10 @@ import type { TranscriptItem } from "./types";
  * waiting for the answer, and the event that announced the request is not
  * sent again once the turn's stream is gone. The request is kept in
  * sessionStorage (this tab only, like the composer's draft) per session, with
- * the answer this tab gave, and dropped once the call has finished.
+ * the answer this tab gave, and dropped once the call has finished - unless
+ * the command was being stopped then: one that outlives a cancelled turn keeps
+ * its request open until it ends, and no frame says when, so the record goes
+ * when a Stop learns the request is over.
  */
 
 const STORAGE_PREFIX = "coddy_opc_v1:";
@@ -23,6 +26,8 @@ const MAX_RECORDS = 16;
 export type StoredOperatorCommandRecord = {
   request: OperatorCommandRequest;
   answered?: OperatorCommandAction;
+  /** The last frame said stopping: the command may outlive its call. */
+  stopping?: boolean;
 };
 
 function storageKey(sessionId: string): string {
@@ -60,7 +65,10 @@ export function loadOperatorCommandRecords(
         o.answered === "stop"
           ? o.answered
           : undefined;
-      out.push(answered ? { request, answered } : { request });
+      const rec: StoredOperatorCommandRecord = { request };
+      if (answered) rec.answered = answered;
+      if (o.stopping === true) rec.stopping = true;
+      out.push(rec);
     }
     return out;
   } catch {
@@ -109,6 +117,30 @@ export function markOperatorCommandAnswered(
   if (i < 0) return;
   list[i] = { ...list[i]!, answered };
   saveRecords(sid, list);
+}
+
+/** Note that the command of a call is being stopped. */
+export function markOperatorCommandStopping(
+  sessionId: string,
+  toolCallId: string,
+): void {
+  const sid = sessionId.trim();
+  if (!sid) return;
+  const list = loadOperatorCommandRecords(sid);
+  const i = list.findIndex((r) => r.request.toolCallId === toolCallId);
+  if (i < 0 || list[i]!.stopping) return;
+  list[i] = { ...list[i]!, stopping: true };
+  saveRecords(sid, list);
+}
+
+/** Whether the kept request of a call says its command is being stopped. */
+export function operatorCommandStopping(
+  sessionId: string,
+  toolCallId: string,
+): boolean {
+  return loadOperatorCommandRecords(sessionId).some(
+    (r) => r.request.toolCallId === toolCallId && r.stopping === true,
+  );
 }
 
 /** Forget the request of a call that has finished. */
@@ -171,7 +203,7 @@ export function mergeStoredOperatorCommandsIntoTranscript(
     if (!isOperatorCommandTool(it.title, it.kind) && !byTc.has(it.toolCallId))
       return it;
     const rec = byTc.get(it.toolCallId);
-    if (terminal(it.status)) {
+    if (terminal(it.status) && !rec?.stopping) {
       if (rec) dropOperatorCommandRecord(sessionId, it.toolCallId);
       return it;
     }
@@ -183,6 +215,9 @@ export function mergeStoredOperatorCommandsIntoTranscript(
         {
           request: rec.request,
           ...(rec.answered ? { answered: rec.answered } : {}),
+          ...(rec.stopping && terminal(it.status)
+            ? { phase: "stopping" as const }
+            : {}),
         },
         state ?? {},
       );

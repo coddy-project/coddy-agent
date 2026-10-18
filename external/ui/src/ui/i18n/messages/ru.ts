@@ -613,7 +613,7 @@ export const messagesRu: Record<string, string> = {
     "Инструмент operator_command: команда, в которой агенту отказали, показанная вам ровно так, как она будет запущена, с кнопками Запустить, Отклонить и Остановить. Её вывод возвращается агенту. Та же оболочка выполняет команды !! консоли.",
   "settings.schema.tools.operator_command.enable.label": "Включено",
   "settings.schema.tools.operator_command.enable.desc":
-    "Предлагать инструмент operator_command (по умолчанию включено). Он предлагается только там, где может ответить человек: в веб-интерфейсе и в консоли.",
+    'Предлагать инструмент operator_command (по умолчанию включено). Он предлагается только там, где может ответить человек: в веб-интерфейсе и в консоли, и никогда в режиме "Чат", субагентам и задачам планировщика.',
   "settings.schema.tools.operator_command.shell.label": "Оболочка",
   "settings.schema.tools.operator_command.shell.desc":
     "Имя из PATH (bash, zsh, pwsh, cmd) или путь. Пусто - PowerShell в Windows и bash в Linux, macOS и Android.",
@@ -622,7 +622,7 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.tools.operator_command.multiplexer.label":
     "Запускать внутри",
   "settings.schema.tools.operator_command.multiplexer.desc":
-    "macOS и Linux: запускать каждую команду в отдельной сессии tmux или screen в фоне, для долгих запусков в настоящем терминале. Пусто - запуск напрямую.",
+    "macOS и Linux: запускать каждую команду в отдельной сессии tmux или screen в фоне, для долгих запусков в настоящем терминале; подключаться можно, чтобы наблюдать, команда по-прежнему ничего не спрашивает. Пусто - запуск напрямую.",
   "settings.schema.tools.operator_command.multiplexer.option.none":
     "Напрямую (без мультиплексора)",
   "settings.schema.tools.websearch.brave_api_key.ph":
@@ -1796,7 +1796,9 @@ export const messagesRu: Record<string, string> = {
   "operatorCommand.declinedNote": "Примечание: {note}",
   "operatorCommand.failed": "Не запустилась",
   "operatorCommand.cancelled": "Отменена",
-  "operatorCommand.attach": "Открыть терминал",
+  "operatorCommand.stopped": "Остановлена",
+  "operatorCommand.endedPlain": "Завершена",
+  "operatorCommand.attach": "Посмотреть в терминале",
   "operatorCommand.outputAria": "Вывод команды",
   "operatorCommand.dropped": "Начало вывода отброшено ({bytes} Б)",
   "operatorCommand.alreadyAnswered": "Уже отвечено в другом месте",

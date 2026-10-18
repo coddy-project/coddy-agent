@@ -24,6 +24,8 @@ import {
 } from "./operatorCommand";
 import {
   dropOperatorCommandRecord,
+  markOperatorCommandStopping,
+  operatorCommandStopping,
   upsertOperatorCommandRequest,
 } from "./operatorCommandSessionStore";
 import type { TokenUsage, TranscriptItem } from "./types";
@@ -373,6 +375,14 @@ export async function consumeComposerSseReader(
     operatorSessionByToolCall.delete(toolCallId);
     dropOperatorCommandRecord(sid, toolCallId);
   };
+  // The call ended (completed, failed, cancelled): its request goes, unless
+  // the command was being stopped - one that outlives a cancelled turn keeps
+  // its request open, and Stop with it.
+  const forgetFinishedCall = (toolCallId: string) => {
+    const sid = operatorSessionByToolCall.get(toolCallId);
+    if (sid && operatorCommandStopping(sid, toolCallId)) return;
+    forgetOperatorRequest(toolCallId);
+  };
   // A frame of a running operator command still carries the call's arguments as
   // its content - the run is in _meta - and it is a progress report, not a
   // restart: it must not move the row's clock.
@@ -392,6 +402,9 @@ export async function consumeComposerSseReader(
     });
     if (op.phase === "ended" || op.phase === "stopped") {
       forgetOperatorRequest(u.toolCallId);
+    } else if (op.phase === "stopping") {
+      const sid = operatorSessionByToolCall.get(u.toolCallId);
+      if (sid) markOperatorCommandStopping(sid, u.toolCallId);
     }
     scheduleToolFlush();
     return true;
@@ -929,7 +942,7 @@ export async function consumeComposerSseReader(
             status === "failed" ||
             status === "cancelled"
           ) {
-            forgetOperatorRequest(u.toolCallId);
+            forgetFinishedCall(u.toolCallId);
           }
           if (status === "in_progress" && text0) {
             toolQueue.push({
@@ -1233,7 +1246,7 @@ export async function consumeComposerSseReader(
             status === "failed" ||
             status === "cancelled"
           ) {
-            forgetOperatorRequest(u.toolCallId);
+            forgetFinishedCall(u.toolCallId);
           }
           if (status === "in_progress" && text0) {
             toolQueue.push({

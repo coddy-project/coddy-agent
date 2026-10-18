@@ -42,15 +42,25 @@ func (s *sender) RequestOperatorCommand(ctx context.Context, req acp.OperatorCom
 		return nil, errConsoleClosed
 	}
 	go func() {
-		// A console that quits leaves nobody to answer: decline.
+		// A console that quits leaves nobody to answer or to stop: a
+		// waiting request is declined, a command it ran is killed.
 		select {
 		case <-a.closed:
-			_ = tk.Answer(acp.OperatorActionDecline, "")
+			switch tk.State() {
+			case acp.OperatorStateRunning, acp.OperatorStateStopping:
+				_ = tk.Answer(acp.OperatorActionStop, "")
+				_ = tk.Answer(acp.OperatorActionStop, "")
+			default:
+				_ = tk.Answer(acp.OperatorActionDecline, "")
+			}
 		case <-tk.Finished():
 		}
 	}()
 	d, err := tk.Wait(ctx)
 	if err != nil {
+		// A Run pressed as the turn was cancelled: the tool never gets it,
+		// so the console must not keep the ticket for escape.
+		a.postUI(func() { a.operatorEnded(tk) })
 		return nil, err
 	}
 	if d.Action == acp.OperatorActionRun {

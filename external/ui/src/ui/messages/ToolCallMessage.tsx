@@ -476,14 +476,23 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   // like any other call. Read once: the reader's own fold is never undone.
   // A live request opens its row; so does a command that outlived a
   // cancelled turn, whose card still offers Stop.
-  const [opensOpen] = useState(
-    () =>
-      isOperatorCommandCall &&
-      (!terminalStatus || props.operatorCommand?.phase === "stopping"),
-  );
+  const operatorLive =
+    isOperatorCommandCall &&
+    (!terminalStatus || props.operatorCommand?.phase === "stopping");
+  const [opensOpen] = useState(operatorLive);
   const [showExpanded, setShowExpanded] = useState(false);
   const [loadingFull, setLoadingFull] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(opensOpen);
+  // A row that turns live after it mounted (its frame arrived after the
+  // transcript drew it) opens too - once: the reader's own fold stays.
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const autoOpenedRef = useRef(opensOpen);
+  useEffect(() => {
+    if (!operatorLive || autoOpenedRef.current) return;
+    autoOpenedRef.current = true;
+    if (detailsRef.current) detailsRef.current.open = true;
+    setDetailsOpen(true);
+  }, [operatorLive]);
   const [searchFetchFailed, setSearchFetchFailed] = useState(false);
 
   useEffect(() => {
@@ -802,6 +811,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
       <details
         className="thinking-details coddy-tool-details"
         data-testid={`tool-details-${props.toolCallId}`}
+        ref={detailsRef}
         {...(opensOpen ? { open: true } : {})}
         onToggle={(e) => setDetailsOpen(e.currentTarget.open)}
       >

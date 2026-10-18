@@ -22,6 +22,9 @@ func (t *turnStream) onOperatorCommand(data string) {
 	if err := json.Unmarshal([]byte(data), &req); err != nil || req.RequestID == "" {
 		return
 	}
+	// The request is of this console's session, whatever the payload says:
+	// escape stops it only in the session it belongs to.
+	req.SessionID = t.sessionID
 	path := "/coddy/sessions/" + url.PathEscape(t.sessionID) + "/operator-command"
 	answer := func(ctx context.Context, action string) bool {
 		err := t.h.postJSON(ctx, path, map[string]string{"requestId": req.RequestID, "action": action}, nil)
@@ -57,18 +60,20 @@ func (t *turnStream) onOperatorCommand(data string) {
 				d.Done()
 			}
 		}
-		if !answer(ctx, d.Action) {
-			// The server did not take the answer: the request may still be
-			// waiting there, so the local one stays until the server's call
-			// reaches its final status (or the turn ends).
-			<-ctx.Done()
-			done()
-			return
-		}
+		took := answer(ctx, d.Action)
 		if d.Action != acp.OperatorActionRun {
+			if !took {
+				// The server did not take the answer: the request may
+				// still be waiting there, so the local one stays until the
+				// server's call reaches its final status (or the turn ends).
+				<-ctx.Done()
+			}
 			done()
 			return
 		}
+		// A Run whose answer was lost may still have started the command on
+		// the server, so the operator's Stop is forwarded either way: a stop
+		// for a request the server never ran is refused there, nothing more.
 		stop, kill := d.Stop, d.Kill
 		for {
 			select {

@@ -196,10 +196,18 @@ func NewWakeRelaySender(cfg *config.Config, relay io.Writer, model string) *Send
 func (s *Sender) Detach() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// emit and interactive stay as they were built: they are read without
+	// the lock. What is written after this goes nowhere (writer), and
+	// isDetached refuses a new prompt.
 	s.detached = true
-	s.emit = false
-	s.interactive = false
 	s.operatorCommands = false
+}
+
+// isDetached reports whether the handler that owns the stream has returned.
+func (s *Sender) isDetached() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.detached
 }
 
 // writer is where a frame goes; s.mu is held.
@@ -430,7 +438,7 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 	if permission.AutoApproves(params, cfgMode) {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
-	if (!s.interactive && !s.asksPermission) || s.w == nil {
+	if (!s.interactive && !s.asksPermission) || s.w == nil || s.isDetached() {
 		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 	}
 	sid := strings.TrimSpace(params.SessionID)
@@ -505,7 +513,7 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 
 // RequestQuestion emits a composer SSE question event and waits for POST /coddy/sessions/{id}/question.
 func (s *Sender) RequestQuestion(ctx context.Context, params acp.QuestionRequestParams) (*acp.QuestionResult, error) {
-	if !s.interactive || s.w == nil {
+	if !s.interactive || s.w == nil || s.isDetached() {
 		return nil, fmt.Errorf("question tool requires streaming responses")
 	}
 	sid := strings.TrimSpace(params.SessionID)

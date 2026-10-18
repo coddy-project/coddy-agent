@@ -81,15 +81,22 @@ export function OperatorCommandCardLazy(props: Props) {
 function OperatorCommandFallback(props: Props & { onRetry: () => void }) {
   const { t } = useT();
   const [declined, setDeclined] = useState(false);
+  const [note, setNote] = useState("");
   const request = props.state?.request;
   const command =
     request?.command ?? parseOperatorCommandArgs(props.argsText)?.command ?? "";
   const sessionId = (request?.sessionId || props.sessionId || "").trim();
   const requestId = request?.requestId ?? props.state?.requestId ?? "";
+  // The same rule as the card's: a request still waiting for its first
+  // answer, on a call that is not over.
+  const status = (props.status || "").toLowerCase();
   const waiting =
     !!request &&
     !props.state?.phase &&
-    props.status !== "completed" &&
+    !props.state?.answered &&
+    status !== "completed" &&
+    status !== "failed" &&
+    status !== "cancelled" &&
     !declined;
   const decline = useCallback(async () => {
     const res = await submitOperatorCommandAction(
@@ -97,8 +104,19 @@ function OperatorCommandFallback(props: Props & { onRetry: () => void }) {
       requestId,
       "decline",
     );
-    if (res.ok || res.status === 404 || res.status === 409) setDeclined(true);
-  }, [requestId, sessionId]);
+    if (res.ok) {
+      setDeclined(true);
+      setNote(t("operatorCommand.declined"));
+    } else if (res.status === 409) {
+      setDeclined(true);
+      setNote(t("operatorCommand.alreadyAnswered"));
+    } else if (res.status === 404) {
+      setDeclined(true);
+      setNote(t("operatorCommand.ended"));
+    } else {
+      setNote(t("operatorCommand.sendFailed"));
+    }
+  }, [requestId, sessionId, t]);
   return (
     <div
       className="permission-prompt-card operator-command-card"
@@ -111,6 +129,11 @@ function OperatorCommandFallback(props: Props & { onRetry: () => void }) {
       </div>
       <pre className="tool-result-pre">{command}</pre>
       <p className="operator-command-note">{t("operatorCommand.loadFailed")}</p>
+      {note ? (
+        <p className="operator-command-note" role="alert">
+          {note}
+        </p>
+      ) : null}
       <div className="permission-prompt-actions">
         <button
           type="button"

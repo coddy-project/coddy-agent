@@ -23,8 +23,11 @@ type operatorClient struct {
 	available bool
 	answer    string // run | decline
 	afterRun  func(t *acp.OperatorCommandTicket)
-	requests  []acp.OperatorCommandRequest
-	frames    []acp.ToolCallStatusUpdate
+	// beforeAnswer runs before the decision is handed back: a turn cancelled
+	// while the operator presses Run.
+	beforeAnswer func()
+	requests     []acp.OperatorCommandRequest
+	frames       []acp.ToolCallStatusUpdate
 }
 
 func (c *operatorClient) SendSessionUpdate(_ string, u interface{}) error {
@@ -53,6 +56,9 @@ func (c *operatorClient) RequestOperatorCommand(ctx context.Context, req acp.Ope
 		return nil, err
 	}
 	d, err := tk.Wait(ctx)
+	if c.beforeAnswer != nil {
+		c.beforeAnswer()
+	}
 	if err == nil && answer == acp.OperatorActionRun && afterRun != nil {
 		go afterRun(tk)
 	}
@@ -258,7 +264,7 @@ func TestOperatorCommandStopInterruptsTheCommand(t *testing.T) {
 
 func TestOperatorCommandTurnCancelKillsTheCommand(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("uses a POSIX marker")
+		t.Skip("uses a POSIX trap")
 	}
 	client := &operatorClient{available: true, answer: acp.OperatorActionRun}
 	env := operatorEnv(t, client)
@@ -272,14 +278,21 @@ func TestOperatorCommandTurnCancelKillsTheCommand(t *testing.T) {
 	if err == nil {
 		t.Fatal("a cancelled turn returned no error")
 	}
-	if time.Since(start) > 15*time.Second {
-		t.Fatalf("cancel took %s", time.Since(start))
+	// Interrupt, the wait after it and the terminate's grace: well inside
+	// the drain, so a cancel that never killed would fail here.
+	if took := time.Since(start); took > operatorInterruptWait()+operatorStopGrace+3*time.Second {
+		t.Fatalf("cancel took %s", took)
+	}
+	if phases := client.phases(); len(phases) == 0 || phases[len(phases)-1] != OperatorPhaseStopped {
+		t.Fatalf("phases = %v, want the run to end stopped", phases)
 	}
 }
 
 func TestOperatorCommandDescriptionNamesTheShell(t *testing.T) {
-	tool := OperatorCommandTool(&tooling.OperatorCommandSettings{Enabled: true, Shell: "sh"})
-	if !strings.Contains(tool.Definition.Description, "sh") {
+	// A name no host has, so the description can only carry it from the
+	// setting: "sh" would be found in "shell" too.
+	tool := OperatorCommandTool(&tooling.OperatorCommandSettings{Enabled: true, Shell: "xyzsh"})
+	if !strings.Contains(tool.Definition.Description, "runs in xyzsh on") {
 		t.Fatalf("description: %s", tool.Definition.Description)
 	}
 	if tool.RequiresPermission {

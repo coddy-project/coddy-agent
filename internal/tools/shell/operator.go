@@ -64,7 +64,7 @@ func StartOperatorToolCommand(command, cwd string, commandShell platform.Shell) 
 }
 
 // Interrupt sends the command what Ctrl+C sends (SIGINT to its process group;
-// nothing on Windows, which has no console here to deliver it to).
+// nothing on Windows, where the command's console is not Coddy's to deliver it to).
 func (c *OperatorCommand) Interrupt() {
 	_ = platform.InterruptProcessGroup(c.sc.cmd)
 }

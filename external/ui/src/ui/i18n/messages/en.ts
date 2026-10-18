@@ -603,7 +603,7 @@ export const messagesEn: Record<string, string> = {
     "The operator_command tool: a command the agent was refused, shown to you exactly as it will run, with Run, Decline and Stop. Its output goes back to the agent. The shell also runs the console's !! commands.",
   "settings.schema.tools.operator_command.enable.label": "Enabled",
   "settings.schema.tools.operator_command.enable.desc":
-    "Offer the operator_command tool (default true). It is offered only where a person can answer: the web UI and the console.",
+    "Offer the operator_command tool (default true). It is offered only where a person can answer: the web UI and the console, and never in Ask mode, to subagents or to scheduled jobs.",
   "settings.schema.tools.operator_command.shell.label": "Shell",
   "settings.schema.tools.operator_command.shell.desc":
     "A name on PATH (bash, zsh, pwsh, cmd) or a path. Empty uses PowerShell on Windows and bash on Linux, macOS and Android.",
@@ -611,7 +611,7 @@ export const messagesEn: Record<string, string> = {
     "bash (PowerShell on Windows)",
   "settings.schema.tools.operator_command.multiplexer.label": "Run inside",
   "settings.schema.tools.operator_command.multiplexer.desc":
-    "macOS and Linux: run each command in a detached tmux or screen session, for long runs on a real terminal. Empty runs it directly.",
+    "macOS and Linux: run each command in a detached tmux or screen session, for long runs on a real terminal; attaching is for watching, the command still asks nothing. Empty runs it directly.",
   "settings.schema.tools.operator_command.multiplexer.option.none":
     "Directly (no multiplexer)",
   "settings.schema.tools.websearch.brave_api_key.ph": "Read from BRAVE_API_KEY",
@@ -1749,7 +1749,9 @@ export const messagesEn: Record<string, string> = {
   "operatorCommand.declinedNote": "Note: {note}",
   "operatorCommand.failed": "Did not run",
   "operatorCommand.cancelled": "Cancelled",
-  "operatorCommand.attach": "Open the terminal",
+  "operatorCommand.stopped": "Stopped",
+  "operatorCommand.endedPlain": "Ended",
+  "operatorCommand.attach": "Watch it in a terminal",
   "operatorCommand.outputAria": "Command output",
   "operatorCommand.dropped": "The start of the output was dropped ({bytes} B)",
   "operatorCommand.alreadyAnswered": "Already answered elsewhere",

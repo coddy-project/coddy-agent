@@ -107,3 +107,31 @@ func TestResolveShellRefusesARelativePath(t *testing.T) {
 		t.Fatal("a relative Windows shell path was accepted")
 	}
 }
+
+// TestResolveShellReadsAPathByTheHostsRules: a path absolute only in the other
+// convention is relative on this host, and the lookup would find it under the
+// folder the command runs in.
+func TestResolveShellReadsAPathByTheHostsRules(t *testing.T) {
+	for _, tc := range []struct{ spec, goos string }{
+		{`C:/tools/bash`, "linux"},
+		{`C:\tools\bash.exe`, "darwin"},
+		{`\\server\share\pwsh.exe`, "linux"},
+		{`/usr/bin/bash`, "windows"},
+		{`\tools\pwsh.exe`, "windows"},
+		{`C:pwsh.exe`, "windows"},
+	} {
+		if _, err := ResolveShell(tc.spec, tc.goos, mapLookup(map[string]string{tc.spec: tc.spec})); err == nil {
+			t.Errorf("%s on %s was taken as an absolute path", tc.spec, tc.goos)
+		}
+	}
+	for _, tc := range []struct{ spec, goos string }{
+		{`/usr/bin/bash`, "linux"},
+		{`C:\tools\pwsh.exe`, "windows"},
+		{`C:/tools/pwsh.exe`, "windows"},
+		{`\\server\share\pwsh.exe`, "windows"},
+	} {
+		if _, err := ResolveShell(tc.spec, tc.goos, mapLookup(map[string]string{tc.spec: tc.spec})); err != nil {
+			t.Errorf("%s on %s: %v", tc.spec, tc.goos, err)
+		}
+	}
+}

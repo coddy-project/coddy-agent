@@ -20,7 +20,8 @@ import (
 )
 
 // operatorMux runs operator commands inside a terminal multiplexer: the
-// command gets a real terminal, and the operator can attach to type into it.
+// command gets a real terminal for a long run, and the operator can attach to
+// watch it. Interactive input is not a feature: the command still asks nothing.
 type operatorMux interface {
 	// Name is "tmux" or "screen".
 	Name() string
@@ -214,31 +215,40 @@ func (r *muxRun) Kill(grace time.Duration) {
 // drain copies what the log gained since the last read into the tail, and
 // truncates a log past operatorLogLimit: both writers append, so the next
 // write lands at the start again.
-func (r *muxRun) drain() {
+// drain copies what the log gained into the tail and reports how many bytes
+// that was.
+func (r *muxRun) drain() int64 {
 	f, err := os.Open(r.logPath)
 	if err != nil {
-		return
+		return 0
 	}
 	defer func() { _ = f.Close() }()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	fi, err := f.Stat()
 	if err != nil {
-		return
+		return 0
 	}
 	if fi.Size() < r.offset {
 		r.offset = 0
 	}
 	if _, err := f.Seek(r.offset, io.SeekStart); err != nil {
-		return
+		return 0
 	}
 	n, _ := io.Copy(r.tail, f)
 	r.offset += n
 	if r.offset > operatorLogLimit {
+		// The writer appends while this reads: catch up right before the
+		// truncate, so only what lands in between is lost.
+		m, _ := io.Copy(r.tail, f)
+		n += m
 		if err := os.Truncate(r.logPath, 0); err == nil {
 			r.offset = 0
+		} else {
+			r.offset += m
 		}
 	}
+	return n
 }
 
 // watch polls until dead reports the end, then drains the log a last time,
@@ -252,9 +262,18 @@ func (r *muxRun) watch(dead func() (bool, int)) {
 		if !ended {
 			continue
 		}
-		// What the command printed last may still be on its way to the log.
-		time.Sleep(operatorMuxPoll)
-		r.drain()
+		// What the command printed last may still be on its way to the log
+		// (tmux's pipe-pane writer is a process of its own): drain until the
+		// log stops growing, within a bound.
+		quiet := 0
+		for settle := time.Now().Add(2 * time.Second); quiet < 2 && time.Now().Before(settle); {
+			time.Sleep(operatorMuxPoll)
+			if r.drain() == 0 {
+				quiet++
+			} else {
+				quiet = 0
+			}
+		}
 		r.mu.Lock()
 		r.exitCode = code
 		r.mu.Unlock()
@@ -284,8 +303,9 @@ func newMuxRun(logDir, requestID string) (*muxRun, error) {
 // it records its pid, enters the folder, hands the operator shell its argv
 // quoted for /bin/sh - so the command text reaches the shell untouched, which
 // screen's own parsing would not allow - and writes the command's status to a
-// file before it exits with that status. trap : (not trap ”) keeps SIGINT at
-// its default in the command while the launcher lives on to record the status;
+// file before it exits with that status. Its INT trap (a caught signal, not an
+// ignored one, which the command would inherit) keeps SIGINT at its default in
+// the command while the launcher lives on to record the status;
 // the status a multiplexer reports for its pane can come late or not at all
 // after a Ctrl+C (tmux on macOS), the file does not. It keeps a trace of its
 // own steps on fd 9, closed for the command, so a window that ends without a
@@ -313,7 +333,13 @@ func writeMuxLauncher(base, cwd string, commandShell platform.Shell, command str
 		// The status is written on every way out: the command's end, a
 		// folder it cannot enter (cd says why in the window), a terminate.
 		"trap 'printf \"%s\" \"$?\" > " + tmp + " && mv " + tmp + " " + done + "' EXIT\n" +
-		"cd " + shellQuote(cwd) + " || exit 1\n" +
+		// The folder is absolute and has its links resolved: -P keeps cd
+		// from reading it any other way.
+		"cd -P -- " + shellQuote(cwd) + " || exit 1\n" +
+		// The window is a terminal, so git log, systemctl status and man
+		// would start a pager and wait for keys; the command asks nothing.
+		"PAGER=cat GIT_PAGER=cat SYSTEMD_PAGER=cat MANPAGER=cat\n" +
+		"export PAGER GIT_PAGER SYSTEMD_PAGER MANPAGER\n" +
 		// The launcher's own shell trace goes to the trace file; the
 		// command gets the window's stderr back (fd 8).
 		"exec 8>&2 2>&9\n" +
@@ -391,7 +417,7 @@ func envSessionDir(env *tooling.Env) string {
 }
 
 // AttachCommand names the command's own window: the session's active one is
-// the idle window, where a password typed for the command would be echoed.
+// the idle window, which shows nothing of the command and echoes what is typed.
 func (m *tmuxMux) AttachCommand() string {
 	return "tmux -L " + m.socket + " attach -t '=" + m.session + ":=" + windowName(m.requestID) + "'"
 }
@@ -678,9 +704,21 @@ func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (ope
 	}
 	// The Ctrl+C byte itself: an older screen (macOS ships 4.00) types the
 	// two characters of "^C" rather than reading them as a control code.
-	r.interrupt = func() { _, _ = m.run("-p", win, "-X", "stuff", "\x03") }
-	r.closeWin = func() { _, _ = m.run("-p", win, "-X", "kill") }
 	pid := r.pid
+	// A window screen no longer has is never addressed: screen closes a
+	// window once its process ends, and an older screen sends a command
+	// whose -p names no window to another one.
+	alive := func() bool { return platform.ProcessAlive(pid, time.Time{}) }
+	r.interrupt = func() {
+		if alive() {
+			_, _ = m.run("-p", win, "-X", "stuff", "\x03")
+		}
+	}
+	r.closeWin = func() {
+		if alive() {
+			_, _ = m.run("-p", win, "-X", "kill")
+		}
+	}
 	go func() {
 		r.watch(func() (bool, int) {
 			// The launcher's own process, not its group: under macOS's

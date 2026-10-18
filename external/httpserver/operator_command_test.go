@@ -5,9 +5,12 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -179,6 +182,35 @@ func TestDetachedSenderWritesNothing(t *testing.T) {
 	}
 }
 
+// TestDetachRacesTheTurnsLastWrites: the handler detaches while the turn's
+// goroutine is still unwinding; its last writes may run at the same time and
+// must neither race nor reach the response. Run under -race.
+func TestDetachRacesTheTurnsLastWrites(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		sender := NewSender(&config.Config{}, io.Discard, true, "m")
+		sender.EnableOperatorCommands(true)
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = sender.SendSessionUpdate("s", acp.MessageChunkUpdate{SessionUpdate: acp.UpdateTypeAgentMessageChunk, Content: acp.ContentBlock{Type: "text", Text: "x"}})
+			_ = sender.SendErrorFor(errors.New("x"))
+			_ = sender.FinishStream()
+			_ = sender.SendError("x")
+		}()
+		sender.Detach()
+		wg.Wait()
+	}
+	sender := NewSender(&config.Config{}, panicWriter{}, true, "m")
+	sender.Detach()
+	if res, err := sender.RequestPermission(context.Background(), acp.PermissionRequestParams{SessionID: "s", ToolCall: acp.PermissionToolCall{ToolCallID: "c"}}); err != nil || res.Outcome != "cancelled" {
+		t.Fatalf("a detached sender asked for permission: %+v %v", res, err)
+	}
+	if _, err := sender.RequestQuestion(context.Background(), acp.QuestionRequestParams{SessionID: "s", RequestID: "q"}); err == nil {
+		t.Fatal("a detached sender asked a question")
+	}
+}
+
 func TestOperatorCommandAnswerRefusesTrailingJSON(t *testing.T) {
 	rec := &syncBuffer{}
 	sender := NewSender(&config.Config{}, rec, true, "m")
@@ -186,8 +218,12 @@ func TestOperatorCommandAnswerRefusesTrailingJSON(t *testing.T) {
 	sid := "sess_00112233445566778899aabb"
 	_ = startOperatorRequest(t, sender, rec, acp.OperatorCommandRequest{SessionID: sid, RequestID: "oc_t", ToolCallID: "c", Command: "ls"})
 	srv := &Server{}
-	if w := postOperatorAnswer(t, srv, sid, `{"requestId":"oc_t","action":"decline"}{"requestId":"oc_t","action":"run"}`); w.Code != http.StatusBadRequest {
+	// Run first: a handler that applied the first object before it saw the
+	// second would start the command behind a 400.
+	if w := postOperatorAnswer(t, srv, sid, `{"requestId":"oc_t","action":"run"}{"requestId":"oc_t","action":"decline"}`); w.Code != http.StatusBadRequest {
 		t.Fatalf("a second object after the body: %d %s", w.Code, w.Body)
 	}
-	_ = postOperatorAnswer(t, srv, sid, `{"requestId":"oc_t","action":"decline"}`)
+	if w := postOperatorAnswer(t, srv, sid, `{"requestId":"oc_t","action":"decline"}`); w.Code != http.StatusNoContent {
+		t.Fatalf("the refused body was applied: the decline after it answered %d %s", w.Code, w.Body)
+	}
 }

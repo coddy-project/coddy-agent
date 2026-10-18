@@ -2,7 +2,9 @@
 
 Some shell commands are refused to the agent: the [unsafe-command check](decisions.md) rejects them, a [toolset](../reference/tools.md) leaves `run_command` out, a hook blocks it. When such a command still has to run, the agent asks you to run it with the `operator_command` tool. You see the exact command, the shell, the machine and the folder, and press **Run** or **Decline**. The command runs in your operator shell, its output streams onto the card, and the output goes back to the agent, which reads it and goes on in the same turn.
 
-The web UI and the console show the request; you cannot edit the command. What you read is byte for byte what the shell gets: the tool refuses a command with control characters, bidirectional overrides or zero-width characters before it is shown.
+The web UI and the console show the request; you cannot edit the command. What you read is byte for byte what the shell gets: before anything is shown, the tool refuses a command, a folder or a reason that holds control characters other than newline and tab, format characters (bidirectional overrides, zero-width characters), line or paragraph separators, variation selectors or fillers, and a multi-line command for `cmd`, which would run its first line only.
+
+The card fixes the command line, not everything it runs. A script, a Makefile or a `package.json` script the command starts is a file of the workspace, which the agent can write, so read it before you press **Run**. The reason is the agent's own account of the command. zsh and fish read their startup files even for `-c`; only PowerShell runs without its profile.
 
 ## The request
 
@@ -69,13 +71,13 @@ Interactive input is not a feature of the tool. The agent must always write a co
 
 What a prompt does to a command depends on where it runs:
 
-- Without a multiplexer the command has no terminal and no input; on Windows it has no console either. A program that asks for something fails at once with a non-zero exit code, and the agent reads the error.
+- Without a multiplexer the command has no terminal and its input is empty. A program that asks for something usually fails at once with a non-zero exit code, and the agent reads the error. One that retries on an empty answer, or opens a window of its own (an askpass, a pinentry, a credential manager), waits until you press **Stop**. On Windows the command has a console with no window: a program that reads that console waits there, unseen, until Stop.
 - In a [tmux or screen](#long-runs-tmux-or-screen) window the command has a terminal, so a prompt does not fail: it waits. There is no timeout, and the turn waits with it until you press **Stop**.
 
 `sudo` has two limits of its own:
 
-- `sudo -n` runs only what sudoers lets your account run without a password (`NOPASSWD`); anything else fails with "a password is required".
-- A `sudo` you ran in your own terminal does not help: sudo remembers a password per terminal, and the command does not run in yours.
+- `sudo -n` never asks for a password, so it runs only what needs none: a command sudoers lets your account run without one (`NOPASSWD`), or one a sudo ticket still covers. Anything else fails with "a password is required".
+- With sudo's default per-terminal tickets, a `sudo` you ran in your own terminal does not help: the command does not run in yours.
 
 On Windows there is no way to elevate the command and get its output back; a command that needs an administrator is one you run yourself in an administrator terminal.
 
@@ -101,20 +103,20 @@ In the web UI the section is **Settings → Tools and permissions → Operator c
 
 ## Long runs: tmux or screen
 
-On macOS and Linux, `multiplexer: tmux` or `multiplexer: screen` runs each operator command inside a detached session. The command gets a real terminal, so a program that refuses to run without one works, and a long run does not depend on the browser tab or the console that pressed Run. The terminal is not a way to answer the command: it still has to [ask nothing](#commands-that-ask-nothing). Coddy manages the session: you see and approve only the command, never a `tmux` line, and the card shows the command's own output.
+On macOS and Linux, `multiplexer: tmux` or `multiplexer: screen` runs each operator command inside a detached session. The command gets a real terminal, so a program that refuses to run without one works, and the command lives on in its window if Coddy restarts. The terminal is not a way to answer the command: it still has to [ask nothing](#commands-that-ask-nothing). Coddy manages the session: you see and approve only the command, never a `tmux` line, and the card shows the command's own output.
 
 - One multiplexer session per Coddy session, `coddy-<id>`; each command gets a window of its own. tmux runs on a server of Coddy's own (`tmux -L coddy`, no `tmux.conf`), so your own tmux sessions are never touched.
-- The card shows how to reach the terminal, for example `tmux -L coddy attach -t '=coddy-1a2b3c4d5e6f:=oc-0a1b2c3d4e5f'` (screen: `screen -r coddy-1a2b3c4d5e6f -p oc-0a1b2c3d4e5f`), the command's own window. Attach to watch the command on its terminal; the output keeps streaming to the card.
+- The card shows how to reach the terminal, for example `tmux -L coddy attach -t '=coddy-1a2b3c4d5e6f:=oc-0a1b2c3d4e5f'` (screen: `screen -r coddy-1a2b3c4d5e6f -p oc-0a1b2c3d4e5f`), the command's own window. Attach, as the user Coddy runs as, to watch the command on its terminal; the output keeps streaming to the card.
 - Stop sends Ctrl+C to the window, then terminates its process group.
-- The window gets the environment the multiplexer server was started with: Coddy's, at the first run. Under the systemd unit that environment usually has no `DISPLAY` and no `SSH_AUTH_SOCK` of your terminal, and a `PATH` changed later does not reach the window while that server runs.
+- The window gets the environment the multiplexer server was started with. tmux runs one `-L coddy` server for every Coddy process of your account, the console and `coddy serve` alike, so that is the environment of the process that started it first; screen starts one session per Coddy session. Under the systemd unit that environment usually has no `DISPLAY` and no `SSH_AUTH_SOCK` of your terminal, and a `PATH` changed later does not reach the window while the server runs. Attaching to tmux copies your terminal's `DISPLAY`, `SSH_AUTH_SOCK` and the like into the session (tmux's `update-environment`), so the windows of later commands get them too.
 - On a terminal programs print colours, progress bars and full-screen redraws. The card and the result clean the output up, but what `htop`, `vim` or `less` leave there is of little use to the agent.
-- Under the systemd user unit (`coddy serve install`) the server starts in a scope of its own, so restarting the service does not end a long run; without `systemd-run` it does.
+- Under the systemd user unit (`coddy serve install`) the server starts in a scope of its own, so restarting the service does not end a long run; without `systemd-run` it does. A restart ends the turn all the same: the command goes on in its window (attach to see it), but its output no longer reaches the agent or the card, and its window and its files under the session's folder stay until you close the window.
 - Windows has neither: the setting is ignored there, and `--dry-run` warns. macOS ships no tmux; install it (`brew install tmux`) or use `screen`. tmux 3.0 or newer is needed.
 
 If a command stops on a prompt anyway and you attach to answer it, that is outside what the tool supports, with these consequences:
 
 - You answer on the machine of the session, not in the browser: for the web UI and `coddy --remote` that means a terminal on the `coddy serve` host, over SSH for instance.
-- Each command has a window, and so a terminal, of its own: sudo asks for the password again for every command.
+- Each command has a window, and so a terminal, of its own: with sudo's default per-terminal tickets, sudo asks for the password again for every command.
 - Whatever the window shows reaches the agent: the card, the session's history and the request to the model's provider. sudo does not echo a password, but a prompt that echoes what you type puts it there.
 - Nobody attaching is not an answer either: the command waits until you press **Stop**, which sends it Ctrl+C.
 

@@ -144,6 +144,13 @@ func (s *operatorFeatureState) operatorWasShown(command string) error {
 	if req.ToolCallID != "call-op" || req.CWD == "" || req.Host == "" {
 		return fmt.Errorf("the request lacks what the card shows: %+v", req)
 	}
+	// The folder shown is the session's workspace, where the command runs:
+	// a declined command that ran anyway would land in another folder.
+	shown, _ := filepath.EvalSymlinks(req.CWD)
+	work, _ := filepath.EvalSymlinks(s.hooks.cwd)
+	if shown != work {
+		return fmt.Errorf("the card shows the folder %s, the session works in %s", req.CWD, s.hooks.cwd)
+	}
 	return nil
 }
 

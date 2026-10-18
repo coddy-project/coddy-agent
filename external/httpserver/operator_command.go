@@ -88,12 +88,19 @@ func (s *Sender) EnableOperatorCommands(on bool) {
 	s.operatorCommands = on
 }
 
+// The capability defaults to deny: a signature that drifts must fail the
+// build, not hide the tool from the web UI.
+var (
+	_ acp.OperatorCommandSender = (*Sender)(nil)
+	_ acp.SenderUnwrapper       = (*mirroredSender)(nil)
+)
+
 // OperatorCommandsAvailable implements acp.OperatorCommandSender: a client
 // reads this stream and declared it answers operator commands.
 func (s *Sender) OperatorCommandsAvailable() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.interactive && s.w != nil && s.operatorCommands
+	return s.interactive && s.w != nil && s.operatorCommands && !s.detached
 }
 
 // RequestOperatorCommand emits the request as an operator_command event and

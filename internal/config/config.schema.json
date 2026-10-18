@@ -619,7 +619,7 @@
                 "tmux",
                 "screen"
               ],
-              "description": "macOS and Linux: run each operator command inside a detached tmux or screen session, so it has a real terminal and a long run does not depend on the client that pressed Run. Coddy manages the session itself; the operator sees only the command. Empty runs the command directly. Ignored on Windows.",
+              "description": "macOS and Linux: run each operator command inside a detached tmux or screen session, so it has a real terminal and lives on if Coddy restarts. Attaching is for watching: the command still asks nothing. Coddy manages the session itself; the operator sees only the command. Empty runs the command directly. Ignored on Windows.",
               "default": ""
             }
           }

@@ -1465,12 +1465,12 @@
           "properties": {
             "enable": {
               "default": true,
-              "description": "Offer the operator_command tool (default true). It is offered only where a person can answer: the web UI and the console.",
+              "description": "Offer the operator_command tool (default true). It is offered only where a person can answer: the web UI and the console, and never in Ask mode, to subagents or to scheduled jobs.",
               "title": "Enabled",
               "type": "boolean"
             },
             "multiplexer": {
-              "description": "macOS and Linux: run each command in a detached tmux or screen session, for long runs on a real terminal. Empty runs it directly.",
+              "description": "macOS and Linux: run each command in a detached tmux or screen session, for long runs on a real terminal; attaching is for watching, the command still asks nothing. Empty runs it directly.",
               "enum": [
                 "",
                 "tmux",

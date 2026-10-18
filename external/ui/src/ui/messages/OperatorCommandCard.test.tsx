@@ -299,11 +299,13 @@ test("the terminal of a multiplexed run is offered under a disclosure", () => {
       attachCommand: "tmux attach -t coddy-opc_1",
     },
     requestId: "opc_1",
+    answered: "run",
+    phase: "running",
   });
   expect(screen.getByTestId("operator-command-multiplexer")).toHaveTextContent(
     "tmux",
   );
-  const summary = screen.getByText("Open the terminal");
+  const summary = screen.getByText("Watch it in a terminal");
   expect(summary.closest("details")).not.toHaveAttribute("open");
   expect(
     summary.closest("details")?.querySelector(".permission-preview-shell-code")
@@ -348,4 +350,108 @@ test("the card shows the request's command over the arguments'", () => {
     card.querySelector(".permission-preview-shell-code")?.textContent,
   ).toBe("echo the-command-that-runs");
   expect(card).not.toHaveTextContent("apt-get");
+});
+
+test("a Stop the server answers with 404 retires the live card", async () => {
+  answerStatus = 404;
+  renderCall({
+    request,
+    requestId: "opc_1",
+    answered: "run",
+    phase: "stopping",
+    output: "still going",
+  });
+  fireEvent.click(screen.getByTestId("operator-command-stop"));
+  await waitFor(() =>
+    expect(screen.getByTestId("operator-command-note")).toHaveTextContent(
+      "This request has ended",
+    ),
+  );
+  expect(screen.queryByTestId("operator-command-stop")).toBeNull();
+  expect(screen.getByTestId("operator-command-card")).not.toHaveTextContent(
+    "Stopping…",
+  );
+});
+
+test("a command that outlived a cancelled turn ends with its own exit code and output", () => {
+  renderCall(
+    {
+      request,
+      requestId: "opc_1",
+      phase: "stopped",
+      exitCode: 130,
+      output: "interrupted at step 3",
+    },
+    { status: "cancelled", resultText: "" },
+  );
+  expect(screen.getByTestId("operator-command-end")).toHaveTextContent(
+    "Stopped (exit code 130)",
+  );
+  expect(screen.getByTestId("operator-command-output")).toHaveTextContent(
+    "interrupted at step 3",
+  );
+});
+
+test("an end without an exit code claims no success", () => {
+  renderCall({ request, requestId: "opc_1", phase: "ended", output: "done" });
+  const end = screen.getByTestId("operator-command-end");
+  expect(end).not.toHaveTextContent("Exit code 0");
+  expect(end.className).not.toContain("operator-command-state--ok");
+});
+
+test("the attach command is offered only while the command runs", () => {
+  const muxed = {
+    ...request,
+    multiplexer: "tmux",
+    attachCommand: "tmux -L coddy attach -t '=coddy-x:=oc-y'",
+  };
+  const { unmount } = renderCall({ request: muxed, requestId: "opc_1" });
+  expect(screen.queryByText("Watch it in a terminal")).toBeNull();
+  unmount();
+  renderCall({
+    request: muxed,
+    requestId: "opc_1",
+    answered: "run",
+    phase: "running",
+  });
+  expect(screen.getByText("Watch it in a terminal")).toBeInTheDocument();
+});
+
+test("a row that turns live after it mounted opens once", () => {
+  const props = {
+    toolCallId: TC,
+    title: "operator_command",
+    argsText: ARGS,
+    sessionId: SID,
+  };
+  const { rerender } = render(
+    <ToolCallMessage {...props} status="cancelled" />,
+  );
+  const details = screen.getByTestId(`tool-details-${TC}`);
+  expect(details).not.toHaveAttribute("open");
+  rerender(
+    <ToolCallMessage
+      {...props}
+      status="cancelled"
+      operatorCommand={{
+        request,
+        requestId: "opc_1",
+        phase: "stopping",
+        output: "still going",
+      }}
+    />,
+  );
+  expect(details).toHaveAttribute("open");
+  expect(screen.getByTestId("operator-command-stop")).toBeVisible();
+});
+
+test("a Stop for a request the server no longer has forgets the kept request", async () => {
+  answerStatus = 404;
+  upsertOperatorCommandRequest(request);
+  renderCall(
+    { request, requestId: "opc_1", phase: "stopping" },
+    { status: "cancelled" },
+  );
+  fireEvent.click(screen.getByTestId("operator-command-stop"));
+  await waitFor(() => expect(loadOperatorCommandRecords(SID)).toHaveLength(0));
 });

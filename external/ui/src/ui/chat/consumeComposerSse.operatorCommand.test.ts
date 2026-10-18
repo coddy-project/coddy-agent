@@ -3,7 +3,10 @@ import {
   consumeComposerSseReader,
   type ConsumeComposerSseParams,
 } from "./consumeComposerSse";
-import { loadOperatorCommandRecords } from "./operatorCommandSessionStore";
+import {
+  loadOperatorCommandRecords,
+  mergeStoredOperatorCommandsIntoTranscript,
+} from "./operatorCommandSessionStore";
 import type { TranscriptItem } from "./types";
 
 /**
@@ -200,4 +203,36 @@ test("frames left in the buffer at the end of the stream are merged the same way
   expect(row.operatorCommand?.phase).toBe("stopping");
   expect(row.operatorCommand?.output).toBe("partial");
   expect(row.operatorCommand?.request?.requestId).toBe("opc_1");
+});
+
+// A command that outlived a cancelled turn still runs, and its request is open
+// until it ends: the call's cancel does not forget it, and a reload puts it
+// back on the row with Stop.
+test("a cancelled call whose command still runs keeps its request", async () => {
+  const items = await drive(
+    opening +
+      runFrame("stopping", "partial") +
+      frame("tool_call_update", { toolCallId: TC, status: "cancelled" }) +
+      `data: [DONE]\n\n`,
+  );
+  expect(toolRow(items).status).toBe("cancelled");
+  const kept = loadOperatorCommandRecords(SID);
+  expect(kept).toHaveLength(1);
+  expect(kept[0]?.stopping).toBe(true);
+
+  const reloaded = mergeStoredOperatorCommandsIntoTranscript(
+    [
+      {
+        type: "tool_call",
+        toolCallId: TC,
+        title: "operator_command",
+        status: "cancelled",
+        argsText: ARGS,
+      } as TranscriptItem,
+    ],
+    SID,
+  );
+  const row = toolRow(reloaded);
+  expect(row.operatorCommand?.request?.requestId).toBe("opc_1");
+  expect(row.operatorCommand?.phase).toBe("stopping");
 });

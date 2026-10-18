@@ -476,7 +476,7 @@ offers the same tools; under `--remote` the server owns the reload.
 | enter | send when idle; during a turn, queue the draft in `agent.queue_mode` (the first time asks which) |
 | tab | during a turn with a draft, queue it in the other mode |
 | shift+enter / ctrl+j | newline (backslash+enter also splits) |
-| escape | interrupt the running turn (`HandleSessionCancel`), stop a `!!` command, or stop a running [operator command](../features/operator-commands.md) (a second press kills it) |
+| escape | interrupt the running turn (`HandleSessionCancel`) or stop a `!!` command; while an [operator command](../features/operator-commands.md) runs, stop it instead of the turn (a second press kills it) |
 | ctrl+c | clear editor; twice within 2 s exits |
 | ctrl+d | exit when the editor is empty |
 | ctrl+l | model selector |
@@ -491,7 +491,7 @@ offers the same tools; under `--remote` the server owns the reload.
 
 A submitted line that starts with `!!` is not a prompt. Coddy runs the rest of
 it in the workspace with the operator shell of `tools.operator_command` (empty:
-PowerShell on Windows, bash elsewhere; a shell that is not found is reported in
+PowerShell on Windows, bash and then sh elsewhere; a shell that is not found is reported in
 the block, never replaced by another), and neither the command nor its output
 is shown to the model, persisted in the session bundle, or counted against the
 context window. This is pi's bash-mode prefix. A command whose output the agent
@@ -547,8 +547,9 @@ An [operator command](../features/operator-commands.md) - a command the agent
 was refused and asks you to run - opens a modal too: the agent's reason, the
 shell, the host and the folder, and every line of the command, which you cannot
 edit. The selection starts on **Decline**, so an Enter typed before the modal
-appeared never runs anything, and no letter key decides; **Run** and Enter runs
-it, and escape declines. While it runs, its tool box shows the output, escape stops it (the
+appeared never runs anything, and no letter key decides: move to **Run** (the
+second row) and press Enter to run it. Enter on **Decline**, or escape,
+declines, and the agent does not ask for that command again this turn. While it runs, its tool box shows the output, escape stops it (the
 turn goes on with what it printed) and a second escape kills it. In `--remote`
 mode the same modal shows the server's request, and the command runs on the
 server, where the session's files are.

@@ -253,7 +253,14 @@ func (s *webOperatorState) streamCarriedRun() error {
 	if len(phases) == 0 || phases[0] != "running" || phases[len(phases)-1] != "ended" {
 		return fmt.Errorf("frame phases = %v", phases)
 	}
-	return nil
+	// The operator watches the output on the card: the frames carry it, not
+	// only the model's next request.
+	for _, e := range s.events {
+		if strings.Contains(gjson.Get(e.data, "_meta.coddy.operatorCommand.output").String(), "web-operator-42") {
+			return nil
+		}
+	}
+	return fmt.Errorf("no frame carried the command's output")
 }
 
 func (s *webOperatorState) nextRequestCarried(output string) error {
