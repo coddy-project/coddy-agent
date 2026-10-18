@@ -221,7 +221,8 @@ func (s *Server) rewriteFor(node Node, target *url.URL, rest string) func(*httpu
 		// or not: a relay without one, mounted under a relay with one, must not
 		// vouch for a request the outer relay let in on a capability, or the
 		// outer gate could be walked around through it.
-		capability := s.workspaceMediaCapability(pr.In)
+		media := s.workspaceMediaCapability(pr.In)
+		capability := media || s.canvasCapability(pr.In)
 		out := pr.Out
 		out.URL.Scheme = target.Scheme
 		out.URL.Host = target.Host
@@ -248,7 +249,7 @@ func (s *Server) rewriteFor(node Node, target *url.URL, rest string) func(*httpu
 		// log, for no benefit: the node authenticates the relay, not the client.
 		// A media capability is the exception, since it is the node's own
 		// credential and the node has to see it.
-		if !capability {
+		if !media {
 			query.Del("access_token")
 		}
 		out.URL.RawQuery = query.Encode()
