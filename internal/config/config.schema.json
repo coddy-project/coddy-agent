@@ -593,6 +593,38 @@
             }
           }
         },
+        "canvas": {
+          "type": "object",
+          "title": "Canvas",
+          "description": "The canvas of the web UI: a board of live frames beside a chat, each a page of the workspace running in a sandbox, put there by the agent with canvas_show or by the person from the Files window; canvas_inspect reads what the browser saw. See https://coddy.dev/docs/features/canvas.",
+          "additionalProperties": false,
+          "properties": {
+            "enable": {
+              "type": [
+                "boolean",
+                "null"
+              ],
+              "description": "Offer the canvas_show and canvas_inspect tools, serve frames and show the canvas in the web UI.",
+              "default": true
+            },
+            "allow_cdn": {
+              "type": [
+                "boolean",
+                "null"
+              ],
+              "description": "Let a frame load libraries, styles and fonts from the common CDNs: cdn.jsdelivr.net, unpkg.com, cdnjs.cloudflare.com, cdn.tailwindcss.com, fonts.googleapis.com and fonts.gstatic.com.",
+              "default": true
+            },
+            "allowed_sources": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^https?://(\\*\\.)?[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)*(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$"
+              },
+              "description": "Further hosts a frame may load from and connect to, as https://host or https://*.host with an optional port and path. A page on the canvas can send what it reads under its folder to any of them."
+            }
+          }
+        },
         "websearch": {
           "type": "object",
           "title": "Web search",

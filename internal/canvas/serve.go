@@ -4,7 +4,6 @@ import (
 	"bytes"
 	_ "embed"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"mime"
@@ -48,18 +47,9 @@ type ServeOptions struct {
 	AllowedSources []string
 }
 
-var sourceRe = regexp.MustCompile(`^https?://(\*\.)?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$`)
-
-// ValidateSource checks one entry of tools.canvas.allowed_sources: a scheme
-// and host (a leading *. allowed), an optional port and path. A bare scheme,
-// keywords, wildcards and anything that could end the directive are refused:
-// each entry names the hosts it opens.
-func ValidateSource(s string) error {
-	if !sourceRe.MatchString(s) {
-		return fmt.Errorf("%q is not a source the canvas takes; write https://host or https://*.host", s)
-	}
-	return nil
-}
+// ValidateSource checks one entry of the sources a frame may load from (see
+// webfs.ValidateCSPSource).
+func ValidateSource(s string) error { return webfs.ValidateCSPSource(s) }
 
 // ContentSecurityPolicy is the policy every response of a frame carries: the
 // sandbox, which holds even when the frame's address is opened in a tab of its

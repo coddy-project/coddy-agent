@@ -6,9 +6,11 @@
 package webfs
 
 import (
+	"fmt"
 	"io/fs"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -134,4 +136,17 @@ func (d dotHiddenDir) ReadDir(count int) ([]fs.DirEntry, error) {
 			return kept, nil
 		}
 	}
+}
+
+var cspSourceRe = regexp.MustCompile(`^https?://(\*\.)?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$`)
+
+// ValidateCSPSource checks one source a served page may load from: a scheme
+// and host (a leading *. allowed), an optional port and path. A bare scheme,
+// keywords, wildcards and anything that could end the directive are refused:
+// each entry names the hosts it opens.
+func ValidateCSPSource(s string) error {
+	if !cspSourceRe.MatchString(s) {
+		return fmt.Errorf("%q is not a source a page may load from; write https://host or https://*.host", s)
+	}
+	return nil
 }
