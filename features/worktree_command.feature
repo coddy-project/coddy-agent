@@ -3,7 +3,7 @@ Feature: Move a chat between the main checkout and a worktree with /worktree
   worktree_open and worktree_exit tools do for the model, from the console,
   the web UI or an editor: open a worktree for a branch and move the chat
   there, or bring the chat back to the main checkout. It runs without a model
-  turn, and the web UI's plate sends "/worktree exit" to bring a chat back.
+  turn, and the web UI's plate answers its leave dialog with these commands.
 
   Scenario: The operator opens a worktree for a branch and brings the chat back
     Given a coddy server with a chat in a repository with a bare origin

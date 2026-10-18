@@ -1853,11 +1853,15 @@ export const messagesEn: Record<string, string> = {
     "It holds commits on no branch: create a branch for them before removing it",
   "leaveWorktree.submodules":
     "It has initialised submodules, so Coddy does not remove it",
+  "leaveWorktree.nested":
+    "It holds git repositories of its own ({names}): move them out before removing it",
   "leaveWorktree.unmanaged":
     "Coddy did not open this worktree, so it does not remove it",
   "leaveWorktree.cannotRemove": "It cannot be removed now",
+  "leaveWorktree.notInWorktree":
+    "The chat is no longer in a worktree, or its folder is gone",
   "leaveWorktree.snapshotNote":
-    "Removing drops the uncommitted changes. Coddy keeps them as a snapshot, and git cherry-pick --no-commit brings them back.",
+    "Removing drops the uncommitted changes. Coddy keeps them as a snapshot, and git stash apply --index brings them back.",
   "workspaceBar.editsLabel.one": "Show the edits: {count} file changed",
   "workspaceBar.editsLabel.other": "Show the edits: {count} files changed",
   "files.title": "Files",

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -76,6 +77,10 @@ type WorktreeState struct {
 	// Submodules reports initialised submodules, which git removes only by
 	// force, with their working trees.
 	Submodules bool
+	// Nested names the untracked folders that are git repositories of their
+	// own: a snapshot records only their commit, so their commits and files
+	// would go with the worktree.
+	Nested []string
 }
 
 // InspectWorktree reads what wt holds that removing it would touch. It
@@ -103,7 +108,15 @@ func InspectWorktree(wt LinkedWorktree) (WorktreeState, error) {
 		return st, err
 	}
 	if status != "" {
-		st.Uncommitted = len(strings.Split(status, "\n"))
+		lines := strings.Split(status, "\n")
+		st.Uncommitted = len(lines)
+		for _, line := range lines {
+			if dir, ok := strings.CutPrefix(line, "?? "); ok && strings.HasSuffix(dir, "/") {
+				if _, err := os.Stat(filepath.Join(wt.Path, filepath.FromSlash(dir), ".git")); err == nil {
+					st.Nested = append(st.Nested, strings.TrimSuffix(dir, "/"))
+				}
+			}
+		}
 	}
 	if submodules, _ := runGit(wt.Path, "submodule", "status"); submodules != "" {
 		for line := range strings.SplitSeq(submodules, "\n") {
@@ -141,6 +154,8 @@ func CheckRemovable(wt LinkedWorktree, discard bool) error {
 	case st.Submodules:
 		return fmt.Errorf("the worktree %s has initialised submodules, whose own commits live in its git directory and would go with it; remove it by hand (git worktree remove --force) once they are pushed",
 			wt.Path)
+	case len(st.Nested) > 0:
+		return nestedRepositoriesError(wt.Path, st.Nested)
 	case discard:
 		return nil
 	case st.Uncommitted > 0:
@@ -150,17 +165,27 @@ func CheckRemovable(wt LinkedWorktree, discard bool) error {
 	return nil
 }
 
+func nestedRepositoriesError(path string, nested []string) error {
+	return fmt.Errorf("the worktree %s holds git repositories of its own (%s), whose commits and files a snapshot cannot keep; move them out of the worktree first",
+		path, strings.Join(nested, ", "))
+}
+
 // SnapshotRefPrefix is where Coddy keeps the uncommitted work of a worktree it
 // removed with discard, one ref per removal.
 const SnapshotRefPrefix = "refs/coddy/worktree-snapshots/"
 
-// snapshotWorktree records what wt holds that HEAD does not - changed, staged
-// and untracked files, .gitignore respected - as one commit on top of HEAD,
-// under SnapshotRefPrefix, and returns the ref. The commit is built in an
-// index of its own, so the worktree and its index stay as they are; it is
-// authored by Coddy, since nobody wrote it as a commit. Bringing the work back
-// is `git cherry-pick --no-commit <ref>` on the branch, or
-// `git worktree add <folder> <ref>` for a tree of it.
+// snapshotWorktree records the uncommitted work of wt the way git stash does,
+// under SnapshotRefPrefix, and returns the ref: a commit of the worktree's
+// index on top of HEAD (what was staged, a file added with --force past
+// .gitignore included), and on top of HEAD and that one a commit of the
+// working tree with its untracked files, .gitignore respected. So
+// `git stash apply --index <ref>` on the branch brings back the index and the
+// files exactly as they were. Both commits are built in a copy of the index,
+// so the worktree and its index stay as they are, and authored by Coddy,
+// since nobody wrote them as commits. A git repository of its own among the
+// untracked folders, which the commit would hold only as a pointer, refuses
+// the snapshot. The ref names the commit, and an existing ref is never
+// overwritten.
 func snapshotWorktree(wt LinkedWorktree, now time.Time) (string, error) {
 	index, err := os.CreateTemp("", "coddy-snapshot-index-*")
 	if err != nil {
@@ -168,20 +193,44 @@ func snapshotWorktree(wt LinkedWorktree, now time.Time) (string, error) {
 	}
 	indexPath := index.Name()
 	_ = index.Close()
-	_ = os.Remove(indexPath)
 	defer func() { _ = os.Remove(indexPath) }()
 	env := []string{
 		"GIT_INDEX_FILE=" + indexPath,
 		"GIT_AUTHOR_NAME=Coddy", "GIT_AUTHOR_EMAIL=coddy@localhost",
 		"GIT_COMMITTER_NAME=Coddy", "GIT_COMMITTER_EMAIL=coddy@localhost",
 	}
-	if _, err := runGitEnv(wt.Path, env, "read-tree", "HEAD"); err != nil {
+	if err := copyWorktreeIndex(wt.Path, indexPath); err != nil {
+		return "", err
+	}
+	if fi, err := os.Stat(indexPath); err != nil || fi.Size() == 0 {
+		// No index of its own yet: start from HEAD, as git would.
+		if _, err := runGitEnv(wt.Path, env, "read-tree", "HEAD"); err != nil {
+			return "", err
+		}
+	}
+	on := branchOrHead(wt.Branch)
+	indexTree, err := runGitEnv(wt.Path, env, "write-tree")
+	if err != nil {
+		return "", err
+	}
+	indexCommit, err := runGitEnv(wt.Path, env, "commit-tree", indexTree, "-p", "HEAD", "-m", "index on "+on)
+	if err != nil {
 		return "", err
 	}
 	if _, err := runGitEnv(wt.Path, env, "add", "-A"); err != nil {
 		return "", err
 	}
+	if nested, err := newGitlinks(wt.Path, env); err != nil {
+		return "", err
+	} else if len(nested) > 0 {
+		return "", nestedRepositoriesError(wt.Path, nested)
+	}
 	tree, err := runGitEnv(wt.Path, env, "write-tree")
+	if err != nil {
+		return "", err
+	}
+	message := fmt.Sprintf("Uncommitted work of the worktree %s (%s), saved by Coddy before removing it", wt.Path, on)
+	commit, err := runGitEnv(wt.Path, env, "commit-tree", tree, "-p", "HEAD", "-p", indexCommit, "-m", message)
 	if err != nil {
 		return "", err
 	}
@@ -189,16 +238,69 @@ func snapshotWorktree(wt LinkedWorktree, now time.Time) (string, error) {
 	if name == "" {
 		name = filepath.Base(wt.Path)
 	}
-	message := fmt.Sprintf("Uncommitted work of the worktree %s (%s), saved by Coddy before removing it", wt.Path, branchOrHead(wt.Branch))
-	commit, err := runGitEnv(wt.Path, env, "commit-tree", tree, "-p", "HEAD", "-m", message)
-	if err != nil {
-		return "", err
+	short := commit
+	if len(short) > 12 {
+		short = short[:12]
 	}
-	ref := SnapshotRefPrefix + name + "-" + now.UTC().Format("20060102T150405Z")
-	if _, err := runGit(wt.Path, "update-ref", ref, commit); err != nil {
+	ref := SnapshotRefPrefix + name + "-" + now.UTC().Format("20060102T150405Z") + "-" + short
+	// The empty old value makes git refuse a ref that already exists.
+	if _, err := runGit(wt.Path, "update-ref", ref, commit, ""); err != nil {
 		return "", err
 	}
 	return ref, nil
+}
+
+// copyWorktreeIndex copies the index of the worktree at dir to dest, leaving
+// dest empty when the worktree has none.
+func copyWorktreeIndex(dir, dest string) error {
+	src, err := runGit(dir, "rev-parse", "--git-path", "index")
+	if err != nil {
+		return err
+	}
+	if !filepath.IsAbs(src) {
+		src = filepath.Join(dir, src)
+	}
+	body, err := os.ReadFile(src)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dest, body, 0o600)
+}
+
+// newGitlinks lists the gitlinks of the index env names that HEAD does not
+// have: git repositories of their own that `git add` recorded as a pointer.
+func newGitlinks(dir string, env []string) ([]string, error) {
+	gitlinks := func(out string) map[string]bool {
+		set := map[string]bool{}
+		for line := range strings.SplitSeq(out, "\n") {
+			// "<mode> <object> <stage>\t<path>" and "<mode> <type> <object>\t<path>".
+			meta, path, ok := strings.Cut(line, "\t")
+			if ok && strings.HasPrefix(meta, "160000 ") {
+				set[path] = true
+			}
+		}
+		return set
+	}
+	staged, err := runGitEnv(dir, env, "ls-files", "--stage")
+	if err != nil {
+		return nil, err
+	}
+	head, err := runGit(dir, "ls-tree", "-r", "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	known := gitlinks(head)
+	var out []string
+	for path := range gitlinks(staged) {
+		if !known[path] {
+			out = append(out, path)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 func branchOrHead(branch string) string {
@@ -244,8 +346,10 @@ func RemoveWorktree(wt LinkedWorktree, discard bool) (Removal, error) {
 			removal.Snapshot = ref
 		}
 	}
+	// Force only what the snapshot keeps: a file written after the check is
+	// left for git to refuse the removal over.
 	args := []string{"worktree", "remove"}
-	if discard {
+	if removal.Snapshot != "" {
 		args = append(args, "--force")
 	}
 	args = append(args, "--", wt.Path)

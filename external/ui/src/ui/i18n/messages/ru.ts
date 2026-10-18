@@ -1912,11 +1912,15 @@ export const messagesRu: Record<string, string> = {
     "В нём есть коммиты вне веток, перед удалением заведите для них ветку",
   "leaveWorktree.submodules":
     "В нём инициализированы сабмодули, поэтому Coddy его не удаляет",
+  "leaveWorktree.nested":
+    "В нём лежат отдельные git-репозитории ({names}), перед удалением перенесите их",
   "leaveWorktree.unmanaged":
     "Этот worktree открыл не Coddy, поэтому Coddy его не удаляет",
   "leaveWorktree.cannotRemove": "Сейчас его удалить нельзя",
+  "leaveWorktree.notInWorktree":
+    "Чат уже не в worktree, или папки worktree больше нет",
   "leaveWorktree.snapshotNote":
-    "Удаление отбросит незакоммиченные изменения. Coddy сохранит их снимком, и git cherry-pick --no-commit вернёт их обратно.",
+    "Удаление отбросит незакоммиченные изменения. Coddy сохранит их снимком, и git stash apply --index вернёт их обратно.",
   "workspaceBar.editsLabel.one": "Показать правки: изменён {count} файл",
   "workspaceBar.editsLabel.few": "Показать правки: изменено {count} файла",
   "workspaceBar.editsLabel.many": "Показать правки: изменено {count} файлов",

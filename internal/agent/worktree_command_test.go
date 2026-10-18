@@ -100,6 +100,23 @@ func TestWorktreeCommandOutsideARepository(t *testing.T) {
 	}
 }
 
+// Without the git binary /worktree says so rather than that the folder is
+// not in a repository.
+func TestWorktreeCommandWithoutTheGitBinary(t *testing.T) {
+	cwd := t.TempDir()
+	t.Setenv("PATH", t.TempDir())
+	st := &session.State{ID: "sess_nogit", CWD: cwd, Mode: session.ModeAgent}
+	a := NewAgent(&config.Config{}, st, nil, nil)
+	a.SetWorkspaceSwitcher(func(context.Context, string) error { return nil })
+	if _, err := a.Run(context.Background(), []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "/worktree"}}); err != nil {
+		t.Fatal(err)
+	}
+	msgs := st.GetMessages()
+	if reply := msgs[len(msgs)-1].Content; !strings.Contains(reply, "git binary") || strings.Contains(reply, "not in a git repository") {
+		t.Fatalf("/worktree without git answered %q", reply)
+	}
+}
+
 func TestWorktreeCommandTellsAPathFromABranch(t *testing.T) {
 	for word, path := range map[string]bool{
 		"/srv/repo/.coddy/worktrees/x": true, "./review": true, "../other": true, "~": true, "~/wt": true,

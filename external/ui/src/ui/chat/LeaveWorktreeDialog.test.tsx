@@ -133,6 +133,99 @@ test("another chat in the worktree stops the removal and is named", async () => 
   expect(remove()).toHaveTextContent("Remove worktree");
 });
 
+test("a repository of its own inside the worktree stops the removal and is named", async () => {
+  answering({
+    ...base,
+    uncommitted: 1,
+    removable: false,
+    nested: ["vendor/dep"],
+    refusal: "it holds git repositories of its own",
+  });
+  open();
+  await waitFor(() =>
+    expect(
+      screen.getByText(
+        "It holds git repositories of its own (vendor/dep): move them out before removing it",
+      ),
+    ).toBeTruthy(),
+  );
+  expect(remove()).toBeDisabled();
+});
+
+test("a chat no longer in a worktree is told so, with nothing to remove", async () => {
+  answering({
+    in_worktree: false,
+    managed: false,
+    uncommitted: 0,
+    unpushed: 0,
+    locked: false,
+    submodules: false,
+    running_tasks: 0,
+    removable: false,
+    needs_discard: false,
+  });
+  open();
+  await waitFor(() =>
+    expect(
+      screen.getByText(
+        "The chat is no longer in a worktree, or its folder is gone",
+      ),
+    ).toBeTruthy(),
+  );
+  expect(screen.getByTestId("leave-worktree-facts").children).toHaveLength(1);
+  expect(remove()).toBeDisabled();
+});
+
+// A turn that was running when the dialog opened can move the chat into
+// another worktree: the dialog reads the one it is in now, so its facts and
+// its answer are about that one.
+test("the dialog reads the worktree again when the chat's folder moves under it", async () => {
+  const fetched = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify(
+          fetched.mock.calls.length > 1
+            ? {
+                ...base,
+                branch: "feature/next",
+                uncommitted: 2,
+                needs_discard: true,
+              }
+            : base,
+        ),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+  );
+  vi.stubGlobal("fetch", fetched);
+  const props = {
+    open: true,
+    sessionId: "sess_wt",
+    project: "app",
+    onChoose: () => {},
+    onClose: () => {},
+  };
+  const view = render(
+    <LeaveWorktreeDialog
+      {...props}
+      worktreePath="/src/app/.coddy/worktrees/feature-login"
+    />,
+  );
+  await waitFor(() =>
+    expect(screen.getByText("Branch feature/login")).toBeTruthy(),
+  );
+  view.rerender(
+    <LeaveWorktreeDialog
+      {...props}
+      worktreePath="/src/app/.coddy/worktrees/feature-next"
+    />,
+  );
+  await waitFor(() =>
+    expect(screen.getByText("Branch feature/next")).toBeTruthy(),
+  );
+  expect(fetched).toHaveBeenCalledTimes(2);
+  expect(remove()).toHaveTextContent("Discard changes and remove");
+});
+
 test("each answer is the command the console types too", () => {
   expect(leaveWorktreeCommand("keep")).toBe("/worktree exit");
   expect(leaveWorktreeCommand("remove")).toBe("/worktree exit --remove");

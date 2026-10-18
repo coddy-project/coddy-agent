@@ -31,19 +31,24 @@ type Reading =
  * (the branch stays unless merged), and whatever stops a removal now (another
  * chat in the worktree, a running task, a lock, loose commits, submodules, a
  * worktree Coddy did not open). Keeping is the default answer and holds the
- * focus; GET /coddy/sessions/{id}/worktree is read each time the dialog opens.
+ * focus; GET /coddy/sessions/{id}/worktree is read each time the dialog opens,
+ * and again when the chat's folder moves under an open dialog (a turn that
+ * was running when it opened), so its facts and its answer stay those of the
+ * worktree the chat is in.
  */
 export function LeaveWorktreeDialog(props: {
   open: boolean;
   sessionId: string;
   /** The main checkout's name, as the plate shows it. */
   project: string;
+  /** The folder the chat works in, as the plate reads it. */
+  worktreePath?: string;
   onChoose: (choice: LeaveWorktreeChoice) => void;
   onClose: () => void;
 }) {
   const { t, tp } = useT();
   const [reading, setReading] = useState<Reading>({ state: "loading" });
-  const { open, sessionId } = props;
+  const { open, sessionId, worktreePath } = props;
 
   useEffect(() => {
     if (!open || !sessionId) return;
@@ -60,7 +65,7 @@ export function LeaveWorktreeDialog(props: {
     return () => {
       live = false;
     };
-  }, [open, sessionId]);
+  }, [open, sessionId, worktreePath]);
 
   const wt = reading.state === "ready" ? reading.worktree : null;
   const facts: { key: string; text: string; tone?: "warn" | "stop" }[] = [];
@@ -72,6 +77,9 @@ export function LeaveWorktreeDialog(props: {
       text: t("leaveWorktree.readFailed", { message: reading.message }),
       tone: "stop",
     });
+  } else if (wt && !wt.in_worktree) {
+    // Moved out by another surface, or its folder is gone: nothing to remove.
+    facts.push({ key: "outside", text: t("leaveWorktree.notInWorktree") });
   } else if (wt) {
     facts.push({
       key: "branch",
@@ -129,6 +137,13 @@ export function LeaveWorktreeDialog(props: {
       facts.push({
         key: "submodules",
         text: t("leaveWorktree.submodules"),
+        tone: "stop",
+      });
+    }
+    if (wt.nested?.length) {
+      facts.push({
+        key: "nested",
+        text: t("leaveWorktree.nested", { names: wt.nested.join(", ") }),
         tone: "stop",
       });
     }

@@ -684,6 +684,7 @@ export function ChatScreen(props: {
               open={leaveWorktreeOpen}
               sessionId={props.sessionId ?? ""}
               project={folderChipLabel(workspaceCtx)}
+              worktreePath={workspaceCtx.path}
               onClose={() => setLeaveWorktreeOpen(false)}
               // The answer is the command the console and an editor type too;
               // the server runs it without a model turn.

@@ -90,6 +90,9 @@ func enterWorktree(ctx context.Context, env *tooling.Env, path string) (Worktree
 		if st.Main {
 			return WorktreeOpen{}, fmt.Errorf("%s is the main checkout; worktree_exit goes back to it", st.Path)
 		}
+		if st.Missing && st.Locked {
+			return WorktreeOpen{}, fmt.Errorf("the folder of the worktree %s is gone, and git keeps it locked (on removable storage, perhaps): bring the folder back, or git worktree unlock and git worktree prune forget it", st.Path)
+		}
 		if st.Missing {
 			return WorktreeOpen{}, fmt.Errorf("the folder of the worktree %s is gone (git worktree prune forgets it)", st.Path)
 		}

@@ -31,7 +31,7 @@ type WorktreeLeave struct {
 	// Removed reports that the worktree was removed on the way.
 	Removed bool `json:"removed"`
 	// Snapshot is the ref that keeps the uncommitted work a discard dropped
-	// (git cherry-pick --no-commit <ref> brings it back onto the branch).
+	// (git stash apply --index <ref> brings it back onto the branch).
 	Snapshot      string `json:"snapshot,omitempty"`
 	BranchDeleted bool   `json:"branch_deleted,omitempty"`
 	BranchKept    string `json:"branch_kept,omitempty"`
@@ -136,6 +136,9 @@ type WorktreeInspection struct {
 	LooseCommit  string `json:"loose_commit,omitempty"`
 	Locked       bool   `json:"locked"`
 	Submodules   bool   `json:"submodules"`
+	// Nested names the git repositories of their own among its untracked
+	// folders, which a removal never takes.
+	Nested []string `json:"nested,omitempty"`
 	// OtherSessions names the other live sessions that work in the worktree;
 	// RunningTasks counts the background tasks of any session running there.
 	OtherSessions []string `json:"other_sessions,omitempty"`
@@ -164,7 +167,7 @@ func InspectSessionWorktree(env *tooling.Env) (WorktreeInspection, error) {
 		return WorktreeInspection{}, err
 	}
 	out.Uncommitted, out.Unpushed, out.LooseCommit = st.Uncommitted, st.Unpushed, st.LooseCommit
-	out.Locked, out.Submodules = st.Locked, st.Submodules
+	out.Locked, out.Submodules, out.Nested = st.Locked, st.Submodules, st.Nested
 	if env.SessionsInWorkspace != nil {
 		out.OtherSessions = env.SessionsInWorkspace(wt.Path)
 	}
@@ -224,7 +227,7 @@ func WorktreeExitTool() *tooling.Tool {
 			Name: ToolWorktreeExit,
 			Description: "Move this session from its git worktree back to the main checkout of the repository; the next tool call runs there. " +
 				"action \"keep\" (the default) leaves the worktree and its branch for later. \"remove\" also removes the worktree: only one under .coddy/worktrees of the repository, where worktree_open creates them, " +
-				"refused while it has uncommitted changes unless discard_changes is true (they are kept as a snapshot), and always for commits no branch, remote branch or tag holds, initialised submodules, a locked worktree, or one another session or a background task works in. " +
+				"refused while it has uncommitted changes unless discard_changes is true (they are kept as a snapshot ref the answer names; git stash apply --index <ref> brings them back), and always for commits no branch, remote branch or tag holds, initialised submodules, a git repository of its own inside it, a locked worktree, or one another session or a background task works in. " +
 				"Its branch is deleted only when git counts it as merged; a branch with unmerged commits stays and the answer says so.",
 			InputSchema: map[string]interface{}{
 				"type": "object",

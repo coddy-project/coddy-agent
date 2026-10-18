@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -93,9 +94,29 @@ func TestWorktreeListPlacesEverySessionInItsOwnWorktree(t *testing.T) {
 	if e := got["feature/two"]; !e.Current || !session.SameWorkspacePath(e.Path, two) || len(e.Sessions) != 0 {
 		t.Fatalf("feature/two = %+v, want the current worktree with no other session", e)
 	}
-	if e := got["feature/gone"]; !e.Missing {
-		t.Fatalf("feature/gone = %+v, want it missing", e)
+	if e := got["feature/gone"]; !e.Missing || !e.Locked {
+		t.Fatalf("feature/gone = %+v, want it missing and still locked", e)
+	}
+	// git keeps a locked worktree whose folder is gone, so prune alone does
+	// not forget it: the refusal says how to.
+	if _, err := apptools.OpenWorktree(context.Background(), s.env, apptools.WorktreeTarget{Path: filepath.Join(s.root, "gone")}); err == nil || !strings.Contains(err.Error(), "unlock") {
+		t.Fatalf("OpenWorktree(gone, locked) = %v, want a refusal naming git worktree unlock", err)
 	}
 }
 
 func removeAll(dir string) error { return os.RemoveAll(dir) }
+
+// A worktree tool that points the model at another one names a tool the
+// registry has: worktree_list once sent it to a worktree_enter that did not
+// exist.
+func TestWorktreeToolDescriptionsNameRegisteredTools(t *testing.T) {
+	reg := apptools.NewRegistry()
+	name := regexp.MustCompile(`\bworktree_[a-z_]+`)
+	for _, def := range reg.AllToolDefinitions() {
+		for _, ref := range name.FindAllString(def.Description, -1) {
+			if _, ok := reg.Get(ref); !ok {
+				t.Errorf("the description of %s names %s, which is not a registered tool", def.Name, ref)
+			}
+		}
+	}
+}

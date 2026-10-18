@@ -23,6 +23,9 @@ type Worktree struct {
 	Path   string `json:"path"`
 	Branch string `json:"branch"`
 	Main   bool   `json:"main"`
+	// Locked reports a `git worktree lock`, which keeps a worktree whose
+	// folder is gone (on removable storage, say) from being pruned.
+	Locked bool `json:"-"`
 }
 
 // Info describes the git state of a workspace folder.
@@ -175,6 +178,8 @@ func listWorktrees(dir string) []Worktree {
 				wt.Path = strings.TrimPrefix(line, "worktree ")
 			case strings.HasPrefix(line, "branch refs/heads/"):
 				wt.Branch = strings.TrimPrefix(line, "branch refs/heads/")
+			case line == "locked" || strings.HasPrefix(line, "locked "):
+				wt.Locked = true
 			}
 		}
 		if wt.Path == "" {

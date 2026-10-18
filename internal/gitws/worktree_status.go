@@ -46,7 +46,7 @@ func ListWorktreeStatus(dir string) (mainCheckout, base string, list []WorktreeS
 	mainCheckout = worktrees[0].Path
 	base = defaultBranch(mainCheckout)
 	for _, wt := range worktrees {
-		st := WorktreeStatus{Path: wt.Path, Branch: wt.Branch, Main: wt.Main}
+		st := WorktreeStatus{Path: wt.Path, Branch: wt.Branch, Main: wt.Main, Locked: wt.Locked}
 		if !wt.Main {
 			st.Managed = isInside(WorktreesRoot(mainCheckout), wt.Path)
 		}

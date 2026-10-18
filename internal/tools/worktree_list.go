@@ -81,7 +81,7 @@ func WorktreeListTool() *tooling.Tool {
 			Description: "List the worktrees of this session's git repository, the main checkout first, with where each stands: its branch, last commit, " +
 				"uncommitted and unpushed changes, commits ahead of and behind origin's default branch, whether it is locked or its folder is gone, " +
 				"which one this session works in and which other sessions work in each. Read-only and moves nothing: look closer at one with run_command " +
-				"and its cwd, move into one with worktree_enter.",
+				"and its cwd, move into one with worktree_open and its path.",
 			InputSchema: map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
 		},
 		Execute: func(_ context.Context, _ string, env *tooling.Env) (string, error) {

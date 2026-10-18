@@ -69,6 +69,7 @@ func (s *Server) coddySessionWorktree(w http.ResponseWriter, r *http.Request) {
 		"loose_commit":   inspection.LooseCommit,
 		"locked":         inspection.Locked,
 		"submodules":     inspection.Submodules,
+		"nested":         inspection.Nested,
 		"other_sessions": others,
 		"running_tasks":  inspection.RunningTasks,
 		"removable":      inspection.Removable,

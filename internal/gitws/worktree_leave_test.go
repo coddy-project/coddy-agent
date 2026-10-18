@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func commitFile(t *testing.T, dir, name, body string) string {
@@ -242,18 +243,36 @@ func TestRemoveWorktreeSeesUntrackedFilesGitStatusHides(t *testing.T) {
 }
 
 // Discarding is not losing: before a worktree with uncommitted work goes, its
-// changed and untracked files are saved as one commit under
-// refs/coddy/worktree-snapshots/, which brings them back onto the branch.
+// index and its files are saved the way git stash saves them, under
+// refs/coddy/worktree-snapshots/, and `git stash apply --index` brings back
+// exactly what was there: a file staged and then edited again (both
+// versions), a file added with --force past .gitignore, a changed file and an
+// untracked one.
 func TestRemoveWorktreeKeepsDiscardedWorkAsASnapshot(t *testing.T) {
 	dir := initRepo(t)
 	wt := openedWorktree(t, dir, "feature/snap")
+	commitFile(t, wt.Path, ".gitignore", "build/\n")
 	commitFile(t, wt.Path, "kept.txt", "committed\n")
-	if err := os.WriteFile(filepath.Join(wt.Path, "kept.txt"), []byte("changed, not committed\n"), 0o644); err != nil {
-		t.Fatal(err)
+	commitFile(t, wt.Path, "twice.txt", "committed\n")
+	write := func(name, body string) {
+		t.Helper()
+		path := filepath.Join(wt.Path, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := os.WriteFile(filepath.Join(wt.Path, "new.txt"), []byte("never added\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	write("kept.txt", "changed, not committed\n")
+	write("twice.txt", "staged\n")
+	mustGit(t, wt.Path, "add", "twice.txt")
+	write("twice.txt", "edited after staging\n")
+	write("build/out.bin", "forced past .gitignore\n")
+	mustGit(t, wt.Path, "add", "-f", "build/out.bin")
+	write("new.txt", "never added\n")
+	before := mustGit(t, wt.Path, "status", "--porcelain")
+
 	removal, err := RemoveWorktree(wt, true)
 	if err != nil {
 		t.Fatal(err)
@@ -261,16 +280,124 @@ func TestRemoveWorktreeKeepsDiscardedWorkAsASnapshot(t *testing.T) {
 	if !strings.HasPrefix(removal.Snapshot, SnapshotRefPrefix) {
 		t.Fatalf("removal = %+v, want a snapshot ref under %s", removal, SnapshotRefPrefix)
 	}
-	// The branch stayed (it has a commit of its own); the snapshot brings the
-	// work back onto it as uncommitted changes.
+	// The branch stayed (it has commits of its own); the snapshot brings the
+	// work back onto it, index and files alike.
 	back := filepath.Join(t.TempDir(), "back")
 	mustGit(t, dir, "worktree", "add", "-q", back, "feature/snap")
-	mustGit(t, back, "cherry-pick", "--no-commit", removal.Snapshot)
-	for name, want := range map[string]string{"kept.txt": "changed, not committed\n", "new.txt": "never added\n"} {
-		got, err := os.ReadFile(filepath.Join(back, name))
+	mustGit(t, back, "stash", "apply", "--index", removal.Snapshot)
+	if after := mustGit(t, back, "status", "--porcelain"); after != before {
+		t.Fatalf("status after restoring:\n%s\nwant:\n%s", after, before)
+	}
+	if staged := mustGit(t, back, "show", ":twice.txt"); staged != "staged" {
+		t.Fatalf("the staged version of twice.txt = %q, want %q", staged, "staged")
+	}
+	for name, want := range map[string]string{
+		"kept.txt": "changed, not committed\n", "twice.txt": "edited after staging\n",
+		"build/out.bin": "forced past .gitignore\n", "new.txt": "never added\n",
+	} {
+		got, err := os.ReadFile(filepath.Join(back, filepath.FromSlash(name)))
 		if err != nil || string(got) != want {
 			t.Fatalf("%s after restoring = %q, %v; want %q", name, got, err, want)
 		}
+	}
+}
+
+// A snapshot never replaces an earlier one, even one taken in the same second
+// of a worktree with the same name.
+func TestSnapshotsOfTheSameWorktreeInOneSecondAreKeptApart(t *testing.T) {
+	dir := initRepo(t)
+	wt := openedWorktree(t, dir, "feature/twice")
+	now := time.Now()
+	var refs []string
+	for _, body := range []string{"first\n", "second\n"} {
+		if err := os.WriteFile(filepath.Join(wt.Path, "draft.txt"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ref, err := snapshotWorktree(wt, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		refs = append(refs, ref)
+	}
+	if refs[0] == refs[1] {
+		t.Fatalf("both snapshots are %s", refs[0])
+	}
+	for i, want := range []string{"first", "second"} {
+		if got := mustGit(t, dir, "show", refs[i]+":draft.txt"); got != want {
+			t.Fatalf("%s holds %q, want %q", refs[i], got, want)
+		}
+	}
+}
+
+// A git repository of its own inside the worktree would be kept by a
+// snapshot as a bare pointer, its commits and files lost with the worktree:
+// the removal is refused, discard or not, before anything moves.
+func TestRemoveWorktreeRefusesANestedRepository(t *testing.T) {
+	dir := initRepo(t)
+	wt := openedWorktree(t, dir, "feature/nested")
+	nested := filepath.Join(wt.Path, "dep")
+	mustGit(t, wt.Path, "init", "-q", nested)
+	commitFile(t, nested, "lib.txt", "only here\n")
+	for _, discard := range []bool{false, true} {
+		if err := CheckRemovable(wt, discard); err == nil || !strings.Contains(err.Error(), "dep") {
+			t.Fatalf("CheckRemovable(discard=%t) = %v, want a refusal naming dep", discard, err)
+		}
+	}
+	if st, err := InspectWorktree(wt); err != nil || len(st.Nested) != 1 || st.Nested[0] != "dep" {
+		t.Fatalf("InspectWorktree = %+v, %v; want dep among the nested repositories", st, err)
+	}
+	if _, err := RemoveWorktree(wt, true); err == nil {
+		t.Fatal("RemoveWorktree(discard) removed a worktree holding a repository of its own")
+	}
+	if _, err := os.Stat(filepath.Join(nested, "lib.txt")); err != nil {
+		t.Fatalf("the nested repository is gone: %v", err)
+	}
+}
+
+// git status folds an untracked folder into one line, so a repository deeper
+// inside one is found only when the snapshot is built: it refuses then, and
+// the worktree stays.
+func TestSnapshotRefusesARepositoryInsideAnUntrackedFolder(t *testing.T) {
+	dir := initRepo(t)
+	wt := openedWorktree(t, dir, "feature/vendor")
+	nested := filepath.Join(wt.Path, "vendor", "dep")
+	if err := os.MkdirAll(filepath.Dir(nested), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, wt.Path, "init", "-q", nested)
+	commitFile(t, nested, "lib.txt", "only here\n")
+	if _, err := RemoveWorktree(wt, true); err == nil || !strings.Contains(err.Error(), "vendor/dep") {
+		t.Fatalf("RemoveWorktree(discard) = %v, want a refusal naming vendor/dep", err)
+	}
+	if _, err := os.Stat(filepath.Join(nested, "lib.txt")); err != nil {
+		t.Fatalf("the nested repository is gone: %v", err)
+	}
+	if refs := mustGit(t, dir, "for-each-ref", SnapshotRefPrefix); refs != "" {
+		t.Fatalf("a refused snapshot left refs: %q", refs)
+	}
+}
+
+// Only what a snapshot keeps is forced away: a worktree with nothing
+// uncommitted but ignored files (build output) goes without --force.
+func TestRemoveWorktreeWithOnlyIgnoredFilesNeedsNoForce(t *testing.T) {
+	dir := initRepo(t)
+	wt := openedWorktree(t, dir, "feature/built")
+	commitFile(t, wt.Path, ".gitignore", "build/\n")
+	if err := os.MkdirAll(filepath.Join(wt.Path, "build"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wt.Path, "build", "out.bin"), []byte("output\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	removal, err := RemoveWorktree(wt, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removal.Snapshot != "" {
+		t.Fatalf("snapshot %q of ignored files only", removal.Snapshot)
+	}
+	if _, err := os.Stat(wt.Path); !os.IsNotExist(err) {
+		t.Fatalf("worktree %s still there: %v", wt.Path, err)
 	}
 }
 

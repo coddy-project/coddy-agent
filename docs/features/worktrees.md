@@ -42,11 +42,15 @@ way. It refuses a worktree with uncommitted changes unless `discard_changes` is
 `true`, and, whatever `discard_changes` says, a worktree on commits that no
 branch, remote branch or tag holds (a detached HEAD with work of its own), one
 with initialised submodules (their own commits live in the worktree's git
-directory), a locked one, one another live session or a background task of any
-session still works in, and one Coddy did not open (outside `.coddy/worktrees/`).
-Discarded changes are not lost: before the worktree goes, Coddy saves them as
-one commit under `refs/coddy/worktree-snapshots/` and names it in the answer,
-and `git cherry-pick --no-commit <ref>` brings them back onto the branch.
+directory), one with a git repository of its own among its untracked folders (a
+snapshot would keep only a pointer to its commit), a locked one, one another
+live session of this Coddy process or a background task of any session still
+works in (a chat of another Coddy process in the same worktree is not seen), and
+one Coddy did not open (outside `.coddy/worktrees/`). Discarded changes are not
+lost: before the worktree goes, Coddy saves them the way `git stash` does, the
+index and the files, under `refs/coddy/worktree-snapshots/` and names the ref in
+the answer, and `git stash apply --index <ref>` on the branch brings them back
+as they were, files added with `--force` past `.gitignore` included.
 Ignored files, such as build output, go with the worktree. The branch goes with
 the worktree only when git counts it as merged (`git branch -d`): a branch with
 commits of its own stays, and the answer says so. A refusal leaves the session
@@ -126,12 +130,13 @@ The arrow asks first whether to keep the worktree or remove it, the way Claude
 Code asks when a worktree session ends, with what removing would touch in view:
 the branch, uncommitted changes, commits not pushed, and whatever stops a
 removal now (another chat in the worktree, a running background task, a lock,
-commits on no branch, submodules, a worktree Coddy did not open). Keeping is the
+commits on no branch, submodules, a git repository of its own inside it, a
+worktree Coddy did not open). Keeping is the
 default answer and sends `/worktree exit`. Removing sends `/worktree exit
 --remove`, or `/worktree exit --remove --force` when there are uncommitted
 changes, which the button then says it discards and the dialog says it keeps as
 a snapshot. The dialog reads `GET /coddy/sessions/{id}/worktree` each time it
-opens. The plate names the main checkout as soon as that turn ends: it reads
+opens, and again when the chat moves to another folder while it is open. The plate names the main checkout as soon as that turn ends: it reads
 where the chat works after every turn of the chat, so it follows `worktree_open`,
 `worktree_exit` and `/worktree` without a reload.
 

@@ -2054,7 +2054,7 @@ func openAPISpec() map[string]interface{} {
 					"summary": "What leaving the session's worktree would touch",
 					"description": "The linked git worktree the session works in and what removing it would touch, read before the web UI asks whether to keep the worktree or remove it. Changes nothing. " +
 						"**`in_worktree`** is false in the main checkout and outside git, and the other fields are then empty. **`uncommitted`** counts changed, staged and untracked entries; **`unpushed`** the commits no remote branch holds; **`loose_commit`** names a commit no branch, remote branch or tag holds (a detached HEAD with work of its own). " +
-						"**`removable`** says whether the worktree can be removed now, **`needs_discard`** whether only by discarding its uncommitted work (kept as a snapshot under `refs/coddy/worktree-snapshots/`), and **`refusal`** why not: a worktree Coddy did not open, a locked one, loose commits, initialised submodules, **`other_sessions`** that work in it, or **`running_tasks`** of any session there. " +
+						"**`removable`** says whether the worktree can be removed now, **`needs_discard`** whether only by discarding its uncommitted work (kept as a snapshot under `refs/coddy/worktree-snapshots/`), and **`refusal`** why not: a worktree Coddy did not open, a locked one, loose commits, initialised submodules, **`nested`** git repositories of their own among its untracked folders, **`other_sessions`** that work in it, or **`running_tasks`** of any session there. " +
 						"The same checks refuse `worktree_exit` with `action: remove` and `/worktree exit --remove`.",
 					"operationId": "coddySessionWorktree",
 					"parameters": []interface{}{
@@ -2084,6 +2084,10 @@ func openAPISpec() map[string]interface{} {
 											"loose_commit":  map[string]string{"type": "string"},
 											"locked":        map[string]string{"type": "boolean"},
 											"submodules":    map[string]string{"type": "boolean"},
+											"nested": map[string]interface{}{
+												"type": "array", "items": map[string]string{"type": "string"},
+												"description": "Untracked folders that are git repositories of their own, relative to the worktree: a snapshot cannot keep them, so they refuse a removal.",
+											},
 											"other_sessions": map[string]interface{}{
 												"type": "array",
 												"items": map[string]interface{}{

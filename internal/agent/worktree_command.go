@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -146,10 +147,10 @@ func (a *Agent) worktreeCommandReply(ctx context.Context, c worktreeCommand) str
 		case left.Gone:
 			fmt.Fprintf(&b, " The worktree folder %s was already gone.", left.Left)
 		case left.Removed && left.Snapshot != "" && left.BranchDeleted:
-			fmt.Fprintf(&b, " The worktree %s and its branch %s are removed; its uncommitted work is kept as %s (git cherry-pick --no-commit %s brings it back).",
+			fmt.Fprintf(&b, " The worktree %s and its branch %s are removed; its uncommitted work is kept as %s (git stash apply --index %s brings it back).",
 				left.Left, left.Branch, left.Snapshot, left.Snapshot)
 		case left.Removed && left.Snapshot != "":
-			fmt.Fprintf(&b, " The worktree %s is removed; its uncommitted work is kept as %s (git cherry-pick --no-commit %s brings it back)%s.",
+			fmt.Fprintf(&b, " The worktree %s is removed; its uncommitted work is kept as %s (git stash apply --index %s brings it back)%s.",
 				left.Left, left.Snapshot, left.Snapshot, keptNote(left.BranchKept))
 		case left.Removed && left.BranchDeleted:
 			fmt.Fprintf(&b, " The worktree %s and its branch %s are removed.", left.Left, left.Branch)
@@ -197,6 +198,9 @@ func (a *Agent) worktreeCommandReply(ctx context.Context, c worktreeCommand) str
 // worktree_list answers the model).
 func worktreeStatus(env *tools.Env) string {
 	listing, err := tools.ListWorktrees(env)
+	if errors.Is(err, gitws.ErrNeedsGitBinary) {
+		return fmt.Sprintf("The chat works in %s; /worktree %s.\n\n%s", env.CWD, gitws.ErrNeedsGitBinary, worktreeUsage)
+	}
 	if err != nil {
 		return fmt.Sprintf("The chat works in %s, which is not in a git repository.\n\n%s", env.CWD, worktreeUsage)
 	}

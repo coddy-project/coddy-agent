@@ -12,6 +12,7 @@ export type SessionWorktree = {
   loose_commit?: string;
   locked: boolean;
   submodules: boolean;
+  nested?: string[];
   other_sessions?: { id: string; title?: string }[];
   running_tasks: number;
   removable: boolean;
