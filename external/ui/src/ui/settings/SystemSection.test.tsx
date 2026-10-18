@@ -1338,14 +1338,64 @@ describe("the stylesheet", () => {
     expect(px(bodyOf(".system-meter"), "height")).toBe(6);
   });
 
-  test("only problems paint the summary in the warn tone: the other states are a muted notice", () => {
-    expect(bodyOf(".system-summary")).not.toMatch(/--system-warn/);
-    expect(bodyOf('.system-summary[data-state="problems"]')).toMatch(
-      /var\(--system-warn\)/,
+  /** The value a declaration of `property` has in a rule body, squashed. */
+  const declared = (body: string, property: string): string =>
+    squash(
+      new RegExp(`(?:^|[;\\s])${property}\\s*:\\s*([^;]+);`).exec(body)?.[1] ??
+        "",
     );
+
+  test("the summary is the app's notice: a settings frame, and for problems the usage banner's amber", () => {
+    // Every state but problems is a quiet frame like a settings fieldset.
+    const base = bodyOf(".system-summary");
+    expect(declared(base, "border")).toBe(
+      "1px solid var(--coddy-glass-panel-border)",
+    );
+    expect(declared(base, "background")).toBe("var(--coddy-surface-fieldset)");
+    // Problems wear the composer's usage banner: its border and its ground.
+    const banner = bodyOf(".usage-banner");
+    const problems = bodyOf('.system-summary[data-state="problems"]');
+    expect(declared(problems, "border-color")).toBe(
+      declared(banner, "border").replace(/^1px solid /, ""),
+    );
+    expect(declared(problems, "background")).toBe(
+      declared(banner, "background"),
+    );
+    expect(declared(problems, "color")).toBe("var(--text)");
+    // All clear says so in the ok tone, in the same quiet frame.
     expect(bodyOf('.system-summary[data-state="clear"]')).toMatch(
-      /var\(--system-ok\)/,
+      /color:\s*var\(--system-ok\)/,
     );
+    expect(bodyOf('.system-summary[data-state="clear"]')).not.toMatch(
+      /background/,
+    );
+  });
+
+  test("the restart notice is an information notice: the edit banner's accent frame", () => {
+    const notice = bodyOf(".system-restart");
+    expect(declared(notice, "border")).toBe(
+      declared(bodyOf(".composer-edit-banner"), "border"),
+    );
+    expect(declared(notice, "background")).toBe(
+      "var(--coddy-surface-fieldset)",
+    );
+  });
+
+  test("a chart card is framed like a settings fieldset", () => {
+    const card = bodyOf(".system-chart");
+    expect(declared(card, "border")).toBe(
+      "1px solid var(--coddy-glass-panel-border)",
+    );
+    expect(declared(card, "background")).toBe("var(--coddy-surface-fieldset)");
+  });
+
+  test("the attention badge is the rail's count: the accent and its on-accent text", () => {
+    const rail = bodyOf(".rail-active-count");
+    for (const badge of [".settings-nav-badge", ".settings-tile-badge"]) {
+      const body = bodyOf(badge);
+      expect(declared(body, "background")).toBe(declared(rail, "background"));
+      expect(declared(body, "color")).toBe(declared(rail, "color"));
+    }
   });
 
   test("a stopped subsystem, a refused restart and failed attempts wear the error tone", () => {

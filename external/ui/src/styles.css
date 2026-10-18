@@ -9908,7 +9908,6 @@ html:not([data-theme="light"]) .context-usage-note--error {
 .settings.drawer {
   --system-lift: var(--text);
   --system-warn: #92400e;
-  --system-warn-bg: color-mix(in srgb, #f59e0b 22%, transparent);
   --system-ok: color-mix(
     in srgb,
     var(--coddy-todo-completed) 75%,
@@ -9942,32 +9941,35 @@ html:not([data-theme="light"]) .settings.drawer {
   font-size: 0.9rem;
 }
 
-/* A muted notice by default: a 404, a refusal, an offline node, a stale or a
-   partial reading. Only problems take the warn tone and a clear reading the
-   ok tone. */
+/* The app's notices: a quiet frame like a settings fieldset for every state
+   (a 404, a refusal, an offline node, a stale or a partial reading, all
+   clear), and for problems the composer's usage banner, its amber border and
+   ground with the text in --text. */
 .system-summary {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 10px 14px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  padding: 8px 12px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 12px;
+  background: var(--coddy-surface-fieldset);
   color: var(--system-quiet);
 }
 
 .system-summary[data-state="problems"] {
-  background: var(--system-warn-bg);
-  color: var(--system-warn);
+  border-color: rgba(245, 158, 11, 0.45);
+  background: color-mix(in srgb, #f59e0b 10%, var(--bg));
+  color: var(--text);
 }
 
 .system-summary[data-state="clear"] {
-  background: var(--system-ok-bg);
   color: var(--system-ok);
 }
 
 .system-summary[data-state="pending"],
 .system-summary:empty {
   padding: 0;
+  border: 0;
   background: none;
 }
 
@@ -9987,11 +9989,16 @@ html:not([data-theme="light"]) .settings.drawer {
   cursor: pointer;
 }
 
+/* An information notice, as the composer's edit banner draws one: the accent
+   in its frame, the text a step back. */
 .system-restart {
   margin: 0;
-  padding: 9px 14px;
-  border: 1px solid var(--system-warn);
-  border-radius: 10px;
+  padding: 8px 12px;
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 55%, var(--coddy-glass-panel-border));
+  border-radius: 12px;
+  background: var(--coddy-surface-fieldset);
+  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
   overflow-wrap: anywhere;
 }
 
@@ -10161,8 +10168,9 @@ html:not([data-theme="light"]) .settings.drawer {
   gap: 4px 8px;
   min-width: 0;
   padding: 8px 10px 6px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
-  border-radius: 10px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 12px;
+  background: var(--coddy-surface-fieldset);
 }
 
 .system-chart > b {
@@ -10295,6 +10303,7 @@ html:not([data-theme="light"]) .settings.drawer {
     align-items: center;
     padding: 2px 0;
     border: 0;
+    background: none;
   }
   .system-plot {
     height: 20px;
@@ -10850,21 +10859,21 @@ html:not([data-theme="light"]) .settings.drawer {
 }
 
 /* The number the System tab says need attention: after the rail's label, at the
-   top right of a phone's tile. Drawn for the eye only (aria-hidden); the tab is
-   described by its count text. */
+   top right of a phone's tile. The app's count, as the main rail draws one on
+   History: the accent with its on-accent text. Drawn for the eye only
+   (aria-hidden); the tab is described by its count text. */
 .settings-nav-badge,
 .settings-tile-badge {
   min-width: 18px;
   padding: 0 6px;
   border-radius: 9px;
   font-size: 0.75rem;
+  font-weight: 700;
   line-height: 18px;
   text-align: center;
   font-variant-numeric: tabular-nums;
-  /* Its own ground over the canvas, not a tint of whatever is under it: on
-     the active rail entry a tint mixed with the accent and lost contrast. */
-  background: color-mix(in srgb, #f59e0b 22%, var(--bg));
-  color: var(--system-warn);
+  background: var(--accent);
+  color: var(--coddy-on-accent-fg);
 }
 
 .settings-nav-item:hover:not(.is-active) {
