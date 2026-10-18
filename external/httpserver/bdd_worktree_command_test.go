@@ -101,6 +101,7 @@ func (s *worktreeCommandState) serverWithChatInRepository() error {
 		ag.SetWorkspaceSwitcher(func(ctx context.Context, dir string) error {
 			return s.mgr.SetSessionWorkspaceDuringTurn(ctx, st, dir)
 		})
+		ag.SetSubagentRuntime(s.mgr)
 		return ag.Run(ctx, prompt)
 	}
 	s.mgr = session.NewManager(cfg, noopSender{}, runner, slog.Default(), s.repo, &session.FileStore{Root: filepath.Join(root, "sessions")})
@@ -240,5 +241,39 @@ func TestWorktreeCommandFeature(t *testing.T) {
 	}
 	if suite.Run() != 0 {
 		t.Fatal("worktree_command feature failed")
+	}
+}
+
+// Two chats share the worktree of one branch: /worktree exit --remove from one
+// of them is refused, names the other, and moves nothing - the session
+// manager tells the tool who else works there, as it does under coddy serve.
+func TestWorktreeCommandRefusesToRemoveAWorktreeAnotherChatWorksIn(t *testing.T) {
+	if !gitws.GitAvailable() {
+		t.Skip("git binary not available")
+	}
+	s := &worktreeCommandState{}
+	t.Cleanup(s.close)
+	if err := s.serverWithChatInRepository(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.sends("/worktree feature/shared"); err != nil {
+		t.Fatal(err)
+	}
+	wt := s.worktreePath("feature/shared")
+	other, err := s.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: wt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.sends("/worktree exit --remove --force"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(s.reply, other.SessionID) {
+		t.Fatalf("reply %q does not name the other chat %s", s.reply, other.SessionID)
+	}
+	if err := s.worksInWorktree("feature/shared"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("the shared worktree is gone: %v", err)
 	}
 }

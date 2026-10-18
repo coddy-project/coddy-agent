@@ -105,6 +105,8 @@ test("a turn of the chat on screen ends and the plate reads its folder again", a
   });
   await new Promise((resolve) => setTimeout(resolve, 30));
   expect(readsOf("sess_here")).toBe(before);
+  // Nor is that chat's folder read for this one's plate.
+  expect(readsOf("sess_other")).toBe(0);
 
   await act(async () => {
     streams[0]!.frame("turn_ended", { sessionId: "sess_here" });

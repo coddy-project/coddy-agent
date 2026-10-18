@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/gitws"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
@@ -22,6 +24,9 @@ type WorktreeLeave struct {
 	// Left is the worktree the session came from, and Branch its branch.
 	Left   string `json:"left"`
 	Branch string `json:"branch,omitempty"`
+	// Gone reports that the worktree's folder no longer existed: the session
+	// came back to the main checkout that held it.
+	Gone bool `json:"gone,omitempty"`
 	// Removed reports that the worktree was removed on the way.
 	Removed       bool   `json:"removed"`
 	BranchDeleted bool   `json:"branch_deleted,omitempty"`
@@ -31,12 +36,29 @@ type WorktreeLeave struct {
 // LeaveWorktree moves the session from the linked worktree it works in back
 // to the repository's main checkout, and with remove takes the worktree away
 // too (gitws.RemoveWorktree: one Coddy opened, nothing uncommitted unless
-// discard, its branch only when merged). Everything that would refuse the
-// removal is checked before the session moves, so a refusal leaves it where
-// it was. It is worktree_exit and the /worktree command alike.
+// discard, no commit left on no branch, its branch only when merged).
+// Everything that would refuse the removal is checked before the session
+// moves - another live session in the worktree and a background task of any
+// session still running there included - so a refusal leaves it where it was.
+// A session whose worktree folder is gone (removed by hand, or by another
+// chat) comes back to the main checkout that held it. It is worktree_exit and
+// the /worktree command alike.
 func LeaveWorktree(ctx context.Context, env *tooling.Env, remove, discard bool) (WorktreeLeave, error) {
 	if env == nil || env.SwitchWorkspace == nil {
 		return WorktreeLeave{}, fmt.Errorf("%s is unavailable without a session workspace", ToolWorktreeExit)
+	}
+	if _, err := os.Stat(env.CWD); os.IsNotExist(err) {
+		main, ok := session.RecoverManagedWorktreeCWD(env.CWD)
+		if !ok {
+			return WorktreeLeave{}, fmt.Errorf("%w: %s no longer exists and is not a worktree of a checkout Coddy can find", gitws.ErrNotLinkedWorktree, env.CWD)
+		}
+		left := env.CWD
+		if err := env.SwitchWorkspace(ctx, main); err != nil {
+			return WorktreeLeave{}, err
+		}
+		env.CWD = main
+		env.WorkspaceChanged = true
+		return WorktreeLeave{Path: main, Left: left, Gone: true}, nil
 	}
 	wt, err := gitws.WorktreeOf(env.CWD)
 	if err != nil {
@@ -46,8 +68,14 @@ func LeaveWorktree(ctx context.Context, env *tooling.Env, remove, discard bool) 
 		if err := gitws.CheckRemovable(wt, discard); err != nil {
 			return WorktreeLeave{}, err
 		}
+		if env.SessionsInWorkspace != nil {
+			if others := env.SessionsInWorkspace(wt.Path); len(others) > 0 {
+				return WorktreeLeave{}, fmt.Errorf("%d other session(s) still work in %s (%s); move them out before removing the worktree",
+					len(others), wt.Path, strings.Join(others, ", "))
+			}
+		}
 		if n := runningTasksIn(env, wt.Path); n > 0 {
-			return WorktreeLeave{}, fmt.Errorf("%d background task(s) of this session still run in %s; stop them before removing the worktree", n, wt.Path)
+			return WorktreeLeave{}, fmt.Errorf("%d background task(s) still run in %s; stop them before removing the worktree", n, wt.Path)
 		}
 	}
 	if err := env.SwitchWorkspace(ctx, wt.MainCheckout); err != nil {
@@ -69,19 +97,26 @@ func LeaveWorktree(ctx context.Context, env *tooling.Env, remove, discard bool) 
 	return out, nil
 }
 
-// runningTasksIn counts the session's background tasks still at work in dir
-// or below it: a command or a server whose folder is about to be removed.
+// runningTasksIn counts the background tasks still at work in dir or below
+// it, of this session and of every other one the pool runs: a command, a
+// server or a subagent whose folder is about to be removed.
 func runningTasksIn(env *tooling.Env, dir string) int {
 	if env.Background == nil {
 		return 0
 	}
+	sessions := map[string]bool{env.SessionID: true}
+	for id := range env.Background.RunningCountsBySession() {
+		sessions[id] = true
+	}
 	n := 0
-	for _, task := range env.Background.List(env.SessionID) {
-		if task.Status != bgtask.StatusRunning && task.Status != bgtask.StatusQueued {
-			continue
-		}
-		if task.CWD != "" && within(dir, task.CWD) {
-			n++
+	for id := range sessions {
+		for _, task := range env.Background.List(id) {
+			if task.Status != bgtask.StatusRunning && task.Status != bgtask.StatusQueued {
+				continue
+			}
+			if task.CWD != "" && within(dir, task.CWD) {
+				n++
+			}
 		}
 	}
 	return n
@@ -108,7 +143,7 @@ func WorktreeExitTool() *tooling.Tool {
 			Name: ToolWorktreeExit,
 			Description: "Move this session from its git worktree back to the main checkout of the repository; the next tool call runs there. " +
 				"action \"keep\" (the default) leaves the worktree and its branch for later. \"remove\" also removes the worktree: only one opened by worktree_create, " +
-				"refused while it has uncommitted changes unless discard_changes is true, or while a background task of this session runs in it. " +
+				"refused while it has uncommitted changes unless discard_changes is true, while it is on commits no branch holds, or while another session or a background task works in it. " +
 				"Its branch is deleted only when git counts it as merged; a branch with unmerged commits stays and the answer says so.",
 			InputSchema: map[string]interface{}{
 				"type": "object",

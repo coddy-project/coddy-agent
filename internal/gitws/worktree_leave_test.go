@@ -170,3 +170,55 @@ func TestEnsureWorktreeFromRefusesAnUnknownBase(t *testing.T) {
 		t.Fatalf("EnsureWorktreeFrom(tip) = %v, want a refusal naming the base", err)
 	}
 }
+
+// A worktree whose HEAD is on commits no branch holds - a detached HEAD with
+// work of its own - is never removed, discard or not: those commits would be
+// unreachable once the worktree is gone.
+func TestRemoveWorktreeRefusesCommitsNoBranchHolds(t *testing.T) {
+	dir := initRepo(t)
+	wt := openedWorktree(t, dir, "feature/detached")
+	mustGit(t, wt.Path, "checkout", "-q", "--detach")
+	orphan := commitFile(t, wt.Path, "loose.txt", "on no branch\n")
+	wt.Branch = ""
+	for _, discard := range []bool{false, true} {
+		if _, err := RemoveWorktree(wt, discard); err == nil || !strings.Contains(err.Error(), "no branch holds") {
+			t.Fatalf("RemoveWorktree(discard=%t) = %v, want a refusal naming the loose commits", discard, err)
+		}
+	}
+	if got := mustGit(t, wt.Path, "rev-parse", "HEAD"); got != orphan {
+		t.Fatalf("HEAD = %s, want the loose commit %s still there", got, orphan)
+	}
+}
+
+func TestRemoveWorktreeRefusesALockedWorktree(t *testing.T) {
+	dir := initRepo(t)
+	wt := openedWorktree(t, dir, "feature/locked")
+	mustGit(t, dir, "worktree", "lock", wt.Path)
+	if _, err := RemoveWorktree(wt, true); err == nil || !strings.Contains(err.Error(), "locked") {
+		t.Fatalf("RemoveWorktree of a locked worktree = %v, want a refusal", err)
+	}
+	if _, err := os.Stat(wt.Path); err != nil {
+		t.Fatalf("the locked worktree is gone: %v", err)
+	}
+}
+
+// git removes a worktree with initialised submodules only by force, which
+// takes their working trees with it: that is what discard says, nothing less.
+func TestRemoveWorktreeWithSubmodulesNeedsDiscard(t *testing.T) {
+	dir := initRepo(t)
+	lib := t.TempDir()
+	mustGit(t, lib, "init", "-q", "-b", "main")
+	commitFile(t, lib, "lib.txt", "library\n")
+	wt := openedWorktree(t, dir, "feature/sub")
+	mustGit(t, wt.Path, "-c", "protocol.file.allow=always", "submodule", "add", "-q", lib, "lib")
+	mustGit(t, wt.Path, "-c", "user.email=coddy@test", "-c", "user.name=coddy", "commit", "-q", "-m", "add lib")
+	if _, err := RemoveWorktree(wt, false); err == nil || !strings.Contains(err.Error(), "submodules") {
+		t.Fatalf("RemoveWorktree without discard = %v, want a refusal naming the submodules", err)
+	}
+	if _, err := RemoveWorktree(wt, true); err != nil {
+		t.Fatalf("RemoveWorktree with discard = %v", err)
+	}
+	if _, err := os.Stat(wt.Path); !os.IsNotExist(err) {
+		t.Fatalf("worktree %s still there: %v", wt.Path, err)
+	}
+}

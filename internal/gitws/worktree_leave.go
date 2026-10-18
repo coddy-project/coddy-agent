@@ -3,6 +3,8 @@ package gitws
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -56,14 +58,30 @@ func WorktreeOf(dir string) (LinkedWorktree, error) {
 	return LinkedWorktree{}, fmt.Errorf("%w: git does not list %s among the worktrees of %s", ErrNotLinkedWorktree, top, main)
 }
 
-// CheckRemovable says whether RemoveWorktree may remove wt: only a worktree
-// Coddy opened (one under WorktreesRoot), and only with nothing uncommitted
-// in it unless discard says to drop that. It changes nothing, so a caller can
-// ask before it moves anything.
+// CheckRemovable says whether RemoveWorktree may remove wt, and why not. Only
+// a worktree Coddy opened (one under WorktreesRoot), not one git keeps locked,
+// and never one whose HEAD is on commits no branch, remote branch or tag holds
+// (a detached HEAD with work of its own): those would be lost with it,
+// whatever discard says. Without discard, nothing uncommitted and no
+// initialised submodule either, which git removes only by force. It changes
+// nothing, so a caller can ask before it moves anything.
 func CheckRemovable(wt LinkedWorktree, discard bool) error {
 	if !wt.Managed {
 		return fmt.Errorf("%s is not a worktree Coddy opened (those are under %s); remove it with git worktree remove yourself",
 			wt.Path, WorktreesRoot(wt.MainCheckout))
+	}
+	if gitDir, err := runGit(wt.Path, "rev-parse", "--absolute-git-dir"); err == nil {
+		if _, err := os.Stat(filepath.Join(gitDir, "locked")); err == nil {
+			return fmt.Errorf("the worktree %s is locked; unlock it first (git worktree unlock %s)", wt.Path, wt.Path)
+		}
+	}
+	unheld, err := runGit(wt.Path, "rev-list", "-n", "1", "HEAD", "--not", "--branches", "--remotes", "--tags")
+	if err != nil {
+		return err
+	}
+	if unheld != "" {
+		return fmt.Errorf("the worktree %s is on commits no branch holds (%s); create a branch for them first, or they are lost with the worktree",
+			wt.Path, unheld)
 	}
 	if discard {
 		return nil
@@ -75,6 +93,14 @@ func CheckRemovable(wt LinkedWorktree, discard bool) error {
 	if status != "" {
 		return fmt.Errorf("the worktree %s has %d uncommitted change(s); commit them, or discard them to remove it anyway",
 			wt.Path, len(strings.Split(status, "\n")))
+	}
+	if submodules, _ := runGit(wt.Path, "submodule", "status"); submodules != "" {
+		for line := range strings.SplitSeq(submodules, "\n") {
+			if line != "" && !strings.HasPrefix(line, "-") {
+				return fmt.Errorf("the worktree %s has initialised submodules, which git removes only by force with their working trees; discard them to remove it anyway",
+					wt.Path)
+			}
+		}
 	}
 	return nil
 }

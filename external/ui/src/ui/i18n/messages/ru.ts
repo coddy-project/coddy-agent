@@ -1873,7 +1873,7 @@ export const messagesRu: Record<string, string> = {
   "workspaceBar.worktreeTitle": "Worktree {path} на ветке {branch}",
   "workspaceBar.leaveWorktree": "Вернуться в {name}",
   "workspaceBar.leaveWorktreeTitle":
-    "Вернуть чат в основной checkout {name}. Worktree останется",
+    "Вернуть чат в основной чекаут {name}. Worktree останется",
   "workspaceBar.editsLabel.one": "Показать правки: изменён {count} файл",
   "workspaceBar.editsLabel.few": "Показать правки: изменено {count} файла",
   "workspaceBar.editsLabel.many": "Показать правки: изменено {count} файлов",

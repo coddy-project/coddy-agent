@@ -141,6 +141,8 @@ func (a *Agent) worktreeCommandReply(ctx context.Context, c worktreeCommand) str
 		var b strings.Builder
 		fmt.Fprintf(&b, "The chat is back in the main checkout %s.", left.Path)
 		switch {
+		case left.Gone:
+			fmt.Fprintf(&b, " The worktree folder %s was already gone.", left.Left)
 		case left.Removed && left.BranchDeleted:
 			fmt.Fprintf(&b, " The worktree %s and its branch %s are removed.", left.Left, left.Branch)
 		case left.Removed && left.BranchKept != "":

@@ -25,12 +25,15 @@ When the work in a worktree is done, `worktree_exit` moves the session back to
 the main checkout, and its next tool call runs there. `{"action":"keep"}`, the
 default, leaves the worktree and its branch for later; `worktree_create` with the
 same branch goes back to it. `{"action":"remove"}` removes the worktree on the
-way. It refuses a worktree with uncommitted changes unless `discard_changes` is
-`true`, a worktree a background task of the session still runs in, and a
-worktree Coddy did not open (one outside `.coddy/worktrees/`). The branch goes
-with the worktree only when git counts it as merged (`git branch -d`): a branch
-with commits of its own stays, and the answer says so. A refusal leaves the
-session where it was. Like `worktree_create`, the tool asks for approval under
+way. It refuses a worktree with uncommitted changes or initialised submodules
+unless `discard_changes` is `true`, and, whatever `discard_changes` says, a
+worktree on commits no branch holds (a detached HEAD with work of its own), a
+locked one, one another live session or a background task of any session still
+works in, and one Coddy did not open (outside `.coddy/worktrees/`). The branch
+goes with the worktree only when git counts it as merged (`git branch -d`): a
+branch with commits of its own stays, and the answer says so. A refusal leaves
+the session where it was. A session whose worktree folder is gone, removed by
+hand or by another chat, comes back to the main checkout with the same call. Like `worktree_create`, the tool asks for approval under
 the current permission mode, runs in agent mode only and is never offered to a
 subagent.
 
@@ -40,8 +43,9 @@ worktree for the branch and moves the chat there (`--from-head` starts a new
 branch at the current commit), `/worktree exit` brings the chat back to the main
 checkout (`--remove` removes the worktree too, and `--force` with it drops its
 uncommitted changes), and `/worktree` alone says where the chat works and lists
-the worktrees of the repository. The command follows the rules and refusals of
-the tools. The messenger bots drop it like the other built-ins, and a turn the
+the worktrees of the repository. The command makes the same checks and refusals
+as the tools, but as operator input it asks for no approval and works in every
+session mode. The messenger bots drop it like the other built-ins, and a turn the
 bot restricts for somebody who is not its admin refuses it.
 
 Creation requires an `origin` remote and an approval under the current tool

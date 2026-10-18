@@ -225,9 +225,21 @@ func (a *Agent) SetWorkspaceSwitcher(switchTo func(context.Context, string) erro
 	}
 }
 
+// workspaceSessions is what a runtime that keeps the live sessions (the
+// session manager) answers about who else works in a folder.
+type workspaceSessions interface {
+	SessionsInWorkspace(dir, self string) []string
+}
+
 func (a *Agent) wireWorkspaceTool(env *tools.Env) {
 	if a.workspaceSwitcher == nil || a.subagent != nil {
 		return
+	}
+	// The runtime that owns child sessions is the session manager on every
+	// surface that wires the switcher; it knows the other live sessions.
+	if rt, ok := a.subagentRuntime.(workspaceSessions); ok {
+		self := a.state.GetID()
+		env.SessionsInWorkspace = func(dir string) []string { return rt.SessionsInWorkspace(dir, self) }
 	}
 	env.SwitchWorkspace = func(ctx context.Context, dir string) error {
 		if err := a.workspaceSwitcher(ctx, dir); err != nil {
