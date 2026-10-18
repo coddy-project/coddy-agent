@@ -300,7 +300,9 @@ func writeMuxLauncher(base, cwd string, commandShell platform.Shell, command str
 		"echo \"launcher $$ started\" >&9\n" +
 		"echo $$ > " + shellQuote(l.pidFile) + " || exit 1\n" +
 		"cd " + shellQuote(cwd) + " || exit 1\n" +
-		"trap : INT\n" +
+		"trap 'echo \"launcher got INT\" >&9' INT\n" +
+		"trap 'echo \"launcher got HUP\" >&9' HUP\n" +
+		"trap 'echo \"launcher got TERM\" >&9; exit 143' TERM\n" +
 		strings.Join(quoted, " ") + " 9>&-\n" +
 		"code=$?\n" +
 		"echo \"command exited $code\" >&9\n" +
