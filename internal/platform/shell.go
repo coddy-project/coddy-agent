@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
 // ShellKind identifies a supported command interpreter.
@@ -75,6 +76,40 @@ func DetectShell(goos string, lookup LookupFunc) Shell {
 		}
 	}
 	return Shell{Kind: ShellSh, Path: "sh"}
+}
+
+// ResolveShell turns the operator's shell setting into a Shell for goos. An
+// empty spec is the default: what DetectShell picks, PowerShell on Windows and
+// bash elsewhere. Otherwise spec is a name looked up on PATH (zsh, pwsh, cmd)
+// or a path to the executable, and the kind - hence how the command is passed
+// - is read off the executable's base name. A spec that does not resolve is an
+// error rather than a fallback: a command written for the chosen shell must not
+// run in another one.
+func ResolveShell(spec, goos string, lookup LookupFunc) (Shell, error) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return DetectShell(goos, lookup), nil
+	}
+	if lookup == nil {
+		lookup = exec.LookPath
+	}
+	path, err := lookup(spec)
+	if err != nil {
+		return Shell{}, fmt.Errorf("shell %q not found: %w", spec, err)
+	}
+	return Shell{Kind: shellKindOf(spec), Path: path}, nil
+}
+
+// shellKindOf names the kind of the shell an executable name or path stands
+// for. Both separators count whatever the host is, so a Windows path in a
+// config read on another machine still names its shell.
+func shellKindOf(spec string) ShellKind {
+	base := spec
+	if i := strings.LastIndexAny(base, `/\`); i >= 0 {
+		base = base[i+1:]
+	}
+	base = strings.ToLower(base)
+	return ShellKind(strings.TrimSuffix(base, ".exe"))
 }
 
 // CurrentShell detects the shell for the running process.
