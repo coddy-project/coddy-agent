@@ -166,11 +166,19 @@ export function configFromSchema(schema: JsonSchema): SettingsDoc {
   return doc;
 }
 
+/**
+ * What GET /coddy/status answers: a server that does not know the route (404)
+ * unless a test gives it a document, a status or a hop error of a relay.
+ */
+export type StatusReply = { status: number; body?: unknown };
+
 export type ServerState = {
   schema: unknown;
   config: PlainObject;
   /** What PUT /coddy/config answers; ok unless a test says otherwise. */
   put: { status: number; body: PlainObject };
+  /** What GET /coddy/status answers; 404 when absent. */
+  status?: StatusReply;
 };
 
 export function newServerState(
@@ -241,6 +249,14 @@ export function stubServer(source: ServerState | (() => ServerState)) {
     }
     if (route === "/coddy/sessions") {
       return reply(200, { sessions: [], hasMore: false });
+    }
+    if (route === "/coddy/info" && method === "GET") {
+      // The version a page names a server that does not report its status by.
+      return reply(200, { object: "coddy.info", version: "1.2.35" });
+    }
+    if (route === "/coddy/status" && method === "GET") {
+      const { status, body } = server.status ?? { status: 404 };
+      return reply(status, body ?? {});
     }
     unexpected.push(`${method} ${path}`);
     throw new Error(`stubServer: no route for ${method} ${path}`);
@@ -358,6 +374,8 @@ export function resetPage(): void {
 export type MountOptions = PageOptions & {
   schema?: JsonSchema;
   config?: SettingsDoc;
+  /** What GET /coddy/status answers; the server does not know it by default. */
+  status?: StatusReply;
   /**
    * The tab, the row and the setting the address names
    * (`#/settings/<section>?id=<item>&field=<anchor>`).
@@ -376,6 +394,12 @@ export type MountOptions = PageOptions & {
   routed?: boolean;
   /** Rendered before the drawer, so it listens first (an OpenRailScreen). */
   beside?: ReactNode;
+  /**
+   * The relay flag App hands the drawer, when it differs from what the schema
+   * says: App learns that a page is a relay's from the relay itself, and until
+   * then it hands false.
+   */
+  relay?: boolean;
 };
 
 /** Settings the way App mounts it: the address says which tab and row are open. */
@@ -410,9 +434,13 @@ function prepareDrawer(opts: MountOptions) {
   const config = opts.config ?? configFromSchema(schema);
   applyPage(opts);
   resetSettingsConfigForTests();
-  const server = newServerState({ schema, config });
+  const server = newServerState({
+    schema,
+    config,
+    ...(opts.status ? { status: opts.status } : {}),
+  });
   const fetch = stubServer(server);
-  const relay = schema["x-coddy-relay"] === true;
+  const relay = opts.relay ?? schema["x-coddy-relay"] === true;
   const onClose = opts.onClose ?? (() => {});
   if (opts.routed) {
     // The address App would hold for this tab and row.

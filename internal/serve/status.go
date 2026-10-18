@@ -31,16 +31,56 @@ const (
 	StateRetained = "retained"
 )
 
+// StartedBy is how a process came to run, as Snapshot.StartedBy says it.
+type StartedBy string
+
+// The ways a coddy serve process is started.
+const (
+	// StartedBySystemd is a foreground coddy serve under the systemd user unit.
+	StartedBySystemd StartedBy = "systemd"
+	// StartedByDaemon is the worker of coddy serve --daemon.
+	StartedByDaemon StartedBy = "daemon"
+	// StartedByForeground is any other start: a terminal, a container, a script.
+	StartedByForeground StartedBy = "foreground"
+)
+
+// Credential is what a request to the metrics exporter has to carry, as
+// SubsystemStatus.Credential says it. The token itself is never part of a
+// snapshot.
+type Credential string
+
+const (
+	// CredentialToken is an exporter that answers only a request with the token.
+	CredentialToken Credential = "token"
+	// CredentialNone is an exporter that answers any request that reaches it.
+	CredentialNone Credential = "none"
+)
+
+// UnavailableDisk names the disk in Snapshot.Unavailable.
+const UnavailableDisk = "disk"
+
 // Snapshot is what one coddy serve process reads off itself at one moment.
 // Every part is read on its own, so two parts can disagree by what happened
 // between the reads.
 type Snapshot struct {
 	Build Build
+	// StartedAt is when the runtime was initialised, StartedBy how the process
+	// was started and ConfigFile the path of the configuration file it loaded;
+	// all three are read once, by Init.
+	StartedAt  time.Time
+	StartedBy  StartedBy
+	ConfigFile string
 	// Subsystems are the rows of the subsystem table, in declaration order.
 	Subsystems []SubsystemStatus
-	// RestartRequired is true when a listener's address moved and nothing will
-	// restart the process by itself.
+	// RestartRequired is true when a saved change waits for a fresh process
+	// and nothing will start one by itself: a listener's address moved, or a
+	// surface that runs turns was enabled in a process started without a
+	// session store.
 	RestartRequired bool
+	// RestartRefused is why a dispatcher would not restart into the saved
+	// configuration: the message of the pre-flight that rejects it, keys and
+	// build tags and never values. Empty otherwise.
+	RestartRefused string
 	// TurnsRunning counts the sessions with a turn running in this process.
 	TurnsRunning int
 	// OldestTurnStartedAt is when the longest-running of them began, zero when
@@ -52,6 +92,9 @@ type Snapshot struct {
 	// Disk is the disk of the session store, nil when it was not read: no store
 	// in this process, a platform without the call, or a failed read.
 	Disk *Disk
+	// Unavailable names the parts that exist in this process and could not be
+	// read now (UnavailableDisk); a part with no source is not listed.
+	Unavailable []string
 	// PermissionPrompts and Questions count the prompts of the process that
 	// wait for a person to answer.
 	PermissionPrompts, Questions int
@@ -93,35 +136,52 @@ const (
 
 // Build is what the binary says it is.
 type Build struct {
-	Version   string
-	Revision  string // empty when the binary carries no vcs.revision
-	GoVersion string
-	GOOS      string
-	GOARCH    string
+	Version   string `json:"version"`
+	Revision  string `json:"revision,omitempty"` // empty when the binary carries no vcs.revision
+	GoVersion string `json:"goVersion"`
+	GOOS      string `json:"os"`
+	GOARCH    string `json:"arch"`
 	// Tags are the build tags of the binary.
-	Tags []string
+	Tags []string `json:"tags,omitempty"`
 }
 
 // SubsystemStatus is one row of the process's subsystem table.
 type SubsystemStatus struct {
-	Kind Kind
+	Kind Kind `json:"kind"`
 	// State is one of the State constants.
-	State string
+	State string `json:"state"`
+	// Address is the listener address the running instance was started on,
+	// empty for a surface without one and for one that is not running.
+	Address string `json:"address,omitempty"`
+	// PendingAddress is the address the live configuration moved a running
+	// listener to, empty when it did not; it takes a fresh process.
+	PendingAddress string `json:"pendingAddress,omitempty"`
+	// Credential says what a request to the metrics exporter has to carry. It
+	// is set on that row only.
+	Credential Credential `json:"credential,omitempty"`
 }
 
 // Disk is the room on one disk: what a process without privileges can still
-// write there, and the disk's size.
+// write there, and the disk's size. Both figures are always sent: no room left
+// is a figure of 0.
 type Disk struct {
-	AvailableBytes, SizeBytes uint64
+	AvailableBytes uint64 `json:"availableBytes"`
+	SizeBytes      uint64 `json:"sizeBytes"`
 }
 
-var currentBuild = sync.OnceValue(func() Build {
-	info, _ := debug.ReadBuildInfo()
-	return buildOf(info)
-})
+var (
+	buildOnce sync.Once
+	build     Build
+)
 
 // CurrentBuild describes the running binary. It is read once.
-func CurrentBuild() Build { return currentBuild() }
+func CurrentBuild() Build {
+	buildOnce.Do(func() {
+		info, _ := debug.ReadBuildInfo()
+		build = buildOf(info)
+	})
+	return build
+}
 
 func buildOf(info *debug.BuildInfo) Build {
 	b := Build{
@@ -149,17 +209,43 @@ func buildOf(info *debug.BuildInfo) Build {
 // needs the supervisor to answer for it, so the link is made after both exist.
 func (r *Runtime) SetSupervisor(sup *Supervisor) { r.sup.Store(sup) }
 
+// startedByRole says how a process with this role came to run: under the
+// systemd unit, as the worker of a daemon, or in the foreground, which is
+// every other role, the dispatcher's included.
+func startedByRole(role string) StartedBy {
+	switch role {
+	case RoleService:
+		return StartedBySystemd
+	case RoleWorker:
+		return StartedByDaemon
+	}
+	return StartedByForeground
+}
+
 // Status reads what this process knows about itself, part by part and without
-// writing anything: the binary, the supervisor's reading of the live
-// configuration (when SetSupervisor named one), the turns and tasks in flight,
-// the disk of the session store, the prompts that wait for a person, the
-// cached usage of the provider accounts and the swarm state the process
-// published. A part the process has no source for is left out.
+// writing anything: the binary, how the process was started, the supervisor's
+// reading of the live configuration (when SetSupervisor named one), the turns
+// and tasks in flight, the disk of the session store, the prompts that wait
+// for a person, the cached usage of the provider accounts and the swarm state
+// the process published. A part the process has no source for is left out,
+// and a disk that has a source and could not be read is named in Unavailable.
 func (r *Runtime) Status() Snapshot {
-	snap := Snapshot{Build: CurrentBuild(), Tasks: make(map[string]map[string]int)}
+	snap := Snapshot{
+		Build:     CurrentBuild(),
+		StartedAt: r.process.StartedAt, StartedBy: r.process.StartedBy, ConfigFile: r.process.ConfigFile,
+		Tasks: make(map[string]map[string]int),
+	}
 	if sup := r.sup.Load(); sup != nil {
 		if live := r.Cfg(); live != nil {
-			snap.Subsystems, snap.RestartRequired = sup.Status(live)
+			snap.Subsystems, snap.RestartRequired, snap.RestartRefused = sup.Status(live)
+			for i := range snap.Subsystems {
+				if snap.Subsystems[i].Kind == KindMetrics {
+					snap.Subsystems[i].Credential = CredentialNone
+					if live.Metrics.HasToken() {
+						snap.Subsystems[i].Credential = CredentialToken
+					}
+				}
+			}
 		}
 	}
 	if r.Mgr != nil {
@@ -186,6 +272,10 @@ func (r *Runtime) Status() Snapshot {
 		}
 		if available, size, err := read(r.Store.Root); err == nil {
 			snap.Disk = &Disk{AvailableBytes: available, SizeBytes: size}
+		} else {
+			// A failed read and a platform without the call both leave the
+			// disk unknown, which is not the same as full.
+			snap.Unavailable = append(snap.Unavailable, UnavailableDisk)
 		}
 	}
 	return snap
