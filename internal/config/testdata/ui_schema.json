@@ -1389,6 +1389,38 @@
             "output_buffer_bytes"
           ]
         },
+        "canvas": {
+          "additionalProperties": false,
+          "description": "The canvas of the web UI: a .canvas file of the workspace shown in the Files window as a board of live frames, each a page of the workspace running in a sandbox.",
+          "properties": {
+            "allow_cdn": {
+              "description": "Let a frame load libraries, styles and fonts from jsDelivr, unpkg, cdnjs, the Tailwind CDN and Google Fonts (default true).",
+              "title": "Allow common CDNs",
+              "type": "boolean"
+            },
+            "allowed_sources": {
+              "default": [],
+              "description": "Further hosts a frame may load from and connect to: https://host or https://*.host. A page on the canvas can send what it reads to any of them.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Allowed sources",
+              "type": "array"
+            },
+            "enable": {
+              "description": "Offer the canvas_show and canvas_inspect tools and show the canvas (default true).",
+              "title": "Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "Canvas",
+          "type": "object",
+          "x-coddy-property-order": [
+            "enable",
+            "allow_cdn",
+            "allowed_sources"
+          ]
+        },
         "command_allowlist": {
           "default": [],
           "description": "If non-empty, only these shell command prefixes may run without extra policy.",
@@ -1596,6 +1628,7 @@
         "output_limits",
         "background",
         "preview_server",
+        "canvas",
         "websearch",
         "http_request"
       ]

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -45,6 +46,92 @@ func series(name string, kv ...string) string {
 	}
 	b.WriteByte('}')
 	return b.String()
+}
+
+// parseSample reads one sample line of the text exposition format: the name,
+// the labels with their escapes undone and the value. It is the inverse of
+// series, so the three escapes of a label value (backslash, quote, line feed)
+// are the only ones it knows. Anything that is not a sample, a comment
+// included, gives ok false.
+func parseSample(line string) (name string, labels map[string]string, value float64, ok bool) {
+	if end := strings.IndexAny(line, "{ "); end > 0 && line[end] == '{' {
+		labels = map[string]string{}
+	}
+	if name, value, ok = parseSampleInto(line, labels); !ok {
+		return "", nil, 0, false
+	}
+	return name, labels, value, true
+}
+
+// parseSampleInto is parseSample writing the labels into a map the caller
+// keeps, cleared first, so a reader of many lines allocates none for them.
+func parseSampleInto(line string, labels map[string]string) (name string, value float64, ok bool) {
+	clear(labels)
+	if line == "" || line[0] == '#' {
+		return "", 0, false
+	}
+	end := strings.IndexAny(line, "{ ")
+	if end <= 0 {
+		return "", 0, false
+	}
+	name, rest := line[:end], line[end:]
+	if rest[0] == '{' {
+		rest = rest[1:]
+		for !strings.HasPrefix(rest, "}") {
+			eq := strings.Index(rest, `="`)
+			if eq <= 0 {
+				return "", 0, false
+			}
+			key := rest[:eq]
+			var val string
+			if val, rest, ok = unquote(rest[eq+2:]); !ok {
+				return "", 0, false
+			}
+			if labels != nil {
+				labels[key] = val
+			}
+			rest = strings.TrimPrefix(rest, ",")
+		}
+		rest = rest[1:]
+	}
+	value, err := strconv.ParseFloat(strings.TrimPrefix(rest, " "), 64)
+	if err != nil {
+		return "", 0, false
+	}
+	return name, value, true
+}
+
+// unquote reads a label value up to its closing quote, undoing its escapes,
+// and returns what follows the quote.
+func unquote(s string) (value, rest string, ok bool) {
+	// Most values carry no escape: they are the text up to the quote, with no
+	// copy made.
+	if end := strings.IndexAny(s, `"\`); end >= 0 && s[end] == '"' {
+		return s[:end], s[end+1:], true
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; c {
+		case '"':
+			return b.String(), s[i+1:], true
+		case '\\':
+			i++
+			if i >= len(s) {
+				return "", "", false
+			}
+			switch s[i] {
+			case 'n':
+				b.WriteByte('\n')
+			case '\\', '"':
+				b.WriteByte(s[i])
+			default:
+				return "", "", false
+			}
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return "", "", false
 }
 
 // family is one metric family and what is printed in front of its samples,

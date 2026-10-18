@@ -321,7 +321,7 @@ describe("SwarmView", () => {
     sizeGraphViewport();
     await wheelReady();
     // The fit is applied on demand: press it once to land on the fitted frame.
-    fireEvent.click(screen.getByRole("button", { name: "Fit graph" }));
+    fireEvent.click(screen.getByRole("button", { name: /Fit graph$/ }));
     const fitted = graphCamera().getAttribute("transform");
     expect(fitted).not.toBe("translate(0 0) scale(1)");
     const fitValues = cameraValues();
@@ -349,7 +349,7 @@ describe("SwarmView", () => {
       clientX: 260,
       clientY: 200,
     });
-    fireEvent.click(screen.getByRole("button", { name: "Fit graph" }));
+    fireEvent.click(screen.getByRole("button", { name: /Fit graph$/ }));
     expect(graphCamera()).toHaveAttribute("data-user-adjusted", "false");
     expect(graphCamera().getAttribute("transform")).toBe(fitted);
   });
@@ -634,7 +634,7 @@ describe("SwarmView", () => {
       screen.getByRole("button", { name: "Zoom out" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Fit graph" }),
+      screen.getByRole("button", { name: /Fit graph$/ }),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Zoom in" })).toBeInTheDocument();
 

@@ -20,6 +20,7 @@ Keys are parsed into the `ctrl+x` / `shift+enter` / `alt+backspace` notation of 
 | ctrl+o | expand the header hints, the last tool output (a live draft while `write` / `edit` / `apply_patch` arguments still stream) and the last `!!` block |
 | ctrl+t | collapse or expand thinking blocks |
 | up / down | prompt history on the first / last line of the draft; cursor movement otherwise |
+| ctrl+v / alt+v | paste the picture the clipboard holds as an `[image #N]` marker; with an X display it opens in the markup window first ([Pasting and marking up pictures](../features/picture-markup.md)) |
 | tab | during a turn with a draft and no suggestion menu open, queue in the mode opposite to Enter; otherwise open completion or insert a tab |
 | 1 / 2 | only while the first-use queue question is on the status line: save Steer / After turn as the Enter mode and queue the message; escape puts the draft back |
 | `/` at the start of the draft, `@` anywhere | open the command menu and the mention menu as you type ([Mentions](../features/mentions.md#in-the-console)) |
@@ -76,6 +77,16 @@ Menus, selectors and prompts:
 | space | question with `multiple: true` | toggle the highlighted option |
 | escape | custom answer editor of a question | back to the option list |
 
+The markup window a pasted picture opens in on an X display ([Pasting and marking up pictures](../features/picture-markup.md#the-markup-window)):
+
+| Key | Action |
+|---|---|
+| p / o / r / a / t / c | pick the pencil, ellipse, rectangle, arrow, text or crop tool |
+| enter | Done: attach the picture as marked up; while a label is typed, finish the label |
+| escape | Cancel: attach nothing; while a label is typed, drop the label |
+| backspace | while a label is typed, delete its last character |
+| ctrl+z | drop the label being typed, else take back the last step |
+
 Platform notes from the code: a lone Escape is resolved after 10 ms locally and 100 ms when `SSH_CONNECTION` or `SSH_TTY` is set (`external/cli/tui/terminal.go`); the backslash-and-enter newline exists for terminals that do not report shift+enter; `ctrl+c` on a non-empty editor clears it, so the exit needs an empty editor and a second press.
 
 ## Web UI
@@ -115,6 +126,9 @@ The composer is a plain `textarea`; keys not listed here keep their browser mean
 | Ctrl+Shift+F / Cmd+Shift+F | an open chat, composer included | open the Files window, or close it ([Web UI](../surfaces/web-ui.md#workspace-files)) |
 | Escape | Files window | clear the filter when it has text, else close the window; the dock under it stays for the next Escape |
 | Escape | edits window | put the ⋮ menu away when it is open, clear the tree's filter when it has text, else close the window; with the discard question open, answer that instead and leave the window ([Web UI](../surfaces/web-ui.md#the-edits-window)) |
+| P / O / R / A / T / C | markup editor, outside a label | pick the pencil, ellipse, rectangle, arrow, text or crop tool ([Pasting and marking up pictures](../features/picture-markup.md#in-the-web-ui)) |
+| Enter / Escape | markup editor | Done / Cancel; in a label, finish it / drop it |
+| Ctrl+Z / Cmd+Z | markup editor | drop the label being typed, else take back the last step |
 | F1 | anywhere | open the documentation reader, or close it ([Built-in documentation](../features/built-in-docs.md#the-web-ui-reader)) |
 | / | documentation reader, outside a field | put the cursor in its search box |
 | ArrowUp / ArrowDown, Enter, Escape | documentation search box | move the selected hit, open it at its section, clear the search; in an empty box Escape closes the reader |

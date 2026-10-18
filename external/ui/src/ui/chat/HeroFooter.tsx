@@ -7,6 +7,13 @@ const REPO_URL = "https://github.com/coddy-project/coddy-agent";
 /** A release version as the tags spell it; a build between them says more. */
 const RELEASE_RE = /^\d+\.\d+\.\d+$/;
 
+/** The notes of a release, null for a build between releases. */
+export function releaseNotesUrl(version: string): string | null {
+  return RELEASE_RE.test(version)
+    ? `${REPO_URL}/releases/tag/${version}`
+    : null;
+}
+
 // One question per server, credential and switch: the version changes only
 // with the server the page talks to, and the answer is kept by the same scope
 // the events stream is (the server and a fingerprint of the token) and by the
@@ -16,7 +23,7 @@ const RELEASE_RE = /^\d+\.\d+\.\d+$/;
 let versionRead: { scope: string; answer: Promise<string> } | null = null;
 
 /** readServerVersion asks the active environment which build it runs. */
-function readServerVersion(): Promise<string> {
+export function readServerVersion(): Promise<string> {
   const scope = `${serverEventsScope(getEnv())}#${switchGeneration()}`;
   if (versionRead?.scope !== scope) {
     const answer = fetch("/coddy/info", {
@@ -79,9 +86,9 @@ export function HeroFooter() {
           <span className="hero-footer-sep" aria-hidden>
             |
           </span>
-          {RELEASE_RE.test(version) ? (
+          {releaseNotesUrl(version) ? (
             <a
-              href={`${REPO_URL}/releases/tag/${version}`}
+              href={releaseNotesUrl(version)!}
               target="_blank"
               rel="noopener"
               className="hero-footer-version"

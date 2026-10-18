@@ -45,6 +45,7 @@ func Serve(ctx context.Context, opts Options) error {
 	s.SetDetachedPrompts(opts.DetachedPrompts)
 	s.SetExtraAuthTokens(opts.ExtraAuthTokens)
 	s.SetUnbuiltSections(opts.UnbuiltSections)
+	s.SetStatus(opts.Status)
 	if err := s.SetExtraLogin(opts.ExtraLogin.User, opts.ExtraLogin.Password); err != nil {
 		return fmt.Errorf("httpserver: %s / %s: %w", LoginUserEnvVar, LoginPasswordEnvVar, err)
 	}

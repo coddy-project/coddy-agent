@@ -21,9 +21,27 @@ import (
 // Raised from 1_850_000 for the session goal's chip, popover and rows, which
 // are application code every chat may show, and from 1_900_000 when main sat
 // 182 bytes under it and the per-session composer settings (#489) needed
-// about a kilobyte, and from 1_950_000 for the composer's toolset chip and
-// menu and the Toolsets settings tab (#513), which went 7 KB over it.
-const appJSBudget = 2_000_000
+// about a kilobyte, from 1_950_000 for the composer's toolset chip and
+// menu and the Toolsets settings tab (#513), which went 7 KB over it, to
+// 2_050_000 for the canvas (#556), whose board is a lazy chunk of the Files
+// window and leaves every chat only the canvas_show card, Open on canvas and
+// the API client, and by 100 KB from 2_000_000 when main sat 49 bytes under
+// it and the line number gutter of the edits window's diffs needed 279: a
+// margin of 100 KB keeps an ordinary fix from tripping it. KaTeX alone
+// (259 KB) still overruns it, and rendererMarkers catches either renderer
+// whatever its size.
+const appJSBudget = 2_100_000
+
+// systemChunkBudget is the most the System tab's chunk may weigh: the page, its
+// charts and the formatting of the status document, which only that tab uses.
+const systemChunkBudget = 20_000
+
+// Strings only the System tab's code carries: the class of its charts and the
+// one of its summary. app.js holds the store and the badge, never these.
+var systemMarkers = []string{"system-spark", "system-summary"}
+
+// systemChunkName is the one chunk React.lazy makes of the System tab.
+var systemChunkName = regexp.MustCompile(`^chunks/SystemSection-[A-Za-z0-9_-]{8,}\.js$`)
 
 // Strings only the renderers' own code carries: their error messages.
 var rendererMarkers = map[string]string{
@@ -61,6 +79,37 @@ func TestDiagramsFeature(t *testing.T) {
 				}
 				if info.Size() > appJSBudget {
 					return fmt.Errorf("app.js is %d bytes, budget %d", info.Size(), appJSBudget)
+				}
+				return nil
+			})
+			ctx.Step(`^the System tab's code is not part of app\.js$`, func() error {
+				app, err := fs.ReadFile(Assets, "app.js")
+				if err != nil {
+					return err
+				}
+				for _, marker := range systemMarkers {
+					if bytes.Contains(app, []byte(marker)) {
+						return fmt.Errorf("app.js carries the System tab (%q)", marker)
+					}
+				}
+				return nil
+			})
+			ctx.Step(`^the System tab is embedded as one content-hashed chunk within its size budget$`, func() error {
+				path, err := systemChunk()
+				if err != nil {
+					return err
+				}
+				body, err := fs.ReadFile(Assets, path)
+				if err != nil {
+					return err
+				}
+				for _, marker := range systemMarkers {
+					if !bytes.Contains(body, []byte(marker)) {
+						return fmt.Errorf("%s does not carry %q", path, marker)
+					}
+				}
+				if len(body) > systemChunkBudget {
+					return fmt.Errorf("%s is %d bytes, budget %d", path, len(body), systemChunkBudget)
 				}
 				return nil
 			})
@@ -111,6 +160,24 @@ func TestChunkCacheDoesNotLeakToFixedNames(t *testing.T) {
 			t.Errorf("%s: Cache-Control %q, want no-cache", path, cc)
 		}
 	}
+}
+
+// systemChunk finds the System tab's chunk among the embedded ones: exactly one.
+func systemChunk() (string, error) {
+	var found []string
+	err := fs.WalkDir(Assets, "chunks", func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && systemChunkName.MatchString(path) {
+			found = append(found, path)
+		}
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(found) != 1 {
+		return "", fmt.Errorf("want one embedded chunk for the System tab, found %v", found)
+	}
+	return found[0], nil
 }
 
 // rendererChunks walks the embedded chunks, checks every name carries a content

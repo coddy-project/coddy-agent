@@ -263,6 +263,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.registerRewindRoute()
 	s.registerChangesRoutes()
 	s.registerWorkspaceViewerRoutes()
+	s.registerCanvasRoutes()
 	s.registerSkillsManagementRoutes()
 	s.registerMCPManagementRoutes()
 }
@@ -1459,6 +1460,9 @@ func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir string, msgs []llm.Mess
 		}
 		if m.CompactionSummary {
 			item["compaction_summary"] = true
+		}
+		if m.CompactionBlock {
+			item["compaction_block"] = true
 		}
 		if m.Role == llm.RoleAssistant && m.Truncated {
 			// The text stops partway and the assistant row after it goes on from

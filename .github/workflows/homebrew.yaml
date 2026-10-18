@@ -47,7 +47,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # The runner image carries a Homebrew some days old; the check is against
       # the one a user gets today.

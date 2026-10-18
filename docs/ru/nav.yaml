@@ -256,6 +256,12 @@ pages:
     en:
       title: "Images"
       summary: "The model looking at a picture - read of a PNG, JPEG, GIF or WebP file for a model marked multimodal, the limits, what the provider is sent, and the preview in the web UI and a Telegram chat."
+  features/picture-markup.md:
+    title: "Вставка и разметка картинок"
+    summary: "Скопированная картинка в промпте - ctrl+v в консоли, вставка в веб-интерфейсе - и редактор разметки, в котором она сначала открывается: карандаш, фигуры, стрелка, текст, обрезка, поворот и отмена."
+    en:
+      title: "Pasting and marking up pictures"
+      summary: "A copied picture pasted into a prompt - ctrl+v in the console, a paste in the web UI - and the markup editor it opens in first, with pencil, shapes, arrow, text, crop, rotate and undo."
   features/built-in-docs.md:
     title: "Встроенная документация"
     summary: "Эта документация внутри бинарника - читалка веб-интерфейса, F1 в консоли, coddy docs, инструменты агента coddy_docs и упоминания @coddy:<page> - с поиском по BM25 и без обращения к сайту."
@@ -280,6 +286,12 @@ pages:
     en:
       title: "Preview server"
       summary: "Serving a project directory on a free localhost port so you can open HTML, JS and CSS work in a browser; the server as a background task, what it refuses to serve, the bind host."
+  features/canvas.md:
+    title: "Холст"
+    summary: "Живые страницы на доске файла .canvas в окне \"Файлы\" веб-интерфейса: canvas_show и canvas_inspect, указание на элемент, чтобы попросить правку, песочница, в которой работает фрейм, и доски как файлы .canvas рабочей папки в формате Obsidian, которые Coddy читает и записывает так же, как сам Obsidian."
+    en:
+      title: "Canvas"
+      summary: "Live pages on a .canvas board in the Files window of the web UI - canvas_show and canvas_inspect, pointing at an element to ask for a change, the sandbox a frame runs in, and every board an Obsidian .canvas file of the workspace, read and written back as Obsidian writes it."
   features/compaction.md:
     title: "Сжатие контекста"
     summary: "/compact и автоматическое резюмирование по порогу, сохраняемые последние ходы, вытеснение результатов и keep_result."

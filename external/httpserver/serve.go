@@ -11,6 +11,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/serve"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -69,6 +70,11 @@ type Options struct {
 	// withdraws the offer when it stops. Nil means this server alone owns a
 	// waker of its own (AttachBackgroundWaker).
 	Wakes agent.WakeSurfaces
+	// Status builds the document GET /coddy/status answers (coddy serve passes
+	// Runtime.StatusDocument). Nil leaves the route unregistered, so a server
+	// that is not given one answers 404 for it, as a server of an older version
+	// does.
+	Status func() serve.StatusDocument
 }
 
 // LoginCredentials is one web-UI account in plaintext, as the environment

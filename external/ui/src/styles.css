@@ -7496,6 +7496,42 @@ html:not([data-theme="light"]) .workspace-branch-warning {
   filter: grayscale(1);
 }
 
+/* The pencil that opens an attached picture in the markup editor: the
+   remove control's twin in the opposite corner. */
+.composer-attachment-card .composer-attachment-card-markup {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--coddy-blend-base) 62%, transparent);
+  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    background 0.15s,
+    color 0.15s;
+}
+
+.composer-attachment-card:hover .composer-attachment-card-markup,
+.composer-attachment-card .composer-attachment-card-markup:hover,
+.composer-attachment-card .composer-attachment-card-markup:focus-visible {
+  opacity: 1;
+}
+
+.composer-attachment-card .composer-attachment-card-markup:hover,
+.composer-attachment-card .composer-attachment-card-markup:focus-visible {
+  background: color-mix(in srgb, var(--coddy-blend-base) 82%, transparent);
+  color: var(--text);
+}
+
 /* Transient rejection notice for paste/drop when the model is not multimodal. */
 .composer-attach-hint {
   padding: 6px 12px 0;
@@ -9861,6 +9897,437 @@ html:not([data-theme="light"]) .context-usage-note--error {
   margin-bottom: 0;
 }
 
+/* Settings -> System (SystemSection.tsx): what this installation is, how it
+   runs and what needs attention. The ok and error tones are the theme's own
+   green and red (--coddy-todo-completed, --coddy-danger), drawn a quarter
+   towards --system-lift so they read on their bands in every preset: white on
+   every dark canvas, the text on the light one. The warn tone is the app's
+   amber, as the usage meter's, lifted on every dark canvas and darkened on the
+   light one to read on its band. Quiet text is --text at 80%, as the settings
+   rail mixes it: --muted is too dim on some presets. */
+.settings.drawer {
+  --system-lift: var(--text);
+  --system-warn: #92400e;
+  --system-ok: color-mix(
+    in srgb,
+    var(--coddy-todo-completed) 75%,
+    var(--system-lift)
+  );
+  --system-ok-bg: color-mix(
+    in srgb,
+    var(--coddy-todo-completed) 18%,
+    transparent
+  );
+  --system-error: color-mix(
+    in srgb,
+    var(--coddy-danger) 75%,
+    var(--system-lift)
+  );
+  --system-error-bg: color-mix(in srgb, var(--coddy-danger) 16%, transparent);
+  --system-quiet: color-mix(in srgb, var(--text) 80%, var(--coddy-blend-base));
+}
+
+html:not([data-theme="light"]) .settings.drawer {
+  --system-lift: #ffffff;
+  --system-warn: #fbbf24;
+}
+
+.system-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 4px 6px 8px;
+  font-size: 0.9rem;
+}
+
+/* The app's notices: a quiet frame like a settings fieldset for every state
+   (a 404, a refusal, an offline node, a stale or a partial reading, all
+   clear), and for problems the composer's usage banner, its amber border and
+   ground with the text in --text. */
+.system-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 12px;
+  background: var(--coddy-surface-fieldset);
+  color: var(--system-quiet);
+}
+
+.system-summary[data-state="problems"] {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: color-mix(in srgb, #f59e0b 10%, var(--bg));
+  color: var(--text);
+}
+
+/* Nothing to say (a clear page, or the first read on its way): the region
+   stays in the page, so what comes next is announced, with no frame and
+   without the gap the section puts after it. */
+.system-summary:empty {
+  margin-bottom: -16px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.system-summary p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.system-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* An information notice, as the composer's edit banner draws one: the accent
+   in its frame, the text a step back. */
+.system-restart {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 55%, var(--coddy-glass-panel-border));
+  border-radius: 12px;
+  background: var(--coddy-surface-fieldset);
+  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  overflow-wrap: anywhere;
+}
+
+.system-restart[data-tone="error"] {
+  border-color: var(--system-error);
+}
+
+.system-restart a,
+.system-foot a,
+.system-kv a {
+  color: var(--coddy-link-action);
+}
+
+.system-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+/* A refresh that failed: the last values stay on screen, greyed. The summary
+   above them keeps its colour, since it is what says so. */
+.system-section.is-stale .system-blocks {
+  opacity: 0.55;
+}
+
+.system-block {
+  min-width: 0;
+}
+
+.system-block-title,
+.system-h {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--system-quiet);
+}
+
+/* The four blocks the settings search finds wear the Appearance sheet's label
+   class (the drawing is read back through it), which comes later in the sheet
+   and uppercases: the page's own heading look stands over it. */
+.system-block > .system-block-title {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.system-block-title:focus-visible,
+.system-h:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 3px;
+}
+
+.system-muted {
+  margin: 0;
+  color: var(--system-quiet);
+}
+
+.system-warn {
+  color: var(--system-warn);
+}
+
+.system-relay {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.system-kv {
+  display: grid;
+  grid-template-columns: minmax(0, 150px) minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.system-kv dt {
+  color: var(--system-quiet);
+}
+
+.system-kv dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.system-code {
+  font-family: var(--coddy-md-inline-code-font);
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+
+.system-kv dd > * + * {
+  margin-left: 8px;
+}
+
+.system-pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.system-pill[data-state="running"] {
+  background: var(--system-ok-bg);
+  color: var(--system-ok);
+}
+
+.system-pill[data-state="stopped"] {
+  background: var(--system-error-bg);
+  color: var(--system-error);
+}
+
+/* Big enough for a finger, whatever the row around it. */
+.system-copy {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  vertical-align: middle;
+}
+
+/* The meter keeps a width of its own and the free-space text wraps beside it,
+   so a long text (the Russian one) never squeezes the meter to a sliver. */
+.system-disk {
+  display: grid;
+  grid-template-columns: minmax(0, 150px) minmax(96px, 1fr) minmax(
+      0,
+      max-content
+    );
+  gap: 8px 12px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.system-meter {
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.system-meter > i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.system-meter[data-tone="warn"] > i {
+  background: var(--system-warn);
+}
+
+.system-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+/* The title keeps at least its longest word and the value wraps into the room
+   left beside it, so the two never run into each other. */
+.system-chart {
+  display: grid;
+  grid-template-columns: minmax(min-content, 1fr) minmax(0, max-content);
+  grid-template-areas:
+    "title value"
+    "plot plot"
+    "legend legend";
+  gap: 4px 8px;
+  min-width: 0;
+  padding: 8px 10px 6px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 12px;
+  background: var(--coddy-surface-fieldset);
+}
+
+.system-chart > b {
+  grid-area: title;
+  font-size: 0.8rem;
+}
+
+.system-chart-value {
+  grid-area: value;
+  color: var(--system-quiet);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.system-plot {
+  grid-area: plot;
+  position: relative;
+  min-width: 0;
+  height: 46px;
+}
+
+.system-plot > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.system-spark polyline {
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.system-spark--accent {
+  stroke: var(--accent);
+}
+
+.system-spark--error {
+  stroke: var(--system-error);
+}
+
+.system-spark--ok {
+  stroke: var(--system-ok);
+}
+
+.system-spark--muted {
+  stroke: var(--system-quiet);
+}
+
+.system-spark--muted polyline {
+  stroke-dasharray: 3 2;
+}
+
+.system-chart-legend {
+  grid-area: legend;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  font-size: 0.72rem;
+  color: var(--system-quiet);
+}
+
+.system-chart-legend > span::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+  background: var(--accent);
+}
+
+.system-chart-legend > .system-key--error::before {
+  background: var(--system-error);
+}
+
+.system-chart-legend > .system-key--ok::before {
+  background: var(--system-ok);
+}
+
+.system-chart-legend > .system-key--muted::before {
+  background: var(--system-quiet);
+}
+
+.system-table-wrap {
+  overflow-x: auto;
+}
+
+.system-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.system-table th {
+  font-weight: 400;
+  text-align: left;
+  color: var(--system-quiet);
+}
+
+.system-table th,
+.system-table td {
+  padding: 2px 12px 2px 0;
+}
+
+.system-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding-top: 10px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  color: var(--system-quiet);
+}
+
+/* A phone: each chart is one line (name, plot, value) and the legend is left to
+   the colours, which the name and the value already say. */
+@media (max-width: 599px) {
+  .system-chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .system-chart {
+    grid-template-columns: 5.5rem minmax(0, 1fr) 6.5rem;
+    grid-template-areas: "title plot value";
+    align-items: center;
+    padding: 2px 0;
+    border: 0;
+    background: none;
+  }
+  .system-plot {
+    height: 20px;
+  }
+  .system-chart-value {
+    text-align: right;
+  }
+  .system-chart-legend {
+    display: none;
+  }
+  .system-kv {
+    grid-template-columns: minmax(0, 40%) minmax(0, 1fr);
+  }
+  .system-kv dd {
+    text-align: right;
+  }
+  .system-disk {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .system-disk > .system-meter {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
 .settings-field-desc {
   margin: 0 0 8px;
   font-size: 0.8rem;
@@ -10374,6 +10841,10 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 .settings-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   text-align: left;
   border: 1px solid transparent;
   background: transparent;
@@ -10384,6 +10855,24 @@ html:not([data-theme="light"]) .context-usage-note--error {
   font-size: 0.9rem;
   cursor: pointer;
   white-space: nowrap;
+}
+
+/* The number the System tab says need attention: after the rail's label, at the
+   top right of a phone's tile. The app's count, as the main rail draws one on
+   History: the accent with its on-accent text. Drawn for the eye only
+   (aria-hidden); the tab is described by its count text. */
+.settings-nav-badge,
+.settings-tile-badge {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  background: var(--accent);
+  color: var(--coddy-on-accent-fg);
 }
 
 .settings-nav-item:hover:not(.is-active) {
@@ -11868,6 +12357,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
     min-height: 0;
   }
   .settings-tile {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -11898,6 +12388,15 @@ html:not([data-theme="light"]) .context-usage-note--error {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .settings-tile-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+  }
+  /* The title stops short of the number. */
+  .settings-tile:has(.settings-tile-badge) .settings-tile-title {
+    padding-right: 26px;
   }
   .settings-tile-desc {
     font-size: 11px;
@@ -15272,6 +15771,203 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 /* An image opened over everything (ui/components/ImageLightbox.tsx): the bar with
    the caption, the zoom and the close control, and a stage that scrolls when
    the image is larger than the window. */
+/* Picture markup editor (markup/ImageMarkupDialog.tsx): the picture fitted
+   into the stage, the toolbar along the bottom - Cancel, the tools and the
+   palette in one group, Done - as in the console's window. */
+.markup-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  backdrop-filter: blur(8px);
+  color: var(--text);
+  outline: none;
+}
+
+.markup-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 16px 16px 0;
+}
+
+.markup-picture {
+  position: absolute;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+.markup-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.markup-canvas--text {
+  cursor: text;
+}
+
+.markup-label-input {
+  position: absolute;
+  min-width: 2ch;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 1px dashed color-mix(in srgb, var(--accent) 80%, transparent);
+  outline-offset: 3px;
+  background: transparent;
+  line-height: 1;
+  field-sizing: content;
+}
+
+.markup-message {
+  margin: 0;
+  padding-top: 40px;
+  text-align: center;
+  font-size: 13px;
+  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+}
+
+.markup-bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px 16px;
+}
+
+.markup-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--text) 8%, var(--bg));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.markup-tool {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.markup-tool:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.markup-tool.is-active {
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+.markup-tool:disabled {
+  color: color-mix(in srgb, var(--text) 38%, var(--coddy-blend-base));
+  cursor: default;
+}
+
+.markup-sep {
+  width: 1px;
+  height: 22px;
+  margin: 0 6px;
+  background: color-mix(in srgb, var(--text) 16%, transparent);
+}
+
+.markup-swatches {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.markup-swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--text) 24%, transparent);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.markup-swatch.is-active {
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--text);
+}
+
+.markup-action {
+  min-width: 84px;
+  height: 34px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.markup-action--cancel {
+  justify-self: start;
+  background: transparent;
+  color: var(--text);
+}
+
+.markup-action--cancel:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.markup-action--done {
+  justify-self: end;
+  background: var(--accent);
+  color: var(--coddy-on-accent-fg);
+}
+
+.markup-action--done:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* A phone puts the actions over the tools, which scroll sideways. */
+@media (max-width: 599px) {
+  .markup-bar {
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "cancel done"
+      "tools tools";
+  }
+
+  .markup-action--cancel {
+    grid-area: cancel;
+  }
+
+  .markup-action--done {
+    grid-area: done;
+  }
+
+  .markup-tools {
+    grid-area: tools;
+    overflow-x: auto;
+    justify-self: stretch;
+  }
+
+  .markup-tool,
+  .markup-swatches {
+    flex: none;
+  }
+}
+
 .docs-lightbox {
   position: fixed;
   inset: 0;
@@ -15298,50 +15994,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   white-space: nowrap;
   font-size: 13px;
   color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
-}
-
-/* The zoom controls take the close control's frame. */
-.docs-lightbox-btn,
-.docs-lightbox-level {
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 30px;
-  min-width: 34px;
-  padding: 0 8px;
-  white-space: nowrap;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
-  background: rgba(20, 20, 22, 0.35);
-  color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
-  font: inherit;
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-  transition:
-    background 0.15s,
-    border-color 0.15s;
-}
-
-.docs-lightbox-level {
-  min-width: 58px;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.docs-lightbox-btn:hover:not(:disabled),
-.docs-lightbox-level:hover,
-.docs-lightbox-btn:focus-visible,
-.docs-lightbox-level:focus-visible {
-  background: color-mix(in srgb, var(--text) 12%, rgba(20, 20, 22, 0.35));
-  border-color: color-mix(in srgb, var(--text) 18%, var(--coddy-blend-base));
-  color: var(--text);
-}
-
-.docs-lightbox-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 /* The stage handles the gestures itself - one pointer drags the picture, two
@@ -15481,8 +16133,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .docs-lightbox-btn,
-  .docs-lightbox-level,
   .docs-article.is-loading,
   .docs-ask,
   .docs-pager-link,
@@ -15850,8 +16500,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   transition: none;
 }
 
-.swarm-layout-control,
-.swarm-viewport-control {
+.swarm-layout-control {
   position: absolute;
   z-index: 1;
   display: inline-flex;
@@ -15867,11 +16516,6 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 .swarm-layout-control {
   top: 10px;
   left: 10px;
-}
-
-.swarm-viewport-control {
-  top: 10px;
-  right: 10px;
 }
 
 .swarm-canvas-control {
@@ -15911,6 +16555,93 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   .swarm-canvas-control {
     width: 40px;
     height: 40px;
+  }
+}
+
+/* ----- Zoom -----
+   The zoom controls of every surface that zooms - the picture viewer, the
+   canvas, the swarm map - one glass group at the top right: minus, the level
+   (the percentage, or the fit glyph while fitted; a click fits), plus.
+   DESIGN.md, Zoom. */
+/* Opaque, never a backdrop-filter: over a board that moves, a blur behind
+   the group is drawn again on every frame of a pan or a zoom, which cost the
+   canvas a hundred milliseconds a frame. */
+.zoom-controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 5%, var(--bg));
+  box-shadow: 0 3px 10px color-mix(in srgb, #000 20%, transparent);
+}
+
+.zoom-controls--inline {
+  position: static;
+  flex: none;
+}
+
+.zoom-control {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background-color 0.14s ease,
+    color 0.14s ease;
+}
+
+.zoom-control--level {
+  width: auto;
+  min-width: 48px;
+  padding: 0 6px;
+  white-space: nowrap;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.zoom-control:hover:not(:disabled),
+.zoom-control:focus-visible {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.zoom-control:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.zoom-control svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (max-width: 1199px) {
+  .zoom-control {
+    width: 40px;
+    height: 40px;
+  }
+
+  .zoom-control--level {
+    width: auto;
+    min-width: 56px;
   }
 }
 
@@ -17964,6 +18695,759 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   text-decoration: underline;
 }
 
+/* ----- Canvas -----
+   A .canvas file as a tab of the Files window: the board of live frames and
+   the file's other nodes and edges, the prompts the turn waits for, then the
+   prompt bar. Everything on the board stands at its own size in one world
+   layer the camera moves and scales as a whole (.canvas-world); the frames'
+   title bars keep their size by scaling back (--canvas-inv). The mode switch
+   floats at the board's top left, the zoom controls at its top right.
+   DESIGN.md, Canvas. */
+.canvas-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* While a board shows, nothing blurs: a backdrop-filter is drawn again on
+   every frame anything under or in it moves, and the window's glass with the
+   glass of the chat it covers made each frame of a pan or a zoom cost about a
+   hundred milliseconds instead of one frame. The window is opaque then, and
+   the covered chat's header, composer and round controls drop their blur. */
+.files-dock-cluster:has(.canvas-pane) {
+  background: color-mix(in srgb, var(--text) 3%, var(--bg));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root:has(.canvas-pane)
+  :is(
+    .chat-header,
+    .composer-card,
+    .chat-scroll-bottom,
+    .chat-expand-composer
+  ) {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Opaque like the zoom controls: no backdrop-filter over the moving board. */
+.canvas-mode {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 5%, var(--bg));
+  box-shadow: 0 3px 10px color-mix(in srgb, #000 20%, transparent);
+}
+
+.canvas-mode-btn {
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 72%, transparent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.canvas-mode-btn:hover,
+.canvas-mode-btn.is-active {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.canvas-board {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+  background-color: color-mix(in srgb, var(--bg) 70%, var(--coddy-blend-base));
+  background-image: radial-gradient(
+    color-mix(in srgb, var(--text) 13%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 22px 22px;
+}
+
+.canvas-board:active {
+  cursor: grabbing;
+}
+
+.canvas-board:focus {
+  outline: none;
+}
+
+/* The world: a point at the board's origin, everything on the board placed
+   from it in board units; the camera writes its transform. */
+.canvas-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+}
+
+/* While the board moves it is one layer the compositor moves; at rest the
+   pages are drawn again at the new scale. */
+.canvas-board.is-moving .canvas-world {
+  will-change: transform;
+}
+
+.canvas-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.canvas-empty-title {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.canvas-empty-hint {
+  margin: 0;
+  max-width: 440px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* A frame's title bar keeps its size whatever the zoom, like the names of
+   frames on a design board: it stands on the frame's top edge, scaled back by
+   the camera's scale, as wide on screen as the frame and never under 180px. */
+.canvas-frame-bar {
+  position: absolute;
+  box-sizing: border-box;
+  width: max(
+    calc(var(--canvas-frame-width, 0) * var(--canvas-scale, 1) * 1px),
+    180px
+  );
+  transform-origin: 0 0;
+  transform: scale(var(--canvas-inv, 1)) translateY(calc(-100% - 4px));
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 0 8px;
+  border-radius: 8px 8px 0 0;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 78%, transparent);
+  cursor: move;
+  user-select: none;
+  touch-action: none;
+}
+
+.canvas-frame-bar.is-focused {
+  color: var(--text);
+}
+
+/* A bar scales back by a transform of its own, which makes it a stacking
+   context: it stands over every page of the board, and the one whose size
+   menu is open over the other bars, so the menu is never under a page. */
+.canvas-frame-bar {
+  z-index: 2;
+}
+
+.canvas-frame-bar.is-menu-open {
+  z-index: 3;
+}
+
+.canvas-frame-title {
+  flex: 0 1 auto;
+  min-width: 3em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+/* The size gives way first when the bar is narrow, so the title stays. */
+.canvas-frame-size {
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.canvas-frame-errors {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--coddy-danger);
+  color: var(--coddy-on-accent-fg);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.canvas-frame-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.canvas-frame-menu-host {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Over its own backdrop (.mode-menu-backdrop, 100) in the same stacking
+   context, or the backdrop takes the click meant for an item. */
+.canvas-frame-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: auto;
+  z-index: 101;
+  min-width: 190px;
+}
+
+.canvas-frame-btn {
+  width: 24px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.canvas-frame-btn:hover {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  color: var(--text);
+}
+
+.canvas-frame {
+  position: absolute;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--text) 14%, transparent),
+    0 6px 24px color-mix(in srgb, #000 22%, transparent);
+}
+
+.canvas-frame.is-focused {
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--text) 45%, transparent),
+    0 6px 24px color-mix(in srgb, #000 22%, transparent);
+}
+
+/* The page at its own size; the world layer scales it with the board. */
+.canvas-frame-page {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.canvas-frame-left {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  color: var(--text);
+  font-size: 13px;
+  text-align: center;
+}
+
+.canvas-frame-left p {
+  margin: 0;
+}
+
+.canvas-frame-back,
+.canvas-popover-add,
+.canvas-popover-cancel {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.canvas-popover-add {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--coddy-on-accent-fg);
+}
+
+.canvas-popover {
+  position: absolute;
+  z-index: 4;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  /* Opaque: the page under it must not show through the note. */
+  background: color-mix(in srgb, var(--text) 5%, var(--bg));
+  box-shadow: var(--coddy-glass-panel-shadow);
+  cursor: auto;
+}
+
+.canvas-popover-target {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.canvas-popover-note,
+.canvas-bar-field {
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.45;
+  padding: 7px 10px;
+}
+
+.canvas-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* The foot of the window. */
+.canvas-bar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+}
+
+.canvas-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.canvas-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 26px;
+  padding: 0 4px 0 10px;
+  border-radius: 13px;
+  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+  font-size: 12px;
+}
+
+.canvas-pick-name {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  white-space: nowrap;
+}
+
+.canvas-pick-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.canvas-pick-remove {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.canvas-bar-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.canvas-bar-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: 160px;
+}
+
+/* What the turn waits for, shown over the prompt bar: the window covers the
+   chat, where these cards stand otherwise. */
+.canvas-prompts {
+  flex: none;
+  max-height: min(55%, 520px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px 4px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+  background: color-mix(in srgb, var(--bg) 92%, var(--coddy-blend-base));
+}
+
+.canvas-prompts-title {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* The canvas's fields take the focus as the app's other fields do: their
+   border in the accent, never the browser's ring around them. */
+.canvas-bar-field:focus,
+.canvas-popover-note:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.canvas-bar-chat {
+  flex: none;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 78%, transparent);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.canvas-bar-chat:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+}
+
+.canvas-bar-send {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 0;
+  background: var(--accent);
+  color: var(--coddy-on-accent-fg);
+  cursor: pointer;
+}
+
+.canvas-bar-send:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Stop and Queue are the composer's (.composer-send-stop,
+   .composer-run-icon--queue); the bar's own ground above would cover them. */
+.canvas-bar-send.composer-send-stop {
+  background: rgba(239, 68, 68, 0.22);
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  color: rgba(255, 250, 250, 0.95);
+}
+
+.canvas-bar-send.composer-send-stop:hover {
+  background: rgba(239, 68, 68, 0.32);
+}
+
+.canvas-bar-send.composer-run-icon--queue {
+  background: color-mix(in srgb, var(--accent) 82%, var(--coddy-blend-base));
+}
+
+[data-theme="light"] .canvas-bar-send.composer-send-stop {
+  background: rgba(220, 38, 38, 0.92);
+  border-color: rgba(185, 28, 28, 0.45);
+  color: #ffffff;
+}
+
+.canvas-card-open {
+  align-self: flex-start;
+  margin-top: 8px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.canvas-card-open:hover {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+/* The nodes of the .canvas file (JSON Canvas, Obsidian's format) that are
+   not live frames: groups under everything, then the edges, then the cards,
+   each at its own size in the world layer. */
+.canvas-group,
+.canvas-node {
+  position: absolute;
+  box-sizing: border-box;
+  cursor: grab;
+  user-select: none;
+  --canvas-node-tint: var(--canvas-node-color, var(--text));
+}
+
+.canvas-group {
+  border-radius: 10px;
+  border: 2px solid color-mix(in srgb, var(--canvas-node-tint) 28%, transparent);
+  background: color-mix(in srgb, var(--canvas-node-tint) 5%, transparent);
+}
+
+.canvas-group.is-colored {
+  border-color: color-mix(in srgb, var(--canvas-node-color) 70%, transparent);
+  background: color-mix(in srgb, var(--canvas-node-color) 9%, transparent);
+}
+
+/* Like a frame's title bar, a group's label and an edge's keep their size on
+   screen whatever the zoom: scaled back by the camera's scale. */
+.canvas-group-label {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  box-sizing: border-box;
+  max-width: calc(100% * var(--canvas-scale, 1));
+  transform-origin: 0 100%;
+  transform: scale(var(--canvas-inv, 1)) translateY(-4px);
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--canvas-node-tint) 16%, var(--bg));
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.canvas-node {
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  background: color-mix(in srgb, var(--text) 4%, var(--bg));
+  box-shadow: 0 1px 3px color-mix(in srgb, #000 22%, transparent);
+}
+
+.canvas-node.is-colored {
+  border-color: var(--canvas-node-color);
+  background: color-mix(in srgb, var(--canvas-node-color) 10%, var(--bg));
+}
+
+.canvas-group.is-dragging,
+.canvas-node.is-dragging {
+  cursor: grabbing;
+  opacity: 0.92;
+}
+
+.canvas-node-body {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.canvas-node-text {
+  height: 100%;
+  box-sizing: border-box;
+  padding: 12px 16px;
+  overflow: hidden;
+  font-size: 16px;
+}
+
+.canvas-node-note-name {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.canvas-node-card {
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  font-size: 15px;
+  overflow: hidden;
+}
+
+.canvas-node-kind {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.canvas-node-name {
+  color: var(--text);
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
+.canvas-node-folder,
+.canvas-node-url {
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+a.canvas-node-url {
+  color: var(--coddy-link);
+}
+
+.canvas-node-warning {
+  margin-top: 4px;
+  color: var(--coddy-danger);
+  font-size: 13px;
+}
+
+.canvas-node-open {
+  align-self: flex-start;
+  margin-top: auto;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.canvas-node-open:hover {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.canvas-node-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  -webkit-user-drag: none;
+}
+
+.canvas-edges {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+  color: color-mix(in srgb, var(--text) 45%, transparent);
+}
+
+.canvas-edge {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.canvas-edge-arrow {
+  fill: currentColor;
+}
+
+.canvas-edge-label {
+  position: absolute;
+  transform: translate(-50%, -50%) scale(var(--canvas-inv, 1));
+  max-width: 220px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.canvas-link-error {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--coddy-danger) 50%, transparent);
+  background: color-mix(in srgb, var(--coddy-danger) 10%, var(--bg));
+  color: var(--text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+/* A phone: the mode switch and the zoom controls stay, smaller; the field is
+   16px so iOS Safari does not zoom into it. */
+@media (max-width: 599px) {
+  .canvas-mode-btn {
+    padding: 0 8px;
+  }
+
+  .canvas-bar-field {
+    font-size: 16px;
+  }
+}
+
 /* The stacked shell: below the top bar, above the shell's backdrop (which
    rises to 60 there), inset like the documentation sheet. The tree keeps its
    column while it fits beside the file. */
@@ -18273,15 +19757,20 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   background: var(--diff-del-bg);
 }
 
+/* Every number cell of a file is as wide as its widest number, never as its
+   own: --dv-num-digits comes with the diff (lineNumberDigits), and the content
+   box holds that many digits of the monospace stack. A cell sized by its
+   number put the code of a removal or an addition (one cell blank) and of a
+   row of shorter numbers a few pixels left of the context around it. */
 .dv-num {
   flex: 0 0 auto;
-  min-width: 4ch;
+  width: calc(var(--dv-num-digits) * 1ch);
   padding: 0 6px;
   text-align: right;
   font-size: 11px;
   color: color-mix(in srgb, var(--text) 28%, var(--coddy-blend-base));
   user-select: none;
-  box-sizing: border-box;
+  box-sizing: content-box;
 }
 
 .dv-line--add .dv-num {

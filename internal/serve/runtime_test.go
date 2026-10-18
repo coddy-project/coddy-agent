@@ -4,9 +4,13 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
+	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +19,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
@@ -314,7 +319,7 @@ func TestSupervisorStatusPendingBeforeApply(t *testing.T) {
 
 			moved := *s.cfg
 			moved.HTTPServer.Port = 23456
-			rows, required := s.sup.Status(&moved)
+			rows, required, _ := s.sup.Status(&moved)
 			if row := statusRow(t, rows, KindHTTP); row.State != StateRunning {
 				t.Errorf("http row = %+v, want running until the restart", row)
 			}
@@ -322,7 +327,7 @@ func TestSupervisorStatusPendingBeforeApply(t *testing.T) {
 				t.Errorf("restartRequired = %v, want %v", required, tc.wantRequired)
 			}
 
-			if _, required = s.sup.Status(s.cfg); required {
+			if _, required, _ = s.sup.Status(s.cfg); required {
 				t.Errorf("moving the address back left restartRequired = %v", required)
 			}
 		})
@@ -341,20 +346,20 @@ func TestSupervisorStatusRestartIntoARefusedConfiguration(t *testing.T) {
 	unrunnable := *s.cfg
 	unrunnable.Gateways.Telegram.Enabled = true
 	unrunnable.HTTPServer.Port = 23456
-	if _, required := s.sup.Status(&unrunnable); !required {
+	if _, required, _ := s.sup.Status(&unrunnable); !required {
 		t.Error("a dispatcher that would not restart into the configuration still reads as restarting by itself")
 	}
 
 	// With no address to move there is nothing to restart for, runnable or not.
 	unrunnable.HTTPServer.Port = 0
-	if _, required := s.sup.Status(&unrunnable); required {
+	if _, required, _ := s.sup.Status(&unrunnable); required {
 		t.Error("without a pending address a restart is required")
 	}
 
 	// Without a dispatcher the change just waits, whatever the pre-flight says.
 	s.sup.Restartable = false
 	unrunnable.HTTPServer.Port = 23456
-	if _, required := s.sup.Status(&unrunnable); !required {
+	if _, required, _ := s.sup.Status(&unrunnable); !required {
 		t.Error("foreground: no manual restart is required")
 	}
 }
@@ -373,11 +378,11 @@ func TestSupervisorStatusSessionlessProcessNeedsRestartForASessionSurface(t *tes
 
 	next := *s.cfg
 	next.Scheduler.Enabled = true
-	rows, required := s.sup.Status(&next)
+	rows, required, _ := s.sup.Status(&next)
 	if !required {
 		t.Errorf("a session surface a sessionless process cannot start reads restartRequired = false (rows %+v)", rows)
 	}
-	if _, required := s.sup.Status(s.cfg); required {
+	if _, required, _ := s.sup.Status(s.cfg); required {
 		t.Error("the configuration the process runs on requires a restart")
 	}
 }
@@ -390,7 +395,7 @@ func TestSupervisorStatusStartingBeforeLaunch(t *testing.T) {
 	s.reset()
 	s.cfg.Gateways.Telegram.Enabled = true
 	idle := NewSupervisor(nil, s.subs)
-	rows, required := idle.Status(s.cfg)
+	rows, required, _ := idle.Status(s.cfg)
 	if len(rows) != 2 || required {
 		t.Fatalf("an unstarted supervisor reads %+v, restartRequired = %v; want the two enabled surfaces", rows, required)
 	}
@@ -404,7 +409,7 @@ func TestSupervisorStatusStartingBeforeLaunch(t *testing.T) {
 	launched(t, s)
 	wider := *s.cfg
 	wider.Scheduler.Enabled = true
-	rows, _ = s.sup.Status(&wider)
+	rows, _, _ = s.sup.Status(&wider)
 	if got := statusRow(t, rows, KindScheduler).State; got != StateStarting {
 		t.Errorf("a surface the configuration enabled, before the supervisor saw it: %q, want starting", got)
 	}
@@ -412,7 +417,7 @@ func TestSupervisorStatusStartingBeforeLaunch(t *testing.T) {
 	if err := s.settle(&wider); err != nil {
 		t.Fatal(err)
 	}
-	rows, _ = s.sup.Status(&wider)
+	rows, _, _ = s.sup.Status(&wider)
 	if got := statusRow(t, rows, KindScheduler).State; got != StateRunning {
 		t.Errorf("after the supervisor applied it: %q, want running", got)
 	}
@@ -432,7 +437,7 @@ func TestSupervisorStatusStoppedWhenAppliedButNotRunning(t *testing.T) {
 	if err := s.settle(&next); err != nil {
 		t.Fatal(err)
 	}
-	rows, required := s.sup.Status(&next)
+	rows, required, _ := s.sup.Status(&next)
 	if row := statusRow(t, rows, KindGateway); row.State != StateStopped {
 		t.Errorf("gateway row = %+v, want stopped", row)
 	}
@@ -454,7 +459,7 @@ func TestSupervisorStatusDisabledListenerHasNoPending(t *testing.T) {
 	disabled := *s.cfg
 	disabled.HTTPServer.Enabled = &off
 	disabled.HTTPServer.Port = 23456
-	rows, required := s.sup.Status(&disabled)
+	rows, required, _ := s.sup.Status(&disabled)
 	if row := statusRow(t, rows, KindHTTP); row.State != StateRetained {
 		t.Errorf("http row = %+v, want retained", row)
 	}
@@ -491,12 +496,12 @@ func TestSupervisorAnAuxiliaryFailureStopsOnlyItself(t *testing.T) {
 		t.Fatalf("the process ended with the exporter: %v", err)
 	}
 	if err := waitFor(func() bool {
-		rows, _ := s.sup.Status(&taken)
+		rows, _, _ := s.sup.Status(&taken)
 		return statusRow(t, rows, KindMetrics).State == StateStopped
 	}); err != nil {
 		t.Fatalf("the failed exporter never read as stopped: %v", err)
 	}
-	rows, _ := s.sup.Status(&taken)
+	rows, _, _ := s.sup.Status(&taken)
 	if got := statusRow(t, rows, KindHTTP).State; got != StateRunning {
 		t.Errorf("http after the exporter failed: %q, want running", got)
 	}
@@ -507,10 +512,181 @@ func TestSupervisorAnAuxiliaryFailureStopsOnlyItself(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := waitFor(func() bool {
-		rows, _ := s.sup.Status(&free)
+		rows, _, _ := s.sup.Status(&free)
 		return statusRow(t, rows, KindMetrics).State == StateRunning
 	}); err != nil {
 		t.Errorf("the exporter on a free port never ran again: %v", err)
+	}
+}
+
+// freeLoopbackPort returns a port nothing listens on at the moment.
+func freeLoopbackPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	return ln.Addr().(*net.TCPAddr).Port
+}
+
+// A running instance reads the address it was started on. A listener with a
+// restart key keeps it, and the address the live configuration moved it to is
+// pending until the process is replaced; one that has no restart key and is
+// rebuilt in place reads the new address once it runs there, with nothing
+// pending and no restart, and none when the rebuild failed and the instance
+// is gone.
+func TestSupervisorStatusAddresses(t *testing.T) {
+	t.Run("a listener that needs a fresh process", func(t *testing.T) {
+		s := &serveFeatureState{}
+		s.reset()
+		s.restartable = false
+		launched(t, s)
+
+		rows, required, _ := s.sup.Status(s.cfg)
+		if row := statusRow(t, rows, KindHTTP); row.Address != "12345" || row.PendingAddress != "" || required {
+			t.Fatalf("http row = %+v, restartRequired = %v; want running on 12345, nothing pending", row, required)
+		}
+
+		moved := *s.cfg
+		moved.HTTPServer.Port = 23456
+		rows, required, _ = s.sup.Status(&moved)
+		row := statusRow(t, rows, KindHTTP)
+		if row.State != StateRunning || row.Address != "12345" || row.PendingAddress != "23456" || !required {
+			t.Errorf("http row = %+v, restartRequired = %v; want running on 12345 with 23456 pending", row, required)
+		}
+
+		rows, required, _ = s.sup.Status(s.cfg)
+		if row := statusRow(t, rows, KindHTTP); row.PendingAddress != "" || required {
+			t.Errorf("moving the address back left %+v, restartRequired = %v", row, required)
+		}
+
+		// A listener the configuration turns off may simply stop: it keeps the
+		// address it runs on and has nothing pending.
+		off := false
+		disabled := moved
+		disabled.HTTPServer.Enabled = &off
+		rows, _, _ = s.sup.Status(&disabled)
+		if row := statusRow(t, rows, KindHTTP); row.State != StateRetained || row.Address != "12345" || row.PendingAddress != "" {
+			t.Errorf("a disabled listener reads %+v, want retained on 12345 with nothing pending", row)
+		}
+	})
+
+	t.Run("a listener rebuilt in place", func(t *testing.T) {
+		s := &serveFeatureState{}
+		s.reset()
+		for i := range s.subs {
+			if s.subs[i].Kind != KindMetrics {
+				continue
+			}
+			run := s.subs[i].Run
+			s.subs[i].Address = func(c *config.Config) string { return c.Metrics.ListenAddr() }
+			s.subs[i].Fingerprint = func(c *config.Config) string { return c.Metrics.ListenAddr() }
+			s.subs[i].Run = func(ctx context.Context, c *config.Config) error {
+				ln, err := net.Listen("tcp", c.Metrics.ListenAddr())
+				if err != nil {
+					return err
+				}
+				defer func() { _ = ln.Close() }()
+				return run(ctx, c)
+			}
+		}
+		s.cfg.Metrics.Enable = true
+		s.cfg.Metrics.Host = "127.0.0.1"
+		s.cfg.Metrics.Port = freeLoopbackPort(t)
+		launched(t, s)
+
+		row := func(cfg *config.Config) (SubsystemStatus, bool) {
+			rows, required, _ := s.sup.Status(cfg)
+			return statusRow(t, rows, KindMetrics), required
+		}
+		first := s.cfg.Metrics.ListenAddr()
+		if r, required := row(s.cfg); r.State != StateRunning || r.Address != first || r.PendingAddress != "" || required {
+			t.Fatalf("metrics row = %+v, restartRequired = %v; want running on %s, nothing pending", r, required, first)
+		}
+
+		moved := *s.cfg
+		moved.Metrics.Port = freeLoopbackPort(t)
+		second := moved.Metrics.ListenAddr()
+		if err := s.settle(&moved); err != nil {
+			t.Fatal(err)
+		}
+		if err := waitFor(func() bool {
+			r, _ := row(&moved)
+			return r.State == StateRunning && r.Address == second
+		}); err != nil {
+			r, _ := row(&moved)
+			t.Fatalf("after the rebuild the row is %+v, want running on %s: %v", r, second, err)
+		}
+		if r, required := row(&moved); r.PendingAddress != "" || required {
+			t.Errorf("a rebuild in place left %+v, restartRequired = %v", r, required)
+		}
+
+		// The address a rebuild is moving to is taken: the instance fails alone.
+		holder, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = holder.Close() }()
+		taken := *s.cfg
+		taken.Metrics.Port = holder.Addr().(*net.TCPAddr).Port
+		if err := s.settle(&taken); err != nil {
+			t.Fatalf("the process ended with the exporter: %v", err)
+		}
+		if err := waitFor(func() bool {
+			r, _ := row(&taken)
+			return r.State == StateStopped
+		}); err != nil {
+			t.Fatalf("the exporter on a taken address never read as stopped: %v", err)
+		}
+		if r, required := row(&taken); r.Address != "" || r.PendingAddress != "" || required {
+			t.Errorf("failed row = %+v, restartRequired = %v; want stopped with no address", r, required)
+		}
+	})
+}
+
+// A dispatcher restarts the process only into a configuration its pre-flight
+// accepts. When it would not, the read carries the pre-flight's own message,
+// and only then.
+func TestSupervisorStatusRefusal(t *testing.T) {
+	s := &serveFeatureState{}
+	s.reset()
+	s.subs = s.describe(false) // no gateway in this build
+	s.restartable = true
+	launched(t, s)
+
+	unrunnable := *s.cfg
+	unrunnable.Gateways.Telegram.Enabled = true
+	unrunnable.HTTPServer.Port = 23456
+	_, preflight := Resolve(&unrunnable, s.subs)
+	if preflight == nil {
+		t.Fatal("the pre-flight accepts a configuration that enables a surface the build lacks")
+	}
+	_, required, refused := s.sup.Status(&unrunnable)
+	if !required || refused != preflight.Error() ||
+		!strings.Contains(refused, "gateways.telegram.enable") || !strings.Contains(refused, "-tags gateway") {
+		t.Errorf("restartRequired = %v, refused = %q; want the pre-flight's message %q", required, refused, preflight)
+	}
+
+	// A change the dispatcher would restart into reads no refusal.
+	runnable := *s.cfg
+	runnable.HTTPServer.Port = 23456
+	if _, required, refused := s.sup.Status(&runnable); required || refused != "" {
+		t.Errorf("a restartable change: restartRequired = %v, refused = %q; want neither", required, refused)
+	}
+
+	// With no address to move there is nothing to restart for, runnable or not.
+	unrunnable.HTTPServer.Port = 0
+	if _, required, refused := s.sup.Status(&unrunnable); required || refused != "" {
+		t.Errorf("without a pending address: restartRequired = %v, refused = %q", required, refused)
+	}
+
+	// Without a dispatcher the change waits for a manual restart whatever the
+	// pre-flight says, so there is nothing to refuse.
+	s.sup.Restartable = false
+	unrunnable.HTTPServer.Port = 23456
+	if _, required, refused := s.sup.Status(&unrunnable); !required || refused != "" {
+		t.Errorf("foreground: restartRequired = %v, refused = %q; want a manual restart and no refusal", required, refused)
 	}
 }
 
@@ -538,8 +714,8 @@ func TestRuntimeStatusSnapshot(t *testing.T) {
 			snap.Build.GOOS != runtime.GOOS || snap.Build.GOARCH != runtime.GOARCH {
 			t.Errorf("build = %+v", snap.Build)
 		}
-		if snap.Subsystems != nil || snap.RestartRequired ||
-			snap.TurnsRunning != 0 || !snap.OldestTurnStartedAt.IsZero() || snap.Disk != nil {
+		if snap.Subsystems != nil || snap.RestartRequired || snap.RestartRefused != "" ||
+			snap.TurnsRunning != 0 || !snap.OldestTurnStartedAt.IsZero() || snap.Disk != nil || snap.Unavailable != nil {
 			t.Errorf("nothing is attached, yet the snapshot says %+v", snap)
 		}
 	})
@@ -574,14 +750,14 @@ func TestRuntimeStatusSnapshot(t *testing.T) {
 		rt.ReplaceConfig(&unrunnable)
 		snap := rt.Status()
 		want := []SubsystemStatus{
-			{Kind: KindHTTP, State: StateRunning},
+			{Kind: KindHTTP, State: StateRunning, Address: "12345", PendingAddress: "23456"},
 			{Kind: KindGateway, State: StateStarting},
 		}
 		if !reflect.DeepEqual(snap.Subsystems, want) {
 			t.Errorf("subsystems = %+v, want %+v", snap.Subsystems, want)
 		}
-		if !snap.RestartRequired {
-			t.Error("a moved address the dispatcher would not restart into reads restartRequired = false")
+		if !snap.RestartRequired || !strings.Contains(snap.RestartRefused, "gateways.telegram.enable") {
+			t.Errorf("restartRequired = %v, refused = %q; want a restart the dispatcher would not make, and why", snap.RestartRequired, snap.RestartRefused)
 		}
 	})
 
@@ -651,4 +827,129 @@ func TestRuntimeStatusDisk(t *testing.T) {
 			t.Errorf("disk = %+v", disk)
 		}
 	})
+}
+
+// The process says how it was started from the role the environment named
+// when the runtime was initialised, in a process that opens a session store
+// and in one that does not. coddy serve clears the variable for the processes
+// it starts right after, so a status read later still has the answer.
+func TestRuntimeStatusProcess(t *testing.T) {
+	for _, tc := range []struct {
+		name, role string
+		want       StartedBy
+	}{
+		{"the systemd unit", RoleService, StartedBySystemd},
+		{"the worker of a daemon", RoleWorker, StartedByDaemon},
+		{"no role", "", StartedByForeground},
+		{"the dispatcher, which serves nothing", RoleDispatcher, StartedByForeground},
+		{"a value nothing sets", "supervisor", StartedByForeground},
+	} {
+		for _, sessions := range []bool{false, true} {
+			t.Run(tc.name+" sessions="+strconv.FormatBool(sessions), func(t *testing.T) {
+				t.Setenv(EnvRole, tc.role)
+				home := t.TempDir()
+				cfg := &config.Config{}
+				cfg.Paths.Home = home
+				rt := &Runtime{}
+				before := time.Now()
+				err := rt.Init(Options{
+					Cfg: cfg, NeedsSessions: sessions, SessionsRoot: t.TempDir(),
+					CLI: config.CLIPaths{Home: home, CWD: t.TempDir(), Config: filepath.Join(home, "elsewhere.yaml")},
+				})
+				after := time.Now()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Unsetenv(EnvRole); err != nil {
+					t.Fatal(err)
+				}
+
+				snap := rt.Status()
+				if snap.StartedBy != tc.want {
+					t.Errorf("startedBy = %q, want %q", snap.StartedBy, tc.want)
+				}
+				if snap.ConfigFile != rt.Paths.ConfigPath || snap.ConfigFile != filepath.Join(home, "elsewhere.yaml") {
+					t.Errorf("configFile = %q, want the config path %q", snap.ConfigFile, rt.Paths.ConfigPath)
+				}
+				if snap.StartedAt.Before(before) || snap.StartedAt.After(after) {
+					t.Errorf("startedAt = %v, want when Init ran, between %v and %v", snap.StartedAt, before, after)
+				}
+				if again := rt.Status(); !again.StartedAt.Equal(snap.StartedAt) {
+					t.Errorf("a second read gave %v, the first gave %v", again.StartedAt, snap.StartedAt)
+				}
+			})
+		}
+	}
+}
+
+// A disk that cannot be read is named as unavailable, whatever the reason; a
+// process with no store has no disk to name, and a good reading names nothing.
+func TestRuntimeStatusDiskUnavailable(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		store bool
+		free  func(string) (uint64, uint64, error)
+		disk  *Disk
+		want  []string
+	}{
+		{"a failed read", true, func(string) (uint64, uint64, error) { return 0, 0, errors.New("permission denied") }, nil, []string{"disk"}},
+		{"a platform without the call", true, func(string) (uint64, uint64, error) { return 0, 0, platform.ErrDiskFreeUnsupported }, nil, []string{"disk"}},
+		{"a good read", true, func(string) (uint64, uint64, error) { return 1 << 20, 1 << 30, nil }, &Disk{AvailableBytes: 1 << 20, SizeBytes: 1 << 30}, nil},
+		{"no store", false, func(string) (uint64, uint64, error) { panic("read the disk of no store") }, nil, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rt := &Runtime{diskFree: tc.free}
+			if tc.store {
+				rt.Store = &session.FileStore{Root: t.TempDir()}
+			}
+			snap := rt.Status()
+			if !reflect.DeepEqual(snap.Disk, tc.disk) || !reflect.DeepEqual(snap.Unavailable, tc.want) {
+				t.Errorf("disk = %+v, unavailable = %v; want %+v and %v", snap.Disk, snap.Unavailable, tc.disk, tc.want)
+			}
+		})
+	}
+}
+
+// The exporter's row says whether a scrape has to carry a token, read from the
+// live configuration, and no other row says anything of the kind.
+func TestRuntimeStatusExporterCredential(t *testing.T) {
+	s := &serveFeatureState{}
+	s.reset()
+	s.cfg.Metrics.Enable = true
+	s.cfg.Gateways.Telegram.Enabled = true
+	s.cfg.Scheduler.Enabled = true
+	launched(t, s)
+	rt := &Runtime{}
+	if err := rt.Init(Options{Cfg: s.cfg}); err != nil {
+		t.Fatal(err)
+	}
+	rt.SetSupervisor(s.sup)
+
+	for _, tc := range []struct {
+		token string
+		want  Credential
+	}{
+		{"s3cret-scrape-token", CredentialToken},
+		{"", CredentialNone},
+	} {
+		next := *s.cfg
+		next.Metrics.Token = tc.token
+		rt.ReplaceConfig(&next)
+		rows := rt.Status().Subsystems
+		if len(rows) < 4 {
+			t.Fatalf("rows = %+v, want the http, gateway, scheduler and metrics rows", rows)
+		}
+		for _, row := range rows {
+			var want Credential
+			if row.Kind == KindMetrics {
+				want = tc.want
+			}
+			if row.Credential != want {
+				t.Errorf("token %q: %s row credential = %q, want %q", tc.token, row.Kind, row.Credential, want)
+			}
+			if tc.token != "" && strings.Contains(string(row.Credential), tc.token) {
+				t.Errorf("the %s row carries the token", row.Kind)
+			}
+		}
+	}
 }

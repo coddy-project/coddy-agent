@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -45,6 +46,7 @@ type exporterState struct {
 	stopped   chan error
 
 	before, after string
+	doc           serve.StatusDocument
 }
 
 func (s *exporterState) close() {
@@ -70,6 +72,7 @@ func (s *exporterState) close() {
 	}
 	s.rt = nil
 	s.before, s.after = "", ""
+	s.doc = serve.StatusDocument{}
 }
 
 // serveWithMetrics starts a runtime and runs the exporter in it as the
@@ -105,9 +108,11 @@ func (s *exporterState) serveWithMetrics(token string) error {
 	}); err != nil {
 		return err
 	}
-	s.collector = NewCollector(Source{
+	// The sampler reads at t0 and then only when a step ticks it: no wall clock.
+	s.collector = newCollectorAt(Source{
 		Status: s.rt.Status, Cfg: s.rt.Cfg, Mgr: s.rt.Mgr, AddConfigObserver: s.rt.AddConfigObserver, Log: log,
-	})
+	}, t0, idle)
+	s.rt.SetMetricsSource(s.collector.Metrics)
 
 	keeper := serve.Subsystem{
 		Kind: serve.KindScheduler, Available: true,
@@ -314,6 +319,73 @@ func (s *exporterState) containsNoneOf(a, b, c string) error {
 	return nil
 }
 
+// theSamplerReachesTheNextSlot ticks the sampler one slot after its first read
+// and renders the document the System page reads, over the collector as the
+// runtime's metrics source.
+func (s *exporterState) theSamplerReachesTheNextSlot() error {
+	s.collector.tick(slotAt(1))
+	s.doc = s.rt.StatusDocument()
+	return nil
+}
+
+func (s *exporterState) theDocumentShowsARate(series string, perMinute float64) error {
+	if s.doc.Metrics == nil {
+		return fmt.Errorf("the document has no metrics block")
+	}
+	var points serve.Samples
+	switch series {
+	case "attemptsOk":
+		points = s.doc.Metrics.Series.AttemptsOK
+	default:
+		return fmt.Errorf("the scenario does not know the series %q", series)
+	}
+	if len(points) != samplePoints {
+		return fmt.Errorf("%s has %d points, want %d", series, len(points), samplePoints)
+	}
+	if got := points[samplePoints-1]; got != perMinute {
+		return fmt.Errorf("the last point of %s = %v, want %v", series, got, perMinute)
+	}
+	if got := points[samplePoints-2]; !math.IsNaN(got) {
+		return fmt.Errorf("the point before it = %v, want a gap: nothing was sampled before the first read", got)
+	}
+	if !s.doc.Metrics.Series.End.Equal(slotAt(1)) {
+		return fmt.Errorf("the series ends at %v, want %v", s.doc.Metrics.Series.End, slotAt(1))
+	}
+	return nil
+}
+
+func (s *exporterState) theProviderRowCounts(name string, attempts, failures int) error {
+	if s.doc.Metrics == nil {
+		return fmt.Errorf("the document has no metrics block")
+	}
+	for _, p := range s.doc.Metrics.Providers {
+		if p.Name != name {
+			continue
+		}
+		if p.Attempts != uint64(attempts) || p.Failures != uint64(failures) {
+			return fmt.Errorf("row %+v, want %d attempts and %d failures", p, attempts, failures)
+		}
+		if !p.LastOKAt.Equal(slotAt(1)) || !p.LastFailureAt.IsZero() {
+			return fmt.Errorf("row %+v, want the last success at %v and no failure", p, slotAt(1))
+		}
+		if p.MeanSeconds == nil {
+			return fmt.Errorf("row %+v has no mean time for its timed attempts", p)
+		}
+		return nil
+	}
+	return fmt.Errorf("no row for the provider %q in %+v", name, s.doc.Metrics.Providers)
+}
+
+// theScrapeCounts sums the attempts over both values of the attempt label, as
+// the sampler does.
+func (s *exporterState) theScrapeCounts(attempts, provider, model, outcome string, want float64) error {
+	labels := map[string]string{"provider": provider, "model": model, "outcome": outcome}
+	if got, _ := sumOf(s.after, attempts, labels); got != want {
+		return fmt.Errorf("%s%v = %v in the scrape, want %v", attempts, labels, got, want)
+	}
+	return nil
+}
+
 func initializeExporterScenario(sc *godog.ScenarioContext) {
 	s := &exporterState{}
 	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
@@ -333,6 +405,14 @@ func initializeExporterScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^"([^"]*)" and "([^"]*)" each rose by (\d+)$`, func(a, b string, n int) error { return s.eachRose(a, b, float64(n)) })
 	sc.Step(`^"([^"]*)" rose by (\d+)$`, func(name string, n int) error { return s.rose(name, float64(n)) })
 	sc.Step(`^"([^"]*)" is present$`, s.isPresent)
+	sc.Step(`^the sampler's clock reaches the next slot, 15 seconds after its first read$`, s.theSamplerReachesTheNextSlot)
+	sc.Step(`^the status document shows "([^"]*)" at (\d+) per minute in its last point and a gap before it$`, func(series string, n int) error {
+		return s.theDocumentShowsARate(series, float64(n))
+	})
+	sc.Step(`^its provider row "([^"]*)" counts (\d+) attempts? and (\d+) failures?, the last success at that slot$`, s.theProviderRowCounts)
+	sc.Step(`^the scrape counts the same (\d+) attempts? for "([^"]*)" ([^ ,]+), ([^ ,]+), ([^ ,]+)$`, func(n int, attempts, provider, model, outcome string) error {
+		return s.theScrapeCounts(attempts, provider, model, outcome, float64(n))
+	})
 	sc.Step(`^the answer contains none of "([^"]*)", "([^"]*)", "([^"]*)"$`, s.containsNoneOf)
 }
 

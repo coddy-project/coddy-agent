@@ -68,6 +68,7 @@ var fullHints = []string{
 	"!! to run a local command the agent never sees",
 	"enter to send, shift+enter (ctrl+j) for newline",
 	"up/down for prompt history",
+	"ctrl+v (alt+v) to paste a picture from the clipboard",
 }
 
 func (h *header) rebuild() {

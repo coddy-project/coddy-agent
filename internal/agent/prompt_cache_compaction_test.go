@@ -325,7 +325,9 @@ func TestPromptCacheInTurnFoldRewritesTheHistoryOnlyAtTheFold(t *testing.T) {
 	// The window is sized so that a fold keeps two steps (the aim leaves room for
 	// them beside the request's fixed overhead) and the trigger fires every few
 	// steps: the run folds several times, which is what makes the check mean
-	// something.
+	// something. The fixed overhead includes the definitions of every built-in
+	// tool, so a new tool can leave room for the latest step only: grow the
+	// window then, keeping the run at two folds and fourteen appends.
 	dirs := []string{}
 	tempDir := func() (string, error) {
 		d, err := os.MkdirTemp("", "coddy-pcache-inturn-*")
@@ -339,7 +341,7 @@ func TestPromptCacheInTurnFoldRewritesTheHistoryOnlyAtTheFold(t *testing.T) {
 			_ = os.RemoveAll(d)
 		}
 	})
-	w, err := inTurnLongTurn{window: 60000, steps: 16, fanOut: 4, evictOff: true}.run(tempDir)
+	w, err := inTurnLongTurn{window: 63000, steps: 16, fanOut: 4, evictOff: true}.run(tempDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +373,7 @@ func TestPromptCacheInTurnFoldRewritesTheHistoryOnlyAtTheFold(t *testing.T) {
 		}
 	}
 
-	folds, appends, keptAsSent := 0, 0, 0
+	folds, appends, keptAsSent, chainKept := 0, 0, 0, 0
 	for i := 1; i < len(hist); i++ {
 		prev, cur := hist[i-1], hist[i]
 		if len(cur) > len(prev) && reflect.DeepEqual(prev, cur[:len(prev)]) {
@@ -381,23 +383,38 @@ func TestPromptCacheInTurnFoldRewritesTheHistoryOnlyAtTheFold(t *testing.T) {
 			continue
 		}
 		folds++
-		// A fold is the one place the history is rewritten. It is a smaller
-		// request that opens, after the system message, with the summary row, and
-		// the row begins with the prompt, verbatim.
+		// A fold is the one place the history changes other than at its end. It
+		// is a smaller request that opens, after the system message, with the
+		// chain of summary rows; the first begins with the prompt, verbatim, and
+		// the later ones do not repeat it.
 		if estimateMessagesTokens(cur) >= estimateMessagesTokens(prev) {
 			t.Fatalf("request %d rewrote the history without shrinking it: %d tokens after %d", i, estimateMessagesTokens(cur), estimateMessagesTokens(prev))
 		}
-		row := cur[1]
-		if !row.CompactionSummary || !strings.HasPrefix(row.Content, inTurnPrompt+"\n\n") {
-			t.Fatalf("request %d: the message after the system message is not the summary row that begins with the prompt: %q", i, firstChars(row.Content, 100))
+		rows := 0
+		for rows+1 < len(cur) && cur[rows+1].CompactionSummary {
+			rows++
+		}
+		if rows == 0 || !strings.HasPrefix(cur[1].Content, inTurnPrompt+"\n\n") {
+			t.Fatalf("request %d: the message after the system message is not the summary row that begins with the prompt: %q", i, firstChars(cur[1].Content, 100))
 		}
 		if got := strings.Count(transcriptText(cur), inTurnPrompt); got != 1 {
 			t.Fatalf("request %d holds the prompt %d times, want once", i, got)
 		}
-		// What follows the row is the latest steps of the turn, byte for byte what
-		// the previous request carried (or, for the step that came after it, what
-		// the transcript stored), and whole steps: it opens on an assistant message.
-		kept := cur[2:]
+		// The fold only adds a row after the ones already written (issue #361):
+		// the system message and the rows before the new one are the previous
+		// request's opening messages, byte for byte, so the provider's cache
+		// holds up to the end of the last of them.
+		if !reflect.DeepEqual(cur[:rows], prev[:rows]) {
+			t.Fatalf("request %d rewrote the summary rows before the new one:\nafter:  %s\nbefore: %s", i, firstChars(transcriptText(cur[:rows]), 300), firstChars(transcriptText(prev[:rows]), 300))
+		}
+		if rows > 1 {
+			chainKept++
+		}
+		// What follows the rows is the latest steps of the turn, byte for byte
+		// what the previous request carried (or, for the step that came after it,
+		// what the transcript stored), and whole steps: it opens on an assistant
+		// message.
+		kept := cur[1+rows:]
 		if len(kept) == 0 || kept[0].Role != llm.RoleAssistant {
 			t.Fatalf("request %d: the kept steps do not open on an assistant message: %+v", i, kept)
 		}
@@ -437,6 +454,11 @@ func TestPromptCacheInTurnFoldRewritesTheHistoryOnlyAtTheFold(t *testing.T) {
 	// transcript.
 	if keptAsSent == 0 {
 		t.Fatal("no fold kept a step the previous request carried: the window leaves room for the latest step only")
+	}
+	// And a fold after the first has to find the rows already written and keep
+	// them, or the check of the prefix compares nothing but the system message.
+	if chainKept == 0 {
+		t.Fatal("no fold kept a summary row an earlier fold wrote")
 	}
 	t.Logf("%d requests: %d folds, %d appends", len(hist), folds, appends)
 

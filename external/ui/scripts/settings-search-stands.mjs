@@ -5,9 +5,9 @@
  * row) and a relay (`coddy serve` with `swarm.enable: true` and no API of its
  * own, whose client token the page needs even on loopback). Each has a home of
  * its own under the system's temporary directory, a loopback port and an
- * environment with nothing of the caller's in it. `stop()` ends both and
- * removes the homes; the scripts call it at exit, so a failed run leaves
- * nothing behind either.
+ * environment with nothing of the caller's in it, and an explicit `--cwd`.
+ * `stop()` ends both and removes the homes; the scripts call it at exit, so a
+ * failed run leaves nothing behind either.
  */
 
 import { spawn } from "node:child_process";
@@ -68,8 +68,8 @@ function freePort() {
  * Resolves `{ agentUrl, relayUrl, relayToken, logs, stop }`.
  */
 export async function startStands(bin) {
-  const scratch = fs.mkdtempSync(
-    path.join(os.tmpdir(), "coddy-settings-search-"),
+  const scratch = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "coddy-settings-search-")),
   );
   const children = [];
   let stopped = false;
@@ -142,7 +142,7 @@ export async function startStands(bin) {
     const relayPort = await freePort();
     const agentHome = path.join(scratch, "agent");
     const relayHome = path.join(scratch, "relay");
-    for (const dir of ["agent/tmp", "agent/work", "relay/tmp"]) {
+    for (const dir of ["agent/tmp", "agent/work", "relay/tmp", "relay/work"]) {
       fs.mkdirSync(path.join(scratch, dir), { recursive: true });
     }
     fs.writeFileSync(path.join(agentHome, "config.yaml"), AGENT_STAND_CONFIG);
@@ -160,7 +160,9 @@ export async function startStands(bin) {
       "-P",
       String(agentPort),
     ]);
-    const relay = launch("relay", [], { CODDY_SWARM_TOKEN: RELAY_STAND_TOKEN });
+    const relay = launch("relay", ["--cwd", path.join(relayHome, "work")], {
+      CODDY_SWARM_TOKEN: RELAY_STAND_TOKEN,
+    });
     await waitFor(agent, `${agentUrl}/v1/models`, "the agent stand");
     await waitFor(relay, `${relayUrl}/swarm/info`, "the relay stand");
     return {

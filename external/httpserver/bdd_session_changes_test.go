@@ -366,6 +366,23 @@ func (s *sessionChangesState) diffReplaces(removed, added string) error {
 	return nil
 }
 
+// diffRemovesFirst holds the order git writes a change in: the removed line,
+// then the added ones in their order.
+func (s *sessionChangesState) diffRemovesFirst(removed, first, second string) error {
+	at := -1
+	for _, line := range []string{"-" + removed, "+" + first, "+" + second} {
+		i := strings.Index(s.one.Patch, "\n"+line+"\n")
+		if i < 0 {
+			return fmt.Errorf("patch has no line %q:\n%s", line, s.one.Patch)
+		}
+		if i <= at {
+			return fmt.Errorf("patch has %q out of order:\n%s", line, s.one.Patch)
+		}
+		at = i
+	}
+	return nil
+}
+
 func (s *sessionChangesState) fileContains(name, content string) error {
 	got, err := os.ReadFile(filepath.Join(s.workspace, name))
 	if err != nil {
@@ -412,6 +429,7 @@ func initializeSessionChangesScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^(\d+) files? (?:is|are) reported as changed with (\d+) additions? and (\d+) deletions?$`, s.countAndStats)
 	sc.Step(`^"([^"]+)" is reported as "([^"]+)"$`, s.reportedAs)
 	sc.Step(`^the diff removes "([^"]+)" and adds "([^"]+)"$`, s.diffReplaces)
+	sc.Step(`^the diff removes "([^"]+)" before it adds "([^"]+)" and "([^"]+)"$`, s.diffRemovesFirst)
 	sc.Step(`^"([^"]+)" contains "([^"]*)"$`, s.fileContains)
 	sc.Step(`^"([^"]+)" no longer exists$`, s.fileGone)
 }

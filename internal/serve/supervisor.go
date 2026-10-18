@@ -58,6 +58,7 @@ type instance struct {
 	done        chan struct{}
 	fingerprint string
 	restartKey  string
+	address     string // the listener address the instance was started on
 	auxiliary   bool
 }
 
@@ -134,6 +135,7 @@ func (s *Supervisor) start(ctx context.Context, sub Subsystem, cfg *config.Confi
 		done:        make(chan struct{}),
 		fingerprint: sub.fingerprint(cfg),
 		restartKey:  sub.restartKey(cfg),
+		address:     sub.address(cfg),
 		auxiliary:   sub.Auxiliary,
 	}
 	s.mu.Lock()
@@ -290,13 +292,15 @@ func (s *Supervisor) markApplied(cfg *config.Config) {
 // been handed the configuration, and moving the address back clears it.
 //
 // A change only a fresh process can adopt is pending, as needsFreshProcess
-// decides it: a listener whose address live moved, or a surface that runs
-// turns in a process started without a session store. It needs a manual
-// restart unless a dispatcher would restart the process by itself, which it
-// does only into a configuration the pre-flight accepts (the check applyConfig
-// makes). A listener live no longer enables may simply stop, so it is never
-// pending.
-func (s *Supervisor) Status(live *config.Config) (subs []SubsystemStatus, restartRequired bool) {
+// decides it: a listener whose address live moved, which then also reads that
+// address as its PendingAddress, or a surface that runs turns in a process
+// started without a session store. It needs a manual restart unless a
+// dispatcher would restart the process by itself, which it does only into a
+// configuration the pre-flight accepts (the check applyConfig makes). When it
+// would not, refused is the pre-flight's message, keys and build tags and
+// never values. A listener live no longer enables may simply stop, so it is
+// never pending.
+func (s *Supervisor) Status(live *config.Config) (subs []SubsystemStatus, restartRequired bool, refused string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	pending := false
@@ -317,21 +321,27 @@ func (s *Supervisor) Status(live *config.Config) (subs []SubsystemStatus, restar
 		default:
 			row.State = StateStopped
 		}
-		switch {
-		case inst != nil && want && sub.restartKey(live) != inst.restartKey,
-			inst == nil && want && sub.Available && sub.NeedsSessions && s.Sessionless:
+		if inst != nil {
+			row.Address = inst.address
+			if next := sub.restartKey(live); want && next != inst.restartKey {
+				row.PendingAddress = next
+				pending = true
+			}
+		} else if want && sub.Available && sub.NeedsSessions && s.Sessionless {
 			pending = true
 		}
 		subs = append(subs, row)
 	}
 	if !pending {
-		return subs, false
+		return subs, false, ""
 	}
 	if !s.Restartable {
-		return subs, true
+		return subs, true, ""
 	}
-	_, err := Resolve(live, s.subs)
-	return subs, err != nil
+	if _, err := Resolve(live, s.subs); err != nil {
+		return subs, true, err.Error()
+	}
+	return subs, false, ""
 }
 
 // needsFreshProcess names a surface cfg asks for that this process cannot

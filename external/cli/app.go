@@ -206,6 +206,14 @@ type App struct {
 
 	mdTheme tui.MarkdownTheme
 
+	// Pictures pasted into the prompt (image_paste.go): how the clipboard is
+	// read and a picture marked up, whether one is on its way, and the
+	// pictures the [image #N] markers name.
+	imgIO     imageIO
+	imageBusy bool
+	pasted    map[int]pastedImage
+	pastedSeq int
+
 	quitErr error
 }
 
@@ -808,6 +816,9 @@ func (a *App) handleGlobalKey(data []byte) bool {
 	case "ctrl+o":
 		a.toggleExpanded()
 		return true
+	case "ctrl+v", "alt+v":
+		a.pasteImage()
+		return true
 	case "ctrl+t":
 		a.toggleThinking()
 		return true
@@ -929,8 +940,9 @@ func (a *App) submitPrompt(text string) {
 	// it on the server this console drives. A locale with no translation
 	// sends none, and the server goes by the language of the prompt.
 	a.startTurnWorker(acp.SessionPromptParams{
-		SessionID: a.sessionID,
-		Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
+		SessionID:  a.sessionID,
+		Prompt:     []acp.ContentBlock{{Type: "text", Text: text}},
+		ImageParts: a.imagePartsFor(text),
 	}, &session.PromptRunOpts{Lang: docs.TurnLangFromEnv(os.Getenv)}, nil)
 }
 

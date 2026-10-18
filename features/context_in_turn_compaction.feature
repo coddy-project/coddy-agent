@@ -32,7 +32,7 @@ Feature: Compaction inside a long turn
     And the turn ended with the model's answer
     And the turn was folded more than once
     And every request carried the prompt verbatim
-    And every summary row starts with the prompt, not with the follow-up
+    And the first summary row starts with the prompt, not with the follow-up, and the later ones do not repeat it
     And every tool result in each request answers a call that request carries
 
   Scenario: A goal turn the supervisor started is not called the user's request
@@ -46,7 +46,7 @@ Feature: Compaction inside a long turn
     And the turn ended with the model's answer
     And the turn was folded more than once
     And every request carried the prompt verbatim
-    And every summary row starts with the supervisor's instruction and does not call it the user's request
+    And the first summary row starts with the supervisor's instruction, the later ones do not repeat it, and none calls it the user's request
 
   Scenario: A refused oversized request is asked again after compaction
     Given a model window of 128000 tokens that the provider serves only up to 30000

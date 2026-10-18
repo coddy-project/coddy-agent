@@ -20,6 +20,7 @@ import { useGraphViewport } from "./useGraphViewport";
 import type { NodeActivity } from "./routes";
 import type { SwarmTopology } from "./types";
 import { useT } from "../i18n/I18nProvider";
+import { ZoomControls } from "../components/ZoomControls";
 
 /** Shared empties, so a graph without work does not rebuild its memos. */
 const NO_ACTIVITY: Record<string, NodeActivity> = {};
@@ -426,26 +427,19 @@ export function TopologyGraph(props: {
             <StarIcon />
           </CanvasButton>
         </div>
-        <div
-          className="swarm-viewport-control"
-          onPointerDown={(event) => event.stopPropagation()}
-        >
-          <CanvasButton
-            label={t("swarm.viewport.zoomOut")}
-            onClick={viewport.zoomOut}
-          >
-            <MinusIcon />
-          </CanvasButton>
-          <CanvasButton label={t("swarm.viewport.fit")} onClick={viewport.fit}>
-            <FitIcon />
-          </CanvasButton>
-          <CanvasButton
-            label={t("swarm.viewport.zoomIn")}
-            onClick={viewport.zoomIn}
-          >
-            <PlusIcon />
-          </CanvasButton>
-        </div>
+        <ZoomControls
+          testId="swarm-map"
+          percent={viewport.percent}
+          onZoomOut={viewport.zoomOut}
+          onZoomIn={viewport.zoomIn}
+          onFit={viewport.fit}
+          labels={{
+            group: t("swarm.viewport.zoom"),
+            zoomOut: t("swarm.viewport.zoomOut"),
+            zoomIn: t("swarm.viewport.zoomIn"),
+            fit: t("swarm.viewport.fit"),
+          }}
+        />
       </div>
 
       {/* HTML rather than SVG so it wraps on a phone instead of setting a
@@ -504,30 +498,6 @@ function StarIcon() {
       <circle cx="13" cy="8" r="1.2" />
       <circle cx="4" cy="13" r="1.2" />
       <circle cx="10" cy="3" r="1.2" />
-    </svg>
-  );
-}
-
-function MinusIcon() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M3 8h10" />
-    </svg>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M3 8h10M8 3v10" />
-    </svg>
-  );
-}
-
-function FitIcon() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" />
     </svg>
   );
 }

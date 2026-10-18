@@ -128,3 +128,14 @@ func TestUnifiedTruncatesHugePatch(t *testing.T) {
 		t.Fatalf("Stat = (+%d -%d), want (+60000 -60000)", added, deleted)
 	}
 }
+
+// Inside one change the removed lines come first, the way git and "diff -u"
+// write it: one line replaced by two read as both insertions ahead of the
+// removal they replace, and the edits window drew the new lines over the old one.
+func TestUnifiedRemovesBeforeItAdds(t *testing.T) {
+	patch, _ := Unified("f.txt", "keep\na\ntail\n", "keep\nb\nc\ntail\n", DefaultContext)
+	want := "@@ -1,3 +1,4 @@\n keep\n-a\n+b\n+c\n tail\n"
+	if !strings.HasSuffix(patch, want) {
+		t.Fatalf("hunk out of order:\n%s\nwant it to end with:\n%s", patch, want)
+	}
+}

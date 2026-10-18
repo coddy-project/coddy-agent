@@ -10,7 +10,7 @@
 
 Необязательно:
 
-- **`golangci-lint` v2.x** (собранный с Go **1.26** или новее) - для **`make lint`**. CI использует **`golangci/golangci-lint-action@v7`** или новее (v6 поддерживает только golangci-lint v1).
+- **`golangci-lint` v2.x** (собранный с Go **1.26** или новее) - для **`make lint`**. CI использует **`golangci/golangci-lint-action@v9`** (v6 поддерживает только golangci-lint v1, а v8 и новее требуют golangci-lint v2.1.0 или новее).
 
 ## Рекомендуемый полный бинарник (HTTP, веб-интерфейс, планировщик, память, консоль)
 
@@ -273,4 +273,4 @@ go install github.com/EvilFreelancer/coddy-agent/cmd/coddy@latest
 
 Так компилируется то, что модуль собирает по умолчанию, **без** ваших локальных **`TAGS`**. Чтобы получить известный набор возможностей (HTTP, веб-интерфейс, планировщик, память, консоль, шлюз мессенджеров), клонируйте репозиторий и используйте **`make build TAGS="http ui scheduler memory cli gateway swarm metrics"`** (или **`go build -tags=...`**, как выше).
 
-<!-- docsgen:source sha256=50c3d5f1cdefdbbc -->
+<!-- docsgen:source sha256=76ae13aa6305590f -->

@@ -3899,7 +3899,11 @@ func openAPISpec() map[string]interface{} {
 						"name":         map[string]string{"type": "string"},
 						"compaction_summary": map[string]interface{}{
 							"type":        "boolean",
-							"description": "Coddy transcript extension: this row is a generated summary of earlier history (context compaction). Rows before the last summary are excluded from LLM prompts but stay in the transcript.",
+							"description": "Coddy transcript extension: this row is a generated summary of earlier history (context compaction). The LLM reads the chain of summary rows (every summary row back to the last one without compaction_block, or back to the first one when they all carry it) and the messages after the last of them; the messages the rows cover stay in the transcript.",
+						},
+						"compaction_block": map[string]interface{}{
+							"type":        "boolean",
+							"description": "Coddy transcript extension: set with compaction_summary on every summary row a compaction writes (not on a row that merges earlier ones): the row continues the chain of summaries before it instead of replacing them and covers the messages between the previous summary row and itself.",
 						},
 						"truncated": map[string]interface{}{
 							"type":        "boolean",
@@ -3994,7 +3998,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"reasoning_effort": map[string]interface{}{
 							"type":        "string",
-							"description": "Reasoning level of this request for a direct `models[].model` id: one of the `reasoning_levels` `GET /v1/models` lists for that id, else **400**. Omitted, `null` or empty, the model's `reasoning_default` applies, and a model without one gets no reasoning parameter at all, which is not the same request as the level `none` a `codex` model offers. The level the provider was asked for is echoed as `metadata.reasoning_effort`. Mapped to OpenAI `reasoning_effort`, Anthropic extended thinking (a `max_tokens` of this request that leaves no room above the thinking budget is **400**) or Codex `reasoning.effort`. The agent/plan/ask profiles take `metadata.reasoning` instead.",
+							"description": "Reasoning level of this request for a direct `models[].model` id: one of the `reasoning_levels` `GET /v1/models` lists for that id, else **400**. Omitted, `null` or empty, the model's `reasoning_default` applies, and a model without one gets no reasoning level at all (a Claude model that thinks by default still thinks, at its own default effort), which is not the same request as the level `none` a `codex` model offers. The level the provider was asked for is echoed as `metadata.reasoning_effort`. Mapped to OpenAI `reasoning_effort`, Anthropic extended thinking (a `max_tokens` of this request that leaves no room above the thinking budget is **400**), Anthropic `output_config.effort` for the Claude models with adaptive thinking, or Codex `reasoning.effort`. The agent/plan/ask profiles take `metadata.reasoning` instead.",
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
@@ -4461,6 +4465,8 @@ func openAPISpec() map[string]interface{} {
 	mergeOpenAPISchedulerDoc(&doc)
 	mergeOpenAPIMemoryDoc(&doc)
 	mergeWorkspaceViewerOpenAPI(doc)
+	mergeCanvasOpenAPI(doc)
+	mergeStatusOpenAPI(doc)
 	return doc
 }
 

@@ -358,6 +358,7 @@ func (a *App) showHotkeys() {
 		"shift+tab cycle reasoning · /reasoning [level] · /think · /nothink · ctrl+t thinking · ctrl+o expand",
 		"/agent /plan /ask mode · /permissions ask|accept_edits|bypass · add --once or --count=N for a few turns",
 		"up/down prompt history · / commands · @ file mention",
+		"ctrl+v or alt+v paste a picture: with a display it opens for markup first, Done attaches it",
 		"!!<command> run it here, hidden from the agent",
 		"/usage provider quota, resets and wallet",
 		"/tasks background tasks: enter output · s stop · r refresh · escape back",
