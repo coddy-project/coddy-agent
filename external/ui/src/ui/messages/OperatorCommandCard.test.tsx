@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import {
   act,
   cleanup,
@@ -7,6 +7,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { loadOperatorCommandCard } from "./OperatorCommandCardLazy";
 import { ToolCallMessage } from "./ToolCallMessage";
 import { setLocale } from "../i18n/i18n";
 import type {
@@ -62,6 +63,12 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   setLocale("en");
+});
+
+// The card is its own chunk; load it once so every render below is
+// synchronous, as it is in the app once the first card has appeared.
+beforeAll(async () => {
+  await loadOperatorCommandCard();
 });
 
 function renderCall(

@@ -52,7 +52,7 @@ import { Markdown } from "../markdown/Markdown";
 import { formatStepDuration } from "./formatStepDuration";
 import { ToolImagePreviews } from "./ToolImagePreviews";
 import { ToolArtifactCards } from "./ToolArtifactCards";
-import { OperatorCommandCard } from "./OperatorCommandCard";
+import { OperatorCommandCardLazy } from "./OperatorCommandCardLazy";
 import {
   isOperatorCommandTool,
   type OperatorCommandState,
@@ -840,7 +840,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
               />
             ) : null}
             {isOperatorCommandCall ? (
-              <OperatorCommandCard
+              <OperatorCommandCardLazy
                 toolCallId={props.toolCallId}
                 sessionId={props.sessionId}
                 status={status}
