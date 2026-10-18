@@ -2412,3 +2412,33 @@ func TestTheAPITokenDoesNotOpenTheExporter(t *testing.T) {
 		t.Errorf("GET /metrics with its own token: %d", code)
 	}
 }
+
+// A tick parses only the lines it sums, into a map and a buffer it keeps. The
+// duration histogram writes a bucket line for every range an attempt fell in,
+// which the sampler never reads; at the label budget they are most of the
+// text, and parsing every line into a map of its own made a tick allocate
+// about 15,000 objects every 15 seconds. What is left is mostly the metrics
+// library writing the text (about 4,800); the bound is half the old count.
+func TestASamplerTickSkipsTheLinesItDoesNotSum(t *testing.T) {
+	models := map[string][]string{}
+	for p := 0; p < 16; p++ {
+		models[fmt.Sprintf("p%02d", p)] = []string{"m0", "m1", "m2", "m3"}
+	}
+	l := newLive(configWith(models))
+	c := newCollectorAt(l.source(), t0, idle)
+	t.Cleanup(c.Close)
+	for name, ms := range models {
+		for _, m := range ms {
+			attempt(name, m, answered(1200, 300, 400), nil)
+			attempt(name, m, nil, errors.New("upstream answered 500"))
+		}
+	}
+	now := t0
+	allocs := testing.AllocsPerRun(5, func() {
+		now = now.Add(sampleEvery)
+		c.tick(now)
+	})
+	if allocs > 7500 {
+		t.Fatalf("a tick at the label budget allocates %.0f objects, want at most 7500", allocs)
+	}
+}

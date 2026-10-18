@@ -13,7 +13,6 @@ import (
 	"math"
 	"slices"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -148,16 +147,26 @@ type Collector struct {
 
 	attempts       *instruments
 	attemptSeconds *instruments
-	firstToken     *instruments
-	inputTokens    *instruments
-	cachedTokens   *instruments
-	outputTokens   *instruments
-	toolCalls      *instruments
-	toolSeconds    *instruments
-	turnsStarted   *vm.Counter
-	turnsEnded     *vm.Counter
-	turnSeconds    *vm.PrometheusHistogram
-	reloads        *vm.Counter
+	// secondsCount and secondsSum name the duration histogram's count and sum
+	// lines, the two the sampler sums of it.
+	secondsCount, secondsSum string
+	// textMu guards text, the buffer a read writes the sampled families into,
+	// and labels, the map it parses a line's labels into: both are kept from
+	// tick to tick, so a tick neither grows the buffer again nor allocates a
+	// map for every line.
+	textMu       sync.Mutex
+	text         bytes.Buffer
+	labels       map[string]string
+	firstToken   *instruments
+	inputTokens  *instruments
+	cachedTokens *instruments
+	outputTokens *instruments
+	toolCalls    *instruments
+	toolSeconds  *instruments
+	turnsStarted *vm.Counter
+	turnsEnded   *vm.Counter
+	turnSeconds  *vm.PrometheusHistogram
+	reloads      *vm.Counter
 
 	// turnStarts holds when each running turn began, by session, for the
 	// duration its ended edge observes.
@@ -220,6 +229,7 @@ func newCollectorAt(src Source, start time.Time, ticks tickSource) *Collector {
 		"Provider invocation attempts, retries included; some fail before a request is sent.")
 	c.attemptSeconds = add("coddy_llm_attempt_duration_seconds", "histogram",
 		"Duration of a provider invocation attempt, the whole stream included.")
+	c.secondsCount, c.secondsSum = c.attemptSeconds.name+"_count", c.attemptSeconds.name+"_sum"
 	c.firstToken = add("coddy_llm_time_to_first_token_seconds", "histogram",
 		"Time from the start of a streamed attempt to its first chunk with content: text, reasoning or a tool call.")
 	c.inputTokens = add("coddy_llm_input_tokens_total", "counter", "Input tokens the provider reported for attempts that returned a response.")
@@ -304,23 +314,37 @@ func (c *Collector) tick(now time.Time) {
 // slow process delays the sample and nothing else.
 func (c *Collector) read(at time.Time) reading {
 	r := reading{at: at, providers: map[string]totals{}}
-	var text bytes.Buffer
+	c.textMu.Lock()
+	c.text.Reset()
+	// The sets write the very sample lines a scrape copies out of them; the
+	// comments among them name no family fold sums and are skipped below.
 	for _, f := range []*instruments{c.attempts, c.attemptSeconds, c.inputTokens, c.outputTokens} {
-		f.writeTo(&text)
+		f.set.WritePrometheus(&c.text)
 	}
-	for line := range strings.Lines(text.String()) {
-		name, labels, value, ok := parseSample(strings.TrimSuffix(line, "\n"))
+	if c.labels == nil {
+		c.labels = map[string]string{}
+	}
+	// Only the lines fold sums are parsed and made strings: the duration
+	// histogram's bucket lines are most of the text at the label budget.
+	summed := [...]string{c.attempts.name, c.secondsCount, c.secondsSum, c.inputTokens.name, c.outputTokens.name}
+	for line := range bytes.Lines(c.text.Bytes()) {
+		end := bytes.IndexAny(line, "{ ")
+		if end <= 0 || !sums(summed[:], line[:end]) {
+			continue
+		}
+		name, value, ok := parseSampleInto(string(bytes.TrimSuffix(line, []byte("\n"))), c.labels)
 		if !ok {
 			continue
 		}
-		provider := labels["provider"]
+		provider, outcome := c.labels["provider"], c.labels["outcome"]
 		t := r.providers[provider]
-		if !c.fold(&t, name, labels["outcome"], value) {
+		if !c.fold(&t, name, outcome, value) {
 			continue
 		}
 		r.providers[provider] = t
-		c.fold(&r.all, name, labels["outcome"], value)
+		c.fold(&r.all, name, outcome, value)
 	}
+	c.textMu.Unlock()
 	snap := c.src.Status()
 	r.turns = float64(snap.TurnsRunning)
 	for _, byStatus := range snap.Tasks {
@@ -329,6 +353,16 @@ func (c *Collector) read(at time.Time) reading {
 		}
 	}
 	return r
+}
+
+// sums reports whether name is one of the names the sampler sums.
+func sums(names []string, name []byte) bool {
+	for _, n := range names {
+		if string(name) == n {
+			return true
+		}
+	}
+	return false
 }
 
 // fold adds one parsed sample to t when it belongs to a sampled family, and
@@ -343,9 +377,9 @@ func (c *Collector) fold(t *totals, name, outcome string, value float64) bool {
 		case slices.Contains(providerFailureOutcomes, outcome):
 			t.failures += value
 		}
-	case c.attemptSeconds.name + "_count":
+	case c.secondsCount:
 		t.count += value
-	case c.attemptSeconds.name + "_sum":
+	case c.secondsSum:
 		t.seconds += value
 	case c.inputTokens.name:
 		t.tokensIn += value

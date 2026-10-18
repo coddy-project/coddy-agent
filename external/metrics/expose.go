@@ -54,42 +54,61 @@ func series(name string, kv ...string) string {
 // are the only ones it knows. Anything that is not a sample, a comment
 // included, gives ok false.
 func parseSample(line string) (name string, labels map[string]string, value float64, ok bool) {
-	if line == "" || line[0] == '#' {
+	if end := strings.IndexAny(line, "{ "); end > 0 && line[end] == '{' {
+		labels = map[string]string{}
+	}
+	if name, value, ok = parseSampleInto(line, labels); !ok {
 		return "", nil, 0, false
+	}
+	return name, labels, value, true
+}
+
+// parseSampleInto is parseSample writing the labels into a map the caller
+// keeps, cleared first, so a reader of many lines allocates none for them.
+func parseSampleInto(line string, labels map[string]string) (name string, value float64, ok bool) {
+	clear(labels)
+	if line == "" || line[0] == '#' {
+		return "", 0, false
 	}
 	end := strings.IndexAny(line, "{ ")
 	if end <= 0 {
-		return "", nil, 0, false
+		return "", 0, false
 	}
 	name, rest := line[:end], line[end:]
 	if rest[0] == '{' {
-		labels = map[string]string{}
 		rest = rest[1:]
 		for !strings.HasPrefix(rest, "}") {
 			eq := strings.Index(rest, `="`)
 			if eq <= 0 {
-				return "", nil, 0, false
+				return "", 0, false
 			}
 			key := rest[:eq]
 			var val string
 			if val, rest, ok = unquote(rest[eq+2:]); !ok {
-				return "", nil, 0, false
+				return "", 0, false
 			}
-			labels[key] = val
+			if labels != nil {
+				labels[key] = val
+			}
 			rest = strings.TrimPrefix(rest, ",")
 		}
 		rest = rest[1:]
 	}
 	value, err := strconv.ParseFloat(strings.TrimPrefix(rest, " "), 64)
 	if err != nil {
-		return "", nil, 0, false
+		return "", 0, false
 	}
-	return name, labels, value, true
+	return name, value, true
 }
 
 // unquote reads a label value up to its closing quote, undoing its escapes,
 // and returns what follows the quote.
 func unquote(s string) (value, rest string, ok bool) {
+	// Most values carry no escape: they are the text up to the quote, with no
+	// copy made.
+	if end := strings.IndexAny(s, `"\`); end >= 0 && s[end] == '"' {
+		return s[:end], s[end+1:], true
+	}
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
 		switch c := s[i]; c {
