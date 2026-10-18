@@ -439,8 +439,11 @@ var (
 	// (.claude/rules/russian-wording.md).
 	russianForbiddenRE = regexp.MustCompile(`(?i)агентск\p{L}*|сабагент\p{L}*|рабоч\p{L}* дерев\p{L}*`)
 	hrRE               = regexp.MustCompile(`^\s*(-{3,}|\*{3,}|_{3,})\s*$`)
-	htmlCommentRE      = regexp.MustCompile(`<!--.*?-->`)
-	typographyChars    = map[rune]string{
+	// imageAltRE finds the alt text of a Markdown image.
+	imageAltRE      = regexp.MustCompile(`!\[([^\]]*)\]\(`)
+	cyrillicRE      = regexp.MustCompile(`\p{Cyrillic}`)
+	htmlCommentRE   = regexp.MustCompile(`<!--.*?-->`)
+	typographyChars = map[rune]string{
 		'—': "an em dash", '–': "an en dash", '«': "a guillemet", '»': "a guillemet",
 		'„': "a curly quote", '“': "a curly quote", '”': "a curly quote",
 	}
@@ -459,6 +462,15 @@ func lintRussian(prose string) []string {
 	}
 	for _, w := range russianForbiddenRE.FindAllString(prose, -1) {
 		out = append(out, fmt.Sprintf("%q: the Russian wording rule forbids it", w))
+	}
+	// An alt text of more than one word is a sentence about the picture and
+	// is translated like a caption; a single word (a theme, a product) is a
+	// name.
+	for _, m := range imageAltRE.FindAllStringSubmatch(prose, -1) {
+		alt := strings.TrimSpace(m[1])
+		if strings.ContainsAny(alt, " \t") && !cyrillicRE.MatchString(alt) {
+			out = append(out, fmt.Sprintf("image alt text %q is not translated", alt))
+		}
 	}
 	return out
 }
