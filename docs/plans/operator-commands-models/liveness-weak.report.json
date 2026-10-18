@@ -1,0 +1,146 @@
+{
+  "engine": {
+    "name": "mcd",
+    "version": "0.3.4",
+    "ir_schema": "mcd-ir/1",
+    "report_schema": "mcd-report/1"
+  },
+  "inputs": [
+    {
+      "kind": "promela",
+      "path": "ticket.pml",
+      "sha256": "3d73997960db9ffe74255cf433fe19da022426e6e7719c656650b4a9ec99d8a4"
+    }
+  ],
+  "model": {
+    "name": "ticket",
+    "state_bytes": 20,
+    "processes": 5,
+    "variables": 14
+  },
+  "search": {
+    "mode": "dfs",
+    "budget": {
+      "states": 1000000,
+      "depth": 1000000,
+      "time_ms": 60000,
+      "mem_bytes": 1073741824
+    },
+    "stop": "complete",
+    "complete": true
+  },
+  "properties": [
+    {
+      "id": "deadlock",
+      "kind": "deadlock",
+      "text": "no invalid end state: every state without an enabled transition has all processes terminated (SPIN: invalid end states)",
+      "status": "verified",
+      "evidence": "exhaustive",
+      "counters": {
+        "states": 147747,
+        "transitions": 902614,
+        "depth": 54,
+        "time_ms": 10356,
+        "memory_bytes_est": 7165208
+      },
+      "complete": true
+    },
+    {
+      "id": "ltl1",
+      "kind": "ltl",
+      "text": "[] (stopc -> <> toolDone)",
+      "status": "verified",
+      "evidence": "exhaustive",
+      "counters": {
+        "states": 745686,
+        "transitions": 7164025,
+        "depth": 60,
+        "time_ms": 4842,
+        "memory_bytes_est": 34719812
+      },
+      "complete": true,
+      "reason": "no acceptance cycle in the complete product with the automaton for !([] (stopc -> <> toolDone)): no run satisfies the negated property; under weak fairness",
+      "temporal": {
+        "logic": "ltl",
+        "source": "formula",
+        "formula": "[] (stopc -> <> toolDone)",
+        "negated": "!([] (stopc -> <> toolDone))",
+        "atoms": [
+          "stopc",
+          "toolDone"
+        ],
+        "stutter_invariant": true,
+        "automaton_states": 2,
+        "automaton_transitions": 3,
+        "automaton_accepting": 1,
+        "fairness": "weak",
+        "claim": "never:ltl1"
+      }
+    },
+    {
+      "id": "ltl2",
+      "kind": "ltl",
+      "text": "[] (cancelled -> <> (toolDone && !alive))",
+      "status": "verified",
+      "evidence": "exhaustive",
+      "counters": {
+        "states": 481444,
+        "transitions": 4758037,
+        "depth": 60,
+        "time_ms": 3089,
+        "memory_bytes_est": 19978112
+      },
+      "complete": true,
+      "reason": "no acceptance cycle in the complete product with the automaton for !([] (cancelled -> <> (toolDone && !alive))): no run satisfies the negated property; under weak fairness",
+      "temporal": {
+        "logic": "ltl",
+        "source": "formula",
+        "formula": "[] (cancelled -> <> (toolDone && !alive))",
+        "negated": "!([] (cancelled -> <> (toolDone && !alive)))",
+        "atoms": [
+          "cancelled",
+          "toolDone",
+          "alive"
+        ],
+        "stutter_invariant": true,
+        "automaton_states": 2,
+        "automaton_transitions": 5,
+        "automaton_accepting": 1,
+        "fairness": "weak",
+        "claim": "never:ltl2"
+      }
+    },
+    {
+      "id": "ltl3",
+      "kind": "ltl",
+      "text": "[] (killc -> <> !alive)",
+      "status": "verified",
+      "evidence": "exhaustive",
+      "counters": {
+        "states": 266719,
+        "transitions": 1928382,
+        "depth": 54,
+        "time_ms": 2002,
+        "memory_bytes_est": 14807702
+      },
+      "complete": true,
+      "reason": "no acceptance cycle in the complete product with the automaton for !([] (killc -> <> !alive)): no run satisfies the negated property; under weak fairness",
+      "temporal": {
+        "logic": "ltl",
+        "source": "formula",
+        "formula": "[] (killc -> <> !alive)",
+        "negated": "!([] (killc -> <> !alive))",
+        "atoms": [
+          "killc",
+          "alive"
+        ],
+        "stutter_invariant": true,
+        "automaton_states": 2,
+        "automaton_transitions": 3,
+        "automaton_accepting": 1,
+        "fairness": "weak",
+        "claim": "never:ltl3"
+      }
+    }
+  ]
+}

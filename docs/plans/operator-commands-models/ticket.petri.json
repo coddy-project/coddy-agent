@@ -1,0 +1,312 @@
+{
+ "name": "operator_command_ticket",
+ "places": [
+  {
+   "name": "waiting",
+   "initial": 1,
+   "capacity": 1
+  },
+  {
+   "name": "running",
+   "initial": 0,
+   "capacity": 1
+  },
+  {
+   "name": "stopping",
+   "initial": 0,
+   "capacity": 1
+  },
+  {
+   "name": "killing",
+   "initial": 0,
+   "capacity": 1
+  },
+  {
+   "name": "declined",
+   "initial": 0,
+   "capacity": 1
+  },
+  {
+   "name": "ended",
+   "initial": 0,
+   "capacity": 1
+  },
+  {
+   "name": "cmd_idle",
+   "initial": 1,
+   "capacity": 1
+  },
+  {
+   "name": "cmd_alive",
+   "initial": 0,
+   "capacity": 1
+  },
+  {
+   "name": "cmd_dead",
+   "initial": 0,
+   "capacity": 1
+  },
+  {
+   "name": "started",
+   "initial": 0,
+   "capacity": 1
+  }
+ ],
+ "transitions": [
+  {
+   "name": "run",
+   "inputs": [
+    {
+     "place": "waiting",
+     "weight": 1
+    },
+    {
+     "place": "cmd_idle",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "running",
+     "weight": 1
+    },
+    {
+     "place": "cmd_alive",
+     "weight": 1
+    },
+    {
+     "place": "started",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "decline",
+   "inputs": [
+    {
+     "place": "waiting",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "declined",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "cancel_wait",
+   "inputs": [
+    {
+     "place": "waiting",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "ended",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "stop",
+   "inputs": [
+    {
+     "place": "running",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "stopping",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "stop_again",
+   "inputs": [
+    {
+     "place": "stopping",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "killing",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "exits_or_cancelled",
+   "inputs": [
+    {
+     "place": "running",
+     "weight": 1
+    },
+    {
+     "place": "cmd_alive",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "running",
+     "weight": 1
+    },
+    {
+     "place": "cmd_dead",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "interrupt_or_escalate",
+   "inputs": [
+    {
+     "place": "stopping",
+     "weight": 1
+    },
+    {
+     "place": "cmd_alive",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "stopping",
+     "weight": 1
+    },
+    {
+     "place": "cmd_dead",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "kill",
+   "inputs": [
+    {
+     "place": "killing",
+     "weight": 1
+    },
+    {
+     "place": "cmd_alive",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "killing",
+     "weight": 1
+    },
+    {
+     "place": "cmd_dead",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "end_ran",
+   "inputs": [
+    {
+     "place": "running",
+     "weight": 1
+    },
+    {
+     "place": "cmd_dead",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "ended",
+     "weight": 1
+    },
+    {
+     "place": "cmd_dead",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "end_stopped",
+   "inputs": [
+    {
+     "place": "stopping",
+     "weight": 1
+    },
+    {
+     "place": "cmd_dead",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "ended",
+     "weight": 1
+    },
+    {
+     "place": "cmd_dead",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "end_killed",
+   "inputs": [
+    {
+     "place": "killing",
+     "weight": 1
+    },
+    {
+     "place": "cmd_dead",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "ended",
+     "weight": 1
+    },
+    {
+     "place": "cmd_dead",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "end_declined",
+   "inputs": [
+    {
+     "place": "declined",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "ended",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "rest",
+   "inputs": [
+    {
+     "place": "ended",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "ended",
+     "weight": 1
+    }
+   ]
+  }
+ ]
+}

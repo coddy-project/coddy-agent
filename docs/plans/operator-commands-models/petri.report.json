@@ -1,0 +1,431 @@
+{
+  "engine": {
+    "name": "mcd",
+    "version": "0.3.4",
+    "ir_schema": "mcd-ir/1",
+    "report_schema": "mcd-report/1"
+  },
+  "inputs": [
+    {
+      "kind": "petri",
+      "path": "ticket.petri.json",
+      "sha256": "11e229840f1e2979f90f5a46e7e29dadaaa2bd4c864c8d74b9829b5a8bb0d6cc"
+    }
+  ],
+  "model": {
+    "name": "operator_command_ticket",
+    "state_bytes": 12,
+    "processes": 1,
+    "variables": 10
+  },
+  "search": {
+    "mode": "dfs",
+    "budget": {
+      "states": 100000,
+      "depth": 1000000,
+      "time_ms": 30000,
+      "mem_bytes": 268435456
+    },
+    "stop": "complete",
+    "complete": true
+  },
+  "properties": [
+    {
+      "id": "deadlock",
+      "kind": "deadlock",
+      "text": "hang (Holzmann §8.10): a reachable marking in which no transition is enabled",
+      "status": "verified",
+      "evidence": "exhaustive",
+      "counters": {
+        "states": 10,
+        "transitions": 16,
+        "depth": 5,
+        "time_ms": 2,
+        "memory_bytes_est": 33304
+      },
+      "complete": true
+    },
+    {
+      "id": "safe",
+      "kind": "invariant",
+      "text": "safe (Holzmann §8.10): every place holds at most one token in every reachable marking",
+      "status": "verified",
+      "evidence": "exhaustive",
+      "counters": {
+        "states": 10,
+        "transitions": 16,
+        "depth": 5,
+        "time_ms": 2,
+        "memory_bytes_est": 33304
+      },
+      "complete": true
+    },
+    {
+      "id": "ltl1",
+      "kind": "ltl",
+      "text": "<> (ended == 1)",
+      "status": "verified",
+      "evidence": "exhaustive",
+      "counters": {
+        "states": 10,
+        "transitions": 25,
+        "depth": 5,
+        "time_ms": 0,
+        "memory_bytes_est": 34348
+      },
+      "complete": true,
+      "reason": "no acceptance cycle in the complete product with the automaton for !(<> (ended == 1)): no run satisfies the negated property",
+      "temporal": {
+        "logic": "ltl",
+        "source": "formula",
+        "formula": "<> (ended == 1)",
+        "negated": "!(<> (ended == 1))",
+        "atoms": [
+          "ended == 1"
+        ],
+        "stutter_invariant": true,
+        "automaton_states": 2,
+        "automaton_transitions": 2,
+        "automaton_accepting": 1,
+        "fairness": "none",
+        "claim": "never:ltl1"
+      }
+    },
+    {
+      "id": "ltl2",
+      "kind": "ltl",
+      "text": "[] (ended == 0 || cmd_alive == 0)",
+      "status": "verified",
+      "evidence": "exhaustive",
+      "counters": {
+        "states": 10,
+        "transitions": 16,
+        "depth": 5,
+        "time_ms": 0,
+        "memory_bytes_est": 34348
+      },
+      "complete": true,
+      "reason": "no acceptance cycle in the complete product with the automaton for !([] (ended == 0 || cmd_alive == 0)): no run satisfies the negated property",
+      "temporal": {
+        "logic": "ltl",
+        "source": "formula",
+        "formula": "[] (ended == 0 || cmd_alive == 0)",
+        "negated": "!([] (ended == 0 || cmd_alive == 0))",
+        "atoms": [
+          "ended == 0",
+          "cmd_alive == 0"
+        ],
+        "stutter_invariant": true,
+        "automaton_states": 2,
+        "automaton_transitions": 3,
+        "automaton_accepting": 1,
+        "fairness": "none",
+        "claim": "never:ltl2"
+      }
+    },
+    {
+      "id": "ltl3",
+      "kind": "ltl",
+      "text": "[] (declined == 0 || started == 0)",
+      "status": "verified",
+      "evidence": "exhaustive",
+      "counters": {
+        "states": 10,
+        "transitions": 16,
+        "depth": 5,
+        "time_ms": 0,
+        "memory_bytes_est": 34348
+      },
+      "complete": true,
+      "reason": "no acceptance cycle in the complete product with the automaton for !([] (declined == 0 || started == 0)): no run satisfies the negated property",
+      "temporal": {
+        "logic": "ltl",
+        "source": "formula",
+        "formula": "[] (declined == 0 || started == 0)",
+        "negated": "!([] (declined == 0 || started == 0))",
+        "atoms": [
+          "declined == 0",
+          "started == 0"
+        ],
+        "stutter_invariant": true,
+        "automaton_states": 2,
+        "automaton_transitions": 3,
+        "automaton_accepting": 1,
+        "fairness": "none",
+        "claim": "never:ltl3"
+      }
+    },
+    {
+      "id": "ltl4",
+      "kind": "ltl",
+      "text": "[] !(cmd_dead == 1 && stopping == 1)",
+      "status": "violated",
+      "evidence": "exhaustive",
+      "counters": {
+        "states": 9,
+        "transitions": 13,
+        "depth": 5,
+        "time_ms": 0,
+        "memory_bytes_est": 34346
+      },
+      "complete": false,
+      "counterexample": {
+        "steps": [
+          {
+            "index": 1,
+            "process": "never:ltl4",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 2,
+            "process": "init",
+            "command": "run",
+            "changes": [
+              {
+                "var": "waiting",
+                "before": 1,
+                "after": 0
+              },
+              {
+                "var": "running",
+                "before": 0,
+                "after": 1
+              },
+              {
+                "var": "cmd_idle",
+                "before": 1,
+                "after": 0
+              },
+              {
+                "var": "cmd_alive",
+                "before": 0,
+                "after": 1
+              },
+              {
+                "var": "started",
+                "before": 0,
+                "after": 1
+              }
+            ],
+            "location": "do",
+            "origin": {
+              "file": "ticket.petri.json",
+              "name": "run"
+            }
+          },
+          {
+            "index": 3,
+            "process": "never:ltl4",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 4,
+            "process": "init",
+            "command": "stop",
+            "changes": [
+              {
+                "var": "running",
+                "before": 1,
+                "after": 0
+              },
+              {
+                "var": "stopping",
+                "before": 0,
+                "after": 1
+              }
+            ],
+            "location": "do",
+            "origin": {
+              "file": "ticket.petri.json",
+              "name": "stop"
+            }
+          },
+          {
+            "index": 5,
+            "process": "never:ltl4",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 6,
+            "process": "init",
+            "command": "interrupt_or_escalate",
+            "changes": [
+              {
+                "var": "cmd_alive",
+                "before": 1,
+                "after": 0
+              },
+              {
+                "var": "cmd_dead",
+                "before": 0,
+                "after": 1
+              }
+            ],
+            "location": "do",
+            "origin": {
+              "file": "ticket.petri.json",
+              "name": "interrupt_or_escalate"
+            }
+          },
+          {
+            "index": 7,
+            "process": "never:ltl4",
+            "command": "((cmd_dead == 1) && (stopping == 1)) -> goto accept_S1",
+            "location": "accept_S1",
+            "origin": {
+              "name": "((cmd_dead == 1) && (stopping == 1))"
+            }
+          },
+          {
+            "index": 8,
+            "process": "init",
+            "command": "stop_again",
+            "changes": [
+              {
+                "var": "stopping",
+                "before": 1,
+                "after": 0
+              },
+              {
+                "var": "killing",
+                "before": 0,
+                "after": 1
+              }
+            ],
+            "location": "do",
+            "origin": {
+              "file": "ticket.petri.json",
+              "name": "stop_again"
+            }
+          },
+          {
+            "index": 9,
+            "process": "never:ltl4",
+            "command": "(1) -> goto accept_S1",
+            "location": "accept_S1",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 10,
+            "process": "init",
+            "command": "end_killed",
+            "changes": [
+              {
+                "var": "killing",
+                "before": 1,
+                "after": 0
+              },
+              {
+                "var": "ended",
+                "before": 0,
+                "after": 1
+              }
+            ],
+            "location": "do",
+            "origin": {
+              "file": "ticket.petri.json",
+              "name": "end_killed"
+            }
+          },
+          {
+            "index": 11,
+            "process": "never:ltl4",
+            "command": "(1) -> goto accept_S1",
+            "location": "accept_S1",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 12,
+            "process": "init",
+            "command": "rest",
+            "location": "do",
+            "origin": {
+              "file": "ticket.petri.json",
+              "name": "rest"
+            }
+          }
+        ],
+        "final_state": [
+          {
+            "var": "waiting",
+            "value": 0
+          },
+          {
+            "var": "running",
+            "value": 0
+          },
+          {
+            "var": "stopping",
+            "value": 0
+          },
+          {
+            "var": "killing",
+            "value": 0
+          },
+          {
+            "var": "declined",
+            "value": 0
+          },
+          {
+            "var": "ended",
+            "value": 1
+          },
+          {
+            "var": "cmd_idle",
+            "value": 0
+          },
+          {
+            "var": "cmd_alive",
+            "value": 0
+          },
+          {
+            "var": "cmd_dead",
+            "value": 1
+          },
+          {
+            "var": "started",
+            "value": 1
+          }
+        ],
+        "summary": "(1) -> goto T0_init, run, (1) -> goto T0_init, stop, (1) -> goto T0_init, interrupt_or_escalate, ((cmd_dead == 1) && (stopping == 1)) -> goto accept_S1, stop_again, (1) -> goto accept_S1, end_killed; loop: (1) -> goto accept_S1, rest",
+        "loop": {
+          "start": 11,
+          "steps": 2
+        }
+      },
+      "reason": "acceptance cycle: the loop of the counterexample passes through an accept state of the automaton for !([] !(cmd_dead == 1 && stopping == 1)) infinitely often, so the run satisfies the negated property (SPIN pan -a: acceptance cycle)",
+      "temporal": {
+        "logic": "ltl",
+        "source": "formula",
+        "formula": "[] !(cmd_dead == 1 && stopping == 1)",
+        "negated": "!([] !(cmd_dead == 1 && stopping == 1))",
+        "atoms": [
+          "cmd_dead == 1",
+          "stopping == 1"
+        ],
+        "stutter_invariant": true,
+        "automaton_states": 2,
+        "automaton_transitions": 3,
+        "automaton_accepting": 1,
+        "fairness": "none",
+        "claim": "never:ltl4"
+      }
+    }
+  ]
+}
