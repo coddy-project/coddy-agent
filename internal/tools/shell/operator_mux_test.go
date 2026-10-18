@@ -166,11 +166,11 @@ func TestOperatorMuxLogIsPrivateAndRemoved(t *testing.T) {
 	for _, name := range []string{"tmux", "screen"} {
 		t.Run(name, func(t *testing.T) {
 			mux := muxUnderTest(t, name)
-			dir := mux.(interface{ logDirectory() string }).logDirectory()
 			run, err := mux.Start("echo private", t.TempDir(), posixShell(t))
 			if err != nil {
 				t.Fatal(err)
 			}
+			dir := mux.(interface{ logDirectory() string }).logDirectory()
 			fi, err := os.Stat(dir)
 			if err != nil {
 				t.Fatal(err)
@@ -280,4 +280,91 @@ func TestOperatorMuxTakesTheFolderAndTheCommandLiterally(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestOperatorMuxIgnoresTheOperatorsRcFiles: a ~/.screenrc (or tmux.conf) can
+// start windows and run commands; the multiplexer of operator commands reads
+// none of them.
+func TestOperatorMuxIgnoresTheOperatorsRcFiles(t *testing.T) {
+	home := t.TempDir()
+	marker := filepath.Join(home, "RCRAN")
+	if err := os.WriteFile(filepath.Join(home, ".screenrc"), []byte("screen -t rc /bin/sh -c 'touch "+marker+"'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".tmux.conf"), []byte("run-shell 'touch "+marker+"'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	for _, name := range []string{"tmux", "screen"} {
+		t.Run(name, func(t *testing.T) {
+			mux := muxUnderTest(t, name)
+			run, err := mux.Start("echo ok", t.TempDir(), posixShell(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitRun(t, run)
+			if _, err := os.Stat(marker); err == nil {
+				t.Fatalf("%s read the operator's rc file", name)
+			}
+		})
+	}
+}
+
+// TestOperatorMuxRemovesItsTemporaryLogFolder: without a session bundle the
+// log goes to a temporary folder, which goes with the run.
+func TestOperatorMuxRemovesItsTemporaryLogFolder(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	for _, name := range []string{"tmux", "screen"} {
+		t.Run(name, func(t *testing.T) {
+			if runtime.GOOS == "windows" {
+				t.Skip("no multiplexer")
+			}
+			if _, err := exec.LookPath(name); err != nil {
+				t.Skipf("%s is not installed", name)
+			}
+			tag := fmt.Sprintf("coddy-test-%d-%d", os.Getpid(), time.Now().UnixNano()%1e9)
+			req := acp.OperatorCommandRequest{SessionID: "sess_" + tag, RequestID: newOperatorRequestID()}
+			var mux operatorMux
+			var err error
+			if name == "tmux" {
+				mux, err = newTmuxMux(&tooling.Env{}, req, tag)
+				t.Cleanup(func() { _ = exec.Command("tmux", "-L", tag, "kill-server").Run() })
+			} else {
+				mux, err = newScreenMux(&tooling.Env{}, req, tag)
+				t.Cleanup(func() { _ = exec.Command("screen", "-S", screenSessionName(tag, req.SessionID), "-X", "quit").Run() })
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if left := operatorTempDirs(tmp); len(left) != 0 {
+				t.Fatalf("a folder was made before the command started: %v", left)
+			}
+			run, err := mux.Start("echo ok", t.TempDir(), posixShell(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitRun(t, run)
+			deadline := time.Now().Add(3 * time.Second)
+			for time.Now().Before(deadline) {
+				if len(operatorTempDirs(tmp)) == 0 {
+					return
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+			t.Fatalf("the temporary log folder stayed: %v", operatorTempDirs(tmp))
+		})
+	}
+}
+
+// operatorTempDirs lists the temporary log folders of operator commands in dir.
+func operatorTempDirs(dir string) []string {
+	var out []string
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "coddy-operator-") {
+			out = append(out, e.Name())
+		}
+	}
+	return out
 }

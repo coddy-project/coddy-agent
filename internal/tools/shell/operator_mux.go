@@ -64,27 +64,31 @@ var safeMuxPath = regexp.MustCompile(`^[A-Za-z0-9/._-]+$`)
 
 // operatorLogDir is the private folder the capture logs of a session live
 // in: under its bundle when that path is plain, else a temporary folder.
-func operatorLogDir(env *tooling.Env) (string, error) {
-	if env != nil && env.SessionDir != "" {
-		dir := filepath.Join(env.SessionDir, "operator-commands")
+//
+// It is made when a command starts, not when the request is shown, and a
+// temporary one (temp true) is the run's own, removed when the run ends.
+func operatorLogDir(sessionDir string) (dir string, temp bool, err error) {
+	if sessionDir != "" {
+		dir := filepath.Join(sessionDir, "operator-commands")
 		if safeMuxPath.MatchString(dir) {
 			if err := os.MkdirAll(dir, 0o700); err != nil {
-				return "", err
+				return "", false, err
 			}
 			if err := os.Chmod(dir, 0o700); err != nil {
-				return "", err
+				return "", false, err
 			}
-			return dir, nil
+			return dir, false, nil
 		}
 	}
-	dir, err := os.MkdirTemp("", "coddy-operator-")
+	dir, err = os.MkdirTemp("", "coddy-operator-")
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if !safeMuxPath.MatchString(dir) {
-		return "", fmt.Errorf("the temporary folder %q has characters a multiplexer command cannot carry", dir)
+		_ = os.Remove(dir)
+		return "", false, fmt.Errorf("the temporary folder %q has characters a multiplexer command cannot carry", dir)
 	}
-	return dir, nil
+	return dir, true, nil
 }
 
 // muxSessionTag names the multiplexer session of a Coddy session.
@@ -292,7 +296,7 @@ func writeMuxLauncher(base, cwd string, commandShell platform.Shell, command str
 	script := "#!/bin/sh\n" +
 		"exec 9>>" + shellQuote(l.traceFile) + "\n" +
 		"echo \"launcher $$ started\" >&9\n" +
-		"echo $$ > " + shellQuote(l.pidFile) + "\n" +
+		"echo $$ > " + shellQuote(l.pidFile) + " || exit 1\n" +
 		"cd " + shellQuote(cwd) + " || exit 1\n" +
 		"trap : INT\n" +
 		strings.Join(quoted, " ") + " 9>&-\n" +
@@ -333,7 +337,8 @@ func (l *muxLauncher) cleanup() {
 // ---- tmux ----
 
 type tmuxMux struct {
-	bin, socket, session, logDir, requestID string
+	bin, socket, session, sessionDir, requestID string
+	logDir                                      string
 }
 
 func newTmuxMux(env *tooling.Env, req acp.OperatorCommandRequest, socket string) (*tmuxMux, error) {
@@ -341,15 +346,19 @@ func newTmuxMux(env *tooling.Env, req acp.OperatorCommandRequest, socket string)
 	if err != nil {
 		return nil, fmt.Errorf("tools.operator_command.multiplexer is tmux, which is not installed on this machine")
 	}
-	dir, err := operatorLogDir(env)
-	if err != nil {
-		return nil, err
-	}
-	return &tmuxMux{bin: bin, socket: socket, session: muxSessionTag(req.SessionID), logDir: dir, requestID: req.RequestID}, nil
+	return &tmuxMux{bin: bin, socket: socket, session: muxSessionTag(req.SessionID), sessionDir: envSessionDir(env), requestID: req.RequestID}, nil
 }
 
-func (m *tmuxMux) Name() string          { return "tmux" }
-func (m *tmuxMux) logDirectory() string  { return m.logDir }
+func (m *tmuxMux) Name() string         { return "tmux" }
+func (m *tmuxMux) logDirectory() string { return m.logDir }
+
+// envSessionDir is the session bundle the logs go under, if any.
+func envSessionDir(env *tooling.Env) string {
+	if env == nil {
+		return ""
+	}
+	return env.SessionDir
+}
 func (m *tmuxMux) AttachCommand() string { return "tmux -L " + m.socket + " attach -t " + m.session }
 
 // args puts Coddy's server and an empty configuration in front of every call:
@@ -374,14 +383,26 @@ func (m *tmuxMux) Start(command, cwd string, commandShell platform.Shell) (opera
 			return nil, fmt.Errorf("tmux new-session: %v: %s", err, bytes.TrimSpace(out))
 		}
 	}
-	r, err := newMuxRun(m.logDir, m.requestID)
+	dir, temp, err := operatorLogDir(m.sessionDir)
 	if err != nil {
+		return nil, err
+	}
+	m.logDir = dir
+	dropDir := func() {
+		if temp {
+			_ = os.RemoveAll(dir)
+		}
+	}
+	r, err := newMuxRun(dir, m.requestID)
+	if err != nil {
+		dropDir()
 		return nil, err
 	}
 	win := windowName(m.requestID)
 	l, err := writeMuxLauncher(strings.TrimSuffix(r.logPath, ".log"), cwd, commandShell, command)
 	if err != nil {
 		_ = os.Remove(r.logPath)
+		dropDir()
 		return nil, err
 	}
 	// The window runs the launcher as argv, never through a shell of its own,
@@ -398,12 +419,16 @@ func (m *tmuxMux) Start(command, cwd string, commandShell platform.Shell) (opera
 	if err != nil {
 		l.cleanup()
 		_ = os.Remove(r.logPath)
+		dropDir()
 		return nil, fmt.Errorf("tmux new-window: %v: %s", err, out)
 	}
 	fields := strings.Fields(lastLine(out))
 	if len(fields) != 2 {
+		// The window may be up: it must not run on, unwatched.
+		_, _ = m.run("kill-window", "-t", "="+m.session+":="+win)
 		l.cleanup()
 		_ = os.Remove(r.logPath)
+		dropDir()
 		return nil, fmt.Errorf("tmux new-window printed %q", out)
 	}
 	pane := fields[0]
@@ -440,6 +465,7 @@ func (m *tmuxMux) Start(command, cwd string, commandShell platform.Shell) (opera
 			return true, code
 		})
 		l.cleanup()
+		dropDir()
 	}()
 	return r, nil
 }
@@ -487,7 +513,8 @@ func lastLine(s string) string {
 // ---- screen ----
 
 type screenMux struct {
-	bin, session, logDir, requestID string
+	bin, session, sessionDir, requestID string
+	logDir                              string
 }
 
 // screenSessionName is the screen session of a Coddy session; prefix keeps a
@@ -505,11 +532,7 @@ func newScreenMux(env *tooling.Env, req acp.OperatorCommandRequest, prefix strin
 	if err != nil {
 		return nil, fmt.Errorf("tools.operator_command.multiplexer is screen, which is not installed on this machine")
 	}
-	dir, err := operatorLogDir(env)
-	if err != nil {
-		return nil, err
-	}
-	return &screenMux{bin: bin, session: screenSessionName(prefix, req.SessionID), logDir: dir, requestID: req.RequestID}, nil
+	return &screenMux{bin: bin, session: screenSessionName(prefix, req.SessionID), sessionDir: envSessionDir(env), requestID: req.RequestID}, nil
 }
 
 func (m *screenMux) Name() string          { return "screen" }
@@ -530,7 +553,9 @@ func shellQuote(s string) string {
 
 func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (operatorRun, error) {
 	if _, err := m.run("-X", "select", "0"); err != nil {
-		cmd := serverCommand(m.bin, "-dmS", m.session)
+		// -c /dev/null: the operator's ~/.screenrc can start windows and run
+		// commands of its own, as a tmux.conf can (tmux runs with -f /dev/null).
+		cmd := serverCommand(m.bin, "-c", "/dev/null", "-dmS", m.session)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return nil, fmt.Errorf("screen -dmS: %v: %s", err, bytes.TrimSpace(out))
 		}
@@ -545,13 +570,25 @@ func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (ope
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
-	r, err := newMuxRun(m.logDir, m.requestID)
+	dir, temp, err := operatorLogDir(m.sessionDir)
 	if err != nil {
+		return nil, err
+	}
+	m.logDir = dir
+	dropDir := func() {
+		if temp {
+			_ = os.RemoveAll(dir)
+		}
+	}
+	r, err := newMuxRun(dir, m.requestID)
+	if err != nil {
+		dropDir()
 		return nil, err
 	}
 	l, err := writeMuxLauncher(strings.TrimSuffix(r.logPath, ".log"), cwd, commandShell, command)
 	if err != nil {
 		_ = os.Remove(r.logPath)
+		dropDir()
 		return nil, err
 	}
 	// screen parses the words of a command it is handed (it expands $VAR,
@@ -566,6 +603,7 @@ func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (ope
 		if out, err := m.run(step...); err != nil {
 			cleanup()
 			_ = os.Remove(r.logPath)
+			dropDir()
 			return nil, fmt.Errorf("screen %s: %v: %s", strings.Join(step, " "), err, out)
 		}
 	}
@@ -576,8 +614,11 @@ func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (ope
 		}
 		if r.pid == 0 {
 			if time.Now().After(deadline) {
+				// The window may be up after all: it must not run on, unwatched.
+				_, _ = m.run("-p", win, "-X", "kill")
 				cleanup()
 				_ = os.Remove(r.logPath)
+				dropDir()
 				return nil, fmt.Errorf("the screen window of the command did not start")
 			}
 			time.Sleep(20 * time.Millisecond)
@@ -597,6 +638,7 @@ func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (ope
 			return ended, code
 		})
 		cleanup()
+		dropDir()
 	}()
 	return r, nil
 }
