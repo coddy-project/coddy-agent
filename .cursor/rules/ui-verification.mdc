@@ -46,6 +46,18 @@ change touches the chevron, the rows it sits on or the type around them, run
 chevron's ink centre against the label's on a transcript row and on the Tasks panel toggle, and
 fails past **1px**.
 
+## The line numbers of a diff
+
+Every line number cell of a diff in the edits window is as wide as the file's widest number,
+never as its own (**`DESIGN.md`**, *Edits of a chat*): a cell sized by its content put the code of a
+removed or an added line, whose other cell is blank, a few pixels left of the context around it,
+and every vitest still passed. When the change touches **`changes/DiffFileSection.tsx`**, the
+**`.dv-*`** row styles or the type of the diffs, run **`external/ui/scripts/diff-gutter-check.mjs`**
+(**`npm run check:diff-gutter`**) against a **`vite`** dev server (setup in
+**`docs/surfaces/web-ui.md`**, *Checking the line numbers of a diff*): it reads where the code of
+every row starts in the unified view and in each column of the split view, and fails past **0.5px**
+or on a number that does not fit its cell.
+
 ## The composer caret
 
 The composer's textarea keeps the caret and paints its glyphs transparent; the mirror under it

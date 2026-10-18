@@ -9,7 +9,9 @@
 package linediff
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -85,7 +87,36 @@ func diffOps(a, b []string) []op {
 	for _, line := range a[len(a)-suffix:] {
 		ops = append(ops, op{kind: opEqual, text: line})
 	}
+	removalsFirst(ops)
 	return ops
+}
+
+// removalsFirst writes every change as its removed lines, then its inserted
+// ones, in place, keeping each side's own order.
+//
+// A minimal script says which lines change, not in what order a run of changes
+// reads: the middle snake can split a run between an insert and a delete, and
+// one line replaced by two came out as both insertions ahead of the removal
+// they replace. git and "diff -u" always write the removals first, and the edits
+// window reads a patch that way: it pairs a run of removals with the run of
+// insertions after it, so an insert ahead of its removal stood above the line
+// it replaced and lost its pair in the side-by-side view.
+func removalsFirst(ops []op) {
+	for start := 0; start < len(ops); {
+		if ops[start].kind == opEqual {
+			start++
+			continue
+		}
+		end := start
+		for end < len(ops) && ops[end].kind != opEqual {
+			end++
+		}
+		// opDelete is declared before opInsert, so their order is the kinds'.
+		slices.SortStableFunc(ops[start:end], func(x, y op) int {
+			return cmp.Compare(x.kind, y.kind)
+		})
+		start = end
+	}
 }
 
 // Stat counts added and deleted lines between two file contents.

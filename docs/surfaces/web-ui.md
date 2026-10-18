@@ -1466,7 +1466,10 @@ to keep that row in view when the list is long. On a
 phone the window opens on the diffs and the tree switch brings the list over them.
 
 A file section has a sticky header: the name, which folds the diff, then copy-path and
-discard, always in sight, and the file's `+a −b` at the right end. Between hunks sits a wordless separator
+discard, always in sight, and the file's `+a −b` at the right end. The line numbers stand in
+cells as wide as the file's longest number, so the code of every row, a removed or an added one
+included, starts at one edge; inside a change the removed lines come first, then the added ones,
+the way git writes them. Between hunks sits a wordless separator
 rather than an `N unmodified lines` filler row. In a folder with nothing to show it says
 so: clean, or not in a git repository.
 
@@ -2048,6 +2051,23 @@ CODDY_UI_URL=http://127.0.0.1:5241 npm --prefix external/ui run check:chevron
 ```
 
 **`CODDY_ENGINE=webkit`** (or **`firefox`**) runs the same measurements in another engine, and **`CODDY_CHEVRON_TOLERANCE_PX`** raises the allowance. Like the WebKit harness above, this one is **not part of `make test`**: it is a manual check, run when a change touches the chevron, the rows it sits on or the type around them.
+
+### Checking the line numbers of a diff
+
+Every line number cell of a diff in the edits window is as wide as the file's longest number (**`DESIGN.md`**, *Edits of a chat*), because a cell sized by its own number put the code of a removed or an added line, whose other cell is blank, a few pixels left of the context around it. How wide a cell is drawn is a layout fact, and jsdom has none, so the vitest suite cannot answer it. **`external/ui/scripts/diff-gutter-check.mjs`** measures it in a real engine: in the unified view and in each column of the split view it reads where the code of every row starts, and exits non-zero when two rows differ by more than **0.5px** or when a line number does not fit its cell.
+
+It drives **`src/diff-gutter-check.html`**, a stand that mounts one file of the edits window from the real component against the real stylesheet, with removed and added lines and numbers of two to four digits, so it needs a **`vite`** dev server and no backend at all.
+
+```bash
+cd external/ui && npm i --no-save playwright && npx playwright install chromium
+```
+
+```bash
+cd external/ui && npx vite --port 5242 &
+CODDY_UI_URL=http://127.0.0.1:5242 npm --prefix external/ui run check:diff-gutter
+```
+
+**`CODDY_ENGINE=webkit`** (or **`firefox`**) runs the same measurements in another engine, and **`CODDY_DIFF_GUTTER_TOLERANCE_PX`** raises the allowance. It is **not part of `make test`**: run it when a change touches the diff rows of the edits window, their line numbers or their type.
 
 ### Checking the composer caret at every zoom
 

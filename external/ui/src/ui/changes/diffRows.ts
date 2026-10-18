@@ -19,6 +19,28 @@ export type SplitRow =
   | { kind: "gap" }
   | { kind: "pair"; left: ParsedDiffLine | null; right: ParsedDiffLine | null };
 
+/** The fewest digits a file's number cells make room for. */
+const MIN_LINE_NUMBER_DIGITS = 2;
+
+/**
+ * How many digits the widest line number of a file has, in either column.
+ *
+ * Every number cell of the file is drawn this wide, so its code starts at one x
+ * on every row. A cell sized by its own number put the code of a removal or an
+ * addition, whose other cell is blank, and of a row of shorter numbers a few
+ * pixels left of the context around it. A file of a few lines still gets two
+ * digits, so its gutter is not cramped.
+ */
+export function lineNumberDigits(hunks: ParsedDiffHunk[]): number {
+  let widest = 0;
+  for (const hunk of hunks) {
+    for (const line of hunk.lines) {
+      widest = Math.max(widest, line.oldNo ?? 0, line.newNo ?? 0);
+    }
+  }
+  return Math.max(MIN_LINE_NUMBER_DIGITS, String(widest).length);
+}
+
 /** Every diff line in order, with a gap between hunks. */
 export function toUnifiedRows(hunks: ParsedDiffHunk[]): UnifiedRow[] {
   const rows: UnifiedRow[] = [];

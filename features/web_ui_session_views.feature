@@ -39,6 +39,7 @@ Feature: The views of a chat
     And the menu of the edits holds side by side, collapse all and discard all
     And the tree of the edits lists only the changed files
     And a file picked in the tree of the edits is scrolled to and marked
+    And the code of every row of a diff starts at one edge, whatever its line numbers
     And a click beside the edits window puts it away
 
   Scenario: Uncommitted changes are discarded from the edits, after a question
