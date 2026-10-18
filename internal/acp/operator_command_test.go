@@ -177,3 +177,15 @@ func TestOperatorCommandsOf(t *testing.T) {
 		t.Fatal("a silent wrapper let the capability through")
 	}
 }
+
+// TestOperatorCommandTicketWaitAfterTheEnd: a second Wait on a request that is
+// over is refused rather than read as a run.
+func TestOperatorCommandTicketWaitAfterTheEnd(t *testing.T) {
+	tk := NewOperatorCommandTicket()
+	_ = tk.Answer(OperatorActionRun, "")
+	d := waitDecision(t, tk)
+	d.Done()
+	if _, err := tk.Wait(context.Background()); !errors.Is(err, ErrOperatorCommandEnded) {
+		t.Fatalf("err = %v, want ended", err)
+	}
+}

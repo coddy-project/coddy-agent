@@ -36,10 +36,11 @@ const (
 	// operatorStopGrace is how long a stopped command has after the interrupt
 	// before its group is terminated, and the terminate's own grace.
 	operatorStopGrace = 3 * time.Second
-	// operatorCancelDrain bounds how long a cancelled turn waits for the
-	// killed command to be reaped.
-	operatorCancelDrain = 8 * time.Second
 )
+
+// operatorCancelDrain bounds how long a cancelled turn waits for the killed
+// command to be reaped; a variable so a test can shorten it.
+var operatorCancelDrain = 8 * time.Second
 
 // The phases a frame of a run reports in _meta.coddy.operatorCommand.
 const (
@@ -205,10 +206,6 @@ func executeOperatorCommand(ctx context.Context, argsJSON string, env *tooling.E
 		}
 		return out, nil
 	}
-	if decision.Done != nil {
-		defer decision.Done()
-	}
-
 	var run operatorRun
 	if mux != nil {
 		run, err = mux.Start(args.Command, cwd, commandShell)
@@ -216,11 +213,50 @@ func executeOperatorCommand(ctx context.Context, argsJSON string, env *tooling.E
 		run, err = StartOperatorToolCommand(args.Command, cwd, commandShell)
 	}
 	if err != nil {
+		if decision.Done != nil {
+			decision.Done()
+		}
 		frame := operatorFrame{env: env, req: req, args: argsJSON}
 		frame.send(OperatorPhaseEnded, "", -1, 0)
 		return "", fmt.Errorf("the operator's command did not start: %w", err)
 	}
-	return superviseOperatorRun(ctx, env, req, argsJSON, run, decision)
+	return superviseOperatorRunAndRelease(ctx, env, req, argsJSON, run, decision)
+}
+
+// superviseOperatorRunAndRelease supervises the run and ends the request once
+// the process has ended. A turn cancelled while the process outlives the drain
+// returns at once, but the request stays running on every surface - so a Stop
+// still reaches the process - until the process has really ended.
+func superviseOperatorRunAndRelease(ctx context.Context, env *tooling.Env, req acp.OperatorCommandRequest, argsJSON string, run operatorRun, decision *acp.OperatorCommandDecision) (string, error) {
+	out, err := superviseOperatorRun(ctx, env, req, argsJSON, run, decision)
+	release := func() {
+		if decision.Done != nil {
+			decision.Done()
+		}
+	}
+	select {
+	case <-run.Done():
+		release()
+		return out, err
+	default:
+	}
+	go func() {
+		stop, kill := decision.Stop, decision.Kill
+		for {
+			select {
+			case <-run.Done():
+				release()
+				return
+			case <-stop:
+				stop = nil
+				run.Kill(operatorStopGrace)
+			case <-kill:
+				kill = nil
+				run.Kill(0)
+			}
+		}
+	}()
+	return out, err
 }
 
 var errNoOperator = fmt.Errorf("operator_command needs an operator at the web UI or the console; nobody can answer on this surface")
@@ -241,6 +277,15 @@ func superviseOperatorRun(ctx context.Context, env *tooling.Env, req acp.Operato
 	for {
 		select {
 		case <-run.Done():
+			if !stopped {
+				// A Stop and the shell's exit can be ready at once, and
+				// select picks either: an accepted Stop is still a stop.
+				select {
+				case <-decision.Stop:
+					stopped = true
+				default:
+				}
+			}
 			out := run.Output()
 			code := run.ExitCode()
 			phase := OperatorPhaseEnded

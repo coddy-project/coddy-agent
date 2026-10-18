@@ -279,10 +279,10 @@
    ]
   },
   {
-   "name": "end_declined",
+   "name": "rest",
    "inputs": [
     {
-     "place": "declined",
+     "place": "ended",
      "weight": 1
     }
    ],
@@ -294,16 +294,16 @@
    ]
   },
   {
-   "name": "rest",
+   "name": "rest_declined",
    "inputs": [
     {
-     "place": "ended",
+     "place": "declined",
      "weight": 1
     }
    ],
    "outputs": [
     {
-     "place": "ended",
+     "place": "declined",
      "weight": 1
     }
    ]

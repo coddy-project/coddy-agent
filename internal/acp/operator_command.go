@@ -200,6 +200,10 @@ func (t *OperatorCommandTicket) Wait(ctx context.Context) (*OperatorCommandDecis
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.state == OperatorStateEnded {
+		// A request that is over is not a run, whoever asks again.
+		return nil, ErrOperatorCommandEnded
+	}
 	if t.state == OperatorStateDeclined {
 		return &OperatorCommandDecision{Action: OperatorActionDecline, Note: t.note, Done: func() {}}, nil
 	}

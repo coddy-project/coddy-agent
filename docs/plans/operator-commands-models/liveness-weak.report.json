@@ -9,22 +9,22 @@
     {
       "kind": "promela",
       "path": "ticket.pml",
-      "sha256": "3d73997960db9ffe74255cf433fe19da022426e6e7719c656650b4a9ec99d8a4"
+      "sha256": "9c49dc55f82b78f91c43db6a1d53e82f25e208870cce94a54fb6f5a51562ea3a"
     }
   ],
   "model": {
     "name": "ticket",
-    "state_bytes": 20,
-    "processes": 5,
-    "variables": 14
+    "state_bytes": 22,
+    "processes": 6,
+    "variables": 15
   },
   "search": {
     "mode": "dfs",
     "budget": {
-      "states": 1000000,
+      "states": 20000000,
       "depth": 1000000,
-      "time_ms": 60000,
-      "mem_bytes": 1073741824
+      "time_ms": 600000,
+      "mem_bytes": 4294967296
     },
     "stop": "complete",
     "complete": true
@@ -37,11 +37,11 @@
       "status": "verified",
       "evidence": "exhaustive",
       "counters": {
-        "states": 147747,
-        "transitions": 902614,
-        "depth": 54,
-        "time_ms": 10356,
-        "memory_bytes_est": 7165208
+        "states": 201737,
+        "transitions": 1241724,
+        "depth": 66,
+        "time_ms": 8496,
+        "memory_bytes_est": 8662280
       },
       "complete": true
     },
@@ -52,11 +52,11 @@
       "status": "verified",
       "evidence": "exhaustive",
       "counters": {
-        "states": 745686,
-        "transitions": 7164025,
-        "depth": 60,
-        "time_ms": 4842,
-        "memory_bytes_est": 34719812
+        "states": 860872,
+        "transitions": 7995793,
+        "depth": 69,
+        "time_ms": 2952,
+        "memory_bytes_est": 39216960
       },
       "complete": true,
       "reason": "no acceptance cycle in the complete product with the automaton for !([] (stopc -> <> toolDone)): no run satisfies the negated property; under weak fairness",
@@ -84,11 +84,11 @@
       "status": "verified",
       "evidence": "exhaustive",
       "counters": {
-        "states": 481444,
-        "transitions": 4758037,
-        "depth": 60,
-        "time_ms": 3089,
-        "memory_bytes_est": 19978112
+        "states": 602353,
+        "transitions": 6844916,
+        "depth": 71,
+        "time_ms": 2573,
+        "memory_bytes_est": 32482362
       },
       "complete": true,
       "reason": "no acceptance cycle in the complete product with the automaton for !([] (cancelled -> <> (toolDone && !alive))): no run satisfies the negated property; under weak fairness",
@@ -117,11 +117,11 @@
       "status": "verified",
       "evidence": "exhaustive",
       "counters": {
-        "states": 266719,
-        "transitions": 1928382,
-        "depth": 54,
-        "time_ms": 2002,
-        "memory_bytes_est": 14807702
+        "states": 400322,
+        "transitions": 3047797,
+        "depth": 71,
+        "time_ms": 1124,
+        "memory_bytes_est": 18826452
       },
       "complete": true,
       "reason": "no acceptance cycle in the complete product with the automaton for !([] (killc -> <> !alive)): no run satisfies the negated property; under weak fairness",
@@ -140,6 +140,41 @@
         "automaton_accepting": 1,
         "fairness": "weak",
         "claim": "never:ltl3"
+      }
+    },
+    {
+      "id": "ltl4",
+      "kind": "ltl",
+      "text": "[] (toolDone -> <> (!alive && (st == ENDED || st == DECLINED || started == 0)))",
+      "status": "verified",
+      "evidence": "exhaustive",
+      "counters": {
+        "states": 480439,
+        "transitions": 3854086,
+        "depth": 73,
+        "time_ms": 1461,
+        "memory_bytes_est": 20919670
+      },
+      "complete": true,
+      "reason": "no acceptance cycle in the complete product with the automaton for !([] (toolDone -> <> (!alive && (st == ENDED || st == DECLINED || started == 0)))): no run satisfies the negated property; under weak fairness",
+      "temporal": {
+        "logic": "ltl",
+        "source": "formula",
+        "formula": "[] (toolDone -> <> (!alive && (st == ENDED || st == DECLINED || started == 0)))",
+        "negated": "!([] (toolDone -> <> (!alive && (st == ENDED || st == DECLINED || started == 0))))",
+        "atoms": [
+          "toolDone",
+          "alive",
+          "st == 5",
+          "st == 4",
+          "started == 0"
+        ],
+        "stutter_invariant": true,
+        "automaton_states": 2,
+        "automaton_transitions": 5,
+        "automaton_accepting": 1,
+        "fairness": "weak",
+        "claim": "never:ltl4"
       }
     }
   ]

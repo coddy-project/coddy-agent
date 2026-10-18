@@ -24,6 +24,7 @@ bool ranAnswer = false; /* a run answer was accepted */
 bool alive = false;     /* the command's process group exists */
 bool interrupted = false;
 bool toolDone = false;  /* the tool call returned */
+bool killerPending = false; /* the delayed terminate of a cancelled turn is on its way */
 
 /* Ticket.Answer for one action; a refused answer changes nothing. */
 inline answer(a) {
@@ -66,9 +67,17 @@ end_idle:
   do
   :: !alive -> break
   :: alive -> atomic { alive = false }          /* exits by itself */
+  :: alive -> skip                              /* keeps running */
   :: alive && interrupted -> atomic { alive = false } /* honours Ctrl+C */
   :: alive && interrupted -> skip               /* ignores it */
   od
+}
+
+/* The goroutine a cancel starts: after the interrupt's grace it terminates
+ * the group (operator_tool.go, the ctx.Done case). */
+active proctype Killer() {
+end_k:
+  (killerPending && alive) -> alive = false
 }
 
 active proctype Tool() {
@@ -98,11 +107,18 @@ end_wait:
   :: stopc && !interrupted -> interrupted = true      /* Interrupt */
   :: interrupted && !escalated -> escalated = true; alive = false /* grace ran out: terminate */
   :: killc && !killed -> killed = true; alive = false /* second stop: kill */
-  :: cancelled && alive -> interrupted = true; alive = false /* cancel: interrupt, then terminate */
+  :: cancelled && alive -> interrupted = true; killerPending = true;
+       /* the turn waits for the reap at most operatorCancelDrain */
+       if :: (!alive) :: skip /* the drain expired */ fi; break
   od;
-  /* a stopped command's group is terminated once the shell is reaped */
-  alive = false;
+  toolDone = true;
+  /* superviseOperatorRunAndRelease: the request ends once the process has */
+end_release:
+  (!alive);
   atomic { if :: st != ENDED -> st = ENDED :: else -> skip fi };
+  goto fin;
 out:
-  toolDone = true
+  toolDone = true;
+fin:
+  skip
 }

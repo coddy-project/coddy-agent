@@ -9,22 +9,22 @@
     {
       "kind": "promela",
       "path": "ticket.pml",
-      "sha256": "3d73997960db9ffe74255cf433fe19da022426e6e7719c656650b4a9ec99d8a4"
+      "sha256": "9c49dc55f82b78f91c43db6a1d53e82f25e208870cce94a54fb6f5a51562ea3a"
     }
   ],
   "model": {
     "name": "ticket",
-    "state_bytes": 20,
-    "processes": 5,
-    "variables": 14
+    "state_bytes": 22,
+    "processes": 6,
+    "variables": 15
   },
   "search": {
     "mode": "dfs",
     "budget": {
-      "states": 1000000,
+      "states": 20000000,
       "depth": 1000000,
-      "time_ms": 60000,
-      "mem_bytes": 1073741824
+      "time_ms": 600000,
+      "mem_bytes": 4294967296
     },
     "stop": "complete",
     "complete": true
@@ -37,11 +37,11 @@
       "status": "verified",
       "evidence": "exhaustive",
       "counters": {
-        "states": 147747,
-        "transitions": 902614,
-        "depth": 54,
-        "time_ms": 1640,
-        "memory_bytes_est": 7165208
+        "states": 201737,
+        "transitions": 1241724,
+        "depth": 66,
+        "time_ms": 3102,
+        "memory_bytes_est": 8662280
       },
       "complete": true
     },
@@ -52,11 +52,11 @@
       "status": "verified",
       "evidence": "exhaustive",
       "counters": {
-        "states": 147747,
-        "transitions": 902636,
-        "depth": 54,
-        "time_ms": 382,
-        "memory_bytes_est": 7608670
+        "states": 201737,
+        "transitions": 1241753,
+        "depth": 66,
+        "time_ms": 419,
+        "memory_bytes_est": 9267994
       },
       "complete": true,
       "reason": "no acceptance cycle in the complete product with the automaton for !([] (started <= 1)): no run satisfies the negated property",
@@ -76,7 +76,7 @@
         "claim": "never:ltl1"
       },
       "warnings": [
-        "vacuity hint for ltl1: the atom started <= 1 is never false in any of the 147747 reachable states, so it constrains nothing"
+        "vacuity hint for ltl1: the atom started <= 1 is never false in any of the 201737 reachable states, so it constrains nothing"
       ]
     },
     {
@@ -86,11 +86,11 @@
       "status": "verified",
       "evidence": "exhaustive",
       "counters": {
-        "states": 147747,
-        "transitions": 902636,
-        "depth": 54,
-        "time_ms": 450,
-        "memory_bytes_est": 7608670
+        "states": 201737,
+        "transitions": 1241753,
+        "depth": 66,
+        "time_ms": 426,
+        "memory_bytes_est": 9267994
       },
       "complete": true,
       "reason": "no acceptance cycle in the complete product with the automaton for !([] (started == 0 || ranAnswer)): no run satisfies the negated property",
@@ -118,11 +118,11 @@
       "status": "verified",
       "evidence": "exhaustive",
       "counters": {
-        "states": 147747,
-        "transitions": 902636,
-        "depth": 54,
-        "time_ms": 452,
-        "memory_bytes_est": 7608670
+        "states": 201737,
+        "transitions": 1241753,
+        "depth": 66,
+        "time_ms": 496,
+        "memory_bytes_est": 9267994
       },
       "complete": true,
       "reason": "no acceptance cycle in the complete product with the automaton for !([] (st != DECLINED || started == 0)): no run satisfies the negated property",
@@ -146,1032 +146,26 @@
     {
       "id": "ltl4",
       "kind": "ltl",
-      "text": "[] (stopc -> <> toolDone)",
-      "status": "violated",
+      "text": "[] (!killc || stopc)",
+      "status": "verified",
       "evidence": "exhaustive",
       "counters": {
-        "states": 417,
-        "transitions": 1440,
-        "depth": 54,
-        "time_ms": 1,
-        "memory_bytes_est": 32602
+        "states": 201737,
+        "transitions": 1241753,
+        "depth": 66,
+        "time_ms": 467,
+        "memory_bytes_est": 9267994
       },
-      "complete": false,
-      "counterexample": {
-        "steps": [
-          {
-            "index": 1,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 2,
-            "process": "Follower:0",
-            "command": "n < 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 44,
-              "name": "n < 3"
-            }
-          },
-          {
-            "index": 3,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 4,
-            "process": "Follower:0",
-            "command": "1 == 1 && st == 0",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 32,
-              "name": "1 == 1 && st == 0"
-            }
-          },
-          {
-            "index": 5,
-            "process": "Follower:0",
-            "command": "st = 1",
-            "changes": [
-              {
-                "var": "st",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 32,
-              "name": "st = 1"
-            }
-          },
-          {
-            "index": 6,
-            "process": "Follower:0",
-            "command": "decided = true",
-            "changes": [
-              {
-                "var": "decided",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 32,
-              "name": "decided = true"
-            }
-          },
-          {
-            "index": 7,
-            "process": "Follower:0",
-            "command": "ranAnswer = true",
-            "changes": [
-              {
-                "var": "ranAnswer",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 32,
-              "name": "ranAnswer = true"
-            }
-          },
-          {
-            "index": 8,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 9,
-            "process": "Follower:0",
-            "command": "n++",
-            "changes": [
-              {
-                "var": "Follower:0.n",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 48,
-              "name": "n++"
-            }
-          },
-          {
-            "index": 10,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 11,
-            "process": "Follower:0",
-            "command": "n < 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 44,
-              "name": "n < 3"
-            }
-          },
-          {
-            "index": 12,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 13,
-            "process": "Follower:0",
-            "command": "3 == 3 && st == 1",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 34,
-              "name": "3 == 3 && st == 1"
-            }
-          },
-          {
-            "index": 14,
-            "process": "Follower:0",
-            "command": "st = 2",
-            "changes": [
-              {
-                "var": "st",
-                "before": 1,
-                "after": 2
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 34,
-              "name": "st = 2"
-            }
-          },
-          {
-            "index": 15,
-            "process": "Follower:0",
-            "command": "stopc = true",
-            "changes": [
-              {
-                "var": "stopc",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 34,
-              "name": "stopc = true"
-            }
-          },
-          {
-            "index": 16,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 17,
-            "process": "Follower:0",
-            "command": "n++",
-            "changes": [
-              {
-                "var": "Follower:0.n",
-                "before": 1,
-                "after": 2
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 48,
-              "name": "n++"
-            }
-          },
-          {
-            "index": 18,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 19,
-            "process": "Follower:0",
-            "command": "n < 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 44,
-              "name": "n < 3"
-            }
-          },
-          {
-            "index": 20,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 21,
-            "process": "Follower:0",
-            "command": "3 == 3 && st == 2",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 35,
-              "name": "3 == 3 && st == 2"
-            }
-          },
-          {
-            "index": 22,
-            "process": "Follower:0",
-            "command": "st = 3",
-            "changes": [
-              {
-                "var": "st",
-                "before": 2,
-                "after": 3
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 35,
-              "name": "st = 3"
-            }
-          },
-          {
-            "index": 23,
-            "process": "Follower:0",
-            "command": "killc = true",
-            "changes": [
-              {
-                "var": "killc",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 35,
-              "name": "killc = true"
-            }
-          },
-          {
-            "index": 24,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 25,
-            "process": "Follower:0",
-            "command": "n++",
-            "changes": [
-              {
-                "var": "Follower:0.n",
-                "before": 2,
-                "after": 3
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 48,
-              "name": "n++"
-            }
-          },
-          {
-            "index": 26,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 27,
-            "process": "Follower:0",
-            "command": "n == 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 50,
-              "name": "n == 3"
-            }
-          },
-          {
-            "index": 28,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 29,
-            "process": "Follower:1",
-            "command": "n < 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 44,
-              "name": "n < 3"
-            }
-          },
-          {
-            "index": 30,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 31,
-            "process": "Follower:1",
-            "command": "else",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 36,
-              "name": "else"
-            }
-          },
-          {
-            "index": 32,
-            "process": "Follower:1",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 36,
-              "name": "skip"
-            }
-          },
-          {
-            "index": 33,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 34,
-            "process": "Follower:1",
-            "command": "n++",
-            "changes": [
-              {
-                "var": "Follower:1.n",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 48,
-              "name": "n++"
-            }
-          },
-          {
-            "index": 35,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 36,
-            "process": "Follower:1",
-            "command": "n < 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 44,
-              "name": "n < 3"
-            }
-          },
-          {
-            "index": 37,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 38,
-            "process": "Follower:1",
-            "command": "else",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 36,
-              "name": "else"
-            }
-          },
-          {
-            "index": 39,
-            "process": "Follower:1",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 36,
-              "name": "skip"
-            }
-          },
-          {
-            "index": 40,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 41,
-            "process": "Follower:1",
-            "command": "n++",
-            "changes": [
-              {
-                "var": "Follower:1.n",
-                "before": 1,
-                "after": 2
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 48,
-              "name": "n++"
-            }
-          },
-          {
-            "index": 42,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 43,
-            "process": "Follower:1",
-            "command": "n < 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 44,
-              "name": "n < 3"
-            }
-          },
-          {
-            "index": 44,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 45,
-            "process": "Follower:1",
-            "command": "else",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 36,
-              "name": "else"
-            }
-          },
-          {
-            "index": 46,
-            "process": "Follower:1",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 36,
-              "name": "skip"
-            }
-          },
-          {
-            "index": 47,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 48,
-            "process": "Follower:1",
-            "command": "n++",
-            "changes": [
-              {
-                "var": "Follower:1.n",
-                "before": 2,
-                "after": 3
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 48,
-              "name": "n++"
-            }
-          },
-          {
-            "index": 49,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 50,
-            "process": "Follower:1",
-            "command": "n == 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 50,
-              "name": "n == 3"
-            }
-          },
-          {
-            "index": 51,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 52,
-            "process": "Turn:2",
-            "command": "cancelled = true",
-            "changes": [
-              {
-                "var": "cancelled",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 56,
-              "name": "cancelled = true"
-            }
-          },
-          {
-            "index": 53,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 54,
-            "process": "Tool:4",
-            "command": "decided",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 81,
-              "name": "decided"
-            }
-          },
-          {
-            "index": 55,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 56,
-            "process": "Tool:4",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 81,
-              "name": "skip"
-            }
-          },
-          {
-            "index": 57,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 58,
-            "process": "Tool:4",
-            "command": "else",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 92,
-              "name": "else"
-            }
-          },
-          {
-            "index": 59,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 60,
-            "process": "Tool:4",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 92,
-              "name": "skip"
-            }
-          },
-          {
-            "index": 61,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 62,
-            "process": "Tool:4",
-            "command": "started++",
-            "changes": [
-              {
-                "var": "started",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 95,
-              "name": "started++"
-            }
-          },
-          {
-            "index": 63,
-            "process": "Tool:4",
-            "command": "alive = true",
-            "changes": [
-              {
-                "var": "alive",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 95,
-              "name": "alive = true"
-            }
-          },
-          {
-            "index": 64,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 65,
-            "process": "Command:3",
-            "command": "(alive)",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 65,
-              "name": "(alive)"
-            }
-          },
-          {
-            "index": 66,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 67,
-            "process": "Tool:4",
-            "command": "stopc &&!interrupted",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 98,
-              "name": "stopc &&!interrupted"
-            }
-          },
-          {
-            "index": 68,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 69,
-            "process": "Tool:4",
-            "command": "interrupted = true",
-            "changes": [
-              {
-                "var": "interrupted",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 98,
-              "name": "interrupted = true"
-            }
-          },
-          {
-            "index": 70,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 71,
-            "process": "Command:3",
-            "command": "alive && interrupted",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 70,
-              "name": "alive && interrupted"
-            }
-          },
-          {
-            "index": 72,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 73,
-            "process": "Tool:4",
-            "command": "interrupted &&!escalated",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 99,
-              "name": "interrupted &&!escalated"
-            }
-          },
-          {
-            "index": 74,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 75,
-            "process": "Command:3",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 70,
-              "name": "skip"
-            }
-          },
-          {
-            "index": 76,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 77,
-            "process": "Tool:4",
-            "command": "escalated = true",
-            "changes": [
-              {
-                "var": "Tool:4.escalated",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 99,
-              "name": "escalated = true"
-            }
-          },
-          {
-            "index": 78,
-            "process": "never:ltl4",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 79,
-            "process": "Command:3",
-            "command": "alive && interrupted",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 70,
-              "name": "alive && interrupted"
-            }
-          },
-          {
-            "index": 80,
-            "process": "never:ltl4",
-            "command": "((stopc) && !(toolDone)) -> goto accept_S1",
-            "location": "accept_S1",
-            "origin": {
-              "name": "((stopc) && !(toolDone))"
-            }
-          },
-          {
-            "index": 81,
-            "process": "Command:3",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 70,
-              "name": "skip"
-            }
-          },
-          {
-            "index": 82,
-            "process": "never:ltl4",
-            "command": "(!(toolDone)) -> goto accept_S1",
-            "location": "accept_S1",
-            "origin": {
-              "name": "(!(toolDone))"
-            }
-          },
-          {
-            "index": 83,
-            "process": "Command:3",
-            "command": "alive && interrupted",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 70,
-              "name": "alive && interrupted"
-            }
-          },
-          {
-            "index": 84,
-            "process": "never:ltl4",
-            "command": "(!(toolDone)) -> goto accept_S1",
-            "location": "accept_S1",
-            "origin": {
-              "name": "(!(toolDone))"
-            }
-          },
-          {
-            "index": 85,
-            "process": "Command:3",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 70,
-              "name": "skip"
-            }
-          }
-        ],
-        "final_state": [
-          {
-            "var": "Follower:0.n",
-            "value": 3
-          },
-          {
-            "var": "Follower:1.n",
-            "value": 3
-          },
-          {
-            "var": "Tool:4.escalated",
-            "value": 1
-          },
-          {
-            "var": "Tool:4.killed",
-            "value": 0
-          },
-          {
-            "var": "st",
-            "value": 3
-          },
-          {
-            "var": "decided",
-            "value": 1
-          },
-          {
-            "var": "stopc",
-            "value": 1
-          },
-          {
-            "var": "killc",
-            "value": 1
-          },
-          {
-            "var": "cancelled",
-            "value": 1
-          },
-          {
-            "var": "started",
-            "value": 1
-          },
-          {
-            "var": "ranAnswer",
-            "value": 1
-          },
-          {
-            "var": "alive",
-            "value": 1
-          },
-          {
-            "var": "interrupted",
-            "value": 1
-          },
-          {
-            "var": "toolDone",
-            "value": 0
-          }
-        ],
-        "summary": "(1) -> goto T0_init, n < 3, (1) -> goto T0_init, 1 == 1 && st == 0, st = 1, decided = true, ranAnswer = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, 3 == 3 && st == 1, st = 2, stopc = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, 3 == 3 && st == 2, st = 3, killc = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n == 3, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n == 3, (1) -> goto T0_init, cancelled = true, (1) -> goto T0_init, decided, (1) -> goto T0_init, skip, (1) -> goto T0_init, else, (1) -> goto T0_init, skip, (1) -> goto T0_init, started++, alive = true, (1) -> goto T0_init, (alive), (1) -> goto T0_init, stopc &&!interrupted, (1) -> goto T0_init, interrupted = true, (1) -> goto T0_init, alive && interrupted, (1) -> goto T0_init, interrupted &&!escalated, (1) -> goto T0_init, skip, (1) -> goto T0_init, escalated = true, (1) -> goto T0_init, alive && interrupted, ((stopc) && !(toolDone)) -> goto accept_S1, skip; loop: (!(toolDone)) -> goto accept_S1, alive && interrupted, (!(toolDone)) -> goto accept_S1, skip",
-        "loop": {
-          "start": 82,
-          "steps": 4
-        }
-      },
-      "reason": "acceptance cycle: the loop of the counterexample passes through an accept state of the automaton for !([] (stopc -> <> toolDone)) infinitely often, so the run satisfies the negated property (SPIN pan -a: acceptance cycle); in the loop only Command:3, never:ltl4 move(s); Tool:4 is enabled throughout the loop and never moves (the loop is not weakly fair; rerun with fairness weak to exclude such runs)",
+      "complete": true,
+      "reason": "no acceptance cycle in the complete product with the automaton for !([] (!killc || stopc)): no run satisfies the negated property",
       "temporal": {
         "logic": "ltl",
         "source": "formula",
-        "formula": "[] (stopc -> <> toolDone)",
-        "negated": "!([] (stopc -> <> toolDone))",
+        "formula": "[] (!killc || stopc)",
+        "negated": "!([] (!killc || stopc))",
         "atoms": [
-          "stopc",
-          "toolDone"
+          "killc",
+          "stopc"
         ],
         "stutter_invariant": true,
         "automaton_states": 2,
@@ -1184,1037 +178,30 @@
     {
       "id": "ltl5",
       "kind": "ltl",
-      "text": "[] (cancelled -> <> (toolDone && !alive))",
-      "status": "violated",
+      "text": "[] (!stopc || ranAnswer)",
+      "status": "verified",
       "evidence": "exhaustive",
       "counters": {
-        "states": 417,
-        "transitions": 1558,
-        "depth": 54,
-        "time_ms": 1,
-        "memory_bytes_est": 32602
+        "states": 201737,
+        "transitions": 1241753,
+        "depth": 66,
+        "time_ms": 446,
+        "memory_bytes_est": 9267994
       },
-      "complete": false,
-      "counterexample": {
-        "steps": [
-          {
-            "index": 1,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 2,
-            "process": "Follower:0",
-            "command": "n < 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 44,
-              "name": "n < 3"
-            }
-          },
-          {
-            "index": 3,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 4,
-            "process": "Follower:0",
-            "command": "1 == 1 && st == 0",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 32,
-              "name": "1 == 1 && st == 0"
-            }
-          },
-          {
-            "index": 5,
-            "process": "Follower:0",
-            "command": "st = 1",
-            "changes": [
-              {
-                "var": "st",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 32,
-              "name": "st = 1"
-            }
-          },
-          {
-            "index": 6,
-            "process": "Follower:0",
-            "command": "decided = true",
-            "changes": [
-              {
-                "var": "decided",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 32,
-              "name": "decided = true"
-            }
-          },
-          {
-            "index": 7,
-            "process": "Follower:0",
-            "command": "ranAnswer = true",
-            "changes": [
-              {
-                "var": "ranAnswer",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 32,
-              "name": "ranAnswer = true"
-            }
-          },
-          {
-            "index": 8,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 9,
-            "process": "Follower:0",
-            "command": "n++",
-            "changes": [
-              {
-                "var": "Follower:0.n",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 48,
-              "name": "n++"
-            }
-          },
-          {
-            "index": 10,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 11,
-            "process": "Follower:0",
-            "command": "n < 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 44,
-              "name": "n < 3"
-            }
-          },
-          {
-            "index": 12,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 13,
-            "process": "Follower:0",
-            "command": "3 == 3 && st == 1",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 34,
-              "name": "3 == 3 && st == 1"
-            }
-          },
-          {
-            "index": 14,
-            "process": "Follower:0",
-            "command": "st = 2",
-            "changes": [
-              {
-                "var": "st",
-                "before": 1,
-                "after": 2
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 34,
-              "name": "st = 2"
-            }
-          },
-          {
-            "index": 15,
-            "process": "Follower:0",
-            "command": "stopc = true",
-            "changes": [
-              {
-                "var": "stopc",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 34,
-              "name": "stopc = true"
-            }
-          },
-          {
-            "index": 16,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 17,
-            "process": "Follower:0",
-            "command": "n++",
-            "changes": [
-              {
-                "var": "Follower:0.n",
-                "before": 1,
-                "after": 2
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 48,
-              "name": "n++"
-            }
-          },
-          {
-            "index": 18,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 19,
-            "process": "Follower:0",
-            "command": "n < 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 44,
-              "name": "n < 3"
-            }
-          },
-          {
-            "index": 20,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 21,
-            "process": "Follower:0",
-            "command": "3 == 3 && st == 2",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 35,
-              "name": "3 == 3 && st == 2"
-            }
-          },
-          {
-            "index": 22,
-            "process": "Follower:0",
-            "command": "st = 3",
-            "changes": [
-              {
-                "var": "st",
-                "before": 2,
-                "after": 3
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 35,
-              "name": "st = 3"
-            }
-          },
-          {
-            "index": 23,
-            "process": "Follower:0",
-            "command": "killc = true",
-            "changes": [
-              {
-                "var": "killc",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 35,
-              "name": "killc = true"
-            }
-          },
-          {
-            "index": 24,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 25,
-            "process": "Follower:0",
-            "command": "n++",
-            "changes": [
-              {
-                "var": "Follower:0.n",
-                "before": 2,
-                "after": 3
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 48,
-              "name": "n++"
-            }
-          },
-          {
-            "index": 26,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 27,
-            "process": "Follower:0",
-            "command": "n == 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 50,
-              "name": "n == 3"
-            }
-          },
-          {
-            "index": 28,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 29,
-            "process": "Follower:1",
-            "command": "n < 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 44,
-              "name": "n < 3"
-            }
-          },
-          {
-            "index": 30,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 31,
-            "process": "Follower:1",
-            "command": "else",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 36,
-              "name": "else"
-            }
-          },
-          {
-            "index": 32,
-            "process": "Follower:1",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 36,
-              "name": "skip"
-            }
-          },
-          {
-            "index": 33,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 34,
-            "process": "Follower:1",
-            "command": "n++",
-            "changes": [
-              {
-                "var": "Follower:1.n",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 48,
-              "name": "n++"
-            }
-          },
-          {
-            "index": 35,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 36,
-            "process": "Follower:1",
-            "command": "n < 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 44,
-              "name": "n < 3"
-            }
-          },
-          {
-            "index": 37,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 38,
-            "process": "Follower:1",
-            "command": "else",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 36,
-              "name": "else"
-            }
-          },
-          {
-            "index": 39,
-            "process": "Follower:1",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 36,
-              "name": "skip"
-            }
-          },
-          {
-            "index": 40,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 41,
-            "process": "Follower:1",
-            "command": "n++",
-            "changes": [
-              {
-                "var": "Follower:1.n",
-                "before": 1,
-                "after": 2
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 48,
-              "name": "n++"
-            }
-          },
-          {
-            "index": 42,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 43,
-            "process": "Follower:1",
-            "command": "n < 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 44,
-              "name": "n < 3"
-            }
-          },
-          {
-            "index": 44,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 45,
-            "process": "Follower:1",
-            "command": "else",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 36,
-              "name": "else"
-            }
-          },
-          {
-            "index": 46,
-            "process": "Follower:1",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 36,
-              "name": "skip"
-            }
-          },
-          {
-            "index": 47,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 48,
-            "process": "Follower:1",
-            "command": "n++",
-            "changes": [
-              {
-                "var": "Follower:1.n",
-                "before": 2,
-                "after": 3
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 48,
-              "name": "n++"
-            }
-          },
-          {
-            "index": 49,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 50,
-            "process": "Follower:1",
-            "command": "n == 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 50,
-              "name": "n == 3"
-            }
-          },
-          {
-            "index": 51,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 52,
-            "process": "Turn:2",
-            "command": "cancelled = true",
-            "changes": [
-              {
-                "var": "cancelled",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 56,
-              "name": "cancelled = true"
-            }
-          },
-          {
-            "index": 53,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 54,
-            "process": "Tool:4",
-            "command": "decided",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 81,
-              "name": "decided"
-            }
-          },
-          {
-            "index": 55,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 56,
-            "process": "Tool:4",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 81,
-              "name": "skip"
-            }
-          },
-          {
-            "index": 57,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 58,
-            "process": "Tool:4",
-            "command": "else",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 92,
-              "name": "else"
-            }
-          },
-          {
-            "index": 59,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 60,
-            "process": "Tool:4",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 92,
-              "name": "skip"
-            }
-          },
-          {
-            "index": 61,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 62,
-            "process": "Tool:4",
-            "command": "started++",
-            "changes": [
-              {
-                "var": "started",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 95,
-              "name": "started++"
-            }
-          },
-          {
-            "index": 63,
-            "process": "Tool:4",
-            "command": "alive = true",
-            "changes": [
-              {
-                "var": "alive",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 95,
-              "name": "alive = true"
-            }
-          },
-          {
-            "index": 64,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 65,
-            "process": "Command:3",
-            "command": "(alive)",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 65,
-              "name": "(alive)"
-            }
-          },
-          {
-            "index": 66,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 67,
-            "process": "Tool:4",
-            "command": "stopc &&!interrupted",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 98,
-              "name": "stopc &&!interrupted"
-            }
-          },
-          {
-            "index": 68,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 69,
-            "process": "Tool:4",
-            "command": "interrupted = true",
-            "changes": [
-              {
-                "var": "interrupted",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 98,
-              "name": "interrupted = true"
-            }
-          },
-          {
-            "index": 70,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 71,
-            "process": "Command:3",
-            "command": "alive && interrupted",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 70,
-              "name": "alive && interrupted"
-            }
-          },
-          {
-            "index": 72,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 73,
-            "process": "Tool:4",
-            "command": "interrupted &&!escalated",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 99,
-              "name": "interrupted &&!escalated"
-            }
-          },
-          {
-            "index": 74,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 75,
-            "process": "Command:3",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 70,
-              "name": "skip"
-            }
-          },
-          {
-            "index": 76,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 77,
-            "process": "Tool:4",
-            "command": "escalated = true",
-            "changes": [
-              {
-                "var": "Tool:4.escalated",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 99,
-              "name": "escalated = true"
-            }
-          },
-          {
-            "index": 78,
-            "process": "never:ltl5",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 79,
-            "process": "Command:3",
-            "command": "alive && interrupted",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 70,
-              "name": "alive && interrupted"
-            }
-          },
-          {
-            "index": 80,
-            "process": "never:ltl5",
-            "command": "((cancelled) && !(toolDone)) -> goto accept_S1",
-            "location": "accept_S1",
-            "origin": {
-              "name": "((cancelled) && !(toolDone))"
-            }
-          },
-          {
-            "index": 81,
-            "process": "Command:3",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 70,
-              "name": "skip"
-            }
-          },
-          {
-            "index": 82,
-            "process": "never:ltl5",
-            "command": "(!(toolDone)) -> goto accept_S1",
-            "location": "accept_S1",
-            "origin": {
-              "name": "(!(toolDone))"
-            }
-          },
-          {
-            "index": 83,
-            "process": "Command:3",
-            "command": "alive && interrupted",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 70,
-              "name": "alive && interrupted"
-            }
-          },
-          {
-            "index": 84,
-            "process": "never:ltl5",
-            "command": "(!(toolDone)) -> goto accept_S1",
-            "location": "accept_S1",
-            "origin": {
-              "name": "(!(toolDone))"
-            }
-          },
-          {
-            "index": 85,
-            "process": "Command:3",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 70,
-              "name": "skip"
-            }
-          }
-        ],
-        "final_state": [
-          {
-            "var": "Follower:0.n",
-            "value": 3
-          },
-          {
-            "var": "Follower:1.n",
-            "value": 3
-          },
-          {
-            "var": "Tool:4.escalated",
-            "value": 1
-          },
-          {
-            "var": "Tool:4.killed",
-            "value": 0
-          },
-          {
-            "var": "st",
-            "value": 3
-          },
-          {
-            "var": "decided",
-            "value": 1
-          },
-          {
-            "var": "stopc",
-            "value": 1
-          },
-          {
-            "var": "killc",
-            "value": 1
-          },
-          {
-            "var": "cancelled",
-            "value": 1
-          },
-          {
-            "var": "started",
-            "value": 1
-          },
-          {
-            "var": "ranAnswer",
-            "value": 1
-          },
-          {
-            "var": "alive",
-            "value": 1
-          },
-          {
-            "var": "interrupted",
-            "value": 1
-          },
-          {
-            "var": "toolDone",
-            "value": 0
-          }
-        ],
-        "summary": "(1) -> goto T0_init, n < 3, (1) -> goto T0_init, 1 == 1 && st == 0, st = 1, decided = true, ranAnswer = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, 3 == 3 && st == 1, st = 2, stopc = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, 3 == 3 && st == 2, st = 3, killc = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n == 3, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n == 3, (1) -> goto T0_init, cancelled = true, (1) -> goto T0_init, decided, (1) -> goto T0_init, skip, (1) -> goto T0_init, else, (1) -> goto T0_init, skip, (1) -> goto T0_init, started++, alive = true, (1) -> goto T0_init, (alive), (1) -> goto T0_init, stopc &&!interrupted, (1) -> goto T0_init, interrupted = true, (1) -> goto T0_init, alive && interrupted, (1) -> goto T0_init, interrupted &&!escalated, (1) -> goto T0_init, skip, (1) -> goto T0_init, escalated = true, (1) -> goto T0_init, alive && interrupted, ((cancelled) && !(toolDone)) -> goto accept_S1, skip; loop: (!(toolDone)) -> goto accept_S1, alive && interrupted, (!(toolDone)) -> goto accept_S1, skip",
-        "loop": {
-          "start": 82,
-          "steps": 4
-        }
-      },
-      "reason": "acceptance cycle: the loop of the counterexample passes through an accept state of the automaton for !([] (cancelled -> <> (toolDone && !alive))) infinitely often, so the run satisfies the negated property (SPIN pan -a: acceptance cycle); in the loop only Command:3, never:ltl5 move(s); Tool:4 is enabled throughout the loop and never moves (the loop is not weakly fair; rerun with fairness weak to exclude such runs)",
+      "complete": true,
+      "reason": "no acceptance cycle in the complete product with the automaton for !([] (!stopc || ranAnswer)): no run satisfies the negated property",
       "temporal": {
         "logic": "ltl",
         "source": "formula",
-        "formula": "[] (cancelled -> <> (toolDone && !alive))",
-        "negated": "!([] (cancelled -> <> (toolDone && !alive)))",
+        "formula": "[] (!stopc || ranAnswer)",
+        "negated": "!([] (!stopc || ranAnswer))",
         "atoms": [
-          "cancelled",
-          "toolDone",
-          "alive"
+          "stopc",
+          "ranAnswer"
         ],
         "stutter_invariant": true,
         "automaton_states": 2,
-        "automaton_transitions": 5,
+        "automaton_transitions": 3,
         "automaton_accepting": 1,
         "fairness": "none",
         "claim": "never:ltl5"
@@ -2223,1134 +210,27 @@
     {
       "id": "ltl6",
       "kind": "ltl",
-      "text": "[] !(started == 1)",
-      "status": "violated",
+      "text": "[] (!(st == ENDED && started == 1) || !alive)",
+      "status": "verified",
       "evidence": "exhaustive",
       "counters": {
-        "states": 41,
-        "transitions": 55,
-        "depth": 52,
-        "time_ms": 0,
-        "memory_bytes_est": 31850
+        "states": 201737,
+        "transitions": 1241753,
+        "depth": 66,
+        "time_ms": 399,
+        "memory_bytes_est": 9267994
       },
-      "complete": false,
-      "counterexample": {
-        "steps": [
-          {
-            "index": 1,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 2,
-            "process": "Follower:0",
-            "command": "n < 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 44,
-              "name": "n < 3"
-            }
-          },
-          {
-            "index": 3,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 4,
-            "process": "Follower:0",
-            "command": "1 == 1 && st == 0",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 32,
-              "name": "1 == 1 && st == 0"
-            }
-          },
-          {
-            "index": 5,
-            "process": "Follower:0",
-            "command": "st = 1",
-            "changes": [
-              {
-                "var": "st",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 32,
-              "name": "st = 1"
-            }
-          },
-          {
-            "index": 6,
-            "process": "Follower:0",
-            "command": "decided = true",
-            "changes": [
-              {
-                "var": "decided",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 32,
-              "name": "decided = true"
-            }
-          },
-          {
-            "index": 7,
-            "process": "Follower:0",
-            "command": "ranAnswer = true",
-            "changes": [
-              {
-                "var": "ranAnswer",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 32,
-              "name": "ranAnswer = true"
-            }
-          },
-          {
-            "index": 8,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 9,
-            "process": "Follower:0",
-            "command": "n++",
-            "changes": [
-              {
-                "var": "Follower:0.n",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 48,
-              "name": "n++"
-            }
-          },
-          {
-            "index": 10,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 11,
-            "process": "Follower:0",
-            "command": "n < 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 44,
-              "name": "n < 3"
-            }
-          },
-          {
-            "index": 12,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 13,
-            "process": "Follower:0",
-            "command": "3 == 3 && st == 1",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 34,
-              "name": "3 == 3 && st == 1"
-            }
-          },
-          {
-            "index": 14,
-            "process": "Follower:0",
-            "command": "st = 2",
-            "changes": [
-              {
-                "var": "st",
-                "before": 1,
-                "after": 2
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 34,
-              "name": "st = 2"
-            }
-          },
-          {
-            "index": 15,
-            "process": "Follower:0",
-            "command": "stopc = true",
-            "changes": [
-              {
-                "var": "stopc",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 34,
-              "name": "stopc = true"
-            }
-          },
-          {
-            "index": 16,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 17,
-            "process": "Follower:0",
-            "command": "n++",
-            "changes": [
-              {
-                "var": "Follower:0.n",
-                "before": 1,
-                "after": 2
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 48,
-              "name": "n++"
-            }
-          },
-          {
-            "index": 18,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 19,
-            "process": "Follower:0",
-            "command": "n < 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 44,
-              "name": "n < 3"
-            }
-          },
-          {
-            "index": 20,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 21,
-            "process": "Follower:0",
-            "command": "3 == 3 && st == 2",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 35,
-              "name": "3 == 3 && st == 2"
-            }
-          },
-          {
-            "index": 22,
-            "process": "Follower:0",
-            "command": "st = 3",
-            "changes": [
-              {
-                "var": "st",
-                "before": 2,
-                "after": 3
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 35,
-              "name": "st = 3"
-            }
-          },
-          {
-            "index": 23,
-            "process": "Follower:0",
-            "command": "killc = true",
-            "changes": [
-              {
-                "var": "killc",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 35,
-              "name": "killc = true"
-            }
-          },
-          {
-            "index": 24,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 25,
-            "process": "Follower:0",
-            "command": "n++",
-            "changes": [
-              {
-                "var": "Follower:0.n",
-                "before": 2,
-                "after": 3
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 48,
-              "name": "n++"
-            }
-          },
-          {
-            "index": 26,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 27,
-            "process": "Follower:0",
-            "command": "n == 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 50,
-              "name": "n == 3"
-            }
-          },
-          {
-            "index": 28,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 29,
-            "process": "Follower:1",
-            "command": "n < 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 44,
-              "name": "n < 3"
-            }
-          },
-          {
-            "index": 30,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 31,
-            "process": "Follower:1",
-            "command": "else",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 36,
-              "name": "else"
-            }
-          },
-          {
-            "index": 32,
-            "process": "Follower:1",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 36,
-              "name": "skip"
-            }
-          },
-          {
-            "index": 33,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 34,
-            "process": "Follower:1",
-            "command": "n++",
-            "changes": [
-              {
-                "var": "Follower:1.n",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 48,
-              "name": "n++"
-            }
-          },
-          {
-            "index": 35,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 36,
-            "process": "Follower:1",
-            "command": "n < 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 44,
-              "name": "n < 3"
-            }
-          },
-          {
-            "index": 37,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 38,
-            "process": "Follower:1",
-            "command": "else",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 36,
-              "name": "else"
-            }
-          },
-          {
-            "index": 39,
-            "process": "Follower:1",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 36,
-              "name": "skip"
-            }
-          },
-          {
-            "index": 40,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 41,
-            "process": "Follower:1",
-            "command": "n++",
-            "changes": [
-              {
-                "var": "Follower:1.n",
-                "before": 1,
-                "after": 2
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 48,
-              "name": "n++"
-            }
-          },
-          {
-            "index": 42,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 43,
-            "process": "Follower:1",
-            "command": "n < 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 44,
-              "name": "n < 3"
-            }
-          },
-          {
-            "index": 44,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 45,
-            "process": "Follower:1",
-            "command": "else",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 36,
-              "name": "else"
-            }
-          },
-          {
-            "index": 46,
-            "process": "Follower:1",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 36,
-              "name": "skip"
-            }
-          },
-          {
-            "index": 47,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 48,
-            "process": "Follower:1",
-            "command": "n++",
-            "changes": [
-              {
-                "var": "Follower:1.n",
-                "before": 2,
-                "after": 3
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 48,
-              "name": "n++"
-            }
-          },
-          {
-            "index": 49,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 50,
-            "process": "Follower:1",
-            "command": "n == 3",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 50,
-              "name": "n == 3"
-            }
-          },
-          {
-            "index": 51,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 52,
-            "process": "Turn:2",
-            "command": "cancelled = true",
-            "changes": [
-              {
-                "var": "cancelled",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 56,
-              "name": "cancelled = true"
-            }
-          },
-          {
-            "index": 53,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 54,
-            "process": "Tool:4",
-            "command": "decided",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 81,
-              "name": "decided"
-            }
-          },
-          {
-            "index": 55,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 56,
-            "process": "Tool:4",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 81,
-              "name": "skip"
-            }
-          },
-          {
-            "index": 57,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 58,
-            "process": "Tool:4",
-            "command": "else",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 92,
-              "name": "else"
-            }
-          },
-          {
-            "index": 59,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 60,
-            "process": "Tool:4",
-            "command": "skip",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 92,
-              "name": "skip"
-            }
-          },
-          {
-            "index": 61,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 62,
-            "process": "Tool:4",
-            "command": "started++",
-            "changes": [
-              {
-                "var": "started",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 95,
-              "name": "started++"
-            }
-          },
-          {
-            "index": 63,
-            "process": "Tool:4",
-            "command": "alive = true",
-            "changes": [
-              {
-                "var": "alive",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 95,
-              "name": "alive = true"
-            }
-          },
-          {
-            "index": 64,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 65,
-            "process": "Command:3",
-            "command": "(alive)",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 65,
-              "name": "(alive)"
-            }
-          },
-          {
-            "index": 66,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 67,
-            "process": "Command:3",
-            "command": "alive",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 68,
-              "name": "alive"
-            }
-          },
-          {
-            "index": 68,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 69,
-            "process": "Command:3",
-            "command": "alive = false",
-            "changes": [
-              {
-                "var": "alive",
-                "before": 1,
-                "after": 0
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 68,
-              "name": "alive = false"
-            }
-          },
-          {
-            "index": 70,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 71,
-            "process": "Command:3",
-            "command": "!alive",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 67,
-              "name": "!alive"
-            }
-          },
-          {
-            "index": 72,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 73,
-            "process": "Tool:4",
-            "command": "!alive",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 97,
-              "name": "!alive"
-            }
-          },
-          {
-            "index": 74,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 75,
-            "process": "Tool:4",
-            "command": "alive = false",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 104,
-              "name": "alive = false"
-            }
-          },
-          {
-            "index": 76,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 77,
-            "process": "Tool:4",
-            "command": "st != 5",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 105,
-              "name": "st != 5"
-            }
-          },
-          {
-            "index": 78,
-            "process": "Tool:4",
-            "command": "st = 5",
-            "changes": [
-              {
-                "var": "st",
-                "before": 3,
-                "after": 5
-              }
-            ],
-            "location": "out",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 105,
-              "name": "st = 5"
-            }
-          },
-          {
-            "index": 79,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 80,
-            "process": "Tool:4",
-            "command": "toolDone = true",
-            "changes": [
-              {
-                "var": "toolDone",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 107,
-              "name": "toolDone = true"
-            }
-          },
-          {
-            "index": 81,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 82,
-            "process": "Tool:4",
-            "command": "-end-",
-            "location": "-dead-",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 108,
-              "name": "-end-"
-            }
-          },
-          {
-            "index": 83,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 84,
-            "process": "Command:3",
-            "command": "-end-",
-            "location": "-dead-",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 72,
-              "name": "-end-"
-            }
-          },
-          {
-            "index": 85,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 86,
-            "process": "Turn:2",
-            "command": "-end-",
-            "location": "-dead-",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 59,
-              "name": "-end-"
-            }
-          },
-          {
-            "index": 87,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 88,
-            "process": "Follower:1",
-            "command": "-end-",
-            "changes": [
-              {
-                "var": "Follower:1.n",
-                "before": 3,
-                "after": 0
-              }
-            ],
-            "location": "-dead-",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 52,
-              "name": "-end-"
-            }
-          },
-          {
-            "index": 89,
-            "process": "never:ltl6",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 90,
-            "process": "Follower:0",
-            "command": "-end-",
-            "changes": [
-              {
-                "var": "Follower:0.n",
-                "before": 3,
-                "after": 0
-              }
-            ],
-            "location": "-dead-",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 52,
-              "name": "-end-"
-            }
-          },
-          {
-            "index": 91,
-            "process": "never:ltl6",
-            "command": "((started == 1)) -> goto accept_S1",
-            "location": "accept_S1",
-            "origin": {
-              "name": "((started == 1))"
-            }
-          },
-          {
-            "index": 92,
-            "process": "-",
-            "command": "(stutter: no process can move, the system state repeats forever; SPIN's stutter extension)"
-          },
-          {
-            "index": 93,
-            "process": "never:ltl6",
-            "command": "(1) -> goto accept_S1",
-            "location": "accept_S1",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 94,
-            "process": "-",
-            "command": "(stutter: no process can move, the system state repeats forever; SPIN's stutter extension)"
-          }
-        ],
-        "final_state": [
-          {
-            "var": "Follower:0.n",
-            "value": 0
-          },
-          {
-            "var": "Follower:1.n",
-            "value": 0
-          },
-          {
-            "var": "Tool:4.escalated",
-            "value": 0
-          },
-          {
-            "var": "Tool:4.killed",
-            "value": 0
-          },
-          {
-            "var": "st",
-            "value": 5
-          },
-          {
-            "var": "decided",
-            "value": 1
-          },
-          {
-            "var": "stopc",
-            "value": 1
-          },
-          {
-            "var": "killc",
-            "value": 1
-          },
-          {
-            "var": "cancelled",
-            "value": 1
-          },
-          {
-            "var": "started",
-            "value": 1
-          },
-          {
-            "var": "ranAnswer",
-            "value": 1
-          },
-          {
-            "var": "alive",
-            "value": 0
-          },
-          {
-            "var": "interrupted",
-            "value": 0
-          },
-          {
-            "var": "toolDone",
-            "value": 1
-          }
-        ],
-        "summary": "(1) -> goto T0_init, n < 3, (1) -> goto T0_init, 1 == 1 && st == 0, st = 1, decided = true, ranAnswer = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, 3 == 3 && st == 1, st = 2, stopc = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, 3 == 3 && st == 2, st = 3, killc = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n == 3, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n == 3, (1) -> goto T0_init, cancelled = true, (1) -> goto T0_init, decided, (1) -> goto T0_init, skip, (1) -> goto T0_init, else, (1) -> goto T0_init, skip, (1) -> goto T0_init, started++, alive = true, (1) -> goto T0_init, (alive), (1) -> goto T0_init, alive, (1) -> goto T0_init, alive = false, (1) -> goto T0_init, !alive, (1) -> goto T0_init, !alive, (1) -> goto T0_init, alive = false, (1) -> goto T0_init, st != 5, st = 5, (1) -> goto T0_init, toolDone = true, (1) -> goto T0_init, -end-, (1) -> goto T0_init, -end-, (1) -> goto T0_init, -end-, (1) -> goto T0_init, -end-, (1) -> goto T0_init, -end-, ((started == 1)) -> goto accept_S1, (stutter: no process can move, the system state repeats forever; SPIN's stutter extension); loop: (1) -> goto accept_S1, (stutter: no process can move, the system state repeats forever; SPIN's stutter extension)",
-        "loop": {
-          "start": 93,
-          "steps": 2
-        }
-      },
-      "reason": "acceptance cycle: the loop of the counterexample passes through an accept state of the automaton for !([] !(started == 1)) infinitely often, so the run satisfies the negated property (SPIN pan -a: acceptance cycle)",
+      "complete": true,
+      "reason": "no acceptance cycle in the complete product with the automaton for !([] (!(st == ENDED && started == 1) || !alive)): no run satisfies the negated property",
       "temporal": {
         "logic": "ltl",
         "source": "formula",
-        "formula": "[] !(started == 1)",
-        "negated": "!([] !(started == 1))",
+        "formula": "[] (!(st == ENDED && started == 1) || !alive)",
+        "negated": "!([] (!(st == ENDED && started == 1) || !alive))",
         "atoms": [
-          "started == 1"
+          "st == 5",
+          "started == 1",
+          "alive"
         ],
         "stutter_invariant": true,
         "automaton_states": 2,
@@ -3363,15 +243,15 @@
     {
       "id": "ltl7",
       "kind": "ltl",
-      "text": "[] !(st == KILLING)",
+      "text": "[] !(toolDone && stopc && !cancelled && started == 1)",
       "status": "violated",
       "evidence": "exhaustive",
       "counters": {
-        "states": 47,
-        "transitions": 62,
-        "depth": 51,
+        "states": 474,
+        "transitions": 968,
+        "depth": 66,
         "time_ms": 0,
-        "memory_bytes_est": 31862
+        "memory_bytes_est": 38348
       },
       "complete": false,
       "counterexample": {
@@ -3391,7 +271,7 @@
             "command": "n < 3",
             "origin": {
               "file": "ticket.pml",
-              "line": 44,
+              "line": 45,
               "name": "n < 3"
             }
           },
@@ -3410,7 +290,7 @@
             "command": "1 == 1 && st == 0",
             "origin": {
               "file": "ticket.pml",
-              "line": 32,
+              "line": 33,
               "name": "1 == 1 && st == 0"
             }
           },
@@ -3427,7 +307,7 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 32,
+              "line": 33,
               "name": "st = 1"
             }
           },
@@ -3444,7 +324,7 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 32,
+              "line": 33,
               "name": "decided = true"
             }
           },
@@ -3461,7 +341,7 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 32,
+              "line": 33,
               "name": "ranAnswer = true"
             }
           },
@@ -3487,7 +367,7 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 48,
+              "line": 49,
               "name": "n++"
             }
           },
@@ -3506,7 +386,7 @@
             "command": "n < 3",
             "origin": {
               "file": "ticket.pml",
-              "line": 44,
+              "line": 45,
               "name": "n < 3"
             }
           },
@@ -3525,7 +405,7 @@
             "command": "3 == 3 && st == 1",
             "origin": {
               "file": "ticket.pml",
-              "line": 34,
+              "line": 35,
               "name": "3 == 3 && st == 1"
             }
           },
@@ -3542,7 +422,7 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 34,
+              "line": 35,
               "name": "st = 2"
             }
           },
@@ -3559,7 +439,7 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 34,
+              "line": 35,
               "name": "stopc = true"
             }
           },
@@ -3585,7 +465,7 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 48,
+              "line": 49,
               "name": "n++"
             }
           },
@@ -3604,7 +484,7 @@
             "command": "n < 3",
             "origin": {
               "file": "ticket.pml",
-              "line": 44,
+              "line": 45,
               "name": "n < 3"
             }
           },
@@ -3623,7 +503,7 @@
             "command": "3 == 3 && st == 2",
             "origin": {
               "file": "ticket.pml",
-              "line": 35,
+              "line": 36,
               "name": "3 == 3 && st == 2"
             }
           },
@@ -3640,7 +520,7 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 35,
+              "line": 36,
               "name": "st = 3"
             }
           },
@@ -3657,7 +537,7 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 35,
+              "line": 36,
               "name": "killc = true"
             }
           },
@@ -3683,7 +563,7 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 48,
+              "line": 49,
               "name": "n++"
             }
           },
@@ -3702,7 +582,7 @@
             "command": "n == 3",
             "origin": {
               "file": "ticket.pml",
-              "line": 50,
+              "line": 51,
               "name": "n == 3"
             }
           },
@@ -3721,7 +601,7 @@
             "command": "n < 3",
             "origin": {
               "file": "ticket.pml",
-              "line": 44,
+              "line": 45,
               "name": "n < 3"
             }
           },
@@ -3740,7 +620,7 @@
             "command": "else",
             "origin": {
               "file": "ticket.pml",
-              "line": 36,
+              "line": 37,
               "name": "else"
             }
           },
@@ -3750,7 +630,7 @@
             "command": "skip",
             "origin": {
               "file": "ticket.pml",
-              "line": 36,
+              "line": 37,
               "name": "skip"
             }
           },
@@ -3776,7 +656,7 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 48,
+              "line": 49,
               "name": "n++"
             }
           },
@@ -3795,7 +675,7 @@
             "command": "n < 3",
             "origin": {
               "file": "ticket.pml",
-              "line": 44,
+              "line": 45,
               "name": "n < 3"
             }
           },
@@ -3814,7 +694,7 @@
             "command": "else",
             "origin": {
               "file": "ticket.pml",
-              "line": 36,
+              "line": 37,
               "name": "else"
             }
           },
@@ -3824,7 +704,7 @@
             "command": "skip",
             "origin": {
               "file": "ticket.pml",
-              "line": 36,
+              "line": 37,
               "name": "skip"
             }
           },
@@ -3850,7 +730,7 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 48,
+              "line": 49,
               "name": "n++"
             }
           },
@@ -3869,7 +749,7 @@
             "command": "n < 3",
             "origin": {
               "file": "ticket.pml",
-              "line": 44,
+              "line": 45,
               "name": "n < 3"
             }
           },
@@ -3888,7 +768,7 @@
             "command": "else",
             "origin": {
               "file": "ticket.pml",
-              "line": 36,
+              "line": 37,
               "name": "else"
             }
           },
@@ -3898,7 +778,7 @@
             "command": "skip",
             "origin": {
               "file": "ticket.pml",
-              "line": 36,
+              "line": 37,
               "name": "skip"
             }
           },
@@ -3924,7 +804,7 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 48,
+              "line": 49,
               "name": "n++"
             }
           },
@@ -3943,7 +823,7 @@
             "command": "n == 3",
             "origin": {
               "file": "ticket.pml",
-              "line": 50,
+              "line": 51,
               "name": "n == 3"
             }
           },
@@ -3959,18 +839,11 @@
           {
             "index": 52,
             "process": "Turn:2",
-            "command": "cancelled = true",
-            "changes": [
-              {
-                "var": "cancelled",
-                "before": 0,
-                "after": 1
-              }
-            ],
+            "command": "skip",
             "origin": {
               "file": "ticket.pml",
-              "line": 56,
-              "name": "cancelled = true"
+              "line": 58,
+              "name": "skip"
             }
           },
           {
@@ -3984,11 +857,11 @@
           },
           {
             "index": 54,
-            "process": "Tool:4",
+            "process": "Tool:5",
             "command": "decided",
             "origin": {
               "file": "ticket.pml",
-              "line": 81,
+              "line": 90,
               "name": "decided"
             }
           },
@@ -4003,11 +876,11 @@
           },
           {
             "index": 56,
-            "process": "Tool:4",
+            "process": "Tool:5",
             "command": "skip",
             "origin": {
               "file": "ticket.pml",
-              "line": 81,
+              "line": 90,
               "name": "skip"
             }
           },
@@ -4022,11 +895,11 @@
           },
           {
             "index": 58,
-            "process": "Tool:4",
+            "process": "Tool:5",
             "command": "else",
             "origin": {
               "file": "ticket.pml",
-              "line": 92,
+              "line": 101,
               "name": "else"
             }
           },
@@ -4041,11 +914,11 @@
           },
           {
             "index": 60,
-            "process": "Tool:4",
+            "process": "Tool:5",
             "command": "skip",
             "origin": {
               "file": "ticket.pml",
-              "line": 92,
+              "line": 101,
               "name": "skip"
             }
           },
@@ -4060,7 +933,7 @@
           },
           {
             "index": 62,
-            "process": "Tool:4",
+            "process": "Tool:5",
             "command": "started++",
             "changes": [
               {
@@ -4071,13 +944,13 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 95,
+              "line": 104,
               "name": "started++"
             }
           },
           {
             "index": 63,
-            "process": "Tool:4",
+            "process": "Tool:5",
             "command": "alive = true",
             "changes": [
               {
@@ -4088,7 +961,7 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 95,
+              "line": 104,
               "name": "alive = true"
             }
           },
@@ -4107,7 +980,7 @@
             "command": "(alive)",
             "origin": {
               "file": "ticket.pml",
-              "line": 65,
+              "line": 66,
               "name": "(alive)"
             }
           },
@@ -4126,7 +999,7 @@
             "command": "alive",
             "origin": {
               "file": "ticket.pml",
-              "line": 68,
+              "line": 69,
               "name": "alive"
             }
           },
@@ -4152,7 +1025,7 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 68,
+              "line": 69,
               "name": "alive = false"
             }
           },
@@ -4171,7 +1044,7 @@
             "command": "!alive",
             "origin": {
               "file": "ticket.pml",
-              "line": 67,
+              "line": 68,
               "name": "!alive"
             }
           },
@@ -4186,11 +1059,11 @@
           },
           {
             "index": 73,
-            "process": "Tool:4",
+            "process": "Tool:5",
             "command": "!alive",
             "origin": {
               "file": "ticket.pml",
-              "line": 97,
+              "line": 106,
               "name": "!alive"
             }
           },
@@ -4205,63 +1078,7 @@
           },
           {
             "index": 75,
-            "process": "Tool:4",
-            "command": "alive = false",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 104,
-              "name": "alive = false"
-            }
-          },
-          {
-            "index": 76,
-            "process": "never:ltl7",
-            "command": "((st == 3)) -> goto accept_S1",
-            "location": "accept_S1",
-            "origin": {
-              "name": "((st == 3))"
-            }
-          },
-          {
-            "index": 77,
-            "process": "Tool:4",
-            "command": "st != 5",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 105,
-              "name": "st != 5"
-            }
-          },
-          {
-            "index": 78,
-            "process": "Tool:4",
-            "command": "st = 5",
-            "changes": [
-              {
-                "var": "st",
-                "before": 3,
-                "after": 5
-              }
-            ],
-            "location": "out",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 105,
-              "name": "st = 5"
-            }
-          },
-          {
-            "index": 79,
-            "process": "never:ltl7",
-            "command": "(1) -> goto accept_S1",
-            "location": "accept_S1",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 80,
-            "process": "Tool:4",
+            "process": "Tool:5",
             "command": "toolDone = true",
             "changes": [
               {
@@ -4270,71 +1087,121 @@
                 "after": 1
               }
             ],
+            "location": "end_release",
             "origin": {
               "file": "ticket.pml",
-              "line": 107,
+              "line": 114,
               "name": "toolDone = true"
+            }
+          },
+          {
+            "index": 76,
+            "process": "never:ltl7",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 77,
+            "process": "Tool:5",
+            "command": "(!alive)",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 117,
+              "name": "(!alive)"
+            }
+          },
+          {
+            "index": 78,
+            "process": "never:ltl7",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 79,
+            "process": "Tool:5",
+            "command": "st != 5",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 118,
+              "name": "st != 5"
+            }
+          },
+          {
+            "index": 80,
+            "process": "Tool:5",
+            "command": "st = 5",
+            "changes": [
+              {
+                "var": "st",
+                "before": 3,
+                "after": 5
+              }
+            ],
+            "location": "fin",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 118,
+              "name": "st = 5"
             }
           },
           {
             "index": 81,
             "process": "never:ltl7",
-            "command": "(1) -> goto accept_S1",
-            "location": "accept_S1",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
             "origin": {
               "name": "(1)"
             }
           },
           {
             "index": 82,
-            "process": "Tool:4",
-            "command": "-end-",
-            "location": "-dead-",
+            "process": "Tool:5",
+            "command": "skip",
             "origin": {
               "file": "ticket.pml",
-              "line": 108,
-              "name": "-end-"
+              "line": 123,
+              "name": "skip"
             }
           },
           {
             "index": 83,
             "process": "never:ltl7",
-            "command": "(1) -> goto accept_S1",
-            "location": "accept_S1",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
             "origin": {
               "name": "(1)"
             }
           },
           {
             "index": 84,
-            "process": "Command:3",
+            "process": "Tool:5",
             "command": "-end-",
             "location": "-dead-",
             "origin": {
               "file": "ticket.pml",
-              "line": 72,
+              "line": 124,
               "name": "-end-"
             }
           },
           {
             "index": 85,
             "process": "never:ltl7",
-            "command": "(1) -> goto accept_S1",
+            "command": "((toolDone) && (stopc) && !(cancelled) && (started == 1)) -> goto accept_S1",
             "location": "accept_S1",
             "origin": {
-              "name": "(1)"
+              "name": "((toolDone) && (stopc) && !(cancelled) && (started == 1))"
             }
           },
           {
             "index": 86,
-            "process": "Turn:2",
-            "command": "-end-",
-            "location": "-dead-",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 59,
-              "name": "-end-"
-            }
+            "process": "-",
+            "command": "(stutter: no process can move, the system state repeats forever; SPIN's stutter extension)"
           },
           {
             "index": 87,
@@ -4347,60 +1214,6 @@
           },
           {
             "index": 88,
-            "process": "Follower:1",
-            "command": "-end-",
-            "changes": [
-              {
-                "var": "Follower:1.n",
-                "before": 3,
-                "after": 0
-              }
-            ],
-            "location": "-dead-",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 52,
-              "name": "-end-"
-            }
-          },
-          {
-            "index": 89,
-            "process": "never:ltl7",
-            "command": "(1) -> goto accept_S1",
-            "location": "accept_S1",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 90,
-            "process": "Follower:0",
-            "command": "-end-",
-            "changes": [
-              {
-                "var": "Follower:0.n",
-                "before": 3,
-                "after": 0
-              }
-            ],
-            "location": "-dead-",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 52,
-              "name": "-end-"
-            }
-          },
-          {
-            "index": 91,
-            "process": "never:ltl7",
-            "command": "(1) -> goto accept_S1",
-            "location": "accept_S1",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 92,
             "process": "-",
             "command": "(stutter: no process can move, the system state repeats forever; SPIN's stutter extension)"
           }
@@ -4408,18 +1221,1077 @@
         "final_state": [
           {
             "var": "Follower:0.n",
-            "value": 0
+            "value": 3
           },
           {
             "var": "Follower:1.n",
+            "value": 3
+          },
+          {
+            "var": "Tool:5.escalated",
             "value": 0
           },
           {
-            "var": "Tool:4.escalated",
+            "var": "Tool:5.killed",
             "value": 0
           },
           {
-            "var": "Tool:4.killed",
+            "var": "st",
+            "value": 5
+          },
+          {
+            "var": "decided",
+            "value": 1
+          },
+          {
+            "var": "stopc",
+            "value": 1
+          },
+          {
+            "var": "killc",
+            "value": 1
+          },
+          {
+            "var": "cancelled",
+            "value": 0
+          },
+          {
+            "var": "started",
+            "value": 1
+          },
+          {
+            "var": "ranAnswer",
+            "value": 1
+          },
+          {
+            "var": "alive",
+            "value": 0
+          },
+          {
+            "var": "interrupted",
+            "value": 0
+          },
+          {
+            "var": "toolDone",
+            "value": 1
+          },
+          {
+            "var": "killerPending",
+            "value": 0
+          }
+        ],
+        "summary": "(1) -> goto T0_init, n < 3, (1) -> goto T0_init, 1 == 1 && st == 0, st = 1, decided = true, ranAnswer = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, 3 == 3 && st == 1, st = 2, stopc = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, 3 == 3 && st == 2, st = 3, killc = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n == 3, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n == 3, (1) -> goto T0_init, skip, (1) -> goto T0_init, decided, (1) -> goto T0_init, skip, (1) -> goto T0_init, else, (1) -> goto T0_init, skip, (1) -> goto T0_init, started++, alive = true, (1) -> goto T0_init, (alive), (1) -> goto T0_init, alive, (1) -> goto T0_init, alive = false, (1) -> goto T0_init, !alive, (1) -> goto T0_init, !alive, (1) -> goto T0_init, toolDone = true, (1) -> goto T0_init, (!alive), (1) -> goto T0_init, st != 5, st = 5, (1) -> goto T0_init, skip, (1) -> goto T0_init, -end-, ((toolDone) && (stopc) && !(cancelled) && (started == 1)) -> goto accept_S1, (stutter: no process can move, the system state repeats forever; SPIN's stutter extension); loop: (1) -> goto accept_S1, (stutter: no process can move, the system state repeats forever; SPIN's stutter extension)",
+        "loop": {
+          "start": 87,
+          "steps": 2
+        }
+      },
+      "reason": "acceptance cycle: the loop of the counterexample passes through an accept state of the automaton for !([] !(toolDone && stopc && !cancelled && started == 1)) infinitely often, so the run satisfies the negated property (SPIN pan -a: acceptance cycle)",
+      "temporal": {
+        "logic": "ltl",
+        "source": "formula",
+        "formula": "[] !(toolDone && stopc && !cancelled && started == 1)",
+        "negated": "!([] !(toolDone && stopc && !cancelled && started == 1))",
+        "atoms": [
+          "toolDone",
+          "stopc",
+          "cancelled",
+          "started == 1"
+        ],
+        "stutter_invariant": true,
+        "automaton_states": 2,
+        "automaton_transitions": 3,
+        "automaton_accepting": 1,
+        "fairness": "none",
+        "claim": "never:ltl7"
+      }
+    },
+    {
+      "id": "ltl8",
+      "kind": "ltl",
+      "text": "[] !(st == KILLING)",
+      "status": "violated",
+      "evidence": "exhaustive",
+      "counters": {
+        "states": 40,
+        "transitions": 55,
+        "depth": 48,
+        "time_ms": 0,
+        "memory_bytes_est": 32872
+      },
+      "complete": false,
+      "counterexample": {
+        "steps": [
+          {
+            "index": 1,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 2,
+            "process": "Follower:0",
+            "command": "n < 3",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 45,
+              "name": "n < 3"
+            }
+          },
+          {
+            "index": 3,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 4,
+            "process": "Follower:0",
+            "command": "1 == 1 && st == 0",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 33,
+              "name": "1 == 1 && st == 0"
+            }
+          },
+          {
+            "index": 5,
+            "process": "Follower:0",
+            "command": "st = 1",
+            "changes": [
+              {
+                "var": "st",
+                "before": 0,
+                "after": 1
+              }
+            ],
+            "origin": {
+              "file": "ticket.pml",
+              "line": 33,
+              "name": "st = 1"
+            }
+          },
+          {
+            "index": 6,
+            "process": "Follower:0",
+            "command": "decided = true",
+            "changes": [
+              {
+                "var": "decided",
+                "before": 0,
+                "after": 1
+              }
+            ],
+            "origin": {
+              "file": "ticket.pml",
+              "line": 33,
+              "name": "decided = true"
+            }
+          },
+          {
+            "index": 7,
+            "process": "Follower:0",
+            "command": "ranAnswer = true",
+            "changes": [
+              {
+                "var": "ranAnswer",
+                "before": 0,
+                "after": 1
+              }
+            ],
+            "origin": {
+              "file": "ticket.pml",
+              "line": 33,
+              "name": "ranAnswer = true"
+            }
+          },
+          {
+            "index": 8,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 9,
+            "process": "Follower:0",
+            "command": "n++",
+            "changes": [
+              {
+                "var": "Follower:0.n",
+                "before": 0,
+                "after": 1
+              }
+            ],
+            "origin": {
+              "file": "ticket.pml",
+              "line": 49,
+              "name": "n++"
+            }
+          },
+          {
+            "index": 10,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 11,
+            "process": "Follower:0",
+            "command": "n < 3",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 45,
+              "name": "n < 3"
+            }
+          },
+          {
+            "index": 12,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 13,
+            "process": "Follower:0",
+            "command": "3 == 3 && st == 1",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 35,
+              "name": "3 == 3 && st == 1"
+            }
+          },
+          {
+            "index": 14,
+            "process": "Follower:0",
+            "command": "st = 2",
+            "changes": [
+              {
+                "var": "st",
+                "before": 1,
+                "after": 2
+              }
+            ],
+            "origin": {
+              "file": "ticket.pml",
+              "line": 35,
+              "name": "st = 2"
+            }
+          },
+          {
+            "index": 15,
+            "process": "Follower:0",
+            "command": "stopc = true",
+            "changes": [
+              {
+                "var": "stopc",
+                "before": 0,
+                "after": 1
+              }
+            ],
+            "origin": {
+              "file": "ticket.pml",
+              "line": 35,
+              "name": "stopc = true"
+            }
+          },
+          {
+            "index": 16,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 17,
+            "process": "Follower:0",
+            "command": "n++",
+            "changes": [
+              {
+                "var": "Follower:0.n",
+                "before": 1,
+                "after": 2
+              }
+            ],
+            "origin": {
+              "file": "ticket.pml",
+              "line": 49,
+              "name": "n++"
+            }
+          },
+          {
+            "index": 18,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 19,
+            "process": "Follower:0",
+            "command": "n < 3",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 45,
+              "name": "n < 3"
+            }
+          },
+          {
+            "index": 20,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 21,
+            "process": "Follower:0",
+            "command": "3 == 3 && st == 2",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 36,
+              "name": "3 == 3 && st == 2"
+            }
+          },
+          {
+            "index": 22,
+            "process": "Follower:0",
+            "command": "st = 3",
+            "changes": [
+              {
+                "var": "st",
+                "before": 2,
+                "after": 3
+              }
+            ],
+            "origin": {
+              "file": "ticket.pml",
+              "line": 36,
+              "name": "st = 3"
+            }
+          },
+          {
+            "index": 23,
+            "process": "Follower:0",
+            "command": "killc = true",
+            "changes": [
+              {
+                "var": "killc",
+                "before": 0,
+                "after": 1
+              }
+            ],
+            "origin": {
+              "file": "ticket.pml",
+              "line": 36,
+              "name": "killc = true"
+            }
+          },
+          {
+            "index": 24,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 25,
+            "process": "Follower:0",
+            "command": "n++",
+            "changes": [
+              {
+                "var": "Follower:0.n",
+                "before": 2,
+                "after": 3
+              }
+            ],
+            "origin": {
+              "file": "ticket.pml",
+              "line": 49,
+              "name": "n++"
+            }
+          },
+          {
+            "index": 26,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 27,
+            "process": "Follower:0",
+            "command": "n == 3",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 51,
+              "name": "n == 3"
+            }
+          },
+          {
+            "index": 28,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 29,
+            "process": "Follower:1",
+            "command": "n < 3",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 45,
+              "name": "n < 3"
+            }
+          },
+          {
+            "index": 30,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 31,
+            "process": "Follower:1",
+            "command": "else",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 37,
+              "name": "else"
+            }
+          },
+          {
+            "index": 32,
+            "process": "Follower:1",
+            "command": "skip",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 37,
+              "name": "skip"
+            }
+          },
+          {
+            "index": 33,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 34,
+            "process": "Follower:1",
+            "command": "n++",
+            "changes": [
+              {
+                "var": "Follower:1.n",
+                "before": 0,
+                "after": 1
+              }
+            ],
+            "origin": {
+              "file": "ticket.pml",
+              "line": 49,
+              "name": "n++"
+            }
+          },
+          {
+            "index": 35,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 36,
+            "process": "Follower:1",
+            "command": "n < 3",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 45,
+              "name": "n < 3"
+            }
+          },
+          {
+            "index": 37,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 38,
+            "process": "Follower:1",
+            "command": "else",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 37,
+              "name": "else"
+            }
+          },
+          {
+            "index": 39,
+            "process": "Follower:1",
+            "command": "skip",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 37,
+              "name": "skip"
+            }
+          },
+          {
+            "index": 40,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 41,
+            "process": "Follower:1",
+            "command": "n++",
+            "changes": [
+              {
+                "var": "Follower:1.n",
+                "before": 1,
+                "after": 2
+              }
+            ],
+            "origin": {
+              "file": "ticket.pml",
+              "line": 49,
+              "name": "n++"
+            }
+          },
+          {
+            "index": 42,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 43,
+            "process": "Follower:1",
+            "command": "n < 3",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 45,
+              "name": "n < 3"
+            }
+          },
+          {
+            "index": 44,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 45,
+            "process": "Follower:1",
+            "command": "else",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 37,
+              "name": "else"
+            }
+          },
+          {
+            "index": 46,
+            "process": "Follower:1",
+            "command": "skip",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 37,
+              "name": "skip"
+            }
+          },
+          {
+            "index": 47,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 48,
+            "process": "Follower:1",
+            "command": "n++",
+            "changes": [
+              {
+                "var": "Follower:1.n",
+                "before": 2,
+                "after": 3
+              }
+            ],
+            "origin": {
+              "file": "ticket.pml",
+              "line": 49,
+              "name": "n++"
+            }
+          },
+          {
+            "index": 49,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 50,
+            "process": "Follower:1",
+            "command": "n == 3",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 51,
+              "name": "n == 3"
+            }
+          },
+          {
+            "index": 51,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 52,
+            "process": "Turn:2",
+            "command": "cancelled = true",
+            "changes": [
+              {
+                "var": "cancelled",
+                "before": 0,
+                "after": 1
+              }
+            ],
+            "origin": {
+              "file": "ticket.pml",
+              "line": 57,
+              "name": "cancelled = true"
+            }
+          },
+          {
+            "index": 53,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 54,
+            "process": "Tool:5",
+            "command": "decided",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 90,
+              "name": "decided"
+            }
+          },
+          {
+            "index": 55,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 56,
+            "process": "Tool:5",
+            "command": "skip",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 90,
+              "name": "skip"
+            }
+          },
+          {
+            "index": 57,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 58,
+            "process": "Tool:5",
+            "command": "else",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 101,
+              "name": "else"
+            }
+          },
+          {
+            "index": 59,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 60,
+            "process": "Tool:5",
+            "command": "skip",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 101,
+              "name": "skip"
+            }
+          },
+          {
+            "index": 61,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 62,
+            "process": "Tool:5",
+            "command": "started++",
+            "changes": [
+              {
+                "var": "started",
+                "before": 0,
+                "after": 1
+              }
+            ],
+            "origin": {
+              "file": "ticket.pml",
+              "line": 104,
+              "name": "started++"
+            }
+          },
+          {
+            "index": 63,
+            "process": "Tool:5",
+            "command": "alive = true",
+            "changes": [
+              {
+                "var": "alive",
+                "before": 0,
+                "after": 1
+              }
+            ],
+            "origin": {
+              "file": "ticket.pml",
+              "line": 104,
+              "name": "alive = true"
+            }
+          },
+          {
+            "index": 64,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 65,
+            "process": "Command:3",
+            "command": "(alive)",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 66,
+              "name": "(alive)"
+            }
+          },
+          {
+            "index": 66,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 67,
+            "process": "Command:3",
+            "command": "alive",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 69,
+              "name": "alive"
+            }
+          },
+          {
+            "index": 68,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 69,
+            "process": "Command:3",
+            "command": "alive = false",
+            "changes": [
+              {
+                "var": "alive",
+                "before": 1,
+                "after": 0
+              }
+            ],
+            "origin": {
+              "file": "ticket.pml",
+              "line": 69,
+              "name": "alive = false"
+            }
+          },
+          {
+            "index": 70,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 71,
+            "process": "Command:3",
+            "command": "!alive",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 68,
+              "name": "!alive"
+            }
+          },
+          {
+            "index": 72,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 73,
+            "process": "Tool:5",
+            "command": "!alive",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 106,
+              "name": "!alive"
+            }
+          },
+          {
+            "index": 74,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 75,
+            "process": "Tool:5",
+            "command": "toolDone = true",
+            "changes": [
+              {
+                "var": "toolDone",
+                "before": 0,
+                "after": 1
+              }
+            ],
+            "location": "end_release",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 114,
+              "name": "toolDone = true"
+            }
+          },
+          {
+            "index": 76,
+            "process": "never:ltl8",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 77,
+            "process": "Tool:5",
+            "command": "(!alive)",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 117,
+              "name": "(!alive)"
+            }
+          },
+          {
+            "index": 78,
+            "process": "never:ltl8",
+            "command": "((st == 3)) -> goto accept_S1",
+            "location": "accept_S1",
+            "origin": {
+              "name": "((st == 3))"
+            }
+          },
+          {
+            "index": 79,
+            "process": "Tool:5",
+            "command": "st != 5",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 118,
+              "name": "st != 5"
+            }
+          },
+          {
+            "index": 80,
+            "process": "Tool:5",
+            "command": "st = 5",
+            "changes": [
+              {
+                "var": "st",
+                "before": 3,
+                "after": 5
+              }
+            ],
+            "location": "fin",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 118,
+              "name": "st = 5"
+            }
+          },
+          {
+            "index": 81,
+            "process": "never:ltl8",
+            "command": "(1) -> goto accept_S1",
+            "location": "accept_S1",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 82,
+            "process": "Tool:5",
+            "command": "skip",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 123,
+              "name": "skip"
+            }
+          },
+          {
+            "index": 83,
+            "process": "never:ltl8",
+            "command": "(1) -> goto accept_S1",
+            "location": "accept_S1",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 84,
+            "process": "Tool:5",
+            "command": "-end-",
+            "location": "-dead-",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 124,
+              "name": "-end-"
+            }
+          },
+          {
+            "index": 85,
+            "process": "never:ltl8",
+            "command": "(1) -> goto accept_S1",
+            "location": "accept_S1",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 86,
+            "process": "-",
+            "command": "(stutter: no process can move, the system state repeats forever; SPIN's stutter extension)"
+          }
+        ],
+        "final_state": [
+          {
+            "var": "Follower:0.n",
+            "value": 3
+          },
+          {
+            "var": "Follower:1.n",
+            "value": 3
+          },
+          {
+            "var": "Tool:5.escalated",
+            "value": 0
+          },
+          {
+            "var": "Tool:5.killed",
             "value": 0
           },
           {
@@ -4461,11 +2333,15 @@
           {
             "var": "toolDone",
             "value": 1
+          },
+          {
+            "var": "killerPending",
+            "value": 0
           }
         ],
-        "summary": "(1) -> goto T0_init, n < 3, (1) -> goto T0_init, 1 == 1 && st == 0, st = 1, decided = true, ranAnswer = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, 3 == 3 && st == 1, st = 2, stopc = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, 3 == 3 && st == 2, st = 3, killc = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n == 3, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n == 3, (1) -> goto T0_init, cancelled = true, (1) -> goto T0_init, decided, (1) -> goto T0_init, skip, (1) -> goto T0_init, else, (1) -> goto T0_init, skip, (1) -> goto T0_init, started++, alive = true, (1) -> goto T0_init, (alive), (1) -> goto T0_init, alive, (1) -> goto T0_init, alive = false, (1) -> goto T0_init, !alive, (1) -> goto T0_init, !alive, (1) -> goto T0_init, alive = false, ((st == 3)) -> goto accept_S1, st != 5, st = 5, (1) -> goto accept_S1, toolDone = true, (1) -> goto accept_S1, -end-, (1) -> goto accept_S1, -end-, (1) -> goto accept_S1, -end-, (1) -> goto accept_S1, -end-, (1) -> goto accept_S1, -end-; loop: (1) -> goto accept_S1, (stutter: no process can move, the system state repeats forever; SPIN's stutter extension)",
+        "summary": "(1) -> goto T0_init, n < 3, (1) -> goto T0_init, 1 == 1 && st == 0, st = 1, decided = true, ranAnswer = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, 3 == 3 && st == 1, st = 2, stopc = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, 3 == 3 && st == 2, st = 3, killc = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n == 3, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n == 3, (1) -> goto T0_init, cancelled = true, (1) -> goto T0_init, decided, (1) -> goto T0_init, skip, (1) -> goto T0_init, else, (1) -> goto T0_init, skip, (1) -> goto T0_init, started++, alive = true, (1) -> goto T0_init, (alive), (1) -> goto T0_init, alive, (1) -> goto T0_init, alive = false, (1) -> goto T0_init, !alive, (1) -> goto T0_init, !alive, (1) -> goto T0_init, toolDone = true, (1) -> goto T0_init, (!alive), ((st == 3)) -> goto accept_S1, st != 5, st = 5, (1) -> goto accept_S1, skip, (1) -> goto accept_S1, -end-; loop: (1) -> goto accept_S1, (stutter: no process can move, the system state repeats forever; SPIN's stutter extension)",
         "loop": {
-          "start": 91,
+          "start": 85,
           "steps": 2
         }
       },
@@ -4483,28 +2359,28 @@
         "automaton_transitions": 3,
         "automaton_accepting": 1,
         "fairness": "none",
-        "claim": "never:ltl7"
+        "claim": "never:ltl8"
       }
     },
     {
-      "id": "ltl8",
+      "id": "ltl9",
       "kind": "ltl",
-      "text": "[] !(toolDone && interrupted)",
+      "text": "[] !(toolDone && alive)",
       "status": "violated",
       "evidence": "exhaustive",
       "counters": {
-        "states": 52,
-        "transitions": 68,
-        "depth": 54,
+        "states": 236,
+        "transitions": 423,
+        "depth": 60,
         "time_ms": 0,
-        "memory_bytes_est": 31872
+        "memory_bytes_est": 33264
       },
       "complete": false,
       "counterexample": {
         "steps": [
           {
             "index": 1,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -4517,13 +2393,13 @@
             "command": "n < 3",
             "origin": {
               "file": "ticket.pml",
-              "line": 44,
+              "line": 45,
               "name": "n < 3"
             }
           },
           {
             "index": 3,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -4536,7 +2412,7 @@
             "command": "1 == 1 && st == 0",
             "origin": {
               "file": "ticket.pml",
-              "line": 32,
+              "line": 33,
               "name": "1 == 1 && st == 0"
             }
           },
@@ -4553,7 +2429,7 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 32,
+              "line": 33,
               "name": "st = 1"
             }
           },
@@ -4570,7 +2446,7 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 32,
+              "line": 33,
               "name": "decided = true"
             }
           },
@@ -4587,13 +2463,13 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 32,
+              "line": 33,
               "name": "ranAnswer = true"
             }
           },
           {
             "index": 8,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -4613,13 +2489,13 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 48,
+              "line": 49,
               "name": "n++"
             }
           },
           {
             "index": 10,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -4632,13 +2508,13 @@
             "command": "n < 3",
             "origin": {
               "file": "ticket.pml",
-              "line": 44,
+              "line": 45,
               "name": "n < 3"
             }
           },
           {
             "index": 12,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -4651,7 +2527,7 @@
             "command": "3 == 3 && st == 1",
             "origin": {
               "file": "ticket.pml",
-              "line": 34,
+              "line": 35,
               "name": "3 == 3 && st == 1"
             }
           },
@@ -4668,7 +2544,7 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 34,
+              "line": 35,
               "name": "st = 2"
             }
           },
@@ -4685,13 +2561,13 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 34,
+              "line": 35,
               "name": "stopc = true"
             }
           },
           {
             "index": 16,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -4711,13 +2587,13 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 48,
+              "line": 49,
               "name": "n++"
             }
           },
           {
             "index": 18,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -4730,13 +2606,13 @@
             "command": "n < 3",
             "origin": {
               "file": "ticket.pml",
-              "line": 44,
+              "line": 45,
               "name": "n < 3"
             }
           },
           {
             "index": 20,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -4749,7 +2625,7 @@
             "command": "3 == 3 && st == 2",
             "origin": {
               "file": "ticket.pml",
-              "line": 35,
+              "line": 36,
               "name": "3 == 3 && st == 2"
             }
           },
@@ -4766,7 +2642,7 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 35,
+              "line": 36,
               "name": "st = 3"
             }
           },
@@ -4783,13 +2659,13 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 35,
+              "line": 36,
               "name": "killc = true"
             }
           },
           {
             "index": 24,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -4809,13 +2685,13 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 48,
+              "line": 49,
               "name": "n++"
             }
           },
           {
             "index": 26,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -4828,13 +2704,13 @@
             "command": "n == 3",
             "origin": {
               "file": "ticket.pml",
-              "line": 50,
+              "line": 51,
               "name": "n == 3"
             }
           },
           {
             "index": 28,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -4847,13 +2723,13 @@
             "command": "n < 3",
             "origin": {
               "file": "ticket.pml",
-              "line": 44,
+              "line": 45,
               "name": "n < 3"
             }
           },
           {
             "index": 30,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -4866,7 +2742,7 @@
             "command": "else",
             "origin": {
               "file": "ticket.pml",
-              "line": 36,
+              "line": 37,
               "name": "else"
             }
           },
@@ -4876,13 +2752,13 @@
             "command": "skip",
             "origin": {
               "file": "ticket.pml",
-              "line": 36,
+              "line": 37,
               "name": "skip"
             }
           },
           {
             "index": 33,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -4902,13 +2778,13 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 48,
+              "line": 49,
               "name": "n++"
             }
           },
           {
             "index": 35,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -4921,13 +2797,13 @@
             "command": "n < 3",
             "origin": {
               "file": "ticket.pml",
-              "line": 44,
+              "line": 45,
               "name": "n < 3"
             }
           },
           {
             "index": 37,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -4940,7 +2816,7 @@
             "command": "else",
             "origin": {
               "file": "ticket.pml",
-              "line": 36,
+              "line": 37,
               "name": "else"
             }
           },
@@ -4950,13 +2826,13 @@
             "command": "skip",
             "origin": {
               "file": "ticket.pml",
-              "line": 36,
+              "line": 37,
               "name": "skip"
             }
           },
           {
             "index": 40,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -4976,13 +2852,13 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 48,
+              "line": 49,
               "name": "n++"
             }
           },
           {
             "index": 42,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -4995,13 +2871,13 @@
             "command": "n < 3",
             "origin": {
               "file": "ticket.pml",
-              "line": 44,
+              "line": 45,
               "name": "n < 3"
             }
           },
           {
             "index": 44,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -5014,7 +2890,7 @@
             "command": "else",
             "origin": {
               "file": "ticket.pml",
-              "line": 36,
+              "line": 37,
               "name": "else"
             }
           },
@@ -5024,13 +2900,13 @@
             "command": "skip",
             "origin": {
               "file": "ticket.pml",
-              "line": 36,
+              "line": 37,
               "name": "skip"
             }
           },
           {
             "index": 47,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -5050,13 +2926,13 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 48,
+              "line": 49,
               "name": "n++"
             }
           },
           {
             "index": 49,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -5069,13 +2945,13 @@
             "command": "n == 3",
             "origin": {
               "file": "ticket.pml",
-              "line": 50,
+              "line": 51,
               "name": "n == 3"
             }
           },
           {
             "index": 51,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -5095,13 +2971,13 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 56,
+              "line": 57,
               "name": "cancelled = true"
             }
           },
           {
             "index": 53,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -5110,17 +2986,17 @@
           },
           {
             "index": 54,
-            "process": "Tool:4",
+            "process": "Tool:5",
             "command": "decided",
             "origin": {
               "file": "ticket.pml",
-              "line": 81,
+              "line": 90,
               "name": "decided"
             }
           },
           {
             "index": 55,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -5129,17 +3005,17 @@
           },
           {
             "index": 56,
-            "process": "Tool:4",
+            "process": "Tool:5",
             "command": "skip",
             "origin": {
               "file": "ticket.pml",
-              "line": 81,
+              "line": 90,
               "name": "skip"
             }
           },
           {
             "index": 57,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -5148,17 +3024,17 @@
           },
           {
             "index": 58,
-            "process": "Tool:4",
+            "process": "Tool:5",
             "command": "else",
             "origin": {
               "file": "ticket.pml",
-              "line": 92,
+              "line": 101,
               "name": "else"
             }
           },
           {
             "index": 59,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -5167,17 +3043,17 @@
           },
           {
             "index": 60,
-            "process": "Tool:4",
+            "process": "Tool:5",
             "command": "skip",
             "origin": {
               "file": "ticket.pml",
-              "line": 92,
+              "line": 101,
               "name": "skip"
             }
           },
           {
             "index": 61,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -5186,7 +3062,7 @@
           },
           {
             "index": 62,
-            "process": "Tool:4",
+            "process": "Tool:5",
             "command": "started++",
             "changes": [
               {
@@ -5197,13 +3073,13 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 95,
+              "line": 104,
               "name": "started++"
             }
           },
           {
             "index": 63,
-            "process": "Tool:4",
+            "process": "Tool:5",
             "command": "alive = true",
             "changes": [
               {
@@ -5214,13 +3090,13 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 95,
+              "line": 104,
               "name": "alive = true"
             }
           },
           {
             "index": 64,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -5233,13 +3109,13 @@
             "command": "(alive)",
             "origin": {
               "file": "ticket.pml",
-              "line": 65,
+              "line": 66,
               "name": "(alive)"
             }
           },
           {
             "index": 66,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -5252,13 +3128,13 @@
             "command": "alive",
             "origin": {
               "file": "ticket.pml",
-              "line": 68,
+              "line": 69,
               "name": "alive"
             }
           },
           {
             "index": 68,
-            "process": "never:ltl8",
+            "process": "never:ltl9",
             "command": "(1) -> goto T0_init",
             "location": "T0_init",
             "origin": {
@@ -5267,6 +3143,180 @@
           },
           {
             "index": 69,
+            "process": "Tool:5",
+            "command": "stopc &&!interrupted",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 107,
+              "name": "stopc &&!interrupted"
+            }
+          },
+          {
+            "index": 70,
+            "process": "never:ltl9",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 71,
+            "process": "Tool:5",
+            "command": "interrupted = true",
+            "changes": [
+              {
+                "var": "interrupted",
+                "before": 0,
+                "after": 1
+              }
+            ],
+            "origin": {
+              "file": "ticket.pml",
+              "line": 107,
+              "name": "interrupted = true"
+            }
+          },
+          {
+            "index": 72,
+            "process": "never:ltl9",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 73,
+            "process": "Tool:5",
+            "command": "cancelled && alive",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 110,
+              "name": "cancelled && alive"
+            }
+          },
+          {
+            "index": 74,
+            "process": "never:ltl9",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 75,
+            "process": "Tool:5",
+            "command": "interrupted = true",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 110,
+              "name": "interrupted = true"
+            }
+          },
+          {
+            "index": 76,
+            "process": "never:ltl9",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 77,
+            "process": "Tool:5",
+            "command": "killerPending = true",
+            "changes": [
+              {
+                "var": "killerPending",
+                "before": 0,
+                "after": 1
+              }
+            ],
+            "origin": {
+              "file": "ticket.pml",
+              "line": 110,
+              "name": "killerPending = true"
+            }
+          },
+          {
+            "index": 78,
+            "process": "never:ltl9",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 79,
+            "process": "Killer:4",
+            "command": "(killerPending && alive)",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 80,
+              "name": "(killerPending && alive)"
+            }
+          },
+          {
+            "index": 80,
+            "process": "never:ltl9",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 81,
+            "process": "Tool:5",
+            "command": "skip",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 112,
+              "name": "skip"
+            }
+          },
+          {
+            "index": 82,
+            "process": "never:ltl9",
+            "command": "(1) -> goto T0_init",
+            "location": "T0_init",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 83,
+            "process": "Tool:5",
+            "command": "toolDone = true",
+            "changes": [
+              {
+                "var": "toolDone",
+                "before": 0,
+                "after": 1
+              }
+            ],
+            "location": "end_release",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 114,
+              "name": "toolDone = true"
+            }
+          },
+          {
+            "index": 84,
+            "process": "never:ltl9",
+            "command": "((toolDone) && (alive)) -> goto accept_S1",
+            "location": "accept_S1",
+            "origin": {
+              "name": "((toolDone) && (alive))"
+            }
+          },
+          {
+            "index": 85,
             "process": "Command:3",
             "command": "alive = false",
             "changes": [
@@ -5278,134 +3328,89 @@
             ],
             "origin": {
               "file": "ticket.pml",
-              "line": 68,
+              "line": 69,
               "name": "alive = false"
             }
           },
           {
-            "index": 70,
-            "process": "never:ltl8",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
+            "index": 86,
+            "process": "never:ltl9",
+            "command": "(1) -> goto accept_S1",
+            "location": "accept_S1",
             "origin": {
               "name": "(1)"
             }
           },
           {
-            "index": 71,
+            "index": 87,
             "process": "Command:3",
             "command": "!alive",
             "origin": {
               "file": "ticket.pml",
-              "line": 67,
+              "line": 68,
               "name": "!alive"
             }
           },
           {
-            "index": 72,
-            "process": "never:ltl8",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
+            "index": 88,
+            "process": "never:ltl9",
+            "command": "(1) -> goto accept_S1",
+            "location": "accept_S1",
             "origin": {
               "name": "(1)"
             }
           },
           {
-            "index": 73,
-            "process": "Tool:4",
-            "command": "stopc &&!interrupted",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 98,
-              "name": "stopc &&!interrupted"
-            }
-          },
-          {
-            "index": 74,
-            "process": "never:ltl8",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 75,
-            "process": "Tool:4",
-            "command": "interrupted = true",
-            "changes": [
-              {
-                "var": "interrupted",
-                "before": 0,
-                "after": 1
-              }
-            ],
-            "origin": {
-              "file": "ticket.pml",
-              "line": 98,
-              "name": "interrupted = true"
-            }
-          },
-          {
-            "index": 76,
-            "process": "never:ltl8",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 77,
-            "process": "Tool:4",
-            "command": "!alive",
-            "origin": {
-              "file": "ticket.pml",
-              "line": 97,
-              "name": "!alive"
-            }
-          },
-          {
-            "index": 78,
-            "process": "never:ltl8",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
-            "origin": {
-              "name": "(1)"
-            }
-          },
-          {
-            "index": 79,
-            "process": "Tool:4",
+            "index": 89,
+            "process": "Killer:4",
             "command": "alive = false",
             "origin": {
               "file": "ticket.pml",
-              "line": 104,
+              "line": 80,
               "name": "alive = false"
             }
           },
           {
-            "index": 80,
-            "process": "never:ltl8",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
+            "index": 90,
+            "process": "never:ltl9",
+            "command": "(1) -> goto accept_S1",
+            "location": "accept_S1",
             "origin": {
               "name": "(1)"
             }
           },
           {
-            "index": 81,
-            "process": "Tool:4",
+            "index": 91,
+            "process": "Tool:5",
+            "command": "(!alive)",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 117,
+              "name": "(!alive)"
+            }
+          },
+          {
+            "index": 92,
+            "process": "never:ltl9",
+            "command": "(1) -> goto accept_S1",
+            "location": "accept_S1",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 93,
+            "process": "Tool:5",
             "command": "st != 5",
             "origin": {
               "file": "ticket.pml",
-              "line": 105,
+              "line": 118,
               "name": "st != 5"
             }
           },
           {
-            "index": 82,
-            "process": "Tool:4",
+            "index": 94,
+            "process": "Tool:5",
             "command": "st = 5",
             "changes": [
               {
@@ -5414,110 +3419,123 @@
                 "after": 5
               }
             ],
-            "location": "out",
+            "location": "fin",
             "origin": {
               "file": "ticket.pml",
-              "line": 105,
+              "line": 118,
               "name": "st = 5"
             }
           },
           {
-            "index": 83,
-            "process": "never:ltl8",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
+            "index": 95,
+            "process": "never:ltl9",
+            "command": "(1) -> goto accept_S1",
+            "location": "accept_S1",
             "origin": {
               "name": "(1)"
             }
           },
           {
-            "index": 84,
-            "process": "Tool:4",
-            "command": "toolDone = true",
-            "changes": [
-              {
-                "var": "toolDone",
-                "before": 0,
-                "after": 1
-              }
-            ],
+            "index": 96,
+            "process": "Tool:5",
+            "command": "skip",
             "origin": {
               "file": "ticket.pml",
-              "line": 107,
-              "name": "toolDone = true"
+              "line": 123,
+              "name": "skip"
             }
           },
           {
-            "index": 85,
-            "process": "never:ltl8",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
+            "index": 97,
+            "process": "never:ltl9",
+            "command": "(1) -> goto accept_S1",
+            "location": "accept_S1",
             "origin": {
               "name": "(1)"
             }
           },
           {
-            "index": 86,
-            "process": "Tool:4",
+            "index": 98,
+            "process": "Tool:5",
             "command": "-end-",
             "location": "-dead-",
             "origin": {
               "file": "ticket.pml",
-              "line": 108,
+              "line": 124,
               "name": "-end-"
             }
           },
           {
-            "index": 87,
-            "process": "never:ltl8",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
+            "index": 99,
+            "process": "never:ltl9",
+            "command": "(1) -> goto accept_S1",
+            "location": "accept_S1",
             "origin": {
               "name": "(1)"
             }
           },
           {
-            "index": 88,
+            "index": 100,
+            "process": "Killer:4",
+            "command": "-end-",
+            "location": "-dead-",
+            "origin": {
+              "file": "ticket.pml",
+              "line": 81,
+              "name": "-end-"
+            }
+          },
+          {
+            "index": 101,
+            "process": "never:ltl9",
+            "command": "(1) -> goto accept_S1",
+            "location": "accept_S1",
+            "origin": {
+              "name": "(1)"
+            }
+          },
+          {
+            "index": 102,
             "process": "Command:3",
             "command": "-end-",
             "location": "-dead-",
             "origin": {
               "file": "ticket.pml",
-              "line": 72,
+              "line": 74,
               "name": "-end-"
             }
           },
           {
-            "index": 89,
-            "process": "never:ltl8",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
+            "index": 103,
+            "process": "never:ltl9",
+            "command": "(1) -> goto accept_S1",
+            "location": "accept_S1",
             "origin": {
               "name": "(1)"
             }
           },
           {
-            "index": 90,
+            "index": 104,
             "process": "Turn:2",
             "command": "-end-",
             "location": "-dead-",
             "origin": {
               "file": "ticket.pml",
-              "line": 59,
+              "line": 60,
               "name": "-end-"
             }
           },
           {
-            "index": 91,
-            "process": "never:ltl8",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
+            "index": 105,
+            "process": "never:ltl9",
+            "command": "(1) -> goto accept_S1",
+            "location": "accept_S1",
             "origin": {
               "name": "(1)"
             }
           },
           {
-            "index": 92,
+            "index": 106,
             "process": "Follower:1",
             "command": "-end-",
             "changes": [
@@ -5530,21 +3548,21 @@
             "location": "-dead-",
             "origin": {
               "file": "ticket.pml",
-              "line": 52,
+              "line": 53,
               "name": "-end-"
             }
           },
           {
-            "index": 93,
-            "process": "never:ltl8",
-            "command": "(1) -> goto T0_init",
-            "location": "T0_init",
+            "index": 107,
+            "process": "never:ltl9",
+            "command": "(1) -> goto accept_S1",
+            "location": "accept_S1",
             "origin": {
               "name": "(1)"
             }
           },
           {
-            "index": 94,
+            "index": 108,
             "process": "Follower:0",
             "command": "-end-",
             "changes": [
@@ -5557,27 +3575,13 @@
             "location": "-dead-",
             "origin": {
               "file": "ticket.pml",
-              "line": 52,
+              "line": 53,
               "name": "-end-"
             }
           },
           {
-            "index": 95,
-            "process": "never:ltl8",
-            "command": "((toolDone) && (interrupted)) -> goto accept_S1",
-            "location": "accept_S1",
-            "origin": {
-              "name": "((toolDone) && (interrupted))"
-            }
-          },
-          {
-            "index": 96,
-            "process": "-",
-            "command": "(stutter: no process can move, the system state repeats forever; SPIN's stutter extension)"
-          },
-          {
-            "index": 97,
-            "process": "never:ltl8",
+            "index": 109,
+            "process": "never:ltl9",
             "command": "(1) -> goto accept_S1",
             "location": "accept_S1",
             "origin": {
@@ -5585,7 +3589,7 @@
             }
           },
           {
-            "index": 98,
+            "index": 110,
             "process": "-",
             "command": "(stutter: no process can move, the system state repeats forever; SPIN's stutter extension)"
           }
@@ -5600,11 +3604,11 @@
             "value": 0
           },
           {
-            "var": "Tool:4.escalated",
+            "var": "Tool:5.escalated",
             "value": 0
           },
           {
-            "var": "Tool:4.killed",
+            "var": "Tool:5.killed",
             "value": 0
           },
           {
@@ -5646,34 +3650,38 @@
           {
             "var": "toolDone",
             "value": 1
+          },
+          {
+            "var": "killerPending",
+            "value": 1
           }
         ],
-        "summary": "(1) -> goto T0_init, n < 3, (1) -> goto T0_init, 1 == 1 && st == 0, st = 1, decided = true, ranAnswer = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, 3 == 3 && st == 1, st = 2, stopc = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, 3 == 3 && st == 2, st = 3, killc = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n == 3, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n == 3, (1) -> goto T0_init, cancelled = true, (1) -> goto T0_init, decided, (1) -> goto T0_init, skip, (1) -> goto T0_init, else, (1) -> goto T0_init, skip, (1) -> goto T0_init, started++, alive = true, (1) -> goto T0_init, (alive), (1) -> goto T0_init, alive, (1) -> goto T0_init, alive = false, (1) -> goto T0_init, !alive, (1) -> goto T0_init, stopc &&!interrupted, (1) -> goto T0_init, interrupted = true, (1) -> goto T0_init, !alive, (1) -> goto T0_init, alive = false, (1) -> goto T0_init, st != 5, st = 5, (1) -> goto T0_init, toolDone = true, (1) -> goto T0_init, -end-, (1) -> goto T0_init, -end-, (1) -> goto T0_init, -end-, (1) -> goto T0_init, -end-, (1) -> goto T0_init, -end-, ((toolDone) && (interrupted)) -> goto accept_S1, (stutter: no process can move, the system state repeats forever; SPIN's stutter extension); loop: (1) -> goto accept_S1, (stutter: no process can move, the system state repeats forever; SPIN's stutter extension)",
+        "summary": "(1) -> goto T0_init, n < 3, (1) -> goto T0_init, 1 == 1 && st == 0, st = 1, decided = true, ranAnswer = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, 3 == 3 && st == 1, st = 2, stopc = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, 3 == 3 && st == 2, st = 3, killc = true, (1) -> goto T0_init, n++, (1) -> goto T0_init, n == 3, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n < 3, (1) -> goto T0_init, else, skip, (1) -> goto T0_init, n++, (1) -> goto T0_init, n == 3, (1) -> goto T0_init, cancelled = true, (1) -> goto T0_init, decided, (1) -> goto T0_init, skip, (1) -> goto T0_init, else, (1) -> goto T0_init, skip, (1) -> goto T0_init, started++, alive = true, (1) -> goto T0_init, (alive), (1) -> goto T0_init, alive, (1) -> goto T0_init, stopc &&!interrupted, (1) -> goto T0_init, interrupted = true, (1) -> goto T0_init, cancelled && alive, (1) -> goto T0_init, interrupted = true, (1) -> goto T0_init, killerPending = true, (1) -> goto T0_init, (killerPending && alive), (1) -> goto T0_init, skip, (1) -> goto T0_init, toolDone = true, ((toolDone) && (alive)) -> goto accept_S1, alive = false, (1) -> goto accept_S1, !alive, (1) -> goto accept_S1, alive = false, (1) -> goto accept_S1, (!alive), (1) -> goto accept_S1, st != 5, st = 5, (1) -> goto accept_S1, skip, (1) -> goto accept_S1, -end-, (1) -> goto accept_S1, -end-, (1) -> goto accept_S1, -end-, (1) -> goto accept_S1, -end-, (1) -> goto accept_S1, -end-, (1) -> goto accept_S1, -end-; loop: (1) -> goto accept_S1, (stutter: no process can move, the system state repeats forever; SPIN's stutter extension)",
         "loop": {
-          "start": 97,
+          "start": 109,
           "steps": 2
         }
       },
-      "reason": "acceptance cycle: the loop of the counterexample passes through an accept state of the automaton for !([] !(toolDone && interrupted)) infinitely often, so the run satisfies the negated property (SPIN pan -a: acceptance cycle)",
+      "reason": "acceptance cycle: the loop of the counterexample passes through an accept state of the automaton for !([] !(toolDone && alive)) infinitely often, so the run satisfies the negated property (SPIN pan -a: acceptance cycle)",
       "temporal": {
         "logic": "ltl",
         "source": "formula",
-        "formula": "[] !(toolDone && interrupted)",
-        "negated": "!([] !(toolDone && interrupted))",
+        "formula": "[] !(toolDone && alive)",
+        "negated": "!([] !(toolDone && alive))",
         "atoms": [
           "toolDone",
-          "interrupted"
+          "alive"
         ],
         "stutter_invariant": true,
         "automaton_states": 2,
         "automaton_transitions": 3,
         "automaton_accepting": 1,
         "fairness": "none",
-        "claim": "never:ltl8"
+        "claim": "never:ltl9"
       }
     }
   ],
   "warnings": [
-    "vacuity hint for ltl1: the atom started <= 1 is never false in any of the 147747 reachable states, so it constrains nothing"
+    "vacuity hint for ltl1: the atom started <= 1 is never false in any of the 201737 reachable states, so it constrains nothing"
   ]
 }

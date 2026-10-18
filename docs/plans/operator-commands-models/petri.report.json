@@ -9,7 +9,7 @@
     {
       "kind": "petri",
       "path": "ticket.petri.json",
-      "sha256": "11e229840f1e2979f90f5a46e7e29dadaaa2bd4c864c8d74b9829b5a8bb0d6cc"
+      "sha256": "b8cc4cf2d2b06f85ef75219067d78e7ffe9ea1239c55373d8480333e86e42175"
     }
   ],
   "model": {
@@ -63,25 +63,26 @@
     {
       "id": "ltl1",
       "kind": "ltl",
-      "text": "<> (ended == 1)",
+      "text": "<> (ended == 1 || declined == 1)",
       "status": "verified",
       "evidence": "exhaustive",
       "counters": {
         "states": 10,
-        "transitions": 25,
+        "transitions": 23,
         "depth": 5,
         "time_ms": 0,
         "memory_bytes_est": 34348
       },
       "complete": true,
-      "reason": "no acceptance cycle in the complete product with the automaton for !(<> (ended == 1)): no run satisfies the negated property",
+      "reason": "no acceptance cycle in the complete product with the automaton for !(<> (ended == 1 || declined == 1)): no run satisfies the negated property",
       "temporal": {
         "logic": "ltl",
         "source": "formula",
-        "formula": "<> (ended == 1)",
-        "negated": "!(<> (ended == 1))",
+        "formula": "<> (ended == 1 || declined == 1)",
+        "negated": "!(<> (ended == 1 || declined == 1))",
         "atoms": [
-          "ended == 1"
+          "ended == 1",
+          "declined == 1"
         ],
         "stutter_invariant": true,
         "automaton_states": 2,

@@ -294,3 +294,109 @@ func TestOperatorCommandUnknownShellIsAnError(t *testing.T) {
 		t.Fatal("the operator was asked to run a command in a shell that does not exist")
 	}
 }
+
+// fakeRun is an operatorRun the test drives by hand.
+type fakeRun struct {
+	mu         sync.Mutex
+	done       chan struct{}
+	closed     bool
+	kills      int
+	exitOnKill bool
+}
+
+func newFakeRun() *fakeRun { return &fakeRun{done: make(chan struct{})} }
+
+func (f *fakeRun) Output() string        { return "partial" }
+func (f *fakeRun) Dropped() int64        { return 0 }
+func (f *fakeRun) Done() <-chan struct{} { return f.done }
+func (f *fakeRun) ExitCode() int         { return 130 }
+func (f *fakeRun) Interrupt()            {}
+func (f *fakeRun) Kill(time.Duration) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.kills++
+	if f.exitOnKill {
+		f.exitLocked()
+	}
+}
+func (f *fakeRun) exit() { f.mu.Lock(); defer f.mu.Unlock(); f.exitLocked() }
+func (f *fakeRun) exitLocked() {
+	if !f.closed {
+		f.closed = true
+		close(f.done)
+	}
+}
+func (f *fakeRun) killCount() int { f.mu.Lock(); defer f.mu.Unlock(); return f.kills }
+
+func runningTicket(t *testing.T) (*acp.OperatorCommandTicket, *acp.OperatorCommandDecision) {
+	t.Helper()
+	tk := acp.NewOperatorCommandTicket()
+	if err := tk.Answer(acp.OperatorActionRun, ""); err != nil {
+		t.Fatal(err)
+	}
+	d, err := tk.Wait(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tk, d
+}
+
+// TestOperatorStopIsNotLostToTheShellsExit: when the Stop and the shell's exit
+// are ready at once, select picks either; the accepted Stop must still be
+// what the result says, and the group must still be terminated.
+func TestOperatorStopIsNotLostToTheShellsExit(t *testing.T) {
+	env := operatorEnv(t, &operatorClient{available: true})
+	req := acp.OperatorCommandRequest{SessionID: "s", RequestID: "oc_1", ToolCallID: "c", Shell: "bash", Host: "h", CWD: "/w"}
+	for i := 0; i < 64; i++ {
+		tk, d := runningTicket(t)
+		if err := tk.Answer(acp.OperatorActionStop, ""); err != nil {
+			t.Fatal(err)
+		}
+		run := newFakeRun()
+		run.exit()
+		out, err := superviseOperatorRun(context.Background(), env, req, "{}", run, d)
+		d.Done()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out, "stopped") {
+			t.Fatalf("iteration %d: an accepted Stop was reported as a plain end: %q", i, out)
+		}
+		if run.killCount() == 0 {
+			t.Fatalf("iteration %d: the group of a stopped command was not terminated", i)
+		}
+	}
+}
+
+// TestOperatorCancelKeepsTheRequestOpenUntilTheProcessEnds: a cancelled turn
+// returns after the drain, but the request stays running - and a Stop still
+// reaches the process - until the process has really ended.
+func TestOperatorCancelKeepsTheRequestOpenUntilTheProcessEnds(t *testing.T) {
+	old := operatorCancelDrain
+	operatorCancelDrain = 50 * time.Millisecond
+	t.Cleanup(func() { operatorCancelDrain = old })
+	env := operatorEnv(t, &operatorClient{available: true})
+	req := acp.OperatorCommandRequest{SessionID: "s", RequestID: "oc_2", ToolCallID: "c", Shell: "bash", Host: "h", CWD: "/w"}
+	tk, d := runningTicket(t)
+	run := newFakeRun() // ignores every signal
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := superviseOperatorRunAndRelease(ctx, env, req, "{}", run, d); err == nil {
+		t.Fatal("a cancelled turn returned no error")
+	}
+	if st := tk.State(); st == acp.OperatorStateEnded {
+		t.Fatal("the request ended while its process still runs")
+	}
+	run.mu.Lock()
+	run.exitOnKill = true
+	run.mu.Unlock()
+	if err := tk.Answer(acp.OperatorActionStop, ""); err != nil {
+		t.Fatalf("a stop after the cancel: %v", err)
+	}
+	_ = tk.Answer(acp.OperatorActionStop, "")
+	select {
+	case <-tk.Finished():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the request did not end once its process did")
+	}
+}
