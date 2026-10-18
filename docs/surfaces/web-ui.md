@@ -363,7 +363,7 @@ Header links
 
 - GitHub link to `https://github.com/coddy-project/coddy-agent` (**new tab**, `rel=noopener`).
 - API docs link to `/docs/` (**new tab**, `rel=noopener`).
-- The version of the server the page is talking to, on the right (**`GET /coddy/info`**): a release reads **`v1.2.36`**, a build between releases is shown as it is, and it opens **Settings → System** ([System](#system-settings-tab)). In a remote environment or inside a node reached through a relay it is that server's version, not the page's.
+- The version of the server the page is talking to, on the right (**`GET /coddy/info`**): a release reads **`v1.2.36`** and links to its notes on GitHub, a build between releases is shown as it is. In a remote environment or inside a node reached through a relay it is that server's version, not the page's.
 - The three sit in the footer of the start screen (**GitHub** | **API docs** | **v1.2.36**, **`chat/HeroFooter.tsx`**) and are gone once a chat is open; the nav rail carries none of them.
 
 Narrow-rail tooltips (desktop)
@@ -658,7 +658,7 @@ Session delete UX
   *The phone's tile grid: the System tile carries the number and says it in words where its blurb stands.*
 
 - **Refresh.** On open, then every 15 seconds while the tab is shown and the page is visible. The read Settings made when it opened serves as the tab's first read while it is under 5 seconds old; otherwise the tab reads at once. **Updated N s ago** at the foot is not live.
-- **Entry points.** The version in the start screen's footer opens the tab. After **Save all** the drawer reads the status once, so a saved change that waits for a restart shows the notice at once; a server that answers 404 shows nothing.
+- **Entry points.** After **Save all** the drawer reads the status once, so a saved change that waits for a restart shows the notice at once; a server that answers 404 shows nothing.
 - **Degraded states.** A server without the route (404) says **This server does not report its status** and names its version. A refused read (401) says so. A node that is offline behind a relay shows as offline with the time it was last seen: for a node that dials out to its relay, the moment that connection ended. A failed refresh keeps the last values, greyed, and the summary says stale. Only problems paint the summary in the warn tone, a clear reading draws none, and every other state is a muted notice. A block the document lacks says **Not available**, never zero.
 
   ![Settings → System after the server stopped: the band says it can't refresh and that the last values read are shown, and every value is greyed](../assets/web-ui/system-stale-dark-1280.png)
@@ -667,7 +667,7 @@ Session delete UX
 
 - **Search.** The tab is found by its name and description, and its four always-drawn blocks by their headings; no value is searched, and neither are the **Last hour** and **Model providers** headings, which depend on the build. A block result opens the tab, scrolls to the heading, rings it and focuses it, waiting for the chunk when it is late; leaving before it arrives cancels the jump ([Settings: search](#settings-search)).
 - **Accessibility.** The summary items focus their block's heading, the meter has a name and values, and each chart is an image labelled with the metric and its latest value.
-- Automated checks: **`SystemSection.test.tsx`** (every summary and degraded state, the meter, no charts without `metrics`, the focus targets, polling that stops when hidden, a remote environment), **`systemStatusApi.test.ts`** (answers applied in order, a switch of environment, a shared read, the reuse window), **`Settings.test.tsx`** (the badge: its reads, its number, none at zero or after a 404, the tile's and the rail's accessible text, a relay's home), **`HeroFooter.test.tsx`**, **`features/system_status.feature`** and **`bdd_diagrams_test.go`** (the chunk stays under 20,000 B and `Sparkline` stays out of `app.js`).
+- Automated checks: **`SystemSection.test.tsx`** (every summary and degraded state, the meter, no charts without `metrics`, the focus targets, polling that stops when hidden, a remote environment), **`systemStatusApi.test.ts`** (answers applied in order, a switch of environment, a shared read, the reuse window), **`Settings.test.tsx`** (the badge: its reads, its number, none at zero or after a 404, the tile's and the rail's accessible text, a relay's home), **`features/system_status.feature`** and **`bdd_diagrams_test.go`** (the chunk stays under 20,000 B and `Sparkline` stays out of `app.js`).
 
 ## Server events shared across tabs
 

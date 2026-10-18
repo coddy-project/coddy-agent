@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { getEnv, switchGeneration } from "../env/remoteEnv";
-import { appNavHrefSettingsSection } from "../scheduler/hashRoute";
 import { serverEventsScope } from "./sharedServerEvents";
 
 const REPO_URL = "https://github.com/coddy-project/coddy-agent";
@@ -54,8 +53,8 @@ export function resetServerVersionForTests(): void {
 /**
  * HeroFooter is the line under the start screen: the project on GitHub, the
  * API reference, and the version of the server the page is talking to, on the
- * right - the local one, a remote, or a node reached through a relay. It links
- * to Settings -> System, which says what that installation is.
+ * right - the local one, a remote, or a node reached through a relay. A
+ * release links to its notes; a build between releases is shown as it is.
  */
 export function HeroFooter() {
   const [version, setVersion] = useState("");
@@ -87,12 +86,18 @@ export function HeroFooter() {
           <span className="hero-footer-sep" aria-hidden>
             |
           </span>
-          <a
-            href={appNavHrefSettingsSection("status")}
-            className="hero-footer-version"
-          >
-            {label}
-          </a>
+          {releaseNotesUrl(version) ? (
+            <a
+              href={releaseNotesUrl(version)!}
+              target="_blank"
+              rel="noopener"
+              className="hero-footer-version"
+            >
+              {label}
+            </a>
+          ) : (
+            <span className="hero-footer-version">{label}</span>
+          )}
         </>
       ) : null}
     </div>
