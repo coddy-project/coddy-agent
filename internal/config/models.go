@@ -48,6 +48,12 @@ type ModelEntry struct {
 	// false makes the runtime issue one blocking completion request and deliver the
 	// finished answer in one piece, for servers and proxies that handle SSE badly.
 	Stream *bool `yaml:"stream,omitempty"`
+	// Toolset names the toolsets[] preset a session on this model is offered
+	// its tools by unless the session picks another (/toolset): a
+	// small-window local model that uses a dozen tools is not sent the
+	// schemas of the other forty. Empty offers every tool the mode
+	// would. See toolsets.go and internal/agent/toolsets.go.
+	Toolset string `yaml:"toolset,omitempty"`
 }
 
 // SplitModelRef parses model into provider name and API model id.
@@ -66,6 +72,7 @@ func SplitModelRef(model string) (providerName, apiModel string, err error) {
 // Normalize trims string fields in place.
 func (m *ModelEntry) Normalize() {
 	m.Model = strings.TrimSpace(m.Model)
+	m.Toolset = strings.TrimSpace(m.Toolset)
 }
 
 // Validate checks a single model entry after Normalize (provider existence checked separately).

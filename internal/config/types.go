@@ -7,6 +7,7 @@ type Config struct {
 
 	Providers    []ProviderConfig `yaml:"providers"`
 	Models       []ModelEntry     `yaml:"models"`
+	Toolsets     []Toolset        `yaml:"toolsets"`
 	Agent        Agent            `yaml:"agent"`
 	Supervisor   Supervisor       `yaml:"supervisor"`
 	Prompts      Prompts          `yaml:"prompts"`
@@ -27,6 +28,7 @@ type Config struct {
 	Decisions  DecisionsConfig  `yaml:"decisions"`
 	HTTPServer HTTPServerConfig `yaml:"httpserver"`
 	Swarm      SwarmConfig      `yaml:"swarm"`
+	Metrics    MetricsConfig    `yaml:"metrics"`
 	UI         UIConfig         `yaml:"ui"`
 	Scheduler  SchedulerConfig  `yaml:"scheduler"`
 	Gateways   GatewayConfig    `yaml:"gateways"`

@@ -1,0 +1,92 @@
+# Prometheus and Grafana for the exporter of `coddy serve` (metrics.enable),
+# with the alert rules of ../prometheus and the dashboard of this folder
+# provisioned. Both containers use the host network, so they reach exporters
+# bound to 127.0.0.1 (Linux; on Docker Desktop turn host networking on).
+#
+#   CODDY_METRICS_TOKEN=... docker compose up -d
+#
+# Prometheus: http://127.0.0.1:9090, Grafana: http://127.0.0.1:3000 (anonymous
+# read-only; sign in as admin/admin to edit). List the nodes in targets.yml;
+# Prometheus rereads it on change, no restart needed.
+name: coddy-monitoring
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    network_mode: host
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.listen-address=127.0.0.1:${PROMETHEUS_PORT:-9090}
+      - --storage.tsdb.retention.time=15d
+    configs:
+      - source: prometheus
+        target: /etc/prometheus/prometheus.yml
+    volumes:
+      - ${CODDY_TARGETS:-./targets.yml}:/etc/prometheus/targets.yml:ro
+      - ../prometheus/coddy-rules.yml:/etc/prometheus/coddy-rules.yml:ro
+      - prometheus:/prometheus
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.3.1
+    network_mode: host
+    environment:
+      GF_SERVER_HTTP_ADDR: 127.0.0.1
+      GF_SERVER_HTTP_PORT: ${GRAFANA_PORT:-3000}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/coddy-dashboard.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    configs:
+      - source: grafana-datasource
+        target: /etc/grafana/provisioning/datasources/coddy.yaml
+      - source: grafana-dashboards
+        target: /etc/grafana/provisioning/dashboards/coddy.yaml
+    volumes:
+      - ./coddy-dashboard.json:/var/lib/grafana/dashboards/coddy-dashboard.json:ro
+      - grafana:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+configs:
+  prometheus:
+    content: |
+      global:
+        scrape_interval: 15s
+        evaluation_interval: 15s
+      rule_files:
+        - /etc/prometheus/coddy-rules.yml
+      scrape_configs:
+        - job_name: coddy
+          authorization:
+            type: Bearer
+            credentials: "${CODDY_METRICS_TOKEN:-}"
+          file_sd_configs:
+            - files: [/etc/prometheus/targets.yml]
+  grafana-datasource:
+    content: |
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          uid: prometheus
+          type: prometheus
+          access: proxy
+          url: http://127.0.0.1:${PROMETHEUS_PORT:-9090}
+          isDefault: true
+  grafana-dashboards:
+    content: |
+      apiVersion: 1
+      providers:
+        - name: coddy
+          folder: Coddy
+          type: file
+          allowUiUpdates: true
+          options:
+            path: /var/lib/grafana/dashboards
+
+volumes:
+  prometheus:
+  grafana:

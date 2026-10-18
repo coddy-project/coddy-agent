@@ -25,7 +25,7 @@
           },
           "type": {
             "type": "string",
-            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), \"opencode\" for the OpenCode Go/Console gateway (one API key, its models served over the Responses, Anthropic or OpenAI-compatible protocol per model id; api_base picks Go or Console), \"codex\" for ChatGPT OAuth against the official Codex backend (Responses API), or \"devin\" for a Devin (Cognition) account signed in through the browser or the Devin CLI, served by the Devin API server; see https://coddy.dev/docs/features/devin.",
+            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), \"opencode\" for the OpenCode Go/Console gateway (one API key, its models served over the Responses, Anthropic, Google or OpenAI-compatible protocol per model id and gateway; api_base picks Go or Console), \"codex\" for ChatGPT OAuth against the official Codex backend (Responses API), or \"devin\" for a Devin (Cognition) account signed in through the browser or the Devin CLI, served by the Devin API server; see https://coddy.dev/docs/features/devin.",
             "enum": [
               "openai",
               "anthropic",
@@ -108,7 +108,7 @@
               "array",
               "null"
             ],
-            "description": "Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, and Claude extended-thinking models -> low,medium,high). An explicit empty list hides the selector. Settings fills this field from GET /coddy/config/reasoning-levels behind its Fetch reasoning levels button.",
+            "description": "Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, and Claude extended-thinking models -> low,medium,high), the vendor an aggregator puts in front of it left out (qwen/qwen3.8-flash reads as qwen3.8-flash). An explicit empty list hides the selector. Settings fills this field from GET /coddy/config/reasoning-levels behind its Fetch reasoning levels button.",
             "items": {
               "type": "string"
             }
@@ -129,6 +129,39 @@
             ],
             "description": "Transport used to talk to this model. Omit (or true) to stream over SSE. false issues one blocking completion request and delivers the whole answer at once, for servers or proxies that handle event streams badly. Rejected for providers of type codex, whose backend is streaming-only.",
             "default": true
+          },
+          "toolset": {
+            "type": "string",
+            "description": "Name of the toolsets[] preset a session on this model is offered its tools by, unless the session picks another with /toolset <name>. Absent or empty offers every tool the mode would. Use it to spare a small-context local model the schemas of tools it never calls."
+          }
+        }
+      }
+    },
+    "toolsets": {
+      "type": "array",
+      "description": "Named presets of tool lists. A models[] row names one with toolset, and a session can pick one with /toolset <name>, on its own or after /model on the same line. A preset only narrows: a tool the mode, a subagent definition or a switch already hides stays hidden, and a call to a tool outside the set is refused without a permission prompt. It is a context optimization, not a security boundary.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the preset: letters, digits, '.', '_' and '-'. default is reserved: a session picks it to be offered every tool the mode offers."
+          },
+          "tools": {
+            "type": "array",
+            "description": "Allowlist: tool names, a bare *, or a prefix* (context7__* admits every tool of that MCP server). Absent or empty admits every tool the mode would. coddy -t warns about an entry that matches no tool.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "disallowed_tools": {
+            "type": "array",
+            "description": "Denylist applied after tools, with the same names and patterns; a name in both lists is removed. coddy -t warns about an entry that matches no tool.",
+            "items": {
+              "type": "string"
+            }
           }
         }
       }
@@ -1451,6 +1484,36 @@
             }
           },
           "default": []
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "title": "Metrics",
+      "description": "Prometheus exporter: GET /metrics on a port of its own, run by coddy serve. It takes effect only in a binary built with -tags metrics; other binaries refuse metrics.enable. Off by default.",
+      "additionalProperties": false,
+      "properties": {
+        "enable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run the exporter in this process. Needs the metrics build tag."
+        },
+        "host": {
+          "type": "string",
+          "description": "Bind address of the exporter. Empty falls back to 127.0.0.1, which only this machine can reach.",
+          "default": ""
+        },
+        "port": {
+          "type": "integer",
+          "description": "Listen port of the exporter. 0 falls back to 12347.",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "token": {
+          "type": "string",
+          "description": "Bearer credential a scrape must present in its Authorization header. ${ENV} references are expanded at load. Empty means no authentication, so set one before binding off loopback. Never echoed back.",
+          "default": ""
         }
       }
     },

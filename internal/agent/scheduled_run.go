@@ -131,14 +131,6 @@ func RunScheduledJob(ctx context.Context, cfg *config.Config, rt SubagentRuntime
 	if cfg.Subagents.EffectiveMaxDepth() <= 0 {
 		exclusions = append(exclusions, tools.ToolSpawnAgent)
 	}
-	registryNames := registryToolNamesForMode(cfg, mode)
-	resolve := func(mcpTools []string) []string {
-		all := append(append([]string(nil), registryNames...), mcpTools...)
-		if def != nil {
-			return subagents.EffectiveTools(all, modeToolNames(mode, all), def, exclusions)
-		}
-		return subagents.EffectiveTools(all, modeToolNames(mode, all), nil, exclusions)
-	}
 	connectMCP := scheduledRunDialsMCP(mode, def, spec.MCPServerNames)
 
 	model := strings.TrimSpace(spec.Model)
@@ -162,6 +154,21 @@ func RunScheduledJob(ctx context.Context, cfg *config.Config, rt SubagentRuntime
 		} else {
 			log.Warn("scheduled run: the definition names a reasoning level its model does not offer; the default is used", "job_id", jobID, "agent", def.Name, "reasoning", def.Reasoning, "model", runModel)
 		}
+	}
+
+	// The run's tool set, decided once the MCP names are known. The toolset
+	// the model it runs on names (models[].toolset) applies while it runs,
+	// like a spawned child's (toolsets.go); a toolset that leaves the run
+	// nothing is refused here, as a definition that does is.
+	registryNames := registryToolNamesForMode(cfg, mode)
+	runToolset := cfg.ResolveToolset(session.ResolveModelID(cfg, model), "")
+	resolve := func(mcpTools []string) []string {
+		all := append(append([]string(nil), registryNames...), mcpTools...)
+		effective := subagents.EffectiveTools(all, modeToolNames(mode, all), def, exclusions)
+		if len(narrowToolNamesByToolset(effective, runToolset)) == 0 {
+			return nil
+		}
+		return effective
 	}
 
 	label := strings.TrimSpace(spec.Label)

@@ -11,12 +11,14 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
 // footer renders the status lines under the editor (pi FooterComponent):
 // line 1: dim cwd (git branch) • session title [• plan]
-// line 2: token stats + context percent left, (provider) model • reasoning right;
+// line 2: token stats + context percent left, (provider) model • reasoning
+// [• tools <toolset>] right;
 // line 3, only while the active model's provider reports account usage:
 // plan • window percentages with reset times • wallet (usage.go).
 type footer struct {
@@ -42,6 +44,9 @@ type footer struct {
 	provider  string
 	model     string
 	reasoning string
+	// toolset is the preset the session runs with, empty with none (the
+	// configuration has no preset, or the session picked default).
+	toolset string
 	// permission is the session's permission mode; anything but ask is
 	// named on the first line, bypass in the warning colour (#292).
 	permission string
@@ -95,6 +100,15 @@ func (f *footer) SetContext(percent float64, maxTokens int) {
 func (f *footer) SetModel(modelID, reasoning string) {
 	f.provider, f.model = splitModelID(modelID)
 	f.reasoning = reasoning
+}
+
+// SetToolset names the preset the session runs with; "" (no preset) or
+// default shows none.
+func (f *footer) SetToolset(name string) {
+	if name == config.ToolsetDefault {
+		name = ""
+	}
+	f.toolset = name
 }
 
 // SetSettings adopts a settings snapshot: the permission mode and the
@@ -318,6 +332,9 @@ func (f *footer) Render(width int) []string {
 		}
 		if f.reasoning != "" {
 			right += " • " + tui.SanitizeText(f.reasoning)
+		}
+		if f.toolset != "" {
+			right += " • tools " + tui.SanitizeText(f.toolset)
 		}
 	}
 

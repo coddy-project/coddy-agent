@@ -26,7 +26,10 @@
  *   signin   a second coddy serve with sign-in, opened from the page on
  *            localhost while the app is on 127.0.0.1 - a cross-site frame,
  *            the way Telegram Web frames a Mini App: the sign-in the server
- *            accepts is not kept, and the screen says so.
+ *            accepts is not kept, and the screen says so;
+ *   settings the Settings search on a touch phone (assertions shared with
+ *            settings-search-assert.mjs): a reveal leaves the focus on the box,
+ *            Back steps out layer by layer, Notifications is not found.
  *
  * Usage, from the repository root:
  *   make build TAGS="http ui gateway"
@@ -40,7 +43,7 @@
  *                       built into the scratch directory)
  *   CODDY_BROWSER_PATH  an installed Chromium instead of Playwright's download
  *   CODDY_PORT_BASE     first of three loopback ports (default 19890)
- *   CODDY_SCENARIOS     a comma list (bot, open, half, sheets, theme, signin); all by default
+ *   CODDY_SCENARIOS     a comma list (bot, open, half, sheets, theme, signin, settings); all by default
  *   CODDY_SCREENSHOTS   a directory to write the documentation captures into
  *   CODDY_E2E_KEEP=1    leave the stand running after the checks, for a look
  */
@@ -50,6 +53,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import {
+  assertDrawerState,
+  assertTouchOnly,
+  openSearch,
+  revealResult,
+  searchFor,
+  shownResults,
+} from "./settings-search-assert.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "../../..");
@@ -63,7 +75,7 @@ const SHOTS = process.env.CODDY_SCREENSHOTS
   ? path.resolve(process.env.CODDY_SCREENSHOTS)
   : "";
 const SCENARIOS = new Set(
-  (process.env.CODDY_SCENARIOS || "bot,open,half,sheets,theme,signin")
+  (process.env.CODDY_SCENARIOS || "bot,open,half,sheets,theme,signin,settings")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean),
@@ -239,6 +251,7 @@ gateways:
   telegram:
     enable: true
     token: "123456:mini-app-check"
+    admins: [${CHAT}]
     rich_messages: false
     mini_app:
       url: "${NODE}/"
@@ -310,6 +323,103 @@ const miniApp = (fn, arg) => page.evaluate(fn, arg);
 const frame = () =>
   page.frame({ name: "miniapp" }) ||
   page.frames().find((f) => f.url().startsWith(NODE));
+
+/**
+ * The Settings search inside the Mini App, in a phone context of its own (touch
+ * and no hover), so the touch-only media query that decides where a reveal puts
+ * the focus is the real one. The first failure ends the scenario.
+ */
+async function settingsScenario() {
+  const phoneContext = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+    colorScheme: "dark",
+  });
+  const phone = await phoneContext.newPage();
+  // The stand's page stacks its chat, controls and phone under each other and
+  // the phone is taller than the window; Playwright does not scroll the page to
+  // reach into a frame, so every step starts with the phone at the top.
+  const showPhone = () =>
+    phone.evaluate(() =>
+      document
+        .querySelector("#miniappPhone")
+        ?.scrollIntoView({ block: "start" }),
+    );
+  let at = "the Mini App opens";
+  const step = async (label, fn) => {
+    at = label;
+    await showPhone();
+    await fn();
+    check(label, true);
+  };
+  try {
+    await phone.goto(`${TG}/`);
+    await phone.locator(".kb button.webapp").last().click();
+    const app = await until(
+      "the Mini App frame",
+      () =>
+        phone.frame({ name: "miniapp" }) ||
+        phone.frames().find((f) => f.url().startsWith(NODE)),
+    );
+    await app.waitForSelector('html[data-telegram-mini-app="true"]');
+    await app.waitForSelector(".composer-card");
+    // Telegram's Back is a button of the page around the frame.
+    const back = async () => {
+      await showPhone();
+      await phone.waitForFunction(() => window.__tgfakeMiniApp.backVisible);
+      await phone.locator("#miniappBack").click();
+    };
+    const drawer = (expected) =>
+      assertDrawerState(app, { open: true, ...expected });
+    // The gear of the top bar, a link named Settings.
+    const gear = () =>
+      app.getByRole("link", { name: "Settings", exact: true }).tap();
+
+    await step("max_turns is revealed, its box holds the focus", async () => {
+      await assertTouchOnly(app, true);
+      await gear();
+      await openSearch(app, { narrow: true });
+      await searchFor(app, "max_turns");
+      await revealResult(app, { anchor: "agent:max_turns", focus: "box" });
+    });
+    // Back undoes one layer at a time: the section (the tiles, the query
+    // kept), then the results a tap on the field brought back, then Settings.
+    await step("Back: the section, the results, then Settings", async () => {
+      await back();
+      await drawer({ tiles: true, query: "max_turns", resultsShowing: false });
+      await openSearch(app, { narrow: true });
+      await drawer({ resultsShowing: true });
+      await back();
+      await drawer({ tiles: true, query: "", resultsShowing: false });
+      await back();
+      await assertDrawerState(app, { open: false });
+    });
+    // Notifications is not drawn inside Telegram, so nothing finds it; the name
+    // of the Appearance tile, read from the page, finds the Theme block next to
+    // it, the positive control of the same search.
+    await step("Theme is found and Notifications is not", async () => {
+      await gear();
+      const tile = '[data-testid="settings-tile-appearance"]';
+      const label = await app
+        .locator(`${tile} .settings-tile-title`)
+        .textContent();
+      await openSearch(app, { narrow: true });
+      await searchFor(app, label.trim());
+      const anchors = (await shownResults(app)).map((r) => r.anchor);
+      if (!anchors.includes("landmark:appearance:theme")) {
+        throw new Error(`no Theme block among ${anchors.join(", ")}`);
+      }
+      if (anchors.includes("landmark:appearance:notifications")) {
+        throw new Error("Notifications is offered, and the Mini App has none");
+      }
+    });
+  } catch (err) {
+    check(at, false, err.message);
+  } finally {
+    await phoneContext.close();
+  }
+}
 
 try {
   // ---- bot: the menu button and /app
@@ -594,6 +704,11 @@ try {
         path: path.join(SHOTS, "telegram-mini-app-start-light-390.png"),
       });
     }
+  }
+
+  // ---- the Settings search, on a phone of its own
+  if (SCENARIOS.has("settings")) {
+    await settingsScenario();
   }
 
   // ---- the cross-site frame of Telegram Web and a sign-in it does not keep

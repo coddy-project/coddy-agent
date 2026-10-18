@@ -12,13 +12,14 @@ import (
 const (
 	SettingModel          = "model"
 	SettingReasoning      = "reasoning"
+	SettingToolset        = "toolset"
 	SettingMode           = "mode"
 	SettingPermissionMode = "permission_mode"
 )
 
 // settingOrder is the order settings are listed in, whatever order a change
 // named them in.
-var settingOrder = []string{SettingModel, SettingReasoning, SettingMode, SettingPermissionMode}
+var settingOrder = []string{SettingModel, SettingReasoning, SettingToolset, SettingMode, SettingPermissionMode}
 
 // MaxOverrideTurns bounds --count: an override is a detour, and one that
 // outlives a working day is a session setting the operator forgot about.
@@ -31,7 +32,7 @@ type TurnOverride = acp.TurnOverride
 // turnValues are the settings a turn holds for its whole length; an empty
 // field follows the session.
 type turnValues struct {
-	model, reasoning, mode, permissionMode string
+	model, reasoning, toolset, mode, permissionMode string
 }
 
 func (v *turnValues) get(setting string) string {
@@ -40,6 +41,8 @@ func (v *turnValues) get(setting string) string {
 		return v.model
 	case SettingReasoning:
 		return v.reasoning
+	case SettingToolset:
+		return v.toolset
 	case SettingMode:
 		return v.mode
 	case SettingPermissionMode:
@@ -54,6 +57,8 @@ func (v *turnValues) set(setting, value string) {
 		v.model = value
 	case SettingReasoning:
 		v.reasoning = value
+	case SettingToolset:
+		v.toolset = value
 	case SettingMode:
 		v.mode = value
 	case SettingPermissionMode:

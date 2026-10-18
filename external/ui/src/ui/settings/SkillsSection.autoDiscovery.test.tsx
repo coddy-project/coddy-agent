@@ -207,7 +207,8 @@ test("the project marketplaces policy has its own fieldset above the marketplace
   // loose between them.
   const section = document.querySelector(".settings-skills-section")!;
   const loose = section.querySelectorAll(
-    ":scope > .settings-schema-root > .settings-row",
+    ":scope > .settings-schema-root > .settings-row, " +
+      ":scope > .settings-schema-root > .settings-field > .settings-row",
   );
   expect(loose).toHaveLength(0);
 });

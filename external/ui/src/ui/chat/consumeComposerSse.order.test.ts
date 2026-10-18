@@ -625,3 +625,57 @@ test("a pending tool_call_update keeps the row's start time", async () => {
   expect(call?.type === "tool_call" && call.status).toBe("pending");
   expect(call?.type === "tool_call" && call.startedAtMs).toBe(now - 12000);
 });
+
+// Issue #258: token_usage follows each model call and says what its reasoning
+// cost; the count lands on the reasoning row that call wrote, and on no other.
+function reasoningEvent(text: string): string {
+  return `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: text } }] })}\n\n`;
+}
+
+function tokenUsageEvent(output: number, reasoning?: number): string {
+  return `event: token_usage\ndata: ${JSON.stringify({
+    sessionUpdate: "token_usage",
+    inputTokens: 100,
+    outputTokens: output,
+    totalTokens: 100 + output,
+    ...(reasoning !== undefined ? { reasoningTokens: reasoning } : {}),
+  })}\n\n`;
+}
+
+test("token_usage puts the reasoning tokens of a call on the row that call wrote", async () => {
+  const sse =
+    reasoningEvent("First look.") +
+    textEvent("Reading it.") +
+    `event: tool_call\ndata: ${JSON.stringify({ toolCallId: "t1", title: "read", status: "pending" })}\n\n` +
+    tokenUsageEvent(30, 25) +
+    reasoningEvent("Second look.") +
+    textEvent("Done.") +
+    tokenUsageEvent(12, 7) +
+    `data: [DONE]\n\n`;
+  const items = await drive(sse);
+  const rows = items.filter(
+    (it): it is Extract<TranscriptItem, { type: "thinking" }> =>
+      it.type === "thinking",
+  );
+  expect(rows.map((r) => [r.content, r.reasoningTokens])).toEqual([
+    ["First look.", 25],
+    ["Second look.", 7],
+  ]);
+});
+
+test("a call without reasoning text or a count touches no earlier row", async () => {
+  const sse =
+    reasoningEvent("First look.") +
+    textEvent("Reading it.") +
+    tokenUsageEvent(30) +
+    textEvent(" More.") +
+    tokenUsageEvent(12, 9) +
+    `data: [DONE]\n\n`;
+  const items = await drive(sse);
+  const rows = items.filter(
+    (it): it is Extract<TranscriptItem, { type: "thinking" }> =>
+      it.type === "thinking",
+  );
+  expect(rows).toHaveLength(1);
+  expect(rows[0]!.reasoningTokens).toBeUndefined();
+});

@@ -10,6 +10,7 @@ import (
 type ConfigJSON struct {
 	Providers    []ProviderJSON   `json:"providers,omitempty"`
 	Models       []ModelJSON      `json:"models,omitempty"`
+	Toolsets     []ToolsetJSON    `json:"toolsets,omitempty"`
 	Agent        AgentJSON        `json:"agent,omitempty"`
 	Supervisor   Supervisor       `json:"supervisor,omitempty"`
 	Prompts      PromptsJSON      `json:"prompts,omitempty"`
@@ -27,6 +28,7 @@ type ConfigJSON struct {
 	Decisions    DecisionsJSON    `json:"decisions,omitempty"`
 	HTTPServer   HTTPServerJSON   `json:"httpserver,omitempty"`
 	Swarm        SwarmJSON        `json:"swarm,omitempty"`
+	Metrics      MetricsJSON      `json:"metrics,omitempty"`
 	UI           UIJSON           `json:"ui,omitempty"`
 	Scheduler    SchedulerJSON    `json:"scheduler,omitempty"`
 	Gateways     GatewaysJSON     `json:"gateways,omitempty"`
@@ -127,7 +129,16 @@ type ModelJSON struct {
 	AllowReasoningOff bool      `json:"allow_reasoning_off,omitempty"`
 	// Stream keeps the unset/explicit distinction of ModelEntry.Stream: a settings
 	// round trip must not turn an omitted key into an explicit false.
-	Stream *bool `json:"stream,omitempty"`
+	Stream  *bool  `json:"stream,omitempty"`
+	Toolset string `json:"toolset,omitempty"`
+}
+
+// ToolsetJSON mirrors Toolset. Empty and absent lists mean the same (no
+// restriction), so plain slices with omitempty round-trip them losslessly.
+type ToolsetJSON struct {
+	Name            string   `json:"name"`
+	Tools           []string `json:"tools,omitempty"`
+	DisallowedTools []string `json:"disallowed_tools,omitempty"`
 }
 
 // AgentJSON mirrors Agent for JSON APIs. Pointer fields keep the unset/explicit
@@ -397,6 +408,16 @@ type SwarmJSON struct {
 	Join                     []SwarmJoinJSON     `json:"join,omitempty"`
 }
 
+// MetricsJSON mirrors MetricsConfig. The token is write-only, the way the
+// swarm credentials are: reading the config reports only whether one is set.
+type MetricsJSON struct {
+	Enable          bool   `json:"enable,omitempty"`
+	Host            string `json:"host,omitempty"`
+	Port            int    `json:"port,omitempty"`
+	Token           string `json:"token,omitempty"`
+	TokenConfigured bool   `json:"token_configured,omitempty"`
+}
+
 // SwarmTLSJSON mirrors SwarmTLSConfig.
 type SwarmTLSJSON struct {
 	CertFile string `json:"cert_file,omitempty"`
@@ -485,6 +506,11 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		mj.ReasoningLevels = cloneStringsPtr(m.ReasoningLevels)
 		mj.Stream = cloneBoolPtr(m.Stream)
 		out.Models = append(out.Models, mj)
+	}
+	for _, ts := range c.Toolsets {
+		out.Toolsets = append(out.Toolsets, ToolsetJSON{Name: ts.Name,
+			Tools:           append([]string(nil), ts.Tools...),
+			DisallowedTools: append([]string(nil), ts.DisallowedTools...)})
 	}
 	out.Agent = AgentJSON{
 		QueueMode:              c.Agent.QueueMode,
@@ -645,6 +671,12 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			Dial:                   swarmDialToJSON(j.Dial),
 		})
 	}
+	out.Metrics = MetricsJSON{
+		Enable:          c.Metrics.Enable,
+		Host:            c.Metrics.Host,
+		Port:            c.Metrics.Port,
+		TokenConfigured: strings.TrimSpace(c.Metrics.Token) != "",
+	}
 	out.UI = UIJSON{Enabled: cloneBoolPtr(c.UI.Enabled)}
 	out.Scheduler = SchedulerJSON{
 		Enabled: c.Scheduler.Enabled, MaxQueue: c.Scheduler.MaxQueue,
@@ -715,6 +747,11 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		me.ReasoningLevels = cloneStringsPtr(m.ReasoningLevels)
 		me.Stream = cloneBoolPtr(m.Stream)
 		cfg.Models = append(cfg.Models, me)
+	}
+	for _, ts := range j.Toolsets {
+		cfg.Toolsets = append(cfg.Toolsets, Toolset{Name: ts.Name,
+			Tools:           append([]string(nil), ts.Tools...),
+			DisallowedTools: append([]string(nil), ts.DisallowedTools...)})
 	}
 	cfg.Agent = Agent{
 		QueueMode:              j.Agent.QueueMode,
@@ -873,6 +910,12 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			Dial:   swarmDialFromJSON(jn.Dial),
 		})
 	}
+	cfg.Metrics = MetricsConfig{
+		Enable: j.Metrics.Enable,
+		Host:   j.Metrics.Host,
+		Port:   j.Metrics.Port,
+		Token:  j.Metrics.Token,
+	}
 	cfg.UI = UIConfig{Enabled: cloneBoolPtr(j.UI.Enabled)}
 	cfg.Scheduler = SchedulerConfig{
 		Enabled: j.Scheduler.Enabled, MaxQueue: j.Scheduler.MaxQueue,
@@ -1025,6 +1068,9 @@ func preserveRedactedSecrets(next, current *Config) {
 		next.HTTPServer.Login.PasswordHash = current.HTTPServer.Login.PasswordHash
 	}
 	preserveSwarmSecrets(&next.Swarm, &current.Swarm)
+	if strings.TrimSpace(next.Metrics.Token) == "" && strings.TrimSpace(current.Metrics.Token) != "" {
+		next.Metrics.Token = current.Metrics.Token
+	}
 }
 
 // preserveSwarmSecrets carries a relay's credentials across a save.

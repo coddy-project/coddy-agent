@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { FieldLabel } from "./FieldHint";
+import type { OverrideTexts } from "./settingsSections";
 import { useT } from "../i18n/I18nProvider";
 import { translate } from "../i18n/i18n";
 import { providerAPIKeyEnvVarName } from "./providerApiKeyPlaceholder";
@@ -56,6 +57,8 @@ export function NeuralDeepAuthField(props: {
   apiBase: string;
   /** Current unsaved provider proxy; undefined keeps the saved row route. */
   proxy?: string;
+  /** The account's name and description (second); primary is the endpoint's. */
+  texts: OverrideTexts;
 }) {
   const providerName = props.providerName.trim();
   const apiBase = props.apiBase.trim();
@@ -240,8 +243,8 @@ export function NeuralDeepAuthField(props: {
   return (
     <div className="settings-row" data-testid="neuraldeep-auth-field">
       <FieldLabel
-        label={t("neuralDeepAuth.fieldLabel")}
-        description={t("neuralDeepAuth.description")}
+        label={props.texts.second}
+        description={props.texts.secondDesc}
       />
       {status.connected ? (
         <p className="settings-muted codex-auth-status">

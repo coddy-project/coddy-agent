@@ -7,7 +7,7 @@ Commands that only print a one-line usage (`skills`, `mcp`, `rules`, `agents`, `
 ## Help screens
 
 <!-- docsgen:cli:start -->
-Help screens of a binary built with `-tags=http,ui,scheduler,memory,cli,gateway,swarm`, the set the release binaries carry.
+Help screens of a binary built with `-tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics`, the set the release binaries carry.
 
 ### coddy
 

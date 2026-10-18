@@ -23,7 +23,7 @@ tool github.com/EvilFreelancer/tgfake/cmd/tgfake
 | `external/gateway/telegram` tests (`-tags gateway`) | `pkg/server` in-process on `httptest`, imported as `tgfake` and opened through `fakeapi_test.go`; `pkg/botapi` for the keyboard types. Every gateway test that needs Telegram goes through it. |
 | `internal/agent`, `external/httpserver`, `external/cli` and gateway suites | `pkg/llmstub`, the scripted model, with `StripTags: []string{"turn_context"}` so a rule matches what the person wrote rather than the block Coddy appends to every request. |
 | `examples/gateway/tg_e2e_offline.sh`, `examples/shared/wake_e2e_common.py`, `examples/cli/capture_wake.py`, `npm run check:telegram` | The `tgfake` binary: the one `CODDY_TGFAKE_BIN` names, else built from the pinned module (`go build github.com/EvilFreelancer/tgfake/cmd/tgfake`). They start it with `--llm-model coddy-demo --llm-strip-tag turn_context`. |
-| CI, job **Telegram stand (tgfake)** | The release binary of the pinned version, installed by tgfake's own GitHub Action, then `tg_e2e_offline.sh` against a real `coddy serve`. |
+| CI, job **Telegram stand (tgfake)** | The release binary of the pinned version, installed by tgfake's own GitHub Action, then `tg_e2e_offline.sh` (with `TG_E2E_METRICS=1`) against a real `coddy serve`. |
 
 The Go tests need nothing but `go test`: the module is downloaded like any
 other dependency. Only the scripts start a process.
@@ -51,6 +51,10 @@ make build TAGS=gateway
 ```bash
 examples/gateway/tg_e2e_offline.sh
 ```
+
+`TG_E2E_METRICS=1` also turns the Prometheus exporter on and scrapes it after
+the chat; it needs a binary built with `TAGS="gateway metrics"`, as CI builds
+it, and without it the script needs only a `gateway` build.
 
 `TG_E2E_KEEP=1` leaves the stand up and prints the chat page address, where
 you can go on talking to the bot. To run a prebuilt binary instead of building
@@ -89,8 +93,9 @@ is the integration layer:
    workflow uses tgfake's action at a different ref, so the two cannot drift;
 2. `EvilFreelancer/tgfake@vX.Y.Z` installs the release binary of that version
    for the runner, checked against the release's checksums;
-3. it builds `coddy` with the `gateway` tag and runs
-   `examples/gateway/tg_e2e_offline.sh` with `CODDY_TGFAKE_BIN` set.
+3. it builds `coddy` with the `gateway` and `metrics` tags and runs
+   `examples/gateway/tg_e2e_offline.sh` with `CODDY_TGFAKE_BIN` and
+   `TG_E2E_METRICS=1` set.
 
 No token, no model and no network beyond the download are involved. The
 in-process suites run in the test matrix like every other test.

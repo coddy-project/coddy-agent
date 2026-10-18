@@ -359,6 +359,21 @@ func TestConfigToolOutputsRedactSecretValues(t *testing.T) {
 	}
 }
 
+// config_get hands its answer to the model, so the exporter's scrape token must
+// not be in it, whether it reads the section or the key.
+func TestConfigGetRedactsTheMetricsToken(t *testing.T) {
+	env := testConfigToolsEnv(t, "metrics:\n  enable: true\n  token: scrape-secret\n")
+	for _, path := range []string{"metrics", "metrics.token"} {
+		out, err := executeConfigGet(context.Background(), `{"path":"`+path+`"}`, env)
+		if err != nil {
+			t.Fatalf("config_get %s: %v", path, err)
+		}
+		if strings.Contains(out, "scrape-secret") || !strings.Contains(out, `"redacted":true`) {
+			t.Fatalf("config_get %s leaked the metrics token: %s", path, out)
+		}
+	}
+}
+
 func TestConfigRollbackWithoutSnapshotErrors(t *testing.T) {
 	env := testConfigToolsEnv(t, "agent:\n  max_turns: 21\n")
 	env.ReloadConfig = func(context.Context) ([]string, error) { return nil, nil }

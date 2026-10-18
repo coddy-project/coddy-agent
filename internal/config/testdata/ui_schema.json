@@ -1,0 +1,1669 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Runtime configuration edited via the Settings UI. Secrets are included in GET responses.",
+  "properties": {
+    "agent": {
+      "additionalProperties": false,
+      "description": "Defaults for the main agent loop (model id and safety caps).",
+      "properties": {
+        "llm_first_token_timeout_ms": {
+          "default": 90000,
+          "description": "How long a streamed LLM call may stay silent before the turn cancels it (an explicit 0 disables the guard).",
+          "title": "LLM first token timeout ms",
+          "type": "integer"
+        },
+        "llm_min_interval_ms": {
+          "description": "Minimum gap between consecutive LLM calls in milliseconds, retries included (0 disables pacing).",
+          "title": "LLM min interval ms",
+          "type": "integer"
+        },
+        "llm_retry_base_ms": {
+          "default": 1000,
+          "description": "Initial backoff between LLM retries in milliseconds; a server-provided pause (Retry-After) overrides it.",
+          "title": "LLM retry base ms",
+          "type": "integer"
+        },
+        "llm_retry_max": {
+          "default": 3,
+          "description": "Extra attempts shared by transport retries, empty-answer recovery, first-token re-issues and output-limit recovery (a step cut off at max_tokens) until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits.",
+          "title": "LLM retry max",
+          "type": "integer"
+        },
+        "llm_stream_idle_timeout_ms": {
+          "default": 300000,
+          "description": "How long a streamed LLM response may send nothing after its first bytes before it is cut as stalled, the delivered text kept (an explicit 0 disables the guard).",
+          "title": "LLM stream idle timeout ms",
+          "type": "integer"
+        },
+        "loop_guard": {
+          "default": true,
+          "description": "Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments.",
+          "title": "Loop guard",
+          "type": "boolean"
+        },
+        "loop_nudge_max": {
+          "default": 1,
+          "description": "How many times one turn may be nudged back on track before the loop guard stops it.",
+          "title": "Loop nudge max",
+          "type": "integer"
+        },
+        "loop_stream_repeat_cycles": {
+          "default": 5,
+          "description": "Identical back-to-back output cycles inside one streamed response before it is cut (0 disables the check).",
+          "title": "Loop stream repeat cycles",
+          "type": "integer"
+        },
+        "loop_tool_repeat_limit": {
+          "default": 2,
+          "description": "Consecutive identical tool calls before the loop guard steps in (0 disables the check).",
+          "title": "Loop tool repeat limit",
+          "type": "integer"
+        },
+        "max_turns": {
+          "default": 165,
+          "description": "Cap on ReAct iterations (LLM calls plus tool rounds) for one user request; 0 means no limit.",
+          "title": "Max turns",
+          "type": "integer"
+        },
+        "model": {
+          "default": "openai/gpt-5.6-terra",
+          "description": "Logical model id from the models list used when the client omits a model.",
+          "title": "Default model",
+          "type": "string"
+        },
+        "queue_mode": {
+          "description": "Preferred action for Enter while a turn runs. Choose steer for the next ReAct step or after_turn for a new turn after the answer.",
+          "enum": [
+            "steer",
+            "after_turn"
+          ],
+          "title": "Queue mode",
+          "type": "string"
+        },
+        "wait_for_limit_reset": {
+          "description": "Wait for a hit usage limit to lift and re-issue the call instead of ending the turn with the provider's error; the turn and the client stream stay open meanwhile.",
+          "title": "Wait for limit reset",
+          "type": "boolean"
+        },
+        "wait_for_limit_reset_max_ms": {
+          "default": 14400000,
+          "description": "Longest time one turn spends waiting for limits in total, in milliseconds (default four hours); a pause that would exceed it ends the turn at once, 0 never waits.",
+          "title": "Wait for limit reset max ms",
+          "type": "integer"
+        }
+      },
+      "title": "ReAct loop",
+      "type": "object",
+      "x-coddy-property-order": [
+        "model",
+        "queue_mode",
+        "max_turns",
+        "llm_retry_max",
+        "llm_retry_base_ms",
+        "llm_min_interval_ms",
+        "llm_first_token_timeout_ms",
+        "llm_stream_idle_timeout_ms",
+        "loop_guard",
+        "loop_tool_repeat_limit",
+        "loop_stream_repeat_cycles",
+        "loop_nudge_max",
+        "wait_for_limit_reset",
+        "wait_for_limit_reset_max_ms"
+      ]
+    },
+    "compaction": {
+      "additionalProperties": false,
+      "description": "Summarize older conversation history so long sessions keep fitting the model context window.",
+      "properties": {
+        "auto_enable": {
+          "description": "Compact on its own: fold older turns at the threshold, or the earlier steps of a long turn when there is no earlier turn, and compact and ask again once when the provider refuses a request as larger than its context window. Off keeps manual compaction available. Defaults to true.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "enable": {
+          "default": true,
+          "description": "Master switch for compaction (manual command and automatic trigger). Defaults to true.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "fallback_models": {
+          "default": [],
+          "description": "Summarizer models tried in order when the one before them fails. The session's own model is the last resort whether or not it is listed here.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Fallback summarizer models",
+          "type": "array"
+        },
+        "keep_recent_turns": {
+          "default": 2,
+          "description": "How many most recent user turns stay verbatim after compaction (default 2; 0 summarizes everything). With no more turns than that, automatic compaction still folds the older ones and keeps the prompt being answered.",
+          "title": "Keep recent turns",
+          "type": "integer"
+        },
+        "model": {
+          "description": "Optional models[].model for the summarization call; empty uses the session model.",
+          "title": "Summarizer model",
+          "type": "string"
+        },
+        "result_eviction": {
+          "additionalProperties": false,
+          "description": "Collapse superseded tool results (read pages, grep dumps, and the listings of glob, print_tree, websearch and webfetch) to placeholders when building the LLM request; the persisted transcript is untouched. Read and grep results survive when marked (keep_result / keep:true) or among the most recent; listings survive within the latest three steps.",
+          "properties": {
+            "enable": {
+              "description": "Master switch for tool result eviction. Defaults to true.",
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "keep_recent": {
+              "description": "How many most recent read and grep results stay intact as a working window (default 2 - enough to hold a read and a grep at once; 0 keeps none).",
+              "title": "Keep recent results",
+              "type": "integer"
+            },
+            "min_result_bytes": {
+              "description": "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate).",
+              "title": "Min result bytes",
+              "type": "integer"
+            },
+            "start_percent": {
+              "description": "Evict only once the estimated context reaches this percent of the model's context window (default 50; 0 evicts from the first result). Below it the history is sent untouched so the provider's prompt cache holds. Read and grep results of a model without max_context_tokens are evicted from the first result.",
+              "title": "Start at (%)",
+              "type": "integer"
+            }
+          },
+          "title": "Tool result eviction",
+          "type": "object",
+          "x-coddy-property-order": [
+            "enable",
+            "keep_recent",
+            "min_result_bytes",
+            "start_percent"
+          ]
+        },
+        "threshold_percent": {
+          "default": 80,
+          "description": "Compact when the estimated context reaches this percent of the model's context window (1..100, default 80): its max_context_tokens, else the window its provider reports, else 128000.",
+          "title": "Threshold (%)",
+          "type": "integer"
+        }
+      },
+      "title": "Context compaction",
+      "type": "object",
+      "x-coddy-property-order": [
+        "enable",
+        "auto_enable",
+        "threshold_percent",
+        "keep_recent_turns",
+        "model",
+        "result_eviction"
+      ]
+    },
+    "decisions": {
+      "additionalProperties": false,
+      "description": "Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about, or rejected in bypass mode.",
+      "properties": {
+        "enable": {
+          "description": "Check run_command and ssh_run_command calls you did not allow explicitly before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in ask and accept_edits and rejected in bypass. The allowlist, session grants, a hook's allow and commands you approved in a prompt are not checked.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "model": {
+          "default": "frida-decisions",
+          "description": "frida-decisions: encoder pass, up to 512 tokens of command text, ~20 ms per request. clef-flash: up to 8192 tokens, ~150 ms.",
+          "enum": [
+            "frida-decisions",
+            "clef-flash"
+          ],
+          "title": "Decisions model",
+          "type": "string"
+        },
+        "threshold": {
+          "default": 0.5,
+          "description": "The probability of the unsafe option at or above which a command counts as unsafe. 0 uses the default (0.5); lower is stricter, higher lets borderline commands through.",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Unsafe threshold",
+          "type": "number"
+        }
+      },
+      "title": "Command safety (decisions)",
+      "type": "object",
+      "x-coddy-property-order": [
+        "enable",
+        "model",
+        "threshold"
+      ]
+    },
+    "gateways": {
+      "additionalProperties": false,
+      "description": "Telegram and Pachca bots (require the gateway build tag, or gateway.telegram / gateway.pachca for one of them).",
+      "properties": {
+        "pachca": {
+          "additionalProperties": false,
+          "description": "Pachca integration bot settings.",
+          "properties": {
+            "admins": {
+              "default": [],
+              "description": "Pachca user IDs with elevated rights; admins always pass access checks.",
+              "items": {
+                "type": "integer"
+              },
+              "title": "Admins",
+              "type": "array"
+            },
+            "chats": {
+              "default": [],
+              "description": "Override isolation and access for specific chats.",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "access": {
+                    "description": "Per-chat access override: all, admins, or group:\u003cname\u003e.",
+                    "title": "Access",
+                    "type": "string"
+                  },
+                  "chat_id": {
+                    "description": "Pachca chat id: a conversation, a channel, a direct chat or a thread's own chat.",
+                    "title": "Chat ID",
+                    "type": "integer"
+                  },
+                  "isolation": {
+                    "description": "Per-chat session isolation override.",
+                    "enum": [
+                      "individual",
+                      "shared",
+                      "admin"
+                    ],
+                    "title": "Isolation",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "chat_id"
+                ],
+                "type": "object",
+                "x-coddy-property-order": [
+                  "chat_id",
+                  "isolation",
+                  "access"
+                ]
+              },
+              "title": "Per-chat overrides",
+              "type": "array"
+            },
+            "default_access": {
+              "default": "all",
+              "description": "Fallback access level for chats without an override: all, admins, or group:\u003cname\u003e.",
+              "title": "Default access",
+              "type": "string"
+            },
+            "default_isolation": {
+              "default": "individual",
+              "description": "Fallback session isolation for group chats.",
+              "enum": [
+                "individual",
+                "shared",
+                "admin"
+              ],
+              "title": "Default isolation",
+              "type": "string"
+            },
+            "enable": {
+              "description": "Run the Pachca bot (requires the gateway or gateway.pachca build tag).",
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "poll_interval_seconds": {
+              "default": 2,
+              "description": "How often the bot reads its events history, 1 to 60 seconds (default 2).",
+              "title": "Poll interval, seconds",
+              "type": "integer"
+            },
+            "proxy": {
+              "description": "Optional proxy for the Pachca API requests: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5. A URL here replaces the system proxy for the bot. Left empty, the bot follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none connects directly.",
+              "title": "Proxy URL",
+              "type": "string"
+            },
+            "token": {
+              "default": "${PACHCA_BOT_TOKEN}",
+              "description": "The access token of a Pachca integration bot. Optional here: leave empty to read it from the PACHCA_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full.",
+              "title": "Bot token",
+              "type": "string"
+            },
+            "user_groups": {
+              "default": [],
+              "description": "Named sets of user IDs referenced by access as group:\u003cname\u003e.",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "description": "Name referenced by access as group:\u003cname\u003e.",
+                    "title": "Group name",
+                    "type": "string"
+                  },
+                  "user_ids": {
+                    "description": "Pachca user IDs that belong to this group.",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "title": "User IDs",
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object",
+                "x-coddy-property-order": [
+                  "name",
+                  "user_ids"
+                ]
+              },
+              "title": "User groups",
+              "type": "array"
+            }
+          },
+          "title": "Pachca",
+          "type": "object",
+          "x-coddy-property-order": [
+            "enable",
+            "token",
+            "proxy",
+            "poll_interval_seconds",
+            "admins",
+            "default_access",
+            "default_isolation",
+            "user_groups",
+            "chats"
+          ]
+        },
+        "telegram": {
+          "additionalProperties": false,
+          "description": "Telegram bot adapter settings.",
+          "properties": {
+            "admins": {
+              "default": [],
+              "description": "Telegram user IDs with elevated rights; admins always pass access checks.",
+              "items": {
+                "type": "integer"
+              },
+              "title": "Admins",
+              "type": "array"
+            },
+            "chats": {
+              "default": [],
+              "description": "Override isolation and access for specific chats.",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "access": {
+                    "description": "Per-chat access override: all, admins, or group:\u003cname\u003e.",
+                    "title": "Access",
+                    "type": "string"
+                  },
+                  "chat_id": {
+                    "description": "Telegram chat id; negative for groups and supergroups.",
+                    "title": "Chat ID",
+                    "type": "integer"
+                  },
+                  "isolation": {
+                    "description": "Per-chat session isolation override.",
+                    "enum": [
+                      "individual",
+                      "shared",
+                      "admin"
+                    ],
+                    "title": "Isolation",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "chat_id"
+                ],
+                "type": "object",
+                "x-coddy-property-order": [
+                  "chat_id",
+                  "isolation",
+                  "access"
+                ]
+              },
+              "title": "Per-chat overrides",
+              "type": "array"
+            },
+            "default_access": {
+              "default": "all",
+              "description": "Fallback access level for chats without an override: all, admins, or group:\u003cname\u003e.",
+              "title": "Default access",
+              "type": "string"
+            },
+            "default_isolation": {
+              "default": "individual",
+              "description": "Fallback session isolation for group chats.",
+              "enum": [
+                "individual",
+                "shared",
+                "admin"
+              ],
+              "title": "Default isolation",
+              "type": "string"
+            },
+            "enable": {
+              "description": "Run the Telegram bot (requires the gateway or gateway.telegram build tag).",
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "mini_app": {
+              "additionalProperties": false,
+              "description": "Open this web UI as the bot's Telegram Mini App: the menu button and /app open it on the chat's own conversation. Telegram opens Mini Apps over https only: publish the web UI behind a TLS proxy and keep sign-in on.",
+              "properties": {
+                "menu_button": {
+                  "description": "Make the bot's menu button open the web UI. Turned off, with the address emptied or while the web UI asks for no sign-in, the bot puts back the button it replaced, as long as that button still opens the address the bot set.",
+                  "title": "Menu button",
+                  "type": "boolean"
+                },
+                "url": {
+                  "description": "The public https address the web UI is served at, for example https://coddy.example.com/. No fragment. Empty: the bot offers no Mini App and leaves a menu button set in @BotFather alone.",
+                  "title": "Web UI address",
+                  "type": "string"
+                }
+              },
+              "title": "Mini App",
+              "type": "object",
+              "x-coddy-property-order": [
+                "url",
+                "menu_button"
+              ]
+            },
+            "proxy": {
+              "description": "Optional proxy for the Bot API requests: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for the bot. Left empty, the bot follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none connects directly.",
+              "title": "Proxy URL",
+              "type": "string"
+            },
+            "rich_messages": {
+              "default": true,
+              "description": "Use Bot API 10.1 Rich Messages: the agent's native Markdown renders verbatim, tool activity streams as a Thinking placeholder, and executed tools show in a collapsible block. Falls back to legacy formatting if unsupported.",
+              "title": "Rich messages",
+              "type": "boolean"
+            },
+            "token": {
+              "default": "${TELEGRAM_BOT_TOKEN}",
+              "description": "BotFather token. Optional here — leave empty to read it from the TELEGRAM_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full.",
+              "title": "Bot token",
+              "type": "string"
+            },
+            "user_groups": {
+              "default": [],
+              "description": "Named sets of user IDs referenced by access as group:\u003cname\u003e.",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "description": "Name referenced by access as group:\u003cname\u003e.",
+                    "title": "Group name",
+                    "type": "string"
+                  },
+                  "user_ids": {
+                    "description": "Telegram numeric user IDs that belong to this group.",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "title": "User IDs",
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object",
+                "x-coddy-property-order": [
+                  "name",
+                  "user_ids"
+                ]
+              },
+              "title": "User groups",
+              "type": "array"
+            }
+          },
+          "title": "Telegram",
+          "type": "object",
+          "x-coddy-property-order": [
+            "enable",
+            "token",
+            "rich_messages",
+            "proxy",
+            "admins",
+            "default_access",
+            "default_isolation",
+            "user_groups",
+            "chats",
+            "mini_app"
+          ]
+        }
+      },
+      "title": "Messenger gateways",
+      "type": "object",
+      "x-coddy-property-order": [
+        "telegram",
+        "pachca"
+      ]
+    },
+    "hooks": {
+      "additionalProperties": false,
+      "description": "Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape; files found inside the workspace follow the trust policy.",
+      "properties": {
+        "default_timeout_seconds": {
+          "default": 60,
+          "description": "Hard limit for one hook process whose definition gives no timeout (default 60).",
+          "title": "Default timeout (s)",
+          "type": "integer"
+        },
+        "enable": {
+          "default": true,
+          "description": "Load and run hooks at all (default true).",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "files": {
+          "default": [
+            "${CODDY_HOME}/hooks.json",
+            "${CWD}/.claude/settings.json",
+            "${CWD}/.claude/settings.local.json",
+            "${CWD}/.coddy/hooks.json"
+          ],
+          "description": "Lowest priority first; every matching hook runs. ${CODDY_HOME} and ${CWD} expand. Files inside the workspace are project scope and follow the trust policy; only the hooks key of a Claude Code settings file is read.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Definition files",
+          "type": "array"
+        },
+        "max_output_chars": {
+          "default": 10000,
+          "description": "Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker (default 10000).",
+          "title": "Max output chars",
+          "type": "integer"
+        },
+        "project_trust": {
+          "default": "ask",
+          "description": "Hook files found inside the workspace travel with the checkout. \"ask\": list them but run nothing until the file is approved for this workspace on the machine running coddy (coddy hooks trust there, or POST /coddy/hooks/trust). \"allow\": treat them like your own file. \"deny\": never read them.",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ],
+          "title": "Project hooks",
+          "type": "string"
+        },
+        "stop_loop_limit": {
+          "default": 5,
+          "description": "How many times per turn a Stop hook may send the agent back to work (default 5).",
+          "title": "Stop loop limit",
+          "type": "integer"
+        }
+      },
+      "title": "Hooks",
+      "type": "object",
+      "x-coddy-property-order": [
+        "enable",
+        "files",
+        "project_trust",
+        "default_timeout_seconds",
+        "stop_loop_limit",
+        "max_output_chars"
+      ]
+    },
+    "instructions": {
+      "additionalProperties": false,
+      "description": "Files you add to the system prompt as project instructions, after the AGENTS.md and DESIGN.md of the agent home, of the session folder and of the folders a tool enters, which are always read.",
+      "properties": {
+        "files": {
+          "default": [],
+          "description": "Extra instruction files, appended after the AGENTS.md and DESIGN.md documents in the order listed; empty by default. ${CODDY_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. A file the prompt already carries is not read twice.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Instruction files",
+          "type": "array"
+        }
+      },
+      "title": "Instructions",
+      "type": "object",
+      "x-coddy-property-order": [
+        "files"
+      ]
+    },
+    "logger": {
+      "additionalProperties": false,
+      "description": "Process log level, per-component overrides, outputs, and rotation.",
+      "properties": {
+        "file": {
+          "description": "Destination file when outputs include file.",
+          "title": "Log file path",
+          "type": "string"
+        },
+        "format": {
+          "default": "text",
+          "description": "text for human logs; json for structured logs.",
+          "enum": [
+            "text",
+            "json"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "level": {
+          "default": "info",
+          "description": "Minimum severity written to configured outputs.",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error",
+            "warning"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "levels": {
+          "default": [],
+          "description": "Raise or lower one subsystem on its own. A parent name covers what is nested under it (gateway reaches gateway.telegram), and the longest match wins.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "component": {
+                "description": "Dotted name, for example gateway.telegram.",
+                "title": "Component",
+                "type": "string"
+              },
+              "level": {
+                "default": "debug",
+                "description": "Minimum severity for this component.",
+                "enum": [
+                  "debug",
+                  "info",
+                  "warn",
+                  "error",
+                  "warning"
+                ],
+                "title": "Level",
+                "type": "string"
+              }
+            },
+            "required": [
+              "component",
+              "level"
+            ],
+            "type": "object",
+            "x-coddy-property-order": [
+              "component",
+              "level"
+            ]
+          },
+          "title": "Component levels",
+          "type": "array"
+        },
+        "outputs": {
+          "default": [
+            "stderr"
+          ],
+          "description": "Where log lines are written.",
+          "items": {
+            "enum": [
+              "stdout",
+              "stderr",
+              "file"
+            ],
+            "type": "string"
+          },
+          "title": "Outputs",
+          "type": "array"
+        },
+        "rotation": {
+          "additionalProperties": false,
+          "description": "Size-based rotation when logging to a file.",
+          "properties": {
+            "max_files": {
+              "description": "How many rotated segments to retain; 0 uses logger defaults.",
+              "title": "Max files",
+              "type": "integer"
+            },
+            "max_size_mb": {
+              "description": "Rotate after the file reaches this size; 0 uses logger defaults.",
+              "title": "Max file size (MB)",
+              "type": "integer"
+            }
+          },
+          "title": "Rotation",
+          "type": "object",
+          "x-coddy-property-order": [
+            "max_size_mb",
+            "max_files"
+          ]
+        }
+      },
+      "title": "Logger",
+      "type": "object",
+      "x-coddy-property-order": [
+        "level",
+        "levels",
+        "outputs",
+        "file",
+        "format",
+        "rotation"
+      ]
+    },
+    "memory": {
+      "additionalProperties": false,
+      "description": "Optional memory subagent (requires the memory build tag and a provider).",
+      "properties": {
+        "additional_prompt": {
+          "description": "Your own instructions for the memory subagent, a section of its system prompt; the main agent never sees them.",
+          "title": "Additional instructions",
+          "type": "string"
+        },
+        "additional_prompt_max_chars": {
+          "description": "Longer instructions are cut at this many characters, with a warning in the log; 0 means no cap.",
+          "title": "Additional instructions cap (characters)",
+          "type": "integer"
+        },
+        "copilot_max_tokens": {
+          "default": 4096,
+          "description": "Completion token cap for the memory model's calls.",
+          "title": "Max tokens per call",
+          "type": "integer"
+        },
+        "dir": {
+          "description": "Filesystem root for memory markdown; empty uses ${CODDY_HOME}/memory.",
+          "title": "Memory root",
+          "type": "string"
+        },
+        "enable": {
+          "description": "Runs the memory subagent on every user turn (memory build tag).",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "fallback_models": {
+          "default": [],
+          "description": "Models the memory subagent tries in order when the one before them fails before answering. The session's own model is the last resort whether or not it is listed.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Fallback memory models",
+          "type": "array"
+        },
+        "keep_runs": {
+          "default": 20,
+          "description": "Finished memory runs kept in the Tasks panel per session, task record and child transcript alike; 0 keeps all (default 20).",
+          "title": "Runs kept per session",
+          "type": "integer"
+        },
+        "max_note_chars": {
+          "default": 900,
+          "description": "Longest body one saved note may have, in characters; 0 means no cap (default 900).",
+          "title": "Note size cap (characters)",
+          "type": "integer"
+        },
+        "max_search_hits": {
+          "default": 8,
+          "description": "Maximum snippets returned by memory search tools.",
+          "title": "Max search hits",
+          "type": "integer"
+        },
+        "model": {
+          "description": "Logical model the memory subagent runs on; empty uses the session's model.",
+          "title": "Memory model",
+          "type": "string"
+        },
+        "persist_max_turns": {
+          "default": 12,
+          "description": "Bounds the memory subagent's rounds together with recall_max_turns; the cap is the larger of the two.",
+          "title": "Persist max turns",
+          "type": "integer"
+        },
+        "recall_max_turns": {
+          "default": 6,
+          "description": "Bounds the memory subagent's rounds together with persist_max_turns; the cap is the larger of the two.",
+          "title": "Recall max turns",
+          "type": "integer"
+        },
+        "timeout_seconds": {
+          "default": 300,
+          "description": "Hard limit of one memory run, capped by tools.background.max_timeout_seconds (default 300).",
+          "title": "Run timeout (seconds)",
+          "type": "integer"
+        },
+        "wait_seconds": {
+          "default": 20,
+          "description": "How long a turn waits for the memory subagent's report before its first model call; 0 never waits (default 20).",
+          "title": "Wait for the report (seconds)",
+          "type": "integer"
+        }
+      },
+      "title": "Memory",
+      "type": "object",
+      "x-coddy-property-order": [
+        "enable",
+        "model",
+        "dir",
+        "fallback_models",
+        "additional_prompt",
+        "additional_prompt_max_chars",
+        "wait_seconds",
+        "timeout_seconds",
+        "keep_runs",
+        "recall_max_turns",
+        "persist_max_turns",
+        "copilot_max_tokens",
+        "max_search_hits",
+        "max_note_chars"
+      ]
+    },
+    "metrics": {
+      "additionalProperties": false,
+      "description": "Prometheus exporter on a port of its own. It takes effect only in a binary built with the metrics tag.",
+      "properties": {
+        "enable": {
+          "description": "Serve /metrics from this process.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "host": {
+          "description": "Address to bind. Empty falls back to 127.0.0.1, which only this machine can reach.",
+          "title": "Listen host",
+          "type": "string"
+        },
+        "port": {
+          "description": "Port to bind. 0 falls back to 12347.",
+          "title": "Listen port",
+          "type": "integer"
+        },
+        "token": {
+          "description": "Bearer credential a scrape must present. Write-only: leave it empty to keep the one set. With none set the exporter asks for no credential.",
+          "title": "Token",
+          "type": "string",
+          "writeOnly": true,
+          "x-coddy-configured": "token_configured"
+        }
+      },
+      "title": "Metrics",
+      "type": "object",
+      "x-coddy-property-order": [
+        "enable",
+        "host",
+        "port",
+        "token"
+      ]
+    },
+    "models": {
+      "default": [
+        {
+          "max_tokens": 4096,
+          "model": "openai/gpt-5.6-terra",
+          "temperature": 0.2
+        }
+      ],
+      "description": "Named model entries the agent and UI can select; ids reference provider prefixes.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "allow_reasoning_off": {
+            "default": false,
+            "description": "Expose Off in the reasoning selector for this model. Enable it only when this provider/model deployment honours Coddy's provider-specific request that disables reasoning; Coddy cannot verify that capability automatically.",
+            "title": "Allow disabling reasoning",
+            "type": "boolean"
+          },
+          "max_context_tokens": {
+            "description": "The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000.",
+            "title": "Context window (tokens)",
+            "type": "integer"
+          },
+          "max_tokens": {
+            "default": 4096,
+            "description": "Upper bound on completion tokens the model may emit for one assistant message. Ignored by Codex because its backend does not accept max_output_tokens.",
+            "title": "Max tokens",
+            "type": "integer"
+          },
+          "model": {
+            "default": "openai/gpt-5.6-terra",
+            "description": "Logical id in the form provider/api-model-id; must match a provider name prefix.",
+            "title": "Model id",
+            "type": "string"
+          },
+          "multimodal": {
+            "description": "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file.",
+            "title": "Multimodal",
+            "type": "boolean"
+          },
+          "reasoning_default": {
+            "description": "Reasoning level pre-selected for new chats with this model. Must be one of the resolved reasoning levels; ignored otherwise.",
+            "title": "Default reasoning level",
+            "type": "string"
+          },
+          "reasoning_levels": {
+            "description": "Optional override of the reasoning levels offered for this model (e.g. low, medium, high). Leave empty to auto-detect from the model id; an explicit empty list hides the reasoning selector.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasoning levels",
+            "type": "array"
+          },
+          "stream": {
+            "default": true,
+            "description": "Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only.",
+            "title": "Stream responses",
+            "type": "boolean"
+          },
+          "temperature": {
+            "default": 0.2,
+            "description": "Sampling temperature for this logical model (0 = deterministic, higher = more random).",
+            "title": "Temperature",
+            "type": "number"
+          },
+          "toolset": {
+            "description": "The toolset a session on this model is offered its tools by, unless the session picks another. Empty offers every tool the mode would. Spares a small-context local model the schemas of tools it never calls.",
+            "title": "Toolset",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model"
+        ],
+        "type": "object",
+        "x-coddy-property-order": [
+          "model",
+          "max_tokens",
+          "temperature",
+          "max_context_tokens",
+          "multimodal",
+          "stream",
+          "reasoning_levels",
+          "reasoning_default",
+          "allow_reasoning_off",
+          "toolset"
+        ]
+      },
+      "title": "Logical models",
+      "type": "array"
+    },
+    "prompts": {
+      "additionalProperties": false,
+      "description": "Built-in system prompt files relative to dir.",
+      "properties": {
+        "agent_prompt": {
+          "default": "agent.md",
+          "description": "Filename for the main agent system prompt.",
+          "title": "Agent prompt file",
+          "type": "string"
+        },
+        "ask_prompt": {
+          "default": "ask.md",
+          "description": "Filename for ask-mode system prompt.",
+          "title": "Ask prompt file",
+          "type": "string"
+        },
+        "dir": {
+          "description": "Optional override directory for prompt markdown files.",
+          "title": "Prompts directory",
+          "type": "string"
+        },
+        "plan_prompt": {
+          "default": "plan.md",
+          "description": "Filename for plan-mode system prompt.",
+          "title": "Plan prompt file",
+          "type": "string"
+        }
+      },
+      "title": "Prompts",
+      "type": "object",
+      "x-coddy-property-order": [
+        "dir",
+        "agent_prompt",
+        "plan_prompt",
+        "ask_prompt"
+      ]
+    },
+    "providers": {
+      "default": [
+        {
+          "name": "openai",
+          "type": "openai"
+        }
+      ],
+      "description": "API credentials and transport selection for upstream LLM vendors.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "api_base": {
+            "description": "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); for opencode it picks the gateway (the Go subscription or pay-as-you-go Console); ignored by codex and devin, which use their official endpoints.",
+            "title": "API base URL",
+            "type": "string"
+          },
+          "api_key": {
+            "description": "A literal key, a ${ENV} reference expanded when the file is loaded, or empty to read the environment variable the placeholder names at call time.",
+            "title": "API key",
+            "type": "string",
+            "x-coddy-provider-api-key-env-placeholder": true
+          },
+          "api_key_command": {
+            "description": "Optional credential helper, run through the host shell when the API key is empty; its trimmed stdout is the key, like git or docker credential helpers. On failure the environment variable is read instead.",
+            "title": "API key command",
+            "type": "string"
+          },
+          "name": {
+            "default": "openai",
+            "description": "Prefix of this provider's model ids, as in provider/model-id. Letters, digits, hyphen and underscore, starting with a letter.",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_\\-]*$",
+            "title": "Provider id",
+            "type": "string"
+          },
+          "proxy": {
+            "description": "Optional proxy for this provider only: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for this provider. Left empty, the provider follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none connects directly.",
+            "title": "Proxy URL",
+            "type": "string"
+          },
+          "timeout_ms": {
+            "description": "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout.",
+            "title": "Request timeout ms",
+            "type": "integer"
+          },
+          "type": {
+            "default": "openai",
+            "description": "Wire protocol for this provider entry.",
+            "enum": [
+              "openai",
+              "anthropic",
+              "neuraldeep",
+              "opencode",
+              "codex",
+              "devin"
+            ],
+            "title": "Provider type",
+            "type": "string"
+          },
+          "usage_limits_panel": {
+            "default": true,
+            "description": "Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
+            "title": "Usage limits panel",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "type"
+        ],
+        "type": "object",
+        "x-coddy-property-order": [
+          "name",
+          "type",
+          "api_base",
+          "api_key",
+          "api_key_command",
+          "proxy",
+          "timeout_ms",
+          "usage_limits_panel"
+        ]
+      },
+      "title": "LLM providers",
+      "type": "array"
+    },
+    "scheduler": {
+      "additionalProperties": false,
+      "description": "Cron-style scheduled jobs (requires scheduler build tag). A run is a background agent task under the job's own session, the job's run history.",
+      "properties": {
+        "enable": {
+          "description": "When true, this process may run the scheduler daemon and REST.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "max_queue": {
+          "default": 10,
+          "description": "Runs in flight across all jobs at once; a due slot past the cap is skipped, a manual run refused.",
+          "title": "Max queue",
+          "type": "integer"
+        },
+        "project_trust": {
+          "default": "ask",
+          "description": "Jobs in a workspace's .coddy/scheduler travel with the checkout. \"ask\": list them but run nothing until that exact job is approved for this workspace (the shield in the scheduler drawer). \"allow\": run them like your own jobs. \"deny\": never run them.",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ],
+          "title": "Project jobs",
+          "type": "string"
+        },
+        "retain_sessions": {
+          "default": 5,
+          "description": "Finished runs kept per job (task records and transcripts); older ones are removed when a run finishes.",
+          "title": "Retain runs",
+          "type": "integer"
+        },
+        "timeout": {
+          "default": "30m",
+          "description": "Wall-clock limit of one run, e.g. 30m or 1h30m (the task pool caps it at tools.background.max_timeout_seconds).",
+          "title": "Run timeout",
+          "type": "string"
+        }
+      },
+      "title": "Scheduler",
+      "type": "object",
+      "x-coddy-property-order": [
+        "enable",
+        "project_trust",
+        "max_queue",
+        "timeout",
+        "retain_sessions"
+      ]
+    },
+    "sessions": {
+      "additionalProperties": false,
+      "description": "Where persisted chat bundles are stored.",
+      "properties": {
+        "dir": {
+          "description": "Override sessions root; empty resolves under CODDY_HOME.",
+          "title": "Sessions directory",
+          "type": "string"
+        }
+      },
+      "title": "Sessions",
+      "type": "object",
+      "x-coddy-property-order": [
+        "dir"
+      ]
+    },
+    "skills": {
+      "additionalProperties": false,
+      "description": "Slash commands and skill packs discovered from these directories.",
+      "properties": {
+        "auto_discovery": {
+          "description": "Let the agent load a matching skill's full instructions on its own (model-driven load_skill tool), instead of only when you type /name. Defaults to on.",
+          "title": "Skill auto-discovery",
+          "type": "boolean"
+        },
+        "dirs": {
+          "default": [],
+          "description": "Extra skill directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/skills (shared with every agent, npx skills and npx skillsbd install there), the project's .agents/skills, ${CODDY_HOME}/skills (Coddy's own and installed skills), the project's .coddy/skills; then these entries in their order. A skill found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${CODDY_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace (the folder a new chat picked included).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Skill directories",
+          "type": "array"
+        },
+        "project_trust": {
+          "description": "The project's .coddy/marketplaces.json travels with the checkout. \"ask\": leave its sources and marketplaces out of every sync until each entry is approved for this workspace (the shield of the marketplaces list, or coddy plugin marketplace trust). \"allow\": treat them like your own ~/.coddy/marketplaces.json. \"deny\": never use them; they are listed as switched off. What they install goes to ${CODDY_HOME}/skills; the project's skill folders are not affected.",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ],
+          "title": "Project marketplaces",
+          "type": "string"
+        }
+      },
+      "title": "Skills",
+      "type": "object",
+      "x-coddy-property-order": [
+        "dirs",
+        "project_trust",
+        "auto_discovery"
+      ]
+    },
+    "subagents": {
+      "additionalProperties": false,
+      "description": "User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.",
+      "properties": {
+        "default_timeout_seconds": {
+          "default": 1800,
+          "description": "Hard limit for one run whose definition and call give no timeout (default 1800); capped by the background max timeout.",
+          "title": "Default timeout (s)",
+          "type": "integer"
+        },
+        "dirs": {
+          "default": [],
+          "description": "Extra definition directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/agents, the project's .agents/agents, ${CODDY_HOME}/agents, the project's .coddy/agents; then these entries in their order. A definition found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${CODDY_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace. Directories inside the workspace are project scope and follow the trust policy.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Definition directories",
+          "type": "array"
+        },
+        "enable": {
+          "default": true,
+          "description": "Register the spawn_agent tool and list the subagent catalog in the system prompt (default true).",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "max_concurrent": {
+          "default": 4,
+          "description": "How many subagent runs the whole process may have in flight at once (default 4). Extra spawns are refused, not queued.",
+          "title": "Max concurrent",
+          "type": "integer"
+        },
+        "max_depth": {
+          "default": 1,
+          "description": "How deep spawning may nest: 1 lets a session spawn subagents that cannot spawn further (default), 0 forbids spawning everywhere.",
+          "title": "Max depth",
+          "type": "integer"
+        },
+        "max_turns": {
+          "description": "ReAct rounds a child may take; 0 follows agent.max_turns.",
+          "title": "Max turns",
+          "type": "integer"
+        },
+        "project_trust": {
+          "default": "ask",
+          "description": "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace (the shield of its row in Definitions, coddy agents trust on the machine running coddy, or POST /coddy/subagents/{name}/trust). \"allow\": treat them like your own files. \"deny\": never read them.",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ],
+          "title": "Project definitions",
+          "type": "string"
+        }
+      },
+      "title": "Subagents",
+      "type": "object",
+      "x-coddy-property-order": [
+        "enable",
+        "dirs",
+        "project_trust",
+        "max_concurrent",
+        "max_depth",
+        "default_timeout_seconds",
+        "max_turns"
+      ]
+    },
+    "supervisor": {
+      "additionalProperties": false,
+      "description": "Checks goals with a second model and watches for stalled or looping turns.",
+      "properties": {
+        "enable": {
+          "description": "Check ordinary turns against the latest request even when no /goal is set. A session goal is checked regardless of this switch.",
+          "title": "Check every turn",
+          "type": "boolean"
+        },
+        "loop_repeat": {
+          "default": 3,
+          "description": "How many times a repeating cycle of identical tool operations may come round. 0 disables loop detection.",
+          "title": "Loop repeat",
+          "type": "integer"
+        },
+        "max_chain_sessions": {
+          "default": 10,
+          "description": "Sessions one goal chain (/goal --then-file) may open one after another. 0 turns goal chains off.",
+          "title": "Max chain sessions",
+          "type": "integer"
+        },
+        "max_continuations": {
+          "default": 10,
+          "description": "Automatic follow-up turns one goal may use before it stops as limited.",
+          "title": "Max continuations",
+          "type": "integer"
+        },
+        "max_nudges": {
+          "default": 2,
+          "description": "Recovery turns after a stall, a tool loop or a failed turn.",
+          "title": "Max nudges",
+          "type": "integer"
+        },
+        "model": {
+          "description": "Configured model that checks the work. Empty uses the session model, which then grades its own work; a model of another family is the better judge.",
+          "title": "Supervisor model",
+          "type": "string"
+        },
+        "stall_seconds": {
+          "default": 300,
+          "description": "Silence before a goal turn is cut, excluding permission prompts, running tools and background tasks. 0 disables stall detection.",
+          "title": "Stall seconds",
+          "type": "integer"
+        },
+        "token_budget": {
+          "default": 0,
+          "description": "Uncached input plus output tokens one goal may spend. 0 means no cap.",
+          "title": "Token budget",
+          "type": "integer"
+        },
+        "verify": {
+          "default": true,
+          "description": "Before a goal is closed, a read-only subagent opens the workspace and confirms every requirement the check found met.",
+          "title": "Verify before closing",
+          "type": "boolean"
+        }
+      },
+      "title": "Session supervisor",
+      "type": "object",
+      "x-coddy-property-order": [
+        "enable",
+        "model",
+        "verify",
+        "max_continuations",
+        "token_budget",
+        "max_chain_sessions",
+        "stall_seconds",
+        "max_nudges",
+        "loop_repeat"
+      ]
+    },
+    "tools": {
+      "additionalProperties": false,
+      "description": "Filesystem and shell policy for built-in tools.",
+      "properties": {
+        "background": {
+          "additionalProperties": false,
+          "description": "Commands the agent runs detached in the session task pool instead of blocking a turn.",
+          "properties": {
+            "default_timeout_seconds": {
+              "description": "Hard limit for a task started without a timeout or a duration estimate (default 900).",
+              "title": "Default timeout (s)",
+              "type": "integer"
+            },
+            "enable": {
+              "description": "Offer the background option on run_command and the background task tools (default true).",
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "max_concurrent": {
+              "description": "How many background tasks one session may run at once (default 5).",
+              "title": "Max concurrent",
+              "type": "integer"
+            },
+            "max_timeout_seconds": {
+              "description": "Ceiling applied to any requested or estimated timeout (default 3600).",
+              "title": "Max timeout (s)",
+              "type": "integer"
+            },
+            "output_buffer_bytes": {
+              "description": "How much of each task's output stays in memory for the ticker; the full log still goes to the session bundle (default 262144).",
+              "title": "Output buffer (bytes)",
+              "type": "integer"
+            }
+          },
+          "title": "Background tasks",
+          "type": "object",
+          "x-coddy-property-order": [
+            "enable",
+            "max_concurrent",
+            "default_timeout_seconds",
+            "max_timeout_seconds",
+            "output_buffer_bytes"
+          ]
+        },
+        "command_allowlist": {
+          "default": [],
+          "description": "If non-empty, only these shell command prefixes may run without extra policy.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Command allowlist",
+          "type": "array"
+        },
+        "http_request": {
+          "additionalProperties": false,
+          "description": "Policy of the http_request tool, the agent's curl: where it goes without asking and the headers every request sends. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.",
+          "properties": {
+            "allowlist": {
+              "default": [],
+              "description": "Destinations reached without asking: a host (api.github.com), *.example.com, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/); \"*\" allows all. Covers uploads and an unchecked certificate; a proxy needs its own entry, and a saved response follows the write policy.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Allowlist",
+              "type": "array"
+            },
+            "default_headers": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Headers every request sends unless the call names them itself, such as a browser User-Agent for a site that turns tools away. A call's own headers win, and an empty value leaves a header out. They go to every destination, so keep credentials out unless that is the intent; Host, Content-Type, Content-Length, Transfer-Encoding, the hop-by-hop headers and Proxy-Authorization are refused, and webfetch and the model providers never send these.",
+              "title": "Default headers",
+              "type": "object"
+            }
+          },
+          "title": "HTTP requests",
+          "type": "object",
+          "x-coddy-property-order": [
+            "allowlist",
+            "default_headers"
+          ]
+        },
+        "output_limits": {
+          "additionalProperties": false,
+          "description": "Maximum lines each tool result or error may return into the LLM context. Enabled limits also apply a 64 KiB per-call byte safety ceiling. 0 disables both limits; unset uses the built-in default.",
+          "properties": {
+            "default": {
+              "description": "Applies to any unlisted tool, including MCP (default 1000; 0 = unlimited).",
+              "title": "default",
+              "type": "integer"
+            },
+            "glob": {
+              "description": "Max paths from glob (default 300).",
+              "title": "glob",
+              "type": "integer"
+            },
+            "grep": {
+              "description": "Max path:line:content records from grep (default 200).",
+              "title": "grep",
+              "type": "integer"
+            },
+            "print_tree": {
+              "description": "Max lines of a directory tree (default 400).",
+              "title": "print_tree",
+              "type": "integer"
+            },
+            "read": {
+              "description": "Max lines for a read file page or directory listing (default 1000).",
+              "title": "read",
+              "type": "integer"
+            },
+            "run_command": {
+              "description": "Max stdout+stderr lines of a shell command (default 500).",
+              "title": "run_command",
+              "type": "integer"
+            },
+            "ssh_run_command": {
+              "description": "Max stdout+stderr lines of a remote SSH command (default 500).",
+              "title": "ssh_run_command",
+              "type": "integer"
+            },
+            "webfetch": {
+              "description": "Max lines of fetched page markdown (default 800).",
+              "title": "webfetch",
+              "type": "integer"
+            },
+            "websearch": {
+              "description": "Max lines of search results (default 200).",
+              "title": "websearch",
+              "type": "integer"
+            }
+          },
+          "title": "Tool output limits",
+          "type": "object",
+          "x-coddy-property-order": [
+            "read",
+            "grep",
+            "glob",
+            "print_tree",
+            "run_command",
+            "ssh_run_command",
+            "webfetch",
+            "websearch",
+            "default"
+          ]
+        },
+        "preview_server": {
+          "additionalProperties": false,
+          "description": "The preview_server tool: a static file server the agent starts over a project directory, on a free port, so you can open the work in a browser.",
+          "properties": {
+            "enable": {
+              "description": "Offer the preview_server tool (default true). Turning background tasks off turns it off as well.",
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "host": {
+              "description": "Address the server binds, without a port (default 127.0.0.1). Anything that is not loopback exposes the served directory.",
+              "title": "Bind host",
+              "type": "string"
+            },
+            "public_host": {
+              "description": "Host written into the URL the agent hands out, when the browser is on another machine. Empty uses the bind host.",
+              "title": "Public host",
+              "type": "string"
+            }
+          },
+          "title": "Preview server",
+          "type": "object",
+          "x-coddy-property-order": [
+            "enable",
+            "host",
+            "public_host"
+          ]
+        },
+        "websearch": {
+          "additionalProperties": false,
+          "description": "Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a backend that was turned away is named rather than counted as \"nothing found\".",
+          "properties": {
+            "brave_api_key": {
+              "description": "With a subscription token the brave engine uses the official JSON API instead of reading the public result page. Leave empty to read BRAVE_API_KEY from the environment or ~/.coddy/.env.",
+              "title": "Brave Search API key",
+              "type": "string"
+            },
+            "cache_ttl_seconds": {
+              "description": "Seconds one engine answer is reused before the engine is asked again (default 300; negative turns caching off).",
+              "title": "Cache TTL (s)",
+              "type": "integer"
+            },
+            "engine_timeout_seconds": {
+              "description": "Seconds one engine may take before it is reported as unavailable (default 8).",
+              "title": "Engine timeout (s)",
+              "type": "integer"
+            },
+            "engines": {
+              "default": [],
+              "description": "Search engines to ask, in merge order (default: brave, bing). \"ddg\" and \"google\" are not asked by default: from a server DuckDuckGo answers with an anti-bot page and Google renders its results in the browser. \"searxng\" needs the address below.",
+              "items": {
+                "enum": [
+                  "brave",
+                  "bing",
+                  "ddg",
+                  "google",
+                  "searxng"
+                ],
+                "type": "string"
+              },
+              "title": "Engines",
+              "type": "array"
+            },
+            "max_concurrent_engines": {
+              "description": "How many engines are asked at once (default 4).",
+              "title": "Max concurrent engines",
+              "type": "integer"
+            },
+            "searxng_url": {
+              "description": "Base address of your own SearXNG instance, asked over its JSON API (enable the json format in its settings.yml). localhost and LAN addresses are allowed.",
+              "title": "SearXNG URL",
+              "type": "string"
+            },
+            "snippet_chars": {
+              "description": "Maximum characters of one result description (default 320).",
+              "title": "Snippet length",
+              "type": "integer"
+            },
+            "total_timeout_seconds": {
+              "description": "Seconds the whole search may take, however many engines it asks (default 20).",
+              "title": "Total timeout (s)",
+              "type": "integer"
+            }
+          },
+          "title": "Web search",
+          "type": "object",
+          "x-coddy-property-order": [
+            "engines",
+            "engine_timeout_seconds",
+            "total_timeout_seconds",
+            "max_concurrent_engines",
+            "snippet_chars",
+            "cache_ttl_seconds",
+            "searxng_url",
+            "brave_api_key"
+          ]
+        }
+      },
+      "title": "Tools and permissions",
+      "type": "object",
+      "x-coddy-property-order": [
+        "command_allowlist",
+        "output_limits",
+        "background",
+        "preview_server",
+        "websearch",
+        "http_request"
+      ]
+    },
+    "toolsets": {
+      "default": [],
+      "description": "Named presets of the tools a session is offered. A model names one as its own; a session picks one with /toolset.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "disallowed_tools": {
+            "description": "Tools removed from this toolset, applied after the allowed tools, with the same names and patterns. A call to a removed tool is refused.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Disallowed tools",
+            "type": "array"
+          },
+          "name": {
+            "description": "What models and the /toolset command call it: letters, digits, '.', '_' and '-'. default is reserved: it means every tool the mode offers.",
+            "title": "Name",
+            "type": "string"
+          },
+          "tools": {
+            "description": "Tools offered with this toolset: tool names, * or a prefix* (context7__* is every tool of that MCP server). Empty offers every tool the mode would. It only narrows, and a call to an unlisted tool is refused.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed tools",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object",
+        "x-coddy-property-order": [
+          "name",
+          "tools",
+          "disallowed_tools"
+        ]
+      },
+      "title": "Toolsets",
+      "type": "array"
+    }
+  },
+  "title": "Coddy config",
+  "type": "object",
+  "x-coddy-property-order": [
+    "providers",
+    "models",
+    "toolsets",
+    "agent",
+    "supervisor",
+    "compaction",
+    "memory",
+    "decisions",
+    "tools",
+    "skills",
+    "subagents",
+    "hooks",
+    "scheduler",
+    "gateways",
+    "logger",
+    "metrics",
+    "sessions",
+    "prompts",
+    "instructions"
+  ]
+}

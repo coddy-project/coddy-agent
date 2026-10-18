@@ -70,3 +70,54 @@ function modelIds(models: unknown): string[] {
     return "";
   });
 }
+
+/**
+ * applyToolsetsChange replaces the `toolsets` array in the settings doc and,
+ * the way applyModelsChange keeps the model references, rewrites the
+ * `models[].toolset` that named a preset renamed in place, so the saved
+ * configuration does not name a toolset that is gone. A preset added or
+ * removed leaves the references alone.
+ */
+export function applyToolsetsChange(
+  doc: Record<string, unknown>,
+  nextToolsets: unknown[],
+): Record<string, unknown> {
+  const base: Record<string, unknown> = { ...doc, toolsets: nextToolsets };
+  const prev = rowNames(doc.toolsets);
+  const next = rowNames(nextToolsets);
+  if (prev.length !== next.length || !Array.isArray(doc.models)) {
+    return base;
+  }
+  const renames = new Map<string, string>();
+  for (let i = 0; i < prev.length; i++) {
+    if (prev[i] !== "" && prev[i] !== next[i]) {
+      renames.set(prev[i]!, next[i]!);
+    }
+  }
+  if (renames.size === 0) {
+    return base;
+  }
+  base.models = doc.models.map((row) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) {
+      return row;
+    }
+    const obj = row as Record<string, unknown>;
+    const renamed =
+      typeof obj.toolset === "string" ? renames.get(obj.toolset) : undefined;
+    return renamed === undefined ? row : { ...obj, toolset: renamed };
+  });
+  return base;
+}
+
+function rowNames(rows: unknown): string[] {
+  if (!Array.isArray(rows)) {
+    return [];
+  }
+  return rows.map((row) => {
+    if (row && typeof row === "object" && !Array.isArray(row)) {
+      const cell = (row as Record<string, unknown>).name;
+      return cell === undefined || cell === null ? "" : String(cell);
+    }
+    return "";
+  });
+}

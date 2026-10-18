@@ -11,7 +11,7 @@ alwaysApply: false
 ---
 # Shipped build tags
 
-The set of build tags that ships (`http ui scheduler memory cli gateway swarm` today) is not read from one place. A change to it - a tag added, removed or renamed - updates every copy in the same commit:
+The set of build tags that ships (`http ui scheduler memory cli gateway swarm metrics` today) is not read from one place. A change to it - a tag added, removed or renamed - updates every copy in the same commit:
 
 - `Makefile`, `FULL_TAGS` (and the examples in its header comment); `make test` and `TEST_TAG_SETS` derive from it;
 - `Dockerfile`, `ARG BUILD_TAGS` (comma-separated, in its own order);

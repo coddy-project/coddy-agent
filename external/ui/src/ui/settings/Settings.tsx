@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -13,6 +14,18 @@ import {
   type SectionDescriptor,
 } from "./settingsSections";
 import { SettingsNav } from "./SettingsNav";
+import {
+  createSettingsSearch,
+  SettingsSearchField,
+  SettingsSearchResults,
+  useResultsShowing,
+} from "./SettingsSearchView";
+import {
+  buildSettingsSearchIndex,
+  settingsIndexRowsKey,
+  type SettingsSearchEntry,
+} from "./settingsSearch";
+import { revealWhenReady } from "./settingsReveal";
 import { SettingsSection } from "./SettingsSection";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 import { SettingsTileGrid } from "./SettingsTileGrid";
@@ -26,6 +39,7 @@ import {
 import {
   serverSnapshotShellStack,
   snapshotShellStack,
+  snapshotTouchOnly,
   subscribeShellStack,
 } from "../shellBreakpoint";
 import {
@@ -37,6 +51,7 @@ import { useT } from "../i18n/I18nProvider";
 import { hasTranslation, translate } from "../i18n/i18n";
 import { useRailCloseGuard, useRailEscapeStep } from "../nav/railEscape";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { PaneHidden } from "../components/PanePortal";
 import { environmentKey, getEnv } from "../env/remoteEnv";
 import { settingsFormDirty } from "./settingsDirty";
 
@@ -136,10 +151,42 @@ function itemFormTitle(section: SectionDescriptor): string {
   return hasTranslation(key) ? translate(key) : section.label;
 }
 
+/** Whether a node takes typed text, so a "/" typed there is a character. */
+function takesTypedText(node: Element | null): boolean {
+  if (
+    node instanceof HTMLTextAreaElement ||
+    node instanceof HTMLSelectElement
+  ) {
+    return true;
+  }
+  if (node instanceof HTMLInputElement) {
+    return !/^(checkbox|radio|button|submit|reset|range|color|file|image)$/.test(
+      node.type,
+    );
+  }
+  return node instanceof HTMLElement && node.isContentEditable;
+}
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
 /** Whether the address keeps the history sidebar open (`?history=1`). */
 function historyOpenInAddress(): boolean {
   const route = parseAppHash();
   return "historyOpen" in route && route.historyOpen;
+}
+
+/** Names a setting the address can take the operator to: tab, list row, box anchor. */
+function settingKey(
+  section: string | null,
+  row: string | null,
+  anchor: string,
+): string {
+  return JSON.stringify([section ?? "", row ?? "", anchor]);
 }
 
 export function Settings(props: {
@@ -150,6 +197,8 @@ export function Settings(props: {
   initialSection?: string | null;
   /** The row a list section has open, from `?id=` of that deep link. */
   initialItem?: string | null;
+  /** The setting the deep link names, from `?field=` (the anchor of its box). */
+  initialField?: string | null;
   /** The conversation on screen; the session table keeps it out of "delete all". */
   activeSessionId?: string;
   /** Session ids the table removed, so the shell can drop them from History. */
@@ -240,6 +289,14 @@ export function Settings(props: {
     [formEnv],
   );
   const { locale, t } = useT();
+  // The query lives in a store outside the render, so typing never re-renders
+  // the tab under the results: this component hears only when the results
+  // start or stop showing.
+  const [search] = useState(createSettingsSearch);
+  const showing = useResultsShowing(search);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const rootRef = useRef<HTMLElement>(null);
+  const resultsId = useId();
   const [activeTab, setActiveTab] = useState<string>(
     props.initialSection ?? "",
   );
@@ -305,6 +362,14 @@ export function Settings(props: {
     : null;
   const mobilePending = pendingTab(mobileDetailId);
 
+  // Editing a value never rebuilds the index, only the row names do.
+  const rowsKey = settingsIndexRowsKey(doc);
+  const index = useMemo(
+    () => buildSettingsSearchIndex({ sections, schema, doc }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sections, schema, rowsKey, locale],
+  );
+
   // Reflect the `#/settings/<section>` deep link (initial load and browser
   // back/forward) into local tab state; writing the hash below re-enters here
   // with the same value, so this is a no-op on self-initiated changes.
@@ -314,12 +379,26 @@ export function Settings(props: {
     setMobileDetailId(routeSection);
   }, [routeSection]);
 
-  // Selecting a section (desktop tab or mobile tile) anchors it in the URL.
-  const selectSection = useCallback((id: string) => {
-    setActiveTab(id);
-    setMobileDetailId(id);
-    setSettingsSectionHash(id);
-  }, []);
+  // Selecting a section, a list row or a setting anchors it in the URL and puts
+  // the search results away, keeping the query. A rail click or a tile names
+  // neither a row nor a setting, so the address loses both.
+  const selectSection = useCallback(
+    (id: string, row?: string, field?: string) => {
+      search.hide();
+      setActiveTab(id);
+      setMobileDetailId(id);
+      if (row === undefined && field === undefined) {
+        setSettingsSectionHash(id);
+      } else {
+        setSettingsSectionHash(id, {
+          item: row ?? null,
+          field: field ?? null,
+          historySidebar: historyOpenInAddress(),
+        });
+      }
+    },
+    [search],
+  );
 
   // Mobile back to the tile grid drops the section anchor.
   const backToGrid = useCallback(() => {
@@ -346,19 +425,142 @@ export function Settings(props: {
     props.onClose();
   }, [dirty, props]);
 
-  // Escape takes the step the head's arrow takes while the head shows one,
-  // asks before it closes over unsaved edits, and closes the drawer otherwise
-  // (nav/railEscape.ts).
+  // Escape clears the search while its results show, takes the step the head's
+  // arrow takes while the head shows one, asks before it closes over unsaved
+  // edits, and closes the drawer otherwise (nav/railEscape.ts).
   useRailEscapeStep(
     "settings",
-    rowTitle && headSection
-      ? closeRowForm
-      : isMobileShell && (mobileSection || mobilePending)
-        ? backToGrid
-        : dirty
-          ? requestClose
-          : null,
+    showing
+      ? search.clear
+      : rowTitle && headSection
+        ? closeRowForm
+        : isMobileShell && (mobileSection || mobilePending)
+          ? backToGrid
+          : dirty
+            ? requestClose
+            : null,
   );
+
+  // A trip to a setting: a result opened or an address that names one. Each
+  // request is a new object, so choosing the same result again goes again.
+  // Opening a result opens its tab and row through the address, which also
+  // names the setting; the effect below then takes the operator to it.
+  const [trip, setTrip] = useState<{ entry: SettingsSearchEntry } | null>(null);
+  // The setting last taken to: the address read back after a choice names it
+  // again and is no second trip.
+  const takenTo = useRef<string | null>(null);
+  const openResult = useCallback(
+    (entry: SettingsSearchEntry) => {
+      search.choose(entry.id);
+      setTrip({ entry });
+      takenTo.current =
+        entry.anchor === null
+          ? null
+          : settingKey(entry.section, entry.row, entry.anchor);
+      selectSection(
+        entry.section,
+        entry.row ?? undefined,
+        entry.anchor ?? undefined,
+      );
+    },
+    [search, selectSection],
+  );
+  useEffect(() => {
+    const root = rootRef.current;
+    if (trip === null || root === null) {
+      return undefined;
+    }
+    return revealWhenReady(root, trip.entry, {
+      touchOnly: snapshotTouchOnly(),
+      reducedMotion: prefersReducedMotion(),
+    });
+  }, [trip]);
+
+  // An address that names a setting (a pasted link, a reload, the Mini App's
+  // launch) is followed like a choice. The index may not hold it yet, so this
+  // asks again when the index changes; an unknown setting leaves the tab open.
+  const routeItem = props.initialItem ?? null;
+  const routeField = props.initialField ?? null;
+  const routeSetting =
+    routeField === null
+      ? null
+      : settingKey(routeSection, routeItem, routeField);
+  useEffect(() => {
+    if (routeField === null || routeSetting === null) {
+      takenTo.current = null;
+      return;
+    }
+    if (takenTo.current === routeSetting) {
+      return;
+    }
+    const entry = index.find(
+      (e) =>
+        e.anchor === routeField &&
+        e.section === routeSection &&
+        e.row === routeItem,
+    );
+    if (entry === undefined) {
+      return;
+    }
+    takenTo.current = routeSetting;
+    // A link followed while results show puts them away, as a choice does,
+    // or the setting would wait under them until the reveal gives up.
+    search.hide();
+    setTrip({ entry });
+  }, [routeSetting, routeField, routeSection, routeItem, index, search]);
+
+  // "/" puts the cursor in the search unless a field has it or a dialog is
+  // open. On the narrow shell with a tab open the field is not drawn: go back
+  // to the tiles first and focus it once it is.
+  const tabOpenOnStack = Boolean(
+    isMobileShell && (mobileSection || mobilePending),
+  );
+  const focusSearchPending = useRef(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (
+        e.key !== "/" ||
+        e.ctrlKey ||
+        e.metaKey ||
+        e.altKey ||
+        e.defaultPrevented ||
+        takesTypedText(document.activeElement) ||
+        document.querySelector('[aria-modal="true"]') !== null
+      ) {
+        return;
+      }
+      if (tabOpenOnStack) {
+        e.preventDefault();
+        focusSearchPending.current = true;
+        backToGrid();
+        return;
+      }
+      const input = inputRef.current;
+      if (input !== null && !input.disabled) {
+        e.preventDefault();
+        input.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [tabOpenOnStack, backToGrid]);
+  useEffect(() => {
+    if (!focusSearchPending.current) {
+      return;
+    }
+    const input = inputRef.current;
+    if (input !== null) {
+      focusSearchPending.current = false;
+      input.focus();
+    }
+  });
+
+  // Results are drawn over the tiles only; a tab opened meanwhile puts them away.
+  useEffect(() => {
+    if (showing && tabOpenOnStack) {
+      search.hide();
+    }
+  }, [showing, tabOpenOnStack, search]);
 
   // The backdrop beside the drawer closes it like its close button does.
   useRailCloseGuard("settings", dirty ? requestClose : null);
@@ -513,10 +715,14 @@ export function Settings(props: {
   // Renders the content panel for a section, reusing the schema-present and
   // appearance-without-schema paths for both the desktop rail and the mobile
   // tile-grid detail view.
-  const renderSectionBody = (section: SectionDescriptor) => {
+  const renderSectionBody = (section: SectionDescriptor, hidden = false) => {
     if (schema) {
       return (
-        <div className="settings-scroll">
+        <div
+          className="settings-scroll"
+          data-settings-tab={section.id}
+          hidden={hidden}
+        >
           <div
             className={`settings-body${reloadKey > 0 ? " settings-form-anim" : ""}`}
             key={reloadKey}
@@ -540,11 +746,20 @@ export function Settings(props: {
               // would otherwise report its closed form and undo the jump.
               onRouteItemChange={
                 section.id === (props.initialSection ?? "")
-                  ? (item) =>
+                  ? (item) => {
+                      // Only the row a search or link opened keeps the setting.
+                      const at = parseAppHash();
                       setSettingsSectionHash(section.id, {
                         item,
+                        field:
+                          at.branch === "settings" &&
+                          at.section === section.id &&
+                          at.item === item
+                            ? at.field
+                            : null,
                         historySidebar: historyOpenInAddress(),
-                      })
+                      });
+                    }
                   : undefined
               }
               hideBackLink
@@ -571,7 +786,11 @@ export function Settings(props: {
     // in the normal scroll flow like any other tab.
     if (section.kind === "appearance" || section.kind === "sessions") {
       return (
-        <div className="settings-scroll">
+        <div
+          className="settings-scroll"
+          data-settings-tab={section.id}
+          hidden={hidden}
+        >
           <div className="settings-body">
             <SettingsSection
               section={section}
@@ -595,15 +814,27 @@ export function Settings(props: {
     return loading ? <SettingsSkeleton /> : null;
   };
 
+  const searchField = () => (
+    <SettingsSearchField
+      search={search}
+      index={index}
+      inputRef={inputRef}
+      resultsId={resultsId}
+      disabled={loading}
+      onOpen={openResult}
+    />
+  );
+
   return (
     <aside
+      ref={rootRef}
       className="sessions settings drawer"
       aria-label={t("settings.aria.panel")}
       data-testid="settings-screen"
       data-variant="drawer"
     >
       <div className="sessions-head">
-        {rowTitle && headSection ? (
+        {rowTitle && headSection && !showing ? (
           <span className="settings-head-titlegroup">
             <button
               type="button"
@@ -675,24 +906,49 @@ export function Settings(props: {
               <SettingsSkeleton />
             </div>
           ) : (
-            <SettingsTileGrid
-              sections={sections}
-              onSelect={selectSection}
-              placeholders={loading ? PLACEHOLDER_TABS : 0}
-            />
+            <div className="settings-grid-view">
+              <div className="settings-grid-search">{searchField()}</div>
+              {showing ? (
+                <SettingsSearchResults
+                  id={resultsId}
+                  search={search}
+                  index={index}
+                  onOpen={openResult}
+                />
+              ) : (
+                <SettingsTileGrid
+                  sections={sections}
+                  onSelect={selectSection}
+                  placeholders={loading ? PLACEHOLDER_TABS : 0}
+                />
+              )}
+            </div>
           )
         ) : (
           <div className="settings-tabs-layout">
             <SettingsNav
               sections={sections}
-              active={activeSection ? activeSection.id : ""}
+              active={showing || !activeSection ? "" : activeSection.id}
               onSelect={selectSection}
               placeholders={loading ? PLACEHOLDER_TABS : 0}
+              search={searchField()}
             />
-            {activeSection ? (
-              renderSectionBody(activeSection)
-            ) : loading ? (
-              <SettingsSkeleton />
+            {/* The tab stays mounted under the results, hidden and deaf
+                (PaneHidden), so its edits survive a query cleared unchosen. */}
+            <PaneHidden.Provider value={showing}>
+              {activeSection ? (
+                renderSectionBody(activeSection, showing)
+              ) : loading ? (
+                <SettingsSkeleton />
+              ) : null}
+            </PaneHidden.Provider>
+            {showing ? (
+              <SettingsSearchResults
+                id={resultsId}
+                search={search}
+                index={index}
+                onOpen={openResult}
+              />
             ) : null}
           </div>
         )}

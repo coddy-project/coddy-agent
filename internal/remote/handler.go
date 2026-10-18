@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
@@ -53,6 +54,8 @@ type Handler struct {
 	controlCtx  context.Context
 	controlStop context.CancelFunc
 	activitySeq uint64
+	// serverToolsets are the presets GET /coddy/info named with the catalog.
+	serverToolsets []string
 
 	// serverPermission is the server's default for new sessions as the last
 	// settings snapshot named it: what a session the server has not pinned
@@ -108,6 +111,10 @@ type sessionState struct {
 	// thinking off, which the model list does not name.
 	reasoningChoices []string
 	choicesModel     string
+	// toolset and toolsetChoices mirror the last snapshot's; no choices
+	// means the server has no preset.
+	toolset        string
+	toolsetChoices []string
 	// overrides are what the last snapshot said the session changed for its
 	// running and next turns.
 	overrides []acp.TurnOverride
@@ -132,6 +139,7 @@ type remoteModel struct {
 	Multimodal       bool
 	ReasoningLevels  []string
 	ReasoningDefault string
+	Toolset          string
 }
 
 // NewHandler validates options and returns a disconnected handler; the first
@@ -548,6 +556,12 @@ func (h *Handler) HandleSessionSetConfigOption(ctx context.Context, params acp.S
 			return nil, err
 		}
 		return &acp.SessionSetConfigOptionResult{ConfigOptions: h.configOptions(st)}, nil
+	case "toolset":
+		value := params.Value
+		if _, err := h.ApplySessionSettings(ctx, params.SessionID, session.SettingsChange{Toolset: &value, Source: "remote"}); err != nil {
+			return nil, err
+		}
+		return &acp.SessionSetConfigOptionResult{ConfigOptions: h.configOptions(st)}, nil
 	default:
 		return nil, fmt.Errorf("unknown config option: %q", params.ConfigID)
 	}
@@ -701,11 +715,51 @@ func (h *Handler) configOptions(st *sessionState) []acp.ConfigOption {
 	if permission == "" {
 		permission = h.serverPermission
 	}
+	toolset, toolsetChoices := h.toolsetLocked(st)
 	h.mu.Unlock()
+	if len(toolsetChoices) > 0 {
+		opts := make([]acp.ConfigOptionValue, 0, len(toolsetChoices))
+		for _, c := range toolsetChoices {
+			opts = append(opts, acp.ConfigOptionValue{Value: c, Name: c})
+		}
+		out = append(out, acp.ConfigOption{ID: "toolset", Name: "Toolset", Category: "_toolset",
+			Type: "select", CurrentValue: toolset, Options: opts})
+	}
 	if permission != "" {
 		out = append(out, session.PermissionModeOption(permission))
 	}
 	return out
+}
+
+// toolsetLocked is the toolset a session runs with and what it can pick: its
+// last snapshot's, else, for a session the server has not created yet, the
+// presets the server named and default, showing the pick held for it or the
+// toolset of its model. No choices while the server names no preset. h.mu is
+// held.
+func (h *Handler) toolsetLocked(st *sessionState) (string, []string) {
+	if len(st.toolsetChoices) > 0 {
+		return st.toolset, append([]string(nil), st.toolsetChoices...)
+	}
+	if len(h.serverToolsets) == 0 {
+		return "", nil
+	}
+	choices := append(append([]string(nil), h.serverToolsets...), config.ToolsetDefault)
+	value := st.toolset
+	if value == "" {
+		model := st.modelID
+		if model == "" {
+			model = h.defModel
+		}
+		for _, m := range h.models {
+			if m.ID == model {
+				value = m.Toolset
+			}
+		}
+	}
+	if value == "" {
+		value = config.ToolsetDefault
+	}
+	return value, choices
 }
 
 // modelConfigOptions is the mode, the model and the reasoning option of a

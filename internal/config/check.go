@@ -292,8 +292,57 @@ func checkConfigBytes(data []byte, paths Paths) []Finding {
 		}
 	}
 	findings = append(findings, unsentSettingFindings(&cfg, body)...)
+	findings = append(findings, unknownToolsetToolFindings(&cfg, body)...)
 	findings = append(findings, memoryAddendumFindings(&cfg, body)...)
 	return sortFindings(findings)
+}
+
+// unknownToolsetToolFindings warns about an entry of toolsets[].tools or
+// toolsets[].disallowed_tools that names no tool (Config.UnknownToolsetTools),
+// each on the line of the entry.
+func unknownToolsetToolFindings(cfg *Config, body *yaml.Node) []Finding {
+	var out []Finding
+	for _, u := range cfg.UnknownToolsetTools() {
+		f := Finding{
+			Severity: SeverityWarning,
+			Message:  u.Message(),
+			Fix:      "correct the spelling, or remove it from this toolset; tool names are listed in docs/reference/tools.md, and a name containing __ addresses an MCP server's tool",
+		}
+		if n := locateListEntry(body, "toolsets["+u.Toolset+"]", u.Key, u.Name); n != nil {
+			f.Line, f.Column = n.Line, n.Column
+		}
+		f.Path = u.Path()
+		if root, err := loadSchema(); err == nil {
+			if s := root.lookup("toolsets." + u.Key); s != nil {
+				f.Doc = s.doc()
+			}
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+// locateListEntry finds the scalar naming a tool inside one list of the
+// sequence entry at path (toolsets[coding]), falling back to the list's key
+// and then to the entry.
+func locateListEntry(body *yaml.Node, path, key, name string) *yaml.Node {
+	row := locatePath(body, path, false)
+	row = resolveAlias(row)
+	if row == nil || row.Kind != yaml.MappingNode {
+		return nil
+	}
+	k := mappingKey(row, key)
+	if k == nil {
+		return row
+	}
+	if list := resolveAlias(mappingValueAfterKey(row, k)); list != nil && list.Kind == yaml.SequenceNode {
+		for _, item := range list.Content {
+			if item = resolveAlias(item); item != nil && item.Kind == yaml.ScalarNode && strings.TrimSpace(item.Value) == name {
+				return item
+			}
+		}
+	}
+	return k
 }
 
 // memoryAddendumFindings warns when memory.additional_prompt is longer than

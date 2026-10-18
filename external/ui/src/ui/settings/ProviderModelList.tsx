@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { formatTurnTokens } from "../chat/turnProgress";
 import { useT } from "../i18n/I18nProvider";
 import { IconCheck, IconPlus, IconSync } from "./icons";
+import { SETTINGS_TEXTS, landmarkAnchor } from "./settingsSections";
 import {
   modelDisplayName,
   providerRowFetchable,
@@ -131,10 +132,11 @@ export function ProviderModelList(props: {
     <fieldset
       className="settings-fieldset provider-models-box"
       data-testid="provider-models"
+      data-settings-anchor={landmarkAnchor("providers", "models")}
     >
       <legend>
         <span className="settings-legend-line">
-          {t("settings.providerModels.legend")}
+          {t(SETTINGS_TEXTS.providerModels.label)}
           <button
             type="button"
             className="provider-models-refresh"

@@ -94,7 +94,7 @@ make build TAGS="gateway.pachca"
 make build TAGS="gateway"
 
 # The full set (what a release ships)
-make build TAGS="http ui scheduler memory cli gateway swarm"
+make build TAGS="http ui scheduler memory cli gateway swarm metrics"
 ```
 
 A bot enabled in `config.yaml` but not compiled into the binary is a startup error of `coddy serve` naming the tag; all other subcommands are unaffected.

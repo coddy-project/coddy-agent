@@ -67,6 +67,13 @@ type contextWindowAwaiter interface {
 	AwaitContextWindow(ctx context.Context, cfg *config.Config, modelRef string)
 }
 
+// modelParametersState is implemented by session.State: the request
+// parameters the provider's model listing says a model takes, nil when
+// nothing is known (session.State.ModelParameters).
+type modelParametersState interface {
+	ModelParameters(cfg *config.Config, providerName, apiModel string) []string
+}
+
 // awaitContextWindow makes sure the window of model is known before the next
 // request measures its context against it. A state without a manager behind
 // it has only max_context_tokens and the default to go by, so it returns at

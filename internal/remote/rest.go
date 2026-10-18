@@ -204,6 +204,8 @@ type modelRow struct {
 	ReasoningDefault string   `json:"reasoning_default,omitempty"`
 	// Default marks the row the server runs a session that selected no model on.
 	Default bool `json:"default,omitempty"`
+	// Toolset is the toolsets[] preset the model names.
+	Toolset string `json:"toolset,omitempty"`
 }
 
 type modelsResponse struct {
@@ -238,9 +240,20 @@ func (h *Handler) ensureModels(ctx context.Context) error {
 			Multimodal:       row.Multimodal,
 			ReasoningLevels:  row.ReasoningLevels,
 			ReasoningDefault: row.ReasoningDefault,
+			Toolset:          row.Toolset,
 		})
 	}
+	// The presets the server names: what a session it has not created yet
+	// can pick, before any snapshot of its own says so. An older server names
+	// none, and the console then offers no toolset until one does.
+	var info struct {
+		Toolsets []string `json:"toolsets"`
+	}
+	if err := h.getJSON(ctx, "/coddy/info", &info); err != nil {
+		info.Toolsets = nil
+	}
 	h.mu.Lock()
+	h.serverToolsets = info.Toolsets
 	h.models = models
 	// A server that marks no row (agent.model empty, or an older server)
 	// leaves the first backend as the best guess.

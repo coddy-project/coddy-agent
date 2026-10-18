@@ -7,6 +7,7 @@ import {
 } from "react";
 import { IconTrash } from "./SchemaForm";
 import { LegendWithHint } from "./FieldHint";
+import { SETTINGS_TEXTS, landmarkAnchor } from "./settingsSections";
 import { IconCheck, IconShield, IconSync } from "./icons";
 import { useT } from "../i18n/I18nProvider";
 import { translate } from "../i18n/i18n";
@@ -235,10 +236,11 @@ export function MarketplacesEditor(props: {
     <fieldset
       className="settings-fieldset skills-marketplaces-box"
       data-testid="skills-marketplaces"
+      data-settings-anchor={landmarkAnchor("skills", "marketplaces")}
     >
       <LegendWithHint
-        label={t("skills.sources.legend")}
-        description={t("skills.sources.description")}
+        label={t(SETTINGS_TEXTS.skillsMarketplaces.label)}
+        description={t(SETTINGS_TEXTS.skillsMarketplaces.desc)}
       />
       {loadError ? (
         <p

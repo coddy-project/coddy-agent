@@ -1,5 +1,7 @@
 import { composerAutoFocusAllowed } from "./composerFocus";
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -15,6 +17,21 @@ import { WorkspaceBar } from "./WorkspaceBar";
 import { useComposerFieldHeight } from "./useComposerFieldHeight";
 import { useT } from "../i18n/I18nProvider";
 import { ImageLightbox } from "../components/ImageLightbox";
+import { markupSupported } from "../markup/markupSupport";
+import { MarkupEditIcon } from "../markup/markupIcons";
+
+/**
+ * The picture markup editor, loaded the first time a picture opens in it:
+ * the canvas code stays out of app.js, which features/web_ui_diagrams.feature
+ * holds to a budget. The chunk is fetched before the editor is shown
+ * (openMarkup), so a chunk the server no longer has - a tab left open across
+ * an update - falls back to attaching the picture instead of failing a
+ * render.
+ */
+const loadImageMarkup = () => import("../markup/ImageMarkupDialog");
+const ImageMarkupDialog = lazy(() =>
+  loadImageMarkup().then((m) => ({ default: m.ImageMarkupDialog })),
+);
 import { PaperclipIcon } from "../components/PaperclipIcon";
 import { useEscapeCloses } from "../components/useEscapeCloses";
 import type {
@@ -50,7 +67,7 @@ import {
   commandReasoningChoices,
   type CommandArgDraft,
 } from "../skills/draftCommandArg";
-import type { TurnOverride } from "./sessionSettings";
+import type { ToolsetControl, TurnOverride } from "./sessionSettings";
 import { GoalPopover, type GoalActions } from "./GoalPopover";
 import {
   goalStatusKey,
@@ -230,10 +247,13 @@ function AttachedFileChip({
   file,
   disabled,
   onRemove,
+  onMarkup,
 }: {
   file: File;
   disabled: boolean;
   onRemove: () => void;
+  /** Opens the picture in the markup editor; absent where it cannot draw. */
+  onMarkup?: (() => void) | undefined;
 }) {
   const { t } = useT();
   const { svg, label } = fileTypeIcon(file.type, file.name);
@@ -285,6 +305,18 @@ function AttachedFileChip({
             data-testid="composer-attachment-thumb"
           />
         </button>
+        {onMarkup ? (
+          <button
+            type="button"
+            className="composer-attachment-card-markup"
+            aria-label={t("composer.markupAttachment", { fileName: file.name })}
+            title={t("composer.markupAttachment", { fileName: file.name })}
+            data-testid="composer-attachment-markup"
+            onClick={onMarkup}
+          >
+            <MarkupEditIcon />
+          </button>
+        ) : null}
         {remove}
         {zoomed ? (
           <ImageLightbox
@@ -482,6 +514,10 @@ export function Composer(props: {
   permissionMode?: string;
   configuredPermissionMode?: string;
   onPermissionModeChange?: (mode: string) => void;
+  /** The session's toolset: the chip after the permission chip and its menu.
+   *  Absent while the configuration has no toolsets[] preset, and so is the
+   *  chip. */
+  toolsetControl?: ToolsetControl | undefined;
   /** Settings changed for the running and the next turns (--once, --count=N). */
   settingsOverrides?: TurnOverride[];
   /**
@@ -556,8 +592,9 @@ export function Composer(props: {
   const llmChipRef = useRef<HTMLButtonElement | null>(null);
   const reasoningChipRef = useRef<HTMLButtonElement | null>(null);
   const permissionChipRef = useRef<HTMLButtonElement | null>(null);
+  const toolsetChipRef = useRef<HTMLButtonElement | null>(null);
   const [menuOpen, setMenuOpen] = useState<
-    "mode" | "llm" | "reasoning" | "permission" | null
+    "mode" | "llm" | "reasoning" | "permission" | "toolset" | null
   >(null);
   /** Screen rect of the open trigger, so the portaled menu (frosted glass over chat) can anchor to it. */
   const [menuAnchorRect, setMenuAnchorRect] = useState<DOMRect | null>(null);
@@ -612,6 +649,49 @@ export function Composer(props: {
   const attachHintTimerRef = useRef<number | null>(null);
   /** Names pasted images deterministically ("pasted-1.png"); clipboard files are all "image.png". */
   const pastedSeqRef = useRef(0);
+  /**
+   * The picture open in the markup editor: a pasted one (not attached yet:
+   * Done attaches it, Cancel drops it) or an attached one (Done replaces it,
+   * Cancel leaves it as it was).
+   */
+  const [markup, setMarkup] = useState<{
+    file: File;
+    attached: boolean;
+  } | null>(null);
+  // One picture is marked up at a time: the editor's chunk may still be on
+  // its way when another is pasted, and the composer may be gone when it
+  // arrives (the start screen hands over to the docked composer).
+  const markupPendingRef = useRef(false);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  const openMarkup = (file: File, attached: boolean) => {
+    // Without the editor a pasted picture is attached as it is, as in a
+    // browser that cannot draw; an attached one stays as it was.
+    const attachAsIs = () => {
+      if (!attached) setAttachedFiles((prev) => [...prev, file]);
+    };
+    if (markupPendingRef.current || markup) {
+      attachAsIs();
+      return;
+    }
+    markupPendingRef.current = true;
+    loadImageMarkup().then(
+      () => {
+        markupPendingRef.current = false;
+        if (mountedRef.current) setMarkup({ file, attached });
+        else attachAsIs();
+      },
+      () => {
+        markupPendingRef.current = false;
+        attachAsIs();
+      },
+    );
+  };
   const attachmentSendingEnabled = props.llmModelMultimodal === true;
   const sendableAttachedFiles = attachmentSendingEnabled ? attachedFiles : [];
   const queuedMessages = props.queuedMessages ?? [];
@@ -1215,6 +1295,20 @@ export function Composer(props: {
   useEffect(() => {
     void fetchCommandsOnce();
   }, [fetchCommandsOnce]);
+
+  // /toolset is a command only while the configuration has a preset: a
+  // reload that brings the first one, or takes the last away, reads the
+  // commands again.
+  const hasToolsets = props.toolsetControl !== undefined;
+  const toolsetsSeenRef = useRef(hasToolsets);
+  useEffect(() => {
+    if (toolsetsSeenRef.current === hasToolsets) {
+      return;
+    }
+    toolsetsSeenRef.current = hasToolsets;
+    commandsFetchedRef.current = false;
+    void fetchCommandsOnce();
+  }, [hasToolsets, fetchCommandsOnce]);
 
   const fetchMentions = useCallback(
     async (query: string, refresh: boolean) => {
@@ -1890,6 +1984,10 @@ export function Composer(props: {
           ? () =>
               toggleMenu("permission", permissionChipRef.current as HTMLElement)
           : null;
+      case "toolset":
+        return props.toolsetControl && toolsetChipRef.current
+          ? () => toggleMenu("toolset", toolsetChipRef.current as HTMLElement)
+          : null;
       case "agent":
       case "plan":
       case "ask":
@@ -2179,6 +2277,10 @@ export function Composer(props: {
     return t("composer.permissionAskHint");
   }
   // One line per override: the value and the turns it lasts.
+  // "default" is no preset: every tool the mode offers.
+  function displayToolset(name: string): string {
+    return name === "default" ? t("composer.toolsetDefault") : name;
+  }
   const overrideLines = (props.settingsOverrides ?? []).map((o) => {
     if (o.active) {
       return o.turnsLeft > 0
@@ -2269,7 +2371,7 @@ export function Composer(props: {
   useEscapeCloses(pickerOpen, dismissSlashAtPickers);
 
   function toggleMenu(
-    type: "mode" | "llm" | "reasoning" | "permission",
+    type: "mode" | "llm" | "reasoning" | "permission" | "toolset",
     trigger: HTMLElement,
   ) {
     if (menuOpen === type) {
@@ -3083,9 +3185,31 @@ export function Composer(props: {
                   onRemove={() =>
                     setAttachedFiles((prev) => prev.filter((_, i) => i !== idx))
                   }
+                  onMarkup={
+                    attachmentSendingEnabled && markupSupported()
+                      ? () => openMarkup(f, true)
+                      : undefined
+                  }
                 />
               ))}
             </div>
+          ) : null}
+          {markup ? (
+            <Suspense fallback={null}>
+              <ImageMarkupDialog
+                file={markup.file}
+                onCancel={() => setMarkup(null)}
+                onDone={(edited) => {
+                  const { file: source, attached } = markup;
+                  setMarkup(null);
+                  setAttachedFiles((prev) =>
+                    attached
+                      ? prev.map((f) => (f === source ? edited : f))
+                      : [...prev, edited],
+                  );
+                }}
+              />
+            </Suspense>
           ) : null}
           {attachHint ? (
             <div
@@ -3225,10 +3349,15 @@ export function Composer(props: {
                     showAttachHint();
                     return;
                   }
-                  setAttachedFiles((prev) => [
-                    ...prev,
-                    ...renamePastedImages(images, pastedSeqRef),
-                  ]);
+                  const pasted = renamePastedImages(images, pastedSeqRef);
+                  const [only] = pasted;
+                  if (only && pasted.length === 1 && markupSupported()) {
+                    // One pasted picture opens in the markup editor first,
+                    // as ctrl+v does in the console on a desktop.
+                    openMarkup(only, false);
+                    return;
+                  }
+                  setAttachedFiles((prev) => [...prev, ...pasted]);
                 }}
                 onCompositionStart={() => {
                   compositionEndedAtRef.current = null;
@@ -3624,6 +3753,24 @@ export function Composer(props: {
                 </div>
               ) : null}
 
+              {props.toolsetControl ? (
+                <div className="mode">
+                  <button
+                    type="button"
+                    ref={toolsetChipRef}
+                    className="composer-tab mode-btn mode-toolset"
+                    aria-label={t("composer.toolset")}
+                    title={t("composer.toolsetTitle")}
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen === "toolset"}
+                    data-testid="composer-toolset"
+                    onClick={(e) => toggleMenu("toolset", e.currentTarget)}
+                  >
+                    {displayToolset(props.toolsetControl.value)}
+                  </button>
+                </div>
+              ) : null}
+
               {overrideLines.length > 0 ? (
                 <span
                   className="composer-overrides"
@@ -3834,6 +3981,27 @@ export function Composer(props: {
                         }}
                       >
                         {displayMode(m)}
+                      </button>
+                    ))
+                  : null}
+                {menuOpen === "toolset" && props.toolsetControl
+                  ? props.toolsetControl.choices.map((name) => (
+                      <button
+                        key={name}
+                        type="button"
+                        role="menuitem"
+                        title={
+                          name === "default"
+                            ? t("composer.toolsetDefaultHint")
+                            : undefined
+                        }
+                        className={`mode-item ${name === props.toolsetControl?.value ? "is-selected" : ""}`}
+                        onClick={() => {
+                          props.toolsetControl?.onChange(name);
+                          closeMenu();
+                        }}
+                      >
+                        {displayToolset(name)}
                       </button>
                     ))
                   : null}

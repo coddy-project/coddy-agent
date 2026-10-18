@@ -78,11 +78,42 @@ func BuildACPConfigOptions(cfg *config.Config, state *State) []acp.ConfigOption 
 		}
 	}
 
+	if opt, ok := ToolsetOption(cfg, state); ok {
+		out = append(out, opt)
+	}
+
 	effectivePerm := state.GetPermissionMode()
 	if effectivePerm == "" {
 		effectivePerm = cfg.Tools.ResolvedPermMode()
 	}
 	return append(out, PermissionModeOption(effectivePerm))
+}
+
+// ToolsetOption is the ACP config option of the session's toolset: the
+// toolsets[] presets and default, with the one the session runs with as its
+// value. There is none while the configuration has no preset, so an editor or
+// a console shows no toolset selector until one is added.
+func ToolsetOption(cfg *config.Config, state *State) (acp.ConfigOption, bool) {
+	names := cfg.ToolsetNames()
+	if len(names) == 0 {
+		return acp.ConfigOption{}, false
+	}
+	opts := make([]acp.ConfigOptionValue, 0, len(names)+1)
+	for _, n := range names {
+		opts = append(opts, acp.ConfigOptionValue{Value: n, Name: n})
+	}
+	opts = append(opts, acp.ConfigOptionValue{Value: config.ToolsetDefault, Name: config.ToolsetDefault,
+		Description: "Every tool the mode offers"})
+	return acp.ConfigOption{
+		ID:          "toolset",
+		Name:        "Toolset",
+		Description: "The preset of tools this session is offered.",
+		// An agent's own option, like the permission mode's.
+		Category:     "_toolset",
+		Type:         "select",
+		CurrentValue: state.SessionToolset(cfg),
+		Options:      opts,
+	}, true
 }
 
 // PermissionModeOption is the ACP config option of a session's permission

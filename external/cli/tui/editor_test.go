@@ -126,3 +126,23 @@ func TestEditorWordDeleteBackward(t *testing.T) {
 		t.Fatalf("text %q", e.Text())
 	}
 }
+
+func TestEditorDeletesAnImageMarkerAsOnePiece(t *testing.T) {
+	e := NewEditor(nil, EditorTheme{}, 0)
+	e.SetText("look")
+	e.InsertAtom("[image #1]")
+	if e.Text() != "look [image #1] " {
+		t.Fatalf("atom inserted as %q", e.Text())
+	}
+	e.HandleInput([]byte{0x7f}) // the space after it
+	e.HandleInput([]byte{0x7f}) // the whole marker
+	if e.Text() != "look " {
+		t.Fatalf("after two backspaces %q, want the marker gone in one", e.Text())
+	}
+	e.SetText("[image #2] x")
+	e.cursorCol = 0
+	e.HandleInput([]byte("\x1b[3~")) // delete
+	if e.Text() != " x" {
+		t.Fatalf("delete before the marker left %q", e.Text())
+	}
+}

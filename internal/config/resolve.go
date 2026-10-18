@@ -297,6 +297,10 @@ func (c *Config) ValidateModelsProvidersAndAgent() error {
 		}
 	}
 
+	if err := c.validateToolsets(); err != nil {
+		return err
+	}
+
 	if len(c.Models) > 0 {
 		// agent.model is optional: interactive surfaces pick a model per
 		// session, and unattended paths that need one (coddy -p, coddy acp,

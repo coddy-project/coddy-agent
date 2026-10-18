@@ -1,4 +1,5 @@
 import { Combobox } from "./Combobox";
+import type { OverrideTexts } from "./settingsSections";
 import type { ProviderRow } from "./useProviderModels";
 import { useT } from "../i18n/I18nProvider";
 
@@ -19,11 +20,11 @@ export function ModelField(props: {
   value: string;
   onChange: (v: string) => void;
   providers: ProviderRow[];
-  label?: string | undefined;
+  /** The id's name (primary) and the provider's (second); no description. */
+  texts: OverrideTexts;
 }) {
-  const { value, onChange, providers } = props;
+  const { value, onChange, providers, texts } = props;
   const { t } = useT();
-  const label = props.label ?? t("settings.field.modelIdFallback");
 
   const slash = value.indexOf("/");
   const provider = slash >= 0 ? value.slice(0, slash) : "";
@@ -37,23 +38,23 @@ export function ModelField(props: {
   return (
     <>
       <div className="settings-row" data-testid="model-field">
-        <span className="settings-label">{t("settings.field.provider")}</span>
+        <span className="settings-label">{texts.second}</span>
         <Combobox
           value={provider}
           onChange={(p) => emit(p, modelId)}
           options={names.map((n) => ({ value: n }))}
-          ariaLabel={t("settings.field.provider")}
+          ariaLabel={texts.second}
           testid="model-field-provider"
           placeholder={t("settings.field.providerPlaceholder")}
         />
       </div>
       <div className="settings-row">
-        <span className="settings-label">{label}</span>
+        <span className="settings-label">{texts.primary}</span>
         <input
           className="settings-input"
           type="text"
           value={modelId}
-          aria-label={label}
+          aria-label={texts.primary}
           data-testid="model-field-model"
           placeholder={t("settings.field.modelPlaceholder")}
           onChange={(e) => emit(provider, e.target.value)}

@@ -698,3 +698,45 @@ func TestCommitRefusesTheRedactedPlaceholderForASecret(t *testing.T) {
 		t.Fatalf("an ordinary value was refused: %v", err)
 	}
 }
+
+// The exporter's scrape token is a credential: config_get keeps it from the
+// model, a staged change shows <redacted> in its place, and the schema check
+// never quotes it back.
+func TestMetricsTokenIsSecret(t *testing.T) {
+	if !configSecretPath([]string{"metrics", "token"}) || configSecretPath([]string{"metrics", "port"}) {
+		t.Fatal("metrics.token must be a secret path and metrics.port must not")
+	}
+	if !isSecretPath("metrics.token") || isSecretPath("metrics.port") {
+		t.Fatal("the schema check must hide metrics.token and show metrics.port")
+	}
+
+	paths := testPathConfig(t, "metrics:\n  enable: true\n  port: 9100\n  token: scrape-secret\n")
+	for _, key := range []string{"metrics", "metrics.token", "."} {
+		got, err := ReadConfigPath(paths, key)
+		if err != nil {
+			t.Fatalf("ReadConfigPath(%q): %v", key, err)
+		}
+		encoded, err := json.Marshal(got.Value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(encoded), "scrape-secret") || !got.Redacted {
+			t.Fatalf("config_get %s leaked the metrics token: %s", key, encoded)
+		}
+	}
+
+	cmd := mustParseUCI(t, "set metrics.token=scrape-secret")[0]
+	if got := cmd.RedactedString(); got != "set metrics.token=<redacted>" {
+		t.Fatalf("RedactedString() = %q", got)
+	}
+	if _, err := CommitUCICommands(paths, []UCICommand{cmd}); err != nil {
+		t.Fatalf("committing metrics.token: %v", err)
+	}
+	cfg, err := LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Metrics.Token != "scrape-secret" {
+		t.Fatalf("the commit wrote %q", cfg.Metrics.Token)
+	}
+}

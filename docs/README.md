@@ -34,6 +34,7 @@ The same agent and the same sessions from a terminal, a browser, an editor or a 
 Running Coddy as a service, reaching it from elsewhere and bounding what it may do.
 
 - [coddy serve and the daemon](operate/serve.md) - One process for every enabled subsystem, the systemd user service (serve install and uninstall), --daemon with status, stop and restart, and configuration reloads.
+- [Monitoring](operate/monitoring.md) - The Prometheus exporter of coddy serve, enabling it and binding it in a container, the scrape config, every metric, the shipped alert rules and what is never exported.
 - [Remote mode](operate/remote.md) - Driving a remote coddy serve from the console, ACP or the web UI with --remote, tokens, CORS and the environment menu.
 - [Swarm](operate/swarm.md) - Relays and nodes, mounts, the aggregated session list, rings and routes, the reverse tunnel.
 - [Scheduler](operate/scheduler.md) - Cron job files, UTC firing rules, runs as background agent tasks under a job session, the runs panel, the scheduler tools and REST.
@@ -59,6 +60,7 @@ What the agent can do and how each capability is configured.
 - [HTTP requests](features/http-requests.md) - The http_request tool - any method, headers, bodies, multipart uploads and downloads, a proxy and the certificate check per request, headers the configuration adds to every request - and the permission prompt that shows where a request goes and what it carries.
 - [Mentions](features/mentions.md) - Pointing at things with @ in a prompt - files anywhere on disk, line ranges, folders, other sessions, rules, subagents, web pages - resolved once into the message, with completion on every surface.
 - [Images](features/images.md) - The model looking at a picture - read of a PNG, JPEG, GIF or WebP file for a model marked multimodal, the limits, what the provider is sent, and the preview in the web UI and a Telegram chat.
+- [Pasting and marking up pictures](features/picture-markup.md) - A copied picture pasted into a prompt - ctrl+v in the console, a paste in the web UI - and the markup editor it opens in first, with pencil, shapes, arrow, text, crop, rotate and undo.
 - [Built-in documentation](features/built-in-docs.md) - This documentation inside the binary - the web UI's reader, F1 in the console, coddy docs, the agent's coddy_docs tools and @coddy:<page> mentions - searched with BM25, with no site involved.
 - [Message queue](features/message-queue.md) - Writing a follow-up while the agent works, when the running turn reads it, taking one back, the composer and console surfaces, the queue routes.
 - [Background tasks](features/background-tasks.md) - Detached commands, the task pool, timeouts, adoption of long foreground commands, program-wide permission grants.

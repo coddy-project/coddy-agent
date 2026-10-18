@@ -4,9 +4,23 @@
 # and the two checksums from the macOS archives of a release and writes the
 # result to dist/coddy.rb. Run `make brew VERSION=X.Y.Z`.
 #
+# Current Homebrew loads a cask only out of a tap - a URL or a file path is
+# refused - so the release job publishes the rendered file to the tap
+# coddy-project/homebrew-coddy-agent (scripts/publish-homebrew-tap.sh), and
+# users run `brew install coddy-project/coddy-agent/coddy`.
+# scripts/check-homebrew-cask.sh installs it with a real brew on macOS.
+# docs/getting-started/homebrew.md has the whole route.
+#
 # The cask takes the same darwin archives `coddy update` takes, so a brew
 # install and a manual one are the same binary. The archives carry the man page
 # and the shell completions beside it, which is what the artifacts below link.
+#
+# Homebrew sets com.apple.quarantine on every cask download and carries it to
+# the extracted files. The binary is ad-hoc signed and not notarised, so with
+# the attribute in place Gatekeeper stops its first run; the postflight step
+# takes it off the one file the cask links as an executable.
+#
+# Go 1.25 and later build binaries that need macOS 12, hence the minimum below.
 #
 # The `zap` stanza names ~/.coddy - sessions, skills, credentials and the
 # config. Only `brew zap` removes it; `brew uninstall` leaves it alone.
@@ -25,8 +39,7 @@ cask "coddy" do
   sha256 arm:   "__SHA256_ARM64__",
          intel: "__SHA256_AMD64__"
 
-  url "https://github.com/coddy-project/coddy-agent/releases/download/#{version}/coddy_#{version}_darwin_#{arch}.tar.gz",
-      verified: "github.com/coddy-project/coddy-agent/"
+  url "https://github.com/coddy-project/coddy-agent/releases/download/#{version}/coddy_#{version}_darwin_#{arch}.tar.gz"
   name "Coddy Agent"
   desc "Coding agent with a console, an editor protocol and an HTTP gateway"
   homepage "https://coddy.dev/"
@@ -36,10 +49,16 @@ cask "coddy" do
     strategy :github_latest
   end
 
+  depends_on macos: :monterey
+
   binary "coddy"
   manpage "coddy.1"
-  binary "coddy.bash", target: "#{HOMEBREW_PREFIX}/etc/bash_completion.d/coddy"
-  binary "coddy.zsh",  target: "#{HOMEBREW_PREFIX}/share/zsh/site-functions/_coddy"
+  bash_completion "coddy.bash", target: "coddy"
+  zsh_completion "coddy.zsh", target: "_coddy"
+
+  postflight_steps do
+    run "/usr/bin/xattr", args: ["-d", "com.apple.quarantine", "{{staged_path}}/coddy"], must_succeed: false
+  end
 
   zap trash: "~/.coddy"
 

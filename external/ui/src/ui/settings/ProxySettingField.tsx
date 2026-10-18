@@ -2,6 +2,7 @@ import React, { type ChangeEvent } from "react";
 
 import { FieldLabel } from "./FieldHint";
 import { SwitchField } from "./SwitchField";
+import type { OverrideTexts } from "./settingsSections";
 import { useT } from "../i18n/I18nProvider";
 
 /** Whether a proxy setting is the keyword kw, in any case. */
@@ -24,15 +25,10 @@ export function isProxyKeyword(value: string, kw: "none" | "inherit"): boolean {
 export function ProxySettingField(props: {
   value: unknown;
   onChange: (next: unknown) => void;
-  /** Label and description of the URL field (the schema's, localized). */
-  label: string;
-  description?: string | undefined;
-  /** Dictionary key of the switch description, naming whose requests go direct. */
-  switchDescriptionKey?: string | undefined;
+  /** The URL field's name and description (primary), the switch's (second). */
+  texts: OverrideTexts;
 }) {
-  const { value, onChange, label, description } = props;
-  const switchDescriptionKey =
-    props.switchDescriptionKey ?? "settings.providerProxy.ignoreSystemDesc";
+  const { value, onChange, texts } = props;
   const { t } = useT();
   const stored = typeof value === "string" ? value : "";
   const direct = isProxyKeyword(stored, "none");
@@ -48,12 +44,12 @@ export function ProxySettingField(props: {
       <SwitchField
         checked={direct}
         onChange={(on) => onChange(on ? "none" : beforeDirect.current)}
-        label={t("settings.providerProxy.ignoreSystem")}
-        description={t(switchDescriptionKey)}
+        label={texts.second}
+        description={texts.secondDesc}
         dataTestId="proxy-setting-direct"
       />
       <div className="settings-row">
-        <FieldLabel label={label} description={description} />
+        <FieldLabel label={texts.primary} description={texts.primaryDesc} />
         <input
           className="settings-input"
           type="text"
@@ -64,7 +60,7 @@ export function ProxySettingField(props: {
               ? t("settings.providerProxy.placeholderDirect")
               : t("settings.providerProxy.placeholderSystem")
           }
-          aria-label={label}
+          aria-label={texts.primary}
           data-testid="proxy-setting-url"
           onChange={(e: ChangeEvent<HTMLInputElement>) =>
             onChange(e.target.value)

@@ -4,6 +4,7 @@ import {
   parseSessionSettings,
   permissionModeOfInfo,
   sessionSettingsEventOf,
+  toolsetsOfInfo,
 } from "./sessionSettings";
 import { dispatchServerEvent, parseServerEvent } from "./serverEvents";
 
@@ -19,6 +20,8 @@ const snapshot = {
   overrides: [
     { setting: "model", value: "nd/gpt-oss-120b", turnsLeft: 2, active: true },
   ],
+  toolset: "coding",
+  toolsetChoices: ["coding", "default"],
 };
 
 test("a snapshot is read whole, overrides included", () => {
@@ -29,6 +32,23 @@ test("a snapshot is read whole, overrides included", () => {
   });
   expect(parseSessionSettings({ version: 3 })).toBeNull();
   expect(parseSessionSettings(null)).toBeNull();
+  // A server without presets names neither the toolset nor its choices.
+  const bare = parseSessionSettings({
+    ...snapshot,
+    toolset: undefined,
+    toolsetChoices: undefined,
+  });
+  expect(bare?.toolset).toBe("");
+  expect(bare?.toolsetChoices).toEqual([]);
+});
+
+test("GET /coddy/info names the presets a start screen offers", () => {
+  expect(toolsetsOfInfo({ toolsets: ["coding", "", 3, "no-net"] })).toEqual([
+    "coding",
+    "no-net",
+  ]);
+  expect(toolsetsOfInfo({ permissionMode: "ask" })).toEqual([]);
+  expect(toolsetsOfInfo(null)).toEqual([]);
 });
 
 test("both frame shapes carry the snapshot: the events stream and the turn stream", () => {

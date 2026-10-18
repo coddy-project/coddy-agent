@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -32,6 +33,17 @@ func TestResolvedReasoningLevelsAutoDetect(t *testing.T) {
 		{"together/qwen3-32b", []string{"low", "medium", "high"}},
 		{"neuraldeep/gpt-oss-120b", []string{"low", "medium", "high"}},
 		{"neuraldeep/gpt-oss-20b", []string{"low", "medium", "high"}},
+		// An aggregator (OpenRouter, RouterAI) and a vLLM server serving a Hugging
+		// Face id put the vendor in front of the model: the levels follow the
+		// model, not the vendor (issue #258).
+		{"routerai/qwen/qwen3.8-flash", []string{"low", "medium", "high"}},
+		{"vllm/Qwen/Qwen3-32B", []string{"low", "medium", "high"}},
+		{"openrouter/openai/o3-mini", []string{"low", "medium", "high"}},
+		{"openrouter/openai/gpt-5", []string{"minimal", "low", "medium", "high"}},
+		{"openrouter/anthropic/claude-sonnet-4-5", []string{"low", "medium", "high"}},
+		{"openrouter/openai/gpt-oss-120b", []string{"low", "medium", "high"}},
+		{"openrouter/qwen/qwen-2.5-72b-instruct", nil},
+		{"openrouter/openai/gpt-4o", nil},
 		// Non-reasoning models: no levels.
 		{"openai/gpt-4o", nil},
 		{"openai/gpt-4o-mini", nil},
@@ -433,10 +445,65 @@ func TestReasoningChoicesReserveOffForAllowReasoningOff(t *testing.T) {
 }
 
 func TestClaudeFiveIsAThinkingModel(t *testing.T) {
-	for _, id := range []string{"anthropic/claude-opus-5", "anthropic/claude-sonnet-5", "anthropic/claude-fable-5-1", "anthropic/claude-haiku-5"} {
+	for _, id := range []string{"anthropic/claude-opus-5", "anthropic/claude-sonnet-5", "anthropic/claude-fable-5-1", "anthropic/claude-haiku-5", "anthropic/claude-mythos-5-1"} {
 		m := config.ModelEntry{Model: id}
 		if got := m.ResolvedReasoningLevels(); !reflect.DeepEqual(got, []string{"low", "medium", "high"}) {
 			t.Errorf("%s: ResolvedReasoningLevels() = %v, want low/medium/high", id, got)
+		}
+	}
+}
+
+func TestClaudeThinkingFor(t *testing.T) {
+	alwaysOn := config.ClaudeThinking{Adaptive: true, OnByDefault: true, AlwaysOn: true}
+	onByDefault := config.ClaudeThinking{Adaptive: true, OnByDefault: true}
+	adaptive := config.ClaudeThinking{Adaptive: true}
+	for id, want := range map[string]config.ClaudeThinking{
+		"claude-opus-5-5":           alwaysOn,
+		"anthropic/claude-opus-5-5": alwaysOn,
+		"Claude-Opus-5-5":           alwaysOn,
+		"claude-sonnet-5-5":         alwaysOn,
+		"claude-fable-5":            alwaysOn,
+		"claude-fable-5-1":          alwaysOn,
+		"claude-mythos-5-1":         alwaysOn,
+		"claude-opus-5":             onByDefault,
+		"claude-sonnet-5":           onByDefault,
+		"claude-haiku-5-5":          onByDefault,
+		"claude-opus-4-8":           adaptive,
+		"claude-opus-4-7":           adaptive,
+		"claude-opus-4-6":           {},
+		"claude-sonnet-4-6":         {},
+		"claude-sonnet-4-5":         {},
+		"claude-haiku-4-5":          {},
+		"claude-3-7-sonnet-latest":  {},
+		"qwen3.8-27b":               {},
+		"gpt-5.6-sol":               {},
+	} {
+		if got := config.ClaudeThinkingFor(id); got != want {
+			t.Errorf("ClaudeThinkingFor(%q) = %+v, want %+v", id, got, want)
+		}
+	}
+}
+
+// TestReasoningOffNeverOfferedWhereThinkingCannotStop pins that allow_reasoning_off
+// cannot offer off for a model that refuses to disable thinking, while it still
+// does for one that accepts it.
+func TestReasoningOffNeverOfferedWhereThinkingCannotStop(t *testing.T) {
+	cfg := &config.Config{Providers: []config.ProviderConfig{{Name: "anthropic", Type: "anthropic"}, {Name: "router", Type: "openai"}}}
+	for model, want := range map[string]bool{
+		"anthropic/claude-opus-5-5":   false,
+		"anthropic/claude-sonnet-5-5": false,
+		"anthropic/claude-fable-5-1":  false,
+		"anthropic/claude-opus-5":     true,
+		"anthropic/claude-sonnet-4-5": true,
+		// Another provider type keeps its own mapping of off.
+		"router/anthropic/claude-opus-5-5": true,
+	} {
+		entry := config.ModelEntry{Model: model, AllowReasoningOff: true}
+		if got := cfg.ReasoningOffOffered(&entry); got != want {
+			t.Errorf("%s: ReasoningOffOffered = %v, want %v", model, got, want)
+		}
+		if got := slices.Contains(cfg.ReasoningChoicesFor(&entry), config.ReasoningOff); got != want {
+			t.Errorf("%s: off among the choices = %v, want %v", model, got, want)
 		}
 	}
 }

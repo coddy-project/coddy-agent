@@ -114,6 +114,7 @@ export const messagesEn: Record<string, string> = {
   "settings.section.sessions_manager.label": "Sessions",
   "settings.section.providers.label": "LLM providers",
   "settings.section.models.label": "Logical models",
+  "settings.section.toolsets.label": "Toolsets",
   "settings.section.agent.label": "ReAct loop",
   "settings.section.supervisor.label": "Session goal",
   "settings.section.tools.label": "Tools and permissions",
@@ -129,6 +130,7 @@ export const messagesEn: Record<string, string> = {
   "settings.section.sessions_manager.desc": "Stored chats & cleanup",
   "settings.section.providers.desc": "LLM API connections",
   "settings.section.models.desc": "Named model configs",
+  "settings.section.toolsets.desc": "Tool presets for models",
   "settings.section.agent.desc": "Model, retries, loop guard",
   "settings.section.supervisor.desc": "Goal checks, budgets, watchdog",
   "settings.section.tools.desc": "Tool permissions & limits",
@@ -264,6 +266,8 @@ export const messagesEn: Record<string, string> = {
     "Let any node join without a pairing token. For a lab only.",
   "settings.section.logger.label": "Logger",
   "settings.section.logger.desc": "Level, outputs, rotation",
+  "settings.section.metrics.label": "Metrics",
+  "settings.section.metrics.desc": "Prometheus exporter, own port",
   "settings.section.gateways.label": "Gateways",
   "settings.section.gateways.desc": "Telegram and Pachca bots",
   "settings.group.agent.turn": "Model and turns",
@@ -296,6 +300,16 @@ export const messagesEn: Record<string, string> = {
   "settings.nav.aria.sections": "Settings sections",
   "settings.tileGrid.aria": "Settings sections",
 
+  "settings.search.placeholder": "Search settings",
+  "settings.search.results": "Matching settings",
+  "settings.search.empty": "No matching settings; try other or fewer words",
+  "settings.search.found.one": "{count} setting found",
+  "settings.search.found.other": "{count} settings found",
+  "settings.search.more.one":
+    "{count} more setting matches - add a word to narrow the list",
+  "settings.search.more.other":
+    "{count} more settings match - add a word to narrow the list",
+
   "settings.array.add": "Add",
   "settings.array.removeTitle": "Remove",
   "settings.array.removeAria": "Remove",
@@ -312,8 +326,6 @@ export const messagesEn: Record<string, string> = {
   "settings.map.nameAria": "{label} {n}: name",
   "settings.map.valueAria": "{label} {n}: value",
 
-  "settings.field.apiBaseFallback": "API base URL",
-  "settings.field.modelIdFallback": "Model id",
   "settings.field.defaultModelFallback": "Default model",
   "settings.field.provider": "Provider",
   "settings.field.providerPlaceholder": "provider",
@@ -332,6 +344,10 @@ export const messagesEn: Record<string, string> = {
   "settings.models.group.model": "Model",
   "settings.models.group.generation": "Generation",
   "settings.models.group.reasoning": "Reasoning",
+  "settings.models.group.tools": "Tools",
+  "settings.models.group.toolsDesc":
+    "The toolset a session on this model is offered its tools by, a preset of the Toolsets tab. Without one the model is offered every tool the mode would. A session can pick another toolset in the composer or with /toolset.",
+  "settings.models.toolsetNone": "None: every tool",
   "settings.providerModels.legend": "Models",
   "settings.providerModels.needsNameAndType":
     "Give the provider an id and pick its type to list its models.",
@@ -440,6 +456,18 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.models.stream.label": "Stream responses",
   "settings.schema.models.stream.desc":
     "Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only.",
+  "settings.schema.models.toolset.label": "Toolset",
+  "settings.schema.models.toolset.desc":
+    "The toolset a session on this model is offered its tools by, unless the session picks another. Empty offers every tool the mode would. Spares a small-context local model the schemas of tools it never calls.",
+  "settings.schema.toolsets.name.label": "Name",
+  "settings.schema.toolsets.name.desc":
+    "What models and the /toolset command call it: letters, digits, '.', '_' and '-'. default is reserved: it means every tool the mode offers.",
+  "settings.schema.toolsets.tools.label": "Allowed tools",
+  "settings.schema.toolsets.tools.desc":
+    "Tools offered with this toolset: tool names, * or a prefix* (context7__* is every tool of that MCP server). Empty offers every tool the mode would. It only narrows, and a call to an unlisted tool is refused.",
+  "settings.schema.toolsets.disallowed_tools.label": "Disallowed tools",
+  "settings.schema.toolsets.disallowed_tools.desc":
+    "Tools removed from this toolset, applied after the allowed tools, with the same names and patterns. A call to a removed tool is refused.",
 
   "settings.schema.agent.model.label": "Default model",
   "settings.schema.supervisor.enable.label": "Check every turn",
@@ -788,6 +816,19 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.logger.rotation.max_files.label": "Max files",
   "settings.schema.logger.rotation.max_files.desc":
     "How many rotated segments to retain; 0 uses logger defaults.",
+  "settings.schema.metrics.label": "Metrics",
+  "settings.schema.metrics.desc":
+    "Prometheus exporter on a port of its own. It takes effect only in a binary built with the metrics tag.",
+  "settings.schema.metrics.enable.label": "Enabled",
+  "settings.schema.metrics.enable.desc": "Serve /metrics from this process.",
+  "settings.schema.metrics.host.label": "Listen host",
+  "settings.schema.metrics.host.desc":
+    "Address to bind. Empty falls back to 127.0.0.1, which only this machine can reach.",
+  "settings.schema.metrics.port.label": "Listen port",
+  "settings.schema.metrics.port.desc": "Port to bind. 0 falls back to 12347.",
+  "settings.schema.metrics.token.label": "Token",
+  "settings.schema.metrics.token.desc":
+    "Bearer credential a scrape must present. With none set the exporter asks for no credential.",
   "settings.schema.sessions.label": "Sessions",
   "settings.schema.sessions.dir.label": "Sessions directory",
   "settings.schema.sessions.dir.desc":
@@ -1450,6 +1491,27 @@ export const messagesEn: Record<string, string> = {
   "composer.removeAttachment": "Remove {fileName}",
   "composer.openAttachmentImage": "Open {fileName} enlarged",
   "composer.attachedFilesAriaLabel": "Attached files",
+  "composer.markupAttachment": "Mark up {fileName}",
+  "composer.markup.title": "Mark up the picture",
+  "composer.markup.tools": "Markup tools",
+  "composer.markup.tool.pen": "Pencil",
+  "composer.markup.tool.ellipse": "Ellipse",
+  "composer.markup.tool.rect": "Rectangle",
+  "composer.markup.tool.arrow": "Arrow",
+  "composer.markup.tool.text": "Text",
+  "composer.markup.tool.crop": "Crop",
+  "composer.markup.rotate": "Rotate a quarter turn",
+  "composer.markup.undo": "Undo",
+  "composer.markup.colors": "Color",
+  "composer.markup.color.red": "Red",
+  "composer.markup.color.orange": "Orange",
+  "composer.markup.color.yellow": "Yellow",
+  "composer.markup.color.green": "Green",
+  "composer.markup.color.blue": "Blue",
+  "composer.markup.color.white": "White",
+  "composer.markup.color.black": "Black",
+  "composer.markup.done": "Done",
+  "composer.markup.failed": "The picture could not be opened or saved.",
   "composer.bytesB": "{n} B",
   "composer.bytesKB": "{n} KB",
   "composer.bytesMB": "{n} MB",
@@ -1458,6 +1520,11 @@ export const messagesEn: Record<string, string> = {
   "composer.modeAsk": "Ask",
   "composer.modePlan": "Plan",
   "composer.permission": "Permissions",
+  "composer.toolset": "Toolset",
+  "composer.toolsetTitle":
+    "The toolset this session is offered its tools by: a preset of the configuration, or All tools for every tool of the mode",
+  "composer.toolsetDefault": "All tools",
+  "composer.toolsetDefaultHint": "No preset: every tool the mode offers",
   "composer.permissionTitle":
     "When tools ask for approval in this session (new sessions start in: {configured})",
   "composer.permissionAsk": "Ask first",
@@ -1887,6 +1954,9 @@ export const messagesEn: Record<string, string> = {
   "messages.thinkingCompleted": "thinking",
   "messages.thinkingSummaryAriaLabel": "Thinking summary",
   "messages.thinkingContentAriaLabel": "Thinking content",
+  "messages.thinkingHidden": "The provider did not return the reasoning text.",
+  "messages.thinkingTokensTitle.one": "{shown} reasoning token",
+  "messages.thinkingTokensTitle.other": "{shown} reasoning tokens",
   "messages.compactionLabel": "context compacted",
   "messages.compactionSummaryAriaLabel": "Context compacted summary",
   "messages.compactionBodyAriaLabel": "Compacted context summary",

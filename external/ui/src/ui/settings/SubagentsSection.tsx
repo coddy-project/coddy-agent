@@ -7,7 +7,12 @@ import {
 } from "react";
 import { Chevron } from "../components/Chevron";
 import { useT } from "../i18n/I18nProvider";
-import { SchemaForm, type JsonSchema } from "./SchemaForm";
+import { translate } from "../i18n/i18n";
+import {
+  SchemaForm,
+  type JsonSchema,
+  type SchemaFormGroup,
+} from "./SchemaForm";
 import {
   scopeBadgeKey,
   subagentDeclaredFacts,
@@ -16,11 +21,22 @@ import {
 } from "./subagentCatalog";
 import { fetchSubagentCatalog, setSubagentTrust } from "./subagentsApi";
 import { LegendWithHint } from "./FieldHint";
+import { SETTINGS_TEXTS, landmarkAnchor } from "./settingsSections";
 import { IconShield } from "./icons";
 import {
   snapshotSettingsConfig,
   subscribeSettingsConfig,
 } from "./settingsConfigStore";
+
+export function subagentsFormGroups(): SchemaFormGroup[] {
+  return [
+    {
+      id: "subagents",
+      legend: translate("subagents.settings.legend"),
+      description: translate("subagents.settings.description"),
+    },
+  ];
+}
 
 /**
  * SubagentsSection is the Settings -> Subagents tab. Hybrid, like the Skills
@@ -111,22 +127,17 @@ export function SubagentsSection(props: {
         value={props.value}
         onChange={props.onChange}
         i18nDomain="subagents"
-        groups={[
-          {
-            id: "subagents",
-            legend: t("subagents.settings.legend"),
-            description: t("subagents.settings.description"),
-          },
-        ]}
+        groups={subagentsFormGroups()}
       />
 
       <fieldset
         className="settings-fieldset subagents-catalog-box"
         data-testid="subagents-catalog"
+        data-settings-anchor={landmarkAnchor("subagents", "catalog")}
       >
         <LegendWithHint
-          label={t("subagents.catalog.legend")}
-          description={t("subagents.catalog.description")}
+          label={t(SETTINGS_TEXTS.subagentsCatalog.label)}
+          description={t(SETTINGS_TEXTS.subagentsCatalog.desc)}
         />
         {error ? <p className="settings-error">{error}</p> : null}
         {trustError ? <p className="settings-error">{trustError}</p> : null}

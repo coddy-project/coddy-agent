@@ -2,6 +2,8 @@ import { memo, useEffect, useMemo, useState } from "react";
 import { Chevron } from "../components/Chevron";
 import { Markdown } from "../markdown/Markdown";
 import { useT } from "../i18n/I18nProvider";
+import { getLocale } from "../i18n/i18n";
+import { formatTurnTokens } from "../chat/turnProgress";
 import { formatStepDuration } from "./formatStepDuration";
 
 export const ThinkingMessage = memo(function ThinkingMessage(props: {
@@ -13,8 +15,13 @@ export const ThinkingMessage = memo(function ThinkingMessage(props: {
   durationMs?: number;
   /** Wall clock ms when reasoning started (live elapsed until completed). */
   startedAtMs?: number;
+  /**
+   * What the reasoning cost, as the provider reported it. With no content it
+   * stands for reasoning the provider kept to itself.
+   */
+  reasoningTokens?: number;
 }) {
-  const { t } = useT();
+  const { t, tp } = useT();
   const inProgress = props.status === "in_progress";
   const label = inProgress
     ? t("messages.thinkingInProgress")
@@ -62,6 +69,13 @@ export const ThinkingMessage = memo(function ThinkingMessage(props: {
     return "";
   }, [props.durationMs, props.startedAtMs, props.status, nowMs]);
 
+  const tokens =
+    typeof props.reasoningTokens === "number" &&
+    Number.isFinite(props.reasoningTokens) &&
+    props.reasoningTokens > 0
+      ? Math.floor(props.reasoningTokens)
+      : 0;
+
   return (
     <div className="thinking-row" data-row-id={props.rowId}>
       <details
@@ -80,6 +94,18 @@ export const ThinkingMessage = memo(function ThinkingMessage(props: {
                 {durationLabel}
               </span>
             ) : null}
+            {tokens > 0 ? (
+              <span
+                className="thinking-tokens"
+                title={tp("messages.thinkingTokensTitle", tokens, {
+                  shown: new Intl.NumberFormat(getLocale()).format(tokens),
+                })}
+              >
+                {tp("status.turnTokens", tokens, {
+                  shown: formatTurnTokens(tokens),
+                })}
+              </span>
+            ) : null}
           </span>
         </summary>
         {open && text ? (
@@ -91,6 +117,11 @@ export const ThinkingMessage = memo(function ThinkingMessage(props: {
               text={text}
               {...(inProgress ? { streaming: true } : {})}
             />
+          </div>
+        ) : null}
+        {open && !text && tokens > 0 ? (
+          <div className="thinking-body thinking-body--hidden">
+            {t("messages.thinkingHidden")}
           </div>
         ) : null}
       </details>

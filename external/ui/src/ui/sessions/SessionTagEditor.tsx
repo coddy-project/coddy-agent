@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { PanePortal } from "../components/PanePortal";
 import { useT } from "../i18n/I18nProvider";
 import {
   addTag,
@@ -221,7 +221,9 @@ export function SessionTagEditor(props: {
     </>
   );
 
-  return typeof document === "undefined"
-    ? editor
-    : createPortal(editor, document.body);
+  return typeof document === "undefined" ? (
+    editor
+  ) : (
+    <PanePortal>{editor}</PanePortal>
+  );
 }

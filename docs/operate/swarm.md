@@ -11,7 +11,7 @@ live view of what the nodes told it.
 
 Built with `-tags swarm`, which is part of the shipped set (`FULL_TAGS` in the **Makefile**), so
 the release binaries, the Docker image, the Linux packages and the Homebrew formula all carry the
-relay. Build it yourself with `make build TAGS="http ui scheduler memory cli gateway swarm"`.
+relay. Build it yourself with `make build TAGS="http ui scheduler memory cli gateway swarm metrics"`.
 
 The relay is not a command of its own: `coddy serve` runs it when `swarm.enable` is true, next to
 whatever else the configuration enables. A binary built without the tag refuses `swarm.enable` at
@@ -62,6 +62,9 @@ coddy serve --swarm-auth-token "$CLIENT_TOKEN" --swarm-pairing-token "$PAIRING_T
 
 A relay that should do nothing else adds `--http=false`. One that is also an ordinary agent leaves
 the API on, and then serves both: its own sessions on `httpserver.port`, the fleet on `swarm.port`.
+Such a process registers into each relay of `swarm.join` once, as a relay: the relay speaks for the
+process, so its parents reach the nodes behind it, and its own sessions stay on `httpserver.port`.
+Give its join entries the relay's address, the one on `swarm.port`, as `advertise_url`.
 
 A node joins by listing the relay in its own configuration:
 

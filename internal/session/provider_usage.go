@@ -219,6 +219,26 @@ func (m *Manager) ProviderUsage(ctx context.Context, providerName string, refres
 	return m.providerUsageRead(ctx, providerName, refresh, "")
 }
 
+// CachedProviderUsage returns the usage snapshot the manager holds for each
+// provider row the live configuration still reads, age-corrected, by row
+// name. It asks no provider anything: a row with no snapshot yet is absent,
+// and one past its TTL is answered as it is. It is the read of a surface that
+// must not cause requests, the metrics exporter's scrape.
+func (m *Manager) CachedProviderUsage() map[string]acp.ProviderUsageUpdate {
+	cfg := m.activeCfg()
+	m.usage.mu.Lock()
+	defer m.usage.mu.Unlock()
+	now := m.usageNow()
+	out := make(map[string]acp.ProviderUsageUpdate, len(m.usage.entries))
+	for name, e := range m.usage.entries {
+		if e.update == nil || cfg == nil || !providerUsageEnabled(cfg.FindProvider(name)) {
+			continue
+		}
+		out[name] = m.usageDeliverableLocked(e, now)
+	}
+	return out
+}
+
 // ProviderUsageForSession is ProviderUsage for a surface that cannot read
 // again on its own schedule, the console: when the read is deferred by the
 // floor, the deferred fetch delivers its result to sessionID through the

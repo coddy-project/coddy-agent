@@ -235,6 +235,9 @@ export function MessageList(props: {
               {...(typeof it.startedAtMs === "number"
                 ? { startedAtMs: it.startedAtMs }
                 : {})}
+              {...(typeof it.reasoningTokens === "number"
+                ? { reasoningTokens: it.reasoningTokens }
+                : {})}
             />
           );
         }

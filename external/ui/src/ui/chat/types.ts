@@ -15,6 +15,8 @@ export type TokenUsage = {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  /** The part of the call's output it spent reasoning, when the provider breaks it out. */
+  reasoningTokens?: number;
 };
 
 /**
@@ -104,9 +106,12 @@ export type TranscriptItem =
       id: string;
       type: "thinking";
       status: "in_progress" | "completed";
+      /** Empty for reasoning the provider kept to itself and only counted. */
       content: string;
       durationMs?: number;
       startedAtMs?: number;
+      /** What the reasoning of this step cost, as the provider reported it. */
+      reasoningTokens?: number;
     }
   | {
       /** A compaction summary row (server compaction_summary=true) rendered as a

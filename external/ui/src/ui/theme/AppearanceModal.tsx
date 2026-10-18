@@ -13,6 +13,7 @@ import { isUiLocale, UI_LOCALES, UI_LOCALE_IDS } from "../i18n/locales";
 import { UI_THEME_IDS, LIGHT_THEMES, type UiThemeMode } from "./themeCookie";
 import { readAppliedUiTheme, setUiTheme } from "./uiTheme";
 import { NotificationsSetting } from "../pwa/NotificationsSetting";
+import { SETTINGS_TEXTS, landmarkAnchor } from "../settings/settingsSections";
 
 function subscribeTheme(onStoreChange: () => void): () => void {
   const obs = new MutationObserver(onStoreChange);
@@ -139,12 +140,13 @@ export function AppearanceLanguagePicker() {
     <div
       className="appearance-lang-block"
       data-testid="appearance-language-picker"
+      data-settings-anchor={landmarkAnchor("appearance", "language")}
     >
       <label
         className="appearance-section-label"
         htmlFor="appearance-language-select"
       >
-        {t("appearance.languageLabel")}
+        {t(SETTINGS_TEXTS.appearanceLanguage.label)}
       </label>
       <div className="appearance-language-select-wrap">
         <select
@@ -186,20 +188,24 @@ export function AppearanceThemePicker() {
       className="appearance-sheet-body"
       data-testid="appearance-theme-picker"
     >
-      <p className="appearance-section-label">{t("appearance.themeLabel")}</p>
-      <div
-        className="appearance-swatch-grid"
-        role="group"
-        aria-label={t("appearance.themeGroupAria")}
-      >
-        {UI_THEME_IDS.map((id) => (
-          <ThemeSwatch
-            key={id}
-            id={id}
-            active={current === id}
-            onClick={() => pick(id)}
-          />
-        ))}
+      <div data-settings-anchor={landmarkAnchor("appearance", "theme")}>
+        <p className="appearance-section-label">
+          {t(SETTINGS_TEXTS.appearanceTheme.label)}
+        </p>
+        <div
+          className="appearance-swatch-grid"
+          role="group"
+          aria-label={t("appearance.themeGroupAria")}
+        >
+          {UI_THEME_IDS.map((id) => (
+            <ThemeSwatch
+              key={id}
+              id={id}
+              active={current === id}
+              onClick={() => pick(id)}
+            />
+          ))}
+        </div>
       </div>
       <AppearanceLanguagePicker />
       <NotificationsSetting />

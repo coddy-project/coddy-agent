@@ -1,22 +1,52 @@
 import React from "react";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { SettingsSection } from "./SettingsSection";
 import type { JsonSchema } from "./SchemaForm";
-import type { SectionDescriptor } from "./settingsSections";
+import {
+  buildSettingsSearchIndex,
+  searchSettings,
+  type SettingsSearchEntry,
+} from "./settingsSearch";
+import {
+  AGENT_SCHEMA,
+  RELAY_SCHEMA,
+  applyPage,
+  configFromSchema,
+  openSettings,
+  resetPage,
+} from "./settingsServer.fakes";
+import {
+  drawingDifferences,
+  drawnBoxes,
+  drawnLegends,
+  legendsOutsideTheIndex,
+  type DrawnBox,
+  type DrawnLegend,
+} from "./settingsDrawing.fakes";
+import {
+  deriveSettingsSections,
+  landmarkAnchor,
+  type SectionDescriptor,
+} from "./settingsSections";
+import { initLocale, setLocale, translate } from "../i18n/i18n";
 import { messagesEn } from "../i18n/messages/en";
 import { messagesRu } from "../i18n/messages/ru";
 
 afterEach(() => {
   cleanup();
+  initLocale("en");
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  resetPage();
 });
 
 const providersSection: SectionDescriptor = {
@@ -40,7 +70,7 @@ const rootSchema: JsonSchema = {
           type: {
             type: "string",
             title: "Provider type",
-            enum: ["openai", "anthropic", "neuraldeep", "codex"],
+            enum: ["openai", "anthropic", "neuraldeep", "opencode", "codex"],
           },
           api_base: { type: "string", title: "API base URL" },
           api_key: { type: "string", title: "API key" },
@@ -99,6 +129,38 @@ function firstProxy(doc: Record<string, unknown>): unknown {
   const rows = doc.providers as Record<string, unknown>[] | undefined;
   return rows?.[0]?.proxy;
 }
+
+test("OpenCode keeps its gateway picker and indexes its displayed description", async () => {
+  const provider = {
+    name: "opencode",
+    type: "opencode",
+    api_base: "",
+    api_key: "",
+  };
+  const onDoc = vi.fn();
+  render(<Harness provider={provider} onDoc={onDoc} />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  const base = screen.getByTestId("opencode-api-base") as HTMLSelectElement;
+  expect(base.value).toBe("https://opencode.ai/inference/go/v1");
+  expect([...base.options].map((option) => option.value)).toEqual([
+    "https://opencode.ai/inference/go/v1",
+    "https://opencode.ai/inference/v1",
+  ]);
+  fireEvent.change(base, {
+    target: { value: "https://opencode.ai/inference/v1" },
+  });
+  expect(base.value).toBe("https://opencode.ai/inference/v1");
+  expect(onDoc.mock.lastCall?.[0].providers[0].api_base).toBe(base.value);
+  const index = buildSettingsSearchIndex({
+    sections: [providersSection],
+    schema: rootSchema,
+    doc: { providers: [provider] },
+  });
+  const entry = index.find((entry) => entry.keyPath === "providers[].api_base");
+  expect(entry?.descriptions).toContain(
+    translate("openCodeApiBase.description"),
+  );
+});
 
 test("NeuralDeep provider picks the API endpoint from the two official ones", async () => {
   render(<Harness />);
@@ -1555,9 +1617,10 @@ test("the provider form groups its fields: provider settings, folded advanced se
   ]);
 });
 
-// A logical model's form reads in three blocks: which model it is and what it
-// takes in, how it answers, and how hard it thinks.
-test("the logical model form groups its fields: model, generation, reasoning", async () => {
+// A logical model's form reads in four blocks: which model it is and what it
+// takes in, how it answers, how hard it thinks, and which toolset it is
+// offered its tools by.
+test("the logical model form groups its fields: model, generation, reasoning, tools", async () => {
   stubModelsAndLevels([]);
   const schema: JsonSchema = {
     type: "object",
@@ -1591,6 +1654,7 @@ test("the logical model form groups its fields: model, generation, reasoning", a
               title: "Allow disabling reasoning",
               default: false,
             },
+            toolset: { type: "string", title: "Toolset" },
           },
           "x-coddy-property-order": [
             "model",
@@ -1602,6 +1666,7 @@ test("the logical model form groups its fields: model, generation, reasoning", a
             "reasoning_levels",
             "reasoning_default",
             "allow_reasoning_off",
+            "toolset",
           ],
         },
       },
@@ -1620,7 +1685,7 @@ test("the logical model form groups its fields: model, generation, reasoning", a
   const legends = [
     ...document.querySelectorAll(".settings-schema-root > fieldset > legend"),
   ].map((l) => l.textContent);
-  expect(legends).toEqual(["Model", "Generation", "Reasoning"]);
+  expect(legends).toEqual(["Model", "Generation", "Reasoning", "Tools"]);
   const model = screen.getByTestId("settings-group-model");
   expect(model.textContent).toContain("Model id");
   expect(model.textContent).toContain("Context window (tokens)");
@@ -1633,6 +1698,202 @@ test("the logical model form groups its fields: model, generation, reasoning", a
   expect(reasoning.textContent).toContain("Reasoning levels");
   expect(reasoning.textContent).toContain("Default reasoning level");
   expect(reasoning.textContent).toContain("Allow disabling reasoning");
+  const tools = screen.getByTestId("settings-group-tools");
+  expect(within(tools).getByLabelText("Toolset")).toBeTruthy();
+});
+
+// A model names one of the presets of the Toolsets tab, or none: the form
+// offers exactly those, and a toolset the presets no longer have stays on
+// offer rather than being changed behind the operator's back.
+const toolsetsSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    models: {
+      type: "array",
+      title: "Logical models",
+      items: {
+        type: "object",
+        properties: {
+          model: { type: "string", title: "Model id" },
+          toolset: { type: "string", title: "Toolset" },
+        },
+        "x-coddy-property-order": ["model", "toolset"],
+      },
+    },
+    toolsets: {
+      type: "array",
+      title: "Toolsets",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string", title: "Name" },
+          tools: {
+            type: "array",
+            title: "Allowed tools",
+            items: { type: "string" },
+          },
+          disallowed_tools: {
+            type: "array",
+            title: "Disallowed tools",
+            items: { type: "string" },
+          },
+        },
+        "x-coddy-property-order": ["name", "tools", "disallowed_tools"],
+      },
+    },
+  },
+};
+
+const toolsetsSection: SectionDescriptor = {
+  id: "toolsets",
+  label: "Toolsets",
+  kind: "array",
+  schemaKey: "toolsets",
+  labelField: "name",
+};
+
+function ToolsetsHarness(props: {
+  section: SectionDescriptor;
+  model?: Record<string, unknown>;
+  toolsets?: Record<string, unknown>[];
+}) {
+  const [doc, setDoc] = React.useState<Record<string, unknown>>({
+    providers: [{ name: "demo", type: "openai" }],
+    models: [props.model ?? { model: "demo/small" }],
+    toolsets: props.toolsets ?? [
+      { name: "coding", tools: ["read", "grep"] },
+      { name: "no-net", disallowed_tools: ["webfetch"] },
+    ],
+  });
+  return (
+    <>
+      <output data-testid="settings-doc">{JSON.stringify(doc)}</output>
+      <SettingsSection
+        section={props.section}
+        schema={toolsetsSchema}
+        doc={doc}
+        setDoc={setDoc}
+      />
+    </>
+  );
+}
+
+/** The document the harness holds. */
+function savedDoc(): Record<string, unknown> {
+  return JSON.parse(screen.getByTestId("settings-doc").textContent || "{}");
+}
+
+/** The first model row of the document the harness holds. */
+function firstModel(): Record<string, unknown> {
+  return (savedModels() as Record<string, unknown>[])[0]!;
+}
+
+/** The list a row form draws under that name, as a fieldset. */
+function toolList(name: string): HTMLElement {
+  const legend = screen.getByText(name, { selector: ".settings-legend-line" });
+  return legend.closest("fieldset") as HTMLElement;
+}
+
+test("a model row picks its toolset from the presets, or none", () => {
+  render(<ToolsetsHarness section={modelsSection} />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  const select = screen.getByTestId("model-toolset") as HTMLSelectElement;
+  expect([...select.options].map((o) => o.textContent)).toEqual([
+    "None: every tool",
+    "coding",
+    "no-net",
+  ]);
+  expect(select.value).toBe("");
+  fireEvent.change(select, { target: { value: "coding" } });
+  expect(firstModel()).toEqual({ model: "demo/small", toolset: "coding" });
+  fireEvent.change(select, { target: { value: "" } });
+  expect(firstModel()).toEqual({ model: "demo/small" });
+});
+
+test("a model naming a toolset the presets no longer have keeps it on offer", () => {
+  render(
+    <ToolsetsHarness
+      section={modelsSection}
+      model={{ model: "demo/small", toolset: "gone" }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  const select = screen.getByTestId("model-toolset") as HTMLSelectElement;
+  expect(select.value).toBe("gone");
+  expect([...select.options].map((o) => o.value)).toContain("gone");
+});
+
+test("the Toolsets tab edits the lists of a preset in place", () => {
+  render(<ToolsetsHarness section={toolsetsSection} />);
+  expect(screen.getByTestId("settings-master-item-0").textContent).toContain(
+    "coding",
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  const allowed = screen.getByLabelText("Allowed tools 1") as HTMLInputElement;
+  expect(allowed.value).toBe("read");
+  fireEvent.change(allowed, { target: { value: "glob" } });
+  fireEvent.click(within(toolList("Allowed tools")).getByText("Add"));
+  fireEvent.change(screen.getByLabelText("Allowed tools 3"), {
+    target: { value: "context7__*" },
+  });
+  fireEvent.click(within(toolList("Disallowed tools")).getByText("Add"));
+  fireEvent.change(screen.getByLabelText("Disallowed tools 1"), {
+    target: { value: "ssh_*" },
+  });
+  const presets = savedDoc().toolsets as Record<string, unknown>[];
+  expect(presets[0]).toEqual({
+    name: "coding",
+    tools: ["glob", "grep", "context7__*"],
+    disallowed_tools: ["ssh_*"],
+  });
+});
+
+test("renaming a preset renames it on the models that name it", () => {
+  render(
+    <ToolsetsHarness
+      section={toolsetsSection}
+      model={{ model: "demo/small", toolset: "coding" }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.change(screen.getByLabelText("Name"), {
+    target: { value: "lean" },
+  });
+  expect(firstModel()).toEqual({ model: "demo/small", toolset: "lean" });
+});
+
+test("a toolset added in Settings starts with both lists empty", () => {
+  render(<ToolsetsHarness section={toolsetsSection} />);
+  fireEvent.click(screen.getByTestId("settings-master-add"));
+  const presets = savedDoc().toolsets as Record<string, unknown>[];
+  expect(presets).toHaveLength(3);
+  expect(presets[2]).toEqual({ name: "", tools: [], disallowed_tools: [] });
+});
+
+test("the toolset of a model and the lists of a preset are named in Russian", () => {
+  setLocale("ru");
+  render(
+    <ToolsetsHarness
+      section={modelsSection}
+      model={{ model: "demo/small", toolset: "coding" }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  expect(screen.getByLabelText("Набор инструментов")).toBeTruthy();
+  expect(
+    (screen.getByTestId("model-toolset") as HTMLSelectElement).options[0]!
+      .textContent,
+  ).toBe("Нет: все инструменты");
+  cleanup();
+
+  render(<ToolsetsHarness section={toolsetsSection} />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  expect(screen.getByLabelText("Разрешённые инструменты 1")).toBeTruthy();
+  expect(
+    within(toolList("Запрещённые инструменты")).getByText("Добавить"),
+  ).toBeTruthy();
 });
 
 // The queue mode answers what Enter does with a message written during a
@@ -1682,4 +1943,541 @@ test("the agent tab keeps the queue mode inside its model and turns fieldset", (
   expect(
     screen.getByRole("combobox", { name: "Queue mode" }).closest("fieldset"),
   ).toBe(turn);
+});
+
+// The settings search index and the drawing are held together here. The page
+// is the served schema's own (internal/config/testdata) filled with a document
+// from configFromSchema, and every tab and every row form of the two lists is
+// drawn and read back (drawnBoxes), then compared with the index entries
+// that stand for it, exactly and in both directions.
+describe("settings search index matches the drawing", () => {
+  type Scenario = {
+    name: string;
+    schema: JsonSchema;
+    lang: "en" | "ru";
+    telegram: boolean;
+  };
+  const AGENT_EN: Scenario = {
+    name: "an agent in English",
+    schema: AGENT_SCHEMA,
+    lang: "en",
+    telegram: false,
+  };
+  const AGENT_RU: Scenario = {
+    name: "an agent in Russian",
+    schema: AGENT_SCHEMA,
+    lang: "ru",
+    telegram: false,
+  };
+  const AGENT_TELEGRAM: Scenario = {
+    name: "an agent inside Telegram",
+    schema: AGENT_SCHEMA,
+    lang: "en",
+    telegram: true,
+  };
+  const RELAY_EN: Scenario = {
+    name: "a relay in English",
+    schema: RELAY_SCHEMA,
+    lang: "en",
+    telegram: false,
+  };
+  const RELAY_RU: Scenario = {
+    name: "a relay in Russian",
+    schema: RELAY_SCHEMA,
+    lang: "ru",
+    telegram: false,
+  };
+  const SCENARIOS = [AGENT_EN, AGENT_RU, AGENT_TELEGRAM, RELAY_EN, RELAY_RU];
+
+  /** A tab, or one row form of a list tab, drawn once. */
+  type Page = {
+    section: string;
+    row: string | null;
+    /** The entries of the index that stand for this page. */
+    expected: SettingsSearchEntry[];
+    drawn: DrawnBox[];
+    legends: DrawnLegend[];
+  };
+
+  const where = (sc: Scenario, page: Page) =>
+    `${sc.name}, ${page.section}${page.row === null ? "" : ` / ${page.row}`}`;
+
+  /** The index of the scenario's document, in its language and launch. */
+  function indexFor(sc: Scenario): SettingsSearchEntry[] {
+    applyPage(sc);
+    return buildSettingsSearchIndex({
+      sections: deriveSettingsSections(sc.schema),
+      schema: sc.schema,
+      doc: configFromSchema(sc.schema),
+    });
+  }
+
+  /** Lets the requests a tab starts when it mounts answer. */
+  const settled = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+  const entriesOf = (
+    index: readonly SettingsSearchEntry[],
+    section: string,
+    row: string | null,
+  ) =>
+    index.filter(
+      (e) => e.section === section && e.row === row && e.kind !== "section",
+    );
+
+  async function readPage(
+    sc: Scenario,
+    index: readonly SettingsSearchEntry[],
+    section: string,
+    row: string | null,
+  ): Promise<Page> {
+    const view = await openSettings({
+      schema: sc.schema,
+      lang: sc.lang,
+      telegram: sc.telegram,
+      section,
+      item: row,
+    });
+    await settled();
+    const page = {
+      section,
+      row,
+      expected: entriesOf(index, section, row),
+      drawn: drawnBoxes(document.body),
+      legends: drawnLegends(document.body),
+    };
+    expect(view.fetch.unexpected, "requests the stub refused").toEqual([]);
+    view.unmount();
+    return page;
+  }
+
+  /** Every tab of the scenario, and every row form a list tab can open. */
+  async function readPages(sc: Scenario): Promise<Page[]> {
+    const index = indexFor(sc);
+    const pages: Page[] = [];
+    for (const section of deriveSettingsSections(sc.schema)) {
+      pages.push(await readPage(sc, index, section.id, null));
+      for (const e of index) {
+        if (e.kind === "row" && e.section === section.id) {
+          pages.push(await readPage(sc, index, section.id, e.row));
+        }
+      }
+    }
+    return pages;
+  }
+
+  // One reading per scenario, shared by the tests below.
+  const readings = new Map<Scenario, Promise<Page[]>>();
+  function pagesOf(sc: Scenario): Promise<Page[]> {
+    let pages = readings.get(sc);
+    if (pages === undefined) {
+      pages = readPages(sc);
+      readings.set(sc, pages);
+    }
+    return pages;
+  }
+
+  test("every drawn anchor is indexed and every indexed anchor is drawn, once or once per entry its list draws, tab by tab and row by row", async () => {
+    for (const sc of SCENARIOS) {
+      const pages = await pagesOf(sc);
+      for (const page of pages) {
+        expect(
+          drawingDifferences(page.expected, page.drawn).anchors,
+          where(sc, page),
+        ).toEqual([]);
+        // A page that has entries is not an empty drawing.
+        expect(page.drawn.length > 0, where(sc, page)).toBe(
+          page.expected.length > 0,
+        );
+      }
+    }
+    // The rows a name can open are drawn one by one; the unnamed row and the
+    // two rows that share a name are not among them.
+    const rows = (await pagesOf(AGENT_EN))
+      .filter((p) => p.row !== null)
+      .map((p) => `${p.section}/${p.row}`);
+    expect(rows).toEqual([
+      "providers/openai",
+      "providers/anthropic",
+      "providers/neuraldeep",
+      "providers/codex",
+      "providers/devin",
+      "models/demo/qwen3-27b",
+      "models/demo/llama-3",
+    ]);
+  }, 240_000);
+
+  test("each field box draws the same names and descriptions as its entry, in any order", async () => {
+    for (const sc of SCENARIOS) {
+      for (const page of await pagesOf(sc)) {
+        expect(
+          drawingDifferences(page.expected, page.drawn).fields,
+          where(sc, page),
+        ).toEqual([]);
+      }
+    }
+    // Two names in one box: the proxy's switch and its URL, a model's
+    // provider and its id; the box that draws the other one's text with its
+    // own (i) holds both descriptions.
+    const pages = await pagesOf(AGENT_EN);
+    const box = (section: string, row: string, anchor: string) =>
+      pages
+        .find((p) => p.section === section && p.row === row)!
+        .drawn.find((d) => d.anchor === anchor)!;
+    const proxy = box("providers", "openai", "providers:proxy");
+    expect([...proxy.names].sort()).toEqual(
+      [messagesEn["settings.providerProxy.ignoreSystem"], "Proxy URL"].sort(),
+    );
+    expect(proxy.descriptions).toHaveLength(2);
+    const model = box("models", "demo/qwen3-27b", "models:model");
+    expect([...model.names].sort()).toEqual(
+      [messagesEn["settings.field.provider"], "Model id"].sort(),
+    );
+    expect(model.descriptions).toEqual([]);
+    // Russian draws its own texts, not the English ones.
+    const ru = (await pagesOf(AGENT_RU))
+      .find((p) => p.section === "providers" && p.row === "openai")!
+      .drawn.find((d) => d.anchor === "providers:proxy")!;
+    expect(ru.names).toContain(
+      messagesRu["settings.providerProxy.ignoreSystem"],
+    );
+  }, 240_000);
+
+  test("a block or a landmark is its heading and the heading's (i), never what it holds", async () => {
+    for (const sc of SCENARIOS) {
+      for (const page of await pagesOf(sc)) {
+        expect(
+          drawingDifferences(page.expected, page.drawn).headings,
+          where(sc, page),
+        ).toEqual([]);
+        for (const d of page.drawn) {
+          if (d.kind === "group" || d.kind === "landmark") {
+            expect(d.names, `${where(sc, page)}: ${d.anchor}`).toHaveLength(1);
+            expect(d.descriptions.length).toBeLessThanOrEqual(1);
+          }
+        }
+      }
+    }
+    // MCP discovery holds a second (i), on its select; the landmark does not.
+    const discovery = (await pagesOf(AGENT_EN))
+      .find((p) => p.section === "mcp_servers")!
+      .drawn.find(
+        (d) => d.anchor === landmarkAnchor("mcp_servers", "discovery"),
+      )!;
+    expect(discovery.hints).toBe(2);
+    expect(discovery.descriptions).toEqual([
+      messagesEn["mcp.discovery.description"],
+    ]);
+    expect(discovery.names).toEqual([messagesEn["mcp.discovery.legend"]]);
+  }, 240_000);
+
+  test("no legend and no section label a tab or a row form draws escapes the index: each is the heading of an indexed box", async () => {
+    let seen = 0;
+    for (const sc of SCENARIOS) {
+      for (const page of await pagesOf(sc)) {
+        expect(
+          legendsOutsideTheIndex(page.expected, page.legends),
+          where(sc, page),
+        ).toEqual([]);
+        seen += page.legends.length;
+      }
+    }
+    expect(seen).toBeGreaterThan(100);
+
+    // The kinds of heading the drawer has, each of them read: a block of the
+    // schema's layout (folded or not), the fieldset of a nested object and of
+    // a list, the fieldsets of a provider's and a model's form, a hand-drawn
+    // block and the labels of the Appearance sheet.
+    const agent = await pagesOf(AGENT_EN);
+    const legends = (section: string, row: string | null) =>
+      agent
+        .find((p) => p.section === section && p.row === row)!
+        .legends.map((l) => `${l.text} | ${l.anchor}`);
+    expect(legends("agent", null)).toContain(
+      `${messagesEn["settings.group.agent.turn"]} | group:agent:turn`,
+    );
+    expect(legends("providers", "openai")).toContain(
+      `${messagesEn["settings.providers.group.advanced"]} | group:providers:advanced`,
+    );
+    expect(legends("models", "demo/qwen3-27b")).toContain(
+      `${messagesEn["settings.models.group.generation"]} | group:models:generation`,
+    );
+    expect(legends("compaction", null)).toContain(
+      "Tool result eviction | compaction:result_eviction",
+    );
+    expect(legends("logger", null)).toContain(
+      "Component levels | logger:levels",
+    );
+    expect(legends("mcp_servers", null)).toContain(
+      `${messagesEn["mcp.discovery.legend"]} | ${landmarkAnchor("mcp_servers", "discovery")}`,
+    );
+    const labels = legends("appearance", null);
+    expect(labels).toContain(
+      `${messagesEn["appearance.themeLabel"]} | ${landmarkAnchor("appearance", "theme")}`,
+    );
+    expect(labels).toHaveLength(3);
+  }, 240_000);
+
+  test("the legend check fails a heading whose box lost its anchor and a box whose entry is gone", async () => {
+    const index = indexFor(AGENT_EN);
+    const open = async () => {
+      const view = await openSettings({
+        schema: AGENT_SCHEMA,
+        section: "agent",
+      });
+      await settled();
+      return view;
+    };
+    const turn = () => screen.getByTestId("settings-group-turn");
+    const check = () =>
+      legendsOutsideTheIndex(
+        entriesOf(index, "agent", null),
+        drawnLegends(document.body),
+      );
+
+    const view = await open();
+    expect(check()).toEqual([]);
+
+    // The group's fieldset loses its anchor: its legend stands in no box.
+    const anchor = turn().getAttribute("data-settings-anchor")!;
+    turn().removeAttribute("data-settings-anchor");
+    expect(check()).toEqual([
+      `the legend "${messagesEn["settings.group.agent.turn"]}" is drawn in no box`,
+    ]);
+    turn().setAttribute("data-settings-anchor", anchor);
+    expect(check()).toEqual([]);
+
+    // The index loses the group: the legend stands in a box with no entry.
+    const lost = legendsOutsideTheIndex(
+      entriesOf(index, "agent", null).filter((e) => e.anchor !== anchor),
+      drawnLegends(document.body),
+    );
+    expect(lost).toEqual([
+      `the legend "${messagesEn["settings.group.agent.turn"]}" stands in ${anchor}, which has no entry`,
+    ]);
+
+    // The group is renamed in the drawing only: its entry no longer names it.
+    turn().querySelector(
+      "legend .settings-legend-line",
+    )!.firstChild!.textContent = "Turns";
+    expect(check()).toHaveLength(1);
+    expect(check()[0]).toContain('the legend "Turns"');
+    view.unmount();
+  }, 120_000);
+
+  test("an empty list, a list of two and a list edited after the index was built all agree with the index", async () => {
+    const index = indexFor(AGENT_EN);
+    const expected = entriesOf(index, "logger", null);
+    const levelsWith = (count: number) => {
+      const config = configFromSchema(AGENT_SCHEMA);
+      (config["logger"] as Record<string, unknown>)["levels"] = Array.from(
+        { length: count },
+        (_, i) => ({ component: `component-${i}`, level: "debug" }),
+      );
+      return config;
+    };
+    const open = async (count: number) => {
+      const view = await openSettings({
+        schema: AGENT_SCHEMA,
+        config: levelsWith(count),
+        section: "logger",
+      });
+      await settled();
+      return view;
+    };
+    /** The levels list of the page: its frames, and the differences. */
+    const compare = (frames: number) => {
+      const drawn = drawnBoxes(document.body);
+      expect(drawn.find((d) => d.anchor === "logger:levels")!.frames).toBe(
+        frames,
+      );
+      expect(
+        drawn.filter((d) => d.anchor === "logger:levels.component"),
+      ).toHaveLength(frames);
+      expect(drawingDifferences(expected, drawn)).toEqual({
+        anchors: [],
+        fields: [],
+        headings: [],
+      });
+    };
+
+    // The list draws no entry: its fields are not drawn, and nothing is
+    // missing for it.
+    const empty = await open(0);
+    compare(0);
+    empty.unmount();
+
+    const two = await open(2);
+    compare(2);
+    two.unmount();
+
+    // Edited after the index was built: an entry added, then removed.
+    const edited = await open(1);
+    compare(1);
+    const list = () =>
+      document.querySelector<HTMLElement>(
+        '[data-settings-anchor="logger:levels"]',
+      )!;
+    fireEvent.click(
+      within(list()).getByRole("button", {
+        name: translate("settings.array.add"),
+      }),
+    );
+    compare(2);
+    const removers = () =>
+      within(list()).getAllByRole("button", {
+        name: translate("settings.array.removeAria"),
+      });
+    fireEvent.click(removers()[0]!);
+    compare(1);
+    fireEvent.click(removers()[0]!);
+    compare(0);
+    edited.unmount();
+  }, 120_000);
+
+  test("inside Telegram the Appearance tab draws no Notifications block, and the index holds none", async () => {
+    const anchor = landmarkAnchor("appearance", "notifications");
+    const appearance = async (sc: Scenario) =>
+      (await pagesOf(sc)).find((p) => p.section === "appearance")!;
+    const outside = await appearance(AGENT_EN);
+    expect(outside.drawn.map((d) => d.anchor)).toContain(anchor);
+    expect(outside.expected.map((e) => e.anchor)).toContain(anchor);
+    const inside = await appearance(AGENT_TELEGRAM);
+    expect(inside.drawn.map((d) => d.anchor)).not.toContain(anchor);
+    expect(inside.expected.map((e) => e.anchor)).not.toContain(anchor);
+    // Theme and language are still there.
+    expect(inside.drawn.map((d) => d.anchor)).toEqual([
+      landmarkAnchor("appearance", "theme"),
+      landmarkAnchor("appearance", "language"),
+    ]);
+    expect(drawingDifferences(inside.expected, inside.drawn)).toEqual({
+      anchors: [],
+      fields: [],
+      headings: [],
+    });
+  }, 240_000);
+
+  test("the comparison reports a leaf the index lost, a stale entry and a changed name", async () => {
+    const pages = await pagesOf(AGENT_EN);
+    const page = pages.find((p) => p.section === "agent" && p.row === null)!;
+    const leaf = page.expected.find((e) => e.anchor === "agent:max_turns")!;
+    expect(leaf).toBeDefined();
+    const none = { anchors: [], fields: [], headings: [] };
+    expect(drawingDifferences(page.expected, page.drawn)).toEqual(none);
+
+    // A leaf entry deleted: its box is drawn and nothing stands for it.
+    const lost = drawingDifferences(
+      page.expected.filter((e) => e !== leaf),
+      page.drawn,
+    );
+    expect(lost.anchors).toEqual(["agent:max_turns is drawn and has no entry"]);
+
+    // A stale entry: an anchor no box carries.
+    const stale = drawingDifferences(
+      [...page.expected, { ...leaf, anchor: "agent:ghost", id: "ghost" }],
+      page.drawn,
+    );
+    expect(stale.anchors).toEqual([
+      "agent:ghost is drawn 0 times, once expected",
+    ]);
+
+    // A primary name changed.
+    const renamed = drawingDifferences(
+      page.expected.map((e) =>
+        e === leaf ? { ...e, names: ["Turn limit"] } : e,
+      ),
+      page.drawn,
+    );
+    expect(renamed.fields).toHaveLength(1);
+    expect(renamed.fields[0]).toContain("agent:max_turns");
+  }, 240_000);
+
+  test("each entry is found by its primary name", () => {
+    for (const sc of [AGENT_EN, AGENT_RU, RELAY_EN, RELAY_RU]) {
+      const index = indexFor(sc);
+      expect(index.length).toBeGreaterThan(0);
+      for (const entry of index) {
+        const name = entry.names[0]!;
+        expect(name, `${sc.name}: ${entry.id}`).not.toBe("");
+        const { hits } = searchSettings(index, name, index.length);
+        expect(
+          hits.some((h) => h.entry.id === entry.id),
+          `${sc.name}: ${name}`,
+        ).toBe(true);
+      }
+    }
+  });
+});
+
+// The Metrics tab is drawn from the server's schema, whose text is English; the
+// dictionary has to cover every label and hint, or the Russian form shows a
+// mix.
+test("the Metrics tab names its fields and their hints in Russian", () => {
+  setLocale("ru");
+  const metricsSection: SectionDescriptor = {
+    id: "metrics",
+    label: "Метрики",
+    kind: "object",
+    schemaKey: "metrics",
+  };
+  const english: Record<string, [string, string]> = {
+    enable: ["Enabled", "Serve /metrics from this process."],
+    host: ["Listen host", "Bind address."],
+    port: ["Listen port", "Port to bind."],
+    token: ["Token", "Bearer credential a scrape must present."],
+  };
+  const field = (type: string, name: string) => ({
+    type,
+    title: english[name]![0],
+    description: english[name]![1],
+  });
+  const schema = {
+    type: "object",
+    properties: {
+      metrics: {
+        type: "object",
+        title: "Metrics",
+        description: "Prometheus exporter on a port of its own.",
+        "x-coddy-property-order": ["enable", "host", "port", "token"],
+        properties: {
+          enable: field("boolean", "enable"),
+          host: field("string", "host"),
+          port: field("integer", "port"),
+          token: {
+            ...field("string", "token"),
+            writeOnly: true,
+            "x-coddy-configured": "token_configured",
+          },
+        },
+      },
+    },
+  } as JsonSchema;
+  render(
+    <SettingsSection
+      section={metricsSection}
+      schema={schema}
+      doc={{ metrics: { enable: false, token_configured: true } }}
+      setDoc={() => {}}
+    />,
+  );
+
+  expect(screen.getByLabelText("Адрес прослушивания")).toBeTruthy();
+  expect(screen.getByLabelText("Порт")).toBeTruthy();
+  expect(screen.getByLabelText("Токен")).toBeTruthy();
+  const hints = screen.getAllByTestId("field-hint").map((hint) => {
+    fireEvent.mouseEnter(hint);
+    const tip = screen.getByTestId("field-hint-tip").textContent ?? "";
+    fireEvent.mouseLeave(hint);
+    return tip;
+  });
+  const shown = [document.body.textContent ?? "", ...hints].join("\n");
+  for (const text of Object.values(english).flat()) {
+    expect(shown).not.toContain(text);
+  }
+  expect(hints.length).toBeGreaterThanOrEqual(4);
+  for (const hint of hints) {
+    expect(hint).toMatch(/[а-яё]/i);
+  }
 });

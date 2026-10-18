@@ -1,5 +1,5 @@
 import type { ChangeEvent, ReactNode } from "react";
-import { Fragment, useId, useRef, useState } from "react";
+import { Fragment, useId, useLayoutEffect, useRef, useState } from "react";
 
 import { Chevron } from "../components/Chevron";
 
@@ -11,6 +11,7 @@ import {
   schemaFieldLabel,
   schemaFieldPlaceholder,
 } from "./schemaI18n";
+import { SETTINGS_REVEAL_EVENT } from "./settingsReveal";
 import { SwitchField } from "./SwitchField";
 import { useT } from "../i18n/I18nProvider";
 
@@ -96,7 +97,7 @@ function configuredCount(
   return v === true ? 1 : 0;
 }
 
-function entriesInSchemaOrder(
+export function entriesInSchemaOrder(
   props: Record<string, JsonSchema>,
   order: string[] | undefined,
 ): [string, JsonSchema][] {
@@ -241,6 +242,20 @@ function SchemaField(props: {
   const t = schema.type;
   const { t: tr, tp } = useT();
 
+  // Every field stands in a box that carries its anchor. The frame of one list
+  // entry has none: it is drawn with the list's path and would repeat its anchor.
+  const box = (node: ReactNode) =>
+    entryLabel === undefined ? (
+      <div
+        className="settings-field"
+        data-settings-anchor={fieldAnchor(i18nDomain, path)}
+      >
+        {node}
+      </div>
+    ) : (
+      node
+    );
+
   if (fieldOverride) {
     const override = fieldOverride({
       path,
@@ -249,8 +264,12 @@ function SchemaField(props: {
       onChange,
       parentObj,
     });
+    // false: the override draws nothing for this field, and nothing is a box.
+    if (override === false) {
+      return null;
+    }
     if (override != null) {
-      return <>{override}</>;
+      return box(<>{override}</>);
     }
   }
   let ph =
@@ -297,22 +316,22 @@ function SchemaField(props: {
         </fieldset>
       );
     }
-    return (
+    return box(
       <fieldset className="settings-fieldset">
         <LegendWithHint label={label} description={desc} />
         <div className="settings-nested">{fields}</div>
-      </fieldset>
+      </fieldset>,
     );
   }
 
   if (isStringMapSchema(schema)) {
-    return (
+    return box(
       <StringMapField
         label={label}
         description={desc}
         value={value}
         onChange={onChange}
-      />
+      />,
     );
   }
 
@@ -321,7 +340,7 @@ function SchemaField(props: {
     const itemSchema = schema.items;
     const scalarItems = isScalarItem(itemSchema);
     const setCount = schema.writeOnly ? configuredCount(schema, parentObj) : 0;
-    return (
+    return box(
       <fieldset className="settings-fieldset">
         <LegendWithHint label={label} description={desc} />
         {setCount > 0 ? (
@@ -399,7 +418,7 @@ function SchemaField(props: {
         >
           {tr("settings.array.add")}
         </button>
-      </fieldset>
+      </fieldset>,
     );
   }
 
@@ -411,13 +430,13 @@ function SchemaField(props: {
       value === undefined || value === null
         ? Boolean(schema.default)
         : Boolean(value);
-    return (
+    return box(
       <SwitchField
         checked={checked}
         onChange={(next) => onChange(next)}
         label={label}
         description={desc || undefined}
-      />
+      />,
     );
   }
 
@@ -429,7 +448,7 @@ function SchemaField(props: {
           ? ""
           : String(fallback)
         : String(value);
-    return (
+    return box(
       <div className="settings-row">
         <FieldLabel label={label} description={desc} />
         <Combobox
@@ -441,7 +460,7 @@ function SchemaField(props: {
             onChange(match !== undefined ? match : raw);
           }}
         />
-      </div>
+      </div>,
     );
   }
 
@@ -458,7 +477,7 @@ function SchemaField(props: {
       const parsed = Number(value);
       n = Number.isFinite(parsed) ? parsed : 0;
     }
-    return (
+    return box(
       <div className="settings-row">
         <FieldLabel label={label} description={desc} />
         <input
@@ -474,7 +493,7 @@ function SchemaField(props: {
             onChange(Number.isFinite(x) ? x : 0);
           }}
         />
-      </div>
+      </div>,
     );
   }
 
@@ -488,7 +507,7 @@ function SchemaField(props: {
     // The document serves it empty; empty keeps what is set, a value replaces
     // it. The placeholder is what says which of the two an empty field means.
     const set = configuredCount(schema, parentObj) > 0;
-    return (
+    return box(
       <div className="settings-row">
         <FieldLabel label={label} description={desc} />
         <input
@@ -505,10 +524,10 @@ function SchemaField(props: {
             onChange(e.target.value)
           }
         />
-      </div>
+      </div>,
     );
   }
-  return (
+  return box(
     <div className="settings-row">
       <FieldLabel label={label} description={desc} />
       <input
@@ -522,12 +541,12 @@ function SchemaField(props: {
           onChange(e.target.value)
         }
       />
-    </div>
+    </div>,
   );
 }
 
 /** A list item that is one value (a path, a number, a choice), not an object. */
-function isScalarItem(sub: JsonSchema): boolean {
+export function isScalarItem(sub: JsonSchema): boolean {
   return (
     sub.type === "string" || sub.type === "number" || sub.type === "integer"
   );
@@ -723,7 +742,7 @@ function StringMapField(props: {
 }
 
 /** A field that renders as a fieldset of its own: a list, a map or a nested object. */
-function isBlockField(sub: JsonSchema): boolean {
+export function isBlockField(sub: JsonSchema): boolean {
   return (
     (sub.type === "object" && sub.properties !== undefined) ||
     (sub.type === "array" && sub.items !== undefined) ||
@@ -763,13 +782,28 @@ export function CollapsibleFieldset(props: {
   children: ReactNode;
   testid?: string | undefined;
   defaultOpen?: boolean | undefined;
+  anchor?: string | undefined;
 }) {
   const [open, setOpen] = useState(props.defaultOpen === true);
   const bodyId = useId();
+  const fieldsetRef = useRef<HTMLFieldSetElement>(null);
+  // A search revealing something inside opens this fold. A layout effect: the
+  // reveal asks as soon as the box is in the page, before a passive effect runs.
+  useLayoutEffect(() => {
+    const fieldset = fieldsetRef.current;
+    if (!fieldset) {
+      return;
+    }
+    const reveal = () => setOpen(true);
+    fieldset.addEventListener(SETTINGS_REVEAL_EVENT, reveal);
+    return () => fieldset.removeEventListener(SETTINGS_REVEAL_EVENT, reveal);
+  }, []);
   return (
     <fieldset
+      ref={fieldsetRef}
       className={`settings-fieldset settings-fieldset--collapsible${open ? " is-open" : ""}`}
       data-testid={props.testid}
+      data-settings-anchor={props.anchor}
     >
       <legend>
         <button
@@ -789,6 +823,83 @@ export function CollapsibleFieldset(props: {
       </div>
     </fieldset>
   );
+}
+
+export type FormLayoutNode =
+  | { kind: "field"; key: string; schema: JsonSchema }
+  | { kind: "group"; group: SchemaFormGroup; fields: [string, JsonSchema][] };
+
+/**
+ * What a SchemaForm draws at its top level and in which order: the section's
+ * `enable` switch, then the fields and groups. The form renders from it and so
+ * does the settings search index, so they cannot disagree about where a field
+ * stands.
+ */
+export function layoutSchemaForm(
+  schema: JsonSchema,
+  groups: SchemaFormGroup[] | undefined,
+): FormLayoutNode[] {
+  if (schema.type !== "object" || !schema.properties) {
+    return [];
+  }
+  const entries = entriesInSchemaOrder(
+    schema.properties,
+    schema["x-coddy-property-order"],
+  );
+  const all = groups ?? [];
+  const named = new Set(all.flatMap((g) => g.paths ?? []));
+  // Only the first group without paths takes the fields no group names.
+  const catchAll = all.find((g) => !g.paths);
+  // A section's own on/off switch opens the form, on no frame: it governs
+  // everything below it rather than belonging to one block.
+  const enableEntry = entries.find(
+    ([k, sub]) => k === "enable" && sub.type === "boolean" && !named.has(k),
+  );
+  const rest = entries.filter((e) => e !== enableEntry);
+  const nodes: FormLayoutNode[] = [];
+  if (enableEntry) {
+    nodes.push({ kind: "field", key: enableEntry[0], schema: enableEntry[1] });
+  }
+  if (all.length === 0) {
+    for (const [key, sub] of rest) {
+      nodes.push({ kind: "field", key, schema: sub });
+    }
+    return nodes;
+  }
+  // The group a field is laid out in: the one naming it, else the catch-all,
+  // except that a list or nested object is a block of its own.
+  const groupOf = (k: string, sub: JsonSchema): SchemaFormGroup | undefined =>
+    all.find((g) => g.paths?.includes(k)) ??
+    (catchAll && !isBlockField(sub) ? catchAll : undefined);
+  // Every group stands where its first field does, and a field no group takes
+  // stands in place, so nothing leaves the form.
+  const placed = new Set<string>();
+  for (const [k, sub] of rest) {
+    const g = groupOf(k, sub);
+    if (!g) {
+      nodes.push({ kind: "field", key: k, schema: sub });
+      continue;
+    }
+    if (placed.has(g.id)) {
+      continue;
+    }
+    placed.add(g.id);
+    nodes.push({
+      kind: "group",
+      group: g,
+      fields: rest.filter(([k2, sub2]) => groupOf(k2, sub2) === g),
+    });
+  }
+  return nodes;
+}
+
+/** The anchor of a field's box: its settings domain and its path in the form. */
+export function fieldAnchor(domain: string | undefined, path: string): string {
+  return `${domain ?? ""}:${path}`;
+}
+
+export function groupAnchor(domain: string | undefined, id: string): string {
+  return `group:${domain ?? ""}:${id}`;
 }
 
 export function SchemaForm(props: {
@@ -811,10 +922,6 @@ export function SchemaForm(props: {
       </p>
     );
   }
-  const entries = entriesInSchemaOrder(
-    schema.properties,
-    schema["x-coddy-property-order"],
-  );
   const renderEntry = ([k, sub]: [string, JsonSchema]) => (
     <SchemaField
       key={k}
@@ -828,31 +935,6 @@ export function SchemaForm(props: {
       onChange={(nv) => onChange({ ...value, [k]: nv })}
     />
   );
-  const groups = props.groups ?? [];
-  const named = new Set(groups.flatMap((g) => g.paths ?? []));
-  // Only the first group without paths takes the fields no group names.
-  const catchAll = groups.find((g) => !g.paths);
-  // A section's own on/off switch opens the form, on no frame and above every
-  // other field: it governs everything below it rather than belonging to one
-  // block.
-  const enableEntry = entries.find(
-    ([k, sub]) => k === "enable" && sub.type === "boolean" && !named.has(k),
-  );
-  const rest = entries.filter((e) => e !== enableEntry);
-  if (groups.length === 0) {
-    return (
-      <div className="settings-schema-root">
-        {enableEntry ? renderEntry(enableEntry) : null}
-        {rest.map(renderEntry)}
-      </div>
-    );
-  }
-  // The group a field is laid out in: the one naming it, else the catch-all,
-  // except that a list or a nested object stands as a block of its own
-  // rather than nesting a frame in a frame.
-  const groupOf = (k: string, sub: JsonSchema): SchemaFormGroup | undefined =>
-    groups.find((g) => g.paths?.includes(k)) ??
-    (catchAll && !isBlockField(sub) ? catchAll : undefined);
   const renderGroup = (g: SchemaFormGroup, fields: [string, JsonSchema][]) => {
     const testid = `settings-group-${g.id}`;
     return g.collapsible ? (
@@ -860,6 +942,7 @@ export function SchemaForm(props: {
         key={`group:${g.id}`}
         legend={g.legend}
         testid={testid}
+        anchor={groupAnchor(i18nDomain, g.id)}
       >
         {fields.map(renderEntry)}
       </CollapsibleFieldset>
@@ -868,6 +951,7 @@ export function SchemaForm(props: {
         key={`group:${g.id}`}
         className="settings-fieldset settings-form-group"
         data-testid={testid}
+        data-settings-anchor={groupAnchor(i18nDomain, g.id)}
       >
         <LegendWithHint label={g.legend} description={g.description} />
         <div className="settings-form-group-body">
@@ -876,32 +960,13 @@ export function SchemaForm(props: {
       </fieldset>
     );
   };
-  // Every group stands where its first field stands in the schema's order,
-  // and a field no group takes (a block, or a key added to the schema after
-  // the groups were drawn) stands in place, so nothing leaves the form.
-  const laidOut: ReactNode[] = [];
-  const placed = new Set<string>();
-  for (const [k, sub] of rest) {
-    const g = groupOf(k, sub);
-    if (!g) {
-      laidOut.push(renderEntry([k, sub]));
-      continue;
-    }
-    if (placed.has(g.id)) {
-      continue;
-    }
-    placed.add(g.id);
-    laidOut.push(
-      renderGroup(
-        g,
-        rest.filter(([k2, sub2]) => groupOf(k2, sub2) === g),
-      ),
-    );
-  }
   return (
     <div className="settings-schema-root">
-      {enableEntry ? renderEntry(enableEntry) : null}
-      {laidOut}
+      {layoutSchemaForm(schema, props.groups).map((node) =>
+        node.kind === "field"
+          ? renderEntry([node.key, node.schema])
+          : renderGroup(node.group, node.fields),
+      )}
     </div>
   );
 }

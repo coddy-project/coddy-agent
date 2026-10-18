@@ -7,6 +7,7 @@ toolchain go1.26.9
 require (
 	github.com/EvilFreelancer/tgfake v1.1.0
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.1
+	github.com/VictoriaMetrics/metrics v1.44.1
 	github.com/anthropics/anthropic-sdk-go v1.27.1
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/cucumber/godog v0.15.1
@@ -15,12 +16,14 @@ require (
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f
 	github.com/jedib0t/go-pretty/v6 v6.5.9
+	github.com/jezek/xgb v1.3.1
 	github.com/mattn/go-runewidth v0.0.15
 	github.com/openai/openai-go v1.12.0
 	github.com/rivo/uniseg v0.4.7
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/tidwall/gjson v1.18.0
 	golang.org/x/crypto v0.57.0
+	golang.org/x/image v0.46.0
 	golang.org/x/net v0.60.0
 	golang.org/x/sys v0.48.0
 	golang.org/x/term v0.46.0
@@ -58,6 +61,8 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
+	github.com/valyala/fastrand v1.1.0 // indirect
+	github.com/valyala/histogram v1.2.0 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect

@@ -59,6 +59,8 @@ var settingsCommands = []Command{
 		Description: "Turn thinking on, at the model's default level or the one named"},
 	{Name: "nothink", Aliases: []string{"no_think"}, Setting: SettingReasoning, arg: argNone, value: config.ReasoningOff, Hint: scopeHint,
 		Description: "Turn thinking off where the model's provider can"},
+	{Name: "toolset", Setting: SettingToolset, arg: argRequired, Hint: "<name|default> " + scopeHint,
+		Description: "Offer the tools of a toolsets preset for this session (default offers every tool of the mode)"},
 	{Name: "agent", Setting: SettingMode, arg: argNone, value: string(ModeAgent), Hint: scopeHint,
 		Description: "Agent mode: every tool, for implementing and running things"},
 	{Name: "plan", Setting: SettingMode, arg: argNone, value: string(ModePlan), Hint: scopeHint,
@@ -138,6 +140,10 @@ func (c Command) Choices(cfg *config.Config, st *State) []string {
 		return choices
 	case SettingPermissionMode:
 		return []string{config.PermModeAsk, config.PermModeAcceptEdits, config.PermModeBypass}
+	case SettingToolset:
+		if names := cfg.ToolsetNames(); len(names) > 0 {
+			return append(names, config.ToolsetDefault)
+		}
 	}
 	return nil
 }
@@ -291,6 +297,8 @@ func (l *CommandLine) add(cmd Command, value string, turns int) {
 		target.Model = &v
 	case SettingReasoning:
 		target.Reasoning = &v
+	case SettingToolset:
+		target.Toolset = &v
 	case SettingMode:
 		target.Mode = &v
 	case SettingPermissionMode:
@@ -381,6 +389,11 @@ type CommandRow struct {
 func BuiltinCommandRows(cfg *config.Config, st *State, actions []CommandRow) []CommandRow {
 	out := make([]CommandRow, 0, len(settingsCommands)+len(actions))
 	for _, c := range settingsCommands {
+		// Without a preset there is nothing to pick: the menus leave
+		// /toolset out, as the selectors leave the toolset out.
+		if c.Setting == SettingToolset && len(cfg.ToolsetNames()) == 0 {
+			continue
+		}
 		row := CommandRow{
 			Name:        c.Name,
 			Description: c.Description,
@@ -431,6 +444,13 @@ func changeValues(ch SettingsChange) map[string]string {
 		}
 		values[SettingReasoning] = v
 	}
+	if ch.Toolset != nil {
+		v := *ch.Toolset
+		if v == "" {
+			v = config.ToolsetDefault
+		}
+		values[SettingToolset] = v
+	}
 	if ch.Mode != nil {
 		values[SettingMode] = *ch.Mode
 	}
@@ -459,6 +479,8 @@ func FormatSettingsCommands(changes []SettingsChange) string {
 				lines = append(lines, "/model "+v+flag)
 			case SettingReasoning:
 				lines = append(lines, "/reasoning "+v+flag)
+			case SettingToolset:
+				lines = append(lines, "/toolset "+v+flag)
 			case SettingMode:
 				lines = append(lines, "/"+v+flag)
 			case SettingPermissionMode:

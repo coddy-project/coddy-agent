@@ -1,0 +1,424 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The settings of a swarm relay, edited from its own page. A save rebuilds the relay: nodes register and open their tunnels again within seconds.",
+  "properties": {
+    "logger": {
+      "additionalProperties": false,
+      "description": "Process log level, per-component overrides, outputs, and rotation.",
+      "properties": {
+        "file": {
+          "description": "Destination file when outputs include file.",
+          "title": "Log file path",
+          "type": "string"
+        },
+        "format": {
+          "default": "text",
+          "description": "text for human logs; json for structured logs.",
+          "enum": [
+            "text",
+            "json"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "level": {
+          "default": "info",
+          "description": "Minimum severity written to configured outputs.",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error",
+            "warning"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "levels": {
+          "default": [],
+          "description": "Raise or lower one subsystem on its own. A parent name covers what is nested under it (gateway reaches gateway.telegram), and the longest match wins.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "component": {
+                "description": "Dotted name, for example gateway.telegram.",
+                "title": "Component",
+                "type": "string"
+              },
+              "level": {
+                "default": "debug",
+                "description": "Minimum severity for this component.",
+                "enum": [
+                  "debug",
+                  "info",
+                  "warn",
+                  "error",
+                  "warning"
+                ],
+                "title": "Level",
+                "type": "string"
+              }
+            },
+            "required": [
+              "component",
+              "level"
+            ],
+            "type": "object",
+            "x-coddy-property-order": [
+              "component",
+              "level"
+            ]
+          },
+          "title": "Component levels",
+          "type": "array"
+        },
+        "outputs": {
+          "default": [
+            "stderr"
+          ],
+          "description": "Where log lines are written.",
+          "items": {
+            "enum": [
+              "stdout",
+              "stderr",
+              "file"
+            ],
+            "type": "string"
+          },
+          "title": "Outputs",
+          "type": "array"
+        },
+        "rotation": {
+          "additionalProperties": false,
+          "description": "Size-based rotation when logging to a file.",
+          "properties": {
+            "max_files": {
+              "description": "How many rotated segments to retain; 0 uses logger defaults.",
+              "title": "Max files",
+              "type": "integer"
+            },
+            "max_size_mb": {
+              "description": "Rotate after the file reaches this size; 0 uses logger defaults.",
+              "title": "Max file size (MB)",
+              "type": "integer"
+            }
+          },
+          "title": "Rotation",
+          "type": "object",
+          "x-coddy-property-order": [
+            "max_size_mb",
+            "max_files"
+          ]
+        }
+      },
+      "title": "Logger",
+      "type": "object",
+      "x-coddy-property-order": [
+        "level",
+        "levels",
+        "outputs",
+        "file",
+        "format",
+        "rotation"
+      ]
+    },
+    "swarm": {
+      "additionalProperties": false,
+      "description": "This relay's deployment: its name and address, the tokens of its clients and nodes, CORS for pages served elsewhere, the nodes it dials itself and the relays it joins. A save rebuilds the relay; a new address takes a restart.",
+      "properties": {
+        "allow_insecure": {
+          "description": "Let a relay bound off loopback run without a client token. For a lab only.",
+          "title": "Allow without a client token",
+          "type": "boolean"
+        },
+        "allow_private_upstreams": {
+          "description": "Host names allowed to resolve into private ranges when a node advertises a URL.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Private upstream hosts",
+          "type": "array"
+        },
+        "auth_token": {
+          "description": "Bearer token a client presents to use this relay, and every node behind it. Write-only: leave it empty to keep the one set. A new one signs out every client, this page included: enter it again with Connect to… in the environment menu.",
+          "title": "Client token",
+          "type": "string",
+          "writeOnly": true,
+          "x-coddy-configured": "auth_configured"
+        },
+        "cors": {
+          "additionalProperties": false,
+          "description": "Pages served from another origin, such as a laptop's coddy serve, that may call this relay from the browser.",
+          "properties": {
+            "allow_loopback": {
+              "description": "Also admit any page from the browser's own machine - localhost, *.localhost, 127.0.0.0/8 or [::1] on any port - such as a laptop's coddy serve, whatever port it took. The client token still applies.",
+              "title": "Allow loopback origins",
+              "type": "boolean"
+            },
+            "allowed_origins": {
+              "description": "Exact origins, for example http://localhost:12345, or * for any.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Allowed origins",
+              "type": "array"
+            },
+            "enable": {
+              "description": "Answer cross-origin requests from the origins below.",
+              "title": "Enable CORS",
+              "type": "boolean"
+            }
+          },
+          "title": "CORS",
+          "type": "object",
+          "x-coddy-property-order": [
+            "enable",
+            "allow_loopback",
+            "allowed_origins"
+          ]
+        },
+        "fanout_timeout_seconds": {
+          "description": "How long the aggregated session list and the topology wait for a node.",
+          "title": "Fan-out timeout (seconds)",
+          "type": "integer"
+        },
+        "host": {
+          "description": "Address to bind. 0.0.0.0 listens on every interface. Takes effect on a restart.",
+          "title": "Listen host",
+          "type": "string"
+        },
+        "insecure_open_registration": {
+          "description": "Let any node join without a pairing token. For a lab only.",
+          "title": "Open registration",
+          "type": "boolean"
+        },
+        "join": {
+          "description": "Parent relays this relay registers into, which is how relays chain.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "advertise_url": {
+                "description": "Address the parent dials this relay at. Empty dials out: the parent drives this relay back down a tunnel.",
+                "title": "Advertise URL",
+                "type": "string"
+              },
+              "dial": {
+                "additionalProperties": false,
+                "description": "How this end reaches the other one: an outbound proxy and the certificate check.",
+                "properties": {
+                  "ca_file": {
+                    "description": "PEM bundle trusted for the other end's certificate, besides the system roots.",
+                    "title": "CA file",
+                    "type": "string"
+                  },
+                  "insecure_skip_verify": {
+                    "description": "For a lab only: every connection is logged as insecure.",
+                    "title": "Skip certificate check",
+                    "type": "boolean"
+                  },
+                  "proxy": {
+                    "description": "http, https, socks5 or socks5h proxy URL. It may carry a password, so it is write-only: leave it empty to keep the one set.",
+                    "title": "Proxy",
+                    "type": "string",
+                    "writeOnly": true,
+                    "x-coddy-configured": "proxy_configured"
+                  }
+                },
+                "title": "Dialling",
+                "type": "object",
+                "x-coddy-property-order": [
+                  "proxy",
+                  "ca_file",
+                  "insecure_skip_verify"
+                ]
+              },
+              "name": {
+                "description": "Name this relay registers under; empty takes the host name.",
+                "title": "Name",
+                "type": "string"
+              },
+              "pairing_token": {
+                "description": "The parent's pairing token. Write-only: leave it empty to keep the one set.",
+                "title": "Pairing token",
+                "type": "string",
+                "writeOnly": true,
+                "x-coddy-configured": "pairing_token_configured"
+              },
+              "token": {
+                "description": "This relay's own client token, which the parent presents when it proxies. Write-only: leave it empty to keep the one set.",
+                "title": "Token",
+                "type": "string",
+                "writeOnly": true,
+                "x-coddy-configured": "token_configured"
+              },
+              "url": {
+                "description": "Parent relay this relay registers into.",
+                "title": "Relay URL",
+                "type": "string"
+              }
+            },
+            "type": "object",
+            "x-coddy-property-order": [
+              "url",
+              "name",
+              "pairing_token",
+              "advertise_url",
+              "token",
+              "dial"
+            ]
+          },
+          "title": "Joins",
+          "type": "array"
+        },
+        "lease_ttl_seconds": {
+          "description": "How long a registration lasts without a refresh; nodes refresh at a third of it.",
+          "title": "Lease TTL (seconds)",
+          "type": "integer"
+        },
+        "name": {
+          "description": "The relay's name on the map and in /swarm/info; empty takes the host name it runs on.",
+          "title": "Name",
+          "type": "string"
+        },
+        "pairing_tokens": {
+          "description": "Tokens a node presents to join this relay. Write-only: the list is served empty, and a list sent back empty keeps the tokens set; tokens entered here replace them all.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Pairing tokens",
+          "type": "array",
+          "writeOnly": true,
+          "x-coddy-configured": "pairing_configured"
+        },
+        "port": {
+          "description": "Port to bind. Takes effect on a restart.",
+          "title": "Listen port",
+          "type": "integer"
+        },
+        "tls": {
+          "additionalProperties": false,
+          "description": "Certificate and key the relay serves HTTPS with. Both or neither.",
+          "properties": {
+            "cert_file": {
+              "description": "PEM certificate chain.",
+              "title": "Certificate file",
+              "type": "string"
+            },
+            "key_file": {
+              "description": "PEM private key.",
+              "title": "Key file",
+              "type": "string"
+            }
+          },
+          "title": "TLS",
+          "type": "object",
+          "x-coddy-property-order": [
+            "cert_file",
+            "key_file"
+          ]
+        },
+        "upstreams": {
+          "description": "Nodes this relay dials itself, pinned on the map whether or not they check in.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "dial": {
+                "additionalProperties": false,
+                "description": "How this end reaches the other one: an outbound proxy and the certificate check.",
+                "properties": {
+                  "ca_file": {
+                    "description": "PEM bundle trusted for the other end's certificate, besides the system roots.",
+                    "title": "CA file",
+                    "type": "string"
+                  },
+                  "insecure_skip_verify": {
+                    "description": "For a lab only: every connection is logged as insecure.",
+                    "title": "Skip certificate check",
+                    "type": "boolean"
+                  },
+                  "proxy": {
+                    "description": "http, https, socks5 or socks5h proxy URL. It may carry a password, so it is write-only: leave it empty to keep the one set.",
+                    "title": "Proxy",
+                    "type": "string",
+                    "writeOnly": true,
+                    "x-coddy-configured": "proxy_configured"
+                  }
+                },
+                "title": "Dialling",
+                "type": "object",
+                "x-coddy-property-order": [
+                  "proxy",
+                  "ca_file",
+                  "insecure_skip_verify"
+                ]
+              },
+              "kind": {
+                "default": "agent",
+                "description": "agent, or relay for a relay chained under this one.",
+                "enum": [
+                  "agent",
+                  "relay"
+                ],
+                "title": "Kind",
+                "type": "string"
+              },
+              "name": {
+                "description": "Name the node is mounted under: /swarm/nodes/\u003cname\u003e.",
+                "title": "Name",
+                "type": "string"
+              },
+              "token": {
+                "description": "The node's own bearer token, which the relay presents when it proxies. Write-only: leave it empty to keep the one set.",
+                "title": "Token",
+                "type": "string",
+                "writeOnly": true,
+                "x-coddy-configured": "token_configured"
+              },
+              "url": {
+                "description": "Address the relay dials the node at.",
+                "title": "URL",
+                "type": "string"
+              }
+            },
+            "type": "object",
+            "x-coddy-property-order": [
+              "name",
+              "url",
+              "kind",
+              "token",
+              "dial"
+            ]
+          },
+          "title": "Upstreams",
+          "type": "array"
+        }
+      },
+      "title": "Swarm relay",
+      "type": "object",
+      "x-coddy-property-order": [
+        "name",
+        "host",
+        "port",
+        "auth_token",
+        "pairing_tokens",
+        "cors",
+        "tls",
+        "lease_ttl_seconds",
+        "fanout_timeout_seconds",
+        "upstreams",
+        "join",
+        "allow_private_upstreams",
+        "allow_insecure",
+        "insecure_open_registration"
+      ]
+    }
+  },
+  "title": "Coddy relay config",
+  "type": "object",
+  "x-coddy-property-order": [
+    "swarm",
+    "logger"
+  ],
+  "x-coddy-relay": true
+}

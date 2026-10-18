@@ -12,7 +12,7 @@ import {
 import type { HeroAccentVerb } from "./heroTitleWords";
 import { useT } from "../i18n/I18nProvider";
 import type { PermissionResolvedState } from "./permissionTypes";
-import type { TurnOverride } from "./sessionSettings";
+import type { ToolsetControl, TurnOverride } from "./sessionSettings";
 import type { SessionGoal } from "./goal";
 import type { GoalActions } from "./GoalPopover";
 import type { QuestionResolvedState } from "./questionTypes";
@@ -122,6 +122,8 @@ export function ChatScreen(props: {
   permissionMode?: string;
   configuredPermissionMode?: string;
   onPermissionModeChange?: ((mode: string) => void) | undefined;
+  /** The toolset chip; absent while the configuration has no preset. */
+  toolsetControl?: ToolsetControl | undefined;
   settingsOverrides?: TurnOverride[];
   /** The session goal and what the composer's goal mark and popover can do
    *  with it (chat/goal.ts); passed through to the composer. */
@@ -895,6 +897,9 @@ export function ChatScreen(props: {
                 {...(props.onPermissionModeChange
                   ? { onPermissionModeChange: props.onPermissionModeChange }
                   : {})}
+                {...(props.toolsetControl
+                  ? { toolsetControl: props.toolsetControl }
+                  : {})}
                 {...(props.settingsOverrides
                   ? { settingsOverrides: props.settingsOverrides }
                   : {})}
@@ -1144,6 +1149,9 @@ export function ChatScreen(props: {
                     : {})}
                   {...(props.onPermissionModeChange
                     ? { onPermissionModeChange: props.onPermissionModeChange }
+                    : {})}
+                  {...(props.toolsetControl
+                    ? { toolsetControl: props.toolsetControl }
                     : {})}
                   {...(props.settingsOverrides
                     ? { settingsOverrides: props.settingsOverrides }

@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useContext, useEffect, useLayoutEffect, useRef } from "react";
+import { PaneHidden } from "./PanePortal";
 
 /**
  * Escape closes a menu, a popover or a dialog while it is open, before
@@ -11,14 +12,17 @@ import { useEffect, useLayoutEffect, useRef } from "react";
  * Escape something nearer already claimed, and one that ends an input
  * method's composition, are left alone. `close` may take a step of the layer's
  * own instead of closing it (a dialog folds an inner row first).
+ *
+ * A layer in a hidden pane (PaneHidden) does not listen.
  */
 export function useEscapeCloses(open: boolean, close: () => void): void {
   const closeRef = useRef(close);
   useLayoutEffect(() => {
     closeRef.current = close;
   });
+  const hidden = useContext(PaneHidden);
   useEffect(() => {
-    if (!open) {
+    if (!open || hidden) {
       return undefined;
     }
     const onKey = (ev: KeyboardEvent) => {
@@ -35,5 +39,5 @@ export function useEscapeCloses(open: boolean, close: () => void): void {
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
-  }, [open]);
+  }, [open, hidden]);
 }

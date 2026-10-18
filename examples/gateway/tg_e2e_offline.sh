@@ -10,10 +10,14 @@
 #   ./examples/gateway/tg_e2e_offline.sh            # run and clean up
 #   TG_E2E_KEEP=1 ./examples/gateway/tg_e2e_offline.sh   # leave the stand up, print the page URL
 #   RICH_MESSAGES=true ./examples/gateway/tg_e2e_offline.sh
+#   TG_E2E_METRICS=1 ./examples/gateway/tg_e2e_offline.sh   # also scrape the exporter
 #
 # Knobs: TG_PORT (18790), LLM_DELAY (50ms), RICH_MESSAGES (false), TG_VERBOSE
 # (unset), CODDY_BIN (build/coddy), CODDY_TGFAKE_BIN (a prebuilt tgfake, as CI
-# installs it; unset builds the pinned version).
+# installs it; unset builds the pinned version), TG_E2E_METRICS (unset; 1 turns
+# the Prometheus exporter on, on a free port behind a token, and checks its
+# scrape after the chat; the binary then needs the metrics tag as well:
+# make build TAGS="gateway metrics").
 
 set -euo pipefail
 
@@ -26,6 +30,7 @@ TG_PORT="${TG_PORT:-18790}"
 LLM_DELAY="${LLM_DELAY:-50ms}"
 RICH_MESSAGES="${RICH_MESSAGES:-false}"
 ORIGIN="http://127.0.0.1:$TG_PORT"
+METRICS="${TG_E2E_METRICS:-}"
 
 if [[ ! -x "$BIN" ]]; then
   echo "coddy binary not found at $BIN; build it with a gateway tag: ./examples/build_coddy.sh" >&2
@@ -98,6 +103,18 @@ for _ in $(seq 1 40); do
 done
 curl -sf -o /dev/null "$ORIGIN/bot1/getMe" || { echo "tgfake did not come up on $ORIGIN" >&2; exit 1; }
 
+# A port nothing listens on, searched upward from the fake's own.
+free_port() {
+  local port
+  for port in $(seq $((TG_PORT + 1)) $((TG_PORT + 100))); do
+    if ! (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+      echo "$port"
+      return 0
+    fi
+  done
+  return 1
+}
+
 CFG="$HOME_DIR/config.yaml"
 cat >"$CFG" <<EOF
 providers:
@@ -127,6 +144,17 @@ logger:
     - component: gateway.telegram
       level: debug
 EOF
+if [[ "$METRICS" == "1" ]]; then
+  METRICS_PORT="$(free_port)" || { echo "no free port for the exporter near $TG_PORT" >&2; exit 1; }
+  METRICS_TOKEN="tg-e2e-$$-$RANDOM"
+  METRICS_URL="http://127.0.0.1:$METRICS_PORT/metrics"
+  cat >>"$CFG" <<EOF_METRICS
+metrics:
+  enable: true
+  port: $METRICS_PORT
+  token: "$METRICS_TOKEN"
+EOF_METRICS
+fi
 # The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
 printf '{"permissionMode": "bypass"}\n' >"$HOME_DIR/permission-mode.json"
 
@@ -214,5 +242,37 @@ wait_chat "Started the tests in the background."
 wait_chat "Woken by a finished background task: bg_1"
 wait_chat "failed, exit 2"
 wait_chat "bot: The tests failed with exit 2."
+
+# The exporter, scraped after a whole chat: the gateway reports itself up, the
+# stand's model answered at least once through the provider, and the sessions
+# volume has been measured. A scrape without the token is refused. Retried
+# briefly, because every gauge is read when the scrape asks and the attempt
+# counter moves when the attempt ends, which can land a moment after the bot's
+# reply reaches the fake chat.
+if [[ "$METRICS" == "1" ]]; then
+  scrape_ok() {
+    local body
+    body="$(curl -sf --max-time 5 -H "Authorization: Bearer $METRICS_TOKEN" "$METRICS_URL")" || return 1
+    grep -q '^coddy_subsystem_up{subsystem="gateway"} 1$' <<<"$body" || return 1
+    awk '/^coddy_llm_attempts_total\{.*outcome="ok"/ {n += $NF} END {exit !(n >= 1)}' <<<"$body" || return 1
+    grep -Eq '^coddy_sessions_disk_size_bytes(\{[^}]*\})? ' <<<"$body" || return 1
+  }
+  scraped=0
+  for _ in $(seq 1 40); do
+    if scrape_ok; then scraped=1; break; fi
+    sleep 0.25
+  done
+  if [[ "$scraped" != "1" ]]; then
+    if body="$(curl -sf --max-time 5 -H "Authorization: Bearer $METRICS_TOKEN" "$METRICS_URL")"; then
+      echo "the scrape lacks the gateway up gauge, an ok LLM attempt or the sessions volume size; its coddy_ lines:" >&2
+      grep '^coddy_' <<<"$body" >&2 || true
+    else
+      echo "the exporter did not answer at $METRICS_URL; is coddy built with the metrics tag?" >&2
+    fi
+    exit 1
+  fi
+  code="$(curl -s -o /dev/null --max-time 5 -w '%{http_code}' "$METRICS_URL" || true)"
+  [[ "$code" == "401" ]] || { echo "a scrape without the token answered $code, want 401" >&2; exit 1; }
+fi
 
 echo "ok telegram offline stand"

@@ -222,6 +222,7 @@ func (p *opencodeGoogleProvider) generate(ctx context.Context, messages []Messag
 		if event.Usage.Prompt > 0 || event.Usage.Output > 0 || event.Usage.Thoughts > 0 {
 			result.InputTokens = event.Usage.Prompt
 			result.OutputTokens = event.Usage.Output + event.Usage.Thoughts
+			result.ReasoningTokens = event.Usage.Thoughts
 			result.CachedInputTokens = event.Usage.Cached
 		}
 		if len(event.Candidates) == 0 {

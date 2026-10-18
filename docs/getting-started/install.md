@@ -91,7 +91,7 @@ lists it under *Suggested packages*; add it with **`sudo apt-get install tmux`**
 
 | Path | What |
 |------|------|
-| **`/usr/bin/coddy`** | The full binary (**`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, **`gateway`**, **`swarm`**) |
+| **`/usr/bin/coddy`** | The full binary (**`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, **`gateway`**, **`swarm`**, **`metrics`**) |
 | **`/usr/share/man/man1/coddy.1.gz`** | **`man coddy`** |
 | **`/usr/share/bash-completion/completions/coddy`** | bash completion |
 | **`/usr/share/zsh/site-functions/_coddy`** | zsh completion |
@@ -157,34 +157,50 @@ See [build.md](../contributing/build.md#distribution-packages).
 ## macOS (Homebrew)
 
 ```bash
-brew install --cask https://github.com/coddy-project/coddy-agent/releases/latest/download/coddy.rb
+brew install coddy-project/coddy-agent/coddy
 ```
 
-Every release publishes **`coddy.rb`** beside the archives, rendered with the checksums of the macOS
-archives of that same tag. The cask installs the same **`coddy`** binary the macOS archive carries,
-plus **`man coddy`** and the bash and zsh completions. It does not install **`tmux`**: its caveats,
-printed after the install and by **`brew info --cask coddy`**, recommend **`brew install tmux`**
-for a console session that outlives the terminal. Removal goes through Homebrew:
+The cask lives in Coddy's own tap, [coddy-project/homebrew-coddy-agent](https://github.com/coddy-project/homebrew-coddy-agent),
+and every release updates it. The command adds the tap, trusts this one cask and installs the
+**`coddy`** binary from the macOS archive of the latest release, plus **`man coddy`** and the bash and zsh
+completions. It needs macOS 12 or later. It does not install **`tmux`**: its caveats, printed after
+the install and by **`brew info --cask coddy`**, recommend **`brew install tmux`** for a console
+session that outlives the terminal.
+
+Upgrades follow the releases:
+
+```bash
+brew upgrade --cask coddy
+```
+
+Homebrew 7 loads nothing from a third-party tap until it is trusted. Installing by the full name makes
+Homebrew trust that cask, which is why the later commands accept the short name **`coddy`**. To trust the
+whole tap, run **`brew trust coddy-project/coddy-agent`** once; **`brew install --cask coddy`** then works
+by name too. Removal goes through Homebrew:
 
 ```bash
 brew uninstall --cask coddy      # brew zap --cask coddy also removes ~/.coddy
 ```
 
-Upgrading means running the install command again: Homebrew tracks new versions of a cask it got from
-a tap, not of one installed from a URL.
+Homebrew sets the quarantine attribute on every cask download, and the Coddy binary is not
+notarised, so the cask removes that attribute from **`coddy`** after the install and macOS lets
+the first run through. If macOS stops the first run all the same, remove it yourself:
+**`xattr -d com.apple.quarantine "$(which coddy)"`**.
 
-**`brew install --cask coddy`** by name needs Coddy in one of Homebrew's own repositories, and that is
-still open. Homebrew routes open-source command-line software to **homebrew/core** as a formula built
-from source, so the cask above is our own distribution channel rather than a submission - the whole
-path, including what currently blocks it, is in [homebrew.md](homebrew.md).
+The command this page used to give, **`brew install --cask https://github.com/coddy-project/coddy-agent/releases/latest/download/coddy.rb`**,
+no longer works: current Homebrew refuses a cask given by its URL or by a file path and answers
+**`No Cask with this name exists`**. [Troubleshooting](troubleshooting.md#brew-says-no-cask-with-this-name-exists)
+moves a Coddy installed that way to the tap.
+
+On a Mac that has never added the tap, **`brew install coddy`** needs Coddy in one of Homebrew's
+own repositories, and that is still open. Homebrew routes open-source command-line software to
+**homebrew/core** as a formula built from source, so the tap is our own distribution channel rather
+than a submission - the whole path, including what currently blocks it, is in [homebrew.md](homebrew.md).
 
 **`coddy update`** recognises a Homebrew install and points back at **`brew upgrade`** rather than
 replacing a file Homebrew tracks: **`brew upgrade --cask coddy`** for this cask, and
 **`brew upgrade coddy`** for a formula. Homebrew refuses to run under **`sudo`**, so there is no
 privileged shortcut there.
-
-If macOS blocks the first run because the binary is not notarised, clear the quarantine flag:
-**`xattr -d com.apple.quarantine "$(which coddy)"`**.
 
 ## Android (Termux)
 

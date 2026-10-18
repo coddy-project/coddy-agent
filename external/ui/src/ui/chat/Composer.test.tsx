@@ -11,6 +11,7 @@ import {
 import { describe, expect, test } from "vitest";
 import { Composer } from "./Composer";
 import { setLocale } from "../i18n/i18n";
+import { installMarkupFakes } from "../markup/markupFakes";
 import {
   recordWorkspaceAtRecent,
   WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
@@ -1397,6 +1398,8 @@ function dropFiles(el: Element, files: File[]) {
   fireEvent(el, ev);
 }
 
+// A browser that cannot draw (jsdom without the markup fakes) attaches a
+// pasted picture at once, without the markup editor.
 test("pasting an image attaches it under a deterministic pasted-N name", () => {
   stubMatchMediaMobile(false);
   render(
@@ -2536,6 +2539,94 @@ test("the selector chips run attach, mode, model, reasoning, permission", () => 
   ]);
 });
 
+// The toolset chip stands right after the permission chip, names the
+// session's toolset ("All tools" for none) and switches it; without a preset
+// in the configuration there is no chip at all.
+test("the toolset chip follows the permission chip and switches the toolset", () => {
+  const picked: string[] = [];
+  const { rerender } = render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan", "ask"]}
+      permissionMode="ask"
+      configuredPermissionMode="ask"
+      onPermissionModeChange={() => {}}
+      toolsetControl={{
+        value: "coding",
+        choices: ["coding", "no-net", "default"],
+        onChange: (name) => picked.push(name),
+      }}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const order = Array.from(
+    document.querySelectorAll(".composer-tabs button.composer-tab"),
+  ).map((b) => b.getAttribute("aria-label"));
+  expect(order.slice(-2)).toEqual(["Permissions", "Toolset"]);
+  const chip = screen.getByTestId("composer-toolset");
+  expect(chip.textContent).toBe("coding");
+  fireEvent.click(chip);
+  expect(
+    screen.getAllByRole("menuitem").map((item) => item.textContent),
+  ).toEqual(["coding", "no-net", "All tools"]);
+  fireEvent.click(screen.getByRole("menuitem", { name: "All tools" }));
+  expect(picked).toEqual(["default"]);
+
+  rerender(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan", "ask"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.queryByTestId("composer-toolset")).toBeNull();
+});
+
+// The composer reads the commands once, but whether /toolset is one of them
+// follows the presets: the first preset a reload brings reads them again.
+test("the commands are read again when the first toolset appears", async () => {
+  const fetchMock = vi.fn(async () => ({
+    ok: true,
+    json: async () => ({ object: "coddy.commands", items: [] }),
+  }));
+  vi.stubGlobal("fetch", fetchMock);
+  const base = {
+    value: "",
+    isEmpty: false,
+    mode: "agent",
+    modes: ["agent"],
+    onModeChange: () => {},
+    onChange: () => {},
+    onSend: () => {},
+  };
+  const commandReads = () =>
+    fetchMock.mock.calls.filter((c) =>
+      String((c as unknown[])[0]).startsWith("/coddy/commands"),
+    ).length;
+  const { rerender } = render(<Composer {...base} />);
+  await waitFor(() => expect(commandReads()).toBe(1));
+  rerender(
+    <Composer
+      {...base}
+      toolsetControl={{
+        value: "default",
+        choices: ["coding", "default"],
+        onChange: () => {},
+      }}
+    />,
+  );
+  await waitFor(() => expect(commandReads()).toBe(2));
+  vi.unstubAllGlobals();
+});
+
 test("the permission chip is not shown without a handler", () => {
   renderComposer({ isEmpty: false });
   expect(screen.queryByTestId("composer-permission")).toBeNull();
@@ -3281,4 +3372,139 @@ describe("the mirror follows the textarea", () => {
       }
     }
   });
+});
+
+/**
+ * Renders a multimodal composer in a browser that can draw (the markup
+ * fakes) and reports what it sends.
+ */
+function renderMarkupComposer() {
+  stubMatchMediaMobile(false);
+  const fakes = installMarkupFakes({ width: 40, height: 30 });
+  const urlCtor = URL as unknown as {
+    createObjectURL?: ((f: File) => string) | undefined;
+    revokeObjectURL?: ((u: string) => void) | undefined;
+  };
+  const orig = {
+    create: urlCtor.createObjectURL,
+    revoke: urlCtor.revokeObjectURL,
+  };
+  let n = 0;
+  urlCtor.createObjectURL = vi.fn(() => `blob:coddy-markup-${++n}`);
+  urlCtor.revokeObjectURL = vi.fn();
+  const onSend = vi.fn();
+  const view = render(
+    <Composer
+      value="look"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModelMultimodal={true}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+    />,
+  );
+  return {
+    ...view,
+    onSend,
+    ta: screen.getByRole("textbox", { name: "Message" }),
+    restore: () => {
+      urlCtor.createObjectURL = orig.create;
+      urlCtor.revokeObjectURL = orig.revoke;
+      fakes.restore();
+    },
+  };
+}
+
+// A pasted picture opens in the markup editor first, as ctrl+v does in the
+// console on a desktop: Done attaches it as marked up (a PNG), and nothing is
+// attached while the editor is open.
+test("a pasted picture opens in the markup editor and Done attaches it", async () => {
+  const { ta, restore, onSend } = renderMarkupComposer();
+  try {
+    pasteWithImages(ta, [
+      new File(["img"], "image.jpeg", { type: "image/jpeg" }),
+    ]);
+    await screen.findByTestId("markup-canvas");
+    expect(screen.queryByTestId("composer-attachment-chip")).toBeNull();
+    fireEvent.click(screen.getByTestId("markup-done"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("markup-dialog")).toBeNull(),
+    );
+    expect(screen.getByTestId("composer-attachment-chip")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const files = onSend.mock.calls[0]![1] as File[];
+    expect(files.map((f) => [f.name, f.type])).toEqual([
+      ["pasted-1.png", "image/png"],
+    ]);
+  } finally {
+    restore();
+  }
+});
+
+// One picture is marked up at a time: a second one pasted while the editor
+// is on its way goes in as it is.
+test("a picture pasted while the editor loads is attached as it is", async () => {
+  const { ta, restore } = renderMarkupComposer();
+  try {
+    pasteWithImages(ta, [new File(["a"], "image.png", { type: "image/png" })]);
+    pasteWithImages(ta, [new File(["b"], "image.png", { type: "image/png" })]);
+    await screen.findByTestId("markup-canvas");
+    expect(screen.getAllByTestId("composer-attachment-chip")).toHaveLength(1);
+    fireEvent.click(screen.getByTestId("markup-done"));
+    await waitFor(() =>
+      expect(screen.getAllByTestId("composer-attachment-chip")).toHaveLength(2),
+    );
+  } finally {
+    restore();
+  }
+});
+
+test("Cancel in the markup editor attaches nothing", async () => {
+  const { ta, restore } = renderMarkupComposer();
+  try {
+    pasteWithImages(ta, [
+      new File(["img"], "image.png", { type: "image/png" }),
+    ]);
+    await screen.findByTestId("markup-canvas");
+    fireEvent.click(screen.getByTestId("markup-cancel"));
+    expect(screen.queryByTestId("markup-dialog")).toBeNull();
+    expect(screen.queryByTestId("composer-attachment-chip")).toBeNull();
+  } finally {
+    restore();
+  }
+});
+
+// An attached picture's card has a pencil that opens it in the editor: Done
+// replaces it with the marked-up one, Cancel leaves it as it was.
+test("the pencil on an attached picture marks it up in place", async () => {
+  const { restore, onSend } = renderMarkupComposer();
+  try {
+    fireEvent.change(screen.getByTestId("composer-file-input"), {
+      target: {
+        files: [new File(["data"], "shot.webp", { type: "image/webp" })],
+      },
+    });
+    const pencil = screen.getByRole("button", { name: "Mark up shot.webp" });
+    fireEvent.click(pencil);
+    await screen.findByTestId("markup-canvas");
+    fireEvent.click(screen.getByTestId("markup-cancel"));
+    fireEvent.click(screen.getByRole("button", { name: "Mark up shot.webp" }));
+    const canvas = await screen.findByTestId("markup-canvas");
+    fireEvent.click(screen.getByTestId("markup-rotate"));
+    expect(canvas).toHaveAttribute("width", "30");
+    fireEvent.click(screen.getByTestId("markup-done"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("markup-dialog")).toBeNull(),
+    );
+    expect(screen.getAllByTestId("composer-attachment-chip")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const files = onSend.mock.calls[0]![1] as File[];
+    expect(files.map((f) => [f.name, f.type])).toEqual([
+      ["shot.png", "image/png"],
+    ]);
+  } finally {
+    restore();
+  }
 });

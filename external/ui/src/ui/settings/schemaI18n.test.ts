@@ -69,3 +69,15 @@ test("the english dictionary mirrors the schema text it replaces", () => {
     "Logger",
   );
 });
+
+test("every field of the Metrics tab has Russian text, not the schema's English", () => {
+  setLocale("ru");
+  for (const field of ["enable", "host", "port", "token"]) {
+    const label = schemaFieldLabel("metrics", field, "Schema title", field);
+    const desc = schemaFieldDesc("metrics", field, "Schema desc");
+    expect(label).not.toBe("Schema title");
+    expect(desc).not.toBe("Schema desc");
+    expect(label).toMatch(/[а-яё]/i);
+    expect(desc).toMatch(/[а-яё]/i);
+  }
+});

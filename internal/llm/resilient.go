@@ -25,6 +25,11 @@ const (
 
 // ResilientOptions configures retry and pacing for LLM calls.
 type ResilientOptions struct {
+	// Name and Model say which provider row the wrapper calls
+	// (ProviderInput.Name and .Model): they label the CallEvent of every
+	// attempt. A bare wrapper leaves them empty.
+	Name, Model string
+
 	RetryMax int
 	// RetryDisabled means retries were explicitly turned off (llm_retry_max: 0):
 	// a zero RetryMax alone still falls back to the default, so the zero value
@@ -95,18 +100,18 @@ func wrapResilient(inner Provider, opts ResilientOptions) Provider {
 }
 
 func (p *resilientProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
-	return p.callWithRetry(ctx, func(ctx context.Context) (*Response, error) {
+	return p.callWithRetry(ctx, func(ctx context.Context, _ *attemptClock) (*Response, error) {
 		return p.inner.Complete(ctx, messages, tools)
 	})
 }
 
 func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
-	return p.callWithRetry(ctx, func(ctx context.Context) (*Response, error) {
-		return p.inner.Stream(ctx, messages, tools, onChunk)
+	return p.callWithRetry(ctx, func(ctx context.Context, clock *attemptClock) (*Response, error) {
+		return p.inner.Stream(ctx, messages, tools, clock.watch(onChunk))
 	})
 }
 
-func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.Context) (*Response, error)) (*Response, error) {
+func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.Context, *attemptClock) (*Response, error)) (*Response, error) {
 	var lastErr error
 	start := time.Now()
 	// What the caller's unit of work had spent on limits before this call:
@@ -125,7 +130,9 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 			return nil, ctx.Err()
 		}
 		allowance.recordAttempt(attempt > 0)
-		resp, err := fn(ctx)
+		clock := &attemptClock{began: time.Now(), retry: attempt > 0}
+		resp, err := fn(ctx, clock)
+		p.observeAttempt(clock, resp, err)
 		p.markCallFinished()
 		if err == nil {
 			return resp, nil
@@ -630,6 +637,8 @@ func WithAgentResilience(in ProviderInput, retryMax, retryBaseMS, minIntervalMS 
 
 func applyResilientWrap(p Provider, in ProviderInput) Provider {
 	return wrapResilient(p, ResilientOptions{
+		Name:           in.Name,
+		Model:          in.Model,
 		RetryMax:       in.RetryMax,
 		RetryDisabled:  in.RetryDisabled,
 		RetryBase:      in.RetryBase,

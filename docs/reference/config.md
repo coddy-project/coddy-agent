@@ -51,7 +51,7 @@ API credentials and transport selection for upstream LLM vendors. When api_key i
 |-----|------|---------|-------------|
 | `providers` | list of objects |  | API credentials and transport selection for upstream LLM vendors. When api_key is empty, the runtime reads the NAME_API_KEY environment variable (NAME is the provider name in uppercase with hyphens mapped to underscores); a row of type "codex" signs in with ChatGPT and reads no key. |
 | `providers[].name` | string |  | Logical id used as the first segment of models[].model. ASCII letters, digits, hyphen, underscore; must start with a letter. |
-| `providers[].type` | string, one of `openai`, `anthropic`, `neuraldeep`, `opencode`, `codex`, `devin` |  | Wire protocol for this provider. Use "openai" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), "anthropic" for Anthropic, "neuraldeep" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), "opencode" for the OpenCode Go/Console gateway (one API key, its models served over the Responses, Anthropic or OpenAI-compatible protocol per model id; api_base picks Go or Console), "codex" for ChatGPT OAuth against the official Codex backend (Responses API), or "devin" for a Devin (Cognition) account signed in through the browser or the Devin CLI, served by the Devin API server; see https://coddy.dev/docs/features/devin. |
+| `providers[].type` | string, one of `openai`, `anthropic`, `neuraldeep`, `opencode`, `codex`, `devin` |  | Wire protocol for this provider. Use "openai" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), "anthropic" for Anthropic, "neuraldeep" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), "opencode" for the OpenCode Go/Console gateway (one API key, its models served over the Responses, Anthropic, Google or OpenAI-compatible protocol per model id and gateway; api_base picks Go or Console), "codex" for ChatGPT OAuth against the official Codex backend (Responses API), or "devin" for a Devin (Cognition) account signed in through the browser or the Devin CLI, served by the Devin API server; see https://coddy.dev/docs/features/devin. |
 | `providers[].api_base` | string |  | Optional base URL override. For type "openai" include /v1 (e.g. http://localhost:11434/v1); for type "anthropic" an Anthropic-compatible gateway (default https://api.anthropic.com). For type "neuraldeep" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. For type "opencode" it selects the gateway: https://opencode.ai/inference/go/v1 (the Go subscription, the default) or https://opencode.ai/inference/v1 (pay-as-you-go Console); any other value falls back to the default. Ignored for types "codex" and "devin", which always use their official endpoints. |
 | `providers[].api_key` | string |  | Provider secret. A literal key, a "${ENV}" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. For type "devin" it is a Devin session token and, when set, wins over the browser login and the Devin CLI login. For type "opencode" an explicit key wins over the login `coddy providers login opencode` stored. Ignored for type "codex", which signs in with ChatGPT. |
 | `providers[].api_key_command` | string |  | Optional credential-helper command. When api_key is empty it runs via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and the trimmed stdout is used as the key. On failure resolution falls back to NAME_API_KEY. Never run for type "codex", which takes no key. |
@@ -71,10 +71,11 @@ Named model entries the agent and UI can select.
 | `models[].temperature` | number |  | Sampling temperature (0 = deterministic; higher = more random). |
 | `models[].max_context_tokens` | integer | 0 | Context window of the model in tokens: what the web UI context ring, the console context percentage and the automatic compaction trigger measure against. 0 reads it from the provider's model listing when the provider reports one (the NeuralDeep hub, vLLM, OpenRouter, LM Studio), else 128000. |
 | `models[].multimodal` | boolean | false | Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file instead of refusing it as binary. |
-| `models[].reasoning_levels` | list of strings or null |  | Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, and Claude extended-thinking models -> low,medium,high). An explicit empty list hides the selector. Settings fills this field from GET /coddy/config/reasoning-levels behind its Fetch reasoning levels button. |
+| `models[].reasoning_levels` | list of strings or null |  | Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, and Claude extended-thinking models -> low,medium,high), the vendor an aggregator puts in front of it left out (qwen/qwen3.8-flash reads as qwen3.8-flash). An explicit empty list hides the selector. Settings fills this field from GET /coddy/config/reasoning-levels behind its Fetch reasoning levels button. |
 | `models[].reasoning_default` | string |  | Reasoning level pre-selected for new chats; must be one of the resolved levels, otherwise ignored. |
 | `models[].allow_reasoning_off` | boolean | false | Expose Off in the reasoning selector for this model. Enable it only when this provider/model deployment honours Coddy's provider-specific request that disables reasoning; Coddy cannot verify that capability automatically. |
 | `models[].stream` | boolean or null | true | Transport used to talk to this model. Omit (or true) to stream over SSE. false issues one blocking completion request and delivers the whole answer at once, for servers or proxies that handle event streams badly. Rejected for providers of type codex, whose backend is streaming-only. |
+| `models[].toolset` | string |  | Name of the toolsets[] preset a session on this model is offered its tools by, unless the session picks another with /toolset <name>. Absent or empty offers every tool the mode would. Use it to spare a small-context local model the schemas of tools it never calls. |
 
 ### `agent`
 
@@ -418,6 +419,17 @@ Ask the NeuralDeep decisions API whether a shell command is safe before the perm
 | `decisions.model` | string, one of `frida-decisions`, `clef-flash` | frida-decisions | Decisions model to ask: frida-decisions (encoder pass, up to 512 tokens of command text, ~20 ms per request) or clef-flash (up to 8192 tokens, ~150 ms). |
 | `decisions.threshold` | number | 0.5 | Probability of the unsafe option at or above which a command counts as unsafe. 0 uses the default (0.5); lower is stricter, higher lets borderline commands through. A bare unsafe answer counts as 1. |
 
+### `metrics`
+
+Prometheus exporter: GET /metrics on a port of its own, run by coddy serve. It takes effect only in a binary built with -tags metrics; other binaries refuse metrics.enable. Off by default.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `metrics.enable` | boolean | false | Run the exporter in this process. Needs the metrics build tag. |
+| `metrics.host` | string | "" | Bind address of the exporter. Empty falls back to 127.0.0.1, which only this machine can reach. |
+| `metrics.port` | integer | 0 | Listen port of the exporter. 0 falls back to 12347. |
+| `metrics.token` | string | "" | Bearer credential a scrape must present in its Authorization header. ${ENV} references are expanded at load. Empty means no authentication, so set one before binding off loopback. Never echoed back. |
+
 ### `supervisor`
 
 Checks a session goal (/goal) after every turn with a second model, continues unfinished work within bounds, and watches for stalled or looping turns; see https://coddy.dev/docs/features/session-supervisor.
@@ -433,6 +445,17 @@ Checks a session goal (/goal) after every turn with a second model, continues un
 | `supervisor.loop_repeat` | integer or null | 3 | How many times a repeating cycle of identical tool operations (same call, same result) may come round before the watchdog cuts the turn. 0 disables loop detection. |
 | `supervisor.token_budget` | integer or null | 0 | Uncached input plus output tokens one goal's turns may spend; 0 means no cap. |
 | `supervisor.max_chain_sessions` | integer or null | 10 | Sessions one goal chain (/goal --then-file) may open one after another; when the goal of the last one is met, the chain stops. 0 turns goal chains off. |
+
+### `toolsets`
+
+Named presets of tool lists. A models[] row names one with toolset, and a session can pick one with /toolset <name>, on its own or after /model on the same line. A preset only narrows: a tool the mode, a subagent definition or a switch already hides stays hidden, and a call to a tool outside the set is refused without a permission prompt. It is a context optimization, not a security boundary.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `toolsets` | list of objects |  | Named presets of tool lists. A models[] row names one with toolset, and a session can pick one with /toolset <name>, on its own or after /model on the same line. A preset only narrows: a tool the mode, a subagent definition or a switch already hides stays hidden, and a call to a tool outside the set is refused without a permission prompt. It is a context optimization, not a security boundary. |
+| `toolsets[].name` | string |  | Name of the preset: letters, digits, '.', '_' and '-'. default is reserved: a session picks it to be offered every tool the mode offers. |
+| `toolsets[].tools` | list of strings |  | Allowlist: tool names, a bare *, or a prefix* (context7__* admits every tool of that MCP server). Absent or empty admits every tool the mode would. coddy -t warns about an entry that matches no tool. |
+| `toolsets[].disallowed_tools` | list of strings |  | Denylist applied after tools, with the same names and patterns; a name in both lists is removed. coddy -t warns about an entry that matches no tool. |
 <!-- docsgen:config:end -->
 
 ## Notes

@@ -49,6 +49,8 @@ export type ParsedAppHash =
       section: string | null;
       /** The row a list section has open (`?id=`, a provider or model name). */
       item: string | null;
+      /** The setting the address names (`?field=`, the anchor of its box). */
+      field: string | null;
     }
   | { branch: "swarm"; historyOpen: boolean }
   | {
@@ -137,7 +139,13 @@ export function parseAppHash(): ParsedAppHash {
     return { branch: "history" };
   }
   if (h === "settings") {
-    return { branch: "settings", historyOpen, section: null, item: null };
+    return {
+      branch: "settings",
+      historyOpen,
+      section: null,
+      item: null,
+      field: null,
+    };
   }
   if (h === "swarm") {
     return { branch: "swarm", historyOpen };
@@ -156,12 +164,15 @@ export function parseAppHash(): ParsedAppHash {
   }
   const settingsSec = /^settings\/(.+)$/.exec(h);
   if (settingsSec && settingsSec[1]) {
-    const item = (new URLSearchParams(search).get("id") ?? "").trim();
+    const params = new URLSearchParams(search);
+    const item = (params.get("id") ?? "").trim();
+    const field = (params.get("field") ?? "").trim();
     return {
       branch: "settings",
       historyOpen,
       section: decodeLoosely(settingsSec[1]),
       item: item || null,
+      field: field || null,
     };
   }
   const schedJobRun = /^scheduler\/jobs\/([^/]+)\/runs\/(.+)$/.exec(h);
@@ -392,23 +403,28 @@ export function setSettingsHash(opts?: { historySidebar?: boolean }): void {
   }
 }
 
+export type SettingsAddress = {
+  /** The row a list section has open (`?id=`). */
+  item?: string | null | undefined;
+  /** The setting it takes the operator to (`?field=`, the anchor of its box). */
+  field?: string | null | undefined;
+  historySidebar?: boolean | undefined;
+};
+
 /** `#/settings/<section>` deep link for a specific Settings tab, with
- * `?id=<name>` when a list section (providers, models) has one row open. Empty
- * section falls back to the bare `#/settings` route. */
+ * `?id=<name>` when a list section (providers, models) has one row open and
+ * `field=<anchor>` when the address names a setting. Empty section falls back
+ * to the bare `#/settings` route. */
 export function setSettingsSectionHash(
   section: string,
-  opts?: { historySidebar?: boolean; item?: string | null },
+  opts?: SettingsAddress,
 ): void {
   const id = section.trim();
   if (!id) {
-    setSettingsHash(opts);
+    setSettingsHash({ historySidebar: !!opts?.historySidebar });
     return;
   }
-  const next = appNavHrefSettingsSection(
-    id,
-    opts?.item,
-    !!opts?.historySidebar,
-  );
+  const next = appNavHrefSettingsSection(id, opts);
   if (window.location.hash !== next) {
     history.replaceState(
       null,
@@ -549,7 +565,7 @@ export function stripHistorySidebarFromHash(): void {
   }
   if (p.branch === "settings" && p.historyOpen) {
     if (p.section) {
-      setSettingsSectionHash(p.section, { item: p.item });
+      setSettingsSectionHash(p.section, { item: p.item, field: p.field });
     } else {
       setSettingsHash();
     }
@@ -616,19 +632,24 @@ export function setDocsHash(slug: string | null, anchor?: string | null): void {
   }
 }
 
+/** The query is URLSearchParams', so a colon in an anchor is written `%3A`. */
 export function appNavHrefSettingsSection(
   section: string,
-  item?: string | null,
-  historySidebar = false,
+  opts: SettingsAddress = {},
 ): string {
+  const historySidebar = !!opts.historySidebar;
   const id = (section || "").trim();
   if (!id) {
     return withHistoryQuery("#/settings", historySidebar);
   }
   const query = new URLSearchParams();
-  const row = (item ?? "").trim();
+  const row = (opts.item ?? "").trim();
   if (row) {
     query.set("id", row);
+  }
+  const setting = (opts.field ?? "").trim();
+  if (setting) {
+    query.set("field", setting);
   }
   if (historySidebar) {
     query.set("history", "1");

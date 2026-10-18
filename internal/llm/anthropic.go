@@ -11,6 +11,8 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
 // anthropicProvider implements Provider using the Anthropic API.
@@ -50,9 +52,31 @@ func newAnthropicProvider(model, apiKey, baseURL string, httpClient *http.Client
 // anthropicMinThinkingBudget is the smallest budget the Anthropic API accepts for extended thinking.
 const anthropicMinThinkingBudget int64 = 1024
 
-// thinkingEnabled reports whether this request enables extended thinking.
+// thinkingEnabled reports whether the model thinks on this request, so its
+// signed thinking has to be replayed in front of the tool calls it made.
 func (p *anthropicProvider) thinkingEnabled() bool {
+	if t := config.ClaudeThinkingFor(p.model); t.Adaptive {
+		switch p.reasoningEffort {
+		case reasoningOff:
+			return false
+		case "":
+			return t.OnByDefault
+		}
+		return true
+	}
 	return anthropicThinkingBudget(p.reasoningEffort, p.maxTokens) >= anthropicMinThinkingBudget
+}
+
+// validateAnthropicReasoningEffort refuses a level the model cannot run before
+// anything is sent: "off" for a model whose thinking cannot be turned off,
+// which the API would answer with HTTP 400. The configuration never offers it
+// for such a model (config.ReasoningOffOffered); this guards the callers that
+// name a level of their own.
+func validateAnthropicReasoningEffort(model, effort string) error {
+	if effort == reasoningOff && config.ClaudeThinkingFor(model).AlwaysOn {
+		return fmt.Errorf("reasoning_effort %q is not supported by model %q: its thinking cannot be turned off", effort, model)
+	}
+	return nil
 }
 
 // anthropicThinkingBudget maps a reasoning level to an extended-thinking token budget.
@@ -114,7 +138,10 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 	var inputTokens, outputTokens, cachedInputTokens int
 	var uncachedInput, cacheCreation, cacheRead int64
 	var thinkingBuf strings.Builder
-	var thinkingSig string
+	// Every block of the answer by index, which is what its thinking is
+	// replayed from (anthropicThinkingSignature).
+	blockLog := anthropicBlockLog{}
+	thinkingSignature := func() string { return anthropicThinkingSignature(blockLog.ordered()) }
 
 	// Accumulate tool use blocks by index. The index is the block's position in
 	// the whole answer, text and thinking blocks included, so the keys of this
@@ -157,12 +184,27 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 			switch d := e.Delta.AsAny().(type) {
 			case anthropic.TextDelta:
 				fullContent += d.Text
+				if b := blockLog[e.Index]; b != nil {
+					b.Text += d.Text
+				}
 				emit(StreamChunk{TextDelta: d.Text})
 			case anthropic.ThinkingDelta:
+				b := blockLog[e.Index]
+				// A later thinking block (a progress note before the next tool
+				// call) reads as a paragraph of its own.
+				if d.Thinking != "" && b != nil && b.Thinking == "" && thinkingBuf.Len() > 0 {
+					thinkingBuf.WriteString("\n\n")
+					emit(StreamChunk{ReasoningDelta: "\n\n"})
+				}
+				if b != nil {
+					b.Thinking += d.Thinking
+				}
 				thinkingBuf.WriteString(d.Thinking)
 				emit(StreamChunk{ReasoningDelta: d.Thinking})
 			case anthropic.SignatureDelta:
-				thinkingSig = d.Signature
+				if b := blockLog[e.Index]; b != nil {
+					b.Signature = d.Signature
+				}
 			case anthropic.InputJSONDelta:
 				if acc, ok := toolUseMap[e.Index]; ok {
 					acc.input += d.PartialJSON
@@ -172,7 +214,15 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 
 		case anthropic.ContentBlockStartEvent:
 			cb := e.ContentBlock
-			if cb.Type == "tool_use" {
+			switch cb.Type {
+			case anthropicBlockThinking:
+				blockLog[e.Index] = &anthropicReplayBlock{Type: anthropicBlockThinking, Signature: cb.Signature}
+			case anthropicBlockRedacted:
+				blockLog[e.Index] = &anthropicReplayBlock{Type: anthropicBlockRedacted, Data: cb.Data}
+			case anthropicBlockText:
+				blockLog[e.Index] = &anthropicReplayBlock{Type: anthropicBlockText}
+			case anthropicBlockToolUse:
+				blockLog[e.Index] = &anthropicReplayBlock{Type: anthropicBlockToolUse, ID: cb.ID}
 				toolUseMap[e.Index] = &toolUseAccum{
 					id:   cb.ID,
 					name: cb.Name,
@@ -224,7 +274,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 					Content:            fullContent,
 					ToolCalls:          partialTools,
 					Reasoning:          thinkingBuf.String(),
-					ReasoningSignature: thinkingSig,
+					ReasoningSignature: thinkingSignature(),
 					StopReason:         sr,
 					InputTokens:        inputTokens,
 					OutputTokens:       outputTokens,
@@ -247,7 +297,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 				return &Response{
 					Content:            fullContent,
 					Reasoning:          thinkingBuf.String(),
-					ReasoningSignature: thinkingSig,
+					ReasoningSignature: thinkingSignature(),
 					InputTokens:        inputTokens,
 					OutputTokens:       outputTokens,
 					CachedInputTokens:  cachedInputTokens,
@@ -266,7 +316,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 			return &Response{
 				Content:            fullContent,
 				Reasoning:          thinkingBuf.String(),
-				ReasoningSignature: thinkingSig,
+				ReasoningSignature: thinkingSignature(),
 				InputTokens:        inputTokens,
 				OutputTokens:       outputTokens,
 				CachedInputTokens:  cachedInputTokens,
@@ -286,7 +336,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 			return &Response{
 				Content:            fullContent,
 				Reasoning:          thinkingBuf.String(),
-				ReasoningSignature: thinkingSig,
+				ReasoningSignature: thinkingSignature(),
 				InputTokens:        inputTokens,
 				OutputTokens:       outputTokens,
 				CachedInputTokens:  cachedInputTokens,
@@ -305,7 +355,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		Content:            fullContent,
 		ToolCalls:          toolCalls,
 		Reasoning:          thinkingBuf.String(),
-		ReasoningSignature: thinkingSig,
+		ReasoningSignature: thinkingSignature(),
 		StopReason:         stopReason,
 		InputTokens:        inputTokens,
 		OutputTokens:       outputTokens,
@@ -315,6 +365,9 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 
 // splitMessages extracts the system message and converts messages to Anthropic format.
 func (p *anthropicProvider) splitMessages(messages []Message) (string, []anthropic.MessageParam, error) {
+	if err := validateAnthropicReasoningEffort(p.model, p.reasoningEffort); err != nil {
+		return "", nil, err
+	}
 	var system string
 	var result []anthropic.MessageParam
 	var skippedTrailingAssistant bool
@@ -331,24 +384,13 @@ func (p *anthropicProvider) splitMessages(messages []Message) (string, []anthrop
 			skippedTrailingAssistant = false
 
 		case RoleAssistant:
-			var blocks []anthropic.ContentBlockParamUnion
-			// Extended thinking requires the signed thinking block to be replayed (first,
-			// before tool_use) when thinking is enabled, or the API rejects the turn. The text
-			// must be the exact unmodified reasoning so the signature validates.
-			if p.thinkingEnabled() && m.ReasoningSignature != "" && m.Reasoning != "" {
-				blocks = append(blocks, anthropic.NewThinkingBlock(m.ReasoningSignature, m.Reasoning))
-			}
-			if strings.TrimSpace(m.Content) != "" {
-				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
-			}
-			for _, tc := range m.ToolCalls {
-				var inputMap map[string]interface{}
-				_ = json.Unmarshal([]byte(tc.InputJSON), &inputMap)
-				blocks = append(blocks, anthropic.NewToolUseBlock(tc.ID, inputMap, tc.Name))
-			}
+			// Thinking requires the signed thinking blocks to be replayed
+			// unchanged (in front of the tool_use they lead to) when thinking is
+			// on, or the API rejects the turn.
+			blocks := anthropicAssistantBlocks(m, p.thinkingEnabled())
 			if len(blocks) == 0 {
-				// Nothing in this assistant turn can be replayed. In particular,
-				// a signature without thinking text cannot form a valid block.
+				// Nothing in this assistant turn can be replayed: no text, no
+				// call, and no thinking this request takes back.
 				skippedTrailingAssistant = true
 				continue
 			}
@@ -409,7 +451,31 @@ func (p *anthropicProvider) buildParams(system string, messages []anthropic.Mess
 	}
 
 	budget := anthropicThinkingBudget(p.reasoningEffort, p.maxTokens)
-	if budget >= anthropicMinThinkingBudget {
+	if thinking := config.ClaudeThinkingFor(p.model); thinking.Adaptive {
+		// These models refuse a thinking budget: the level is the output
+		// effort, and no level keeps the model's own default (thinking on or
+		// off, by model). The summarized display gives the chat readable
+		// reasoning; the API default sends thinking blocks with empty text.
+		switch {
+		case p.reasoningEffort == reasoningOff:
+			params.Thinking = anthropic.ThinkingConfigParamUnion{OfDisabled: &anthropic.ThinkingConfigDisabledParam{}}
+		case p.reasoningEffort == "" && !thinking.OnByDefault:
+			// Opus 4.7 and 4.8 think only when a request asks them to.
+		default:
+			params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{
+				Display: anthropic.ThinkingConfigAdaptiveDisplaySummarized,
+			}}
+			if p.reasoningEffort != "" {
+				params.OutputConfig.Effort = anthropic.OutputConfigEffort(p.reasoningEffort)
+			}
+		}
+		// They take no sampling parameters either: a configured temperature
+		// stays off the request, and one the caller asked for travels, as next
+		// to extended thinking, for the backend to answer.
+		if p.tempSet {
+			params.Temperature = anthropic.Float(p.temp)
+		}
+	} else if budget >= anthropicMinThinkingBudget {
 		// Extended thinking requires room for a response beyond the thinking budget
 		// and forbids a custom temperature (only the default is allowed).
 		if params.MaxTokens <= budget {
@@ -462,22 +528,30 @@ func (p *anthropicProvider) parseResponse(resp anthropic.Message) (*Response, er
 		CachedInputTokens: int(resp.Usage.CacheReadInputTokens),
 	}
 
+	var blocks []anthropicReplayBlock
 	for _, block := range resp.Content {
 		switch b := block.AsAny().(type) {
 		case anthropic.TextBlock:
 			r.Content += b.Text
+			blocks = append(blocks, anthropicReplayBlock{Type: anthropicBlockText, Text: b.Text})
 		case anthropic.ThinkingBlock:
+			if b.Thinking != "" && r.Reasoning != "" {
+				r.Reasoning += "\n\n"
+			}
 			r.Reasoning += b.Thinking
-			// Last signature wins; the common case is a single thinking block per turn.
-			r.ReasoningSignature = b.Signature
+			blocks = append(blocks, anthropicReplayBlock{Type: anthropicBlockThinking, Thinking: b.Thinking, Signature: b.Signature})
+		case anthropic.RedactedThinkingBlock:
+			blocks = append(blocks, anthropicReplayBlock{Type: anthropicBlockRedacted, Data: b.Data})
 		case anthropic.ToolUseBlock:
 			r.ToolCalls = append(r.ToolCalls, ToolCall{
 				ID:        b.ID,
 				Name:      b.Name,
 				InputJSON: string(b.Input),
 			})
+			blocks = append(blocks, anthropicReplayBlock{Type: anthropicBlockToolUse, ID: b.ID})
 		}
 	}
+	r.ReasoningSignature = anthropicThinkingSignature(blocks)
 
 	return r, nil
 }

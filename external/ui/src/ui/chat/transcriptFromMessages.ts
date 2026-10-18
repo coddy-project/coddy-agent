@@ -41,6 +41,13 @@ export type ToolCallListRow = {
 
 type ToolCallItem = Extract<TranscriptItem, { type: "tool_call" }>;
 
+/** The reasoning tokens a stored assistant step reports, when there are any. */
+function readReasoningTokens(m: RawSessionMessage): number | undefined {
+  const raw = (m as { reasoning_tokens?: unknown }).reasoning_tokens;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
+}
+
 export function readMessageCreatedAtUTC(
   m: Record<string, unknown>,
 ): string | undefined {
@@ -205,12 +212,14 @@ export function transcriptItemsFromMessages(p: {
       // starts with no thinking of its own, which the stream draws as a row of
       // its own and a new bubble after it.
       const pdRaw = (m as Record<string, unknown>).plan_document;
+      const reasoningTokens = readReasoningTokens(m);
       const joinsRow =
         joinAt >= 0 &&
         joinAt === next.length - 1 &&
         next[joinAt]?.type === "assistant_message" &&
         !pdRaw &&
-        !(m.reasoning || "").trim();
+        !(m.reasoning || "").trim() &&
+        reasoningTokens === undefined;
       if (pdRaw && typeof pdRaw === "object" && !Array.isArray(pdRaw)) {
         const pd = pdRaw as Record<string, unknown>;
         const slug = String(pd.slug ?? "").trim();
@@ -231,6 +240,17 @@ export function transcriptItemsFromMessages(p: {
         }
       }
       const reasoning = (m.reasoning || "").trim();
+      if (!reasoning && reasoningTokens !== undefined) {
+        // Reasoning the provider kept to itself and only counted: a row with
+        // its cost and no text, where the text would stand.
+        next.push({
+          id: thinkingId(abs),
+          type: "thinking",
+          status: "completed",
+          content: "",
+          reasoningTokens,
+        });
+      }
       if (reasoning) {
         const dk = reasoningDurationCacheKey(reasoning);
         const cachedMs = dk ? p.reasoningDurations.get(dk) : undefined;
@@ -259,6 +279,7 @@ export function transcriptItemsFromMessages(p: {
           status: "completed",
           content: reasoning,
           ...(durationMs !== undefined ? { durationMs } : {}),
+          ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
         });
       }
       const content = m.content || "";

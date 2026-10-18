@@ -29,7 +29,8 @@ func TestARelayTurnedOnByAReloadListensWhereTheReloadSays(t *testing.T) {
 		swarmListenAddr: func(c *config.Config) string {
 			return net.JoinHostPort(c.Swarm.Host, strconv.Itoa(c.Swarm.Port))
 		},
-		home: t.TempDir(),
+		home:    t.TempDir(),
+		metrics: newMetricsWiring(rt),
 	}) {
 		if sub.Kind == serve.KindSwarm {
 			relay = sub

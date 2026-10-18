@@ -27,6 +27,19 @@ export type SessionSettings = {
   permissionMode: string;
   configuredPermissionMode: string;
   overrides: TurnOverride[];
+  /** The toolsets[] preset the session runs with, "default" for none; empty,
+   *  with no choices, while the configuration has no preset. */
+  toolset: string;
+  /** The presets by name, then "default"; empty without a preset. */
+  toolsetChoices: string[];
+};
+
+/** The composer's toolset selector: what it shows, what it offers and what a
+ *  pick does. Absent while the configuration has no preset. */
+export type ToolsetControl = {
+  value: string;
+  choices: string[];
+  onChange: (name: string) => void;
 };
 
 export const PERMISSION_MODES = ["ask", "accept_edits", "bypass"] as const;
@@ -68,7 +81,26 @@ export function parseSessionSettings(raw: unknown): SessionSettings | null {
     permissionMode: str(o.permissionMode) || "ask",
     configuredPermissionMode: str(o.configuredPermissionMode) || "ask",
     overrides,
+    toolset: str(o.toolset),
+    toolsetChoices: Array.isArray(o.toolsetChoices)
+      ? o.toolsetChoices.filter((v): v is string => typeof v === "string")
+      : [],
   };
+}
+
+/**
+ * toolsetsOfInfo reads the toolsets[] presets off an answer of
+ * `GET /coddy/info`: what a start screen, which has no session snapshot,
+ * offers. Empty for a server that names none, an older one included.
+ */
+export function toolsetsOfInfo(raw: unknown): string[] {
+  if (!raw || typeof raw !== "object") {
+    return [];
+  }
+  const list = (raw as Record<string, unknown>).toolsets;
+  return Array.isArray(list)
+    ? list.filter((v): v is string => typeof v === "string" && v.trim() !== "")
+    : [];
 }
 
 /**

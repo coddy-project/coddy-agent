@@ -23,6 +23,7 @@
     "check:caret": "node scripts/composer-caret-check.mjs",
     "check:long-prompts": "node scripts/long-prompts-check.mjs",
     "check:settings-unsaved": "node scripts/settings-unsaved-check.mjs",
+    "check:settings-search": "node scripts/settings-unsaved-check.mjs search",
     "fmt": "prettier -w .",
     "format:check": "prettier --check ."
   },

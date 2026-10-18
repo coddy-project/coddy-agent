@@ -1,0 +1,294 @@
+rule_files:
+  - coddy-rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  # CoddyDown: five minutes of failed scrapes, only for a coddy job.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="coddy", instance="a:12347"}'
+        values: "0x20"
+      - series: 'up{job="coddy-relay", instance="b:12347"}'
+        values: "1x20"
+      - series: 'up{job="node", instance="c:9100"}'
+        values: "0x20"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: CoddyDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: CoddyDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: coddy
+              instance: "a:12347"
+            exp_annotations:
+              summary: "a:12347 has not answered a scrape for 5 minutes"
+
+  - interval: 1m
+    input_series:
+      # Three minutes down, then back.
+      - series: 'up{job="coddy", instance="a:12347"}'
+        values: "1x3 0x3 1x14"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: CoddyDown
+        exp_alerts: []
+
+  # CoddyDiskLow: 400 MiB free for five minutes fires.
+  - interval: 1m
+    input_series:
+      - series: 'coddy_sessions_disk_available_bytes{job="coddy", instance="a:12347"}'
+        values: "419430400x20"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: CoddyDiskLow
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: CoddyDiskLow
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: coddy
+              instance: "a:12347"
+            exp_annotations:
+              summary: "Less than 512 MiB is free on the sessions volume of a:12347"
+
+  # CoddyDiskLow: 600 MiB free, and exactly 512 MiB, do not fire.
+  - interval: 1m
+    input_series:
+      - series: 'coddy_sessions_disk_available_bytes{job="coddy", instance="a:12347"}'
+        values: "629145600x20"
+      - series: 'coddy_sessions_disk_available_bytes{job="coddy", instance="b:12347"}'
+        values: "536870912x20"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: CoddyDiskLow
+        exp_alerts: []
+
+  # CoddyDiskLow: a dip of two minutes does not fire.
+  - interval: 1m
+    input_series:
+      - series: 'coddy_sessions_disk_available_bytes{job="coddy", instance="a:12347"}'
+        values: "629145600x5 419430400x2 629145600x13"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: CoddyDiskLow
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: CoddyDiskLow
+        exp_alerts: []
+
+  # CoddyDiskLow: with the series absent (a build or a host without the probe) it stays quiet.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="coddy", instance="a:12347"}'
+        values: "1x20"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: CoddyDiskLow
+        exp_alerts: []
+
+  # CoddyProviderFailing: half of the attempts fail, all day long, and only on
+  # the node that has the failures.
+  - interval: 1m
+    input_series:
+      - series: 'coddy_llm_attempts_total{job="coddy", instance="a:12347", provider="stub", model="m", outcome="ok"}'
+        values: "0+1x40"
+      - series: 'coddy_llm_attempts_total{job="coddy", instance="a:12347", provider="stub", model="m", outcome="server_error"}'
+        values: "0+1x40"
+      - series: 'coddy_llm_attempts_total{job="coddy", instance="b:12347", provider="stub", model="m", outcome="ok"}'
+        values: "0+2x40"
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: CoddyProviderFailing
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: CoddyProviderFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: coddy
+              instance: "a:12347"
+              provider: stub
+            exp_annotations:
+              summary: "More than 20% of the stub calls of a:12347 failed in the last 15 minutes"
+
+  # CoddyProviderFailing: the failures of first attempts and of retries add up
+  # to one provider's share, and the alert carries no attempt label.
+  - interval: 1m
+    input_series:
+      - series: 'coddy_llm_attempts_total{job="coddy", instance="a:12347", provider="stub", model="m", outcome="ok", attempt="first"}'
+        values: "0+2x40"
+      - series: 'coddy_llm_attempts_total{job="coddy", instance="a:12347", provider="stub", model="m", outcome="server_error", attempt="first"}'
+        values: "0+1x40"
+      - series: 'coddy_llm_attempts_total{job="coddy", instance="a:12347", provider="stub", model="m", outcome="server_error", attempt="retry"}'
+        values: "0+1x40"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: CoddyProviderFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: coddy
+              instance: "a:12347"
+              provider: stub
+            exp_annotations:
+              summary: "More than 20% of the stub calls of a:12347 failed in the last 15 minutes"
+
+  # CoddyProviderFailing: every attempt fails, but fewer than 11 in 15 minutes.
+  - interval: 1m
+    input_series:
+      - series: 'coddy_llm_attempts_total{job="coddy", instance="a:12347", provider="stub", model="m", outcome="timeout"}'
+        values: "0+0.5x40"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: CoddyProviderFailing
+        exp_alerts: []
+
+  # CoddyProviderFailing: plenty of attempts, but one in eleven fails.
+  - interval: 1m
+    input_series:
+      - series: 'coddy_llm_attempts_total{job="coddy", instance="a:12347", provider="stub", model="m", outcome="ok"}'
+        values: "0+10x40"
+      - series: 'coddy_llm_attempts_total{job="coddy", instance="a:12347", provider="stub", model="m", outcome="rate_limited"}'
+        values: "0+1x40"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: CoddyProviderFailing
+        exp_alerts: []
+
+  # CoddyProviderFailing: errors of the caller's own making are not the provider's failure.
+  - interval: 1m
+    input_series:
+      - series: 'coddy_llm_attempts_total{job="coddy", instance="a:12347", provider="stub", model="m", outcome="ok"}'
+        values: "0+1x40"
+      - series: 'coddy_llm_attempts_total{job="coddy", instance="a:12347", provider="stub", model="m", outcome="client_error"}'
+        values: "0+5x40"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: CoddyProviderFailing
+        exp_alerts: []
+
+  # CoddyTurnLongRunning: past an hour fires at once, an hour or less does not.
+  - interval: 1m
+    input_series:
+      - series: 'coddy_turn_oldest_running_seconds{job="coddy", instance="a:12347"}'
+        values: "3601x10"
+      - series: 'coddy_turn_oldest_running_seconds{job="coddy", instance="b:12347"}'
+        values: "3600x10"
+      - series: 'coddy_turn_oldest_running_seconds{job="coddy", instance="c:12347"}'
+        values: "0x10"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CoddyTurnLongRunning
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              job: coddy
+              instance: "a:12347"
+            exp_annotations:
+              summary: "A turn on a:12347 has been running for over an hour"
+
+  # CoddyRestartRequired: set for ten minutes fires.
+  - interval: 1m
+    input_series:
+      - series: 'coddy_restart_required{job="coddy", instance="a:12347"}'
+        values: "1x30"
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: CoddyRestartRequired
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: CoddyRestartRequired
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: coddy
+              instance: "a:12347"
+            exp_annotations:
+              summary: "a:12347 needs a restart to apply a saved change"
+
+  # CoddyRestartRequired: at 0 it does not fire, and neither does a blip of five minutes.
+  - interval: 1m
+    input_series:
+      - series: 'coddy_restart_required{job="coddy", instance="a:12347"}'
+        values: "0x30"
+      - series: 'coddy_restart_required{job="coddy", instance="b:12347"}'
+        values: "0x3 1x5 0x22"
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: CoddyRestartRequired
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: CoddyRestartRequired
+        exp_alerts: []
+
+  # CoddySwarmJoinDown: a registration offline for five minutes fires.
+  - interval: 1m
+    input_series:
+      - series: 'coddy_swarm_joins{job="coddy", instance="a:12347", relay="relay:12346", transport="direct", state="offline"}'
+        values: "1x10"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: CoddySwarmJoinDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: CoddySwarmJoinDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: coddy
+              instance: "a:12347"
+              relay: "relay:12346"
+              transport: direct
+              state: offline
+            exp_annotations:
+              summary: "a:12347 has not registered into the relay relay:12346 for 5 minutes"
+
+  # CoddySwarmJoinDown: an online registration, and a two-minute drop, do not fire.
+  - interval: 1m
+    input_series:
+      - series: 'coddy_swarm_joins{job="coddy", instance="a:12347", relay="relay:12346", transport="direct", state="offline"}'
+        values: "0x5 1x2 0x5"
+      - series: 'coddy_swarm_joins{job="coddy", instance="a:12347", relay="relay:12346", transport="direct", state="online"}'
+        values: "1x5 0x2 1x5"
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: CoddySwarmJoinDown
+        exp_alerts: []
+
+  # CoddyProviderQuotaHigh: past 90% for five minutes fires.
+  - interval: 1m
+    input_series:
+      - series: 'coddy_provider_quota_used_ratio{job="coddy", instance="a:12347", provider="hub", window="session"}'
+        values: "0.95x10"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: CoddyProviderQuotaHigh
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: CoddyProviderQuotaHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: coddy
+              instance: "a:12347"
+              provider: hub
+              window: session
+            exp_annotations:
+              summary: "hub on a:12347 has used over 90% of its session quota"
+
+  # CoddyProviderQuotaHigh: exactly 90%, and a window that resets, do not fire.
+  - interval: 1m
+    input_series:
+      - series: 'coddy_provider_quota_used_ratio{job="coddy", instance="a:12347", provider="hub", window="week"}'
+        values: "0.9x10"
+      - series: 'coddy_provider_quota_used_ratio{job="coddy", instance="a:12347", provider="hub", window="session"}'
+        values: "0.95x3 0x7"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: CoddyProviderQuotaHigh
+        exp_alerts: []

@@ -45,6 +45,10 @@ type Options struct {
 	// ExtraAuthTokens are bearer tokens supplied out of band (--auth-token,
 	// CODDY_HTTP_TOKEN) so a credential need not be written into config.yaml.
 	ExtraAuthTokens []string
+	// UnbuiltSections names the settings sections this binary cannot run
+	// (config.UISchemaJSONHiding): the form leaves them out, and a save still
+	// writes them back.
+	UnbuiltSections []string
 	// ExtraLogin is a web sign-in account supplied out of band (CODDY_HTTP_USER,
 	// CODDY_HTTP_PASSWORD), for the same reason: it enables the form on its own
 	// and never reaches the file, so a save from the settings screen cannot

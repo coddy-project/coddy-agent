@@ -37,6 +37,20 @@ func (m *Manager) TurnStartedAt(sessionID string) (time.Time, bool) {
 	return at, ok
 }
 
+// OldestTurnStartedAt reports when the longest-running turn in THIS process began; ok
+// is false when it runs none.
+func (m *Manager) OldestTurnStartedAt() (time.Time, bool) {
+	m.activeTurnMu.Lock()
+	defer m.activeTurnMu.Unlock()
+	var oldest time.Time
+	for _, at := range m.turnStarted {
+		if oldest.IsZero() || at.Before(oldest) {
+			oldest = at
+		}
+	}
+	return oldest, !oldest.IsZero()
+}
+
 // markTurnActive registers a running turn for sessionID and returns its release closure.
 //
 // The registry counts turns instead of holding a set: HandleSessionPromptWithSender

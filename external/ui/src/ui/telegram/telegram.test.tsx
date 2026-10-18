@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { Composer } from "../chat/Composer";
 import { ImageLightbox } from "../components/ImageLightbox";
+import { parseAppHash } from "../scheduler/hashRoute";
 import { CODDY_UI_THEME_COOKIE } from "../theme/themeCookie";
 import {
   createTelegramBridge,
@@ -145,6 +146,44 @@ describe("launch parameters", () => {
     expect(bare.cleanHash).toBe("");
     const ordinary = parseLaunchAddress("?lang=ru", "#/settings");
     expect(ordinary.changed).toBe(false);
+  });
+
+  test("a settings link that names a setting keeps the row and the setting when the launch parameters are taken out", () => {
+    const route = "/settings/providers?id=openai&field=providers%3Aproxy";
+    const after = parseLaunchAddress("", `#${route}&${launchHash()}`);
+    expect(after.launch?.version).toBe("10.1");
+    expect(after.cleanHash).toBe(`#${route}`);
+
+    go(`/#${route}&${launchHash()}`);
+    expect(captureTelegramLaunch(window)?.initData).toBe(DATA);
+    expect(window.location.hash).toBe(`#${route}`);
+    expect(window.location.href).not.toContain("tgWebApp");
+    expect(parseAppHash()).toEqual({
+      branch: "settings",
+      historyOpen: false,
+      section: "providers",
+      item: "openai",
+      field: "providers:proxy",
+    });
+
+    // A tab's own setting, the history sidebar and a colon typed as it is:
+    // the address is rewritten with the colon encoded and reads the same.
+    go(`/#/settings/agent?field=agent:max_turns&history=1&${launchHash()}`);
+    captureTelegramLaunch(window);
+    expect(window.location.hash).toBe(
+      "#/settings/agent?field=agent%3Amax_turns&history=1",
+    );
+    expect(parseAppHash()).toMatchObject({
+      section: "agent",
+      item: null,
+      field: "agent:max_turns",
+      historyOpen: true,
+    });
+
+    // A reload inside the Mini App: the address has only the route now.
+    resetTelegramLaunchForTests();
+    expect(captureTelegramLaunch(window)?.initData).toBe(DATA);
+    expect(parseAppHash()).toMatchObject({ field: "agent:max_turns" });
   });
 
   test("the bot's link and a session start parameter open that conversation", () => {

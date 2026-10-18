@@ -1,6 +1,7 @@
 import { useCallback, useState, useSyncExternalStore } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { SwitchField } from "../settings/SwitchField";
+import { SETTINGS_TEXTS, landmarkAnchor } from "../settings/settingsSections";
 import { telegramLaunch } from "../telegram/launch";
 import {
   disableNotifications,
@@ -9,6 +10,11 @@ import {
   subscribeNotificationState,
   type NotificationSupport,
 } from "./notifications";
+
+/** Whether the block is drawn (not in the Telegram Mini App); search reads it too. */
+export function notificationsShown(): boolean {
+  return !telegramLaunch();
+}
 
 /** The status line under the switch: why it cannot be turned on here. */
 const STATUS_KEY: Partial<Record<NotificationSupport, string>> = {
@@ -51,7 +57,7 @@ export function NotificationsSetting() {
     }
   }, []);
 
-  if (telegramLaunch()) {
+  if (!notificationsShown()) {
     return null;
   }
   const statusKey = STATUS_KEY[support];
@@ -59,9 +65,10 @@ export function NotificationsSetting() {
     <div
       className="appearance-notify-block"
       data-testid="appearance-notifications"
+      data-settings-anchor={landmarkAnchor("appearance", "notifications")}
     >
       <p className="appearance-section-label">
-        {t("appearance.notificationsLabel")}
+        {t(SETTINGS_TEXTS.appearanceNotifications.label)}
       </p>
       <SwitchField
         checked={on}

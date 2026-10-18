@@ -68,6 +68,10 @@ type Server struct {
 	// They are never written to config.yaml and survive PUT /coddy/config hot reloads.
 	extraAuthTokens []string
 
+	// unbuiltSections are the settings sections the form leaves out
+	// (Options.UnbuiltSections).
+	unbuiltSections []string
+
 	// envLoginUser and envLoginHash are the web sign-in account supplied out of
 	// band (CODDY_HTTP_USER / CODDY_HTTP_PASSWORD). The password is hashed once
 	// as the server comes up, and neither value is ever written to config.yaml.
@@ -384,6 +388,9 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		// Default marks the row a session that selected no model runs on,
 		// so a client (the remote console) shows the model that will run.
 		Default bool `json:"default,omitempty"`
+		// Toolset is the toolsets[] preset the model names (models[].toolset):
+		// what a new chat on it is offered until it picks another.
+		Toolset string `json:"toolset,omitempty"`
 	}
 	out := struct {
 		Object string     `json:"object"`
@@ -440,6 +447,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 				ReasoningLevels:  cfg.ReasoningChoicesFor(ent),
 				ReasoningDefault: cfg.DefaultReasoningLevelFor(ent),
 				Default:          defaultModel != "" && mid == defaultModel,
+				Toolset:          ent.Toolset,
 			})
 		}
 	}

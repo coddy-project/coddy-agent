@@ -31,8 +31,8 @@ func metadataResponse(cfg *config.Config, yamlSel string) map[string]string {
 }
 
 // applyProfileSettings applies what a profile request says about the
-// session's settings - the mode its model field names, metadata.model and
-// metadata.reasoning - through the manager's setter, so every surface
+// session's settings - the mode its model field names, metadata.model,
+// metadata.reasoning and metadata.toolset - through the manager's setter, so every surface
 // watching the session mirrors it. Only what differs from the session is
 // changed: a browser re-sends its selection with every message. Like every
 // change the operator makes, it leaves no line in the transcript.
@@ -105,6 +105,17 @@ func applyProfileSettings(ctx context.Context, mgr *session.Manager, st *session
 		}
 		if level != strings.TrimSpace(st.GetSelectedReasoning()) {
 			ch.Reasoning = &level
+		}
+	}
+	// A toolset picked before the chat had a session rides in with its first
+	// message; the setter refuses a name the configuration does not have.
+	if v, ok := m["toolset"]; ok && string(v) != "null" {
+		var name string
+		if err := json.Unmarshal(v, &name); err != nil {
+			return err
+		}
+		if name = strings.TrimSpace(name); name != "" && name != st.GetSelectedToolset() {
+			ch.Toolset = &name
 		}
 	}
 	if ch.Empty() {

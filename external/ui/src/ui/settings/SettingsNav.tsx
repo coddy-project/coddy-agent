@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { SectionDescriptor } from "./settingsSections";
 import { useT } from "../i18n/I18nProvider";
 
@@ -14,6 +20,7 @@ export function SettingsNav(props: {
   onSelect: (id: string) => void;
   /** Grey rows after the tabs, for the ones the schema has yet to bring. */
   placeholders?: number;
+  search?: ReactNode;
 }) {
   const { sections, active, onSelect } = props;
   const { t } = useT();
@@ -62,6 +69,9 @@ export function SettingsNav(props: {
 
   return (
     <div className="settings-nav-wrap">
+      {props.search ? (
+        <div className="settings-nav-search">{props.search}</div>
+      ) : null}
       <button
         type="button"
         className="settings-nav-arrow settings-nav-arrow-left"

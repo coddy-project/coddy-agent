@@ -146,6 +146,7 @@ describe("parseAppHash", () => {
       historyOpen: true,
       section: null,
       item: null,
+      field: null,
     });
   });
 
@@ -156,6 +157,7 @@ describe("parseAppHash", () => {
       historyOpen: false,
       section: "providers",
       item: null,
+      field: null,
     });
   });
 
@@ -166,6 +168,7 @@ describe("parseAppHash", () => {
       historyOpen: false,
       section: "appearance",
       item: null,
+      field: null,
     });
   });
 
@@ -176,12 +179,53 @@ describe("parseAppHash", () => {
       historyOpen: true,
       section: "models",
       item: "demo/qwen3.8-27b",
+      field: null,
     });
   });
 
   test("an empty ?id= names no row", () => {
     setHash("#/settings/providers?id=");
     expect(parseAppHash()).toMatchObject({ section: "providers", item: null });
+  });
+
+  test("parses the setting a link names from field=, with or without a row", () => {
+    setHash("#/settings/providers?id=openai&field=providers%3Aproxy");
+    expect(parseAppHash()).toEqual({
+      branch: "settings",
+      historyOpen: false,
+      section: "providers",
+      item: "openai",
+      field: "providers:proxy",
+    });
+    setHash("#/settings/agent?field=agent%3Amax_turns&history=1");
+    expect(parseAppHash()).toEqual({
+      branch: "settings",
+      historyOpen: true,
+      section: "agent",
+      item: null,
+      field: "agent:max_turns",
+    });
+    // A colon an address was typed with is read the same as an encoded one,
+    // and so is a dot in the path of a field of a list.
+    setHash("#/settings/logger?field=logger:levels.component");
+    expect(parseAppHash()).toMatchObject({
+      section: "logger",
+      field: "logger:levels.component",
+    });
+    setHash(
+      "#/settings/providers?id=demo%2Fq&field=group%3Aproviders%3Aadvanced",
+    );
+    expect(parseAppHash()).toMatchObject({
+      item: "demo/q",
+      field: "group:providers:advanced",
+    });
+  });
+
+  test("an empty or blank field= names no setting", () => {
+    setHash("#/settings/agent?field=");
+    expect(parseAppHash()).toMatchObject({ section: "agent", field: null });
+    setHash("#/settings/agent?field=%20");
+    expect(parseAppHash()).toMatchObject({ section: "agent", field: null });
   });
 
   test("parses settings/<section> with history sidebar", () => {
@@ -191,29 +235,123 @@ describe("parseAppHash", () => {
       historyOpen: true,
       section: "appearance",
       item: null,
+      field: null,
     });
   });
 });
 
 describe("hash writers", () => {
   test("a settings row is written as ?id= and dropped with the list", () => {
-    expect(appNavHrefSettingsSection("providers", "demo")).toBe(
+    expect(appNavHrefSettingsSection("providers", { item: "demo" })).toBe(
       "#/settings/providers?id=demo",
     );
-    expect(appNavHrefSettingsSection("models", "demo/qwen3.8-27b")).toBe(
-      "#/settings/models?id=demo%2Fqwen3.8-27b",
-    );
-    expect(appNavHrefSettingsSection("models", "demo/q", true)).toBe(
-      "#/settings/models?id=demo%2Fq&history=1",
-    );
-    expect(appNavHrefSettingsSection("providers", null)).toBe(
-      "#/settings/providers",
-    );
+    expect(
+      appNavHrefSettingsSection("models", { item: "demo/qwen3.8-27b" }),
+    ).toBe("#/settings/models?id=demo%2Fqwen3.8-27b");
+    expect(
+      appNavHrefSettingsSection("models", {
+        item: "demo/q",
+        historySidebar: true,
+      }),
+    ).toBe("#/settings/models?id=demo%2Fq&history=1");
+    expect(appNavHrefSettingsSection("providers")).toBe("#/settings/providers");
     setHash("#/settings/providers");
     setSettingsSectionHash("providers", { item: "demo" });
     expect(window.location.hash).toBe("#/settings/providers?id=demo");
     setSettingsSectionHash("providers", { item: null });
     expect(window.location.hash).toBe("#/settings/providers");
+  });
+
+  test("a settings field is written as field= next to the row and encoded", () => {
+    expect(
+      appNavHrefSettingsSection("providers", {
+        item: "openai",
+        field: "providers:proxy",
+      }),
+    ).toBe("#/settings/providers?id=openai&field=providers%3Aproxy");
+    expect(
+      appNavHrefSettingsSection("agent", { field: "agent:max_turns" }),
+    ).toBe("#/settings/agent?field=agent%3Amax_turns");
+    expect(
+      appNavHrefSettingsSection("logger", { field: "logger:levels.component" }),
+    ).toBe("#/settings/logger?field=logger%3Alevels.component");
+    // The history sidebar stays, last, as it is written without a field.
+    expect(
+      appNavHrefSettingsSection("models", {
+        item: "demo/q",
+        historySidebar: true,
+        field: "models:model",
+      }),
+    ).toBe("#/settings/models?id=demo%2Fq&field=models%3Amodel&history=1");
+    expect(
+      appNavHrefSettingsSection("agent", {
+        historySidebar: true,
+        field: "agent:max_turns",
+      }),
+    ).toBe("#/settings/agent?field=agent%3Amax_turns&history=1");
+    // Blank means none; a tab with no section writes no field.
+    expect(appNavHrefSettingsSection("agent", { field: "  " })).toBe(
+      "#/settings/agent",
+    );
+    expect(appNavHrefSettingsSection("", { field: "agent:x" })).toBe(
+      "#/settings",
+    );
+  });
+
+  test("what the writer writes the parser reads back", () => {
+    const cases: [string, string | null, string][] = [
+      ["providers", "openai", "providers:proxy"],
+      ["models", "demo/qwen3.8-27b", "group:models:generation"],
+      ["logger", null, "logger:levels.component"],
+      ["system.prompts", null, "system.prompts:system_prompt_file"],
+    ];
+    for (const [section, item, field] of cases) {
+      setHash(appNavHrefSettingsSection(section, { item, field }));
+      expect(parseAppHash()).toMatchObject({ section, item, field });
+    }
+  });
+
+  test("setSettingsSectionHash writes field= through replaceState, adding no history entry", () => {
+    setHash("#/settings/providers");
+    const before = window.history.length;
+    setSettingsSectionHash("providers", {
+      item: "openai",
+      field: "providers:proxy",
+    });
+    expect(window.location.hash).toBe(
+      "#/settings/providers?id=openai&field=providers%3Aproxy",
+    );
+    expect(window.history.length).toBe(before);
+    setSettingsSectionHash("providers", {
+      item: "openai",
+      field: "providers:proxy",
+      historySidebar: true,
+    });
+    expect(window.location.hash).toBe(
+      "#/settings/providers?id=openai&field=providers%3Aproxy&history=1",
+    );
+    // Written again without it, the field is gone.
+    setSettingsSectionHash("providers", { item: "openai" });
+    expect(window.location.hash).toBe("#/settings/providers?id=openai");
+    setSettingsSectionHash("agent", { field: "agent:max_turns" });
+    expect(window.location.hash).toBe(
+      "#/settings/agent?field=agent%3Amax_turns",
+    );
+    setSettingsSectionHash("agent");
+    expect(window.location.hash).toBe("#/settings/agent");
+  });
+
+  test("stripHistorySidebarFromHash keeps the row and the setting a settings address names", () => {
+    setHash("#/settings/providers?id=openai&field=providers%3Aproxy&history=1");
+    stripHistorySidebarFromHash();
+    expect(window.location.hash).toBe(
+      "#/settings/providers?id=openai&field=providers%3Aproxy",
+    );
+    setHash("#/settings/agent?field=agent%3Amax_turns&history=1");
+    stripHistorySidebarFromHash();
+    expect(window.location.hash).toBe(
+      "#/settings/agent?field=agent%3Amax_turns",
+    );
   });
 
   test("setHistoryHash writes #/history", () => {

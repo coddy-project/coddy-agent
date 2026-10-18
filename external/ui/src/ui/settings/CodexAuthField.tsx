@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { FieldLabel } from "./FieldHint";
+import type { OverrideTexts } from "./settingsSections";
 import { useT } from "../i18n/I18nProvider";
 import { translate } from "../i18n/i18n";
 
@@ -38,6 +39,8 @@ async function responseError(response: Response): Promise<string> {
 export function CodexAuthField(props: {
   providerName: string;
   proxy?: string;
+  /** The account's name and description (primary). */
+  texts: OverrideTexts;
 }) {
   const providerName = props.providerName.trim();
   const endpoint = `/coddy/providers/${encodeURIComponent(providerName)}/codex-auth`;
@@ -173,8 +176,8 @@ export function CodexAuthField(props: {
   return (
     <div className="settings-row" data-testid="codex-auth-field">
       <FieldLabel
-        label={t("codexAuth.fieldLabel")}
-        description={t("codexAuth.description")}
+        label={props.texts.primary}
+        description={props.texts.primaryDesc}
       />
       {status.connected ? (
         <p className="settings-muted codex-auth-status">{connectedLabel}</p>

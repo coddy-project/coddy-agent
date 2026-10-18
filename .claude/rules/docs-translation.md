@@ -72,7 +72,9 @@ The pre-commit hook reports a stale stamp as a warning; CI fails on it.
 
 The reader is a person who installs and runs Coddy, often a developer, sometimes not. Write the way
 a careful Russian-speaking engineer explains the program to a colleague: plain, exact, active. A
-translation renders the meaning of the English sentence, not its word order.
+translation renders the meaning of the English sentence, not its word order. Run every draft through
+the prose skills that **`AGENTS.md`** lists (*Prose skills*: stop-slop, humanizer-ru, ru-text, logika);
+the typography below wins where one of them disagrees.
 
 Typography and form (`make docs-check` enforces the dashes, the quotes and the horizontal rules outside code):
 - a hyphen with spaces ` - ` instead of an em dash or an en dash, ranges as `10-15`;

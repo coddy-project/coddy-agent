@@ -387,3 +387,115 @@ func TestReasoningLevelsHonoursUnsavedProviderType(t *testing.T) {
 		})
 	}
 }
+
+// PATCH /coddy/sessions/{id} sets the session's toolset like its reasoning:
+// validated against the presets, kept in session.json, mirrored in the
+// settings snapshot; a name the configuration does not have is a 400.
+func TestCoddySessionPatchSelectedToolset(t *testing.T) {
+	root := t.TempDir()
+	cfg := reasoningHTTPConfig()
+	cfg.Toolsets = []config.Toolset{{Name: "lean", Tools: []string{"read", "grep"}}}
+	cfg.Paths = config.Paths{Home: filepath.Join(root, "home"), CWD: "/tmp"}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", store)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	t.Cleanup(srv.Drain)
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	patch := func(body string) (int, map[string]interface{}) {
+		req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/coddy/sessions/"+url.PathEscape(res.SessionID), strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		var out map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		return resp.StatusCode, out
+	}
+	code, out := patch(`{"selectedToolset":"lean"}`)
+	if code != http.StatusOK || out["selectedToolset"] != "lean" {
+		t.Fatalf("PATCH lean = %d %v", code, out)
+	}
+	settings, _ := out["settings"].(map[string]interface{})
+	if settings["toolset"] != "lean" || !reflect.DeepEqual(settings["toolsetChoices"], []interface{}{"lean", "default"}) {
+		t.Fatalf("settings = %v", settings)
+	}
+	snap, err := store.ReadSnapshot(res.SessionID)
+	if err != nil || snap.Meta.SelectedToolset != "lean" {
+		t.Fatalf("persisted toolset = %q, %v", snap.Meta.SelectedToolset, err)
+	}
+	if code, out := patch(`{"selectedToolset":"nope"}`); code != http.StatusBadRequest {
+		t.Fatalf("PATCH an unknown toolset = %d %v", code, out)
+	}
+}
+
+// A new chat's first message carries the toolset picked before it had a
+// session (metadata.toolset); GET /v1/models names each model's own toolset
+// and GET /coddy/info the presets, which is what a start screen offers.
+func TestToolsetOnTheWireForANewChat(t *testing.T) {
+	cfg := reasoningHTTPConfig()
+	cfg.Toolsets = []config.Toolset{{Name: "lean", Tools: []string{"read", "grep"}}}
+	cfg.Models[0].Toolset = "lean"
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	st, err := mgr.EnsureHTTPSession(context.Background(), "sess-toolset", "/tmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyProfileSettings(context.Background(), mgr, st, "sess-toolset", "", json.RawMessage(`{"toolset":"default"}`)); err != nil {
+		t.Fatalf("metadata.toolset: %v", err)
+	}
+	if got := st.GetSelectedToolset(); got != "default" {
+		t.Fatalf("selected toolset = %q, want default", got)
+	}
+	if err := applyProfileSettings(context.Background(), mgr, st, "sess-toolset", "", json.RawMessage(`{"toolset":"nope"}`)); err == nil {
+		t.Fatal("an unknown metadata.toolset was accepted")
+	}
+
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	t.Cleanup(srv.Drain)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	get := func(path string, into interface{}) {
+		resp, err := http.Get(ts.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if err := json.NewDecoder(resp.Body).Decode(into); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var models struct {
+		Data []struct {
+			ID      string `json:"id"`
+			Toolset string `json:"toolset"`
+		} `json:"data"`
+	}
+	get("/v1/models", &models)
+	named := map[string]string{}
+	for _, m := range models.Data {
+		named[m.ID] = m.Toolset
+	}
+	if named[cfg.Models[0].Model] != "lean" || named[cfg.Models[1].Model] != "" {
+		t.Fatalf("model toolsets = %v", named)
+	}
+	var info struct {
+		Toolsets []string `json:"toolsets"`
+	}
+	get("/coddy/info", &info)
+	if strings.Join(info.Toolsets, ",") != "lean" {
+		t.Fatalf("info toolsets = %v", info.Toolsets)
+	}
+}

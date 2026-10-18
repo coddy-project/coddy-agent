@@ -60,8 +60,10 @@ import {
   isNewerSettings,
   parseSessionSettings,
   permissionModeOfInfo,
+  toolsetsOfInfo,
   type SessionSettings,
   type SessionSettingsEvent,
+  type ToolsetControl,
   type TurnOverride,
 } from "./chat/sessionSettings";
 import {
@@ -383,6 +385,8 @@ type ModelInfo = {
   multimodal?: boolean;
   reasoningLevels?: string[];
   reasoningDefault?: string;
+  /** The toolsets[] preset the model names (models[].toolset). */
+  toolset?: string;
 };
 
 const PROFILE_MODES = ["agent", "plan", "ask"] as const;
@@ -1240,6 +1244,9 @@ export function App() {
   const [settingsItem, setSettingsItem] = useState<string | null>(() =>
     initialRoute.branch === "settings" ? initialRoute.item : null,
   );
+  const [settingsField, setSettingsField] = useState<string | null>(() =>
+    initialRoute.branch === "settings" ? initialRoute.field : null,
+  );
   const [schedulerEditor, setSchedulerEditor] =
     useState<SchedulerEditorState>(null);
   const [schedulerJobs, setSchedulerJobs] = useState<SchedulerJob[]>([]);
@@ -1492,6 +1499,35 @@ export function App() {
    * leave the pick behind for the next try. The state mirrors the mode for the
    * chip.
    */
+  /**
+   * The toolsets[] presets the server names (GET /coddy/info, read with the
+   * permission mode after every configuration reload): the start screen has no
+   * session snapshot, and offers a toolset only while there is a preset.
+   */
+  const [serverToolsets, setServerToolsets] = useState<string[]>([]);
+  /** The viewed session's toolset and its choices, from its settings snapshot. */
+  const [sessionToolset, setSessionToolset] = useState<{
+    sid: string;
+    toolset: string;
+    choices: string[];
+  }>({ sid: "", toolset: "", choices: [] });
+  /**
+   * A toolset picked on the start screen, the way a permission mode picked
+   * there is held: `sid` is empty on the start screen and names the session
+   * the first send creates from then on. It rides in as metadata.toolset of
+   * every message into that session until the server has taken one, so a
+   * first send that never reached it does not lose the pick, and it is
+   * dropped when a new chat starts over.
+   */
+  const pendingToolsetRef = useRef({ name: "", sid: "" });
+  const [pendingToolset, setPendingToolsetState] = useState({
+    name: "",
+    sid: "",
+  });
+  const setPendingToolset = useCallback((name: string, sid = "") => {
+    pendingToolsetRef.current = { name, sid };
+    setPendingToolsetState({ name, sid });
+  }, []);
   const pendingPermissionModeRef = useRef({ mode: "", sid: "" });
   const [pendingPermissionMode, setPendingPermissionModeState] = useState("");
   const setPendingPermissionMode = useCallback((mode: string, sid = "") => {
@@ -1514,7 +1550,12 @@ export function App() {
       headers: { Accept: "application/json" },
     })
       .then((res) => (res.ok ? res.json() : null))
-      .then(permissionModeOfInfo)
+      .then((info: unknown) => {
+        if (read === serverPermissionReadRef.current && isAppEnvironment()) {
+          setServerToolsets(toolsetsOfInfo(info));
+        }
+        return permissionModeOfInfo(info);
+      })
       .catch(() => null)
       .then((mode) => {
         if (read !== serverPermissionReadRef.current || !isAppEnvironment()) {
@@ -2539,6 +2580,7 @@ export function App() {
       setSettingsRoute(true);
       setSettingsSection(p.section);
       setSettingsItem(p.item);
+      setSettingsField(p.field);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       if (isStackedShell()) setTasksOpen(false);
@@ -2947,6 +2989,7 @@ export function App() {
           multimodal?: boolean;
           reasoning_levels?: string[];
           reasoning_default?: string;
+          toolset?: string;
         }>;
       }>("/v1/models");
       if (!res.ok || !res.data?.data) {
@@ -2964,6 +3007,7 @@ export function App() {
             ? d.reasoning_levels.map((s) => `${s}`.trim()).filter(Boolean)
             : [],
           reasoningDefault: (d.reasoning_default || "").trim(),
+          toolset: (d.toolset || "").trim(),
         }))
         .filter((d) => d.id);
       const rows: ModelInfo[] = raw.map((d) => {
@@ -2976,6 +3020,9 @@ export function App() {
         };
         if (d.maxContextTokens !== undefined) {
           m.maxContextTokens = d.maxContextTokens;
+        }
+        if (d.toolset) {
+          m.toolset = d.toolset;
         }
         return m;
       });
@@ -4211,6 +4258,7 @@ export function App() {
     // The start screen's chip names the configured mode again (or a mode
     // picked there): it is derived, so nothing of the session left is shown.
     setPendingPermissionMode("");
+    setPendingToolset("");
     setSettingsOverrides([]);
     if (llmModelIds.length > 0) {
       const model = pickDefaultLlmModelForNewChat({
@@ -5457,6 +5505,12 @@ export function App() {
       }
 
       if (isNewChatFirstSend) {
+        // The toolset picked on the start screen now belongs to the session
+        // this send creates, before anything here waits: a new chat started
+        // meanwhile must not hand its own pick to this one.
+        if (pendingToolsetRef.current.name) {
+          setPendingToolset(pendingToolsetRef.current.name, sid);
+        }
         // The start screen's pick now belongs to the session this send
         // creates, and the chip keeps naming what the start screen showed
         // until that session's own snapshot arrives. With no pick and no word
@@ -5616,6 +5670,12 @@ export function App() {
       if (sendReasoning) meta.reasoning = reasoningSel;
       if (runSlug) meta.runPlanSlug = runSlug;
       if (heldVersion > 0) meta.settingsVersion = String(heldVersion);
+      // A toolset picked on the start screen goes with the messages of the
+      // session it was bound to until the server has taken one.
+      const toolsetPick = pendingToolsetRef.current;
+      if (toolsetPick.name && toolsetPick.sid === sid.trim()) {
+        meta.toolset = toolsetPick.name;
+      }
       reqBody.metadata = meta;
       // A permission mode picked before the chat had a session goes first,
       // as the command that asks for it; the server takes it off the text.
@@ -5643,6 +5703,9 @@ export function App() {
       // The server took the session's first message, and with it the pick.
       if (res.ok && pendingPermissionModeRef.current.sid === sid.trim()) {
         setPendingPermissionMode("");
+      }
+      if (res.ok && pendingToolsetRef.current.sid === sid.trim()) {
+        setPendingToolset("");
       }
       if (!ownsPost() || abortCtl.signal.aborted) return;
       pendingPostBySidRef.current.delete(postSessionKey);
@@ -6223,6 +6286,11 @@ export function App() {
     setPermissionMode(snap.permissionMode);
     setConfiguredPermissionMode(snap.configuredPermissionMode);
     setSettingsOverrides(snap.overrides);
+    setSessionToolset({
+      sid: snap.sessionId,
+      toolset: snap.toolset,
+      choices: snap.toolsetChoices,
+    });
     if (snap.mode) {
       setMode(snap.mode);
     }
@@ -6358,6 +6426,64 @@ export function App() {
     },
     [sessionId, patchSessionSettings, setPendingPermissionMode],
   );
+
+  const onToolsetChange = useCallback(
+    (next: string) => {
+      const name = next.trim();
+      if (!name) {
+        return;
+      }
+      const sid = sessionId.trim();
+      if (!sid) {
+        // No session yet: the pick rides in with the first message, keeping
+        // the binding of a first send already under way.
+        setPendingToolset(name, pendingToolsetRef.current.sid);
+        return;
+      }
+      if (pendingToolsetRef.current.sid === sid) {
+        // A session whose first message the server has not taken yet: the
+        // pick rides in with the next try, and the PATCH applies it at once
+        // should the server have taken it after all.
+        setPendingToolset(name, sid);
+      }
+      void patchSessionSettings(sid, { selectedToolset: name });
+    },
+    [sessionId, patchSessionSettings, setPendingToolset],
+  );
+
+  /**
+   * The composer's toolset chip: the presets of the viewed session's snapshot,
+   * else the ones the server names, and "default" for none of them. What it
+   * shows is the session's own toolset, else the start screen's pick, else the
+   * toolset the chosen model names. No preset, no chip.
+   */
+  const toolsetControl = useMemo<ToolsetControl | undefined>(() => {
+    const sid = sessionId.trim();
+    const own = sid && sessionToolset.sid === sid ? sessionToolset : null;
+    const choices =
+      own && own.choices.length > 0
+        ? own.choices
+        : serverToolsets.length > 0
+          ? [...serverToolsets, "default"]
+          : [];
+    if (choices.length === 0) {
+      return undefined;
+    }
+    const modelOwn = modelInfos.find((m) => m.id === llmModel)?.toolset ?? "";
+    // A pick held for this session (its first message not taken yet) or for
+    // the start screen names the chip until the session's snapshot does.
+    const held = pendingToolset.sid === sid ? pendingToolset.name : "";
+    const value = own?.toolset || held || modelOwn || "default";
+    return { value, choices, onChange: onToolsetChange };
+  }, [
+    sessionId,
+    sessionToolset,
+    serverToolsets,
+    modelInfos,
+    llmModel,
+    pendingToolset,
+    onToolsetChange,
+  ]);
 
   const onLlmReasoningChange = useCallback(
     (level: string) => {
@@ -7716,6 +7842,7 @@ export function App() {
               }}
               initialSection={settingsSection}
               initialItem={settingsItem}
+              initialField={settingsField}
               activeSessionId={sidebarActiveId}
               onSessionsDeleted={onSessionsDeletedInSettings}
               // spawn_agent resolves definitions against the session's own
@@ -7887,6 +8014,7 @@ export function App() {
             onPermissionModeChange={
               subagentTranscript ? undefined : onPermissionModeChange
             }
+            toolsetControl={subagentTranscript ? undefined : toolsetControl}
             settingsOverrides={settingsOverrides}
             {...(subagentTranscript
               ? {}

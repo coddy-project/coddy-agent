@@ -3,8 +3,12 @@ import { afterEach } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
 import { ThinkingMessage } from "./ThinkingMessage";
+import { setLocale } from "../i18n/i18n";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  setLocale("en");
+});
 
 test("completed state uses plain thinking label without spinner", () => {
   const { container } = render(
@@ -76,4 +80,74 @@ test("a closed reasoning row renders its body only once it is opened", async () 
   details.open = true;
   details.dispatchEvent(new Event("toggle"));
   expect(await screen.findByText("Weighing")).toBeInTheDocument();
+});
+
+// Issue #258: the row says what the reasoning cost and stands for reasoning a
+// provider kept to itself.
+
+test("a counted reasoning step shows its tokens after the duration", () => {
+  const { container } = render(
+    <ThinkingMessage
+      status="completed"
+      content="x"
+      durationMs={1200}
+      reasoningTokens={1250}
+    />,
+  );
+  const tokens = container.querySelector(".thinking-tokens");
+  expect(tokens?.textContent).toBe("1.2k tokens");
+  expect(tokens?.getAttribute("title")).toBe("1,250 reasoning tokens");
+  const left = container.querySelector(".thinking-left")!;
+  const kids = Array.from(left.children);
+  expect(kids.indexOf(tokens!)).toBe(
+    kids.indexOf(container.querySelector(".thinking-dur")!) + 1,
+  );
+});
+
+test("one reasoning token reads in the singular, and none reads nothing", () => {
+  const one = render(
+    <ThinkingMessage status="completed" content="x" reasoningTokens={1} />,
+  );
+  expect(one.container.querySelector(".thinking-tokens")?.textContent).toBe(
+    "1 token",
+  );
+  one.unmount();
+  const none = render(
+    <ThinkingMessage status="completed" content="x" reasoningTokens={0} />,
+  );
+  expect(none.container.querySelector(".thinking-tokens")).toBeNull();
+});
+
+test("reasoning the provider kept to itself is a row with its cost and a note", async () => {
+  const { container } = render(
+    <ThinkingMessage status="completed" content="" reasoningTokens={640} />,
+  );
+  expect(screen.getByText("thinking")).toBeTruthy();
+  expect(container.querySelector(".thinking-tokens")?.textContent).toBe(
+    "640 tokens",
+  );
+  const details = container.querySelector("details")!;
+  details.open = true;
+  details.dispatchEvent(new Event("toggle"));
+  expect(
+    await screen.findByText("The provider did not return the reasoning text."),
+  ).toBeInTheDocument();
+});
+
+// The Russian label stays a first-person verb like the tool rows (#239, held
+// by i18n.test.ts); the count is declined by number.
+test("the Russian row declines its tokens by number", () => {
+  setLocale("ru");
+  const { container } = render(
+    <ThinkingMessage
+      status="completed"
+      content="x"
+      durationMs={1200}
+      reasoningTokens={3}
+    />,
+  );
+  expect(screen.getByText("размышляю")).toBeTruthy();
+  expect(container.querySelector(".thinking-tokens")?.textContent).toBe(
+    "3 токена",
+  );
 });

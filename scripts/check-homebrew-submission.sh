@@ -68,7 +68,7 @@ echo
 echo "Target repository"
 ok "homebrew/core, as a formula built from source (open-source, command-line only)"
 note "homebrew/cask takes native applications and binary-only software"
-note "our own prebuilt cask stays on the release asset - see docs/getting-started/homebrew.md"
+note "our own prebuilt cask stays in the tap coddy-project/homebrew-coddy-agent - see docs/getting-started/homebrew.md"
 echo
 
 # --- Token availability -----------------------------------------------------

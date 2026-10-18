@@ -86,7 +86,11 @@ export function transcriptItemsLooselyEqual(
   }
 }
 
-/** Collapse consecutive identical completed reasoning rows (e.g. after reload merge). */
+/**
+ * Collapse consecutive identical completed reasoning rows (e.g. after reload merge).
+ * A row with no text stands for reasoning a provider kept to itself, and two
+ * of them in a row are two steps, never one row seen twice.
+ */
 export function dedupeAdjacentDuplicateThinkingCompleted(
   items: TranscriptItem[],
 ): TranscriptItem[] {
@@ -98,6 +102,7 @@ export function dedupeAdjacentDuplicateThinkingCompleted(
       it.type === "thinking" &&
       prev.status === "completed" &&
       it.status === "completed" &&
+      prev.content.trim() !== "" &&
       prev.content.trim() === it.content.trim()
     ) {
       let durationMs: number | undefined;
@@ -116,9 +121,11 @@ export function dedupeAdjacentDuplicateThinkingCompleted(
       if (pd !== undefined || cd !== undefined) {
         durationMs = Math.max(pd ?? 0, cd ?? 0);
       }
+      const reasoningTokens = prev.reasoningTokens ?? it.reasoningTokens;
       out[out.length - 1] = {
         ...prev,
         ...(durationMs !== undefined ? { durationMs } : {}),
+        ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
       };
       continue;
     }
@@ -167,20 +174,45 @@ export function mergeTranscriptPreferLocalSuffix(
   return [...merged, ...serverNext.slice(cut)];
 }
 
+/**
+ * A reasoning row with no text: a step whose provider kept its reasoning to
+ * itself and only counted it. The history draws it; the live stream never does.
+ */
+function isHiddenReasoningRow(it: TranscriptItem): boolean {
+  return (
+    it.type === "thinking" &&
+    it.status === "completed" &&
+    it.content.trim() === ""
+  );
+}
+
 function mergeServerPrefix(
   serverNext: TranscriptItem[],
   local: TranscriptItem[],
 ): TranscriptItem[] {
-  const minLen = Math.min(serverNext.length, local.length);
-  for (let i = 0; i < minLen; i++) {
-    if (!transcriptItemsLooselyEqual(serverNext[i]!, local[i]!)) {
+  // Rows of hidden reasoning only the server has take no part in the
+  // comparison: a reload in the middle of a turn would otherwise read them as
+  // a different transcript and drop the text still streaming after them.
+  let i = 0;
+  let j = 0;
+  while (i < serverNext.length && j < local.length) {
+    const s = serverNext[i]!;
+    const l = local[j]!;
+    if (transcriptItemsLooselyEqual(s, l)) {
+      i++;
+      j++;
+    } else if (isHiddenReasoningRow(s) && !isHiddenReasoningRow(l)) {
+      i++;
+    } else {
       return serverNext;
     }
   }
-  if (local.length > serverNext.length) {
-    return [...serverNext, ...local.slice(serverNext.length)];
+  if (j < local.length) {
+    return [...serverNext, ...local.slice(j)];
   }
-  if (local.length === serverNext.length && minLen > 0) {
+  // Both lists walked to their ends, the last rows aligned: the local copy of
+  // the last row may be ahead of the persisted one.
+  if (i === serverNext.length && j === local.length && j > 0) {
     const lastS = serverNext[serverNext.length - 1]!;
     const lastL = local[local.length - 1]!;
     if (

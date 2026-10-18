@@ -16,6 +16,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -51,10 +52,12 @@ const (
 
 // providerContextWindows reads the provider-reported windows a manager has
 // cached, and fetches the ones it lacks; the manager hands itself to every
-// state it registers.
+// state it registers. The same listing names the request parameters each model
+// takes (ModelParameters).
 type providerContextWindows interface {
 	reportedContextWindow(cfg *config.Config, ent *config.ModelEntry) (int, bool)
 	AwaitContextWindows(ctx context.Context, cfg *config.Config, modelRefs []string, maxWait time.Duration)
+	ModelParameters(cfg *config.Config, providerName, apiModel string) []string
 }
 
 // ModelListerFunc lists a provider's models; llm.ListModels in production.
@@ -70,7 +73,11 @@ type contextWindowEntry struct {
 	cancel context.CancelFunc
 	// windows maps the API model id to its reported window; nil until the
 	// listing answered once.
-	windows   map[string]int
+	windows map[string]int
+	// params maps the API model id to the request parameters the listing says
+	// it takes (supported_parameters); a model the listing names none for is
+	// absent.
+	params    map[string][]string
 	fetchedAt time.Time
 	failedAt  time.Time
 	// inflight is closed when the running fetch ends; nil while idle.
@@ -154,6 +161,17 @@ func (s *State) ContextWindowFor(cfg *config.Config, modelRef string) (tokens in
 	return resolveContextWindow(cfg, modelRef, s.contextWindows)
 }
 
+// ModelParameters is what the provider listing of this session's manager says
+// apiModel of the row providerName takes, nil when nothing is known (a state no
+// manager built, a listing not read yet). The request of a turn reads it
+// (llm.ProviderInput.SupportedParameters).
+func (s *State) ModelParameters(cfg *config.Config, providerName, apiModel string) []string {
+	if s == nil || s.contextWindows == nil {
+		return nil
+	}
+	return s.contextWindows.ModelParameters(cfg, providerName, apiModel)
+}
+
 // AwaitContextWindow makes sure the window of modelRef is read before a
 // request measures against it - the model a running turn just switched to -
 // waiting up to ContextWindowWait, or until ctx ends, for a provider listing
@@ -192,12 +210,46 @@ func (m *Manager) reportedContextWindow(cfg *config.Config, ent *config.ModelEnt
 	return n, n > 0
 }
 
+// ModelParameters returns what the cached listing of the row providerName says
+// apiModel takes, nil when nothing is known: a row whose listing is not read
+// for windows, a listing not read yet, a model it names no parameters for. It
+// never fetches; AwaitContextWindows does.
+func (m *Manager) ModelParameters(cfg *config.Config, providerName, apiModel string) []string {
+	if cfg == nil {
+		return nil
+	}
+	prov := cfg.FindProvider(providerName)
+	if !providerListsContextWindows(prov) {
+		return nil
+	}
+	m.windows.mu.Lock()
+	defer m.windows.mu.Unlock()
+	e := m.windows.entries[contextWindowKey(prov)]
+	if e == nil {
+		return nil
+	}
+	// A copy: the cache outlives the request that reads it.
+	return slices.Clone(e.params[apiModel])
+}
+
+// listingWanted reports whether a model's provider listing has anything to
+// tell its sessions: the window, unless max_context_tokens names it, and the
+// request parameters, which only an OpenAI-compatible server behind an
+// explicit api_base publishes (an OpenRouter-style aggregator) and which
+// matter only to a model that has reasoning levels to send.
+func listingWanted(cfg *config.Config, ent *config.ModelEntry, prov *config.ProviderConfig) bool {
+	if ent.MaxContextTokens <= 0 {
+		return true
+	}
+	return strings.TrimSpace(prov.Type) == "openai" && len(cfg.ReasoningLevelsFor(ent)) > 0
+}
+
 // AwaitContextWindows makes sure the listings behind modelRefs are cached or
 // being fetched, and waits up to maxWait (or until ctx ends) for the ones that
 // have never answered. It returns at once when every listing is cached, failed
-// recently, or does not apply (a model with max_context_tokens, a provider
-// that reports no windows); a listing past its TTL is refreshed in the
-// background while its windows keep serving.
+// recently, or does not apply (a model with max_context_tokens and nothing else
+// to learn from the listing, a provider that reports no windows); a listing
+// past its TTL is refreshed in the background while its windows keep serving.
 func (m *Manager) AwaitContextWindows(ctx context.Context, cfg *config.Config, modelRefs []string, maxWait time.Duration) {
 	if cfg == nil {
 		return
@@ -206,11 +258,11 @@ func (m *Manager) AwaitContextWindows(ctx context.Context, cfg *config.Config, m
 	seen := make(map[string]bool)
 	for _, ref := range modelRefs {
 		ent := cfg.FindModelEntry(strings.TrimSpace(ref))
-		if ent == nil || ent.MaxContextTokens > 0 {
+		if ent == nil {
 			continue
 		}
 		prov := cfg.FindProvider(ent.ProviderName())
-		if !providerListsContextWindows(prov) {
+		if !providerListsContextWindows(prov) || !listingWanted(cfg, ent, prov) {
 			continue
 		}
 		key := contextWindowKey(prov)
@@ -307,12 +359,17 @@ func (m *Manager) refreshContextWindows(cfg *config.Config, prov config.Provider
 			return
 		}
 		windows := make(map[string]int, len(models))
+		params := make(map[string][]string)
 		for _, model := range models {
 			if model.ContextWindow > 0 {
 				windows[model.ID] = model.ContextWindow
 			}
+			if model.SupportedParameters != nil {
+				params[model.ID] = model.SupportedParameters
+			}
 		}
 		e.windows = windows
+		e.params = params
 		e.fetchedAt = w.nowLocked()
 		e.failedAt = time.Time{}
 		m.log.Debug("provider context windows read", "provider", prov.Name, "models", len(windows))

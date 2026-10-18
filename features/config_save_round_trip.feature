@@ -19,6 +19,10 @@ Feature: A settings save rewrites only what the operator changed
   config before another one saved leaves the other save alone in every value it did not
   touch itself.
 
+  A section the binary behind the server cannot run, the metrics exporter in a build
+  without its tag, is left out of the form. It stays in the document the form reads and
+  writes back, so a save keeps it in config.yaml as it was, its token included.
+
   Scenario: A save without changes leaves config.yaml as it was
     Given a coddy server whose config.yaml spells its paths with ${CODDY_HOME}, ${CWD}, ~ and ${VAR}
     When the settings screen saves the config without changing anything
@@ -35,3 +39,10 @@ Feature: A settings save rewrites only what the operator changed
     When the settings screen saves the config with "agent.max_turns" set to 42
     And the second browser saves what it read with "agent.model" set to "spare/tiny"
     Then config.yaml carries both saves and is otherwise what it was
+
+  Scenario: A save from a form that does not show metrics keeps it on disk
+    Given a coddy server whose config.yaml spells its paths with ${CODDY_HOME}, ${CWD}, ~ and ${VAR}
+    And the binary behind the server has no metrics support
+    When the settings screen saves the config with "agent.max_turns" set to 42
+    Then the settings form offers no "metrics" section
+    And config.yaml is what it was with "max_turns: 40" written as "max_turns: 42"

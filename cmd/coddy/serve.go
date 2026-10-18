@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/signal"
@@ -214,6 +215,7 @@ func runServe(args []string) error {
 	httpTokens := outOfBandTokens(*authToken, httpserver.TokenEnvVar)
 
 	rt := &serve.Runtime{}
+	wiring := newMetricsWiring(rt)
 	all := subsystems(rt, subsystemDeps{
 		httpListenAddr:  httpListenAddr,
 		swarmListenAddr: swarmListenAddr,
@@ -222,6 +224,7 @@ func runServe(args []string) error {
 		httpLogin:       outOfBandLogin(),
 		swarmAuthTokens: outOfBandTokens(*swarmAuthToken, swarm.TokenEnvVar),
 		adjust:          applyProcessOverrides,
+		metrics:         wiring,
 	})
 	// Resolve is the pre-flight: it refuses a configuration this binary cannot
 	// honour before a single listener is opened, and reports what will run.
@@ -279,9 +282,12 @@ func runServe(args []string) error {
 	}); err != nil {
 		return err
 	}
+	// The registry counts for the whole process, whether or not the listener
+	// is enabled: enabling it later shows what happened before.
+	defer wiring.Start()()
 
 	log.Info("starting coddy serve", "version", version.Get(), "config", paths.ConfigPath, "workspace", paths.CWD)
-	printServeBanner(cfg, enabled, httpAddr, swarmAddr, len(httpTokens) > 0, outOfBandLogin().IsSet())
+	printServeBanner(os.Stderr, cfg, enabled, httpAddr, swarmAddr, len(httpTokens) > 0, outOfBandLogin().IsSet())
 
 	if rt.Mgr != nil {
 		// The servers of the global configuration start with the process and
@@ -326,6 +332,7 @@ func runServe(args []string) error {
 	// The supervisor is handed every descriptor, not just the enabled ones, so
 	// a later configuration change can turn a surface on as well as off.
 	sup := serve.NewSupervisor(log, all)
+	rt.SetSupervisor(sup)
 	// Only a process with something waiting to start it again may end itself
 	// over a configuration change. In the foreground the operator is the only
 	// one who would bring it back, so they are told instead.
@@ -465,6 +472,34 @@ type subsystemDeps struct {
 	// adjust re-applies the command-line overrides to a configuration loaded
 	// from the file, the way the file watcher does, before it is installed.
 	adjust func(*config.Config) error
+	// metrics is the exporter of this build; its descriptor ends the list.
+	metrics metricsWiring
+}
+
+// metricsWiring is what coddy serve needs of the Prometheus exporter, so this
+// file imports nothing of it: metrics.go carries the exporter in a build with
+// the metrics tag, metrics_stub.go the refusal in one without.
+type metricsWiring interface {
+	// Subsystem describes the exporter; Available says whether this build
+	// carries it, which is also what the settings form of the Metrics section
+	// depends on.
+	Subsystem() serve.Subsystem
+	// Start begins counting, once the runtime is initialised, and returns what
+	// ends it.
+	Start() (stop func())
+}
+
+// metricsDescriptor is the exporter's descriptor in every build. A build with
+// the tag completes it with what runs it. The exporter is auxiliary: it serves
+// alongside the surfaces and keeps no process up on its own.
+func metricsDescriptor() serve.Subsystem {
+	return serve.Subsystem{
+		Kind:      serve.KindMetrics,
+		ConfigKey: "metrics.enable",
+		BuildTag:  "metrics",
+		Auxiliary: true,
+		Enabled:   func(c *config.Config) bool { return c.Metrics.Enable },
+	}
 }
 
 // subsystems describes every surface this binary knows about, available or not.
@@ -473,6 +508,11 @@ type subsystemDeps struct {
 // that asks for a surface this binary cannot run is refused by name instead of
 // starting a daemon that quietly does less than it was told to.
 func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
+	metrics := deps.metrics.Subsystem()
+	var unbuilt []string
+	if !metrics.Available {
+		unbuilt = []string{"metrics"}
+	}
 	return []serve.Subsystem{
 		{
 			Kind:          serve.KindHTTP,
@@ -496,6 +536,7 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 					DefaultCWD: rt.Paths.CWD, Home: deps.home,
 					ListenAddr: deps.httpListenAddr(cfg), ExtraAuthTokens: deps.httpAuthTokens,
 					ExtraLogin: deps.httpLogin, DetachedPrompts: rt, Wakes: rt,
+					UnbuiltSections: unbuilt,
 					OnServer: func(s *httpserver.Server) {
 						if s == nil {
 							rt.SetTurnMirror(nil)
@@ -598,6 +639,7 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 				})
 			},
 		},
+		metrics,
 	}
 }
 
@@ -675,30 +717,38 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// printServeBanner says on stderr what this process actually started.
+// printServeBanner says on w (stderr, from a start) what this process actually
+// started.
 //
 // One command that starts a different set of surfaces per config file is only
 // as clear as what it reports, so the reachable addresses and whether the API
 // is open are stated rather than left to be inferred from the logs.
-func printServeBanner(cfg *config.Config, enabled []serve.Subsystem, httpAddr, swarmAddr string, extraAuth, extraLogin bool) {
-	fmt.Fprintf(os.Stderr, "coddy serve %s\n", version.Get())
+func printServeBanner(w io.Writer, cfg *config.Config, enabled []serve.Subsystem, httpAddr, swarmAddr string, extraAuth, extraLogin bool) {
+	_, _ = fmt.Fprintf(w, "coddy serve %s\n", version.Get())
 	for _, sub := range enabled {
 		switch sub.Kind {
 		case serve.KindHTTP:
-			fmt.Fprintf(os.Stderr, "  httpserver  http://%s  (%s)\n", httpAddr,
+			_, _ = fmt.Fprintf(w, "  httpserver  http://%s  (%s)\n", httpAddr,
 				httpAuthSummary(cfg, extraAuth, extraLogin))
 		case serve.KindSwarm:
 			scheme := "http"
 			if cfg.Swarm.TLS.Enabled() {
 				scheme = "https"
 			}
-			fmt.Fprintf(os.Stderr, "  swarm       %s://%s  (relay)\n", scheme, swarmAddr)
+			_, _ = fmt.Fprintf(w, "  swarm       %s://%s  (relay)\n", scheme, swarmAddr)
 		case serve.KindGateway:
-			fmt.Fprintf(os.Stderr, "  gateway     telegram\n")
+			_, _ = fmt.Fprintf(w, "  gateway     telegram\n")
 		case serve.KindGatewayPachca:
-			fmt.Fprintf(os.Stderr, "  gateway     pachca\n")
+			_, _ = fmt.Fprintf(w, "  gateway     pachca\n")
 		case serve.KindScheduler:
-			fmt.Fprintf(os.Stderr, "  scheduler   %s\n", cfg.SchedulerUserDir())
+			_, _ = fmt.Fprintf(w, "  scheduler   %s\n", cfg.SchedulerUserDir())
+		case serve.KindMetrics:
+			// Whether a scrape needs a credential, never the credential.
+			auth := "no token"
+			if cfg.Metrics.Token != "" {
+				auth = "bearer token"
+			}
+			_, _ = fmt.Fprintf(w, "  metrics     http://%s/metrics  (%s)\n", cfg.Metrics.ListenAddr(), auth)
 		}
 	}
 }

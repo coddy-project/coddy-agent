@@ -329,7 +329,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	var reasoningBuf strings.Builder
 	var toolCalls []ToolCall
 	var stopReason string
-	var inputTokens, outputTokens, cachedInputTokens int
+	var inputTokens, outputTokens, cachedInputTokens, reasoningTokens int
 
 	// Accumulate tool call deltas by index.
 	type tcBuilder struct {
@@ -434,6 +434,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 				inputTokens = int(chunk.Usage.PromptTokens)
 				outputTokens = int(chunk.Usage.CompletionTokens)
 				cachedInputTokens = int(chunk.Usage.PromptTokensDetails.CachedTokens)
+				reasoningTokens = int(chunk.Usage.CompletionTokensDetails.ReasoningTokens)
 			}
 			continue
 		}
@@ -450,15 +451,9 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 			emit(StreamChunk{TextDelta: delta.Content})
 		}
 
-		if raw := delta.RawJSON(); raw != "" {
-			r := gjson.Get(raw, "reasoning_content").String()
-			if r == "" {
-				r = gjson.Get(raw, "thinking").String()
-			}
-			if r != "" {
-				reasoningBuf.WriteString(r)
-				emit(StreamChunk{ReasoningDelta: r})
-			}
+		if r := openAIReasoningText(delta.RawJSON()); r != "" {
+			reasoningBuf.WriteString(r)
+			emit(StreamChunk{ReasoningDelta: r})
 		}
 
 		for _, tc := range delta.ToolCalls {
@@ -493,6 +488,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 			inputTokens = int(chunk.Usage.PromptTokens)
 			outputTokens = int(chunk.Usage.CompletionTokens)
 			cachedInputTokens = int(chunk.Usage.PromptTokensDetails.CachedTokens)
+			reasoningTokens = int(chunk.Usage.CompletionTokensDetails.ReasoningTokens)
 		}
 	}
 
@@ -531,6 +527,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 					InputTokens:       inputTokens,
 					OutputTokens:      outputTokens,
 					CachedInputTokens: cachedInputTokens,
+					ReasoningTokens:   reasoningTokens,
 				}, fmt.Errorf("openai stream: %w", streamErr)
 			}
 			return nil, fmt.Errorf("openai stream: %w", streamErr)
@@ -553,6 +550,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 					InputTokens:       inputTokens,
 					OutputTokens:      outputTokens,
 					CachedInputTokens: cachedInputTokens,
+					ReasoningTokens:   reasoningTokens,
 				}, fmt.Errorf("openai stream: %w", streamErr)
 			}
 		}
@@ -580,5 +578,6 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 		InputTokens:       inputTokens,
 		OutputTokens:      outputTokens,
 		CachedInputTokens: cachedInputTokens,
+		ReasoningTokens:   reasoningTokens,
 	}, nil
 }

@@ -1025,6 +1025,35 @@ func (p *Pool) RunningCountsBySession() map[string]int {
 	return counts
 }
 
+// CountUnfinished counts the tasks still queued or running in every session,
+// by kind and then status, for a caller that reports on the whole process.
+// System tasks are the runtime's own and are not counted. The pool lock is held
+// only to copy the task pointers; each task is then read under its own lock, as
+// List does, and no output is touched.
+func (p *Pool) CountUnfinished() map[Kind]map[Status]int {
+	p.mu.RLock()
+	tasks := make([]*task, 0, len(p.tasks))
+	for _, t := range p.tasks {
+		tasks = append(tasks, t)
+	}
+	p.mu.RUnlock()
+
+	counts := make(map[Kind]map[Status]int)
+	for _, t := range tasks {
+		t.mu.Lock()
+		kind, status, system := t.snap.Kind, t.snap.Status, t.snap.SystemTask()
+		t.mu.Unlock()
+		if system || status.Finished() {
+			continue
+		}
+		if counts[kind] == nil {
+			counts[kind] = make(map[Status]int)
+		}
+		counts[kind][status]++
+	}
+	return counts
+}
+
 func (p *Pool) lookup(sessionID, taskID string) (*task, error) {
 	key := taskKey(strings.TrimSpace(sessionID), strings.TrimSpace(taskID))
 	p.mu.RLock()

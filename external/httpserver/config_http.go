@@ -22,12 +22,19 @@ func (s *Server) registerConfigRoutes() {
 			s.mgr.ReplaceConfig(c)
 			return nil
 		},
-		Schema:    config.UISchemaJSON,
+		Schema:    func() ([]byte, error) { return config.UISchemaJSONHiding(s.unbuiltSections...) },
 		Decorate:  s.decorateConfigDocument,
 		Revisions: s.served,
 		Log:       s.log,
 	}
 	backend.Register(s.mux)
+}
+
+// SetUnbuiltSections names the settings sections the form must not offer
+// because this binary cannot run them. They stay in the settings document, so
+// a save keeps them in the file.
+func (s *Server) SetUnbuiltSections(sections []string) {
+	s.unbuiltSections = append([]string(nil), sections...)
 }
 
 // decorateConfigDocument reports the effective auth state (YAML token or

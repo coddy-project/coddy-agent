@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ModelField } from "./ModelField";
 import type { ProviderRow } from "./useProviderModels";
+import type { OverrideTexts } from "./settingsSections";
 
 afterEach(() => {
   cleanup();
@@ -15,11 +16,21 @@ const PROVIDERS: ProviderRow[] = [
   { name: "hub", type: "neuraldeep" },
 ];
 
+const TEXTS: OverrideTexts = {
+  primary: "Model id",
+  second: "Provider",
+};
+
 function Harness(props: { initial?: string }) {
   const [val, setVal] = React.useState(props.initial ?? "");
   return (
     <>
-      <ModelField value={val} onChange={setVal} providers={PROVIDERS} />
+      <ModelField
+        value={val}
+        onChange={setVal}
+        providers={PROVIDERS}
+        texts={TEXTS}
+      />
       <span data-testid="val">{val}</span>
     </>
   );
@@ -89,4 +100,24 @@ test("the model id is a plain field that fetches nothing", () => {
       '[data-testid="model-field"] ~ .settings-row .settings-field-desc',
     ),
   ).toBeNull();
+});
+
+test("the names are the texts it is given: the id's first, the provider's second", () => {
+  render(
+    <ModelField
+      value="openai/gpt-4o"
+      onChange={() => {}}
+      providers={PROVIDERS}
+      texts={{ primary: "Идентификатор модели", second: "Провайдер" }}
+    />,
+  );
+
+  expect(screen.getByLabelText("Идентификатор модели")).toBe(
+    screen.getByTestId("model-field-model"),
+  );
+  expect(screen.getByLabelText("Провайдер")).toBe(
+    screen.getByTestId("model-field-provider"),
+  );
+  expect(screen.getByText("Идентификатор модели")).toBeTruthy();
+  expect(screen.getByText("Провайдер")).toBeTruthy();
 });

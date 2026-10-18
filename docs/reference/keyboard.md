@@ -20,6 +20,7 @@ Keys are parsed into the `ctrl+x` / `shift+enter` / `alt+backspace` notation of 
 | ctrl+o | expand the header hints, the last tool output (a live draft while `write` / `edit` / `apply_patch` arguments still stream) and the last `!!` block |
 | ctrl+t | collapse or expand thinking blocks |
 | up / down | prompt history on the first / last line of the draft; cursor movement otherwise |
+| ctrl+v / alt+v | paste the picture the clipboard holds as an `[image #N]` marker; with an X display it opens in the markup window first ([Pasting and marking up pictures](../features/picture-markup.md)) |
 | tab | during a turn with a draft and no suggestion menu open, queue in the mode opposite to Enter; otherwise open completion or insert a tab |
 | 1 / 2 | only while the first-use queue question is on the status line: save Steer / After turn as the Enter mode and queue the message; escape puts the draft back |
 | `/` at the start of the draft, `@` anywhere | open the command menu and the mention menu as you type ([Mentions](../features/mentions.md#in-the-console)) |
@@ -76,6 +77,16 @@ Menus, selectors and prompts:
 | space | question with `multiple: true` | toggle the highlighted option |
 | escape | custom answer editor of a question | back to the option list |
 
+The markup window a pasted picture opens in on an X display ([Pasting and marking up pictures](../features/picture-markup.md#the-markup-window)):
+
+| Key | Action |
+|---|---|
+| p / o / r / a / t / c | pick the pencil, ellipse, rectangle, arrow, text or crop tool |
+| enter | Done: attach the picture as marked up; while a label is typed, finish the label |
+| escape | Cancel: attach nothing; while a label is typed, drop the label |
+| backspace | while a label is typed, delete its last character |
+| ctrl+z | drop the label being typed, else take back the last step |
+
 Platform notes from the code: a lone Escape is resolved after 10 ms locally and 100 ms when `SSH_CONNECTION` or `SSH_TTY` is set (`external/cli/tui/terminal.go`); the backslash-and-enter newline exists for terminals that do not report shift+enter; `ctrl+c` on a non-empty editor clears it, so the exit needs an empty editor and a second press.
 
 ## Web UI
@@ -105,6 +116,9 @@ The composer is a plain `textarea`; keys not listed here keep their browser mean
 | Escape | a menu of the composer (Mode, Model, Reasoning, Permission), the environment, folder or branch menu | close it, wherever the focus is |
 | Escape | folder browser (Open folder…) | fold the new folder row when it is open, else close the browser as Cancel does |
 | Escape | Skills install search in Settings, with a query typed | clear it and take the marketplace results away; the next Escape is the drawer's |
+| / | Settings, outside a text field or a select | put the cursor in the settings search and show its results; on a narrow screen with a section open, go back to the tiles first; a `/` badge in the empty field shows the key while the field is not focused, on every width, and a touch-only device has none ([Web UI](../surfaces/web-ui.md#settings-search)) |
+| ArrowUp / ArrowDown, Enter | settings search with results | move the highlighted result, open it |
+| Escape | settings search | with results showing, clear the query; in the field with them hidden, clear the query; the next Escape belongs to the drawer |
 | Escape | a screen the rail opened: History, Scheduler, Swarm over a chat, Docs, Settings | close it as its × does, back to what was under it; one step at a time: an open job of the scheduler or its runs, an open row of Settings and a Settings section on a phone or tablet go back first, and an open menu, picker, tip or combobox list, or a search with text in it, takes the key before the screen ([Web UI](../surfaces/web-ui.md#layout)) |
 | Enter | question prompt | send the answer, once every question has one; typed in the composer it still belongs to the composer |
 | Escape | question prompt | skip the questions, unless a screen of the rail is open over the chat or a picker of the composer took the key |
@@ -112,6 +126,9 @@ The composer is a plain `textarea`; keys not listed here keep their browser mean
 | Ctrl+Shift+F / Cmd+Shift+F | an open chat, composer included | open the Files window, or close it ([Web UI](../surfaces/web-ui.md#workspace-files)) |
 | Escape | Files window | clear the filter when it has text, else close the window; the dock under it stays for the next Escape |
 | Escape | edits window | put the ⋮ menu away when it is open, clear the tree's filter when it has text, else close the window; with the discard question open, answer that instead and leave the window ([Web UI](../surfaces/web-ui.md#the-edits-window)) |
+| P / O / R / A / T / C | markup editor, outside a label | pick the pencil, ellipse, rectangle, arrow, text or crop tool ([Pasting and marking up pictures](../features/picture-markup.md#in-the-web-ui)) |
+| Enter / Escape | markup editor | Done / Cancel; in a label, finish it / drop it |
+| Ctrl+Z / Cmd+Z | markup editor | drop the label being typed, else take back the last step |
 | F1 | anywhere | open the documentation reader, or close it ([Built-in documentation](../features/built-in-docs.md#the-web-ui-reader)) |
 | / | documentation reader, outside a field | put the cursor in its search box |
 | ArrowUp / ArrowDown, Enter, Escape | documentation search box | move the selected hit, open it at its section, clear the search; in an empty box Escape closes the reader |

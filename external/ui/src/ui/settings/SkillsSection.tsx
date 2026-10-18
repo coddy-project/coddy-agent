@@ -4,6 +4,7 @@ import {
   IconTrash,
   type JsonSchema,
   type FieldOverride,
+  type SchemaFormGroup,
 } from "./SchemaForm";
 import { LegendWithHint } from "./FieldHint";
 import { MarketplacesEditor } from "./MarketplacesEditor";
@@ -11,10 +12,26 @@ import { sessionHeaders } from "./marketplaces";
 import { Switch } from "./Switch";
 import { SwitchField } from "./SwitchField";
 import { filterInstallableMatches } from "./installableMatches";
+import { SETTINGS_TEXTS, landmarkAnchor } from "./settingsSections";
 import { schemaFieldDesc } from "./schemaI18n";
 import { useT } from "../i18n/I18nProvider";
 import { translate } from "../i18n/i18n";
 import { useEscapeCloses } from "../components/useEscapeCloses";
+
+/** The field the tab draws by hand, so the generated form leaves it out. */
+export const SKILLS_HAND_DRAWN_FIELD = "auto_discovery";
+
+/** The generated form's fieldsets: the marketplaces trust policy stands apart. */
+export function skillsFormGroups(): SchemaFormGroup[] {
+  return [
+    {
+      id: "skills-marketplace-trust",
+      legend: translate("skills.trust.legend"),
+      description: translate("skills.trust.description"),
+      paths: ["project_trust"],
+    },
+  ];
+}
 
 // Cap the install dropdown so a broad query never floods the menu; anything
 // beyond this is summarized as a "+N more" hint that invites a narrower search.
@@ -329,8 +346,8 @@ export function SkillsSection(props: {
   const fieldOverride: FieldOverride = ({ path }) => {
     // Auto-discovery is rendered as its own fieldset at the top of the section
     // (see below); suppress the default inline boolean here.
-    if (path === "auto_discovery") {
-      return <></>;
+    if (path === SKILLS_HAND_DRAWN_FIELD) {
+      return false;
     }
     return null;
   };
@@ -349,8 +366,11 @@ export function SkillsSection(props: {
 
   return (
     <div className="settings-skills-section">
-      <fieldset className="settings-fieldset">
-        <legend>{t("skills.autoDiscovery.legend")}</legend>
+      <fieldset
+        className="settings-fieldset"
+        data-settings-anchor={landmarkAnchor("skills", "auto_discovery")}
+      >
+        <legend>{t(SETTINGS_TEXTS.skillsAutoDiscovery.label)}</legend>
         <SwitchField
           checked={autoDiscoveryOn}
           onChange={(next) => onChange({ ...value, auto_discovery: next })}
@@ -376,14 +396,7 @@ export function SkillsSection(props: {
         onChange={onChange}
         fieldOverride={fieldOverride}
         i18nDomain="skills"
-        groups={[
-          {
-            id: "skills-marketplace-trust",
-            legend: t("skills.trust.legend"),
-            description: t("skills.trust.description"),
-            paths: ["project_trust"],
-          },
-        ]}
+        groups={skillsFormGroups()}
       />
 
       <MarketplacesEditor
@@ -394,12 +407,13 @@ export function SkillsSection(props: {
       <fieldset
         className="settings-fieldset skills-installed-box"
         data-testid="skills-installed"
+        data-settings-anchor={landmarkAnchor("skills", "installed")}
       >
         {/* How else a skill gets here is about the whole list, so it is the
             (i) of the legend rather than a line inside the box. */}
         <LegendWithHint
-          label={t("skills.installed.legend")}
-          description={t("skills.install.cliHint")}
+          label={t(SETTINGS_TEXTS.skillsInstalled.label)}
+          description={t(SETTINGS_TEXTS.skillsInstalled.desc)}
         />
 
         <div className="skills-install">

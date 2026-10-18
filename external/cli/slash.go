@@ -97,6 +97,9 @@ func (a *App) dispatchSettings(trimmed string, fields []string) bool {
 		case session.SettingPermissionMode:
 			a.openPermissionSelector()
 			return true
+		case session.SettingToolset:
+			a.openToolsetSelector()
+			return true
 		}
 	}
 	line, err := session.ParseSettingsCommands(trimmed)
@@ -184,8 +187,46 @@ func (a *App) applySettingsSnapshot(snap acp.SessionSettings) {
 		a.foot.SetSession("", a.modeID)
 	}
 	a.foot.SetSettings(snap.PermissionMode, snap.Overrides)
+	a.foot.SetToolset(snap.Toolset)
+	a.adoptToolsetOption(snap)
 	a.refreshFooterModel()
 	a.screen.RequestRender()
+}
+
+// adoptToolsetOption brings the toolset option in line with a settings
+// snapshot: the presets and the session's toolset, or no option while the
+// snapshot names no preset. It is how a console over --remote hears that the
+// server's presets changed, since its picker reads this option.
+func (a *App) adoptToolsetOption(snap acp.SessionSettings) {
+	opts := make([]acp.ConfigOption, 0, len(a.configOpts)+1)
+	at := -1
+	for _, o := range a.configOpts {
+		if o.ID == "toolset" {
+			at = len(opts)
+			continue
+		}
+		opts = append(opts, o)
+	}
+	if len(snap.ToolsetChoices) > 0 {
+		values := make([]acp.ConfigOptionValue, 0, len(snap.ToolsetChoices))
+		for _, c := range snap.ToolsetChoices {
+			values = append(values, acp.ConfigOptionValue{Value: c, Name: c})
+		}
+		opt := acp.ConfigOption{ID: "toolset", Name: "Toolset", Category: "_toolset",
+			Type: "select", CurrentValue: snap.Toolset, Options: values}
+		if at < 0 {
+			// Before the permission mode, where the manager puts it.
+			at = len(opts)
+			for i, o := range opts {
+				if o.ID == "permission_mode" {
+					at = i
+					break
+				}
+			}
+		}
+		opts = append(opts[:at], append([]acp.ConfigOption{opt}, opts[at:]...)...)
+	}
+	a.configOpts = opts
 }
 
 // openPermissionSelector is the /permissions picker: when tools ask for
@@ -317,6 +358,7 @@ func (a *App) showHotkeys() {
 		"shift+tab cycle reasoning · /reasoning [level] · /think · /nothink · ctrl+t thinking · ctrl+o expand",
 		"/agent /plan /ask mode · /permissions ask|accept_edits|bypass · add --once or --count=N for a few turns",
 		"up/down prompt history · / commands · @ file mention",
+		"ctrl+v or alt+v paste a picture: with a display it opens for markup first, Done attaches it",
 		"!!<command> run it here, hidden from the agent",
 		"/usage provider quota, resets and wallet",
 		"/tasks background tasks: enter output · s stop · r refresh · escape back",

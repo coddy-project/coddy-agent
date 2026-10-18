@@ -12,6 +12,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,6 +23,9 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/openai/openai-go"
+	"github.com/tidwall/gjson"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/devinfake"
 )
 
 type stubProvider struct {
@@ -849,6 +854,451 @@ func TestIsTransientProviderError(t *testing.T) {
 	for _, c := range cases {
 		if got := IsTransientProviderError(c.err); got != c.want {
 			t.Errorf("%s: IsTransientProviderError = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// recordCalls attaches a call observer for the rest of the test and returns
+// what it has seen of the provider row called name; the observer is process
+// wide, so other tests' rows are not its business.
+func recordCalls(t *testing.T, name string) func() []CallEvent {
+	t.Helper()
+	var mu sync.Mutex
+	var got []CallEvent
+	remove := AddCallObserver(func(ev CallEvent) {
+		if ev.Provider != name {
+			return
+		}
+		mu.Lock()
+		got = append(got, ev)
+		mu.Unlock()
+	})
+	t.Cleanup(remove)
+	return func() []CallEvent {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(got)
+	}
+}
+
+// The tokens every stand-in backend of TestCallObserverOneEventPerAttempt
+// reports for its finished answer, as the Response of the call holds them.
+const (
+	standInputTokens  = 11
+	standOutputTokens = 4
+	standCachedTokens = 3
+)
+
+// callStand is a stand-in backend for one provider type: its first failures
+// requests are answered with a 503 (an unavailable trailer for Devin), every
+// later one with a finished answer that reports the stand* tokens.
+type callStand struct {
+	input    ProviderInput
+	requests func() int
+}
+
+func newCallStand(t *testing.T, kind string, failures int32) callStand {
+	t.Helper()
+	var left atomic.Int32
+	left.Store(failures)
+	failNext := func() bool { return left.Add(-1) >= 0 }
+	in := ProviderInput{
+		Name: "call-" + kind, Type: kind, Model: "test-model", APIKey: "test-key",
+		RetryMax: 2, RetryBase: time.Millisecond, RetryMaxDelay: time.Millisecond,
+	}
+	if kind == "devin" {
+		stand := devinfake.New(devinfake.Options{
+			Models: []devinfake.Model{
+				{UID: "fam-low", Family: "fam", FamilyLabel: "Fam", ContextWindow: 100000, MaxOutput: 8000},
+				{UID: "fam-high", Family: "fam", FamilyLabel: "Fam", Default: true, ContextWindow: 100000, MaxOutput: 8000},
+			},
+			Reply: func(devinfake.ChatRequest, int) devinfake.Turn {
+				if failNext() {
+					return devinfake.Turn{ErrorCode: "unavailable", ErrorMessage: "overloaded"}
+				}
+				return devinfake.Turn{Text: "hi", StopReason: 2,
+					Input: standInputTokens - standCachedTokens, Output: standOutputTokens, CacheRead: standCachedTokens}
+			},
+		})
+		srv := httptest.NewServer(stand)
+		t.Cleanup(srv.Close)
+		devinTestEnv(t, srv.URL)
+		in.Model, in.ReasoningEffort, in.APIKey = "fam", "low", "devin-session-token$stand-token"
+		return callStand{input: in, requests: func() int { return len(stand.Chats()) }}
+	}
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requests.Add(1)
+		if failNext() {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(w, `{"error":{"message":"overloaded","type":"server_error"}}`)
+			return
+		}
+		writeStandAnswer(t, w, kind, gjson.GetBytes(body, "stream").Bool())
+	}))
+	t.Cleanup(srv.Close)
+	switch kind {
+	case "neuraldeep":
+		t.Setenv(EnvNeuralDeepBaseURL, srv.URL)
+	case "codex":
+		t.Setenv(EnvCodexBaseURL, srv.URL)
+		in.APIKey = ""
+		in.AuthPath = writeCodexAuth(t, t.TempDir(), codexAuthFile{
+			AuthMode: codexAuthModeChatGPT,
+			Tokens:   codexTokens{AccessToken: makeJWT(time.Now().Add(time.Hour)), RefreshToken: "rt", AccountID: "acct-1"},
+		})
+		in.NoCLILogin = true
+	default:
+		in.BaseURL = srv.URL
+	}
+	return callStand{input: in, requests: func() int { return int(requests.Load()) }}
+}
+
+// writeStandAnswer writes the finished answer of a provider type in the shape
+// the request asked for: a stream, or one blocking body.
+func writeStandAnswer(t *testing.T, w http.ResponseWriter, kind string, stream bool) {
+	t.Helper()
+	switch kind {
+	case "codex":
+		w.Header().Set("Content-Type", "text/event-stream")
+		sse(w, "response.output_text.delta", map[string]any{"delta": "hi"})
+		sse(w, "response.completed", map[string]any{"response": map[string]any{
+			"status": "completed",
+			"usage": map[string]any{
+				"input_tokens": standInputTokens, "output_tokens": standOutputTokens,
+				"input_tokens_details": map[string]any{"cached_tokens": standCachedTokens},
+			},
+		}})
+	case "anthropic":
+		// The prompt is 8 uncached tokens plus 3 read from the cache.
+		start := `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"test-model","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":8,"cache_read_input_tokens":3,"output_tokens":0}}}`
+		if !stream {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"id":"msg_1","type":"message","role":"assistant","model":"test-model","content":[{"type":"text","text":"hi"}],"stop_reason":"end_turn","usage":{"input_tokens":8,"cache_read_input_tokens":3,"output_tokens":4}}`)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		events := append([]string{start}, anthropicTextBlock(0, "hi")...)
+		events = append(events,
+			`{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":4}}`,
+			`{"type":"message_stop"}`)
+		_, _ = io.WriteString(w, anthropicSSE(t, events...))
+	default:
+		usage := `"usage":{"prompt_tokens":11,"completion_tokens":4,"total_tokens":15,"prompt_tokens_details":{"cached_tokens":3}}`
+		if !stream {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"id":"c1","object":"chat.completion","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"hi"}}],`+usage+`}`)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"}}]}\n\n"+
+			"data: {\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"delta\":{}}]}\n\n"+
+			"data: {\"choices\":[],"+usage+"}\n\n"+
+			"data: [DONE]\n\n")
+	}
+}
+
+// TestCallObserverOneEventPerAttempt: the observer hears one event for every
+// invocation attempt of a provider, retries included, whatever the type of
+// the provider and the transport it was asked to use.
+func TestCallObserverOneEventPerAttempt(t *testing.T) {
+	rows := []struct {
+		name          string
+		failures      int32
+		disableStream bool
+		retryDisabled bool
+		want          []string
+	}{
+		{"an answer on the first try", 0, false, false, []string{"ok"}},
+		{"a retried 5xx", 1, false, false, []string{"server_error", "ok"}},
+		{"a retried 5xx on the blocking transport", 1, true, false, []string{"server_error", "ok"}},
+		{"retries disabled", 3, false, true, []string{"server_error"}},
+	}
+	for _, kind := range []string{"openai", "anthropic", "neuraldeep", "codex", "devin"} {
+		for _, row := range rows {
+			t.Run(kind+"/"+row.name, func(t *testing.T) {
+				stand := newCallStand(t, kind, row.failures)
+				stand.input.DisableStream = row.disableStream
+				stand.input.RetryDisabled = row.retryDisabled
+				calls := recordCalls(t, stand.input.Name)
+				p, err := NewProvider(stand.input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+				if (err == nil) != (row.want[len(row.want)-1] == "ok") {
+					t.Fatalf("Stream error = %v, want outcomes %v", err, row.want)
+				}
+				events := calls()
+				var outcomes []string
+				for _, ev := range events {
+					outcomes = append(outcomes, ev.Outcome)
+					if ev.Provider != stand.input.Name || ev.Model != stand.input.Model {
+						t.Errorf("event names %q/%q, want %q/%q", ev.Provider, ev.Model, stand.input.Name, stand.input.Model)
+					}
+				}
+				if !slices.Equal(outcomes, row.want) {
+					t.Fatalf("outcomes = %v, want %v", outcomes, row.want)
+				}
+				if got := stand.requests(); got != len(row.want) {
+					t.Fatalf("the backend saw %d requests for %d events", got, len(row.want))
+				}
+				for i, ev := range events {
+					if ev.Outcome != "ok" {
+						if ev.InputTokens != 0 || ev.OutputTokens != 0 || ev.CachedInputTokens != 0 {
+							t.Errorf("event %d (%s) carries tokens without a response: %+v", i, ev.Outcome, ev)
+						}
+						continue
+					}
+					if ev.InputTokens != standInputTokens || ev.OutputTokens != standOutputTokens || ev.CachedInputTokens != standCachedTokens {
+						t.Errorf("event %d tokens = %d/%d/%d, want %d/%d/%d", i, ev.InputTokens, ev.OutputTokens, ev.CachedInputTokens,
+							standInputTokens, standOutputTokens, standCachedTokens)
+					}
+					if resp == nil || ev.InputTokens != resp.InputTokens || ev.OutputTokens != resp.OutputTokens || ev.CachedInputTokens != resp.CachedInputTokens {
+						t.Errorf("event %d tokens differ from the response: %+v vs %+v", i, ev, resp)
+					}
+				}
+			})
+		}
+	}
+
+	opts := ResilientOptions{Name: "call-stub", Model: "m", RetryMax: 2, RetryBase: time.Millisecond}
+	t.Run("a stream cut by the caller reports what it delivered", func(t *testing.T) {
+		calls := recordCalls(t, opts.Name)
+		partial := &Response{Content: "par", InputTokens: 7, OutputTokens: 2, CachedInputTokens: 1}
+		p := wrapResilient(&stubProvider{streamFn: func(context.Context, []Message, []ToolDefinition, func(StreamChunk)) (*Response, error) {
+			return partial, context.Canceled
+		}}, opts)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		if _, err := p.Stream(ctx, nil, nil, nil); !errors.Is(err, context.Canceled) {
+			t.Fatalf("err = %v", err)
+		}
+		events := calls()
+		if len(events) != 1 || events[0].Outcome != "canceled" || events[0].InputTokens != 7 || events[0].OutputTokens != 2 || events[0].CachedInputTokens != 1 {
+			t.Fatalf("events = %+v", events)
+		}
+	})
+	t.Run("the duration spans the whole stream", func(t *testing.T) {
+		calls := recordCalls(t, opts.Name)
+		p := wrapResilient(&stubProvider{streamFn: func(_ context.Context, _ []Message, _ []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
+			onChunk(StreamChunk{TextDelta: "a"})
+			time.Sleep(40 * time.Millisecond)
+			onChunk(StreamChunk{TextDelta: "b"})
+			return &Response{Content: "ab"}, nil
+		}}, opts)
+		if _, err := p.Stream(context.Background(), nil, nil, func(StreamChunk) {}); err != nil {
+			t.Fatal(err)
+		}
+		if events := calls(); len(events) != 1 || events[0].Duration < 40*time.Millisecond {
+			t.Fatalf("events = %+v, want one that lasted the whole stream", events)
+		}
+	})
+	t.Run("a retried attempt says it is a retry", func(t *testing.T) {
+		calls := recordCalls(t, opts.Name)
+		var n atomic.Int32
+		p := wrapResilient(&stubProvider{completeFn: func(context.Context, []Message, []ToolDefinition) (*Response, error) {
+			if n.Add(1) == 1 {
+				return nil, errors.New("503 Service Unavailable")
+			}
+			return &Response{}, nil
+		}}, opts)
+		if _, err := p.Complete(context.Background(), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		events := calls()
+		if len(events) != 2 || events[0].Retry || !events[1].Retry {
+			t.Fatalf("events = %+v, want a first attempt and then a retry", events)
+		}
+	})
+	t.Run("the first token is the first chunk that carries content", func(t *testing.T) {
+		calls := recordCalls(t, opts.Name)
+		p := wrapResilient(&stubProvider{streamFn: func(_ context.Context, _ []Message, _ []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
+			onChunk(StreamChunk{InputTokens: 3})
+			time.Sleep(30 * time.Millisecond)
+			onChunk(StreamChunk{ReasoningDelta: "hm"})
+			time.Sleep(30 * time.Millisecond)
+			onChunk(StreamChunk{TextDelta: "a"})
+			return &Response{Content: "a"}, nil
+		}}, opts)
+		if _, err := p.Stream(context.Background(), nil, nil, func(StreamChunk) {}); err != nil {
+			t.Fatal(err)
+		}
+		events := calls()
+		if len(events) != 1 || events[0].FirstContent < 30*time.Millisecond || events[0].FirstContent >= events[0].Duration-20*time.Millisecond {
+			t.Fatalf("events = %+v, want the first content after the usage chunk and before the text", events)
+		}
+	})
+	t.Run("an attempt with no content has no first token", func(t *testing.T) {
+		calls := recordCalls(t, opts.Name)
+		p := wrapResilient(&stubProvider{
+			streamFn: func(_ context.Context, _ []Message, _ []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
+				// As the adapters do: nothing is streamed to a caller that passed no callback.
+				if onChunk != nil {
+					onChunk(StreamChunk{StopReason: "stop", OutputTokens: 1})
+				}
+				return &Response{}, nil
+			},
+			completeFn: func(context.Context, []Message, []ToolDefinition) (*Response, error) {
+				return &Response{Content: "x"}, nil
+			},
+		}, opts)
+		if _, err := p.Stream(context.Background(), nil, nil, func(StreamChunk) {}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := p.Stream(context.Background(), nil, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := p.Complete(context.Background(), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		events := calls()
+		if len(events) != 3 {
+			t.Fatalf("events = %+v, want three", events)
+		}
+		for _, ev := range events {
+			if ev.FirstContent != 0 {
+				t.Fatalf("event %+v has a first token", ev)
+			}
+		}
+	})
+	t.Run("a call that never reaches the provider is not an attempt", func(t *testing.T) {
+		calls := recordCalls(t, opts.Name)
+		var reached atomic.Int32
+		inner := &stubProvider{completeFn: func(context.Context, []Message, []ToolDefinition) (*Response, error) {
+			reached.Add(1)
+			return &Response{}, nil
+		}}
+		paced := opts
+		paced.MinInterval = time.Hour
+		p := wrapResilient(inner, paced)
+		if _, err := p.Complete(context.Background(), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if _, err := p.Complete(ctx, nil, nil); !errors.Is(err, context.Canceled) {
+			t.Fatalf("a call made after its context ended: %v", err)
+		}
+		waiting, stop := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer stop()
+		if _, err := p.Complete(waiting, nil, nil); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("a call cut off in the minimum interval wait: %v", err)
+		}
+		if events := calls(); len(events) != 1 || reached.Load() != 1 {
+			t.Fatalf("events = %+v after %d real attempts, want one of each", events, reached.Load())
+		}
+	})
+}
+
+// TestCallObserverRegistry: every registered observer is told, one that was
+// removed is not, and removing twice or registering nothing is harmless.
+func TestCallObserverRegistry(t *testing.T) {
+	var first, second atomic.Int32
+	removeFirst := AddCallObserver(func(CallEvent) { first.Add(1) })
+	removeSecond := AddCallObserver(func(CallEvent) { second.Add(1) })
+	AddCallObserver(nil)()
+	defer removeSecond()
+	p := wrapResilient(&stubProvider{completeFn: func(context.Context, []Message, []ToolDefinition) (*Response, error) {
+		return &Response{}, nil
+	}}, ResilientOptions{Name: "call-registry"})
+	call := func() {
+		t.Helper()
+		if _, err := p.Complete(context.Background(), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	call()
+	removeFirst()
+	removeFirst()
+	call()
+	if first.Load() != 1 || second.Load() != 2 {
+		t.Fatalf("first heard %d events, second %d; want 1 and 2", first.Load(), second.Load())
+	}
+}
+
+func TestCallOutcome(t *testing.T) {
+	overflow := fmt.Errorf("openai complete: %w", &openai.Error{StatusCode: 400, Code: "context_length_exceeded",
+		Request:  httptest.NewRequest(http.MethodPost, "https://api.example.test/v1/chat/completions", nil),
+		Response: &http.Response{StatusCode: 400}})
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"no error", nil, "ok"},
+		{"a cancel", context.Canceled, "canceled"},
+		{"a cancel inside a stream", fmt.Errorf("openai stream: %w", &streamTransportError{cause: context.Canceled, emitted: true}), "canceled"},
+		{"a deadline", fmt.Errorf("openai stream: %w", context.DeadlineExceeded), "timeout"},
+		{"a dial that ran out of time", &net.OpError{Op: "dial", Err: context.DeadlineExceeded}, "timeout"},
+		{"a stall", fmt.Errorf("openai stream: %w", &streamTransportError{cause: &streamStalledError{idle: time.Minute}}), "timeout"},
+		{"openai 429", retryHTTPError(t, "openai", 429, nil), "rate_limited"},
+		{"anthropic 429", retryHTTPError(t, "anthropic", 429, nil), "rate_limited"},
+		{"a limit inside a stream", fmt.Errorf("openai stream: %w", &streamServerError{code: 429, emitted: true}), "rate_limited"},
+		{"devin resource exhausted", fmt.Errorf("devin chat: %w", &devinAPIError{status: 429, code: "resource_exhausted"}), "rate_limited"},
+		{"a status flattened into text", errors.New("codex stream: 429 Too Many Requests"), "rate_limited"},
+		{"openai 401", retryHTTPError(t, "openai", 401, nil), "auth"},
+		{"anthropic 403", retryHTTPError(t, "anthropic", 403, nil), "auth"},
+		{"devin unauthenticated", fmt.Errorf("devin chat: %w", &devinAPIError{status: 401, code: "unauthenticated"}), "auth"},
+		{"a context window that is too small, as a 400", overflow, "context_overflow"},
+		{"an overflow phrase that holds a 5xx in its digits", errors.New("prompt is too long: 4500 tokens"), "context_overflow"},
+		{"openai 400", retryHTTPError(t, "openai", 400, nil), "client_error"},
+		{"anthropic 404", retryHTTPError(t, "anthropic", 404, nil), "client_error"},
+		{"devin invalid argument", fmt.Errorf("devin chat: %w", &devinAPIError{status: 400, code: "invalid_argument"}), "client_error"},
+		{"a refusal inside a stream", fmt.Errorf("openai stream: %w", &streamServerError{code: 400, emitted: true}), "client_error"},
+		{"openai 503", retryHTTPError(t, "openai", 503, nil), "server_error"},
+		{"anthropic 529", retryHTTPError(t, "anthropic", 529, nil), "server_error"},
+		{"devin unavailable", fmt.Errorf("devin chat: %w", &devinAPIError{status: 503, code: "unavailable"}), "server_error"},
+		{"a failure inside a stream after text", fmt.Errorf("openai stream: %w", &streamServerError{code: 500, emitted: true}), "server_error"},
+		{"a status flattened into text, 5xx", errors.New("codex stream: 503 Service Unavailable"), "server_error"},
+		{"a connection reset", fmt.Errorf("openai stream: %w", &streamTransportError{cause: syscall.ECONNRESET}), "server_error"},
+		{"a connection nobody answers", &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}, "server_error"},
+		{"a truncated stream", fmt.Errorf("openai stream: %w", &streamTruncatedError{emitted: true}), "server_error"},
+		{"a corrupt stream", fmt.Errorf("openai stream: %w", &streamUndecodableError{snippet: "<html>"}), "error"},
+		{"a failure without a status", fmt.Errorf("codex stream: %w", &streamServerError{msg: "response.failed"}), "error"},
+		{"a transport error that is not a drop", fmt.Errorf("openai stream: %w", &streamTransportError{cause: errors.New("x509: certificate signed by unknown authority")}), "error"},
+		{"an error of Coddy's own", errors.New("boom"), "error"},
+	}
+	seen := map[string]bool{}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := CallOutcome(c.err); got != c.want {
+				t.Fatalf("CallOutcome = %q, want %q", got, c.want)
+			}
+		})
+		seen[c.want] = true
+	}
+	all := CallOutcomes()
+	want := []string{"ok", "canceled", "timeout", "rate_limited", "auth", "context_overflow", "client_error", "server_error", "error"}
+	if !slices.Equal(all, want) {
+		t.Fatalf("CallOutcomes = %v, want %v", all, want)
+	}
+	all[0] = "changed"
+	if CallOutcomes()[0] != "ok" {
+		t.Fatal("CallOutcomes hands out its own slice")
+	}
+	for _, outcome := range want {
+		if !seen[outcome] {
+			t.Errorf("no case yields %q", outcome)
+		}
+	}
+}
+
+// TestCallEventHoldsNoRequestReference: an event is a plain value. A
+// field that could hold the request, a message, a tool or the response would
+// keep a prompt alive in an observer, and this is the check that holds for
+// every provider, Devin's regenerated identifiers included.
+func TestCallEventHoldsNoRequestReference(t *testing.T) {
+	typ := reflect.TypeFor[CallEvent]()
+	for i := range typ.NumField() {
+		field := typ.Field(i)
+		switch {
+		case field.Type.Kind() == reflect.String, field.Type.Kind() == reflect.Int, field.Type.Kind() == reflect.Bool,
+			field.Type == reflect.TypeFor[time.Duration]():
+		default:
+			t.Errorf("CallEvent.%s is a %s; only strings, ints, bools and a time.Duration may be fields", field.Name, field.Type)
 		}
 	}
 }

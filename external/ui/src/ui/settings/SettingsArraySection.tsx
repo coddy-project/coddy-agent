@@ -215,7 +215,14 @@ export function SettingsArraySection(props: {
       // Keyed by the row: a form opened on another row (the address can switch
       // rows without passing through the list) starts afresh, so nothing a
       // field remembers - the proxy URL, a filter, a fold - crosses rows.
-      <div className="settings-detail" key={index}>
+      <div
+        className="settings-detail"
+        key={index}
+        data-settings-anchor={`row:${i18nDomain ?? ""}`}
+        data-settings-row={labelOf(item)}
+        role="group"
+        aria-label={labelOf(item) || rowLabel(item, labelField, index)}
+      >
         {props.hideBackLink ? null : (
           <div className="settings-detail-head">
             <button

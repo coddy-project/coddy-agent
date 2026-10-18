@@ -10,7 +10,26 @@ import (
 // UISchemaJSON returns a JSON Schema (draft 2020-12) document for ConfigJSON (UI editor).
 // HTTPServer is omitted; listen bind is controlled via CLI, not this form.
 func UISchemaJSON() ([]byte, error) {
+	return UISchemaJSONHiding()
+}
+
+// UISchemaJSONHiding is UISchemaJSON without the named sections: the form of a
+// binary that cannot run them. A hidden section is still part of the settings
+// document (GET and PUT /coddy/config), which the form writes back whole, so a
+// save keeps it in the file.
+func UISchemaJSONHiding(hide ...string) ([]byte, error) {
 	doc := UISchemaMap()
+	props := doc["properties"].(map[string]interface{})
+	for _, key := range hide {
+		delete(props, key)
+	}
+	var order []interface{}
+	for _, key := range doc["x-coddy-property-order"].([]interface{}) {
+		if _, shown := props[key.(string)]; shown {
+			order = append(order, key)
+		}
+	}
+	doc["x-coddy-property-order"] = order
 	return json.Marshal(doc)
 }
 
@@ -255,6 +274,23 @@ func UISchemaMap() map[string]interface{} {
 		"stream": boolPropDefault("Stream responses",
 			"Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only.",
 			true),
+		"toolset": strProp("Toolset",
+			"The toolset a session on this model is offered its tools by, unless the session picks another. Empty offers every tool the mode would. Spares a small-context local model the schemas of tools it never calls."),
+	}
+	toolsetProps := map[string]interface{}{
+		"name": strProp("Name", "What models and the /toolset command call it: letters, digits, '.', '_' and '-'. default is reserved: it means every tool the mode offers."),
+		"tools": map[string]interface{}{
+			"type":        "array",
+			"title":       "Allowed tools",
+			"description": "Tools offered with this toolset: tool names, * or a prefix* (context7__* is every tool of that MCP server). Empty offers every tool the mode would. It only narrows, and a call to an unlisted tool is refused.",
+			"items":       map[string]interface{}{"type": "string"},
+		},
+		"disallowed_tools": map[string]interface{}{
+			"type":        "array",
+			"title":       "Disallowed tools",
+			"description": "Tools removed from this toolset, applied after the allowed tools, with the same names and patterns. A call to a removed tool is refused.",
+			"items":       map[string]interface{}{"type": "string"},
+		},
 	}
 	isolationEnum := []string{string(IsolationIndividual), string(IsolationShared), string(IsolationAdmin)}
 	telegramUserGroupProps := map[string]interface{}{
@@ -391,8 +427,16 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "Logical models",
 			"description": "Named model entries the agent and UI can select; ids reference provider prefixes.",
 			"items": objectSchema("", "", modelProps,
-				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off"},
+				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off", "toolset"},
 				[]string{"model"}),
+		},
+		"toolsets": map[string]interface{}{
+			"type":        "array",
+			"title":       "Toolsets",
+			"description": "Named presets of the tools a session is offered. A model names one as its own; a session picks one with /toolset.",
+			"items": objectSchema("", "", toolsetProps,
+				[]string{"name", "tools", "disallowed_tools"},
+				[]string{"name"}),
 		},
 		"supervisor": objectSchema("Session supervisor", "Checks goals with a second model and watches for stalled or looping turns.",
 			map[string]interface{}{
@@ -750,6 +794,16 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"level", "levels", "outputs", "file", "format", "rotation"},
 			nil),
+		"metrics": objectSchema("Metrics", "Prometheus exporter on a port of its own. It takes effect only in a binary built with the metrics tag.",
+			map[string]interface{}{
+				"enable": boolProp("Enabled", "Serve /metrics from this process."),
+				"host":   strProp("Listen host", "Address to bind. Empty falls back to 127.0.0.1, which only this machine can reach."),
+				"port":   intProp("Listen port", "Port to bind. 0 falls back to 12347."),
+				"token": secretProp("Token", "Bearer credential a scrape must present. Write-only: leave it empty to keep the one set. With none set the exporter asks for no credential.",
+					"token_configured"),
+			},
+			[]string{"enable", "host", "port", "token"},
+			nil),
 		"sessions": objectSchema("Sessions", "Where persisted chat bundles are stored.",
 			map[string]interface{}{
 				"dir": strProp("Sessions directory", "Override sessions root; empty resolves under CODDY_HOME."),
@@ -801,14 +855,15 @@ func UISchemaMap() map[string]interface{} {
 	// model), then what the agent can do (tools, MCP servers, skills,
 	// subagents, hooks), then what runs it without a person at the composer
 	// (the scheduler, the messenger gateways), and last the operation of the
-	// process (the logger, then prompts and instructions, which the web UI
-	// folds into one System tab). The sessions key belongs to the Sessions tab.
+	// process (the logger and the metrics exporter, then prompts and
+	// instructions, which the web UI folds into one System tab). The sessions
+	// key belongs to the Sessions tab.
 	rootOrder := []string{
-		"providers", "models",
+		"providers", "models", "toolsets",
 		"agent", "supervisor", "compaction", "memory", "decisions",
 		"tools", "skills", "subagents", "hooks",
 		"scheduler", "gateways",
-		"logger", "sessions", "prompts", "instructions",
+		"logger", "metrics", "sessions", "prompts", "instructions",
 	}
 
 	doc := map[string]interface{}{
