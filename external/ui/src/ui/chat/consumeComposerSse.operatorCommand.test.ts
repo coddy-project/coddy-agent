@@ -169,7 +169,7 @@ test("a progress frame does not restart the row's clock", async () => {
 
 test("the end of the run and the call's result land on the same row, and the kept request goes", async () => {
   const result =
-    "The operator ran the command in bash on devbox (exit code 2):\nerror";
+    "The operator ran the command in bash on devbox, in /srv/app (exit code 2):\nerror";
   const items = await drive(
     opening +
       runFrame("running", "error") +

@@ -303,10 +303,12 @@ func operatorInterruptWait() time.Duration {
 
 func operatorResult(req acp.OperatorCommandRequest, out string, dropped int64, code int, stopped bool) string {
 	var b strings.Builder
+	// Where it ran heads the result: the model reads it, and a surface that
+	// rebuilds the card from the history after a reload has nothing else.
 	if stopped {
-		fmt.Fprintf(&b, "The operator stopped the command (exit code %d). Output so far:\n", code)
+		fmt.Fprintf(&b, "The operator stopped the command in %s on %s, in %s (exit code %d). Output so far:\n", req.Shell, req.Host, req.CWD, code)
 	} else {
-		fmt.Fprintf(&b, "The operator ran the command in %s on %s (exit code %d):\n", req.Shell, req.Host, code)
+		fmt.Fprintf(&b, "The operator ran the command in %s on %s, in %s (exit code %d):\n", req.Shell, req.Host, req.CWD, code)
 	}
 	if dropped > 0 {
 		fmt.Fprintf(&b, "[the first %d bytes of the output were dropped]\n", dropped)

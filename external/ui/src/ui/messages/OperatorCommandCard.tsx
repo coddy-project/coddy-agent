@@ -58,9 +58,9 @@ export function OperatorCommandCard(props: {
   const args = parseOperatorCommandArgs(props.argsText);
   const command = request?.command ?? args?.command ?? "";
   const reason = (request?.reason || args?.reason || "").trim();
-  const cwd = (state?.cwd || request?.cwd || args?.cwd || "").trim();
-  const shell = (state?.shell || request?.shell || "").trim();
-  const host = (state?.host || request?.host || "").trim();
+  const liveCwd = (state?.cwd || request?.cwd || "").trim();
+  const liveShell = (state?.shell || request?.shell || "").trim();
+  const liveHost = (state?.host || request?.host || "").trim();
   const multiplexer = (state?.multiplexer || request?.multiplexer || "").trim();
   const attachCommand = (request?.attachCommand || "").trim();
 
@@ -129,6 +129,16 @@ export function OperatorCommandCard(props: {
   const outcome: OperatorCommandOutcome | null = terminal
     ? parseOperatorCommandResult(resultSource)
     : null;
+  // A card rebuilt from the history has only the result: its header says
+  // where the command ran.
+  const where =
+    outcome && (outcome.kind === "ran" || outcome.kind === "stopped")
+      ? outcome
+      : null;
+  // The folder the command really ran in wins over the one the call asked for.
+  const cwd = liveCwd || where?.cwd || (args?.cwd ?? "").trim();
+  const shell = liveShell || where?.shell || "";
+  const host = liveHost || where?.host || "";
 
   // The status line of a finished card: how the run ended, from the result the
   // tool wrote, or - between the last frame and the call's end - from the frame.

@@ -167,15 +167,31 @@ export function parseOperatorCommandArgs(
 
 /** How a finished call ended, read off the result text the tool wrote. */
 export type OperatorCommandOutcome =
-  | { kind: "ran"; exitCode: number; output: string }
-  | { kind: "stopped"; exitCode: number; output: string }
+  | {
+      kind: "ran";
+      exitCode: number;
+      output: string;
+      shell: string;
+      host: string;
+      cwd: string;
+    }
+  | {
+      kind: "stopped";
+      exitCode: number;
+      output: string;
+      shell: string;
+      host: string;
+      cwd: string;
+    }
   | { kind: "declined"; note: string }
   | { kind: "other"; text: string };
 
+// The headers internal/tools/shell/operator_tool.go writes: where the command
+// ran comes first, so a card rebuilt from the history still names it.
 const RAN_RE =
-  /^The operator ran the command in .*? on .*? \(exit code (-?\d+)\):\n?/;
+  /^The operator ran the command in (\S+) on (.+?), in ([^\n]*) \(exit code (-?\d+)\):\n?/;
 const STOPPED_RE =
-  /^The operator stopped the command \(exit code (-?\d+)\)\. Output so far:\n?/;
+  /^The operator stopped the command in (\S+) on (.+?), in ([^\n]*) \(exit code (-?\d+)\)\. Output so far:\n?/;
 const DECLINED_PREFIX = "The operator declined to run the command.";
 const NOTE_PREFIX = " Their note: ";
 
@@ -192,7 +208,10 @@ export function parseOperatorCommandResult(
   if (ran) {
     return {
       kind: "ran",
-      exitCode: Number(ran[1]),
+      shell: ran[1] ?? "",
+      host: ran[2] ?? "",
+      cwd: ran[3] ?? "",
+      exitCode: Number(ran[4]),
       output: text.slice(ran[0].length),
     };
   }
@@ -200,7 +219,10 @@ export function parseOperatorCommandResult(
   if (stopped) {
     return {
       kind: "stopped",
-      exitCode: Number(stopped[1]),
+      shell: stopped[1] ?? "",
+      host: stopped[2] ?? "",
+      cwd: stopped[3] ?? "",
+      exitCode: Number(stopped[4]),
       output: text.slice(stopped[0].length),
     };
   }

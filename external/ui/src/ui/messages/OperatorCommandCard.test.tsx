@@ -226,7 +226,7 @@ test("a waiting request kept before a reload shows Run again on the restored row
 test("a finished call drops its kept request and reads as its record", () => {
   upsertOperatorCommandRequest(request);
   const result =
-    "The operator ran the command in bash on devbox (exit code 0):\nripgrep 14.1.0";
+    "The operator ran the command in bash on devbox, in /srv/app (exit code 0):\nripgrep 14.1.0";
   const fromServer: TranscriptItem[] = [
     {
       id: "t1",
@@ -254,13 +254,18 @@ test("a finished call drops its kept request and reads as its record", () => {
   );
   expect(screen.queryByTestId("operator-command-run")).toBeNull();
   expect(screen.queryByTestId("operator-command-stop")).toBeNull();
+  // Where it ran comes back from the result's header after a reload.
+  const card = screen.getByTestId("operator-command-card");
+  expect(card).toHaveTextContent("bash");
+  expect(card).toHaveTextContent("devbox");
+  expect(card).toHaveTextContent("/srv/app");
 });
 
 test("a stopped and a declined call say how they ended", () => {
   const { rerender } = renderCall(undefined, {
     status: "completed",
     resultText:
-      "The operator stopped the command (exit code 130). Output so far:\npartial",
+      "The operator stopped the command in bash on devbox, in /srv/app (exit code 130). Output so far:\npartial",
   });
   expect(screen.getByTestId("operator-command-end")).toHaveTextContent(
     "Stopped (exit code 130)",
