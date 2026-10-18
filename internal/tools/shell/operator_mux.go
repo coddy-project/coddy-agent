@@ -151,6 +151,22 @@ type muxRun struct {
 
 	interrupt func()
 	closeWin  func()
+
+	// gone says why the end was read as "the window disappeared", for the
+	// log and the tests: the exit code is unknown then.
+	gone string
+}
+
+func (r *muxRun) noteGone(why string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.gone = why
+}
+
+func (r *muxRun) goneReason() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.gone
 }
 
 func (r *muxRun) Output() string {
@@ -303,7 +319,9 @@ func (m *tmuxMux) Start(command, cwd string, commandShell platform.Shell) (opera
 	// The command goes to tmux as argv, never through a shell of its own; the
 	// window outlives the command (remain-on-exit) so its status can be read,
 	// and the capture starts in the same call that makes the window.
-	args := []string{"set-option", "-g", "remain-on-exit", "on", ";",
+	// remain-on-exit is a window option: set-window-option names it so on
+	// every tmux, where an older set-option -g would set nothing.
+	args := []string{"set-window-option", "-g", "remain-on-exit", "on", ";",
 		"new-window", "-d", "-t", "=" + m.session + ":", "-n", win, "-c", cwd, "-P", "-F", "#{pane_id} #{pane_pid}", "--", exe}
 	args = append(args, argv...)
 	args = append(args, ";", "pipe-pane", "-o", "-t", "="+m.session+":="+win, "cat >> '"+r.logPath+"'")
@@ -326,6 +344,7 @@ func (m *tmuxMux) Start(command, cwd string, commandShell platform.Shell) (opera
 		if err != nil || status == "" {
 			// The window is gone: closed by the operator. tmux answers a
 			// pane that no longer exists with nothing rather than an error.
+			r.noteGone(fmt.Sprintf("tmux display-message %s: %q, %v", pane, status, err))
 			return true, -1
 		}
 		// "#{pane_dead} #{pane_dead_status} #{pane_dead_signal}": a signal
@@ -473,7 +492,9 @@ func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (ope
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
-	r.interrupt = func() { _, _ = m.run("-p", win, "-X", "stuff", "^C") }
+	// The Ctrl+C byte itself: an older screen (macOS ships 4.00) types the
+	// two characters of "^C" rather than reading them as a control code.
+	r.interrupt = func() { _, _ = m.run("-p", win, "-X", "stuff", "\x03") }
 	r.closeWin = func() { _, _ = m.run("-p", win, "-X", "kill") }
 	pid := r.pid
 	go func() {

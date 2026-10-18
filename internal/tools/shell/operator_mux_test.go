@@ -96,7 +96,7 @@ func TestOperatorMuxRunsTheCommandAsWritten(t *testing.T) {
 				t.Fatalf("output in %s = %q, direct = %q", name, got, want)
 			}
 			if code := run.ExitCode(); code != 7 {
-				t.Fatalf("exit code in %s = %d, want 7", name, code)
+				t.Fatalf("exit code in %s = %d, want 7 (%s)", name, code, goneReason(run))
 			}
 		})
 	}
@@ -113,7 +113,7 @@ func TestOperatorMuxGivesTheCommandATerminal(t *testing.T) {
 			}
 			waitRun(t, run)
 			if out := normalizeOutput(run.Output()); !strings.HasPrefix(out, "/dev/") || run.ExitCode() != 0 {
-				t.Fatalf("tty in %s: %q exit %d", name, out, run.ExitCode())
+				t.Fatalf("tty in %s: %q exit %d (%s)", name, out, run.ExitCode(), goneReason(run))
 			}
 		})
 	}
@@ -138,7 +138,7 @@ func TestOperatorMuxStopInterruptsAndCleansUp(t *testing.T) {
 				t.Fatalf("the trap did not run in %s: %q", name, out)
 			}
 			if code := run.ExitCode(); code != 3 {
-				t.Fatalf("exit code in %s = %d, want 3", name, code)
+				t.Fatalf("exit code in %s = %d, want 3 (%s)", name, code, goneReason(run))
 			}
 		})
 	}
@@ -187,4 +187,11 @@ func TestOperatorMuxLogIsPrivateAndRemoved(t *testing.T) {
 			}
 		})
 	}
+}
+
+func goneReason(run operatorRun) string {
+	if r, ok := run.(*muxRun); ok {
+		return r.goneReason()
+	}
+	return ""
 }

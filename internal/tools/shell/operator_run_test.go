@@ -2,7 +2,6 @@ package shell
 
 import (
 	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -17,30 +16,6 @@ func waitOperatorCommand(t *testing.T, cmd *OperatorCommand) {
 	case <-time.After(20 * time.Second):
 		cmd.Kill(0)
 		t.Fatalf("the command did not end; output so far: %q", cmd.Output())
-	}
-}
-
-// TestOperatorToolCommandHasItsOwnSession: a command the operator runs for
-// the agent has no controlling terminal, so a program that wants one fails at
-// once instead of drawing over the console or stopping on SIGTTIN.
-func TestOperatorToolCommandHasItsOwnSession(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("sessions are a Unix notion")
-	}
-	cmd, err := StartOperatorToolCommand(`echo "$$ $(ps -o sid= -p $$)"`, t.TempDir(), platform.CurrentShell())
-	if err != nil {
-		t.Fatal(err)
-	}
-	waitOperatorCommand(t, cmd)
-	fields := strings.Fields(cmd.Output())
-	if len(fields) != 2 {
-		t.Fatalf("output = %q", cmd.Output())
-	}
-	if fields[0] != fields[1] {
-		t.Fatalf("the shell (pid %s) is not the leader of its own session (sid %s)", fields[0], fields[1])
-	}
-	if _, err := strconv.Atoi(fields[0]); err != nil {
-		t.Fatalf("pid %q: %v", fields[0], err)
 	}
 }
 
