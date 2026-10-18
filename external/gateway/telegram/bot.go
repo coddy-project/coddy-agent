@@ -581,7 +581,7 @@ func (b *Bot) processTurn(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbota
 	if len(files) > 0 {
 		cfg := b.runner.Cfg()
 		model := st.EffectiveModelID(cfg)
-		if entry := cfg.FindModelEntry(model); entry == nil || !entry.Multimodal {
+		if entry := cfg.FindModelEntry(model); !cfg.ModelMultimodal(entry) {
 			b.log.Debug("telegram: update refused", "reason", "model does not read images", "model", model, "session", st.GetID(), "user", userID, "chat", chatID)
 			b.reply(bot, chatID, msg.MessageID, multimodalNote(model))
 			return

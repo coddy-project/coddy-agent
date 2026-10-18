@@ -19,9 +19,20 @@ func (s *Server) registerConfigRoutes() {
 		// observer registered in New, which is also how a reload from the
 		// agent's own config_commit tool or from the console gets here.
 		Install: func(c *config.Config) error {
+			// The last line of defence, behind Check: a configuration that
+			// shares models unsafely is refused here too.
+			if err := s.checkSharedModels(c); err != nil {
+				return err
+			}
 			s.mgr.ReplaceConfig(c)
 			return nil
 		},
+		// A candidate that shares models unsafely - a shared-model or relay
+		// client token that is also a token of another class, or a shared
+		// model with no credential in front of it - is answered before
+		// anything is written, with the flag and environment credentials in
+		// view that the loader cannot see: the next start would refuse it.
+		Check:     s.checkSharedModels,
 		Schema:    func() ([]byte, error) { return config.UISchemaJSONHiding(s.unbuiltSections...) },
 		Decorate:  s.decorateConfigDocument,
 		Revisions: s.served,

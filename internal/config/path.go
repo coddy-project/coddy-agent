@@ -579,6 +579,11 @@ func configSecretPath(path []string) bool {
 		return true
 	}
 	last := strings.ToLower(strings.ReplaceAll(path[len(path)-1], "-", "_"))
+	// The LLM-only tokens of the shared models are credentials of this server,
+	// listed under a key as plain as "tokens".
+	if last == "tokens" && len(path) >= 2 && strings.EqualFold(path[len(path)-2], "shared_models") {
+		return true
+	}
 	// A key for a service of its own (tools.websearch.brave_api_key) is as much a
 	// credential as a provider's api_key.
 	if strings.HasSuffix(last, "_api_key") {

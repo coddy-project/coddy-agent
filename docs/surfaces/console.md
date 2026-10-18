@@ -207,7 +207,8 @@ Top to bottom:
   A third line appears while the active model's provider reports account
   usage (today: `neuraldeep`, read from the hub's `GET /v1/limits`; `codex`,
   read from the Codex backend's usage endpoint; `devin`, read from the
-  seat-management status RPC):
+  seat-management status RPC; `coddy`, read from the lending Coddy's
+  `GET /coddy/llm/models/{alias}/usage` for the alias of the model):
   `Pro • 3h 3% (resets 20:59) • week 7% (resets Mon 03:00) • wallet -1 229 ₽`,
   the plan, each metered window as percent **used** with its reset time in
   your clock (time of day within 24 h, weekday within a week, date and time beyond),
@@ -243,6 +244,14 @@ Top to bottom:
   the provider row switches the panel off: the line stays hidden, `/usage`
   says so, and no request goes to the hub for that row; a configuration
   reload re-reads the cache, so a switched panel follows without a restart.
+  A model of a `coddy` provider shows the numbers of the account behind its
+  alias, each window as percent used with its reset, without the plan or the
+  wallet, which the lender never sends. While a call to such a model waits
+  for a free slot of a busy remote, the status row reads `Waiting for a free
+  slot on the remote · resumes on its own, gives up at 20:59` and the footer
+  keeps the numbers of the alias; the row moves on when the call starts or
+  gives up, and Esc stops the wait like any turn (see
+  [Busy remotes and long calls](../operate/swarm.md#busy-remotes-and-long-calls)).
   Design record: `docs/plans/neuraldeep-usage.md`.
 
 Rendering is pi's inline main-screen model: line-diff against the previous
@@ -897,6 +906,10 @@ and is visible via `coddy mcp list` (approve with `coddy mcp trust <name>`).
 ![The turn resuming after the reset](../assets/cli-tui/12-usage-resuming.png)
 
 *The turn resuming after the reset*
+
+![A call to a model another Coddy shares waits for a free slot](../assets/cli-tui/23-coddy-busy-wait.png)
+
+*A call to a model another Coddy shares waits for the lender's free slot: the status row counts down to the time it gives up, the footer keeps the account usage behind the alias*
 
 ![The status line of a running turn: 2s, 64 tokens, 1 running task, Responding](../assets/cli-tui/14-turn-progress.png)
 

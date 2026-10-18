@@ -150,10 +150,10 @@ pages:
       summary: "Driving a remote coddy serve from the console, ACP or the web UI with --remote, tokens, CORS and the environment menu."
   operate/swarm.md:
     title: "Рой"
-    summary: "Релеи и узлы, монтирование узлов, общий список сессий, кольца и маршруты, обратный туннель."
+    summary: "Релеи и узлы, монтирование узлов, общий список сессий, кольца и маршруты, обратный туннель, модели, которыми делятся экземпляры Coddy."
     en:
       title: "Swarm"
-      summary: "Relays and nodes, mounts, the aggregated session list, rings and routes, the reverse tunnel."
+      summary: "Relays and nodes, mounts, the aggregated session list, rings and routes, the reverse tunnel, models shared between Coddys."
   operate/scheduler.md:
     title: "Планировщик"
     summary: "Файлы cron-заданий, правила срабатывания в UTC, запуски как фоновые агентные задачи в сессии задания, панель запусков, инструменты планировщика и REST."

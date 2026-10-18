@@ -370,6 +370,12 @@ BENCHTIME ?= 1s
 test-perf:
 	go test -run '^$$' -bench '$(BENCH)' -benchtime $(BENCHTIME) -benchmem ./...
 
+# External TLS: system trust, provider routing, and the relay's reverse-role
+# HTTP/2 tunnel through an external TLS terminator. Local fixtures, no LLM.
+test-external-tls:
+	go test -count=1 ./internal/llm -run 'TestCoddyRowSystemHTTPS|TestProvidersUseSystemTrust'
+	go test -tags=http,swarm -count=1 ./external/swarm -run '^TestExternalTLSProxy$$'
+
 # AppSec gate (issue #374): trivy (dependency vulnerabilities, secrets;
 # misconfig report-only), semgrep (SAST) and govulncheck (Go vulnerabilities
 # the code reaches, the pinned toolchain's standard library included) over the

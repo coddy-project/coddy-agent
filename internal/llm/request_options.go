@@ -2,6 +2,7 @@ package llm
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
@@ -26,12 +27,25 @@ type RequestOptions struct {
 	// SupportedParameters is what the provider's model listing says the model
 	// takes (ProviderInput.SupportedParameters); nil keeps nothing known.
 	SupportedParameters []string
+	// RetryBudget is the part of the caller's own budget that is left for waiting
+	// on a usage limit (a shared-model call carries it in options.retry_budget_ms):
+	// a pause longer than it fails at once as a quota error instead of being slept
+	// through. nil asks for nothing; a set value, zero included, switches the
+	// budget on (ProviderInput.RetryBudgetSet). It is no generation option, so
+	// Validate never reads it.
+	RetryBudget *time.Duration
 }
 
 // Validate reports the first option a provider of providerType and API model cannot send as
 // asked, so the caller refuses the request before anything reaches the
 // provider instead of the value being dropped on the way.
 func (o RequestOptions) Validate(providerType, model string) error {
+	if providerType == "coddy" {
+		// The remote validates, against the row it shares under the alias: its
+		// own provider type decides what max_tokens, temperature and a level
+		// mean, and a client that never sets one never trips it.
+		return nil
+	}
 	if providerType == "anthropic" {
 		if err := validateAnthropicReasoningEffort(model, o.ReasoningEffort); err != nil {
 			return err
@@ -87,5 +101,8 @@ func (o RequestOptions) Apply(in *ProviderInput) {
 	}
 	if o.SupportedParameters != nil {
 		in.SupportedParameters = o.SupportedParameters
+	}
+	if o.RetryBudget != nil {
+		in.RetryBudget, in.RetryBudgetSet = *o.RetryBudget, true
 	}
 }

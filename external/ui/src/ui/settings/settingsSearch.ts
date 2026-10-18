@@ -37,6 +37,7 @@ import {
 } from "./settingsSections";
 import { skillsFormGroups } from "./SkillsSection";
 import { subagentsFormGroups } from "./SubagentsSection";
+import type { ProviderRow } from "./useProviderModels";
 import { translate } from "../i18n/i18n";
 import { notificationsShown } from "../pwa/NotificationsSetting";
 
@@ -383,6 +384,7 @@ type Walk = {
   section: SectionDescriptor;
   form: Form;
   row: string | null;
+  providers: ProviderRow[];
 };
 
 type FieldFrame = {
@@ -400,7 +402,7 @@ type FieldFrame = {
 function walkField(frame: FieldFrame): void {
   const { walk, name, schema, path, keyPath, parent, where, list } = frame;
   const { form, section } = walk;
-  const box = overrideTexts(form.domain, path, parent, schema);
+  const box = overrideTexts(form.domain, path, parent, schema, walk.providers);
   if (box === false) {
     return;
   }
@@ -502,6 +504,16 @@ function walkForm(walk: Walk, parent: PlainObject, where: string[]): void {
       continue;
     }
     const g = node.group;
+    // A group whose every field the form leaves out is not drawn (SchemaForm).
+    if (
+      node.fields.length > 0 &&
+      node.fields.every(
+        ([k, sub]) =>
+          overrideTexts(form.domain, k, parent, sub, walk.providers) === false,
+      )
+    ) {
+      continue;
+    }
     walk.out.push(
       makeSearchEntry({
         kind: "group",
@@ -669,6 +681,7 @@ export function buildSettingsSearchIndex(input: {
 }): SettingsSearchEntry[] {
   const out: SettingsSearchEntry[] = [];
   const props = input.schema?.properties ?? {};
+  const providers = asArray(input.doc.providers).map(asObject) as ProviderRow[];
 
   for (const section of input.sections) {
     out.push(
@@ -692,7 +705,7 @@ export function buildSettingsSearchIndex(input: {
 
     landmarkEntries(out, section, blocks("before"), null);
     for (const { form, value } of generated.forms) {
-      walkForm({ out, section, form, row: null }, value, tab);
+      walkForm({ out, section, form, row: null, providers }, value, tab);
     }
     const key = section.schemaKey ?? section.id;
     for (const { label, row } of generated.rows
@@ -708,10 +721,11 @@ export function buildSettingsSearchIndex(input: {
           where: tab,
         }),
       );
-      walkForm({ out, section, form: generated.rows!, row: label }, row, [
-        ...tab,
-        label,
-      ]);
+      walkForm(
+        { out, section, form: generated.rows!, row: label, providers },
+        row,
+        [...tab, label],
+      );
       landmarkEntries(
         out,
         section,

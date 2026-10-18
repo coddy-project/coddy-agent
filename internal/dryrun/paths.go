@@ -86,7 +86,6 @@ func (r *runner) paths() {
 	if cfg.Memory.Enabled && strings.TrimSpace(cfg.Memory.Dir) != "" {
 		r.rep.add(r.creatableDir("memory.dir", cfg.Memory.Dir))
 	}
-
 	if cfg.Swarm.Enabled && cfg.Swarm.TLS.Enabled() {
 		if _, err := tls.LoadX509KeyPair(cfg.Swarm.TLS.CertFile, cfg.Swarm.TLS.KeyFile); err != nil {
 			r.rep.add(r.check(StatusError, "swarm.tls", "swarm.tls", "certificate and key do not load: "+err.Error(), "check swarm.tls.cert_file and swarm.tls.key_file"))

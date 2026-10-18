@@ -612,6 +612,91 @@ test("a field of a provider or model row is indexed once per row, under that row
   ).not.toContain("openai");
 });
 
+// A model row draws the subscription acknowledgement only while it is shared
+// and its provider signs in with a subscription (sharedSubscriptionAckNeeded),
+// so the index lists the field for exactly those rows; the alias is drawn on
+// every row and indexed on every row.
+test("a model row's subscription acknowledgement is indexed only for a shared model of a subscription login", () => {
+  const ackRows = (doc: SettingsDoc) =>
+    entriesAt(indexOf(AGENT_SCHEMA, doc), "models:shared_subscription_ack").map(
+      (e) => e.row,
+    );
+  const doc = configFromSchema(AGENT_SCHEMA);
+  const models = doc["models"] as Record<string, unknown>[];
+
+  // Neither default model is shared.
+  expect(ackRows(doc)).toEqual([]);
+  expect(
+    entriesAt(indexOf(AGENT_SCHEMA, doc), "models:shared_as").map((e) => e.row),
+  ).toEqual(["demo/qwen3-27b", "demo/llama-3"]);
+
+  // Shared, on a Codex login and on an API key.
+  models[0]!["model"] = "codex/gpt-5.5";
+  models[0]!["shared_as"] = "terra";
+  models[1]!["model"] = "openai/gpt-4o";
+  models[1]!["shared_as"] = "luna";
+  expect(ackRows(doc)).toEqual(["codex/gpt-5.5"]);
+
+  // The NeuralDeep row of the document has no key: a login too.
+  models[1]!["model"] = "neuraldeep/qwen3";
+  expect(ackRows(doc)).toEqual(["codex/gpt-5.5", "neuraldeep/qwen3"]);
+  const ack = only(
+    indexOf(AGENT_SCHEMA, doc),
+    "models:shared_subscription_ack",
+    "neuraldeep/qwen3",
+  );
+  expect(ack.names[0]).toBe(schemaLabel("models", "shared_subscription_ack"));
+  expect(ack.keyPath).toBe("models[].shared_subscription_ack");
+
+  // Unshared again, the codex model draws no acknowledgement.
+  models[0]!["shared_as"] = "";
+  expect(ackRows(doc)).toEqual(["neuraldeep/qwen3"]);
+});
+
+// A model another Coddy serves draws no alias field unless one is written, and
+// then no Sharing group either; the index lists neither for it.
+test("a model another Coddy serves has no alias and no Sharing group in the index", () => {
+  const doc = configFromSchema(AGENT_SCHEMA);
+  const providers = doc["providers"] as Record<string, unknown>[];
+  const models = doc["models"] as Record<string, unknown>[];
+  providers.push({ name: "terra", type: "coddy" });
+  models.push({ model: "terra/qwen" });
+  const rowsOf = (anchor: string) =>
+    entriesAt(indexOf(AGENT_SCHEMA, doc), anchor).map((e) => e.row);
+
+  expect(rowsOf("models:shared_as")).not.toContain("terra/qwen");
+  expect(rowsOf("group:models:sharing")).not.toContain("terra/qwen");
+  expect(rowsOf("models:shared_as")).toContain("demo/qwen3-27b");
+
+  // A written alias stays findable, so that it can be taken out.
+  models[models.length - 1]!["shared_as"] = "again";
+  expect(rowsOf("models:shared_as")).toContain("terra/qwen");
+  expect(rowsOf("group:models:sharing")).toContain("terra/qwen");
+});
+
+// busy_wait_ms is drawn only on a provider row of type coddy (overrideTexts),
+// so the index lists it under exactly those rows.
+test("a provider row's busy_wait_ms is indexed only for a remote Coddy", () => {
+  const busyRows = (doc: SettingsDoc) =>
+    entriesAt(indexOf(AGENT_SCHEMA, doc), "providers:busy_wait_ms").map(
+      (e) => e.row,
+    );
+  const doc = configFromSchema(AGENT_SCHEMA);
+  const providers = doc["providers"] as Record<string, unknown>[];
+
+  expect(busyRows(doc)).toEqual([]);
+
+  providers[0]!["type"] = "coddy";
+  expect(busyRows(doc)).toEqual([String(providers[0]!["name"])]);
+  expect(
+    only(
+      indexOf(AGENT_SCHEMA, doc),
+      "providers:busy_wait_ms",
+      String(providers[0]!["name"]),
+    ).keyPath,
+  ).toBe("providers[].busy_wait_ms");
+});
+
 test("a row without a name and rows that share a name are left out, so no result opens the wrong row", () => {
   const rowsOf = (index: Entries, section: string) => [
     ...new Set(

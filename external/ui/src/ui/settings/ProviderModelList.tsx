@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { formatTurnTokens } from "../chat/turnProgress";
 import { useT } from "../i18n/I18nProvider";
 import { IconCheck, IconPlus, IconSync } from "./icons";
+import { isCoddyType, listedLevels } from "./sharedModels";
 import { SETTINGS_TEXTS, landmarkAnchor } from "./settingsSections";
 import {
   modelDisplayName,
@@ -53,6 +54,7 @@ export function ProviderModelList(props: {
 
   const name = str(provider.name).trim();
   const fetchable = providerRowFetchable(provider);
+  const remote = isCoddyType(provider.type);
   const prefix = `${name}/`;
 
   const listed = useMemo(() => new Set(existingModels), [existingModels]);
@@ -181,7 +183,29 @@ export function ProviderModelList(props: {
                 data-testid={`provider-model-${m.id}`}
                 title={modelDisplayName(m)}
               >
-                <span className="provider-models-item-id">{m.id}</span>
+                <span className="provider-models-item-main">
+                  <span className="provider-models-item-id">{m.id}</span>
+                  {remote && m.multimodal ? (
+                    <span
+                      className="provider-models-item-badge"
+                      data-testid={`provider-model-images-${m.id}`}
+                      title={t("settings.providerModels.imagesTitle")}
+                    >
+                      {t("settings.providerModels.images")}
+                    </span>
+                  ) : null}
+                  {remote && listedLevels(m).length > 0 ? (
+                    <span
+                      className="provider-models-item-badge"
+                      data-testid={`provider-model-levels-${m.id}`}
+                      title={t("settings.providerModels.levelsTitle", {
+                        levels: listedLevels(m).join(", "),
+                      })}
+                    >
+                      {listedLevels(m).join(" · ")}
+                    </span>
+                  ) : null}
+                </span>
                 {m.context_window ? (
                   <span
                     className="provider-models-item-ctx"

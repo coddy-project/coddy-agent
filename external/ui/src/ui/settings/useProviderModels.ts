@@ -6,6 +6,10 @@ export interface FetchedModel {
   name?: string;
   /** Context window the listing reports, absent when it reports none. */
   context_window?: number;
+  multimodal?: boolean;
+  reasoning_levels?: string[];
+  reasoning_default?: string;
+  allow_reasoning_off?: boolean;
 }
 
 /** A providers[] row as the settings form holds it. */
@@ -79,7 +83,15 @@ export function modelDisplayName(m: FetchedModel): string | undefined {
 type ModelsResponse = {
   ok?: boolean;
   error?: string;
-  models?: { id?: string; name?: string; context_window?: number }[];
+  models?: {
+    id?: string;
+    name?: string;
+    context_window?: number;
+    multimodal?: boolean;
+    reasoning_levels?: string[];
+    reasoning_default?: string;
+    allow_reasoning_off?: boolean;
+  }[];
 };
 
 function normalize(rows: ModelsResponse["models"]): FetchedModel[] {
@@ -100,6 +112,20 @@ function normalize(rows: ModelsResponse["models"]): FetchedModel[] {
       m.context_window > 0
     ) {
       item.context_window = Math.floor(m.context_window);
+    }
+    if (typeof m.multimodal === "boolean") {
+      item.multimodal = m.multimodal;
+    }
+    if (Array.isArray(m.reasoning_levels)) {
+      item.reasoning_levels = m.reasoning_levels.filter(
+        (level): level is string => typeof level === "string" && level !== "",
+      );
+    }
+    if (typeof m.reasoning_default === "string" && m.reasoning_default !== "") {
+      item.reasoning_default = m.reasoning_default;
+    }
+    if (typeof m.allow_reasoning_off === "boolean") {
+      item.allow_reasoning_off = m.allow_reasoning_off;
     }
     list.push(item);
   }

@@ -218,7 +218,7 @@ export const messagesEn: Record<string, string> = {
     "http, https, socks5 or socks5h proxy URL. It may carry a password, so it is not shown.",
   "settings.schema.swarm.upstreams.dial.ca_file.label": "CA file",
   "settings.schema.swarm.upstreams.dial.ca_file.desc":
-    "PEM bundle trusted for the node's certificate, besides the system roots.",
+    "PEM bundle trusted for the node's certificate, in place of the system roots.",
   "settings.schema.swarm.upstreams.dial.insecure_skip_verify.label":
     "Skip certificate check",
   "settings.schema.swarm.upstreams.dial.insecure_skip_verify.desc":
@@ -249,7 +249,7 @@ export const messagesEn: Record<string, string> = {
     "http, https, socks5 or socks5h proxy URL. It may carry a password, so it is not shown.",
   "settings.schema.swarm.join.dial.ca_file.label": "CA file",
   "settings.schema.swarm.join.dial.ca_file.desc":
-    "PEM bundle trusted for the parent's certificate, besides the system roots.",
+    "PEM bundle trusted for the parent's certificate, in place of the system roots.",
   "settings.schema.swarm.join.dial.insecure_skip_verify.label":
     "Skip certificate check",
   "settings.schema.swarm.join.dial.insecure_skip_verify.desc":
@@ -275,6 +275,7 @@ export const messagesEn: Record<string, string> = {
   "settings.group.agent.timeouts": "Stream timeouts",
   "settings.group.agent.loop": "Loop guard",
   "settings.group.agent.limits": "Usage limits",
+  "settings.group.agent.shared": "Shared models",
   "settings.group.hooks.main": "Hook settings",
   "settings.group.hooks.mainDesc":
     "How hooks run: whether files that came with the checkout may run, how long one hook process may take when its definition gives no timeout, how many times a Stop hook may send the agent back to work, and how much text one hook may hand over.",
@@ -344,6 +345,16 @@ export const messagesEn: Record<string, string> = {
   "settings.models.group.model": "Model",
   "settings.models.group.generation": "Generation",
   "settings.models.group.reasoning": "Reasoning",
+  "settings.models.group.sharing": "Sharing",
+  "settings.sharedAs.invalid":
+    "Not a valid alias: use 1 to 64 letters, digits, dots, underscores or hyphens, starting with a letter or a digit.",
+  "settings.sharedAs.servedByCoddy":
+    "A model served by another Coddy cannot be shared again: remove the alias.",
+  "settings.sharedAs.placeholder": "e.g. terra; empty keeps the model private",
+  "settings.sharedAck.required": "required",
+  "settings.sharedAck.warning":
+    "{provider} ({type}) runs on a subscription login. Sharing a login hands its quota to every holder of a shared-model token and may breach the vendor's terms of service. The configuration is refused without this.",
+  "settings.coddyApiBase.placeholder": "https://host:12345",
   "settings.models.group.tools": "Tools",
   "settings.models.group.toolsDesc":
     "The toolset a session on this model is offered its tools by, a preset of the Toolsets tab. Without one the model is offered every tool the mode would. A session can pick another toolset in the composer or with /toolset.",
@@ -363,6 +374,11 @@ export const messagesEn: Record<string, string> = {
     "Context window of {tokens} token",
   "settings.providerModels.contextWindow.other":
     "Context window of {tokens} tokens",
+  "settings.providerModels.images": "images",
+  "settings.providerModels.imagesTitle":
+    "The remote lists this model as accepting images",
+  "settings.providerModels.levelsTitle":
+    "Reasoning levels the remote lists: {levels}",
   "settings.reasoning.levelsFallback": "Reasoning levels",
   "settings.reasoning.fetch": "Fetch reasoning levels",
   "settings.reasoning.fetching": "Fetching…",
@@ -377,6 +393,22 @@ export const messagesEn: Record<string, string> = {
     "This model id has no auto-detected reasoning levels. Add them by hand if the provider offers any.",
   "settings.reasoning.fetchError":
     "Couldn't fetch reasoning levels: {error}. Add them by hand below.",
+  "settings.reasoning.fromRemote":
+    "The remote's listing decides which levels this model offers.",
+  "settings.reasoning.fromRemoteLevels": "Offered by the remote now: {levels}",
+  "settings.reasoning.fromRemoteNone":
+    "The remote lists no reasoning levels for this model.",
+  "settings.reasoning.useRemote": "Follow the remote",
+  "settings.reasoning.overriddenRemote":
+    "These exact levels are offered for this model, instead of the remote's.",
+  "settings.reasoning.hiddenRemote":
+    "Empty list: the reasoning selector is hidden for this model. Use 'Follow the remote' to go back.",
+  "settings.tristate.remote": "Remote",
+  "settings.tristate.yes": "Yes",
+  "settings.tristate.no": "No",
+  "settings.tristate.fromRemote": "Follows the remote's listing.",
+  "settings.tristate.hint":
+    "The remote's listing is ignored for this key. Choose Remote to follow it again.",
 
   "settings.field.apiKeyPlaceholder":
     "If empty, reads from {env} at run time, or set a literal key (YAML may use {varToken} at load)",
@@ -420,6 +452,9 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.providers.timeout_ms.label": "Request timeout ms",
   "settings.schema.providers.timeout_ms.desc":
     "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout.",
+  "settings.schema.providers.busy_wait_ms.label": "Busy wait ms",
+  "settings.schema.providers.busy_wait_ms.desc":
+    "How long one call to this remote Coddy waits for a free slot when the remote answers busy, in milliseconds. 0 or empty uses agent.shared_busy_wait_ms (30000 unless set).",
   "settings.schema.providers.usage_limits_panel.label": "Usage limits panel",
   "settings.schema.providers.usage_limits_panel.desc":
     "Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",

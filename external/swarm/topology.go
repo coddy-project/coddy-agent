@@ -24,6 +24,11 @@ type TopologyNode struct {
 	Transport string `json:"transport,omitempty"`
 	Online    bool   `json:"online"`
 	Version   string `json:"version,omitempty"`
+	// TokenClass is shared_models for an agent whose join token opens only the
+	// shared-model routes, read from the label it registered with. It is the
+	// node's own claim, shown as a badge; a child relay's value is copied as it
+	// sent it, and an older child sends none.
+	TokenClass string `json:"token_class,omitempty"`
 }
 
 // TopologyEdge is one relay knowing one node, under the name that relay uses.
@@ -227,6 +232,9 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		node := TopologyNode{
 			UUID: uuid, Name: info.Name, Kind: info.Kind,
 			Transport: info.Transport, Online: info.Online, Version: info.Version,
+		}
+		if swarmdto.SharedModelsOnly(info.Labels, info.Kind) {
+			node.TokenClass = swarmdto.TokenClassSharedModels
 		}
 		if !seen[node.UUID] {
 			topo.Nodes = append(topo.Nodes, node)

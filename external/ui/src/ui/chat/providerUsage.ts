@@ -30,6 +30,9 @@ export type ProviderUsage = {
   sessionUpdate?: string;
   provider: string;
   providerType?: string;
+  /** The alias of a model a provider of type coddy borrows: that row's usage
+   *  is the remote's for this model alone, never the provider's as a whole. */
+  model?: string;
   observedAt?: string;
   fetchedAt?: string;
   plan?: string;
@@ -245,13 +248,26 @@ export type UsageSummary =
       wallet: ProviderUsage["wallet"];
     };
 
+/**
+ * Whether a snapshot is the usage behind a model selector: the same provider
+ * row, and for a snapshot that names a model (a coddy row's alias) that model
+ * too, so one alias never shows another's numbers.
+ */
+export function usageIsFor(
+  u: ProviderUsage | null | undefined,
+  modelId: string,
+): boolean {
+  if (!u || u.provider !== usageProviderOf(modelId)) return false;
+  return !u.model || u.model === usageModelOf(modelId);
+}
+
 /** What the composer shows for the active model, if anything. */
 export function summarizeUsage(
   u: ProviderUsage | null | undefined,
   modelId: string,
 ): UsageSummary {
   if (!u || u.unsupported) return { kind: "none" };
-  if (u.provider !== usageProviderOf(modelId)) return { kind: "none" };
+  if (!usageIsFor(u, modelId)) return { kind: "none" };
   if (u.error === "unauthorized") {
     return { kind: "unauthorized", provider: u.provider };
   }
@@ -385,17 +401,20 @@ export function usageBannerKey(
   modelId = "",
 ): string {
   if (!u) return "";
+  // A coddy row's snapshot is one alias's: dismissing its notice leaves the
+  // notices of the other aliases on the row.
+  const who = u.model ? `${u.provider}/${u.model}` : u.provider;
   if (u.blocked) {
-    return `${u.provider}@blocked@${u.retryAt ?? ""}@${(u.blockers ?? []).join(",")}`;
+    return `${who}@blocked@${u.retryAt ?? ""}@${(u.blockers ?? []).join(",")}`;
   }
   // A model gate has its own notice and its own dismissal: it lifts on its
   // own clock, and it must not be hidden by a window notice dismissed earlier.
   const bm = modelBlocked(u, modelId);
   if (bm) {
-    return `${u.provider}@model@${bm.model}@${bm.retryAt ?? ""}`;
+    return `${who}@model@${bm.model}@${bm.retryAt ?? ""}`;
   }
   const w = usageWarnWindow(u);
-  return w ? `${u.provider}@${w.id}@${w.resetsAt ?? ""}` : "";
+  return w ? `${who}@${w.id}@${w.resetsAt ?? ""}` : "";
 }
 
 /** Display brand is independent of the configured provider row alias. */
@@ -476,15 +495,24 @@ export type ProviderUsageAnswer =
   | { ok: false; unsupported: true }
   | { ok: false; error: string; usage: ProviderUsage | null };
 
-/** Reads the usage behind a provider row over REST. */
+/**
+ * Reads the usage behind a provider row over REST. model is the model the
+ * session runs on that row: a row of type coddy is read per model (the server
+ * requires it there), and every other type ignores it.
+ */
 export async function fetchProviderUsage(
   provider: string,
   refresh: boolean,
   fetchImpl: typeof fetch = fetch,
+  model = "",
 ): Promise<ProviderUsageAnswer> {
   const name = provider.trim();
   if (!name) return { ok: false, unsupported: true };
-  const url = `/coddy/providers/${encodeURIComponent(name)}/usage${refresh ? "?refresh=1" : ""}`;
+  const query = new URLSearchParams();
+  if (model.trim()) query.set("model", model.trim());
+  if (refresh) query.set("refresh", "1");
+  const qs = query.toString();
+  const url = `/coddy/providers/${encodeURIComponent(name)}/usage${qs ? `?${qs}` : ""}`;
   const res = await fetchImpl(url, { headers: { Accept: "application/json" } });
   if (res.status === 404) return { ok: false, unsupported: true };
   if (!res.ok) {

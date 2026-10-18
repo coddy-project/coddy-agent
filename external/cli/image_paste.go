@@ -85,8 +85,8 @@ func (a *App) modelTakesPictures() bool {
 	if a.remoteURL != "" {
 		return true
 	}
-	entry := a.config().FindModelEntry(a.modelID)
-	return entry != nil && entry.Multimodal
+	cfg := a.config()
+	return cfg.ModelMultimodal(cfg.FindModelEntry(a.modelID))
 }
 
 func (a *App) refuseForModel() {

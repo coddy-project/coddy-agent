@@ -8,6 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { ReasoningLevelsField } from "./ReasoningLevelsField";
+import type { ProviderRow } from "./useProviderModels";
 
 afterEach(() => {
   cleanup();
@@ -21,9 +22,11 @@ afterEach(() => {
 function Harness({
   initial,
   providerType,
+  providerRow,
 }: {
   initial?: unknown;
   providerType?: string;
+  providerRow?: ProviderRow;
 }) {
   const [model, setModel] = React.useState<Record<string, unknown>>(
     initial === undefined
@@ -46,6 +49,7 @@ function Harness({
         onChange={(v) => setModel((m) => ({ ...m, reasoning_levels: v }))}
         model={String(model["model"])}
         providerType={providerType}
+        providerRow={providerRow}
         label="Reasoning levels"
       />
     </>
@@ -339,4 +343,153 @@ test("the Add button is a lone row action, not a full-width bar", () => {
   const add = screen.getByTestId("reasoning-levels-add");
   expect(add.classList.contains("settings-row-action")).toBe(true);
   expect(add.parentElement?.classList.contains("settings-row")).toBe(true);
+});
+
+// A model of a remote Coddy (provider type coddy) takes its levels from the
+// remote's listing rather than from the model id: nothing is detected here,
+// and the field says what the remote offers.
+const TERRA: ProviderRow = {
+  name: "valera",
+  type: "coddy",
+  api_base: "https://terra:12345",
+};
+
+function status(): string {
+  return screen.getByTestId("reasoning-levels-status").textContent!;
+}
+
+function remoteListing(models: unknown[]) {
+  return mockFetch({ ok: true, models });
+}
+
+test("a remote Coddy's model has no fetch button and says the remote decides", () => {
+  render(<Harness providerType="coddy" />);
+
+  expect(screen.queryByTestId("reasoning-levels-fetch")).toBeNull();
+  expect(screen.queryByTestId("reasoning-levels-auto")).toBeNull();
+  expect(status()).toBe(
+    "The remote's listing decides which levels this model offers.",
+  );
+});
+
+test("once the remote answers, the levels it offers for the model are shown, off included when allowed", async () => {
+  const f = remoteListing([
+    { id: "gpt-5.5", reasoning_levels: ["minimal"] },
+    {
+      id: "qwen3.8-27b",
+      reasoning_levels: ["low", "medium", "high"],
+      allow_reasoning_off: true,
+    },
+  ]);
+  render(<Harness providerType="coddy" providerRow={TERRA} />);
+
+  await waitFor(() =>
+    expect(screen.getByTestId("reasoning-levels-remote").textContent).toBe(
+      "Offered by the remote now: low, medium, high, off",
+    ),
+  );
+  // The listing is the provider row's, asked the way the provider form asks.
+  expect(f).toHaveBeenCalledWith(
+    "/coddy/providers/models",
+    expect.objectContaining({ method: "POST" }),
+  );
+  expect(status()).toBe(
+    "The remote's listing decides which levels this model offers.",
+  );
+  // Nothing is written: the key stays absent, so the remote keeps deciding.
+  expect(savedModel()).toEqual({ model: "valera/qwen3.8-27b" });
+
+  // Another id of the same remote reads its own entry of the listing.
+  fireEvent.click(screen.getByTestId("retype-model"));
+  expect(screen.getByTestId("reasoning-levels-remote").textContent).toBe(
+    "Offered by the remote now: minimal",
+  );
+});
+
+test("a remote model that lists no levels says the remote offers none", async () => {
+  remoteListing([
+    { id: "qwen3.8-27b", reasoning_levels: [], allow_reasoning_off: true },
+  ]);
+  render(<Harness providerType="coddy" providerRow={TERRA} />);
+
+  await waitFor(() =>
+    expect(screen.getByTestId("reasoning-levels-remote").textContent).toBe(
+      "The remote lists no reasoning levels for this model.",
+    ),
+  );
+});
+
+test("an explicit list overrides the remote, and Follow the remote hands the decision back", async () => {
+  const f = remoteListing([
+    { id: "qwen3.8-27b", reasoning_levels: ["low", "high"] },
+  ]);
+  render(
+    <Harness initial={["high"]} providerType="coddy" providerRow={TERRA} />,
+  );
+
+  const reset = screen.getByTestId("reasoning-levels-auto");
+  expect(reset.textContent).toBe("Follow the remote");
+  expect(status()).toBe(
+    "These exact levels are offered for this model, instead of the remote's.",
+  );
+  // While the list overrides it, what the remote offers is not on show.
+  await waitFor(() => expect(f).toHaveBeenCalled());
+  await new Promise((r) => setTimeout(r, 0));
+  expect(screen.queryByTestId("reasoning-levels-remote")).toBeNull();
+
+  fireEvent.click(reset);
+  expect(savedModel()).toEqual({ model: "valera/qwen3.8-27b" });
+  expect(status()).toBe(
+    "The remote's listing decides which levels this model offers.",
+  );
+  await waitFor(() =>
+    expect(screen.getByTestId("reasoning-levels-remote").textContent).toBe(
+      "Offered by the remote now: low, high",
+    ),
+  );
+});
+
+test("an explicit empty list hides the selector of a remote model and names the way back", () => {
+  render(<Harness initial={[]} providerType="coddy" />);
+
+  expect(status()).toBe(
+    "Empty list: the reasoning selector is hidden for this model. Use 'Follow the remote' to go back.",
+  );
+  expect(screen.getByTestId("reasoning-levels-auto").textContent).toBe(
+    "Follow the remote",
+  );
+});
+
+test("a provider of another type keeps the fetch button and the auto-detection texts", async () => {
+  const f = remoteListing([
+    { id: "qwen3.8-27b", reasoning_levels: ["low"], allow_reasoning_off: true },
+  ]);
+  const openai: ProviderRow = { name: "valera", type: "openai" };
+
+  render(<Harness providerType="openai" providerRow={openai} />);
+  expect(screen.getByTestId("reasoning-levels-fetch")).toBeTruthy();
+  expect(status()).toBe(
+    "Auto-detected from the model id. Fetch the levels to review or override them.",
+  );
+  // No listing is asked for and none is shown.
+  await new Promise((r) => setTimeout(r, 0));
+  expect(f).not.toHaveBeenCalled();
+  expect(screen.queryByTestId("reasoning-levels-remote")).toBeNull();
+  cleanup();
+
+  render(
+    <Harness initial={["low"]} providerType="openai" providerRow={openai} />,
+  );
+  expect(screen.getByTestId("reasoning-levels-auto").textContent).toBe(
+    "Use auto-detected",
+  );
+  expect(status()).toBe(
+    "These exact levels are offered for this model, instead of the auto-detected ones.",
+  );
+  cleanup();
+
+  render(<Harness initial={[]} providerType="openai" providerRow={openai} />);
+  expect(status()).toBe(
+    "Empty list: the reasoning selector is hidden for this model. Use 'Use auto-detected' to go back.",
+  );
 });

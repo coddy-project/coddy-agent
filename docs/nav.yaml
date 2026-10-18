@@ -74,7 +74,7 @@ groups:
         summary: Driving a remote coddy serve from the console, ACP or the web UI with --remote, tokens, CORS and the environment menu.
       - path: operate/swarm.md
         title: Swarm
-        summary: Relays and nodes, mounts, the aggregated session list, rings and routes, the reverse tunnel.
+        summary: Relays and nodes, mounts, the aggregated session list, rings and routes, the reverse tunnel, models shared between Coddys.
       - path: operate/scheduler.md
         title: Scheduler
         summary: Cron job files, UTC firing rules, runs as background agent tasks under a job session, the runs panel, the scheduler tools and REST.

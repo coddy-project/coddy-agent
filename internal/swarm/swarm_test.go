@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/netx"
 )
 
 func TestValidateNodeName(t *testing.T) {
@@ -352,6 +353,33 @@ func TestJoinClientReusesAStoredLeaseAcrossRestarts(t *testing.T) {
 	}
 	if err := restarted.Register(context.Background()); err != nil {
 		t.Fatalf("a restarted node should re-claim its own name: %v", err)
+	}
+}
+
+// A join that turns certificate verification off says so in the log, once
+// when the client is built, naming the relay: insecure_skip_verify is a lab
+// setting the operator has to be able to find again.
+func TestJoinClientWarnsWhenItSkipsTheCertificateCheck(t *testing.T) {
+	var logged strings.Builder
+	log := slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	if _, err := NewClient(JoinOptions{
+		RelayURL: "https://relay.example:8443", Name: "nas02", AdvertiseURL: "http://nas02:12345",
+		Dial: netx.Options{InsecureSkipVerify: true}, Log: log,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if out := logged.String(); !strings.Contains(out, "certificate verification disabled") || !strings.Contains(out, "relay.example:8443") {
+		t.Fatalf("no warning names the insecure relay: %q", out)
+	}
+
+	logged.Reset()
+	if _, err := NewClient(JoinOptions{
+		RelayURL: "https://relay.example:8443", Name: "nas02", AdvertiseURL: "http://nas02:12345", Log: log,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if logged.Len() != 0 {
+		t.Fatalf("a verified join warned: %q", logged.String())
 	}
 }
 

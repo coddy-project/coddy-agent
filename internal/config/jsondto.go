@@ -108,6 +108,7 @@ type ProviderJSON struct {
 	APIKeyCommand string `json:"api_key_command,omitempty"`
 	Proxy         string `json:"proxy,omitempty"`
 	TimeoutMS     int    `json:"timeout_ms,omitempty"`
+	BusyWaitMS    int    `json:"busy_wait_ms,omitempty"`
 	// UsageLimitsPanel keeps the three states of the YAML key: absent (on),
 	// true, false. omitempty leaves an unset switch out of the document.
 	UsageLimitsPanel *bool `json:"usage_limits_panel,omitempty"`
@@ -124,13 +125,84 @@ type ModelJSON struct {
 	// ReasoningLevels keeps the unset/explicit distinction of ModelEntry.ReasoningLevels:
 	// an omitted key auto-detects, an explicit [] hides the reasoning selector. A plain
 	// slice would collapse both into "absent" on the way out to the settings UI.
-	ReasoningLevels   *[]string `json:"reasoning_levels,omitempty"`
-	ReasoningDefault  string    `json:"reasoning_default,omitempty"`
-	AllowReasoningOff bool      `json:"allow_reasoning_off,omitempty"`
+	ReasoningLevels      *[]string `json:"reasoning_levels,omitempty"`
+	ReasoningDefault     string    `json:"reasoning_default,omitempty"`
+	AllowReasoningOff    bool      `json:"allow_reasoning_off,omitempty"`
+	allowReasoningOffSet bool
 	// Stream keeps the unset/explicit distinction of ModelEntry.Stream: a settings
 	// round trip must not turn an omitted key into an explicit false.
-	Stream  *bool  `json:"stream,omitempty"`
-	Toolset string `json:"toolset,omitempty"`
+	Stream *bool `json:"stream,omitempty"`
+	// SharedAs and SharedSubscriptionAck are the sharing keys of the row: an
+	// alias that offers it to other Coddys, and the acknowledgement a
+	// subscription login needs next to it.
+	SharedAs              string `json:"shared_as,omitempty"`
+	SharedSubscriptionAck bool   `json:"shared_subscription_ack,omitempty"`
+	Toolset               string `json:"toolset,omitempty"`
+}
+
+// modelJSONWire gives allow_reasoning_off pointer semantics at the JSON
+// boundary while keeping ModelJSON's public boolean type compatible with the
+// existing configuration API.
+type modelJSONWire struct {
+	Model                 string    `json:"model"`
+	MaxTokens             int       `json:"max_tokens"`
+	Temperature           float64   `json:"temperature"`
+	MaxContextTokens      int       `json:"max_context_tokens,omitempty"`
+	Multimodal            bool      `json:"multimodal,omitempty"`
+	ReasoningLevels       *[]string `json:"reasoning_levels,omitempty"`
+	ReasoningDefault      string    `json:"reasoning_default,omitempty"`
+	AllowReasoningOff     *bool     `json:"allow_reasoning_off,omitempty"`
+	Stream                *bool     `json:"stream,omitempty"`
+	SharedAs              string    `json:"shared_as,omitempty"`
+	SharedSubscriptionAck bool      `json:"shared_subscription_ack,omitempty"`
+	Toolset               string    `json:"toolset,omitempty"`
+}
+
+func (m ModelJSON) MarshalJSON() ([]byte, error) {
+	var off *bool
+	if m.allowReasoningOffSet || m.AllowReasoningOff {
+		value := m.AllowReasoningOff
+		off = &value
+	}
+	return json.Marshal(modelJSONWire{
+		Model:                 m.Model,
+		MaxTokens:             m.MaxTokens,
+		Temperature:           m.Temperature,
+		MaxContextTokens:      m.MaxContextTokens,
+		Multimodal:            m.Multimodal,
+		ReasoningLevels:       m.ReasoningLevels,
+		ReasoningDefault:      m.ReasoningDefault,
+		AllowReasoningOff:     off,
+		Stream:                m.Stream,
+		SharedAs:              m.SharedAs,
+		SharedSubscriptionAck: m.SharedSubscriptionAck,
+		Toolset:               m.Toolset,
+	})
+}
+
+func (m *ModelJSON) UnmarshalJSON(data []byte) error {
+	var wire modelJSONWire
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	*m = ModelJSON{
+		Model:                 wire.Model,
+		MaxTokens:             wire.MaxTokens,
+		Temperature:           wire.Temperature,
+		MaxContextTokens:      wire.MaxContextTokens,
+		Multimodal:            wire.Multimodal,
+		ReasoningLevels:       wire.ReasoningLevels,
+		ReasoningDefault:      wire.ReasoningDefault,
+		Stream:                wire.Stream,
+		SharedAs:              wire.SharedAs,
+		SharedSubscriptionAck: wire.SharedSubscriptionAck,
+		Toolset:               wire.Toolset,
+	}
+	if wire.AllowReasoningOff != nil {
+		m.AllowReasoningOff = *wire.AllowReasoningOff
+		m.allowReasoningOffSet = true
+	}
+	return nil
 }
 
 // ToolsetJSON mirrors Toolset. Empty and absent lists mean the same (no
@@ -161,6 +233,9 @@ type AgentJSON struct {
 	LoopNudgeMax           *int   `json:"loop_nudge_max,omitempty"`
 	WaitForLimitReset      bool   `json:"wait_for_limit_reset,omitempty"`
 	WaitForLimitResetMaxMS *int   `json:"wait_for_limit_reset_max_ms,omitempty"`
+	// SharedBusyWaitMS keeps the unset/explicit distinction: absent is 30000,
+	// an explicit 0 is no waiting.
+	SharedBusyWaitMS *int `json:"shared_busy_wait_ms,omitempty"`
 }
 
 // PromptsJSON mirrors Prompts for JSON APIs.
@@ -355,6 +430,22 @@ type HTTPServerJSON struct {
 	AllowInsecure   bool             `json:"allow_insecure,omitempty"`
 	CORS            HTTPCORSJSON     `json:"cors,omitempty"`
 	Remotes         []HTTPRemoteJSON `json:"remotes,omitempty"`
+	SharedModels    SharedModelsJSON `json:"shared_models,omitempty"`
+}
+
+// SharedModelsJSON mirrors SharedModelsConfig. Tokens are write-only, like the
+// swarm's pairing tokens: reading the config reports only how many are set
+// (TokensConfigured), a document sent back without them keeps the ones stored,
+// and a document that carries tokens replaces them all. MaxCallMS keeps the
+// unset/explicit distinction: absent is thirty minutes, an explicit 0 is the
+// eight hour ceiling.
+type SharedModelsJSON struct {
+	Tokens           []string `json:"tokens,omitempty"`
+	TokensConfigured int      `json:"tokens_configured,omitempty"`
+	MaxStreams       int      `json:"max_streams,omitempty"`
+	MaxCallMS        *int     `json:"max_call_ms,omitempty"`
+	RatePerMinute    int      `json:"rate_per_minute,omitempty"`
+	RateBurst        int      `json:"rate_burst,omitempty"`
 }
 
 // HTTPLoginJSON mirrors HTTPLoginConfig. PasswordHash is write-only: reading
@@ -406,6 +497,21 @@ type SwarmJSON struct {
 	FanoutTimeoutSeconds     int                 `json:"fanout_timeout_seconds,omitempty"`
 	Upstreams                []SwarmUpstreamJSON `json:"upstreams,omitempty"`
 	Join                     []SwarmJoinJSON     `json:"join,omitempty"`
+	Clients                  []SwarmClientJSON   `json:"clients,omitempty"`
+}
+
+// SwarmClientJSON mirrors SwarmClient. The token is write-only like every other
+// credential: reading the config reports only whether one is set, and a save
+// keeps it by the entry's name (renaming an entry asks for its token again).
+type SwarmClientJSON struct {
+	Name            string   `json:"name"`
+	Token           string   `json:"token,omitempty"`
+	TokenConfigured bool     `json:"token_configured,omitempty"`
+	Scope           string   `json:"scope"`
+	Nodes           []string `json:"nodes,omitempty"`
+	MaxStreams      int      `json:"max_streams,omitempty"`
+	RatePerMinute   int      `json:"rate_per_minute,omitempty"`
+	RateBurst       int      `json:"rate_burst,omitempty"`
 }
 
 // MetricsJSON mirrors MetricsConfig. The token is write-only, the way the
@@ -527,6 +633,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		LoopNudgeMax:           cloneIntPtr(c.Agent.LoopNudgeMax),
 		WaitForLimitReset:      c.Agent.WaitForLimitReset,
 		WaitForLimitResetMaxMS: cloneIntPtr(c.Agent.WaitForLimitResetMaxMS),
+		SharedBusyWaitMS:       cloneIntPtr(c.Agent.SharedBusyWaitMS),
 	}
 	out.Supervisor = c.Supervisor.clone()
 	out.Prompts = PromptsJSON{
@@ -632,6 +739,14 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			AllowLoopback:  c.HTTPServer.CORS.AllowLoopback,
 			AllowedOrigins: append([]string(nil), c.HTTPServer.CORS.AllowedOrigins...),
 		},
+		SharedModels: SharedModelsJSON{
+			// The tokens are intentionally redacted; report only how many are set.
+			TokensConfigured: len(c.HTTPServer.EffectiveSharedTokens()),
+			MaxStreams:       c.HTTPServer.SharedModels.MaxStreams,
+			MaxCallMS:        cloneIntPtr(c.HTTPServer.SharedModels.MaxCallMS),
+			RatePerMinute:    c.HTTPServer.SharedModels.RatePerMinute,
+			RateBurst:        c.HTTPServer.SharedModels.RateBurst,
+		},
 	}
 	for _, rm := range c.HTTPServer.Remotes {
 		out.HTTPServer.Remotes = append(out.HTTPServer.Remotes, HTTPRemoteJSON(rm))
@@ -669,6 +784,14 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			TokenConfigured:        strings.TrimSpace(j.Token) != "",
 			Labels:                 cloneStringMap(j.Labels),
 			Dial:                   swarmDialToJSON(j.Dial),
+		})
+	}
+	for _, cl := range c.Swarm.Clients {
+		out.Swarm.Clients = append(out.Swarm.Clients, SwarmClientJSON{
+			Name: cl.Name, Scope: cl.Scope,
+			TokenConfigured: strings.TrimSpace(cl.Token) != "",
+			Nodes:           append([]string(nil), cl.Nodes...),
+			MaxStreams:      cl.MaxStreams, RatePerMinute: cl.RatePerMinute, RateBurst: cl.RateBurst,
 		})
 	}
 	out.Metrics = MetricsJSON{
@@ -767,6 +890,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		LoopNudgeMax:           cloneIntPtr(j.Agent.LoopNudgeMax),
 		WaitForLimitReset:      j.Agent.WaitForLimitReset,
 		WaitForLimitResetMaxMS: cloneIntPtr(j.Agent.WaitForLimitResetMaxMS),
+		SharedBusyWaitMS:       cloneIntPtr(j.Agent.SharedBusyWaitMS),
 	}
 	cfg.Supervisor = j.Supervisor.clone()
 	if j.Agent.MaxTurns != nil {
@@ -873,6 +997,13 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			AllowLoopback:  j.HTTPServer.CORS.AllowLoopback,
 			AllowedOrigins: append([]string(nil), j.HTTPServer.CORS.AllowedOrigins...),
 		},
+		SharedModels: SharedModelsConfig{
+			Tokens:        append([]string(nil), j.HTTPServer.SharedModels.Tokens...),
+			MaxStreams:    j.HTTPServer.SharedModels.MaxStreams,
+			MaxCallMS:     cloneIntPtr(j.HTTPServer.SharedModels.MaxCallMS),
+			RatePerMinute: j.HTTPServer.SharedModels.RatePerMinute,
+			RateBurst:     j.HTTPServer.SharedModels.RateBurst,
+		},
 	}
 	for _, rm := range j.HTTPServer.Remotes {
 		cfg.HTTPServer.Remotes = append(cfg.HTTPServer.Remotes, HTTPRemote(rm))
@@ -908,6 +1039,13 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			AdvertiseURL: jn.AdvertiseURL, Token: jn.Token,
 			Labels: cloneStringMap(jn.Labels),
 			Dial:   swarmDialFromJSON(jn.Dial),
+		})
+	}
+	for _, cl := range j.Swarm.Clients {
+		cfg.Swarm.Clients = append(cfg.Swarm.Clients, SwarmClient{
+			Name: cl.Name, Token: cl.Token, Scope: cl.Scope,
+			Nodes:      append([]string(nil), cl.Nodes...),
+			MaxStreams: cl.MaxStreams, RatePerMinute: cl.RatePerMinute, RateBurst: cl.RateBurst,
 		})
 	}
 	cfg.Metrics = MetricsConfig{
@@ -1067,6 +1205,12 @@ func preserveRedactedSecrets(next, current *Config) {
 	if strings.TrimSpace(next.HTTPServer.Login.PasswordHash) == "" && strings.TrimSpace(current.HTTPServer.Login.PasswordHash) != "" {
 		next.HTTPServer.Login.PasswordHash = current.HTTPServer.Login.PasswordHash
 	}
+	// The shared-model tokens are write-only as well: a settings screen that
+	// read the config and saved it back sends none, and would otherwise cut off
+	// every Coddy that borrows this node's models.
+	if len(next.HTTPServer.SharedModels.Tokens) == 0 && len(current.HTTPServer.SharedModels.Tokens) > 0 {
+		next.HTTPServer.SharedModels.Tokens = append([]string(nil), current.HTTPServer.SharedModels.Tokens...)
+	}
 	preserveSwarmSecrets(&next.Swarm, &current.Swarm)
 	if strings.TrimSpace(next.Metrics.Token) == "" && strings.TrimSpace(current.Metrics.Token) != "" {
 		next.Metrics.Token = current.Metrics.Token
@@ -1122,6 +1266,17 @@ func preserveSwarmSecrets(next, current *SwarmConfig) {
 		}
 		if strings.TrimSpace(next.Join[i].Dial.Proxy) == "" {
 			next.Join[i].Dial.Proxy = old.Dial.Proxy
+		}
+	}
+	// A client's token belongs to the entry's name: that is what the operator
+	// sees, and a rename asks for the token again.
+	prevClients := make(map[string]string, len(current.Clients))
+	for _, c := range current.Clients {
+		prevClients[c.Name] = c.Token
+	}
+	for i := range next.Clients {
+		if strings.TrimSpace(next.Clients[i].Token) == "" {
+			next.Clients[i].Token = prevClients[next.Clients[i].Name]
 		}
 	}
 }

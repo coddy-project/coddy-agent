@@ -112,6 +112,15 @@ func IsContextOverflow(err error) bool {
 	if errors.As(err, &oai) && oai.Code == contextOverflowCode {
 		return true
 	}
+	// A shared model's remote says it in a code of its own: its message is
+	// built from the kind and the status and never repeats the words of the
+	// provider behind it.
+	if CoddyErrorKind(err) == WireKindInvalid {
+		switch CoddyErrorCode(err) {
+		case WireCodeContextOverflow, WireCodeRequestTooLarge:
+			return true
+		}
+	}
 	status := UpstreamStatus(err)
 	switch status {
 	case 0, 400, 404, 413, 422:

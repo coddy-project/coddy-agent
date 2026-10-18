@@ -257,6 +257,8 @@ func TestGETModelsMultimodalField(t *testing.T) {
 		Models: []config.ModelEntry{
 			{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2, Multimodal: false},
 			{Model: "openai/gpt-4o-vision", MaxTokens: 100, Temperature: 0.2, Multimodal: true},
+			// An absent key reads as false for a provider that is not coddy, as a written false does.
+			{Model: "openai/gpt-4o-mini", MaxTokens: 100, Temperature: 0.2},
 		},
 	}
 	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
@@ -293,6 +295,7 @@ func TestGETModelsMultimodalField(t *testing.T) {
 		{id: string(session.ModeAsk)},
 		{id: "openai/gpt-4o", multimodal: false},
 		{id: "openai/gpt-4o-vision", multimodal: true},
+		{id: "openai/gpt-4o-mini", multimodal: false},
 	}
 	if len(body.Data) != len(wantRows) {
 		t.Fatalf("want %d rows, got %d: %+v", len(wantRows), len(body.Data), body.Data)
@@ -324,7 +327,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/enhance-prompt", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/workspace/context", "/coddy/workspace/fetch", "/coddy/workspace/folders", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/config/reasoning-levels", "/coddy/providers/{name}/models", "/coddy/providers/{name}/codex-auth", "/coddy/providers/{name}/codex-auth/device", "/coddy/providers/{name}/codex-auth/device/{loginID}", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/assets/{name}/thumbnail", "/coddy/sessions/{id}/composer-stream", "/coddy/events", "/coddy/sessions/{id}/question", "/coddy/sessions/{id}/permission", "/coddy/sessions/{id}/cancel", "/coddy/sessions/{id}/workspace", "/coddy/sessions/{id}/rewind", "/coddy/sessions/{id}/queue", "/coddy/sessions/{id}/queue/{message_id}", "/coddy/subagents", "/coddy/subagents/{name}/trust", "/coddy/subagents/{name}/untrust", "/coddy/auth/me", "/coddy/auth/login", "/coddy/auth/logout", "/coddy/docs", "/coddy/docs/page", "/coddy/docs/search", "/coddy/info"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/enhance-prompt", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/workspace/context", "/coddy/workspace/fetch", "/coddy/workspace/folders", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/config/reasoning-levels", "/coddy/providers/{name}/models", "/coddy/providers/{name}/codex-auth", "/coddy/providers/{name}/codex-auth/device", "/coddy/providers/{name}/codex-auth/device/{loginID}", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/assets/{name}/thumbnail", "/coddy/sessions/{id}/composer-stream", "/coddy/events", "/coddy/sessions/{id}/question", "/coddy/sessions/{id}/permission", "/coddy/sessions/{id}/cancel", "/coddy/sessions/{id}/workspace", "/coddy/sessions/{id}/rewind", "/coddy/sessions/{id}/queue", "/coddy/sessions/{id}/queue/{message_id}", "/coddy/subagents", "/coddy/subagents/{name}/trust", "/coddy/subagents/{name}/untrust", "/coddy/auth/me", "/coddy/auth/login", "/coddy/auth/logout", "/coddy/docs", "/coddy/docs/page", "/coddy/docs/search", "/coddy/info", "/coddy/llm/models", "/coddy/llm/models/{alias}/usage", "/coddy/llm/completions"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
 		}

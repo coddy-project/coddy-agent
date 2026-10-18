@@ -18,7 +18,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-type StubModel = { id: string; name?: string; context_window?: number };
+type StubModel = {
+  id: string;
+  name?: string;
+  context_window?: number;
+  multimodal?: boolean;
+  reasoning_levels?: string[];
+  allow_reasoning_off?: boolean;
+};
 
 /** Answers every POST /coddy/providers/models with the given list (or an error). */
 function stubModels(models: StubModel[], ok = true) {
@@ -259,12 +266,17 @@ test("the context window the provider reports shows right of the id", async () =
   const ctx = await screen.findByText("131k");
   expect(ctx.getAttribute("title")).toBe("Context window of 131,072 tokens");
   const row = screen.getByTestId("provider-model-m1");
-  // id, then the window, then the toggle.
+  // The id (in its cell with any badges), then the window, then the toggle.
   expect([...row.children].map((el) => el.className)).toEqual([
-    "provider-models-item-id",
+    "provider-models-item-main",
     "provider-models-item-ctx",
     "provider-models-toggle",
   ]);
+  expect(
+    [...row.querySelector(".provider-models-item-main")!.children].map(
+      (el) => el.className,
+    ),
+  ).toEqual(["provider-models-item-id"]);
   expect(
     screen
       .getByTestId("provider-model-m2")
@@ -334,6 +346,84 @@ test("a display name that only restyles the id is not repeated", async () => {
   expect(screen.getByTestId("provider-model-m2").getAttribute("title")).toBe(
     "Model Two",
   );
+});
+
+// A remote Coddy lists what each shared model takes and how it reasons, and
+// the list says so beside the id, since a model added from it inherits both.
+const REMOTE_LISTING: StubModel[] = [
+  { id: "vision", multimodal: true },
+  {
+    id: "thinker",
+    reasoning_levels: ["low", "medium", "high"],
+    allow_reasoning_off: true,
+  },
+  { id: "strict", reasoning_levels: ["high"], allow_reasoning_off: false },
+  { id: "plain", multimodal: false, reasoning_levels: [] },
+];
+
+test("a remote Coddy's list marks the models that take pictures and the levels each offers", async () => {
+  stubModels(REMOTE_LISTING);
+  render(
+    <ProviderModelList
+      provider={{ name: "terra", type: "coddy", api_base: "https://terra:1" }}
+      existingModels={[]}
+      onAddModel={noop}
+      onRemoveModel={noop}
+    />,
+  );
+
+  await screen.findByTestId("provider-model-vision");
+  const images = screen.getByTestId("provider-model-images-vision");
+  expect(images.textContent).toBe("images");
+  expect(images.getAttribute("title")).toBe(
+    "The remote lists this model as accepting images",
+  );
+  // Off follows the listed levels when the remote allows it, and only then.
+  const levels = screen.getByTestId("provider-model-levels-thinker");
+  expect(levels.textContent).toBe("low · medium · high · off");
+  expect(levels.getAttribute("title")).toBe(
+    "Reasoning levels the remote lists: low, medium, high, off",
+  );
+  expect(screen.getByTestId("provider-model-levels-strict").textContent).toBe(
+    "high",
+  );
+  // A model that takes no pictures and lists no levels carries no badge.
+  for (const id of ["thinker", "strict", "plain"]) {
+    expect(screen.queryByTestId(`provider-model-images-${id}`), id).toBeNull();
+  }
+  for (const id of ["vision", "plain"]) {
+    expect(screen.queryByTestId(`provider-model-levels-${id}`), id).toBeNull();
+  }
+  // The badges follow the id in its cell, which wraps them under it when the
+  // row has no room for both; the toggle stays outside, at the end.
+  const thinker = screen.getByTestId("provider-model-thinker");
+  expect([...thinker.children].map((el) => el.className)).toEqual([
+    "provider-models-item-main",
+    "provider-models-toggle",
+  ]);
+  expect(
+    [...thinker.querySelector(".provider-models-item-main")!.children].map(
+      (el) => el.className,
+    ),
+  ).toEqual(["provider-models-item-id", "provider-models-item-badge"]);
+});
+
+test("another provider type shows neither badge for the same listing", async () => {
+  stubModels(REMOTE_LISTING);
+  render(
+    <ProviderModelList
+      provider={{ name: "demo", type: "openai" }}
+      existingModels={[]}
+      onAddModel={noop}
+      onRemoveModel={noop}
+    />,
+  );
+
+  await screen.findByTestId("provider-model-vision");
+  expect(screen.getByTestId("provider-model-thinker")).toBeTruthy();
+  expect(screen.queryAllByTestId(/^provider-model-images-/)).toHaveLength(0);
+  expect(screen.queryAllByTestId(/^provider-model-levels-/)).toHaveLength(0);
+  expect(document.querySelector(".provider-models-item-badge")).toBeNull();
 });
 
 // The server runs a posted api_key_command. An automatic fetch must never
@@ -444,6 +534,15 @@ test("the list is contained: the box may shrink, the id ellipsizes, the toggle n
   expect(id).toMatch(/min-width:\s*0/);
   expect(id).toMatch(/text-overflow:\s*ellipsis/);
   expect(rule(".provider-models-toggle")).toMatch(/flex:\s*0 0 auto/);
+  // The id and a remote's badges share a cell that may shrink and wraps the
+  // badges under the id, so on a phone the badges never cut the id short; a
+  // badge alone wider than the cell ellipsizes inside it.
+  const main = rule(".provider-models-item-main");
+  expect(main).toMatch(/min-width:\s*0/);
+  expect(main).toMatch(/flex-wrap:\s*wrap/);
+  const badge = rule(".provider-models-item-badge");
+  expect(badge).toMatch(/max-width:\s*min\(16em, 100%\)/);
+  expect(badge).toMatch(/text-overflow:\s*ellipsis/);
   // No separators between the rows, and a row only as wide as its content,
   // so the hover lights the id and its toggle rather than the box's width.
   const item = rule(".provider-models-item");

@@ -58,7 +58,7 @@ func swarmDialUISchema() map[string]interface{} {
 	return objectSchema("Dialling", "How this end reaches the other one: an outbound proxy and the certificate check.",
 		map[string]interface{}{
 			"proxy":                secretProp("Proxy", "http, https, socks5 or socks5h proxy URL. It may carry a password, so it is write-only: leave it empty to keep the one set.", "proxy_configured"),
-			"ca_file":              strProp("CA file", "PEM bundle trusted for the other end's certificate, besides the system roots."),
+			"ca_file":              strProp("CA file", "PEM bundle trusted for the other end's certificate, in place of the system roots."),
 			"insecure_skip_verify": boolProp("Skip certificate check", "For a lab only: every connection is logged as insecure."),
 		},
 		[]string{"proxy", "ca_file", "insecure_skip_verify"},
@@ -89,6 +89,21 @@ func swarmUISchema() map[string]interface{} {
 		"advertise_url": strProp("Advertise URL", "Address the parent dials this relay at. Empty dials out: the parent drives this relay back down a tunnel."),
 		"token":         secretProp("Token", "This relay's own client token, which the parent presents when it proxies. Write-only: leave it empty to keep the one set.", "token_configured"),
 		"dial":          swarmDialUISchema(),
+	}
+	clientProps := map[string]interface{}{
+		"name":  strProp("Name", "Label of this client in logs and counters: lower case letters, digits, _ and -, unique. Renaming an entry asks for its token again."),
+		"token": secretProp("Token", "Bearer token of this client. It opens only the shared-model routes of the nodes below. Write-only: leave it empty to keep the one set.", "token_configured"),
+		"scope": map[string]interface{}{
+			"type":        "string",
+			"title":       "Scope",
+			"description": "What the token opens. shared_models: the shared-model routes (the three calls and the probe's ping) of the listed nodes.",
+			"enum":        []string{ScopeSharedModels},
+			"default":     ScopeSharedModels,
+		},
+		"nodes":           stringListProp("Nodes", "Node paths this client may reach: a node name, child/node through a chained relay, or * for any node directly below this relay."),
+		"max_streams":     intProp("Max streams", "Concurrent shared-model calls this client may hold on this relay. 0 is no limit."),
+		"rate_per_minute": intProp("Calls per minute", "Calls the relay forwards for this client per minute. 0 is no limit."),
+		"rate_burst":      intProp("Burst", "Calls allowed at once before the rate applies. Empty takes the rate, capped by max streams."),
 	}
 	return objectSchema("Swarm relay", "This relay's deployment: its name and address, the tokens of its clients and nodes, CORS for pages served elsewhere, the nodes it dials itself and the relays it joins. A save rebuilds the relay; a new address takes a restart.",
 		map[string]interface{}{
@@ -135,10 +150,16 @@ func swarmUISchema() map[string]interface{} {
 				"description": "Parent relays this relay registers into, which is how relays chain.",
 				"items":       objectSchema("", "", joinProps, []string{"url", "name", "pairing_token", "advertise_url", "token", "dial"}, nil),
 			},
+			"clients": map[string]interface{}{
+				"type":        "array",
+				"title":       "Scoped clients",
+				"description": "Clients with a token of their own that opens only the shared-model routes of the nodes they list. The client token above stays the full one.",
+				"items":       objectSchema("", "", clientProps, []string{"name", "token", "scope", "nodes", "max_streams", "rate_per_minute", "rate_burst"}, nil),
+			},
 		},
 		[]string{
 			"name", "host", "port", "auth_token", "pairing_tokens", "cors", "tls",
-			"lease_ttl_seconds", "fanout_timeout_seconds", "upstreams", "join",
+			"lease_ttl_seconds", "fanout_timeout_seconds", "upstreams", "join", "clients",
 			"allow_private_upstreams", "allow_insecure", "insecure_open_registration",
 		},
 		nil)

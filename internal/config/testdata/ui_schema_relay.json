@@ -147,6 +147,70 @@
           "writeOnly": true,
           "x-coddy-configured": "auth_configured"
         },
+        "clients": {
+          "description": "Clients with a token of their own that opens only the shared-model routes of the nodes they list. The client token above stays the full one.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "max_streams": {
+                "description": "Concurrent shared-model calls this client may hold on this relay. 0 is no limit.",
+                "title": "Max streams",
+                "type": "integer"
+              },
+              "name": {
+                "description": "Label of this client in logs and counters: lower case letters, digits, _ and -, unique. Renaming an entry asks for its token again.",
+                "title": "Name",
+                "type": "string"
+              },
+              "nodes": {
+                "description": "Node paths this client may reach: a node name, child/node through a chained relay, or * for any node directly below this relay.",
+                "items": {
+                  "type": "string"
+                },
+                "title": "Nodes",
+                "type": "array"
+              },
+              "rate_burst": {
+                "description": "Calls allowed at once before the rate applies. Empty takes the rate, capped by max streams.",
+                "title": "Burst",
+                "type": "integer"
+              },
+              "rate_per_minute": {
+                "description": "Calls the relay forwards for this client per minute. 0 is no limit.",
+                "title": "Calls per minute",
+                "type": "integer"
+              },
+              "scope": {
+                "default": "shared_models",
+                "description": "What the token opens. shared_models: the shared-model routes (the three calls and the probe's ping) of the listed nodes.",
+                "enum": [
+                  "shared_models"
+                ],
+                "title": "Scope",
+                "type": "string"
+              },
+              "token": {
+                "description": "Bearer token of this client. It opens only the shared-model routes of the nodes below. Write-only: leave it empty to keep the one set.",
+                "title": "Token",
+                "type": "string",
+                "writeOnly": true,
+                "x-coddy-configured": "token_configured"
+              }
+            },
+            "type": "object",
+            "x-coddy-property-order": [
+              "name",
+              "token",
+              "scope",
+              "nodes",
+              "max_streams",
+              "rate_per_minute",
+              "rate_burst"
+            ]
+          },
+          "title": "Scoped clients",
+          "type": "array"
+        },
         "cors": {
           "additionalProperties": false,
           "description": "Pages served from another origin, such as a laptop's coddy serve, that may call this relay from the browser.",
@@ -208,7 +272,7 @@
                 "description": "How this end reaches the other one: an outbound proxy and the certificate check.",
                 "properties": {
                   "ca_file": {
-                    "description": "PEM bundle trusted for the other end's certificate, besides the system roots.",
+                    "description": "PEM bundle trusted for the other end's certificate, in place of the system roots.",
                     "title": "CA file",
                     "type": "string"
                   },
@@ -328,7 +392,7 @@
                 "description": "How this end reaches the other one: an outbound proxy and the certificate check.",
                 "properties": {
                   "ca_file": {
-                    "description": "PEM bundle trusted for the other end's certificate, besides the system roots.",
+                    "description": "PEM bundle trusted for the other end's certificate, in place of the system roots.",
                     "title": "CA file",
                     "type": "string"
                   },
@@ -408,6 +472,7 @@
         "fanout_timeout_seconds",
         "upstreams",
         "join",
+        "clients",
         "allow_private_upstreams",
         "allow_insecure",
         "insecure_open_registration"

@@ -39,6 +39,15 @@ network. Binding a non-loopback address without a token logs a startup warning u
 
 Without a token the surface is unauthenticated; run behind appropriate network controls.
 
+A server that shares models (`models[].shared_as`) also takes **LLM-only tokens** from
+`httpserver.shared_models.tokens`. Such a token opens only the routes of
+[Shared models](#shared-models-coddyllm) - `GET /coddy/llm/models`,
+`GET /coddy/llm/models/{alias}/usage`, `POST /coddy/llm/completions` and the probe's
+`POST /coddy/llm/alive` - and every other route answers it `401` like an unknown token. Any token
+listed there turns authentication on, so with no main token and no sign-in every other route is
+closed to every caller. A token cannot be both an LLM-only token and `httpserver.auth_token` or a
+swarm token: the loader refuses the configuration.
+
 ### Web UI sign-in (optional)
 
 A bearer token protects the API but gives a browser no way in: the SPA shows `Unauthorized (401)`
@@ -356,6 +365,47 @@ Paths are **missing** from a plain **`http`** build and from OpenAPI when **sche
 Process logs for scheduler stay short; a run's full trace is its run session under the job session's bundle (**`<job session>/subagents/<run session>/`**), and the job session itself answers **`409`** to any prompt.
 
 > **Inline-file capability:** `POST /v1/responses` accepts `inline_files` only when the effective YAML model has **`multimodal: true`**. Entries supplied for a non-multimodal model are ignored and are neither forwarded to its provider nor persisted in session assets/history.
+
+### Shared models (`/coddy/llm/*`)
+
+These routes serve the `models[]` rows that carry **`shared_as`** to another Coddy, whose provider
+of **`type: coddy`** calls them directly or through a swarm relay mount
+([Sharing a model with another Coddy](../operate/swarm.md#sharing-a-model-with-another-coddy)).
+They answer a token of **`httpserver.shared_models.tokens`** or the main token. A configuration that
+shares a model with no credential at all (no main token, no LLM-only token, no sign-in form) is
+refused at load unless **`httpserver.allow_insecure: true`** accepts an open API; a server running
+without one answers these routes **`403`**, `kind: auth`. The alias is the only name of a model on these routes:
+no answer carries the provider name, its address, the selector or the upstream model id. The full
+request and response schemas are in the served OpenAPI document.
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | **`/coddy/llm/models`** | The shared rows under their aliases: the context window, **`multimodal`**, the reasoning levels and default, **`allow_reasoning_off`**, and a **`revision`** that changes whenever anything a client can observe about the row changes. |
+| GET | **`/coddy/llm/models/{alias}/usage`** | The account usage behind an alias: each metered window as percent used with the seconds to its reset, and whether a call would be refused now and why, from a fixed set of ids. Never the plan, the key name, the wallet, the counters that reveal the size of the plan or a model id. **`{"supported": false}`** when the lender's provider row sets **`usage_limits_panel: false`** or its type reports no usage. **`Cache-Control: no-store`**. |
+| POST | **`/coddy/llm/completions`** | One stateless model call: the request carries the history and the tool definitions, and the lender runs the row's provider. No session, hook, rule or file is involved. The answer is **`text/event-stream`** only, whatever **`stream`** the row has: **`chunk`** frames, then exactly one **`final`** or **`error`** frame, with **`: hb`** heartbeats so that no two bytes are more than 15 s apart. A request names the row's **`revision`** it last read; a different current revision is a **`400`** with **`code: stale_revision`**, and the client reads the listing again. **`X-Coddy-Probe: 1`** asks for the liveness probe, confirmed in the response header **`X-Coddy-Probe: id=...; every_ms=...; grace_ms=...`**. |
+| POST | **`/coddy/llm/alive`** | The probe's ping, with the call id in **`X-Coddy-Probe-Id`**: **`204`** while the call runs, **`404`** once it has ended or been cut. The client pings at once and then every **`every_ms`**; after **`grace_ms`** without a ping the lender cancels the provider call and frees its slot. |
+| GET | **`/coddy/shared-models/stats`** | The audit counters of the routes above since the process started, per alias, credential class and outcome. Labels and numbers only: no token, prompt or upstream model id. It answers the main token or a web sign-in; an LLM-only token gets **`401`** here like on every route outside **`/coddy/llm/`**. |
+
+**Limits.** At most **`httpserver.shared_models.max_streams`** (5) completions run at once per
+credential, all aliases together. A further call is refused at once with **`429`**, **`kind: busy`**
+and **`Retry-After: 1`**, before its body is read. With **`rate_per_minute`** set, a call past the
+credential's window is refused the same way with **`code: rate_window`** and the wait to the next
+token in **`Retry-After`**. A relay that forwards the call can refuse it as busy too, with
+**`code: client_streams`** or **`client_rate`** for the limits of a **`swarm.clients`** entry. A
+**`stream: false`** row is bounded by **`httpserver.shared_models.max_call_ms`** (30 minutes). A body
+above 32 MiB, or one that holds more than 131072 JSON elements, is a **`413`** with
+**`code: request_too_large`**, and a body that does not arrive within 30 s a **`408`**. A request
+the provider behind the model refuses because it does not fit the context window is an
+**`invalid`** error with **`code: context_overflow`**. The borrower compacts its history and asks
+again after either.
+
+**Errors.** A call refused before its stream starts answers a flat JSON error object, and a stream
+ends with the same object as its **`error`** frame. Its **`kind`** is **`busy`**, **`rate`** (the
+upstream provider is rate limiting), **`quota`** (a usage limit, with **`reset_at`** and
+**`retry_after_s`**), **`upstream`** (the provider failed; **`cause`** is **`status`**, **`stall`**,
+**`truncated`** or **`timeout`**), **`invalid`** (**`400`**, **`404`**, **`408`**, **`413`**, refined
+by **`code`**) or **`auth`** (**`403`**: no credential is configured). The gate's own **`401`** is plain
+text. **`emitted`** says whether any chunk frame went out before the error.
 
 ## **`model`**, profiles, and direct completion
 

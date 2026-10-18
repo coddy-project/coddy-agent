@@ -5,10 +5,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/EvilFreelancer/coddy-agent/internal/update"
 	"os"
 	"strings"
-
-	"github.com/EvilFreelancer/coddy-agent/internal/update"
 )
 
 func runUpdate(args []string) error {

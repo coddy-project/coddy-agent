@@ -45,6 +45,10 @@ type Options struct {
 	// ExtraAuthTokens are bearer tokens supplied out of band (--auth-token,
 	// CODDY_HTTP_TOKEN) so a credential need not be written into config.yaml.
 	ExtraAuthTokens []string
+	// ExtraSwarmTokens are the swarm tokens supplied out of band
+	// (--swarm-auth-token, --swarm-pairing-token): this server never uses
+	// them, it refuses a shared-model token that is the same as one.
+	ExtraSwarmTokens []string
 	// UnbuiltSections names the settings sections this binary cannot run
 	// (config.UISchemaJSONHiding): the form leaves them out, and a save still
 	// writes them back.

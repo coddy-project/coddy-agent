@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Chevron } from "../components/Chevron";
 import {
   IconTrash,
@@ -159,12 +159,15 @@ export function SettingsArraySection(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeItem, arr.length === 0]);
 
+  // The row's state reaches the head in the commit that shows it: the head's
+  // step back (and the Escape that takes it) follows a closed row before the
+  // browser hands over the next key, rather than after the passive effects.
   const editing = view.mode === "edit";
   const onEditingRef = useRef(props.onEditingChange);
-  useEffect(() => {
+  useLayoutEffect(() => {
     onEditingRef.current = props.onEditingChange;
   });
-  useEffect(() => {
+  useLayoutEffect(() => {
     onEditingRef.current?.(editing);
   }, [editing]);
   useEffect(() => () => onEditingRef.current?.(false), []);
@@ -177,10 +180,11 @@ export function SettingsArraySection(props: {
     }
   }, [view, arr.length]);
 
-  // The head's back arrow: a new signal closes the form.
+  // The head's back arrow: a new signal closes the form, in the commit of the
+  // press that sent it.
   const closeSignal = props.closeSignal ?? 0;
   const seenClose = useRef(closeSignal);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (closeSignal !== seenClose.current) {
       seenClose.current = closeSignal;
       setView({ mode: "list" });
