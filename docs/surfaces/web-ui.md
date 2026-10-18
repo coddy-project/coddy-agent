@@ -1897,14 +1897,14 @@ Guide: `docs/operate/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
 - On a phone (below 1200 px) the screen opens under the top bar and above the
   dimmed backdrop, so taps reach the map, the search and the nodes; tapping the
   top bar's own entries still leaves it.
-- **Tree** is the default canvas layout. **Graph** is a deterministic rooted
+- **Tree** is the default map layout. **Graph** is a deterministic rooted
   top-down graph for rings and cross-links, rooted at the relay or, when drawn,
   at the local computer that starts the connection. It follows route depth
   softly rather than with rigid hop rows, and uses smooth links. Selecting Tree
   or Graph is browser-only state in localStorage key `coddy_swarm_layout`; a
   saved legacy `star` value migrates to Graph, and an absent, blocked or invalid
   value selects Tree. No server configuration changes.
-- The canvas starts fitted. Its Tree/Graph selector and its zoom controls -
+- The map starts fitted. Its Tree/Graph selector and its zoom controls -
   **Zoom out**, the level and **Zoom in**, the same controls as the picture
   viewer's and a `.canvas` board's - are usable with 40px targets on the stacked
   shell; the level shows the zoom as a percentage once the operator zooms or pans,
