@@ -217,7 +217,34 @@ function ActionPreview({
 }
 
 /** The command as an input line: prompt, the command itself, and the control that
- *  copies it, all inside the one block - not in the card header above it. */
+ *  copies it, all inside the one block - not in the card header above it. Read
+ *  only: the command is shown as it will run, wrapped and never cut. */
+export function ShellCommandBlock({
+  text,
+  copyTestId,
+  className,
+}: {
+  text: string;
+  copyTestId: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={
+        className
+          ? `permission-preview-shell ${className}`
+          : "permission-preview-shell"
+      }
+    >
+      <span className="permission-preview-shell-prompt" aria-hidden="true">
+        $
+      </span>
+      <pre className="permission-preview-shell-code">{text}</pre>
+      <CodeBlockCopyButton textToCopy={text} dataTestId={copyTestId} />
+    </div>
+  );
+}
+
 function ShellPreview({
   preview,
   copyTestId,
@@ -225,15 +252,7 @@ function ShellPreview({
   preview: Extract<Preview, { kind: "shell" }>;
   copyTestId: string;
 }) {
-  return (
-    <div className="permission-preview-shell">
-      <span className="permission-preview-shell-prompt" aria-hidden="true">
-        $
-      </span>
-      <pre className="permission-preview-shell-code">{preview.text}</pre>
-      <CodeBlockCopyButton textToCopy={preview.text} dataTestId={copyTestId} />
-    </div>
-  );
+  return <ShellCommandBlock text={preview.text} copyTestId={copyTestId} />;
 }
 
 function PreviewBody({

@@ -160,6 +160,7 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
   switch (toolName) {
     case "run_command":
     case "ssh_run_command":
+    case "operator_command":
       return stringArg(args, "command");
     case "grep":
     case "glob":

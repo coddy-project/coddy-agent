@@ -606,6 +606,21 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.tools.preview_server.public_host.desc":
     "Хост, который подставляется в выдаваемую агентом ссылку, когда браузер находится на другой машине. Пусто - используется адрес привязки.",
   "settings.schema.tools.preview_server.public_host.ph": "Адрес привязки",
+  "settings.schema.tools.operator_command.label": "Команды оператора",
+  "settings.schema.tools.operator_command.desc":
+    "Инструмент operator_command: команда, в которой агенту отказали, показанная вам ровно так, как она будет запущена, с кнопками Запустить, Отклонить и Остановить. Её вывод возвращается агенту. Та же оболочка выполняет команды !! консоли.",
+  "settings.schema.tools.operator_command.enable.label": "Включено",
+  "settings.schema.tools.operator_command.enable.desc":
+    "Предлагать инструмент operator_command (по умолчанию включено). Он предлагается только там, где может ответить человек: в веб-интерфейсе и в консоли.",
+  "settings.schema.tools.operator_command.shell.label": "Оболочка",
+  "settings.schema.tools.operator_command.shell.desc":
+    "Имя из PATH (bash, zsh, pwsh, cmd) или путь. Пусто - PowerShell в Windows и bash в Linux, macOS и Android.",
+  "settings.schema.tools.operator_command.shell.ph":
+    "bash (PowerShell в Windows)",
+  "settings.schema.tools.operator_command.multiplexer.label":
+    "Запускать внутри",
+  "settings.schema.tools.operator_command.multiplexer.desc":
+    "macOS и Linux: запускать каждую команду в отдельной сессии tmux или screen в фоне, для долгих запусков в настоящем терминале. Пусто - запуск напрямую.",
   "settings.schema.tools.websearch.brave_api_key.ph":
     "Берётся из BRAVE_API_KEY",
   "settings.schema.tools.websearch.searxng_url.ph": "http://localhost:8888",
@@ -1756,6 +1771,33 @@ export const messagesRu: Record<string, string> = {
   "prompts.planPreviewEmpty": "Пока нечего показывать.",
   "prompts.planSaveFailed": "ошибка сохранения ({status})",
   "prompts.planSaveFailedNoStatus": "ошибка сохранения",
+  // Карточка operator_command (messages/OperatorCommandCard.tsx): команда, в
+  // которой агенту отказали, чтобы оператор запустил её сам.
+  "operatorCommand.title": "Запустите сами",
+  "operatorCommand.shell": "Оболочка",
+  "operatorCommand.host": "Хост",
+  "operatorCommand.multiplexer": "Запускается в терминальном мультиплексоре",
+  "operatorCommand.folder": "Папка",
+  "operatorCommand.reason": "Причина агента",
+  "operatorCommand.actionsAria": "Запустить или отклонить команду",
+  "operatorCommand.run": "Запустить",
+  "operatorCommand.decline": "Отклонить",
+  "operatorCommand.stop": "Остановить",
+  "operatorCommand.kill": "Завершить",
+  "operatorCommand.running": "Выполняется…",
+  "operatorCommand.stopping": "Останавливается…",
+  "operatorCommand.exitCode": "Код выхода {code}",
+  "operatorCommand.stoppedExit": "Остановлена (код выхода {code})",
+  "operatorCommand.declined": "Отклонена",
+  "operatorCommand.declinedNote": "Примечание: {note}",
+  "operatorCommand.failed": "Не запустилась",
+  "operatorCommand.cancelled": "Отменена",
+  "operatorCommand.attach": "Открыть терминал",
+  "operatorCommand.outputAria": "Вывод команды",
+  "operatorCommand.dropped": "Начало вывода отброшено ({bytes} Б)",
+  "operatorCommand.alreadyAnswered": "Уже отвечено в другом месте",
+  "operatorCommand.ended": "Этот запрос уже завершён",
+  "operatorCommand.sendFailed": "Не удалось отправить ответ",
 
   "scheduler.title": "Планировщик",
   "scheduler.close": "Закрыть планировщик",
@@ -2034,6 +2076,7 @@ export const messagesRu: Record<string, string> = {
   "tool.name.webfetch": "загружаю страницу",
   "tool.name.http_request": "отправляю http-запрос",
   "tool.name.preview_server": "запускаю сервер предпросмотра",
+  "tool.name.operator_command": "прошу вас запустить команду",
   "tool.name.websearch": "ищу в интернете",
   "tool.name.coddy_docs_search": "ищу в документации",
   "tool.name.coddy_docs_read": "читаю документацию",

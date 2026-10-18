@@ -10,6 +10,7 @@ import type { TodoPlanEntry } from "./todoToolPreview";
 import type { BackgroundWakeTask } from "./backgroundWake";
 import type { GoalTurn } from "./goal";
 import type { ToolArtifact } from "./toolArtifacts";
+import type { OperatorCommandState } from "./operatorCommand";
 
 export type TokenUsage = {
   inputTokens: number;
@@ -150,6 +151,10 @@ export type TranscriptItem =
       images?: TranscriptFile[];
       /** Downloadable files a completed share_file call deliberately shared. */
       artifacts?: ToolArtifact[];
+      /** An operator_command call: the request the server waits on, from the
+       *  `operator_command` event, and the run, from the frames'
+       *  `_meta.coddy.operatorCommand` (chat/operatorCommand.ts). */
+      operatorCommand?: OperatorCommandState;
       startedAtMs?: number;
       finishedAtMs?: number;
       durationMs?: number;

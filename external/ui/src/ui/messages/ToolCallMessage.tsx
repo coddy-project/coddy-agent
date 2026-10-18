@@ -52,6 +52,11 @@ import { Markdown } from "../markdown/Markdown";
 import { formatStepDuration } from "./formatStepDuration";
 import { ToolImagePreviews } from "./ToolImagePreviews";
 import { ToolArtifactCards } from "./ToolArtifactCards";
+import { OperatorCommandCard } from "./OperatorCommandCard";
+import {
+  isOperatorCommandTool,
+  type OperatorCommandState,
+} from "../chat/operatorCommand";
 
 /**
  * What the `question` tool put up, as it put it up: every question with the
@@ -267,6 +272,10 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   /** Roots this session works in - its own directory, then its worktrees -
    *  deepest match first when the row spells a path. */
   pathRoots?: readonly string[] | undefined;
+  /** An operator_command call's request and run (chat/operatorCommand.ts). */
+  operatorCommand?: OperatorCommandState | undefined;
+  /** The session on screen, which an operator command's answer goes to. */
+  sessionId?: string | undefined;
 }) {
   const { t } = useT();
   const preview = useMemo(
@@ -310,6 +319,9 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     [isSpawnAgentTool, props.argsText],
   );
   const isLoadSkillTool = rawNameLower === "load_skill";
+  // The command the agent asks the operator to run is a card of its own: the
+  // request, its buttons, the live output and the record of how it ended.
+  const isOperatorCommandCall = isOperatorCommandTool(props.title, props.kind);
   const isShareFileTool =
     rawNameLower === "share_file" || kindLower === "share_file";
   const isWebSearchTool = rawNameLower === "websearch";
@@ -459,9 +471,13 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     nowMs,
   ]);
 
+  // An operator command that is still live opens with the row, so Run and
+  // Decline are in view without a click; a finished one is a record and folds
+  // like any other call. Read once: the reader's own fold is never undone.
+  const [opensOpen] = useState(() => isOperatorCommandCall && !terminalStatus);
   const [showExpanded, setShowExpanded] = useState(false);
   const [loadingFull, setLoadingFull] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(opensOpen);
   const [searchFetchFailed, setSearchFetchFailed] = useState(false);
 
   useEffect(() => {
@@ -534,6 +550,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
 
   const canExpand =
     !isQuestionTool &&
+    !isOperatorCommandCall &&
     !loadsWholeSearch &&
     props.resultWasTruncated === true &&
     terminalStatus;
@@ -674,6 +691,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   // load_skill already names the skill on the summary row; its body is the skill itself.
   const showToolPreview =
     !isQuestionTool &&
+    !isOperatorCommandCall &&
     !spawnAgent &&
     !isLoadSkillTool &&
     !schedulerCard &&
@@ -685,6 +703,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     !resultBody.trim().toLowerCase().startsWith("patch applied successfully");
   const showResult =
     !isQuestionTool &&
+    !isOperatorCommandCall &&
     !isPatchTool &&
     !structuredCard &&
     (!schedulerCard || searchLoading) &&
@@ -700,6 +719,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     structuredCard ||
     !!spawnAgent ||
     isQuestionTool ||
+    isOperatorCommandCall ||
     showToolPreview ||
     showPatchResult ||
     showResult ||
@@ -776,6 +796,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
       <details
         className="thinking-details coddy-tool-details"
         data-testid={`tool-details-${props.toolCallId}`}
+        {...(opensOpen ? { open: true } : {})}
         onToggle={(e) => setDetailsOpen(e.currentTarget.open)}
       >
         <summary
@@ -816,6 +837,19 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                 argsText={props.argsText}
                 resultText={resultBody}
                 status={props.status}
+              />
+            ) : null}
+            {isOperatorCommandCall ? (
+              <OperatorCommandCard
+                toolCallId={props.toolCallId}
+                sessionId={props.sessionId}
+                status={status}
+                argsText={props.argsText}
+                resultText={props.resultText}
+                fullResultText={props.fullResultText}
+                resultWasTruncated={props.resultWasTruncated}
+                state={props.operatorCommand}
+                onFetchToolCallFull={props.onFetchToolCallFull}
               />
             ) : null}
             {showToolPreview ? (

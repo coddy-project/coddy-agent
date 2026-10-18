@@ -128,6 +128,10 @@ import {
   patchQuestionToolArgsFromPromptRecords,
   upsertQuestionPromptRecord,
 } from "./chat/questionPromptSessionStore";
+import {
+  clearOperatorCommandRecords,
+  mergeStoredOperatorCommandsIntoTranscript,
+} from "./chat/operatorCommandSessionStore";
 import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { applyMemoryRunToItems } from "./chat/memoryRun";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
@@ -3921,6 +3925,14 @@ export function App() {
     );
     merged = mergeStoredQuestionPromptsIntoTranscript(merged, sid);
     merged = patchQuestionToolArgsFromPromptRecords(merged, sid);
+    // The server's rows carry no operator command: the request waiting for an
+    // answer comes back from this tab's store, a run in flight from the rows on
+    // screen.
+    merged = mergeStoredOperatorCommandsIntoTranscript(
+      merged,
+      sid,
+      localForMerge,
+    );
     const appliedRaw = localAligned
       ? (keepLocalTranscriptIfServerEmpty({
           serverNext: merged,
@@ -4102,6 +4114,7 @@ export function App() {
       );
       page = mergeStoredQuestionPromptsIntoTranscript(page, sid);
       page = patchQuestionToolArgsFromPromptRecords(page, sid);
+      page = mergeStoredOperatorCommandsIntoTranscript(page, sid);
       page = dedupeAdjacentDuplicateThinkingCompleted(page);
       const joined = prependOlderPage(
         page,
@@ -4344,6 +4357,7 @@ export function App() {
       return;
     }
     clearQuestionPromptRecords(id);
+    clearOperatorCommandRecords(id);
     await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers,
@@ -4576,6 +4590,7 @@ export function App() {
     const gone = new Set(ids);
     for (const id of ids) {
       clearQuestionPromptRecords(id);
+      clearOperatorCommandRecords(id);
     }
     setSessions((prev) => prev.filter((row) => !gone.has(row.id)));
     // A subagent transcript is not listed and is never a target of its own: it
@@ -5666,6 +5681,9 @@ export function App() {
       // The turn's @coddy: mentions and the agent's documentation tools
       // follow the interface's language (webui_prompt.go, langFromHTTP).
       meta.lang = locale;
+      // This page answers the operator_command tool (its card: Run, Decline,
+      // Stop), so the turn may offer it (external/httpserver/operator_command.go).
+      meta.coddy_operator_commands = "1";
       if (yamlSel) meta.model = yamlSel;
       if (sendReasoning) meta.reasoning = reasoningSel;
       if (runSlug) meta.runPlanSlug = runSlug;

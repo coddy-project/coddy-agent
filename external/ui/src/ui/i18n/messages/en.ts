@@ -596,6 +596,20 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.tools.preview_server.public_host.desc":
     "Host written into the URL the agent hands out, when the browser is on another machine. Empty uses the bind host.",
   "settings.schema.tools.preview_server.public_host.ph": "The bind host",
+  "settings.schema.tools.operator_command.label": "Operator commands",
+  "settings.schema.tools.operator_command.desc":
+    "The operator_command tool: a command the agent was refused, shown to you exactly as it will run, with Run, Decline and Stop. Its output goes back to the agent. The shell also runs the console's !! commands.",
+  "settings.schema.tools.operator_command.enable.label": "Enabled",
+  "settings.schema.tools.operator_command.enable.desc":
+    "Offer the operator_command tool (default true). It is offered only where a person can answer: the web UI and the console.",
+  "settings.schema.tools.operator_command.shell.label": "Shell",
+  "settings.schema.tools.operator_command.shell.desc":
+    "A name on PATH (bash, zsh, pwsh, cmd) or a path. Empty uses PowerShell on Windows and bash on Linux, macOS and Android.",
+  "settings.schema.tools.operator_command.shell.ph":
+    "bash (PowerShell on Windows)",
+  "settings.schema.tools.operator_command.multiplexer.label": "Run inside",
+  "settings.schema.tools.operator_command.multiplexer.desc":
+    "macOS and Linux: run each command in a detached tmux or screen session, for long runs on a real terminal. Empty runs it directly.",
   "settings.schema.tools.websearch.brave_api_key.ph": "Read from BRAVE_API_KEY",
   "settings.schema.tools.websearch.searxng_url.ph": "http://localhost:8888",
   "settings.schema.tools.http_request.label": "HTTP requests",
@@ -1710,6 +1724,33 @@ export const messagesEn: Record<string, string> = {
   "prompts.planPreviewEmpty": "Nothing to preview yet.",
   "prompts.planSaveFailed": "save failed ({status})",
   "prompts.planSaveFailedNoStatus": "save failed",
+  // The operator_command card (messages/OperatorCommandCard.tsx): a command the
+  // agent was refused, for the operator to run themselves.
+  "operatorCommand.title": "Run it yourself",
+  "operatorCommand.shell": "Shell",
+  "operatorCommand.host": "Host",
+  "operatorCommand.multiplexer": "Runs inside a terminal multiplexer",
+  "operatorCommand.folder": "Folder",
+  "operatorCommand.reason": "Agent's reason",
+  "operatorCommand.actionsAria": "Run or decline the command",
+  "operatorCommand.run": "Run",
+  "operatorCommand.decline": "Decline",
+  "operatorCommand.stop": "Stop",
+  "operatorCommand.kill": "Kill",
+  "operatorCommand.running": "Running…",
+  "operatorCommand.stopping": "Stopping…",
+  "operatorCommand.exitCode": "Exit code {code}",
+  "operatorCommand.stoppedExit": "Stopped (exit code {code})",
+  "operatorCommand.declined": "Declined",
+  "operatorCommand.declinedNote": "Note: {note}",
+  "operatorCommand.failed": "Did not run",
+  "operatorCommand.cancelled": "Cancelled",
+  "operatorCommand.attach": "Open the terminal",
+  "operatorCommand.outputAria": "Command output",
+  "operatorCommand.dropped": "The start of the output was dropped ({bytes} B)",
+  "operatorCommand.alreadyAnswered": "Already answered elsewhere",
+  "operatorCommand.ended": "This request has ended",
+  "operatorCommand.sendFailed": "Could not send the answer",
 
   "scheduler.title": "Scheduler",
   "scheduler.close": "Close scheduler",
@@ -1983,6 +2024,7 @@ export const messagesEn: Record<string, string> = {
   "tool.name.webfetch": "fetching a page",
   "tool.name.http_request": "sending an http request",
   "tool.name.preview_server": "starting a preview server",
+  "tool.name.operator_command": "asking you to run a command",
   "tool.name.websearch": "searching the web",
   "tool.name.coddy_docs_search": "searching the documentation",
   "tool.name.coddy_docs_read": "reading the documentation",

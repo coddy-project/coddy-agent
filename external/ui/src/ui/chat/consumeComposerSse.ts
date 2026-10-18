@@ -17,6 +17,15 @@ import { parseSSEBlocks } from "./sse";
 import { queuedUserMessageItem } from "./queuedUserMessage";
 import { sessionMessageFiles } from "./sessionMessageFiles";
 import { parseToolArtifacts } from "./toolArtifacts";
+import {
+  mergeOperatorCommandState,
+  operatorCommandFromMeta,
+  parseOperatorCommandRequest,
+} from "./operatorCommand";
+import {
+  dropOperatorCommandRecord,
+  upsertOperatorCommandRequest,
+} from "./operatorCommandSessionStore";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { turnProgressFromFrame, type TurnProgress } from "./turnProgress";
 import type { ProviderUsage } from "./providerUsage";
@@ -50,6 +59,8 @@ type ToolCallStatusUpdate = {
       images?: unknown;
       /** Downloadable files a share_file tool call deliberately shared. */
       artifacts?: unknown;
+      /** The run of an operator_command call (chat/operatorCommand.ts). */
+      operatorCommand?: unknown;
     };
   };
   /** ACP uses `meta`, while Responses streams use `_meta`. */
@@ -270,6 +281,8 @@ export async function consumeComposerSseReader(
           if (upd.todoPlan !== undefined) it.todoPlan = upd.todoPlan;
           if (upd.images !== undefined) it.images = upd.images;
           if (upd.artifacts !== undefined) it.artifacts = upd.artifacts;
+          if (upd.operatorCommand !== undefined)
+            it.operatorCommand = upd.operatorCommand;
           if (upd.startedAtMs !== undefined) it.startedAtMs = upd.startedAtMs;
           if (upd.finishedAtMs !== undefined)
             it.finishedAtMs = upd.finishedAtMs;
@@ -312,6 +325,11 @@ export async function consumeComposerSseReader(
         if (upd.todoPlan !== undefined) merged.todoPlan = upd.todoPlan;
         if (upd.images !== undefined) merged.images = upd.images;
         if (upd.artifacts !== undefined) merged.artifacts = upd.artifacts;
+        if (upd.operatorCommand !== undefined)
+          merged.operatorCommand = mergeOperatorCommandState(
+            cur.operatorCommand,
+            upd.operatorCommand,
+          );
         arr[idx] = merged;
         next = arr;
       }
@@ -325,6 +343,58 @@ export async function consumeComposerSseReader(
     if (raf || flushTimer) return;
     raf = window.requestAnimationFrame(flushToolQueue);
     flushTimer = window.setTimeout(flushToolQueue, toolFlushFallbackMs);
+  };
+
+  // An operator command: the request lands on its tool row through the same
+  // queue as the row itself, and is kept for a reload (the event is not sent
+  // again) until the call finishes. The session it was kept under is
+  // remembered by tool call, since the frames that end the call do not name it.
+  const operatorSessionByToolCall = new Map<string, string>();
+  const takeOperatorCommandEvent = (data: string) => {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(data);
+    } catch {
+      return;
+    }
+    const request = parseOperatorCommandRequest(raw);
+    if (!request) return;
+    operatorSessionByToolCall.set(request.toolCallId, request.sessionId);
+    upsertOperatorCommandRequest(request);
+    toolQueue.push({
+      toolCallId: request.toolCallId,
+      operatorCommand: { request, requestId: request.requestId },
+    });
+    scheduleToolFlush();
+  };
+  const forgetOperatorRequest = (toolCallId: string) => {
+    const sid = operatorSessionByToolCall.get(toolCallId);
+    if (!sid) return;
+    operatorSessionByToolCall.delete(toolCallId);
+    dropOperatorCommandRecord(sid, toolCallId);
+  };
+  // A frame of a running operator command still carries the call's arguments as
+  // its content - the run is in _meta - and it is a progress report, not a
+  // restart: it must not move the row's clock.
+  const takeOperatorCommandFrame = (
+    u: ToolCallStatusUpdate,
+    status: string,
+    text0: string,
+  ): boolean => {
+    if (status !== "in_progress") return false;
+    const op = operatorCommandFromMeta(u._meta?.coddy?.operatorCommand);
+    if (!op) return false;
+    toolQueue.push({
+      toolCallId: u.toolCallId,
+      status: "in_progress",
+      ...(text0 ? { argsText: text0 } : {}),
+      operatorCommand: op,
+    });
+    if (op.phase === "ended" || op.phase === "stopped") {
+      forgetOperatorRequest(u.toolCallId);
+    }
+    scheduleToolFlush();
+    return true;
   };
 
   const ensureAssistant = (
@@ -818,6 +888,11 @@ export async function consumeComposerSseReader(
         continue;
       }
 
+      if (ev.event === "operator_command") {
+        takeOperatorCommandEvent(ev.data);
+        continue;
+      }
+
       if (ev.event === "tool_call") {
         try {
           finishThinking();
@@ -846,6 +921,16 @@ export async function consumeComposerSseReader(
           const status = (u.status as any) || "in_progress";
           const text0 = u.content?.[0]?.content?.text || "";
           const now = eventNow();
+          if (takeOperatorCommandFrame(u, status, text0)) {
+            continue;
+          }
+          if (
+            status === "completed" ||
+            status === "failed" ||
+            status === "cancelled"
+          ) {
+            forgetOperatorRequest(u.toolCallId);
+          }
           if (status === "in_progress" && text0) {
             toolQueue.push({
               toolCallId: u.toolCallId,
@@ -1109,6 +1194,10 @@ export async function consumeComposerSseReader(
         }
         continue;
       }
+      if (ev.event === "operator_command") {
+        takeOperatorCommandEvent(ev.data);
+        continue;
+      }
       if (ev.event === "tool_call") {
         try {
           finishThinking();
@@ -1136,6 +1225,16 @@ export async function consumeComposerSseReader(
           const status = (u.status as any) || "in_progress";
           const text0 = u.content?.[0]?.content?.text || "";
           const now = eventNow();
+          if (takeOperatorCommandFrame(u, status, text0)) {
+            continue;
+          }
+          if (
+            status === "completed" ||
+            status === "failed" ||
+            status === "cancelled"
+          ) {
+            forgetOperatorRequest(u.toolCallId);
+          }
           if (status === "in_progress" && text0) {
             toolQueue.push({
               toolCallId: u.toolCallId,
