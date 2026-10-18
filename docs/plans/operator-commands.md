@@ -378,3 +378,12 @@ typing a caret (it fires the trap), a stale exit file under a reused request id 
 Found while implementing: tmux answers `display-message` for a pane that no longer exists with an
 empty line and status 0, so an empty answer counts as "gone" and Kill leaves the window to the
 watcher.
+
+## Operator decision (after the PR reviews): no interactive input
+
+Interactive input is out of scope. Whatever the multiplexer, the tool's description tells the model
+to write a command that asks nothing (`sudo -n`, `apt-get -y`, `ssh -o BatchMode=yes`,
+`GIT_TERMINAL_PROMPT=0`, no editor or pager) and to hand a command that needs a password or an answer
+to the operator in its reply instead of calling the tool. The multiplexer stays for long runs and
+for programs that refuse to start without a terminal; attaching is for watching, and the user page
+lists what happens when an operator answers a prompt there anyway.

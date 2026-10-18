@@ -290,6 +290,32 @@ func TestOperatorCommandDescriptionNamesTheShell(t *testing.T) {
 	}
 }
 
+// Interactive input is not a feature of the tool: whatever the multiplexer,
+// the model is told to write a command that asks nothing, and never to count
+// on the operator typing into it.
+func TestOperatorCommandDescriptionDemandsANonInteractiveCommand(t *testing.T) {
+	for _, mux := range []string{"", "tmux", "screen"} {
+		t.Run("multiplexer="+mux, func(t *testing.T) {
+			tool := OperatorCommandTool(&tooling.OperatorCommandSettings{Enabled: true, Shell: "sh", Multiplexer: mux})
+			desc := tool.Definition.Description
+			for _, want := range []string{"must not wait for input", "sudo -n", "-y", "run it themselves"} {
+				if !strings.Contains(desc, want) {
+					t.Errorf("description lacks %q: %s", want, desc)
+				}
+			}
+			for _, banned := range []string{"attach", "and type"} {
+				if strings.Contains(desc, banned) {
+					t.Errorf("description promises interactive input (%q): %s", banned, desc)
+				}
+			}
+			cmd := tool.Definition.InputSchema.(map[string]interface{})["properties"].(map[string]interface{})["command"].(map[string]interface{})
+			if !strings.Contains(cmd["description"].(string), "asks nothing") {
+				t.Errorf("command argument does not ask for a non-interactive command: %v", cmd["description"])
+			}
+		})
+	}
+}
+
 func TestOperatorCommandUnknownShellIsAnError(t *testing.T) {
 	client := &operatorClient{available: true, answer: acp.OperatorActionRun}
 	env := operatorEnv(t, client)

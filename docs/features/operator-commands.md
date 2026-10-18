@@ -63,7 +63,21 @@ It is offered in Agent and Plan mode, not in Ask mode, which has no shell at all
 
 The command runs on the machine that owns the session, in the session's folder: for the console that is your machine, for the web UI and `coddy --remote` it is the `coddy serve` host. It runs as the same user as Coddy, with Coddy's environment: it bypasses Coddy's rules, not the operating system's.
 
-Without a multiplexer the command has no terminal and no input; on Windows it has no console either. A program that asks for one fails at once: write `sudo -n`, not `sudo`. The tool's description tells the model so.
+## Commands that ask nothing
+
+Interactive input is not a feature of the tool. The agent must always write a command that needs no answer from you: no password, no confirmation, no editor, no pager. The tool's description tells the model so whatever the settings, with the forms to use: `sudo -n`, not `sudo`; `apt-get -y`; `ssh -o BatchMode=yes`; git with `GIT_TERMINAL_PROMPT=0`. A command that cannot run without a password or an answer is not for this tool: the description tells the agent to give it to you in its reply, and you run it yourself. This is an instruction to the model, not a check: nothing tells a command that asks from one that does not before it runs.
+
+What a prompt does to a command depends on where it runs:
+
+- Without a multiplexer the command has no terminal and no input; on Windows it has no console either. A program that asks for something fails at once with a non-zero exit code, and the agent reads the error.
+- In a [tmux or screen](#long-runs-tmux-or-screen) window the command has a terminal, so a prompt does not fail: it waits. There is no timeout, and the turn waits with it until you press **Stop**.
+
+`sudo` has two limits of its own:
+
+- `sudo -n` runs only what sudoers lets your account run without a password (`NOPASSWD`); anything else fails with "a password is required".
+- A `sudo` you ran in your own terminal does not help: sudo remembers a password per terminal, and the command does not run in yours.
+
+On Windows there is no way to elevate the command and get its output back; a command that needs an administrator is one you run yourself in an administrator terminal.
 
 ## The shell
 
@@ -87,14 +101,22 @@ In the web UI the section is **Settings → Tools and permissions → Operator c
 
 ## Long runs: tmux or screen
 
-On macOS and Linux, `multiplexer: tmux` or `multiplexer: screen` runs each operator command inside a detached session. The command gets a real terminal, a prompt for a password waits for you, and a long run does not depend on the browser tab or the console that pressed Run. Coddy manages the session: you see and approve only the command, never a `tmux` line, and the card shows the command's own output.
+On macOS and Linux, `multiplexer: tmux` or `multiplexer: screen` runs each operator command inside a detached session. The command gets a real terminal, so a program that refuses to run without one works, and a long run does not depend on the browser tab or the console that pressed Run. The terminal is not a way to answer the command: it still has to [ask nothing](#commands-that-ask-nothing). Coddy manages the session: you see and approve only the command, never a `tmux` line, and the card shows the command's own output.
 
 - One multiplexer session per Coddy session, `coddy-<id>`; each command gets a window of its own. tmux runs on a server of Coddy's own (`tmux -L coddy`, no `tmux.conf`), so your own tmux sessions are never touched.
-- The card shows how to reach the terminal, for example `tmux -L coddy attach -t '=coddy-1a2b3c4d5e6f:=oc-0a1b2c3d4e5f'` (screen: `screen -r coddy-1a2b3c4d5e6f -p oc-0a1b2c3d4e5f`), the command's own window. Attach to type a password or answer a prompt; the output keeps streaming to the card.
+- The card shows how to reach the terminal, for example `tmux -L coddy attach -t '=coddy-1a2b3c4d5e6f:=oc-0a1b2c3d4e5f'` (screen: `screen -r coddy-1a2b3c4d5e6f -p oc-0a1b2c3d4e5f`), the command's own window. Attach to watch the command on its terminal; the output keeps streaming to the card.
 - Stop sends Ctrl+C to the window, then terminates its process group.
-- The window gets the environment the multiplexer server was started with: Coddy's, at the first run.
+- The window gets the environment the multiplexer server was started with: Coddy's, at the first run. Under the systemd unit that environment usually has no `DISPLAY` and no `SSH_AUTH_SOCK` of your terminal, and a `PATH` changed later does not reach the window while that server runs.
+- On a terminal programs print colours, progress bars and full-screen redraws. The card and the result clean the output up, but what `htop`, `vim` or `less` leave there is of little use to the agent.
 - Under the systemd user unit (`coddy serve install`) the server starts in a scope of its own, so restarting the service does not end a long run; without `systemd-run` it does.
 - Windows has neither: the setting is ignored there, and `--dry-run` warns. macOS ships no tmux; install it (`brew install tmux`) or use `screen`. tmux 3.0 or newer is needed.
+
+If a command stops on a prompt anyway and you attach to answer it, that is outside what the tool supports, with these consequences:
+
+- You answer on the machine of the session, not in the browser: for the web UI and `coddy --remote` that means a terminal on the `coddy serve` host, over SSH for instance.
+- Each command has a window, and so a terminal, of its own: sudo asks for the password again for every command.
+- Whatever the window shows reaches the agent: the card, the session's history and the request to the model's provider. sudo does not echo a password, but a prompt that echoes what you type puts it there.
+- Nobody attaching is not an answer either: the command waits until you press **Stop**, which sends it Ctrl+C.
 
 ## In the console
 

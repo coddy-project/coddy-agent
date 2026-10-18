@@ -82,7 +82,7 @@ func OperatorCommandTool(settings *tooling.OperatorCommandSettings) *tooling.Too
 				"properties": map[string]interface{}{
 					"command": map[string]interface{}{
 						"type":        "string",
-						"description": "The shell command for the operator to run, exactly as it will run. The operator sees it and cannot edit it.",
+						"description": "The shell command for the operator to run, exactly as it will run. The operator sees it and cannot edit it. It must be a command that asks nothing: no password, no confirmation, no editor or pager.",
 					},
 					"reason": map[string]interface{}{
 						"type":        "string",
@@ -118,16 +118,21 @@ func operatorCommandDescription(settings *tooling.OperatorCommandSettings) strin
 		"The operator sees the command exactly as you write it, cannot edit it, and presses Run or Decline; while it runs they can Stop it. " +
 		"The result is the command's output and exit code. Never use this tool for a command run_command is allowed to run. " +
 		"One command per call. The command runs in " + shellName + " on the machine of the session, " + operatorTerminalNote(settings) +
+		" The command must not wait for input: nobody types into it. Write the non-interactive form: sudo -n, not sudo " +
+		"(it runs only what sudoers allows without a password), apt-get -y, ssh -o BatchMode=yes, git with GIT_TERMINAL_PROMPT=0, " +
+		"no editor or pager. When a command cannot run without a password or an answer, do not call this tool: " +
+		"give the command to the operator in your reply and ask them to run it themselves." +
 		" A decline is final for that command in this turn: do not ask again."
 }
 
-// operatorTerminalNote says whether the command gets a terminal: inside a
-// multiplexer it does, and the operator can attach to type into it.
+// operatorTerminalNote says what a prompt does to the command. Interactive
+// input is not a feature of the tool: inside a multiplexer the command has a
+// terminal, so a prompt does not fail, it hangs until the operator stops it.
 func operatorTerminalNote(settings *tooling.OperatorCommandSettings) string {
 	if settings != nil && settings.Multiplexer != "" && runtime.GOOS != "windows" {
-		return "in a " + settings.Multiplexer + " window: it has a terminal, and a prompt for input waits for the operator to attach and type."
+		return "in a " + settings.Multiplexer + " window: a prompt there does not fail, it hangs until the operator stops the command."
 	}
-	return "with no terminal and no input: it cannot prompt for a password (use sudo -n, not sudo)."
+	return "with no terminal and no input: a prompt fails at once."
 }
 
 func executeOperatorCommand(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
