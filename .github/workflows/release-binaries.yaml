@@ -45,7 +45,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           ref: ${{ inputs.tag != '' && format('refs/tags/{0}', inputs.tag) || github.ref }}
@@ -100,14 +100,14 @@ jobs:
 
       - name: Set up Go
         if: steps.gate.outputs.skip != 'true'
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Set up Node.js
         if: steps.gate.outputs.skip != 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: npm
@@ -203,7 +203,7 @@ jobs:
 
       - name: Upload assets to GitHub Release
         if: steps.gate.outputs.skip != 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.git_tag.outputs.tag }}
           name: ${{ steps.git_tag.outputs.tag }}
