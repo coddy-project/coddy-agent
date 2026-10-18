@@ -89,9 +89,15 @@ type Message struct {
 	// PlanDocument holds a persisted design plan snapshot for the bundled UI (excluded from LLM prompts).
 	PlanDocument *PlanDocumentSnapshot `json:"plan_document,omitempty"`
 	// CompactionSummary marks a generated summary of earlier conversation history.
-	// Messages before the last summary stay in the persisted transcript for UI
-	// replay but are excluded from LLM prompts (see session.MessagesForLLM).
+	// The messages the summary rows cover stay in the persisted transcript for
+	// UI replay but are excluded from LLM prompts (see session.MessagesForLLM).
 	CompactionSummary bool `json:"compaction_summary,omitempty"`
+	// CompactionBlock marks a summary row that continues the summaries before
+	// it instead of replacing them: it covers only the messages between the
+	// previous summary row and itself, and the model reads it after them (see
+	// session.LLMWindow). A summary row without it starts the chain, which is
+	// what every row written before the chain existed does.
+	CompactionBlock bool `json:"compaction_block,omitempty"`
 	// BackgroundWake marks a user-role message no person typed: the one a
 	// finished notify_on_finish task started a turn with (excluded from what
 	// the provider is sent; the Content still is).

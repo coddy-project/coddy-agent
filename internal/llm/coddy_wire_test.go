@@ -26,7 +26,7 @@ var wireCoverage = []struct {
 		wire: []string{"Role", "Content", "ImageParts", "Reasoning", "ReasoningSignature", "ReasoningTokens", "ToolCalls", "ToolCallID"},
 		// Artifacts and the absolute paths are the local host's; the rest is
 		// transcript bookkeeping no provider is sent.
-		local:  []string{"Artifacts", "ReasoningDurationMs", "Truncated", "Model", "CreatedAt", "PlanDocument", "CompactionSummary", "BackgroundWake", "GoalTurn", "FollowUp"},
+		local:  []string{"Artifacts", "ReasoningDurationMs", "Truncated", "Model", "CreatedAt", "PlanDocument", "CompactionSummary", "CompactionBlock", "BackgroundWake", "GoalTurn", "FollowUp"},
 		folded: []string{"Rules"},
 	},
 	{

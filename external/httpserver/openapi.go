@@ -3907,7 +3907,11 @@ func openAPISpec() map[string]interface{} {
 						"name":         map[string]string{"type": "string"},
 						"compaction_summary": map[string]interface{}{
 							"type":        "boolean",
-							"description": "Coddy transcript extension: this row is a generated summary of earlier history (context compaction). Rows before the last summary are excluded from LLM prompts but stay in the transcript.",
+							"description": "Coddy transcript extension: this row is a generated summary of earlier history (context compaction). The LLM reads the chain of summary rows (every summary row back to the last one without compaction_block, or back to the first one when they all carry it) and the messages after the last of them; the messages the rows cover stay in the transcript.",
+						},
+						"compaction_block": map[string]interface{}{
+							"type":        "boolean",
+							"description": "Coddy transcript extension: set with compaction_summary on every summary row a compaction writes (not on a row that merges earlier ones): the row continues the chain of summaries before it instead of replacing them and covers the messages between the previous summary row and itself.",
 						},
 						"truncated": map[string]interface{}{
 							"type":        "boolean",
