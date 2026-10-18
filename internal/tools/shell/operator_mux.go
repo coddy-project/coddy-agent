@@ -266,6 +266,70 @@ func newMuxRun(logDir, requestID string) (*muxRun, error) {
 	return &muxRun{logPath: logPath, tail: &tailBuffer{limit: operatorOutputCap}, done: make(chan struct{}), exitCode: -1}, nil
 }
 
+// ---- the launcher both multiplexers run ----
+
+// muxLauncher is the script a multiplexer window runs instead of the command:
+// it records its pid, enters the folder, hands the operator shell its argv
+// quoted for /bin/sh - so the command text reaches the shell untouched, which
+// screen's own parsing would not allow - and writes the command's status to a
+// file before it exits with that status. trap : (not trap ”) keeps SIGINT at
+// its default in the command while the launcher lives on to record the status;
+// the status a multiplexer reports for its pane can come late or not at all
+// after a Ctrl+C (tmux on macOS), the file does not. It keeps a trace of its
+// own steps on fd 9, closed for the command, so a window that ends without a
+// status says how far it got.
+type muxLauncher struct {
+	path, pidFile, exitFile, traceFile string
+}
+
+func writeMuxLauncher(base, cwd string, commandShell platform.Shell, command string) (*muxLauncher, error) {
+	l := &muxLauncher{path: base + ".sh", pidFile: base + ".pid", exitFile: base + ".exit", traceFile: base + ".trace"}
+	exe, argv := commandShell.Command(command)
+	quoted := []string{shellQuote(exe)}
+	for _, a := range argv {
+		quoted = append(quoted, shellQuote(a))
+	}
+	script := "#!/bin/sh\n" +
+		"exec 9>>" + shellQuote(l.traceFile) + "\n" +
+		"echo \"launcher $$ started\" >&9\n" +
+		"echo $$ > " + shellQuote(l.pidFile) + "\n" +
+		"cd " + shellQuote(cwd) + " || exit 1\n" +
+		"trap : INT\n" +
+		strings.Join(quoted, " ") + " 9>&-\n" +
+		"code=$?\n" +
+		"echo \"command exited $code\" >&9\n" +
+		"printf '%s' \"$code\" > " + shellQuote(l.exitFile+".tmp") + " && mv " + shellQuote(l.exitFile+".tmp") + " " + shellQuote(l.exitFile) + "\n" +
+		"exit \"$code\"\n"
+	if err := os.WriteFile(l.path, []byte(script), 0o600); err != nil {
+		return nil, err
+	}
+	return l, nil
+}
+
+// status reads the command's status the launcher wrote, if it did.
+func (l *muxLauncher) status() (int, bool) {
+	b, err := os.ReadFile(l.exitFile)
+	if err != nil {
+		return 0, false
+	}
+	code, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		return -1, true
+	}
+	return code, true
+}
+
+func (l *muxLauncher) trace() string {
+	b, _ := os.ReadFile(l.traceFile)
+	return strings.TrimSpace(string(b))
+}
+
+func (l *muxLauncher) cleanup() {
+	for _, p := range []string{l.pidFile, l.exitFile, l.exitFile + ".tmp", l.path, l.traceFile} {
+		_ = os.Remove(p)
+	}
+}
+
 // ---- tmux ----
 
 type tmuxMux struct {
@@ -315,23 +379,30 @@ func (m *tmuxMux) Start(command, cwd string, commandShell platform.Shell) (opera
 		return nil, err
 	}
 	win := windowName(m.requestID)
-	exe, argv := commandShell.Command(command)
-	// The command goes to tmux as argv, never through a shell of its own; the
-	// window outlives the command (remain-on-exit) so its status can be read,
+	l, err := writeMuxLauncher(strings.TrimSuffix(r.logPath, ".log"), cwd, commandShell, command)
+	if err != nil {
+		_ = os.Remove(r.logPath)
+		return nil, err
+	}
+	// The window runs the launcher as argv, never through a shell of its own,
+	// and the launcher enters the folder: tmux expands #{...} and #(...) in
+	// a -c path, so a folder named #(touch x) would run a command of its own.
+	// it outlives the command (remain-on-exit) so the pane can still be read,
 	// and the capture starts in the same call that makes the window.
 	// remain-on-exit is a window option: set-window-option names it so on
 	// every tmux, where an older set-option -g would set nothing.
 	args := []string{"set-window-option", "-g", "remain-on-exit", "on", ";",
-		"new-window", "-d", "-t", "=" + m.session + ":", "-n", win, "-c", cwd, "-P", "-F", "#{pane_id} #{pane_pid}", "--", exe}
-	args = append(args, argv...)
-	args = append(args, ";", "pipe-pane", "-o", "-t", "="+m.session+":="+win, "cat >> '"+r.logPath+"'")
+		"new-window", "-d", "-t", "=" + m.session + ":", "-n", win, "-P", "-F", "#{pane_id} #{pane_pid}", "--", "/bin/sh", l.path,
+		";", "pipe-pane", "-o", "-t", "=" + m.session + ":=" + win, "cat >> '" + r.logPath + "'"}
 	out, err := m.run(args...)
 	if err != nil {
+		l.cleanup()
 		_ = os.Remove(r.logPath)
 		return nil, fmt.Errorf("tmux new-window: %v: %s", err, out)
 	}
 	fields := strings.Fields(lastLine(out))
 	if len(fields) != 2 {
+		l.cleanup()
 		_ = os.Remove(r.logPath)
 		return nil, fmt.Errorf("tmux new-window printed %q", out)
 	}
@@ -340,20 +411,36 @@ func (m *tmuxMux) Start(command, cwd string, commandShell platform.Shell) (opera
 	r.interrupt = func() { _, _ = m.run("send-keys", "-t", pane, "C-c") }
 	r.closeWin = func() { _, _ = m.run("kill-pane", "-t", pane) }
 	var paneEnd tmuxPaneEnd
-	go r.watch(func() (bool, int) {
-		status, err := m.run("display-message", "-p", "-t", pane, "#{pane_dead} #{pane_dead_status} #{pane_dead_signal}")
-		if err != nil || status == "" {
-			// The window is gone: closed by the operator. tmux answers a
-			// pane that no longer exists with nothing rather than an error.
-			r.noteGone(fmt.Sprintf("tmux display-message %s: %q, %v", pane, status, err))
-			return true, -1
-		}
-		ended, code, why := paneEnd.read(status)
-		if why != "" {
-			r.noteGone(why)
-		}
-		return ended, code
-	})
+	go func() {
+		r.watch(func() (bool, int) {
+			// The launcher's status first: it is there whatever tmux saw.
+			if code, ok := l.status(); ok {
+				return true, code
+			}
+			status, err := m.run("display-message", "-p", "-t", pane, "#{pane_dead} #{pane_dead_status} #{pane_dead_signal}")
+			if err != nil || status == "" {
+				// The window is gone: closed by the operator. tmux answers
+				// a pane that no longer exists with nothing, not an error.
+				if code, ok := l.status(); ok {
+					return true, code
+				}
+				r.noteGone(fmt.Sprintf("tmux display-message %s: %q, %v; launcher trace: %s", pane, status, err, l.trace()))
+				return true, -1
+			}
+			ended, code, why := paneEnd.read(status)
+			if !ended {
+				return false, 0
+			}
+			if c, ok := l.status(); ok {
+				return true, c
+			}
+			if why != "" {
+				r.noteGone(why + "; launcher trace: " + l.trace())
+			}
+			return true, code
+		})
+		l.cleanup()
+	}()
 	return r, nil
 }
 
@@ -462,39 +549,14 @@ func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (ope
 	if err != nil {
 		return nil, err
 	}
-	base := strings.TrimSuffix(r.logPath, ".log")
-	pidFile, exitFile, launcher, traceFile := base+".pid", base+".exit", base+".sh", base+".trace"
-	exe, argv := commandShell.Command(command)
-	quoted := []string{shellQuote(exe)}
-	for _, a := range argv {
-		quoted = append(quoted, shellQuote(a))
-	}
-	// screen parses the words of a command it is handed (it expands $VAR,
-	// ^C and backslashes), so the command never reaches it: the window runs
-	// this launcher, which hands the shell its argv quoted for /bin/sh.
-	// trap : (not trap '') keeps SIGINT at its default in the command, while
-	// the launcher itself lives on to record the status.
-	// The launcher keeps a trace of its own steps on fd 9 (closed for the
-	// command), so a window that ends without a status says how far it got.
-	script := "#!/bin/sh\n" +
-		"exec 9>>" + shellQuote(traceFile) + "\n" +
-		"echo \"launcher $$ started\" >&9\n" +
-		"echo $$ > " + shellQuote(pidFile) + "\n" +
-		"cd " + shellQuote(cwd) + " || exit 1\n" +
-		"trap : INT\n" +
-		strings.Join(quoted, " ") + " 9>&-\n" +
-		"code=$?\n" +
-		"echo \"command exited $code\" >&9\n" +
-		"printf '%s' \"$code\" > " + shellQuote(exitFile+".tmp") + " && mv " + shellQuote(exitFile+".tmp") + " " + shellQuote(exitFile) + "\n"
-	if err := os.WriteFile(launcher, []byte(script), 0o600); err != nil {
+	l, err := writeMuxLauncher(strings.TrimSuffix(r.logPath, ".log"), cwd, commandShell, command)
+	if err != nil {
 		_ = os.Remove(r.logPath)
 		return nil, err
 	}
-	cleanup := func() {
-		for _, p := range []string{pidFile, exitFile, exitFile + ".tmp", launcher, traceFile} {
-			_ = os.Remove(p)
-		}
-	}
+	// screen parses the words of a command it is handed (it expands $VAR,
+	// ^C and backslashes), so only the launcher's path reaches it.
+	pidFile, exitFile, launcher, cleanup := l.pidFile, l.exitFile, l.path, l.cleanup
 	win := windowName(m.requestID)
 	for _, step := range [][]string{
 		{"-X", "logfile", r.logPath},
@@ -530,8 +592,7 @@ func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (ope
 		r.watch(func() (bool, int) {
 			ended, code, why := screenEnded(exitFile, func() bool { return platform.ProcessGroupAlive(pid, time.Time{}) })
 			if why != "" {
-				trace, _ := os.ReadFile(traceFile)
-				r.noteGone(why + "; launcher trace: " + strings.TrimSpace(string(trace)))
+				r.noteGone(why + "; launcher trace: " + l.trace())
 			}
 			return ended, code
 		})

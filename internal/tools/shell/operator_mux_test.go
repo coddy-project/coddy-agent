@@ -251,3 +251,33 @@ func TestTmuxPaneEndWaitsForTheStatus(t *testing.T) {
 		t.Fatalf("a pane that never got a status: ended=%v code=%d why=%q", ended, code, why)
 	}
 }
+
+// TestOperatorMuxTakesTheFolderAndTheCommandLiterally: a folder whose name
+// tmux would read as a format, and a command whose last word ends in \; (which
+// tmux takes for its own separator), run as written.
+func TestOperatorMuxTakesTheFolderAndTheCommandLiterally(t *testing.T) {
+	for _, name := range []string{"tmux", "screen"} {
+		t.Run(name, func(t *testing.T) {
+			mux := muxUnderTest(t, name)
+			root := t.TempDir()
+			cwd := filepath.Join(root, "#(touch PWN) #{session_name} #H")
+			if err := os.MkdirAll(cwd, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			run, err := mux.Start(`pwd; echo done \;`, cwd, posixShell(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitRun(t, run)
+			out := normalizeOutput(run.Output())
+			if !strings.Contains(out, cwd) || !strings.Contains(out, "done ;") || run.ExitCode() != 0 {
+				t.Fatalf("output %q exit %d (%s), want the folder %q and done ;", out, run.ExitCode(), goneReason(run), cwd)
+			}
+			for _, dir := range []string{root, cwd, os.Getenv("HOME")} {
+				if _, err := os.Stat(filepath.Join(dir, "PWN")); err == nil {
+					t.Fatalf("a folder name ran a command: %s/PWN exists", dir)
+				}
+			}
+		})
+	}
+}
