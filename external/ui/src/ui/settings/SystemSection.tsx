@@ -80,17 +80,45 @@ function Block(props: {
   );
 }
 
+/**
+ * Puts text on the clipboard: through the clipboard API, else (a page served
+ * over plain HTTP from another machine has none, and a browser may refuse it)
+ * through a selected text area. True only when one of the two worked.
+ */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // No clipboard API here, or it refused: the page copies by itself.
+  }
+  const focused = document.activeElement as HTMLElement | null;
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.appendChild(area);
+  area.select();
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    area.remove();
+    focused?.focus();
+  }
+}
+
 function CopyButton(props: { text: string }) {
   const { t } = useT();
   const [done, setDone] = useState(false);
   const copy = () =>
-    void Promise.resolve(navigator.clipboard?.writeText(props.text)).then(
-      () => {
+    void copyText(props.text).then((ok) => {
+      if (ok) {
         setDone(true);
         window.setTimeout(() => setDone(false), 2000);
-      },
-      () => {},
-    );
+      }
+    });
   return (
     <button type="button" className="settings-btn system-copy" onClick={copy}>
       {done ? t("system.copied") : t("system.copy")}
@@ -195,7 +223,7 @@ export default function SystemSection() {
         aria-live="polite"
       >
         {summary.lines.map((line, i) => (
-          <p key={i}>
+          <p key={i} className={line.quiet ? "system-muted" : undefined}>
             {line.text}{" "}
             {line.items.map((item, j) => (
               <span key={j}>
@@ -221,7 +249,9 @@ export default function SystemSection() {
       <div className="system-blocks">
         {metrics ? (
           <section className="system-block system-charts">
-            <h3 className="system-h">{t("system.last")}</h3>
+            <h3 id={`${base}-last`} className="system-h" tabIndex={-1}>
+              {t("system.last")}
+            </h3>
             <p className="system-muted">{t("system.last.note")}</p>
             <div className="system-chart-grid">
               {chartsOf(metrics.series).map((chart) => (
@@ -265,13 +295,15 @@ export default function SystemSection() {
           {build && doc ? (
             <dl className="system-kv">
               <Row label={t("system.version")}>
-                {notes ? (
-                  <a href={notes} target="_blank" rel="noopener">
-                    {build.version}
-                  </a>
-                ) : (
-                  build.version
-                )}
+                <span className="system-code">
+                  {notes ? (
+                    <a href={notes} target="_blank" rel="noopener">
+                      {build.version}
+                    </a>
+                  ) : (
+                    build.version
+                  )}
+                </span>
                 {build.revision ? (
                   <>
                     {" "}

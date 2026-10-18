@@ -371,13 +371,16 @@ export function Settings(props: {
   // The status the System tab shows is read once when the drawer opens, for the
   // number on its rail entry and tile, and then follows every read the tab or a
   // save makes (systemStatusApi.ts). A relay's home has no such tab and reads
-  // nothing; nothing is read while the drawer is closed.
+  // nothing; nothing is read while the drawer is closed. The read waits for the
+  // schema, which says whether the server is a relay: App learns it from the
+  // relay itself and may open the drawer before it knows.
   const hasStatusTab = sections.some((s) => s.kind === "status");
+  const schemaRead = schema !== null;
   useEffect(() => {
-    if (hasStatusTab) {
+    if (hasStatusTab && schemaRead) {
       void readSystemStatus();
     }
-  }, [hasStatusTab]);
+  }, [hasStatusTab, schemaRead]);
   const attention = useSystemStatus((s) => s.doc?.attention?.length ?? 0);
   const badges = useMemo(
     (): Record<string, number> => (attention > 0 ? { status: attention } : {}),

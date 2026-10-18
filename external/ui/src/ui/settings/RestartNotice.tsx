@@ -12,7 +12,11 @@ import { useT } from "../i18n/I18nProvider";
 export function RestartNotice(props: { refused: string; address: string }) {
   const { t } = useT();
   return (
-    <p className="system-restart" data-testid="system-restart">
+    <p
+      className="system-restart"
+      data-testid="system-restart"
+      data-tone={props.refused ? "error" : undefined}
+    >
       {props.refused
         ? t("system.restart.refused", { reason: props.refused })
         : props.address

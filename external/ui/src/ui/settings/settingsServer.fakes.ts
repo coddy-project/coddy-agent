@@ -394,6 +394,12 @@ export type MountOptions = PageOptions & {
   routed?: boolean;
   /** Rendered before the drawer, so it listens first (an OpenRailScreen). */
   beside?: ReactNode;
+  /**
+   * The relay flag App hands the drawer, when it differs from what the schema
+   * says: App learns that a page is a relay's from the relay itself, and until
+   * then it hands false.
+   */
+  relay?: boolean;
 };
 
 /** Settings the way App mounts it: the address says which tab and row are open. */
@@ -434,7 +440,7 @@ function prepareDrawer(opts: MountOptions) {
     ...(opts.status ? { status: opts.status } : {}),
   });
   const fetch = stubServer(server);
-  const relay = schema["x-coddy-relay"] === true;
+  const relay = opts.relay ?? schema["x-coddy-relay"] === true;
   const onClose = opts.onClose ?? (() => {});
   if (opts.routed) {
     // The address App would hold for this tab and row.

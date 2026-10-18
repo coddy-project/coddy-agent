@@ -9898,18 +9898,39 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 /* Settings -> System (SystemSection.tsx): what this installation is, how it
-   runs and what needs attention. Colours are the usage meter's: amber for a
-   warning, lifted on every dark canvas. */
+   runs and what needs attention. The ok and error tones are the theme's own
+   green and red (--coddy-todo-completed, --coddy-danger), drawn a quarter
+   towards --system-lift so they read on their bands in every preset: white on
+   every dark canvas, the text on the light one. The warn tone is the app's
+   amber, as the usage meter's, lifted on every dark canvas and darkened on the
+   light one to read on its band. Quiet text is --text at 80%, as the settings
+   rail mixes it: --muted is too dim on some presets. */
 .settings.drawer {
-  --system-warn: #b45309;
+  --system-lift: var(--text);
+  --system-warn: #92400e;
   --system-warn-bg: color-mix(in srgb, #f59e0b 22%, transparent);
-  --system-ok: #15803d;
-  --system-ok-bg: color-mix(in srgb, #22c55e 18%, transparent);
+  --system-ok: color-mix(
+    in srgb,
+    var(--coddy-todo-completed) 75%,
+    var(--system-lift)
+  );
+  --system-ok-bg: color-mix(
+    in srgb,
+    var(--coddy-todo-completed) 18%,
+    transparent
+  );
+  --system-error: color-mix(
+    in srgb,
+    var(--coddy-danger) 75%,
+    var(--system-lift)
+  );
+  --system-error-bg: color-mix(in srgb, var(--coddy-danger) 16%, transparent);
+  --system-quiet: color-mix(in srgb, var(--text) 80%, var(--coddy-blend-base));
 }
 
 html:not([data-theme="light"]) .settings.drawer {
+  --system-lift: #ffffff;
   --system-warn: #fbbf24;
-  --system-ok: #4ade80;
 }
 
 .system-section {
@@ -9921,12 +9942,20 @@ html:not([data-theme="light"]) .settings.drawer {
   font-size: 0.9rem;
 }
 
+/* A muted notice by default: a 404, a refusal, an offline node, a stale or a
+   partial reading. Only problems take the warn tone and a clear reading the
+   ok tone. */
 .system-summary {
   display: flex;
   flex-direction: column;
   gap: 4px;
   padding: 10px 14px;
   border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  color: var(--system-quiet);
+}
+
+.system-summary[data-state="problems"] {
   background: var(--system-warn-bg);
   color: var(--system-warn);
 }
@@ -9966,6 +9995,10 @@ html:not([data-theme="light"]) .settings.drawer {
   overflow-wrap: anywhere;
 }
 
+.system-restart[data-tone="error"] {
+  border-color: var(--system-error);
+}
+
 .system-restart a,
 .system-foot a,
 .system-kv a {
@@ -9994,7 +10027,7 @@ html:not([data-theme="light"]) .settings.drawer {
   margin: 0 0 8px;
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--system-quiet);
 }
 
 /* The four blocks the settings search finds wear the Appearance sheet's label
@@ -10015,7 +10048,7 @@ html:not([data-theme="light"]) .settings.drawer {
 
 .system-muted {
   margin: 0;
-  color: var(--muted);
+  color: var(--system-quiet);
 }
 
 .system-warn {
@@ -10035,7 +10068,7 @@ html:not([data-theme="light"]) .settings.drawer {
 }
 
 .system-kv dt {
-  color: var(--muted);
+  color: var(--system-quiet);
 }
 
 .system-kv dd {
@@ -10068,8 +10101,8 @@ html:not([data-theme="light"]) .settings.drawer {
 }
 
 .system-pill[data-state="stopped"] {
-  background: var(--system-warn-bg);
-  color: var(--system-warn);
+  background: var(--system-error-bg);
+  color: var(--system-error);
 }
 
 /* Big enough for a finger, whatever the row around it. */
@@ -10080,17 +10113,22 @@ html:not([data-theme="light"]) .settings.drawer {
   vertical-align: middle;
 }
 
+/* The meter keeps a width of its own and the free-space text wraps beside it,
+   so a long text (the Russian one) never squeezes the meter to a sliver. */
 .system-disk {
   display: grid;
-  grid-template-columns: minmax(0, 150px) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 150px) minmax(96px, 1fr) minmax(
+      0,
+      max-content
+    );
   gap: 8px 12px;
   align-items: center;
   margin-bottom: 6px;
 }
 
 .system-meter {
-  height: 7px;
-  border-radius: 4px;
+  height: 6px;
+  border-radius: 3px;
   overflow: hidden;
   background: color-mix(in srgb, var(--text) 10%, transparent);
 }
@@ -10111,9 +10149,11 @@ html:not([data-theme="light"]) .settings.drawer {
   gap: 10px;
 }
 
+/* The title keeps at least its longest word and the value wraps into the room
+   left beside it, so the two never run into each other. */
 .system-chart {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(min-content, 1fr) minmax(0, max-content);
   grid-template-areas:
     "title value"
     "plot plot"
@@ -10132,9 +10172,10 @@ html:not([data-theme="light"]) .settings.drawer {
 
 .system-chart-value {
   grid-area: value;
-  color: var(--muted);
+  color: var(--system-quiet);
   font-size: 0.8rem;
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .system-plot {
@@ -10162,8 +10203,8 @@ html:not([data-theme="light"]) .settings.drawer {
   stroke: var(--accent);
 }
 
-.system-spark--warn {
-  stroke: var(--system-warn);
+.system-spark--error {
+  stroke: var(--system-error);
 }
 
 .system-spark--ok {
@@ -10171,7 +10212,7 @@ html:not([data-theme="light"]) .settings.drawer {
 }
 
 .system-spark--muted {
-  stroke: var(--muted);
+  stroke: var(--system-quiet);
 }
 
 .system-spark--muted polyline {
@@ -10184,7 +10225,7 @@ html:not([data-theme="light"]) .settings.drawer {
   flex-wrap: wrap;
   gap: 2px 12px;
   font-size: 0.72rem;
-  color: var(--muted);
+  color: var(--system-quiet);
 }
 
 .system-chart-legend > span::before {
@@ -10197,8 +10238,8 @@ html:not([data-theme="light"]) .settings.drawer {
   background: var(--accent);
 }
 
-.system-chart-legend > .system-key--warn::before {
-  background: var(--system-warn);
+.system-chart-legend > .system-key--error::before {
+  background: var(--system-error);
 }
 
 .system-chart-legend > .system-key--ok::before {
@@ -10206,7 +10247,7 @@ html:not([data-theme="light"]) .settings.drawer {
 }
 
 .system-chart-legend > .system-key--muted::before {
-  background: var(--muted);
+  background: var(--system-quiet);
 }
 
 .system-table-wrap {
@@ -10222,7 +10263,7 @@ html:not([data-theme="light"]) .settings.drawer {
 .system-table th {
   font-weight: 400;
   text-align: left;
-  color: var(--muted);
+  color: var(--system-quiet);
 }
 
 .system-table th,
@@ -10238,7 +10279,7 @@ html:not([data-theme="light"]) .settings.drawer {
   padding-top: 10px;
   border-top: 1px solid
     color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-  color: var(--muted);
+  color: var(--system-quiet);
 }
 
 /* A phone: each chart is one line (name, plot, value) and the legend is left to
@@ -10266,6 +10307,9 @@ html:not([data-theme="light"]) .settings.drawer {
   }
   .system-kv {
     grid-template-columns: minmax(0, 40%) minmax(0, 1fr);
+  }
+  .system-kv dd {
+    text-align: right;
   }
   .system-disk {
     grid-template-columns: minmax(0, 1fr) auto;
@@ -10817,7 +10861,9 @@ html:not([data-theme="light"]) .settings.drawer {
   line-height: 18px;
   text-align: center;
   font-variant-numeric: tabular-nums;
-  background: var(--system-warn-bg);
+  /* Its own ground over the canvas, not a tint of whatever is under it: on
+     the active rail entry a tint mixed with the accent and lost contrast. */
+  background: color-mix(in srgb, #f59e0b 22%, var(--bg));
   color: var(--system-warn);
 }
 

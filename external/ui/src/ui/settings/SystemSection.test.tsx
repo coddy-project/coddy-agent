@@ -1,7 +1,15 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  onTestFinished,
+  test,
+  vi,
+} from "vitest";
 import {
   act,
   cleanup,
@@ -13,7 +21,7 @@ import {
 import SystemSection from "./SystemSection";
 import { Sparkline } from "./Sparkline";
 import { fakeStatus } from "./systemStatus.fakes";
-import { compact, tasksText } from "./systemStatus";
+import { compact, seconds, tasksText } from "./systemStatus";
 import { resetSystemStatusForTests } from "./systemStatusApi";
 import { landmarkAnchor } from "./settingsSections";
 import { PaneHidden } from "../components/PanePortal";
@@ -359,6 +367,15 @@ describe("the restart notice", () => {
     expect(document.body.textContent).not.toContain("coddy serve restart");
   });
 
+  test("a refusal wears the error tone and a pending restart does not", async () => {
+    await open([doc()]);
+    expect(notice()!.dataset["tone"]).toBeUndefined();
+    cleanup();
+    resetSystemStatusForTests();
+    await open([doc({ restartRefused: "nothing to start" })]);
+    expect(notice()!.dataset["tone"]).toBe("error");
+  });
+
   test("is not drawn when nothing waits for a restart", async () => {
     await open([doc({ restartRequired: undefined, attention: undefined })]);
     expect(notice()).toBeNull();
@@ -423,6 +440,67 @@ describe("this installation", () => {
       fireEvent.click(copy);
     });
     expect(writeText).toHaveBeenCalledWith("~/.coddy/config.yaml");
+  });
+
+  // A page served over plain HTTP from another machine is no secure context:
+  // it has no navigator.clipboard, and the button must not say Copied for a
+  // path that never reached the clipboard.
+  test("without a clipboard API it copies through the page and says Copied only when that worked", async () => {
+    vi.stubGlobal("navigator", {});
+    const exec = vi.fn((_command: string) => false);
+    Object.defineProperty(document, "execCommand", {
+      value: exec,
+      configurable: true,
+    });
+    onTestFinished(() => {
+      delete (document as { execCommand?: unknown }).execCommand;
+    });
+    await open([doc()]);
+    const copy = within(block("installation")).getByRole("button", {
+      name: /copy/i,
+    });
+    await act(async () => {
+      fireEvent.click(copy);
+    });
+    expect(exec).toHaveBeenCalledWith("copy");
+    expect(copy.textContent).toBe("Copy");
+    exec.mockReturnValue(true);
+    await act(async () => {
+      fireEvent.click(copy);
+    });
+    expect(copy.textContent).toBe("Copied");
+  });
+
+  test("a clipboard that refuses leaves the button saying Copy when the page cannot copy either", async () => {
+    const writeText = vi.fn(async () => {
+      throw new Error("denied");
+    });
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    Object.defineProperty(document, "execCommand", {
+      value: () => false,
+      configurable: true,
+    });
+    onTestFinished(() => {
+      delete (document as { execCommand?: unknown }).execCommand;
+    });
+    await open([doc()]);
+    const copy = within(block("installation")).getByRole("button", {
+      name: /copy/i,
+    });
+    await act(async () => {
+      fireEvent.click(copy);
+    });
+    expect(writeText).toHaveBeenCalled();
+    expect(copy.textContent).toBe("Copy");
+  });
+
+  test("the version is in monospace, like the addresses and the config path", async () => {
+    await open([doc()]);
+    const dt = [...block("installation").querySelectorAll("dt")].find(
+      (d) => d.textContent === "Version",
+    )!;
+    const code = dt.nextElementSibling!.querySelector(".system-code");
+    expect(code?.textContent).toBe("1.3.12");
   });
 });
 
@@ -739,6 +817,33 @@ describe("the charts and the providers come with the metrics build only", () => 
     expect(names[1]).toMatch(/^Attempt time: 5\.8 s/);
     expect(names[2]).toMatch(/^Tokens per minute: in 38K · out 2\.1K/);
     expect(names[3]).toMatch(/^Load: turns 2 · tasks 3/);
+  });
+
+  test("the Last hour heading takes the focus like every block's heading", async () => {
+    await open([doc()]);
+    expect(heading("Last hour").getAttribute("tabindex")).toBe("-1");
+  });
+
+  test("every card has a legend: the attempt time's names the average", async () => {
+    await open([doc()]);
+    const legends = [...document.querySelectorAll(".system-chart")].map(
+      (card) => card.querySelector(".system-chart-legend")!.textContent,
+    );
+    expect(legends.every((text) => (text ?? "").length > 0)).toBe(true);
+    expect(legends[1]).toBe("Avg time");
+  });
+
+  test("successful attempts are the ok tone and failed ones the error tone, never the accent", async () => {
+    await open([doc()]);
+    const card = document.querySelectorAll(".system-chart")[0]!;
+    const tones = [...card.querySelectorAll("svg")].map(
+      (svg) => /system-spark--(\w+)/.exec(svg.getAttribute("class")!)?.[1],
+    );
+    expect(tones).toEqual(["ok", "error"]);
+    const keys = [...card.querySelectorAll(".system-chart-legend span")].map(
+      (span) => span.className,
+    );
+    expect(keys).toEqual(["system-key--ok", "system-key--error"]);
   });
 
   test("with metrics: a row for each provider since start", async () => {
@@ -1083,6 +1188,16 @@ describe("formatting", () => {
     expect(compact(38000)).toBe("38K");
     expect(compact(2.5)).toBe("2.5");
   });
+
+  test("a time under a second is told in milliseconds, never as 0 seconds", () => {
+    expect(seconds(5.8)).toBe("5.8 sec");
+    expect(seconds(42)).toBe("42 sec");
+    expect(seconds(0.25)).toBe("250 ms");
+    expect(seconds(0.00052)).toBe("0.5 ms");
+    expect(seconds(0)).toBe("0 ms");
+    initLocale("ru");
+    expect(seconds(0.25)).toBe("250 мс");
+  });
 });
 
 /**
@@ -1102,6 +1217,12 @@ describe("the stylesheet", () => {
 
   /** Collapses whitespace, which Prettier spreads values over lines with. */
   const squash = (text: string) => text.replace(/\s+/g, " ").trim();
+
+  /** A grid track list as one line, with no space inside a function's parentheses. */
+  const tracks = (body: string) =>
+    squash(/grid-template-columns:\s*([^;]+);/.exec(body)?.[1] ?? "")
+      .replace(/\(\s+/g, "(")
+      .replace(/\s+\)/g, ")");
 
   /** The declarations of every rule whose selector list names `selector` exactly. */
   function bodyOf(selector: string, source: string = css): string {
@@ -1187,11 +1308,86 @@ describe("the stylesheet", () => {
 
   test("a legend swatch has the colour of its line", () => {
     // The base swatch rule names the legend's span; a tone has to outrank it.
-    for (const tone of ["warn", "ok", "muted"]) {
+    for (const tone of ["error", "ok", "muted"]) {
       expect(
         bodyOf(`.system-chart-legend > .system-key--${tone}::before`),
       ).toMatch(/background:/);
     }
+  });
+
+  test("a chart's title and value share the card's head without running into each other", () => {
+    // The title keeps at least its longest word and the value wraps into the
+    // room that is left: with an "auto" value track the value took its whole
+    // width and the title's words ran under it (Russian always, English with
+    // four-digit rates).
+    const columns = tracks(bodyOf(".system-chart"));
+    expect(columns).toMatch(
+      /^minmax\(min-content, ?1fr\) minmax\(0, ?max-content\)$/,
+    );
+    expect(bodyOf(".system-chart-value")).toMatch(/text-align:\s*right/);
+  });
+
+  test("the disk meter keeps a width of its own beside a long free-space text", () => {
+    const columns = tracks(bodyOf(".system-disk"));
+    const meter = /minmax\((\d+)px, ?1fr\)/.exec(columns);
+    expect(Number(meter?.[1] ?? 0)).toBeGreaterThanOrEqual(80);
+    expect(columns).toMatch(/minmax\(0, ?max-content\)$/);
+  });
+
+  test("the meter is a 6px track like the usage meter's", () => {
+    expect(px(bodyOf(".system-meter"), "height")).toBe(6);
+  });
+
+  test("only problems paint the summary in the warn tone: the other states are a muted notice", () => {
+    expect(bodyOf(".system-summary")).not.toMatch(/--system-warn/);
+    expect(bodyOf('.system-summary[data-state="problems"]')).toMatch(
+      /var\(--system-warn\)/,
+    );
+    expect(bodyOf('.system-summary[data-state="clear"]')).toMatch(
+      /var\(--system-ok\)/,
+    );
+  });
+
+  test("a stopped subsystem, a refused restart and failed attempts wear the error tone", () => {
+    expect(bodyOf('.system-pill[data-state="stopped"]')).toMatch(
+      /var\(--system-error\)/,
+    );
+    expect(bodyOf('.system-restart[data-tone="error"]')).toMatch(
+      /var\(--system-error\)/,
+    );
+    expect(bodyOf(".system-spark--error")).toMatch(/var\(--system-error\)/);
+    expect(bodyOf(".system-chart-legend > .system-key--error::before")).toMatch(
+      /var\(--system-error\)/,
+    );
+  });
+
+  test("the ok and error tones come from the theme, so every preset keeps its own green and red", () => {
+    const tokens = bodyOf(".settings.drawer");
+    expect(tokens).toMatch(/--system-ok:[^;]*var\(--coddy-todo-completed\)/);
+    expect(tokens).toMatch(/--system-error:[^;]*var\(--coddy-danger\)/);
+    // No dark preset overrides them with a literal of its own.
+    expect(
+      bodyOf('html:not([data-theme="light"]) .settings.drawer'),
+    ).not.toMatch(/--system-(ok|error)/);
+  });
+
+  test("labels, headings, legends and notes are quiet text mixed from the theme's text, not --muted", () => {
+    // --muted is too dim on several presets (nord's reads 2.1:1 on its canvas);
+    // the settings rail and tiles mix --text instead.
+    expect(bodyOf(".settings.drawer")).toMatch(
+      /--system-quiet:\s*color-mix\(in srgb, var\(--text\) \d+%, var\(--coddy-blend-base\)\)/,
+    );
+    const systemRules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) =>
+      /\.system-/.test(m[1]!),
+    );
+    const muted = systemRules
+      .filter((m) => /var\(--muted\)/.test(m[2]!))
+      .map((m) => squash(m[1]!));
+    expect(muted).toEqual([]);
+  });
+
+  test("under the phone width a value stands at the right of its row", () => {
+    expect(phoneRules()).toMatch(/\.system-kv dd\s*\{[^}]*text-align:\s*right/);
   });
 
   test("under the phone width every chart's line starts and ends at the same place", () => {

@@ -15,7 +15,12 @@ export type BlockId =
   | "providers";
 
 export type SummaryItem = { text: string; block: BlockId };
-export type SummaryLine = { text: string; items: SummaryItem[] };
+/** A sentence of the summary; `quiet` for the note a partial reading adds. */
+export type SummaryLine = {
+  text: string;
+  items: SummaryItem[];
+  quiet?: boolean;
+};
 /** What the summary region says: its state and the sentences it is made of. */
 export type Summary = { state: string; lines: SummaryLine[] };
 
@@ -57,13 +62,17 @@ export const compact = (n: number): string =>
     maximumFractionDigits: n >= 10 && n < 1000 ? 0 : 1,
   }).format(n);
 
-export const seconds = (n: number): string =>
+const inUnit = (n: number, unit: string): string =>
   num({
     style: "unit",
-    unit: "second",
+    unit,
     unitDisplay: "short",
     maximumFractionDigits: n < 10 ? 1 : 0,
   }).format(n);
+
+/** A duration: milliseconds under a second, so a fast call never reads 0 seconds. */
+export const seconds = (n: number): string =>
+  n < 1 ? inUnit(n * 1000, "millisecond") : inUnit(n, "second");
 
 export const percent = (ratio: number): string =>
   num({ style: "percent", maximumFractionDigits: 1 }).format(ratio);
@@ -185,7 +194,7 @@ export function summarize(state: SystemStatusState, version: string): Summary {
       });
     }
     if (missing.length > 0) {
-      lines.push({ text: t("system.partial"), items: missing });
+      lines.push({ text: t("system.partial"), items: missing, quiet: true });
     }
     if (lines.length === 0) {
       lines.push({ text: t("system.clear"), items: [] });
@@ -219,7 +228,7 @@ export function summarize(state: SystemStatusState, version: string): Summary {
     );
   }
   if (stale !== null) {
-    lines.push(say(t("system.stale")));
+    lines.push({ ...say(t("system.stale")), quiet: true });
     return { state: "stale", lines };
   }
   if (lines.length === 0) {
@@ -332,19 +341,19 @@ export function chartsOf(s: SystemSeries): ChartDef[] {
       "attempts",
       `${t("system.w.ok")} ${val(last(s.attemptsOk), rate)} · ${t("system.w.errors")} ${val(last(s.providerErrors), rate)}`,
       [
-        { values: s.attemptsOk, tone: "accent" },
-        { values: s.providerErrors, tone: "warn" },
+        { values: s.attemptsOk, tone: "ok" },
+        { values: s.providerErrors, tone: "error" },
       ],
       [
-        ["system.w.ok", "accent"],
-        ["system.w.errors", "warn"],
+        ["system.w.ok", "ok"],
+        ["system.w.errors", "error"],
       ],
     ),
     chart(
       "time",
       val(last(s.attemptSecondsMean), seconds),
       [{ values: s.attemptSecondsMean, tone: "accent" }],
-      [],
+      [["system.col.time", "accent"]],
     ),
     chart(
       "tokens",

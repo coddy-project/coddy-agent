@@ -2575,6 +2575,21 @@ describe("system status", () => {
     expect(statusReads(phone.fetch)).toBe(0);
   });
 
+  // App learns that a page is a relay's from the relay, after the drawer may
+  // have opened: until the schema says what the server is, Settings must not
+  // take it for an agent and read a route a relay does not serve.
+  test("a relay's home that App does not know as one yet reads no status while its schema is on its way", async () => {
+    const view = mountSettings({
+      schema: RELAY_SCHEMA,
+      relay: false,
+      status: needing(2),
+    });
+    await screen.findByTestId("settings-tab-swarm");
+    await answered();
+    expect(screen.queryByTestId("settings-tab-status")).toBeNull();
+    expect(statusReads(view.fetch)).toBe(0);
+  });
+
   test("the tab is drawn on the first frame, before the schema is read, and opens at #/settings/status", async () => {
     mountSettings({ section: "status", routed: true, status: needing(2) });
     expect(railTab().getAttribute("aria-current")).toBe("page");
