@@ -274,9 +274,11 @@ func TestOperatorCommandTurnCancelKillsTheCommand(t *testing.T) {
 		cancel()
 	}()
 	start := time.Now()
-	_, err := OperatorCommandTool(env.OperatorCommand).Execute(ctx, operatorArgs(`trap '' INT; sleep 30`), env)
-	if err == nil {
-		t.Fatal("a cancelled turn returned no error")
+	out, err := OperatorCommandTool(env.OperatorCommand).Execute(ctx, operatorArgs(`trap '' INT; sleep 30`), env)
+	// The command ended within the drain: the call keeps what it ran, as a
+	// Stop would - the card and the history show how it ended.
+	if err != nil || !strings.HasPrefix(out, "The operator stopped the command") {
+		t.Fatalf("a cancelled run that ended: %q, %v", out, err)
 	}
 	// Interrupt, the wait after it and the terminate's grace: well inside
 	// the drain, so a cancel that never killed would fail here.

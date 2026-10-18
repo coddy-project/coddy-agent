@@ -85,10 +85,10 @@ func TestOperatorCancelEndsWhatTheCommandLeftRunning(t *testing.T) {
 		waitForFile(t, pidFile)
 		cancel()
 	}()
-	_, err := OperatorCommandTool(env.OperatorCommand).Execute(ctx,
+	out, err := OperatorCommandTool(env.OperatorCommand).Execute(ctx,
 		operatorArgs(`trap 'exit 0' INT; sleep 600 >/dev/null 2>&1 & echo $! > child.pid; wait`), env)
-	if err == nil {
-		t.Fatal("a cancelled turn returned no error")
+	if err != nil || !strings.HasPrefix(out, "The operator stopped the command") {
+		t.Fatalf("a cancelled run that ended: %q, %v", out, err)
 	}
 	pid, _ := strconv.Atoi(waitForFile(t, pidFile))
 	deadline := time.Now().Add(5 * time.Second)
@@ -141,9 +141,9 @@ func TestOperatorStopDuringTheCancelDrainKillsAtOnce(t *testing.T) {
 		_ = tk.Answer(acp.OperatorActionStop, "")
 	}
 	start := time.Now()
-	_, err := OperatorCommandTool(env.OperatorCommand).Execute(ctx, operatorArgs(`trap '' INT; echo up > ready; sleep 30`), env)
-	if err == nil {
-		t.Fatal("a cancelled turn returned no error")
+	out, err := OperatorCommandTool(env.OperatorCommand).Execute(ctx, operatorArgs(`trap '' INT; echo up; echo up > ready; sleep 30`), env)
+	if err != nil || !strings.Contains(out, "Output so far:") || !strings.Contains(out, "up") {
+		t.Fatalf("a cancelled run that was killed: %q, %v", out, err)
 	}
 	<-ready
 	if took := time.Since(start); took > operatorInterruptWait() {

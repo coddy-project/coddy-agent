@@ -363,9 +363,13 @@ func superviseOperatorRun(ctx context.Context, env *tooling.Env, req acp.Operato
 			for {
 				select {
 				case <-run.Done():
+					// The command ended within the drain: the call keeps
+					// what it ran, as a Stop would, so the card and the
+					// history say how it ended rather than an error.
 					endLeftovers(run)
-					frame.send(OperatorPhaseStopped, run.Output(), run.ExitCode(), run.Dropped())
-					return "", ctx.Err()
+					out, code := run.Output(), run.ExitCode()
+					frame.send(OperatorPhaseStopped, out, code, run.Dropped())
+					return operatorResult(req, out, run.Dropped(), code, true), nil
 				case <-stop:
 					// The interrupt already went out with the cancel, so
 					// the operator's Stop is the kill.

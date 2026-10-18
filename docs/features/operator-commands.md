@@ -45,7 +45,7 @@ The operator ran the command in bash on build-box, in /srv/app (exit code 0):
 
 *The card in the light theme.*
 
-A request waits for you as long as it takes: there is no timeout. The composer's Stop ends the turn and stops the command the same way (Ctrl+C, then the group); the turn waits up to 12 seconds for it to end. A command that outlives the turn keeps its request open, and its card keeps Stop, until it has ended.
+A request waits for you as long as it takes: there is no timeout. The composer's Stop ends the turn and stops the command the same way (Ctrl+C, then the group); the turn waits up to 12 seconds for it to end. A command that ends in that time is recorded as stopped, with its output and exit code, like one you stopped yourself. A command that outlives the turn keeps its request open, and its card keeps Stop, until it has ended.
 
 ## Where it is offered
 

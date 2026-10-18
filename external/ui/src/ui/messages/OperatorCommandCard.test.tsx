@@ -373,23 +373,34 @@ test("a Stop the server answers with 404 retires the live card", async () => {
   );
 });
 
-test("a command that outlived a cancelled turn ends with its own exit code and output", () => {
-  renderCall(
-    {
-      request,
-      requestId: "opc_1",
-      phase: "stopped",
-      exitCode: 130,
-      output: "interrupted at step 3",
-    },
-    { status: "cancelled", resultText: "" },
-  );
-  expect(screen.getByTestId("operator-command-end")).toHaveTextContent(
-    "Stopped (exit code 130)",
-  );
-  expect(screen.getByTestId("operator-command-output")).toHaveTextContent(
-    "interrupted at step 3",
-  );
+// A turn cancelled while its command ran ends the call cancelled, or failed
+// with the cancel's error: the run itself still has its exit code and output.
+test("a command stopped by a cancelled turn ends with its own exit code and output", () => {
+  for (const [status, resultText] of [
+    ["cancelled", ""],
+    ["failed", "error: context canceled"],
+  ] as const) {
+    const { unmount } = renderCall(
+      {
+        request,
+        requestId: "opc_1",
+        phase: "stopped",
+        exitCode: 130,
+        output: "interrupted at step 3",
+      },
+      { status, resultText },
+    );
+    expect(screen.getByTestId("operator-command-end")).toHaveTextContent(
+      "Stopped (exit code 130)",
+    );
+    expect(screen.getByTestId("operator-command-output")).toHaveTextContent(
+      "interrupted at step 3",
+    );
+    expect(screen.getByTestId("operator-command-card")).not.toHaveTextContent(
+      "Did not run",
+    );
+    unmount();
+  }
 });
 
 test("an end without an exit code claims no success", () => {

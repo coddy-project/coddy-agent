@@ -180,12 +180,10 @@ export function OperatorCommandCard(props: {
       output = outcome.note
         ? t("operatorCommand.declinedNote", { note: outcome.note })
         : "";
-    } else if (
-      (phase === "stopped" || phase === "ended") &&
-      (!terminal || status === "cancelled")
-    ) {
-      // Between the last frame and the call's end, or a call cancelled while
-      // its command ran on: the frame says how the run ended.
+    } else if (phase === "stopped" || phase === "ended") {
+      // Between the last frame and the call's end, or a call a cancelled
+      // turn ended (cancelled, or failed with the cancel's error) while its
+      // command ran: the result says nothing of the run, the frame does.
       const code = state?.exitCode;
       if (code === undefined) {
         endLine =
