@@ -155,3 +155,39 @@ func TestOperatorCommandAnswerBodyIsStrict(t *testing.T) {
 		t.Fatalf("decision = %+v", d)
 	}
 }
+
+// panicWriter stands for the ResponseWriter of a request whose handler has
+// returned: writing to it crashes the server.
+type panicWriter struct{}
+
+func (panicWriter) Write([]byte) (int, error) { panic("write after the handler returned") }
+
+// TestDetachedSenderWritesNothing: a turn's tool can outlive the turn (an
+// operator command that outlives a cancel); once the handler is gone its
+// sender must not touch the response.
+func TestDetachedSenderWritesNothing(t *testing.T) {
+	sender := NewSender(&config.Config{}, panicWriter{}, true, "m")
+	sender.EnableOperatorCommands(true)
+	sender.Detach()
+	_ = sender.SendSessionUpdate("s", acp.ToolCallStatusUpdate{SessionUpdate: acp.UpdateTypeToolCallUpdate, ToolCallID: "c", Status: "in_progress"})
+	_ = sender.SendSessionUpdate("s", acp.MessageChunkUpdate{SessionUpdate: acp.UpdateTypeAgentMessageChunk, Content: acp.ContentBlock{Type: "text", Text: "x"}})
+	_ = sender.writeNamedEventJSON("operator_command", map[string]string{"a": "b"})
+	_ = sender.FinishStream()
+	_ = sender.SendError("x")
+	if acp.OperatorCommandsOf(sender) != nil {
+		t.Fatal("a detached sender still offers operator commands")
+	}
+}
+
+func TestOperatorCommandAnswerRefusesTrailingJSON(t *testing.T) {
+	rec := &syncBuffer{}
+	sender := NewSender(&config.Config{}, rec, true, "m")
+	sender.EnableOperatorCommands(true)
+	sid := "sess_00112233445566778899aabb"
+	_ = startOperatorRequest(t, sender, rec, acp.OperatorCommandRequest{SessionID: sid, RequestID: "oc_t", ToolCallID: "c", Command: "ls"})
+	srv := &Server{}
+	if w := postOperatorAnswer(t, srv, sid, `{"requestId":"oc_t","action":"decline"}{"requestId":"oc_t","action":"run"}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("a second object after the body: %d %s", w.Code, w.Body)
+	}
+	_ = postOperatorAnswer(t, srv, sid, `{"requestId":"oc_t","action":"decline"}`)
+}

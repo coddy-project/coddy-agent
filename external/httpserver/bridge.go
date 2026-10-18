@@ -46,6 +46,10 @@ type Sender struct {
 	model           string
 	sessionDir      string
 	questionPending func(sessionID string, pending bool)
+	// detached is set once the handler that owns w has returned: a tool that
+	// outlives its turn (an operator command after a cancel) must not touch a
+	// finished response, so every write goes to io.Discard from then on.
+	detached bool
 	// operatorCommands is set when the client that started the turn declared
 	// it answers operator commands (metadata.coddy_operator_commands on
 	// POST /v1/responses): a stream alone says nothing, an OpenAI client
@@ -67,7 +71,7 @@ const idleKeepaliveInterval = 15 * time.Second
 // flushLocked flushes the writer and records the moment. Callers hold mu.
 func (s *Sender) flushLocked() {
 	s.lastWrite = time.Now()
-	if s.flusher != nil {
+	if s.flusher != nil && !s.detached {
 		s.flusher.Flush()
 	}
 }
@@ -117,7 +121,7 @@ func (s *Sender) startIdleKeepalive(interval time.Duration) func() {
 			case <-ticker.C:
 				s.mu.Lock()
 				if time.Since(s.lastWrite) >= interval {
-					if _, err := io.WriteString(s.w, ": keepalive\n\n"); err == nil {
+					if _, err := io.WriteString(s.writer(), ": keepalive\n\n"); err == nil {
 						s.flushLocked()
 					}
 				}
@@ -184,6 +188,26 @@ func NewWakeRelaySender(cfg *config.Config, relay io.Writer, model string) *Send
 	s := NewRelaySender(cfg, relay, model)
 	s.asksPermission = true
 	return s
+}
+
+// Detach ends the sender's use of its writer: the handler that owns the
+// response returns, and whatever still holds this sender - a tool that
+// outlived the turn - writes nothing more.
+func (s *Sender) Detach() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.detached = true
+	s.emit = false
+	s.interactive = false
+	s.operatorCommands = false
+}
+
+// writer is where a frame goes; s.mu is held.
+func (s *Sender) writer() io.Writer {
+	if s.detached || s.w == nil {
+		return io.Discard
+	}
+	return s.w
 }
 
 // SetSessionDir sets the persisted session directory for permission persistence across restarts.
@@ -331,7 +355,7 @@ func (s *Sender) forwardTextChunk(u acp.MessageChunkUpdate) error {
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(s.w, "data: %s\n\n", line); err != nil {
+	if _, err := fmt.Fprintf(s.writer(), "data: %s\n\n", line); err != nil {
 		return err
 	}
 	s.flushLocked()
@@ -370,7 +394,7 @@ func (s *Sender) SendToolCall(index int, tc llm.ToolCall) error {
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(s.w, "data: %s\n\n", line); err != nil {
+	if _, err := fmt.Fprintf(s.writer(), "data: %s\n\n", line); err != nil {
 		return err
 	}
 	s.flushLocked()
@@ -384,7 +408,7 @@ func (s *Sender) writeNamedEventJSON(event string, payload interface{}) error {
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(s.w, "event: %s\ndata: %s\n\n", event, line); err != nil {
+	if _, err := fmt.Fprintf(s.writer(), "event: %s\ndata: %s\n\n", event, line); err != nil {
 		return err
 	}
 	s.flushLocked()
@@ -540,7 +564,7 @@ func (s *Sender) FinishStream() error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := io.WriteString(s.w, "data: [DONE]\n\n")
+	_, err := io.WriteString(s.writer(), "data: [DONE]\n\n")
 	s.flushLocked()
 	return err
 }
@@ -553,7 +577,7 @@ func (s *Sender) SendError(msg string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := fmt.Fprintf(s.w, "data: {\"error\":{\"message\":%q}}\n\n", msg)
+	_, err := fmt.Fprintf(s.writer(), "data: {\"error\":{\"message\":%q}}\n\n", msg)
 	s.flushLocked()
 	return err
 }
@@ -568,7 +592,7 @@ func (s *Sender) SendErrorFor(err error) error {
 	raw, _ := json.Marshal(replyForError(err).body)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, werr := fmt.Fprintf(s.w, "data: %s\n\n", raw)
+	_, werr := fmt.Fprintf(s.writer(), "data: %s\n\n", raw)
 	s.flushLocked()
 	return werr
 }

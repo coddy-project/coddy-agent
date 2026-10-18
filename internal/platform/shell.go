@@ -93,11 +93,25 @@ func ResolveShell(spec, goos string, lookup LookupFunc) (Shell, error) {
 	if lookup == nil {
 		lookup = exec.LookPath
 	}
+	// A path must be absolute: a relative one would resolve against whatever
+	// folder the agent runs in.
+	if strings.ContainsAny(spec, `/\`) && !isAbsShellPath(spec) {
+		return Shell{}, fmt.Errorf("shell %q is a relative path: write a name on PATH or an absolute path", spec)
+	}
 	path, err := lookup(spec)
 	if err != nil {
 		return Shell{}, fmt.Errorf("shell %q not found: %w", spec, err)
 	}
 	return Shell{Kind: shellKindOf(spec), Path: path}, nil
+}
+
+// isAbsShellPath reports an absolute path in either convention, so a config
+// written on one host reads the same on another.
+func isAbsShellPath(p string) bool {
+	if strings.HasPrefix(p, "/") || strings.HasPrefix(p, `\\`) {
+		return true
+	}
+	return len(p) >= 3 && p[1] == ':' && (p[2] == '\\' || p[2] == '/')
 }
 
 // shellKindOf names the kind of the shell an executable name or path stands

@@ -301,24 +301,29 @@ func writeMuxLauncher(base, cwd string, commandShell platform.Shell, command str
 	for _, a := range argv {
 		quoted = append(quoted, shellQuote(a))
 	}
+	// The status files' paths hold only safeMuxPath's characters, so they sit
+	// in the EXIT trap's single-quoted text without quoting of their own.
+	tmp, done := l.exitFile+".tmp", l.exitFile
 	script := "#!/bin/sh\n" +
 		"exec 9>>" + shellQuote(l.traceFile) + "\n" +
 		"echo \"launcher $$ started\" >&9\n" +
+		// The pid and the process group: a window's first process does not
+		// lead a group under every screen (macOS ships 4.00).
+		"echo \"$$ $(ps -o pgid= -p $$ 2>/dev/null)\" > " + shellQuote(l.pidFile) + " || exit 1\n" +
+		// The status is written on every way out: the command's end, a
+		// folder it cannot enter (cd says why in the window), a terminate.
+		"trap 'printf \"%s\" \"$?\" > " + tmp + " && mv " + tmp + " " + done + "' EXIT\n" +
+		"cd " + shellQuote(cwd) + " || exit 1\n" +
 		// The launcher's own shell trace goes to the trace file; the
 		// command gets the window's stderr back (fd 8).
 		"exec 8>&2 2>&9\n" +
 		"set -x\n" +
-		// The pid and the process group: a window's first process does not
-		// lead a group under every screen (macOS ships 4.00).
-		"echo \"$$ $(ps -o pgid= -p $$ 2>/dev/null)\" > " + shellQuote(l.pidFile) + " || exit 1\n" +
-		"cd " + shellQuote(cwd) + " || exit 1\n" +
 		"trap 'echo \"launcher got INT\" >&9' INT\n" +
 		"trap 'echo \"launcher got HUP\" >&9' HUP\n" +
 		"trap 'echo \"launcher got TERM\" >&9; exit 143' TERM\n" +
 		strings.Join(quoted, " ") + " 2>&8 8>&- 9>&-\n" +
 		"code=$?\n" +
 		"echo \"command exited $code\" >&9\n" +
-		"printf '%s' \"$code\" > " + shellQuote(l.exitFile+".tmp") + " && mv " + shellQuote(l.exitFile+".tmp") + " " + shellQuote(l.exitFile) + "\n" +
 		"exit \"$code\"\n"
 	if err := os.WriteFile(l.path, []byte(script), 0o600); err != nil {
 		return nil, err
@@ -350,6 +355,15 @@ func (l *muxLauncher) cleanup() {
 	}
 }
 
+// launcherShell is the sh that runs the launcher, found on PATH: Android has
+// no /bin/sh, Termux's lives under its prefix.
+func launcherShell() string {
+	if p, err := exec.LookPath("sh"); err == nil {
+		return p
+	}
+	return "/bin/sh"
+}
+
 // ---- tmux ----
 
 type tmuxMux struct {
@@ -375,7 +389,14 @@ func envSessionDir(env *tooling.Env) string {
 	}
 	return env.SessionDir
 }
-func (m *tmuxMux) AttachCommand() string { return "tmux -L " + m.socket + " attach -t " + m.session }
+
+// AttachCommand names the command's own window: the session's active one is
+// the idle window, where a password typed for the command would be echoed.
+func (m *tmuxMux) AttachCommand() string {
+	return "tmux -L " + m.socket + " attach -t '=" + m.session + ":=" + windowName(m.requestID) + "'"
+}
+
+func (m *tmuxMux) requestIDForTest() string { return m.requestID }
 
 // args puts Coddy's server and an empty configuration in front of every call:
 // the operator's tmux.conf must not change remain-on-exit or the history.
@@ -428,10 +449,13 @@ func (m *tmuxMux) Start(command, cwd string, commandShell platform.Shell) (opera
 	// remain-on-exit is a window option: set-window-option names it so on
 	// every tmux, where an older set-option -g would set nothing.
 	args := []string{"set-window-option", "-g", "remain-on-exit", "on", ";",
-		"new-window", "-d", "-t", "=" + m.session + ":", "-n", win, "-P", "-F", "#{pane_id} #{pane_pid}", "--", "/bin/sh", l.path,
+		"new-window", "-d", "-t", "=" + m.session + ":", "-n", win, "-P", "-F", "#{pane_id} #{pane_pid}", "--", launcherShell(), l.path,
 		";", "pipe-pane", "-o", "-t", "=" + m.session + ":=" + win, "cat >> '" + r.logPath + "'"}
 	out, err := m.run(args...)
 	if err != nil {
+		// new-window may have run before a later step of the chain failed:
+		// its window must not run on, unwatched.
+		_, _ = m.run("kill-window", "-t", "="+m.session+":="+win)
 		l.cleanup()
 		_ = os.Remove(r.logPath)
 		dropDir()
@@ -463,6 +487,11 @@ func (m *tmuxMux) Start(command, cwd string, commandShell platform.Shell) (opera
 				// a pane that no longer exists with nothing, not an error.
 				if code, ok := l.status(); ok {
 					return true, code
+				}
+				// The launcher traps HUP and waits on: while it lives, the
+				// command may too, and stays watched (and stoppable).
+				if platform.ProcessAlive(r.pid, time.Time{}) {
+					return false, 0
 				}
 				r.noteGone(fmt.Sprintf("tmux display-message %s: %q, %v; launcher trace: %s", pane, status, err, l.trace()))
 				return true, -1
@@ -550,9 +579,13 @@ func newScreenMux(env *tooling.Env, req acp.OperatorCommandRequest, prefix strin
 	return &screenMux{bin: bin, session: screenSessionName(prefix, req.SessionID), sessionDir: envSessionDir(env), requestID: req.RequestID}, nil
 }
 
-func (m *screenMux) Name() string          { return "screen" }
-func (m *screenMux) logDirectory() string  { return m.logDir }
-func (m *screenMux) AttachCommand() string { return "screen -r " + m.session }
+func (m *screenMux) Name() string         { return "screen" }
+func (m *screenMux) logDirectory() string { return m.logDir }
+func (m *screenMux) AttachCommand() string {
+	return "screen -r " + m.session + " -p " + windowName(m.requestID)
+}
+
+func (m *screenMux) requestIDForTest() string { return m.requestID }
 
 func (m *screenMux) run(a ...string) (string, error) {
 	cmd := exec.Command(m.bin, append([]string{"-S", m.session}, a...)...) // #nosec G204 -- fixed screen argv
@@ -612,7 +645,7 @@ func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (ope
 	for _, step := range [][]string{
 		{"-X", "logfile", r.logPath},
 		{"-X", "logfile", "flush", "0"},
-		{"-X", "screen", "-L", "-t", win, "/bin/sh", launcher},
+		{"-X", "screen", "-L", "-t", win, launcherShell(), launcher},
 	} {
 		if out, err := m.run(step...); err != nil {
 			cleanup()

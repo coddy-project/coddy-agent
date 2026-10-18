@@ -4,6 +4,7 @@ package shell
 
 import (
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -27,5 +28,24 @@ func TestOperatorToolCommandHasItsOwnSession(t *testing.T) {
 	}
 	if sid != pid {
 		t.Fatalf("the shell (pid %d) is not the leader of its own session (sid %d)", pid, sid)
+	}
+}
+
+// TestOperatorKillLeavesNoProcessGroup: a Kill ends what the command started
+// in its group, not only the shell.
+func TestOperatorKillLeavesNoProcessGroup(t *testing.T) {
+	cmd, err := StartOperatorToolCommand("sleep 30 & sleep 30", t.TempDir(), platform.CurrentShell())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pgid := cmd.sc.cmd.Process.Pid
+	time.Sleep(200 * time.Millisecond)
+	cmd.Kill(time.Second)
+	deadline := time.Now().Add(5 * time.Second)
+	for platform.ProcessGroupAlive(pgid, time.Time{}) && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if platform.ProcessGroupAlive(pgid, time.Time{}) {
+		t.Fatal("the process group outlived the kill")
 	}
 }

@@ -33,3 +33,13 @@ func TestToolsValidateOperatorCommandMultiplexer(t *testing.T) {
 		t.Fatalf("an unknown multiplexer: err = %v", err)
 	}
 }
+
+// TestOperatorCommandMultiplexerTravelsCanonically: the form reads back the
+// spelling the schema's enum has.
+func TestOperatorCommandMultiplexerTravelsCanonically(t *testing.T) {
+	cfg := &Config{}
+	cfg.Tools.OperatorCommand.Multiplexer = " TMUX "
+	if got := ConfigToJSONDTO(cfg).Tools.OperatorCommand.Multiplexer; got != "tmux" {
+		t.Fatalf("multiplexer = %q, want tmux", got)
+	}
+}

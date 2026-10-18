@@ -29,11 +29,17 @@ func DetachProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr.CreationFlags |= syscall.CREATE_NEW_PROCESS_GROUP
 }
 
-// DetachSession is DetachProcessGroup on Windows: a console-less child of a
-// new process group is already as detached as Windows makes it.
+// DetachSession is DetachProcessGroup plus no console: a new process group
+// alone still shares Coddy's console, so a program that prompts there (ssh,
+// Read-Host) or clears it would reach the console TUI. With CREATE_NO_WINDOW
+// the command has no console at all; its output still comes over the pipes.
 func DetachSession(cmd *exec.Cmd) {
 	DetachProcessGroup(cmd)
+	cmd.SysProcAttr.CreationFlags |= createNoWindow
 }
+
+// createNoWindow is CREATE_NO_WINDOW, which syscall does not name.
+const createNoWindow = 0x08000000
 
 // InterruptProcessGroup does nothing on Windows: the command has no console to
 // deliver Ctrl+C to, so a stop goes straight to TerminateProcessGroup.

@@ -43,7 +43,7 @@ The operator ran the command in bash on build-box, in /srv/app (exit code 0):
 
 *The card in the light theme.*
 
-A request waits for you as long as it takes: there is no timeout. The composer's Stop ends the turn and stops the command the same way (Ctrl+C, then the group). A command that outlives the turn keeps its request open, and its card keeps Stop, until it has ended.
+A request waits for you as long as it takes: there is no timeout. The composer's Stop ends the turn and stops the command the same way (Ctrl+C, then the group); the turn waits up to 12 seconds for it to end. A command that outlives the turn keeps its request open, and its card keeps Stop, until it has ended.
 
 ## Where it is offered
 
@@ -63,7 +63,7 @@ It is offered in Agent and Plan mode, not in Ask mode, which has no shell at all
 
 The command runs on the machine that owns the session, in the session's folder: for the console that is your machine, for the web UI and `coddy --remote` it is the `coddy serve` host. It runs as the same user as Coddy, with Coddy's environment: it bypasses Coddy's rules, not the operating system's.
 
-Without a multiplexer the command has no terminal and no input. A program that asks for one fails at once: write `sudo -n`, not `sudo`. The tool's description tells the model so.
+Without a multiplexer the command has no terminal and no input; on Windows it has no console either. A program that asks for one fails at once: write `sudo -n`, not `sudo`. The tool's description tells the model so.
 
 ## The shell
 
@@ -84,7 +84,7 @@ The console's `!!` uses the same shell, so the commands you type by hand and the
 On macOS and Linux, `multiplexer: tmux` or `multiplexer: screen` runs each operator command inside a detached session. The command gets a real terminal, a prompt for a password waits for you, and a long run does not depend on the browser tab or the console that pressed Run. Coddy manages the session: you see and approve only the command, never a `tmux` line, and the card shows the command's own output.
 
 - One multiplexer session per Coddy session, `coddy-<id>`; each command gets a window of its own. tmux runs on a server of Coddy's own (`tmux -L coddy`, no `tmux.conf`), so your own tmux sessions are never touched.
-- The card shows how to reach the terminal, for example `tmux -L coddy attach -t coddy-1a2b3c4d5e6f`. Attach to type a password or answer a prompt; the output keeps streaming to the card.
+- The card shows how to reach the terminal, for example `tmux -L coddy attach -t '=coddy-1a2b3c4d5e6f:=oc-0a1b2c3d4e5f'` (screen: `screen -r coddy-1a2b3c4d5e6f -p oc-0a1b2c3d4e5f`), the command's own window. Attach to type a password or answer a prompt; the output keeps streaming to the card.
 - Stop sends Ctrl+C to the window, then terminates its process group.
 - The window gets the environment the multiplexer server was started with: Coddy's, at the first run.
 - Under the systemd user unit (`coddy serve install`) the server starts in a scope of its own, so restarting the service does not end a long run; without `systemd-run` it does.

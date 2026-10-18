@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -155,6 +156,10 @@ func (s *Server) coddySessionOperatorCommandPost(w http.ResponseWriter, r *http.
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&body); err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, "invalid body: "+err.Error()), http.StatusBadRequest)
+		return
+	}
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		http.Error(w, `{"error":{"message":"invalid body: one JSON object expected"}}`, http.StatusBadRequest)
 		return
 	}
 	rid := strings.TrimSpace(body.RequestID)

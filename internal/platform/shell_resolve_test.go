@@ -96,3 +96,14 @@ func TestNamedShellCommandUsesDashC(t *testing.T) {
 		t.Fatalf("Command() = %q %#v", exe, args)
 	}
 }
+
+// TestResolveShellRefusesARelativePath: a relative path would resolve against
+// whatever folder the agent runs in.
+func TestResolveShellRefusesARelativePath(t *testing.T) {
+	if _, err := ResolveShell("./bin/zsh", "linux", mapLookup(map[string]string{"./bin/zsh": "./bin/zsh"})); err == nil {
+		t.Fatal("a relative shell path was accepted")
+	}
+	if _, err := ResolveShell(`bin\\pwsh.exe`, "windows", mapLookup(map[string]string{`bin\\pwsh.exe`: `bin\\pwsh.exe`})); err == nil {
+		t.Fatal("a relative Windows shell path was accepted")
+	}
+}

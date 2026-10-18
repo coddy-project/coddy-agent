@@ -27,10 +27,17 @@ func muxUnderTest(t *testing.T, name string) operatorMux {
 		t.Skipf("%s is not installed", name)
 	}
 	tag := fmt.Sprintf("coddy-test-%d-%d", os.Getpid(), time.Now().UnixNano()%1e9)
+	// The test's tmux socket lives and goes with the test.
+	// A short folder: a Unix socket path has a limit t.TempDir's names reach.
+	sock, err := os.MkdirTemp("", "cx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(sock) })
+	t.Setenv("TMUX_TMPDIR", sock)
 	env := &tooling.Env{SessionDir: t.TempDir()}
 	req := acp.OperatorCommandRequest{SessionID: "sess_" + tag, RequestID: newOperatorRequestID()}
 	var mux operatorMux
-	var err error
 	switch name {
 	case "tmux":
 		mux, err = newTmuxMux(env, req, tag)
@@ -260,6 +267,9 @@ func TestOperatorMuxTakesTheFolderAndTheCommandLiterally(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			mux := muxUnderTest(t, name)
 			root := t.TempDir()
+			// tmux runs #(...) in the process's own folder: look there too.
+			t.Chdir(t.TempDir())
+			here, _ := os.Getwd()
 			cwd := filepath.Join(root, "#(touch PWN) #{session_name} #H")
 			if err := os.MkdirAll(cwd, 0o755); err != nil {
 				t.Fatal(err)
@@ -273,7 +283,7 @@ func TestOperatorMuxTakesTheFolderAndTheCommandLiterally(t *testing.T) {
 			if !strings.Contains(out, cwd) || !strings.Contains(out, "done ;") || run.ExitCode() != 0 {
 				t.Fatalf("output %q exit %d (%s), want the folder %q and done ;", out, run.ExitCode(), goneReason(run), cwd)
 			}
-			for _, dir := range []string{root, cwd, os.Getenv("HOME")} {
+			for _, dir := range []string{root, cwd, here, os.Getenv("HOME")} {
 				if _, err := os.Stat(filepath.Join(dir, "PWN")); err == nil {
 					t.Fatalf("a folder name ran a command: %s/PWN exists", dir)
 				}
@@ -367,4 +377,38 @@ func operatorTempDirs(dir string) []string {
 		}
 	}
 	return out
+}
+
+// TestOperatorMuxAttachCommandNamesTheCommandsWindow: the operator attaches to
+// type into the command, not into the session's idle window.
+func TestOperatorMuxAttachCommandNamesTheCommandsWindow(t *testing.T) {
+	for _, name := range []string{"tmux", "screen"} {
+		t.Run(name, func(t *testing.T) {
+			mux := muxUnderTest(t, name)
+			win := windowName(mux.(interface{ requestIDForTest() string }).requestIDForTest())
+			if got := mux.AttachCommand(); !strings.Contains(got, win) {
+				t.Fatalf("attach command %q does not name the window %s", got, win)
+			}
+		})
+	}
+}
+
+// TestOperatorMuxLauncherReportsAFolderItCannotEnter: the status is written
+// on every way out of the launcher, so a folder that went away is an exit
+// code, not an unknown end.
+func TestOperatorMuxLauncherReportsAFolderItCannotEnter(t *testing.T) {
+	for _, name := range []string{"tmux", "screen"} {
+		t.Run(name, func(t *testing.T) {
+			mux := muxUnderTest(t, name)
+			gone := filepath.Join(t.TempDir(), "gone")
+			run, err := mux.Start("echo never", gone, posixShell(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitRun(t, run)
+			if code := run.ExitCode(); code != 1 {
+				t.Fatalf("exit code = %d (%s), want 1 for a folder it cannot enter", code, goneReason(run))
+			}
+		})
+	}
 }

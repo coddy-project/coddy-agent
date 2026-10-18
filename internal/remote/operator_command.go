@@ -57,7 +57,15 @@ func (t *turnStream) onOperatorCommand(data string) {
 				d.Done()
 			}
 		}
-		if !answer(ctx, d.Action) || d.Action != acp.OperatorActionRun {
+		if !answer(ctx, d.Action) {
+			// The server did not take the answer: the request may still be
+			// waiting there, so the local one stays until the server's call
+			// reaches its final status (or the turn ends).
+			<-ctx.Done()
+			done()
+			return
+		}
+		if d.Action != acp.OperatorActionRun {
 			done()
 			return
 		}

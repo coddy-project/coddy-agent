@@ -39,8 +39,11 @@ const (
 )
 
 // operatorCancelDrain bounds how long a cancelled turn waits for the killed
-// command to be reaped; a variable so a test can shorten it.
-var operatorCancelDrain = 8 * time.Second
+// command to be reaped: the interrupt's wait, the terminate's grace and the
+// time a child holding the output pipe gets (waitPipeDrainDelay), so that in
+// practice the request ends with the turn. A variable so a test can shorten
+// it.
+var operatorCancelDrain = 12 * time.Second
 
 // The phases a frame of a run reports in _meta.coddy.operatorCommand.
 const (
@@ -171,7 +174,7 @@ func executeOperatorCommand(ctx context.Context, argsJSON string, env *tooling.E
 		return "", err
 	}
 	// The folder is on the card too.
-	if err := validateOperatorText("cwd", cwd); err != nil {
+	if err := operatorFolderFor(cwd, commandShell.Kind); err != nil {
 		return "", err
 	}
 	host, _ := os.Hostname()
@@ -247,21 +250,20 @@ func superviseOperatorRunAndRelease(ctx context.Context, env *tooling.Env, req a
 		return out, err
 	default:
 	}
+	// The turn is over: nothing is sent from here on, its stream has ended.
 	go func() {
 		stop, kill := decision.Stop, decision.Kill
 		for {
 			select {
 			case <-run.Done():
-				frame := operatorFrame{env: env, req: req, args: argsJSON}
-				frame.send(OperatorPhaseStopped, run.Output(), run.ExitCode(), run.Dropped())
 				release()
 				return
 			case <-stop:
 				stop = nil
-				run.Kill(operatorStopGrace)
+				go run.Kill(operatorStopGrace)
 			case <-kill:
 				kill = nil
-				run.Kill(0)
+				go run.Kill(0)
 			}
 		}
 	}()
@@ -301,8 +303,11 @@ func superviseOperatorRun(ctx context.Context, env *tooling.Env, req acp.Operato
 			if stopped {
 				phase = OperatorPhaseStopped
 				// The shell is gone, but what it started in the group may
-				// not be: a stop ends the whole command.
-				run.Kill(0)
+				// not be: a stop ends the whole command. Not on Windows,
+				// where the reaped pid can already name another process.
+				if runtime.GOOS != "windows" {
+					run.Kill(0)
+				}
 			}
 			frame.send(phase, out, code, run.Dropped())
 			return operatorResult(req, out, run.Dropped(), code, stopped), nil
@@ -326,15 +331,26 @@ func superviseOperatorRun(ctx context.Context, env *tooling.Env, req acp.Operato
 				time.Sleep(operatorInterruptWait())
 				run.Kill(operatorStopGrace)
 			}()
-			select {
-			case <-run.Done():
-				frame.send(OperatorPhaseStopped, run.Output(), run.ExitCode(), run.Dropped())
-			case <-time.After(operatorCancelDrain):
-				// Still running: the request stays open (and Stop with it)
-				// until it ends, which superviseOperatorRunAndRelease reports.
-				frame.send(OperatorPhaseStopping, run.Output(), 0, run.Dropped())
+			drain := time.NewTimer(operatorCancelDrain)
+			defer drain.Stop()
+			for {
+				select {
+				case <-run.Done():
+					frame.send(OperatorPhaseStopped, run.Output(), run.ExitCode(), run.Dropped())
+					return "", ctx.Err()
+				case <-kill:
+					// A second Stop during the drain kills at once.
+					kill = nil
+					go run.Kill(0)
+					continue
+				case <-drain.C:
+					// Still running: the request stays open, so a Stop
+					// still reaches it, until the process has ended. This is
+					// the last frame: the turn's stream ends with the turn.
+					frame.send(OperatorPhaseStopping, run.Output(), 0, run.Dropped())
+					return "", ctx.Err()
+				}
 			}
-			return "", ctx.Err()
 		case <-ticker.C:
 			if out := run.Output(); out != last {
 				last = out
@@ -482,8 +498,30 @@ func hiddenRune(r rune) bool {
 		return true
 	case r == 0x034F, r == 0x115F, r == 0x1160, r == 0x3164, r == 0xFFA0:
 		return true
+	case unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r):
+		// What Unicode lets a renderer draw as nothing (U+17B4, U+2065,
+		// U+FFF0-FFF8, U+E0000-E0FFF, ...).
+		return true
 	}
 	return false
+}
+
+// operatorFolderFor refuses a folder that would not read the way the command
+// runs in it, or that the shell cannot start in: a newline or a tab, spaces at
+// its edges (the card trims them, and a result header a reloaded card reads
+// back must not be forgeable), and a UNC folder for cmd, which starts in the
+// Windows folder instead.
+func operatorFolderFor(cwd string, kind platform.ShellKind) error {
+	if err := validateOperatorText("cwd", cwd); err != nil {
+		return err
+	}
+	if strings.ContainsAny(cwd, "\n\t") || strings.TrimSpace(cwd) != cwd {
+		return fmt.Errorf("cwd holds a newline, a tab or spaces at its edges: the operator would not read where the command runs")
+	}
+	if kind == platform.ShellCmd && (strings.HasPrefix(cwd, `\\`) || strings.HasPrefix(cwd, "//")) {
+		return fmt.Errorf("cmd cannot start in a UNC folder (%s) and would run in the Windows folder: use a mapped drive or a PowerShell operator shell", cwd)
+	}
+	return nil
 }
 
 // validateOperatorCommandFor adds what one shell cannot run as shown: cmd /c

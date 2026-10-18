@@ -581,7 +581,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		OperatorCommand: ToolOperatorCommandJSON{
 			Enabled:     cloneBoolPtr(c.Tools.OperatorCommand.Enabled),
 			Shell:       c.Tools.OperatorCommand.Shell,
-			Multiplexer: c.Tools.OperatorCommand.Multiplexer,
+			Multiplexer: c.Tools.OperatorCommand.ToolSettings().Multiplexer,
 		},
 		HTTPRequest: ToolHTTPRequestJSON{
 			Allowlist:      append([]string(nil), c.Tools.HTTPRequest.Allowlist...),

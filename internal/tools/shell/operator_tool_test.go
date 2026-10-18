@@ -410,8 +410,8 @@ func TestOperatorCancelKeepsTheRequestOpenUntilTheProcessEnds(t *testing.T) {
 }
 
 // TestOperatorCancelReportsAStillRunningCommand: when the drain expires the
-// card hears "stopping" - the request is open, Stop still works - and
-// "stopped" only once the process has ended.
+// card hears "stopping" - the request is open, Stop still works - and nothing
+// is sent once the tool has returned: the turn's stream is gone.
 func TestOperatorCancelReportsAStillRunningCommand(t *testing.T) {
 	old := operatorCancelDrain
 	operatorCancelDrain = 50 * time.Millisecond
@@ -428,20 +428,17 @@ func TestOperatorCancelReportsAStillRunningCommand(t *testing.T) {
 	if last := phases[len(phases)-1]; last != OperatorPhaseStopping {
 		t.Fatalf("phases after the drain = %v, want stopping last", phases)
 	}
+	sent := len(phases)
 	run.exit()
 	select {
 	case <-tk.Finished():
 	case <-time.After(5 * time.Second):
 		t.Fatal("the request did not end")
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if p := client.phases(); p[len(p)-1] == OperatorPhaseStopped {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
+	if got := len(client.phases()); got != sent {
+		t.Fatalf("frames were sent after the tool returned: %v", client.phases())
 	}
-	t.Fatalf("no stopped frame once the process ended: %v", client.phases())
 }
 
 // TestOperatorCommandRefusesAFolderThatWouldDisplayDifferently: the folder is
@@ -494,5 +491,49 @@ func TestOperatorSingleStopEscalates(t *testing.T) {
 	}
 	if took := time.Since(start); took < operatorStopGrace || took > 15*time.Second {
 		t.Fatalf("the stop took %s, want the grace (%s) and not much more", took, operatorStopGrace)
+	}
+}
+
+// TestOperatorCommandRefusesAFolderThatReadsDifferently: a folder with a
+// newline, a tab or edge spaces would read differently on the card, or forge
+// the result header a reloaded card reads back.
+func TestOperatorCommandRefusesAFolderThatReadsDifferently(t *testing.T) {
+	for name, folder := range map[string]string{"newline": "a\nb", "tab": "a\tb", "edge space": " a "} {
+		t.Run(name, func(t *testing.T) {
+			client := &operatorClient{available: true, answer: acp.OperatorActionRun}
+			env := operatorEnv(t, client)
+			odd := filepath.Join(env.CWD, folder)
+			if err := os.MkdirAll(odd, 0o755); err != nil {
+				t.Skipf("the filesystem refuses the name: %v", err)
+			}
+			b, _ := json.Marshal(map[string]string{"command": "echo x", "reason": "r", "cwd": odd})
+			if _, err := runOperatorTool(t, env, string(b)); err == nil {
+				t.Fatal("accepted")
+			}
+			if len(client.shown()) != 0 {
+				t.Fatal("shown")
+			}
+		})
+	}
+}
+
+// TestOperatorCommandRefusesDefaultIgnorableCharacters: the characters
+// Unicode lets a renderer draw as nothing.
+func TestOperatorCommandRefusesDefaultIgnorableCharacters(t *testing.T) {
+	for _, r := range []rune{0x17B4, 0x17B5, 0x2065, 0xFFF0, 0xE0000, 0xE0FFF} {
+		if err := validateOperatorCommand("echo a" + string(r) + "b"); err == nil {
+			t.Errorf("U+%04X was accepted", r)
+		}
+	}
+}
+
+// TestOperatorCommandRefusesCmdInAUNCFolder: cmd cannot start in a UNC
+// folder and runs in the Windows folder instead.
+func TestOperatorCommandRefusesCmdInAUNCFolder(t *testing.T) {
+	if err := operatorFolderFor(`\\server\share\app`, platform.ShellCmd); err == nil {
+		t.Fatal("cmd in a UNC folder was accepted")
+	}
+	if err := operatorFolderFor(`\\server\share\app`, platform.ShellPwsh); err != nil {
+		t.Fatalf("PowerShell takes a UNC folder: %v", err)
 	}
 }

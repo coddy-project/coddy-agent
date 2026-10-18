@@ -337,3 +337,15 @@ test("a command that outlived a cancelled turn still offers Stop", () => {
   );
   expect(screen.getByTestId("operator-command-stop")).toBeVisible();
 });
+
+// The command on the card is the one the server holds and will run - the
+// request's - never the call's arguments, should the two ever differ.
+test("the card shows the request's command over the arguments'", () => {
+  const held = { ...request, command: "echo the-command-that-runs" };
+  renderCall({ request: held, requestId: held.requestId });
+  const card = screen.getByTestId("operator-command-card");
+  expect(
+    card.querySelector(".permission-preview-shell-code")?.textContent,
+  ).toBe("echo the-command-that-runs");
+  expect(card).not.toHaveTextContent("apt-get");
+});
