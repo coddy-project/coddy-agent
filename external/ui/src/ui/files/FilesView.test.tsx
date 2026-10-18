@@ -228,10 +228,53 @@ beforeEach(() => {
         }),
       );
     }
+    if (url.includes("/canvas/frames") && init?.method === "POST") {
+      const page = JSON.parse(String(init.body)) as { path: string };
+      return new Response(
+        JSON.stringify({
+          reason: "added",
+          file: "canvas/site.canvas",
+          created: true,
+          frame: canvasFrame(page.path),
+          revision: 1,
+        }),
+      );
+    }
+    if (url.includes("/canvas")) {
+      const file = query(url, "file");
+      return new Response(
+        JSON.stringify({
+          session_id: "s1",
+          file,
+          current: true,
+          revision: 1,
+          stamp: "f1",
+          frames: [canvasFrame("site/index.html")],
+          items: [],
+          edges: [],
+        }),
+      );
+    }
     return new Response("{}", { status: 404 });
   });
   vi.stubGlobal("fetch", fetcher);
 });
+
+function canvasFrame(path: string) {
+  return {
+    id: "aaaaaaaaaaaaaaaa",
+    path,
+    root: path.split("/")[0],
+    width: 1280,
+    height: 800,
+    x: 0,
+    y: 0,
+    gen: 1,
+    stamp: "s1",
+    url: "/coddy/canvas/tok.sig/index.html",
+    expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+  };
+}
 
 afterEach(() => {
   cleanup();
@@ -1036,4 +1079,44 @@ test("Reload reads a picture and a PDF again after a read that failed", async ()
   await waitFor(() =>
     expect(document.querySelector("iframe.files-pdf")).not.toBeNull(),
   );
+});
+
+// A .canvas file is a tab of the window like any other file: its board, with
+// the prompt bar under it, where a file shows its body.
+test("a .canvas file opens as its board in a tab, the prompt bar under it", async () => {
+  render(view({ initialPath: "design/flow.canvas" }));
+  const board = await screen.findByTestId("canvas-view", {}, { timeout: 8000 });
+  expect(board.closest(".files-main")).not.toBeNull();
+  expect(screen.getByRole("tab", { name: "flow.canvas" })).toBeTruthy();
+  expect(within(board).getByTestId("canvas-bar")).toBeTruthy();
+  await waitFor(() =>
+    expect(document.querySelector("iframe.canvas-frame-page")).not.toBeNull(),
+  );
+  const open = fetcher.mock.calls.find(([u]) =>
+    String(u).includes("/canvas/open"),
+  );
+  expect(String(open![0])).toContain("file=design%2Fflow.canvas");
+  // Preview off shows the file's JSON instead.
+  const item = await previewItem();
+  expect(item.getAttribute("aria-checked")).toBe("true");
+});
+
+test("Open on canvas puts an HTML page on the chat's canvas and opens that file on it", async () => {
+  contents["site/index.html"] = "<h1>Hello</h1>";
+  render(view({ initialPath: "site/index.html" }));
+  await line(1, "<h1>Hello</h1>");
+  fireEvent.click(screen.getByTestId("files-more"));
+  fireEvent.click(screen.getByTestId("files-open-on-canvas"));
+  await screen.findByTestId("canvas-view", {}, { timeout: 8000 });
+  expect(
+    screen.getByRole("tab", { name: "site.canvas", selected: true }),
+  ).toBeTruthy();
+  const add = fetcher.mock.calls.find(
+    ([u, init]) =>
+      String(u).includes("/canvas/frames") &&
+      (init as RequestInit | undefined)?.method === "POST",
+  );
+  expect(JSON.parse(String((add![1] as RequestInit).body))).toEqual({
+    path: "site/index.html",
+  });
 });

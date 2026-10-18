@@ -15,6 +15,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 	toolfs "github.com/EvilFreelancer/coddy-agent/internal/tools/fs"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/shell"
+	"github.com/EvilFreelancer/coddy-agent/internal/webfs"
 )
 
 // ToolPreviewServer is the tool name, kept in one place so the registry, the
@@ -200,7 +201,7 @@ func resolveRoot(arg, cwd string) (root, openPath string, err error) {
 	}
 	// A path inside a dot-named element is never served either: the same rule
 	// the handler applies to the URL holds for the root it is handed.
-	if hiddenPathElement(filepath.ToSlash(rel)) {
+	if webfs.HiddenPathElement(filepath.ToSlash(rel)) {
 		return "", "", fmt.Errorf("%s is inside a dot-named path; the preview server never serves dot-files", target)
 	}
 	return realRoot, openPath, nil

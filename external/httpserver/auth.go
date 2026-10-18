@@ -55,6 +55,16 @@ func (s *Server) authGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pol := s.authPolicyNow()
 		_, pattern := s.mux.Handler(r)
+		// A canvas frame's address carries its own capability, which the
+		// handler checks; nothing else of the API answers an opaque origin.
+		if pattern == canvasFilePattern {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if isOpaqueOrigin(r) && pattern != "" && pattern != "/" {
+			http.Error(w, "requests from an opaque origin are refused", http.StatusForbidden)
+			return
+		}
 		if pattern == workspaceRawPattern && r.URL.Query().Has("access_token") {
 			if s.acceptWorkspaceCapability(r) {
 				next.ServeHTTP(w, r)
@@ -94,6 +104,17 @@ func (s *Server) authGate(next http.Handler) http.Handler {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="coddy"`)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	})
+}
+
+// isOpaqueOrigin reports a request a page in an opaque origin made: a
+// sandboxed frame (a canvas page among them), a data: or file: page. Such a
+// page is never a client of the API, whatever credential it carries: a swarm
+// relay replaces the caller's Authorization with its own node credential, and
+// a page can read a token out of a workspace file, so a bearer proves nothing
+// here. Requests without CORS (an <img>, a classic <script>) carry no Origin
+// at all and read nothing the page can see.
+func isOpaqueOrigin(r *http.Request) bool {
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get("Origin")), "null")
 }
 
 // hasCookieSession reports whether the request carries a live browser

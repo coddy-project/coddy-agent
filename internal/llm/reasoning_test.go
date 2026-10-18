@@ -2,7 +2,9 @@ package llm
 
 import (
 	"encoding/json"
-	"math/rand"
+	// A seeded source for testing/quick, whose Config.Rand is a *math/rand.Rand:
+	// the property test repeats the same cases, nothing here is a secret.
+	"math/rand" // nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used
 	"strings"
 	"testing"
 	"testing/quick"

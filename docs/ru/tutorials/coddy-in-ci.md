@@ -75,7 +75,7 @@ jobs:
       CODDY_HOME: ${{ runner.temp }}/coddy
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -109,4 +109,4 @@ jobs:
           grep -q 'VERDICT: ok' review.md
 ```
 
-<!-- docsgen:source sha256=02fee09988ba9498 -->
+<!-- docsgen:source sha256=dc31e67cda913766 -->

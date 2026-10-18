@@ -75,7 +75,7 @@ jobs:
       CODDY_HOME: ${{ runner.temp }}/coddy
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 

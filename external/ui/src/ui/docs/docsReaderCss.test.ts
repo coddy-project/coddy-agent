@@ -71,10 +71,10 @@ test("a zoomed image in the lightbox keeps its width", () => {
   );
 });
 
-// The zoom level reads "Fit" / "По окну": on a phone it must stay one line in
-// the 30px frame the close control sets.
-test("the lightbox zoom level stays on one line", () => {
-  expect(rule(".docs-lightbox-level")).toMatch(/white-space:\s*nowrap/);
+// The zoom level reads a percentage such as "150%": it stays one line in the
+// button of the shared zoom controls.
+test("the zoom level stays on one line", () => {
+  expect(rule(".zoom-control--level")).toMatch(/white-space:\s*nowrap/);
 });
 
 // The page scrolls under the header, not with it: the scrollbar starts below

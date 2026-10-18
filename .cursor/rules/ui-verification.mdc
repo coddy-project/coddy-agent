@@ -107,6 +107,22 @@ authenticated relay, plays a sound from its signed address through the relay, an
 the buttons and the window at every tier of the grid in English and in Russian. Run it once more with
 **`CODDY_ENGINE=webkit`** when the change touches the window's layout.
 
+## The canvas
+
+A frame of the canvas is a sandboxed iframe whose page loads its own files from an address that
+carries its capability, through a remote server and a swarm relay alike; whether the page runs,
+whether a pick reaches the page through a CSS-scaled out-of-process frame and whether the window fits
+are facts of a real browser, which jsdom cannot see. When the change touches
+**`external/ui/src/ui/canvas/`**, **`internal/canvas`**, the canvas routes or the relay's mount, run
+**`external/ui/scripts/canvas-check.mjs`** (**`npm run check:canvas`**) against a binary built with
+**`TAGS="http ui swarm"`** (setup in **`docs/surfaces/web-ui.md`**, *Checking the canvas through a
+swarm relay*): it drives a `.canvas` tab of the Files window through an authenticated relay, checks
+the sandbox, a pick, the reload of only the frame whose files moved, a wheel zoom that draws nothing
+again in about one frame, a page leaving the canvas, a frame's address opened on its own, an
+Obsidian `.canvas` file opened in the window, and the window at every tier of the grid in English
+and in Russian. Run it once more with **`CODDY_ENGINE=webkit`** when the change touches the frames'
+scaling or the pointer handling of the board.
+
 ## The shared file cards
 
 The card of a shared file is `overflow: hidden`, so its actions menu is portalled to the document
