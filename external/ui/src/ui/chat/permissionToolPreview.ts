@@ -180,6 +180,10 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
       return stringArg(args, "src");
     case "worktree_create":
       return stringArg(args, "branch");
+    case "worktree_exit":
+      // Going back is the call; removing the worktree on the way is what
+      // an approval has to see.
+      return stringArg(args, "action") === "remove" ? "remove" : "";
     case "spawn_agent":
       return stringArg(args, "agent");
     case "load_skill":

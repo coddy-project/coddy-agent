@@ -162,3 +162,41 @@ test("a long branch keeps both ends", () => {
   expect(cut.endsWith("-for-the-bar")).toBe(true);
   expect(cut).toContain("…");
 });
+
+// A chat in a linked worktree is a step away from its project: the plate
+// offers the way back right after the branch, and the chat takes it with
+// /worktree exit (ChatScreen). The main checkout has nowhere to go back to.
+test("a worktree's plate offers the way back to the main checkout", () => {
+  const onLeave = vi.fn();
+  render(
+    <WorkspaceBar
+      context={worktree}
+      workingCopy={copy(0)}
+      onLeaveWorktree={onLeave}
+    />,
+  );
+  const leave = screen.getByTestId("workspace-bar-leave");
+  expect(leave.getAttribute("aria-label")).toBe("Back to coddy-agent");
+  expect(leave.getAttribute("title")).toBe(
+    "Return the chat to the main checkout coddy-agent. The worktree stays",
+  );
+  expect(screen.getByTestId("workspace-bar-branch").nextElementSibling).toBe(
+    leave,
+  );
+  fireEvent.click(leave);
+  expect(onLeave).toHaveBeenCalledTimes(1);
+});
+
+test("the main checkout's plate, and a plate with nowhere to send, have no way back", () => {
+  const { unmount } = render(
+    <WorkspaceBar
+      context={repo}
+      workingCopy={copy(0)}
+      onLeaveWorktree={() => {}}
+    />,
+  );
+  expect(screen.queryByTestId("workspace-bar-leave")).toBeNull();
+  unmount();
+  render(<WorkspaceBar context={worktree} workingCopy={copy(0)} />);
+  expect(screen.queryByTestId("workspace-bar-leave")).toBeNull();
+});

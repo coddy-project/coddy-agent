@@ -217,7 +217,7 @@ func (a *Agent) SetConfigReloader(reload func(context.Context) ([]string, error)
 	a.configReloader = reload
 }
 
-// SetWorkspaceSwitcher connects worktree_create to the session manager's
+// SetWorkspaceSwitcher connects worktree_create, worktree_exit and /worktree to the session manager's
 // workspace reload path. Child sessions cannot move their inherited workspace.
 func (a *Agent) SetWorkspaceSwitcher(switchTo func(context.Context, string) error) {
 	if a != nil {
@@ -254,7 +254,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	a.state.ClearMemoryCopilotBlock()
 	userText := contentBlocksToText(prompt)
 
-	// The built-in /compact, /plugin, and /export commands are operator input:
+	// The built-in /compact, /plugin, /export and /worktree commands are operator input:
 	// they run deterministically, outside the tool set and the permission
 	// gate. A child's prompt is written by the parent model, so for a subagent
 	// the same text is an ordinary task and never reaches the built-ins. They
@@ -278,6 +278,11 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		// workspace; the command text is persisted after the export is built.
 		if args, ok := parseExportCommand(typed); ok {
 			return a.runExportCommand(ctx, args, userText)
+		}
+		// The built-in /worktree command moves the chat between the main
+		// checkout and a worktree, as worktree_create and worktree_exit do.
+		if c, ok := parseWorktreeCommand(typed); ok {
+			return a.runWorktreeCommand(ctx, c, userText)
 		}
 	}
 	// The bodies of the skills the prompt invokes as /name, and the rules its
@@ -2642,7 +2647,7 @@ func (a *Agent) sessionToolDefinitions(mode string) []llm.ToolDefinition {
 	if a.workspaceSwitcher == nil || a.subagent != nil {
 		filtered := defs[:0]
 		for _, def := range defs {
-			if def.Name != tools.ToolWorktreeCreate {
+			if def.Name != tools.ToolWorktreeCreate && def.Name != tools.ToolWorktreeExit {
 				filtered = append(filtered, def)
 			}
 		}

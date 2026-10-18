@@ -1822,6 +1822,9 @@ export const messagesEn: Record<string, string> = {
   "workspaceBar.label": "Where this chat works",
   "workspaceBar.branchTitle": "Branch {branch}",
   "workspaceBar.worktreeTitle": "Worktree {path} on branch {branch}",
+  "workspaceBar.leaveWorktree": "Back to {name}",
+  "workspaceBar.leaveWorktreeTitle":
+    "Return the chat to the main checkout {name}. The worktree stays",
   "workspaceBar.editsLabel.one": "Show the edits: {count} file changed",
   "workspaceBar.editsLabel.other": "Show the edits: {count} files changed",
   "files.title": "Files",
@@ -1975,6 +1978,7 @@ export const messagesEn: Record<string, string> = {
   "tool.name.mkdir": "creating a directory",
   "tool.name.touch": "creating a file",
   "tool.name.worktree_create": "creating a worktree",
+  "tool.name.worktree_exit": "leaving the worktree",
   "tool.name.mv": "moving a path",
   "tool.name.rm": "removing a path",
   "tool.name.rmdir": "removing a directory",

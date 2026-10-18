@@ -37,6 +37,7 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	r.Register(shell.RunCommandToolForShell(environment.Shell))
 	r.Register(ShareFileTool())
 	r.Register(WorktreeCreateTool())
+	r.Register(WorktreeExitTool())
 	if cfg == nil || cfg.Tools.Background.ResolvedEnabled() {
 		r.Register(shell.BackgroundListTool())
 		r.Register(shell.BackgroundOutputTool())

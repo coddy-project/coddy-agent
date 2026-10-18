@@ -1046,6 +1046,28 @@ function workspaceProps(locked: boolean) {
   };
 }
 
+// A chat in a linked worktree goes back to its project from the plate: the
+// button sends /worktree exit, which the server runs without a model turn.
+test("the plate of a chat in a worktree sends /worktree exit to go back", async () => {
+  stubSessionChanges(0);
+  const onSend = vi.fn();
+  render(
+    turnLineScreen({
+      ...workspaceProps(true),
+      workspaceCtx: {
+        ...repoCtx,
+        path: "/home/me/src/coddy-agent/.coddy/worktrees/feat-session-changes",
+        name: "feat-session-changes",
+        is_worktree: true,
+      },
+      onSend,
+    }),
+  );
+  fireEvent.click(await screen.findByTestId("workspace-bar-leave"));
+  expect(onSend).toHaveBeenCalledWith("/worktree exit");
+  vi.unstubAllGlobals();
+});
+
 // Once the chat runs, where it works is a fact: a plate joined to the top of
 // the composer card names the repository and the branch and counts git's
 // changes at its right edge, and the composer carries no workspace chips.

@@ -668,6 +668,9 @@ export function ChatScreen(props: {
             context={workspaceCtx}
             workingCopy={workingCopy}
             onOpenEdits={props.onOpenEdits}
+            // The way back from a linked worktree is the command the console
+            // and an editor type too; the server runs it without a model turn.
+            onLeaveWorktree={() => props.onSend("/worktree exit")}
             goal={goalMark}
           />
         )

@@ -125,6 +125,7 @@ func TestAgentPromptUsesWorktreeTool(t *testing.T) {
 	}
 	for _, want := range []string{
 		"worktree_create",
+		"worktree_exit",
 		".coddy/worktrees",
 		"main checkout",
 		"default branch",

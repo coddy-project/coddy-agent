@@ -74,6 +74,7 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		} else if u.notice != "" {
 			a.appendStatus(roleWarning, u.notice)
 		}
+		a.followSessionFolder()
 		a.flushPromptsAfterTurn()
 		return
 	case wakeTurn:
@@ -485,4 +486,16 @@ func (a *App) applyFollow(u remote.FollowUpdate) {
 	}
 	a.dropAbandonedGate()
 	a.refreshTasks()
+}
+
+// followSessionFolder lists the context of the folder the session works in
+// now when a turn moved it (worktree_create, worktree_exit, /worktree): the
+// header names what the prompt of the next turn carries.
+func (a *App) followSessionFolder() {
+	if a.remoteURL != "" || a.mgr == nil {
+		return
+	}
+	if st := a.mgr.SessionByID(a.sessionID); st != nil && !session.SameWorkspacePath(st.GetCWD(), a.headerCWD) {
+		a.populateHeader()
+	}
 }

@@ -1871,6 +1871,9 @@ export const messagesRu: Record<string, string> = {
   "workspaceBar.label": "Где работает этот чат",
   "workspaceBar.branchTitle": "Ветка {branch}",
   "workspaceBar.worktreeTitle": "Worktree {path} на ветке {branch}",
+  "workspaceBar.leaveWorktree": "Вернуться в {name}",
+  "workspaceBar.leaveWorktreeTitle":
+    "Вернуть чат в основной checkout {name}. Worktree останется",
   "workspaceBar.editsLabel.one": "Показать правки: изменён {count} файл",
   "workspaceBar.editsLabel.few": "Показать правки: изменено {count} файла",
   "workspaceBar.editsLabel.many": "Показать правки: изменено {count} файлов",
@@ -2026,6 +2029,7 @@ export const messagesRu: Record<string, string> = {
   "tool.name.mkdir": "создаю каталог",
   "tool.name.touch": "создаю файл",
   "tool.name.worktree_create": "создаю worktree",
+  "tool.name.worktree_exit": "выхожу из worktree",
   "tool.name.mv": "перемещаю",
   "tool.name.rm": "удаляю",
   "tool.name.rmdir": "удаляю каталог",
