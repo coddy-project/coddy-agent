@@ -34,8 +34,10 @@ VERSION := $(shell \
 # The commit HEAD points at, passed to the binary the way the version is: the Go
 # toolchain stamps its own vcs.revision from the nearest .git *directory*, so a
 # worktree (whose .git is a file) nested in another checkout would report the
-# enclosing checkout's commit. Empty outside git; the binary then keeps vcs.revision.
-REVISION := $(shell git rev-parse HEAD 2>/dev/null)
+# enclosing checkout's commit. Empty outside git and before the first commit
+# (--verify: a bare rev-parse prints the word HEAD there); the binary then keeps
+# vcs.revision.
+REVISION := $(shell git rev-parse --verify -q HEAD 2>/dev/null)
 LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(VERSION) -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=$(REVISION)
 
 TAGS ?=
