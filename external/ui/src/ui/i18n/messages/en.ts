@@ -2486,7 +2486,6 @@ export const messagesEn: Record<string, string> = {
   "goal.turn.remaining.other": "{count} items left",
   "system.attention.count.one": "{count} needs attention",
   "system.attention.count.other": "{count} need attention",
-  "system.clear": "Everything OK",
   "system.partial": "Some data is not available:",
   "system.stale": "Can't refresh. Showing the last values read.",
   "system.notFound":

@@ -2579,7 +2579,6 @@ export const messagesRu: Record<string, string> = {
   "system.attention.count.few": "{count} требуют внимания",
   "system.attention.count.many": "{count} требуют внимания",
   "system.attention.count.other": "{count} требуют внимания",
-  "system.clear": "Всё в порядке",
   "system.partial": "Часть данных недоступна:",
   "system.stale": "Не удалось обновить. Показаны последние значения.",
   "system.notFound": "Сервер не сообщает своё состояние (версия {version}).",

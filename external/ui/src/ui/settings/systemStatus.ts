@@ -196,9 +196,7 @@ export function summarize(state: SystemStatusState, version: string): Summary {
     if (missing.length > 0) {
       lines.push({ text: t("system.partial"), items: missing, quiet: true });
     }
-    if (lines.length === 0) {
-      lines.push({ text: t("system.clear"), items: [] });
-    }
+    // A clear page says nothing: the blocks below already show it.
     return {
       state:
         items.length > 0

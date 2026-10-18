@@ -9962,12 +9962,11 @@ html:not([data-theme="light"]) .settings.drawer {
   color: var(--text);
 }
 
-.system-summary[data-state="clear"] {
-  color: var(--system-ok);
-}
-
-.system-summary[data-state="pending"],
+/* Nothing to say (a clear page, or the first read on its way): the region
+   stays in the page, so what comes next is announced, with no frame and
+   without the gap the section puts after it. */
 .system-summary:empty {
+  margin-bottom: -16px;
   padding: 0;
   border: 0;
   background: none;

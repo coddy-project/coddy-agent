@@ -217,10 +217,13 @@ describe("the summary", () => {
     expect(summary().textContent).toContain("1 needs attention");
   });
 
-  test("with nothing to report says everything is OK", async () => {
+  // A page with nothing to report says nothing: "Everything OK" told the
+  // reader what the blocks below already show.
+  test("with nothing to report draws no summary, and the live region stays for what comes next", async () => {
     await open([doc({ attention: undefined, restartRequired: undefined })]);
-    expect(summary().textContent).toContain("Everything OK");
     expect(summary().getAttribute("data-state")).toBe("clear");
+    expect(summary().textContent).toBe("");
+    expect(summary().getAttribute("aria-live")).toBe("polite");
     expect(within(summary()).queryAllByRole("button")).toEqual([]);
   });
 
@@ -259,7 +262,7 @@ describe("the summary", () => {
       doc({ attention: undefined, restartRequired: undefined }),
       new Error("down"),
     ]);
-    expect(summary().textContent).toContain("Everything OK");
+    expect(summary().textContent).toBe("");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(15_000);
     });
@@ -678,7 +681,7 @@ describe("activity", () => {
         }),
       ]);
       expect(summary().getAttribute("data-state")).toBe("clear");
-      expect(summary().textContent).toContain("Everything OK");
+      expect(summary().textContent).toBe("");
     });
 
     test("in Russian", async () => {
@@ -1362,12 +1365,14 @@ describe("the stylesheet", () => {
       declared(banner, "background"),
     );
     expect(declared(problems, "color")).toBe("var(--text)");
-    // All clear says so in the ok tone, in the same quiet frame.
-    expect(bodyOf('.system-summary[data-state="clear"]')).toMatch(
-      /color:\s*var\(--system-ok\)/,
-    );
-    expect(bodyOf('.system-summary[data-state="clear"]')).not.toMatch(
-      /background/,
+    // A clear page draws no summary: the empty region has no frame and
+    // takes back the gap the section puts after it.
+    expect(bodyOf('.system-summary[data-state="clear"]')).toBe("");
+    const empty = bodyOf(".system-summary:empty");
+    expect(declared(empty, "border")).toBe("0");
+    expect(declared(empty, "padding")).toBe("0");
+    expect(declared(empty, "margin-bottom")).toBe(
+      `-${px(bodyOf(".system-section"), "gap")}px`,
     );
   });
 

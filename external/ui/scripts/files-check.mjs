@@ -3114,7 +3114,8 @@ function systemMismatches(tab, doc, port) {
   want(
     "summary",
     n === 0 ? tab.summary : tab.summary.slice(0, `${n} need`.length),
-    n === 0 ? "Everything OK" : `${n} need`,
+    // A clear page draws no summary.
+    n === 0 ? "" : `${n} need`,
   );
   return bad;
 }
