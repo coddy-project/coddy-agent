@@ -128,6 +128,7 @@ func Run(ctx context.Context, req Request) *Report {
 	r.subsystems()
 	r.paths()
 	r.mcpCommands()
+	r.operatorCommand()
 	r.webLogin()
 	r.corsOpen()
 	r.miniApp()
