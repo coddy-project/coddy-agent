@@ -339,6 +339,7 @@ func (m *tmuxMux) Start(command, cwd string, commandShell platform.Shell) (opera
 	r.pid, _ = strconv.Atoi(fields[1])
 	r.interrupt = func() { _, _ = m.run("send-keys", "-t", pane, "C-c") }
 	r.closeWin = func() { _, _ = m.run("kill-pane", "-t", pane) }
+	var paneEnd tmuxPaneEnd
 	go r.watch(func() (bool, int) {
 		status, err := m.run("display-message", "-p", "-t", pane, "#{pane_dead} #{pane_dead_status} #{pane_dead_signal}")
 		if err != nil || status == "" {
@@ -347,25 +348,48 @@ func (m *tmuxMux) Start(command, cwd string, commandShell platform.Shell) (opera
 			r.noteGone(fmt.Sprintf("tmux display-message %s: %q, %v", pane, status, err))
 			return true, -1
 		}
-		// "#{pane_dead} #{pane_dead_status} #{pane_dead_signal}": a signal
-		// leaves the status empty, so the fields are split by position.
-		f := strings.SplitN(status, " ", 3)
-		if len(f) == 0 || f[0] != "1" {
-			return false, 0
+		ended, code, why := paneEnd.read(status)
+		if why != "" {
+			r.noteGone(why)
 		}
-		if len(f) > 1 && f[1] != "" {
-			if code, err := strconv.Atoi(f[1]); err == nil {
-				return true, code
-			}
-		}
-		if len(f) > 2 {
-			if sig, err := strconv.Atoi(f[2]); err == nil {
-				return true, 128 + sig
-			}
-		}
-		return true, -1
+		return ended, code
 	})
 	return r, nil
+}
+
+// tmuxStatusPolls is how many polls a dead pane may go without a status
+// before its end is called unknown.
+const tmuxStatusPolls = 20
+
+// tmuxPaneEnd reads "#{pane_dead} #{pane_dead_status} #{pane_dead_signal}"
+// poll after poll. tmux marks a pane dead when its terminal closes, which can
+// come before the process's status is collected, so a dead pane without a
+// status is read again for a while instead of being called ended at once.
+type tmuxPaneEnd struct {
+	waits int
+}
+
+func (p *tmuxPaneEnd) read(status string) (ended bool, code int, why string) {
+	// A signal leaves the status empty, so the fields go by position.
+	f := strings.SplitN(status, " ", 3)
+	if len(f) == 0 || f[0] != "1" {
+		return false, 0, ""
+	}
+	if len(f) > 1 && f[1] != "" {
+		if code, err := strconv.Atoi(f[1]); err == nil {
+			return true, code, ""
+		}
+	}
+	if len(f) > 2 && f[2] != "" {
+		if sig, err := strconv.Atoi(f[2]); err == nil {
+			return true, 128 + sig, ""
+		}
+	}
+	p.waits++
+	if p.waits < tmuxStatusPolls {
+		return false, 0, ""
+	}
+	return true, -1, fmt.Sprintf("tmux reported the pane dead without a status for %d polls: %q", p.waits, status)
 }
 
 func lastLine(s string) string {
@@ -439,7 +463,7 @@ func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (ope
 		return nil, err
 	}
 	base := strings.TrimSuffix(r.logPath, ".log")
-	pidFile, exitFile, launcher := base+".pid", base+".exit", base+".sh"
+	pidFile, exitFile, launcher, traceFile := base+".pid", base+".exit", base+".sh", base+".trace"
 	exe, argv := commandShell.Command(command)
 	quoted := []string{shellQuote(exe)}
 	for _, a := range argv {
@@ -450,19 +474,24 @@ func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (ope
 	// this launcher, which hands the shell its argv quoted for /bin/sh.
 	// trap : (not trap '') keeps SIGINT at its default in the command, while
 	// the launcher itself lives on to record the status.
+	// The launcher keeps a trace of its own steps on fd 9 (closed for the
+	// command), so a window that ends without a status says how far it got.
 	script := "#!/bin/sh\n" +
+		"exec 9>>" + shellQuote(traceFile) + "\n" +
+		"echo \"launcher $$ started\" >&9\n" +
 		"echo $$ > " + shellQuote(pidFile) + "\n" +
 		"cd " + shellQuote(cwd) + " || exit 1\n" +
 		"trap : INT\n" +
-		strings.Join(quoted, " ") + "\n" +
+		strings.Join(quoted, " ") + " 9>&-\n" +
 		"code=$?\n" +
+		"echo \"command exited $code\" >&9\n" +
 		"printf '%s' \"$code\" > " + shellQuote(exitFile+".tmp") + " && mv " + shellQuote(exitFile+".tmp") + " " + shellQuote(exitFile) + "\n"
 	if err := os.WriteFile(launcher, []byte(script), 0o600); err != nil {
 		_ = os.Remove(r.logPath)
 		return nil, err
 	}
 	cleanup := func() {
-		for _, p := range []string{pidFile, exitFile, exitFile + ".tmp", launcher} {
+		for _, p := range []string{pidFile, exitFile, exitFile + ".tmp", launcher, traceFile} {
 			_ = os.Remove(p)
 		}
 	}
@@ -501,7 +530,8 @@ func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (ope
 		r.watch(func() (bool, int) {
 			ended, code, why := screenEnded(exitFile, func() bool { return platform.ProcessGroupAlive(pid, time.Time{}) })
 			if why != "" {
-				r.noteGone(why)
+				trace, _ := os.ReadFile(traceFile)
+				r.noteGone(why + "; launcher trace: " + strings.TrimSpace(string(trace)))
 			}
 			return ended, code
 		})

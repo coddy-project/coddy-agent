@@ -219,3 +219,35 @@ func TestScreenEndReadsAStatusThatLandsBetweenTheLooks(t *testing.T) {
 		t.Fatal("a live window was taken for ended")
 	}
 }
+
+// TestTmuxPaneEndWaitsForTheStatus: tmux marks a pane dead when its terminal
+// closes, which can come before the process's status; a dead pane without a
+// status is read again, and only a pane that stays so is an unknown end.
+func TestTmuxPaneEndWaitsForTheStatus(t *testing.T) {
+	var p tmuxPaneEnd
+	if ended, _, _ := p.read("0  "); ended {
+		t.Fatal("a live pane was taken for ended")
+	}
+	for i := 0; i < tmuxStatusPolls-1; i++ {
+		if ended, _, _ := p.read("1  "); ended {
+			t.Fatalf("poll %d: a dead pane without a status ended at once", i)
+		}
+	}
+	if ended, code, _ := p.read("1 3 "); !ended || code != 3 {
+		t.Fatalf("the status that arrived late: ended=%v code=%d", ended, code)
+	}
+	var q tmuxPaneEnd
+	if ended, code, _ := q.read("1  2"); !ended || code != 130 {
+		t.Fatalf("a signal: ended=%v code=%d", ended, code)
+	}
+	var r tmuxPaneEnd
+	var ended bool
+	var code int
+	var why string
+	for i := 0; i < tmuxStatusPolls; i++ {
+		ended, code, why = r.read("1  ")
+	}
+	if !ended || code != -1 || why == "" {
+		t.Fatalf("a pane that never got a status: ended=%v code=%d why=%q", ended, code, why)
+	}
+}
