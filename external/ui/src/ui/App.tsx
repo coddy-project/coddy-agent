@@ -6703,8 +6703,15 @@ export function App() {
     setTasksOpen(false);
     // A pointer at a task that never showed up does not wait for the next opening.
     setTasksFocus(null);
-    setSessionHashInLocation(sessionId.trim());
     if (!isStackedShell()) {
+      // On a desktop the panel stands beside whatever screen of the rail is up,
+      // and the address is that screen's: only an address that names the panel
+      // goes back to its chat. Writing the chat's over a screen's, even for the
+      // moment until the screen puts its own back, is what a reader can catch.
+      const at = parseAppHash();
+      if (at.branch === "session" && at.tasksOpen) {
+        setSessionHashInLocation(at.sessionId);
+      }
       return;
     }
     if (sessionsOpen) {

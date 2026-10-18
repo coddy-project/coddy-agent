@@ -306,8 +306,15 @@ test("on desktop Tasks stays open across rail screens and uses local panel state
     expect(screen.getByTestId("bgtasks-panel")).toBeTruthy();
   }
 
+  const replaced = vi.spyOn(history, "replaceState");
   fireEvent.click(screen.getByTestId("bgtasks-panel-close"));
   await waitFor(() => expect(screen.queryByTestId("bgtasks-panel")).toBeNull());
+  // The address stays the Docs screen's the whole time: closing the panel does
+  // not write the chat's over it, not even until the reader puts its own back.
+  expect(replaced.mock.calls.map((call) => String(call[2]))).not.toContainEqual(
+    expect.stringContaining("#/s/"),
+  );
+  replaced.mockRestore();
   expect(window.location.hash).toMatch(/^#\/docs/);
   expect(window.location.hash).not.toContain("/tasks");
   fireEvent.click(screen.getByTestId("open-tasks"));
