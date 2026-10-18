@@ -692,6 +692,16 @@ Rejected:
 - `LinkFile` on a linked board switches files silently (qwen, Devin's question): opening another file
   is the intent, and the generations now carry over.
 
+Code scanning (Semgrep, `wildcard-postmessage-configuration`) flagged the two `postMessage` calls with
+`"*"`: the window's to a frame (`CanvasFrame.tsx`) and the bridge's first `ready` (`bridge.js`). Both
+are suppressed inline with the rule id and the reason, not changed: an opaque-origin frame can be
+posted to with `"*"` only, the parent's origin is unknown to the bridge until the hello (no referrer,
+no `ancestorOrigins` in Firefox) and every later message of the bridge goes to that origin, and what
+travels with `"*"` is the hello (a generation and the frame's id), the mode and the empty `ready`.
+`what the window tells a frame names no address, token or file` (vitest) holds the window's side to
+that. The same scan's `math-random-used` on `internal/llm/reasoning_test.go`, older than this change,
+is a seeded source for `testing/quick` and is suppressed the same way.
+
 Left as known limits: every request for a frame's file and every board read loads the board (for a
 linked board, parses the file) and computes the stamps of up to 2000 files per frame (Devin); a cache
 keyed on the modification times is the next step if a large workspace shows it. In interact mode an

@@ -640,3 +640,28 @@ test("a note card reads its file again while the board is open", async () => {
   rerender(<CanvasView {...props} board={noteBoard()} />);
   await waitFor(() => expect(heading()).toBe("Two"));
 });
+
+test("what the window tells a frame names no address, token or file", () => {
+  // The window has to post to an opaque-origin frame with "*", so whatever
+  // document sits in the frame then reads it: it must learn nothing it could use.
+  renderView();
+  const win = iframe().contentWindow!;
+  const post = vi.spyOn(win, "postMessage");
+  fromFrame({ type: "ready" });
+  fireEvent.click(screen.getByTestId("canvas-mode-comment"));
+  fromFrame({ type: "ready" });
+  expect(post.mock.calls.length).toBeGreaterThan(0);
+  for (const [msg, target] of post.mock.calls) {
+    expect(target).toBe("*");
+    const m = msg as Record<string, unknown>;
+    expect(
+      Object.keys(m).every((k) =>
+        ["proto", "type", "gen", "frame", "mode"].includes(k),
+      ),
+    ).toBe(true);
+    const text = JSON.stringify(m);
+    expect(text).not.toContain("tok.sig");
+    expect(text).not.toContain("/coddy/");
+    expect(text).not.toContain("site/index.html");
+  }
+});

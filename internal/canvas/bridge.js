@@ -99,8 +99,11 @@
   }
 
   // The first message carries nothing: the window answers it with "hello".
+  // Its target is "*" because the parent's origin is unknown until then (no
+  // referrer is sent, and Firefox has no location.ancestorOrigins); every
+  // later message goes to the origin the hello came from (post above).
   try {
-    parentWin.postMessage({ proto: PROTO, type: "ready" }, "*");
+    parentWin.postMessage({ proto: PROTO, type: "ready" }, "*"); // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
   } catch (e) {
     /* nothing to talk to */
   }

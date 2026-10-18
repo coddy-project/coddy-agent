@@ -181,8 +181,11 @@ export function CanvasFrame(props: Props) {
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
     try {
-      // An opaque-origin frame accepts "*" and nothing else.
-      win.postMessage(msg, "*");
+      // An opaque-origin frame accepts "*" and nothing else: "null" is not a
+      // target origin. What goes this way is the hello (a generation and the
+      // frame's id) and the mode, never an address, a token or a file, so a
+      // document that took the frame's place learns nothing it could use.
+      win.postMessage(msg, "*"); // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
     } catch {
       /* the frame went away */
     }
