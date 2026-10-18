@@ -175,6 +175,24 @@ func TestRussianTypographyOutsideCode(t *testing.T) {
 	}
 }
 
+func TestRussianImageAltTextIsTranslated(t *testing.T) {
+	root := translatedTree(t)
+	ru := readFile(t, root, "docs/ru/g/start.md")
+	bad := strings.Replace(ru, "Скачайте.", "Скачайте.\n\n![A board in the Files window](../../assets/a.png)\n\n"+
+		"![Доска в окне \"Файлы\"](../../assets/b.png) ![dark](../../assets/c.png)\n\n"+
+		"```markdown\n![An example in a code block](x.png)\n```", 1)
+	write(t, root, "docs/ru/g/start.md", bad)
+	problems := checkRussian(t, root)
+	wantProblem(t, problems, "docs/ru/g/start.md", "A board in the Files window")
+	for _, p := range problems {
+		for _, fine := range []string{"Доска", "dark", "An example in a code block"} {
+			if strings.Contains(p.Message, fine) {
+				t.Fatalf("a translated, one-word or fenced alt text was reported: %v", p)
+			}
+		}
+	}
+}
+
 func TestConfigDescriptionsFollowTheSchema(t *testing.T) {
 	schema := []byte(`{"type":"object","properties":{
 	  "agent":{"type":"object","description":"The loop.","properties":{
