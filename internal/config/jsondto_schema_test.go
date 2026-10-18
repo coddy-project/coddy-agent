@@ -567,3 +567,29 @@ func TestUISchemaJSONHidingOmitsSection(t *testing.T) {
 		t.Fatal("hiding nothing must give the full schema")
 	}
 }
+
+// tools.operator_command survives the Settings round trip like every section.
+func TestOperatorCommandSurvivesTheJSONDTO(t *testing.T) {
+	off := false
+	cfg := &config.Config{}
+	cfg.Tools.OperatorCommand = config.ToolOperatorCommand{Enabled: &off, Shell: "zsh", Multiplexer: "tmux"}
+
+	raw, err := json.Marshal(config.ConfigToJSONDTO(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"operator_command"`) {
+		t.Fatalf("GET DTO dropped tools.operator_command: %s", raw)
+	}
+
+	put := `{"tools":{"operator_command":{"enable":false,"shell":"zsh","multiplexer":"tmux"}}}`
+	var j config.ConfigJSON
+	if err := json.Unmarshal([]byte(put), &j); err != nil {
+		t.Fatal(err)
+	}
+	back := config.JSONDTOToConfig(&j, config.Paths{})
+	got := back.Tools.OperatorCommand
+	if got.Enabled == nil || *got.Enabled || got.Shell != "zsh" || got.Multiplexer != "tmux" {
+		t.Fatalf("PUT path dropped tools.operator_command: %+v", got)
+	}
+}

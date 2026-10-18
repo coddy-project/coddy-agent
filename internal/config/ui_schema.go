@@ -538,6 +538,24 @@ func UISchemaMap() map[string]interface{} {
 					},
 					[]string{"enable", "host", "public_host"},
 					nil),
+				"operator_command": objectSchema("Operator commands",
+					"The operator_command tool: a command the agent was refused, shown to you exactly as it will run, with Run, Decline and Stop. Its output goes back to the agent. The shell also runs the console's !! commands.",
+					map[string]interface{}{
+						"enable": map[string]interface{}{
+							"type":        "boolean",
+							"title":       "Enabled",
+							"description": "Offer the operator_command tool (default true). It is offered only where a person can answer: the web UI and the console.",
+						},
+						"shell": strProp("Shell", "A name on PATH (bash, zsh, pwsh, cmd) or a path. Empty uses PowerShell on Windows and bash on Linux, macOS and Android."),
+						"multiplexer": map[string]interface{}{
+							"type":        "string",
+							"title":       "Run inside",
+							"description": "macOS and Linux: run each command in a detached tmux or screen session, for long runs on a real terminal. Empty runs it directly.",
+							"enum":        []string{"", OperatorMultiplexerTmux, OperatorMultiplexerScreen},
+						},
+					},
+					[]string{"enable", "shell", "multiplexer"},
+					nil),
 				"websearch": objectSchema("Web search",
 					"Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a backend that was turned away is named rather than counted as \"nothing found\".",
 					map[string]interface{}{
@@ -584,7 +602,7 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"allowlist", "default_headers"},
 					nil),
 			},
-			[]string{"command_allowlist", "output_limits", "background", "preview_server", "websearch", "http_request"},
+			[]string{"command_allowlist", "output_limits", "background", "preview_server", "operator_command", "websearch", "http_request"},
 			nil),
 		"subagents": objectSchema("Subagents",
 			"User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.",

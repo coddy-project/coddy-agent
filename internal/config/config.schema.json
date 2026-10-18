@@ -593,6 +593,37 @@
             }
           }
         },
+        "operator_command": {
+          "type": "object",
+          "title": "Operator commands",
+          "description": "The operator_command tool: when a shell command is refused to the agent by a protection rule, the agent asks the operator to run it. The web UI and the console show the exact command, which the operator cannot edit, with Run, Decline and, while it runs, Stop; the output becomes the tool result and the turn goes on. The same shell runs the console's !! commands.",
+          "additionalProperties": false,
+          "properties": {
+            "enable": {
+              "type": [
+                "boolean",
+                "null"
+              ],
+              "description": "Offer the operator_command tool. It is offered only on a surface where a person can answer: the web UI and the console, not ACP editors, the messenger bots, the scheduler or subagents.",
+              "default": true
+            },
+            "shell": {
+              "type": "string",
+              "description": "Shell the operator's commands run in: a name on PATH (bash, zsh, fish, sh, pwsh, powershell, cmd) or a path to the executable. Empty uses PowerShell on Windows (pwsh, then powershell) and bash on Linux, macOS and Android (bash, then sh). A shell that is not found is an error, never a fallback to another one.",
+              "default": ""
+            },
+            "multiplexer": {
+              "type": "string",
+              "enum": [
+                "",
+                "tmux",
+                "screen"
+              ],
+              "description": "macOS and Linux: run each operator command inside a detached tmux or screen session, so it has a real terminal and a long run does not depend on the client that pressed Run. Coddy manages the session itself; the operator sees only the command. Empty runs the command directly. Ignored on Windows.",
+              "default": ""
+            }
+          }
+        },
         "websearch": {
           "type": "object",
           "title": "Web search",
