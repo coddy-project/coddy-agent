@@ -22,8 +22,13 @@ import (
 // are application code every chat may show, and from 1_900_000 when main sat
 // 182 bytes under it and the per-session composer settings (#489) needed
 // about a kilobyte, and from 1_950_000 for the composer's toolset chip and
-// menu and the Toolsets settings tab (#513), which went 7 KB over it.
-const appJSBudget = 2_000_000
+// menu and the Toolsets settings tab (#513), which went 7 KB over it, and
+// from 2_000_000 for operator commands (#555): the card itself is a chunk of
+// its own, but the stream handling, the store that keeps a waiting request
+// across a reload, the fallback shown when that chunk does not load and the
+// copy in every language are application code every chat may need; with them
+// main sat 204 bytes under the old budget.
+const appJSBudget = 2_050_000
 
 // Strings only the renderers' own code carries: their error messages.
 var rendererMarkers = map[string]string{

@@ -3,12 +3,14 @@ import { useCallback, useState } from "react";
 import { ShellCommandBlock } from "../chat/PermissionPromptPreview";
 import {
   parseOperatorCommandArgs,
-  parseOperatorCommandResult,
   submitOperatorCommandAction,
   type OperatorCommandAction,
-  type OperatorCommandOutcome,
   type OperatorCommandState,
 } from "../chat/operatorCommand";
+import {
+  parseOperatorCommandResult,
+  type OperatorCommandOutcome,
+} from "../chat/operatorCommandResult";
 import { markOperatorCommandAnswered } from "../chat/operatorCommandSessionStore";
 import { useT } from "../i18n/I18nProvider";
 import { Chevron } from "../components/Chevron";
