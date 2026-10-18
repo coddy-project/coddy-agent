@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useT } from "../i18n/I18nProvider";
 import {
   frameBase,
@@ -16,7 +16,7 @@ import {
   staysInFrame,
   type PickedElement,
 } from "./bridgeProtocol";
-import type { Rect } from "./camera";
+import type { CameraStore } from "./cameraStore";
 
 /** How long a load of the iframe waits for the bridge before it counts as
  *  the page having left the canvas. */
@@ -61,16 +61,18 @@ export function frameTitle(f: Pick<Frame, "title" | "path">): string {
 
 interface Props {
   sessionId: string;
+  /** The board's .canvas file. */
+  file: string;
   frame: Frame;
-  /** Where the frame is drawn, in the board's screen coordinates. */
-  screen: Rect;
-  scale: number;
+  /** The board's camera: a drag of the title bar is measured with its scale. */
+  camera: CameraStore;
   mode: "interact" | "comment";
   focused: boolean;
-  onPick: (frame: Frame, element: PickedElement, screenRect: Rect) => void;
+  /** An element picked in the page, its rectangle in the page's pixels. */
+  onPick: (frame: Frame, element: PickedElement) => void;
   onEscape: () => void;
   onMove: (frame: Frame, x: number, y: number) => void;
-  /** A drag of the title bar in progress, in screen pixels; 0, 0 when it ends. */
+  /** A drag of the title bar in progress, in board units; 0, 0 when it ends. */
   onDragging?: (frame: Frame, dx: number, dy: number) => void;
   onResize: (frame: Frame, device: CanvasDevice) => void;
   onRemove: (frame: Frame) => void;
@@ -80,13 +82,15 @@ interface Props {
 
 /**
  * One frame on the board: a title bar of constant size above the page, and
- * the page in a sandboxed iframe at its own size, scaled with the board. The
- * frame keeps its address until its files change (the stamp moves), it is
- * rotated, or the address nears its end; then it reloads with a fresh one.
+ * the page in a sandboxed iframe at its own size, both in the board's world
+ * layer, which the camera scales as a whole. The frame keeps its address until
+ * its files change (the stamp moves), it is rotated, or the address nears its
+ * end; then it reloads with a fresh one. Drawn again only when its own props
+ * change, never by a pan or a zoom.
  */
-export function CanvasFrame(props: Props) {
+export const CanvasFrame = memo(function CanvasFrame(props: Props) {
   const { t, tp } = useT();
-  const { frame, screen, scale } = props;
+  const { frame } = props;
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [loaded, setLoaded] = useState<{
     src: string;
@@ -197,7 +201,7 @@ export function CanvasFrame(props: Props) {
       const b = bridge.current;
       if (!b.dirty) return;
       b.dirty = false;
-      void postReport(props.sessionId, frame.id, {
+      void postReport(props.sessionId, props.file, frame.id, {
         stamp: loaded.stamp,
         loaded: b.loadedFlag,
         title: b.title,
@@ -205,22 +209,24 @@ export function CanvasFrame(props: Props) {
       });
     }, REPORT_EVERY_MS);
     return () => window.clearInterval(timer);
-  }, [props.sessionId, frame.id, loaded.stamp]);
+  }, [props.sessionId, props.file, frame.id, loaded.stamp]);
 
   // Put away (the window closing, the frame removed): say so, best effort.
   useEffect(() => {
     const sid = props.sessionId;
+    const file = props.file;
     const id = frame.id;
     return () => {
       const b = bridge.current;
       void postReport(
         sid,
+        file,
         id,
         { stamp: "", loaded: b.loadedFlag, closed: true, console: [] },
         true,
       );
     };
-  }, [props.sessionId, frame.id]);
+  }, [props.sessionId, props.file, frame.id]);
 
   useEffect(() => {
     const onMessage = (ev: MessageEvent) => {
@@ -294,13 +300,7 @@ export function CanvasFrame(props: Props) {
           return;
         case "pick": {
           const p = propsRef.current;
-          const r = msg.element.rect;
-          p.onPick(p.frame, msg.element, {
-            x: p.screen.x + r.x * p.scale,
-            y: p.screen.y + r.y * p.scale,
-            width: r.width * p.scale,
-            height: r.height * p.scale,
-          });
+          p.onPick(p.frame, msg.element);
           return;
         }
         case "escape":
@@ -370,25 +370,35 @@ export function CanvasFrame(props: Props) {
     setLeft(false);
   };
 
-  // Dragging the title bar moves the frame on the board.
-  const dragStart = useRef<{ x: number; y: number } | null>(null);
+  // Dragging the title bar moves the frame on the board, in board units: the
+  // pointer's travel over the camera's scale.
+  const dragStart = useRef<{ x: number; y: number; scale: number } | null>(
+    null,
+  );
   const onBarDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
-    dragStart.current = { x: e.clientX, y: e.clientY };
+    e.stopPropagation();
+    dragStart.current = {
+      x: e.clientX,
+      y: e.clientY,
+      scale: props.camera.get().scale,
+    };
     (e.currentTarget as HTMLDivElement).setPointerCapture?.(e.pointerId);
   };
   const onBarMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const s = dragStart.current;
     if (!s) return;
-    setDrag({ dx: e.clientX - s.x, dy: e.clientY - s.y });
-    props.onDragging?.(frame, e.clientX - s.x, e.clientY - s.y);
+    const dx = (e.clientX - s.x) / s.scale;
+    const dy = (e.clientY - s.y) / s.scale;
+    setDrag({ dx, dy });
+    props.onDragging?.(frame, dx, dy);
   };
   const onBarUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     const s = dragStart.current;
     dragStart.current = null;
     if (!s) return;
-    const dx = (e.clientX - s.x) / scale;
-    const dy = (e.clientY - s.y) / scale;
+    const dx = (e.clientX - s.x) / s.scale;
+    const dy = (e.clientY - s.y) / s.scale;
     setDrag(null);
     props.onDragging?.(frame, 0, 0);
     if (Math.abs(dx) + Math.abs(dy) >= 2) {
@@ -398,17 +408,22 @@ export function CanvasFrame(props: Props) {
 
   const dx = drag?.dx ?? 0;
   const dy = drag?.dy ?? 0;
-  const barWidth = Math.max(screen.width, 180);
 
   return (
     <>
       <div
-        className={"canvas-frame-bar" + (props.focused ? " is-focused" : "")}
-        style={{
-          left: screen.x + dx,
-          top: screen.y + dy - 30,
-          width: barWidth,
-        }}
+        className={
+          "canvas-frame-bar" +
+          (props.focused ? " is-focused" : "") +
+          (menuOpen ? " is-menu-open" : "")
+        }
+        style={
+          {
+            left: frame.x + dx,
+            top: frame.y + dy,
+            "--canvas-frame-width": frame.width,
+          } as CSSProperties
+        }
         data-testid="canvas-frame-bar"
         data-frame-id={frame.id}
         onPointerDown={onBarDown}
@@ -510,10 +525,10 @@ export function CanvasFrame(props: Props) {
           (props.mode === "comment" ? " is-commenting" : "")
         }
         style={{
-          left: screen.x + dx,
-          top: screen.y + dy,
-          width: screen.width,
-          height: screen.height,
+          left: frame.x + dx,
+          top: frame.y + dy,
+          width: frame.width,
+          height: frame.height,
         }}
         data-testid="canvas-frame"
         data-frame-id={frame.id}
@@ -531,11 +546,6 @@ export function CanvasFrame(props: Props) {
           referrerPolicy="no-referrer"
           allow=""
           loading="lazy"
-          style={{
-            width: frame.width,
-            height: frame.height,
-            transform: `scale(${scale})`,
-          }}
           onLoad={onLoad}
         />
         {left ? (
@@ -557,7 +567,7 @@ export function CanvasFrame(props: Props) {
       </div>
     </>
   );
-}
+});
 
 function IconReload() {
   return (

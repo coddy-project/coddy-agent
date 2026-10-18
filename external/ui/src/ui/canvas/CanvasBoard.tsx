@@ -7,65 +7,62 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import { useT } from "../i18n/I18nProvider";
 import { useEscapeCloses } from "../components/useEscapeCloses";
-import { useRightDockEscape } from "../components/useRightDock";
+import { ZoomControls } from "../components/ZoomControls";
+import { ZOOM_STEP, wheelFactor } from "../components/zoom";
 import {
   serverSnapshotTouchOnly,
   snapshotTouchOnly,
   subscribeTouchOnly,
 } from "../shellBreakpoint";
-import { IconExpand, IconRestore } from "../files/windowIcons";
-import { composerAutoFocusAllowed } from "../chat/composerFocus";
 import {
-  patchFrame,
+  openCanvasFile,
   patchNodes,
   removeFrame,
   rotateFrame,
-  type CanvasBoard,
   type CanvasDevice,
   type CanvasFrame as Frame,
   type CanvasItem,
 } from "./api";
 import type { PickedElement } from "./bridgeProtocol";
-import {
-  boundsOf,
-  fitCamera,
-  pan,
-  toScreen,
-  zoomAt,
-  zoomPercent,
-  type Camera,
-  type Rect,
-} from "./camera";
+import { boundsOf, fitCamera, pan, zoomAt, type Rect } from "./camera";
+import { CameraStore } from "./cameraStore";
 import { CanvasFrame, sizeLabel } from "./CanvasFrame";
 import { CanvasPromptBar } from "./CanvasPromptBar";
 import { CanvasEdges, CanvasNode } from "./CanvasNodes";
+import { useCanvasBoard } from "./useCanvasBoard";
 import { PermissionPromptSection } from "../chat/PermissionPromptSection";
 import { QuestionPromptSection } from "../chat/QuestionPromptSection";
 import type { TranscriptItem } from "../chat/types";
 import type { PermissionResolvedState } from "../chat/permissionTypes";
 import type { QuestionResolvedState } from "../chat/questionTypes";
-import { CanvasFileMenu } from "./CanvasFileMenu";
 import { drawOrder, insideGroup } from "./jsonCanvas";
 import { composeCanvasPrompt, pickLabel, type CanvasPick } from "./pickPrompt";
 
-/** What the bar holds, per chat, for the life of the page: closing the window
- *  to read the transcript does not lose a half-written request. */
+/** What the bar holds, per chat and file, for the life of the page: closing
+ *  the window to read the transcript does not lose a half-written request. */
 type Draft = { text: string; picks: CanvasPick[] };
 const drafts = new Map<string, Draft>();
 const draftListeners = new Map<string, (d: Draft) => void>();
+
+function draftKey(sessionId: string, file: string): string {
+  return `${sessionId}\n${file}`;
+}
 
 /** Forgets every draft (tests only). */
 export function resetCanvasDraftsForTests(): void {
   drafts.clear();
 }
 
-/** Puts a request the server never took back in the bar of its chat, ahead
- *  of anything written since, whether or not the window is open now. */
-function giveBackDraft(sessionId: string, sent: Draft): void {
-  const cur = drafts.get(sessionId) ?? { text: "", picks: [] };
+/** Puts a request the server never took back in the bar it came from, ahead
+ *  of anything written since, whether or not the canvas is open now. */
+function giveBackDraft(key: string, sent: Draft): void {
+  const cur = drafts.get(key) ?? { text: "", picks: [] };
   const text =
     !cur.text.trim() || cur.text.trim() === sent.text.trim()
       ? sent.text
@@ -75,25 +72,26 @@ function giveBackDraft(sessionId: string, sent: Draft): void {
     ...cur.picks.filter((p) => !sent.picks.some((s) => s.id === p.id)),
   ];
   const next = { text, picks };
-  drafts.set(sessionId, next);
-  draftListeners.get(sessionId)?.(next);
+  drafts.set(key, next);
+  draftListeners.get(key)?.(next);
 }
 
-export interface CanvasViewProps {
-  sessionId: string;
-  board: CanvasBoard | null;
-  reloadBoard: () => void;
-  /** The frame the address or the agent's last show points at. */
-  focusFrameId: string;
-  /** Moves whenever the focus is asked again, for the same frame too. */
-  focusSeq: number;
+export type CanvasPrompt = Extract<
+  TranscriptItem,
+  { type: "permission_prompt" } | { type: "question_prompt" }
+>;
+
+/** What App hands every canvas of the chat: the turn, the prompts it waits
+ *  for, and how a message of the canvas goes. */
+export interface CanvasChatProps {
+  /** Moves whenever a board of the chat may have changed. */
+  epoch: number;
   /** The chat's turn is running. */
   busy: boolean;
   /** Sends the prompt; giveBack puts the bar's text and picks back when the
    *  server never takes it. */
   onSend: (text: string, giveBack: () => void) => void;
   onStop: () => void;
-  onClose: () => void;
   /** The chat's unanswered permission and question prompts: the window
    *  covers the chat, so a turn waiting on one is answered here. */
   prompts?: CanvasPrompt[];
@@ -114,10 +112,18 @@ export interface CanvasViewProps {
   ) => void;
 }
 
-export type CanvasPrompt = Extract<
-  TranscriptItem,
-  { type: "permission_prompt" } | { type: "question_prompt" }
->;
+export interface CanvasBoardProps extends CanvasChatProps {
+  sessionId: string;
+  /** The .canvas file, relative to the workspace. */
+  file: string;
+  /** The frame the agent's last show points at, and a counter that moves
+   *  whenever it is asked again, for the same frame too. */
+  focusFrameId: string;
+  focusSeq: number;
+  /** Escape with nothing nearer to close, and the bar's Chat: the Files
+   *  window goes, the conversation shows. */
+  onClose: () => void;
+}
 
 interface Popover {
   frame: Frame;
@@ -128,24 +134,41 @@ interface Popover {
 let pickSeq = 0;
 
 /**
- * The canvas of a chat: a window over the chat, framed like the Files
- * window, holding the board of live frames and a prompt bar. Frames stand at
- * their own size, scaled together by the board's camera; Interact hands the
- * pointer to the pages, Comment picks elements, which become chips of the bar
- * and, sent, a prompt of the chat.
+ * A .canvas file as the Files window shows it: the board of live frames and
+ * the file's other nodes and edges, the prompts the turn waits for and a
+ * prompt bar under it. Everything on the board stands at its own size in one
+ * world layer the camera moves and scales as a whole, so a pan or a zoom draws
+ * nothing again; the wheel zooms at the pointer, dragging the empty board pans
+ * it. Interact hands the pointer to the pages, Comment picks elements, which
+ * become chips of the bar and, sent, a prompt of the chat.
  */
-export function CanvasView(props: CanvasViewProps) {
-  const { t, tp } = useT();
+export function CanvasBoard(props: CanvasBoardProps) {
+  const { t } = useT();
+  const { sessionId, file } = props;
   const touchOnly = useSyncExternalStore(
     subscribeTouchOnly,
     snapshotTouchOnly,
     serverSnapshotTouchOnly,
   );
-  const boardFrames = useMemo(() => props.board?.frames ?? [], [props.board]);
-  const items = useMemo(() => props.board?.items ?? [], [props.board]);
-  const edges = useMemo(() => props.board?.edges ?? [], [props.board]);
-  const link = props.board?.link;
-  const revision = props.board?.revision ?? 0;
+  const {
+    board,
+    error: readError,
+    reload,
+  } = useCanvasBoard(sessionId, file, props.epoch);
+
+  // Opening the file makes it the one the agent shows pages on.
+  useEffect(() => {
+    if (!sessionId.trim() || !file) return;
+    void openCanvasFile(sessionId, file).then(reload, () => {
+      /* the read of the board says why */
+    });
+  }, [sessionId, file, reload]);
+
+  const boardFrames = useMemo(() => board?.frames ?? [], [board]);
+  const items = useMemo(() => board?.items ?? [], [board]);
+  const edges = useMemo(() => board?.edges ?? [], [board]);
+  const revision = board?.revision ?? 0;
+  const stamp = board?.stamp ?? "";
   // Where a node was put down, until the board read after the move says so:
   // a dragged node does not jump back while its change is on its way.
   const [placed, setPlaced] = useState<
@@ -174,43 +197,51 @@ export function CanvasView(props: CanvasViewProps) {
       }),
     [items, placed],
   );
+
+  const camera = useMemo(() => new CameraStore(), []);
+  useEffect(() => () => camera.dispose(), [camera]);
   const boardRef = useRef<HTMLDivElement | null>(null);
+  const worldRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    camera.attach(worldRef.current, boardRef.current);
+  }, [camera]);
+
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
-  const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, scale: 1 });
+  const viewportRef = useRef(viewport);
+  viewportRef.current = viewport;
   const [mode, setMode] = useState<"interact" | "comment">("interact");
-  const [expanded, setExpanded] = useState(false);
   const [popover, setPopover] = useState<Popover | null>(null);
   const [note, setNote] = useState("");
-  const initial = drafts.get(props.sessionId) ?? { text: "", picks: [] };
+  const key = draftKey(sessionId, file);
+  const initial = drafts.get(key) ?? { text: "", picks: [] };
   const [text, setText] = useState(initial.text);
   const [picks, setPicks] = useState<CanvasPick[]>(initial.picks);
   const fittedFor = useRef<string>("");
-  // The board (its file, or "" for the chat's own) last fitted whole.
-  const fittedBoard = useRef<string | null>(null);
-  // Until the person moves or zooms the board, it follows the window: a
-  // resize (a phone turned, the window expanded) fits it again.
-  const userMoved = useRef(false);
+  const fittedOnce = useRef(false);
   const fitTarget = useRef<string>("");
 
   useEffect(() => {
-    drafts.set(props.sessionId, { text, picks });
-  }, [props.sessionId, text, picks]);
+    drafts.set(key, { text, picks });
+  }, [key, text, picks]);
   useEffect(() => {
-    const sid = props.sessionId;
-    draftListeners.set(sid, (d) => {
+    draftListeners.set(key, (d) => {
       setText(d.text);
       setPicks(d.picks);
     });
     return () => {
-      draftListeners.delete(sid);
+      draftListeners.delete(key);
     };
-  }, [props.sessionId]);
+  }, [key]);
 
   useLayoutEffect(() => {
     const el = boardRef.current;
     if (!el) return undefined;
     const measure = () =>
-      setViewport({ width: el.clientWidth, height: el.clientHeight });
+      setViewport((v) =>
+        v.width === el.clientWidth && v.height === el.clientHeight
+          ? v
+          : { width: el.clientWidth, height: el.clientHeight },
+      );
     measure();
     const ro =
       typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
@@ -221,47 +252,46 @@ export function CanvasView(props: CanvasViewProps) {
   const fitTo = useCallback(
     (rects: Rect[]) => {
       const b = boundsOf(rects);
-      if (!b || viewport.width <= 0 || viewport.height <= 0) return;
-      setCamera(fitCamera(b, viewport));
+      const v = viewportRef.current;
+      if (!b || v.width <= 0 || v.height <= 0) return;
+      camera.fitTo(fitCamera(b, v));
     },
-    [viewport],
+    [camera],
   );
 
-  // Everything the board holds, for Fit: the frames and the nodes of a file.
+  // Everything the board holds, for Fit: the frames and the other nodes.
   const everything = useMemo<Rect[]>(
     () => [...frames, ...nodes],
     [frames, nodes],
   );
-  // The board is fitted when it first shows something, again when it becomes
-  // another file, and on the frame the address or the agent's last show
-  // points at.
-  const boardKey = link?.path ?? "";
+  // The board is fitted when it first shows something, and on the frame the
+  // agent's last show points at.
   useEffect(() => {
     if (everything.length === 0 || viewport.width <= 0) return;
     const focus = frames.find((f) => f.id === props.focusFrameId);
     if (focus) {
-      const key = `f:${focus.id}:${props.focusSeq}`;
-      if (fittedFor.current === key) return;
-      fittedFor.current = key;
-    } else if (fittedBoard.current === boardKey) {
+      const k = `${focus.id}:${props.focusSeq}`;
+      if (fittedFor.current === k) return;
+      fittedFor.current = k;
+    } else if (fittedOnce.current) {
       return;
     }
-    fittedBoard.current = boardKey;
-    userMoved.current = false;
+    fittedOnce.current = true;
     fitTarget.current = focus ? focus.id : "";
     fitTo(focus ? [focus] : everything);
   }, [
     everything,
     frames,
-    boardKey,
     props.focusFrameId,
     props.focusSeq,
     viewport.width,
     fitTo,
   ]);
 
+  // Until the person moves or zooms the board, it follows the window: a
+  // resize (a phone turned, the window expanded) fits it again.
   useEffect(() => {
-    if (userMoved.current || everything.length === 0 || viewport.width <= 0)
+    if (!camera.fitted() || everything.length === 0 || viewport.width <= 0)
       return;
     const focus = frames.find((f) => f.id === fitTarget.current);
     fitTo(focus ? [focus] : everything);
@@ -269,40 +299,39 @@ export function CanvasView(props: CanvasViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewport.width, viewport.height]);
 
-  const fitAll = () => {
-    userMoved.current = false;
+  const everythingRef = useRef(everything);
+  everythingRef.current = everything;
+  const fitAll = useCallback(() => {
     fitTarget.current = "";
-    fitTo(everything);
-  };
+    fitTo(everythingRef.current);
+  }, [fitTo]);
 
-  const zoomBy = (factor: number) => {
-    userMoved.current = true;
-    setCamera((c) =>
-      zoomAt(c, factor, { x: viewport.width / 2, y: viewport.height / 2 }),
-    );
-  };
+  const zoomBy = useCallback(
+    (factor: number) => {
+      const v = viewportRef.current;
+      camera.move((c) =>
+        zoomAt(c, factor, { x: v.width / 2, y: v.height / 2 }),
+      );
+    },
+    [camera],
+  );
 
-  // The wheel pans the board, Ctrl or Cmd with it zooms at the pointer; over
-  // a page the wheel is the page's.
+  // The wheel zooms at the pointer, as the picture viewer and the swarm map
+  // do; over a page in Interact the wheel is the page's.
   useEffect(() => {
     const el = boardRef.current;
     if (!el) return undefined;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      userMoved.current = true;
       const r = el.getBoundingClientRect();
-      if (e.ctrlKey || e.metaKey) {
-        const factor = Math.exp(-e.deltaY / 400);
-        setCamera((c) =>
-          zoomAt(c, factor, { x: e.clientX - r.left, y: e.clientY - r.top }),
-        );
-      } else {
-        setCamera((c) => pan(c, -e.deltaX, -e.deltaY));
-      }
+      const factor = wheelFactor(e.deltaY, e.deltaMode);
+      camera.move((c) =>
+        zoomAt(c, factor, { x: e.clientX - r.left, y: e.clientY - r.top }),
+      );
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, []);
+  }, [camera]);
 
   // Dragging the empty board pans it; two fingers pinch it.
   const pointers = useRef(new Map<number, { x: number; y: number }>());
@@ -320,7 +349,6 @@ export function CanvasView(props: CanvasViewProps) {
     const prev = pointers.current.get(e.pointerId);
     if (!prev) return;
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    userMoved.current = true;
     if (pointers.current.size === 2 && pinch.current) {
       const [a, b] = [...pointers.current.values()];
       const dist = Math.hypot(a!.x - b!.x, a!.y - b!.y);
@@ -331,16 +359,32 @@ export function CanvasView(props: CanvasViewProps) {
       };
       if (pinch.current.dist > 0) {
         const factor = dist / pinch.current.dist;
-        setCamera((c) => zoomAt(c, factor, mid));
+        camera.move((c) => zoomAt(c, factor, mid));
       }
       pinch.current = { dist };
       return;
     }
-    setCamera((c) => pan(c, e.clientX - prev.x, e.clientY - prev.y));
+    const dx = e.clientX - prev.x;
+    const dy = e.clientY - prev.y;
+    camera.move((c) => pan(c, dx, dy));
   };
   const onBoardUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     pointers.current.delete(e.pointerId);
     if (pointers.current.size < 2) pinch.current = null;
+  };
+  const onBoardKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget || e.altKey || e.ctrlKey || e.metaKey)
+      return;
+    if (e.key === "+" || e.key === "=") {
+      e.preventDefault();
+      zoomBy(ZOOM_STEP);
+    } else if (e.key === "-") {
+      e.preventDefault();
+      zoomBy(1 / ZOOM_STEP);
+    } else if (e.key === "0") {
+      e.preventDefault();
+      fitAll();
+    }
   };
 
   // Escape: the popover first (its own layer), then Comment, then the window.
@@ -349,23 +393,35 @@ export function CanvasView(props: CanvasViewProps) {
     setNote("");
   }, []);
   useEscapeCloses(popover !== null, closePopover);
+  useEscapeCloses(popover === null && mode === "comment", () =>
+    setMode("interact"),
+  );
+  const stepRef = useRef({ popover, mode, onClose: props.onClose });
+  stepRef.current = { popover, mode, onClose: props.onClose };
   const escapeStep = useCallback(() => {
-    if (popover) {
-      closePopover();
-    } else if (mode === "comment") {
-      setMode("interact");
-    } else {
-      props.onClose();
-    }
-  }, [popover, mode, closePopover, props]);
-  useRightDockEscape(true, escapeStep);
+    const s = stepRef.current;
+    if (s.popover) closePopover();
+    else if (s.mode === "comment") setMode("interact");
+    else s.onClose();
+  }, [closePopover]);
 
   const onPick = useCallback(
-    (frame: Frame, element: PickedElement, at: Rect) => {
-      setPopover({ frame, element, at });
+    (frame: Frame, element: PickedElement) => {
+      const c = camera.get();
+      const r = element.rect;
+      setPopover({
+        frame,
+        element,
+        at: {
+          x: c.x + (frame.x + r.x) * c.scale,
+          y: c.y + (frame.y + r.y) * c.scale,
+          width: r.width * c.scale,
+          height: r.height * c.scale,
+        },
+      });
       setNote("");
     },
-    [],
+    [camera],
   );
 
   const addPick = () => {
@@ -389,15 +445,13 @@ export function CanvasView(props: CanvasViewProps) {
     const prompt = composeCanvasPrompt(picks, text);
     if (!prompt) return;
     const sent = { text, picks };
-    const sid = props.sessionId;
     setText("");
     setPicks([]);
-    drafts.set(sid, { text: "", picks: [] });
-    props.onSend(prompt, () => giveBackDraft(sid, sent));
+    drafts.set(key, { text: "", picks: [] });
+    props.onSend(prompt, () => giveBackDraft(key, sent));
     setMode("interact");
   };
 
-  const reload = props.reloadBoard;
   const place = useCallback(
     (moves: { id: string; x: number; y: number }[]) => {
       if (moves.length === 0) return;
@@ -407,7 +461,7 @@ export function CanvasView(props: CanvasViewProps) {
           next.set(mv.id, { x: mv.x, y: mv.y, rev: revision });
         return next;
       });
-      void patchNodes(props.sessionId, moves)
+      void patchNodes(sessionId, file, moves)
         .catch(() =>
           // Refused (the node is gone, the file unreadable): the board as it is.
           setPlaced((m) => {
@@ -418,7 +472,7 @@ export function CanvasView(props: CanvasViewProps) {
         )
         .finally(reload);
     },
-    [props.sessionId, reload, revision],
+    [sessionId, file, reload, revision],
   );
   const onMove = useCallback(
     (f: Frame, x: number, y: number) => place([{ id: f.id, x, y }]),
@@ -437,9 +491,9 @@ export function CanvasView(props: CanvasViewProps) {
     [],
   );
 
-  // Dragging a node of the file moves it, a group with everything inside it.
-  // The pointer is captured only once the drag starts, so a click on a link
-  // in a card stays a click.
+  // Dragging a node of the file moves it, a group with everything inside it,
+  // in board units. The pointer is captured only once the drag starts, so a
+  // click on a link in a card stays a click.
   const [nodeDrag, setNodeDrag] = useState<{
     ids: string[];
     dx: number;
@@ -449,31 +503,33 @@ export function CanvasView(props: CanvasViewProps) {
     ids: string[];
     x: number;
     y: number;
+    scale: number;
     moving: boolean;
   } | null>(null);
+  const framesRef = useRef(frames);
+  framesRef.current = frames;
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
   const onNodeDown = useCallback(
     (item: CanvasItem, e: ReactPointerEvent<HTMLElement>) => {
       if (e.button !== 0) return;
       if ((e.target as HTMLElement).closest("a, button, input, textarea"))
         return;
       e.stopPropagation();
+      const all = [...framesRef.current, ...nodesRef.current];
       const ids =
         item.type === "group"
-          ? [
-              item.id,
-              ...insideGroup(item, [...frames, ...nodes]).filter(
-                (id) => id !== item.id,
-              ),
-            ]
+          ? [item.id, ...insideGroup(item, all).filter((id) => id !== item.id)]
           : [item.id];
       nodeDragStart.current = {
         ids,
         x: e.clientX,
         y: e.clientY,
+        scale: camera.get().scale,
         moving: false,
       };
     },
-    [frames, nodes],
+    [camera],
   );
   const onNodeMove = useCallback((e: ReactPointerEvent<HTMLElement>) => {
     const s = nodeDragStart.current;
@@ -485,7 +541,7 @@ export function CanvasView(props: CanvasViewProps) {
       s.moving = true;
       e.currentTarget.setPointerCapture?.(e.pointerId);
     }
-    setNodeDrag({ ids: s.ids, dx, dy });
+    setNodeDrag({ ids: s.ids, dx: dx / s.scale, dy: dy / s.scale });
   }, []);
   const onNodeUp = useCallback(
     (e: ReactPointerEvent<HTMLElement>) => {
@@ -493,11 +549,12 @@ export function CanvasView(props: CanvasViewProps) {
       nodeDragStart.current = null;
       setNodeDrag(null);
       if (!s?.moving || e.type === "pointercancel") return;
-      const dx = Math.round((e.clientX - s.x) / camera.scale);
-      const dy = Math.round((e.clientY - s.y) / camera.scale);
+      const dx = Math.round((e.clientX - s.x) / s.scale);
+      const dy = Math.round((e.clientY - s.y) / s.scale);
       if (dx === 0 && dy === 0) return;
       const at = new Map<string, { x: number; y: number }>();
-      for (const n of [...frames, ...nodes]) at.set(n.id, n);
+      for (const n of [...framesRef.current, ...nodesRef.current])
+        at.set(n.id, n);
       place(
         s.ids.flatMap((id) => {
           const p = at.get(id);
@@ -505,68 +562,52 @@ export function CanvasView(props: CanvasViewProps) {
         }),
       );
     },
-    [camera.scale, frames, nodes, place],
+    [place],
   );
 
-  /** Where a node stands on the screen, a drag in progress included. */
-  const screenOf = (id: string, r: Rect): Rect => {
-    const s = toScreen(camera, r);
-    if (nodeDrag?.ids.includes(id)) {
-      return { ...s, x: s.x + nodeDrag.dx, y: s.y + nodeDrag.dy };
-    }
-    return s;
-  };
-  // A frame draws its own title-bar drag; the edges add it.
-  const screenRects = new Map<string, Rect>();
-  for (const f of frames) {
-    const r = screenOf(f.id, f);
-    screenRects.set(
-      f.id,
-      frameDrag?.id === f.id
-        ? { ...r, x: r.x + frameDrag.dx, y: r.y + frameDrag.dy }
-        : r,
-    );
-  }
-  for (const n of nodes) screenRects.set(n.id, screenOf(n.id, n));
-  const ordered = drawOrder(nodes);
+  // Where every node stands on the board, a drag in progress included: what
+  // the edges are drawn between.
+  const rects = useMemo(() => {
+    const out = new Map<string, Rect>();
+    const shifted = (id: string, r: Rect): Rect => {
+      let { x, y } = r;
+      if (nodeDrag?.ids.includes(id)) {
+        x += nodeDrag.dx;
+        y += nodeDrag.dy;
+      }
+      if (frameDrag?.id === id) {
+        x += frameDrag.dx;
+        y += frameDrag.dy;
+      }
+      return { x, y, width: r.width, height: r.height };
+    };
+    for (const f of frames) out.set(f.id, shifted(f.id, f));
+    for (const n of nodes) out.set(n.id, shifted(n.id, n));
+    return out;
+  }, [frames, nodes, nodeDrag, frameDrag]);
+  const ordered = useMemo(() => drawOrder(nodes), [nodes]);
   const groups = ordered.filter((n) => n.type === "group");
   const cards = ordered.filter((n) => n.type !== "group");
+
   const onResize = useCallback(
     (f: Frame, device: CanvasDevice) => {
-      void patchFrame(props.sessionId, f.id, { device }).finally(reload);
+      void patchNodes(sessionId, file, [{ id: f.id, device }]).finally(reload);
     },
-    [props.sessionId, reload],
+    [sessionId, file, reload],
   );
   const onRemove = useCallback(
     (f: Frame) => {
       setPicks((list) => list.filter((p) => p.frameId !== f.id));
-      void removeFrame(props.sessionId, f.id).finally(reload);
+      void removeFrame(sessionId, file, f.id).finally(reload);
     },
-    [props.sessionId, reload],
+    [sessionId, file, reload],
   );
   const onLeft = useCallback(
     (f: Frame) => {
-      void rotateFrame(props.sessionId, f.id).finally(reload);
+      void rotateFrame(sessionId, file, f.id).finally(reload);
     },
-    [props.sessionId, reload],
+    [sessionId, file, reload],
   );
-
-  // The field takes the focus as the window opens, except on a touch screen.
-  const windowRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const opener =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    if (composerAutoFocusAllowed()) {
-      windowRef.current
-        ?.querySelector<HTMLTextAreaElement>(".canvas-bar-field")
-        ?.focus({ preventScroll: true });
-    }
-    return () => {
-      if (opener?.isConnected) opener.focus({ preventScroll: true });
-    };
-  }, []);
 
   const popoverStyle = popover
     ? {
@@ -578,219 +619,125 @@ export function CanvasView(props: CanvasViewProps) {
       }
     : undefined;
 
+  const fileError = board?.error || "";
+  const empty = board !== null && everything.length === 0 && !fileError;
+
   return (
     <div
-      ref={windowRef}
-      className={
-        "files-dock-cluster canvas-window" + (expanded ? " is-expanded" : "")
-      }
+      className="canvas-pane"
       data-testid="canvas-view"
-      role="dialog"
       aria-label={t("canvas.title")}
     >
-      <div className="files-header">
-        <div className="files-title-block">
-          <div className="files-title-text">
-            <h2 className="files-title">{t("canvas.title")}</h2>
-            <p className="files-subtitle" data-testid="canvas-subtitle">
-              {link ? (
-                <>
-                  <span className="canvas-subtitle-file" title={link.path}>
-                    {link.path}
-                  </span>
-                  {" · "}
-                </>
-              ) : null}
-              {tp("canvas.frames", frames.length)}
-            </p>
-          </div>
-        </div>
-        <div className="files-actions canvas-actions">
-          <div
-            className="canvas-mode"
-            role="group"
-            aria-label={t("canvas.mode")}
-          >
-            <button
-              type="button"
-              className={
-                "canvas-mode-btn" + (mode === "interact" ? " is-active" : "")
-              }
-              aria-pressed={mode === "interact"}
-              data-testid="canvas-mode-interact"
-              title={t("canvas.interactTitle")}
-              onClick={() => setMode("interact")}
-            >
-              {t("canvas.interact")}
-            </button>
-            <button
-              type="button"
-              className={
-                "canvas-mode-btn" + (mode === "comment" ? " is-active" : "")
-              }
-              aria-pressed={mode === "comment"}
-              data-testid="canvas-mode-comment"
-              title={t("canvas.commentTitle")}
-              onClick={() => setMode("comment")}
-            >
-              {t("canvas.comment")}
-            </button>
-          </div>
-          <div
-            className="canvas-zoom"
-            role="group"
-            aria-label={t("canvas.zoom")}
-          >
-            <button
-              type="button"
-              className="files-icon-btn"
-              aria-label={t("canvas.zoomOut")}
-              title={t("canvas.zoomOut")}
-              onClick={() => zoomBy(1 / 1.25)}
-            >
-              −
-            </button>
-            <button
-              type="button"
-              className="canvas-zoom-value"
-              data-testid="canvas-zoom"
-              title={t("canvas.zoomReset")}
-              onClick={() => {
-                userMoved.current = true;
-                setCamera((c) =>
-                  zoomAt(c, 1 / c.scale, {
-                    x: viewport.width / 2,
-                    y: viewport.height / 2,
-                  }),
-                );
-              }}
-            >
-              {zoomPercent(camera)}%
-            </button>
-            <button
-              type="button"
-              className="files-icon-btn"
-              aria-label={t("canvas.zoomIn")}
-              title={t("canvas.zoomIn")}
-              onClick={() => zoomBy(1.25)}
-            >
-              +
-            </button>
-            <button
-              type="button"
-              className="canvas-fit"
-              data-testid="canvas-fit"
-              title={t("canvas.fitTitle")}
-              onClick={fitAll}
-            >
-              {t("canvas.fit")}
-            </button>
-          </div>
-          <CanvasFileMenu
-            sessionId={props.sessionId}
-            link={link}
-            hasFrames={frames.length > 0}
-            onChanged={reload}
-          />
-          <button
-            type="button"
-            className={"files-icon-btn" + (expanded ? " is-active" : "")}
-            aria-pressed={expanded}
-            aria-label={t(expanded ? "files.restore" : "files.expand")}
-            title={t(expanded ? "files.restore" : "files.expand")}
-            onClick={() => setExpanded((v) => !v)}
-          >
-            {expanded ? <IconRestore /> : <IconExpand />}
-          </button>
-          <button
-            type="button"
-            className="sessions-close files-close"
-            data-testid="canvas-close"
-            aria-label={t("canvas.close")}
-            onClick={props.onClose}
-          >
-            ×
-          </button>
-        </div>
-      </div>
-
       <div
         ref={boardRef}
         className={
           "canvas-board" + (mode === "comment" ? " is-commenting" : "")
         }
         data-testid="canvas-board"
+        tabIndex={0}
         onPointerDown={onBoardDown}
         onPointerMove={onBoardMove}
         onPointerUp={onBoardUp}
         onPointerCancel={onBoardUp}
+        onKeyDown={onBoardKey}
       >
-        {link?.error ? (
+        <div ref={worldRef} className="canvas-world" data-testid="canvas-world">
+          {groups.map((n) => (
+            <CanvasNode
+              key={n.id}
+              sessionId={sessionId}
+              item={n}
+              dx={nodeDrag?.ids.includes(n.id) ? nodeDrag.dx : 0}
+              dy={nodeDrag?.ids.includes(n.id) ? nodeDrag.dy : 0}
+              version={stamp}
+              dragging={!!nodeDrag?.ids.includes(n.id)}
+              onPointerDown={onNodeDown}
+              onPointerMove={onNodeMove}
+              onPointerUp={onNodeUp}
+            />
+          ))}
+          <CanvasEdges edges={edges} rects={rects} />
+          {cards.map((n) => (
+            <CanvasNode
+              key={n.id}
+              sessionId={sessionId}
+              item={n}
+              dx={nodeDrag?.ids.includes(n.id) ? nodeDrag.dx : 0}
+              dy={nodeDrag?.ids.includes(n.id) ? nodeDrag.dy : 0}
+              version={stamp}
+              dragging={!!nodeDrag?.ids.includes(n.id)}
+              onPointerDown={onNodeDown}
+              onPointerMove={onNodeMove}
+              onPointerUp={onNodeUp}
+            />
+          ))}
+          {frames.map((f) => (
+            <CanvasFrameAt
+              key={f.id}
+              sessionId={sessionId}
+              file={file}
+              frame={f}
+              shift={nodeDrag?.ids.includes(f.id) ? nodeDrag : null}
+              camera={camera}
+              mode={mode}
+              focused={f.id === props.focusFrameId}
+              onPick={onPick}
+              onEscape={escapeStep}
+              onMove={onMove}
+              onDragging={onFrameDrag}
+              onResize={onResize}
+              onRemove={onRemove}
+              onLeft={onLeft}
+            />
+          ))}
+        </div>
+        {fileError || readError ? (
           <div
             className="canvas-link-error"
             role="alert"
-            data-testid="canvas-link-error"
+            data-testid="canvas-file-error"
           >
-            {t("canvas.linkError", { file: link.path, error: link.error })}
+            {t("canvas.fileError", { file, error: fileError || readError })}
           </div>
         ) : null}
-        {everything.length === 0 && !link?.error ? (
+        {empty ? (
           <div className="canvas-empty" data-testid="canvas-empty">
-            <p className="canvas-empty-title">
-              {t(link ? "canvas.emptyFileTitle" : "canvas.emptyTitle")}
-            </p>
-            <p className="canvas-empty-hint">
-              {t(link ? "canvas.emptyFileHint" : "canvas.emptyHint")}
-            </p>
+            <p className="canvas-empty-title">{t("canvas.emptyTitle")}</p>
+            <p className="canvas-empty-hint">{t("canvas.emptyHint")}</p>
           </div>
         ) : null}
-        {groups.map((n) => (
-          <CanvasNode
-            key={n.id}
-            sessionId={props.sessionId}
-            item={n}
-            screen={screenRects.get(n.id)!}
-            scale={camera.scale}
-            version={link?.stamp ?? ""}
-            dragging={!!nodeDrag?.ids.includes(n.id)}
-            onPointerDown={onNodeDown}
-            onPointerMove={onNodeMove}
-            onPointerUp={onNodeUp}
-          />
-        ))}
-        <CanvasEdges edges={edges} rects={screenRects} scale={camera.scale} />
-        {cards.map((n) => (
-          <CanvasNode
-            key={n.id}
-            sessionId={props.sessionId}
-            item={n}
-            screen={screenRects.get(n.id)!}
-            scale={camera.scale}
-            version={link?.stamp ?? ""}
-            dragging={!!nodeDrag?.ids.includes(n.id)}
-            onPointerDown={onNodeDown}
-            onPointerMove={onNodeMove}
-            onPointerUp={onNodeUp}
-          />
-        ))}
-        {frames.map((f) => (
-          <CanvasFrame
-            key={f.id}
-            sessionId={props.sessionId}
-            frame={f}
-            screen={screenOf(f.id, f)}
-            scale={camera.scale}
-            onDragging={onFrameDrag}
-            mode={mode}
-            focused={f.id === props.focusFrameId}
-            onPick={onPick}
-            onEscape={escapeStep}
-            onMove={onMove}
-            onResize={onResize}
-            onRemove={onRemove}
-            onLeft={onLeft}
-          />
-        ))}
+        <div
+          className="canvas-mode"
+          role="group"
+          aria-label={t("canvas.mode")}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            className={
+              "canvas-mode-btn" + (mode === "interact" ? " is-active" : "")
+            }
+            aria-pressed={mode === "interact"}
+            data-testid="canvas-mode-interact"
+            title={t("canvas.interactTitle")}
+            onClick={() => setMode("interact")}
+          >
+            {t("canvas.interact")}
+          </button>
+          <button
+            type="button"
+            className={
+              "canvas-mode-btn" + (mode === "comment" ? " is-active" : "")
+            }
+            aria-pressed={mode === "comment"}
+            data-testid="canvas-mode-comment"
+            title={t("canvas.commentTitle")}
+            onClick={() => setMode("comment")}
+          >
+            {t("canvas.comment")}
+          </button>
+        </div>
+        <CanvasZoom camera={camera} onZoom={zoomBy} onFit={fitAll} />
         {popover ? (
           <div
             className="canvas-popover"
@@ -798,6 +745,7 @@ export function CanvasView(props: CanvasViewProps) {
             data-testid="canvas-popover"
             role="dialog"
             aria-label={t("canvas.popoverTitle")}
+            onPointerDown={(e) => e.stopPropagation()}
           >
             <p className="canvas-popover-target">
               <code>{pickLabel({ element: popover.element })}</code>
@@ -893,5 +841,55 @@ export function CanvasView(props: CanvasViewProps) {
         touchOnly={touchOnly}
       />
     </div>
+  );
+}
+
+export default CanvasBoard;
+
+/** A frame, shifted while the group it lies in is dragged. */
+function CanvasFrameAt(
+  props: Omit<Parameters<typeof CanvasFrame>[0], "frame"> & {
+    frame: Frame;
+    shift: { dx: number; dy: number } | null;
+  },
+) {
+  const { shift, frame, ...rest } = props;
+  const at = useMemo(
+    () =>
+      shift
+        ? { ...frame, x: frame.x + shift.dx, y: frame.y + shift.dy }
+        : frame,
+    [frame, shift],
+  );
+  return <CanvasFrame {...rest} frame={at} />;
+}
+
+/** The zoom controls of the board, the only part a zoom draws again. */
+function CanvasZoom(props: {
+  camera: CameraStore;
+  onZoom: (factor: number) => void;
+  onFit: () => void;
+}) {
+  const { t } = useT();
+  const { camera } = props;
+  const percent = useSyncExternalStore(
+    useCallback((fn: () => void) => camera.subscribe(fn), [camera]),
+    () => camera.percent(),
+    () => null,
+  );
+  return (
+    <ZoomControls
+      testId="canvas"
+      percent={percent}
+      onZoomOut={() => props.onZoom(1 / ZOOM_STEP)}
+      onZoomIn={() => props.onZoom(ZOOM_STEP)}
+      onFit={props.onFit}
+      labels={{
+        group: t("canvas.zoom"),
+        zoomOut: t("canvas.zoomOut"),
+        zoomIn: t("canvas.zoomIn"),
+        fit: t("canvas.fitTitle"),
+      }}
+    />
   );
 }

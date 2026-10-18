@@ -512,44 +512,47 @@ and Content-Disposition.
 
 ## Canvas
 
-The routes of a chat's [canvas](../features/canvas.md): a board of live frames, each an HTML page
-of the session's workspace. A subagent's id acts on the board of the top session of its spawn tree.
-Every route answers `404` while `tools.canvas.enable` is false, and `409` for a session that is not
-saved.
+The routes of a chat's [canvases](../features/canvas.md): `.canvas` files of the session's workspace
+(JSON Canvas 1.0, the format of Obsidian's canvases) whose file nodes naming HTML pages run as live
+frames. A subagent's id acts on the canvas of the top session of its spawn tree. Every route names its
+file with the `file` query, relative to the workspace, a `.canvas` file outside dot-named folders
+(`400` otherwise); `GET .../canvas` and `POST .../canvas/frames` take none and act on the chat's
+current canvas: the file a page was last shown on or opened. Every route answers `404` while
+`tools.canvas.enable` is false, and `409` for a session that is not saved.
 
 | Method | Route | Contract |
 |---|---|---|
-| GET | `/coddy/sessions/{id}/canvas` | The board: `session_id`, `revision`, `frames[]`. A frame carries `id`, `path`, `root`, `title`, `device`, `width`, `height`, `x`, `y`, `added_by`, `added_at`, `shown_at`, `gen`, `stamp` (a digest of the names, sizes and times of the files under its root, which moves when they change), `url` (its address relative to the API base, signed now) with `expires_at`, and `report`, the counts of the newest browser report. A board linked to a `.canvas` file adds `link` (`path`, `stamp`, which moves when the file changes, and `error` when it cannot be read), `items[]` (its other nodes: `id`, `type` - `text`, `file`, `link` or `group` - `x`, `y`, `width`, `height`, `color`, `text`, `file`, `url`, `label`, and `note` for a page that does not run) and `edges[]` (`id`, `fromNode`, `fromSide`, `fromEnd`, `toNode`, `toSide`, `toEnd`, `color`, `label`), read from the file on every request. `Cache-Control: no-store`. |
-| POST | `/coddy/sessions/{id}/canvas/frames` | Puts a page on the board: `{"path","root","title","device","width","height"}`, the page relative to the workspace. The same page at the same size is one frame (`reason: shown`); past 24 frames `409`. Answers `reason`, `frame`, `revision`. On a linked board the frame becomes a file node of the file. |
-| PATCH | `/coddy/sessions/{id}/canvas/frames/{frame}` | Moves, resizes or renames a frame: `title`, `device` (`""` for a custom size), `width`, `height`, `x`, `y`. |
-| DELETE | `/coddy/sessions/{id}/canvas/frames/{frame}` | Takes a frame off the board; the files stay, every address of the frame stops working, a linked file loses the node and its edges. |
-| POST | `/coddy/sessions/{id}/canvas/frames/{frame}/rotate` | Moves the frame to its next generation, so every address handed out before stops working; the web UI calls it when the page navigated away from the canvas. Answers the frame with its new address. A linked file is not written. |
-| POST | `/coddy/sessions/{id}/canvas/frames/{frame}/report` | What the browser saw: `stamp` (the files it loaded), `loaded`, `closed`, `error`, `title`, `console[]` (`level` `error` or `warning`, `message`, `source`, `line`, `column`). Kept in memory, the newest per frame, at most 20 lines of at most 1,000 characters; `canvas_inspect` reads it. `204`. |
-| PATCH | `/coddy/sessions/{id}/canvas/nodes` | Moves or resizes nodes in one change: `{"nodes":[{"id","x","y","width","height"}]}`, frames and the cards, links and groups of a linked file, at most 500, written to the file once. All of them or none: an id the board does not hold is `404`. |
-| POST | `/coddy/sessions/{id}/canvas/link` | Makes a `.canvas` file (JSON Canvas 1.0) of the workspace the board: `{"path"}`, a regular file outside dot-named folders, at most 8 MB, that parses. Its file nodes naming HTML pages are frames, the rest are `items`. Linking writes nothing; the chat's own frames wait until the link is undone. Answers the board. |
-| DELETE | `/coddy/sessions/{id}/canvas/link` | Gives the chat its own board back; the file stays. `409` while the board is not linked. |
-| POST | `/coddy/sessions/{id}/canvas/export` | Writes the chat's own board as a new `.canvas` file, `{"path"}`, making the folders it needs, and links the board to it. `409` when the file exists or the board is already linked. |
+| GET | `/coddy/sessions/{id}/canvas` | A canvas as the board: `session_id`, `file`, `current` (whether it is the chat's current canvas), `revision`, `stamp` (moves when the file changes, whoever changed it; `missing` when it is gone), `error` (why it cannot be read; nothing of it is shown then), `frames[]`, `items[]`, `edges[]`. A frame carries `id` (its node's), `path`, `root`, `title`, `device`, `width`, `height`, `x`, `y`, `added_by`, `gen`, `stamp` (a digest of the names, sizes and times of the files under its root, which moves when they change), `url` (its address relative to the API base, signed now) with `expires_at`, and `report`, the counts of the newest browser report. `items[]` are its other nodes (`id`, `type` - `text`, `file`, `link` or `group` - `x`, `y`, `width`, `height`, `color`, `text`, `file`, `url`, `label`, and `note` for a page that does not run), `edges[]` its lines (`id`, `fromNode`, `fromSide`, `fromEnd`, `toNode`, `toSide`, `toEnd`, `color`, `label`), read from the file on every request. Without `file` the current canvas, or an answer with an empty `file` while the chat has none. Reading writes nothing. `Cache-Control: no-store`. |
+| POST | `/coddy/sessions/{id}/canvas/open` | Makes the `file` the chat's current canvas, the one pages shown without a file go on; the web UI calls it when the person opens the file. Writes nothing to the file; `400` for one that is missing or does not parse. Answers the board. |
+| POST | `/coddy/sessions/{id}/canvas/frames` | Puts a page on a canvas: `{"path","root","title","device","width","height"}`, the page relative to the workspace, as a file node of the `file`, or of the current canvas, or of a new `canvas/<page folder>.canvas` (numbered when the name is taken) while the chat has none. The same page at the same size is one frame (`reason: shown`); past 24 frames `409`. Answers `reason`, `file`, `created` (the file was made for it), `frame`, `revision`. |
+| DELETE | `/coddy/sessions/{id}/canvas/frames/{frame}` | Takes a frame off the canvas: its node and the edges at it leave the file, the page's files stay, every address of the frame stops working. |
+| POST | `/coddy/sessions/{id}/canvas/frames/{frame}/rotate` | Moves the frame to its next generation, so every address handed out before stops working; the web UI calls it when the page navigated away from the canvas. Answers the frame with its new address. The file is not written. |
+| POST | `/coddy/sessions/{id}/canvas/frames/{frame}/report` | What the browser saw: `stamp` (the files it loaded), `loaded`, `closed`, `error`, `title`, `console[]` (`level` `error` or `warning`, `message`, `source`, `line`, `column`). Kept in memory, the newest per frame of a file, at most 20 lines of at most 1,000 characters; `canvas_inspect` reads it. `204`. |
+| PATCH | `/coddy/sessions/{id}/canvas/nodes` | Moves or resizes nodes in one change: `{"nodes":[{"id","x","y","width","height","device"}]}`, frames (by a size or a `device`) and cards, links and groups, at most 500, written to the file once. All of them or none: an id the file does not hold is `404`. |
 | GET / HEAD | `/coddy/canvas/{capability}/{path}` | A file of a frame, `path` relative to its root; `.coddy/bridge.js` is the bridge script. |
 
-Writes to a linked file keep every node, edge and key they do not change, the keys Coddy does not
-know and their order included, and write the file byte for byte as Obsidian 1.14 does: a node of plain
-values on one line, one holding an object one key a line, a node Coddy changed in Obsidian's key order,
-characters escaped as `JSON.stringify` escapes them, the file ending where it ended. A frame's
-device and title go under a `coddy` key of its node; a node Coddy did not move keeps its own numbers.
-A root wider than the page's folder and the generation behind a frame's address are kept in the
-session bundle, never in the file, so a file cannot widen what its pages read.
+Writes keep every node, edge and key they do not change, the keys Coddy does not know and their order
+included, and write the file byte for byte as Obsidian 1.14 does: a node of plain values on one line,
+one holding an object one key a line, a node Coddy changed in Obsidian's key order, characters escaped
+as `JSON.stringify` escapes them, the file ending where it ended. A frame's device and title go under
+a `coddy` key of its node; a node Coddy did not move keeps its own numbers. A root wider than the
+page's folder, the generation behind a frame's address and the current canvas are kept in the session
+bundle (`canvas.json`), never in the file, so a file cannot widen what its pages read. One file's
+read-modify-write is one turn across chats, and a node deleted in the file since it was read stays
+deleted.
 
-Every change to a board is announced on `GET /coddy/events` as `event: canvas_changed` with
-`{"object":"coddy.canvas_changed","sessionId","revision","frameId","reason","at"}`; `reason` is
-`added`, `shown`, `updated`, `removed`, `linked` or `unlinked`.
+Every change made through the canvas is announced on `GET /coddy/events` as `event: canvas_changed`
+with `{"object":"coddy.canvas_changed","sessionId","file","revision","frameId","reason","at"}`;
+`reason` is `added`, `shown`, `updated`, `removed` or `opened`.
 
 **A frame's address.** `/coddy/canvas/<capability>/<page>` is authenticated by the capability in its
 path alone: no bearer, no cookie, so it loads in an iframe of any origin, through a remote server
-and through a swarm relay alike. The capability is an HMAC over the session, the frame, its
-workspace, its root, its generation and an expiry of 12 hours, signed with a key derived for the
+and through a swarm relay alike. The capability is an HMAC over the session, the `.canvas` file, the
+frame, its workspace, its root, its generation and an expiry of 12 hours, signed with a key derived for the
 canvas from the secret behind media tokens, so a media token never passes for a frame address. It is
-valid while the frame is on the board at that generation with that root and workspace; a removed,
-repointed or rotated frame answers `401`. Files are served through `os.Root` with no symbolic link
+valid while the file holds the frame at that generation with that root, in the session's working
+directory; a removed, repointed or rotated frame, and a session that moved to another folder, answer
+`401`. Files are served through `os.Root` with no symbolic link
 on the way and the opened file checked to be the one walked to: `GET` and `HEAD` only, no
 dot-named path, a folder's `index.html` (with a `301` to add a missing slash), never a listing.
 

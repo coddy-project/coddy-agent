@@ -17,7 +17,7 @@ interface Props {
 }
 
 /**
- * The foot of the canvas window: the elements picked so far as chips, a field
+ * The foot of a canvas board: the elements picked so far as chips, a field
  * that grows with its text, Send (which goes the way the composer's Send goes:
  * the chat's mode and model, the queue while a turn runs) and Stop.
  */

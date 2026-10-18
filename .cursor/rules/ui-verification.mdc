@@ -104,9 +104,10 @@ are facts of a real browser, which jsdom cannot see. When the change touches
 **`external/ui/src/ui/canvas/`**, **`internal/canvas`**, the canvas routes or the relay's mount, run
 **`external/ui/scripts/canvas-check.mjs`** (**`npm run check:canvas`**) against a binary built with
 **`TAGS="http ui swarm"`** (setup in **`docs/surfaces/web-ui.md`**, *Checking the canvas through a
-swarm relay*): it drives the window through an authenticated relay, checks the sandbox, a pick, the
-reload of only the frame whose files moved, a page leaving the canvas, a frame's address opened on
-its own, an Obsidian `.canvas` file as the board, and the window at every tier of the grid in English
+swarm relay*): it drives a `.canvas` tab of the Files window through an authenticated relay, checks
+the sandbox, a pick, the reload of only the frame whose files moved, a wheel zoom that draws nothing
+again in about one frame, a page leaving the canvas, a frame's address opened on its own, an
+Obsidian `.canvas` file opened in the window, and the window at every tier of the grid in English
 and in Russian. Run it once more with **`CODDY_ENGINE=webkit`** when the change touches the frames'
 scaling or the pointer handling of the board.
 

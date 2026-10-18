@@ -201,14 +201,6 @@ export function ChatScreen(props: {
   onOpenFiles?: () => void;
   /** The Files window is open. */
   filesOpen?: boolean;
-  /** Opens (or puts away) the canvas window from the header. */
-  onOpenCanvas?: () => void;
-  /** The canvas window is open. */
-  canvasOpen?: boolean;
-  /** How many frames the chat's canvas holds; the header offers it from one. */
-  canvasFrames?: number;
-  /** The .canvas file the chat's canvas is, when it is one. */
-  canvasFile?: string;
   /** Re-read the task rows: a background subagent's prompt was answered here. */
   onBackgroundTasksChanged?: () => void;
   /** Roots this session works in - its own directory, then its worktrees -
@@ -1013,16 +1005,6 @@ export function ChatScreen(props: {
                           ? {
                               onOpenFiles: openFiles,
                               filesOpen: props.filesOpen === true,
-                            }
-                          : {}),
-                        ...(props.sessionId && props.onOpenCanvas
-                          ? {
-                              onOpenCanvas: props.onOpenCanvas,
-                              canvasOpen: props.canvasOpen === true,
-                              canvasFrames: props.canvasFrames ?? 0,
-                              ...(props.canvasFile
-                                ? { canvasFile: props.canvasFile }
-                                : {}),
                             }
                           : {}),
                       }

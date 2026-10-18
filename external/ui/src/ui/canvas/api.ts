@@ -25,8 +25,6 @@ export interface CanvasFrame {
   x: number;
   y: number;
   added_by?: string;
-  added_at: string;
-  shown_at: string;
   gen: number;
   /** Moves when a file under the frame's root changes. */
   stamp: string;
@@ -36,8 +34,8 @@ export interface CanvasFrame {
   report?: CanvasReportSummary;
 }
 
-/** A node of a linked .canvas file that is not a live frame: a text card, a
- *  file the canvas does not run, a link or a group (JSON Canvas 1.0). */
+/** A node of a .canvas file that is not a live frame: a text card, a file
+ *  the canvas does not run, a link or a group (JSON Canvas 1.0). */
 export interface CanvasItem {
   id: string;
   type: "text" | "file" | "link" | "group";
@@ -57,7 +55,7 @@ export interface CanvasItem {
 
 export type CanvasSide = "top" | "right" | "bottom" | "left";
 
-/** A line between two nodes of a linked file. */
+/** A line between two nodes of the file. */
 export interface CanvasEdge {
   id: string;
   fromNode: string;
@@ -70,19 +68,20 @@ export interface CanvasEdge {
   label?: string;
 }
 
-/** The .canvas file of the workspace the board is, when it is one. */
-export interface CanvasLink {
-  path: string;
-  /** Moves when the file changes; "missing" when it is gone. */
-  stamp: string;
-  error?: string;
-}
-
+/** A .canvas file of the workspace as the canvas shows it
+ *  (GET /coddy/sessions/{id}/canvas?file=). */
 export interface CanvasBoard {
   session_id: string;
+  /** The file, relative to the workspace; "" while the chat has no canvas. */
+  file: string;
+  /** The agent shows pages on this file when it names none. */
+  current: boolean;
   revision: number;
+  /** Moves when the file changes, whoever changed it; "missing" when gone. */
+  stamp: string;
+  /** Why the file cannot be read; nothing of it is shown then. */
+  error?: string;
   frames: CanvasFrame[];
-  link?: CanvasLink;
   items: CanvasItem[];
   edges: CanvasEdge[];
 }
@@ -103,18 +102,24 @@ function boardPath(sessionId: string): string {
   return `/coddy/sessions/${encodeURIComponent(sessionId)}/canvas`;
 }
 
+function fileQuery(file: string): string {
+  return file ? `?file=${encodeURIComponent(file)}` : "";
+}
+
 function framePath(sessionId: string, frameId: string): string {
   return `${boardPath(sessionId)}/frames/${encodeURIComponent(frameId)}`;
 }
 
 const json = { "Content-Type": "application/json" };
 
+/** Reads a .canvas file as a board; without a file, the chat's current one. */
 export async function readBoard(
   sessionId: string,
+  file: string,
   signal?: AbortSignal,
 ): Promise<CanvasBoard> {
   const raw = await readJson<Partial<CanvasBoard> | null>(
-    boardPath(sessionId),
+    boardPath(sessionId) + fileQuery(file),
     {
       signal: signal ?? null,
       cache: "no-store",
@@ -123,8 +128,22 @@ export async function readBoard(
   return normalizeBoard(raw);
 }
 
-/** A board as the window can draw it, whatever came back: an older server or
- *  a proxy's answer may lack a field. */
+/** Makes a .canvas file the one the agent shows pages on: the person opened
+ *  it. Answers the board. */
+export async function openCanvasFile(
+  sessionId: string,
+  file: string,
+): Promise<CanvasBoard> {
+  return normalizeBoard(
+    await readJson<Partial<CanvasBoard>>(
+      `${boardPath(sessionId)}/open${fileQuery(file)}`,
+      { method: "POST" },
+    ),
+  );
+}
+
+/** A board as the window can draw it, whatever came back: a proxy's answer
+ *  may lack a field. */
 export function normalizeBoard(
   raw: Partial<CanvasBoard> | null | undefined,
 ): CanvasBoard {
@@ -152,80 +171,44 @@ export function normalizeBoard(
           typeof e.toNode === "string",
       )
     : [];
-  const link =
-    raw?.link && typeof raw.link.path === "string"
-      ? {
-          path: raw.link.path,
-          stamp: typeof raw.link.stamp === "string" ? raw.link.stamp : "",
-          ...(typeof raw.link.error === "string" && raw.link.error
-            ? { error: raw.link.error }
-            : {}),
-        }
-      : undefined;
   return {
     session_id: typeof raw?.session_id === "string" ? raw.session_id : "",
+    file: typeof raw?.file === "string" ? raw.file : "",
+    current: raw?.current === true,
     revision: typeof raw?.revision === "number" ? raw.revision : 0,
+    stamp: typeof raw?.stamp === "string" ? raw.stamp : "",
+    ...(typeof raw?.error === "string" && raw.error
+      ? { error: raw.error }
+      : {}),
     frames,
-    ...(link ? { link } : {}),
     items,
     edges,
   };
 }
 
-/** Moves or resizes nodes of the board: frames, and the cards, links and
- *  groups of a linked file, in one change (a group carries its nodes). */
+/** One node moved or resized: a frame (by a size or a device), a card, a link
+ *  or a group. */
+export interface NodeChange {
+  id: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  device?: CanvasDevice;
+}
+
+/** Moves or resizes nodes of a board in one change (a group carries its
+ *  nodes). */
 export function patchNodes(
   sessionId: string,
-  nodes: {
-    id: string;
-    x?: number;
-    y?: number;
-    width?: number;
-    height?: number;
-  }[],
+  file: string,
+  nodes: NodeChange[],
 ): Promise<{ revision: number }> {
-  return readJson(`${boardPath(sessionId)}/nodes`, {
+  return readJson(`${boardPath(sessionId)}/nodes${fileQuery(file)}`, {
     method: "PATCH",
     headers: json,
     body: JSON.stringify({ nodes }),
   });
-}
-
-/** Makes a .canvas file of the workspace the chat's canvas. */
-export async function linkCanvasFile(
-  sessionId: string,
-  path: string,
-): Promise<CanvasBoard> {
-  return normalizeBoard(
-    await readJson<Partial<CanvasBoard>>(`${boardPath(sessionId)}/link`, {
-      method: "POST",
-      headers: json,
-      body: JSON.stringify({ path }),
-    }),
-  );
-}
-
-/** Gives the chat its own canvas back; the file stays. */
-export async function unlinkCanvas(sessionId: string): Promise<CanvasBoard> {
-  return normalizeBoard(
-    await readJson<Partial<CanvasBoard>>(`${boardPath(sessionId)}/link`, {
-      method: "DELETE",
-    }),
-  );
-}
-
-/** Saves the chat's own canvas as a new .canvas file and links it. */
-export async function exportCanvas(
-  sessionId: string,
-  path: string,
-): Promise<CanvasBoard> {
-  return normalizeBoard(
-    await readJson<Partial<CanvasBoard>>(`${boardPath(sessionId)}/export`, {
-      method: "POST",
-      headers: json,
-      body: JSON.stringify({ path }),
-    }),
-  );
 }
 
 /** A page the canvas runs, by its name: the extensions the server's
@@ -240,48 +223,43 @@ export function isCanvasFile(path: string): boolean {
   return /\.canvas$/i.test(path);
 }
 
+/** Puts a page on a board: the file named, or the chat's current one, or a
+ *  new canvas/<folder>.canvas made for it (created says so). */
 export function addFrame(
   sessionId: string,
+  file: string,
   body: { path: string; device?: CanvasDevice; title?: string },
-): Promise<{ reason: string; frame: CanvasFrame; revision: number }> {
-  return readJson(`${boardPath(sessionId)}/frames`, {
+): Promise<{
+  reason: string;
+  file: string;
+  created: boolean;
+  frame: CanvasFrame;
+  revision: number;
+}> {
+  return readJson(`${boardPath(sessionId)}/frames${fileQuery(file)}`, {
     method: "POST",
     headers: json,
     body: JSON.stringify(body),
   });
 }
 
-export function patchFrame(
-  sessionId: string,
-  frameId: string,
-  body: {
-    title?: string;
-    device?: CanvasDevice | "";
-    width?: number;
-    height?: number;
-    x?: number;
-    y?: number;
-  },
-): Promise<{ frame: CanvasFrame; revision: number }> {
-  return readJson(framePath(sessionId, frameId), {
-    method: "PATCH",
-    headers: json,
-    body: JSON.stringify(body),
-  });
-}
-
+/** Takes a frame off its board: its node and the edges at it leave the file. */
 export function removeFrame(
   sessionId: string,
+  file: string,
   frameId: string,
 ): Promise<{ revision: number }> {
-  return readJson(framePath(sessionId, frameId), { method: "DELETE" });
+  return readJson(framePath(sessionId, frameId) + fileQuery(file), {
+    method: "DELETE",
+  });
 }
 
 export function rotateFrame(
   sessionId: string,
+  file: string,
   frameId: string,
 ): Promise<{ frame: CanvasFrame; revision: number }> {
-  return readJson(`${framePath(sessionId, frameId)}/rotate`, {
+  return readJson(`${framePath(sessionId, frameId)}/rotate${fileQuery(file)}`, {
     method: "POST",
   });
 }
@@ -307,17 +285,21 @@ export interface CanvasReport {
  *  not arrive costs the agent a reading, never the person anything. */
 export async function postReport(
   sessionId: string,
+  file: string,
   frameId: string,
   report: CanvasReport,
   keepalive = false,
 ): Promise<void> {
   try {
-    await resourceRequest(`${framePath(sessionId, frameId)}/report`, {
-      method: "POST",
-      headers: json,
-      body: JSON.stringify(report),
-      keepalive,
-    });
+    await resourceRequest(
+      `${framePath(sessionId, frameId)}/report${fileQuery(file)}`,
+      {
+        method: "POST",
+        headers: json,
+        body: JSON.stringify(report),
+        keepalive,
+      },
+    );
   } catch {
     /* the server is away; the next report carries the state */
   }

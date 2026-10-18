@@ -17,7 +17,7 @@ import {
   type CanvasItem,
 } from "./api";
 import {
-  canvasLinkedFile,
+  canvasOpenedFile,
   canvasShowView,
 } from "../messages/StructuredToolCard";
 
@@ -134,13 +134,16 @@ describe("JSON Canvas nodes", () => {
   });
 });
 
-describe("a linked board from the server", () => {
-  test("keeps the link, the nodes and the edges it can draw", () => {
+describe("a board from the server", () => {
+  test("keeps its file, the nodes and the edges it can draw", () => {
     const b = normalizeBoard({
       session_id: "s",
+      file: "design/shop.canvas",
+      current: true,
       revision: 3,
+      stamp: "ab12",
+      error: "",
       frames: [],
-      link: { path: "design/shop.canvas", stamp: "[1,2]", error: "" },
       items: [
         { id: "n1", type: "text", x: 0, y: 0, width: 10, height: 10 },
         { id: "n2", type: "bogus", x: 0, y: 0, width: 10, height: 10 },
@@ -151,30 +154,35 @@ describe("a linked board from the server", () => {
         { id: "e2", fromNode: "n1" },
       ] as never,
     });
-    expect(b.link).toEqual({ path: "design/shop.canvas", stamp: "[1,2]" });
+    expect(b.file).toBe("design/shop.canvas");
+    expect(b.current).toBe(true);
+    expect(b.stamp).toBe("ab12");
+    expect(b.error).toBeUndefined();
     expect(b.items.map((i) => i.id)).toEqual(["n1"]);
     expect(b.edges.map((e) => e.id)).toEqual(["e1"]);
-    expect(normalizeBoard({ frames: [] }).link).toBeUndefined();
+    expect(normalizeBoard({ frames: [] }).file).toBe("");
+    expect(normalizeBoard({ error: "bad file" }).error).toBe("bad file");
   });
 
-  test("the canvas_show card reads an Obsidian node id and a linked file", () => {
+  test("the canvas_show card reads the frame, its file and an opened file", () => {
     expect(
       canvasShowView(
-        "Canvas frame 9a8b7c6d5e4f3a2b: site/index.html (phone 390x844), added.\nmore",
+        "Canvas frame 9a8b7c6d5e4f3a2b of canvas/site.canvas: site/index.html (phone 390x844), added.\nmore",
       ),
     ).toEqual({
       frameId: "9a8b7c6d5e4f3a2b",
+      file: "canvas/site.canvas",
       path: "site/index.html",
       size: "phone 390x844",
       reason: "added",
     });
     expect(
-      canvasLinkedFile(
-        "The canvas of this chat is now the file design/shop.canvas.\nIts file nodes...",
+      canvasOpenedFile(
+        "The canvas of this chat is now design/shop.canvas: pages shown without a file go on it.\nIts file nodes...",
       ),
     ).toBe("design/shop.canvas");
     expect(
-      canvasLinkedFile("Canvas frame fr_1: a.html (x), added."),
+      canvasOpenedFile("Canvas frame a1 of b.canvas: a.html (x), added."),
     ).toBeNull();
   });
 });

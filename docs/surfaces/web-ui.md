@@ -1267,25 +1267,25 @@ On a phone: [390 px](../assets/views-toolbar-dark-390.png). `Ctrl+Shift+F`
 (`Cmd+Shift+F` on a Mac) opens and closes the Files window from anywhere in a chat,
 the composer included.
 
-When the chat's canvas holds a frame, or is a `.canvas` file, a **Canvas** button
-stands between Files and Tasks; it opens the [Canvas window](#canvas), and its tooltip
-names the frames or the file.
-
 ## Canvas
 
-The Canvas window is a third window over the chat, framed like the Files window: a
-board of live frames, each a page of the workspace running in a sandbox, and a prompt
-bar under it. It opens by itself when the agent puts a page on the canvas (never on a
-phone), from the **Canvas** button of the chat header, from the canvas_show card of the
-transcript and from **Open on canvas** in the Files window; its address is
-`#/s/<id>/canvas`. Its head switches **Interact** and **Comment**, zooms and fits the
-board, and holds the file menu, which saves the board as an Obsidian `.canvas` file,
-opens one as the board and gives the chat its own board back. The guide is
+A `.canvas` file of the workspace opens in the Files window as a board, in its own
+tab: live frames, each a page of the workspace running in a sandbox, the file's cards,
+groups and edges, and a prompt bar under the board, with the permission and question
+cards of the turn above the bar. The Files window opens on it by itself when the agent
+puts a page on a canvas (never on a phone), from the canvas_show card of the transcript
+and from **Open on canvas** in the window's **More** menu for an HTML file; its address
+is the window's, `#/s/<id>/files?path=<file>.canvas`. The board's top left switches
+**Interact** and **Comment**, its top right holds the zoom controls, the same as the
+picture viewer's and the swarm map's (minus, the level, plus; the wheel zooms at the
+pointer), and **Preview** in **More** shows the file's JSON instead. While a board
+shows, the window is opaque and the chat it covers drops its glass: a blur over or
+under a moving board is drawn again on every frame. The guide is
 [Canvas](../features/canvas.md).
 
-![The Canvas window in the light theme: two frames of one page beside the prompt bar](../assets/canvas/canvas-window-light-1280.png)
+![A .canvas file in the Files window in the light theme: two frames of one page, the prompt bar under the board](../assets/canvas/canvas-board-light-1280.png)
 
-*The Canvas window in the light theme.*
+*A .canvas file in the Files window, in the light theme.*
 
 ## Workspace files
 
@@ -1901,9 +1901,11 @@ Guide: `docs/operate/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
   or Graph is browser-only state in localStorage key `coddy_swarm_layout`; a
   saved legacy `star` value migrates to Graph, and an absent, blocked or invalid
   value selects Tree. No server configuration changes.
-- The canvas starts fitted. Its Tree/Graph selector and **Zoom out**, **Fit
-  graph**, and **Zoom in** controls are usable with 40px targets on the stacked
-  shell. Wheel zoom follows the pointer, drag pans in both axes even when fitted,
+- The canvas starts fitted. Its Tree/Graph selector and its zoom controls -
+  **Zoom out**, the level and **Zoom in**, the same controls as the picture
+  viewer's and a `.canvas` board's - are usable with 40px targets on the stacked
+  shell; the level shows the zoom as a percentage once the operator zooms or pans,
+  the fit glyph while the map is fitted, and a click on it fits the graph. Wheel zoom follows the pointer, drag pans in both axes even when fitted,
   two-finger pinch zooms, and drag/pinch gestures do not open nodes. When
   focused, **`+`** / **`=`**, **`-`** and **`0`** zoom in, zoom out and fit. Fit,
   a relay change, or a layout change resets the camera; polling refits only an
@@ -1985,7 +1987,10 @@ Guide: `docs/features/built-in-docs.md`. Visual contract: `DESIGN.md` (**Documen
   where it is; a press that travelled pans and does not also toggle the zoom, so
   the click still works for a press that stayed put. The buttons and the keys keep
   the 100 / 150 / 200 / 300 ladder and take the next level above or below wherever
-  a pinch left the picture. A video of a page
+  a pinch left the picture. The controls are the shared zoom controls of the
+  canvas and the swarm map (**`ui/components/ZoomControls.tsx`**), in the viewer's
+  bar beside the close control, and the wheel follows the same rule
+  (**`ui/components/zoom.ts`**: 500 pixels of wheel double the picture). A video of a page
   (a Markdown image whose file is **`.mp4`**, **`.webm`** or **`.mov`**, which is
   what the server makes of a GitHub attachment line) plays in a **`<video>`**
   fetched from GitHub at the release.
@@ -2213,21 +2218,24 @@ The stand also takes **`?theme=<id>`**, **`?lang=ru`** and **`?case=<name>`** (o
 
 ### Checking the canvas through a swarm relay
 
-The Canvas window is checked against the real binary by
+The canvas is checked against the real binary by
 **`external/ui/scripts/canvas-check.mjs`**: a scripted model puts a shop page of the
-workspace on the canvas, edits its script and reads the browser's report, a node that
+workspace on a canvas, edits its script and reads the browser's report, a node that
 asks for a bearer token sits behind a relay with its own client token, and the browser
-reaches the node through the relay's mount only. It checks that the canvas opens on the
-frame the agent showed, that the page's module script runs in an opaque origin with the
-parent and the API out of reach, that a pick in Comment mode becomes the prompt of the
-chat, that the page's console error reaches `canvas_inspect`, that an edit reloads only
-the frame whose files moved, that a page which navigated away says so and its old
-address stops working, that a frame's address opened as a tab of its own is still
-sandboxed and refused by an open node, that the window fits every tier of the grid in
-English and in Russian, and that an Obsidian `.canvas` file works as the board: its page
-runs, its cards, group and edges are drawn, a dragged card and a resized frame move in
-the file with the keys Coddy does not know kept, and an edit of the file elsewhere
-shows on the open canvas.
+reaches the node through the relay's mount only. It checks that the Files window opens
+by itself on the `.canvas` file the page went on, with the prompt bar under the board,
+that the page's module script runs in an opaque origin with the parent and the API out
+of reach, that a pick in Comment mode becomes the prompt of the chat, that the page's
+console error reaches `canvas_inspect`, that an edit reloads only the frame whose files
+moved, that the wheel zooms the board without drawing anything on it again and with
+the window's blur off, in about one frame of the screen, that a page which navigated
+away says so and its old address stops working, that a frame's address opened as a
+tab of its own is still sandboxed and refused by an open node, that the window and the
+board's controls fit every tier of the grid in English and in Russian, and that an
+Obsidian `.canvas` file opened in the window becomes the chat's canvas: its page runs,
+its cards, group and edges are drawn, a dragged card and a resized frame move in the
+file with the keys Coddy does not know kept, an edit of the file elsewhere shows on the
+open board, and Preview shows the file's JSON.
 
 ```bash
 make build TAGS="http ui swarm"

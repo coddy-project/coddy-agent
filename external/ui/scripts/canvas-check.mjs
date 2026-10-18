@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * Canvas check: the canvas window of a chat, driven in a real browser against
- * the real binary and reached through a swarm relay, the path a remote
- * operator takes (docs/features/canvas.md).
+ * Canvas check: a .canvas file of a chat's workspace as a tab of the Files
+ * window, driven in a real browser against the real binary and reached
+ * through a swarm relay, the path a remote operator takes
+ * (docs/features/canvas.md).
  *
  * A scripted OpenAI-compatible model puts a shop page of the workspace on the
  * canvas with canvas_show, edits its script on request and reads the browser's
@@ -11,7 +12,8 @@
  * client token, and the browser talks to the node through the relay's mount
  * only. It checks that:
  *
- *   - the canvas opens by itself on the frame the agent showed;
+ *   - the Files window opens by itself on canvas/site.canvas, the file the
+ *     agent's page was put on, with the prompt bar under the board;
  *   - the page's module script runs (a click counts), in an opaque origin:
  *     the parent's document is out of reach, localStorage is the bridge's
  *     in-memory stand-in;
@@ -26,13 +28,15 @@
  *     without an Origin is served (the control). The binary never runs a
  *     relay without a client token (it generates one for the run), so an open
  *     relay is the Go tests' case (external/swarm/canvas_capability_test.go);
+ *   - the wheel zooms the board at the pointer and a pan or a zoom draws
+ *     nothing again, with the window opaque while a board shows;
  *   - the window at every tier of the grid, in English and Russian;
- *   - an Obsidian canvas (design/shop.canvas, JSON Canvas) linked as the
- *     board: its page runs as a frame through the relay, its text card, note,
- *     link, group and edges are drawn, a dragged card and a frame resized from
- *     its menu move in the file with the keys Coddy does not know kept, an
- *     edit of the file elsewhere shows on the open canvas, and the chat gets
- *     its own board back with the file left in place.
+ *   - an Obsidian canvas (design/shop.canvas, JSON Canvas) opened in the
+ *     Files window: it becomes the chat's canvas, its page runs as a frame
+ *     through the relay, its text card, note, link, group and edges are
+ *     drawn, a dragged card and a frame resized from its menu move in the file
+ *     with the keys Coddy does not know kept, an edit of the file elsewhere
+ *     shows on the open board, and Preview shows the file's JSON.
  *
  * With CODDY_SHOTS_DIR set, the documentation's screenshots are taken on a
  * plain node without a relay or a token.
@@ -635,18 +639,47 @@ async function clickInFrame(page, frame, selector) {
   await page.mouse.up();
 }
 
-/** Shows the canvas window: it may have opened by itself on a new frame. */
-async function showCanvas(page) {
+/** Shows a .canvas file in the Files window: it may have opened by itself. */
+async function showCanvas(page, sid, file = "canvas/site.canvas") {
   await page.waitForTimeout(400);
-  if (
-    !(await page
+  const tab = page.locator(".files-tab.is-active .files-tab-name");
+  const name = file.split("/").pop();
+  const shown =
+    (await page
       .getByTestId("canvas-view")
       .isVisible()
-      .catch(() => false))
-  ) {
-    await page.getByTestId("chat-views-canvas").click();
+      .catch(() => false)) &&
+    ((await tab.textContent().catch(() => "")) || "").startsWith(name);
+  if (!shown) {
+    await page.evaluate(
+      ([s, f]) => {
+        location.hash = `#/s/${s}/files?path=${encodeURIComponent(f)}`;
+      },
+      [sid, file],
+    );
   }
   await page.getByTestId("canvas-view").waitFor();
+}
+
+/** Closes every tab of the Files window but the one on show. */
+async function closeOtherTabs(page) {
+  for (;;) {
+    const other = page.locator(".files-tab:not(.is-active) .files-tab-close");
+    if ((await other.count()) === 0) return;
+    await other.first().click();
+  }
+}
+
+/** On a phone the Files window shows the tree or a file: the board, there. */
+async function boardInView(page) {
+  const treeOver = await page.evaluate(
+    () =>
+      innerWidth < 600 && !!document.querySelector(".files-layout.has-tree"),
+  );
+  if (treeOver) {
+    await page.getByTestId("files-toggle-tree").click();
+    await page.waitForTimeout(300);
+  }
 }
 
 const relayApi = (p, init = {}) =>
@@ -670,16 +703,29 @@ try {
   );
   const sid = await sessionIdOf(page);
   await page.getByTestId("canvas-view").waitFor({ timeout: 15000 });
-  check("the canvas opened by itself on the frame the agent showed", true);
+  check("the Files window opened by itself on the agent's canvas", true);
   const hash = await page.evaluate(() => location.hash);
   check(
-    "the address names the canvas",
-    /\/canvas(\?frame=fr_)?/.test(hash),
+    "the address names the .canvas file the page went on",
+    hash.includes("/files?path=canvas%2Fsite.canvas"),
     hash,
   );
   check(
-    "the header offers the canvas",
-    (await page.getByTestId("chat-views-canvas").count()) === 1,
+    "the board is a tab of the Files window, the prompt bar under it",
+    await page.evaluate(() => {
+      const view = document.querySelector("[data-testid=canvas-view]");
+      return (
+        !!view.closest("[data-testid=files-view] .files-main") &&
+        !!view.querySelector("[data-testid=canvas-bar]") &&
+        document
+          .querySelector(".files-tab.is-active")
+          ?.textContent?.includes("site.canvas")
+      );
+    }),
+  );
+  check(
+    "the chat header has no canvas button of its own",
+    (await page.getByTestId("chat-views-canvas").count()) === 0,
   );
 
   const shop = await frameFor(page, "Shop");
@@ -815,7 +861,7 @@ try {
     other.ok,
     String(other.status),
   );
-  await showCanvas(page);
+  await showCanvas(page, sid);
   await until("two frames", async () =>
     (await page.locator("iframe.canvas-frame-page").count()) === 2 ? 2 : 0,
   );
@@ -875,6 +921,70 @@ try {
 
   await shoot(page, "canvas-two-frames-relay");
 
+  // ------------------------------------------------- the wheel and the frames
+  {
+    const zoom = await page.evaluate(async () => {
+      const board = document.querySelector("[data-testid=canvas-board]");
+      const world = document.querySelector("[data-testid=canvas-world]");
+      const r = board.getBoundingClientRect();
+      const before = world.style.transform;
+      let drawn = 0;
+      const mo = new MutationObserver((list) => {
+        for (const m of list) {
+          if (m.target === world || m.target === board) continue;
+          const el =
+            m.target.nodeType === 1 ? m.target : m.target.parentElement;
+          if (el?.closest(".zoom-controls")) continue;
+          drawn++;
+        }
+      });
+      mo.observe(board, { subtree: true, attributes: true, childList: true });
+      const frames = [];
+      let last = performance.now();
+      for (let i = 0; i < 30; i++) {
+        board.dispatchEvent(
+          new WheelEvent("wheel", {
+            deltaY: -10,
+            clientX: r.x + 40,
+            clientY: r.y + r.height - 40,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        await new Promise((res) => requestAnimationFrame(res));
+        const now = performance.now();
+        frames.push(now - last);
+        last = now;
+      }
+      mo.disconnect();
+      frames.sort((a, b) => a - b);
+      const win = document.querySelector("[data-testid=files-view]");
+      return {
+        moved: world.style.transform !== before,
+        drawn,
+        median: frames[15],
+        level: document.querySelector("[data-testid=canvas-fit]")?.textContent,
+        blur: getComputedStyle(win).backdropFilter,
+      };
+    });
+    check(
+      "the wheel zooms the board and draws nothing on it again",
+      zoom.moved && zoom.drawn === 0,
+      JSON.stringify(zoom),
+    );
+    check(
+      "the window has no backdrop blur while a board shows",
+      !zoom.blur || zoom.blur === "none",
+      zoom.blur,
+    );
+    check(
+      "a frame of the wheel takes about one frame of the screen",
+      zoom.median < 34,
+      `${zoom.median.toFixed(1)} ms`,
+    );
+    await page.getByTestId("canvas-fit").click();
+  }
+
   // ---------------------------------------------------- leaving the canvas
   const oldAddress = await page.$eval(
     "iframe.canvas-frame-page[title=Shop]",
@@ -916,71 +1026,98 @@ try {
   ]) {
     await page.setViewportSize({ width: w, height: h });
     await page.waitForTimeout(250);
+    await boardInView(page);
     const geo = await page.evaluate(() => {
       const win = document
         .querySelector("[data-testid=canvas-view]")
         .getBoundingClientRect();
+      if (win.width < 100 || win.height < 100) return { shown: false };
       const bar = document
         .querySelector("[data-testid=canvas-bar]")
         .getBoundingClientRect();
       const head = document
-        .querySelector(".canvas-window .files-header")
+        .querySelector("[data-testid=files-view] .files-header")
+        .getBoundingClientRect();
+      const mode = document
+        .querySelector(".canvas-mode")
+        .getBoundingClientRect();
+      const zoomCtl = document
+        .querySelector("[data-testid=canvas-zoom]")
         .getBoundingClientRect();
       return {
+        shown: true,
         inside:
           win.left >= -0.5 &&
           win.right <= innerWidth + 0.5 &&
           win.bottom <= innerHeight + 0.5,
         bar: bar.bottom <= win.bottom + 0.5 && bar.left >= win.left - 0.5,
-        head: head.right <= win.right + 0.5,
+        head: head.right <= innerWidth + 0.5,
+        controls:
+          mode.right <= zoomCtl.left + 0.5 && zoomCtl.right <= win.right + 0.5,
         scroll: document.documentElement.scrollWidth <= innerWidth + 1,
       };
     });
     check(
       `the window fits at ${w}px`,
-      geo.inside && geo.bar && geo.head && geo.scroll,
+      geo.shown &&
+        geo.inside &&
+        geo.bar &&
+        geo.head &&
+        geo.controls &&
+        geo.scroll,
       JSON.stringify(geo),
     );
   }
   await context.close();
 
   const ru = await openPage({ lang: "ru" });
-  await ru.page.goto(`${RELAY}/?lang=ru#/s/${sid}/canvas`);
+  await ru.page.goto(
+    `${RELAY}/?lang=ru#/s/${sid}/files?path=canvas%2Fsite.canvas`,
+  );
   await ru.page.getByTestId("canvas-view").waitFor();
-  const ruTitle = await ru.page
-    .locator(".canvas-window .files-title")
-    .textContent();
-  check("the window speaks Russian", ruTitle === "Холст", ruTitle);
+  const ruMode = await ru.page.getByTestId("canvas-mode-comment").textContent();
+  check("the board speaks Russian", ruMode === "Комментарий", ruMode);
   for (const w of [390, 1280]) {
     await ru.page.setViewportSize({ width: w, height: 844 });
     await ru.page.waitForTimeout(200);
+    await boardInView(ru.page);
     const fits = await ru.page.evaluate(() => {
-      const head = document.querySelector(".canvas-window .files-header");
-      return head.scrollWidth <= head.clientWidth + 1;
+      const mode = document.querySelector(".canvas-mode");
+      if (mode.getBoundingClientRect().width < 50) return false;
+      const zoom = document
+        .querySelector("[data-testid=canvas-zoom]")
+        .getBoundingClientRect();
+      return (
+        mode.scrollWidth <= mode.clientWidth + 1 &&
+        mode.getBoundingClientRect().right <= zoom.left + 0.5
+      );
     });
-    check(`the Russian head fits at ${w}px`, fits);
+    check(`the Russian controls of the board fit at ${w}px`, fits);
   }
   await ru.context.close();
 
   // ------------------------------------------------------ an Obsidian canvas
-  // A .canvas file of the workspace becomes the board: its page runs as a
-  // frame through the relay, its cards, groups and edges are drawn, a card
-  // dragged on the canvas moves in the file, and an edit of the file
-  // elsewhere (Obsidian) shows without a reload.
+  // A .canvas file of the workspace opened in the Files window: it becomes
+  // the chat's canvas, its page runs as a frame through the relay, its cards,
+  // groups and edges are drawn, a card dragged on the board moves in the
+  // file, and an edit of the file elsewhere (Obsidian) shows without a reload.
   {
     const canvasFile = path.join(workspace, "design", "shop.canvas");
-    const linked = await relayApi(`/coddy/sessions/${sid}/canvas/link`, {
-      method: "POST",
-      body: JSON.stringify({ path: "design/shop.canvas" }),
-    });
-    check(
-      "a .canvas file links through the relay",
-      linked.status === 200,
-      String(linked.status),
-    );
     const ob = await openPage();
-    await ob.page.goto(`${RELAY}/?lang=en#/s/${sid}/canvas`);
+    await ob.page.goto(
+      `${RELAY}/?lang=en#/s/${sid}/files?path=design%2Fshop.canvas`,
+    );
     await ob.page.getByTestId("canvas-view").waitFor();
+    const current = await until(
+      "the file to be the chat's canvas",
+      async () => {
+        const b = await (
+          await relayApi(`/coddy/sessions/${sid}/canvas`)
+        ).json();
+        return b.file === "design/shop.canvas" ? b : null;
+      },
+    ).catch(() => null);
+    check("opening the file makes it the chat's canvas", !!current);
     const obFrame = await frameFor(ob.page, "index.html");
     const drawn = await until("the file's nodes", () =>
       ob.page.evaluate(() => {
@@ -989,7 +1126,8 @@ try {
         const note = q('[data-node-id="c0ffee0000000002"]');
         return card && note && note.textContent.includes("three")
           ? {
-              subtitle: q("[data-testid=canvas-subtitle]")?.textContent || "",
+              subtitle:
+                q(".files-tab.is-active .files-tab-name")?.textContent || "",
               heading: card.querySelector("h2")?.textContent || "",
               note: note.textContent,
               group: q("[data-testid=canvas-group]")?.textContent || "",
@@ -1004,8 +1142,8 @@ try {
       }),
     );
     check(
-      "the window names the linked file",
-      drawn.subtitle.includes("design/shop.canvas"),
+      "the tab names the file",
+      drawn.subtitle.includes("shop.canvas"),
       drawn.subtitle,
     );
     check("a text card is rendered Markdown", drawn.heading === "Checkout");
@@ -1098,33 +1236,22 @@ try {
     ).catch(() => false);
     check("an edit of the file elsewhere shows on the open canvas", edited);
 
-    // Back to the chat's own board: the file stays as it is.
-    await ob.page.getByTestId("canvas-file-menu").click();
-    const menuInside = await ob.page.evaluate(() => {
-      const m = document
-        .querySelector(".canvas-file-menu")
-        .getBoundingClientRect();
-      const w = document
-        .querySelector("[data-testid=canvas-view]")
-        .getBoundingClientRect();
-      return m.left >= w.left - 0.5 && m.right <= w.right + 0.5;
-    });
-    check("the file menu stays inside the window", menuInside);
-    await ob.page.getByTestId("canvas-file-unlink").click();
-    const own = await until("the chat's own board", () =>
-      ob.page.evaluate(() =>
-        document.querySelector("[data-node-id]") === null &&
-        !document
-          .querySelector("[data-testid=canvas-subtitle]")
-          ?.textContent.includes(".canvas")
-          ? true
-          : false,
+    // Preview off: the tab shows the file's JSON instead of its board.
+    await ob.page.getByTestId("files-more").click();
+    await ob.page.getByRole("menuitemcheckbox", { name: "Preview" }).click();
+    const source = await until("the file's source", () =>
+      ob.page.evaluate(
+        () =>
+          !document.querySelector("[data-testid=canvas-view]") &&
+          [...document.querySelectorAll("[data-file-line]")].some((l) =>
+            l.textContent.includes('"nodes"'),
+          ),
       ),
     ).catch(() => false);
-    check(
-      "the chat gets its own board back and the file stays",
-      own && fs.existsSync(canvasFile),
-    );
+    check("Preview off shows the file's JSON", source);
+    await ob.page.getByTestId("files-more").click();
+    await ob.page.getByRole("menuitemcheckbox", { name: "Preview" }).click();
+    await ob.page.getByTestId("canvas-view").waitFor();
     await ob.context.close();
   }
 
@@ -1226,12 +1353,18 @@ try {
         "The shop is on the canvas.",
       );
       const shotSid = await sessionIdOf(s.page);
-      await fetch(`${SHOTS_NODE}/coddy/sessions/${shotSid}/canvas/frames`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: "site/index.html", device: "phone" }),
-      });
-      await s.page.getByTestId("canvas-view").waitFor();
+      // The page at phone size beside the one the agent showed, on the
+      // agent's canvas of this session (each session of the shared stand
+      // gets a file of its own).
+      const added = await (
+        await fetch(`${SHOTS_NODE}/coddy/sessions/${shotSid}/canvas/frames`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: "site/index.html", device: "phone" }),
+        })
+      ).json();
+      await showCanvas(s.page, shotSid, added.file);
+      await closeOtherTabs(s.page);
       await until("two frames", async () =>
         (await s.page.locator("iframe.canvas-frame-page").count()) === 2
           ? 2
@@ -1239,7 +1372,7 @@ try {
       );
       await s.page.getByTestId("canvas-fit").click();
       await s.page.waitForTimeout(800);
-      await shoot(s.page, `canvas-window-${theme}-1280`);
+      await shoot(s.page, `canvas-board-${theme}-1280`);
       if (theme === "dark") {
         await s.page.getByTestId("canvas-mode-comment").click();
         const f = await frameFor(s.page, "Shop");
@@ -1251,7 +1384,10 @@ try {
         await s.page.getByTestId("canvas-popover-add").click();
         await s.page.setViewportSize({ width: 390, height: 844 });
         await s.page.waitForTimeout(600);
-        await shoot(s.page, "canvas-window-dark-390");
+        await boardInView(s.page);
+        await s.page.getByTestId("canvas-fit").click();
+        await s.page.waitForTimeout(600);
+        await shoot(s.page, "canvas-board-dark-390");
       }
       await s.context.close();
     }
@@ -1265,12 +1401,7 @@ try {
         "The shop is on the canvas.",
       );
       const shotSid = await sessionIdOf(s.page);
-      await fetch(`${SHOTS_NODE}/coddy/sessions/${shotSid}/canvas/link`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: "design/shop.canvas" }),
-      });
-      await showCanvas(s.page);
+      await showCanvas(s.page, shotSid, "design/shop.canvas");
       await until("the note", () =>
         s.page.evaluate(() =>
           (
@@ -1282,11 +1413,11 @@ try {
       await frameFor(s.page, "index.html");
       await s.page.getByTestId("canvas-fit").click();
       await s.page.waitForTimeout(900);
+      // The shot shows the Obsidian file alone.
+      await closeOtherTabs(s.page);
+      await s.page.getByTestId("canvas-fit").click();
+      await s.page.waitForTimeout(600);
       await shoot(s.page, `canvas-obsidian-${theme}-1280`);
-      if (theme === "dark") {
-        await s.page.getByTestId("canvas-file-menu").click();
-        await shoot(s.page, "canvas-file-menu-dark-1280");
-      }
       await s.context.close();
     }
   }

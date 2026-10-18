@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { Markdown } from "../markdown/Markdown";
@@ -17,8 +17,8 @@ import {
 /** The most of a note file a card renders. */
 const MAX_NOTE_CHARS = 20000;
 
-/** Note texts and picture addresses, per file and version of the linked
- *  canvas, for the life of the page: a board read every few seconds does not
+/** Note texts and picture addresses, per file and version of the board's
+ *  file, for the life of the page: a board read every few seconds does not
  *  read every note again. */
 const noteCache = new Map<string, Promise<string>>();
 const imageCache = new Map<string, Promise<string>>();
@@ -49,6 +49,20 @@ export function resetCanvasNodeCachesForTests(): void {
  *  stamp moves the pictures, says nothing about it. */
 export const NOTE_REFRESH_MS = 10000;
 
+/** Moves every NOTE_REFRESH_MS while a note card is on the board. */
+function useNoteTick(on: boolean): number {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!on) return undefined;
+    const timer = window.setInterval(
+      () => setTick((n) => n + 1),
+      NOTE_REFRESH_MS,
+    );
+    return () => window.clearInterval(timer);
+  }, [on]);
+  return tick;
+}
+
 function useFileResource(
   kind: "note" | "image",
   sessionId: string,
@@ -57,10 +71,8 @@ function useFileResource(
 ): { value: string; failed: boolean } {
   const base = `${sessionId}\n${path}`;
   const [state, setState] = useState({ base: "", value: "", failed: false });
-  // The board is read every few seconds while open, so this renders that
-  // often and a note's key moves on by itself.
-  const bucket = kind === "note" ? Math.floor(Date.now() / NOTE_REFRESH_MS) : 0;
-  const key = `${base}\n${version}\n${bucket}`;
+  const tick = useNoteTick(kind === "note" && !!path);
+  const key = `${base}\n${version}\n${kind === "note" ? tick : 0}`;
   useEffect(() => {
     if (!path) return undefined;
     let live = true;
@@ -96,10 +108,10 @@ function folderOf(path: string): string {
 export interface CanvasNodeProps {
   sessionId: string;
   item: CanvasItem;
-  /** Where the node stands on the screen, a drag in progress included. */
-  screen: Rect;
-  scale: number;
-  /** The linked file's stamp: a new one reads the notes again. */
+  /** A drag in progress, in board units. */
+  dx: number;
+  dy: number;
+  /** The file's stamp: a new one reads the pictures again. */
   version: string;
   dragging: boolean;
   onPointerDown: (item: CanvasItem, e: ReactPointerEvent<HTMLElement>) => void;
@@ -108,19 +120,20 @@ export interface CanvasNodeProps {
 }
 
 /**
- * A node of a linked .canvas file that is not a live frame, drawn the way
- * Obsidian draws it: a text card rendered as Markdown, a note or a picture of
- * the workspace, a file card, a link card, a group with its label. The body
- * stands at the node's own size, scaled by the camera like a frame.
+ * A node of the .canvas file that is not a live frame, drawn the way Obsidian
+ * draws it: a text card rendered as Markdown, a note or a picture of the
+ * workspace, a file card, a link card, a group with its label. It stands at its
+ * own size in the board's world layer, which the camera scales as a whole, and
+ * is drawn again only when its own props change.
  */
-export function CanvasNode(props: CanvasNodeProps) {
-  const { item, screen, scale } = props;
+export const CanvasNode = memo(function CanvasNode(props: CanvasNodeProps) {
+  const { item } = props;
   const color = canvasColor(item.color);
   const style = {
-    left: screen.x,
-    top: screen.y,
-    width: screen.width,
-    height: screen.height,
+    left: item.x + props.dx,
+    top: item.y + props.dy,
+    width: item.width,
+    height: item.height,
     ...(color ? { "--canvas-node-color": color } : {}),
   } as CSSProperties;
   const handlers = {
@@ -162,14 +175,7 @@ export function CanvasNode(props: CanvasNodeProps) {
       data-node-type={item.type}
       {...handlers}
     >
-      <div
-        className="canvas-node-body"
-        style={{
-          width: item.width,
-          height: item.height,
-          transform: `scale(${scale})`,
-        }}
-      >
+      <div className="canvas-node-body">
         <NodeBody
           sessionId={props.sessionId}
           item={item}
@@ -178,7 +184,7 @@ export function CanvasNode(props: CanvasNodeProps) {
       </div>
     </div>
   );
-}
+});
 
 function NodeBody(props: {
   sessionId: string;
@@ -308,14 +314,14 @@ function FileNode(props: {
   );
 }
 
-/** The edges of a linked file, under the nodes, with their labels. */
-export function CanvasEdges(props: {
+/** The edges of the file, under the nodes, with their labels, in board
+ *  units: the camera scales them with everything else. */
+export const CanvasEdges = memo(function CanvasEdges(props: {
   edges: CanvasEdge[];
   rects: ReadonlyMap<string, Rect>;
-  scale: number;
 }) {
   const shapes = props.edges.flatMap((edge) => {
-    const shape = edgeShape(edge, props.rects, props.scale);
+    const shape = edgeShape(edge, props.rects, 1);
     return shape ? [{ edge, shape, color: canvasColor(edge.color) }] : [];
   });
   if (shapes.length === 0) return null;
@@ -353,4 +359,4 @@ export function CanvasEdges(props: {
       )}
     </>
   );
-}
+});

@@ -15996,50 +15996,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
 }
 
-/* The zoom controls take the close control's frame. */
-.docs-lightbox-btn,
-.docs-lightbox-level {
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 30px;
-  min-width: 34px;
-  padding: 0 8px;
-  white-space: nowrap;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
-  background: rgba(20, 20, 22, 0.35);
-  color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
-  font: inherit;
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-  transition:
-    background 0.15s,
-    border-color 0.15s;
-}
-
-.docs-lightbox-level {
-  min-width: 58px;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.docs-lightbox-btn:hover:not(:disabled),
-.docs-lightbox-level:hover,
-.docs-lightbox-btn:focus-visible,
-.docs-lightbox-level:focus-visible {
-  background: color-mix(in srgb, var(--text) 12%, rgba(20, 20, 22, 0.35));
-  border-color: color-mix(in srgb, var(--text) 18%, var(--coddy-blend-base));
-  color: var(--text);
-}
-
-.docs-lightbox-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
 /* The stage handles the gestures itself - one pointer drags the picture, two
    fingers pinch it - so the browser must not pan or zoom first. The rule lives
    with the stage, which is only on the screen while the viewer is open, so the
@@ -16177,8 +16133,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .docs-lightbox-btn,
-  .docs-lightbox-level,
   .docs-article.is-loading,
   .docs-ask,
   .docs-pager-link,
@@ -16546,8 +16500,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   transition: none;
 }
 
-.swarm-layout-control,
-.swarm-viewport-control {
+.swarm-layout-control {
   position: absolute;
   z-index: 1;
   display: inline-flex;
@@ -16563,11 +16516,6 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 .swarm-layout-control {
   top: 10px;
   left: 10px;
-}
-
-.swarm-viewport-control {
-  top: 10px;
-  right: 10px;
 }
 
 .swarm-canvas-control {
@@ -16607,6 +16555,93 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   .swarm-canvas-control {
     width: 40px;
     height: 40px;
+  }
+}
+
+/* ----- Zoom -----
+   The zoom controls of every surface that zooms - the picture viewer, the
+   canvas, the swarm map - one glass group at the top right: minus, the level
+   (the percentage, or the fit glyph while fitted; a click fits), plus.
+   DESIGN.md, Zoom. */
+/* Opaque, never a backdrop-filter: over a board that moves, a blur behind
+   the group is drawn again on every frame of a pan or a zoom, which cost the
+   canvas a hundred milliseconds a frame. */
+.zoom-controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 5%, var(--bg));
+  box-shadow: 0 3px 10px color-mix(in srgb, #000 20%, transparent);
+}
+
+.zoom-controls--inline {
+  position: static;
+  flex: none;
+}
+
+.zoom-control {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background-color 0.14s ease,
+    color 0.14s ease;
+}
+
+.zoom-control--level {
+  width: auto;
+  min-width: 48px;
+  padding: 0 6px;
+  white-space: nowrap;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.zoom-control:hover:not(:disabled),
+.zoom-control:focus-visible {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.zoom-control:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.zoom-control svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (max-width: 1199px) {
+  .zoom-control {
+    width: 40px;
+    height: 40px;
+  }
+
+  .zoom-control--level {
+    width: auto;
+    min-width: 56px;
   }
 }
 
@@ -18660,39 +18695,64 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   text-decoration: underline;
 }
 
-/* ----- Canvas window -----
-   A chat's board of live frames, a window over the chat framed like the Files
-   window but as wide as the space right of the rail: frames want room. The
-   board pans and zooms; each frame is a sandboxed page at its own size,
-   scaled, under a title bar of constant size. The prompt bar sits at the
-   foot. DESIGN.md, Canvas window. */
-.files-dock-cluster.canvas-window {
-  width: auto;
-  margin-inline: 0;
+/* ----- Canvas -----
+   A .canvas file as a tab of the Files window: the board of live frames and
+   the file's other nodes and edges, the prompts the turn waits for, then the
+   prompt bar. Everything on the board stands at its own size in one world
+   layer the camera moves and scales as a whole (.canvas-world); the frames'
+   title bars keep their size by scaling back (--canvas-inv). The mode switch
+   floats at the board's top left, the zoom controls at its top right.
+   DESIGN.md, Canvas. */
+.canvas-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-.canvas-actions {
-  gap: 8px;
-  flex-wrap: nowrap;
+/* While a board shows, nothing blurs: a backdrop-filter is drawn again on
+   every frame anything under or in it moves, and the window's glass with the
+   glass of the chat it covers made each frame of a pan or a zoom cost about a
+   hundred milliseconds instead of one frame. The window is opaque then, and
+   the covered chat's header, composer and round controls drop their blur. */
+.files-dock-cluster:has(.canvas-pane) {
+  background: color-mix(in srgb, var(--text) 3%, var(--bg));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
-.canvas-mode,
-.canvas-zoom {
+:root:has(.canvas-pane)
+  :is(
+    .chat-header,
+    .composer-card,
+    .chat-scroll-bottom,
+    .chat-expand-composer
+  ) {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Opaque like the zoom controls: no backdrop-filter over the moving board. */
+.canvas-mode {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 3;
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 2px;
+  padding: 3px;
+  border: 1px solid var(--coddy-glass-panel-border);
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+  background: color-mix(in srgb, var(--text) 5%, var(--bg));
+  box-shadow: 0 3px 10px color-mix(in srgb, #000 20%, transparent);
 }
 
-.canvas-mode-btn,
-.canvas-zoom-value,
-.canvas-fit {
-  height: 26px;
+.canvas-mode-btn {
+  height: 28px;
   padding: 0 10px;
-  border: 1px solid transparent;
-  border-radius: 8px;
+  border: 0;
+  border-radius: 7px;
   background: transparent;
   color: color-mix(in srgb, var(--text) 72%, transparent);
   font: inherit;
@@ -18701,24 +18761,10 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   white-space: nowrap;
 }
 
-.canvas-zoom-value {
-  min-width: 52px;
-  font-variant-numeric: tabular-nums;
-}
-
 .canvas-mode-btn:hover,
-.canvas-zoom-value:hover,
-.canvas-fit:hover,
 .canvas-mode-btn.is-active {
   color: var(--text);
-  border-color: color-mix(in srgb, var(--text) 22%, transparent);
-  background: color-mix(in srgb, var(--text) 9%, transparent);
-}
-
-.canvas-zoom .files-icon-btn {
-  width: 26px;
-  height: 26px;
-  font-size: 15px;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
 }
 
 .canvas-board {
@@ -18738,6 +18784,27 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 
 .canvas-board:active {
   cursor: grabbing;
+}
+
+.canvas-board:focus {
+  outline: none;
+}
+
+/* The world: a point at the board's origin, everything on the board placed
+   from it in board units; the camera writes its transform. */
+.canvas-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+}
+
+/* While the board moves it is one layer the compositor moves; at rest the
+   pages are drawn again at the new scale. */
+.canvas-board.is-moving .canvas-world {
+  will-change: transform;
 }
 
 .canvas-empty {
@@ -18767,9 +18834,17 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 }
 
 /* A frame's title bar keeps its size whatever the zoom, like the names of
-   frames on a design board. */
+   frames on a design board: it stands on the frame's top edge, scaled back by
+   the camera's scale, as wide on screen as the frame and never under 180px. */
 .canvas-frame-bar {
   position: absolute;
+  box-sizing: border-box;
+  width: max(
+    calc(var(--canvas-frame-width, 0) * var(--canvas-scale, 1) * 1px),
+    180px
+  );
+  transform-origin: 0 0;
+  transform: scale(var(--canvas-inv, 1)) translateY(calc(-100% - 4px));
   height: 26px;
   display: flex;
   align-items: center;
@@ -18787,16 +18862,33 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   color: var(--text);
 }
 
+/* A bar scales back by a transform of its own, which makes it a stacking
+   context: it stands over every page of the board, and the one whose size
+   menu is open over the other bars, so the menu is never under a page. */
+.canvas-frame-bar {
+  z-index: 2;
+}
+
+.canvas-frame-bar.is-menu-open {
+  z-index: 3;
+}
+
 .canvas-frame-title {
-  min-width: 0;
+  flex: 0 1 auto;
+  min-width: 3em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
 }
 
+/* The size gives way first when the bar is narrow, so the title stays. */
 .canvas-frame-size {
-  flex: none;
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -18873,13 +18965,14 @@ html:not([data-theme="light"]) .swarm-graph-panel {
     0 6px 24px color-mix(in srgb, #000 22%, transparent);
 }
 
-/* The page at its own size, scaled with the board from its corner. */
+/* The page at its own size; the world layer scales it with the board. */
 .canvas-frame-page {
   position: absolute;
   left: 0;
   top: 0;
+  width: 100%;
+  height: 100%;
   border: 0;
-  transform-origin: 0 0;
   background: #fff;
 }
 
@@ -19054,8 +19147,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 /* The canvas's fields take the focus as the app's other fields do: their
    border in the accent, never the browser's ring around them. */
 .canvas-bar-field:focus,
-.canvas-popover-note:focus,
-.canvas-file-input:focus {
+.canvas-popover-note:focus {
   outline: none;
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
@@ -19138,9 +19230,9 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   background: color-mix(in srgb, var(--text) 12%, transparent);
 }
 
-/* The nodes of a linked .canvas file (JSON Canvas, Obsidian's format) that
-   are not live frames: groups under everything, then the edges, then the
-   cards; a node's body stands at its own size, scaled like a frame. */
+/* The nodes of the .canvas file (JSON Canvas, Obsidian's format) that are
+   not live frames: groups under everything, then the edges, then the cards,
+   each at its own size in the world layer. */
 .canvas-group,
 .canvas-node {
   position: absolute;
@@ -19161,11 +19253,16 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   background: color-mix(in srgb, var(--canvas-node-color) 9%, transparent);
 }
 
+/* Like a frame's title bar, a group's label and an edge's keep their size on
+   screen whatever the zoom: scaled back by the camera's scale. */
 .canvas-group-label {
   position: absolute;
   left: 0;
-  bottom: calc(100% + 4px);
-  max-width: 100%;
+  bottom: 100%;
+  box-sizing: border-box;
+  max-width: calc(100% * var(--canvas-scale, 1));
+  transform-origin: 0 100%;
+  transform: scale(var(--canvas-inv, 1)) translateY(-4px);
   padding: 2px 8px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--canvas-node-tint) 16%, var(--bg));
@@ -19197,7 +19294,8 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 
 .canvas-node-body {
   box-sizing: border-box;
-  transform-origin: 0 0;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
 }
 
@@ -19284,9 +19382,10 @@ a.canvas-node-url {
 
 .canvas-edges {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
   overflow: visible;
   pointer-events: none;
   color: color-mix(in srgb, var(--text) 45%, transparent);
@@ -19297,6 +19396,7 @@ a.canvas-node-url {
   stroke: currentColor;
   stroke-width: 2;
   stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
 }
 
 .canvas-edge-arrow {
@@ -19305,7 +19405,7 @@ a.canvas-node-url {
 
 .canvas-edge-label {
   position: absolute;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%) scale(var(--canvas-inv, 1));
   max-width: 220px;
   padding: 2px 8px;
   border-radius: 6px;
@@ -19336,118 +19436,9 @@ a.canvas-node-url {
   overflow-wrap: anywhere;
 }
 
-.canvas-subtitle-file {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-/* The file menu of the head and its form. */
-.canvas-file-host {
-  position: relative;
-  display: inline-flex;
-}
-
-.canvas-file-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  left: auto;
-  z-index: 101;
-  min-width: 230px;
-}
-
-.canvas-file-menu-note {
-  margin: 0;
-  padding: 6px 12px 4px;
-  font-size: 12px;
-  color: var(--muted);
-  overflow-wrap: anywhere;
-}
-
-.canvas-file-form {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 5;
-  width: min(340px, calc(100vw - 32px));
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid var(--coddy-glass-panel-border);
-  background: color-mix(in srgb, var(--text) 5%, var(--bg));
-  box-shadow: var(--coddy-glass-panel-shadow);
-}
-
-.canvas-file-label {
-  font-size: 13px;
-  color: var(--text);
-}
-
-.canvas-file-input {
-  width: 100%;
-  box-sizing: border-box;
-  height: 34px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
-  background: color-mix(in srgb, var(--bg) 60%, transparent);
-  color: var(--text);
-  font: inherit;
-  font-size: 14px;
-  padding: 0 10px;
-}
-
-.canvas-file-found {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 180px;
-  overflow-y: auto;
-}
-
-.canvas-file-found-item {
-  width: 100%;
-  text-align: left;
-  padding: 5px 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-  overflow-wrap: anywhere;
-}
-
-.canvas-file-found-item:hover {
-  background: color-mix(in srgb, var(--text) 9%, transparent);
-}
-
-.canvas-file-hint {
-  margin: 0;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.canvas-file-error {
-  margin: 0;
-  font-size: 13px;
-  color: var(--coddy-danger);
-  overflow-wrap: anywhere;
-}
-
-/* A phone: the head keeps the mode, the file menu and the window controls;
-   the zoom controls give way (two fingers zoom), the frames start fitted. */
+/* A phone: the mode switch and the zoom controls stay, smaller; the field is
+   16px so iOS Safari does not zoom into it. */
 @media (max-width: 599px) {
-  .canvas-actions .canvas-zoom,
-  .canvas-window .files-subtitle {
-    display: none;
-  }
-
   .canvas-mode-btn {
     padding: 0 8px;
   }

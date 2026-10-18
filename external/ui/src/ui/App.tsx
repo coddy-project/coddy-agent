@@ -11,8 +11,6 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  lazy,
-  Suspense,
 } from "react";
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
@@ -280,15 +278,8 @@ import {
   setDocsHash,
 } from "./scheduler/hashRoute";
 import { DocsView } from "./docs/DocsView";
-import { FilesView } from "./files/FilesView";
-// The canvas window is code a chat needs only once its canvas opens: a chunk
-// of its own, so app.js stays within the budget that
-// features/web_ui_diagrams.feature holds it to.
-import type { CanvasPrompt } from "./canvas/CanvasView";
-const CanvasView = lazy(() =>
-  import("./canvas/CanvasView").then((m) => ({ default: m.CanvasView })),
-);
-import { useCanvasBoard } from "./canvas/useCanvasBoard";
+import { FilesView, type CanvasFocus } from "./files/FilesView";
+import type { CanvasPrompt } from "./canvas/CanvasBoard";
 import { onOpenCanvas } from "./canvas/canvasBus";
 import { useFilesWindowKey } from "./files/filesWindowKey";
 import { isFilesHotkey } from "./files/filesHotkey";
@@ -304,7 +295,6 @@ import { useRightDock, useRightDockEscape } from "./components/useRightDock";
 import { finishedToolCalls } from "./changes/toolActivity";
 import {
   setSessionFilesHash,
-  setSessionCanvasHash,
   setSessionChangesHash,
 } from "./scheduler/hashRoute";
 import { fetchDocsPage } from "./docs/api";
@@ -1312,20 +1302,14 @@ export function App() {
   const [changesViewerOpen, setChangesViewerOpen] = useState(
     initialRoute.branch === "session" && initialRoute.editsOpen === true,
   );
-  // The canvas window, a third window over the chat: open, the frame its
-  // address or the agent's last show points at, and a counter that asks for
-  // that focus again. canvasEpoch moves whenever the board may have changed.
-  const [canvasOpen, setCanvasOpen] = useState(
-    initialRoute.branch === "session" && initialRoute.canvasOpen === true,
-  );
-  const [canvasFocus, setCanvasFocus] = useState<{
-    frame: string;
-    seq: number;
-  }>(() => ({
-    frame:
-      initialRoute.branch === "session" ? initialRoute.canvasFrame || "" : "",
+  // A .canvas file is a tab of the Files window: the frame the agent's last
+  // show points at, with a counter that asks for it again, and canvasEpoch,
+  // which moves whenever a board of the chat may have changed.
+  const [canvasFocus, setCanvasFocus] = useState<CanvasFocus>({
+    file: "",
+    frame: "",
     seq: 0,
-  }));
+  });
   const [canvasEpoch, setCanvasEpoch] = useState(0);
   // A card the shell asks the Tasks panel to open from a task-targeted link. Which
   // cards are open otherwise is the panel's own business and is not part of the address.
@@ -2521,7 +2505,6 @@ export function App() {
     // one puts them away.
     if (!(p.branch === "session" && p.filesOpen)) setFilesOpen(false);
     if (!(p.branch === "session" && p.editsOpen)) setChangesViewerOpen(false);
-    if (!(p.branch === "session" && p.canvasOpen)) setCanvasOpen(false);
     if (p.branch === "docs") {
       setDocsRoute({ slug: p.slug, anchor: p.anchor });
       if (p.slug) {
@@ -2555,7 +2538,6 @@ export function App() {
           p.tasksOpen ||
           ((p.filesOpen === true ||
             p.editsOpen === true ||
-            p.canvasOpen === true ||
             !isStackedShell()) &&
             wasOpen),
       );
@@ -2565,15 +2547,6 @@ export function App() {
         setFileLine(p.fileLine || 1);
       }
       setChangesViewerOpen(p.editsOpen === true);
-      if (p.canvasOpen) {
-        setCanvasOpen(true);
-        if (p.canvasFrame) {
-          const frame = p.canvasFrame;
-          setCanvasFocus((f) =>
-            f.frame === frame ? f : { frame, seq: f.seq + 1 },
-          );
-        }
-      }
       if (p.tasksOpen && p.taskId) {
         // A link that names a task opens its card once; the address goes back to
         // saying only that the panel is showing.
@@ -2729,7 +2702,6 @@ export function App() {
     setSessionsOpen(false);
     setFilesOpen(false);
     setChangesViewerOpen(false);
-    setCanvasOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     // On desktop Tasks is the side panel of the chat on screen, not a screen of
@@ -3536,18 +3508,20 @@ export function App() {
     questionPending: () => {
       void loadSessionsList(true);
     },
-    // A chat's canvas changed: its board is read again. A frame put there or
-    // shown again opens the canvas on it, and a .canvas file that became the
-    // board opens the canvas on the whole of it, unless another window or
-    // screen is up, and never on a phone, where the chat stays and the view
-    // button and the tool card offer the canvas instead.
+    // A canvas of the chat changed: the open boards read again. A page the
+    // agent put on a .canvas file, or a file it opened, opens in the Files
+    // window on it, unless a window or a screen is up, and never on a phone,
+    // where the chat stays and the tool card offers the file instead.
     canvasChanged: (event: CanvasChangedEvent) => {
       if (event.sessionId !== sessionId.trim()) return;
       setCanvasEpoch((n) => n + 1);
-      const linked = event.reason === "linked";
-      if (!linked && event.reason !== "added" && event.reason !== "shown")
+      if (
+        event.reason !== "added" &&
+        event.reason !== "shown" &&
+        event.reason !== "opened"
+      )
         return;
-      if (!linked && !event.frameId) return;
+      if (!event.file) return;
       if (window.matchMedia?.(phoneMaxWidthMediaQuery).matches) return;
       if (
         filesOpen ||
@@ -3560,7 +3534,7 @@ export function App() {
       ) {
         return;
       }
-      openCanvasWindow(event.frameId);
+      openCanvasFileWindow(event.file, event.frameId);
     },
     // A surface - this tab, another tab, a console over --remote - rewound the
     // session: the tail it held is gone, so the shadow transcript and the
@@ -6711,7 +6685,6 @@ export function App() {
     setDocsRoute(null);
     setSwarmRoute(false);
     setFilesOpen(false);
-    setCanvasOpen(false);
     setChangesViewerOpen(true);
     setSessionChangesHash(sid);
   }, [sessionId]);
@@ -6764,7 +6737,6 @@ export function App() {
       setSwarmRoute(false);
       // One window over the chat at a time: the files take the edits' place.
       setChangesViewerOpen(false);
-      setCanvasOpen(false);
       setFilePath(path || "");
       setFileLine(line || 1);
       if (path) setFileOpenSeq((n) => n + 1);
@@ -6784,42 +6756,22 @@ export function App() {
     else setSessionHashInLocation(sid);
   }, [sessionId, tasksOpen]);
 
-  /** Opens the canvas window over the chat, on a frame when one is named; it
-   *  takes the Files or the edits window's place. */
-  const openCanvasWindow = useCallback(
-    (frame?: string) => {
-      const sid = sessionId.trim();
-      if (!sid) return;
-      setSessionsOpen(false);
-      setSchedulerOpen(false);
-      setSchedulerEditor(null);
-      setSettingsRoute(false);
-      setDocsRoute(null);
-      setSwarmRoute(false);
-      setFilesOpen(false);
-      setChangesViewerOpen(false);
-      if (frame) setCanvasFocus((f) => ({ frame, seq: f.seq + 1 }));
-      setCanvasOpen(true);
-      setSessionCanvasHash(sid, frame || "");
+  /** Opens a .canvas file of the chat in the Files window, on a frame when
+   *  one is named. */
+  const openCanvasFileWindow = useCallback(
+    (file: string, frame?: string) => {
+      if (!file) return;
+      setCanvasFocus((f) => ({ file, frame: frame || "", seq: f.seq + 1 }));
+      openFilesWindow(file);
     },
-    [sessionId],
+    [openFilesWindow],
   );
 
-  // The canvas_show card of the transcript and the Files window's Open on
-  // canvas ask for the canvas through the bus.
+  // The canvas_show card of the transcript asks for its file through the bus.
   useEffect(
-    () => onOpenCanvas((frame) => openCanvasWindow(frame)),
-    [openCanvasWindow],
+    () => onOpenCanvas((file, frame) => openCanvasFileWindow(file, frame)),
+    [openCanvasFileWindow],
   );
-
-  /** Puts the canvas window away, the address back to the chat or the tasks. */
-  const closeCanvasWindow = useCallback(() => {
-    setCanvasOpen(false);
-    const sid = sessionId.trim();
-    if (!sid) return;
-    if (tasksOpen && isStackedShell()) setSessionTasksHash(sid);
-    else setSessionHashInLocation(sid);
-  }, [sessionId, tasksOpen]);
 
   // Ctrl+Shift+F (Cmd+Shift+F) opens and closes the Files window of the chat
   // on screen, wherever the focus is, the composer included.
@@ -7237,18 +7189,11 @@ export function App() {
   // open state, which every Escape path and stacked-shell rule speaks.
   const dockOpen = tasksPanelOpen;
 
-  // The chat's canvas: read with the chat, again on canvas_changed, after a
-  // finished tool call (a page the agent edits) and, while its window is
-  // open, every few seconds.
-  const canvas = useCanvasBoard(sessionId, {
-    open: canvasOpen,
-    epoch: canvasEpoch + finishedToolCalls(transcriptItems),
-  });
-  // What the turn waits for while the canvas covers the chat: the canvas
-  // window shows the same cards and takes the same answers.
+  // What the turn waits for while the Files window covers the chat: a board
+  // of a .canvas file shows the same cards and takes the same answers.
   const canvasPrompts = useMemo(
     () =>
-      canvasOpen
+      filesOpen
         ? transcriptItems.filter(
             (x): x is CanvasPrompt =>
               (x.type === "permission_prompt" ||
@@ -7256,7 +7201,7 @@ export function App() {
               !x.resolved,
           )
         : [],
-    [canvasOpen, transcriptItems],
+    [filesOpen, transcriptItems],
   );
   const canvasToolCalls = useMemo(() => {
     const byId = new Map<
@@ -7269,14 +7214,10 @@ export function App() {
     }
     return byId;
   }, [canvasPrompts, transcriptItems]);
-  const canvasFrameCount = canvas.available
-    ? (canvas.board?.frames.length ?? 0)
-    : 0;
 
   // A window over the chat - the files, the edits or the canvas - is one more
   // layer the shell's backdrop covers the chat under.
-  const chatWindowOpen =
-    (filesOpen || changesViewerOpen || canvasOpen) && !!sessionId.trim();
+  const chatWindowOpen = (filesOpen || changesViewerOpen) && !!sessionId.trim();
   const shellBackdropOpen =
     chatWindowOpen ||
     sessionsOpen ||
@@ -7858,7 +7799,6 @@ export function App() {
             // gives the address back to what the dock under it shows.
             if (chatWindowOpen) {
               if (filesOpen) closeFilesWindow();
-              else if (canvasOpen) closeCanvasWindow();
               else closeEditsWindow();
               setSessionsOpen(false);
               setSchedulerOpen(false);
@@ -8081,24 +8021,14 @@ export function App() {
               setSessionFilesHash(sessionId, path, line)
             }
             onClose={closeFilesWindow}
-          />
-        ) : null}
-        {canvasOpen && sessionId.trim() ? (
-          <Suspense fallback={null}>
-            <CanvasView
-              key={`canvas:${sessionId}`}
-              sessionId={sessionId}
-              board={canvas.board}
-              reloadBoard={canvas.reload}
-              focusFrameId={canvasFocus.frame}
-              focusSeq={canvasFocus.seq}
-              busy={
-                !!(
-                  turnActivity.get(sessionId) ??
-                  activeComposerSidRef.current.has(sessionId.trim())
-                )
-              }
-              onSend={(text, giveBack) => {
+            canvasFocus={canvasFocus}
+            canvas={{
+              epoch: canvasEpoch + finishedToolCalls(transcriptItems),
+              busy: !!(
+                turnActivity.get(sessionId) ??
+                activeComposerSidRef.current.has(sessionId.trim())
+              ),
+              onSend: (text, giveBack) => {
                 const sid = sessionId.trim();
                 if (!sid || subagentTranscript) {
                   giveBack();
@@ -8123,17 +8053,15 @@ export function App() {
                   restoreOnRefusal: false,
                   onRefusal: giveBack,
                 });
-              }}
-              onStop={() => stopActiveGeneration()}
-              onClose={closeCanvasWindow}
-              prompts={canvasPrompts}
-              toolCalls={canvasToolCalls}
-              onPermissionResolved={resolvePermissionPrompt}
-              onQuestionResolved={resolveQuestionPrompt}
-            />
-          </Suspense>
+              },
+              onStop: () => stopActiveGeneration(),
+              prompts: canvasPrompts,
+              toolCalls: canvasToolCalls,
+              onPermissionResolved: resolvePermissionPrompt,
+              onQuestionResolved: resolveQuestionPrompt,
+            }}
+          />
         ) : null}
-
         {atSwarmRoot ? null : (
           <ChatScreen
             title={currentTitle}
@@ -8145,14 +8073,6 @@ export function App() {
               filesOpen ? closeFilesWindow() : openFilesWindow()
             }
             filesOpen={filesOpen}
-            onOpenCanvas={() =>
-              canvasOpen ? closeCanvasWindow() : openCanvasWindow()
-            }
-            canvasOpen={canvasOpen}
-            canvasFrames={canvasFrameCount}
-            {...(canvas.available && canvas.board?.link
-              ? { canvasFile: canvas.board.link.path }
-              : {})}
             backgroundTasks={backgroundTasks}
             onOpenBackgroundTasks={openTasksFromNav}
             onBackgroundTasksChanged={() => {

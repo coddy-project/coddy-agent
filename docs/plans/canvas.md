@@ -735,3 +735,49 @@ only the lines it moved, and Obsidian's save after reloading it only Obsidian's 
 Obsidian's: a picture node takes the picture's proportions and an edge without sides gets sides when
 Obsidian draws them, and both reach the file with Obsidian's next save.
 
+
+## 16. Every board a file, a tab of the Files window
+
+Trying the demo (2026-10-18), the operator asked for the canvas to be a file again rather than a
+window: a `.canvas` file picked in the Files window opens there, in a tab, with its chat under it,
+not as a full window of its own, and nothing of the old model kept ("обратная совместимость не
+нужна"). Asked whether a chat keeps a board of its own beside the files, the operator chose that
+every board is a `.canvas` file. Decided:
+
+- **No board in the bundle.** `canvas.json` keeps only what a file must not decide (`State`): the
+  file `canvas_show` uses when it names none (`current`: the last one shown on or opened), the
+  generations of frame addresses and the roots wider than a page's folder, keyed by file and node
+  (`NodeKey`) and applying only in the workspace they were written in. A chat with no canvas gets
+  `canvas/<folder of the page>.canvas`, numbered when the name is taken, the moment a page is shown.
+  Link, unlink, export, the frame PATCH and the file menu are gone; `POST .../canvas/open` makes a
+  file current, and every route names its file with `?file=`.
+- **The capability names the file**, and a frame's file is served after reading that one node
+  (`FrameOf`), not the whole board, so a page with many assets does not resolve every page of the
+  file on every request. The workspace the claim is checked against is the session's own (the live
+  session's, or `session.json`'s), so a session moved to another folder revokes its addresses.
+- **One file's read-modify-write is one turn across chats** (a lock per canonical file inside the
+  chat's own), which closes review round 1's finding of two chats replaying stale boards over each
+  other; a frame pointed at another page moves to its next generation, so the browser loads it.
+- **A subagent in a worktree of its own is refused**: its pages are not files of the folder the
+  chat's canvas is in, and a frame of another workspace has no path in the file.
+- **The board is the Files window's**: a tab body (`CanvasBoard`, a lazy chunk of `FilesView`),
+  **Preview** off shows the file's JSON, the prompt bar and the prompts strip under it, the window
+  opening on the file the agent's page went on. The header button, the window and its route are gone.
+
+Asked at the same time for the wheel to zoom "как везде, как на предпросмотре картинок" with the same
+buttons in the same place on the swarm map, and for the canvas not to lag:
+
+- **One zoom** (`components/zoom.ts`, `components/ZoomControls.tsx`): the wheel at the pointer, 500
+  pixels doubling, as the picture viewer always did; one group at the top right of what it zooms -
+  minus, the level (the percentage or the fit glyph; a click fits), plus - in the viewer's bar, on the
+  board and on the map. The swarm map's step went from 1.2 to the shared 1.25.
+- **A pan or a zoom renders nothing.** Everything on the board stands in board units in one world
+  layer whose transform a camera outside React writes once per frame (`CameraStore`); the frames'
+  title bars and the labels scale back by a CSS variable instead of being sized in React. A board read
+  again that changed nothing is not drawn again (the fresh signatures of the frames aside, taken every
+  ten minutes, well before an address nears its end).
+- **No blur over a moving board.** Measured in Chromium, a pan cost about a hundred milliseconds a
+  frame with the React work already gone: the controls over the board, the Files window's glass and
+  the glass of the chat under it (`backdrop-filter`) were drawn again on every frame. The controls are
+  opaque, and while a board shows the window is opaque and the covered chat drops its blur; a pan and
+  a wheel zoom then take one frame (16.7 ms), which `canvas-check.mjs` now measures.

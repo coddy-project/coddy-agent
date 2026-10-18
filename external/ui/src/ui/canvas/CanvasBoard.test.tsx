@@ -7,22 +7,25 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { CanvasView, resetCanvasDraftsForTests } from "./CanvasView";
+import { CanvasBoard, resetCanvasDraftsForTests } from "./CanvasBoard";
 import { resetCanvasNodeCachesForTests } from "./CanvasNodes";
 import { FRAME_SANDBOX, LEFT_CANVAS_MS } from "./CanvasFrame";
 import { BRIDGE_PROTOCOL } from "./bridgeProtocol";
-import type { CanvasBoard, CanvasFrame } from "./api";
+import type { CanvasBoard as Board, CanvasFrame } from "./api";
 
 /**
- * The canvas window: a board of live frames over the chat. A frame is a page
- * in a sandboxed iframe at its own size; the window speaks the bridge protocol
- * with it, generation by generation; a pick becomes a chip of the prompt bar
- * and, sent, a prompt of the chat.
+ * A .canvas file as the Files window shows it: a board of live frames and the
+ * file's other nodes. A frame is a page in a sandboxed iframe at its own size;
+ * the board speaks the bridge protocol with it, generation by generation; a
+ * pick becomes a chip of the prompt bar and, sent, a prompt of the chat. A pan
+ * or a zoom moves the world layer and draws nothing again.
  */
+
+const FILE = "canvas/site.canvas";
 
 function frame(over: Partial<CanvasFrame> = {}): CanvasFrame {
   return {
-    id: "fr_one",
+    id: "aaaaaaaaaaaaaaaa",
     path: "site/index.html",
     root: "site",
     device: "desktop",
@@ -31,8 +34,6 @@ function frame(over: Partial<CanvasFrame> = {}): CanvasFrame {
     x: 0,
     y: 0,
     added_by: "agent",
-    added_at: "2026-10-18T12:00:00Z",
-    shown_at: "2026-10-18T12:00:00Z",
     gen: 1,
     stamp: "s1",
     url: "/coddy/canvas/tok.sig/index.html",
@@ -42,39 +43,94 @@ function frame(over: Partial<CanvasFrame> = {}): CanvasFrame {
   };
 }
 
-function board(frames: CanvasFrame[]): CanvasBoard {
-  return { session_id: "sess_1", revision: 1, frames, items: [], edges: [] };
+function board(frames: CanvasFrame[], over: Partial<Board> = {}): Board {
+  return {
+    session_id: "sess_1",
+    file: FILE,
+    current: true,
+    revision: 1,
+    stamp: "f1",
+    frames,
+    items: [],
+    edges: [],
+    ...over,
+  };
 }
 
 let fetches: { url: string; init?: RequestInit }[] = [];
+// What GET .../canvas?file= answers, changed by a test between reads.
+let served: Board = board([frame()]);
+let noteBody = "# One";
+let frameClock: { mockRestore: () => void } | null = null;
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
 
 beforeEach(() => {
   fetches = [];
+  served = board([frame()]);
+  noteBody = "# One";
   resetCanvasDraftsForTests();
   resetCanvasNodeCachesForTests();
+  // The camera writes once per animation frame; here at once.
+  frameClock = vi
+    .spyOn(window, "requestAnimationFrame")
+    .mockImplementation((cb) => {
+      cb(0);
+      return 1;
+    });
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (url: string, init?: RequestInit) => {
-      fetches.push({ url: String(url), ...(init ? { init } : {}) });
-      return new Response(
-        JSON.stringify({ frame: frame({ gen: 2 }), revision: 2 }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
+    vi.fn(async (input: string, init?: RequestInit) => {
+      const url = String(input);
+      fetches.push({ url, ...(init ? { init } : {}) });
+      const method = init?.method ?? "GET";
+      if (url.includes("/workspace/text")) {
+        return json({
+          lines: noteBody.split("\n"),
+          offset: 0,
+          next_offset: 1,
+          has_more: false,
+          etag: "e",
+        });
+      }
+      if (url.includes("/canvas/open")) return json(served);
+      if (/\/canvas\?file=/.test(url) && method === "GET") return json(served);
+      if (url.includes("/rotate"))
+        return json({ frame: frame({ gen: 2 }), revision: 2 });
+      if (url.includes("/report")) return new Response(null, { status: 204 });
+      return json({ revision: 2 });
     }),
   );
 });
 
 afterEach(() => {
   cleanup();
-  vi.unstubAllGlobals();
   vi.useRealTimers();
+  frameClock?.mockRestore();
+  frameClock = null;
+  vi.unstubAllGlobals();
 });
 
-function renderView(over: Partial<Parameters<typeof CanvasView>[0]> = {}) {
-  const props = {
+// Fake timers leave the frame clock to the spy above.
+const TIMERS: (
+  | "setTimeout"
+  | "clearTimeout"
+  | "setInterval"
+  | "clearInterval"
+)[] = ["setTimeout", "clearTimeout", "setInterval", "clearInterval"];
+
+type Props = Parameters<typeof CanvasBoard>[0];
+
+function props(over: Partial<Props> = {}): Props {
+  return {
     sessionId: "sess_1",
-    board: board([frame()]),
-    reloadBoard: vi.fn(),
+    file: FILE,
+    epoch: 0,
     focusFrameId: "",
     focusSeq: 0,
     busy: false,
@@ -83,8 +139,26 @@ function renderView(over: Partial<Parameters<typeof CanvasView>[0]> = {}) {
     onClose: vi.fn(),
     ...over,
   };
-  render(<CanvasView {...props} />);
-  return props;
+}
+
+/** Renders the board and waits for its first read. */
+async function renderBoard(over: Partial<Props> = {}) {
+  const p = props(over);
+  const view = render(<CanvasBoard {...p} />);
+  await waitFor(() =>
+    expect(
+      fetches.some((f) => /\/canvas\?file=/.test(f.url) && !f.init?.method),
+    ).toBe(true),
+  );
+  await act(async () => {});
+  return { props: p, view };
+}
+
+/** Moves the epoch, as a canvas_changed does, and waits for the read. */
+async function reread(view: ReturnType<typeof render>, p: Props) {
+  p.epoch += 1;
+  view.rerender(<CanvasBoard {...p} />);
+  await act(async () => {});
 }
 
 function iframe(): HTMLIFrameElement {
@@ -104,8 +178,16 @@ function fromFrame(data: Record<string, unknown>, source?: Window | null) {
   });
 }
 
-test("a frame is its page in a sandbox that grants no origin, at its own size", () => {
-  renderView();
+test("opening the board makes its file the chat's canvas and reads it", async () => {
+  await renderBoard();
+  const open = fetches.find((f) => f.url.includes("/canvas/open"));
+  expect(open?.init?.method).toBe("POST");
+  expect(open?.url).toContain(`file=${encodeURIComponent(FILE)}`);
+  expect(iframe()).toBeTruthy();
+});
+
+test("a frame is its page in a sandbox that grants no origin, at its own size", async () => {
+  await renderBoard();
   const el = iframe();
   expect(el.getAttribute("sandbox")).toBe(FRAME_SANDBOX);
   expect(FRAME_SANDBOX).not.toMatch(
@@ -115,13 +197,60 @@ test("a frame is its page in a sandbox that grants no origin, at its own size", 
   expect(el.getAttribute("src")).toBe(
     new URL("/coddy/canvas/tok.sig/index.html", window.location.origin).href,
   );
-  expect(el.style.width).toBe("1280px");
-  expect(el.style.height).toBe("800px");
+  // At its own size in the world layer; the camera scales the layer.
+  const box = screen.getByTestId("canvas-frame");
+  expect(box.style.width).toBe("1280px");
+  expect(box.style.height).toBe("800px");
+  expect(el.style.transform).toBe("");
   expect(screen.getByTestId("canvas-frame-bar").textContent).toContain("Shop");
 });
 
-test("the window greets every new document with its generation and drops older ones", () => {
-  renderView();
+test("the wheel zooms at the pointer and redraws no frame", async () => {
+  await renderBoard();
+  const before = iframe();
+  const world = screen.getByTestId("canvas-world");
+  expect(screen.getByTestId("canvas-fit").textContent).toBe("");
+  fireEvent.wheel(screen.getByTestId("canvas-board"), {
+    deltaY: -500,
+    clientX: 100,
+    clientY: 50,
+  });
+  // One turn of 500 pixels doubles the board around the pointer.
+  expect(world.style.transform).toBe("translate(-100px, -50px) scale(2)");
+  expect(
+    screen.getByTestId("canvas-board").style.getPropertyValue("--canvas-inv"),
+  ).toBe("0.5");
+  expect(screen.getByTestId("canvas-fit").textContent).toBe("200%");
+  // The same iframe, untouched: nothing on the board was drawn again.
+  expect(iframe()).toBe(before);
+  expect(iframe().getAttribute("data-seq")).toBe("0");
+  fireEvent.click(screen.getByTestId("canvas-zoom-out"));
+  expect(screen.getByTestId("canvas-fit").textContent).toBe("160%");
+});
+
+test("dragging the empty board pans it", async () => {
+  await renderBoard();
+  const b = screen.getByTestId("canvas-board");
+  pointer("pointerdown", b, 10, 10);
+  pointer("pointermove", b, 40, 30);
+  pointer("pointerup", b, 40, 30);
+  expect(screen.getByTestId("canvas-world").style.transform).toBe(
+    "translate(30px, 20px) scale(1)",
+  );
+});
+
+test("a board read again with nothing changed is not drawn again", async () => {
+  const { view, props: p } = await renderBoard();
+  const before = iframe();
+  // Every read signs fresh addresses; the frame keeps the one it loaded.
+  served = board([frame({ url: "/coddy/canvas/fresh.sig/index.html" })]);
+  await reread(view, p);
+  expect(iframe()).toBe(before);
+  expect(iframe().getAttribute("src")).toContain("tok.sig");
+});
+
+test("the board greets every new document with its generation and drops older ones", async () => {
+  await renderBoard();
   const win = iframe().contentWindow!;
   const post = vi.spyOn(win, "postMessage");
   fromFrame({ type: "ready" });
@@ -143,10 +272,7 @@ test("the window greets every new document with its generation and drops older o
   expect(screen.getByTestId("canvas-frame-errors").textContent).toBe("1");
 });
 
-test("a pick in Comment mode becomes a chip and, sent, the prompt of the chat", () => {
-  const props = renderView();
-  fireEvent.click(screen.getByTestId("canvas-mode-comment"));
-  fromFrame({ type: "ready" });
+function pick() {
   fromFrame({
     type: "pick",
     gen: 1,
@@ -158,6 +284,13 @@ test("a pick in Comment mode becomes a chip and, sent, the prompt of the chat", 
     html: '<h1 class="hero">Welcome</h1>',
     rect: { x: 10, y: 10, width: 200, height: 40 },
   });
+}
+
+test("a pick in Comment mode becomes a chip and, sent, the prompt of the chat", async () => {
+  const { props: p } = await renderBoard();
+  fireEvent.click(screen.getByTestId("canvas-mode-comment"));
+  fromFrame({ type: "ready" });
+  pick();
   fireEvent.change(screen.getByTestId("canvas-popover-note"), {
     target: { value: "Bigger" },
   });
@@ -167,8 +300,8 @@ test("a pick in Comment mode becomes a chip and, sent, the prompt of the chat", 
     target: { value: "And blue." },
   });
   fireEvent.click(screen.getByTestId("canvas-send"));
-  expect(props.onSend).toHaveBeenCalledTimes(1);
-  const sent = (props.onSend as ReturnType<typeof vi.fn>).mock
+  expect(p.onSend).toHaveBeenCalledTimes(1);
+  const sent = (p.onSend as ReturnType<typeof vi.fn>).mock
     .calls[0]![0] as string;
   expect(sent).toContain(
     "On the canvas, `site/index.html` (desktop 1280x800):",
@@ -184,8 +317,8 @@ test("a pick in Comment mode becomes a chip and, sent, the prompt of the chat", 
   ).toBe("true");
 });
 
-test("page text is shown as text, never as markup", () => {
-  renderView();
+test("page text is shown as text, never as markup", async () => {
+  await renderBoard();
   fromFrame({ type: "ready" });
   fromFrame({
     type: "pick",
@@ -202,9 +335,9 @@ test("page text is shown as text, never as markup", () => {
   expect(pop.textContent).toContain('img#"><img src=x onerror=alert(1)>');
 });
 
-test("a load that brings no bridge is a page that left the canvas: its frame is rotated", () => {
-  vi.useFakeTimers();
-  const props = renderView();
+test("a load that brings no bridge is a page that left the canvas: its frame is rotated", async () => {
+  await renderBoard();
+  vi.useFakeTimers({ toFake: TIMERS });
   act(() => {
     iframe().dispatchEvent(new Event("load"));
   });
@@ -212,71 +345,46 @@ test("a load that brings no bridge is a page that left the canvas: its frame is 
     vi.advanceTimersByTime(LEFT_CANVAS_MS + 10);
   });
   expect(screen.getByTestId("canvas-frame-left")).toBeTruthy();
-  expect(
-    fetches.some((f) => f.url.endsWith("/canvas/frames/fr_one/rotate")),
-  ).toBe(true);
-  void props;
+  const rotate = fetches.find((f) => f.url.includes("/rotate"));
+  expect(rotate?.url).toContain(
+    `/canvas/frames/aaaaaaaaaaaaaaaa/rotate?file=${encodeURIComponent(FILE)}`,
+  );
 });
 
-test("a load with the bridge is fine, and a new stamp reloads the frame alone", () => {
-  vi.useFakeTimers();
-  const base = {
-    sessionId: "sess_1",
-    reloadBoard: vi.fn(),
-    focusFrameId: "",
-    focusSeq: 0,
-    busy: false,
-    onSend: vi.fn(),
-    onStop: vi.fn(),
-    onClose: vi.fn(),
-  };
+test("a new stamp reloads that frame alone", async () => {
   const two = (over: Partial<CanvasFrame>) =>
     frame({
-      id: "fr_two",
+      id: "bbbbbbbbbbbbbbbb",
       x: 1400,
       stamp: "t1",
       url: "/coddy/canvas/two.sig/index.html",
       ...over,
     });
-  const view = render(
-    <CanvasView {...base} board={board([frame(), two({})])} />,
-  );
-  fromFrame({ type: "ready" });
-  act(() => {
-    iframe().dispatchEvent(new Event("load"));
-    vi.advanceTimersByTime(LEFT_CANVAS_MS + 10);
-  });
-  expect(screen.queryByTestId("canvas-frame-left")).toBeNull();
+  served = board([frame(), two({})]);
+  const { view, props: p } = await renderBoard();
   const srcs = () =>
     [...document.querySelectorAll("iframe")].map((f) => f.getAttribute("src"));
   const [oneBefore, twoBefore] = srcs();
-  // A fresh read of the board signs fresh addresses; only the frame whose
-  // files changed takes its new one.
-  view.rerender(
-    <CanvasView
-      {...base}
-      board={board([
-        frame({ stamp: "s2", url: "/coddy/canvas/tok2.sig/index.html" }),
-        two({ url: "/coddy/canvas/two2.sig/index.html" }),
-      ])}
-    />,
-  );
+  served = board([
+    frame({ stamp: "s2", url: "/coddy/canvas/tok2.sig/index.html" }),
+    two({ url: "/coddy/canvas/two2.sig/index.html" }),
+  ]);
+  await reread(view, p);
   const [oneAfter, twoAfter] = srcs();
   expect(oneAfter).not.toBe(oneBefore);
   expect(oneAfter).toContain("/coddy/canvas/tok2.sig/");
   expect(twoAfter).toBe(twoBefore);
 });
 
-test("a document that leaves with no next one saying ready left the canvas", () => {
-  vi.useFakeTimers();
-  renderView();
+test("a document that leaves with no next one saying ready left the canvas", async () => {
+  await renderBoard();
+  vi.useFakeTimers({ toFake: TIMERS });
   fromFrame({ type: "ready" });
-  // A page of the frame that leaves before the window greets it, then its load.
-  fromFrame({ type: "leaving", gen: 1, frame: "fr_one" });
+  fromFrame({ type: "leaving", gen: 1, frame: "aaaaaaaaaaaaaaaa" });
   fromFrame({ type: "ready" });
   // The leaving document is already discarded: its message has no source.
-  fromFrame({ type: "leaving", gen: 0, frame: "fr_other" }, null);
-  fromFrame({ type: "leaving", gen: 2, frame: "fr_one" }, null);
+  fromFrame({ type: "leaving", gen: 0, frame: "ffffffffffffffff" }, null);
+  fromFrame({ type: "leaving", gen: 2, frame: "aaaaaaaaaaaaaaaa" }, null);
   act(() => {
     iframe().dispatchEvent(new Event("load"));
   });
@@ -284,32 +392,39 @@ test("a document that leaves with no next one saying ready left the canvas", () 
     vi.advanceTimersByTime(LEFT_CANVAS_MS + 10);
   });
   expect(screen.getByTestId("canvas-frame-left")).toBeTruthy();
-  expect(
-    fetches.some((f) => f.url.endsWith("/canvas/frames/fr_one/rotate")),
-  ).toBe(true);
+  expect(fetches.some((f) => f.url.includes("/rotate"))).toBe(true);
 });
 
-test("Escape leaves Comment mode before it closes the window", () => {
-  const props = renderView();
+test("Escape leaves Comment mode before it closes the window", async () => {
+  const { props: p } = await renderBoard();
   fireEvent.click(screen.getByTestId("canvas-mode-comment"));
   fromFrame({ type: "ready" });
   fromFrame({ type: "escape", gen: 1 });
   expect(
     screen.getByTestId("canvas-mode-interact").getAttribute("aria-pressed"),
   ).toBe("true");
-  expect(props.onClose).not.toHaveBeenCalled();
+  expect(p.onClose).not.toHaveBeenCalled();
   fromFrame({ type: "escape", gen: 1 });
-  expect(props.onClose).toHaveBeenCalledTimes(1);
+  expect(p.onClose).toHaveBeenCalledTimes(1);
 });
 
-test("an empty board says where frames come from", () => {
-  renderView({ board: board([]) });
+test("an empty file says where frames come from", async () => {
+  served = board([]);
+  await renderBoard();
   expect(screen.getByTestId("canvas-empty")).toBeTruthy();
 });
 
-test("the bar has one button, as the composer: Stop while a turn runs and the field is empty, Queue once it is not", () => {
-  const props = renderView({ busy: true });
-  // One button at a time: no disabled Send next to Stop.
+test("a file that cannot be read says so and shows nothing of it", async () => {
+  served = board([], { error: "unexpected end of JSON input" });
+  await renderBoard();
+  expect(screen.getByTestId("canvas-file-error").textContent).toContain(
+    "unexpected end of JSON input",
+  );
+  expect(screen.queryByTestId("canvas-empty")).toBeNull();
+});
+
+test("the bar has one button, as the composer: Stop while a turn runs and the field is empty, Queue once it is not", async () => {
+  const { props: p } = await renderBoard({ busy: true });
   expect(screen.queryByTestId("canvas-send")).toBeNull();
   const stop = screen.getByTestId("canvas-stop");
   expect(stop.className).toContain("composer-send-stop");
@@ -317,7 +432,7 @@ test("the bar has one button, as the composer: Stop while a turn runs and the fi
     stop.querySelector(".composer-send-glyph .composer-stop-square"),
   ).not.toBeNull();
   fireEvent.click(stop);
-  expect(props.onStop).toHaveBeenCalledTimes(1);
+  expect(p.onStop).toHaveBeenCalledTimes(1);
   fireEvent.change(screen.getByTestId("canvas-bar-field"), {
     target: { value: "later" },
   });
@@ -326,11 +441,11 @@ test("the bar has one button, as the composer: Stop while a turn runs and the fi
   expect(queue.getAttribute("aria-label")).toBe("Queue for the agent");
   expect(queue.className).toContain("composer-run-icon--queue");
   fireEvent.click(queue);
-  expect(props.onSend).toHaveBeenCalledWith("later", expect.any(Function));
+  expect(p.onSend).toHaveBeenCalledWith("later", expect.any(Function));
 });
 
-test("idle, the bar's one button is Send, held back while there is nothing to send", () => {
-  renderView();
+test("idle, the bar's one button is Send, held back while there is nothing to send", async () => {
+  await renderBoard();
   expect(screen.queryByTestId("canvas-stop")).toBeNull();
   const send = screen.getByTestId("canvas-send") as HTMLButtonElement;
   expect(send.disabled).toBe(true);
@@ -341,12 +456,10 @@ test("idle, the bar's one button is Send, held back while there is nothing to se
   expect(send.getAttribute("aria-label")).toBe("Send");
 });
 
-function linkedBoard(): CanvasBoard {
-  return {
-    session_id: "sess_1",
+function obsidianBoard(): Board {
+  return board([frame({ id: "9a8b7c6d5e4f3a2b", x: 400, y: 0 })], {
+    file: "design/shop.canvas",
     revision: 4,
-    frames: [frame({ id: "9a8b7c6d5e4f3a2b", x: 400, y: 0 })],
-    link: { path: "design/shop.canvas", stamp: "[10,20]" },
     items: [
       {
         id: "g1",
@@ -380,14 +493,12 @@ function linkedBoard(): CanvasBoard {
     edges: [
       { id: "e1", fromNode: "t1", toNode: "9a8b7c6d5e4f3a2b", label: "opens" },
     ],
-  };
+  });
 }
 
-test("a linked .canvas file draws its cards, groups and edges beside the frames", () => {
-  renderView({ board: linkedBoard() });
-  expect(screen.getByTestId("canvas-subtitle").textContent).toContain(
-    "design/shop.canvas",
-  );
+test("a .canvas file draws its cards, groups and edges beside the frames", async () => {
+  served = obsidianBoard();
+  await renderBoard({ file: "design/shop.canvas" });
   const text = document.querySelector('[data-node-id="t1"]')!;
   expect(text.querySelector("h2")?.textContent).toBe("Checkout");
   expect(text.querySelector("strong")?.textContent).toBe("steps");
@@ -429,14 +540,16 @@ function pointer(
   fireEvent(el, e);
 }
 
-test("dragging a group moves it with what it holds in one change of the file", () => {
-  renderView({ board: linkedBoard() });
+test("dragging a group moves it with what it holds in one change of the file", async () => {
+  served = obsidianBoard();
+  await renderBoard({ file: "design/shop.canvas" });
   const group = screen.getByTestId("canvas-group");
   pointer("pointerdown", group, 10, 10);
   pointer("pointermove", group, 30, 10);
   pointer("pointerup", group, 30, 10);
-  const patch = fetches.find((f) => f.url.endsWith("/canvas/nodes"));
+  const patch = fetches.find((f) => f.url.includes("/canvas/nodes"));
   expect(patch?.init?.method).toBe("PATCH");
+  expect(patch?.url).toContain("file=design%2Fshop.canvas");
   const body = JSON.parse(String(patch!.init!.body)) as {
     nodes: { id: string; x: number; y: number }[];
   };
@@ -444,8 +557,8 @@ test("dragging a group moves it with what it holds in one change of the file", (
   const g = body.nodes.find((n) => n.id === "g1")!;
   const t = body.nodes.find((n) => n.id === "t1")!;
   // Both moved by the same distance on the board, and only sideways.
-  expect(g.x + 500).toBeGreaterThan(0);
-  expect(t.x + 450).toBe(g.x + 500);
+  expect(g.x).toBe(-480);
+  expect(t.x).toBe(-430);
   expect(t.y).toBe(0);
   expect(g.y).toBe(-100);
   // The frame outside the group stays where it was.
@@ -456,70 +569,43 @@ test("dragging a group moves it with what it holds in one change of the file", (
   pointer("pointerdown", text, 5, 5, 2);
   pointer("pointermove", text, 6, 5, 2);
   pointer("pointerup", text, 6, 5, 2);
-  expect(fetches.some((f) => f.url.endsWith("/canvas/nodes"))).toBe(false);
+  expect(fetches.some((f) => f.url.includes("/canvas/nodes"))).toBe(false);
 });
 
-test("the file menu saves the chat's own board as a .canvas file", async () => {
-  const props = renderView();
-  fireEvent.click(screen.getByTestId("canvas-file-menu"));
-  fireEvent.click(screen.getByTestId("canvas-file-save"));
-  const input = screen.getByTestId("canvas-file-path") as HTMLInputElement;
-  fireEvent.change(input, { target: { value: "design/board.txt" } });
-  fireEvent.click(screen.getByTestId("canvas-file-submit"));
-  expect(screen.getByTestId("canvas-file-error").textContent).toMatch(
-    /\.canvas/,
-  );
-  fireEvent.change(input, { target: { value: "design/board.canvas" } });
-  await act(async () => {
-    fireEvent.click(screen.getByTestId("canvas-file-submit"));
+test("a drag on a zoomed board moves the node by the board's distance", async () => {
+  served = obsidianBoard();
+  await renderBoard({ file: "design/shop.canvas" });
+  fireEvent.wheel(screen.getByTestId("canvas-board"), {
+    deltaY: -500,
+    clientX: 0,
+    clientY: 0,
   });
-  const post = fetches.find((f) => f.url.endsWith("/canvas/export"));
-  expect(post?.init?.method).toBe("POST");
-  expect(JSON.parse(String(post!.init!.body))).toEqual({
-    path: "design/board.canvas",
-  });
-  expect(props.reloadBoard).toHaveBeenCalled();
-  expect(screen.queryByTestId("canvas-file-form")).toBeNull();
+  const text = document.querySelector('[data-node-id="t1"]') as HTMLElement;
+  pointer("pointerdown", text, 10, 10);
+  pointer("pointermove", text, 50, 10);
+  pointer("pointerup", text, 50, 10);
+  const patch = fetches.find((f) => f.url.includes("/canvas/nodes"));
+  const body = JSON.parse(String(patch!.init!.body)) as {
+    nodes: { id: string; x: number }[];
+  };
+  // 40 screen pixels at 200% are 20 on the board.
+  expect(body.nodes).toEqual([{ id: "t1", x: -430, y: 0 }]);
 });
 
-test("a linked file that cannot be read says so and offers the chat's own board", () => {
-  const b = linkedBoard();
-  renderView({
-    board: {
-      ...b,
-      frames: [],
-      items: [],
-      edges: [],
-      link: { ...b.link!, error: "unexpected end of JSON input" },
-    },
+test("a frame's device menu resizes it through a change of the file's nodes", async () => {
+  await renderBoard();
+  fireEvent.click(screen.getByRole("button", { name: "Size" }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: /Phone/ }));
+  const patch = fetches.find((f) => f.url.includes("/canvas/nodes"));
+  expect(JSON.parse(String(patch!.init!.body))).toEqual({
+    nodes: [{ id: "aaaaaaaaaaaaaaaa", device: "phone" }],
   });
-  expect(screen.getByTestId("canvas-link-error").textContent).toContain(
-    "unexpected end of JSON input",
-  );
-  expect(screen.queryByTestId("canvas-empty")).toBeNull();
-  fireEvent.click(screen.getByTestId("canvas-file-menu"));
-  fireEvent.click(screen.getByTestId("canvas-file-unlink"));
-  expect(
-    fetches.some(
-      (f) => f.url.endsWith("/canvas/link") && f.init?.method === "DELETE",
-    ),
-  ).toBe(true);
 });
 
-test("a frame renews its address on its own clock, never on every read of the board", () => {
+test("a frame renews its address on its own clock, never on every read of the board", async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   const t0 = new Date("2026-10-18T12:00:00Z").getTime();
   vi.setSystemTime(t0);
-  const props = {
-    sessionId: "sess_1",
-    reloadBoard: vi.fn(),
-    focusFrameId: "",
-    focusSeq: 0,
-    busy: false,
-    onSend: vi.fn(),
-    onStop: vi.fn(),
-    onClose: vi.fn(),
-  };
   // The server's clock is a day behind this page's: every address it signs
   // already reads as expired here.
   const skewed = (n: number) =>
@@ -529,35 +615,29 @@ test("a frame renews its address on its own clock, never on every read of the bo
         expires_at: new Date(t0 - 12 * 3600 * 1000).toISOString(),
       }),
     ]);
-  const { rerender } = render(<CanvasView {...props} board={skewed(1)} />);
+  served = skewed(1);
+  const { view, props: p } = await renderBoard();
   const seq = () => iframe().getAttribute("data-seq");
   expect(seq()).toBe("0");
-  rerender(<CanvasView {...props} board={skewed(2)} />);
-  rerender(<CanvasView {...props} board={skewed(3)} />);
+  served = skewed(2);
+  await reread(view, p);
+  served = skewed(3);
+  await reread(view, p);
   expect(seq()).toBe("0");
   // Eleven and a half hours on, the next address the board signs is taken.
   vi.setSystemTime(t0 + 11.6 * 3600 * 1000);
-  rerender(<CanvasView {...props} board={skewed(4)} />);
+  served = skewed(4);
+  await reread(view, p);
   expect(seq()).toBe("1");
   expect(iframe().getAttribute("src")).toContain("tok4.sig");
 });
 
-test("a request the server never took comes back to the bar with its picks", () => {
+test("a request the server never took comes back to the bar with its picks", async () => {
   const onSend = vi.fn();
-  renderView({ onSend });
+  await renderBoard({ onSend });
   fireEvent.click(screen.getByTestId("canvas-mode-comment"));
   fromFrame({ type: "ready" });
-  fromFrame({
-    type: "pick",
-    gen: 1,
-    selector: "main > h1",
-    tag: "h1",
-    id: "",
-    classes: ["hero"],
-    text: "Welcome",
-    html: '<h1 class="hero">Welcome</h1>',
-    rect: { x: 10, y: 10, width: 200, height: 40 },
-  });
+  pick();
   fireEvent.click(screen.getByTestId("canvas-popover-add"));
   const field = screen.getByTestId("canvas-bar-field") as HTMLTextAreaElement;
   fireEvent.change(field, { target: { value: "Make it blue." } });
@@ -572,64 +652,23 @@ test("a request the server never took comes back to the bar with its picks", () 
   expect(screen.getByTestId("canvas-pick").textContent).toContain("h1.hero");
 });
 
-test("a frame pointed at another page of its root loads that page", () => {
-  const props = {
-    sessionId: "sess_1",
-    reloadBoard: vi.fn(),
-    focusFrameId: "",
-    focusSeq: 0,
-    busy: false,
-    onSend: vi.fn(),
-    onStop: vi.fn(),
-    onClose: vi.fn(),
-  };
-  const { rerender } = render(
-    <CanvasView {...props} board={board([frame()])} />,
-  );
+test("a frame pointed at another page of its root loads that page", async () => {
+  const { view, props: p } = await renderBoard();
   expect(iframe().getAttribute("data-seq")).toBe("0");
-  rerender(
-    <CanvasView
-      {...props}
-      board={board([
-        frame({
-          path: "site/about.html",
-          url: "/coddy/canvas/tok2.sig/about.html",
-        }),
-      ])}
-    />,
-  );
+  served = board([
+    frame({
+      path: "site/about.html",
+      url: "/coddy/canvas/tok2.sig/about.html",
+    }),
+  ]);
+  await reread(view, p);
   expect(iframe().getAttribute("data-seq")).toBe("1");
   expect(iframe().getAttribute("src")).toContain("/about.html");
 });
 
 test("a note card reads its file again while the board is open", async () => {
-  vi.useFakeTimers({ toFake: ["Date"] });
-  const t0 = new Date("2026-10-18T12:00:00Z").getTime();
-  vi.setSystemTime(t0);
-  let body = "# One";
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (url: string) => {
-      if (String(url).includes("/workspace/text")) {
-        return new Response(
-          JSON.stringify({
-            lines: body.split("\n"),
-            offset: 0,
-            next_offset: 1,
-            has_more: false,
-            etag: "e",
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
-      return new Response("{}", { status: 200 });
-    }),
-  );
-  const noteBoard = (): CanvasBoard => ({
-    session_id: "sess_1",
-    revision: 1,
-    frames: [],
-    link: { path: "design/notes.canvas", stamp: "[1,2]" },
+  served = board([], {
+    file: "design/notes.canvas",
     items: [
       {
         id: "n1",
@@ -641,33 +680,24 @@ test("a note card reads its file again while the board is open", async () => {
         height: 300,
       },
     ],
-    edges: [],
   });
-  const props = {
-    sessionId: "sess_1",
-    reloadBoard: vi.fn(),
-    focusFrameId: "",
-    focusSeq: 0,
-    busy: false,
-    onSend: vi.fn(),
-    onStop: vi.fn(),
-    onClose: vi.fn(),
-  };
-  const { rerender } = render(<CanvasView {...props} board={noteBoard()} />);
+  // The card's own clock, which also runs on as the test waits.
+  vi.useFakeTimers({ toFake: TIMERS, shouldAdvanceTime: true });
+  await renderBoard({ file: "design/notes.canvas" });
   const heading = () =>
     document.querySelector('[data-node-id="n1"] h1')?.textContent;
   await waitFor(() => expect(heading()).toBe("One"));
-  body = "# Two";
-  // The next read of the board, a little later: the note is read again.
-  vi.setSystemTime(t0 + 11000);
-  rerender(<CanvasView {...props} board={noteBoard()} />);
+  noteBody = "# Two";
+  act(() => {
+    vi.advanceTimersByTime(11000);
+  });
   await waitFor(() => expect(heading()).toBe("Two"));
 });
 
-test("what the window tells a frame names no address, token or file", () => {
-  // The window has to post to an opaque-origin frame with "*", so whatever
+test("what the board tells a frame names no address, token or file", async () => {
+  // The board has to post to an opaque-origin frame with "*", so whatever
   // document sits in the frame then reads it: it must learn nothing it could use.
-  renderView();
+  await renderBoard();
   const win = iframe().contentWindow!;
   const post = vi.spyOn(win, "postMessage");
   fromFrame({ type: "ready" });
@@ -686,12 +716,13 @@ test("what the window tells a frame names no address, token or file", () => {
     expect(text).not.toContain("tok.sig");
     expect(text).not.toContain("/coddy/");
     expect(text).not.toContain("site/index.html");
+    expect(text).not.toContain(FILE);
   }
 });
 
-test("a permission the turn waits for is asked in the canvas window, which covers the chat", async () => {
+test("a permission the turn waits for is asked on the canvas, which covers the chat", async () => {
   const onPermissionResolved = vi.fn();
-  renderView({
+  await renderBoard({
     busy: true,
     prompts: [
       {
@@ -739,7 +770,7 @@ test("a permission the turn waits for is asked in the canvas window, which cover
   );
 });
 
-test("with nothing waiting the window shows no prompt strip", () => {
-  renderView({ prompts: [] });
+test("with nothing waiting the board shows no prompt strip", async () => {
+  await renderBoard({ prompts: [] });
   expect(screen.queryByTestId("canvas-prompts")).toBeNull();
 });

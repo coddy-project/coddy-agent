@@ -93,11 +93,13 @@ export type ServerEvent =
   | { type: "session_rewound"; sessionId: string }
   | { type: "ready" };
 
-/** What `event: canvas_changed` says: whose board, which frame and why. */
+/** What `event: canvas_changed` says: whose canvas, which .canvas file,
+ *  which frame and why. */
 export type CanvasChangedEvent = {
   sessionId: string;
+  file: string;
   frameId: string;
-  reason: "added" | "shown" | "updated" | "removed" | string;
+  reason: "added" | "shown" | "updated" | "removed" | "opened" | string;
   revision: number;
 };
 
@@ -108,6 +110,7 @@ function canvasChangedOf(data: string): CanvasChangedEvent | null {
     if (!sid) return null;
     return {
       sessionId: sid,
+      file: typeof p.file === "string" ? p.file : "",
       frameId: typeof p.frameId === "string" ? p.frameId : "",
       reason: typeof p.reason === "string" ? p.reason : "",
       revision:
@@ -341,6 +344,7 @@ export function dispatchServerEvent(
     case "canvas_changed":
       h.onCanvasChanged?.({
         sessionId: event.sessionId,
+        file: event.file,
         frameId: event.frameId,
         reason: event.reason,
         revision: event.revision,

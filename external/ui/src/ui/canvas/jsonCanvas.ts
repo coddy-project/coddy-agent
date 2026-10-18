@@ -2,8 +2,8 @@
  * What the canvas draws of a JSON Canvas file (https://jsoncanvas.org, the
  * format of Obsidian's canvases) besides its live frames: the colours of its
  * nodes and edges, where an edge leaves and enters a node, the curve between
- * them and the arrows at its ends. Pure functions over screen rectangles, so
- * the geometry is tested without a layout.
+ * them and the arrows at its ends. Pure functions over rectangles, so the
+ * geometry is tested without a layout.
  */
 import type { CanvasEdge, CanvasItem, CanvasSide } from "./api";
 import type { Rect } from "./camera";
@@ -113,7 +113,9 @@ function round(n: number): number {
  * The curve of an edge between two nodes on the screen: from the middle of
  * the side it names (or the side facing the other node) out along that
  * side's normal and into the other node the same way, as Obsidian draws it.
- * `scale` is the camera's, so the bend and the arrows grow with the board.
+ * `scale` is how many units of the rectangles one board unit is: the board
+ * draws its edges in board units (1), so the bend and the arrows grow with
+ * the board as the camera scales it.
  * Null when either node is not on the board.
  */
 export function edgeShape(

@@ -1,84 +1,106 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { HttpError } from "../files/api";
 import { readBoard, type CanvasBoard } from "./api";
 
-/** How often the open canvas reads its board again: a background build can
+/** How often an open canvas reads its board again: a background build can
  *  rewrite a frame's files after the last tool call, and the stamps say so. */
 export const CANVAS_POLL_MS = 4000;
 
+/** A board read again is kept as it was while nothing on it changed, so the
+ *  frames and nodes are not drawn again every poll; the frames' addresses,
+ *  which every read signs anew, are taken this often all the same, well
+ *  ahead of their renewal (CanvasFrame). */
+export const CANVAS_ADDRESS_REFRESH_MS = 10 * 60 * 1000;
+
 export interface CanvasBoardState {
-  /** The chat's board; null until read, or when the chat has none. */
+  /** The board; null until read. */
   board: CanvasBoard | null;
-  /** False once the server answered that it has no canvas (tools.canvas off,
-   *  an older server): the view button stays away. */
-  available: boolean;
+  /** Why the board could not be read, "" while it could. */
+  error: string;
   /** Reads the board again now. */
   reload: () => void;
 }
 
+/** What a read of the board says, without the frames' fresh signatures. */
+export function boardFingerprint(b: CanvasBoard, now = Date.now()): string {
+  return JSON.stringify([
+    Math.floor(now / CANVAS_ADDRESS_REFRESH_MS),
+    b.file,
+    b.current,
+    b.revision,
+    b.stamp,
+    b.error ?? "",
+    b.frames.map((f) => {
+      const { url: _url, expires_at: _exp, ...rest } = f;
+      return rest;
+    }),
+    b.items,
+    b.edges,
+  ]);
+}
+
 /**
- * The board of the chat on screen, read when the chat opens, whenever epoch
- * moves (App bumps it on canvas_changed, turn_ended and a finished tool call)
- * and, while the canvas window is open and the page visible, every
- * CANVAS_POLL_MS. A late answer for another chat or an older read is dropped.
+ * One .canvas file of the chat as a board, read when it opens, whenever epoch
+ * moves (App bumps it on canvas_changed and a finished tool call) and, while
+ * the page is visible, every CANVAS_POLL_MS. A late answer for another file or
+ * an older read is dropped; an answer that changed nothing is not drawn again.
  */
 export function useCanvasBoard(
   sessionId: string,
-  opts: { open: boolean; epoch: number },
+  file: string,
+  epoch: number,
 ): CanvasBoardState {
   const [board, setBoard] = useState<CanvasBoard | null>(null);
-  const [available, setAvailable] = useState(true);
+  const [error, setError] = useState("");
   const generation = useRef(0);
+  const fingerprint = useRef("");
   const sid = sessionId.trim();
 
   const read = useCallback(() => {
-    if (!sid) return;
+    if (!sid || !file) return;
     const gen = ++generation.current;
-    readBoard(sid).then(
+    readBoard(sid, file).then(
       (b) => {
         if (gen !== generation.current) return;
-        setAvailable(true);
+        setError("");
+        const fp = boardFingerprint(b);
+        if (fp === fingerprint.current) return;
+        fingerprint.current = fp;
         setBoard(b);
       },
       (err: unknown) => {
         if (gen !== generation.current) return;
-        if (err instanceof HttpError && err.status === 404) {
-          setAvailable(false);
-          setBoard(null);
-        }
-        // Anything else (a server restarting) keeps what is on screen.
+        // A server restarting keeps what is on screen; the reason shows.
+        setError(err instanceof Error ? err.message : String(err));
       },
     );
-  }, [sid]);
+  }, [sid, file]);
 
-  // Another chat starts from nothing.
+  // Another file starts from nothing.
   useEffect(() => {
     generation.current++;
+    fingerprint.current = "";
     setBoard(null);
-    setAvailable(true);
-  }, [sid]);
+    setError("");
+  }, [sid, file]);
 
   useEffect(() => {
     read();
-  }, [read, opts.epoch]);
+  }, [read, epoch]);
 
   useEffect(() => {
-    if (!opts.open || !sid) return undefined;
+    if (!sid || !file) return undefined;
     const tick = () => {
       if (document.visibilityState === "visible") read();
     };
     const timer = window.setInterval(tick, CANVAS_POLL_MS);
-    const onVisible = () => {
-      if (document.visibilityState === "visible") read();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", tick);
+    window.addEventListener("focus", tick);
     return () => {
       window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", tick);
+      window.removeEventListener("focus", tick);
     };
-  }, [opts.open, sid, read]);
+  }, [sid, file, read]);
 
-  return { board, available, reload: read };
+  return { board, error, reload: read };
 }
