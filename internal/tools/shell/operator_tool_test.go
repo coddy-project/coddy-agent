@@ -370,7 +370,13 @@ func TestOperatorStopIsNotLostToTheShellsExit(t *testing.T) {
 		if !strings.Contains(out, "stopped") {
 			t.Fatalf("iteration %d: an accepted Stop was reported as a plain end: %q", i, out)
 		}
-		if run.killCount() == 0 {
+		// After the shell is reaped the group is terminated on Unix; not on
+		// Windows, where the reaped pid can already name another process.
+		if runtime.GOOS == "windows" {
+			if run.killCount() != 0 {
+				t.Fatalf("iteration %d: a reaped pid was killed on Windows", i)
+			}
+		} else if run.killCount() == 0 {
 			t.Fatalf("iteration %d: the group of a stopped command was not terminated", i)
 		}
 	}
@@ -505,6 +511,10 @@ func TestOperatorCommandRefusesAFolderThatReadsDifferently(t *testing.T) {
 			odd := filepath.Join(env.CWD, folder)
 			if err := os.MkdirAll(odd, 0o755); err != nil {
 				t.Skipf("the filesystem refuses the name: %v", err)
+			}
+			if entries, _ := os.ReadDir(env.CWD); len(entries) != 1 || entries[0].Name() != folder {
+				// Windows drops the trailing space of a folder name.
+				t.Skipf("the filesystem stored %q as another name", folder)
 			}
 			b, _ := json.Marshal(map[string]string{"command": "echo x", "reason": "r", "cwd": odd})
 			if _, err := runOperatorTool(t, env, string(b)); err == nil {
