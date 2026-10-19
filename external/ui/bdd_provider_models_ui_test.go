@@ -18,6 +18,7 @@ func TestProviderModelsWebUIFeature(t *testing.T) {
 	const window = "src/ui/settings/ContextWindowField.test.tsx"
 	const section = "src/ui/settings/SettingsSection.test.tsx"
 	const array = "src/ui/settings/SettingsArraySection.test.tsx"
+	const selection = "src/ui/chat/llmModelSelection.test.ts"
 	steps := map[string][2]string{
 		"opening a provider row fetches the list with the row as the form holds it":            {list, "opening a provider row fetches the list with the row as the form holds it"},
 		"a model is added to Logical models from its row":                                      {list, "a model is added to Logical models from its row"},
@@ -31,6 +32,7 @@ func TestProviderModelsWebUIFeature(t *testing.T) {
 		"the address opens the row it names":                                                   {array, "the address opens the row it names"},
 		"an address naming no row goes back to the list and clears the name":                   {array, "an address naming no row goes back to the list and clears the name"},
 		"renaming the open row renames it in the address":                                      {array, "renaming the open row renames it in the address"},
+		"the models of a provider named coddy are backends and the profiles are not":           {selection, "the models of a provider named coddy are backends and the profiles are not"},
 	}
 	suite := godog.TestSuite{
 		Name: "provider_models_web_ui",

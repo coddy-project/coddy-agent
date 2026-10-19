@@ -178,6 +178,8 @@ import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
 import { railCloseGuard, useRailScreenEscape } from "./nav/railEscape";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
 import {
+  configuredBackendIds,
+  isProfileModelRow,
   pickDefaultLlmModelForNewChat,
   pickLlmModelForOpenSession,
   sessionScopedModelCommand,
@@ -3065,9 +3067,7 @@ export function App() {
         return m;
       });
       setModelInfos(rows);
-      const backends = raw
-        .filter((r) => r.ownedBy !== "coddy")
-        .map((r) => r.id);
+      const backends = configuredBackendIds(raw);
       setLlmModelIds(backends);
       if (!viewedSessionIdRef.current.trim()) {
         setLlmModel(
@@ -6288,7 +6288,7 @@ export function App() {
   const llmReasoningLevelsByModel = useMemo(() => {
     const out: Record<string, readonly string[]> = {};
     for (const m of modelInfos) {
-      if (m.ownedBy !== "coddy") {
+      if (!isProfileModelRow(m)) {
         out[m.id] = m.reasoningLevels ?? [];
       }
     }

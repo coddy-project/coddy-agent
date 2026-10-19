@@ -21,7 +21,7 @@ func openAPISpec() map[string]interface{} {
 		"openapi": "3.0.3",
 		"info": map[string]interface{}{
 			"title": "Coddy HTTP API",
-			"description": "OpenAI-compatible endpoints backed by Coddy sessions and agents. **`GET /v1/models`** returns one list: **agent**, **plan**, and **ask** first (**`owned_by`**: **`coddy`**), then every configured **`models[].model`** row (**`id`** is the YAML selector, **`owned_by`** is the provider prefix). " +
+			"description": "OpenAI-compatible endpoints backed by Coddy sessions and agents. **`GET /v1/models`** returns one list: **agent**, **plan**, and **ask** first (**`owned_by`**: **`coddy`**), then every configured **`models[].model`** row (**`id`** is the YAML selector, **`owned_by`** is the provider prefix; a provider row named **`coddy`** gives its rows **`owned_by`** **`coddy`** too, so tell a profile by its **`id`**). " +
 				"Classify POST **model** values: **agent** / **plan** / **ask** run the ReAct agent; a selector with **provider/rest** form (see config) that appears in **`models`** triggers a single direct LLM completion (no tools). " +
 				"**`metadata.model`** may appear only on agent/plan/ask requests to set the session **`SelectedModelID`**; it is **not** allowed on direct completion. " +
 				"**`metadata.reasoning`** (optional, agent/plan/ask only) sets the reasoning level; it must be one of the effective model's **`reasoning_levels`**, or **`off`** where the model's provider can turn thinking off (null/empty clears). **`metadata.toolset`** (optional, agent/plan/ask only) picks a **`toolsets[]`** preset for the session, or **`default`** for every tool of the mode; a name the configuration does not have is **400**. Levels map to provider controls (**`reasoning_effort`**; **`qwen3*`** models on OpenAI-compatible providers also pin **`chat_template_kwargs.enable_thinking`**, off included). " +
@@ -49,7 +49,7 @@ func openAPISpec() map[string]interface{} {
 			"/v1/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "List models (profiles and configured LLM backends)",
-					"description": "Returns **agent**, **plan**, then **ask** (**`owned_by`**: **`coddy`**), then each **`models[].model`** from configuration (**`owned_by`**: provider segment of **`id`**). " +
+					"description": "Returns **agent**, **plan**, then **ask** (**`owned_by`**: **`coddy`**), then each **`models[].model`** from configuration (**`owned_by`**: provider segment of **`id`**; a profile is told by its **`id`**, since a provider row may be named **`coddy`**). " +
 						"The row a session that selects no model runs on carries **`default: true`**: configured **`agent.model`**, the first **`models[]`** row when it names a model the configuration does not list, no row while it is empty. " +
 						"Choose any returned **`id`** as the HTTP **`model`** on **`POST /v1/chat/completions`** or **`POST /v1/responses`**.",
 					"operationId": "listModels",
