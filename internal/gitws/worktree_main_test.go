@@ -3,6 +3,7 @@ package gitws
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -212,5 +213,109 @@ func TestMainCheckoutFolderStopsAtARepositoryNestedInTheMainCheckout(t *testing.
 	}
 	if got, ok := MainCheckoutFolder(filepath.Join(wt, "third_party")); !ok || !samePath(got, filepath.Join(main, "third_party")) {
 		t.Fatalf("the folder above the nested repository = %q, %t; want the main checkout's", got, ok)
+	}
+}
+
+// relativeWorktree rewrites a worktree's links the way git 2.48+ writes them
+// with worktree.useRelativePaths: the .git file names the storage relative to
+// the worktree, and the storage's gitdir names the .git file relative to
+// itself.
+func relativeWorktree(t *testing.T, wt string) {
+	t.Helper()
+	pointer, err := os.ReadFile(filepath.Join(wt, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitDir := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(pointer)), "gitdir:"))
+	realWT, _ := filepath.EvalSymlinks(wt)
+	realGitDir, _ := filepath.EvalSymlinks(gitDir)
+	toStorage, err := filepath.Rel(realWT, realGitDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toDotGit, err := filepath.Rel(realGitDir, filepath.Join(realWT, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: "+filepath.ToSlash(toStorage)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(realGitDir, "gitdir"), []byte(filepath.ToSlash(toDotGit)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A worktree whose links git wrote relative to each other answers like any
+// other, inside the main checkout or beside it.
+func TestMainCheckoutFolderOfWorktreesWithRelativeLinks(t *testing.T) {
+	main := initRepo(t)
+	inside := filepath.Join(WorktreesRoot(main), "feature-login")
+	mustGit(t, main, "worktree", "add", "-q", inside, "feature/login")
+	beside := filepath.Join(filepath.Dir(main), filepath.Base(main)+"-next")
+	mustGit(t, main, "worktree", "add", "-q", "-b", "feature/next", beside)
+	t.Cleanup(func() { _ = os.RemoveAll(beside) })
+	for _, wt := range []string{inside, beside} {
+		relativeWorktree(t, wt)
+		if got, ok := MainCheckoutFolder(filepath.Join(wt, "pkg")); !ok || !samePath(got, filepath.Join(main, "pkg")) {
+			t.Errorf("MainCheckoutFolder(%s/pkg) = %q, %t; want %s/pkg", wt, got, ok, main)
+		}
+	}
+}
+
+// A tree that reaches a repository's real storage through a link of its own,
+// next to a .git file named like a worktree that git linked with relative
+// paths, does not pass for that worktree: the storage is read where it really
+// is, as git reads it, and its back-link names the real worktree.
+func TestMainCheckoutFolderResolvesTheStorageBeforeTheBackLink(t *testing.T) {
+	src := t.TempDir()
+	victim := filepath.Join(src, "victim")
+	if err := os.MkdirAll(victim, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, victim, "init", "-q", "-b", "main")
+	mustGit(t, victim, "-c", "user.email=coddy@test", "-c", "user.name=coddy", "commit", "-q", "--allow-empty", "-m", "init")
+	victimWT := filepath.Join(src, "victim-wt")
+	mustGit(t, victim, "worktree", "add", "-q", "-b", "feature/x", victimWT)
+	relativeWorktree(t, victimWT)
+
+	evil := t.TempDir()
+	if err := os.Symlink(victim, filepath.Join(evil, "V")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	forged := filepath.Join(evil, "victim-wt")
+	if err := os.MkdirAll(forged, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(forged, ".git"), []byte("gitdir: ../V/.git/worktrees/victim-wt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := MainCheckoutFolder(forged); ok {
+		t.Fatalf("a forged worktree reaching the storage through a link answered %q, want none", got)
+	}
+	if got, ok := MainCheckoutFolder(victimWT); !ok || !samePath(got, victim) {
+		t.Fatalf("the genuine relative worktree answered %q, %t; want %s", got, ok, victim)
+	}
+}
+
+// The walk for a nested repository follows where the folder really is: a
+// link in the main checkout into a subfolder of a repository nested there is
+// that repository's folder.
+func TestMainCheckoutFolderStopsAtANestedRepositoryReachedThroughALink(t *testing.T) {
+	main := initRepo(t)
+	nestedSrc := filepath.Join(main, "vendor", "tool", "src")
+	if err := os.MkdirAll(nestedSrc, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, filepath.Join(main, "vendor", "tool"), "init", "-q")
+	if err := os.Symlink(nestedSrc, filepath.Join(main, "alias")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	wt := filepath.Join(WorktreesRoot(main), "feature-login")
+	mustGit(t, main, "worktree", "add", "-q", wt, "feature/login")
+	if err := os.MkdirAll(filepath.Join(wt, "alias"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := MainCheckoutFolder(filepath.Join(wt, "alias")); ok {
+		t.Fatalf("a link into a nested repository answered %q, want none", got)
 	}
 }

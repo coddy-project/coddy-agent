@@ -206,7 +206,10 @@ names the repository's worktree storage, and that storage names the folder back.
 `.git` file copied or written into another folder, like a `.git` that is a link,
 lends that folder nothing. A folder whose counterpart in the main checkout is a
 link to somewhere else, or lies in a repository nested there, keeps approvals of
-its own, and so does a folder of a worktree of a bare repository or of a
-repository that keeps its storage outside the main checkout (`--separate-git-dir`).
+its own, and so does a folder of a worktree of a bare repository. The worktrees
+of a repository that keeps its storage outside the main checkout
+(`--separate-git-dir`) share nothing with the main checkout: when that storage is
+named `.git`, they share the approvals of the folder that holds it, otherwise each
+keeps its own.
 Approvals a worktree recorded under its own path before Coddy shared them were not
 moved, so the worktree asks once more for what only it had approved.

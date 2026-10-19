@@ -49,7 +49,13 @@ func MainCheckoutFolder(dir string) (string, bool) {
 	if !filepath.IsAbs(gitDir) {
 		gitDir = filepath.Join(root, gitDir)
 	}
-	gitDir = filepath.Clean(gitDir)
+	// Read the storage where it really is, as git does: every path below is
+	// derived from it, and a relative back-link resolved from a path that
+	// runs through a link of the checkout's own would land in that checkout.
+	gitDir, err = filepath.EvalSymlinks(filepath.Clean(gitDir))
+	if err != nil {
+		return "", false
+	}
 	// <common>/worktrees/<name>: the layout git gives a linked worktree.
 	if filepath.Base(filepath.Dir(gitDir)) != "worktrees" {
 		return "", false
@@ -95,32 +101,51 @@ func MainCheckoutFolder(dir string) (string, bool) {
 		return "", false
 	}
 	// Nor into a repository of its own nested in the main checkout: that is
-	// another project, with approvals of its own.
-	for d := folder; d != main; {
+	// another project, with approvals of its own. Walked where the folder
+	// really is, so a link in the main checkout into such a repository counts.
+	realMain, err := filepath.EvalSymlinks(main)
+	if err != nil {
+		return "", false
+	}
+	for d := resolveExisting(folder); d != realMain; {
 		if _, err := os.Lstat(filepath.Join(d, ".git")); err == nil {
 			return "", false
 		}
 		parent := filepath.Dir(d)
 		if parent == d {
-			break
+			// Above the main checkout: isInside already refused that.
+			return "", false
 		}
 		d = parent
 	}
 	return folder, true
 }
 
+// resolveExisting resolves the links of the longest part of path that
+// exists and keeps the rest as written: where a folder that may not exist
+// yet would really be.
+func resolveExisting(path string) string {
+	for p := path; ; {
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			rel, err := filepath.Rel(p, path)
+			if err != nil {
+				return path
+			}
+			return filepath.Join(real, rel)
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return path
+		}
+		p = parent
+	}
+}
+
 // readSmallFile reads a regular file of at most limit bytes. Anything else -
-// a link, a FIFO, a device, a file too large - is refused without being
-// opened for reading, so a lookup on a hot path never blocks or fills memory.
+// a link, a FIFO, a device, a file too large - is refused (openRegular), so a
+// lookup on a hot path never blocks or fills memory.
 func readSmallFile(path string, limit int64) ([]byte, error) {
-	fi, err := os.Lstat(path)
-	if err != nil {
-		return nil, err
-	}
-	if !fi.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s is not a regular file", path)
-	}
-	f, err := os.Open(path)
+	f, err := openRegular(path)
 	if err != nil {
 		return nil, err
 	}

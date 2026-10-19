@@ -42,7 +42,10 @@ new or changed item asks again" for free.
    `worktrees/<name>/{commondir,gitdir}` and never runs git, since trust decisions run on every
    turn. A worktree counts only when the repository names it back (its `gitdir` file points at
    this `.git` file): a `.git` file copied or written into another folder lends that folder
-   nothing. The answer must stay inside the main checkout once links are resolved, so a folder the
+   nothing. The storage is read where it really is, its links resolved before anything (the main
+   checkout, a relative back-link as git 2.48+ writes them) is derived from it, so a tree that
+   reaches a repository's storage through a link of its own does not pass for one of its
+   worktrees. The answer must stay inside the main checkout once links are resolved, so a folder the
    main checkout holds as a link elsewhere (committed, or shipped in an archive together with
    storage of its own) answers nothing, nor does one in a repository nested in the main checkout,
    and a repository whose config says `core.bare` has no main checkout, its storage named `.git`
