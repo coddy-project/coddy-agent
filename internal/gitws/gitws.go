@@ -2,10 +2,17 @@
 // per-session workspace switching (folder, branch, worktree) and the Edits
 // view of a chat.
 //
-// Every operation drives the git binary when it is on PATH and falls back to
-// a built-in implementation on go-git when it is not (builtin.go,
-// builtin_changes.go), chosen per call by GitAvailable. The built-in one has
-// no rename detection and cannot open a linked worktree (ErrNeedsGitBinary).
+// Every operation but the file comparison named below drives the git binary
+// when it is on PATH and falls back to a built-in implementation on go-git when
+// it is not (builtin.go, builtin_changes.go), chosen per call by GitAvailable.
+// The built-in one has no rename detection and cannot open a linked worktree
+// (ErrNeedsGitBinary).
+//
+// Baseline and ChangedSince (changes.go) are the deliberate exception: they have
+// no built-in fallback and return ErrNeedsGitBinary without the git binary
+// (ErrNotRepository still for a folder outside any repository). They compare
+// files with a commit by content, which on go-git would load whole blobs with no
+// bound, and a guard that cannot look says so instead of guessing.
 package gitws
 
 import (
