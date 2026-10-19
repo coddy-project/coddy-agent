@@ -67,7 +67,7 @@ _coddy() {
                             '--device[neuraldeep: the device flow, which is the default]' \
                             '--devin-cli[devin: use the login devin auth login already holds]' \
                             '--no-config[login: do not add the provider and its models to config.yaml]' \
-                            '--api-key[opencode: the API key to store instead of pasting it]:key:' \
+                            '--api-key[opencode: service account key, or - for a secret prompt]:key:' \
                             '--api-base[neuraldeep/opencode: endpoint to sign in against]:url:' \
                             '--home[override CODDY_HOME]:dir:_files -/'
                     else

@@ -245,10 +245,14 @@ the address it ended on into the terminal. With
 .B \-\-devin\-cli
 it uses the login
 .B devin auth login
-already holds and opens no browser. An OpenCode login has no browser flow: it
-stores the API key the web console issues, read from
-.B \-\-api\-key
-or pasted at the prompt. A login also adds the provider, the models
+already holds and opens no browser. An OpenCode login prints a device code
+and opens the Console account page. Select the organization there; access
+and refresh tokens are stored locally and refreshed through the provider proxy.
+For a service account, pass
+.B \-\-api\-key KEY
+or use
+.B \-\-api\-key -
+to read the key without echo or from standard input. A login also adds the provider, the models
 the account can use and an
 .I agent.model
 to the configuration unless

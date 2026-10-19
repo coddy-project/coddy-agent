@@ -664,7 +664,7 @@ An environment variable named **`CWD`** does not replace the placeholder (a bare
 
 Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**, **`opencode`**, **`codex`**, **`devin`**.
 
-**`type: opencode`** uses an OpenCode API key with the Go subscription gateway by default; **`api_base: https://opencode.ai/inference/v1`** selects pay-as-you-go Console. Store the key with **`coddy providers login opencode`** or set **`api_key`**. Coddy selects the inference API per model and gateway; see [OpenCode](../features/opencode.md).
+**`type: opencode`** uses the Go subscription gateway by default; **`api_base: https://opencode.ai/inference/v1`** selects pay-as-you-go Console. Sign in an account with **`coddy providers login opencode`** (device code and organization selection in the browser), or use **`--api-key -`** to store a service account key. Stored account tokens refresh automatically through the provider proxy. An explicit **`api_key`** still wins over the login. Coddy selects the inference API per model and gateway; see [OpenCode](../features/opencode.md).
 
 YAML split:
 

@@ -18,7 +18,7 @@ import (
 
 // OpenCode Go / Console (Zen) provider.
 //
-// One gateway, one Bearer API key, and a catalog whose models are served over
+// One gateway, a Bearer account token or API key, and models served over
 // four different wire protocols: the OpenAI Responses API (/responses) for the
 // Grok, GPT and Muse models, the Anthropic API (/messages) for Claude, Qwen and
 // MiniMax on Go, the Google API for Gemini, and an OpenAI-compatible API
@@ -165,10 +165,12 @@ func opencodeOpenAIBase(base string) string {
 // wraps the row's proxy-aware transport and clones each request before editing
 // it, as the http.RoundTripper contract requires.
 type opencodeHeaderTransport struct {
-	inner     http.RoundTripper
-	userAgent string
-	sessionID string
-	apiKey    string
+	inner         http.RoundTripper
+	userAgent     string
+	sessionID     string
+	apiKey        string
+	authPath      string
+	accountClient *http.Client
 }
 
 func (t *opencodeHeaderTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -177,14 +179,27 @@ func (t *opencodeHeaderTransport) RoundTrip(req *http.Request) (*http.Response, 
 	// This row authenticates only with its own resolved OpenCode credential.
 	r.Header.Del("Authorization")
 	r.Header.Del("x-api-key")
+	r.Header.Del("x-org-id")
+	key := t.apiKey
+	if t.authPath != "" {
+		var org string
+		var err error
+		key, org, err = openCodeCredential(req.Context(), key, t.authPath, t.accountClient)
+		if err != nil {
+			return nil, err
+		}
+		if org != "" {
+			r.Header.Set("x-org-id", org)
+		}
+	}
 	if t.userAgent != "" {
 		r.Header.Set("User-Agent", t.userAgent)
 	}
 	if t.sessionID != "" {
 		r.Header.Set("x-opencode-session", t.sessionID)
 	}
-	if t.apiKey != "" {
-		r.Header.Set("Authorization", "Bearer "+t.apiKey)
+	if key != "" {
+		r.Header.Set("Authorization", "Bearer "+key)
 	}
 	return t.inner.RoundTrip(r)
 }
@@ -192,16 +207,18 @@ func (t *opencodeHeaderTransport) RoundTrip(req *http.Request) (*http.Response, 
 // opencodeClient wraps hc's transport with the OpenCode header injection, so
 // every SDK request over it carries the required headers and still takes the
 // row's proxy route.
-func opencodeClient(hc *http.Client, apiKey, sessionID string) *http.Client {
+func opencodeClient(hc *http.Client, apiKey, sessionID, authPath string) *http.Client {
 	if hc == nil {
 		return nil
 	}
 	client := *hc
 	client.Transport = &opencodeHeaderTransport{
-		inner:     hc.Transport,
-		userAgent: opencodeUserAgent(),
-		sessionID: sessionID,
-		apiKey:    apiKey,
+		inner:         hc.Transport,
+		userAgent:     opencodeUserAgent(),
+		sessionID:     sessionID,
+		apiKey:        apiKey,
+		authPath:      authPath,
+		accountClient: hc,
 	}
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) > 0 && (req.URL.Scheme != via[0].URL.Scheme || req.URL.Host != via[0].URL.Host) {
@@ -226,7 +243,7 @@ type opencodeProvider struct {
 
 func newOpenCodeProvider(p ProviderInput, hc *http.Client) *opencodeProvider {
 	base := opencodeAPIBase(p.BaseURL)
-	key := opencodeEffectiveKey(p.APIKey, p.AuthPath)
+	key := p.APIKey
 	session := strings.TrimSpace(p.SessionID)
 	if session == "" {
 		// A conversation always carries its id from the agent; this only fires
@@ -234,7 +251,7 @@ func newOpenCodeProvider(p ProviderInput, hc *http.Client) *opencodeProvider {
 		// id rather than none.
 		session = newCodexSessionID()
 	}
-	client := opencodeClient(hc, key, session)
+	client := opencodeClient(hc, key, session, p.AuthPath)
 
 	var inner Provider
 	switch opencodeProtocolForGateway(p.Model, p.BaseURL) {
@@ -263,7 +280,7 @@ func (p *opencodeProvider) Stream(ctx context.Context, messages []Message, tools
 }
 
 // opencodeResponsesProvider speaks the OpenAI Responses API to the OpenCode
-// gateway with a static Bearer key (no OAuth). It shares the request builder
+// gateway with the row's current Bearer credential. It shares the request builder
 // and the stream consumer with the Codex backend (responses_stream.go); only
 // the credential, the headers and the reasoning carrier are its own.
 type opencodeResponsesProvider struct {
@@ -358,18 +375,4 @@ func (p *opencodeResponsesProvider) decodeReasoningItems(signature string) []jso
 		return nil
 	}
 	return carrier.Items
-}
-
-// opencodeEffectiveKey resolves the request credential for an opencode
-// provider: an explicit api_key (or command/env, already merged into APIKey)
-// wins; otherwise the key stored by `coddy providers login opencode` is used.
-func opencodeEffectiveKey(explicit, authPath string) string {
-	if strings.TrimSpace(explicit) != "" {
-		return explicit
-	}
-	key, err := LoadOpenCodeKey(authPath)
-	if err != nil {
-		return ""
-	}
-	return key
 }

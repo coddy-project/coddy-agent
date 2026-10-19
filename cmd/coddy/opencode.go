@@ -1,8 +1,8 @@
 package main
 
 // The opencode half of `coddy providers login|logout <name>`: OpenCode Go and
-// Console have no OAuth or device flow, so signing in is pasting the API key
-// the web console issues. The key lands in
+// Console use account device authorization or a service account API key.
+// The credential lands in
 // $CODDY_HOME/providers/<name>/opencode-auth.json; an explicit api_key,
 // api_key_command or OPENCODE_API_KEY still wins at request time.
 
@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
 
 	"golang.org/x/term"
@@ -50,10 +51,8 @@ func resolveOpenCodeAPIBase(flagValue, configured string) (string, error) {
 	return llm.OpenCodeDefaultAPIBase(), nil
 }
 
-// opencodeLogin stores a pasted API key for an opencode provider and, unless
-// --no-config, writes the provider row and the gateway's models into
-// config.yaml. apiKey is the --api-key flag value; empty reads it from the
-// terminal (without echo) or from a piped standard input.
+// opencodeLogin signs in an account, or stores an explicit service account
+// key. Unless --no-config, it also writes the gateway's catalog into config.yaml.
 func opencodeLogin(cfg *config.Config, prov *config.ProviderConfig, apiKey string, noConfig bool, apiBase string) error {
 	endpoint, err := resolveOpenCodeAPIBase(apiBase, prov.APIBase)
 	if err != nil {
@@ -64,17 +63,35 @@ func opencodeLogin(cfg *config.Config, prov *config.ProviderConfig, apiKey strin
 		return fmt.Errorf("providers: could not resolve the credential path for provider %q", prov.Name)
 	}
 	key := strings.TrimSpace(apiKey)
-	if key == "" {
-		fmt.Printf("Copy your API key from %s, then paste it here.\n", opencodeConsoleURL(endpoint))
+	if key == "-" {
+		fmt.Println("Paste a service account API key from https://opencode.ai/console")
 		key, err = readOpenCodeKey()
 		if err != nil {
 			return err
 		}
 	}
-	if err := llm.SaveOpenCodeAuth(authPath, key, endpoint); err != nil {
-		return fmt.Errorf("opencode login: %w", err)
+	if key == "" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer stop()
+		login, err := llm.StartOpenCodeDeviceLogin(ctx, prov.Proxy)
+		if err != nil {
+			return fmt.Errorf("opencode login: %w", err)
+		}
+		fmt.Printf("Open %s\nand confirm the code %s\n", login.URL, login.UserCode)
+		fmt.Println("Sign in and select your OpenCode organization. Waiting for confirmation...")
+		if localBrowserAvailableFn() {
+			_ = openBrowserFn(login.URL)
+		}
+		if err := login.Wait(ctx, authPath, endpoint); err != nil {
+			return fmt.Errorf("opencode login: %w", err)
+		}
+		fmt.Printf("Signed in. Credential stored at %s\n", authPath)
+	} else {
+		if err := llm.SaveOpenCodeAuth(authPath, key, endpoint); err != nil {
+			return fmt.Errorf("opencode login: %w", err)
+		}
+		fmt.Printf("Stored the OpenCode key for %s at %s\n", endpoint, authPath)
 	}
-	fmt.Printf("Stored the OpenCode key for %s at %s\n", endpoint, authPath)
 	if explicitKeySource(prov) != "" {
 		fmt.Printf("note: provider %q has %s, which wins over the login; remove it to use the login.\n", prov.Name, explicitKeySource(prov))
 	}
@@ -83,12 +100,6 @@ func opencodeLogin(cfg *config.Config, prov *config.ProviderConfig, apiKey strin
 	}
 	opencodeWriteConfig(cfg, prov, endpoint, key)
 	return nil
-}
-
-// opencodeConsoleURL names the web console a key is copied from, for the
-// gateway the login stores against.
-func opencodeConsoleURL(endpoint string) string {
-	return "https://opencode.ai/console"
 }
 
 // readOpenCodeKey reads one secret line: from the terminal without echo when
@@ -120,8 +131,8 @@ func requireOpenCodeKey(s string) (string, error) {
 	return key, nil
 }
 
-// opencodeWriteConfig publishes the gateway's catalog into config.yaml. The key
-// is already stored by the time it runs, so a problem here is a note.
+// opencodeWriteConfig publishes the catalog after the credential is stored,
+// so a config update failure is reported as a note.
 func opencodeWriteConfig(cfg *config.Config, prov *config.ProviderConfig, endpoint, key string) {
 	ctx := context.Background()
 	added, err := llm.ApplyOpenCodeLoginToConfig(ctx, cfg, prov.Name, endpoint, key, prov.Proxy)
@@ -137,16 +148,21 @@ func opencodeWriteConfig(cfg *config.Config, prov *config.ProviderConfig, endpoi
 	fmt.Println("A running `coddy serve` server keeps its loaded config; restart it (or edit settings in the UI) to pick the changes up.")
 }
 
-// opencodeLogout removes the stored key. The gateway issues long-lived keys with
-// no revoke endpoint Coddy can call, so ending the key itself happens in the
-// web console.
+// opencodeLogout removes the local credential. Server-side sessions and
+// service account keys are revoked in the Console.
 func opencodeLogout(cfg *config.Config, prov *config.ProviderConfig) error {
 	authPath := config.OpenCodeAuthPath(cfg.Paths.Home, prov.Name)
+	// A damaged credential must still be removable by logout.
+	status, _ := llm.InspectOpenCodeAuth(authPath)
 	if err := llm.RemoveOpenCodeAuth(authPath); err != nil {
 		return fmt.Errorf("providers logout: %w", err)
 	}
 	fmt.Printf("Removed the OpenCode credential for provider %q.\n", prov.Name)
-	fmt.Println("The key stays valid until you revoke it in the console: https://opencode.ai/console")
+	if status.Account {
+		fmt.Println("Revoke the account session in https://opencode.ai/console to end it on the server.")
+	} else {
+		fmt.Println("The key stays valid until you revoke it in the console: https://opencode.ai/console")
+	}
 	return nil
 }
 
@@ -162,6 +178,9 @@ func opencodeCredentialSummary(cfg *config.Config, prov *config.ProviderConfig) 
 	case explicit != "":
 		return explicit
 	case st.Connected:
+		if st.Account {
+			return "OpenCode account (" + st.Organization + ")"
+		}
 		return "stored OpenCode key (" + st.Masked + ")"
 	default:
 		return "no credentials; run `" + os.Args[0] + " providers login " + prov.Name + "` or set api_key / OPENCODE_API_KEY"

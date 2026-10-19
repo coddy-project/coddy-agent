@@ -107,6 +107,14 @@ func answerProviderRequest(w http.ResponseWriter, r *http.Request) bool {
 		}
 	}
 	switch {
+	case r.Method == http.MethodPost && path == "/console/auth/device/code":
+		_, _ = io.WriteString(w, `{"device_code":"device-test","user_code":"USER-CODE","verification_uri_complete":"/console/device","expires_in":600,"interval":0}`)
+	case r.Method == http.MethodPost && path == "/console/auth/device/token":
+		_, _ = io.WriteString(w, `{"access_token":"account-access","refresh_token":"account-refresh","expires_in":600,"org_id":"org-test"}`)
+	case r.Method == http.MethodGet && path == "/console/api/user":
+		_, _ = io.WriteString(w, `{"id":"user-test","email":"test@example.com"}`)
+	case r.Method == http.MethodGet && path == "/console/api/orgs":
+		_, _ = io.WriteString(w, `[{"id":"org-test","name":"Test"}]`)
 	case r.Method == http.MethodPost && strings.HasSuffix(path, ":streamGenerateContent"):
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = fmt.Fprintf(w, "data: %s\n\n", opencodeGoogleAnswer)
@@ -508,6 +516,49 @@ func (s *providerProxyState) askOpenCodeEverything(name, gateway string) error {
 	return nil
 }
 
+func (s *providerProxyState) askOpenCodeAccount(name string) error {
+	row, err := s.row(name)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	s.setenv(EnvOpenCodeConsoleURL, s.model.srv.URL+"/console")
+	s.setenv(EnvOpenCodeBaseURL, s.model.srv.URL+"/inference/go/v1")
+	login, err := StartOpenCodeDeviceLogin(ctx, row.setting)
+	if err != nil {
+		return err
+	}
+	path := config.OpenCodeAuthPath(s.home, name)
+	if err := login.Wait(ctx, path, opencodeGoBaseURL); err != nil {
+		return err
+	}
+	credential, err := loadOpenCodeAuth(path)
+	if err != nil {
+		return err
+	}
+	if credential.OrgID != "org-test" {
+		return errors.New("device login did not retain its organization")
+	}
+	credential.ExpiresAt = 1
+	if err := saveOpenCodeCredential(path, credential); err != nil {
+		return err
+	}
+	in := ProviderInput{Type: "opencode", Model: "glm-5.3", AuthPath: path, ProxyURL: row.setting, RetryDisabled: true}
+	if _, err := ListModels(ctx, in); err != nil {
+		return err
+	}
+	p, err := NewProvider(in)
+	if err != nil {
+		return err
+	}
+	if _, err := p.Complete(ctx, []Message{{Role: RoleUser, Content: "ping"}}, nil); err != nil {
+		return err
+	}
+	_, err = p.Stream(ctx, []Message{{Role: RoleUser, Content: "ping"}}, nil, func(StreamChunk) {})
+	return err
+}
+
 func (s *providerProxyState) askNeuralDeepEverything(name string) error {
 	row, err := s.row(name)
 	if err != nil {
@@ -835,6 +886,7 @@ func initializeProviderProxyScenario(t *testing.T) func(*godog.ScenarioContext) 
 		sc.Step(`^"([^"]*)" is asked for a completion$`, s.askCompletion)
 		sc.Step(`^"([^"]*)" is asked for a completion and its model list$`, s.askCompletionAndModels)
 		sc.Step(`^"([^"]*)" is asked for all OpenCode protocols and streams, its model list and a login config apply on "([^"]*)"$`, s.askOpenCodeEverything)
+		sc.Step(`^"([^"]*)" signs in an OpenCode account, refreshes it, lists models and chats$`, s.askOpenCodeAccount)
 		sc.Step(`^"([^"]*)" is asked for a completion, its model list, its account usage, a command safety decision and its auth flow$`, s.askNeuralDeepEverything)
 		sc.Step(`^"([^"]*)" is asked for a completion, its model list, its account usage, a token refresh, a device sign-in and a config apply$`, s.askCodexEverything)
 		sc.Step(`^"([^"]*)" is asked for a credential check, its model list, a chat answer, its account usage and a sign-in$`, s.askDevinEverything)

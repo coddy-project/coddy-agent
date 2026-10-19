@@ -296,11 +296,11 @@ Usage of providers:
   -api-base string
     	neuraldeep: API endpoint to sign in against, one of https://api.neuraldeep.ru/v1, https://api.neuraldeep.tech/v1 (default: the provider's api_base, else the first); opencode: the gateway, one of https://opencode.ai/inference/go/v1, https://opencode.ai/inference/v1 (default: Go)
   -api-key string
-    	opencode: the API key to store, instead of pasting it at the prompt
+    	opencode: service account key (- reads a secret prompt or stdin); without it, sign in an account by device code
   -browser
     	neuraldeep: sign in through a loopback browser callback instead of the device flow
   -device
-    	neuraldeep: the device flow, which is the default (accepted for compatibility)
+    	neuraldeep/opencode: the device flow, which is the default (accepted for compatibility)
   -devin-cli devin auth login
     	devin: use the login devin auth login already holds instead of a browser sign-in
   -home string

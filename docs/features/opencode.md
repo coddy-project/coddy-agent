@@ -1,18 +1,30 @@
 # OpenCode
 
-A `type: opencode` provider gives Coddy the models of an [OpenCode](https://opencode.ai) gateway - the **Go** subscription or the pay-as-you-go **Console** (Zen) - with one API key. OpenCode is only the backend here: the agent stays Coddy's own, with its system prompt, its tools, its permission gate and its ReAct loop, on every surface - the console, the web UI, ACP editors and the Telegram gateway.
+A `type: opencode` provider gives Coddy the models of an [OpenCode](https://opencode.ai) gateway - the **Go** subscription or the pay-as-you-go **Console** (Zen) - with an account login or a service account key. OpenCode is only the backend here: the agent stays Coddy's own, with its system prompt, its tools, its permission gate and its ReAct loop, on every surface - the console, the web UI, ACP editors and the Telegram gateway.
 
 OpenCode curates a catalog of coding models (Grok, GPT, Claude, Qwen, GLM, Kimi, DeepSeek, MiniMax, MiMo, Gemini and the rest) and serves each over the wire protocol that fits it. Coddy picks that protocol per model and gateway. Console's Jev decision models use a separate System One API and are not conversational models for Coddy.
 
-## Get a key
+## Sign in with an account
+
+Run the login from a terminal on the machine that runs Coddy.
+
+```bash
+coddy providers login opencode
+```
+
+Coddy prints a short code and opens the OpenCode Console account page. Sign in, confirm the code and select your organization. You can open the printed URL in a browser on another machine. This follows the [OpenCode client's device method](https://github.com/anomalyco/opencode/blob/f394d9d410bc6bb7cafcebfc5e3180a9b80ebed9/packages/core/src/plugin/provider/opencode.ts).
+
+The login stores access and refresh tokens at `$CODDY_HOME/providers/opencode/opencode-auth.json` with mode `0600`. Unless `--no-config` is given, it also adds the provider row, the gateway's models and an `agent.model` when it is empty to `config.yaml`. Use `--type opencode` to sign in another named profile, or `--api-base https://opencode.ai/inference/v1` for Console instead of Go.
+
+Before each catalog or inference request, Coddy refreshes a token that expires within 60 seconds and saves rotated tokens atomically. Requests carry the selected organization in `x-org-id`. A revoked refresh token requires a new login. `coddy providers list` shows the account organization without exposing tokens. The stored credential works on every Coddy surface. A running server reads it for an already loaded provider row; restart the server after adding a new row.
+
+An explicit `api_key`, `api_key_command` or the row's `NAME_API_KEY` still wins over the stored login. `coddy providers logout opencode` deletes the local file. Revoke the account session or service account key in the Console to end it on the server.
+
+## Use a service account key
 
 1. Sign in to the [OpenCode Console](https://opencode.ai/console).
 2. Subscribe to **Go** (or **Go Plus**), or add credits for **Console**, and add your billing details.
-3. Copy the API key.
-
-## Use the key
-
-Paste the key into the provider row, or let the login store it for you.
+3. Create a service account key and set it on the provider row.
 
 ```yaml
 # yaml-language-server: $schema=https://coddy.dev/config.schema.json
@@ -29,29 +41,19 @@ agent:
   model: opencode/glm-5.3
 ```
 
-An empty `api_key` reads the `OPENCODE_API_KEY` environment variable (the usual `NAME_API_KEY` rule, so a row named `opencode` reads `OPENCODE_API_KEY`), then the key a login stored. The `${OPENCODE_API_KEY}` form is expanded when the file loads; a bare empty value is read at call time.
+An empty `api_key` reads the row's `NAME_API_KEY` environment variable, then uses the stored credential if that variable is unset. A row named `opencode` reads `OPENCODE_API_KEY`. The `${OPENCODE_API_KEY}` form is expanded when the file loads; a bare empty value is read at call time.
 
-### Store the key with a login
+### Store a service account key
 
 ```bash
-coddy providers login opencode
+coddy providers login opencode --api-key -
 ```
 
-OpenCode has no browser or device flow - the key is copied from the web console - so the login is a paste. It reads the key from the terminal (without echo) or from `--api-key`, stores it at `$CODDY_HOME/providers/opencode/opencode-auth.json` with mode `0600`, and, unless `--no-config` is given, writes the provider row, the gateway's models and an `agent.model` into `config.yaml`:
-
-```text
-$ coddy providers login opencode
-Copy your API key from https://opencode.ai/console, then paste it here.
-API key:
-Stored the OpenCode key for https://opencode.ai/inference/go/v1 at /home/jane/.coddy/providers/opencode/opencode-auth.json
-Updated /home/jane/.coddy/config.yaml: provider opencode, agent.model opencode/glm-5.3-flash, 39 models (opencode/glm-5.3-flash, opencode/kimi-k3, opencode/deepseek-v4-flash, ...)
-```
-
-An explicit `api_key`, `api_key_command` or `OPENCODE_API_KEY` still wins over the stored login. `coddy providers logout opencode` deletes the stored file; the key stays valid until you revoke it in the console. `coddy providers list` shows which source a row uses, with the key masked.
+The `-` reads a key from a secret terminal prompt or a line on standard input. `--api-key KEY` supplies it directly. The key uses the same credential file and config update as an account login. Previously stored API keys remain supported.
 
 ## The two gateways
 
-`api_base` picks the gateway; both take the same key shape, but a key is issued for one of them.
+`api_base` picks the inference gateway. Account login uses the same Console device authorization service for both gateways; access depends on the selected organization and its subscription or credits.
 
 | Gateway | `api_base` | What it is |
 |---------|-----------|------------|
@@ -79,18 +81,18 @@ Reasoning levels are sent as OpenAI Responses `reasoning.effort`, an Anthropic t
 
 ## Required client headers
 
-The gateway is abuse-monitored and asks every client to identify itself and to keep a conversation on one route. Coddy sends, on every request it makes to OpenCode - completions, the model list, all four protocols:
+The gateway is abuse-monitored and asks every client to identify itself and to keep a conversation on one route. Coddy sends these headers on inference and catalog requests across all four protocols:
 
 - `User-Agent: coddy/<version>`, its own name rather than a generic SDK or HTTP-library one;
 - `x-opencode-session: <session id>`, the stable id of the conversation, so OpenCode can optimize routing and reuse its prompt cache. A call that is not a conversation (a model list, a `--dry-run` probe) sends a generated id.
 
-Both are injected over the row's own transport, so they never open a route that bypasses `providers[].proxy`.
+Coddy injects both headers into inference and catalog requests over the row's own transport. Account requests also identify Coddy with its `User-Agent`.
 
 Only this row's OpenCode credential is sent. SDK defaults such as `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` are discarded, and redirects to another origin are refused before forwarding a key.
 
 ## Proxy
 
-`providers[].proxy` routes every OpenCode request - completions on all four protocols, the model list and a login's catalog fetch - exactly as it does for any other provider: `inherit` follows the environment's proxy, `none` connects directly, and a URL goes through that proxy. See [Provider proxy](../getting-started/configuration.md#provider-proxy).
+`providers[].proxy` routes every OpenCode request - device authorization, account and organization discovery, token refresh, completions on all four protocols and the model list - exactly as it does for any other provider: `inherit` follows the environment's proxy, `none` connects directly, and a URL goes through that proxy. See [Provider proxy](../getting-started/configuration.md#provider-proxy).
 
 ## Usage limits
 
@@ -99,11 +101,11 @@ OpenCode meters each model against a monthly dollar budget (with 5-hour and week
 ## Testing
 
 - Unit tests: `internal/llm/opencode_test.go` checks exact inference paths for both gateways, headers, credential isolation, redirect refusal and stored credentials. `opencode_google_test.go` covers Gemini tool conversations, signed parts, usage and truncated streams.
-- `features/provider_proxy.feature` covers all four API families, model discovery and login config updates through each proxy setting.
+- `features/provider_proxy.feature` covers all four API families, model discovery, account login, token refresh and login config updates through each proxy setting. `opencode_oauth_test.go` verifies HTTPS CONNECT routing, token rotation, concurrent refresh and failed authorization; `cmd/coddy/opencode_test.go` checks the terminal flow.
 - The Responses transport is shared with the Codex backend (`internal/llm/responses_stream.go`); `internal/llm/codex_test.go` covers it.
 
 ## See also
 
 - [Configuration](../getting-started/configuration.md) - providers, models and the credential order.
-- [Environment variables](../reference/environment-variables.md) - `OPENCODE_API_KEY`, `CODDY_OPENCODE_BASE_URL`.
+- [Environment variables](../reference/environment-variables.md) - `OPENCODE_API_KEY`, `CODDY_OPENCODE_BASE_URL`, `CODDY_OPENCODE_CONSOLE_URL`.
 - [Config reference](../reference/config.md) - the `providers[]` and `models[]` fields.

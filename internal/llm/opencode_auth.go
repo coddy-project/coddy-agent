@@ -16,20 +16,21 @@ import (
 
 // OpenCode Go / Console sign-in.
 //
-// OpenCode has no OAuth or device flow: a person subscribes in the web console
-// (https://opencode.ai/console), copies an API key, and pastes it. `coddy
-// providers login opencode` is that paste - it stores the key here and, unless
-// asked not to, writes the provider row and the gateway's models into
-// config.yaml. The key is an ordinary Bearer credential; the catalog and the
-// per-model usage limits are enforced by the gateway, so Coddy only stores and
-// presents it.
+// Account sign-in uses Console's device flow. Service accounts may still use
+// API keys. Both credentials use the same proxy-aware inference transport.
 
-// opencodeAuthFile is the stored credential. The key is the only secret; the
-// rest exists so status displays and logout know where it came from.
+// opencodeAuthFile stores either a service account key or account tokens.
+// Account metadata is used for organization headers and credential status.
 type opencodeAuthFile struct {
-	APIKey     string `json:"api_key"`
-	APIBase    string `json:"api_base"`
-	ObtainedAt string `json:"obtained_at"`
+	APIKey       string `json:"api_key,omitempty"`
+	APIBase      string `json:"api_base"`
+	ObtainedAt   string `json:"obtained_at"`
+	AccessToken  string `json:"access_token,omitempty"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	ExpiresAt    int64  `json:"expires_at,omitempty"`
+	OrgID        string `json:"org_id,omitempty"`
+	OrgName      string `json:"org_name,omitempty"`
+	Email        string `json:"email,omitempty"`
 }
 
 // opencodeAuthMu serializes credential file access process-wide, mirroring
@@ -55,6 +56,8 @@ func SaveOpenCodeAuth(path, apiKey, apiBase string) error {
 	if err != nil {
 		return err
 	}
+	opencodeRefreshMu.Lock()
+	defer opencodeRefreshMu.Unlock()
 	opencodeAuthMu.Lock()
 	defer opencodeAuthMu.Unlock()
 	return writePrivateFileAtomic(path, data)
@@ -94,6 +97,8 @@ func RemoveOpenCodeAuth(path string) error {
 	if strings.TrimSpace(path) == "" {
 		return errors.New("opencode auth: credential path is empty")
 	}
+	opencodeRefreshMu.Lock()
+	defer opencodeRefreshMu.Unlock()
 	opencodeAuthMu.Lock()
 	defer opencodeAuthMu.Unlock()
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -104,9 +109,11 @@ func RemoveOpenCodeAuth(path string) error {
 
 // OpenCodeAuthStatus reports the stored login without exposing the key.
 type OpenCodeAuthStatus struct {
-	Connected bool
-	Masked    string
-	APIBase   string
+	Connected    bool
+	Masked       string
+	APIBase      string
+	Account      bool
+	Organization string
 }
 
 // InspectOpenCodeAuth reads the credential file into a display-safe status.
@@ -115,13 +122,15 @@ func InspectOpenCodeAuth(path string) (OpenCodeAuthStatus, error) {
 	if err != nil {
 		return OpenCodeAuthStatus{}, err
 	}
-	if f == nil || strings.TrimSpace(f.APIKey) == "" {
+	if f == nil || (strings.TrimSpace(f.APIKey) == "" && strings.TrimSpace(f.RefreshToken) == "") {
 		return OpenCodeAuthStatus{}, nil
 	}
 	return OpenCodeAuthStatus{
-		Connected: true,
-		Masked:    maskOpenCodeKey(f.APIKey),
-		APIBase:   f.APIBase,
+		Connected:    true,
+		Masked:       maskOpenCodeKey(f.APIKey),
+		APIBase:      f.APIBase,
+		Account:      f.RefreshToken != "",
+		Organization: f.OrgName,
 	}, nil
 }
 
@@ -145,7 +154,7 @@ func RedactOpenCodeSecrets(s string) string {
 }
 
 // ApplyOpenCodeLoginToConfig writes the provider row and the gateway's models
-// into config.yaml after a paste-and-store login, mirroring
+// into config.yaml after an account or service account login, mirroring
 // ApplyNeuralDeepLoginToConfig: it only ever adds, never rewrites a row or a
 // model the operator already configured, and stages every change as a UCI
 // command committed under the config file lock. proxySetting is the row's
@@ -157,6 +166,7 @@ func ApplyOpenCodeLoginToConfig(ctx context.Context, cfg *config.Config, name, a
 		Name:     name,
 		Type:     "opencode",
 		APIKey:   key,
+		AuthPath: config.OpenCodeAuthPath(cfg.Paths.Home, name),
 		BaseURL:  apiBase,
 		ProxyURL: proxySetting,
 	})

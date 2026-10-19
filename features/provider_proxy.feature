@@ -110,6 +110,22 @@ Feature: Each provider reaches its server the way its own proxy setting says
       | Console | with proxy "none"       | 0                       | 0                     | 14       |
       | Console | with a proxy of its own | 0                       | 14                    | 0        |
 
+  Scenario Outline: OpenCode account login and refresh follow the provider's setting
+    Given the environment names a proxy for every request
+    And an "opencode" provider "account" <setting>
+    When "account" signs in an OpenCode account, refreshes it, lists models and chats
+    Then every answer comes back
+    And the environment's proxy carried <through the environment> requests
+    And the own proxy of "account" carried <through its own proxy> requests
+    And the provider's servers were reached directly <directly> times
+
+    Examples:
+      | setting                 | through the environment | through its own proxy | directly |
+      | without a proxy setting | 8                       | 0                     | 0        |
+      | with proxy "inherit"    | 8                       | 0                     | 0        |
+      | with proxy "none"       | 0                       | 0                     | 8        |
+      | with a proxy of its own | 0                       | 8                     | 0        |
+
   Scenario: A proxy URL on one provider leaves the direct provider next to it alone
     Given the environment names a proxy for every request
     And an "openai" provider "remote" with a proxy of its own

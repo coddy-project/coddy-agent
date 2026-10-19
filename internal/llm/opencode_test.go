@@ -411,12 +411,24 @@ func TestOpenCodeGatewaySpecificProtocols(t *testing.T) {
 }
 
 func TestOpenCodeEffectiveKey(t *testing.T) {
+	hc, err := HTTPClientForProviderProxy("none")
+	if err != nil {
+		t.Fatal(err)
+	}
+	effectiveKey := func(explicit, path string) string {
+		t.Helper()
+		key, _, err := openCodeCredential(context.Background(), explicit, path, hc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return key
+	}
 	// An explicit key wins.
-	if got := opencodeEffectiveKey("explicit", ""); got != "explicit" {
+	if got := effectiveKey("explicit", ""); got != "explicit" {
 		t.Errorf("explicit key = %q, want explicit", got)
 	}
 	// No key, no login file: empty.
-	if got := opencodeEffectiveKey("", ""); got != "" {
+	if got := effectiveKey("", ""); got != "" {
 		t.Errorf("no credential = %q, want empty", got)
 	}
 	// A stored login fills in when the key is absent.
@@ -425,11 +437,11 @@ func TestOpenCodeEffectiveKey(t *testing.T) {
 	if err := SaveOpenCodeAuth(path, "stored-key", opencodeGoBaseURL); err != nil {
 		t.Fatalf("SaveOpenCodeAuth: %v", err)
 	}
-	if got := opencodeEffectiveKey("", path); got != "stored-key" {
+	if got := effectiveKey("", path); got != "stored-key" {
 		t.Errorf("stored key = %q, want stored-key", got)
 	}
 	// An explicit key still wins over the stored one.
-	if got := opencodeEffectiveKey("explicit", path); got != "explicit" {
+	if got := effectiveKey("explicit", path); got != "explicit" {
 		t.Errorf("explicit over stored = %q, want explicit", got)
 	}
 }

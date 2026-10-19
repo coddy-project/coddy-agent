@@ -25,7 +25,7 @@
           },
           "type": {
             "type": "string",
-            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), \"opencode\" for the OpenCode Go/Console gateway (one API key, its models served over the Responses, Anthropic, Google or OpenAI-compatible protocol per model id and gateway; api_base picks Go or Console), \"codex\" for ChatGPT OAuth against the official Codex backend (Responses API), or \"devin\" for a Devin (Cognition) account signed in through the browser or the Devin CLI, served by the Devin API server; see https://coddy.dev/docs/features/devin.",
+            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), \"opencode\" for the OpenCode Go/Console gateway (account device login or a service account key, its models served over the Responses, Anthropic, Google or OpenAI-compatible protocol per model id and gateway; api_base picks Go or Console), \"codex\" for ChatGPT OAuth against the official Codex backend (Responses API), or \"devin\" for a Devin (Cognition) account signed in through the browser or the Devin CLI, served by the Devin API server; see https://coddy.dev/docs/features/devin.",
             "enum": [
               "openai",
               "anthropic",

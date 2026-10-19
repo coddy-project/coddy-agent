@@ -106,12 +106,6 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 			// stored hub login fills in when the key is absent.
 			in.APIKey = neuralDeepEffectiveKey(in.APIKey, in.AuthPath)
 		}
-		if in.Type == "opencode" {
-			// Same credential order as completions, and the gateway asks every
-			// client to name itself, so the model list carries Coddy's own
-			// User-Agent rather than a generic HTTP-library name.
-			in.APIKey = opencodeEffectiveKey(in.APIKey, in.AuthPath)
-		}
 	default:
 		return nil, &UnsupportedProviderError{Provider: in.Type}
 	}
@@ -145,7 +139,7 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 		if sessionID == "" {
 			sessionID = newCodexSessionID()
 		}
-		hc = opencodeClient(hc, in.APIKey, sessionID)
+		hc = opencodeClient(hc, in.APIKey, sessionID, in.AuthPath)
 	}
 
 	resp, err := hc.Do(req)
