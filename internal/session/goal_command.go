@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"unicode"
@@ -273,6 +274,7 @@ func (m *Manager) SetGoalObjective(sessionID, objective string) (GoalState, erro
 	if err != nil {
 		return GoalState{}, err
 	}
+	goal.Start = goalStartFor(st.GetCWD())
 	st.SetGoalWithNotice(goal, "Goal set: "+goal.Objective)
 	return goal, nil
 }
@@ -331,7 +333,10 @@ func (m *Manager) pauseGoal(st *State, reason string) (string, error) {
 }
 
 // resumeGoal makes the goal active again with a fresh continuation and token
-// budget; the caller starts the turn.
+// budget; the caller starts the turn. A blocked goal is resumed with what the
+// risk gate finds now accepted, in the same change (goal_risk.go): a goal
+// paused while a turn ran had no gate after that turn, so its next turn's
+// gate reports what the turn did instead.
 func (m *Manager) resumeGoal(st *State, model, reasoning string) error {
 	g := st.GetGoal()
 	if !g.Set() {
@@ -340,12 +345,24 @@ func (m *Manager) resumeGoal(st *State, model, reasoning string) error {
 	if g.Status == GoalComplete {
 		return fmt.Errorf("the goal is complete; /goal <objective> sets a new one")
 	}
-	st.UpdateGoal("Goal resumed: "+g.Objective, func(g *GoalState) bool {
-		g.Status, g.StatusReason = GoalActive, ""
-		g.Continuations = 0
-		g.TokensBase = g.TokensUsed
-		g.Model, g.Reasoning = model, reasoning
+	var files goalFiles
+	if g.Status == GoalBlocked {
+		files = goalMigrationChanges(context.Background(), g)
+	}
+	if !st.UpdateGoal("Goal resumed: "+g.Objective, func(next *GoalState) bool {
+		if next.ID != g.ID || next.Status != g.Status {
+			return false
+		}
+		if next.Status == GoalBlocked {
+			st.acceptGoalRisksLocked(next, files)
+		}
+		next.Status, next.StatusReason = GoalActive, ""
+		next.Continuations = 0
+		next.TokensBase = next.TokensUsed
+		next.Model, next.Reasoning = model, reasoning
 		return true
-	})
+	}) {
+		return fmt.Errorf("the goal changed meanwhile; /goal shows it")
+	}
 	return nil
 }

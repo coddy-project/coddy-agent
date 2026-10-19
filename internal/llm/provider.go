@@ -113,6 +113,14 @@ type Message struct {
 	// never takes it for the prompt being answered (session.OpeningPromptIndex).
 	// Persisted with the transcript, so the distinction survives a restart.
 	FollowUp bool `json:"follow_up,omitempty"`
+	// Goal is the id of the session goal that was active when the row was
+	// stored: the supervisor reads a goal's rows as its evidence. Neither it
+	// nor RiskAcknowledged is ever sent to a provider.
+	Goal string `json:"goal,omitempty"`
+	// RiskAcknowledged marks an assistant row of a goal whose run_command
+	// calls the supervisor's risk gate blocked the goal on and /goal resume
+	// accepted, so they do not block it again.
+	RiskAcknowledged bool `json:"risk_acknowledged,omitempty"`
 }
 
 type Artifact struct {

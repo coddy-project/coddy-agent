@@ -109,6 +109,9 @@ type goalRun struct {
 	goalID string
 	nudges int
 	idle   int
+	// files is what the migration rule found after the latest turn of the
+	// session's goal (gate): the check of the same step reads it.
+	files goalFiles
 }
 
 // stillOurs reports whether the goal is still the one this run started on
@@ -254,6 +257,7 @@ func (m *Manager) applyGoalCommand(st *State, cmd GoalCommand, opts *PromptRunOp
 		if goal.Model, goal.Reasoning, err = resolveGoalChecker(cfg, st, cmd, GoalState{}); err != nil {
 			return nil, nil, "", fmt.Errorf("%v. %s", err, GoalUsage)
 		}
+		goal.Start = goalStartFor(st.GetCWD())
 		st.SetGoalWithNotice(goal, "Goal set: "+goal.Objective)
 		marker := &llm.GoalTurn{Kind: acp.GoalTurnKickoff, Objective: goal.Objective, Limit: cfg.Supervisor.ContinuationLimit()}
 		return goalPrompt(goalKickoffText(goal, cfg)), marker, "", nil
@@ -278,6 +282,12 @@ func (r *goalRun) loop(ctx context.Context, prompt []acp.ContentBlock, marker *l
 		}
 		if !r.stillOurs() {
 			// Cleared, paused or replaced while the turn ran.
+			return stop, err
+		}
+		// The hard rules come before every other reading of the turn: a
+		// wrap-up, queued messages, a recovery or a deferred check would
+		// otherwise carry a destructive step on unchecked.
+		if r.gate(ctx) {
 			return stop, err
 		}
 		goal := r.goal()
@@ -522,7 +532,7 @@ func (r *goalRun) check(ctx context.Context) (GoalCheckResult, error) {
 		Objective: goal.Objective,
 		Implicit:  !r.persist,
 		Checklist: goal.Checklist,
-		Digest:    buildGoalDigest(r.st.GetMessages(), goal, !r.persist),
+		Digest:    buildGoalDigest(r.st.GetMessages(), goal, !r.persist, r.files),
 	}
 	// The check and the verification take a while with the turn lock held:
 	// a surface that shows notices says what the session is waiting for.
@@ -585,6 +595,41 @@ func (r *goalRun) check(ctx context.Context) (GoalCheckResult, error) {
 		return true
 	})
 	return result, nil
+}
+
+// gate applies the hard rules of goalRiskRules to the session's goal and
+// blocks it on a finding /goal resume has not accepted, with the line that
+// names it: no check is asked, no recovery spent, no verifier run. The git
+// work runs without the state lock; a pause, clear or replacement made
+// meanwhile wins. It reports whether the run ends here: the goal blocked, the
+// turn cancelled meanwhile, or the goal no longer this run's. The implicit
+// goal of supervisor.enable has no start to compare with and is not gated.
+func (r *goalRun) gate(ctx context.Context) bool {
+	if !r.persist {
+		return false
+	}
+	files := goalMigrationChanges(ctx, r.goal())
+	if hook := r.m.testHooks.afterGoalFiles; hook != nil {
+		hook(r.st.ID)
+	}
+	if ctx.Err() != nil || r.st.IsUserCancelledTurn() || !r.stillOurs() {
+		return true
+	}
+	r.files = files
+	goal, msgs := r.goal(), r.st.GetMessages()
+	_, findings := goalFindings(msgs, goalRows(msgs, goal, false), goal, files)
+	var fresh []goalFinding
+	for _, f := range findings {
+		if goalRiskRules[f.kind].severity == goalRiskHard && !f.acknowledged {
+			fresh = append(fresh, f)
+		}
+	}
+	if len(fresh) == 0 {
+		return false
+	}
+	reason := strings.Join(flagLines(fresh, false), "; ")
+	r.finish(GoalBlocked, reason, "Goal blocked: "+reason)
+	return true
 }
 
 // finish sets the goal's final status for this run and reports whether it

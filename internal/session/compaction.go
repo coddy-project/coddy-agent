@@ -304,9 +304,11 @@ func NewCompactionBlockMessage(summary, model string, continues bool) llm.Messag
 }
 
 // InsertCompactionSummary inserts msg at index idx (append when out of range)
-// and persists the session.
+// and persists the session. Like an appended row, it carries the id of the
+// session's goal while that is active.
 func (s *State) InsertCompactionSummary(idx int, msg llm.Message) {
 	s.mu.Lock()
+	s.stampGoalLocked(&msg)
 	if idx < 0 || idx > len(s.Messages) {
 		idx = len(s.Messages)
 	}

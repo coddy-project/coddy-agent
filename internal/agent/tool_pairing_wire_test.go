@@ -197,6 +197,61 @@ func TestPromptCacheCallObserverLeavesRequestsAlone(t *testing.T) {
 	})
 }
 
+// TestPromptCacheGoalRowFieldsStayOffTheWire: Goal and RiskAcknowledged are
+// bookkeeping on a stored row (which goal was active, whether a person lifted
+// the risk stop), never part of the conversation. A request for a history whose
+// every row carries them must be byte-identical to the one for the same history
+// without them, or a goal run would not share a prompt cache with the session
+// before it. Devin regenerates identifiers on every request, so it has no byte
+// comparison here; TestPromptCacheDevinIgnoresGoalRowFields (internal/llm) compares
+// its system prompt and encoded prompts instead.
+func TestPromptCacheGoalRowFieldsStayOffTheWire(t *testing.T) {
+	const goalID = "goal_0f3a9c71d2e4"
+	plain := []llm.Message{
+		{Role: llm.RoleSystem, Content: "system"},
+		{Role: llm.RoleUser, Content: "continue"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "read", InputJSON: `{"path":"one"}`}}},
+		{Role: llm.RoleTool, ToolCallID: "call-1", Content: "one"},
+		{Role: llm.RoleAssistant, Content: "done"},
+	}
+	stamped := slices.Clone(plain)
+	for i := range stamped {
+		stamped[i].Goal = goalID
+		stamped[i].RiskAcknowledged = true
+	}
+	for _, kind := range []string{"codex", "openai", "neuraldeep", "anthropic"} {
+		t.Run(kind, func(t *testing.T) {
+			srv, captured := newWireCapture(t, kind)
+			provider := newPairingWireProvider(t, kind, srv.URL)
+			for _, history := range [][]llm.Message{plain, stamped} {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				var err error
+				if kind == "codex" {
+					_, err = provider.Stream(ctx, history, nil, func(llm.StreamChunk) {})
+				} else {
+					_, err = provider.Complete(ctx, history, nil)
+				}
+				cancel()
+				if err != nil {
+					t.Fatalf("send: %v", err)
+				}
+			}
+			bodies := captured()
+			if len(bodies) != 2 {
+				t.Fatalf("captured %d requests, want 2", len(bodies))
+			}
+			if !bytes.Equal(bodies[0], bodies[1]) {
+				t.Fatalf("the goal fields changed the request:\n%s\n---\n%s", bodies[0], bodies[1])
+			}
+			for _, leak := range []string{goalID, "risk_acknowledged", "RiskAcknowledged"} {
+				if bytes.Contains(bodies[1], []byte(leak)) {
+					t.Fatalf("the request carries %q:\n%s", leak, bodies[1])
+				}
+			}
+		})
+	}
+}
+
 // newWireCapture starts a stand-in backend of the given provider type that
 // records every request body and answers it with a finished reply.
 func newWireCapture(t *testing.T, kind string) (*httptest.Server, func() [][]byte) {

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -92,6 +93,12 @@ type GoalState struct {
 	// ContinuedIn the session this goal's chain continued in.
 	ContinuedFrom string `json:"continuedFrom,omitempty"`
 	ContinuedIn   string `json:"continuedIn,omitempty"`
+	// Start is the workspace the goal was set in, which the migration rule
+	// compares with (goal_risk.go); nil when git could not say.
+	Start *GoalStart `json:"start,omitempty"`
+	// AcceptedFiles are the migration files /goal resume accepted, each with
+	// the hash of its content then: a file changed again blocks again.
+	AcceptedFiles map[string]string `json:"acceptedFiles,omitempty"`
 }
 
 // Set reports whether the state holds a goal.
@@ -111,6 +118,12 @@ func (g GoalState) clone() GoalState {
 		g.LastCheck = &c
 	}
 	g.Checklist = append([]GoalItem(nil), g.Checklist...)
+	if g.Start != nil {
+		start := *g.Start
+		start.Dirty = maps.Clone(start.Dirty)
+		g.Start = &start
+	}
+	g.AcceptedFiles = maps.Clone(g.AcceptedFiles)
 	return g
 }
 

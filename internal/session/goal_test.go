@@ -1,10 +1,14 @@
 package session
 
 import (
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/gitws"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
 func TestGoalStatePersistsWithSession(t *testing.T) {
@@ -165,5 +169,338 @@ func TestGoalSnapshotAndStatusNameTheChain(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Errorf("status lacks %q:\n%s", want, text)
 		}
+	}
+}
+
+// riskyGoal is a goal that carries what the risk gate keeps: where it started
+// and which migration files /goal resume accepted.
+func riskyGoal(t *testing.T) GoalState {
+	t.Helper()
+	goal, err := NewGoal("clean the stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	goal.Start = &GoalStart{Dir: "work", FileBaseline: gitws.FileBaseline{Head: "abc123", Dirty: map[string]string{"migrations/1.sql": "abc"}}}
+	goal.AcceptedFiles = map[string]string{"migrations/2.sql": "def"}
+	return goal
+}
+
+// A row is stored with the id of the goal only while that goal is active: a
+// goal that is paused, blocked, limited or complete has no turns running, and
+// a row stored then (a person's message, a note) is nobody's evidence.
+func TestRowsAreStampedOnlyWhileTheGoalIsActive(t *testing.T) {
+	st := &State{ID: "sess_stamp", Mode: ModeAgent}
+	var want []string
+	add := func(content, goalID string) {
+		t.Helper()
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: content})
+		want = append(want, goalID)
+	}
+	setStatus := func(status GoalStatus) {
+		st.UpdateGoal("", func(g *GoalState) bool { g.Status = status; return true })
+	}
+
+	add("no goal yet", "")
+	first, _ := NewGoal("ship it")
+	st.SetGoal(first)
+	add("while active", first.ID)
+	for _, status := range []GoalStatus{GoalPaused, GoalBlocked, GoalLimited, GoalComplete} {
+		setStatus(status)
+		add("while "+string(status), "")
+	}
+	setStatus(GoalActive)
+	add("resumed", first.ID)
+
+	second, _ := NewGoal("ship it")
+	st.SetGoal(second)
+	add("under the second goal", second.ID)
+	st.SetGoal(GoalState{})
+	add("goal cleared", "")
+
+	if first.ID == second.ID {
+		t.Fatalf("two goals share the id %q", first.ID)
+	}
+	msgs := st.GetMessages()
+	if len(msgs) != len(want) {
+		t.Fatalf("%d rows, want %d", len(msgs), len(want))
+	}
+	for i, m := range msgs {
+		if m.Goal != want[i] {
+			t.Errorf("row %d (%q) carries goal %q, want %q", i, m.Content, m.Goal, want[i])
+		}
+	}
+}
+
+// A summary row a compaction inserts is stored like an appended one: stamped
+// while the goal is active, wherever it lands.
+func TestCompactionSummaryRowsAreStampedLikeAppendedOnes(t *testing.T) {
+	st := &State{ID: "sess_fold", Mode: ModeAgent}
+	goal, _ := NewGoal("ship it")
+	st.SetGoal(goal)
+	for _, content := range []string{"a", "b", "c"} {
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: content})
+	}
+	st.InsertCompactionSummary(1, NewCompactionSummaryMessage("folded", "m"))
+	st.InsertCompactionSummary(99, NewCompactionSummaryMessage("appended", "m"))
+	st.UpdateGoal("", func(g *GoalState) bool { g.Status = GoalPaused; return true })
+	st.InsertCompactionSummary(0, NewCompactionSummaryMessage("while paused", "m"))
+
+	msgs := st.GetMessages()
+	if len(msgs) != 6 {
+		t.Fatalf("%d rows, want 6", len(msgs))
+	}
+	for i, wantGoal := range []string{"", goal.ID, goal.ID, goal.ID, goal.ID, goal.ID} {
+		if msgs[i].Goal != wantGoal {
+			t.Errorf("row %d (%.20q) carries goal %q, want %q", i, msgs[i].Content, msgs[i].Goal, wantGoal)
+		}
+	}
+	if !strings.Contains(msgs[0].Content, "while paused") || !strings.Contains(msgs[2].Content, "folded") || !strings.Contains(msgs[5].Content, "appended") {
+		t.Fatalf("rows are not where they were inserted: %+v", msgs)
+	}
+}
+
+// The goal a surface reads is a copy all the way down: the start record and the
+// accepted files are the state's own, and changing what a caller got back, or
+// what it handed in, must not reach them.
+func TestGoalCloneCopiesStartAndAcceptedFilesDeep(t *testing.T) {
+	st := &State{ID: "sess_clone"}
+	given := riskyGoal(t)
+	st.SetGoal(given)
+	// What the goal must still be afterwards, as a copy of its own.
+	var want GoalState
+	raw, err := json.Marshal(st.GetGoal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &want); err != nil {
+		t.Fatal(err)
+	}
+
+	got := st.GetGoal()
+	got.Start.Dir = "other"
+	got.Start.Head = "other"
+	got.Start.Dirty["migrations/1.sql"] = "changed"
+	got.Start.Dirty["migrations/new.sql"] = "added"
+	got.AcceptedFiles["migrations/2.sql"] = "changed"
+	got.AcceptedFiles["migrations/new.sql"] = "added"
+	if again := st.GetGoal(); !reflect.DeepEqual(again, want) {
+		t.Fatalf("changing the copy GetGoal returned reached the state:\n got %+v\nwant %+v", again, want)
+	}
+
+	given.Start.Head = "other"
+	given.Start.Dirty["migrations/1.sql"] = "changed"
+	given.AcceptedFiles["migrations/2.sql"] = "changed"
+	if again := st.GetGoal(); !reflect.DeepEqual(again, want) {
+		t.Fatalf("changing the goal SetGoal was handed reached the state:\n got %+v\nwant %+v", again, want)
+	}
+}
+
+// What the risk gate keeps lives on the persisted goal and on the stored rows:
+// the start record, the accepted files, the id a row carries and its
+// acknowledgement survive a save and a restore of the bundle, and a goal with
+// none of it adds nothing to the JSON.
+func TestGoalRiskRecordsPersistWithSession(t *testing.T) {
+	fs := &FileStore{Root: t.TempDir()}
+	dir, err := fs.EnsureLayout("sess_risk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &State{ID: "sess_risk", CWD: t.TempDir(), Mode: ModeAgent, SessionDir: dir}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "before the goal"})
+	goal := riskyGoal(t)
+	st.SetGoal(goal)
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "c1", Name: "run_command", InputJSON: `{"command":"docker compose down"}`}}, RiskAcknowledged: true})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "plain"})
+	want := st.GetGoal()
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := fs.ReadSnapshot(st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.Goal == nil || !reflect.DeepEqual(*snap.Meta.Goal, want) {
+		t.Fatalf("saved and read back:\n got %+v\nwant %+v", snap.Meta.Goal, want)
+	}
+	if got := snap.Meta.Goal; got.Start == nil || got.Start.Head != "abc123" || got.Start.Dirty["migrations/1.sql"] != "abc" || got.AcceptedFiles["migrations/2.sql"] != "def" {
+		t.Fatalf("start or accepted files lost: %+v", got)
+	}
+	if len(snap.Messages) != 3 {
+		t.Fatalf("%d rows read back, want 3", len(snap.Messages))
+	}
+	for i, wantRow := range []struct {
+		goal string
+		ack  bool
+	}{{"", false}, {goal.ID, true}, {goal.ID, false}} {
+		if m := snap.Messages[i]; m.Goal != wantRow.goal || m.RiskAcknowledged != wantRow.ack {
+			t.Errorf("row %d read back as goal=%q acknowledged=%v, want goal=%q acknowledged=%v", i, m.Goal, m.RiskAcknowledged, wantRow.goal, wantRow.ack)
+		}
+	}
+
+	restored := &State{ID: "sess_risk"}
+	restored.RestoreGoalWithoutPersist(*snap.Meta.Goal)
+	if got := restored.GetGoal(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("restored:\n got %+v\nwant %+v", got, want)
+	}
+
+	plain, _ := NewGoal("ship it")
+	raw, err := json.Marshal(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{`"start"`, `"acceptedFiles"`} {
+		if strings.Contains(string(raw), key) {
+			t.Errorf("a goal with no risk records has %s in its JSON: %s", key, raw)
+		}
+	}
+	row, err := json.Marshal(llm.Message{Role: llm.RoleAssistant, Content: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{`"goal"`, `"risk_acknowledged"`} {
+		if strings.Contains(string(row), key) {
+			t.Errorf("a row of no goal has %s in its JSON: %s", key, row)
+		}
+	}
+}
+
+// acceptFixture is a history of assistant rows around a goal's docker steps:
+// 0, 7 and 9 are the goal's rows whose docker calls count (9 already
+// acknowledged); 1 is refused, 3 is no docker, 5 is another goal's, 6 no
+// goal's.
+func acceptFixture(goal, other GoalState) []llm.Message {
+	const down = `{"command":"docker compose down"}`
+	return []llm.Message{
+		/* 0 */ {Role: llm.RoleAssistant, Goal: goal.ID, ToolCalls: []llm.ToolCall{{ID: "a1", Name: "run_command", InputJSON: down}}},
+		/* 1 */ {Role: llm.RoleAssistant, Goal: goal.ID, ToolCalls: []llm.ToolCall{{ID: "a2", Name: "run_command", InputJSON: down}}},
+		/* 2 */ riskResult("a2", ToolResultDeniedByUser),
+		/* 3 */ {Role: llm.RoleAssistant, Goal: goal.ID, ToolCalls: []llm.ToolCall{{ID: "a3", Name: "run_command", InputJSON: `{"command":"go test ./..."}`}}},
+		/* 4 */ riskResult("a3", "ok"),
+		/* 5 */ {Role: llm.RoleAssistant, Goal: other.ID, ToolCalls: []llm.ToolCall{{ID: "a4", Name: "run_command", InputJSON: down}}},
+		/* 6 */ {Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "a5", Name: "run_command", InputJSON: down}}},
+		/* 7 */ {Role: llm.RoleAssistant, Goal: goal.ID, ToolCalls: []llm.ToolCall{{ID: "a6", Name: "run_command", InputJSON: down}}},
+		/* 8 */ riskResult("a6", "stopped db"),
+		/* 9 */ {Role: llm.RoleAssistant, Goal: goal.ID, RiskAcknowledged: true, ToolCalls: []llm.ToolCall{{ID: "a7", Name: "run_command", InputJSON: down}}},
+		/* 10 */ {Role: llm.RoleUser, Goal: goal.ID, Content: "docker compose down"},
+	}
+}
+
+func acceptRisks(msgs []llm.Message, goal *GoalState, files goalFiles) (st *State, edits [2]uint64) {
+	st = &State{ID: "sess_accept"}
+	st.mu.Lock()
+	st.Messages = append([]llm.Message(nil), msgs...)
+	st.mu.Unlock()
+	_, _, edits[0], _ = st.MessagesForPersist()
+	st.mu.Lock()
+	st.acceptGoalRisksLocked(goal, files)
+	st.mu.Unlock()
+	_, _, edits[1], _ = st.MessagesForPersist()
+	return st, edits
+}
+
+// acceptGoalRisksLocked is what /goal resume does to a blocked goal: it marks
+// the goal's own assistant rows whose docker steps count, and records each
+// changed migration file at its content now.
+func TestAcceptGoalRisksMarksTheGoalsCountingDockerRowsAndRecordsFiles(t *testing.T) {
+	goal, _ := NewGoal("clean up")
+	other, _ := NewGoal("clean up")
+	msgs := acceptFixture(goal, other)
+	wantAck := map[int]bool{0: true, 7: true, 9: true}
+
+	next := goal
+	next.AcceptedFiles = map[string]string{"migrations/a.sql": "old", "migrations/keep.sql": "k"}
+	st, edits := acceptRisks(msgs, &next, goalFiles{changed: map[string]string{"migrations/a.sql": "new", "migrations/gone.sql": ""}})
+
+	rows, _, _, _ := st.MessagesForPersist()
+	for i, m := range rows {
+		if m.RiskAcknowledged != wantAck[i] {
+			t.Errorf("row %d acknowledged = %v, want %v", i, m.RiskAcknowledged, wantAck[i])
+		}
+	}
+	if edits[1] <= edits[0] {
+		t.Errorf("marking rows did not move the edit revision (%d -> %d): the stored transcript would not be rewritten", edits[0], edits[1])
+	}
+	wantFiles := map[string]string{"migrations/a.sql": "new", "migrations/keep.sql": "k", "migrations/gone.sql": ""}
+	if !reflect.DeepEqual(next.AcceptedFiles, wantFiles) {
+		t.Errorf("accepted files = %v, want %v", next.AcceptedFiles, wantFiles)
+	}
+
+	t.Run("nothing new to accept leaves the revision alone", func(t *testing.T) {
+		done := make([]llm.Message, len(msgs))
+		copy(done, msgs)
+		done[0].RiskAcknowledged, done[7].RiskAcknowledged = true, true
+		again := goal
+		_, edits := acceptRisks(done, &again, goalFiles{})
+		if edits[1] != edits[0] {
+			t.Errorf("edit revision moved (%d -> %d) with no row to mark", edits[0], edits[1])
+		}
+		if again.AcceptedFiles != nil {
+			t.Errorf("accepted files = %v with no file changed", again.AcceptedFiles)
+		}
+	})
+	t.Run("the first accepted file makes the map", func(t *testing.T) {
+		fresh := goal
+		acceptRisks(msgs, &fresh, goalFiles{changed: map[string]string{"migrations/a.sql": "h"}})
+		if !reflect.DeepEqual(fresh.AcceptedFiles, map[string]string{"migrations/a.sql": "h"}) {
+			t.Errorf("accepted files = %v", fresh.AcceptedFiles)
+		}
+	})
+}
+
+// A goal with no id (one a binary from before ids stored) has no rows: goalRows
+// reads none for it, and accepting its risks must not mark the rows no goal
+// stamped, which carry the same empty id.
+func TestAcceptGoalRisksLeavesTheRowsOfNoGoalAlone(t *testing.T) {
+	goal, _ := NewGoal("clean up")
+	other, _ := NewGoal("clean up")
+	noID := GoalState{Objective: "clean up", Status: GoalBlocked}
+	st, _ := acceptRisks(acceptFixture(goal, other), &noID, goalFiles{})
+	rows, _, _, _ := st.MessagesForPersist()
+	for _, i := range []int{0, 6, 7} {
+		if rows[i].RiskAcknowledged {
+			t.Errorf("row %d was accepted for a goal that has no id", i)
+		}
+	}
+}
+
+// A goal the PATCH endpoint replaces is a new goal: a fresh id, nothing the
+// replaced one had accepted, its own start - so the rows the replaced goal
+// stored are not its rows.
+func TestSetGoalObjectiveGivesAFreshGoalItsOwnEvidence(t *testing.T) {
+	mgr, fs := newTestManager(t)
+	cwd := t.TempDir()
+	st := newRewindState(t, mgr, fs, "sess_patch", nil)
+	st.CWD = cwd
+
+	old := riskyGoal(t)
+	st.SetGoal(old)
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "c1", Name: "run_command", InputJSON: `{"command":"docker compose down"}`}}})
+	oldRows := goalRows(st.GetMessages(), st.GetGoal(), false)
+	if len(oldRows) != 1 {
+		t.Fatalf("the old goal has %d rows, want 1", len(oldRows))
+	}
+
+	got, err := mgr.SetGoalObjective("sess_patch", "a different objective")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID == "" || got.ID == old.ID {
+		t.Errorf("id = %q, want a fresh one (was %q)", got.ID, old.ID)
+	}
+	if got.AcceptedFiles != nil {
+		t.Errorf("accepted files = %v, want none", got.AcceptedFiles)
+	}
+	if got.Start == nil || got.Start.Dir != cwd || got.Start.Head == old.Start.Head || len(got.Start.Dirty) != 0 {
+		t.Errorf("start = %+v, want the session's own folder %q and none of the old goal's record", got.Start, cwd)
+	}
+	if now := st.GetGoal(); now.ID != got.ID || now.Objective != got.Objective || !reflect.DeepEqual(now.Start, got.Start) {
+		t.Errorf("the session holds %+v, SetGoalObjective returned %+v", now, got)
+	}
+	if rows := goalRows(st.GetMessages(), st.GetGoal(), false); len(rows) != 0 {
+		t.Errorf("the replaced goal's rows %v are the new goal's", rows)
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "working"})
+	if rows := goalRows(st.GetMessages(), st.GetGoal(), false); len(rows) != 1 || rows[0] != 1 {
+		t.Errorf("rows of the new goal = %v, want only the one stored after it was set", rows)
 	}
 }

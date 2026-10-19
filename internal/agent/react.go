@@ -775,29 +775,33 @@ const (
 
 	reasoningLoopNudge = "Your previous turn was cut off because your reasoning kept repeating the same thought without reaching a conclusion. Stop deliberating and act: call the appropriate tool, or write your reply to the user now."
 
-	toolLoopNudge = "You have requested the same tool call with identical arguments several times in a row, so it was not executed again. Repeating it will not produce a different result. Use what you already have: try a different tool or different arguments, or answer the user with the information you have."
+	// toolLoopNudge is the result of a repeated call the guard did not execute.
+	// The goal risk gate reads it as a call that never ran, so the text lives
+	// with the other refusal results in the session package.
+	toolLoopNudge = session.ToolResultLoopGuardNudge
 
-	toolLoopSkippedResult = "not executed: the loop guard stopped this turn after repeated identical tool calls"
+	toolLoopSkippedResult = session.ToolResultNotExecutedPrefix + "the loop guard stopped this turn after repeated identical tool calls"
 
 	// toolCallInterruptedResult is stable because it is both persisted as the
 	// tool result and sent to the model on a later request. Do not add a clock
 	// or other per-run detail here: the same interrupted transcript must repair
 	// to the same request every time.
-	toolCallInterruptedResult = "not executed: the turn was interrupted before this tool call ran"
+	toolCallInterruptedResult = session.ToolResultNotExecutedPrefix + "the turn was interrupted before this tool call ran"
 
-	permissionBatchSkippedResult = "not executed: permission was resolved for another tool call in this batch"
+	permissionBatchSkippedResult = session.ToolResultNotExecutedPrefix + "permission was resolved for another tool call in this batch"
 
 	// permissionDeniedByUser is what a tool call gets when the gate was
 	// answered with a refusal. It is matched verbatim elsewhere (the
 	// context-eviction pass reads it as "this write never happened"), so it
-	// stays a constant rather than a literal repeated per call site.
-	permissionDeniedByUser = "permission denied by user"
+	// stays a constant rather than a literal repeated per call site; the
+	// supervisor's rules read it too (session.ToolResultDeniedByUser).
+	permissionDeniedByUser = session.ToolResultDeniedByUser
 
 	// permissionNotGrantedPrefix opens the refusals nobody actually answered -
 	// a detached subagent's prompt that reached no client, say. The model must
 	// not read those as a user saying no, and the eviction pass must still
 	// treat the write as not done, so both share this prefix.
-	permissionNotGrantedPrefix = "permission not granted: "
+	permissionNotGrantedPrefix = session.ToolResultNotGrantedPrefix
 )
 
 // permissionDeniedResult renders a refused gate for the model, naming the
@@ -1851,7 +1855,7 @@ func (a *Agent) runReActLoop(
 			// next request otherwise; then the turn ends with the hook's reason.
 			if reason := a.hookStopReason; reason != "" {
 				a.hookStopReason = ""
-				a.recordSkippedToolCalls(&messages, response.ToolCalls[i+1:], "not executed: a hook stopped the turn")
+				a.recordSkippedToolCalls(&messages, response.ToolCalls[i+1:], session.ToolResultNotExecutedPrefix+"a hook stopped the turn")
 				return string(acp.StopReasonRefused), fmt.Errorf("stopped by hook: %s", reason)
 			}
 		}
@@ -2181,7 +2185,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	// or asks for permission. The refusal goes through the same bookkeeping
 	// as every other outcome, so the child's transcript records it as failed.
 	if a.subagent != nil && !a.subagentAllows(tc.Name) {
-		reason := fmt.Sprintf("tool %s is not available to this subagent", tc.Name)
+		reason := fmt.Sprintf(session.ToolResultSubagentToolFormat, tc.Name)
 		a.finishToolCall(sessionDir, sessionID, tc, reason, nil, "failed")
 		return "", fmt.Errorf("%s", reason)
 	}
@@ -2207,21 +2211,21 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		var ran bool
 		hookRes, ran = a.runPreToolUseHooks(ctx, &tc, mode)
 		if ran && hookRes.blocked {
-			result := "blocked by hook: " + hookRes.reason
+			result := session.ToolResultHookBlockedPrefix + hookRes.reason
 			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
 			return result, nil
 		}
 		// The turn was cancelled while a hook was running: the hooks answered
 		// nothing, and the call must not run on the strength of that silence.
 		if ran && ctx.Err() != nil {
-			result := "cancelled before the tool ran"
+			result := session.ToolResultCancelledBeforeRun
 			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
 			return result, nil
 		}
 		if ran && skipPermission && !sameToolArgs(tc.InputJSON, original) {
 			// The user approved the arguments the prompt showed; a hook that
 			// changes them again on the resume is not covered by that answer.
-			result := "cancelled: a hook changed the approved arguments after the approval; run the call again"
+			result := session.ToolResultHookChangedArguments
 			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
 			return result, nil
 		}
@@ -2365,7 +2369,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 				"changes committed after that snapshot leave the active file."
 		}
 		if argsPersistErr != nil {
-			result := "cancelled: the arguments could not be persisted before the permission prompt: " + argsPersistErr.Error()
+			result := session.ToolResultArgsNotPersistedPrefix + argsPersistErr.Error()
 			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
 			return result, nil
 		}
@@ -3282,7 +3286,7 @@ func effectivePermMode(state SessionState, cfg *config.Config) string {
 func checkRestrictedCall(r *session.TurnRestriction, tc llm.ToolCall, cwd string, cfg *config.Config) error {
 	note := strings.TrimSpace(r.Note)
 	if note == "" {
-		note = "this tool is not available in this turn"
+		note = session.ToolResultTurnNoteDefault
 	}
 	if !r.Allows(tc.Name) {
 		return fmt.Errorf("%s: %s", tc.Name, note)
@@ -3305,7 +3309,7 @@ func checkRestrictedCall(r *session.TurnRestriction, tc llm.ToolCall, cwd string
 	}
 	for _, p := range paths {
 		if !session.PathInWorkspace(p, cwd, home) {
-			return fmt.Errorf("%s: %s (%s is outside the session's working directory)", tc.Name, note, p)
+			return fmt.Errorf(session.ToolResultOutsideWorkspaceFormat, tc.Name, note, p)
 		}
 	}
 	return nil

@@ -2,11 +2,8 @@ package session
 
 import (
 	"fmt"
-	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -38,18 +35,22 @@ var testPathPattern = regexp.MustCompile(`(?i)(^|/)(tests?|__tests__|spec|testda
 // skipMarkers are changes that switch a check off rather than satisfy it.
 var skipMarkers = regexp.MustCompile(`t\.Skip\(|@pytest\.mark\.skip|\.skip\(|xit\(|@Disabled|//\s*nolint|#\s*noqa|exit 0\b`)
 
-// buildGoalDigest renders the evidence of the goal's turns. For the goal of a
-// session that is everything since it was set; for the implicit goal of
-// supervisor.enable, everything since the latest request.
-func buildGoalDigest(msgs []llm.Message, goal GoalState, implicit bool) string {
-	start := goalStartIndex(msgs, goal, implicit)
-	window := msgs[start:]
+// buildGoalDigest renders the evidence of the goal's turns (goalRows), with
+// what the migration rule found after the latest of them. The red flags are
+// the findings of every rule over all of the goal's rows, so a flag stays when
+// the step that raised it no longer fits the budget.
+func buildGoalDigest(msgs []llm.Message, goal GoalState, implicit bool, files goalFiles) string {
+	rows := goalRows(msgs, goal, implicit)
+	last := -1
+	for _, i := range rows {
+		if msgs[i].Role == llm.RoleAssistant && strings.TrimSpace(msgs[i].Content) != "" {
+			last = i
+		}
+	}
 	var steps []string
 	var claims string
-	results := toolResults(window)
-	changed := map[string]bool{}
-	var flags []string
-	for i, m := range window {
+	for _, i := range rows {
+		m := msgs[i]
 		switch m.Role {
 		case llm.RoleUser:
 			if m.GoalTurn != nil {
@@ -83,33 +84,21 @@ func buildGoalDigest(msgs []llm.Message, goal GoalState, implicit bool) string {
 			}
 		case llm.RoleAssistant:
 			text := strings.TrimSpace(m.Content)
-			if len(m.ToolCalls) == 0 && text != "" && lastAssistantText(window[i+1:]) == "" {
+			if i == last && len(m.ToolCalls) == 0 {
 				claims = text
 			} else if text != "" {
 				steps = append(steps, "[assistant] "+clipRunes(text, goalDigestText))
 			}
+			results := callResults(msgs, i)
 			for _, call := range m.ToolCalls {
 				steps = append(steps, toolStep(call, results[call.ID]))
-				if writeTools[call.Name] {
-					for _, p := range callPaths(call.InputJSON) {
-						changed[p] = true
-					}
-					if skipMarkers.MatchString(call.InputJSON) {
-						flags = append(flags, fmt.Sprintf("a %s call adds a skip or suppression marker: %s", call.Name, clipRunes(compactSpace(call.InputJSON), 200)))
-					}
-				}
 			}
 		}
 	}
-	var testFiles []string
-	for p := range changed {
-		if testPathPattern.MatchString(filepath.ToSlash(p)) {
-			testFiles = append(testFiles, p)
-		}
-	}
-	sort.Strings(testFiles)
-	if len(testFiles) > 0 {
-		flags = append([]string{"tests, test data or CI files were changed: " + strings.Join(testFiles, ", ") + " - check that the change serves the objective rather than loosening a check"}, flags...)
+	changed, findings := goalFindings(msgs, rows, goal, files)
+	flags := flagLines(findings, true)
+	if files.unavailable != "" {
+		flags = append(flags, "migration files could not be compared with the goal's start ("+files.unavailable+"); whether they changed is unknown")
 	}
 
 	var b strings.Builder
@@ -133,13 +122,8 @@ func buildGoalDigest(msgs []llm.Message, goal GoalState, implicit bool) string {
 		b.WriteString("\n")
 	}
 	if len(changed) > 0 {
-		paths := make([]string, 0, len(changed))
-		for p := range changed {
-			paths = append(paths, p)
-		}
-		sort.Strings(paths)
 		b.WriteString("\n## Files the turns changed\n")
-		b.WriteString(strings.Join(paths, "\n"))
+		b.WriteString(strings.Join(changed, "\n"))
 		b.WriteString("\n")
 	}
 	if len(flags) > 0 {
@@ -158,56 +142,34 @@ func buildGoalDigest(msgs []llm.Message, goal GoalState, implicit bool) string {
 	return b.String()
 }
 
-// goalStartIndex is where the goal's turns begin in msgs.
-func goalStartIndex(msgs []llm.Message, goal GoalState, implicit bool) int {
+// goalRows are the indexes in msgs of the goal's turns: for the session's
+// goal, the rows stored while it was active, which carry its id; for the
+// implicit goal of supervisor.enable, every row from the latest request on.
+func goalRows(msgs []llm.Message, goal GoalState, implicit bool) []int {
+	var rows []int
+	start := 0
 	if implicit {
-		// The latest request is the last message the operator typed. A summary
-		// row is user-role too, and one a fold inside the turn inserted after the
-		// prompt is no request: skipping it finds the prompt itself.
-		for i := len(msgs) - 1; i >= 0; i-- {
-			if isRealUser(msgs[i]) && msgs[i].GoalTurn == nil && msgs[i].BackgroundWake == nil {
-				return i
-			}
-		}
-		return 0
+		start = latestRequestIndex(msgs)
 	}
-	// The kickoff of this goal opens its turns; without one (a goal set
-	// through the API before a plain prompt), the time it was set does.
+	for i := start; i < len(msgs); i++ {
+		if implicit || goal.ID != "" && msgs[i].Goal == goal.ID {
+			rows = append(rows, i)
+		}
+	}
+	return rows
+}
+
+// latestRequestIndex is where the latest request begins in msgs: the last
+// message the operator typed. A summary row is user-role too, and one a fold
+// inside the turn inserted after the prompt is no request: skipping it finds
+// the prompt itself.
+func latestRequestIndex(msgs []llm.Message) int {
 	for i := len(msgs) - 1; i >= 0; i-- {
-		if t := msgs[i].GoalTurn; t != nil && t.Kind == "kickoff" && t.Objective == goal.Objective {
+		if isRealUser(msgs[i]) && msgs[i].GoalTurn == nil && msgs[i].BackgroundWake == nil {
 			return i
 		}
 	}
-	setAt, err := time.Parse(time.RFC3339Nano, goal.SetAt)
-	if err != nil {
-		return 0
-	}
-	for i, m := range msgs {
-		at, err := time.Parse(time.RFC3339, m.CreatedAt)
-		if err == nil && !at.Before(setAt.Truncate(time.Second)) {
-			return i
-		}
-	}
-	return len(msgs)
-}
-
-func lastAssistantText(msgs []llm.Message) string {
-	for _, m := range msgs {
-		if m.Role == llm.RoleAssistant && strings.TrimSpace(m.Content) != "" {
-			return m.Content
-		}
-	}
-	return ""
-}
-
-func toolResults(msgs []llm.Message) map[string]string {
-	out := make(map[string]string)
-	for _, m := range msgs {
-		if m.Role == llm.RoleTool && m.ToolCallID != "" {
-			out[m.ToolCallID] = m.Content
-		}
-	}
-	return out
+	return 0
 }
 
 // toolStep is one tool call as the check reads it: the call, then the head

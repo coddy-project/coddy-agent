@@ -1188,10 +1188,12 @@ func normalizeModelID(cfg *config.Config, id string) string {
 	return id
 }
 
-// AddMessage appends a message to the conversation history.
+// AddMessage appends a message to the conversation history. A row stored
+// while the session's goal is active carries the goal's id (llm.Message.Goal).
 func (s *State) AddMessage(msg llm.Message) {
 	s.mu.Lock()
 	placePendingArtifacts(s.Messages, &msg)
+	s.stampGoalLocked(&msg)
 	s.Messages = append(s.Messages, msg)
 	s.markMessagesAppended()
 	s.mu.Unlock()

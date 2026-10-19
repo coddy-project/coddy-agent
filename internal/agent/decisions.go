@@ -9,6 +9,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
@@ -28,14 +29,14 @@ const (
 	// permissionDeniedByUser and its family, which result eviction folds
 	// away as if the call never happened: a safety refusal belongs in the
 	// history the model keeps reasoning on.
-	commandRejectedAsUnsafePrefix = "command rejected as unsafe: "
+	commandRejectedAsUnsafePrefix = session.ToolResultUnsafePrefix
 
 	// commandNotExecutedPrefix opens the tool result of a command stopped in
 	// bypass mode because the check could not judge it: no credential, a
 	// request the hub refused, an answer the question cannot have, a command
 	// too long for the model to read whole, or an endpoint that did not
 	// answer. A safety net that is on must not fail silently open.
-	commandNotExecutedPrefix = "command not executed: "
+	commandNotExecutedPrefix = session.ToolResultCommandNotRunPrefix
 )
 
 // commandVerdict is what the check says about one command.
