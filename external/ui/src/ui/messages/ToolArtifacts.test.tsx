@@ -9,6 +9,8 @@ import {
 
 import { setEnv } from "../env/remoteEnv";
 import { parseToolArtifacts } from "../chat/toolArtifacts";
+import { onOpenWorkspaceFile, type OpenFileRequest } from "../files/fileBus";
+import { WorkspaceFilesContext } from "../files/workspaceEntries";
 import { ToolCallMessage } from "./ToolCallMessage";
 import { ArtifactCard, placeArtifactMenu } from "./ToolArtifactCards";
 
@@ -35,6 +37,17 @@ test("normalizes artifact metadata and retains a missing download URL as unavail
   expect(parseToolArtifacts([{ ...artifact, sha256: "not-a-digest" }])).toEqual(
     [],
   );
+  // Where the file it was copied from is now; a state this page does not know
+  // is left out, as an older server that sends none.
+  expect(
+    parseToolArtifacts([
+      { ...artifact, sourceState: "deleted" },
+      { ...artifact, id: "odd", sourceState: "moved" },
+    ]),
+  ).toEqual([
+    { ...artifact, sourceState: "deleted" },
+    { ...artifact, id: "odd" },
+  ]);
 });
 
 test("renders completed share_file artifacts below the closed disclosure", () => {
@@ -212,8 +225,9 @@ test("the arrow keys move between the items that can be picked", () => {
 
   fireEvent.keyDown(menu, { key: "ArrowDown" });
   expect(screen.getByRole("menuitem", { name: "Copy name" })).toHaveFocus();
-  // Download is disabled without a URL and Reveal without a reveal URL, so up
-  // from the first item wraps to Copy absolute path.
+  // Open is disabled without a workspace path and Download without a URL, so
+  // the first item that can be picked is Mention source, and up from it wraps
+  // to Copy absolute path.
   fireEvent.keyDown(menu, { key: "ArrowUp" });
   fireEvent.keyDown(menu, { key: "ArrowUp" });
   expect(screen.getByRole("menuitem", { name: "Download" })).toBeDisabled();
@@ -311,31 +325,173 @@ test("a menu closed by its trigger scrolling out of sight hands the focus back t
   expect(trigger).toHaveFocus();
 });
 
-// A reveal that fails says so, and the session's copy stays downloadable: it
-// used to mark the card "Download unavailable" and disable Download.
-test("a failed reveal leaves the download available", async () => {
-  vi.spyOn(window, "fetch").mockResolvedValue(
-    new Response(null, { status: 500 }),
-  );
+const present = {
+  ...artifact,
+  sourcePath: "/work/repo/reports/release-notes.pdf",
+  relativePath: "reports/release-notes.pdf",
+  sourceState: "present" as const,
+};
+
+function listenForOpens() {
+  const opened: OpenFileRequest[] = [];
+  const stop = onOpenWorkspaceFile((request) => opened.push(request));
+  return { opened, stop };
+}
+
+// The card opens the file it was copied from in the Files window; "Reveal on
+// server" asked the server's desktop instead, and a headless server could
+// only answer that it failed.
+test("a click on a shared file's card opens its source in the Files window", () => {
+  const { opened, stop } = listenForOpens();
+  try {
+    render(<ArtifactCard inline artifact={present} />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open release-notes.pdf in the Files window",
+      }),
+    );
+    expect(opened).toEqual([
+      { path: "reports/release-notes.pdf", line: undefined },
+    ]);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Actions for release-notes.pdf" }),
+    );
+    expect(
+      screen.getByRole("menuitem", { name: "Open in the Files window" }),
+    ).toHaveFocus();
+    expect(screen.queryByRole("menuitem", { name: /reveal/i })).toBeNull();
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Open in the Files window" }),
+    );
+    expect(opened).toHaveLength(2);
+    expect(screen.queryByRole("menu")).toBeNull();
+  } finally {
+    stop();
+  }
+});
+
+test("a shared file whose source was deleted says so and keeps its copy downloadable", () => {
+  const { opened, stop } = listenForOpens();
+  try {
+    render(
+      <ArtifactCard inline artifact={{ ...present, sourceState: "deleted" }} />,
+    );
+    const card = screen.getByTestId("inline-artifact-card-artifact-1");
+    expect(card).toHaveClass("tool-artifact-card--deleted");
+    expect(screen.getByText("File deleted")).toBeVisible();
+    expect(
+      screen.queryByRole("button", {
+        name: "Open release-notes.pdf in the Files window",
+      }),
+    ).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Actions for release-notes.pdf" }),
+    );
+    const open = screen.getByRole("menuitem", {
+      name: "Open in the Files window",
+    });
+    expect(open).toBeDisabled();
+    expect(open).toHaveAttribute(
+      "title",
+      "The file was deleted from the workspace. Its shared copy can still be downloaded.",
+    );
+    expect(screen.getByRole("menuitem", { name: "Download" })).toBeEnabled();
+    expect(opened).toEqual([]);
+  } finally {
+    stop();
+  }
+});
+
+test("a shared file that is not in the chat's workspace cannot be opened there", () => {
   render(
     <ArtifactCard
       inline
-      artifact={{
-        ...artifact,
-        revealUrl: "/coddy/sessions/s1/artifacts/artifact-1/reveal",
-      }}
+      artifact={{ ...present, sourceState: "unavailable" }}
     />,
   );
-  const trigger = screen.getByRole("button", {
-    name: "Actions for release-notes.pdf",
+  expect(screen.getByText("2.0 KB")).toBeVisible();
+  expect(
+    screen.queryByRole("button", {
+      name: "Open release-notes.pdf in the Files window",
+    }),
+  ).toBeNull();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Actions for release-notes.pdf" }),
+  );
+  const open = screen.getByRole("menuitem", {
+    name: "Open in the Files window",
   });
-  fireEvent.click(trigger);
-  fireEvent.click(screen.getByRole("menuitem", { name: "Reveal on server" }));
+  expect(open).toBeDisabled();
+  expect(open).toHaveAttribute(
+    "title",
+    "The file is not in this chat's workspace",
+  );
+});
 
-  expect(await screen.findByText("Reveal failed")).toBeVisible();
-  expect(screen.queryByText("Download unavailable")).toBeNull();
-  fireEvent.click(trigger);
-  expect(screen.getByRole("menuitem", { name: "Download" })).toBeEnabled();
+// The listing is read at the end of a turn; a file deleted since then is found
+// out when the card is about to open it, and the card says so then.
+test("a card whose file was deleted since the listing finds it out on the click", async () => {
+  const { opened, stop } = listenForOpens();
+  const fetchMock = vi.fn(async () =>
+    Response.json({ object: "coddy.workspace_stat", entries: [] }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  try {
+    render(
+      <WorkspaceFilesContext.Provider
+        value={{ sessionId: "s1", workspacePath: "/work/repo" }}
+      >
+        <ArtifactCard inline artifact={present} />
+      </WorkspaceFilesContext.Provider>,
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open release-notes.pdf in the Files window",
+      }),
+    );
+    expect(await screen.findByText("File deleted")).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(opened).toEqual([]);
+  } finally {
+    stop();
+  }
+});
+
+test("a card checks its file before it opens it and opens it when it is there", async () => {
+  const { opened, stop } = listenForOpens();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({
+        object: "coddy.workspace_stat",
+        entries: [{ path_rel: "reports/release-notes.pdf", kind: "file" }],
+      }),
+    ),
+  );
+  try {
+    render(
+      <WorkspaceFilesContext.Provider
+        value={{ sessionId: "s1", workspacePath: "/work/repo" }}
+      >
+        <ArtifactCard inline artifact={present} />
+      </WorkspaceFilesContext.Provider>,
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open release-notes.pdf in the Files window",
+      }),
+    );
+    await waitFor(() =>
+      expect(opened).toEqual([
+        { path: "reports/release-notes.pdf", line: undefined },
+      ]),
+    );
+    expect(screen.queryByText("File deleted")).toBeNull();
+  } finally {
+    stop();
+  }
 });
 
 test("Tab closes the menu and leaves the focus moving on from the trigger", () => {

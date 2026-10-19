@@ -4,9 +4,14 @@ import { createPortal } from "react-dom";
 import { downloadToolArtifact, type ToolArtifact } from "../chat/toolArtifacts";
 import { ApiImage, ApiImageLightbox } from "../components/ApiImage";
 import { useEscapeCloses } from "../components/useEscapeCloses";
+import { relativeFilePath } from "../files/api";
+import { openWorkspaceFile } from "../files/fileBus";
+import {
+  checkWorkspaceEntry,
+  useWorkspaceFilesScope,
+} from "../files/workspaceEntries";
 import { fileTypeIcon } from "./fileTypeIcon";
 import { useT } from "../i18n/I18nProvider";
-import { remoteApiRequest } from "../env/remoteEnv";
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -135,9 +140,12 @@ export function ArtifactCard(props: {
   onMention?: (path: string) => void;
 }) {
   const { t } = useT();
-  // What last failed: a download (the copy is gone: Download is disabled) or a
-  // reveal (only that action failed: the copy can still be downloaded).
-  const [failed, setFailed] = useState<"download" | "reveal" | null>(null);
+  const scope = useWorkspaceFilesScope();
+  // A download that failed: the copy is gone, and Download is disabled.
+  const [failed, setFailed] = useState(false);
+  // The source was found gone when the card was about to open it, after the
+  // listing said it was there.
+  const [foundDeleted, setFoundDeleted] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [menu, setMenu] = useState(false);
   const [lightbox, setLightbox] = useState(false);
@@ -148,7 +156,20 @@ export function ArtifactCard(props: {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const artifact = props.artifact;
   const image = isImage(artifact);
-  const unavailable = !artifact.url || failed === "download";
+  const unavailable = !artifact.url || failed;
+  // The card opens the file it was copied from in the Files window, never the
+  // copy: an older server says nothing of the source, and the window then
+  // tells for itself whether the file is there.
+  const deleted = foundDeleted || artifact.sourceState === "deleted";
+  const openable =
+    !deleted &&
+    !!artifact.relativePath &&
+    (artifact.sourceState === undefined || artifact.sourceState === "present");
+  const openHint = deleted
+    ? t("messages.artifactSourceDeletedHint")
+    : !openable
+      ? t("messages.artifactSourceElsewhere")
+      : undefined;
   const extension = artifact.name.includes(".")
     ? artifact.name.split(".").pop()!.toUpperCase()
     : "FILE";
@@ -240,41 +261,60 @@ export function ArtifactCard(props: {
     }
   };
 
-  const reveal = async () => {
-    if (!artifact.revealUrl) return;
-    const request = remoteApiRequest(artifact.revealUrl);
-    const response = await fetch(
-      request?.url || artifact.revealUrl,
-      request?.init,
-    );
-    if (!response.ok) throw new Error(`reveal failed (${response.status})`);
+  // Inside a chat the file is checked first, so a source deleted since the
+  // listing turns the card into a deleted one instead of opening a tab that
+  // finds nothing. The window resolves the path against the chat's workspace.
+  const openSource = async () => {
+    const path = artifact.relativePath;
+    if (!openable || !path) return;
+    const rel = relativeFilePath(path, "", "");
+    if (scope && rel) {
+      const kind = await checkWorkspaceEntry(scope, rel, { fresh: true });
+      // A server that could not be asked leaves it to the window to tell.
+      if (kind !== undefined && kind !== "file") {
+        setFoundDeleted(true);
+        return;
+      }
+    }
+    openWorkspaceFile(rel || path);
   };
-  const action = (
-    fn: () => void | Promise<void>,
-    failure?: "download" | "reveal",
-  ) => {
+  const action = (fn: () => void | Promise<void>, failure?: "download") => {
     setMenu(false);
     // Back to the trigger before the action runs, so an action that moves the
     // focus itself (a mention focuses the composer) keeps it.
     triggerRef.current?.focus({ preventScroll: true });
-    if (failure === "reveal")
-      setFailed((was) => (was === "reveal" ? null : was));
     void Promise.resolve(fn()).catch(() => {
-      if (failure) setFailed(failure);
+      if (failure) setFailed(true);
     });
   };
   return (
     <article
-      className={["tool-artifact-card", props.inline && "inline-artifact-card"]
+      className={[
+        "tool-artifact-card",
+        props.inline && "inline-artifact-card",
+        deleted && "tool-artifact-card--deleted",
+      ]
         .filter(Boolean)
         .join(" ")}
       data-testid={`${props.inline ? "inline" : "tool"}-artifact-card-${artifact.id}`}
-      title={artifact.sourcePath || artifact.name}
+      title={deleted ? openHint : artifact.sourcePath || artifact.name}
       onContextMenu={(event) => {
         event.preventDefault();
         setMenu(true);
       }}
     >
+      {/* The whole card opens the file; a picture's thumbnail keeps opening
+          the picture, and the trigger stands over both. */}
+      {openable && !(image && artifact.previewUrl) ? (
+        <button
+          type="button"
+          className="tool-artifact-open"
+          aria-label={t("messages.artifactOpenFile", {
+            fileName: artifact.name,
+          })}
+          onClick={() => void openSource()}
+        />
+      ) : null}
       {image && artifact.previewUrl ? (
         <button
           type="button"
@@ -301,15 +341,17 @@ export function ArtifactCard(props: {
         </span>
         <span
           className={
-            unavailable || failed === "reveal"
+            unavailable
               ? "tool-artifact-meta tool-artifact-meta--error"
-              : "tool-artifact-meta"
+              : deleted
+                ? "tool-artifact-meta tool-artifact-meta--deleted"
+                : "tool-artifact-meta"
           }
         >
           {unavailable
             ? t("messages.artifactUnavailable")
-            : failed === "reveal"
-              ? t("messages.artifactRevealFailed")
+            : deleted
+              ? t("messages.artifactSourceDeleted")
               : props.inline
                 ? formatBytes(artifact.size)
                 : `${typeLabel} · ${formatBytes(artifact.size)}`}
@@ -339,6 +381,15 @@ export function ArtifactCard(props: {
               style={place ?? { left: 0, top: 0, opacity: 0 }}
               onKeyDown={menuKeys}
             >
+              <button
+                role="menuitem"
+                type="button"
+                disabled={!openable}
+                title={openHint}
+                onClick={() => action(openSource)}
+              >
+                {t("messages.artifactOpen")}
+              </button>
               <button
                 role="menuitem"
                 type="button"
@@ -387,19 +438,6 @@ export function ArtifactCard(props: {
                 {downloading
                   ? t("messages.artifactDownloading")
                   : t("messages.downloadArtifactButton")}
-              </button>
-              <button
-                role="menuitem"
-                type="button"
-                disabled={!artifact.revealUrl}
-                title={
-                  !artifact.revealUrl
-                    ? t("messages.artifactRevealUnavailable")
-                    : undefined
-                }
-                onClick={() => action(reveal, "reveal")}
-              >
-                {t("messages.artifactReveal")}
               </button>
             </div>,
             document.body,

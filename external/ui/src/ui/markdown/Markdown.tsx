@@ -16,9 +16,13 @@ import { useT } from "../i18n/I18nProvider";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
 import { docsHrefFromCoddyLink } from "../scheduler/hashRoute";
 import { DiagramBlock, MarkdownStreamingContext } from "./DiagramBlock";
+import { FileLink, FileReferenceLink, useFileTarget } from "./FileReference";
+import { localLinkReference, parseFileReference } from "./fileReferences";
 import { MathBlock, MathInline } from "./MathFormula";
 import { normalizeMathDelimiters } from "./mathDelimiters";
 import { REMARK_PLUGINS, REMARK_PLUGINS_WITH_BREAKS } from "./remarkPlugins";
+import { FILE_LINK_SCHEME } from "./remarkFilePaths";
+import { useWorkspaceFilesScope } from "../files/workspaceEntries";
 import { pictureKindOf } from "./pictureRender";
 
 /**
@@ -92,6 +96,10 @@ function InlineCode(props: { className?: string; children?: unknown }) {
   const { t } = useT();
   const text = normalizeText(props.children);
   const [copied, setCopied] = useState(false);
+  // A path the chat's workspace has as a file opens it in the Files window;
+  // any other code copies itself, as it always did.
+  const inChat = useWorkspaceFilesScope() !== null;
+  const target = useFileTarget(inChat ? parseFileReference(text) : null);
 
   const onCopy = useCallback(async () => {
     if (!text) return;
@@ -118,6 +126,16 @@ function InlineCode(props: { className?: string; children?: unknown }) {
   const className = ["md-inline-code", props.className || ""]
     .filter(Boolean)
     .join(" ");
+
+  if (target) {
+    return (
+      <FileLink target={target}>
+        <code className={`${className} md-inline-code--file`}>
+          {props.children as any}
+        </code>
+      </FileLink>
+    );
+  }
 
   return (
     <code
@@ -206,6 +224,24 @@ export const Markdown = memo(function Markdown(props: {
       ),
       a: (p: AProps) => {
         const href = typeof p.href === "string" ? p.href : "";
+        // A path in prose (remarkFilePaths): a link once it names a file of
+        // the chat's workspace, the text it was otherwise.
+        if (href.startsWith(FILE_LINK_SCHEME)) {
+          let value = "";
+          try {
+            value = decodeURIComponent(href.slice(FILE_LINK_SCHEME.length));
+          } catch {
+            return <>{p.children as any}</>;
+          }
+          return (
+            <FileReferenceLink
+              reference={parseFileReference(value)}
+              fallback={p.children as any}
+            >
+              {p.children as any}
+            </FileReferenceLink>
+          );
+        }
         if (href.startsWith("coddy-skill:")) {
           const name = href.slice("coddy-skill:".length);
           return (
@@ -229,7 +265,7 @@ export const Markdown = memo(function Markdown(props: {
           );
         }
         const external = /^https?:\/\//i.test(href);
-        return (
+        const anchor = (
           <a
             href={href}
             {...(external
@@ -239,6 +275,17 @@ export const Markdown = memo(function Markdown(props: {
             {p.children as any}
           </a>
         );
+        // A link to a file of the chat's workspace opens it in the Files
+        // window; the page address it is otherwise stays as it was.
+        const local = external ? null : localLinkReference(href);
+        if (local) {
+          return (
+            <FileReferenceLink reference={local} fallback={anchor}>
+              {p.children as any}
+            </FileReferenceLink>
+          );
+        }
+        return anchor;
       },
       img: (p: ImgProps) =>
         p.src && VIDEO_SRC.test(p.src) ? (
@@ -264,7 +311,11 @@ export const Markdown = memo(function Markdown(props: {
   );
 
   const urlTransform = useCallback((url: string) => {
-    if (url.startsWith("coddy-skill:") || url.startsWith("coddy:")) {
+    if (
+      url.startsWith("coddy-skill:") ||
+      url.startsWith("coddy:") ||
+      url.startsWith(FILE_LINK_SCHEME)
+    ) {
       return url;
     }
     return defaultUrlTransform(url);

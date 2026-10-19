@@ -45,7 +45,7 @@ func TestLlmMsgsToCoddyOpenAIForSessionIncludesPersistedFilePreview(t *testing.T
 	if err := os.WriteFile(thumb, []byte("png"), 0o444); err != nil {
 		t.Fatal(err)
 	}
-	out := llmMsgsToCoddyOpenAIForSession("sess_files", assets, []llm.Message{
+	out := llmMsgsToCoddyOpenAIForSession("sess_files", assets, "", []llm.Message{
 		{
 			Role:    llm.RoleUser,
 			Content: "look",
@@ -80,7 +80,7 @@ func TestLlmMsgsToCoddyOpenAIForSessionGivesNoPreviewOfAMissingThumbnail(t *test
 	if err := os.WriteFile(original, []byte("\x89PNG\r\n\x1a\n"), 0o444); err != nil {
 		t.Fatal(err)
 	}
-	out := llmMsgsToCoddyOpenAIForSession("sess_files", assets, []llm.Message{{
+	out := llmMsgsToCoddyOpenAIForSession("sess_files", assets, "", []llm.Message{{
 		Role:       llm.RoleTool,
 		ToolCallID: "r1",
 		Content:    "photo.png: PNG image",
