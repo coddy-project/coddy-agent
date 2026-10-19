@@ -431,6 +431,9 @@ type acpStreamState struct {
 	reasoning strings.Builder
 	tools     map[string]*acpToolState
 	updated   bool
+	// textBroken: the agent did other work (a thought, a tool call) since
+	// its last text, so its next text starts a paragraph of its own.
+	textBroken bool
 }
 
 func newACPStreamState(onChunk func(StreamChunk)) *acpStreamState {
@@ -447,14 +450,35 @@ func (s *acpStreamState) addText(t string) {
 	if t == "" {
 		return
 	}
+	if s.textBroken && s.text.Len() > 0 {
+		// An agent sends the parts of an answer it interrupted to think or
+		// to run a tool as chunks of one message: without a break the last
+		// sentence of one part runs into the first of the next.
+		t = paragraphBreak(s.text.String(), t) + t
+	}
+	s.textBroken = false
 	s.text.WriteString(t)
 	s.emit(StreamChunk{TextDelta: t})
+}
+
+// paragraphBreak is what goes between before and next for next to start a
+// paragraph of its own in Markdown: nothing when one of them already holds
+// the blank line.
+func paragraphBreak(before, next string) string {
+	switch {
+	case strings.HasSuffix(before, "\n\n"), strings.HasPrefix(next, "\n\n"):
+		return ""
+	case strings.HasSuffix(before, "\n") || strings.HasPrefix(next, "\n"):
+		return "\n"
+	}
+	return "\n\n"
 }
 
 func (s *acpStreamState) addReasoning(t string) {
 	if t == "" {
 		return
 	}
+	s.textBroken = true
 	s.reasoning.WriteString(t)
 	s.emit(StreamChunk{ReasoningDelta: t})
 }
@@ -497,6 +521,7 @@ func (s *acpStreamState) update(u acpSessionUpdate) {
 // the loop guard from reading five calls of one title as a degenerating
 // stream.
 func (s *acpStreamState) tool(u acpSessionUpdate) {
+	s.textBroken = true
 	t := s.tools[u.ToolCallID]
 	first := t == nil
 	if first {

@@ -275,3 +275,34 @@ func TestACPNoteStateKeepsBothCopiesOfTheMode(t *testing.T) {
 		t.Fatalf("the modes still say %q", st.Modes.CurrentModeID)
 	}
 }
+
+// An agent that thinks or calls a tool between two parts of its answer sends
+// them as separate text chunks: the answer keeps them apart as paragraphs,
+// the same in the stream as in the message, and adds no break the agent
+// already wrote.
+func TestACPStreamStateBreaksTheTextAfterOtherWork(t *testing.T) {
+	var streamed strings.Builder
+	st := newACPStreamState(func(c StreamChunk) { streamed.WriteString(c.TextDelta) })
+	text := func(s string) acpSessionUpdate {
+		return acpSessionUpdate{SessionUpdate: "agent_message_chunk", Content: json.RawMessage(`{"type":"text","text":` + strconvQuote(s) + `}`)}
+	}
+	st.update(text("I'll create "))
+	st.update(text("the file."))
+	st.update(acpSessionUpdate{SessionUpdate: "agent_thought_chunk", Content: json.RawMessage(`{"type":"text","text":"writing"}`)})
+	st.update(acpSessionUpdate{SessionUpdate: "tool_call", ToolCallID: "t1", Title: "Write src/hello.ts"})
+	st.update(text("Created it.\n\n"))
+	st.update(acpSessionUpdate{SessionUpdate: "tool_call", ToolCallID: "t2", Title: "Run tests"})
+	st.update(text("Tests pass."))
+	want := "I'll create the file.\n\nCreated it.\n\nTests pass."
+	if got := st.text.String(); got != want {
+		t.Fatalf("answer = %q, want %q", got, want)
+	}
+	if streamed.String() != want {
+		t.Fatalf("stream = %q, want the same text as the answer", streamed.String())
+	}
+}
+
+func strconvQuote(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
