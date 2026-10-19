@@ -100,6 +100,9 @@ type Definition struct {
 	TimeoutSeconds int
 	// Background forces detached runs.
 	Background bool
+	// Isolation is IsolationWorktree for a child that works in a git
+	// worktree of its own, or empty for one that works in the parent's folder.
+	Isolation string
 	// Hidden keeps the definition out of the model-facing catalog.
 	Hidden bool
 	// Spawns is an allowlist of subagent names (same pattern syntax as
@@ -139,8 +142,27 @@ type frontmatter struct {
 	MaxTurnsAlias   int         `yaml:"maxTurns"`
 	TimeoutSeconds  int         `yaml:"timeout_seconds"`
 	Background      bool        `yaml:"background"`
+	Isolation       string      `yaml:"isolation"`
 	Hidden          bool        `yaml:"hidden"`
 	Spawns          interface{} `yaml:"spawns"`
+}
+
+// IsolationWorktree runs a child in a git worktree of its own: a new branch
+// at the commit the parent's checkout is on, under the main checkout's
+// .coddy/worktrees, removed when the run leaves nothing in it.
+const IsolationWorktree = "worktree"
+
+// ParseIsolation reads an isolation value of a definition or a spawn_agent
+// call: IsolationWorktree, or "none" and empty for none.
+func ParseIsolation(raw string) (string, error) {
+	switch v := strings.ToLower(strings.TrimSpace(raw)); v {
+	case "", "none":
+		return "", nil
+	case IsolationWorktree:
+		return v, nil
+	default:
+		return "", fmt.Errorf("isolation must be worktree or none, got %q", raw)
+	}
 }
 
 // Parse turns a definition file into a Definition. path decides the default
@@ -179,6 +201,11 @@ func Parse(path string, data []byte) (*Definition, error) {
 	case "", "agent", "plan":
 	default:
 		return nil, fmt.Errorf("%s: mode must be agent or plan, got %q", path, meta.Mode)
+	}
+
+	isolation, err := ParseIsolation(meta.Isolation)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 
 	permRaw := strings.TrimSpace(meta.PermissionMode)
@@ -229,6 +256,7 @@ func Parse(path string, data []byte) (*Definition, error) {
 		MaxTurns:        maxTurns,
 		TimeoutSeconds:  timeout,
 		Background:      meta.Background,
+		Isolation:       isolation,
 		Hidden:          meta.Hidden,
 		Spawns:          stringList(meta.Spawns),
 		Role:            role,

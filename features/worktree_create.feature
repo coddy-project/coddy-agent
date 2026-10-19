@@ -18,3 +18,10 @@ Feature: Create a feature worktree during an agent turn
     When the agent creates a worktree for "origin/feature/remote"
     Then the tool reports the branch "feature/remote"
     And the new worktree's branch tracks "origin/feature/remote"
+
+  Scenario: A new worktree gets the local files the project names in .worktreeinclude
+    Given a session in a repository with a bare origin
+    And the main checkout keeps an ignored ".env" that ".worktreeinclude" names
+    When the agent creates a worktree for "feature/login"
+    Then the new worktree has the ".env" of the main checkout
+    And the tool reports ".env" among the files it copied

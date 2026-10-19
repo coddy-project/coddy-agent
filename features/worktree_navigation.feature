@@ -1,15 +1,32 @@
 Feature: Leave a feature worktree, and stack a branch on the current work
   An agent that opened a worktree for a feature branch goes back to the main
-  checkout in one call once the work there is done, keeping the worktree for
-  later or removing it on the way, and can start the next branch from the
-  commit it stands on instead of from the default branch.
+  checkout in one call once the work there is done. A worktree that holds
+  nothing of its own goes on the way, one with work in it stays for later, and
+  the agent can keep or remove it explicitly. It can start the next branch from
+  the commit it stands on instead of from the default branch.
 
   Scenario: The agent goes back to the main checkout and keeps the worktree
     Given a session in a repository with a bare origin
     And the agent works in a worktree for "feature/login"
-    When the agent leaves the worktree
+    When the agent leaves the worktree and keeps it
     Then the session works in the main checkout again
     And the worktree for "feature/login" is still there
+
+  Scenario: Leaving a worktree that holds nothing of its own removes it
+    Given a session in a repository with a bare origin
+    And the agent works in a worktree for "feature/look"
+    When the agent leaves the worktree
+    Then the session works in the main checkout again
+    And the worktree for "feature/look" is gone
+    And the branch "feature/look" is gone
+
+  Scenario: Leaving a worktree with work of its own keeps it and says why
+    Given a session in a repository with a bare origin
+    And the agent works in a worktree for "feature/work" with a commit of its own
+    When the agent leaves the worktree
+    Then the session works in the main checkout again
+    And the worktree for "feature/work" is still there
+    And the answer says the worktree stays for its commit
 
   Scenario: The agent removes a finished worktree on its way back
     Given a session in a repository with a bare origin

@@ -240,3 +240,94 @@ func TestWorktreeExitNamesTheSnapshotOfDiscardedWork(t *testing.T) {
 		t.Fatalf("answer %s does not name the snapshot", out)
 	}
 }
+
+// Leaving with the default action never refuses: a worktree that has
+// something of its own, or someone still in it, stays, and the answer says
+// why, while the session goes back all the same.
+func TestWorktreeExitAutoKeepsWhatItCannotRemove(t *testing.T) {
+	cases := []struct {
+		name    string
+		prepare func(t *testing.T, s *worktreeNavigationState, wt string)
+		want    string
+	}{
+		{
+			name: "uncommitted work",
+			prepare: func(t *testing.T, _ *worktreeNavigationState, wt string) {
+				if err := os.WriteFile(filepath.Join(wt, "draft.txt"), []byte("not yet\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "uncommitted",
+		},
+		{
+			name: "another session",
+			prepare: func(_ *testing.T, s *worktreeNavigationState, wt string) {
+				s.env.SessionsInWorkspace = func(dir string) []string {
+					if session.SameWorkspacePath(dir, wt) {
+						return []string{"sess_other"}
+					}
+					return nil
+				}
+			},
+			want: "sess_other",
+		},
+		{
+			name: "a lock",
+			prepare: func(t *testing.T, s *worktreeNavigationState, wt string) {
+				if _, err := s.git(s.root, "worktree", "lock", wt); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "locked",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := openedNavigation(t, "feature/busy")
+			wt := s.worktrees["feature/busy"]
+			tc.prepare(t, s, wt)
+			if err := s.leaves(); err != nil {
+				t.Fatalf("auto exit = %v, want the session back and the worktree kept", err)
+			}
+			if err := s.inMainCheckout(); err != nil {
+				t.Fatal(err)
+			}
+			if s.left.Removed || !strings.Contains(s.left.Kept, tc.want) {
+				t.Fatalf("answer = %+v, want the worktree kept for %q", s.left, tc.want)
+			}
+			if _, err := os.Stat(wt); err != nil {
+				t.Fatalf("the worktree went: %v", err)
+			}
+		})
+	}
+}
+
+// A worktree Coddy did not open is never removed by the default action, empty
+// as it is.
+func TestWorktreeExitAutoKeepsAWorktreeCoddyDidNotOpen(t *testing.T) {
+	s := &worktreeNavigationState{}
+	if err := s.reset(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(s.root)
+		_ = os.RemoveAll(s.root + "-origin.git")
+		_ = os.RemoveAll(s.root + "-beside")
+	})
+	beside := s.root + "-beside"
+	if _, err := s.git(s.root, "worktree", "add", "-q", "-b", "feature/beside", beside, "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.execute(apptools.ToolWorktreeOpen, fmt.Sprintf(`{"path":%q}`, beside)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.leaves(); err != nil {
+		t.Fatal(err)
+	}
+	if s.left.Removed || !strings.Contains(s.left.Kept, "not a worktree Coddy opened") {
+		t.Fatalf("answer = %+v, want the worktree kept as not Coddy's", s.left)
+	}
+	if _, err := os.Stat(beside); err != nil {
+		t.Fatalf("the worktree went: %v", err)
+	}
+}
