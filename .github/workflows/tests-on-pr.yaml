@@ -394,7 +394,7 @@ jobs:
         run: >-
           go test -p=4 -tags='http,ui,scheduler,memory,cli,gateway,swarm,metrics'
           ./internal/gitws ./external/httpserver
-          -run '^(TestDescribeRepo|TestSkillsMarketplaceFeature|TestWorkspaceFoldersListsOnlyDirectorySymlinksAndResolvesNavigation)$'
+          -run '^(TestDescribeRepo|TestFileTransportHonorsWindowsDrive|TestSkillsMarketplaceFeature|TestWorkspaceFoldersListsOnlyDirectorySymlinksAndResolvesNavigation)$'
 
       # Exercise the same shipped modules as make test. Bounded package
       # concurrency leaves time for the child MCP and PowerShell processes.

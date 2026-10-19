@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -38,6 +39,36 @@ func hideGitBinary(t *testing.T) {
 	if GitAvailable() {
 		t.Fatal("git is still reachable with an empty PATH")
 	}
+}
+
+func TestFileTransportHonorsWindowsDrive(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows file URLs carry drive letters")
+	}
+	dir := initRepo(t)
+	for name, source := range map[string]string{
+		"drive host": "file://" + filepath.ToSlash(dir),
+		"URI path":   "file:///" + filepath.ToSlash(dir),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := builtinClone(source, "", filepath.Join(t.TempDir(), "clone")); err != nil {
+				t.Fatalf("clone %s: %v", source, err)
+			}
+		})
+	}
+	t.Run("another drive is not the current drive", func(t *testing.T) {
+		for drive := 'A'; drive <= 'Z'; drive++ {
+			if _, err := os.Stat(string(drive) + `:\`); !os.IsNotExist(err) {
+				continue
+			}
+			source := "file://" + string(drive) + ":" + filepath.ToSlash(dir[len(filepath.VolumeName(dir)):])
+			if err := builtinClone(source, "", filepath.Join(t.TempDir(), "clone")); err == nil {
+				t.Fatalf("clone %s opened a repository on a different drive", source)
+			}
+			return
+		}
+		t.Skip("every drive letter is mounted")
+	})
 }
 
 func TestDescribeLinkedWorktree(t *testing.T) {

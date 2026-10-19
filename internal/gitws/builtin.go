@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -300,7 +301,18 @@ func (s knownHavesSession) UploadPack(ctx context.Context, req *packp.UploadPack
 type fileLoader struct{}
 
 func (fileLoader) Load(ep *transport.Endpoint) (storer.Storer, error) {
-	repo, err := git.PlainOpen(ep.Path)
+	path := ep.Path
+	if runtime.GOOS == "windows" {
+		// go-git parses file://C:/repo as Host C and Path /repo, which
+		// otherwise opens /repo on the process's current drive. Standard
+		// file:///C:/repo URLs instead carry /C:/repo in Path.
+		if len(ep.Host) == 1 && ((ep.Host[0] >= 'A' && ep.Host[0] <= 'Z') || (ep.Host[0] >= 'a' && ep.Host[0] <= 'z')) {
+			path = ep.Host + ":" + path
+		} else if (ep.Host == "" || strings.EqualFold(ep.Host, "localhost")) && len(path) >= 3 && path[0] == '/' && path[2] == ':' {
+			path = path[1:]
+		}
+	}
+	repo, err := git.PlainOpen(path)
 	if err != nil {
 		return nil, transport.ErrRepositoryNotFound
 	}
