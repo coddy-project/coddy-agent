@@ -324,10 +324,10 @@ type Removal struct {
 // RemoveWorktree removes wt once CheckRemovable allows it. With discard its
 // uncommitted work goes too, but it is first saved as a snapshot commit
 // (Removal.Snapshot) that brings it back, and a removal whose snapshot fails
-// does not happen. Its branch goes only when git counts it as merged
-// (`git branch -d`: into the main checkout's HEAD or the branch's upstream), so
-// no commit is lost: a branch with work of its own stays, and
-// Removal.BranchKept says why. Run it from outside wt.
+// does not happen. Its branch goes only when every commit of it another
+// branch, a remote branch or a tag holds, so no commit is lost: a branch with
+// work of its own stays, and Removal.BranchKept says why. Run it from outside
+// wt.
 func RemoveWorktree(wt LinkedWorktree, discard bool) (Removal, error) {
 	if err := CheckRemovable(wt, discard); err != nil {
 		return Removal{}, err
@@ -359,12 +359,7 @@ func RemoveWorktree(wt LinkedWorktree, discard bool) (Removal, error) {
 	if wt.Branch == "" {
 		return removal, nil
 	}
-	if _, err := runGit(wt.MainCheckout, "branch", "-d", wt.Branch); err != nil {
-		removal.BranchKept = fmt.Sprintf("branch %s has commits that are not merged into the main checkout's HEAD or its upstream, so it stays (git branch -D %s deletes it)",
-			wt.Branch, wt.Branch)
-		return removal, nil
-	}
-	removal.BranchDeleted = true
+	removal.BranchDeleted, removal.BranchKept = deleteBranchIfHeld(wt.MainCheckout, wt.Branch)
 	return removal, nil
 }
 

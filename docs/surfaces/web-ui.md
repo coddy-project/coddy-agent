@@ -1441,7 +1441,7 @@ folder; right after the branch it offers the way back, an arrow in the count's l
 frame named **Back to** and the project. The arrow opens a dialog that asks whether to keep
 the worktree or remove it, with what removing would touch in view (uncommitted changes,
 commits not pushed, another chat or a task in the worktree), and answers with
-`/worktree exit`, `/worktree exit --remove`, or `/worktree exit --remove --force` when
+`/worktree exit --keep`, `/worktree exit --remove`, or `/worktree exit --remove --force` when
 there are uncommitted changes ([Git worktrees](../features/worktrees.md)).
 The plate reads where the chat works again after every turn of the chat, so it follows the
 agent's `worktree_open` and `worktree_exit` and the `/worktree` command without a reload. The plate is git's: a running chat in a folder that is in no git repository has

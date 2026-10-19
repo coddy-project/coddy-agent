@@ -26,12 +26,16 @@ func TestParseWorktreeCommand(t *testing.T) {
 		{in: "/worktree exit", want: worktreeCommand{Exit: true}, wantOK: true},
 		{in: "/worktree exit --remove", want: worktreeCommand{Exit: true, Remove: true}, wantOK: true},
 		{in: "/worktree exit --remove --force", want: worktreeCommand{Exit: true, Remove: true, Force: true}, wantOK: true},
+		{in: "/worktree exit --keep", want: worktreeCommand{Exit: true, Keep: true}, wantOK: true},
 		// Words that do not make a command still answer as /worktree, with
 		// the reason and the usage, rather than going to the model.
 		{in: "/worktree a b", problem: true, wantOK: true},
 		{in: "/worktree --from-head", problem: true, wantOK: true},
 		{in: "/worktree feature/x --remove", problem: true, wantOK: true},
 		{in: "/worktree exit --force", problem: true, wantOK: true},
+		{in: "/worktree exit --keep --remove", problem: true, wantOK: true},
+		{in: "/worktree exit --keep --force", problem: true, wantOK: true},
+		{in: "/worktree feature/x --keep", problem: true, wantOK: true},
 		{in: "/worktree exit --from-head", problem: true, wantOK: true},
 		{in: "/worktree --detach x", problem: true, wantOK: true},
 		{in: "/worktrees", wantOK: false},      // a longer word is not the command
