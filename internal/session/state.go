@@ -1915,10 +1915,15 @@ func (s *State) ReplaceMessagesWithoutPersist(msgs []llm.Message) {
 // the risk acknowledgement are never on the wire - so a replacement taken as
 // it comes would erase the evidence the goal's risk gate reads. The rows of
 // msgs that are the stored rows, matched in the stored order (the same role,
-// text, tool call id and tool calls, each stored row once), keep their Goal and
-// RiskAcknowledged; a row the client wrote, changed or moved ahead of the
-// stored one carries none, since nothing says the goal stored it. Rows only the
-// UI shows, which a client has no way to send, are skipped over.
+// text, tool call id and tool calls, each stored row once), keep their Goal; a
+// row the client wrote, changed or moved ahead of the stored one carries none,
+// since nothing says the goal stored it. Losing the stamp is the dangerous
+// direction, so it is carried greedily. The acknowledgement is carried only
+// when the match is unambiguous - the matched row is the only stored row equal
+// to the client's - since a client that trims or reorders the history can make
+// the first of several identical rows stand for a later one nobody accepted;
+// a dropped acknowledgement blocks the goal again. Rows only the UI shows,
+// which a client has no way to send, are skipped over.
 func (s *State) ReplaceMessagesFromClient(msgs []llm.Message) {
 	s.replaceMessages(msgs, true)
 }
@@ -1943,9 +1948,10 @@ func (s *State) replaceMessages(msgs []llm.Message, keepGoalStamps bool) {
 	s.mu.Unlock()
 }
 
-// carryGoalStamps copies Goal and RiskAcknowledged from the stored rows to the
-// rows of next that repeat them, walking both in order: a stored row is
-// matched at most once and only by a row after the one matched before it.
+// carryGoalStamps copies Goal from the stored rows to the rows of next that
+// repeat them, walking both in order: a stored row is matched at most once and
+// only by a row after the one matched before it. RiskAcknowledged goes along
+// only when no other stored row is equal to the matched one.
 func carryGoalStamps(next, stored []llm.Message) {
 	j := 0
 	for i := range next {
@@ -1953,11 +1959,23 @@ func carryGoalStamps(next, stored []llm.Message) {
 			if !sameWireRow(next[i], stored[k]) {
 				continue
 			}
-			next[i].Goal, next[i].RiskAcknowledged = stored[k].Goal, stored[k].RiskAcknowledged
+			next[i].Goal = stored[k].Goal
+			next[i].RiskAcknowledged = stored[k].RiskAcknowledged && soleWireRow(stored, k)
 			j = k + 1
 			break
 		}
 	}
+}
+
+// soleWireRow says no stored row other than stored[k] is equal to it on what a
+// client can send back.
+func soleWireRow(stored []llm.Message, k int) bool {
+	for l := range stored {
+		if l != k && sameWireRow(stored[k], stored[l]) {
+			return false
+		}
+	}
+	return true
 }
 
 // sameWireRow says two rows agree on everything a client can send back of a

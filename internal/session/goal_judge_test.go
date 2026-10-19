@@ -268,6 +268,70 @@ func riskResult(id, content string) llm.Message {
 	return llm.Message{Role: llm.RoleTool, ToolCallID: id, Content: content}
 }
 
+// A result proves that a call never ran only when it was stored under the
+// call's goal id. A client that sends the history back cannot write the id, so a
+// result it changed or added carries none and is nobody's evidence: the call
+// counts as one that ran, and the digest shows no result for it.
+func TestOnlyAResultStampedLikeItsCallProvesTheCallNeverRan(t *testing.T) {
+	const down = `{"command":"docker compose down"}`
+	goal, _ := NewGoal("clean up")
+	stamped := func(m llm.Message, id string) llm.Message {
+		m.Goal = id
+		return m
+	}
+	rows := func(resultGoal, result string) []llm.Message {
+		return []llm.Message{
+			stamped(riskCall("c1", "run_command", down), goal.ID),
+			stamped(riskResult("c1", result), resultGoal),
+		}
+	}
+	findings := func(msgs []llm.Message) int {
+		_, all := goalFindings(msgs, goalRows(msgs, goal, false), goal, goalFiles{})
+		return len(all)
+	}
+
+	t.Run("a refusal stored under the call's goal id counts as none", func(t *testing.T) {
+		msgs := rows(goal.ID, ToolResultDeniedByUser)
+		if got := len(dockerCommands(msgs, 0)); got != 0 {
+			t.Fatalf("a refused call counts %d times, want 0", got)
+		}
+		if got := findings(msgs); got != 0 {
+			t.Fatalf("%d findings for a refused call, want 0", got)
+		}
+	})
+	for name, resultGoal := range map[string]string{"no goal id": "", "another goal's id": "goal_other"} {
+		t.Run("a refusal with "+name+" does not exempt the call", func(t *testing.T) {
+			msgs := rows(resultGoal, ToolResultDeniedByUser)
+			if got := len(dockerCommands(msgs, 0)); got != 1 {
+				t.Fatalf("a call whose refusal carries %s counts %d times, want 1", name, got)
+			}
+			if got := findings(msgs); got != 1 {
+				t.Fatalf("%d findings, want the docker call reported", got)
+			}
+		})
+	}
+	t.Run("the digest shows such a result as no result of the call", func(t *testing.T) {
+		d := buildGoalDigest(rows("", ToolResultDeniedByUser), goal, false, goalFiles{})
+		if strings.Contains(d, ToolResultDeniedByUser) || !strings.Contains(d, "(no result recorded)") {
+			t.Fatalf("the digest shows a result nobody stored under the goal:\n%s", d)
+		}
+		d = buildGoalDigest(rows(goal.ID, "stopped db"), goal, false, goalFiles{})
+		if !strings.Contains(d, "-> stopped db") {
+			t.Fatalf("the digest lost the result of the call:\n%s", d)
+		}
+	})
+	t.Run("a stamped result after an unstamped one with the call's id is the call's", func(t *testing.T) {
+		msgs := []llm.Message{
+			stamped(riskCall("c1", "run_command", down), goal.ID),
+			riskResult("c1", "stopped db"),
+			stamped(riskResult("c1", ToolResultDeniedByUser), goal.ID),
+		}
+		if got := len(dockerCommands(msgs, 0)); got != 0 {
+			t.Fatalf("the stamped refusal was not read: counts %d times, want 0", got)
+		}
+	})
+}
+
 // A call the agent never ran - refused by a person, a hook, the mode, the
 // toolset or a restriction, or skipped when its turn broke off - changed
 // nothing and is no finding; a call that ran and failed, or whose result was

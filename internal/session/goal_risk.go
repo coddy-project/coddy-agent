@@ -266,7 +266,10 @@ func dockerCommands(msgs []llm.Message, i int) []string {
 // results recorded right after it: a provider may reuse a call id in later
 // turns, so a result is read only next to its own call. A row only the UI
 // shows (the plan snapshot plan_write leaves) can sit between them and is
-// skipped; any other row ends the run of results.
+// skipped; any other row ends the run of results. A result counts only when it
+// carries the call's goal id: a client that sends the history back cannot
+// write the id, so a result it changed or added has none and is skipped like
+// no result at all, which leaves its call counting as one that ran.
 func callResults(msgs []llm.Message, i int) map[string]string {
 	out := map[string]string{}
 	for _, m := range msgs[i+1:] {
@@ -275,6 +278,9 @@ func callResults(msgs []llm.Message, i int) map[string]string {
 		}
 		if m.Role != llm.RoleTool {
 			break
+		}
+		if m.Goal != msgs[i].Goal {
+			continue
 		}
 		if _, seen := out[m.ToolCallID]; !seen {
 			out[m.ToolCallID] = m.Content

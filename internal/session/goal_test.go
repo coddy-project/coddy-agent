@@ -377,6 +377,82 @@ func TestReplaceMessagesFromClientKeepsTheStampsOfTheRowsItReplays(t *testing.T)
 	})
 }
 
+// The goal stamp is carried greedily, because losing the evidence is the
+// dangerous direction. The acknowledgement is not: it is carried only to a row
+// whose match is unambiguous - the one stored row equal to it - since a client
+// that trims or reorders the history it sends can make the first of several
+// identical rows stand for a later one nobody accepted. A dropped
+// acknowledgement blocks the goal again, which costs one /goal resume.
+func TestReplaceMessagesFromClientCarriesAnAcknowledgementOnlyToAnUnambiguousRow(t *testing.T) {
+	const down = `{"command":"docker compose down"}`
+	goal, _ := NewGoal("clean up")
+	// A provider may reuse a call id: the second call is equal to the first on
+	// everything a client can send back. Only the first was accepted by a resume.
+	seed := func() *State {
+		st := &State{ID: "sess_ambiguous", Mode: ModeAgent}
+		st.SetGoal(goal)
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "clean up"})
+		st.AddMessage(riskCall("call_0", "run_command", down))
+		st.AddMessage(riskResult("call_0", "stopped db"))
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "up again"})
+		st.AddMessage(riskCall("call_0", "run_command", down))
+		st.AddMessage(riskResult("call_0", "stopped db"))
+		st.mu.Lock()
+		st.Messages[1].RiskAcknowledged = true
+		st.mu.Unlock()
+		return st
+	}
+	unacknowledged := func(st *State) (findings []goalFinding) {
+		msgs := st.GetMessages()
+		_, all := goalFindings(msgs, goalRows(msgs, goal, false), goal, goalFiles{})
+		for _, f := range all {
+			if f.kind == dockerMutation && !f.acknowledged {
+				findings = append(findings, f)
+			}
+		}
+		return findings
+	}
+
+	t.Run("a trimmed history does not carry the first call's acceptance to its twin", func(t *testing.T) {
+		st := seed()
+		st.ReplaceMessagesFromClient([]llm.Message{
+			{Role: llm.RoleUser, Content: "clean up"},
+			riskCall("call_0", "run_command", down),
+			riskResult("call_0", "stopped db"),
+		})
+		got := st.GetMessages()
+		if got[1].Goal != goal.ID || got[1].RiskAcknowledged {
+			t.Fatalf("the replayed twin carries goal %q, acknowledged %v; want the goal's id, not acknowledged", got[1].Goal, got[1].RiskAcknowledged)
+		}
+		if n := len(unacknowledged(st)); n != 1 {
+			t.Fatalf("%d unacknowledged docker findings after the trim, want 1", n)
+		}
+	})
+
+	t.Run("a call that has an identical twin loses its acceptance even in a full replay", func(t *testing.T) {
+		st := seed()
+		stored := st.GetMessages()
+		sent := make([]llm.Message, len(stored))
+		for i, m := range stored {
+			m.Goal, m.RiskAcknowledged = "", false
+			sent[i] = m
+		}
+		st.ReplaceMessagesFromClient(sent)
+		got := st.GetMessages()
+		for i, m := range got {
+			if m.Goal != goal.ID {
+				t.Errorf("row %d carries goal %q, want %q", i, m.Goal, goal.ID)
+			}
+			if m.RiskAcknowledged {
+				t.Errorf("row %d is acknowledged although another stored row is equal to it", i)
+			}
+		}
+		if n := len(unacknowledged(st)); n != 2 {
+			t.Fatalf("%d unacknowledged docker findings after the replay, want 2", n)
+		}
+	})
+}
+
 // A summary row a compaction inserts is stored like an appended one: stamped
 // while the goal is active, wherever it lands.
 func TestCompactionSummaryRowsAreStampedLikeAppendedOnes(t *testing.T) {
@@ -513,19 +589,20 @@ func TestGoalRiskRecordsPersistWithSession(t *testing.T) {
 // acceptFixture is a history of assistant rows around a goal's docker steps:
 // 0, 7 and 9 are the goal's rows whose docker calls count (9 already
 // acknowledged); 1 is refused, 3 is no docker, 5 is another goal's, 6 no
-// goal's.
+// goal's. A result is stored under the goal of its call, as the store stamps
+// it, since only such a result proves its call never ran.
 func acceptFixture(goal, other GoalState) []llm.Message {
 	const down = `{"command":"docker compose down"}`
 	return []llm.Message{
 		/* 0 */ {Role: llm.RoleAssistant, Goal: goal.ID, ToolCalls: []llm.ToolCall{{ID: "a1", Name: "run_command", InputJSON: down}}},
 		/* 1 */ {Role: llm.RoleAssistant, Goal: goal.ID, ToolCalls: []llm.ToolCall{{ID: "a2", Name: "run_command", InputJSON: down}}},
-		/* 2 */ riskResult("a2", ToolResultDeniedByUser),
+		/* 2 */ {Role: llm.RoleTool, Goal: goal.ID, ToolCallID: "a2", Content: ToolResultDeniedByUser},
 		/* 3 */ {Role: llm.RoleAssistant, Goal: goal.ID, ToolCalls: []llm.ToolCall{{ID: "a3", Name: "run_command", InputJSON: `{"command":"go test ./..."}`}}},
-		/* 4 */ riskResult("a3", "ok"),
+		/* 4 */ {Role: llm.RoleTool, Goal: goal.ID, ToolCallID: "a3", Content: "ok"},
 		/* 5 */ {Role: llm.RoleAssistant, Goal: other.ID, ToolCalls: []llm.ToolCall{{ID: "a4", Name: "run_command", InputJSON: down}}},
 		/* 6 */ {Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "a5", Name: "run_command", InputJSON: down}}},
 		/* 7 */ {Role: llm.RoleAssistant, Goal: goal.ID, ToolCalls: []llm.ToolCall{{ID: "a6", Name: "run_command", InputJSON: down}}},
-		/* 8 */ riskResult("a6", "stopped db"),
+		/* 8 */ {Role: llm.RoleTool, Goal: goal.ID, ToolCallID: "a6", Content: "stopped db"},
 		/* 9 */ {Role: llm.RoleAssistant, Goal: goal.ID, RiskAcknowledged: true, ToolCalls: []llm.ToolCall{{ID: "a7", Name: "run_command", InputJSON: down}}},
 		/* 10 */ {Role: llm.RoleUser, Goal: goal.ID, Content: "docker compose down"},
 	}
