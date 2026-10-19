@@ -694,6 +694,42 @@ test("a note card reads its file again while the board is open", async () => {
   await waitFor(() => expect(heading()).toBe("Two"));
 });
 
+test("a single line break of a text card or a note is a line break, as in Obsidian", async () => {
+  served = board([], {
+    file: "design/network.canvas",
+    items: [
+      {
+        id: "t1",
+        type: "text",
+        x: 0,
+        y: 0,
+        width: 300,
+        height: 120,
+        text: "**Router**\n192.168.1.1",
+      },
+      {
+        id: "n1",
+        type: "file",
+        file: "notes/hosts.md",
+        x: 400,
+        y: 0,
+        width: 300,
+        height: 200,
+      },
+    ],
+  });
+  noteBody = "Gateway\n192.168.1.254";
+  await renderBoard({ file: "design/network.canvas" });
+  const card = document.querySelector('[data-node-id="t1"] p')!;
+  expect(card.querySelector("strong")?.textContent).toBe("Router");
+  expect(card.querySelectorAll("br")).toHaveLength(1);
+  expect(card.textContent).toBe("Router\n192.168.1.1");
+  const note = () =>
+    document.querySelector('[data-node-id="n1"] .md p') as HTMLElement | null;
+  await waitFor(() => expect(note()?.textContent).toContain("Gateway"));
+  expect(note()!.querySelectorAll("br")).toHaveLength(1);
+});
+
 test("what the board tells a frame names no address, token or file", async () => {
   // The board has to post to an opaque-origin frame with "*", so whatever
   // document sits in the frame then reads it: it must learn nothing it could use.

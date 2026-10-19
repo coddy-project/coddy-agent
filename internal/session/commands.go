@@ -418,7 +418,7 @@ func BuiltinCommandRows(cfg *config.Config, st *State, actions []CommandRow) []C
 var actionHints = map[string]string{
 	"compact":  "[-m|--model <id>] [-r|--reasoning <level>] [instructions]",
 	"goal":     "[-m|--model <id>] [-r|--reasoning <level>] [--then-file <path>] [<objective>|pause|resume|clear]",
-	"worktree": "[<branch> [--from-head] | exit [--remove [--force]]]",
+	"worktree": "[<branch> [--from-head] | exit [--keep | --remove [--force]]]",
 }
 
 // ActionCommandRows lists the deterministic actions (skills.BuiltinCommands)

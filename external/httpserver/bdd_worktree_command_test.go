@@ -289,7 +289,7 @@ func TestWorktreeCommandEntersAWorktreeByItsFolder(t *testing.T) {
 	if err := s.serverWithChatInRepository(); err != nil {
 		t.Fatal(err)
 	}
-	for _, prompt := range []string{"/worktree feature/ui", "/worktree exit", "/worktree ./.coddy/worktrees/feature-ui"} {
+	for _, prompt := range []string{"/worktree feature/ui", "/worktree exit --keep", "/worktree ./.coddy/worktrees/feature-ui"} {
 		if err := s.sends(prompt); err != nil {
 			t.Fatal(err)
 		}
