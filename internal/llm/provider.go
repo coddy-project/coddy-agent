@@ -5,6 +5,8 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
 // Role is the role of a conversation message.
@@ -113,6 +115,11 @@ type Message struct {
 	// never takes it for the prompt being answered (session.OpeningPromptIndex).
 	// Persisted with the transcript, so the distinction survives a restart.
 	FollowUp bool `json:"follow_up,omitempty"`
+	// Ephemeral marks a message built for one request and never stored: the
+	// turn-context block the agent appends after the history. A provider
+	// that keeps the conversation on its side (acp) sends it with the prompt
+	// and leaves it out of what it remembers having sent.
+	Ephemeral bool `json:"-"`
 }
 
 type Artifact struct {
@@ -279,6 +286,10 @@ type ProviderInput struct {
 	// streamed body read (providers[].timeout_ms). Zero means no client
 	// timeout; the turn context stays the only bound.
 	Timeout time.Duration
+	// ACP is the agent of an acp row (providers[].acp): the program the
+	// provider runs and talks to over the Agent Client Protocol. Nil on
+	// every other type.
+	ACP *config.ACPProviderConfig
 	// StreamIdleTimeout, when positive, is how long a streamed response may
 	// send nothing after its first bytes before the stream is cut as stalled
 	// (agent.llm_stream_idle_timeout_ms): the call then fails with an error
@@ -352,6 +363,10 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		// A Devin session token reaches the Devin API server only: api_base is
 		// ignored, and CODDY_DEVIN_API_SERVER_URL moves the process as a whole.
 		inner = newDevinProvider(p, hc)
+	case "acp":
+		// A local agent over stdio: no HTTP client of Coddy's carries its
+		// requests; the row's proxy reaches the agent as its environment.
+		inner = newACPProvider(p)
 	default:
 		return nil, &UnsupportedProviderError{Provider: p.Type}
 	}

@@ -431,6 +431,12 @@ func isRetryableLLMError(err error) bool {
 	if errors.Is(err, context.Canceled) {
 		return false
 	}
+	// An ACP agent decides by kind, ahead of every text needle below: its
+	// errors quote the agent's stderr, which may say anything.
+	var acpErr *ACPError
+	if errors.As(err, &acpErr) {
+		return acpErr.retryable()
+	}
 	// A request the provider refused for its size is refused again the same
 	// way. Typed statuses already keep it out of the switch below, but an
 	// error that reached this far as text is read for a status by its digits,
