@@ -80,7 +80,10 @@ func Decide(cfg *config.Config, snap storage.JobSnapshot) (TrustState, string) {
 
 // ScanWorkspaces lists the canonical workspaces whose project jobs the daemon
 // runs: its own process cwd, every workspace holding a receipt and every
-// workspace a session asked the scheduler about. A workspace whose project
+// workspace a session asked the scheduler about, each as its project
+// (mcp.TrustWorkspace) - a linked worktree counts as the same folder of its
+// main checkout, so a job runs on cron once, from the main checkout, however
+// many worktrees of the project chats opened. A workspace whose project
 // folder is refused (inside the coddy home, a link) is left out.
 func ScanWorkspaces(cfg *config.Config, processCWD string) []string {
 	if cfg == nil {
@@ -89,7 +92,7 @@ func ScanWorkspaces(cfg *config.Config, processCWD string) []string {
 	seen := map[string]bool{}
 	var out []string
 	add := func(ws string) {
-		ws = CanonicalWorkspace(ws)
+		ws = mcp.TrustWorkspace(ws)
 		if ws == "" || seen[ws] {
 			return
 		}

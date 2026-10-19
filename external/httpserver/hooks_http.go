@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/hooks"
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 )
 
 // registerHookRoutes wires the catalog and the approval routes next to the
@@ -78,7 +79,7 @@ func (s *Server) coddyHooksList(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"object":    "coddy.hook_list",
-		"workspace": cat.workspace,
+		"workspace": mcp.TrustWorkspace(cat.workspace),
 		"policy":    cat.policy,
 		"items":     hooks.BuildCatalog(cat.sources),
 	})

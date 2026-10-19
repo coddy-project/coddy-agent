@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 )
 
 // TrustFileName is the receipts file inside the coddy home directory. It is a
@@ -37,6 +39,10 @@ type TrustRecord struct {
 	Digest     string `json:"digest"`
 	Path       string `json:"path,omitempty"`
 	ApprovedAt string `json:"approved_at"`
+	// Checkout is the canonical folder the approval was given in: the
+	// checkouts of a project share one key but keep a receipt each
+	// (mcp.ReceiptCheckout reads an empty one as its key's).
+	Checkout string `json:"checkout,omitempty"`
 }
 
 type trustFile struct {
@@ -47,6 +53,8 @@ type trustFile struct {
 // TrustStore persists receipts at <home>/subagents-trust.json. Every
 // operation re-reads the file, so an approval granted through the CLI or the
 // HTTP route reaches a running agent on its next spawn.
+// Receipts are kept per project (mcp.TrustWorkspace): a linked worktree reads
+// and writes those of its main checkout, and the digest still binds.
 type TrustStore struct {
 	path string
 	mu   sync.Mutex
@@ -94,6 +102,7 @@ func (s *TrustStore) write(file trustFile) error {
 
 // Records returns the receipts recorded for a canonical workspace.
 func (s *TrustStore) Records(workspace string) []TrustRecord {
+	workspace = mcp.TrustWorkspace(workspace)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	recs := s.read().Workspaces[workspace]
@@ -104,6 +113,7 @@ func (s *TrustStore) Records(workspace string) []TrustRecord {
 
 // Approved reports whether a receipt binds this workspace, name and digest.
 func (s *TrustStore) Approved(workspace, name, digest string) bool {
+	workspace = mcp.TrustWorkspace(workspace)
 	if s == nil || strings.TrimSpace(digest) == "" {
 		return false
 	}
@@ -118,8 +128,11 @@ func (s *TrustStore) Approved(workspace, name, digest string) bool {
 }
 
 // Approve records a receipt for def in workspace, replacing any earlier
-// receipt for the same name.
+// receipt for the same name given in the same checkout; the other checkouts
+// of the project keep theirs.
 func (s *TrustStore) Approve(workspace string, def *Definition) error {
+	checkout := mcp.CanonicalWorkspace(workspace)
+	workspace = mcp.TrustWorkspace(workspace)
 	if def == nil {
 		return nil
 	}
@@ -128,7 +141,7 @@ func (s *TrustStore) Approve(workspace string, def *Definition) error {
 	file := s.read()
 	kept := make([]TrustRecord, 0, len(file.Workspaces[workspace])+1)
 	for _, r := range file.Workspaces[workspace] {
-		if r.Name != def.Name {
+		if r.Name != def.Name || mcp.ReceiptCheckout(r.Checkout, workspace) != checkout {
 			kept = append(kept, r)
 		}
 	}
@@ -137,6 +150,7 @@ func (s *TrustStore) Approve(workspace string, def *Definition) error {
 		Digest:     def.Digest,
 		Path:       def.Path,
 		ApprovedAt: time.Now().UTC().Format(time.RFC3339),
+		Checkout:   checkout,
 	})
 	file.Workspaces[workspace] = kept
 	return s.write(file)
@@ -145,6 +159,7 @@ func (s *TrustStore) Approve(workspace string, def *Definition) error {
 // Revoke removes the receipt for name in workspace and reports whether one
 // existed.
 func (s *TrustStore) Revoke(workspace, name string) (bool, error) {
+	workspace = mcp.TrustWorkspace(workspace)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	file := s.read()

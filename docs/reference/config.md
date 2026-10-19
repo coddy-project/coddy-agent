@@ -582,7 +582,7 @@ See [mcp.md](../features/mcp.md).
 
 Added for [issue #80](https://github.com/coddy-project/coddy-agent/issues/80).
 Approvals are recorded in `~/.coddy/mcp-trust.json`, keyed by the canonical workspace path
-and a digest of the command-bearing declaration (transport, command, args, env, url,
+(a linked git worktree uses its main checkout's) and a digest of the command-bearing declaration (transport, command, args, env, url,
 headers), so rewriting an approved entry asks again. Approve with `coddy mcp trust <name>`,
 `POST /coddy/mcp/{name}/trust`, or the shield button in **Settings → MCP servers**. That tab
 also edits this policy itself (`POST /coddy/mcp/project-trust`), so it is not rendered as a
@@ -604,13 +604,13 @@ Bounds for background execution (`config.ToolBackground`). A backgrounded `run_c
 
 Subagents (`config.Subagents`, `internal/config/subagents.go`): child agents the model delegates to with the `spawn_agent` tool. A definition is a markdown file with YAML frontmatter (`name`, `description`, `model`, `reasoning`, `mode`, `tools`, `disallowed_tools`, `permission_mode`, `max_turns`, `timeout_seconds`, `background`, `hidden`) whose body is the child's role. Each run is a background task of the parent session with its own child session and transcript, so `background_list` / `background_output` / `background_wait` / `background_stop`, the Tasks panel and `GET /coddy/sessions/{id}/background-tasks` all see it. `0` on `max_concurrent`, `default_timeout_seconds` and `max_turns` means "use the default"; `max_depth` is the exception, omit it for the default `1`, because an explicit `0` forbids spawning everywhere. See `docs/features/subagents.md`.
 
-Approvals for project-scope definitions are recorded in `~/.coddy/subagents-trust.json`, keyed by the canonical workspace path, the definition name and a digest of the file, so editing an approved file asks again. `permission_mode`, `tools` and `disallowed_tools` in a definition can only narrow what the parent could do, in every scope.
+Approvals for project-scope definitions are recorded in `~/.coddy/subagents-trust.json`, keyed by the canonical workspace path (a linked git worktree uses its main checkout's), the definition name and a digest of the file, so editing an approved file asks again. `permission_mode`, `tools` and `disallowed_tools` in a definition can only narrow what the parent could do, in every scope.
 
 ### `hooks`
 
 Hooks (`config.Hooks`, `internal/config/hooks.go`): operator commands run at lifecycle points of a session. A hook reads one JSON document on stdin and answers with an exit code plus optional JSON on stdout; a `PreToolUse` hook can deny a tool call whatever the permission mode, approve it past the prompt, force the prompt, rewrite its arguments or add context, and a `PostToolUse` / `PostToolUseFailure` hook can add feedback. Definitions are JSON files in Claude Code's shape. `0` on every integer key means "use the default". See `docs/features/hooks.md`.
 
-Approvals for project-scope files are recorded in `~/.coddy/hooks-trust.json`, keyed by the canonical workspace path, the workspace-relative file path and a digest of the file, so editing an approved file asks again.
+Approvals for project-scope files are recorded in `~/.coddy/hooks-trust.json`, keyed by the canonical workspace path (a linked git worktree uses its main checkout's), the workspace-relative file path and a digest of the file, so editing an approved file asks again.
 
 ### `logger`
 
