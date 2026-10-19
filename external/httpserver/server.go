@@ -689,7 +689,6 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		} else {
 			dropImageParts(prefix)
 		}
-		st.ReplaceMessagesWithoutPersist(prefix)
 		prompt := []acp.ContentBlock{{Type: "text", Text: last.Content}}
 		// Every profile turn publishes to a relay, whatever shape the caller asked its own
 		// answer to take: a script POSTing stream:false is exactly the turn someone wants to
@@ -707,6 +706,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer unlock()
+		// The client's history replaces the stored one only once the lock is ours: a request
+		// refused as busy must leave the history of the running turn, and the goal ids
+		// stamped on its rows, as they were.
+		st.ReplaceMessagesFromClient(prefix)
 		profileCtx, cancelProfile := profileTurnContext(ctx, st, req.Stream)
 		defer cancelProfile()
 		rel := s.beginComposerRelay(sessionID)
@@ -806,7 +809,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	st.ReplaceMessagesWithoutPersist(prefix)
+	st.ReplaceMessagesFromClient(prefix)
 	st.AddMessage(llm.Message{
 		Role:       last.Role,
 		Content:    last.Content,

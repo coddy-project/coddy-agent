@@ -9,6 +9,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/gitws"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/plans"
 )
 
 func TestGoalStatePersistsWithSession(t *testing.T) {
@@ -196,20 +197,31 @@ func TestRowsAreStampedOnlyWhileTheGoalIsActive(t *testing.T) {
 		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: content})
 		want = append(want, goalID)
 	}
+	// A plan snapshot is a row of the history like any other, stored by its own
+	// method: it is stamped by the same rule.
+	addPlan := func(slug, goalID string) {
+		t.Helper()
+		st.AppendPlanDocument(plans.Document{Slug: slug, Name: slug})
+		want = append(want, goalID)
+	}
 	setStatus := func(status GoalStatus) {
 		st.UpdateGoal("", func(g *GoalState) bool { g.Status = status; return true })
 	}
 
 	add("no goal yet", "")
+	addPlan("before-goal", "")
 	first, _ := NewGoal("ship it")
 	st.SetGoal(first)
 	add("while active", first.ID)
+	addPlan("while-active", first.ID)
 	for _, status := range []GoalStatus{GoalPaused, GoalBlocked, GoalLimited, GoalComplete} {
 		setStatus(status)
 		add("while "+string(status), "")
+		addPlan("while-"+string(status), "")
 	}
 	setStatus(GoalActive)
 	add("resumed", first.ID)
+	addPlan("resumed", first.ID)
 
 	second, _ := NewGoal("ship it")
 	st.SetGoal(second)
@@ -226,9 +238,143 @@ func TestRowsAreStampedOnlyWhileTheGoalIsActive(t *testing.T) {
 	}
 	for i, m := range msgs {
 		if m.Goal != want[i] {
-			t.Errorf("row %d (%q) carries goal %q, want %q", i, m.Content, m.Goal, want[i])
+			t.Errorf("row %d (%q, plan %v) carries goal %q, want %q", i, m.Content, m.PlanDocument != nil, m.Goal, want[i])
 		}
 	}
+}
+
+// A client that sends its own history with a request (chat completions) sends
+// rows without the goal fields: they are never on the wire. The rows of the new
+// history that are the stored ones, in order, keep what the server stamped on
+// them, so the gate still reads the docker calls they carry; a row the client
+// wrote or changed carries nothing, because nothing says the goal stored it.
+func TestReplaceMessagesFromClientKeepsTheStampsOfTheRowsItReplays(t *testing.T) {
+	const (
+		down = `{"command":"docker compose down"}`
+		rm   = `{"command":"docker rm -f db"}`
+	)
+	goal, _ := NewGoal("clean up")
+	seed := func() *State {
+		st := &State{ID: "sess_replay", Mode: ModeAgent}
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "before the goal"})
+		st.SetGoal(goal)
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "clean up"})
+		// A row only the UI shows: a client has no way to send it back.
+		st.AppendPlanDocument(plans.Document{Slug: "plan"})
+		st.AddMessage(riskCall("c1", "run_command", down))
+		st.AddMessage(riskResult("c1", "stopped db"))
+		st.AddMessage(riskCall("c2", "run_command", rm))
+		st.AddMessage(riskResult("c2", "removed db"))
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "done"})
+		st.mu.Lock()
+		st.Messages[3].RiskAcknowledged = true
+		st.mu.Unlock()
+		return st
+	}
+	// What a client sends back of a history: the same rows as the wire carries
+	// them, the plan snapshot and the goal fields gone.
+	wire := func(msgs []llm.Message) []llm.Message {
+		var out []llm.Message
+		for _, m := range msgs {
+			if m.PlanDocument != nil {
+				continue
+			}
+			m.Goal, m.RiskAcknowledged = "", false
+			out = append(out, m)
+		}
+		return out
+	}
+	type stamp struct {
+		goal  string
+		acked bool
+	}
+	stamps := func(msgs []llm.Message) []stamp {
+		out := make([]stamp, len(msgs))
+		for i, m := range msgs {
+			out[i] = stamp{m.Goal, m.RiskAcknowledged}
+		}
+		return out
+	}
+
+	t.Run("a replayed history keeps every stamp and the gate reads it as before", func(t *testing.T) {
+		st := seed()
+		stored := st.GetMessages()
+		_, before := goalFindings(stored, goalRows(stored, goal, false), goal, goalFiles{})
+
+		st.ReplaceMessagesFromClient(append(wire(stored), llm.Message{Role: llm.RoleUser, Content: "next"}))
+
+		got := st.GetMessages()
+		var want []stamp
+		for _, m := range stored {
+			if m.PlanDocument == nil {
+				want = append(want, stamp{m.Goal, m.RiskAcknowledged})
+			}
+		}
+		want = append(want, stamp{})
+		if !reflect.DeepEqual(stamps(got), want) {
+			t.Fatalf("stamps after the replay = %v, want %v", stamps(got), want)
+		}
+		_, after := goalFindings(got, goalRows(got, goal, false), goal, goalFiles{})
+		if len(before) != 2 || !reflect.DeepEqual(after, before) {
+			t.Fatalf("findings after the replay = %+v, want the %+v the stored history gave", after, before)
+		}
+	})
+
+	t.Run("a row the client changed gets no stamp and the rows after it keep theirs", func(t *testing.T) {
+		st := seed()
+		sent := wire(st.GetMessages())
+		sent[4].ToolCalls = []llm.ToolCall{{ID: "c2", Name: "run_command", InputJSON: `{"command":"docker rm -f other"}`}}
+		st.ReplaceMessagesFromClient(sent)
+
+		got := st.GetMessages()
+		for i, wantGoal := range []string{"", goal.ID, goal.ID, goal.ID, "", goal.ID, goal.ID} {
+			if got[i].Goal != wantGoal {
+				t.Errorf("row %d carries goal %q, want %q", i, got[i].Goal, wantGoal)
+			}
+		}
+	})
+
+	t.Run("a history the client trimmed keeps the stamps of what is left", func(t *testing.T) {
+		st := seed()
+		st.ReplaceMessagesFromClient(wire(st.GetMessages())[2:])
+
+		got := st.GetMessages()
+		want := []stamp{{goal.ID, true}, {goal.ID, false}, {goal.ID, false}, {goal.ID, false}, {goal.ID, false}}
+		if !reflect.DeepEqual(stamps(got), want) {
+			t.Fatalf("stamps after the trim = %v, want %v", stamps(got), want)
+		}
+	})
+
+	t.Run("a row out of order or written by the client is nobody's evidence", func(t *testing.T) {
+		st := seed()
+		sent := wire(st.GetMessages())
+		sent[2], sent[4] = sent[4], sent[2]
+		sent = append(sent, riskCall("c3", "run_command", down))
+		st.ReplaceMessagesFromClient(sent)
+
+		got := st.GetMessages()
+		if got[len(got)-1].Goal != "" {
+			t.Errorf("a row the client wrote carries goal %q", got[len(got)-1].Goal)
+		}
+		// The rows are matched in the stored order, each stored row once: the
+		// call the client moved ahead keeps its stamp, the ones it jumped over
+		// are no longer the stored rows at their place.
+		for i, wantGoal := range []string{"", goal.ID, goal.ID, "", "", goal.ID, goal.ID} {
+			if got[i].Goal != wantGoal {
+				t.Errorf("row %d carries goal %q, want %q", i, got[i].Goal, wantGoal)
+			}
+		}
+	})
+
+	t.Run("a bootstrap takes the rows as they come", func(t *testing.T) {
+		st := seed()
+		st.ReplaceMessagesWithoutPersist(wire(st.GetMessages()))
+		for i, m := range st.GetMessages() {
+			if m.Goal != "" || m.RiskAcknowledged {
+				t.Errorf("row %d was stamped by a replacement that is no client's", i)
+			}
+		}
+	})
 }
 
 // A summary row a compaction inserts is stored like an appended one: stamped
