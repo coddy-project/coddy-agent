@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 // The settings form seeds a new row from the schema defaults, acp block
 // included; only a row of type acp keeps it in the configuration.
@@ -19,6 +22,8 @@ func TestJSONDTOKeepsTheACPBlockOnACPRowsOnly(t *testing.T) {
 }
 
 func TestACPProviderValidation(t *testing.T) {
+	// Absolute on the host: "/srv/work" has no drive letter on Windows.
+	abs := filepath.Join(t.TempDir(), "work")
 	cases := map[string]struct {
 		block   *ACPProviderConfig
 		wantErr string
@@ -29,7 +34,7 @@ func TestACPProviderValidation(t *testing.T) {
 		"bad process":         {&ACPProviderConfig{Command: "x", Process: "pooled"}, "acp.process"},
 		"relative cwd":        {&ACPProviderConfig{Command: "x", CWD: "work"}, "acp.cwd"},
 		"negative idle":       {&ACPProviderConfig{Command: "x", IdleTimeoutMS: -1}, "idle_timeout_ms"},
-		"absolute cwd":        {&ACPProviderConfig{Command: "x", CWD: "/srv/work"}, ""},
+		"absolute cwd":        {&ACPProviderConfig{Command: "x", CWD: abs}, ""},
 		"home cwd":            {&ACPProviderConfig{Command: "x", CWD: "~/work"}, ""},
 		"workspace cwd":       {&ACPProviderConfig{Command: "x", CWD: "${CWD}/sub"}, ""},
 		"per session process": {&ACPProviderConfig{Command: "x", Process: "per_session", Permissions: "deny"}, ""},
