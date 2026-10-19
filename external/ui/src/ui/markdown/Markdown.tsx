@@ -18,7 +18,7 @@ import { docsHrefFromCoddyLink } from "../scheduler/hashRoute";
 import { DiagramBlock, MarkdownStreamingContext } from "./DiagramBlock";
 import { MathBlock, MathInline } from "./MathFormula";
 import { normalizeMathDelimiters } from "./mathDelimiters";
-import { REMARK_PLUGINS } from "./remarkPlugins";
+import { REMARK_PLUGINS, REMARK_PLUGINS_WITH_BREAKS } from "./remarkPlugins";
 import { pictureKindOf } from "./pictureRender";
 
 /**
@@ -190,6 +190,10 @@ export const Markdown = memo(function Markdown(props: {
   text: string;
   /** The text is still arriving: a diagram that does not parse yet is not an error. */
   streaming?: boolean;
+  /** A single newline is a line break, as Obsidian renders a note or a canvas
+   *  card. Off, it is CommonMark's soft break, a space: the chat, the
+   *  documentation and every other body keep that. */
+  breaks?: boolean;
 }) {
   const components = useMemo(
     () => ({
@@ -270,7 +274,9 @@ export const Markdown = memo(function Markdown(props: {
     <MarkdownStreamingContext.Provider value={props.streaming === true}>
       <div className="md">
         <ReactMarkdown
-          remarkPlugins={REMARK_PLUGINS}
+          remarkPlugins={
+            props.breaks ? REMARK_PLUGINS_WITH_BREAKS : REMARK_PLUGINS
+          }
           rehypePlugins={REHYPE_PLUGINS}
           components={components}
           urlTransform={urlTransform}
