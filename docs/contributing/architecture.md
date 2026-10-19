@@ -115,6 +115,7 @@ Supported backends (see **`docs/getting-started/configuration.md`** for shapes):
 - OpenAI and OpenAI-compatible HTTP APIs (**`type: openai`**)
 - Anthropic (**`type: anthropic`**)
 - Ollama and other local OpenAI-compatible stacks (**`api_base`**)
+- A local agent that speaks the Agent Client Protocol (**`type: acp`**, **`acp*.go`**): one process per row by default (per Coddy session with `process: per_session`, per workspace when a value names `${CWD}`) in a package-level pool, one ACP session per Coddy session bound through **`llm.WithConversation`** on the stream context, the agent's permission requests forwarded through **`Conversation.AskPermission`**; design record **`docs/plans/acp-provider.md`**
 
 ### Tools Registry (`internal/tools`)
 
