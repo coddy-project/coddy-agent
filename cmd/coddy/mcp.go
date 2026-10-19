@@ -85,13 +85,23 @@ func mcpWorkspace(flagValue string) (string, error) {
 	return abs, nil
 }
 
+// approvalsLine names, for a folder of a linked git worktree, the project its
+// approvals are kept for (mcp.TrustWorkspace): the same folder of the main
+// checkout, whose approvals the worktree shares. Empty elsewhere.
+func approvalsLine(cwd string) string {
+	if project := mcp.TrustWorkspace(cwd); project != mcp.CanonicalWorkspace(cwd) {
+		return fmt.Sprintf("Approvals: shared with the main checkout, kept for %s\n", project)
+	}
+	return ""
+}
+
 func mcpList(cfg *config.Config, cwd string) error {
 	servers, err := mcp.ListManagedServers(cfg, cwd)
 	if err != nil {
 		return err
 	}
 	gate := mcp.NewTrustGate(cfg)
-	fmt.Printf("Workspace: %s\nProject trust: %s\n\n", cwd, gate.Policy())
+	fmt.Printf("Workspace: %s\n%sProject trust: %s\n\n", cwd, approvalsLine(cwd), gate.Policy())
 	if len(servers) == 0 {
 		fmt.Println("No MCP servers configured.")
 		return nil

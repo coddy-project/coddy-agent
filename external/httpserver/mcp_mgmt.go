@@ -270,8 +270,10 @@ func (s *Server) coddyMCPGet(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"object":        "coddy.mcp_list",
-		"workspace":     cwd,
+		"object": "coddy.mcp_list",
+		// The project the approvals are recorded for: a linked worktree
+		// shares its main checkout's (mcp.TrustWorkspace).
+		"workspace":     mcp.TrustWorkspace(cwd),
 		"project_trust": gate.Policy(),
 		"items":         rows,
 	})

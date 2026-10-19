@@ -417,8 +417,11 @@ func (m *Manager) RefreshMCPServer(ctx context.Context, name string) {
 }
 
 // RefreshMCPServerInWorkspace reconciles a changed project declaration only
-// with sessions in that workspace. Global declarations still reconcile every
-// session because a project shadow may reveal a changed global server.
+// with sessions of that project: the workspace and, since a linked worktree
+// shares the approvals and the switches of its main checkout
+// (mcp.TrustWorkspace), every checkout of it. Global declarations still
+// reconcile every session because a project shadow may reveal a changed
+// global server.
 func (m *Manager) RefreshMCPServerInWorkspace(ctx context.Context, name, origin, cwd string) {
 	m.refreshMCPServer(ctx, name, origin, cwd)
 }
@@ -433,7 +436,7 @@ func (m *Manager) refreshMCPServer(ctx context.Context, name, origin, cwd string
 	m.mu.RLock()
 	states := make([]*State, 0, len(m.sessions))
 	for _, st := range m.sessions {
-		if origin == mcp.OriginProject && CanonicalWorkspacePath(st.GetCWD()) != CanonicalWorkspacePath(cwd) {
+		if origin == mcp.OriginProject && mcp.TrustWorkspace(st.GetCWD()) != mcp.TrustWorkspace(cwd) {
 			continue
 		}
 		states = append(states, st)

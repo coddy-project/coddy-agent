@@ -127,6 +127,58 @@ func (s *worktreeCreateState) worktreeTracks(upstream string) error {
 	return nil
 }
 
+func (s *worktreeCreateState) keepsIncludedFile(name, include string) error {
+	for path, body := range map[string]string{
+		".gitignore": name + "\n",
+		include:      name + "\n",
+		name:         "TOKEN=local\n",
+	} {
+		if err := os.WriteFile(filepath.Join(s.root, path), []byte(body), 0o644); err != nil {
+			return err
+		}
+	}
+	// Committed and pushed, so the new branch that starts at origin's
+	// default branch ignores the file too.
+	for _, args := range [][]string{
+		{"add", ".gitignore"},
+		{"-c", "user.email=coddy@test", "-c", "user.name=coddy", "commit", "-q", "-m", "ignore " + name},
+		{"push", "-q", "origin", "main"},
+	} {
+		if _, err := s.git(s.root, args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *worktreeCreateState) hasCopyOf(name string) error {
+	got, err := os.ReadFile(filepath.Join(s.worktree, name))
+	if err != nil {
+		return err
+	}
+	want, err := os.ReadFile(filepath.Join(s.root, name))
+	if err != nil {
+		return err
+	}
+	if string(got) != string(want) {
+		return fmt.Errorf("%s in the worktree = %q, want the main checkout's %q", name, got, want)
+	}
+	return nil
+}
+
+func (s *worktreeCreateState) reportsIncluded(name string) error {
+	var answer apptools.WorktreeOpen
+	if err := json.Unmarshal([]byte(s.created), &answer); err != nil {
+		return fmt.Errorf("tool answer %q: %w", s.created, err)
+	}
+	for _, got := range answer.Included {
+		if got == name {
+			return nil
+		}
+	}
+	return fmt.Errorf("tool answer %s does not name %s among the copied files", s.created, name)
+}
+
 func (s *worktreeCreateState) run(command string) error {
 	var err error
 	s.output, err = apptools.NewRegistry().Execute(context.Background(), "run_command", fmt.Sprintf(`{"command":%q}`, command), s.env)
@@ -181,6 +233,9 @@ func TestWorktreeCreateFeature(t *testing.T) {
 			sc.Step(`^origin has a branch "([^"]*)" the repository has fetched but not checked out$`, s.remoteOnlyBranch)
 			sc.Step(`^the tool reports the branch "([^"]*)"$`, s.reportsBranch)
 			sc.Step(`^the new worktree's branch tracks "([^"]*)"$`, s.worktreeTracks)
+			sc.Step(`^the main checkout keeps an ignored "([^"]*)" that "([^"]*)" names$`, s.keepsIncludedFile)
+			sc.Step(`^the new worktree has the "([^"]*)" of the main checkout$`, s.hasCopyOf)
+			sc.Step(`^the tool reports "([^"]*)" among the files it copied$`, s.reportsIncluded)
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/worktree_create.feature"}, TestingT: t, Strict: true},
 	}

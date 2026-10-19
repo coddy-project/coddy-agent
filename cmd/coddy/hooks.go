@@ -93,7 +93,7 @@ func hooksList(w io.Writer, cfg *config.Config, cwd string) error {
 	policy := cfg.Hooks.ResolvedProjectTrust()
 	entries := hooks.BuildCatalog(hooksLoad(cfg, cwd))
 
-	_, _ = fmt.Fprintf(w, "Workspace: %s\nProject trust: %s\n\n", cwd, policy)
+	_, _ = fmt.Fprintf(w, "Workspace: %s\n%sProject trust: %s\n\n", cwd, approvalsLine(cwd), policy)
 	hooks.WriteListing(w, entries)
 
 	pending := 0

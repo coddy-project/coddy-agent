@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
@@ -39,6 +40,10 @@ type TrustRecord struct {
 	JobID      string `json:"job_id"`
 	Digest     string `json:"digest"`
 	ApprovedAt string `json:"approved_at"`
+	// Checkout is the canonical folder the approval was given in: the
+	// checkouts of a project share one key but keep a receipt each
+	// (mcp.ReceiptCheckout reads an empty one as its key's).
+	Checkout string `json:"checkout,omitempty"`
 }
 
 type trustFile struct {
@@ -52,6 +57,8 @@ type trustFile struct {
 // an in-process mutex shared by every instance of the same path plus a file
 // lock shared with other processes, and the file is replaced atomically
 // through a unique temporary.
+// Receipts are kept per project (mcp.TrustWorkspace): a linked worktree reads
+// and writes those of its main checkout, and the digest still binds.
 type TrustStore struct {
 	path string
 }
@@ -161,6 +168,7 @@ func (s *TrustStore) Workspaces() []string {
 
 // Records returns the receipts of a workspace, sorted by job id.
 func (s *TrustStore) Records(workspace string) []TrustRecord {
+	workspace = mcp.TrustWorkspace(workspace)
 	mu := s.lock()
 	mu.Lock()
 	defer mu.Unlock()
@@ -171,6 +179,7 @@ func (s *TrustStore) Records(workspace string) []TrustRecord {
 
 // Approved reports whether a receipt binds this workspace, job id and digest.
 func (s *TrustStore) Approved(workspace, jobID, digest string) bool {
+	workspace = mcp.TrustWorkspace(workspace)
 	if s == nil || workspace == "" || jobID == "" || digest == "" {
 		return false
 	}
@@ -186,8 +195,11 @@ func (s *TrustStore) Approved(workspace, jobID, digest string) bool {
 }
 
 // Approve records a receipt for a job's digest, replacing an earlier receipt
-// for the same id.
+// for the same id given in the same checkout; the other checkouts of the
+// project keep theirs.
 func (s *TrustStore) Approve(workspace, jobID, digest string) error {
+	checkout := mcp.CanonicalWorkspace(workspace)
+	workspace = mcp.TrustWorkspace(workspace)
 	if strings.TrimSpace(workspace) == "" || strings.TrimSpace(jobID) == "" || strings.TrimSpace(digest) == "" {
 		return fmt.Errorf("scheduler trust store: workspace, job id and digest are required")
 	}
@@ -199,17 +211,32 @@ func (s *TrustStore) Approve(workspace, jobID, digest string) error {
 	file := s.read()
 	kept := make([]TrustRecord, 0, len(file.Workspaces[workspace])+1)
 	for _, rec := range file.Workspaces[workspace] {
-		if rec.JobID != jobID {
+		if rec.JobID != jobID || mcp.ReceiptCheckout(rec.Checkout, workspace) != checkout {
 			kept = append(kept, rec)
 		}
 	}
-	kept = append(kept, TrustRecord{JobID: jobID, Digest: digest, ApprovedAt: time.Now().UTC().Format(time.RFC3339)})
+	kept = append(kept, TrustRecord{JobID: jobID, Digest: digest, ApprovedAt: time.Now().UTC().Format(time.RFC3339), Checkout: checkout})
 	file.Workspaces[workspace] = kept
 	return s.write(file)
 }
 
-// Revoke removes the receipt of a job and reports whether one was on file.
+// Revoke removes the receipts of a job in the workspace's project, whichever
+// checkout gave them, and reports whether one was on file: an operator's
+// explicit untrust.
 func (s *TrustStore) Revoke(workspace, jobID string) (bool, error) {
+	return s.revoke(workspace, jobID, false)
+}
+
+// RevokeOwn removes the receipt of a job that the workspace's own checkout
+// gave, leaving those of the project's other checkouts: what a delete of the
+// job file there takes with it.
+func (s *TrustStore) RevokeOwn(workspace, jobID string) (bool, error) {
+	return s.revoke(workspace, jobID, true)
+}
+
+func (s *TrustStore) revoke(workspace, jobID string, own bool) (bool, error) {
+	checkout := mcp.CanonicalWorkspace(workspace)
+	workspace = mcp.TrustWorkspace(workspace)
 	release, err := s.transaction()
 	if err != nil {
 		return false, err
@@ -220,7 +247,7 @@ func (s *TrustStore) Revoke(workspace, jobID string) (bool, error) {
 	kept := make([]TrustRecord, 0, len(recs))
 	removed := false
 	for _, rec := range recs {
-		if rec.JobID == jobID {
+		if rec.JobID == jobID && (!own || mcp.ReceiptCheckout(rec.Checkout, workspace) == checkout) {
 			removed = true
 			continue
 		}
@@ -237,9 +264,13 @@ func (s *TrustStore) Revoke(workspace, jobID string) (bool, error) {
 	return true, s.write(file)
 }
 
-// Rename moves the receipt of a job to its new id, keeping its digest; the
-// caller re-issues it afterwards when the content changed too.
+// Rename moves the receipt the workspace's own checkout gave a job to its new
+// id, keeping its digest; the other checkouts of the project keep their job
+// under its name. The caller re-issues it afterwards when the content changed
+// too.
 func (s *TrustStore) Rename(workspace, oldID, newID string) error {
+	checkout := mcp.CanonicalWorkspace(workspace)
+	workspace = mcp.TrustWorkspace(workspace)
 	release, err := s.transaction()
 	if err != nil {
 		return err
@@ -250,6 +281,11 @@ func (s *TrustStore) Rename(workspace, oldID, newID string) error {
 	changed := false
 	kept := make([]TrustRecord, 0, len(recs))
 	for _, rec := range recs {
+		if mcp.ReceiptCheckout(rec.Checkout, workspace) != checkout {
+			// Another checkout of the project: its job keeps its name.
+			kept = append(kept, rec)
+			continue
+		}
 		switch rec.JobID {
 		case newID:
 			changed = true

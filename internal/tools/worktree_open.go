@@ -30,12 +30,18 @@ type WorktreeOpen struct {
 	Created      bool   `json:"created"`
 	MainCheckout string `json:"main_checkout"`
 	BaseBranch   string `json:"base_branch,omitempty"`
+	// Included lists the ignored files of the main checkout that its
+	// .worktreeinclude names and a new worktree got a copy of; IncludeError
+	// says what stopped some of them.
+	Included     []string `json:"included,omitempty"`
+	IncludeError string   `json:"include_error,omitempty"`
 }
 
 // OpenWorktree moves the session into a worktree of its repository. By branch
 // it opens the worktree that holds the branch, or creates one under the main
-// checkout's worktrees folder (gitws.EnsureWorktreeFrom: origin fetched, a new
-// branch starting where target.Base says). By path it enters a worktree that
+// checkout's worktrees folder (gitws.EnsureWorktreeDetailed: origin fetched, a
+// new branch starting where target.Base says, the ignored files the main
+// checkout's .worktreeinclude names copied in). By path it enters a worktree that
 // already exists - the folder absolute or relative to the main checkout -
 // creating and fetching nothing, so it reaches a worktree on a detached HEAD or
 // one another tool opened. The main checkout is worktree_exit's. It is
@@ -53,10 +59,11 @@ func OpenWorktree(ctx context.Context, env *tooling.Env, target WorktreeTarget) 
 	case path != "":
 		return enterWorktree(ctx, env, path)
 	}
-	dir, created, err := gitws.EnsureWorktreeFrom(env.CWD, branch, target.Base)
+	opened, err := gitws.EnsureWorktreeDetailed(env.CWD, branch, target.Base)
 	if err != nil {
 		return WorktreeOpen{}, err
 	}
+	dir := opened.Path
 	if err := env.SwitchWorkspace(ctx, dir); err != nil {
 		return WorktreeOpen{}, err
 	}
@@ -68,10 +75,15 @@ func OpenWorktree(ctx context.Context, env *tooling.Env, target WorktreeTarget) 
 	if info.Branch != "" {
 		branch = info.Branch
 	}
-	return WorktreeOpen{
-		Path: dir, Branch: branch, Created: created,
+	out := WorktreeOpen{
+		Path: dir, Branch: branch, Created: opened.Created,
 		MainCheckout: info.RepoRoot, BaseBranch: info.BaseBranch,
-	}, nil
+		Included: opened.Included,
+	}
+	if opened.IncludeErr != nil {
+		out.IncludeError = opened.IncludeErr.Error()
+	}
+	return out, nil
 }
 
 // enterWorktree moves the session into the existing worktree at path.
@@ -115,7 +127,8 @@ func WorktreeOpenTool() *tooling.Tool {
 			Name: ToolWorktreeOpen,
 			Description: "Move this session into a git worktree of its repository; the next tool call runs there without changing directories manually. " +
 				"With branch: the worktree that holds the branch, or a new one for it under the main checkout's .coddy/worktrees (origin is fetched; a new branch starts at " +
-				"origin's default branch, or at the commit this session's checkout is on with base \"head\"; the default branch and branches tracking it are refused). " +
+				"origin's default branch, or at the commit this session's checkout is on with base \"head\"; the default branch and branches tracking it are refused; " +
+				"a new worktree gets a copy of the ignored files the main checkout's .worktreeinclude names, such as .env, listed in included). " +
 				"With path: a worktree that already exists, its folder absolute or relative to the main checkout, nothing created or fetched (a detached HEAD too). " +
 				"worktree_list names the worktrees, worktree_exit goes back to the main checkout.",
 			InputSchema: map[string]interface{}{

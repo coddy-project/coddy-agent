@@ -346,7 +346,9 @@ func (o *Service) DeleteJob(addr JobAddr) error {
 		return err
 	}
 	if ref.IsProject() {
-		if _, err := o.trustStore().Revoke(ref.Workspace, ref.ID); err != nil {
+		// The file of this checkout went: its receipt goes with it, while
+		// another checkout of the project keeps its own job and approval.
+		if _, err := o.trustStore().RevokeOwn(ref.Workspace, ref.ID); err != nil {
 			return err
 		}
 	}

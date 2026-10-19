@@ -227,7 +227,7 @@ test("the dialog reads the worktree again when the chat's folder moves under it"
 });
 
 test("each answer is the command the console types too", () => {
-  expect(leaveWorktreeCommand("keep")).toBe("/worktree exit");
+  expect(leaveWorktreeCommand("keep")).toBe("/worktree exit --keep");
   expect(leaveWorktreeCommand("remove")).toBe("/worktree exit --remove");
   expect(leaveWorktreeCommand("discard")).toBe(
     "/worktree exit --remove --force",

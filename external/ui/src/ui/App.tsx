@@ -293,6 +293,7 @@ import { onOpenWorkspaceFile } from "./files/fileBus";
 import { relativeFilePath } from "./files/api";
 import { useRightDock, useRightDockEscape } from "./components/useRightDock";
 import { finishedToolCalls } from "./changes/toolActivity";
+import { finishedWorkspaceMoves } from "./chat/workspaceMoves";
 import {
   setSessionFilesHash,
   setSessionChangesHash,
@@ -1065,6 +1066,10 @@ export function App() {
       if (viewedSessionIdRef.current.trim() === sid) slideTranscriptToTail();
     });
     void refreshSessionStats(sid);
+    // The turn may have moved the chat to another folder (worktree_open,
+    // worktree_exit, /worktree). Read here, where the end of a turn is known
+    // whether or not the events stream told this tab about it.
+    if (viewing) void refreshWorkspaceContext(sid);
   }
 
   async function attachViewedComposer(sid: string) {
@@ -2038,6 +2043,20 @@ export function App() {
     },
     [isAppEnvironment],
   );
+
+  // A finished worktree_open or worktree_exit moved the chat: the plate over
+  // the composer names where it works now, during the turn. A count read for
+  // another chat, or the first one read for this chat, moves nothing.
+  const workspaceMoves = finishedWorkspaceMoves(transcriptItems);
+  const workspaceMovesRef = useRef({ sid: "", count: 0 });
+  useEffect(() => {
+    const sid = sessionId.trim();
+    const last = workspaceMovesRef.current;
+    workspaceMovesRef.current = { sid, count: workspaceMoves };
+    if (sid && sid === last.sid && workspaceMoves > last.count) {
+      void refreshWorkspaceContext(sid);
+    }
+  }, [sessionId, workspaceMoves, refreshWorkspaceContext]);
 
   /**
    * Reads the start screen's folder again - the pending pick, else the
@@ -6160,6 +6179,15 @@ export function App() {
       removeActiveComposer(postSessionKey);
       streamingAssistantBySidRef.current.delete(postSessionKey);
       void turnActivity.refresh(postSessionKey, false);
+      // The turn may have moved the chat (worktree_open, worktree_exit,
+      // /worktree): the plate reads where it works now, whether or not the
+      // events stream reaches this tab.
+      if (
+        postSessionKey.trim() &&
+        viewedSessionIdRef.current.trim() === postSessionKey.trim()
+      ) {
+        void refreshWorkspaceContext(postSessionKey.trim());
+      }
       // A background stream that just finished on a no-longer-recent session
       // should release its transcript without waiting for the next navigation.
       evictStaleSessionCaches(viewedSessionIdRef.current);

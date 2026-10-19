@@ -92,7 +92,7 @@ func agentsList(w io.Writer, cfg *config.Config, cwd string) error {
 	store := subagents.NewTrustStore(cfg.Paths.Home)
 	entries := subagents.BuildCatalog(defs, policy, subagents.CanonicalWorkspace(cwd), store)
 
-	_, _ = fmt.Fprintf(w, "Workspace: %s\nProject trust: %s\n\n", cwd, policy)
+	_, _ = fmt.Fprintf(w, "Workspace: %s\n%sProject trust: %s\n\n", cwd, approvalsLine(cwd), policy)
 	subagents.WriteListing(w, entries)
 
 	pending := 0

@@ -57,7 +57,7 @@ Optional YAML frontmatter **`paused: true`** skips both cron ticks and **`POST â
 
 A project job is repository content that runs an agent with your permissions on a timer, so it gets the trust gate project MCP servers, subagent definitions and hooks have. **`scheduler.project_trust`** sets the policy:
 
-- **`ask`** (default) - a project job is listed but runs (on cron or by hand) only once you approved it for that workspace. The approval is a receipt in **`${CODDY_HOME}/scheduler-trust.json`** bound to the workspace, the job id and the sha256 of the file, so a job that changes afterwards (a `git pull`, a hand edit) waits for approval again;
+- **`ask`** (default) - a project job is listed but runs (on cron or by hand) only once you approved it for that workspace. The approval is a receipt in **`${CODDY_HOME}/scheduler-trust.json`** bound to the workspace, the job id and the sha256 of the file, so a job that changes afterwards (a `git pull`, a hand edit) waits for approval again. A linked git worktree shares the approvals of its main checkout ([Git worktrees](../features/worktrees.md#what-a-worktree-shares-with-its-main-checkout));
 - **`allow`** - project jobs run like your own;
 - **`deny`** - project jobs are listed and never run.
 
@@ -80,6 +80,8 @@ Every trusted job, user or project, runs in the one daemon of the process and it
 3. the project jobs of every workspace with an approval;
 4. the project jobs of every workspace a session asked the scheduler about (listed in **`${CODDY_HOME}/scheduler-workspaces.json`**), which is how a job runs under **`allow`**, where nothing is ever approved.
 
+Each of these is counted as its project: a linked git worktree as the same folder of its main checkout. So a project job runs on cron once, from the main checkout, and the copy in a worktree is listed as not scheduled.
+
 Trust is decided on one read of the file, before the cron checkpoint is written, and the run is made of that same read, so a file swapped in between never runs under an approval it did not get. The daemon logs once per content that it skipped a job and why.
 
 Containment rules for project jobs: **`.coddy`**, **`.coddy/scheduler`** and the job files must be real folders and files, not links (a link is listed as **invalid** and never written through); a workspace whose project folder would be inside **`${CODDY_HOME}`** (Coddy started in `$HOME` with the default home) has no project jobs; and a project job's **`cwd`** must be empty (its workspace), a relative path that stays inside the workspace, or an absolute path that names the workspace or a folder inside it once links are resolved (a job written before project jobs existed often carries one).
@@ -93,7 +95,7 @@ Frontmatter fields:
 - **`cwd`** (string, optional) - for a user job, empty means the Coddy process cwd and relative paths resolve against it at run time; for a project job, empty means its workspace and only a path inside the workspace is accepted, relative or absolute
 - **`model`** (string, optional) - session model override for the run
 - **`mode`** (string, optional) - **`agent`**, **`plan`**, or **`ask`** (default **`agent`**)
-- **`agent`** (string, optional) - a subagent definition name (**`subagents.dirs`**, see [Subagents](../features/subagents.md)): the run is made under its role, tool allowlist, model, reasoning level and permission narrowing. The definition's `reasoning` applies when the run's model (the job's `model`, else the definition's, else the configured one) offers that level, as for a spawn; a level it does not offer is dropped with a warning in the agent log, and `reasoning: default` keeps the model's own level. A project-scope definition needs its trust receipt like any spawn; a job naming one that is not approved does not start, and a manual run says so. Empty runs a general agent with the full tool set of the mode.
+- **`agent`** (string, optional) - a subagent definition name (**`subagents.dirs`**, see [Subagents](../features/subagents.md)): the run is made under its role, tool allowlist, model, reasoning level and permission narrowing. The definition's `reasoning` applies when the run's model (the job's `model`, else the definition's, else the configured one) offers that level, as for a spawn; a level it does not offer is dropped with a warning in the agent log, and `reasoning: default` keeps the model's own level. A project-scope definition needs its trust receipt like any spawn; a job naming one that is not approved does not start, and a manual run says so. The definition's `isolation` does not apply: a job runs in its `cwd`. Empty runs a general agent with the full tool set of the mode.
 - **`permission_mode`** (string, optional) - **`ask`**, **`accept_edits`** or **`bypass`**: what the run may do without asking. Empty is **`bypass`**, the unattended default and what the scheduler always did; a definition named in **`agent`** can only narrow it. Nobody answers a prompt in a scheduled run, so under **`ask`** or **`accept_edits`** a gated call is **denied**, never waited on; the refusal tells the run that nobody could be asked, so it reports what it could not do instead of claiming the operator refused ([Subagents](../features/subagents.md), Detached runs).
 - **`paused`** (bool, optional) - when true, the job does not execute
 
