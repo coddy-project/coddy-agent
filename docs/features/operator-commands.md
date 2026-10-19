@@ -45,7 +45,7 @@ The operator ran the command in bash on build-box, in /srv/app (exit code 0):
 
 *The card in the light theme.*
 
-A request waits for you as long as it takes: there is no timeout. The composer's Stop ends the turn and stops the command the same way (Ctrl+C, then the group); the turn waits up to 12 seconds for it to end. A command that ends in that time is recorded as stopped, with its output and exit code, like one you stopped yourself. A command that outlives the turn keeps its request open, and its card keeps Stop, until it has ended.
+A request waits for you as long as it takes: there is no timeout. The composer's **Stop generation** button ends the turn and stops the command the same way (Ctrl+C, then the group); the turn waits up to 12 seconds for it to end. A command that ends in that time is recorded as stopped, with its output and exit code, like one you stopped yourself. A command that outlives the turn keeps its request open, and its card keeps Stop, until it has ended.
 
 ## Where it is offered
 
@@ -91,7 +91,7 @@ tools:
     multiplexer: ""   # macOS, Linux: tmux or screen
 ```
 
-`shell` is a name on `PATH` (`bash`, `zsh`, `fish`, `sh`, `pwsh`, `powershell`, `cmd`) or a path to the executable (`C:\Program Files\Git\bin\bash.exe`, `/data/data/com.termux/files/usr/bin/zsh`). Empty means PowerShell on Windows (`pwsh`, then Windows PowerShell) and bash elsewhere (`bash`, then `sh`), Termux's on Android. The kind of shell is read off the executable's name: PowerShell gets `-NoProfile -Command`, `cmd` gets its command line verbatim (`/d /s /c "..."`), every other shell `-c`. A shell that is not found is an error, never a fallback to another one: a command written for zsh must not run in sh. `coddy serve --dry-run` reports the shell this host resolves to.
+`shell` is a name on `PATH` (`bash`, `zsh`, `fish`, `sh`, `pwsh`, `powershell`, `cmd`) or a path to the executable (`C:\Program Files\Git\bin\bash.exe`, `/data/data/com.termux/files/usr/bin/zsh`). Empty means PowerShell on Windows (`pwsh`, then Windows PowerShell) and bash elsewhere (`bash`, then `sh`), Termux's on Android. The kind of shell is read off the executable's name: PowerShell gets `-NoProfile -Command`, `cmd` gets its command line verbatim (`/d /s /c "..."`), every other shell `-c`. A shell that is not found is an error, never a fallback to another one: a command written for zsh must not run in sh. `--dry-run` (on `coddy`, `cli`, `acp` and `serve` alike) reports the shell this host resolves to, and fails when it resolves to none.
 
 The console's `!!` uses the same shell, so the commands you type by hand and the ones the agent asks you to run go to one place. The agent cannot change this section: `config_set` refuses every path under `tools.operator_command`, since a shell the agent chose would run on every Run you press.
 

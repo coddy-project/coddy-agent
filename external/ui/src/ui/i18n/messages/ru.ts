@@ -1775,8 +1775,8 @@ export const messagesRu: Record<string, string> = {
   "prompts.planPreviewEmpty": "Пока нечего показывать.",
   "prompts.planSaveFailed": "ошибка сохранения ({status})",
   "prompts.planSaveFailedNoStatus": "ошибка сохранения",
-  // Карточка operator_command (messages/OperatorCommandCard.tsx): команда, в
-  // которой агенту отказали, чтобы оператор запустил её сам.
+  // The operator_command card (messages/OperatorCommandCard.tsx): a command the
+  // agent was refused, for the operator to run themselves.
   "operatorCommand.title": "Запустите сами",
   "operatorCommand.shell": "Оболочка",
   "operatorCommand.host": "Хост",

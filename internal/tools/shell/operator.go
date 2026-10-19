@@ -18,13 +18,13 @@ import (
 // long the command has been running.
 const operatorOutputCap = 256 << 10
 
-// OperatorCommand is a command the human operator started directly - the
-// console's `!!` prefix - rather than one the model asked for. It reuses the
-// process handling of run_command (same shell selection, detached process
-// group, decoded and sanitised output) and deliberately nothing else: no
-// permission gate, because the operator is the principal here; no session, no
-// background pool, no persisted tool call, so the run stays invisible to the
-// agent.
+// OperatorCommand is a command the human operator runs: one typed with the
+// console's `!!` prefix, which stays invisible to the agent, or one the agent
+// asked for through operator_command, whose output the tool returns to the
+// turn once the operator pressed Run. It reuses the process handling of
+// run_command (same shell selection, detached process group, decoded and
+// sanitised output) and deliberately nothing else: no permission gate, because
+// the operator is the principal here; no session, no background pool.
 type OperatorCommand struct {
 	sc   *startedCommand
 	tail *tailBuffer
