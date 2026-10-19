@@ -57,7 +57,7 @@ Optional YAML frontmatter **`paused: true`** skips both cron ticks and **`POST â
 
 A project job is repository content that runs an agent with your permissions on a timer, so it gets the trust gate project MCP servers, subagent definitions and hooks have. **`scheduler.project_trust`** sets the policy:
 
-- **`ask`** (default) - a project job is listed but runs (on cron or by hand) only once you approved it for that workspace. The approval is a receipt in **`${CODDY_HOME}/scheduler-trust.json`** bound to the workspace, the job id and the sha256 of the file, so a job that changes afterwards (a `git pull`, a hand edit) waits for approval again;
+- **`ask`** (default) - a project job is listed but runs (on cron or by hand) only once you approved it for that workspace. The approval is a receipt in **`${CODDY_HOME}/scheduler-trust.json`** bound to the workspace, the job id and the sha256 of the file, so a job that changes afterwards (a `git pull`, a hand edit) waits for approval again. A linked git worktree shares the approvals of its main checkout ([Git worktrees](../features/worktrees.md#what-a-worktree-shares-with-its-main-checkout));
 - **`allow`** - project jobs run like your own;
 - **`deny`** - project jobs are listed and never run.
 
@@ -79,6 +79,8 @@ Every trusted job, user or project, runs in the one daemon of the process and it
 2. the project jobs of its own working directory;
 3. the project jobs of every workspace with an approval;
 4. the project jobs of every workspace a session asked the scheduler about (listed in **`${CODDY_HOME}/scheduler-workspaces.json`**), which is how a job runs under **`allow`**, where nothing is ever approved.
+
+Each of these is counted as its project: a linked git worktree as the same folder of its main checkout. So a project job runs on cron once, from the main checkout, and the copy in a worktree is listed as not scheduled.
 
 Trust is decided on one read of the file, before the cron checkpoint is written, and the run is made of that same read, so a file swapped in between never runs under an approval it did not get. The daemon logs once per content that it skipped a job and why.
 

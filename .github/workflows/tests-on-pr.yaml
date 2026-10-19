@@ -390,6 +390,12 @@ jobs:
           npm run build:go
           npm test
 
+      - name: Check native Windows fixture regressions
+        run: >-
+          go test -p=4 -tags='http,ui,scheduler,memory,cli,gateway,swarm,metrics'
+          ./internal/gitws ./external/httpserver
+          -run '^(TestDescribeRepo|TestSkillsMarketplaceFeature|TestWorkspaceFoldersListsOnlyDirectorySymlinksAndResolvesNavigation)$'
+
       # Exercise the same shipped modules as make test. Bounded package
       # concurrency leaves time for the child MCP and PowerShell processes.
       - name: Run the complete Go suite

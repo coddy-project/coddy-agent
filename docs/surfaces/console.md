@@ -787,14 +787,16 @@ coddy agents trust <name> [--cwd DIR]
 coddy agents untrust <name> [--cwd DIR]
 ```
 
-`list` prints the workspace and the effective `subagents.project_trust`, then
+`list` prints the workspace (in a linked git worktree also the main checkout its
+approvals are kept for) and the effective `subagents.project_trust`, then
 the catalog as a table with `NAME`, `SCOPE` (`builtin`, `user`, `project`),
 `TRUST` (`trusted` or `needs_approval`), `FLAGS` (`hidden`, `model=…`,
 `mode=…`), `DESCRIPTION` and `PATH` (`(embedded)` for built-ins), a `(total N)`
 line, and a hint when project definitions await approval. `trust` prints the
 effective declaration first (file, model, mode, permission mode, tool lists,
 digest, receipt path) and then records a receipt for the file as it is on disk
-right now, keyed by the canonical workspace, the name and the file digest, in
+right now, keyed by the canonical workspace (a linked git worktree uses its main
+checkout's), the name and the file digest, in
 `<home>/subagents-trust.json`; a built-in or user-scope name needs no approval
 and the command says so. `untrust` withdraws a receipt. `--cwd` defaults to the
 process working directory, resolved like `coddy mcp`. Under
@@ -831,7 +833,8 @@ coddy hooks trust <file> [--cwd DIR]
 coddy hooks untrust <file> [--cwd DIR]
 ```
 
-`list` prints the workspace and the effective `hooks.project_trust`, then a
+`list` prints the workspace (in a linked git worktree also the main checkout its
+approvals are kept for) and the effective `hooks.project_trust`, then a
 table with `FILE` (the name receipts use: the workspace-relative path for a
 project file, the absolute path for the operator's own), `SCOPE` (`user`,
 `project`), `TRUST` (`trusted` or `needs_approval`) and `HOOKS` (a summary such
@@ -839,7 +842,8 @@ as `PreToolUse(run_command); PostToolUse(*)`, or `invalid: <error>` for a file
 that does not parse), a `(total N)` line, and a hint when project files await
 approval. `trust` prints the hooks it is about to approve (event, matcher,
 command) and records a receipt for the file as it is on disk right now, keyed
-by the canonical workspace, the file and its digest, in
+by the canonical workspace (a linked git worktree uses its main checkout's), the
+file and its digest, in
 `<home>/hooks-trust.json`; a user-scope file needs no approval and the command
 says so, and an invalid file is refused. `untrust` withdraws a receipt. `--cwd`
 defaults to the process working directory, resolved like `coddy mcp`. Under

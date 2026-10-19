@@ -380,7 +380,7 @@ rules:
 #   enable: true
 #   dirs: []                      # extra folders after ~/.agents/agents, .agents/agents,
 #                                 # ${CODDY_HOME}/agents and .coddy/agents, which are always read
-#   project_trust: ask            # ask (approve project files once per workspace) | allow | deny
+#   project_trust: ask            # ask (approve project files once per project) | allow | deny
 #   max_concurrent: 4             # subagent runs in flight across the whole process
 #   max_depth: 1                  # 1 = children cannot spawn further; 0 = nobody spawns
 #   default_timeout_seconds: 1800 # hard limit when the definition and the call give none
@@ -391,7 +391,7 @@ rules:
 # hooks:
 #   enable: true
 #   files: ["${CODDY_HOME}/hooks.json", "${CWD}/.claude/settings.json", "${CWD}/.claude/settings.local.json", "${CWD}/.coddy/hooks.json"]
-#   project_trust: ask            # ask (approve project files once per workspace) | allow | deny
+#   project_trust: ask            # ask (approve project files once per project) | allow | deny
 #   default_timeout_seconds: 60   # per hook process when the definition gives no timeout
 #   stop_loop_limit: 5            # Stop-hook continuations per turn
 #   max_output_chars: 10000       # cap on what one hook hands to the model or the user

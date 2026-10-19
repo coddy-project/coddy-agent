@@ -144,7 +144,9 @@ the operator approves that exact declaration for that workspace.
   An unknown value fails the launch rather than falling back to a default. A changed
   policy reaches the live sessions too: moved to `deny`, it takes the project servers
   away from the sessions holding them, and those servers stop;
-- approvals live in `~/.coddy/mcp-trust.json`, keyed by the canonical workspace path and by
+- approvals live in `~/.coddy/mcp-trust.json`, keyed by the canonical workspace path (a
+  linked git worktree uses its main checkout's:
+  [Git worktrees](worktrees.md#what-a-worktree-shares-with-its-main-checkout)) and by
   a SHA-256 digest of the command-bearing declaration (transport, command, args, env, url,
   headers). Each record is a receipt naming what was approved - env and header **names**
   and the variables its values read, never their values;
@@ -217,11 +219,13 @@ definitions:
 - `~/.coddy/mcp.json` and `./.coddy/mcp.json`: `"disabled": true` and
   `"disabledTools": ["tool_a"]` per entry when editing the declarations directly
 - For project entries, switches made through `/mcp` or Settings are stored in
-  `<home>/mcp-overrides.json`, keyed by workspace and server. The checkout's
+  `<home>/mcp-overrides.json`, keyed by workspace and server (a linked git worktree shares
+  its main checkout's). The checkout's
   `.coddy/mcp.json` stays unchanged; these switches override its defaults. Deleting a
   project server through the API or the UI drops its switches once the declaration is gone,
   so a later server of the same name starts from its own declaration, and a delete that
-  fails leaves the server switched as it was. While the file cannot be read, every project
+  fails leaves the server switched as it was. Deleting it from a linked git worktree's file
+  keeps them, since they belong to the whole project. While the file cannot be read, every project
   server stays off and the global servers keep their own switches; `/mcp` and Settings
   name the file and the parse error instead of listing the servers until it is repaired.
   This file and `mcp-trust.json` are written under a lock that every process of the home
@@ -503,14 +507,18 @@ shares:
   or switched on starts at once, one removed or switched off stops as soon as no session
   holds it, and one that crashed is started again by the next session or turn that needs
   it. A one-shot `coddy -p` starts them for its session and stops them on exit.
-- A server of a project's `.coddy/mcp.json` is one process per workspace. The first
+- A server of a project's `.coddy/mcp.json` is one process per workspace, and a linked git
+  worktree shares the one of its main checkout unless the declaration names `${CWD}`,
+  which resolves to the folder of each checkout
+  ([Git worktrees](worktrees.md#what-a-worktree-shares-with-its-main-checkout)). The first
   session of the workspace that needs it starts it once the trust gate admits it, and
   the other sessions of that workspace share it. When no session of the workspace holds
   it any more it runs on for `mcp.idle_timeout_seconds` (300, five minutes, by default;
   `0` stops it at once), so a session that opens in the project in the meantime (`/new`
   in the console, a new conversation in a chat, the next run of a scheduled job, the
   same project reopened in the browser) finds it running, and then it is stopped. Two
-  workspaces that declare the same command get a process each.
+  workspaces that declare the same command get a process each, unless they are a main
+  checkout and its worktree.
 - A global server whose `command`, `args`, `env`, `url` or `headers` contain `${CWD}`
   resolves differently in every workspace, so it runs once per workspace too, like a
   project server, and is not started ahead of the sessions.
