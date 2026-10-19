@@ -1,8 +1,16 @@
-import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type KeyboardEvent,
+} from "react";
 import { createPortal } from "react-dom";
 
 import { downloadToolArtifact, type ToolArtifact } from "../chat/toolArtifacts";
 import { ApiImage, ApiImageLightbox } from "../components/ApiImage";
+import { Chevron } from "../components/Chevron";
 import { useEscapeCloses } from "../components/useEscapeCloses";
 import { relativeFilePath } from "../files/api";
 import { openWorkspaceFile } from "../files/fileBus";
@@ -12,6 +20,14 @@ import {
 } from "../files/workspaceEntries";
 import { fileTypeIcon } from "./fileTypeIcon";
 import { useT } from "../i18n/I18nProvider";
+import {
+  serverSnapshotShellStack,
+  serverSnapshotTouchOnly,
+  snapshotShellStack,
+  snapshotTouchOnly,
+  subscribeShellStack,
+  subscribeTouchOnly,
+} from "../shellBreakpoint";
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -61,6 +77,36 @@ export function placeArtifactMenu(
       Math.min(below, view.height - MENU_EDGE_PX - menu.height),
     ),
   };
+}
+
+/** How far the Copy submenu stands from the menu, and how far above Copy it starts: the menu's own padding, so its first item is level with Copy. */
+const SUBMENU_GAP_PX = 2;
+const SUBMENU_INSET_PX = 4;
+
+/**
+ * Where the Copy submenu goes, in window coordinates: beside the menu's right
+ * edge with its first item level with Copy, on the menu's left when the
+ * window has no room on the right, and inside the window either way.
+ */
+export function placeArtifactSubmenu(
+  item: Pick<DOMRect, "top" | "bottom">,
+  menu: Pick<DOMRect, "left" | "right">,
+  sub: Size,
+  view: Size,
+): { left: number; top: number } {
+  const right = menu.right + SUBMENU_GAP_PX;
+  const left =
+    right + sub.width <= view.width - MENU_EDGE_PX
+      ? right
+      : Math.max(MENU_EDGE_PX, menu.left - SUBMENU_GAP_PX - sub.width);
+  const top = Math.max(
+    MENU_EDGE_PX,
+    Math.min(
+      item.top - SUBMENU_INSET_PX,
+      view.height - MENU_EDGE_PX - sub.height,
+    ),
+  );
+  return { left, top };
 }
 
 /** The trigger's three dots, centred in their viewBox so the box alone places them. */
@@ -148,12 +194,36 @@ export function ArtifactCard(props: {
   const [foundDeleted, setFoundDeleted] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [menu, setMenu] = useState(false);
+  // The Copy submenu, open beside the menu.
+  const [sub, setSub] = useState(false);
   const [lightbox, setLightbox] = useState(false);
   const [place, setPlace] = useState<{ left: number; top: number } | null>(
     null,
   );
+  const [subPlace, setSubPlace] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const subRef = useRef<HTMLDivElement>(null);
+  const copyRef = useRef<HTMLButtonElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  // The submenu was opened from the keyboard, so its first item takes the focus.
+  const subFocusRef = useRef(false);
+  // A phone, a tablet or a touch screen has no pointer to slide into a
+  // submenu: the menu is one list there, as the stacked shell folds its other
+  // menus.
+  const stacked = useSyncExternalStore(
+    subscribeShellStack,
+    snapshotShellStack,
+    serverSnapshotShellStack,
+  );
+  const touchOnly = useSyncExternalStore(
+    subscribeTouchOnly,
+    snapshotTouchOnly,
+    serverSnapshotTouchOnly,
+  );
+  const flat = stacked || touchOnly;
   const artifact = props.artifact;
   const image = isImage(artifact);
   const unavailable = !artifact.url || failed;
@@ -170,6 +240,12 @@ export function ArtifactCard(props: {
     : !openable
       ? t("messages.artifactSourceElsewhere")
       : undefined;
+  // A mention puts the path in the composer as @path, which attaches the file
+  // only while it is in the chat's workspace.
+  const mentionable =
+    !deleted &&
+    artifact.sourceState !== "unavailable" &&
+    (!!artifact.sourcePath || !!artifact.relativePath);
   const extension = artifact.name.includes(".")
     ? artifact.name.split(".").pop()!.toUpperCase()
     : "FILE";
@@ -217,6 +293,7 @@ export function ArtifactCard(props: {
       // made that click open it again.
       if (
         !menuRef.current?.contains(target) &&
+        !subRef.current?.contains(target) &&
         !triggerRef.current?.contains(target)
       )
         setMenu(false);
@@ -232,13 +309,61 @@ export function ArtifactCard(props: {
     };
   }, [menu]);
 
+  // A closed menu takes its submenu with it.
+  useEffect(() => {
+    if (!menu) setSub(false);
+  }, [menu]);
+
+  // The submenu is portalled too, and placed from Copy and the menu before
+  // its first paint, again whenever the menu moves.
+  useLayoutEffect(() => {
+    if (!sub) return undefined;
+    const item = copyRef.current;
+    const panel = menuRef.current;
+    const subPanel = subRef.current;
+    if (!item || !panel || !subPanel) return undefined;
+    setSubPlace(
+      placeArtifactSubmenu(
+        item.getBoundingClientRect(),
+        panel.getBoundingClientRect(),
+        { width: subPanel.offsetWidth, height: subPanel.offsetHeight },
+        { width: window.innerWidth, height: window.innerHeight },
+      ),
+    );
+    if (subFocusRef.current) {
+      subFocusRef.current = false;
+      enabledItems(subRef.current)[0]?.focus({ preventScroll: true });
+    }
+    return undefined;
+  }, [sub, place]);
+  useEffect(() => {
+    if (!sub) setSubPlace(null);
+  }, [sub]);
+
+  const openSub = (focus: boolean) => {
+    subFocusRef.current = focus;
+    setSub(true);
+  };
+  const closeSub = () => {
+    setSub(false);
+    copyRef.current?.focus({ preventScroll: true });
+  };
+
+  // Escape takes one step: out of the submenu first, then the menu.
   useEscapeCloses(menu, () => {
+    if (sub) {
+      closeSub();
+      return;
+    }
     setMenu(false);
     triggerRef.current?.focus({ preventScroll: true });
   });
 
-  const menuKeys = (event: KeyboardEvent<HTMLDivElement>) => {
-    const items = enabledItems(menuRef.current);
+  const listKeys = (
+    event: KeyboardEvent<HTMLDivElement>,
+    panel: HTMLDivElement | null,
+  ) => {
+    const items = enabledItems(panel);
     const at = items.indexOf(document.activeElement as HTMLButtonElement);
     const step =
       event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
@@ -260,6 +385,16 @@ export function ArtifactCard(props: {
       triggerRef.current?.focus({ preventScroll: true });
     }
   };
+  const menuKeys = (event: KeyboardEvent<HTMLDivElement>) =>
+    listKeys(event, menuRef.current);
+  const subKeys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      closeSub();
+      return;
+    }
+    listKeys(event, subRef.current);
+  };
 
   // Inside a chat the file is checked first, so a source deleted since the
   // listing turns the card into a deleted one instead of opening a tab that
@@ -280,6 +415,7 @@ export function ArtifactCard(props: {
   };
   const action = (fn: () => void | Promise<void>, failure?: "download") => {
     setMenu(false);
+    setSub(false);
     // Back to the trigger before the action runs, so an action that moves the
     // focus itself (a mention focuses the composer) keeps it.
     triggerRef.current?.focus({ preventScroll: true });
@@ -287,6 +423,36 @@ export function ArtifactCard(props: {
       if (failure) setFailed(true);
     });
   };
+  // The ways to copy, in the order a desktop app lists them: under Copy's
+  // submenu on a desktop, under a Copy heading in the one list of a phone.
+  const copyItems = [
+    {
+      key: "absolute",
+      label: t("messages.artifactCopyAbsolute"),
+      value: artifact.sourcePath,
+    },
+    {
+      key: "relative",
+      label: t("messages.artifactCopyRelative"),
+      value: relative,
+    },
+    {
+      key: "name",
+      label: t("messages.artifactCopyName"),
+      value: artifact.name,
+    },
+  ].map((item) => (
+    <button
+      key={item.key}
+      role="menuitem"
+      type="button"
+      disabled={!item.value}
+      onClick={() => action(() => copy(item.value!))}
+    >
+      {item.label}
+    </button>
+  ));
+
   return (
     <article
       className={[
@@ -303,8 +469,9 @@ export function ArtifactCard(props: {
         setMenu(true);
       }}
     >
-      {/* The whole card opens the file; a picture's thumbnail keeps opening
-          the picture, and the trigger stands over both. */}
+      {/* The whole card opens the file, a picture's thumbnail too; only a
+          picture whose source is gone opens its copy in the lightbox. The
+          trigger stands over both. */}
       {openable && !(image && artifact.previewUrl) ? (
         <button
           type="button"
@@ -318,11 +485,17 @@ export function ArtifactCard(props: {
       {image && artifact.previewUrl ? (
         <button
           type="button"
-          className="inline-artifact-image"
-          onClick={() => setLightbox(true)}
-          aria-label={t("messages.openArtifactImage", {
-            fileName: artifact.name,
-          })}
+          className={
+            openable
+              ? "inline-artifact-image inline-artifact-image--open"
+              : "inline-artifact-image"
+          }
+          onClick={() => (openable ? void openSource() : setLightbox(true))}
+          aria-label={
+            openable
+              ? t("messages.artifactOpenFile", { fileName: artifact.name })
+              : t("messages.openArtifactImage", { fileName: artifact.name })
+          }
         >
           <ApiImage
             className="inline-artifact-thumb"
@@ -384,46 +557,61 @@ export function ArtifactCard(props: {
               <button
                 role="menuitem"
                 type="button"
-                disabled={!openable}
-                title={openHint}
-                onClick={() => action(openSource)}
-              >
-                {t("messages.artifactOpen")}
-              </button>
-              <button
-                role="menuitem"
-                type="button"
-                disabled={!artifact.sourcePath && !artifact.relativePath}
+                disabled={!mentionable}
+                title={mentionable ? undefined : openHint}
+                onMouseEnter={() => setSub(false)}
                 onClick={() => action(() => props.onMention?.(relative))}
               >
                 {t("messages.artifactMention")}
               </button>
-              <button
-                role="menuitem"
-                type="button"
-                onClick={() => action(() => copy(artifact.name))}
-              >
-                {t("messages.artifactCopyName")}
-              </button>
-              <button
-                role="menuitem"
-                type="button"
-                onClick={() => action(() => copy(relative))}
-              >
-                {t("messages.artifactCopyRelative")}
-              </button>
-              <button
-                role="menuitem"
-                type="button"
-                disabled={!artifact.sourcePath}
-                onClick={() => action(() => copy(artifact.sourcePath!))}
-              >
-                {t("messages.artifactCopyAbsolute")}
-              </button>
+              {flat ? (
+                <>
+                  <div className="inline-artifact-menu-sep" role="separator" />
+                  <div
+                    className="inline-artifact-menu-group"
+                    role="group"
+                    aria-label={t("messages.artifactCopy")}
+                  >
+                    <div
+                      className="inline-artifact-menu-label"
+                      aria-hidden="true"
+                    >
+                      {t("messages.artifactCopy")}
+                    </div>
+                    {copyItems}
+                  </div>
+                  <div className="inline-artifact-menu-sep" role="separator" />
+                </>
+              ) : (
+                <button
+                  ref={copyRef}
+                  role="menuitem"
+                  type="button"
+                  className="inline-artifact-menu-sub"
+                  aria-haspopup="menu"
+                  aria-expanded={sub}
+                  onMouseEnter={() => openSub(false)}
+                  onClick={() => (sub ? setSub(false) : openSub(false))}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "ArrowRight" ||
+                      event.key === "Enter" ||
+                      event.key === " "
+                    ) {
+                      event.preventDefault();
+                      openSub(true);
+                    }
+                  }}
+                >
+                  <span>{t("messages.artifactCopy")}</span>
+                  <Chevron className="inline-artifact-menu-chevron" />
+                </button>
+              )}
               <button
                 role="menuitem"
                 type="button"
                 disabled={unavailable || downloading}
+                onMouseEnter={() => setSub(false)}
                 onClick={() =>
                   action(async () => {
                     setDownloading(true);
@@ -439,6 +627,21 @@ export function ArtifactCard(props: {
                   ? t("messages.artifactDownloading")
                   : t("messages.downloadArtifactButton")}
               </button>
+            </div>,
+            document.body,
+          )
+        : null}
+      {menu && sub && !flat
+        ? createPortal(
+            <div
+              ref={subRef}
+              className="inline-artifact-menu inline-artifact-menu--sub"
+              role="menu"
+              aria-label={t("messages.artifactCopy")}
+              style={subPlace ?? { left: 0, top: 0, opacity: 0 }}
+              onKeyDown={subKeys}
+            >
+              {copyItems}
             </div>,
             document.body,
           )

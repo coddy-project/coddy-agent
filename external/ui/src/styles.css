@@ -4355,6 +4355,10 @@ a.rail-brand {
   background: transparent;
   cursor: zoom-in;
 }
+/* A picture whose source is in the workspace opens in the Files window. */
+.inline-artifact-image--open {
+  cursor: pointer;
+}
 .inline-artifact-thumb {
   display: block;
   width: 100%;
@@ -4451,6 +4455,37 @@ a.rail-brand {
 .inline-artifact-menu button:disabled {
   opacity: 0.45;
   cursor: default;
+}
+/* Copy and its submenu beside the menu (placeArtifactSubmenu), the way a
+   desktop app nests the ways to copy; the chevron points to where it opens.
+   The item stays lit while its submenu shows. */
+.inline-artifact-menu .inline-artifact-menu-sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.inline-artifact-menu .inline-artifact-menu-sub[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+}
+.inline-artifact-menu-chevron {
+  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+}
+/* A phone's one list: the ways to copy under a Copy heading, set apart by
+   rules from the items around them. */
+.inline-artifact-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+}
+.inline-artifact-menu-group {
+  display: grid;
+}
+.inline-artifact-menu-label {
+  padding: 4px 9px 2px;
+  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  font-size: 11px;
+  font-weight: 600;
 }
 
 /* The whole card opens the file it was copied from in the Files window; the

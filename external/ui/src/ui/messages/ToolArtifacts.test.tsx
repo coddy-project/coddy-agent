@@ -1,10 +1,11 @@
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   cleanup,
   fireEvent,
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 
 import { setEnv } from "../env/remoteEnv";
@@ -12,7 +13,12 @@ import { parseToolArtifacts } from "../chat/toolArtifacts";
 import { onOpenWorkspaceFile, type OpenFileRequest } from "../files/fileBus";
 import { WorkspaceFilesContext } from "../files/workspaceEntries";
 import { ToolCallMessage } from "./ToolCallMessage";
-import { ArtifactCard, placeArtifactMenu } from "./ToolArtifactCards";
+import {
+  ArtifactCard,
+  placeArtifactMenu,
+  placeArtifactSubmenu,
+} from "./ToolArtifactCards";
+import { shellStackMaxWidthMediaQuery } from "../shellBreakpoint";
 
 const artifact = {
   id: "artifact-1",
@@ -22,6 +28,27 @@ const artifact = {
   url: "/coddy/sessions/s1/artifacts/artifact-1",
 };
 const unavailableArtifact = (({ url: _url, ...rest }) => rest)(artifact);
+
+// The card reads the width and the input device (a phone folds its menu), and
+// restoreAllMocks below would take the setup's matchMedia stub away with it.
+function stubMatchMedia(matches: (query: string) => boolean) {
+  vi.stubGlobal(
+    "matchMedia",
+    (query: string) =>
+      ({
+        matches: matches(query),
+        media: query,
+        onchange: null,
+        addListener() {},
+        removeListener() {},
+        addEventListener() {},
+        removeEventListener() {},
+        dispatchEvent: () => false,
+      }) as unknown as MediaQueryList,
+  );
+}
+
+beforeEach(() => stubMatchMedia(() => false));
 
 afterEach(() => {
   cleanup();
@@ -113,6 +140,8 @@ test("marks an artifact without a URL as unavailable", () => {
   expect(screen.getByRole("menuitem", { name: "Download" })).toBeDisabled();
 });
 
+// A picture whose source is not in the chat's workspace (none is recorded
+// here) has only its copy to show: the thumbnail opens it in the lightbox.
 test("opens an inline image artifact in the shared lightbox", () => {
   const { container } = render(
     <ArtifactCard
@@ -150,13 +179,21 @@ test("opens the actions menu outside the card, which clips what overflows it", (
   expect(menu.parentElement).toBe(document.body);
   expect(trigger).toHaveAttribute("aria-expanded", "true");
   expect(trigger).toHaveAttribute("aria-haspopup", "menu");
-  expect(screen.getAllByRole("menuitem")).toHaveLength(6);
-  // The first item that can be picked takes the focus, so the keyboard starts
-  // inside the menu (Mention source is disabled: this file names no source).
+  // Mention, Copy and Download, in that order; the ways to copy are under
+  // Copy, and the card itself opens the file.
   expect(
-    screen.getByRole("menuitem", { name: "Mention source" }),
+    screen.getAllByRole("menuitem").map((item) => item.textContent),
+  ).toEqual(["Mention in chat", "Copy", "Download"]);
+  // The first item that can be picked takes the focus, so the keyboard starts
+  // inside the menu (Mention is disabled: this file names no source).
+  expect(
+    screen.getByRole("menuitem", { name: "Mention in chat" }),
   ).toBeDisabled();
-  expect(screen.getByRole("menuitem", { name: "Copy name" })).toHaveFocus();
+  expect(screen.getByRole("menuitem", { name: "Copy" })).toHaveFocus();
+  expect(screen.getByRole("menuitem", { name: "Copy" })).toHaveAttribute(
+    "aria-haspopup",
+    "menu",
+  );
 });
 
 test("draws the trigger's dots as an svg, not a text glyph", () => {
@@ -220,23 +257,22 @@ test("the arrow keys move between the items that can be picked", () => {
   );
   const menu = screen.getByRole("menu");
   expect(
-    screen.getByRole("menuitem", { name: "Mention source" }),
+    screen.getByRole("menuitem", { name: "Mention in chat" }),
   ).toHaveFocus();
 
   fireEvent.keyDown(menu, { key: "ArrowDown" });
-  expect(screen.getByRole("menuitem", { name: "Copy name" })).toHaveFocus();
-  // Open is disabled without a workspace path and Download without a URL, so
-  // the first item that can be picked is Mention source, and up from it wraps
-  // to Copy absolute path.
-  fireEvent.keyDown(menu, { key: "ArrowUp" });
-  fireEvent.keyDown(menu, { key: "ArrowUp" });
+  expect(screen.getByRole("menuitem", { name: "Copy" })).toHaveFocus();
+  // Download is disabled without a URL, so down from Copy wraps to Mention.
+  fireEvent.keyDown(menu, { key: "ArrowDown" });
   expect(screen.getByRole("menuitem", { name: "Download" })).toBeDisabled();
   expect(
-    screen.getByRole("menuitem", { name: "Copy absolute path" }),
+    screen.getByRole("menuitem", { name: "Mention in chat" }),
   ).toHaveFocus();
+  fireEvent.keyDown(menu, { key: "End" });
+  expect(screen.getByRole("menuitem", { name: "Copy" })).toHaveFocus();
   fireEvent.keyDown(menu, { key: "Home" });
   expect(
-    screen.getByRole("menuitem", { name: "Mention source" }),
+    screen.getByRole("menuitem", { name: "Mention in chat" }),
   ).toHaveFocus();
 });
 
@@ -288,7 +324,7 @@ test("closes the menu once something else covers its trigger", () => {
     fireEvent.click(trigger);
     // The menu itself over the trigger (a window too short to keep them
     // apart) still counts as the trigger being there.
-    onTop = screen.getByRole("menuitem", { name: "Copy name" });
+    onTop = screen.getByRole("menuitem", { name: "Copy" });
     fireEvent.scroll(window);
     expect(screen.getByRole("menu")).toBeVisible();
 
@@ -315,7 +351,7 @@ test("a menu closed by its trigger scrolling out of sight hands the focus back t
       DOMRect.fromRect({ x: 272, y: 300, width: 28, height: 28 }),
     );
   fireEvent.click(trigger);
-  expect(screen.getByRole("menuitem", { name: "Copy name" })).toHaveFocus();
+  expect(screen.getByRole("menuitem", { name: "Copy" })).toHaveFocus();
 
   rect.mockReturnValue(
     DOMRect.fromRect({ x: 272, y: -80, width: 28, height: 28 }),
@@ -354,18 +390,43 @@ test("a click on a shared file's card opens its source in the Files window", () 
       { path: "reports/release-notes.pdf", line: undefined },
     ]);
 
+    // The menu has no Open item and no reveal on the server: the card opens.
     fireEvent.click(
       screen.getByRole("button", { name: "Actions for release-notes.pdf" }),
     );
+    expect(screen.queryByRole("menuitem", { name: /open|reveal/i })).toBeNull();
     expect(
-      screen.getByRole("menuitem", { name: "Open in the Files window" }),
+      screen.getByRole("menuitem", { name: "Mention in chat" }),
     ).toHaveFocus();
-    expect(screen.queryByRole("menuitem", { name: /reveal/i })).toBeNull();
-    fireEvent.click(
-      screen.getByRole("menuitem", { name: "Open in the Files window" }),
+  } finally {
+    stop();
+  }
+});
+
+// A click on the file opens it in the Files window, a picture included: the
+// window draws pictures too, and only a picture whose source is gone opens its
+// copy in the lightbox.
+test("a picture's thumbnail opens its source in the Files window", () => {
+  const { opened, stop } = listenForOpens();
+  try {
+    render(
+      <ArtifactCard
+        inline
+        artifact={{
+          ...present,
+          name: "chart.png",
+          relativePath: "reports/chart.png",
+          previewUrl: "/coddy/sessions/s1/artifacts/artifact-1/preview",
+        }}
+      />,
     );
-    expect(opened).toHaveLength(2);
-    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open chart.png in the Files window",
+      }),
+    );
+    expect(opened).toEqual([{ path: "reports/chart.png", line: undefined }]);
+    expect(screen.queryByRole("dialog")).toBeNull();
   } finally {
     stop();
   }
@@ -386,17 +447,22 @@ test("a shared file whose source was deleted says so and keeps its copy download
       }),
     ).toBeNull();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Actions for release-notes.pdf" }),
-    );
-    const open = screen.getByRole("menuitem", {
-      name: "Open in the Files window",
-    });
-    expect(open).toBeDisabled();
-    expect(open).toHaveAttribute(
+    expect(card).toHaveAttribute(
       "title",
       "The file was deleted from the workspace. Its shared copy can still be downloaded.",
     );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Actions for release-notes.pdf" }),
+    );
+    // Nothing to mention in the chat; its paths can still be copied.
+    const mention = screen.getByRole("menuitem", { name: "Mention in chat" });
+    expect(mention).toBeDisabled();
+    expect(mention).toHaveAttribute(
+      "title",
+      "The file was deleted from the workspace. Its shared copy can still be downloaded.",
+    );
+    expect(screen.getByRole("menuitem", { name: "Copy" })).toBeEnabled();
     expect(screen.getByRole("menuitem", { name: "Download" })).toBeEnabled();
     expect(opened).toEqual([]);
   } finally {
@@ -420,11 +486,9 @@ test("a shared file that is not in the chat's workspace cannot be opened there",
   fireEvent.click(
     screen.getByRole("button", { name: "Actions for release-notes.pdf" }),
   );
-  const open = screen.getByRole("menuitem", {
-    name: "Open in the Files window",
-  });
-  expect(open).toBeDisabled();
-  expect(open).toHaveAttribute(
+  const mention = screen.getByRole("menuitem", { name: "Mention in chat" });
+  expect(mention).toBeDisabled();
+  expect(mention).toHaveAttribute(
     "title",
     "The file is not in this chat's workspace",
   );
@@ -492,6 +556,130 @@ test("a card checks its file before it opens it and opens it when it is there", 
   } finally {
     stop();
   }
+});
+
+// The ways to copy are one item, Copy, whose submenu opens beside the menu
+// the way a desktop app's does: the absolute path, the relative path and the
+// file name, in that order.
+test("Copy opens a submenu beside the menu with the paths and the name", () => {
+  const writeText = vi.fn(async () => {});
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+  render(<ArtifactCard inline artifact={present} />);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Actions for release-notes.pdf" }),
+  );
+  const copy = screen.getByRole("menuitem", { name: "Copy" });
+  expect(copy).toHaveAttribute("aria-expanded", "false");
+  fireEvent.click(copy);
+  expect(copy).toHaveAttribute("aria-expanded", "true");
+  const submenu = screen.getByRole("menu", { name: "Copy" });
+  expect(submenu.parentElement).toBe(document.body);
+  expect(
+    Array.from(submenu.querySelectorAll('[role="menuitem"]')).map(
+      (item) => item.textContent,
+    ),
+  ).toEqual(["Absolute path", "Relative path", "File name"]);
+
+  fireEvent.click(screen.getByRole("menuitem", { name: "Relative path" }));
+  expect(writeText).toHaveBeenCalledWith("reports/release-notes.pdf");
+  expect(screen.queryByRole("menu")).toBeNull();
+});
+
+test("the pointer opens the Copy submenu, and another item puts it away", () => {
+  render(<ArtifactCard inline artifact={present} />);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Actions for release-notes.pdf" }),
+  );
+  fireEvent.mouseEnter(screen.getByRole("menuitem", { name: "Copy" }));
+  expect(screen.getByRole("menu", { name: "Copy" })).toBeVisible();
+  fireEvent.mouseEnter(screen.getByRole("menuitem", { name: "Download" }));
+  expect(screen.queryByRole("menu", { name: "Copy" })).toBeNull();
+  expect(screen.getByRole("menu")).toBeVisible();
+});
+
+// WAI-ARIA's submenu keys: right opens it on its first item, left and Escape
+// go back to Copy, and the next Escape closes the menu.
+test("the keyboard walks into the Copy submenu and back out", () => {
+  render(<ArtifactCard inline artifact={present} />);
+  const trigger = screen.getByRole("button", {
+    name: "Actions for release-notes.pdf",
+  });
+  fireEvent.click(trigger);
+  const menu = screen.getByRole("menu");
+  fireEvent.keyDown(menu, { key: "ArrowDown" });
+  const copy = screen.getByRole("menuitem", { name: "Copy" });
+  expect(copy).toHaveFocus();
+
+  fireEvent.keyDown(copy, { key: "ArrowRight" });
+  const submenu = screen.getByRole("menu", { name: "Copy" });
+  expect(screen.getByRole("menuitem", { name: "Absolute path" })).toHaveFocus();
+  fireEvent.keyDown(submenu, { key: "ArrowDown" });
+  expect(screen.getByRole("menuitem", { name: "Relative path" })).toHaveFocus();
+  fireEvent.keyDown(submenu, { key: "ArrowLeft" });
+  expect(screen.queryByRole("menu", { name: "Copy" })).toBeNull();
+  expect(copy).toHaveFocus();
+
+  fireEvent.keyDown(copy, { key: "Enter" });
+  expect(screen.getByRole("menuitem", { name: "Absolute path" })).toHaveFocus();
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  expect(screen.queryByRole("menu", { name: "Copy" })).toBeNull();
+  expect(screen.getByRole("menu")).toBeVisible();
+  expect(copy).toHaveFocus();
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(trigger).toHaveFocus();
+});
+
+// A phone or a touch screen has no pointer to slide into a submenu: the menu
+// is one list there, the ways to copy under a Copy heading, as the other menus
+// of the stacked shell fold theirs.
+test("on a phone the menu is one list, the copy items under a Copy heading", () => {
+  stubMatchMedia((query) => query === shellStackMaxWidthMediaQuery);
+  try {
+    render(<ArtifactCard inline artifact={present} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Actions for release-notes.pdf" }),
+    );
+    const menu = screen.getByRole("menu");
+    expect(
+      Array.from(menu.querySelectorAll('[role="menuitem"]')).map(
+        (item) => item.textContent,
+      ),
+    ).toEqual([
+      "Mention in chat",
+      "Absolute path",
+      "Relative path",
+      "File name",
+      "Download",
+    ]);
+    expect(within(menu).getByRole("group", { name: "Copy" })).toBeVisible();
+    expect(screen.queryByRole("menuitem", { name: "Copy" })).toBeNull();
+  } finally {
+    cleanup();
+  }
+});
+
+test("places the submenu beside the menu, on its left when the right has no room", () => {
+  const view = { width: 1280, height: 800 };
+  const sub = { width: 180, height: 110 };
+  const menu = { left: 100, right: 300 };
+  // Beside the menu's right edge, its first item level with Copy.
+  expect(
+    placeArtifactSubmenu({ top: 200, bottom: 230 }, menu, sub, view),
+  ).toEqual({ left: 302, top: 196 });
+  // No room on the right: on the left of the menu.
+  expect(
+    placeArtifactSubmenu(
+      { top: 200, bottom: 230 },
+      { left: 1000, right: 1200 },
+      sub,
+      view,
+    ),
+  ).toEqual({ left: 818, top: 196 });
+  // At the window's foot it rises to stay inside.
+  expect(
+    placeArtifactSubmenu({ top: 760, bottom: 790 }, menu, sub, view),
+  ).toEqual({ left: 302, top: 682 });
 });
 
 test("Tab closes the menu and leaves the focus moving on from the trigger", () => {
