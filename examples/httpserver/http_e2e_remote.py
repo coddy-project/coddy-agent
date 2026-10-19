@@ -5,8 +5,9 @@ Self-contained: this harness boots two ``build/coddy serve`` instances on loopba
 a REMOTE one protected by ``--auth-token`` and a LOCAL one with no auth - then acts
 as the client the Coddy UI would be. It proves the bearer token gates the API, that
 the token is never returned by ``GET /coddy/config``, that authenticated workspace /
-session introspection works remotely, and that switching back to the local
-(unauthenticated) server keeps the same client working.
+session introspection works remotely, that each server answers ``GET /coddy/status``
+with its own document (the remote's behind the token), and that switching back to
+the local (unauthenticated) server keeps the same client working.
 
 Requires ``build/coddy`` built with ``-tags http`` (see ``examples/build_coddy.sh``).
 No LLM/provider is needed: every checked route is metadata-only. The streamed
@@ -107,6 +108,33 @@ def fail(msg: str) -> None:
     raise SystemExit(1)
 
 
+def check_status_document(base: str, token: str | None, port: int, who: str) -> None:
+    """Reads ``GET /coddy/status`` of the server on ``port`` and checks that the
+    document is that server's own: its HTTP API row names its port, and its
+    configuration file is the one under the home this harness gave it."""
+    code, doc, raw = http_call("GET", f"{base}/coddy/status", token)
+    if code != 200 or doc.get("object") != "coddy.status":
+        fail(f"{who} /coddy/status: got {code}, want the status document: {raw[:200]}")
+    rows = [r for r in doc.get("subsystems", []) if r.get("kind") == "httpserver"]
+    if len(rows) != 1 or rows[0].get("state") != "running" or not str(rows[0].get("address", "")).endswith(f":{port}"):
+        fail(f"{who} /coddy/status is not this server's document: want the HTTP API running on :{port}, got {rows}")
+    config_file = (doc.get("process") or {}).get("configFile", "")
+    if f"coddy-remote-{port}-" not in config_file:
+        fail(f"{who} /coddy/status names another configuration file: {config_file!r}")
+    if (doc.get("process") or {}).get("startedBy") not in ("systemd", "daemon", "foreground"):
+        fail(f"{who} /coddy/status startedBy: {doc.get('process')}")
+    # The metrics block is the exporter's: there exactly when the binary has it.
+    tags = (doc.get("build") or {}).get("tags") or []
+    if ("metrics" in doc) != ("metrics" in tags):
+        fail(f"{who} /coddy/status metrics block ({'metrics' in doc}) does not follow the build tags {tags}")
+    if "metrics" in doc:
+        series = doc["metrics"].get("series") or {}
+        if series.get("stepSeconds") != 15 or len(series.get("attemptsOk") or []) != 240:
+            fail(f"{who} /coddy/status series: {str(series)[:200]}")
+    if TOKEN in raw:
+        fail(f"{who} /coddy/status leaked the auth token")
+
+
 def main() -> int:
     binary = Path(os.environ.get("CODDY_BIN", str(repo_root() / "build" / "coddy")))
     if not binary.is_file() or not os.access(binary, os.X_OK):
@@ -167,7 +195,20 @@ def main() -> int:
         if not {"agent", "plan"} <= lids:
             fail(f"local model list missing agent/plan profiles: {sorted(lids)}")
 
-        print("ok http remote e2e (auth gate, config redaction, workspace parity, local fallback)")
+        # 7. The status document is behind the same gate and is each server's
+        #    own, the client switching between them.
+        code, _, _ = http_call("GET", f"{remote}/coddy/status", None)
+        if code != 401:
+            fail(f"remote /coddy/status without token: got {code}, want 401")
+        code, _, _ = http_call("GET", f"{remote}/coddy/status", "wrong-token")
+        if code != 401:
+            fail(f"remote /coddy/status with wrong token: got {code}, want 401")
+        check_status_document(remote, TOKEN, remote_port, "remote")
+        check_status_document(local, None, local_port, "local")
+        check_status_document(remote, TOKEN, remote_port, "remote, again after the switch back")
+        check_status_document(local, None, local_port, "local, again")
+
+        print("ok http remote e2e (auth gate, config redaction, workspace parity, status documents, local fallback)")
         return 0
     finally:
         for p in (remote_proc, local_proc):

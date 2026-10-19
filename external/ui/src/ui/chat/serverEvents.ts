@@ -28,6 +28,10 @@ export type ServerEventHandlers = {
   /** Uncommitted changes of a session's folder were discarded, from this window
    *  or another: every Edits view of the session reads git's report again. */
   onSessionChanges?: (sessionId: string) => void;
+  /** A chat's canvas changed - a frame added, shown again, moved, rotated or
+   *  removed, by the agent's canvas_show or from a browser. Thin like
+   *  session_changes: the board is read again from its route. */
+  onCanvasChanged?: (event: CanvasChangedEvent) => void;
   /** A session's settings changed - model, reasoning, mode, permission mode,
    *  the overrides for the next turns - from any surface. Carries the whole
    *  versioned snapshot, and a notice of the change when the agent made it
@@ -76,6 +80,7 @@ export type ServerEvent =
   | { type: "provider_usage"; sessionId: string; usage: ProviderUsage }
   | { type: "message_queue"; sessionId: string; queue: QueuedMessageEvent }
   | { type: "session_changes"; sessionId: string }
+  | ({ type: "canvas_changed" } & CanvasChangedEvent)
   | { type: "session_settings"; event: SessionSettingsEvent }
   | { type: "session_goal"; update: SessionGoalUpdate }
   | { type: "config_reloaded" }
@@ -87,6 +92,36 @@ export type ServerEvent =
   | { type: "session_question_pending"; sessionId: string }
   | { type: "session_rewound"; sessionId: string }
   | { type: "ready" };
+
+/** What `event: canvas_changed` says: whose canvas, which .canvas file,
+ *  which frame and why. */
+export type CanvasChangedEvent = {
+  sessionId: string;
+  file: string;
+  frameId: string;
+  reason: "added" | "shown" | "updated" | "removed" | "opened" | string;
+  revision: number;
+};
+
+function canvasChangedOf(data: string): CanvasChangedEvent | null {
+  try {
+    const p = JSON.parse(data) as Record<string, unknown>;
+    const sid = typeof p.sessionId === "string" ? p.sessionId.trim() : "";
+    if (!sid) return null;
+    return {
+      sessionId: sid,
+      file: typeof p.file === "string" ? p.file : "",
+      frameId: typeof p.frameId === "string" ? p.frameId : "",
+      reason: typeof p.reason === "string" ? p.reason : "",
+      revision:
+        typeof p.revision === "number" && Number.isFinite(p.revision)
+          ? p.revision
+          : 0,
+    };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * One edge of a background subagent's permission prompt: "asked" carries who
@@ -261,6 +296,10 @@ export function parseServerEvent(ev: {
       const sid = sessionIdOf(ev.data);
       return sid ? { type: ev.event, sessionId: sid } : null;
     }
+    case "canvas_changed": {
+      const parsed = canvasChangedOf(ev.data);
+      return parsed ? { type: "canvas_changed", ...parsed } : null;
+    }
     default:
       return null;
   }
@@ -301,6 +340,15 @@ export function dispatchServerEvent(
       return;
     case "session_changes":
       h.onSessionChanges?.(event.sessionId);
+      return;
+    case "canvas_changed":
+      h.onCanvasChanged?.({
+        sessionId: event.sessionId,
+        file: event.file,
+        frameId: event.frameId,
+        reason: event.reason,
+        revision: event.revision,
+      });
       return;
     case "turn_started":
       h.onTurnStarted(event.sessionId);

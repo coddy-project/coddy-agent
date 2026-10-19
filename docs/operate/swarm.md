@@ -2,7 +2,7 @@
 
 https://github.com/user-attachments/assets/2a26f40a-97dd-46ef-b554-80e53602ed44
 
-*A three-minute recording on 1.3.0: two relays and three nodes in the console, then the relay as a remote of a laptop's web UI, the map canvas in Graph layout, a permission answered across two relays, and the Files and edits windows of a node behind both relays. The file is in the repository as [swarm.mp4](../assets/video/swarm.mp4).*
+*A three-minute recording on 1.3.0: two relays and three nodes in the console, then the relay as a remote of a laptop's web UI, the map in Graph layout, a permission answered across two relays, and the Files and edits windows of a node behind both relays. The file is in the repository as [swarm.mp4](../assets/video/swarm.mp4).*
 
 A **swarm** is a set of coddy nodes reached through one or more **relays**. A relay is a
 stateless meeting point: nodes register into it, it carries requests to them, and it merges
@@ -246,7 +246,7 @@ the rail - on a plain agent it is not there at all.
 The Swarm screen shows the topology and a search box that goes to the relay. It opens in a dock as
 wide as the documentation reader's, and the map fills it.
 
-**Choose a layout, then explore the canvas.** The map starts in **Tree layout**, the rooted view
+**Choose a layout, then explore the map.** The map starts in **Tree layout**, the rooted view
 that shows hop tiers. The **Graph layout** is a deterministic rooted graph for inspecting rings and
 cross-links: the relay is its root, or the local computer is the root when the map shows the machine
 that started the connection. It trends down by shortest-route depth: each relay's nodes fan out on an
@@ -257,15 +257,15 @@ Tree remains the default.
 
 The map has Tree and Graph selectors plus **Zoom out**, **Fit graph**, and **Zoom in** controls.
 Wheel zoom centres on the pointer; drag pans in both axes even when the graph is fitted; two fingers
-pinch to zoom; and a drag or pinch does not activate a node. With the canvas focused, **`+`** or
-**`=`** zooms in, **`-`** zooms out, and **`0`** fits the entire graph. Canvas controls are 40px
+pinch to zoom; and a drag or pinch does not activate a node. With the map focused, **`+`** or
+**`=`** zooms in, **`-`** zooms out, and **`0`** fits the entire graph. Map controls are 40px
 touch targets on the stacked shell. Fit resets the camera, as does changing the relay or layout;
 ordinary five-second topology polling does not discard a manual pan or zoom, though it keeps the
 camera inside changed graph bounds.
 
-![The Graph layout with the canvas controls](../assets/swarm/map-graph-canvas-dark-1280.png)
+![The Graph layout with the map controls](../assets/swarm/map-graph-canvas-dark-1280.png)
 
-*The Graph layout: the relay's nodes fanned out beneath it, with the camera controls over the canvas.*
+*The Graph layout: the relay's nodes fanned out beneath it, with the camera controls over the map.*
 
 The route in use is an accent path. Every relay it crosses is outlined, with the relay the app is
 currently driving outlined more strongly; alternate routes remain visibly secondary. This makes a
@@ -414,6 +414,17 @@ token such a request gets nothing from the relay itself but the gate's plain `40
 relay would refuse (an unknown or unreachable node, a path it does not carry); only the node answers it
 otherwise. A relay that asks no client token hands such a request on the same way, without its own
 credential, so a relay with a gate above it in a chain cannot be walked around through it.
+
+The frames of the [canvas](../features/canvas.md) are the second such request: a `GET` or `HEAD` of a
+node's `/coddy/canvas/<capability>/<path>` with no `Authorization` header, through one mount or a
+chain of them. A frame is an iframe whose page runs in an opaque origin and loads its own scripts and
+files from its address, so the capability is in the path: the node signed it for one frame of one
+session, and only the node checks it. The relay carries the request without its own credential,
+answers its CORS itself with `Access-Control-Allow-Origin: *` (a preflight included) and passes the
+node's `Content-Security-Policy` through, which is what keeps the page in its sandbox. Every other
+request whose `Origin` is `null` - what a sandboxed page sends - is refused by the relay with `403`,
+whatever credential it carries, so a page on the canvas cannot reach a node's API through the relay
+either.
 
 Credentials are preserved across a config save by **destination**, not by label: renaming an
 entry keeps its token, pointing it at a new address does not.

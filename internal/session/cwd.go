@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/gitws"
@@ -117,7 +118,7 @@ func (m *Manager) ReloadSessionWorkspace(ctx context.Context, st *State) {
 
 // reloadWorkspaceScopedState re-derives everything a session's workspace
 // decides. External switches acquire the turn lock or park the MCP reload;
-// a worktree_create call already owns that lock and refreshes its MCP clients
+// a worktree_open call already owns that lock and refreshes its MCP clients
 // before the next model step.
 func (m *Manager) reloadWorkspaceScopedState(ctx context.Context, st *State, turnOwned bool) {
 	cwd := st.GetCWD()
@@ -184,4 +185,24 @@ func matchesWorkspace(canonical, stored string) bool {
 		return true
 	}
 	return caseInsensitivePaths && strings.EqualFold(c, canonical)
+}
+
+// SessionsInWorkspace names the live sessions other than self that work in
+// dir or below it: what removing dir would strand, a worktree two chats share
+// included.
+func (m *Manager) SessionsInWorkspace(dir, self string) []string {
+	root := realPath(dir)
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []string
+	for id, st := range m.sessions {
+		if id == self || st == nil {
+			continue
+		}
+		if cwd := st.GetCWD(); cwd != "" && pathWithin(root, realPath(cwd)) {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
 }

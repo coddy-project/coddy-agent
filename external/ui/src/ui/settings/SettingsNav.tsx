@@ -1,6 +1,8 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
   type ReactNode,
@@ -21,9 +23,12 @@ export function SettingsNav(props: {
   /** Grey rows after the tabs, for the ones the schema has yet to bring. */
   placeholders?: number;
   search?: ReactNode;
+  /** How many things a tab says need attention, by tab id; none draws nothing. */
+  badges?: Record<string, number>;
 }) {
-  const { sections, active, onSelect } = props;
-  const { t } = useT();
+  const { sections, active, onSelect, badges } = props;
+  const { t, tp } = useT();
+  const descId = useId();
   const navRef = useRef<HTMLElement>(null);
   const [canLeft, setCanLeft] = useState(false);
   const [canRight, setCanRight] = useState(false);
@@ -87,18 +92,39 @@ export function SettingsNav(props: {
         aria-label={t("settings.nav.aria.sections")}
         ref={navRef}
       >
-        {sections.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            className={`settings-nav-item${s.id === active ? " is-active" : ""}`}
-            aria-current={s.id === active ? "page" : undefined}
-            data-testid={`settings-tab-${s.id}`}
-            onClick={() => onSelect(s.id)}
-          >
-            {s.label}
-          </button>
-        ))}
+        {sections.map((s) => {
+          const count = badges?.[s.id] ?? 0;
+          return (
+            <Fragment key={s.id}>
+              <button
+                type="button"
+                className={`settings-nav-item${s.id === active ? " is-active" : ""}`}
+                aria-current={s.id === active ? "page" : undefined}
+                aria-describedby={count > 0 ? `${descId}-${s.id}` : undefined}
+                data-testid={`settings-tab-${s.id}`}
+                onClick={() => onSelect(s.id)}
+              >
+                {s.label}
+                {count > 0 ? (
+                  <span className="settings-nav-badge" aria-hidden="true">
+                    {count}
+                  </span>
+                ) : null}
+              </button>
+              {/* The tab keeps its name; what the number means is its
+                  description, beside the button so it is not part of the name. */}
+              {count > 0 ? (
+                <span
+                  id={`${descId}-${s.id}`}
+                  className="sr-only"
+                  aria-hidden="true"
+                >
+                  {tp("system.attention.count", count)}
+                </span>
+              ) : null}
+            </Fragment>
+          );
+        })}
         {Array.from({ length: props.placeholders ?? 0 }, (_, i) => (
           <span
             key={`placeholder-${i}`}

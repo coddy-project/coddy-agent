@@ -95,6 +95,22 @@ func TestDiffOpsAreMinimal(t *testing.T) {
 	}
 }
 
+// Every change is its removals, then its insertions: no insert is ever
+// followed by a delete without an equal line between them.
+func TestDiffOpsPutRemovalsFirstInEveryChange(t *testing.T) {
+	rng := rand.New(rand.NewSource(3))
+	for i := 0; i < 400; i++ {
+		a := randomLines(rng, rng.Intn(20))
+		b := randomLines(rng, rng.Intn(20))
+		ops := diffOps(a, b)
+		for j := 1; j < len(ops); j++ {
+			if ops[j-1].kind == opInsert && ops[j].kind == opDelete {
+				t.Fatalf("case %d: insert before delete at op %d\n a=%v\n b=%v\n ops=%v", i, j, a, b, ops)
+			}
+		}
+	}
+}
+
 func TestDiffOpsHandleEmptySides(t *testing.T) {
 	if ops := diffOps(nil, nil); len(ops) != 0 {
 		t.Fatalf("two empty files have no edits, got %v", ops)

@@ -77,3 +77,36 @@ func TestATunnelLeaseWhoseConnectionDiedQuietlyIsReapedAfterItsGrace(t *testing.
 		t.Fatalf("a claim after the grace period was refused: %v", err)
 	}
 }
+
+// A tunnel lease is seen for as long as its connection holds, so when the
+// connection goes away the node was last seen then, not when it registered:
+// a node behind a relay that answers the System page "offline, last seen 11
+// minutes ago" for a tunnel that dropped a second ago sends the operator
+// looking for the wrong outage.
+func TestATunnelNodeIsLastSeenWhenItsConnectionWentAway(t *testing.T) {
+	for _, quietly := range []bool{false, true} {
+		r, clock := newTestRegistry(t, time.Minute)
+		res, err := r.Register(tunnelRequest("inner"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		tun := &fakeTunnel{alive: true}
+		if err := r.AttachTransport("inner", res.LeaseSecret, tun); err != nil {
+			t.Fatal(err)
+		}
+
+		clock.Advance(11 * time.Minute)
+		_ = tun.Close()
+		if !quietly {
+			r.DetachTransport("inner", tun)
+		}
+		node, ok := r.Node("inner")
+		if !ok {
+			t.Fatalf("quietly=%v: the lease went missing inside its grace period", quietly)
+		}
+		want := clock.Now().UTC().Format(time.RFC3339)
+		if node.Info.LastSeen != want {
+			t.Fatalf("quietly=%v: last seen %s, want %s, when the connection went away", quietly, node.Info.LastSeen, want)
+		}
+	}
+}

@@ -538,6 +538,28 @@ func UISchemaMap() map[string]interface{} {
 					},
 					[]string{"enable", "host", "public_host"},
 					nil),
+				"canvas": objectSchema("Canvas",
+					"The canvas of the web UI: a .canvas file of the workspace shown in the Files window as a board of live frames, each a page of the workspace running in a sandbox.",
+					map[string]interface{}{
+						"enable": map[string]interface{}{
+							"type":        "boolean",
+							"title":       "Enabled",
+							"description": "Offer the canvas_show and canvas_inspect tools and show the canvas (default true).",
+						},
+						"allow_cdn": map[string]interface{}{
+							"type":        "boolean",
+							"title":       "Allow common CDNs",
+							"description": "Let a frame load libraries, styles and fonts from jsDelivr, unpkg, cdnjs, the Tailwind CDN and Google Fonts (default true).",
+						},
+						"allowed_sources": map[string]interface{}{
+							"type":        "array",
+							"title":       "Allowed sources",
+							"description": "Further hosts a frame may load from and connect to: https://host or https://*.host. A page on the canvas can send what it reads to any of them.",
+							"items":       map[string]interface{}{"type": "string"},
+						},
+					},
+					[]string{"enable", "allow_cdn", "allowed_sources"},
+					nil),
 				"websearch": objectSchema("Web search",
 					"Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a backend that was turned away is named rather than counted as \"nothing found\".",
 					map[string]interface{}{
@@ -584,7 +606,7 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"allowlist", "default_headers"},
 					nil),
 			},
-			[]string{"command_allowlist", "output_limits", "background", "preview_server", "websearch", "http_request"},
+			[]string{"command_allowlist", "output_limits", "background", "preview_server", "canvas", "websearch", "http_request"},
 			nil),
 		"subagents": objectSchema("Subagents",
 			"User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.",

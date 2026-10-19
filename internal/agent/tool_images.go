@@ -130,6 +130,28 @@ func sharedArtifact(sessionDir, result string) (llm.Artifact, bool) {
 	return llm.Artifact{ID: a.ID, Name: a.Name, SHA256: a.SHA256, Size: a.Size, SourcePath: a.SourcePath, SourceRelativePath: a.SourceRelativePath}, true
 }
 
+// sharedArtifactMeta puts a shared file on the _meta of share_file's final
+// tool_call_update, under coddy.artifacts beside coddy.images, where the web
+// UI reads it to draw the file's card while the turn runs; after a reload the
+// card comes from the tool result row instead.
+func sharedArtifactMeta(meta map[string]interface{}, sessionID string, artifact llm.Artifact) map[string]interface{} {
+	if meta == nil {
+		meta = map[string]interface{}{}
+	}
+	coddy, _ := meta["coddy"].(map[string]interface{})
+	if coddy == nil {
+		coddy = map[string]interface{}{}
+		meta["coddy"] = coddy
+	}
+	route := session.ArtifactRoute(sessionID, artifact.ID)
+	coddy["artifacts"] = []map[string]interface{}{{
+		"id": artifact.ID, "name": artifact.Name, "sha256": artifact.SHA256,
+		"size": artifact.Size, "sourcePath": artifact.SourcePath, "relativePath": artifact.SourceRelativePath,
+		"url": route, "revealUrl": route + "/reveal",
+	}}
+	return meta
+}
+
 // toolImagesForSurfaces describes the pictures of a finished call for the
 // _meta of its final tool_call_update. Only a picture saved with the
 // session's assets is listed: nothing else has an address a surface can load.

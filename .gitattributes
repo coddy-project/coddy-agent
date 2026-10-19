@@ -2,3 +2,7 @@
 # Markdown all read the checkout; core.autocrlf must not change their input.
 # Git's automatic detection leaves binary fixtures and media untouched.
 * text=auto eol=lf
+
+# Canvas fixtures are compared byte for byte with what Coddy writes (Obsidian's
+# own sample among them): no line-ending conversion.
+internal/canvas/testdata/** -text

@@ -202,6 +202,7 @@ type ToolsJSON struct {
 	OutputLimits      ToolOutputLimitsJSON  `json:"output_limits,omitempty"`
 	Background        ToolBackgroundJSON    `json:"background,omitempty"`
 	PreviewServer     ToolPreviewServerJSON `json:"preview_server,omitempty"`
+	Canvas            ToolCanvasJSON        `json:"canvas,omitempty"`
 	WebSearch         ToolWebSearchJSON     `json:"websearch,omitempty"`
 	HTTPRequest       ToolHTTPRequestJSON   `json:"http_request,omitempty"`
 }
@@ -246,6 +247,13 @@ type ToolPreviewServerJSON struct {
 	Enabled    *bool  `json:"enable,omitempty"`
 	Host       string `json:"host,omitempty"`
 	PublicHost string `json:"public_host,omitempty"`
+}
+
+// ToolCanvasJSON mirrors ToolCanvas for JSON APIs.
+type ToolCanvasJSON struct {
+	Enabled        *bool    `json:"enable,omitempty"`
+	AllowCDN       *bool    `json:"allow_cdn,omitempty"`
+	AllowedSources []string `json:"allowed_sources,omitempty"`
 }
 
 // ToolOutputLimitsJSON mirrors ToolOutputLimits. Pointer fields keep the
@@ -570,6 +578,11 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			Host:       c.Tools.PreviewServer.Host,
 			PublicHost: c.Tools.PreviewServer.PublicHost,
 		},
+		Canvas: ToolCanvasJSON{
+			Enabled:        cloneBoolPtr(c.Tools.Canvas.Enabled),
+			AllowCDN:       cloneBoolPtr(c.Tools.Canvas.AllowCDN),
+			AllowedSources: append([]string(nil), c.Tools.Canvas.AllowedSources...),
+		},
 		HTTPRequest: ToolHTTPRequestJSON{
 			Allowlist:      append([]string(nil), c.Tools.HTTPRequest.Allowlist...),
 			DefaultHeaders: cloneStringMap(c.Tools.HTTPRequest.DefaultHeaders),
@@ -813,6 +826,11 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			Enabled:    cloneBoolPtr(j.Tools.PreviewServer.Enabled),
 			Host:       j.Tools.PreviewServer.Host,
 			PublicHost: j.Tools.PreviewServer.PublicHost,
+		},
+		Canvas: ToolCanvas{
+			Enabled:        cloneBoolPtr(j.Tools.Canvas.Enabled),
+			AllowCDN:       cloneBoolPtr(j.Tools.Canvas.AllowCDN),
+			AllowedSources: append([]string(nil), j.Tools.Canvas.AllowedSources...),
 		},
 		HTTPRequest: ToolHTTPRequest{
 			Allowlist:      append([]string(nil), j.Tools.HTTPRequest.Allowlist...),

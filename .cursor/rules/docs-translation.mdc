@@ -46,7 +46,9 @@ files), and the pages the map lists from the repository root (`CONTRIBUTING.md`,
   left alone.
 - **Generated blocks** keep their `<!-- docsgen:NAME:start -->` / `<!-- docsgen:NAME:end -->`
   markers; `make docs` fills them.
-- **Captions**: the italic caption under a screenshot is translated; the screenshot is the English one.
+- **Captions and alt text**: the italic caption under a screenshot and the alt text of every image
+  are translated; the image file is the English one. `make docs-check` reports an alt text of more
+  than one word with no Cyrillic letter in it.
 - **The stamp**: the last line, `<!-- docsgen:source sha256=<16 hex> -->`, is the digest of the
   English page the translation follows. docsgen writes it; never edit it by hand.
 
@@ -61,8 +63,9 @@ make docs-stamp PAGES="..." UNCHANGED=1     # the English change needs no transl
 
 `make docs-check` reports a stale Russian page with the command that shows what changed in the
 English page since the translation was stamped. Restamp a page only after its translation says what
-the English page says; a stamp over an untranslated change is a stale page CI cannot see, which is why
-the stamp refuses a page whose translation did not change since `HEAD` unless `UNCHANGED=1` says so.
+the English page says and, for new or rewritten prose, has passed the cross-review below; a stamp
+over an untranslated change is a stale page CI cannot see, which is why the stamp refuses a page
+whose translation did not change since `HEAD` unless `UNCHANGED=1` says so.
 The pre-commit hook reports a stale stamp as a warning; CI fails on it.
 
 ## Writing Russian
@@ -113,6 +116,7 @@ Glossary (English - Russian):
 - reasoning - рассуждение; reasoning level - уровень рассуждения;
 - provider - провайдер; model - модель; environment - окружение; remote mode - удалённый режим;
 - surface - интерфейс; console - консоль; web UI - веб-интерфейс; harness - харнес;
+- stacked shell (the web UI below 1200 px, the rail turned into a top bar) - раскладка с верхней панелью;
 - gateway - шлюз (Telegram gateway - Telegram-шлюз); bot - бот;
 - trust - доверие; trust receipt - расписка; sandbox - песочница; loop guard - защита от зацикливания;
 - endpoint - эндпоинт; route - маршрут; request - запрос; response - ответ; streaming - потоковая передача;
@@ -123,6 +127,44 @@ Glossary (English - Russian):
 
 Names stay in Latin script: Coddy, MCP, ACP, ReAct, SSE, OpenAI, Telegram, GitHub, Docker, systemd,
 the names of models, commands and files.
+
+## Cross-review of a translation
+
+A translation an agent drafted reads like one even when every check passes: the English word order
+kept, three clauses strung on participles and "а ещё", a hedge the English does not make, a term
+that drifts from the glossary. `make docs-check` sees dashes, quotes and banned words, and the prose
+skills are run by the agent that wrote the draft over its own sentences, so neither is a second
+reader. New or rewritten Russian prose is read by reviewers who did not write it before it is
+stamped.
+
+It applies to a pull request that adds a Russian page or adds or rewrites Russian prose: a section,
+a paragraph, a list item, a table cell that holds a sentence, a summary in `docs/ru/nav.yaml`, a
+description in `docs/ru/config-descriptions.yaml`. A fixed typo, a copied key or path and a restamp
+with `UNCHANGED=1` need no review.
+
+1. Write the brief into a file. For every changed passage it carries the English source and the
+   Russian text side by side, inline, so a reviewer needs no checkout; then the rules the text is
+   held to: the typography, the wording and the glossary of *Writing Russian*, the paired Russian
+   wording rule, and the Russian labels of the web UI controls the passages name (from `ru.ts`).
+2. Send it to `/crossreview` (bundled with Coddy; other agents install it from
+   [EvilFreelancer/crossreview](https://github.com/EvilFreelancer/crossreview)), or to another
+   quorum of at least three reviewers who stay blind to each other. Each finding names the passage,
+   quotes the Russian words and proposes a rewrite, and is one of four kinds:
+   - a sentence that reads as translated: English word order, a calque, a chain of clauses a Russian
+     writer would split, a word that says nothing;
+   - a term that differs from the glossary, or a control named otherwise than the interface names it;
+   - a meaning the Russian changes: a claim added, lost, weakened or hedged;
+   - typography the rules above forbid.
+3. Check every finding yourself against the English page and this rule, and decide alone. A rewrite
+   that changes the meaning, a term or a label is rejected however many reviewers propose it, and a
+   matter of taste is not a finding.
+4. Apply the confirmed rewrites and send the rewritten passages to a second round with a fresh brief,
+   never with the first round's answers. Stamp the page once a round confirms nothing about meaning,
+   terms, labels or a sentence that reads as translated; otherwise review what changed once more,
+   three rounds at most. A finding that undoes a rewrite an earlier round confirmed is rejected, and
+   after the third round whoever runs the review checks the last rewrites alone and stamps the page.
+5. The pull request description says the translation was cross-reviewed: the pages, the rounds, and
+   how many findings were confirmed and how many rejected.
 
 ## Writing English
 

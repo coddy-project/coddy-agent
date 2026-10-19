@@ -9,6 +9,13 @@ import {
 import { createPortal } from "react-dom";
 import { useEscapeCloses } from "./useEscapeCloses";
 import { useT } from "../i18n/I18nProvider";
+import {
+  WHEEL_DOUBLING_PX,
+  WHEEL_LINE_PX,
+  WHEEL_PAGE_PX,
+  wheelPixels,
+} from "./zoom";
+import { ZoomControls } from "./ZoomControls";
 
 /** How large the image is drawn: fitted to the window, or a scale of its own size. */
 export type Zoom = "fit" | number;
@@ -43,27 +50,6 @@ export function zoomOut(z: Zoom): Zoom {
 }
 
 /** A picture fitted in a frame: the image drawn to the size of the window. */
-function IconFit() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M4 9V5a1 1 0 0 1 1-1h4" />
-      <path d="M15 4h4a1 1 0 0 1 1 1v4" />
-      <path d="M20 15v4a1 1 0 0 1-1 1h-4" />
-      <path d="M9 20H5a1 1 0 0 1-1-1v-4" />
-      <rect x="8" y="9" width="8" height="6" rx="1" />
-    </svg>
-  );
-}
 
 /** A point of the image, as fractions of its size, and where in the stage it was seen. */
 export type ZoomFocus = { fx: number; fy: number; vx: number; vy: number };
@@ -201,28 +187,7 @@ export function pinchZoom(
   return scaleZoom(start, fit, span / startSpan);
 }
 
-// A wheel reports its delta in pixels, lines or pages (`deltaMode` 0, 1, 2),
-// and a trackpad sends many small ones where a mouse sends a few large: one
-// reading in pixels is what the zoom is driven by.
-export const WHEEL_LINE_PX = 16;
-export const WHEEL_PAGE_PX = 400;
-
-/** A wheel's vertical delta in pixels, whatever the device counts in. */
-export function wheelPixels(deltaY: number, deltaMode: number): number {
-  if (!Number.isFinite(deltaY)) {
-    return 0;
-  }
-  if (deltaMode === 1) {
-    return deltaY * WHEEL_LINE_PX;
-  }
-  if (deltaMode === 2) {
-    return deltaY * WHEEL_PAGE_PX;
-  }
-  return deltaY;
-}
-
-/** The pixels of wheel that double the picture, up or down. */
-export const WHEEL_DOUBLING_PX = 500;
+export { WHEEL_DOUBLING_PX, WHEEL_LINE_PX, WHEEL_PAGE_PX, wheelPixels };
 
 /**
  * The zoom a wheel has reached: continuous, like a pinch, and between the same
@@ -578,9 +543,6 @@ export function ImageLightbox(props: {
     return true;
   };
 
-  const fit = t("docs.lightbox.fit");
-  const percent = zoom === "fit" ? null : `${Math.round(zoom * 100)}%`;
-
   return createPortal(
     <div
       className="docs-lightbox"
@@ -592,38 +554,22 @@ export function ImageLightbox(props: {
     >
       <div className="docs-lightbox-bar">
         <span className="docs-lightbox-caption">{props.alt}</span>
-        <button
-          type="button"
-          className="docs-lightbox-btn"
-          data-testid="docs-lightbox-zoom-out"
-          aria-label={t("docs.lightbox.zoomOut")}
-          title={t("docs.lightbox.zoomOut")}
-          disabled={zoom === "fit"}
-          onClick={() => changeZoom(zoomOut)}
-        >
-          −
-        </button>
-        <button
-          type="button"
-          className="docs-lightbox-level"
-          data-testid="docs-lightbox-fit"
-          title={fit}
-          aria-label={percent ? `${percent}, ${fit}` : fit}
-          onClick={() => changeZoom(() => "fit")}
-        >
-          {percent ?? <IconFit />}
-        </button>
-        <button
-          type="button"
-          className="docs-lightbox-btn"
-          data-testid="docs-lightbox-zoom-in"
-          aria-label={t("docs.lightbox.zoomIn")}
-          title={t("docs.lightbox.zoomIn")}
-          disabled={zoom !== "fit" && zoom >= MAX_ZOOM}
-          onClick={() => changeZoom(zoomIn)}
-        >
-          +
-        </button>
+        <ZoomControls
+          inline
+          testId="docs-lightbox"
+          percent={zoom === "fit" ? null : Math.round(zoom * 100)}
+          canZoomOut={zoom !== "fit"}
+          canZoomIn={zoom === "fit" || zoom < MAX_ZOOM}
+          onZoomOut={() => changeZoom(zoomOut)}
+          onZoomIn={() => changeZoom(zoomIn)}
+          onFit={() => changeZoom(() => "fit")}
+          labels={{
+            group: t("docs.lightbox.zoom"),
+            zoomOut: t("docs.lightbox.zoomOut"),
+            zoomIn: t("docs.lightbox.zoomIn"),
+            fit: t("docs.lightbox.fit"),
+          }}
+        />
         <button
           ref={closeRef}
           type="button"

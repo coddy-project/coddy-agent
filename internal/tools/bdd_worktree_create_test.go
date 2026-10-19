@@ -26,7 +26,7 @@ type worktreeCreateState struct {
 	output    string
 	worktree  string
 	createErr error
-	// created is what worktree_create answered.
+	// created is what worktree_open answered.
 	created string
 }
 
@@ -77,7 +77,7 @@ func (s *worktreeCreateState) setup() error {
 }
 
 func (s *worktreeCreateState) create(branch string) error {
-	out, err := apptools.NewRegistry().Execute(context.Background(), apptools.ToolWorktreeCreate,
+	out, err := apptools.NewRegistry().Execute(context.Background(), apptools.ToolWorktreeOpen,
 		fmt.Sprintf(`{"branch":%q}`, branch), s.env)
 	if err != nil {
 		return err
@@ -134,14 +134,14 @@ func (s *worktreeCreateState) run(command string) error {
 }
 
 func (s *worktreeCreateState) tryCreate(branch string) error {
-	_, s.createErr = apptools.NewRegistry().Execute(context.Background(), apptools.ToolWorktreeCreate,
+	_, s.createErr = apptools.NewRegistry().Execute(context.Background(), apptools.ToolWorktreeOpen,
 		fmt.Sprintf(`{"branch":%q}`, branch), s.env)
 	return nil
 }
 
 func (s *worktreeCreateState) refused() error {
 	if s.createErr == nil {
-		return fmt.Errorf("worktree_create succeeded where a refusal was expected")
+		return fmt.Errorf("worktree_open succeeded where a refusal was expected")
 	}
 	if cwd := s.state.GetCWD(); cwd != s.root {
 		return fmt.Errorf("session moved to %q on a refused request", cwd)

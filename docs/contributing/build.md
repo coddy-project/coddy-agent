@@ -10,7 +10,7 @@ This page is the detailed reference for local builds. For a short version, see [
 
 Optional:
 
-- **`golangci-lint` v2.x** (built with Go **1.26** or newer) - for **`make lint`**. CI uses **`golangci/golangci-lint-action@v7`** or newer (v6 supports only golangci-lint v1).
+- **`golangci-lint` v2.x** (built with Go **1.26** or newer) - for **`make lint`**. CI uses **`golangci/golangci-lint-action@v9`** (v6 supports only golangci-lint v1, v8 and later need golangci-lint v2.1.0 or newer).
 
 ## Recommended full binary (HTTP, UI, scheduler, memory, console)
 
@@ -29,8 +29,9 @@ Equivalent **`go build`** (after `ui-build` when you use **`ui`**, or use **`mak
 ```bash
 make ui-build   # only when using -tags=...,ui,... with http; Makefile runs this for you on `make build`
 VERSION="$(make -s print-version)"
+REVISION="$(make -s print-revision)"
 go build -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics \
-  -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION}" \
+  -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION} -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=${REVISION}" \
   -o build/coddy \
   ./cmd/coddy/
 ```
@@ -275,7 +276,7 @@ a device before the release.
 The Makefile sets:
 
 ```text
-LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(VERSION)
+LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(VERSION) -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=$(REVISION)
 ```
 
 **`VERSION`** is resolved from git (tag at **HEAD**, else **`git describe`**, else **`dev`**). Print the same value the next **`make build`** would embed:
@@ -284,12 +285,14 @@ LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(V
 make -s print-version
 ```
 
+**`REVISION`** is the commit **HEAD** points at (**`git rev-parse --verify -q HEAD`**), empty outside git and before the first commit, and **`make -s print-revision`** prints it. The build passes the commit itself because the Go toolchain stamps its own **`vcs.revision`** from the nearest **`.git`** *directory*, and in a git worktree **`.git`** is a file. Coddy, like some other agent tools, puts its worktrees in a folder inside the checkout, so a binary built in such a worktree would report the enclosing checkout's commit next to its own version, in the **`coddy_build_info`** series and on **Settings → System**. A binary built without the flag (a plain **`go build`**) keeps reading **`vcs.revision`**. **`scripts/build-packages.sh`** passes both values; the release workflow, the [**Dockerfile**](../../Dockerfile) and the Homebrew formula pass the version only, because they build from a clean clone, an image context without **`.git`** or a source tarball, where the toolchain's value is right or absent.
+
 Manual one-liner aligned with **`make build`**:
 
 ```bash
 go build \
   -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics \
-  -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(make -s print-version)" \
+  -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(make -s print-version) -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=$(make -s print-revision)" \
   -o build/coddy \
   ./cmd/coddy/
 ```

@@ -77,7 +77,7 @@ const (
 
 // agentCommandPrompts are the built-ins Agent.Run answers without a model
 // turn; there is no work in them for the supervisor to check.
-var agentCommandPrompts = []string{"/compact", "/plugin", "/export"}
+var agentCommandPrompts = []string{"/compact", "/plugin", "/export", "/worktree"}
 
 func isAgentCommandPrompt(prompt []acp.ContentBlock) bool {
 	if len(prompt) != 1 || prompt[0].Type != acp.ContentTypeText {

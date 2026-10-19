@@ -2192,7 +2192,7 @@ func TestCoddyCommandsEndpoint(t *testing.T) {
 	for _, it := range items {
 		names = append(names, fmt.Sprint(it["name"]))
 	}
-	want := "model reasoning think nothink agent plan ask permissions compact goal export plugin"
+	want := "model reasoning think nothink agent plan ask permissions compact goal export plugin worktree"
 	if strings.Join(names, " ") != want {
 		t.Fatalf("commands = %v, want %s", names, want)
 	}

@@ -10,7 +10,7 @@
 
 Необязательно:
 
-- **`golangci-lint` v2.x** (собранный с Go **1.26** или новее) - для **`make lint`**. CI использует **`golangci/golangci-lint-action@v7`** или новее (v6 поддерживает только golangci-lint v1).
+- **`golangci-lint` v2.x** (собранный с Go **1.26** или новее) - для **`make lint`**. CI использует **`golangci/golangci-lint-action@v9`** (v6 поддерживает только golangci-lint v1, а v8 и новее требуют golangci-lint v2.1.0 или новее).
 
 ## Рекомендуемый полный бинарник (HTTP, веб-интерфейс, планировщик, память, консоль)
 
@@ -29,8 +29,9 @@ make build TAGS="http ui scheduler memory cli gateway swarm metrics"
 ```bash
 make ui-build   # only when using -tags=...,ui,... with http; Makefile runs this for you on `make build`
 VERSION="$(make -s print-version)"
+REVISION="$(make -s print-revision)"
 go build -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics \
-  -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION}" \
+  -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION} -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=${REVISION}" \
   -o build/coddy \
   ./cmd/coddy/
 ```
@@ -178,7 +179,7 @@ make check-android                                              # go vet with GO
 Makefile задаёт следующее.
 
 ```text
-LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(VERSION)
+LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(VERSION) -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=$(REVISION)
 ```
 
 **`VERSION`** определяется по git (тег на **HEAD**, иначе **`git describe`**, иначе **`dev`**). Вывести то же значение, которое встроит следующий **`make build`**, можно так.
@@ -187,12 +188,14 @@ LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(V
 make -s print-version
 ```
 
+**`REVISION`** - коммит, на который указывает **HEAD** (**`git rev-parse --verify -q HEAD`**). Вне git и до первого коммита он пуст. Вывести его можно командой **`make -s print-revision`**. Сборка сама передаёт коммит в бинарник, потому что тулчейн Go проставляет собственный **`vcs.revision`** по ближайшему *каталогу* **`.git`**, а в git worktree **`.git`** - это файл. Coddy, как и некоторые другие агентные инструменты, кладёт свои worktree в каталог внутри чекаута, поэтому бинарник, собранный в таком worktree, показал бы рядом со своей версией коммит внешнего чекаута в серии **`coddy_build_info`** и на странице **Настройки → Система**. Бинарник, собранный без этого флага (обычный **`go build`**), по-прежнему читает **`vcs.revision`**. **`scripts/build-packages.sh`** передаёт оба значения; релизный workflow, [**Dockerfile**](../../../Dockerfile) и формула Homebrew передают только версию, потому что собирают из чистого клона, из контекста образа без **`.git`** или из архива исходников, где значение тулчейна верно или отсутствует.
+
 Ручная команда, согласованная с **`make build`**.
 
 ```bash
 go build \
   -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics \
-  -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(make -s print-version)" \
+  -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(make -s print-version) -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=$(make -s print-revision)" \
   -o build/coddy \
   ./cmd/coddy/
 ```
@@ -272,4 +275,4 @@ go install github.com/EvilFreelancer/coddy-agent/cmd/coddy@latest
 
 Так компилируется то, что модуль собирает по умолчанию, **без** ваших локальных **`TAGS`**. Чтобы получить известный набор возможностей (HTTP, веб-интерфейс, планировщик, память, консоль, шлюз мессенджеров), клонируйте репозиторий и используйте **`make build TAGS="http ui scheduler memory cli gateway swarm metrics"`** (или **`go build -tags=...`**, как выше).
 
-<!-- docsgen:source sha256=c1dc53469cbd5e11 -->
+<!-- docsgen:source sha256=89b1d03b6eb9ff39 -->

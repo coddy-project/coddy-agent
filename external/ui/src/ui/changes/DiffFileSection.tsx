@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { Chevron } from "../components/Chevron";
 import { parseDiffPatch } from "../messages/parseDiff";
 import type { ParsedDiffLine } from "../messages/parseDiff";
-import { toSplitRows, toUnifiedRows } from "./diffRows";
+import { lineNumberDigits, toSplitRows, toUnifiedRows } from "./diffRows";
 import type { SplitRow, UnifiedRow } from "./diffRows";
 import type { DiffView } from "./diffViewPrefs";
 import { languageForPath } from "./diffLanguage";
@@ -15,6 +16,12 @@ import type { ChangedFile } from "./types";
 /** Token spans per line, keyed by the line itself: both row builders hand back
  *  the same objects the parser produced, so one lookup serves either view. */
 type HighlightMap = Map<ParsedDiffLine, HighlightSpan[]>;
+
+/** The digits every number cell of the file makes room for, as the style
+ *  of its diff: the stylesheet sizes `.dv-num` from it. */
+function gutterStyle(digits: number): CSSProperties {
+  return { "--dv-num-digits": String(digits) } as CSSProperties;
+}
 
 /** A line number cell; blank on the side a line does not exist. */
 function LineNo({ value }: { value: number | null }) {
@@ -47,12 +54,14 @@ function CodeCell({
 function UnifiedBody({
   rows,
   highlight,
+  digits,
 }: {
   rows: UnifiedRow[];
   highlight: HighlightMap;
+  digits: number;
 }) {
   return (
-    <div className="dv-diff dv-diff--unified">
+    <div className="dv-diff dv-diff--unified" style={gutterStyle(digits)}>
       {rows.map((row, i) =>
         row.kind === "gap" ? (
           <div key={`gap-${i}`} className="dv-gap" aria-hidden="true" />
@@ -94,12 +103,14 @@ function SplitSide({
 function SplitBody({
   rows,
   highlight,
+  digits,
 }: {
   rows: SplitRow[];
   highlight: HighlightMap;
+  digits: number;
 }) {
   return (
-    <div className="dv-diff dv-diff--split">
+    <div className="dv-diff dv-diff--split" style={gutterStyle(digits)}>
       {rows.map((row, i) =>
         row.kind === "gap" ? (
           <div key={`gap-${i}`} className="dv-gap" aria-hidden="true" />
@@ -160,7 +171,7 @@ export function DiffFileSection(props: {
         }
       }
     }
-    return { hunks, highlight };
+    return { hunks, highlight, digits: lineNumberDigits(hunks) };
   }, [props.patch, file.path]);
 
   const rows = useMemo(() => {
@@ -272,10 +283,18 @@ export function DiffFileSection(props: {
           ) : rows && parsed ? (
             <>
               {rows.unified ? (
-                <UnifiedBody rows={rows.unified} highlight={parsed.highlight} />
+                <UnifiedBody
+                  rows={rows.unified}
+                  highlight={parsed.highlight}
+                  digits={parsed.digits}
+                />
               ) : null}
               {rows.split ? (
-                <SplitBody rows={rows.split} highlight={parsed.highlight} />
+                <SplitBody
+                  rows={rows.split}
+                  highlight={parsed.highlight}
+                  digits={parsed.digits}
+                />
               ) : null}
               {file.truncated ? (
                 <div className="dv-note">{t("changes.truncated")}</div>

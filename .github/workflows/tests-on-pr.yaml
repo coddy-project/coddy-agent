@@ -25,10 +25,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: npm
@@ -59,10 +59,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -72,7 +72,7 @@ jobs:
       # through the real npx (features/mcp_tool_calls.feature,
       # examples/cli/cli_e2e_mcp_servers.py).
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: npm
@@ -186,10 +186,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -237,10 +237,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -248,7 +248,7 @@ jobs:
       # The MCP scenario of features/mcp_tool_calls.feature starts a server
       # through the real npx.
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
 
@@ -269,10 +269,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -293,16 +293,16 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: npm
@@ -335,14 +335,14 @@ jobs:
           done
 
       - name: Keep the arm64 archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coddy-android-arm64
           path: dist/coddy_android_arm64.tar.gz
           retention-days: 14
 
       - name: Keep the x86_64 archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coddy-android-amd64
           path: dist/coddy_android_amd64.tar.gz
@@ -356,10 +356,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -407,10 +407,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -444,10 +444,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -522,10 +522,13 @@ jobs:
   image:
     name: Docker image
     runs-on: ubuntu-latest
+    # A couple of minutes as a rule; a stalled build fails here instead of
+    # holding the pull request until GitHub's six-hour limit.
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Build the image for every platform the release pushes, check each binary
         run: scripts/check-image.sh --version "pr-$GITHUB_SHA"
@@ -537,18 +540,21 @@ jobs:
   docs:
     name: Documentation
     runs-on: ubuntu-latest
+    # A couple of minutes as a rule; a stalled step fails here instead of
+    # holding the pull request (a required check) until GitHub's six-hour limit.
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
 
@@ -573,10 +579,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -585,7 +591,7 @@ jobs:
         run: make fmt-check
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: npm
@@ -601,25 +607,25 @@ jobs:
           echo "no_ui=$(make -s print-lint-tags-no-ui)" >> "$GITHUB_OUTPUT"
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
           args: ./...
 
       - name: Run golangci-lint with every tag but ui
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
           args: --build-tags ${{ steps.tags.outputs.no_ui }} ./...
 
       - name: Run golangci-lint with the shipped tag set
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
           args: --build-tags ${{ steps.tags.outputs.full }} ./...
 
       - name: Run golangci-lint against the Windows build
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         env:
           GOOS: windows
         with:
@@ -627,7 +633,7 @@ jobs:
           args: ./...
 
       - name: Run golangci-lint with every tag but ui against the Windows build
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         env:
           GOOS: windows
         with:
@@ -635,7 +641,7 @@ jobs:
           args: --build-tags ${{ steps.tags.outputs.no_ui }} ./...
 
       - name: Run golangci-lint with the shipped tag set against the Windows build
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         env:
           GOOS: windows
         with:

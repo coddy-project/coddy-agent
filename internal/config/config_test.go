@@ -319,6 +319,14 @@ func TestMetricsPortOutOfRangeIsRefused(t *testing.T) {
 	}
 }
 
+// A scrape has to present the token when one is set, and only then.
+func TestMetricsHasToken(t *testing.T) {
+	var none *config.MetricsConfig
+	if none.HasToken() || (&config.MetricsConfig{}).HasToken() || !(&config.MetricsConfig{Token: "scrape-me"}).HasToken() {
+		t.Fatal("HasToken must be true for a set token alone, and false for a missing section")
+	}
+}
+
 // An exporter bound anywhere but this machine, with no token, answers whoever
 // can reach the port.
 func TestMetricsExposedWithoutToken(t *testing.T) {

@@ -506,6 +506,23 @@ class AdapterContractTest(unittest.TestCase):
     def test_no_codex_manual_index(self):
         self.assertFalse((ROOT / ".codex/rules.md").exists())
 
+    def test_paired_rule_bodies_are_identical(self):
+        # Cursor and Claude Code read the same policy from their own trees;
+        # only the frontmatter (globs or paths) may differ between a pair.
+        def body(path: Path) -> str:
+            text = path.read_text(encoding="utf-8")
+            if text.startswith("---\n"):
+                end = text.index("\n---\n", 4)
+                return text[end + len("\n---\n"):]
+            return text
+
+        cursor = {p.stem: p for p in (ROOT / ".cursor/rules").glob("*.mdc")}
+        claude = {p.stem: p for p in (ROOT / ".claude/rules").glob("*.md")}
+        self.assertEqual(sorted(cursor), sorted(claude))
+        for name in sorted(cursor):
+            with self.subTest(rule=name):
+                self.assertEqual(body(cursor[name]), body(claude[name]))
+
 
 if __name__ == "__main__":
     unittest.main()

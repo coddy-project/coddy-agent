@@ -151,7 +151,9 @@ httpserver:
 When `cors.enable` is true, preflight `OPTIONS` requests for an allowed origin return `204` with
 `Access-Control-Allow-Origin` (echoed origin, or `*` when configured), `Vary: Origin` and
 `Access-Control-Allow-Headers: Authorization, Content-Type, X-Coddy-Session-ID`; disallowed origins
-receive no CORS headers. An origin is allowed when `allowed_origins` names it exactly, when
+receive no CORS headers. A request whose `Origin` is `null` (a sandboxed page, a `file://`
+page) is refused with `403` on every route but a canvas frame's address
+([Canvas](#canvas)). An origin is allowed when `allowed_origins` names it exactly, when
 `allowed_origins` holds `"*"`, or when `allow_loopback` is on and the origin is `http` or `https`
 with a loopback host - `localhost`, a `*.localhost` name, `127.0.0.0/8` or `[::1]` - on any port.
 The list is read first and in order, so a `"*"` in it answers `*` to every origin no entry names
@@ -234,6 +236,7 @@ header where the client can set one, since a query token reaches proxy access lo
 | GET | **`/coddy/workspace/files`** | Paginated workspace listing under session **cwd** (**`page`**, **`page_size`** required). Non-blank **case-insensitive** substring **`prefix`** on **`path_rel`**; omit or blank **`prefix`** yields empty **`items`**. **`dirs=true`** adds directory rows (**`kind`** **`dir`**, **`path_rel`** trailing **`/`**). JSON **`items[].name`**, **`items[].path_rel`**, **`items[].kind`** (**`file`** or **`dir`**), **`total`**, **`has_more`**. |
 | POST | **`/coddy/mentions/check`** | Which **`@`** mentions of a draft a sent prompt would attach, for the composer's highlight. Body **`{"text": "..."}`** (at most 256 KiB, else **`413`**); **`X-Coddy-Session-ID`** names the session it would be sent to, and the optional **`cwd`** query the folder of a new chat, as on **`/coddy/slash-commands`**. The resolver runs dry - a file is looked at and never read, a folder is not listed, a session is found and not summarised, a page is not fetched. JSON **`mentions[]`**, one per **`@`** token in document order (a token in a fenced block, an inline code span or a quoted line is prose and left out): **`token`**, the whole token; **`typed`**, the part that resolves (**`@src/a.go`** of **`@src/a.go b.go`**); **`kind`** (**`file`**, **`directory`**, **`session`**, **`rule`**, **`agent`**, **`plan`**, **`url`**, **`doc`**). **`typed`** and **`kind`** are absent for a token that names nothing, such as **`@google/genai`** in **`npm install @google/genai`**. **`400`** for a broken body. |
 | GET | **`/coddy/info`** | Which build serves this API, and where: **`{"object":"coddy.info","version":...,"hostname":...,"permissionMode":...,"toolsets":[...]}`**. **`toolsets`** names the **`toolsets[]`** presets of the configuration, empty without one: the start screen offers a toolset chip only while there is one and sends a pick with the first message as **`metadata.toolset`** ([Toolsets](../getting-started/configuration.md#toolsets)). **`version`** is the string **`coddy -v`** prints; **`hostname`** is the machine's host name (empty when the system does not say); **`permissionMode`** is the permission mode a new session starts under: the one chosen last on any surface, kept in **`${CODDY_HOME}/permission-mode.json`** (**`ask`**, **`accept_edits`** or **`bypass`**; **`ask`** until one is chosen), the same value every settings snapshot reports as **`configuredPermissionMode`**. The web UI shows the version at the right of the start screen's footer, for the server the page is talking to (the local one, a remote, a node reached through a relay), and names the machine the page runs on by its host name on the swarm map, where the connection to a relay starts. Its start screen, which has no session to read a snapshot from, shows **`permissionMode`** on the permission chip and sends a mode picked there with the first message as **`/permissions <mode>`** whenever it differs from that value; it reads the route again after every **`config_reloaded`** event and every reconnect of **`GET /coddy/events`**, and takes **`configuredPermissionMode`** from every newer **`event: session_settings`**, whichever session it is about. |
+| GET | **`/coddy/status`** | What this `coddy serve` process is and what needs attention, as one document built from the running process on each request: the build, how it was started, the subsystems and their addresses, turns, waiting prompts and background tasks, the sessions disk, **`attention`**, and with the **`metrics`** tag the last hour of the provider series. It backs **Settings → System** ([System](../surfaces/web-ui.md#system-settings-tab)); the members, units and codes are under [System status](#system-status). **`404`** from a server older than the route. |
 | GET | **`/coddy/docs`** | The contents of the documentation built into the binary ([Built-in documentation](../features/built-in-docs.md)): **`version`** (the binary's) and **`groups[]`** of **`docs/nav.yaml`**, each with **`id`**, **`title`**, **`summary`** and **`pages[]`** (**`slug`**, **`title`**, **`summary`**). A **`slug`** is the page's path under **`docs/`** without **`.md`**, the same in every language. No site is contacted. Optional **`lang`** on this route and the two below (**`ru`**, any spelling of a locale such as **`ru_RU.UTF-8`**) answers from the Russian translation; none, or a language without a translation, is English, and **`lang`** in the response names the language served. |
 | GET | **`/coddy/docs/page`** | One page. **`ref`** (required) takes a slug, a path with or without **`docs/`** and **`.md`**, a **`coddy:`** link, an **`@coddy:`** mention, a **`coddy.dev/docs`** address, a file name one page has or a title, optionally with **`#section`**. JSON **`slug`**, **`title`**, **`summary`**, **`group`** (**`id`**, **`title`**), **`anchor`** (the section **`ref`** named, else empty), **`markdown`** (links to other pages rewritten to **`coddy:<slug>#<anchor>`**, images and repository files to GitHub at the release tag), **`headings[]`** (**`level`**, **`text`**, **`anchor`**), **`prev`** and **`next`** (**`slug`**, **`title`**, or null), **`url`** (the public address, **`coddy.dev/ru/docs/<slug>`** for a Russian page), **`lang`** (the language of the text: English for a page the translation lacks). A section's **`anchor`** is the one GitHub gives its English heading, in both languages: a Russian page answers to it (and **`ref`** may also name the anchor of its Russian heading), and its **`headings[]`** carry the Russian text under the shared anchor. **`400`** without **`ref`**; **`404`** for a page or a section that does not exist, naming the closest pages or the page's sections. |
 | GET | **`/coddy/docs/search`** | Sections of the documentation in **`lang`** ranked against **`q`** with BM25 over the page title, the section heading and the text, after stemming (English, and Snowball for Russian words, **`ё`** read as **`е`**); a word of three letters or more also finds the words it begins; at most three sections per page. Optional **`limit`** (1 to 50, default 10). JSON **`query`**, **`version`**, **`lang`**, **`hits[]`** (**`slug`**, **`title`**, **`group`**, **`anchor`** and **`heading`** unless the hit is the part above the first section, **`snippet[]`** of **`text`** fragments with **`hit`** on the matched words). An empty **`q`** answers no hits; **`400`** for a bad **`limit`**. |
@@ -296,6 +299,7 @@ header where the client can set one, since a query token reaches proxy access lo
 | GET | **`/coddy/sessions/{id}/changes`** | What git reports for the session's folder: every tracked file that differs from **`HEAD`**, staged or not, and every new file git does not ignore, whoever made the change. Nothing is recorded per turn. When the session runs in a subfolder of a repository only that subfolder is reported, by paths relative to it. Without the **`git`** binary on PATH the server answers through its built-in implementation (go-git), which detects no renames: a staged rename reads as a deletion plus an addition. JSON **`{"object":"coddy.session_changes","sessionId","vcs","files":[{"path","status","additions","deletions","binary","truncated"}],"totals":{"files","additions","deletions"},"skipped"}`** with **`status`** one of **`added`** / **`modified`** / **`deleted`**. **`vcs`** is **`git`**, or empty when the folder is in no repository, and the set is then empty. New files are read up to 500 of them and 2 MB each, regular files only; **`skipped`** counts the ones left out, a symbolic link and a repository nested in the folder (one entry, never read) included. In a repository with no commit yet, every file of the index is an addition. A **`binary`** file carries no line counts and no patch. **`?include=patch`** adds the unified diff, **`?include=content`** the decoded **`before`** (at **`HEAD`**) / **`after`** (in the working copy) sides, and the two combine comma-separated. A patch cut short at 256 KB sets **`truncated`** while the line counts still describe the whole file. |
 | GET | **`/coddy/sessions/{id}/changes/file?path=`** | One file of the same set, always with **`patch`**, **`before`** and **`after`**; only that file is read. **`path`** is matched against what git reports, never resolved on disk, so an unchanged, ignored, unknown or traversing path is **`404`**; either separator names the same file. A missing **`path`** is **`400`**. |
 | POST | **`/coddy/sessions/{id}/changes/revert`** | Discards uncommitted changes of the session's folder through git. The body says what it means: **`{"paths":[...]}`** (at least one path, as the list gives them) or **`{"all":true}`**; an empty, malformed or ambiguous body - both keys, an empty or null list, an unknown key, anything after the object - is **`400`** and nothing is discarded. **`all`** also clears index entries that differ from **`HEAD`** where the disk does not (a staged edit written back, a staged new file deleted since). A tracked file gets its content and index entry from **`HEAD`** back; a file **`HEAD`** does not hold (new, or only added to the index) is deleted, with any folder it leaves empty; a rename brings the old file back and deletes the new one. Files git ignores and nested repositories are never touched. A path git does not report (committed or put back meanwhile) is **`409`** and nothing of the request is applied; a folder in no repository is **`400`**; a turn running in the session, or in any other session whose folder is this one or lies inside or around it, is **`409`**, and the discard holds the session turn lock. A **`session_changes`** event follows on **`GET /coddy/events`**. JSON **`{"object":"coddy.session_changes_reverted","sessionId","at"}`**. |
+| GET | **`/coddy/sessions/{id}/worktree`** | The linked git worktree the session works in and what removing it would touch, which the web UI reads before it asks whether to keep the worktree or remove it; changes nothing. JSON **`{"object":"coddy.session_worktree","sessionId","in_worktree","path","branch","main_checkout","managed","uncommitted","unpushed","loose_commit","locked","submodules","nested","other_sessions":[{"id","title"}],"running_tasks","removable","needs_discard","refusal"}`**. **`in_worktree`** is false in the main checkout and outside git. **`uncommitted`** counts changed, staged and untracked entries, **`unpushed`** the commits no remote branch holds, **`loose_commit`** names a commit no branch, remote branch or tag holds. **`removable`** says whether the worktree can be removed now, **`needs_discard`** whether only by discarding its uncommitted work (kept as a snapshot under **`refs/coddy/worktree-snapshots/`**), and **`refusal`** why not: a worktree Coddy did not open, a lock, loose commits, initialised submodules, **`nested`** git repositories of their own among its untracked folders, **`other_sessions`** of this process working in it, or **`running_tasks`** of any session there. The same checks refuse **`worktree_exit`** with **`action: remove`** and **`/worktree exit --remove`**. |
 | GET/PUT | **`/coddy/sessions/{id}/plan`** | Read or overwrite todo **`entries`** (ACP shape). |
 | POST | **`/coddy/sessions/{id}/plan/archive`** | Archives active todos like **`coddy_todo_plan_archive`**. |
 | GET/POST | **`/coddy/sessions/{id}/plans`** | List or create design plan files **`plans/<slug>.plan.md`** (bundled UI; not core ACP). |
@@ -303,6 +307,65 @@ header where the client can set one, since a query token reaches proxy access lo
 | PATCH | **`/coddy/sessions/{id}/plans/{slug}`** | Body **`{"runPlan":true}`** runs **`RunPlan`** (sync), which switches the session to **`agent`** mode. Prefer **`POST /v1/responses`** with **`metadata.runPlanSlug`** for streaming. **`409`** while the session is in **`ask`** mode (read-only: switch the mode first, then run); the same request through **`metadata.runPlanSlug`** or an **`@plans/...`** mention is refused or read-only the same way. **`409`** also for a child session spawned by **`spawn_agent`** (read-only transcript). |
 
 After **`PUT`** **`/coddy/config`**, the next **`agent`**, **`plan`**, or **`ask`** turn uses the updated **`models`**, **`tools`**, and other fields from the swapped in-memory config. A changed **`mcp.project_trust`** is applied to idle active sessions before the save response completes and to future sessions; a session running a turn is reconnected when that turn ends. A reconnect that runs past the save's deadline leaves that session on the servers it already has and retries on its next turn, so one hanging server cannot strip the others.
+
+### System status
+
+**`GET /coddy/status`** answers **`200 application/json`** with one document the server builds from the running process on each request. It sits behind the **`/coddy`** gate like every route ([Authentication](#authentication-optional)): the API's credential opens it, the exporter's metrics token does not, and the API's credential does not open **`/metrics`** ([Monitoring](../operate/monitoring.md#the-system-page)). Reading it starts no outbound request: no provider, bot API or MCP server is asked. A relay mount carries it unchanged (**`/swarm/nodes/<id>/coddy/status`**), and **`404`** means a server older than the route.
+
+```json
+{"object": "coddy.status", "generatedAt": "2026-10-15T10:00:00Z",
+ "build": {"version": "1.3.12", "revision": "050fbbbf", "goVersion": "go1.26.9",
+           "os": "linux", "arch": "arm64", "tags": ["cli", "gateway", "http", "metrics"]},
+ "process": {"startedAt": "2026-10-15T09:00:00Z", "startedBy": "systemd", "configFile": "~/.coddy/config.yaml"},
+ "subsystems": [
+   {"kind": "httpserver", "state": "running", "address": "127.0.0.1:12345", "pendingAddress": "0.0.0.0:12345"},
+   {"kind": "metrics", "state": "running", "address": "127.0.0.1:12347", "credential": "token"}],
+ "restartRequired": true,
+ "turns": {"running": 2, "oldestSeconds": 340},
+ "prompts": {"permission": 1, "question": 2},
+ "tasks": {"agent": {"running": 1}, "command": {"queued": 1}},
+ "disk": {"availableBytes": 398458880, "sizeBytes": 250000000000},
+ "attention": [{"code": "restart_required"}, {"code": "disk_low"},
+               {"code": "swarm_join_down", "relay": "relay.example:12346", "offlineSince": "2026-10-15T09:48:00Z"}],
+ "metrics": {
+   "providers": [{"name": "local-mlx", "attempts": 1204, "failures": 4, "meanSeconds": 6.1,
+                  "lastFailureAt": "2026-10-15T09:58:00Z", "lastOkAt": "2026-10-15T09:59:45Z"}],
+   "series": {"stepSeconds": 15, "end": "2026-10-15T10:00:00Z", "attemptsOk": [null, 3.0],
+              "providerErrors": [null, 0.0], "attemptSecondsMean": [null, 5.8], "tokensIn": [null, 38000.0],
+              "tokensOut": [null, 2100.0], "turnsRunning": [1, 2], "tasksUnfinished": [3, 3]}}}
+```
+
+Each series holds 240 points in the real document, shortened here. Members are camelCase, as in **`/coddy/info`**. An optional member is left out when it is empty, false or zero, never sent as zero, so a missing member means none or not measured.
+
+| Member | Present | Meaning |
+|--------|---------|---------|
+| **`object`**, **`generatedAt`** | always | **`coddy.status`**, and when the server built the document (RFC 3339, UTC). |
+| **`build`** | always | **`version`** (what **`coddy -v`** prints), **`goVersion`**, **`os`**, **`arch`**; **`revision`** and **`tags`** (the build tags) when the binary knows them. |
+| **`process`** | always | **`startedAt`**; **`startedBy`**: **`systemd`** (**`CODDY_SERVE_ROLE=service`**), **`daemon`** (the worker of **`coddy serve --daemon`**) or **`foreground`**, read once at start; **`configFile`**, the loaded file with the OS home folder (not **`CODDY_HOME`**) written **`~`**. |
+| **`subsystems`** | always, possibly empty | A row for each subsystem the configuration enables or the process still runs, in declaration order: **`kind`**; **`state`** (**`running`**, **`starting`**, **`stopped`**, **`retained`**); **`address`** of a listener that runs; **`pendingAddress`** when the saved address differs; **`credential`** (**`token`** or **`none`**) on the **`metrics`** row only, never the token. |
+| **`restartRequired`** | only **`true`** | A saved change waits for a restart nothing will do by itself (the condition behind **`coddy_restart_required`**): a listen address that moved, which the row's **`pendingAddress`** names, or a surface that runs turns enabled in a process started without a session store. |
+| **`restartRefused`** | when set | Why a supervised process would not restart into the saved configuration: the message of the check a fresh process runs, which refuses it. |
+| **`turns`** | always | **`running`**, the sessions with a turn running; **`oldestSeconds`**, the age of the longest, only while one runs. |
+| **`prompts`** | when not empty | Prompts waiting for a person to answer: **`permission`** and **`question`**, each present only above zero; absent when both are zero. |
+| **`tasks`** | when not empty | Unfinished background tasks of the model by kind (**`command`**, **`agent`**, **`server`**) and status (**`queued`**, **`running`**). |
+| **`disk`** | when read | **`availableBytes`** and **`sizeBytes`** of the disk that holds the sessions. |
+| **`unavailable`** | when not empty | Blocks that could not be read: today **`"disk"`**, when the read failed or the platform has none while a session store exists. |
+| **`attention`** | when not empty | What needs a person, in the order of the table below. |
+| **`metrics`** | with the **`metrics`** tag | Whether or not **`metrics.enable`** is set; absent from a binary built without the tag. **`providers`**: **`name`**, **`attempts`** and **`failures`** (the four outcomes **`CoddyProviderFailing`** counts) since start, **`meanSeconds`** only once there is an attempt, **`lastFailureAt`** and **`lastOkAt`** (the 15 second sample in which the totals last rose). **`series`**: **`stepSeconds`** (15), **`end`**, and seven arrays of exactly 240 points, oldest first, the last at **`end`**; **`null`** is a gap. **`attemptsOk`**, **`providerErrors`**, **`tokensIn`** and **`tokensOut`** are per minute, **`attemptSecondsMean`** is in seconds, **`turnsRunning`** and **`tasksUnfinished`** are gauges. A sampler fills them every 15 seconds from the exporter's own counters; they live in memory for one hour and start empty after a restart. |
+
+An **`attention`** item is **`{"code": ...}`**, plus **`subsystem`**, **`provider`** or **`relay`** with **`offlineSince`** where it names one:
+
+| Code | Raised when |
+|------|-------------|
+| **`restart_required`** | **`restartRequired`** is set. |
+| **`disk_low`** | The sessions disk has under 512 MiB free (a fixed value, the one **`CoddyDiskLow`** uses); the web UI words zero as **Disk full**. |
+| **`subsystem_down`** | A row is **`stopped`** (never while **`starting`**), the exporter included when it failed alone; carries **`subsystem`**. |
+| **`provider_failing`** | Only with **`metrics`**: in the last 15 minutes a sample in which the provider's failures rose, and no success since; carries **`provider`**. |
+| **`swarm_join_down`** | A registration of this process into a parent relay (**`swarm.join`**) has been offline for 5 minutes, the condition of **`CoddySwarmJoinDown`**; one item for each relay host, with **`relay`** and **`offlineSince`** (RFC 3339, UTC). The time a registration yields to a relay of the same process does not count. |
+
+The list is ordered **`restart_required`**, **`disk_low`**, **`subsystem_down`** (row order), **`provider_failing`** (provider name order), **`swarm_join_down`** (relay host order). The number on the Settings badge is its length: the browser applies no rule of its own.
+
+The document carries one path, **`process.configFile`**. It carries no session id or title, workspace folder, prompt, tool argument, error text, chat id, user name or token: only build facts, counts, durations, the addresses the process listens on and provider names and relay hosts from the configuration, which are the ones **`/metrics`** admits as labels.
 
 ### Stop and queue control snapshots
 
@@ -447,3 +510,65 @@ rotating that credential invalidates outstanding URLs. An unauthenticated server
 uses a random per-process key. No API credential is placed in a media URL. CORS
 allows HEAD, Range and If-None-Match and exposes Content-Range, Accept-Ranges, ETag
 and Content-Disposition.
+
+## Canvas
+
+The routes of a chat's [canvases](../features/canvas.md): `.canvas` files of the session's workspace
+(JSON Canvas 1.0, the format of Obsidian's canvases) whose file nodes naming HTML pages run as live
+frames. A subagent's id acts on the canvas of the top session of its spawn tree. Every route names its
+file with the `file` query, relative to the workspace, a `.canvas` file outside dot-named folders
+(`400` otherwise); `GET .../canvas` and `POST .../canvas/frames` take none and act on the chat's
+current canvas: the file a page was last shown on or opened. Every route answers `404` while
+`tools.canvas.enable` is false, and `409` for a session that is not saved.
+
+| Method | Route | Contract |
+|---|---|---|
+| GET | `/coddy/sessions/{id}/canvas` | A canvas as the board: `session_id`, `file`, `current` (whether it is the chat's current canvas), `revision`, `stamp` (moves when the file changes, whoever changed it; `missing` when it is gone), `error` (why it cannot be read; nothing of it is shown then), `frames[]`, `items[]`, `edges[]`. A frame carries `id` (its node's), `path`, `root`, `title`, `device`, `width`, `height`, `x`, `y`, `added_by`, `gen`, `stamp` (a digest of the names, sizes and times of the files under its root, which moves when they change), `url` (its address relative to the API base, signed now) with `expires_at`, and `report`, the counts of the newest browser report. `items[]` are its other nodes (`id`, `type` - `text`, `file`, `link` or `group` - `x`, `y`, `width`, `height`, `color`, `text`, `file`, `url`, `label`, and `note` for a page that does not run), `edges[]` its lines (`id`, `fromNode`, `fromSide`, `fromEnd`, `toNode`, `toSide`, `toEnd`, `color`, `label`), read from the file on every request. Without `file` the current canvas, or an answer with an empty `file` while the chat has none. Reading writes nothing. `Cache-Control: no-store`. |
+| POST | `/coddy/sessions/{id}/canvas/open` | Makes the `file` the chat's current canvas, the one pages shown without a file go on; the web UI calls it when the person opens the file. Writes nothing to the file; `400` for one that is missing or does not parse. Answers the board. |
+| POST | `/coddy/sessions/{id}/canvas/frames` | Puts a page on a canvas: `{"path","root","title","device","width","height"}`, the page relative to the workspace, as a file node of the `file`, or of the current canvas, or of a new `canvas/<page folder>.canvas` (numbered when the name is taken) while the chat has none. The same page at the same size is one frame (`reason: shown`); past 24 frames `409`. Answers `reason`, `file`, `created` (the file was made for it), `frame`, `revision`. |
+| DELETE | `/coddy/sessions/{id}/canvas/frames/{frame}` | Takes a frame off the canvas: its node and the edges at it leave the file, the page's files stay, every address of the frame stops working. |
+| POST | `/coddy/sessions/{id}/canvas/frames/{frame}/rotate` | Moves the frame to its next generation, so every address handed out before stops working; the web UI calls it when the page navigated away from the canvas. Answers the frame with its new address. The file is not written. |
+| POST | `/coddy/sessions/{id}/canvas/frames/{frame}/report` | What the browser saw: `stamp` (the files it loaded), `loaded`, `closed`, `error`, `title`, `console[]` (`level` `error` or `warning`, `message`, `source`, `line`, `column`). Kept in memory, the newest per frame of a file, at most 20 lines of at most 1,000 characters; `canvas_inspect` reads it. `204`. |
+| PATCH | `/coddy/sessions/{id}/canvas/nodes` | Moves or resizes nodes in one change: `{"nodes":[{"id","x","y","width","height","device"}]}`, frames (by a size or a `device`) and cards, links and groups, at most 500, written to the file once. All of them or none: an id the file does not hold is `404`. |
+| GET / HEAD | `/coddy/canvas/{capability}/{path}` | A file of a frame, `path` relative to its root; `.coddy/bridge.js` is the bridge script. |
+
+Writes keep every node, edge and key they do not change, the keys Coddy does not know and their order
+included, and write the file byte for byte as Obsidian 1.14 does: a node of plain values on one line,
+one holding an object one key a line, a node Coddy changed in Obsidian's key order, characters escaped
+as `JSON.stringify` escapes them, the file ending where it ended. A frame's device and title go under
+a `coddy` key of its node; a node Coddy did not move keeps its own numbers. A root wider than the
+page's folder, the generation behind a frame's address and the current canvas are kept in the session
+bundle (`canvas.json`), never in the file, so a file cannot widen what its pages read. One file's
+read-modify-write is one turn across chats, and a node deleted in the file since it was read stays
+deleted.
+
+Every change made through the canvas is announced on `GET /coddy/events` as `event: canvas_changed`
+with `{"object":"coddy.canvas_changed","sessionId","file","revision","frameId","reason","at"}`;
+`reason` is `added`, `shown`, `updated`, `removed` or `opened`.
+
+**A frame's address.** `/coddy/canvas/<capability>/<page>` is authenticated by the capability in its
+path alone: no bearer, no cookie, so it loads in an iframe of any origin, through a remote server
+and through a swarm relay alike. The capability is an HMAC over the session, the `.canvas` file, the
+frame, its workspace, its root, its generation and an expiry of 12 hours, signed with a key derived for the
+canvas from the secret behind media tokens, so a media token never passes for a frame address. It is
+valid while the file holds the frame at that generation with that root, in the session's working
+directory; a removed, repointed or rotated frame, and a session that moved to another folder, answer
+`401`. Files are served through `os.Root` with no symbolic link
+on the way and the opened file checked to be the one walked to: `GET` and `HEAD` only, no
+dot-named path, a folder's `index.html` (with a `301` to add a missing slash), never a listing.
+
+Every answer of the route carries:
+
+- `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals; default-src 'self' data: blob: 'unsafe-inline' 'unsafe-eval' <sources>; connect-src 'self' <sources>; form-action 'none'; base-uri 'self'; frame-ancestors *`, the sources being the CDNs of `tools.canvas.allow_cdn` and `tools.canvas.allowed_sources`;
+- `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`;
+- `Access-Control-Allow-Origin: *`, since the page's own module scripts and fetches come from an opaque origin; a preflight `OPTIONS` of the route is answered the same way.
+
+An HTML page gets the bridge script and a `<meta name="referrer" content="no-referrer">` at the
+start of its head. A page is at most 10 MB: `canvas_show` and `POST .../canvas/frames` refuse a larger
+one, and one that grew past it is answered with `413` and a short page, with the bridge, that says so.
+
+**Opaque origins.** Every other route refuses a request whose `Origin` header is `null` with `403`,
+before authentication and whatever credential it carries: a sandboxed page sends `Origin: null`, and
+neither a bearer it read from a file nor a relay's substituted credential may let it drive the
+server. A client that sends `Origin: null` by itself (a `file://` page) is refused the same way; one
+that sends no `Origin` is not affected.

@@ -339,8 +339,7 @@ func (r *Registry) DetachTransport(name string, t NodeTransport) {
 	if !ok || l.transport != t {
 		return
 	}
-	l.closeTransportLocked()
-	l.expiresAt = r.now()
+	l.offlineLocked(r.now())
 }
 
 // CloseTransports closes every tunnel the registry holds. A tunnel is a
@@ -457,8 +456,7 @@ func (r *Registry) reapLocked() {
 			if l.transport != nil && l.transport.Alive() {
 				continue
 			}
-			l.closeTransportLocked()
-			l.expiresAt = now
+			l.offlineLocked(now)
 			continue
 		}
 		if now.After(l.expiresAt.Add(r.grace)) {
@@ -466,6 +464,16 @@ func (r *Registry) reapLocked() {
 			delete(r.nodes, name)
 		}
 	}
+}
+
+// offlineLocked puts a tunnel lease whose connection went away on the clock:
+// offline from now, kept through the grace period. The connection was the
+// lease's liveness signal, so the node was last seen when it ended, not when it
+// registered.
+func (l *lease) offlineLocked(now time.Time) {
+	l.closeTransportLocked()
+	l.expiresAt = now
+	l.info.LastSeen = now.UTC().Format(time.RFC3339)
 }
 
 func (l *lease) onlineAt(now time.Time) bool {

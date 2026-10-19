@@ -124,7 +124,9 @@ func TestAgentPromptUsesWorktreeTool(t *testing.T) {
 		t.Fatalf("Render agent: %v", err)
 	}
 	for _, want := range []string{
-		"worktree_create",
+		"worktree_open",
+		"worktree_list",
+		"worktree_exit",
 		".coddy/worktrees",
 		"main checkout",
 		"default branch",

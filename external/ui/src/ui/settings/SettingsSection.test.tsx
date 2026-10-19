@@ -37,6 +37,7 @@ import {
   landmarkAnchor,
   type SectionDescriptor,
 } from "./settingsSections";
+import { fakeStatus } from "./systemStatus.fakes";
 import { initLocale, setLocale, translate } from "../i18n/i18n";
 import { messagesEn } from "../i18n/messages/en";
 import { messagesRu } from "../i18n/messages/ru";
@@ -2041,6 +2042,12 @@ describe("settings search index matches the drawing", () => {
       item: row,
     });
     await settled();
+    // The System tab is a chunk loaded on demand: its page is read once drawn.
+    await waitFor(
+      () =>
+        expect(document.querySelector("[data-settings-pending]")).toBeNull(),
+      { timeout: 10_000 },
+    );
     const page = {
       section,
       row,
@@ -2108,6 +2115,51 @@ describe("settings search index matches the drawing", () => {
       "models/demo/llama-3",
     ]);
   }, 240_000);
+
+  // The System tab draws four blocks whatever the server answers, and the
+  // charts and the provider rows (which the build decides) have no anchor.
+  test("the System tab draws exactly the anchors the index holds, with and without the metrics block and with no document at all", async () => {
+    const index = indexFor(AGENT_EN);
+    const expected = entriesOf(index, "status", null);
+    expect(expected.map((e) => e.anchor)).toEqual(
+      ["installation", "subsystems", "disk", "activity"].map((id) =>
+        landmarkAnchor("status", id),
+      ),
+    );
+    const answers = [
+      ["with metrics", { status: 200, body: fakeStatus() }],
+      [
+        "without metrics",
+        { status: 200, body: fakeStatus({ metrics: undefined }) },
+      ],
+      ["a server that does not report its status", { status: 404 }],
+    ] as const;
+    for (const [name, status] of answers) {
+      const view = await openSettings({
+        schema: AGENT_SCHEMA,
+        section: "status",
+        status,
+      });
+      await screen.findByTestId("system-section", {}, { timeout: 10_000 });
+      await settled();
+      const drawn = drawnBoxes(document.body);
+      expect(drawingDifferences(expected, drawn), name).toEqual({
+        anchors: [],
+        fields: [],
+        headings: [],
+      });
+      expect(
+        drawn.map((d) => d.anchor),
+        name,
+      ).toEqual(expected.map((e) => e.anchor));
+      expect(
+        legendsOutsideTheIndex(expected, drawnLegends(document.body)),
+        name,
+      ).toEqual([]);
+      expect(view.fetch.unexpected, name).toEqual([]);
+      view.unmount();
+    }
+  }, 60_000);
 
   test("each field box draws the same names and descriptions as its entry, in any order", async () => {
     for (const sc of SCENARIOS) {

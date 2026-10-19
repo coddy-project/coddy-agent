@@ -325,7 +325,9 @@ func TestPromptCacheInTurnFoldRewritesTheHistoryOnlyAtTheFold(t *testing.T) {
 	// The window is sized so that a fold keeps two steps (the aim leaves room for
 	// them beside the request's fixed overhead) and the trigger fires every few
 	// steps: the run folds several times, which is what makes the check mean
-	// something.
+	// something. The fixed overhead includes the definitions of every built-in
+	// tool, so a new tool can leave room for the latest step only: grow the
+	// window then, keeping at least two folds and multiple appends.
 	dirs := []string{}
 	tempDir := func() (string, error) {
 		d, err := os.MkdirTemp("", "coddy-pcache-inturn-*")

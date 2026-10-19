@@ -23,8 +23,8 @@ type SkillSummary struct {
 // BuiltinCommands returns the deterministic built-in slash commands (they run
 // without an LLM turn, unlike skills). Shared by the ACP available-commands
 // update and the HTTP /coddy/commands endpoint so both surfaces stay in sync.
-// compact is included only when compaction is enabled; export and plugin are
-// always present.
+// compact is included only when compaction is enabled; goal, export, plugin
+// and worktree are always present.
 func BuiltinCommands(compactionEnabled bool) []SkillSummary {
 	cmds := make([]SkillSummary, 0, 4)
 	if compactionEnabled {
@@ -44,6 +44,10 @@ func BuiltinCommands(compactionEnabled bool) []SkillSummary {
 	cmds = append(cmds, SkillSummary{
 		Name:        "plugin",
 		Description: "Manage skill plugins and marketplaces: marketplace list|add|remove|sync, install, remove, enable, disable",
+	})
+	cmds = append(cmds, SkillSummary{
+		Name:        "worktree",
+		Description: "Move the chat into a git worktree or back: /worktree <branch> [--from-head], /worktree exit [--remove [--force]], /worktree",
 	})
 	return cmds
 }
