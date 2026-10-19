@@ -190,6 +190,8 @@ export type ConsumeComposerSseResult = {
   ) => void;
   /** Id of the last (currently open) assistant text segment, for finalize/fill. */
   lastAssistantId: string;
+  /** Every row the stream wrote its answer into, in order (see assistantIds). */
+  assistantIds: string[];
 };
 
 export async function consumeComposerSseReader(
@@ -226,6 +228,11 @@ export async function consumeComposerSseReader(
   // `assistantSegmentDirty` means the next text delta must start a fresh one.
   const resuming = !!cursor && cursor.frames > 0;
   let currentAssistantId = resuming ? cursor.assistantId : assistantId;
+  // Every row this stream wrote its answer into: an answer whose text and
+  // reasoning interleave (an ACP agent thinking between two parts of one
+  // answer) is a row per part. Once the persisted message replaces them it
+  // carries the id of one of them, which the end of the turn looks for.
+  const assistantIds = new Set<string>();
   let assistantSegmentDirty = resuming ? cursor.segmentDirty : false;
 
   const toolQueue: Array<
@@ -330,6 +337,7 @@ export async function consumeComposerSseReader(
   const ensureAssistant = (
     patch?: Partial<Extract<TranscriptItem, { type: "assistant_message" }>>,
   ) => {
+    assistantIds.add(currentAssistantId);
     applyStreamItems((prev) => {
       const idx = prev.findIndex(
         (x) => x.type === "assistant_message" && x.id === currentAssistantId,
@@ -1208,6 +1216,9 @@ export async function consumeComposerSseReader(
     ensureAssistant,
     get lastAssistantId() {
       return currentAssistantId;
+    },
+    get assistantIds() {
+      return [...assistantIds];
     },
   };
 }

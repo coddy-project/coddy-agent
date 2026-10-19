@@ -5154,6 +5154,7 @@ export function App() {
         finishThinking,
         ensureAssistant,
         lastAssistantId,
+        assistantIds,
       } = await consumeComposerSseReader({
         reader,
         dec,
@@ -5309,7 +5310,7 @@ export function App() {
       void loadSessionsList(true);
       let ok = transcriptHasFilledAssistant(
         streamShadowBySidRef.current.get(key) ?? [],
-        lastAssistantId,
+        [lastAssistantId, ...assistantIds],
       );
       if (!ok) ok = await syncAssistantFromServer();
       for (let i = 0; i < 10 && !ok; i++) {
@@ -5920,6 +5921,7 @@ export function App() {
         finishThinking,
         ensureAssistant,
         lastAssistantId,
+        assistantIds,
       } = await consumeComposerSseReader({
         reader,
         dec,
@@ -6069,14 +6071,19 @@ export function App() {
         } else {
           mergedForSyncProbe = sh ?? [];
         }
-        if (transcriptHasFilledAssistant(mergedForSyncProbe, assistantId)) {
+        if (
+          transcriptHasFilledAssistant(mergedForSyncProbe, [
+            assistantId,
+            ...assistantIds,
+          ])
+        ) {
           break;
         }
         await new Promise((r) => setTimeout(r, 16));
       }
       const localStreamingAssistantReady = transcriptHasFilledAssistant(
         mergedForSyncProbe,
-        assistantId,
+        [assistantId, ...assistantIds],
       );
       let ok = localStreamingAssistantReady;
       if (!ok) {
