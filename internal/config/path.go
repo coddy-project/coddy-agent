@@ -578,6 +578,12 @@ func configSecretPath(path []string) bool {
 	if len(path) >= 2 && strings.EqualFold(path[len(path)-2], "default_headers") {
 		return true
 	}
+	// The environment of an acp provider's agent holds whatever the agent
+	// reads, credentials named in any way among it (ANTHROPIC_AUTH_TOKEN,
+	// GITHUB_TOKEN): every value is kept from the model, the names stay.
+	if len(path) >= 3 && strings.EqualFold(path[len(path)-2], "env") && strings.EqualFold(path[len(path)-3], "acp") {
+		return true
+	}
 	last := strings.ToLower(strings.ReplaceAll(path[len(path)-1], "-", "_"))
 	// A key for a service of its own (tools.websearch.brave_api_key) is as much a
 	// credential as a provider's api_key.

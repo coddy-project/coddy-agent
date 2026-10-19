@@ -111,6 +111,9 @@ type ProviderJSON struct {
 	// UsageLimitsPanel keeps the three states of the YAML key: absent (on),
 	// true, false. omitempty leaves an unset switch out of the document.
 	UsageLimitsPanel *bool `json:"usage_limits_panel,omitempty"`
+	// ACP carries its own json tags (ACPProviderConfig), so the block keeps
+	// the YAML keys in the JSON document.
+	ACP *ACPProviderConfig `json:"acp,omitempty"`
 }
 
 // ModelJSON mirrors ModelEntry for JSON APIs.
@@ -753,6 +756,11 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	for _, p := range j.Providers {
 		pc := ProviderConfig(p)
 		pc.UsageLimitsPanel = cloneBoolPtr(p.UsageLimitsPanel)
+		// The settings form seeds every new row from the schema defaults, the
+		// acp block included: only an acp row keeps it.
+		if strings.TrimSpace(pc.Type) != "acp" {
+			pc.ACP = nil
+		}
 		cfg.Providers = append(cfg.Providers, pc)
 	}
 	for _, m := range j.Models {
