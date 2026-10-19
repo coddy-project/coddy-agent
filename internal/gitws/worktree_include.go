@@ -24,9 +24,12 @@ const WorktreeIncludeFile = ".worktreeinclude"
 // CopyWorktreeIncludes copies into the worktree at worktree the files of the
 // main checkout at main that WorktreeIncludeFile names and git ignores, and
 // returns their paths relative to the checkout, in slash form and sorted. A
-// file git tracks is never copied (the branch has its own), nor an untracked
-// file git does not ignore, a link, or a file the worktree already has. No
-// include file, or no git binary, copies nothing.
+// file is copied only when git ignores it in the worktree too, so a branch
+// whose .gitignore does not cover it (an older branch, an ignore rule not yet
+// committed) never gets a copy git would offer to commit. A file git tracks is
+// never copied (the branch has its own), nor an untracked file git does not
+// ignore, a link, or a file the worktree already has. No include file, or no
+// git binary, copies nothing.
 func CopyWorktreeIncludes(main, worktree string) ([]string, error) {
 	files, err := includedFiles(main, filepath.Join(main, WorktreeIncludeFile))
 	if err != nil || len(files) == 0 {
@@ -42,10 +45,22 @@ func CopyWorktreeIncludes(main, worktree string) ([]string, error) {
 		return nil, err
 	}
 	defer func() { _ = dst.Close() }()
+	// A path whose folder in the worktree is a link is never copied, and git
+	// refuses to judge one: it leaves before the worktree is asked.
+	var reachable []string
+	for _, rel := range files {
+		if realFolders(dst, filepath.Dir(filepath.FromSlash(rel))) {
+			reachable = append(reachable, rel)
+		}
+	}
+	if files, err = ignoredIn(worktree, reachable); err != nil || len(files) == 0 {
+		return nil, err
+	}
 	var copied []string
 	var errs []error
+	made := map[string]os.FileMode{}
 	for _, rel := range files {
-		ok, err := copyIncluded(src, dst, rel)
+		ok, err := copyIncluded(src, dst, rel, made)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", rel, err))
 			continue
@@ -54,8 +69,39 @@ func CopyWorktreeIncludes(main, worktree string) ([]string, error) {
 			copied = append(copied, rel)
 		}
 	}
+	// The folders the copy made were writable while it filled them; now they
+	// get the mode of their source folder, the deepest first.
+	folders := make([]string, 0, len(made))
+	for dir := range made {
+		folders = append(folders, dir)
+	}
+	sort.Slice(folders, func(i, j int) bool { return len(folders[i]) > len(folders[j]) })
+	for _, dir := range folders {
+		if err := dst.Chmod(dir, made[dir]); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", filepath.ToSlash(dir), err))
+		}
+	}
 	sort.Strings(copied)
 	return copied, errors.Join(errs...)
+}
+
+// realFolders reports whether every folder of dir that exists under root is
+// a real folder, not a link or a file.
+func realFolders(root *os.Root, dir string) bool {
+	if dir == "." || dir == "" {
+		return true
+	}
+	parts := strings.Split(dir, string(filepath.Separator))
+	for i := range parts {
+		fi, err := root.Lstat(filepath.Join(parts[:i+1]...))
+		if os.IsNotExist(err) {
+			return true
+		}
+		if err != nil || !fi.IsDir() {
+			return false
+		}
+	}
+	return true
 }
 
 // copyIncluded copies one regular file from src to dst under the same
@@ -64,7 +110,7 @@ func CopyWorktreeIncludes(main, worktree string) ([]string, error) {
 // folder is a link on either side (a link the branch tracks would carry the
 // copy somewhere git does not ignore it). Both roots keep every path inside
 // its checkout.
-func copyIncluded(src, dst *os.Root, rel string) (bool, error) {
+func copyIncluded(src, dst *os.Root, rel string, made map[string]os.FileMode) (bool, error) {
 	name := filepath.FromSlash(rel)
 	fi, err := src.Lstat(name)
 	if err != nil || !fi.Mode().IsRegular() {
@@ -73,7 +119,7 @@ func copyIncluded(src, dst *os.Root, rel string) (bool, error) {
 	if _, err := dst.Lstat(name); err == nil {
 		return false, nil
 	}
-	if ok, err := makeParents(src, dst, filepath.Dir(name)); !ok || err != nil {
+	if ok, err := makeParents(src, dst, filepath.Dir(name), made); !ok || err != nil {
 		return false, err
 	}
 	in, err := src.Open(name)
@@ -101,10 +147,12 @@ func copyIncluded(src, dst *os.Root, rel string) (bool, error) {
 }
 
 // makeParents makes sure every folder of dir, relative to both roots, is a
-// real folder in src and in dst, creating the ones dst lacks with the mode of
-// the folder in src (not through the umask: a private folder stays private).
-// It reports false when a folder is a link or no folder on either side.
-func makeParents(src, dst *os.Root, dir string) (bool, error) {
+// real folder in src and in dst, creating the ones dst lacks writable by the
+// owner (so their files can go in) and recording in made the mode of the
+// folder in src, which the caller sets once they are filled: a private folder
+// stays private, a read-only one read-only. It reports false when a folder is
+// a link or no folder on either side.
+func makeParents(src, dst *os.Root, dir string, made map[string]os.FileMode) (bool, error) {
 	if dir == "." || dir == "" {
 		return true, nil
 	}
@@ -122,12 +170,13 @@ func makeParents(src, dst *os.Root, dir string) (bool, error) {
 		case err == nil, !os.IsNotExist(err):
 			return false, nil
 		}
-		if err := dst.Mkdir(prefix, from.Mode().Perm()); err != nil {
+		if err := dst.Mkdir(prefix, 0o700); err != nil {
 			return false, err
 		}
-		if err := dst.Chmod(prefix, from.Mode().Perm()); err != nil {
+		if err := dst.Chmod(prefix, from.Mode().Perm()|0o700); err != nil {
 			return false, err
 		}
+		made[prefix] = from.Mode().Perm()
 	}
 	return true, nil
 }
@@ -158,10 +207,17 @@ func includedFiles(dir, include string) ([]string, error) {
 		}
 		candidates = append(candidates, rel)
 	}
-	if len(candidates) == 0 {
+	return ignoredIn(dir, candidates)
+}
+
+// ignoredIn keeps of rels, paths relative to the checkout at dir in slash
+// form, those git ignores there (a file the index holds is not ignored), in
+// slash form and sorted. The paths need not exist.
+func ignoredIn(dir string, rels []string) ([]string, error) {
+	if len(rels) == 0 {
 		return nil, nil
 	}
-	ignored, code, err := runGitStdin(dir, []byte(strings.Join(candidates, "\x00")+"\x00"), "check-ignore", "--stdin", "-z")
+	ignored, code, err := runGitStdin(dir, []byte(strings.Join(rels, "\x00")+"\x00"), "check-ignore", "--stdin", "-z")
 	if err != nil && code != 1 { // 1: none of them is ignored
 		return nil, fmt.Errorf("check which files git ignores: %w", err)
 	}

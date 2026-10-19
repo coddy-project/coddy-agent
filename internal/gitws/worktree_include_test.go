@@ -17,6 +17,8 @@ func TestANewWorktreeGetsTheIgnoredFilesTheIncludeFileNames(t *testing.T) {
 	main := initRepo(t)
 	commitFile(t, main, ".gitignore", ".env\n.coddy/\nbuild/\nsecrets/\n")
 	commitFile(t, main, "README.md", "readme\n")
+	// The branch carries the ignore rules the main checkout has.
+	mustGit(t, main, "branch", "-f", "feature/login")
 	writeFile(t, main, ".worktreeinclude", "# what a new worktree needs\n.env\n.coddy/mcp.json\nsecrets/\nREADME.md\nnotes.txt\n")
 	writeFile(t, main, ".env", "TOKEN=local\n")
 	if err := os.Chmod(filepath.Join(main, ".env"), 0o600); err != nil {
@@ -122,6 +124,7 @@ func TestCopyWorktreeIncludesKeepsTheModePastTheUmask(t *testing.T) {
 	if err := os.Chmod(filepath.Join(main, ".env"), 0o660); err != nil {
 		t.Fatal(err)
 	}
+	mustGit(t, main, "branch", "-f", "feature/login")
 	wt := filepath.Join(WorktreesRoot(main), "feature-login")
 	mustGit(t, main, "worktree", "add", "-q", wt, "feature/login")
 	if _, err := CopyWorktreeIncludes(main, wt); err != nil {
@@ -205,5 +208,50 @@ func TestCopyWorktreeIncludesSkipsLinkedFoldersAndKeepsFolderModes(t *testing.T)
 	}
 	if fi, err := os.Stat(filepath.Join(wt, "private")); err != nil || fi.Mode().Perm() != 0o700 {
 		t.Fatalf("private/ mode = %v, %v; want the source's 0700", fi.Mode(), err)
+	}
+}
+
+// A branch whose .gitignore does not cover a file gets no copy of it: git
+// would show the copy as a new file there, one `git add -A` from a commit.
+func TestCopyWorktreeIncludesSkipsWhatTheBranchDoesNotIgnore(t *testing.T) {
+	main := initRepo(t) // feature/login is older than the ignore rule below
+	commitFile(t, main, ".gitignore", ".env\n.worktreeinclude\n")
+	writeFile(t, main, ".worktreeinclude", ".env\n")
+	writeFile(t, main, ".env", "TOKEN=secret\n")
+	opened, err := EnsureWorktreeDetailed(main, "feature/login", BaseDefault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(opened.Included) != 0 || opened.IncludeErr != nil {
+		t.Fatalf("opened = %+v, want nothing copied into a branch that does not ignore .env", opened)
+	}
+	if status := mustGit(t, opened.Path, "status", "--porcelain"); status != "" {
+		t.Fatalf("the worktree shows %q, want a clean status", status)
+	}
+}
+
+// A read-only folder is filled first and made read-only after.
+func TestCopyWorktreeIncludesFillsAReadOnlyFolder(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX mode bits")
+	}
+	main := initRepo(t)
+	commitFile(t, main, ".gitignore", "local/\n")
+	mustGit(t, main, "branch", "-f", "feature/login")
+	writeFile(t, main, ".worktreeinclude", "local/\n")
+	writeFile(t, main, "local/conf.txt", "conf\n")
+	if err := os.Chmod(filepath.Join(main, "local"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(main, "local"), 0o755) })
+	wt := filepath.Join(WorktreesRoot(main), "feature-login")
+	mustGit(t, main, "worktree", "add", "-q", wt, "feature/login")
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(wt, "local"), 0o755) })
+	included, err := CopyWorktreeIncludes(main, wt)
+	if err != nil || !slices.Equal(included, []string{"local/conf.txt"}) {
+		t.Fatalf("CopyWorktreeIncludes = %v, %v; want local/conf.txt", included, err)
+	}
+	if fi, err := os.Stat(filepath.Join(wt, "local")); err != nil || fi.Mode().Perm() != 0o555 {
+		t.Fatalf("local/ mode = %v, %v; want the source's 0555", fi.Mode(), err)
 	}
 }

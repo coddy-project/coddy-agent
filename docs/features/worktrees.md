@@ -194,7 +194,9 @@ secrets/
 The convention is Claude Code's, so a repository that has the file already
 works the same way in both. Only ignored files are copied: a file git tracks
 comes with the branch, and an untracked file git does not ignore stays out
-however a pattern names it. A copy keeps the file's mode (a `.env` readable only
+however a pattern names it. A file is copied only when the new worktree's branch
+ignores it too, so a branch older than the ignore rule gets no copy it could
+commit by accident. A copy keeps the file's mode (a `.env` readable only
 by you stays so) and never overwrites a file the worktree already has. Links
 are not copied, and neither is a file whose folder is a link in either
 checkout; a folder the copy makes gets the mode of the main checkout's folder. The copy happens when the worktree is created, by
