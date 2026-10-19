@@ -225,8 +225,7 @@ definitions:
   project server through the API or the UI drops its switches once the declaration is gone,
   so a later server of the same name starts from its own declaration, and a delete that
   fails leaves the server switched as it was. Deleting it from a linked git worktree's file
-  keeps them, since they belong to the project, which the main checkout still declares the
-  server in. While the file cannot be read, every project
+  keeps them, since they belong to the whole project. While the file cannot be read, every project
   server stays off and the global servers keep their own switches; `/mcp` and Settings
   name the file and the parse error instead of listing the servers until it is repaired.
   This file and `mcp-trust.json` are written under a lock that every process of the home

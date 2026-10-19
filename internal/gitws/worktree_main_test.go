@@ -175,3 +175,42 @@ func TestMainCheckoutFolderIsNoneForABareRepositoryNamedDotGit(t *testing.T) {
 		t.Fatalf("a worktree of a bare repository answered %q, want none", got)
 	}
 }
+
+// A .git that is a link to the .git file of a real worktree is not that
+// worktree: git reads only a regular .git file, and so does the lookup.
+func TestMainCheckoutFolderRefusesALinkedDotGitFile(t *testing.T) {
+	main := initRepo(t)
+	wt := filepath.Join(WorktreesRoot(main), "feature-login")
+	mustGit(t, main, "worktree", "add", "-q", wt, "feature/login")
+	impostor := t.TempDir()
+	if err := os.Symlink(filepath.Join(wt, ".git"), filepath.Join(impostor, ".git")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if got, ok := MainCheckoutFolder(impostor); ok {
+		t.Fatalf("a .git linked to a worktree's made %s answer %q, want none", impostor, got)
+	}
+}
+
+// A folder of a worktree whose counterpart in the main checkout lies in a
+// repository of its own nested there answers none: that repository is another
+// project.
+func TestMainCheckoutFolderStopsAtARepositoryNestedInTheMainCheckout(t *testing.T) {
+	main := initRepo(t)
+	nested := filepath.Join(main, "third_party", "tool")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, nested, "init", "-q")
+	wt := filepath.Join(WorktreesRoot(main), "feature-login")
+	mustGit(t, main, "worktree", "add", "-q", wt, "feature/login")
+	inWorktree := filepath.Join(wt, "third_party", "tool", "src")
+	if err := os.MkdirAll(inWorktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := MainCheckoutFolder(inWorktree); ok {
+		t.Fatalf("MainCheckoutFolder(%s) = %q inside a nested repository, want none", inWorktree, got)
+	}
+	if got, ok := MainCheckoutFolder(filepath.Join(wt, "third_party")); !ok || !samePath(got, filepath.Join(main, "third_party")) {
+		t.Fatalf("the folder above the nested repository = %q, %t; want the main checkout's", got, ok)
+	}
+}

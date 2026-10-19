@@ -44,8 +44,11 @@ new or changed item asks again" for free.
    this `.git` file): a `.git` file copied or written into another folder lends that folder
    nothing. The answer must stay inside the main checkout once links are resolved, so a folder the
    main checkout holds as a link elsewhere (committed, or shipped in an archive together with
-   storage of its own) answers nothing, and a repository whose config says `core.bare` has no main
-   checkout, its storage named `.git` or not. The main checkout, a plain folder, a nested
+   storage of its own) answers nothing, nor does one in a repository nested in the main checkout,
+   and a repository whose config says `core.bare` has no main checkout, its storage named `.git`
+   or not. Only regular files are read, each up to a small limit: a `.git` that is a link to a
+   file, a FIFO or a device is refused without being read, since a blocked read would hold every
+   trust decision of the process. The main checkout, a plain folder, a nested
    repository, a submodule and a worktree of a bare repository answer to themselves.
 2. **`mcp.TrustWorkspace(cwd)`** is that identity in canonical form (symlinks resolved), and every
    trust store keys its receipts by it inside the store: `Approved`, `Approve`, `Revoke` and the

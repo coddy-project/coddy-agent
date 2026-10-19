@@ -1,9 +1,18 @@
 package gitws
 
 import (
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+)
+
+// The most a pointer file (.git, commondir, gitdir) or a repository config is
+// read up to: git's own are a line, or a few kilobytes.
+const (
+	pointerFileLimit = 4 << 10
+	configFileLimit  = 1 << 20
 )
 
 // MainCheckoutFolder answers, for a folder inside a linked worktree, the same
@@ -14,7 +23,10 @@ import (
 // worktree: the main checkout itself, a plain folder, a repository of its own
 // nested in a checkout, a submodule, a worktree of a bare repository (its
 // storage named .git or not). The answer never leaves the main checkout: a
-// folder the main checkout holds as a link to somewhere else answers none.
+// folder the main checkout holds as a link to somewhere else, or one in a
+// repository nested there, answers none. Only regular files are read, each
+// up to a small limit, so a .git that is a link, a FIFO or a device never
+// blocks the caller.
 //
 // It reads files and never runs git, so a hot path (every trust decision)
 // may call it. A worktree counts only when git links it both ways: its .git
@@ -43,7 +55,7 @@ func MainCheckoutFolder(dir string) (string, bool) {
 		return "", false
 	}
 	common := filepath.Dir(filepath.Dir(gitDir))
-	if body, err := os.ReadFile(filepath.Join(gitDir, "commondir")); err == nil {
+	if body, err := readSmallFile(filepath.Join(gitDir, "commondir"), pointerFileLimit); err == nil {
 		named := strings.TrimSpace(string(body))
 		if !filepath.IsAbs(named) {
 			named = filepath.Join(gitDir, named)
@@ -59,7 +71,7 @@ func MainCheckoutFolder(dir string) (string, bool) {
 	if filepath.Base(common) != ".git" || isBare(common) {
 		return "", false
 	}
-	back, err := os.ReadFile(filepath.Join(gitDir, "gitdir"))
+	back, err := readSmallFile(filepath.Join(gitDir, "gitdir"), pointerFileLimit)
 	if err != nil {
 		return "", false
 	}
@@ -82,13 +94,51 @@ func MainCheckoutFolder(dir string) (string, bool) {
 	if !isInside(main, folder) {
 		return "", false
 	}
+	// Nor into a repository of its own nested in the main checkout: that is
+	// another project, with approvals of its own.
+	for d := folder; d != main; {
+		if _, err := os.Lstat(filepath.Join(d, ".git")); err == nil {
+			return "", false
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			break
+		}
+		d = parent
+	}
 	return folder, true
+}
+
+// readSmallFile reads a regular file of at most limit bytes. Anything else -
+// a link, a FIFO, a device, a file too large - is refused without being
+// opened for reading, so a lookup on a hot path never blocks or fills memory.
+func readSmallFile(path string, limit int64) ([]byte, error) {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	body, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > limit {
+		return nil, fmt.Errorf("%s is larger than %d bytes", path, limit)
+	}
+	return body, nil
 }
 
 // isBare reports whether the repository whose common dir is common says
 // core.bare = true in its config.
 func isBare(common string) bool {
-	body, err := os.ReadFile(filepath.Join(common, "config"))
+	body, err := readSmallFile(filepath.Join(common, "config"), configFileLimit)
 	if err != nil {
 		return false
 	}
@@ -104,7 +154,10 @@ func isBare(common string) bool {
 		}
 		key, value, ok := strings.Cut(line, "=")
 		if ok && strings.EqualFold(strings.TrimSpace(key), "bare") {
-			switch strings.ToLower(strings.TrimSpace(value)) {
+			if i := strings.IndexAny(value, "#;"); i >= 0 {
+				value = value[:i]
+			}
+			switch strings.ToLower(strings.Trim(strings.TrimSpace(value), `"`)) {
 			case "true", "yes", "on", "1":
 				return true
 			}
@@ -115,18 +168,24 @@ func isBare(common string) bool {
 
 // nearestDotGit walks up from dir to the first folder holding a .git entry
 // and returns that folder and, when the entry is a file, the gitdir it
-// names; pointer is empty for a .git directory. A folder that does not exist
-// yet is walked through like one that does.
+// names; pointer is empty for a .git directory (or a link to one, as git reads
+// it). A .git that is any other kind of entry - a link to a file, a FIFO, a
+// device - or a file too large ends the walk with nothing, as git refuses it.
+// A folder that does not exist yet is walked through like one that does.
 func nearestDotGit(dir string) (root, pointer string, ok bool) {
 	for d := dir; ; {
 		entry := filepath.Join(d, ".git")
-		// Stat, not Lstat: a .git that is a link to a directory is one, as
-		// git reads it.
-		if fi, err := os.Stat(entry); err == nil {
-			if fi.IsDir() {
+		if fi, err := os.Lstat(entry); err == nil {
+			switch {
+			case fi.IsDir():
 				return d, "", true
+			case fi.Mode()&os.ModeSymlink != 0:
+				if target, err := os.Stat(entry); err == nil && target.IsDir() {
+					return d, "", true
+				}
+				return "", "", false
 			}
-			body, err := os.ReadFile(entry)
+			body, err := readSmallFile(entry, pointerFileLimit)
 			if err != nil {
 				return "", "", false
 			}

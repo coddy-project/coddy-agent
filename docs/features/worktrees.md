@@ -177,7 +177,9 @@ or changes is asked about again:
   worktree leaves the main checkout's approval of its version in place, and the
   branch merged with the same content asks nothing. Deleting or renaming a job, or
   dropping a marketplace entry, in one checkout's file takes only that checkout's
-  receipt, while an explicit revoke in either checkout revokes for the project;
+  receipt, while an explicit revoke in either checkout revokes for the project.
+  Removing a worktree withdraws nothing approved in it: its receipts stay with the
+  project until an explicit revoke;
 - your switches of project MCP servers (`<home>/mcp-overrides.json`): a server
   switched off in the main checkout is off in its worktrees;
 - project MCP servers. A project server whose declaration does not name `${CWD}`
@@ -201,7 +203,10 @@ approvals are kept for, and the `workspace` field of `GET /coddy/mcp`,
 
 A folder counts as a worktree only when git links it both ways: its `.git` file
 names the repository's worktree storage, and that storage names the folder back. A
-`.git` file copied or written into another folder lends that folder nothing, a
-folder the main checkout holds as a link to somewhere else answers to nothing, and
-a worktree of a bare repository answers to itself. Approvals a worktree recorded under its own path before Coddy shared them were not
+`.git` file copied or written into another folder, like a `.git` that is a link,
+lends that folder nothing. A folder whose counterpart in the main checkout is a
+link to somewhere else, or lies in a repository nested there, keeps approvals of
+its own, and so does a folder of a worktree of a bare repository or of a
+repository that keeps its storage outside the main checkout (`--separate-git-dir`).
+Approvals a worktree recorded under its own path before Coddy shared them were not
 moved, so the worktree asks once more for what only it had approved.

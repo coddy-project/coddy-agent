@@ -109,7 +109,7 @@ Receipts live in **`~/.coddy/subagents-trust.json`** (`<home>/subagents-trust.js
 }
 ```
 
-Rewriting an approved file changes its digest and the receipt stops matching, so the next spawn is refused again until it is re-approved. Approving a name replaces any earlier receipt for that name in that workspace. The store re-reads the file on every decision, so an approval granted from a terminal reaches a running agent on its next spawn without a restart.
+Rewriting an approved file changes its digest and the receipt stops matching, so the next spawn is refused until that content is approved; a version another checkout of the project approved counts as approved. Approving a name replaces the earlier receipt for that name given in the same checkout and leaves those of the project's other checkouts. The store re-reads the file on every decision, so an approval granted from a terminal reaches a running agent on its next spawn without a restart.
 
 Approval surfaces:
 
