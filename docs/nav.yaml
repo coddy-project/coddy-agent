@@ -93,7 +93,7 @@ groups:
         summary: Switching the model, reasoning level, mode and permission mode from the conversation with /model, /reasoning, /think, /nothink, /agent, /plan, /ask and /permissions, for the session or the next turns, the permission dialog's session switch, and the model switching itself.
       - path: features/session-supervisor.md
         title: Session goal and supervisor
-        summary: /goal keeps the agent working until a second model, judging the evidence, finds the objective met and a read-only verifier confirms it; continuations, budgets, the watchdog for stalls and loops.
+        summary: /goal keeps the agent working until a second model, judging the evidence, finds the objective met and a read-only verifier confirms it; continuations, budgets, the watchdog for stalls and loops, the risk gate that blocks docker and migration changes.
       - path: features/sessions.md
         title: Sessions
         summary: Session bundles on disk, resuming, history rewind on message edit, todo lists, the sessions CLI.

@@ -258,6 +258,57 @@ esac
 exit 0
 ```
 
+Отказ до выполнения тем шагам, о которых [шлюз рисков](session-supervisor.md#шлюз-рисков) цели сессии может сообщить только после хода: командам docker, меняющим контейнеры или тома, и изменениям миграции, которую git уже отслеживает (`~/.coddy/hooks.json`).
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "run_command", "hooks": [{ "type": "command", "command": "~/.coddy/hooks/no-docker-changes.sh", "failClosed": true }] },
+      { "matcher": "edit|write|apply_patch|rm|mv", "hooks": [{ "type": "command", "command": "~/.coddy/hooks/no-migration-edits.sh", "failClosed": true }] }
+    ]
+  }
+}
+```
+
+```bash
+#!/bin/sh
+# ~/.coddy/hooks/no-docker-changes.sh
+command=$(jq -r '.tool_input.command // ""') || exit 1
+# Join continued lines, then one command per line, lower case, no quote characters or backslashes.
+commands=$(printf '%s\n' "$command" |
+  awk '{ if (sub(/\\$/, " ")) printf "%s", $0; else print }' |
+  tr 'A-Z;&|' 'a-z\n\n\n' | tr -d "\\\\'\"")
+# A word is a run of [a-z0-9_./-] read from its last /; $w is a character outside a word.
+w='[^a-z0-9_./-]'
+if printf '%s\n' "$commands" |
+  grep -E "(^|$w|/)docker(-compose)?($|$w)" |
+  grep -Eq "(^|$w|/)(up|down|rm|stop|restart|create|run|kill|prune)($|$w)"; then
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"docker commands that change containers or volumes are not allowed here"}}'
+fi
+exit 0
+```
+
+```bash
+#!/bin/sh
+# ~/.coddy/hooks/no-migration-edits.sh
+input=$(cat)
+for key in path src dst; do
+  file=$(printf '%s' "$input" | jq -r --arg key "$key" '.tool_input[$key] // empty') || exit 1
+  case "/$file" in
+    */migrations|*/migrations/*|*/alembic/versions|*/alembic/versions/*|*/db/migrate|*/db/migrate/*|*/db/changelog|*/db/changelog/*)
+      if git ls-files --error-unmatch -- "$file" >/dev/null 2>&1; then
+        printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"committed migrations are not changed here; add a new migration"}}'
+        exit 0
+      fi
+      ;;
+  esac
+done
+exit 0
+```
+
+Первый скрипт читает команду так же, как шлюз: склеивает продолженные строки, отбрасывает регистр, символы кавычек и обратные косые черты, режет строку на команды по `;`, `&`, `|` и переводам строки и отказывает команде, в которой есть слово `docker` или `docker-compose` и одно из слов `up`, `down`, `rm`, `stop`, `restart`, `create`, `run`, `kill` или `prune`. Второй скрипт читает `path`, а у `mv` - и `src`, и `dst`, поэтому отказывает и на перенос отслеживаемой миграции, и на перенос другого файла поверх неё. Он отказывает только на файл, который отслеживает git, поэтому новую миграцию по-прежнему можно записать. Оба скрипта завершаются с кодом 1, когда `jq` не может разобрать входные данные, а `failClosed: true` превращает это в блокировку, поэтому вызов с входными данными, которые не разбираются, никогда не проходит. Хук видит каждый вызов до его выполнения, а шлюз рисков читает результаты после хода. Хук действует в каждой сессии, а не только при цели. Ни один из скриптов не ловит все написания. Оба ищут по тексту, поэтому первый отказывает и на `echo docker compose down`, а команду, спрятанную в скрипте вроде `./deploy.sh`, пропускает. Второй видит только файл, который назван в вызове инструмента, а не тот, что переписывает shell-команда.
+
 Запуск форматтера после каждой правки с сообщением модели о том, что он изменил.
 
 ```json
@@ -315,4 +366,4 @@ exit 0
 - юнит-тесты - `internal/hooks/hooks_test.go` (формат файла, матчеры, области загрузчика, контракт раннера), `internal/hooks/trust_test.go` (расписки, каталог), `internal/config/hooks_test.go`, `cmd/coddy/hooks_test.go`;
 - сквозные тесты с настоящей моделью на каждом интерфейсе, подключённые к трём раннерам, - `examples/acp/acp_e2e_hooks.py` (ACP через stdio; `coddy hooks list` и `coddy hooks trust` между ходами), `examples/httpserver/http_e2e_hooks.py` (`GET /coddy/hooks` с ожидающим одобрения файлом проекта, строка `notice` в `uiLog`, `POST /coddy/hooks/trust`, второй ход, который запускает одобренный хук, `POST /coddy/hooks/untrust`) и `examples/cli/cli_e2e_hooks.py` (консольный TUI с теми же хуками-регистраторами, уведомление в `ui_log.json` сессии, одобрение через CLI). Каждый из них записывает входные данные всех `PreToolUse` и `PostToolUse` настоящего вызова `run_command` через хуки пользовательской области, проверяет, что хук проектной области остаётся неодобренным, одобряет его и проверяет, что следующий ход той же сессии его запускает.
 
-<!-- docsgen:source sha256=f17e351d89d7412f -->
+<!-- docsgen:source sha256=dd5a667977f6ca86 -->
