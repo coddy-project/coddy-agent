@@ -58,6 +58,8 @@ var planToolNames = []string{
 	// Coddy's own documentation, read out of the binary.
 	"coddy_docs_search",
 	"coddy_docs_read",
+	// The worktrees of the repository and where each stands: a read.
+	"worktree_list",
 }
 
 // askToolNames is the fixed allowlist for ask mode: repository reads and web
@@ -81,6 +83,8 @@ var askToolNames = []string{
 	// the Telegram bot" is exactly the question ask mode is for.
 	"coddy_docs_search",
 	"coddy_docs_read",
+	// The worktrees of the repository and where each stands: a read.
+	"worktree_list",
 }
 
 // modePolicy is what a restricted operating mode lets the model use, kept in

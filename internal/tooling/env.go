@@ -19,6 +19,11 @@ type Env struct {
 	SwitchWorkspace  func(context.Context, string) error
 	WorkspaceChanged bool
 
+	// SessionsInWorkspace names the other live sessions that work in a folder
+	// or below it: what removing it would strand. Nil where no session
+	// manager answers; worktree_exit then sees this session alone.
+	SessionsInWorkspace func(dir string) []string
+
 	// Confined is set for a turn whose reads stay inside CWD
 	// (session.TurnRestriction.ConfineToWorkspace): a tool that walks the
 	// tree does not follow symbolic links out of it.

@@ -364,6 +364,7 @@ func (a *App) showHotkeys() {
 		"/tasks background tasks: enter output · s stop · r refresh · escape back",
 		"/mcp MCP servers: enter details · toggle server or tool · approve project trust",
 		"/goal session goal: status, last check · pause, resume, clear · /goal <objective> sets one and starts work",
+		"/worktree <branch> move the chat into a git worktree · /worktree exit back to the main checkout · --remove takes the worktree away",
 		"F1 or /docs [words] built-in documentation: type to search · enter read · n/p turn pages",
 	}
 	a.appendStatus(roleDim, strings.Join(lines, "\n"))

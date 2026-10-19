@@ -1871,6 +1871,56 @@ export const messagesRu: Record<string, string> = {
   "workspaceBar.label": "Где работает этот чат",
   "workspaceBar.branchTitle": "Ветка {branch}",
   "workspaceBar.worktreeTitle": "Worktree {path} на ветке {branch}",
+  "workspaceBar.leaveWorktree": "Вернуться в {name}",
+  "workspaceBar.leaveWorktreeTitle":
+    "Вернуть чат в основной чекаут {name}, оставив или удалив worktree",
+  "leaveWorktree.title": "Выйти из worktree?",
+  "leaveWorktree.message": "Чат вернётся в основной чекаут {name}.",
+  "leaveWorktree.keep": "Оставить worktree",
+  "leaveWorktree.remove": "Удалить worktree",
+  "leaveWorktree.discardAndRemove": "Отбросить изменения и удалить",
+  "leaveWorktree.checking": "Проверяю worktree…",
+  "leaveWorktree.readFailed": "Не удалось прочитать worktree ({message})",
+  "leaveWorktree.branch": "Ветка {branch}",
+  "leaveWorktree.detached": "Detached HEAD, ветки нет",
+  "leaveWorktree.clean": "Незакоммиченных изменений нет",
+  "leaveWorktree.uncommitted.one": "{count} незакоммиченное изменение",
+  "leaveWorktree.uncommitted.few": "{count} незакоммиченных изменения",
+  "leaveWorktree.uncommitted.many": "{count} незакоммиченных изменений",
+  "leaveWorktree.uncommitted.other": "{count} незакоммиченного изменения",
+  "leaveWorktree.unpushed.one":
+    "{count} коммит не отправлен, ветка останется, если она не слита",
+  "leaveWorktree.unpushed.few":
+    "{count} коммита не отправлены, ветка останется, если она не слита",
+  "leaveWorktree.unpushed.many":
+    "{count} коммитов не отправлены, ветка останется, если она не слита",
+  "leaveWorktree.unpushed.other":
+    "{count} коммита не отправлены, ветка останется, если она не слита",
+  "leaveWorktree.otherChats":
+    "Здесь работают и другие чаты ({names}), поэтому удалить его сейчас нельзя",
+  "leaveWorktree.tasks.one":
+    "Здесь работает {count} фоновая задача, поэтому удалить его сейчас нельзя",
+  "leaveWorktree.tasks.few":
+    "Здесь работают {count} фоновые задачи, поэтому удалить его сейчас нельзя",
+  "leaveWorktree.tasks.many":
+    "Здесь работают {count} фоновых задач, поэтому удалить его сейчас нельзя",
+  "leaveWorktree.tasks.other":
+    "Здесь работают {count} фоновой задачи, поэтому удалить его сейчас нельзя",
+  "leaveWorktree.locked":
+    "Worktree заблокирован, его освобождает git worktree unlock",
+  "leaveWorktree.loose":
+    "В нём есть коммиты вне веток, перед удалением заведите для них ветку",
+  "leaveWorktree.submodules":
+    "В нём инициализированы сабмодули, поэтому Coddy его не удаляет",
+  "leaveWorktree.nested":
+    "В нём лежат отдельные git-репозитории ({names}), перед удалением перенесите их",
+  "leaveWorktree.unmanaged":
+    "Этот worktree открыл не Coddy, поэтому Coddy его не удаляет",
+  "leaveWorktree.cannotRemove": "Сейчас его удалить нельзя",
+  "leaveWorktree.notInWorktree":
+    "Чат уже не в worktree, или папки worktree больше нет",
+  "leaveWorktree.snapshotNote":
+    "Удаление отбросит незакоммиченные изменения. Coddy сохранит их снимком, и git stash apply --index вернёт их обратно.",
   "workspaceBar.editsLabel.one": "Показать правки: изменён {count} файл",
   "workspaceBar.editsLabel.few": "Показать правки: изменено {count} файла",
   "workspaceBar.editsLabel.many": "Показать правки: изменено {count} файлов",
@@ -2026,6 +2076,9 @@ export const messagesRu: Record<string, string> = {
   "tool.name.mkdir": "создаю каталог",
   "tool.name.touch": "создаю файл",
   "tool.name.worktree_create": "создаю worktree",
+  "tool.name.worktree_open": "открываю worktree",
+  "tool.name.worktree_list": "смотрю список worktree",
+  "tool.name.worktree_exit": "выхожу из worktree",
   "tool.name.mv": "перемещаю",
   "tool.name.rm": "удаляю",
   "tool.name.rmdir": "удаляю каталог",

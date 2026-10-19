@@ -1822,6 +1822,46 @@ export const messagesEn: Record<string, string> = {
   "workspaceBar.label": "Where this chat works",
   "workspaceBar.branchTitle": "Branch {branch}",
   "workspaceBar.worktreeTitle": "Worktree {path} on branch {branch}",
+  "workspaceBar.leaveWorktree": "Back to {name}",
+  "workspaceBar.leaveWorktreeTitle":
+    "Return the chat to the main checkout {name}, keeping or removing the worktree",
+  "leaveWorktree.title": "Leave the worktree?",
+  "leaveWorktree.message": "The chat goes back to the main checkout {name}.",
+  "leaveWorktree.keep": "Keep worktree",
+  "leaveWorktree.remove": "Remove worktree",
+  "leaveWorktree.discardAndRemove": "Discard changes and remove",
+  "leaveWorktree.checking": "Checking the worktree…",
+  "leaveWorktree.readFailed": "Could not read the worktree ({message})",
+  "leaveWorktree.branch": "Branch {branch}",
+  "leaveWorktree.detached": "Detached HEAD, no branch",
+  "leaveWorktree.clean": "Nothing uncommitted",
+  "leaveWorktree.uncommitted.one": "{count} uncommitted change",
+  "leaveWorktree.uncommitted.other": "{count} uncommitted changes",
+  "leaveWorktree.unpushed.one":
+    "{count} commit not pushed: the branch stays unless it is merged",
+  "leaveWorktree.unpushed.other":
+    "{count} commits not pushed: the branch stays unless it is merged",
+  "leaveWorktree.otherChats":
+    "Other chats work here too ({names}), so it cannot be removed now",
+  "leaveWorktree.tasks.one":
+    "{count} background task runs here, so it cannot be removed now",
+  "leaveWorktree.tasks.other":
+    "{count} background tasks run here, so it cannot be removed now",
+  "leaveWorktree.locked":
+    "The worktree is locked (git worktree unlock frees it)",
+  "leaveWorktree.loose":
+    "It holds commits on no branch: create a branch for them before removing it",
+  "leaveWorktree.submodules":
+    "It has initialised submodules, so Coddy does not remove it",
+  "leaveWorktree.nested":
+    "It holds git repositories of its own ({names}): move them out before removing it",
+  "leaveWorktree.unmanaged":
+    "Coddy did not open this worktree, so it does not remove it",
+  "leaveWorktree.cannotRemove": "It cannot be removed now",
+  "leaveWorktree.notInWorktree":
+    "The chat is no longer in a worktree, or its folder is gone",
+  "leaveWorktree.snapshotNote":
+    "Removing drops the uncommitted changes. Coddy keeps them as a snapshot, and git stash apply --index brings them back.",
   "workspaceBar.editsLabel.one": "Show the edits: {count} file changed",
   "workspaceBar.editsLabel.other": "Show the edits: {count} files changed",
   "files.title": "Files",
@@ -1975,6 +2015,9 @@ export const messagesEn: Record<string, string> = {
   "tool.name.mkdir": "creating a directory",
   "tool.name.touch": "creating a file",
   "tool.name.worktree_create": "creating a worktree",
+  "tool.name.worktree_open": "opening a worktree",
+  "tool.name.worktree_list": "listing worktrees",
+  "tool.name.worktree_exit": "leaving the worktree",
   "tool.name.mv": "moving a path",
   "tool.name.rm": "removing a path",
   "tool.name.rmdir": "removing a directory",

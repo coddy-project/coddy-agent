@@ -90,7 +90,7 @@ func TestToolCallRefusedByModePlan(t *testing.T) {
 	}
 	for _, name := range []string{
 		"write", "edit", "apply_patch", "config_set", "config_commit", "config_rollback",
-		"coddy_todo_plan_replace", "coddy_todo_item_add", "plan_exit", "worktree_create",
+		"coddy_todo_plan_replace", "coddy_todo_item_add", "plan_exit", "worktree_open", "worktree_exit",
 		"no_such_tool", "",
 	} {
 		msg, refused := toolCallRefusedByMode("plan", name)

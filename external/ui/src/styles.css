@@ -6572,8 +6572,9 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 
 /* A finger needs a target of its own: on a phone and on any touch screen the
    picks and the worktree checkbox are 36px tall (they have no ground at rest,
-   so only the plate grows around them), and git's count keeps its slim framed
-   look with an invisible hit area 40px tall laid over it. */
+   so only the plate grows around them), and git's count and the way back from
+   a worktree keep their slim framed look with an invisible hit area 40px tall
+   laid over each. */
 @media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {
   .workspace-bar {
     font-size: 13px;
@@ -6601,8 +6602,19 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
     height: 16px;
   }
 
-  .workspace-bar-edits {
+  .workspace-bar-edits,
+  .workspace-bar-leave {
     position: relative;
+  }
+
+  .workspace-bar-leave::after {
+    content: "";
+    position: absolute;
+    left: -9px;
+    right: -9px;
+    top: 50%;
+    height: 40px;
+    transform: translateY(-50%);
   }
 
   /* The goal mark keeps its small look with a finger's 40px over it. */
@@ -6652,6 +6664,34 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 .workspace-bar-edits:focus-visible {
   border-color: color-mix(in srgb, var(--text) 34%, transparent);
   background: color-mix(in srgb, var(--text) 9%, transparent);
+  outline: none;
+}
+
+/* The way back from a linked worktree to its main checkout, right after the
+   branch it leaves: an arrow in the count's light frame, as tall as the
+   count, closer to the branch than the plate's gap. Never the accent. */
+.workspace-bar-leave {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 17px;
+  margin-left: -6px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.workspace-bar-leave:hover,
+.workspace-bar-leave:focus-visible {
+  border-color: color-mix(in srgb, var(--text) 34%, transparent);
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  color: var(--text);
   outline: none;
 }
 
@@ -7149,6 +7189,10 @@ html:not([data-theme="light"]) .workspace-branch-warning {
   padding: 20px 20px 16px;
 }
 
+.confirm-dialog.confirm-dialog--wide {
+  width: min(500px, calc(100vw - 32px));
+}
+
 .confirm-dialog-body {
   display: flex;
   gap: 14px;
@@ -7200,8 +7244,40 @@ html:not([data-theme="light"]) .workspace-branch-warning {
 
 .confirm-dialog-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
+}
+
+/* What leaving a worktree would touch, under the dialog's question
+   (LeaveWorktreeDialog): one short line each, the message's tint; uncommitted
+   work at full text strength, and what stops a removal in the danger tone. */
+.leave-worktree-facts {
+  margin: 10px 0 0;
+  padding: 0 0 0 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.leave-worktree-fact {
+  overflow-wrap: anywhere;
+}
+
+.leave-worktree-fact.is-warn {
+  color: var(--text);
+}
+
+.leave-worktree-fact.is-stop {
+  color: var(--coddy-danger);
+}
+
+.leave-worktree-note {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .confirm-dialog-btn {

@@ -30,6 +30,23 @@ export type ConfirmDialogProps = {
   /** When true, action buttons are disabled (e.g. while a DELETE is in flight). */
   confirming?: boolean | undefined;
   dataTestId?: string | undefined;
+  /**
+   * A second action between Cancel and the affirmative one, for a question
+   * with two answers besides "not now" (keep a worktree, or remove it).
+   */
+  secondary?:
+    | {
+        label: string;
+        variant: ConfirmDialogVariant;
+        onClick: () => void;
+        disabled?: boolean | undefined;
+        dataTestId?: string | undefined;
+      }
+    | undefined;
+  /** What the question is about, under the message. */
+  children?: React.ReactNode;
+  /** A wider card, for three actions with longer labels on one line. */
+  wide?: boolean | undefined;
 };
 
 // ConfirmDialog is the shared presentational confirmation popup used by every
@@ -153,7 +170,9 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
     >
       <div
         ref={dialogRef}
-        className="confirm-dialog"
+        className={
+          props.wide ? "confirm-dialog confirm-dialog--wide" : "confirm-dialog"
+        }
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}
@@ -207,6 +226,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
             {message ? (
               <p className="confirm-dialog-message">{message}</p>
             ) : null}
+            {props.children}
           </div>
         </div>
         <div className="confirm-dialog-actions">
@@ -219,6 +239,21 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
           >
             {cancelLabel}
           </button>
+          {props.secondary ? (
+            <button
+              type="button"
+              className={
+                props.secondary.variant === "danger"
+                  ? "confirm-dialog-btn confirm-dialog-btn--danger"
+                  : "confirm-dialog-btn confirm-dialog-btn--primary"
+              }
+              onClick={props.secondary.onClick}
+              disabled={confirming || props.secondary.disabled === true}
+              data-testid={props.secondary.dataTestId}
+            >
+              {props.secondary.label}
+            </button>
+          ) : null}
           <button
             ref={confirmRef}
             type="button"

@@ -98,7 +98,7 @@ var subagentMandatoryExclusions = []string{
 	"switch_model",
 	// A child shares the parent's workspace; moving it mid-run would strand
 	// every tool of both, and the child has no switcher wired anyway.
-	"worktree_create",
+	"worktree_open", "worktree_exit",
 }
 
 // The process-wide limiter and the per-parent permission arbiters. Both are

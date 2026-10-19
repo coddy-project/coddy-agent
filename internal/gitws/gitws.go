@@ -23,6 +23,9 @@ type Worktree struct {
 	Path   string `json:"path"`
 	Branch string `json:"branch"`
 	Main   bool   `json:"main"`
+	// Locked reports a `git worktree lock`, which keeps a worktree whose
+	// folder is gone (on removable storage, say) from being pruned.
+	Locked bool `json:"-"`
 }
 
 // Info describes the git state of a workspace folder.
@@ -44,12 +47,17 @@ func GitAvailable() bool {
 }
 
 func runGit(dir string, args ...string) (string, error) {
+	return runGitEnv(dir, nil, args...)
+}
+
+// runGitEnv is runGit with variables added to the environment.
+func runGitEnv(dir string, env []string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	// These commands run synchronously inside request handlers and agent
 	// turns: a remote that answers an auth prompt on the terminal would hang
 	// them for good, so every credential prompt fails instead of asking.
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	cmd.Env = append(append(os.Environ(), "GIT_TERMINAL_PROMPT=0"), env...)
 	platform.AdaptCommand(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -170,6 +178,8 @@ func listWorktrees(dir string) []Worktree {
 				wt.Path = strings.TrimPrefix(line, "worktree ")
 			case strings.HasPrefix(line, "branch refs/heads/"):
 				wt.Branch = strings.TrimPrefix(line, "branch refs/heads/")
+			case line == "locked" || strings.HasPrefix(line, "locked "):
+				wt.Locked = true
 			}
 		}
 		if wt.Path == "" {
@@ -211,11 +221,37 @@ func WorktreesRoot(repoRoot string) string {
 	return filepath.Join(repoRoot, ".coddy", "worktrees")
 }
 
-// EnsureWorktree returns the path of a worktree for branch, creating it under
-// WorktreesRoot of the main checkout when missing. Reports whether it was
-// created. repoDir may be any working copy of the repository, a linked worktree
-// included: the new tree always belongs to the main checkout's root.
+// WorktreeBase names the commit a branch EnsureWorktreeFrom creates starts at.
+// A branch that already exists, locally or on a remote, keeps its own tip.
+type WorktreeBase string
+
+const (
+	// BaseDefault starts a new branch at origin's default branch, fetched
+	// first: a feature started from where the project stands.
+	BaseDefault WorktreeBase = "default"
+	// BaseHead starts it at the commit HEAD of the working copy the call is
+	// made from points at: the next branch stacked on the work in progress.
+	BaseHead WorktreeBase = "head"
+)
+
+// EnsureWorktree is EnsureWorktreeFrom with BaseDefault.
 func EnsureWorktree(repoDir, branch string) (string, bool, error) {
+	return EnsureWorktreeFrom(repoDir, branch, BaseDefault)
+}
+
+// EnsureWorktreeFrom returns the path of a worktree for branch, creating it
+// under WorktreesRoot of the main checkout when missing. Reports whether it
+// was created. repoDir may be any working copy of the repository, a linked
+// worktree included: the new tree always belongs to the main checkout's root,
+// and a new branch starts where from says, HEAD meaning repoDir's.
+func EnsureWorktreeFrom(repoDir, branch string, from WorktreeBase) (string, bool, error) {
+	switch from {
+	case "":
+		from = BaseDefault
+	case BaseDefault, BaseHead:
+	default:
+		return "", false, fmt.Errorf("unknown worktree base %q: want %q or %q", from, BaseDefault, BaseHead)
+	}
 	branch = strings.TrimSpace(branch)
 	if branch == "" {
 		return "", false, fmt.Errorf("empty branch name")
@@ -237,6 +273,17 @@ func EnsureWorktree(repoDir, branch string) (string, bool, error) {
 	}
 	if _, err := runGit(repoDir, "check-ref-format", "--branch", branch); err != nil {
 		return "", false, fmt.Errorf("invalid branch name %q: %w", branch, err)
+	}
+	// The commit a branch stacked on the current work starts at, read before
+	// anything moves: the fetch below never touches HEAD, but the main
+	// checkout's fast-forward may, when repoDir is the main checkout.
+	head := ""
+	if from == BaseHead {
+		commit, err := runGit(repoDir, "rev-parse", "--verify", "-q", "HEAD^{commit}")
+		if err != nil || commit == "" {
+			return "", false, fmt.Errorf("HEAD of %s names no commit to start %q from", repoDir, branch)
+		}
+		head = commit
 	}
 	// The tree belongs to the main checkout even when we were handed a linked
 	// worktree. An empty listing means git could not describe the repository at
@@ -350,6 +397,9 @@ func EnsureWorktree(repoDir, branch string) (string, bool, error) {
 		// The branch exists on origin but has no local tip: materialize it
 		// instead of silently redefining it at origin/<base>.
 		args = append(args, "--track", "-b", branch, "--", path, "origin/"+branch)
+	case from == BaseHead:
+		// A new branch on the work in progress: the commit repoDir is on.
+		args = append(args, "--no-track", "-b", branch, "--", path, head)
 	default:
 		args = append(args, "--no-track", "-b", branch)
 		args = append(args, "--", path, "origin/"+base)

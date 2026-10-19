@@ -513,6 +513,9 @@ jobs:
   image:
     name: Docker image
     runs-on: ubuntu-latest
+    # A couple of minutes as a rule; a stalled build fails here instead of
+    # holding the pull request until GitHub's six-hour limit.
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
@@ -528,6 +531,9 @@ jobs:
   docs:
     name: Documentation
     runs-on: ubuntu-latest
+    # A couple of minutes as a rule; a stalled step fails here instead of
+    # holding the pull request (a required check) until GitHub's six-hour limit.
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
