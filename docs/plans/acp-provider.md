@@ -313,3 +313,20 @@ A second round read the provider core whole and folded in:
   prompt's sink under the lock that detaches it; the mode copy in `modes` and in the mode config option move
   together; `StopACPAgents` cancels starts still in their handshake; "Reject" keeps the agent's option kind;
   a transcript names each picture once.
+
+Capturing the documentation's screenshots on a real `coddy acp` row found two faults outside the provider,
+both fixed here:
+
+- `GET /v1/models` marks the session profiles `owned_by: coddy` and a model row `owned_by` its provider, and
+  the web UI and the remote console took every `coddy` row for a profile: the models of a provider row named
+  `coddy` (the natural name for a `coddy acp` agent) were missing from the composer's selector. Both now tell
+  a profile by its id (`agent`, `plan`, `ask`), as the server does.
+- An answer whose text and reasoning interleave in one turn (an agent thinking between two parts of its
+  answer) was shown twice at the end of the turn in the web UI: the persisted message replaced the live parts
+  under the id of the first one, the end of the turn looked for its answer under the id the turn was sent
+  with, did not find it, and wrote the server's answer into the last part again. The stream now reports every
+  part's id, and the end of the turn looks under all of them.
+- The same answers showed a fault of the provider itself: an agent sends the parts of an answer it
+  interrupted to think or to run a tool as chunks of one message, and the stored answer ran the last sentence
+  of one part into the first of the next ("...the file.Created..."). Text that resumes after a thought or a
+  tool call now starts a paragraph of its own, the same in the stream as in the stored message.

@@ -27,6 +27,25 @@ models:
 | ZCode | `zcode-acp-server` (with `process: per_session`) | ZCode's own provider file | `plan` |
 | Coddy | `coddy`, `[acp]` | its own `config.yaml` (give it a `CODDY_HOME` of its own in `env`) | `plan` / `ask` |
 
+Another Coddy as the agent reads a `config.yaml` of its own and offers the models listed there. The screenshots on this page run this row.
+
+```yaml
+providers:
+  - name: coddy
+    type: acp
+    acp:
+      command: coddy
+      args: [acp]
+      env:
+        CODDY_HOME: ~/.coddy-agent
+      modes: {plan: plan, ask: ask}
+models:
+  - model: coddy/default
+  - model: coddy/neuraldeep/qwen3.8-27b
+```
+
+A leading `~` in the command, an argument, `cwd` or an `env` value is your home folder.
+
 The other keys of the `acp` block:
 
 - `env` - variables added to the environment the agent starts with. The agent inherits Coddy's environment, so an `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` Coddy has may take precedence over the agent's own login; set the variable here, to a value or to an empty string, to choose what the agent sees.
@@ -106,11 +125,21 @@ The agent may call none of the protocol's file system and terminal methods (`fs/
 
 In Settings → LLM providers, a row of type `acp` shows the ACP agent block in place of the API fields.
 
-![Settings, LLM providers: a row of type acp with its ACP agent block](../assets/acp-provider/acp-provider-settings-dark-1280.png)
+![Settings, LLM providers: a row of type acp that runs coddy acp with a CODDY_HOME of its own](../assets/acp-provider/acp-provider-settings-dark-1280.png)
 
-*An `acp` row in Settings: the agent's command, arguments, environment, folder, sign-in, permissions and modes.*
+*An `acp` row that runs `coddy acp`: the command, its argument and the agent's own `CODDY_HOME`.*
 
-The models list asks the saved row's agent for its models: save the row first, since the form does not start a program it has not saved.
+The Models list at the end of the row asks the saved row's agent for its models: save the row first, since the form does not start a program it has not saved. `default` is the model the agent starts with, and the others are the models it offers. As on every provider row, the plus adds `<row>/<id>` to Logical models and the check takes it out again.
+
+![Settings, LLM providers: the Models list of the coddy row with default, neuraldeep/qwen3.8-27b and neuraldeep/gemma-4-31b](../assets/acp-provider/acp-provider-models-dark-1280.png)
+
+*The models `coddy acp` offers. `default` and `neuraldeep/qwen3.8-27b` are in Logical models, the plus adds `neuraldeep/gemma-4-31b`.*
+
+A logical model of the row is a model of the composer's selector like any other, shown by the model's name with the full id in its tooltip.
+
+![The composer's model selector with default and qwen3.8-27b, the two logical models of the coddy row](../assets/acp-provider/acp-provider-model-picker-dark-1280.png)
+
+*The model selector with the two logical models of the `coddy` row.*
 
 `coddy --dry-run` starts each agent, opens a session to read its models, checks that the configured model ids are among them, and warns about a missing `modes.plan` or `modes.ask`.
 
