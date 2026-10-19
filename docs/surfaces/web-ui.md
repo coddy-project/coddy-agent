@@ -1443,8 +1443,9 @@ the worktree or remove it, with what removing would touch in view (uncommitted c
 commits not pushed, another chat or a task in the worktree), and answers with
 `/worktree exit --keep`, `/worktree exit --remove`, or `/worktree exit --remove --force` when
 there are uncommitted changes ([Git worktrees](../features/worktrees.md)).
-The plate reads where the chat works again after every turn of the chat, so it follows the
-agent's `worktree_open` and `worktree_exit` and the `/worktree` command without a reload. The plate is git's: a running chat in a folder that is in no git repository has
+The plate reads where the chat works again as soon as the agent's `worktree_open` or
+`worktree_exit` has finished, while the turn still runs, and after every turn of the chat, so it
+follows those tools and the `/worktree` command without a reload. The plate is git's: a running chat in a folder that is in no git repository has
 no plate, and its composer card keeps its rounded top. The count's right edge is the
 improve-prompt wand's under it, and on a phone or a touch screen the count keeps its slim
 look with an invisible 40px hit area laid over it.

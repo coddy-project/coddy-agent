@@ -153,9 +153,10 @@ default answer and sends `/worktree exit --keep`. Removing sends `/worktree exit
 --remove`, or `/worktree exit --remove --force` when there are uncommitted
 changes, which the button then says it discards and the dialog says it keeps as
 a snapshot. The dialog reads `GET /coddy/sessions/{id}/worktree` each time it
-opens, and again when the chat moves to another folder while it is open. The plate names the main checkout as soon as that turn ends: it reads
-where the chat works after every turn of the chat, so it follows `worktree_open`,
-`worktree_exit` and `/worktree` without a reload.
+opens, and again when the chat moves to another folder while it is open. The plate names the main checkout as soon as that turn ends. It
+reads where the chat works again as soon as a `worktree_open` or `worktree_exit`
+call has finished, while the turn still runs, and after every turn of the chat, so
+it follows `worktree_open`, `worktree_exit` and `/worktree` without a reload.
 
 ![The dialog of the arrow: the branch, three uncommitted changes and a commit not pushed, with Cancel, Discard changes and remove, and Keep worktree](../assets/git-worktree/worktree-leave-dialog-dark-1280.png)
 
