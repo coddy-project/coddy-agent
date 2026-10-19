@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 )
 
 // TrustFileName is the receipts file of the project marketplace entries the
@@ -41,6 +43,8 @@ type trustFile struct {
 // TrustStore persists receipts at <home>/skills-trust.json. Every operation
 // reads the file again, so an approval granted through the CLI or the HTTP
 // route reaches a running server on its next sync.
+// Receipts are kept per project (mcp.TrustWorkspace): a linked worktree reads
+// and writes those of its main checkout, and the digest still binds.
 type TrustStore struct {
 	path string
 }
@@ -93,6 +97,7 @@ func (s *TrustStore) write(file trustFile) error {
 // Records returns the receipts recorded for a canonical workspace; none when
 // the file cannot be read.
 func (s *TrustStore) Records(workspace string) []TrustRecord {
+	workspace = mcp.TrustWorkspace(workspace)
 	trustMu.Lock()
 	defer trustMu.Unlock()
 	file, err := s.read()
@@ -107,6 +112,7 @@ func (s *TrustStore) Records(workspace string) []TrustRecord {
 // Approved reports whether a receipt binds this workspace to the entry's
 // digest.
 func (s *TrustStore) Approved(workspace, digest string) bool {
+	workspace = mcp.TrustWorkspace(workspace)
 	if s == nil || strings.TrimSpace(digest) == "" {
 		return false
 	}
@@ -127,6 +133,7 @@ func (s *TrustStore) Approved(workspace, digest string) bool {
 // Approve records a receipt for d in workspace, replacing an earlier receipt
 // for the same entry.
 func (s *TrustStore) Approve(workspace string, d Declaration) error {
+	workspace = mcp.TrustWorkspace(workspace)
 	trustMu.Lock()
 	defer trustMu.Unlock()
 	file, err := s.read()
@@ -177,6 +184,7 @@ func (s *TrustStore) RevokeEntries(workspace string, entries []Declaration) (boo
 // revokeWhere drops the receipts of workspace that match and reports whether
 // any did.
 func (s *TrustStore) revokeWhere(workspace string, match func(TrustRecord) bool) (bool, error) {
+	workspace = mcp.TrustWorkspace(workspace)
 	trustMu.Lock()
 	defer trustMu.Unlock()
 	file, err := s.read()

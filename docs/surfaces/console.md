@@ -794,7 +794,8 @@ the catalog as a table with `NAME`, `SCOPE` (`builtin`, `user`, `project`),
 line, and a hint when project definitions await approval. `trust` prints the
 effective declaration first (file, model, mode, permission mode, tool lists,
 digest, receipt path) and then records a receipt for the file as it is on disk
-right now, keyed by the canonical workspace, the name and the file digest, in
+right now, keyed by the canonical workspace (a linked git worktree uses its main
+checkout's), the name and the file digest, in
 `<home>/subagents-trust.json`; a built-in or user-scope name needs no approval
 and the command says so. `untrust` withdraws a receipt. `--cwd` defaults to the
 process working directory, resolved like `coddy mcp`. Under
@@ -839,7 +840,8 @@ as `PreToolUse(run_command); PostToolUse(*)`, or `invalid: <error>` for a file
 that does not parse), a `(total N)` line, and a hint when project files await
 approval. `trust` prints the hooks it is about to approve (event, matcher,
 command) and records a receipt for the file as it is on disk right now, keyed
-by the canonical workspace, the file and its digest, in
+by the canonical workspace (a linked git worktree uses its main checkout's), the
+file and its digest, in
 `<home>/hooks-trust.json`; a user-scope file needs no approval and the command
 says so, and an invalid file is refused. `untrust` withdraws a receipt. `--cwd`
 defaults to the process working directory, resolved like `coddy mcp`. Under

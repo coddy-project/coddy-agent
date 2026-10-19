@@ -19,7 +19,8 @@ HTTP server, else runs it through the manager itself
 ([Background tasks](../features/background-tasks.md#under-coddy-serve)). The MCP servers are
 shared the same way: the servers of the global configuration start with the process and
 serve every session of every subsystem, subagents and scheduled runs included, and a
-project's servers run once per workspace ([MCP](../features/mcp.md#shared-servers)).
+project's servers run once per workspace, shared with its git worktrees
+([MCP](../features/mcp.md#shared-servers)).
 
 This page is about keeping that process running and keeping it current.
 

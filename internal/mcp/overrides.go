@@ -11,7 +11,8 @@ import (
 
 // Project switches belong to the operator, not to the repository's MCP
 // declaration. Keep them separate from trust receipts so approvals remain
-// bound only to the executable declaration.
+// bound only to the executable declaration. They are kept per project
+// (TrustWorkspace), so a server switched off holds in every worktree of it.
 const overridesFileName = "mcp-overrides.json"
 
 type projectSwitches struct {
@@ -65,7 +66,7 @@ func updateProjectSwitch(cfg *config.Config, cwd, name string, change func(*proj
 		if err != nil {
 			return err
 		}
-		workspace := CanonicalWorkspace(cwd)
+		workspace := TrustWorkspace(cwd)
 		if file.Workspaces[workspace] == nil {
 			file.Workspaces[workspace] = make(map[string]projectSwitches)
 		}
@@ -87,7 +88,7 @@ func dropProjectSwitches(cfg *config.Config, cwd, name string) error {
 		if err != nil {
 			return err
 		}
-		workspace := CanonicalWorkspace(cwd)
+		workspace := TrustWorkspace(cwd)
 		entries, ok := file.Workspaces[workspace]
 		if !ok {
 			return nil
@@ -111,7 +112,7 @@ func applyProjectSwitches(home, cwd string, servers []ManagedServer) ([]ManagedS
 	if err != nil {
 		return nil, err
 	}
-	entries := file.Workspaces[CanonicalWorkspace(cwd)]
+	entries := file.Workspaces[TrustWorkspace(cwd)]
 	for i := range servers {
 		if servers[i].Origin != OriginProject {
 			continue

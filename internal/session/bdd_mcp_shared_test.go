@@ -21,6 +21,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/gitws/gitwstest"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
@@ -337,6 +338,76 @@ func (s *mcpSharedState) secondWorkspaceRunning(name string) error {
 	return nil
 }
 
+// projectMainDeclaresApproved makes the first workspace a repository whose
+// project mcp.json declares name, approved there.
+func (s *mcpSharedState) projectMainDeclaresApproved(name string) error {
+	if err := gitwstest.Init(s.workspaces[0]); err != nil {
+		return err
+	}
+	if err := s.declare(s.workspaces[0], name, nil); err != nil {
+		return err
+	}
+	servers, err := mcp.ListManagedServers(s.cfg, s.workspaces[0])
+	if err != nil {
+		return err
+	}
+	for _, managed := range servers {
+		if managed.Config.Name == name {
+			return mcp.NewTrustGate(s.cfg).Approve(s.workspaces[0], managed)
+		}
+	}
+	return fmt.Errorf("%q is not declared in the main checkout", name)
+}
+
+// worktreeDeclares opens a worktree of the first workspace as the second one,
+// declaring shared exactly as the main checkout does and added on its own.
+func (s *mcpSharedState) worktreeDeclares(shared, added string) error {
+	wt, err := gitwstest.AddWorktree(s.workspaces[0])
+	if err != nil {
+		return err
+	}
+	s.workspaces[1] = wt
+	if err := s.declare(wt, shared, nil); err != nil {
+		return err
+	}
+	return s.declare(wt, added, []string{"--lab"})
+}
+
+// declare writes the recording stub as name into dir's project mcp.json,
+// with extra arguments after the stub's own.
+func (s *mcpSharedState) declare(dir, name string, extra []string) error {
+	srv := s.server(name)
+	env := map[string]string{}
+	for _, e := range srv.Env {
+		env[e.Name] = e.Value
+	}
+	return config.UpsertMCPJSONServer(config.MCPJSONPath(dir), name, config.MCPJSONServer{Command: srv.Command, Args: append(srv.Args, extra...), Env: env})
+}
+
+func (s *mcpSharedState) waitsForApprovalInTheWorktree(name string) error {
+	servers, err := mcp.ListManagedServers(s.cfg, s.workspaces[1])
+	if err != nil {
+		return err
+	}
+	for _, managed := range servers {
+		if managed.Config.Name != name {
+			continue
+		}
+		if got := mcp.NewTrustGate(s.cfg).Evaluate(s.workspaces[1], managed); got != mcp.TrustStateNeedsApproval {
+			return fmt.Errorf("%q in the worktree is %q, want it waiting for approval", name, got)
+		}
+		for _, st := range s.sessions[1] {
+			for _, c := range st.GetMCPClients() {
+				if c.Name() == name {
+					return fmt.Errorf("the worktree's session runs %q before anyone approved it", name)
+				}
+			}
+		}
+		return nil
+	}
+	return fmt.Errorf("%q is not declared in the worktree", name)
+}
+
 func initializeMCPSharedScenario(sc *godog.ScenarioContext) {
 	s := &mcpSharedState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -364,6 +435,11 @@ func initializeMCPSharedScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^both sessions of the first workspace close$`, func() error { return s.closeWorkspace(0) })
 	sc.Step(`^the MCP server "([^"]*)" of the first workspace has stopped$`, s.firstWorkspaceStopped)
 	sc.Step(`^the MCP server "([^"]*)" of the second workspace is still running$`, s.secondWorkspaceRunning)
+	sc.Step(`^a project whose main checkout declares the approved MCP server "([^"]*)"$`, s.projectMainDeclaresApproved)
+	sc.Step(`^a worktree of the project that declares "([^"]*)" alike and a new MCP server "([^"]*)"$`, s.worktreeDeclares)
+	sc.Step(`^a session opens in the main checkout$`, s.sessionInFirst)
+	sc.Step(`^a session opens in the worktree$`, s.sessionInSecond)
+	sc.Step(`^the MCP server "([^"]*)" waits for approval in the worktree$`, s.waitsForApprovalInTheWorktree)
 }
 
 func TestMCPSharedServersFeature(t *testing.T) {

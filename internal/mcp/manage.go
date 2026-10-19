@@ -298,7 +298,10 @@ func DeleteServer(cfg *config.Config, cwd, name string) error {
 	if !removed {
 		return fmt.Errorf("mcp server %q not found in %s", name, path)
 	}
-	if srv.Origin == OriginProject {
+	// The switches are the project's (TrustWorkspace): a delete from a
+	// worktree's file leaves them to the main checkout, which still declares
+	// the server.
+	if srv.Origin == OriginProject && TrustWorkspace(cwd) == CanonicalWorkspace(cwd) {
 		// The switches belong to the declaration that went, so a later server
 		// of the same name starts from its own declaration. They are dropped
 		// after it, never before: a delete that fails must leave a server the
@@ -307,7 +310,7 @@ func DeleteServer(cfg *config.Config, cwd, name string) error {
 		// stands and the leftover is logged.
 		if err := dropProjectSwitches(cfg, cwd, name); err != nil {
 			slog.Warn("mcp server deleted; its switches stay in the overrides file",
-				"name", name, "workspace", CanonicalWorkspace(cwd),
+				"name", name, "workspace", TrustWorkspace(cwd),
 				"file", overridesPath(cfg.Paths.Home), "error", err)
 		}
 	}

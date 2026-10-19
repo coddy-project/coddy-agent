@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/gitws"
 )
 
 // TrustFileName is the approvals file inside the coddy home directory.
@@ -93,6 +94,26 @@ func CanonicalWorkspace(cwd string) string {
 		return filepath.Clean(resolved)
 	}
 	return filepath.Clean(abs)
+}
+
+// TrustWorkspace is the workspace a decision about project configuration is
+// kept for: the canonical workspace, or for a folder of a linked git worktree
+// the same folder of the repository's main checkout (gitws.MainCheckoutFolder,
+// which also refuses a .git file the repository does not name back). A
+// worktree is the same project, so what was approved, switched off or started
+// for the project holds in every checkout of it; the digest of what was
+// approved still binds, so a worktree's new or changed declaration asks
+// again. Every trust store keys its receipts by it, the project switches and
+// a project server's pool key too; paths stay on the real workspace.
+func TrustWorkspace(cwd string) string {
+	canonical := CanonicalWorkspace(cwd)
+	if canonical == "" {
+		return ""
+	}
+	if main, ok := gitws.MainCheckoutFolder(canonical); ok {
+		return CanonicalWorkspace(main)
+	}
+	return canonical
 }
 
 // Fingerprint returns a stable digest of everything in a declaration that
@@ -230,14 +251,15 @@ func (s *TrustStore) write(file trustFile) error {
 	return writeStateFile(s.path, append(data, '\n'))
 }
 
-// Records returns the approvals recorded for a workspace, newest write order
+// Records returns the approvals recorded for a workspace (for the project it
+// belongs to: TrustWorkspace), newest write order
 // preserved. A corrupt store yields no records.
 func (s *TrustStore) Records(workspace string) []TrustRecord {
 	file, err := s.read()
 	if err != nil {
 		return nil
 	}
-	return append([]TrustRecord(nil), file.Workspaces[CanonicalWorkspace(workspace)]...)
+	return append([]TrustRecord(nil), file.Workspaces[TrustWorkspace(workspace)]...)
 }
 
 // Approved reports whether this exact declaration is approved for workspace.
@@ -261,7 +283,7 @@ func (s *TrustStore) Approved(workspace string, srv config.MCPServerConfig) bool
 // approval of the same server name (an edited declaration supersedes the one
 // it replaced instead of accumulating).
 func (s *TrustStore) Approve(workspace, source string, srv config.MCPServerConfig) error {
-	key := CanonicalWorkspace(workspace)
+	key := TrustWorkspace(workspace)
 	if key == "" {
 		return fmt.Errorf("mcp trust: empty workspace")
 	}
@@ -288,7 +310,7 @@ func (s *TrustStore) Approve(workspace, source string, srv config.MCPServerConfi
 // Revoke drops every approval of one server name in a workspace and reports
 // whether anything was removed.
 func (s *TrustStore) Revoke(workspace, name string) (bool, error) {
-	key := CanonicalWorkspace(workspace)
+	key := TrustWorkspace(workspace)
 	removed := false
 	err := updateStateFile(s.path, func() error {
 		file, err := s.read()

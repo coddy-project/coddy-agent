@@ -177,10 +177,12 @@ func (p *Pool) SetDialTimeout(d time.Duration) {
 // workspace through ${CWD}, since those resolve to something else in every
 // workspace.
 func WorkspaceBound(srv ManagedServer) bool {
-	if srv.Origin == OriginProject {
-		return true
-	}
-	c := srv.Config
+	return srv.Origin == OriginProject || namesCWD(srv.Config)
+}
+
+// namesCWD reports whether the command, arguments, environment, URL or
+// headers of a declaration name the workspace through ${CWD}.
+func namesCWD(c config.MCPServerConfig) bool {
 	values := append([]string{c.Command, c.URL}, c.Args...)
 	for _, e := range c.Env {
 		values = append(values, e.Value)
@@ -196,11 +198,29 @@ func WorkspaceBound(srv ManagedServer) bool {
 	return false
 }
 
+// boundWorkspace is the workspace a workspace-bound server runs once for:
+// the project (TrustWorkspace) for a project server that does not name
+// ${CWD} - nothing it runs depends on the checkout, since a stdio server is
+// not started in the workspace folder, so the main checkout and its worktrees
+// share it - and the canonical workspace otherwise, where every checkout sees
+// its own files. Empty for a server shared by the whole process.
+func boundWorkspace(srv ManagedServer, workspace string) string {
+	switch {
+	case !WorkspaceBound(srv):
+		return ""
+	case srv.Origin == OriginProject && !namesCWD(srv.Config):
+		return TrustWorkspace(workspace)
+	default:
+		return CanonicalWorkspace(workspace)
+	}
+}
+
 // PoolKey identifies the connection a session in workspace gets for srv: the
 // name, the transport and what the declaration resolves to there - the
 // command line and the environment of a stdio server, the URL and the headers
-// of a remote one - plus the canonical workspace for a workspace-bound
-// server. Two sessions whose keys match share one connection.
+// of a remote one - plus, for a workspace-bound server, the workspace it runs
+// once for (boundWorkspace). Two sessions whose keys match share one
+// connection.
 func PoolKey(srv ManagedServer, workspace string) string {
 	cfg := srv.Config
 	payload := struct {
@@ -223,9 +243,7 @@ func PoolKey(srv ManagedServer, workspace string) string {
 		}
 		sort.Slice(payload.Headers, func(i, j int) bool { return payload.Headers[i][0] < payload.Headers[j][0] })
 	}
-	if WorkspaceBound(srv) {
-		payload.Workspace = CanonicalWorkspace(workspace)
-	}
+	payload.Workspace = boundWorkspace(srv, workspace)
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return "unmarshalable:" + cfg.Name
@@ -746,10 +764,7 @@ func (p *Pool) watch(e *poolEntry, cn *conn) {
 // workspaceIfBound is the workspace the entry runs for, empty for a server
 // shared by the whole process.
 func (e *poolEntry) workspaceIfBound() string {
-	if !WorkspaceBound(e.server) {
-		return ""
-	}
-	return CanonicalWorkspace(e.workspace)
+	return boundWorkspace(e.server, e.workspace)
 }
 
 // logAttrs names the entry in a log line, followed by extra.

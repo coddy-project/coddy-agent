@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
@@ -49,6 +50,8 @@ type trustFile struct {
 // per request; a write is a transaction under an in-process mutex shared by
 // every instance of the same path plus a file lock shared with other
 // processes, and the file is replaced atomically through a unique temporary.
+// Receipts are kept per project (mcp.TrustWorkspace): a linked worktree reads
+// and writes those of its main checkout, and the digest still binds.
 type TrustStore struct {
 	path string
 }
@@ -146,6 +149,7 @@ func (s *TrustStore) transaction() (func(), error) {
 // Records returns the receipts recorded for a canonical workspace, sorted by
 // file.
 func (s *TrustStore) Records(workspace string) []TrustRecord {
+	workspace = mcp.TrustWorkspace(workspace)
 	mu := s.lock()
 	mu.Lock()
 	defer mu.Unlock()
@@ -156,6 +160,7 @@ func (s *TrustStore) Records(workspace string) []TrustRecord {
 
 // Approved reports whether a receipt binds this workspace, file and digest.
 func (s *TrustStore) Approved(workspace, file, digest string) bool {
+	workspace = mcp.TrustWorkspace(workspace)
 	if workspace == "" || file == "" || digest == "" {
 		return false
 	}
@@ -175,6 +180,7 @@ func (s *TrustStore) Approved(workspace, file, digest string) bool {
 // needs no receipt and an invalid file cannot be approved: both are refused
 // rather than silently recorded.
 func (s *TrustStore) Approve(workspace string, src *Source) error {
+	workspace = mcp.TrustWorkspace(workspace)
 	switch {
 	case src == nil:
 		return fmt.Errorf("hooks trust store: no source to approve")
@@ -210,6 +216,7 @@ func (s *TrustStore) Approve(workspace string, src *Source) error {
 // Revoke removes the receipt of a file in a workspace and reports whether one
 // was on file.
 func (s *TrustStore) Revoke(workspace, file string) (bool, error) {
+	workspace = mcp.TrustWorkspace(workspace)
 	release, err := s.transaction()
 	if err != nil {
 		return false, err

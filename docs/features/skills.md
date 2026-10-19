@@ -190,7 +190,8 @@ only as **`skills.project_trust`** allows:
   offered for installation until you approve it for this workspace - with
   `coddy plugin marketplace trust <name | source>` in a terminal in the workspace, or with the shield
   of its row in Settings → Skills. `coddy plugin marketplace list` and every sync name the entries
-  they held back and the command that approves them. The approval is bound to the workspace and to
+  they held back and the command that approves them. The approval is bound to the workspace (a linked
+  git worktree shares its main checkout's: [Git worktrees](worktrees.md#what-a-worktree-shares-with-its-main-checkout)) and to
   the entry (its kind, name and source) and kept in `${CODDY_HOME}/skills-trust.json`; an entry the
   checkout rewrites asks again, and `coddy plugin marketplace untrust <key>` or the shield withdraws
   it. Skills it already installed stay until you remove them.

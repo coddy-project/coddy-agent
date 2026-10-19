@@ -8,7 +8,10 @@ Feature: Sessions share their MCP servers
   server of a project's .coddy/mcp.json runs once per workspace for the
   sessions of that workspace, and stops mcp.idle_timeout_seconds (five
   minutes by default) after the last of them closes, unless another session
-  of the workspace takes it in the meantime.
+  of the workspace takes it in the meantime. A linked git worktree is the same
+  project as its main checkout: a project server the two declare alike runs
+  once for both, approved once, while a server only the worktree declares
+  waits for its own approval.
 
   Scenario: A global server runs once for the whole process
     Given the home mcp.json declares the MCP server "shared"
@@ -31,3 +34,12 @@ Feature: Sessions share their MCP servers
     When both sessions of the first workspace close
     Then the MCP server "proj" of the first workspace has stopped
     And the MCP server "proj" of the second workspace is still running
+
+  Scenario: A worktree shares the project servers of its main checkout and asks only about its own
+    Given a project whose main checkout declares the approved MCP server "proj"
+    And a worktree of the project that declares "proj" alike and a new MCP server "lab"
+    When a session opens in the main checkout
+    And a session opens in the worktree
+    Then the MCP server "proj" was started once
+    And both sessions call the MCP server "proj"
+    And the MCP server "lab" waits for approval in the worktree

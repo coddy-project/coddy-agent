@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
@@ -52,6 +53,8 @@ type trustFile struct {
 // an in-process mutex shared by every instance of the same path plus a file
 // lock shared with other processes, and the file is replaced atomically
 // through a unique temporary.
+// Receipts are kept per project (mcp.TrustWorkspace): a linked worktree reads
+// and writes those of its main checkout, and the digest still binds.
 type TrustStore struct {
 	path string
 }
@@ -161,6 +164,7 @@ func (s *TrustStore) Workspaces() []string {
 
 // Records returns the receipts of a workspace, sorted by job id.
 func (s *TrustStore) Records(workspace string) []TrustRecord {
+	workspace = mcp.TrustWorkspace(workspace)
 	mu := s.lock()
 	mu.Lock()
 	defer mu.Unlock()
@@ -171,6 +175,7 @@ func (s *TrustStore) Records(workspace string) []TrustRecord {
 
 // Approved reports whether a receipt binds this workspace, job id and digest.
 func (s *TrustStore) Approved(workspace, jobID, digest string) bool {
+	workspace = mcp.TrustWorkspace(workspace)
 	if s == nil || workspace == "" || jobID == "" || digest == "" {
 		return false
 	}
@@ -188,6 +193,7 @@ func (s *TrustStore) Approved(workspace, jobID, digest string) bool {
 // Approve records a receipt for a job's digest, replacing an earlier receipt
 // for the same id.
 func (s *TrustStore) Approve(workspace, jobID, digest string) error {
+	workspace = mcp.TrustWorkspace(workspace)
 	if strings.TrimSpace(workspace) == "" || strings.TrimSpace(jobID) == "" || strings.TrimSpace(digest) == "" {
 		return fmt.Errorf("scheduler trust store: workspace, job id and digest are required")
 	}
@@ -210,6 +216,7 @@ func (s *TrustStore) Approve(workspace, jobID, digest string) error {
 
 // Revoke removes the receipt of a job and reports whether one was on file.
 func (s *TrustStore) Revoke(workspace, jobID string) (bool, error) {
+	workspace = mcp.TrustWorkspace(workspace)
 	release, err := s.transaction()
 	if err != nil {
 		return false, err
@@ -240,6 +247,7 @@ func (s *TrustStore) Revoke(workspace, jobID string) (bool, error) {
 // Rename moves the receipt of a job to its new id, keeping its digest; the
 // caller re-issues it afterwards when the content changed too.
 func (s *TrustStore) Rename(workspace, oldID, newID string) error {
+	workspace = mcp.TrustWorkspace(workspace)
 	release, err := s.transaction()
 	if err != nil {
 		return err

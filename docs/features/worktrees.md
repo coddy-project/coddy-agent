@@ -95,8 +95,11 @@ Coddy keeps the worktrees under `<main checkout>/.coddy/worktrees/`; for
 example, `feature/login` becomes `feature-login`. A `.gitignore` in that parent
 folder hides the worktrees from the main checkout's status. Project rules,
 skills, hooks and configured MCP servers are reloaded for the new cwd, with
-project MCP declarations checked through the workspace trust gate. The session
-records its new cwd for later turns.
+project MCP declarations checked through the workspace trust gate; what the main
+checkout approved holds there, and the project MCP servers it runs are shared
+rather than started again
+([What a worktree shares with its main checkout](#what-a-worktree-shares-with-its-main-checkout)).
+The session records its new cwd for later turns.
 
 A branch that exists only on a remote other than `origin` opens the same way: by
 its name (`fix/typo`, taken from `origin` when `origin` has it too, else from
@@ -158,3 +161,42 @@ If a managed worktree is later removed with `git worktree remove`, a saved
 session that pointed inside `<main>/.coddy/worktrees/` opens against the main
 checkout instead. History groups it there immediately; the original recorded
 worktree path is retained until you explicitly choose another workspace.
+
+## What a worktree shares with its main checkout
+
+A linked worktree is the same project as its main checkout, so what Coddy decided
+about the project holds in every worktree of it. Only what the worktree itself adds
+or changes is asked about again:
+
+- approvals of project configuration. A project MCP declaration, a project subagent
+  definition, a project hook file, a project marketplace entry and a project
+  scheduler job approved in the main checkout are approved in its worktrees. A
+  receipt is still bound to the digest of what was approved, so a declaration, a
+  file or an entry the branch added or changed waits for its own approval. An
+  approval given in a worktree holds for the project, so the branch merged with the
+  same content asks nothing, and a revoke in either checkout revokes for the
+  project;
+- your switches of project MCP servers (`<home>/mcp-overrides.json`): a server
+  switched off in the main checkout is off in its worktrees;
+- project MCP servers. A project server whose declaration does not name `${CWD}`
+  runs the same command in every checkout, so the main checkout and its worktrees
+  share one process, and moving a chat into a worktree does not restart it. A
+  server that names `${CWD}` sees the files of its own checkout and runs once per
+  worktree: that is how an MCP server under development in a branch is tested;
+- project scheduler jobs. The scheduler scans projects, not checkouts: a project
+  job runs on cron once, from the main checkout, however many worktrees chats
+  opened the scheduler in. A worktree's copy of a job is listed as not scheduled
+  and can be run by hand from a chat there; a job a branch adds runs on cron once
+  the branch is merged.
+
+A folder inside a worktree answers to the same folder of the main checkout:
+`<worktree>/pkg` to `<main checkout>/pkg`. In a worktree, `coddy mcp list`,
+`coddy agents list` and `coddy hooks list` add a line naming the main checkout the
+approvals are kept for, and the `workspace` field of `GET /coddy/mcp`,
+`GET /coddy/subagents` and `GET /coddy/hooks` names it too.
+
+A folder counts as a worktree only when git links it both ways: its `.git` file
+names the repository's worktree storage, and that storage names the folder back. A
+`.git` file copied or written into another folder lends that folder nothing.
+Approvals a worktree recorded under its own path before Coddy shared them were not
+moved, so the worktree asks once more for what only it had approved.

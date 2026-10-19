@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 )
 
 // TrustFileName is the receipts file inside the coddy home directory. It is a
@@ -47,6 +49,8 @@ type trustFile struct {
 // TrustStore persists receipts at <home>/subagents-trust.json. Every
 // operation re-reads the file, so an approval granted through the CLI or the
 // HTTP route reaches a running agent on its next spawn.
+// Receipts are kept per project (mcp.TrustWorkspace): a linked worktree reads
+// and writes those of its main checkout, and the digest still binds.
 type TrustStore struct {
 	path string
 	mu   sync.Mutex
@@ -94,6 +98,7 @@ func (s *TrustStore) write(file trustFile) error {
 
 // Records returns the receipts recorded for a canonical workspace.
 func (s *TrustStore) Records(workspace string) []TrustRecord {
+	workspace = mcp.TrustWorkspace(workspace)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	recs := s.read().Workspaces[workspace]
@@ -104,6 +109,7 @@ func (s *TrustStore) Records(workspace string) []TrustRecord {
 
 // Approved reports whether a receipt binds this workspace, name and digest.
 func (s *TrustStore) Approved(workspace, name, digest string) bool {
+	workspace = mcp.TrustWorkspace(workspace)
 	if s == nil || strings.TrimSpace(digest) == "" {
 		return false
 	}
@@ -120,6 +126,7 @@ func (s *TrustStore) Approved(workspace, name, digest string) bool {
 // Approve records a receipt for def in workspace, replacing any earlier
 // receipt for the same name.
 func (s *TrustStore) Approve(workspace string, def *Definition) error {
+	workspace = mcp.TrustWorkspace(workspace)
 	if def == nil {
 		return nil
 	}
@@ -145,6 +152,7 @@ func (s *TrustStore) Approve(workspace string, def *Definition) error {
 // Revoke removes the receipt for name in workspace and reports whether one
 // existed.
 func (s *TrustStore) Revoke(workspace, name string) (bool, error) {
+	workspace = mcp.TrustWorkspace(workspace)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	file := s.read()

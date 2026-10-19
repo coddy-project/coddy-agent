@@ -15,4 +15,5 @@ alwaysApply: false
 - Compare workspace ownership, filtering, trust, and cache identity through `SameWorkspacePath` or the canonical form, never raw strings.
 - Account for symlinks, `/tmp` versus `/private/tmp`, and case-insensitive Windows and macOS paths.
 - Keep the logical path for display and the canonical key for identity.
+- Trust receipts, project switches and what a project shares (a project MCP server, the scheduler's scan set) key by `mcp.TrustWorkspace`, which answers a folder of a linked git worktree with the same folder of its main checkout; paths stay on the real workspace.
 - Remote adapters forward workspace filters.
