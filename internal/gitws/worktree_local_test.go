@@ -104,3 +104,31 @@ func TestFolderInFindsTheSameFolderInTheWorktree(t *testing.T) {
 		}
 	}
 }
+
+// A worktree whose folder was deleted by hand is made again, not handed back
+// as a folder that is not there.
+func TestEnsureLocalWorktreeMakesAgainAWorktreeWhoseFolderWasDeleted(t *testing.T) {
+	main := initRepo(t)
+	opened, err := EnsureLocalWorktree(main, "subagent/gone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(opened.Path); err != nil {
+		t.Fatal(err)
+	}
+	again, err := EnsureLocalWorktree(main, "subagent/gone")
+	if err != nil || !again.Created {
+		t.Fatalf("again = %+v, %v; want the worktree made anew", again, err)
+	}
+	if _, err := os.Stat(filepath.Join(again.Path, ".git")); err != nil {
+		t.Fatalf("the new worktree has no .git: %v", err)
+	}
+	// worktree_open's path goes through the same lookup.
+	if err := os.RemoveAll(again.Path); err != nil {
+		t.Fatal(err)
+	}
+	path, created, err := EnsureWorktreeFrom(main, "subagent/gone", BaseDefault)
+	if err != nil || !created {
+		t.Fatalf("EnsureWorktreeFrom = %s, %t, %v; want it made anew", path, created, err)
+	}
+}

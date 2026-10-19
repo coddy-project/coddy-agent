@@ -28,34 +28,9 @@ const WorktreeIncludeFile = ".worktreeinclude"
 // file git does not ignore, a link, or a file the worktree already has. No
 // include file, or no git binary, copies nothing.
 func CopyWorktreeIncludes(main, worktree string) ([]string, error) {
-	include := filepath.Join(main, WorktreeIncludeFile)
-	if fi, err := os.Lstat(include); err != nil || !fi.Mode().IsRegular() {
-		return nil, nil
-	}
-	if !GitAvailable() {
-		return nil, nil
-	}
-	// The untracked files the include file names, then those of them git
-	// ignores: both lists are git's own reading of the patterns.
-	named, _, err := runGitStdin(main, nil, "ls-files", "--others", "--ignored", "-z", "--exclude-from="+include)
-	if err != nil {
-		return nil, fmt.Errorf("list the files %s names: %w", WorktreeIncludeFile, err)
-	}
-	var candidates []string
-	for _, rel := range strings.Split(string(named), "\x00") {
-		// A folder git did not enter (a repository of its own, another
-		// worktree) is listed with a trailing slash: never copied whole.
-		if rel == "" || strings.HasSuffix(rel, "/") || !safeRelative(rel) {
-			continue
-		}
-		candidates = append(candidates, rel)
-	}
-	if len(candidates) == 0 {
-		return nil, nil
-	}
-	ignored, code, err := runGitStdin(main, []byte(strings.Join(candidates, "\x00")+"\x00"), "check-ignore", "--stdin", "-z")
-	if err != nil && code != 1 { // 1: none of them is ignored
-		return nil, fmt.Errorf("check which files git ignores: %w", err)
+	files, err := includedFiles(main, filepath.Join(main, WorktreeIncludeFile))
+	if err != nil || len(files) == 0 {
+		return nil, err
 	}
 	src, err := os.OpenRoot(main)
 	if err != nil {
@@ -69,10 +44,7 @@ func CopyWorktreeIncludes(main, worktree string) ([]string, error) {
 	defer func() { _ = dst.Close() }()
 	var copied []string
 	var errs []error
-	for _, rel := range strings.Split(string(ignored), "\x00") {
-		if rel == "" || !safeRelative(rel) {
-			continue
-		}
+	for _, rel := range files {
 		ok, err := copyIncluded(src, dst, rel)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", rel, err))
@@ -113,12 +85,134 @@ func copyIncluded(src, dst *os.Root, rel string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
+	// The mode OpenFile was given went through the umask: set it as it is.
+	_, err = io.Copy(out, in)
+	if err == nil {
+		err = out.Chmod(fi.Mode().Perm())
+	}
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
 		_ = dst.Remove(name)
 		return false, err
 	}
-	return true, out.Close()
+	return true, nil
+}
+
+// includedFiles lists, relative to dir in slash form and sorted, the files of
+// the checkout at dir that the include file (in .gitignore syntax) names and
+// that git ignores there: untracked regular paths, never a folder git did not
+// enter. No include file, or no git binary, lists nothing.
+func includedFiles(dir, include string) ([]string, error) {
+	if fi, err := os.Lstat(include); err != nil || !fi.Mode().IsRegular() {
+		return nil, nil
+	}
+	if !GitAvailable() {
+		return nil, nil
+	}
+	// The untracked files the include file names, then those of them git
+	// ignores: both lists are git's own reading of the patterns.
+	named, _, err := runGitStdin(dir, nil, "ls-files", "--others", "--ignored", "-z", "--exclude-from="+include)
+	if err != nil {
+		return nil, fmt.Errorf("list the files %s names: %w", WorktreeIncludeFile, err)
+	}
+	var candidates []string
+	for _, rel := range strings.Split(string(named), "\x00") {
+		// A folder git did not enter (a repository of its own, another
+		// worktree) is listed with a trailing slash: never taken whole.
+		if rel == "" || strings.HasSuffix(rel, "/") || !safeRelative(rel) {
+			continue
+		}
+		candidates = append(candidates, rel)
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	ignored, code, err := runGitStdin(dir, []byte(strings.Join(candidates, "\x00")+"\x00"), "check-ignore", "--stdin", "-z")
+	if err != nil && code != 1 { // 1: none of them is ignored
+		return nil, fmt.Errorf("check which files git ignores: %w", err)
+	}
+	var files []string
+	for _, rel := range strings.Split(string(ignored), "\x00") {
+		if rel != "" && safeRelative(rel) {
+			files = append(files, rel)
+		}
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+// ChangedIncludes lists the files of the worktree at worktree that the main
+// checkout's .worktreeinclude names, that git ignores there, and that differ
+// from the main checkout's file of the same name or have none there: a copied
+// .env edited in the worktree, a local file written there. Removing the
+// worktree would lose them, though git sees nothing. Links count as changed
+// when the main checkout has no link of the same target.
+func ChangedIncludes(main, worktree string) ([]string, error) {
+	files, err := includedFiles(worktree, filepath.Join(main, WorktreeIncludeFile))
+	if err != nil || len(files) == 0 {
+		return nil, err
+	}
+	src, err := os.OpenRoot(main)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = src.Close() }()
+	wt, err := os.OpenRoot(worktree)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = wt.Close() }()
+	var changed []string
+	for _, rel := range files {
+		if !sameIncluded(src, wt, filepath.FromSlash(rel)) {
+			changed = append(changed, rel)
+		}
+	}
+	return changed, nil
+}
+
+// sameIncluded reports whether name is the same in both roots: two regular
+// files with the same bytes, or two links with the same target.
+func sameIncluded(a, b *os.Root, name string) bool {
+	fa, err := a.Lstat(name)
+	if err != nil {
+		return false
+	}
+	fb, err := b.Lstat(name)
+	if err != nil || fa.Mode().Type() != fb.Mode().Type() {
+		return false
+	}
+	if fa.Mode()&os.ModeSymlink != 0 {
+		ta, errA := a.Readlink(name)
+		tb, errB := b.Readlink(name)
+		return errA == nil && errB == nil && ta == tb
+	}
+	if !fa.Mode().IsRegular() || fa.Size() != fb.Size() {
+		return false
+	}
+	ra, err := a.Open(name)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = ra.Close() }()
+	rb, err := b.Open(name)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = rb.Close() }()
+	bufA, bufB := make([]byte, 32*1024), make([]byte, 32*1024)
+	for {
+		na, errA := io.ReadFull(ra, bufA)
+		nb, errB := io.ReadFull(rb, bufB)
+		if na != nb || !bytes.Equal(bufA[:na], bufB[:nb]) {
+			return false
+		}
+		if errA != nil || errB != nil {
+			return (errA == io.EOF || errA == io.ErrUnexpectedEOF) && (errB == io.EOF || errB == io.ErrUnexpectedEOF)
+		}
+	}
 }
 
 // safeRelative reports whether rel, as git printed it, names a path inside

@@ -49,7 +49,7 @@ func EnsureLocalWorktree(repoDir, branch string) (WorktreeEnsured, error) {
 	if err := checkWorktreesRoot(mainRoot, root); err != nil {
 		return WorktreeEnsured{}, err
 	}
-	if path, found, err := reuseWorktree(list, root, branch); found || err != nil {
+	if path, found, err := reuseWorktree(repoDir, list, root, branch); found || err != nil {
 		return WorktreeEnsured{Path: path}, err
 	}
 	if err := os.MkdirAll(root, 0o755); err != nil {

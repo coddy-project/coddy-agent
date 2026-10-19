@@ -38,9 +38,11 @@ When the work in a worktree is done, `worktree_exit` moves the session back to
 the main checkout, and its next tool call runs there. What happens to the
 worktree depends on `action`. `{"action":"auto"}`, the default, removes the
 worktree and its branch when the worktree holds nothing of its own: no
-uncommitted change (ignored files do not count) and no commit that no other
-branch, remote branch or tag holds, nobody else working in it and nothing below
-refusing its removal. Otherwise it keeps the worktree, the session goes back all
+uncommitted change (ignored files do not count, except the ones
+`.worktreeinclude` names that differ from the main checkout's,
+[below](#files-git-does-not-carry)) and no commit that no other branch, remote
+branch or tag holds, nobody else working in it and nothing below refusing its
+removal. Otherwise it keeps the worktree, the session goes back all
 the same, and the answer says why in `kept`. So a worktree opened to look around
 goes away on the way back, and one with work in it waits for later.
 `{"action":"keep"}` leaves the worktree and its branch for later in any case;
@@ -197,7 +199,10 @@ by you stays so) and never overwrites a file the worktree already has; links
 are not copied. The copy happens when the worktree is created, by
 `worktree_open`, `/worktree` and the web UI's **Worktree** checkbox alike, and
 also for the worktree of a subagent. `worktree_open` lists what it copied in
-`included`. Without the file nothing is copied.
+`included`. Without the file nothing is copied. A copy changed in the worktree,
+or a file the include file names that only the worktree has, counts as work of
+its own: leaving with `auto` keeps the worktree, while other ignored files, such
+as build output, go with it.
 
 ## A subagent in a worktree of its own
 
@@ -213,12 +218,15 @@ in. The parent's uncommitted changes are not there. A parent working in a
 subfolder of its checkout hands the child the same subfolder of the worktree.
 
 When the run ends, the worktree goes with its branch if the child left nothing
-there, the same check as `worktree_exit`'s `auto`. A run that changed files or
-committed keeps the worktree, and the report the parent reads names its folder
-and branch: the parent reviews the changes there, merges the branch, or opens it
-with `worktree_open`. The agent task records them as `worktree` and `branch`. A
-resumed run goes on in the worktree its earlier run worked in, opened again on
-the same branch when that run's end removed it. A run that worked in the
+there: nothing `worktree_exit`'s `auto` would keep it for, no commit at all
+(not even one a push or another branch holds), and no other session or
+background task working in it. A run that changed files or committed keeps the
+worktree, and the report the parent reads names its folder and branch: the
+parent reviews the changes there, merges the branch, or opens it with
+`worktree_open`. The agent task records them as `worktree` and `branch`. A
+resumed run goes on in the worktree its earlier run worked in, on whatever
+branch the child left it, and gets the same branch checked out anew when that
+run's end removed the worktree. A run that worked in the
 parent's folder is not moved into a worktree by a resume. Isolation needs a git
 repository with a commit: anywhere else the spawn is refused before anything
 starts. See [Subagents](subagents.md#a-worktree-of-its-own).

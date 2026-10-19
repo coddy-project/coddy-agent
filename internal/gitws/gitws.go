@@ -364,7 +364,7 @@ func ensureWorktree(repoDir, branch string, from WorktreeBase, mainOut *string) 
 	branch = target.Branch
 	// Reusing an existing worktree needs no origin at all: keep the fast
 	// path offline-capable.
-	if path, found, err := reuseWorktree(list, root, branch); found || err != nil {
+	if path, found, err := reuseWorktree(repoDir, list, root, branch); found || err != nil {
 		return path, false, err
 	}
 
@@ -392,7 +392,7 @@ func ensureWorktree(repoDir, branch string, from WorktreeBase, mainOut *string) 
 			return "", false, fmt.Errorf("no branch %q on remote %s", strings.TrimPrefix(raw, remote+"/"), remote)
 		}
 		branch = target.Branch
-		if path, found, err := reuseWorktree(list, root, branch); found || err != nil {
+		if path, found, err := reuseWorktree(repoDir, list, root, branch); found || err != nil {
 			return path, false, err
 		}
 	}
@@ -471,14 +471,23 @@ func resolveWorktreeBranch(repoDir, name string) (BranchTarget, string, error) {
 }
 
 // reuseWorktree finds the worktree already holding branch. The main checkout
-// holding it is an error: a worktree cannot check out the same branch.
-func reuseWorktree(list []Worktree, root, branch string) (string, bool, error) {
+// holding it is an error: a worktree cannot check out the same branch. A
+// listed worktree whose folder is gone is pruned and not found.
+func reuseWorktree(repoDir string, list []Worktree, root, branch string) (string, bool, error) {
 	for _, wt := range list {
 		if wt.Branch != branch {
 			continue
 		}
 		if wt.Main {
 			return "", false, fmt.Errorf("branch %q is checked out in the main checkout; switch it away before creating a worktree", branch)
+		}
+		// A worktree whose folder was deleted by hand is still listed: git
+		// forgets it, and the caller adds the worktree anew rather than
+		// handing out a folder that is not there. A locked one stays listed,
+		// and git refuses the add with its own reason.
+		if _, err := os.Stat(wt.Path); os.IsNotExist(err) {
+			_ = PruneWorktrees(repoDir)
+			return "", false, nil
 		}
 		// One of ours that lost its ignore file - `git clean -xdf` deletes the
 		// file and keeps the worktrees - would stay visible in git status

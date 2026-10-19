@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -106,4 +107,62 @@ func TestCopyWorktreeIncludesWithoutTheFile(t *testing.T) {
 	if err != nil || len(included) != 0 {
 		t.Fatalf("CopyWorktreeIncludes = %v, %v; want nothing", included, err)
 	}
+}
+
+// The copy has the source's mode bits as they are, not as the umask leaves
+// them.
+func TestCopyWorktreeIncludesKeepsTheModePastTheUmask(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX mode bits")
+	}
+	main := initRepo(t)
+	commitFile(t, main, ".gitignore", ".env\n")
+	writeFile(t, main, ".worktreeinclude", ".env\n")
+	writeFile(t, main, ".env", "shared with the group\n")
+	if err := os.Chmod(filepath.Join(main, ".env"), 0o660); err != nil {
+		t.Fatal(err)
+	}
+	wt := filepath.Join(WorktreesRoot(main), "feature-login")
+	mustGit(t, main, "worktree", "add", "-q", wt, "feature/login")
+	if _, err := CopyWorktreeIncludes(main, wt); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(filepath.Join(wt, ".env")); err != nil || fi.Mode().Perm() != 0o660 {
+		t.Fatalf(".env mode = %v, %v; want 0660 whatever the umask", fi.Mode(), err)
+	}
+}
+
+// A copy edited in the worktree, or a file the include file names that only
+// the worktree has, is work of its own; a copy left as it was is not.
+func TestOwnWorkCountsChangedIncludeCopies(t *testing.T) {
+	main := initRepo(t)
+	commitFile(t, main, ".gitignore", ".env\nlocal/\nbuild/\n")
+	mustGit(t, main, "push", "-q", "origin", "main")
+	writeFile(t, main, ".worktreeinclude", ".env\nlocal/\n")
+	writeFile(t, main, ".env", "TOKEN=main\n")
+	opened, err := EnsureWorktreeDetailed(main, "feature/env", BaseDefault)
+	if err != nil || len(opened.Included) != 1 {
+		t.Fatalf("opened = %+v, %v; want .env copied", opened, err)
+	}
+	wt, err := WorktreeOf(opened.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	own := func(wantEmpty bool, want, why string) {
+		t.Helper()
+		got, err := OwnWork(wt)
+		if err != nil {
+			t.Fatalf("%s: %v", why, err)
+		}
+		if wantEmpty != (got == "") || !strings.Contains(got, want) {
+			t.Fatalf("%s: OwnWork = %q, want %q", why, got, want)
+		}
+	}
+	writeFile(t, opened.Path, "build/out.bin", "ignored output\n")
+	own(true, "", "an untouched copy and ignored output")
+	writeFile(t, opened.Path, ".env", "TOKEN=edited\n")
+	own(false, ".env", "an edited copy")
+	writeFile(t, opened.Path, ".env", "TOKEN=main\n")
+	writeFile(t, opened.Path, "local/notes.md", "only here\n")
+	own(false, "local/notes.md", "a named file only the worktree has")
 }

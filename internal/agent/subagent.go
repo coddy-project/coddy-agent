@@ -1221,11 +1221,13 @@ func (a *Agent) launchChildRun(ctx context.Context, rt SubagentRuntime, l childL
 				pool.StopSession(childID)
 				pool.ReleaseSession(childID)
 				rt.RetireSubagentSession(childID)
-				// The child's own work has settled and it is no longer
-				// live, so its worktree is judged on what it left there.
-				if l.worktree != nil {
-					settleChildWorktree(rt, run)
-				}
+			}
+			// The child's own work has settled and it is no longer live, so
+			// its worktree is judged on what it left there: by the run that
+			// owned the child, or by the launch that made the worktree and
+			// never got as far (a resume the pool refused).
+			if l.worktree != nil && (owned || l.worktree.Created) {
+				settleChildWorktree(rt, pool, run)
 			}
 			if l.cleanup != nil {
 				l.cleanup()

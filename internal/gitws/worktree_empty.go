@@ -7,11 +7,12 @@ import (
 )
 
 // OwnWork says what wt holds of its own that removing it would lose, or ""
-// when it holds nothing: uncommitted changes (ignored files do not count),
-// commits of its branch or of a detached HEAD that no other branch, remote
-// branch or tag holds, and what CheckRemovable keeps a worktree for - a lock,
-// initialised submodules, a git repository of its own inside it. It changes
-// nothing.
+// when it holds nothing: uncommitted changes (ignored files do not count,
+// but a file the main checkout's .worktreeinclude names that differs from the
+// main checkout's copy does: ChangedIncludes), commits of its branch or of a
+// detached HEAD that no other branch, remote branch or tag holds, and what
+// CheckRemovable keeps a worktree for - a lock, initialised submodules, a git
+// repository of its own inside it. It changes nothing.
 func OwnWork(wt LinkedWorktree) (string, error) {
 	st, err := InspectWorktree(wt)
 	if err != nil {
@@ -28,7 +29,15 @@ func OwnWork(wt LinkedWorktree) (string, error) {
 		return "initialised submodules", nil
 	case len(st.Nested) > 0:
 		return "git repositories of its own (" + strings.Join(st.Nested, ", ") + ")", nil
-	case wt.Branch == "":
+	}
+	changed, err := ChangedIncludes(wt.MainCheckout, wt.Path)
+	if err != nil {
+		return "", err
+	}
+	if len(changed) > 0 {
+		return fmt.Sprintf("files %s names that differ from the main checkout's (%s)", WorktreeIncludeFile, strings.Join(changed, ", ")), nil
+	}
+	if wt.Branch == "" {
 		return "", nil
 	}
 	n, err := commitsOfItsOwn(wt.Path, wt.Branch, "HEAD")
@@ -60,10 +69,15 @@ func commitsOfItsOwn(dir, branch, rev string) (int, error) {
 	return strconv.Atoi(strings.TrimSpace(out))
 }
 
-// deleteBranchIfHeld deletes branch when every commit of it another branch,
+// HeadOf names the commit HEAD of the checkout at dir is on.
+func HeadOf(dir string) (string, error) {
+	return runGit(dir, "rev-parse", "--verify", "-q", "HEAD^{commit}")
+}
+
+// DeleteBranchIfHeld deletes branch when every commit of it another branch,
 // a remote branch or a tag holds, so nothing is lost, and otherwise says why
-// it stays.
-func deleteBranchIfHeld(dir, branch string) (deleted bool, kept string) {
+// it stays. A branch some worktree has checked out is refused by git.
+func DeleteBranchIfHeld(dir, branch string) (deleted bool, kept string) {
 	tip, err := runGit(dir, "rev-parse", "--verify", "-q", "refs/heads/"+branch)
 	if err != nil || tip == "" {
 		return false, ""

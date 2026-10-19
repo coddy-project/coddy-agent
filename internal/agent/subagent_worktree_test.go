@@ -3,12 +3,15 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/subagents"
@@ -189,5 +192,136 @@ func TestResumeCannotMoveARunIntoAWorktree(t *testing.T) {
 	req.Isolation = subagents.IsolationWorktree
 	if _, err := rig.parentAgent().spawnSubagent(context.Background(), req); err == nil || !strings.Contains(err.Error(), "not in a worktree of its own") {
 		t.Fatalf("resume into a worktree = %v, want a refusal", err)
+	}
+}
+
+// parkedHandle is a background task that runs until it is stopped.
+type parkedHandle struct{ done chan struct{} }
+
+func (h *parkedHandle) Wait() (int, error) { <-h.done; return 0, nil }
+func (h *parkedHandle) Stop(time.Duration) error {
+	select {
+	case <-h.done:
+	default:
+		close(h.done)
+	}
+	return nil
+}
+func (h *parkedHandle) PID() int                    { return 0 }
+func (h *parkedHandle) ProcessStartedAt() time.Time { return time.Time{} }
+
+// openedChildWorktree opens a child's worktree in the rig's repository the way
+// a spawn does, and a run that owns it.
+func openedChildWorktree(t *testing.T, rig *subagentRig) (*childWorktree, *subagentRun) {
+	t.Helper()
+	w, _, _, err := openChildWorktree(rig.cwd, "fixer", session.NewSessionID(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return w, &subagentRun{taskID: "bg_child_itself", worktree: w}
+}
+
+func gitIn(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// A background task of another session still at work in the child's
+// worktree keeps it, empty as it is: its folder is not removed under it.
+func TestSettleKeepsAWorktreeABackgroundTaskRunsIn(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	gitWorkspace(t, rig.cwd)
+	w, run := openedChildWorktree(t, rig)
+	pool := bgtask.New(bgtask.Config{})
+	t.Cleanup(func() { pool.StopSession("sess_watcher") })
+	if _, err := pool.Launch(bgtask.Spec{SessionID: "sess_watcher", Kind: bgtask.KindServer, Label: "tests", CWD: filepath.Join(w.Path, "pkg")},
+		func(string, io.Writer) (bgtask.Handle, error) { return &parkedHandle{done: make(chan struct{})}, nil }); err != nil {
+		t.Fatal(err)
+	}
+	settleChildWorktree(rig.mgr, pool, run)
+	if w.Removed || !strings.Contains(w.Kept, "background task") {
+		t.Fatalf("settled = %+v, want the worktree kept for the running task", w)
+	}
+	if _, err := os.Stat(w.Path); err != nil {
+		t.Fatalf("the worktree went under the task: %v", err)
+	}
+}
+
+// A child's commits keep its worktree even when another ref holds them all
+// (a push, a branch of its own): the parent is not told it left nothing, and
+// a resume finds the commits where they were.
+func TestSettleKeepsAWorktreeWhoseChildCommitted(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	gitWorkspace(t, rig.cwd)
+	w, run := openedChildWorktree(t, rig)
+	if err := os.WriteFile(filepath.Join(w.Path, "fix.txt"), []byte("fix\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, w.Path, "add", "fix.txt")
+	gitIn(t, w.Path, "-c", "user.email=coddy@test", "-c", "user.name=coddy", "commit", "-q", "-m", "fix")
+	gitIn(t, rig.cwd, "branch", "pushed-copy", w.Branch) // holds the commit, as a remote branch would
+	settleChildWorktree(rig.mgr, bgtask.New(bgtask.Config{}), run)
+	if w.Removed || !strings.Contains(w.Kept, "committed") {
+		t.Fatalf("settled = %+v, want the worktree kept for the child's commit", w)
+	}
+}
+
+// A child that moved its worktree to another branch is reported on that
+// branch, and a resume goes on in the same worktree instead of failing to
+// check the first branch out over it.
+func TestAChildThatSwitchedBranchesIsResumedWhereItIs(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	gitWorkspace(t, rig.cwd)
+	w, run := openedChildWorktree(t, rig)
+	first := w.Branch
+	gitIn(t, w.Path, "switch", "-q", "-c", "fix/actual")
+	if err := os.WriteFile(filepath.Join(w.Path, "fix.txt"), []byte("fix\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	settleChildWorktree(rig.mgr, bgtask.New(bgtask.Config{}), run)
+	if w.Removed || w.Branch != "fix/actual" || !strings.Contains(run.worktree.reportLine(), "fix/actual") {
+		t.Fatalf("settled = %+v, want it kept and reported on fix/actual", w)
+	}
+	again, folder, _, err := openChildWorktree(rig.cwd, "fixer", session.NewSessionID(), &resumeTarget{worktree: w.Path, branch: first, cwd: w.Path})
+	if err != nil {
+		t.Fatalf("resume of a child on another branch = %v", err)
+	}
+	if !session.SameWorkspacePath(again.Path, w.Path) || again.Branch != "fix/actual" || !session.SameWorkspacePath(folder, w.Path) {
+		t.Fatalf("resumed in %s on %s (folder %s), want %s on fix/actual", again.Path, again.Branch, folder, w.Path)
+	}
+}
+
+// A resume that made the worktree again and was then refused by the pool
+// leaves no empty worktree behind.
+func TestARefusedResumeLeavesNoWorktreeBehind(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	gitWorkspace(t, rig.cwd)
+	rig.approvedDefinition("fixer", "isolation: worktree\n")
+	rig.setChildProvider(func(*session.State) llm.Provider { return scripted(answerStep("REPORT: nothing")) })
+	first := parseSubagentEnvelope(t, mustSpawn(t, rig.parentAgent(), spawnReq("fixer")))
+	gone := rig.lastAgentTask().Agent.Worktree
+	if _, err := os.Stat(gone); !os.IsNotExist(err) {
+		t.Fatalf("the first run's empty worktree stayed: %v", err)
+	}
+	pool := bgtask.Default()
+	pool.SetDraining(true)
+	t.Cleanup(func() { pool.SetDraining(false) })
+	req := spawnReq("fixer")
+	req.Resume = first.Task
+	if _, err := rig.parentAgent().spawnSubagent(context.Background(), req); err == nil {
+		t.Fatal("a resume into a draining pool started")
+	}
+	if _, err := os.Stat(gone); !os.IsNotExist(err) {
+		t.Fatalf("the refused resume left its worktree %s: %v", gone, err)
+	}
+	if out := gitIn(t, rig.cwd, "branch", "--list", "subagent/*"); out != "" {
+		t.Fatalf("the refused resume left a branch: %q", out)
 	}
 }
