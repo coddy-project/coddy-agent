@@ -19,6 +19,7 @@ import (
 
 	schedservice "github.com/EvilFreelancer/coddy-agent/external/scheduler/service"
 	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
+	"github.com/EvilFreelancer/coddy-agent/internal/gitws/gitwstest"
 )
 
 func (s *schedulerRunsState) workspace() string {
@@ -142,6 +143,70 @@ func (s *schedulerRunsState) createRefusedIDTaken() error {
 	return nil
 }
 
+// worktree is the linked worktree the scenario's workspace holds once it is a
+// repository (gitwstest.AddWorktree lays it out there).
+func (s *schedulerRunsState) worktree() string {
+	return filepath.Join(s.cwd, ".coddy", "worktrees", "feature-login")
+}
+
+func (s *schedulerRunsState) workspaceIsARepositoryWithAWorktree() error {
+	if err := gitwstest.Init(s.cwd); err != nil {
+		return err
+	}
+	_, err := gitwstest.AddWorktree(s.cwd)
+	return err
+}
+
+func (s *schedulerRunsState) committedToTheWorkspaceAndItsWorktree(jobID, schedule string) error {
+	if err := s.committedProjectJob(jobID, schedule); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(filepath.Join(storage.ProjectDir(s.cwd), jobID+".md"))
+	if err != nil {
+		return err
+	}
+	dir := storage.ProjectDir(s.worktree())
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, jobID+".md"), data, 0o644)
+}
+
+func (s *schedulerRunsState) chatInTheWorktreeOpensTheScheduler() error {
+	_, err := s.svc.WithSession(s.worktree()).ListJobs(schedservice.ListOptions{Workspace: s.worktree()})
+	return err
+}
+
+func (s *schedulerRunsState) worktreeCopyListedUnscheduled(jobID, state string) error {
+	out, err := s.svc.WithSession(s.worktree()).ListJobs(schedservice.ListOptions{Workspace: s.worktree()})
+	if err != nil {
+		return err
+	}
+	ws := schedservice.CanonicalWorkspace(s.worktree())
+	for _, j := range out.Jobs {
+		if j.JobID != jobID || j.Scope != "project" || j.Workspace != ws {
+			continue
+		}
+		if string(j.Trust) != state || j.Scheduled {
+			return fmt.Errorf("the worktree's copy of %q is %q (%s), scheduled %t; want %q and not scheduled", jobID, j.Trust, j.TrustReason, j.Scheduled, state)
+		}
+		return nil
+	}
+	return fmt.Errorf("the worktree's copy of %q is not listed: %+v", jobID, out.Jobs)
+}
+
+func (s *schedulerRunsState) worktreeCopyHasRuns(jobID string, n int) error {
+	addr := schedservice.JobAddr{Scope: storage.ScopeProject, Workspace: schedservice.CanonicalWorkspace(s.worktree()), ID: jobID}
+	runs, err := s.svc.ListJobRuns(addr, 0)
+	if err != nil {
+		return err
+	}
+	if len(runs) != n {
+		return fmt.Errorf("the worktree's copy of %q has %d runs, want %d: %+v", jobID, len(runs), n, runs)
+	}
+	return nil
+}
+
 func initializeSchedulerProjectScenario(sc *godog.ScenarioContext) {
 	s := initializeSchedulerRunsSteps(sc)
 	sc.Step(`^a scheduler$`, s.start)
@@ -154,6 +219,11 @@ func initializeSchedulerProjectScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the run of "([^"]*)" works in the workspace$`, s.runWorksInWorkspace)
 	sc.Step(`^no state file is left in the workspace$`, s.noStateInWorkspace)
 	sc.Step(`^the create is refused because the id is taken$`, s.createRefusedIDTaken)
+	sc.Step(`^the workspace is a git repository with a worktree$`, s.workspaceIsARepositoryWithAWorktree)
+	sc.Step(`^a project job "([^"]*)" scheduled "([^"]*)" committed to the workspace and its worktree$`, s.committedToTheWorkspaceAndItsWorktree)
+	sc.Step(`^a chat in the worktree opens the scheduler$`, s.chatInTheWorktreeOpensTheScheduler)
+	sc.Step(`^the copy of "([^"]*)" in the worktree is listed as "([^"]*)" and not scheduled$`, s.worktreeCopyListedUnscheduled)
+	sc.Step(`^the copy of "([^"]*)" in the worktree has (\d+) runs?$`, s.worktreeCopyHasRuns)
 }
 
 // createProjectJobStep keeps a refused create for the step that checks it,

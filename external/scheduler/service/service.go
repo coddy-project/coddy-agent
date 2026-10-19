@@ -9,6 +9,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 )
 
 // Service centralizes scheduler job CRUD, trust, run tracking, and HTTP or
@@ -103,16 +104,19 @@ func (o *Service) ref(addr JobAddr) (storage.JobRef, error) {
 	return o.roots().ProjectRef(addr.Workspace, id), nil
 }
 
-// register records the session's workspace as one the daemon scans.
+// register records the session's project as one the daemon scans: the
+// session's workspace, or for a linked worktree the same folder of its main
+// checkout (mcp.TrustWorkspace), whose copy of a job is the one that runs.
 func (o *Service) register() {
 	if o.SessionWorkspace == "" || o.Cfg == nil {
 		return
 	}
-	if _, err := o.roots().CheckProjectDir(o.SessionWorkspace); err != nil {
+	project := mcp.TrustWorkspace(o.SessionWorkspace)
+	if _, err := o.roots().CheckProjectDir(project); err != nil {
 		return
 	}
-	if err := storage.NewRegistry(o.Cfg.Paths.Home).Add(o.SessionWorkspace); err != nil && o.Log != nil {
-		o.Log.Warn("scheduler workspace registry", "workspace", o.SessionWorkspace, "error", err)
+	if err := storage.NewRegistry(o.Cfg.Paths.Home).Add(project); err != nil && o.Log != nil {
+		o.Log.Warn("scheduler workspace registry", "workspace", project, "error", err)
 	}
 }
 

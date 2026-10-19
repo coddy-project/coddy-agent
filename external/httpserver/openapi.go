@@ -1571,7 +1571,7 @@ func openAPISpec() map[string]interface{} {
 										"type": "object",
 										"properties": map[string]interface{}{
 											"object":    map[string]string{"type": "string", "example": "coddy.subagent_list"},
-											"workspace": map[string]string{"type": "string", "description": "Canonical workspace path the receipts are keyed by."},
+											"workspace": map[string]string{"type": "string", "description": "Canonical workspace path the receipts are keyed by: the workspace, or for a linked git worktree the same folder of its main checkout, whose receipts the worktree shares."},
 											"policy":    map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}},
 											"items": map[string]interface{}{
 												"type":  "array",
@@ -1788,7 +1788,7 @@ func openAPISpec() map[string]interface{} {
 										"type": "object",
 										"properties": map[string]interface{}{
 											"object":    map[string]string{"type": "string", "example": "coddy.hook_list"},
-											"workspace": map[string]string{"type": "string", "description": "Canonical workspace path the receipts are keyed by."},
+											"workspace": map[string]string{"type": "string", "description": "Canonical workspace path the receipts are keyed by: the workspace, or for a linked git worktree the same folder of its main checkout, whose receipts the worktree shares."},
 											"policy":    map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}},
 											"items": map[string]interface{}{
 												"type":  "array",
@@ -3666,7 +3666,7 @@ func openAPISpec() map[string]interface{} {
 					"type": "object",
 					"properties": map[string]interface{}{
 						"object":        map[string]string{"type": "string", "example": "coddy.mcp_list"},
-						"workspace":     map[string]string{"type": "string", "description": "Workspace the rows were merged for; approvals are recorded against it."},
+						"workspace":     map[string]string{"type": "string", "description": "The project the approvals are recorded against: the session workspace the rows were merged for, or for a linked git worktree the same folder of its main checkout, whose approvals the worktree shares."},
 						"project_trust": map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}, "description": "Effective mcp.project_trust policy."},
 						"items": map[string]interface{}{
 							"type":  "array",

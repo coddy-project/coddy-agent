@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/subagents"
 )
@@ -107,7 +108,7 @@ func (s *Server) coddySubagentsList(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"object":    "coddy.subagent_list",
-		"workspace": cat.workspace,
+		"workspace": mcp.TrustWorkspace(cat.workspace),
 		"policy":    cat.policy,
 		"items":     cat.entries(),
 	})

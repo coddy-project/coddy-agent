@@ -41,3 +41,14 @@ Feature: Project scheduler jobs run once trusted, in the shared pool
     Given a scheduler with a job "nightly" scheduled "0 3 * * *"
     When the operator creates a project job "nightly" scheduled "0 4 * * *" from a session in the workspace
     Then the create is refused because the id is taken
+
+  Scenario: A project job runs on cron once, from the main checkout, when a chat opens the scheduler in a worktree
+    Given a scheduler
+    And the workspace is a git repository with a worktree
+    And a project job "lint" scheduled "* * * * *" committed to the workspace and its worktree
+    And the operator approves the project job "lint" with the digest it was shown
+    When a chat in the worktree opens the scheduler
+    Then the copy of "lint" in the worktree is listed as "trusted" and not scheduled
+    When the daemon ticks at "2026-10-06T10:00:00Z" and the model answers "done"
+    Then the job "lint" has 1 run
+    And the copy of "lint" in the worktree has 0 runs

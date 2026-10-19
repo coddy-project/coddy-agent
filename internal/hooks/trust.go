@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
@@ -36,6 +37,10 @@ type TrustRecord struct {
 	File       string `json:"file"`
 	Digest     string `json:"digest"`
 	ApprovedAt string `json:"approved_at"`
+	// Checkout is the canonical folder the approval was given in: the
+	// checkouts of a project share one key but keep a receipt each
+	// (mcp.ReceiptCheckout reads an empty one as its key's).
+	Checkout string `json:"checkout,omitempty"`
 }
 
 type trustFile struct {
@@ -49,6 +54,8 @@ type trustFile struct {
 // per request; a write is a transaction under an in-process mutex shared by
 // every instance of the same path plus a file lock shared with other
 // processes, and the file is replaced atomically through a unique temporary.
+// Receipts are kept per project (mcp.TrustWorkspace): a linked worktree reads
+// and writes those of its main checkout, and the digest still binds.
 type TrustStore struct {
 	path string
 }
@@ -146,6 +153,7 @@ func (s *TrustStore) transaction() (func(), error) {
 // Records returns the receipts recorded for a canonical workspace, sorted by
 // file.
 func (s *TrustStore) Records(workspace string) []TrustRecord {
+	workspace = mcp.TrustWorkspace(workspace)
 	mu := s.lock()
 	mu.Lock()
 	defer mu.Unlock()
@@ -156,6 +164,7 @@ func (s *TrustStore) Records(workspace string) []TrustRecord {
 
 // Approved reports whether a receipt binds this workspace, file and digest.
 func (s *TrustStore) Approved(workspace, file, digest string) bool {
+	workspace = mcp.TrustWorkspace(workspace)
 	if workspace == "" || file == "" || digest == "" {
 		return false
 	}
@@ -171,10 +180,13 @@ func (s *TrustStore) Approved(workspace, file, digest string) bool {
 }
 
 // Approve records a receipt for the current content of a project-scope
-// source, replacing an earlier receipt for the same file. A user-scope file
+// source, replacing an earlier receipt for the same file given in the same
+// checkout; the other checkouts of the project keep theirs. A user-scope file
 // needs no receipt and an invalid file cannot be approved: both are refused
 // rather than silently recorded.
 func (s *TrustStore) Approve(workspace string, src *Source) error {
+	checkout := mcp.CanonicalWorkspace(workspace)
+	workspace = mcp.TrustWorkspace(workspace)
 	switch {
 	case src == nil:
 		return fmt.Errorf("hooks trust store: no source to approve")
@@ -194,7 +206,7 @@ func (s *TrustStore) Approve(workspace string, src *Source) error {
 	records := file.Workspaces[workspace]
 	kept := records[:0]
 	for _, rec := range records {
-		if rec.File != src.Display {
+		if rec.File != src.Display || mcp.ReceiptCheckout(rec.Checkout, workspace) != checkout {
 			kept = append(kept, rec)
 		}
 	}
@@ -202,6 +214,7 @@ func (s *TrustStore) Approve(workspace string, src *Source) error {
 		File:       src.Display,
 		Digest:     src.Digest,
 		ApprovedAt: time.Now().UTC().Format(time.RFC3339),
+		Checkout:   checkout,
 	})
 	file.Workspaces[workspace] = kept
 	return s.write(file)
@@ -210,6 +223,7 @@ func (s *TrustStore) Approve(workspace string, src *Source) error {
 // Revoke removes the receipt of a file in a workspace and reports whether one
 // was on file.
 func (s *TrustStore) Revoke(workspace, file string) (bool, error) {
+	workspace = mcp.TrustWorkspace(workspace)
 	release, err := s.transaction()
 	if err != nil {
 		return false, err
