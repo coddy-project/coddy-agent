@@ -12,7 +12,9 @@ import (
 // checkout of it - the approvals of project configuration, a project MCP
 // server, the cron of a project job. ok is false for a folder in no linked
 // worktree: the main checkout itself, a plain folder, a repository of its own
-// nested in a checkout, a submodule, a worktree of a bare repository.
+// nested in a checkout, a submodule, a worktree of a bare repository (its
+// storage named .git or not). The answer never leaves the main checkout: a
+// folder the main checkout holds as a link to somewhere else answers none.
 //
 // It reads files and never runs git, so a hot path (every trust decision)
 // may call it. A worktree counts only when git links it both ways: its .git
@@ -52,8 +54,9 @@ func MainCheckoutFolder(dir string) (string, bool) {
 	} else {
 		return "", false
 	}
-	// A bare repository has worktrees but no main checkout.
-	if filepath.Base(common) != ".git" {
+	// A bare repository has worktrees but no main checkout, its storage
+	// named .git (cloned into <folder>/.git) or not.
+	if filepath.Base(common) != ".git" || isBare(common) {
 		return "", false
 	}
 	back, err := os.ReadFile(filepath.Join(gitDir, "gitdir"))
@@ -71,7 +74,43 @@ func MainCheckoutFolder(dir string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	return filepath.Join(filepath.Dir(common), rel), true
+	main := filepath.Dir(common)
+	folder := filepath.Join(main, rel)
+	// Never through a link out of the main checkout: a folder that is a link
+	// there (committed in its tree, or shipped with storage of its own in an
+	// archive) would lend the worktree the identity of wherever it points.
+	if !isInside(main, folder) {
+		return "", false
+	}
+	return folder, true
+}
+
+// isBare reports whether the repository whose common dir is common says
+// core.bare = true in its config.
+func isBare(common string) bool {
+	body, err := os.ReadFile(filepath.Join(common, "config"))
+	if err != nil {
+		return false
+	}
+	section := ""
+	for line := range strings.SplitSeq(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "[") {
+			section = strings.ToLower(strings.Trim(line, "[] \t"))
+			continue
+		}
+		if section != "core" {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if ok && strings.EqualFold(strings.TrimSpace(key), "bare") {
+			switch strings.ToLower(strings.TrimSpace(value)) {
+			case "true", "yes", "on", "1":
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // nearestDotGit walks up from dir to the first folder holding a .git entry

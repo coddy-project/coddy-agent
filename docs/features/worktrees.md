@@ -172,17 +172,21 @@ or changes is asked about again:
   definition, a project hook file, a project marketplace entry and a project
   scheduler job approved in the main checkout are approved in its worktrees. A
   receipt is still bound to the digest of what was approved, so a declaration, a
-  file or an entry the branch added or changed waits for its own approval. An
-  approval given in a worktree holds for the project, so the branch merged with the
-  same content asks nothing, and a revoke in either checkout revokes for the
-  project;
+  file or an entry the branch added or changed waits for its own approval. Each
+  checkout keeps a receipt of its own, so approving the branch's version in the
+  worktree leaves the main checkout's approval of its version in place, and the
+  branch merged with the same content asks nothing. Deleting or renaming a job, or
+  dropping a marketplace entry, in one checkout's file takes only that checkout's
+  receipt, while an explicit revoke in either checkout revokes for the project;
 - your switches of project MCP servers (`<home>/mcp-overrides.json`): a server
   switched off in the main checkout is off in its worktrees;
 - project MCP servers. A project server whose declaration does not name `${CWD}`
   runs the same command in every checkout, so the main checkout and its worktrees
   share one process, and moving a chat into a worktree does not restart it. A
-  server that names `${CWD}` sees the files of its own checkout and runs once per
-  worktree: that is how an MCP server under development in a branch is tested;
+  server whose declaration passes `${CWD}` (`node ${CWD}/server.js`) is given its
+  own checkout's path and runs once per worktree: that is how an MCP server under
+  development in a branch is tested. A relative path in a declaration is read from
+  the folder Coddy was started in, not from the checkout;
 - project scheduler jobs. The scheduler scans projects, not checkouts: a project
   job runs on cron once, from the main checkout, however many worktrees chats
   opened the scheduler in. A worktree's copy of a job is listed as not scheduled
@@ -197,6 +201,7 @@ approvals are kept for, and the `workspace` field of `GET /coddy/mcp`,
 
 A folder counts as a worktree only when git links it both ways: its `.git` file
 names the repository's worktree storage, and that storage names the folder back. A
-`.git` file copied or written into another folder lends that folder nothing.
-Approvals a worktree recorded under its own path before Coddy shared them were not
+`.git` file copied or written into another folder lends that folder nothing, a
+folder the main checkout holds as a link to somewhere else answers to nothing, and
+a worktree of a bare repository answers to itself. Approvals a worktree recorded under its own path before Coddy shared them were not
 moved, so the worktree asks once more for what only it had approved.

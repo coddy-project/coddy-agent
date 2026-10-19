@@ -25,3 +25,19 @@ func TestTrustStoreSharesReceiptsAcrossTheWorktreesOfAProject(t *testing.T) {
 		t.Fatalf("Decide in the worktree = %v, want trusted", got)
 	}
 }
+
+// A worktree approving its changed definition keeps the main checkout's
+// approval of its own: each checkout keeps its receipt.
+func TestApprovingAChangedDefinitionInAWorktreeKeepsTheMainCheckouts(t *testing.T) {
+	main, wt := gitwstest.ProjectWithWorktree(t)
+	store := NewTrustStore(t.TempDir())
+	if err := store.Approve(CanonicalWorkspace(main), &Definition{Name: "reviewer", Digest: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Approve(CanonicalWorkspace(wt), &Definition{Name: "reviewer", Digest: "branch"}); err != nil {
+		t.Fatal(err)
+	}
+	if !store.Approved(CanonicalWorkspace(main), "reviewer", "main") || !store.Approved(CanonicalWorkspace(wt), "reviewer", "branch") {
+		t.Fatal("each checkout must keep its own receipt")
+	}
+}

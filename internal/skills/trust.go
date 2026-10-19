@@ -33,6 +33,10 @@ type TrustRecord struct {
 	Digest     string `json:"digest"`
 	Path       string `json:"path,omitempty"`
 	ApprovedAt string `json:"approved_at"`
+	// Checkout is the canonical folder the approval was given in: the
+	// checkouts of a project share one key but keep a receipt each
+	// (mcp.ReceiptCheckout reads an empty one as its key's).
+	Checkout string `json:"checkout,omitempty"`
 }
 
 type trustFile struct {
@@ -131,8 +135,10 @@ func (s *TrustStore) Approved(workspace, digest string) bool {
 }
 
 // Approve records a receipt for d in workspace, replacing an earlier receipt
-// for the same entry.
+// for the same entry given in the same checkout; the other checkouts of the
+// project keep theirs.
 func (s *TrustStore) Approve(workspace string, d Declaration) error {
+	checkout := mcp.CanonicalWorkspace(workspace)
 	workspace = mcp.TrustWorkspace(workspace)
 	trustMu.Lock()
 	defer trustMu.Unlock()
@@ -142,7 +148,7 @@ func (s *TrustStore) Approve(workspace string, d Declaration) error {
 	}
 	kept := make([]TrustRecord, 0, len(file.Workspaces[workspace])+1)
 	for _, r := range file.Workspaces[workspace] {
-		if !sameEntry(r.Kind, r.Name, r.Source, d) {
+		if !sameEntry(r.Kind, r.Name, r.Source, d) || mcp.ReceiptCheckout(r.Checkout, workspace) != checkout {
 			kept = append(kept, r)
 		}
 	}
@@ -151,6 +157,7 @@ func (s *TrustStore) Approve(workspace string, d Declaration) error {
 		Digest:     declarationDigest(d.Kind, d.Name, d.Source),
 		Path:       d.Path,
 		ApprovedAt: time.Now().UTC().Format(time.RFC3339),
+		Checkout:   checkout,
 	})
 	file.Workspaces[workspace] = kept
 	return s.write(file)
@@ -171,7 +178,14 @@ func (s *TrustStore) RevokeEntries(workspace string, entries []Declaration) (boo
 	if len(entries) == 0 {
 		return false, nil
 	}
+	// What the checkout dropped from its own file: the receipts another
+	// checkout of the project gave stay.
+	checkout := mcp.CanonicalWorkspace(workspace)
+	key := mcp.TrustWorkspace(workspace)
 	return s.revokeWhere(workspace, func(r TrustRecord) bool {
+		if mcp.ReceiptCheckout(r.Checkout, key) != checkout {
+			return false
+		}
 		for _, d := range entries {
 			if sameEntry(r.Kind, r.Name, r.Source, d) {
 				return true

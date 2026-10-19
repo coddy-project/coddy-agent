@@ -42,13 +42,22 @@ new or changed item asks again" for free.
    `worktrees/<name>/{commondir,gitdir}` and never runs git, since trust decisions run on every
    turn. A worktree counts only when the repository names it back (its `gitdir` file points at
    this `.git` file): a `.git` file copied or written into another folder lends that folder
-   nothing. The main checkout, a plain folder, a nested repository, a submodule and a worktree of
-   a bare repository answer to themselves.
+   nothing. The answer must stay inside the main checkout once links are resolved, so a folder the
+   main checkout holds as a link elsewhere (committed, or shipped in an archive together with
+   storage of its own) answers nothing, and a repository whose config says `core.bare` has no main
+   checkout, its storage named `.git` or not. The main checkout, a plain folder, a nested
+   repository, a submodule and a worktree of a bare repository answer to themselves.
 2. **`mcp.TrustWorkspace(cwd)`** is that identity in canonical form (symlinks resolved), and every
    trust store keys its receipts by it inside the store: `Approved`, `Approve`, `Revoke` and the
    listings. The loaders, the scope of a file and every path (where a job file is, where a hook
    file is relative to) keep the real workspace; only the key moves. The digest still binds, so an
    identical item is trusted in every worktree of the project and a new or changed one asks.
+   Under the shared key each checkout keeps its own receipt (the `checkout` it was given in; a
+   receipt without one belongs to the folder of its key), and the project approves every digest
+   its checkouts approved: a worktree approving its changed declaration replaces only its own
+   receipt, never the main checkout's. What a checkout deletes or renames in its own file (a
+   scheduler job, a project marketplace entry) takes only its receipt; an explicit untrust takes
+   the name from the whole project.
 3. **Project switches** (`mcp-overrides.json`) key by the same identity: a server switched off for
    the project is off in its worktrees.
 4. **The pool.** A project MCP server whose declaration does not name `${CWD}` resolves to the same

@@ -39,6 +39,10 @@ type TrustRecord struct {
 	Digest     string `json:"digest"`
 	Path       string `json:"path,omitempty"`
 	ApprovedAt string `json:"approved_at"`
+	// Checkout is the canonical folder the approval was given in: the
+	// checkouts of a project share one key but keep a receipt each
+	// (mcp.ReceiptCheckout reads an empty one as its key's).
+	Checkout string `json:"checkout,omitempty"`
 }
 
 type trustFile struct {
@@ -124,8 +128,10 @@ func (s *TrustStore) Approved(workspace, name, digest string) bool {
 }
 
 // Approve records a receipt for def in workspace, replacing any earlier
-// receipt for the same name.
+// receipt for the same name given in the same checkout; the other checkouts
+// of the project keep theirs.
 func (s *TrustStore) Approve(workspace string, def *Definition) error {
+	checkout := mcp.CanonicalWorkspace(workspace)
 	workspace = mcp.TrustWorkspace(workspace)
 	if def == nil {
 		return nil
@@ -135,7 +141,7 @@ func (s *TrustStore) Approve(workspace string, def *Definition) error {
 	file := s.read()
 	kept := make([]TrustRecord, 0, len(file.Workspaces[workspace])+1)
 	for _, r := range file.Workspaces[workspace] {
-		if r.Name != def.Name {
+		if r.Name != def.Name || mcp.ReceiptCheckout(r.Checkout, workspace) != checkout {
 			kept = append(kept, r)
 		}
 	}
@@ -144,6 +150,7 @@ func (s *TrustStore) Approve(workspace string, def *Definition) error {
 		Digest:     def.Digest,
 		Path:       def.Path,
 		ApprovedAt: time.Now().UTC().Format(time.RFC3339),
+		Checkout:   checkout,
 	})
 	file.Workspaces[workspace] = kept
 	return s.write(file)

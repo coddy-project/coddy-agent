@@ -224,7 +224,9 @@ definitions:
   `.coddy/mcp.json` stays unchanged; these switches override its defaults. Deleting a
   project server through the API or the UI drops its switches once the declaration is gone,
   so a later server of the same name starts from its own declaration, and a delete that
-  fails leaves the server switched as it was. While the file cannot be read, every project
+  fails leaves the server switched as it was. Deleting it from a linked git worktree's file
+  keeps them, since they belong to the project, which the main checkout still declares the
+  server in. While the file cannot be read, every project
   server stays off and the global servers keep their own switches; `/mcp` and Settings
   name the file and the parse error instead of listing the servers until it is repaired.
   This file and `mcp-trust.json` are written under a lock that every process of the home
@@ -516,7 +518,8 @@ shares:
   `0` stops it at once), so a session that opens in the project in the meantime (`/new`
   in the console, a new conversation in a chat, the next run of a scheduled job, the
   same project reopened in the browser) finds it running, and then it is stopped. Two
-  workspaces that declare the same command get a process each.
+  workspaces that declare the same command get a process each, unless they are a main
+  checkout and its worktree.
 - A global server whose `command`, `args`, `env`, `url` or `headers` contain `${CWD}`
   resolves differently in every workspace, so it runs once per workspace too, like a
   project server, and is not started ahead of the sessions.

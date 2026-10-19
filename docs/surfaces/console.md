@@ -787,7 +787,8 @@ coddy agents trust <name> [--cwd DIR]
 coddy agents untrust <name> [--cwd DIR]
 ```
 
-`list` prints the workspace and the effective `subagents.project_trust`, then
+`list` prints the workspace (in a linked git worktree also the main checkout its
+approvals are kept for) and the effective `subagents.project_trust`, then
 the catalog as a table with `NAME`, `SCOPE` (`builtin`, `user`, `project`),
 `TRUST` (`trusted` or `needs_approval`), `FLAGS` (`hidden`, `model=…`,
 `mode=…`), `DESCRIPTION` and `PATH` (`(embedded)` for built-ins), a `(total N)`
@@ -832,7 +833,8 @@ coddy hooks trust <file> [--cwd DIR]
 coddy hooks untrust <file> [--cwd DIR]
 ```
 
-`list` prints the workspace and the effective `hooks.project_trust`, then a
+`list` prints the workspace (in a linked git worktree also the main checkout its
+approvals are kept for) and the effective `hooks.project_trust`, then a
 table with `FILE` (the name receipts use: the workspace-relative path for a
 project file, the absolute path for the operator's own), `SCOPE` (`user`,
 `project`), `TRUST` (`trusted` or `needs_approval`) and `HOOKS` (a summary such

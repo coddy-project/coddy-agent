@@ -32,3 +32,42 @@ func TestTrustStoreSharesReceiptsAcrossTheWorktreesOfAProject(t *testing.T) {
 		t.Fatalf("Workspaces = %v, want the main checkout alone", got)
 	}
 }
+
+// Each checkout of a project keeps its own receipt: a worktree approving its
+// changed job, deleting it or renaming it leaves the main checkout's job
+// approved under its name, while an explicit revoke takes it everywhere.
+func TestAWorktreeChangesOnlyItsOwnReceipts(t *testing.T) {
+	main, wt := gitwstest.ProjectWithWorktree(t)
+	store := NewTrustStore(t.TempDir())
+	m, w := mcp.CanonicalWorkspace(main), mcp.CanonicalWorkspace(wt)
+	if err := store.Approve(m, "nightly", "sha256:main"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Approve(w, "nightly", "sha256:branch"); err != nil {
+		t.Fatal(err)
+	}
+	if !store.Approved(m, "nightly", "sha256:main") || !store.Approved(w, "nightly", "sha256:branch") {
+		t.Fatal("each checkout must keep its own receipt")
+	}
+	if err := store.Rename(w, "nightly", "nightly-v2"); err != nil {
+		t.Fatal(err)
+	}
+	if !store.Approved(m, "nightly", "sha256:main") || !store.Approved(w, "nightly-v2", "sha256:branch") {
+		t.Fatal("a rename in the worktree must move only the worktree's receipt")
+	}
+	if _, err := store.RevokeOwn(w, "nightly-v2"); err != nil {
+		t.Fatal(err)
+	}
+	if store.Approved(w, "nightly-v2", "sha256:branch") || !store.Approved(m, "nightly", "sha256:main") {
+		t.Fatal("a delete in the worktree must take only the worktree's receipt")
+	}
+	if err := store.Approve(w, "nightly", "sha256:branch"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Revoke(w, "nightly"); err != nil {
+		t.Fatal(err)
+	}
+	if store.Approved(m, "nightly", "sha256:main") || store.Approved(w, "nightly", "sha256:branch") {
+		t.Fatal("an explicit revoke must take the job's receipts from the whole project")
+	}
+}

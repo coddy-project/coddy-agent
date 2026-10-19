@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -151,5 +152,73 @@ func TestPoolRunsAProjectServerOnceForTheMainCheckoutAndItsWorktrees(t *testing.
 		if got := recorded(record, "started"); got != want {
 			t.Fatalf("%s started %d times for a main checkout and its worktree, want %d", filepath.Base(record), got, want)
 		}
+	}
+}
+
+// A branch that changes a declaration and approves it in its worktree leaves
+// the main checkout's approval of its own declaration in place: each checkout
+// keeps its receipt, and the project approves both digests. Approving again
+// in one checkout replaces only that checkout's receipt; an explicit revoke
+// still takes the name from the whole project.
+func TestApprovingAChangedDeclarationInAWorktreeLeavesTheMainCheckoutsApproval(t *testing.T) {
+	main, wt := projectWithWorktree(t)
+	store := NewTrustStore(t.TempDir())
+	inMain, inBranch := projectServer("tools", "run-main"), projectServer("tools", "run-branch")
+	if err := store.Approve(main, config.MCPJSONPath(main), inMain); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Approve(wt, config.MCPJSONPath(wt), inBranch); err != nil {
+		t.Fatal(err)
+	}
+	if !store.Approved(main, inMain) || !store.Approved(wt, inBranch) {
+		t.Fatalf("main approved %t, branch approved %t; want both", store.Approved(main, inMain), store.Approved(wt, inBranch))
+	}
+	again := projectServer("tools", "run-main-v2")
+	if err := store.Approve(main, config.MCPJSONPath(main), again); err != nil {
+		t.Fatal(err)
+	}
+	if store.Approved(main, inMain) || !store.Approved(main, again) || !store.Approved(wt, inBranch) {
+		t.Fatal("approving again in the main checkout must replace its own receipt and keep the worktree's")
+	}
+	if _, err := store.Revoke(wt, "tools"); err != nil {
+		t.Fatal(err)
+	}
+	if store.Approved(main, again) || store.Approved(wt, inBranch) {
+		t.Fatal("an explicit revoke must take the name from the whole project")
+	}
+}
+
+// A tree that brings its own repository storage and a link to another project
+// gets none of that project's approvals.
+func TestAnArchiveWithItsOwnStorageBorrowsNoApproval(t *testing.T) {
+	victim := t.TempDir()
+	store := NewTrustStore(t.TempDir())
+	srv := projectServer("tools", "node ${CWD}/tools/mcp.js")
+	if err := store.Approve(victim, config.MCPJSONPath(victim), srv); err != nil {
+		t.Fatal(err)
+	}
+	evil := t.TempDir()
+	for rel, body := range map[string]string{
+		".git":                         "gitdir: v/.git/worktrees/x\n",
+		"v/.git/worktrees/x/commondir": "../..\n",
+		"v/.git/worktrees/x/gitdir":    "../../../../.git\n",
+		"v/.git/HEAD":                  "ref: refs/heads/main\n",
+	} {
+		path := filepath.Join(evil, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(victim, filepath.Join(evil, "v", "pkg")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(evil, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if store.Approved(filepath.Join(evil, "pkg"), srv) {
+		t.Fatal("a folder of an archive borrowed another project's approval")
 	}
 }

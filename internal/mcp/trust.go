@@ -50,6 +50,21 @@ type TrustRecord struct {
 	ReadsEnv   []string `json:"reads_env,omitempty"`
 	Source     string   `json:"source,omitempty"`
 	ApprovedAt string   `json:"approved_at"`
+	// Checkout is the canonical folder the approval was given in. The
+	// checkouts of a project share one key (TrustWorkspace) but keep a
+	// receipt each, so a worktree approving its changed declaration never
+	// replaces the main checkout's. Empty on a receipt written before
+	// checkouts were recorded: ReceiptCheckout reads it as its key's.
+	Checkout string `json:"checkout,omitempty"`
+}
+
+// ReceiptCheckout is the checkout a receipt kept under key belongs to: the
+// one it names, or for a receipt that names none, the folder of its key.
+func ReceiptCheckout(checkout, key string) string {
+	if checkout != "" {
+		return checkout
+	}
+	return key
 }
 
 // trustFile is the on-disk layout: canonical workspace path -> approvals.
@@ -280,10 +295,12 @@ func (s *TrustStore) Approved(workspace string, srv config.MCPServerConfig) bool
 }
 
 // Approve records srv as approved for workspace, replacing any earlier
-// approval of the same server name (an edited declaration supersedes the one
-// it replaced instead of accumulating).
+// approval of the same server name given in the same checkout (an edited
+// declaration supersedes the one it replaced instead of accumulating); the
+// other checkouts of the project keep theirs.
 func (s *TrustStore) Approve(workspace, source string, srv config.MCPServerConfig) error {
 	key := TrustWorkspace(workspace)
+	checkout := CanonicalWorkspace(workspace)
 	if key == "" {
 		return fmt.Errorf("mcp trust: empty workspace")
 	}
@@ -297,18 +314,20 @@ func (s *TrustStore) Approve(workspace, source string, srv config.MCPServerConfi
 		}
 		kept := make([]TrustRecord, 0, len(file.Workspaces[key])+1)
 		for _, rec := range file.Workspaces[key] {
-			if rec.Server != srv.Name {
+			if rec.Server != srv.Name || ReceiptCheckout(rec.Checkout, key) != checkout {
 				kept = append(kept, rec)
 			}
 		}
-		kept = append(kept, NewTrustRecord(srv, source, time.Now()))
+		rec := NewTrustRecord(srv, source, time.Now())
+		rec.Checkout = checkout
+		kept = append(kept, rec)
 		file.Workspaces[key] = kept
 		return s.write(file)
 	})
 }
 
-// Revoke drops every approval of one server name in a workspace and reports
-// whether anything was removed.
+// Revoke drops every approval of one server name in a workspace's project,
+// whichever checkout gave it, and reports whether anything was removed.
 func (s *TrustStore) Revoke(workspace, name string) (bool, error) {
 	key := TrustWorkspace(workspace)
 	removed := false

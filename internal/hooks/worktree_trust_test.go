@@ -24,3 +24,19 @@ func TestTrustStoreSharesReceiptsAcrossTheWorktreesOfAProject(t *testing.T) {
 		t.Fatal("a hook file the worktree changed must ask again")
 	}
 }
+
+// A worktree approving its changed hook file keeps the main checkout's
+// approval of its own: each checkout keeps its receipt.
+func TestApprovingAChangedHookFileInAWorktreeKeepsTheMainCheckouts(t *testing.T) {
+	main, wt := gitwstest.ProjectWithWorktree(t)
+	store := hooks.NewTrustStore(t.TempDir())
+	for dir, digest := range map[string]string{main: "sha256:main", wt: "sha256:branch"} {
+		src := &hooks.Source{Path: dir + "/.coddy/hooks.json", Display: ".coddy/hooks.json", Scope: hooks.ScopeProject, Digest: digest}
+		if err := store.Approve(hooks.CanonicalWorkspace(dir), src); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !store.Approved(hooks.CanonicalWorkspace(main), ".coddy/hooks.json", "sha256:main") || !store.Approved(hooks.CanonicalWorkspace(wt), ".coddy/hooks.json", "sha256:branch") {
+		t.Fatal("each checkout must keep its own receipt")
+	}
+}
