@@ -341,7 +341,7 @@ func TestPromptCacheInTurnFoldRewritesTheHistoryOnlyAtTheFold(t *testing.T) {
 			_ = os.RemoveAll(d)
 		}
 	})
-	w, err := inTurnLongTurn{window: 63000, steps: 16, fanOut: 4, evictOff: true}.run(tempDir)
+	w, err := inTurnLongTurn{window: 65000, steps: 16, fanOut: 4, evictOff: true}.run(tempDir)
 	if err != nil {
 		t.Fatal(err)
 	}

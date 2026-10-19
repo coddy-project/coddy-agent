@@ -416,12 +416,14 @@ func BuiltinCommandRows(cfg *config.Config, st *State, actions []CommandRow) []C
 // actionHints are the argument hints of the deterministic actions that take
 // options, keyed by command name.
 var actionHints = map[string]string{
-	"compact": "[-m|--model <id>] [-r|--reasoning <level>] [instructions]",
-	"goal":    "[-m|--model <id>] [-r|--reasoning <level>] [--then-file <path>] [<objective>|pause|resume|clear]",
+	"compact":  "[-m|--model <id>] [-r|--reasoning <level>] [instructions]",
+	"goal":     "[-m|--model <id>] [-r|--reasoning <level>] [--then-file <path>] [<objective>|pause|resume|clear]",
+	"worktree": "[<branch> [--from-head] | exit [--remove [--force]]]",
 }
 
 // ActionCommandRows lists the deterministic actions (skills.BuiltinCommands)
-// as catalog rows: /compact while compaction is enabled, /export, /plugin.
+// as catalog rows: /compact while compaction is enabled, /goal, /export,
+// /plugin, /worktree.
 func ActionCommandRows(cfg *config.Config) []CommandRow {
 	sums := skills.BuiltinCommands(cfg != nil && cfg.Compaction.IsEnabled())
 	out := make([]CommandRow, 0, len(sums))

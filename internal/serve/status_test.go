@@ -49,6 +49,35 @@ func TestBuildOf(t *testing.T) {
 	}
 }
 
+// The build names its revision (version.Revision, set by -ldflags) because the
+// toolchain stamps a worktree nested in another checkout with the enclosing
+// checkout's commit; that revision wins over vcs.revision, and a build that
+// does not pass it keeps reading vcs.revision.
+func TestBuildOfPrefersTheRevisionTheBuildNames(t *testing.T) {
+	info := &debug.BuildInfo{Settings: []debug.BuildSetting{
+		{Key: "vcs.revision", Value: "7b566ae3"},
+	}}
+	for _, tc := range []struct {
+		name, named string
+		info        *debug.BuildInfo
+		want        string
+	}{
+		{"named, stamped by the enclosing checkout", "97be43ea", info, "97be43ea"},
+		{"named, no build info", "97be43ea", nil, "97be43ea"},
+		{"not named, stamped", "", info, "7b566ae3"},
+		{"not named, not stamped", "", &debug.BuildInfo{}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prev := version.Revision
+			version.Revision = tc.named
+			t.Cleanup(func() { version.Revision = prev })
+			if got := buildOf(tc.info).Revision; got != tc.want {
+				t.Errorf("Revision = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // The quota windows of the cached usage become one row per provider and
 // window: the share used as a ratio and the moment of the reset. A snapshot
 // that is stale, failed, unsupported or switched off says nothing current and

@@ -58,6 +58,11 @@ import {
 import { ScrollToBottomButton } from "./ScrollToBottomButton";
 import { openWorkspaceFile } from "../files/fileBus";
 import { TranscriptList, type TranscriptListHandle } from "./TranscriptList";
+import {
+  LeaveWorktreeDialog,
+  leaveWorktreeCommand,
+} from "./LeaveWorktreeDialog";
+import { folderChipLabel } from "./workspaceContext";
 
 /** The composer's expand control: the scroll-to-bottom circle's size. */
 const COMPOSER_EXPAND_BUTTON_PX = 34;
@@ -260,6 +265,7 @@ export function ChatScreen(props: {
   // stands under the jump to the newest message, which an expanded composer
   // hides.
   const [composerExpanded, setComposerExpanded] = useState(false);
+  const [leaveWorktreeOpen, setLeaveWorktreeOpen] = useState(false);
   // Shared by hero and docked composers so disabled files survive the first text turn.
   const [localAttachedFiles, setLocalAttachedFiles] = useState<File[]>([]);
   const attachedFiles = props.attachedFiles ?? localAttachedFiles;
@@ -664,12 +670,30 @@ export function ChatScreen(props: {
     workspaceCtx &&
     (workspaceCtx.is_git_repo || hasGoal)
       ? (goalMark: ReactNode) => (
-          <WorkspaceBar
-            context={workspaceCtx}
-            workingCopy={workingCopy}
-            onOpenEdits={props.onOpenEdits}
-            goal={goalMark}
-          />
+          <>
+            <WorkspaceBar
+              context={workspaceCtx}
+              workingCopy={workingCopy}
+              onOpenEdits={props.onOpenEdits}
+              // The way back from a linked worktree asks first, keep it or
+              // remove it, with what removing would touch in view.
+              onLeaveWorktree={() => setLeaveWorktreeOpen(true)}
+              goal={goalMark}
+            />
+            <LeaveWorktreeDialog
+              open={leaveWorktreeOpen}
+              sessionId={props.sessionId ?? ""}
+              project={folderChipLabel(workspaceCtx)}
+              worktreePath={workspaceCtx.path}
+              onClose={() => setLeaveWorktreeOpen(false)}
+              // The answer is the command the console and an editor type too;
+              // the server runs it without a model turn.
+              onChoose={(choice) => {
+                setLeaveWorktreeOpen(false);
+                props.onSend(leaveWorktreeCommand(choice));
+              }}
+            />
+          </>
         )
       : undefined;
   // The Files window belongs to a chat, so it opens only once one exists.

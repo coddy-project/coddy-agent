@@ -258,7 +258,7 @@ Slash commands: the settings commands `/model`, `/reasoning` (`/effort`),
 ([Session settings](../features/session-settings.md)); client-side `/resume`,
 `/new`, `/theme`, `/hotkeys`, `/queue`, `/usage`, `/tasks`, `/mcp`, `/docs`, `/quit`, and a bare `/goal`, which opens
 the goal menu; server-driven `/compact`, `/goal <objective>` and its `pause`, `resume` and `clear` forms, `/export`,
-`/plugin`, and every loaded skill (from the ACP available-commands catalog).
+`/plugin`, `/worktree`, and every loaded skill (from the ACP available-commands catalog).
 A bare `/model`, `/reasoning`, `/toolset` or `/permissions` opens its picker; with a value
 the command is applied by the session manager and the footer shows the change,
 and commands followed by a message apply to the turn that message starts. The

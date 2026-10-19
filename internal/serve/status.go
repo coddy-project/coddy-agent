@@ -137,7 +137,7 @@ const (
 // Build is what the binary says it is.
 type Build struct {
 	Version   string `json:"version"`
-	Revision  string `json:"revision,omitempty"` // empty when the binary carries no vcs.revision
+	Revision  string `json:"revision,omitempty"` // version.Revision, else vcs.revision; empty when the binary carries neither
 	GoVersion string `json:"goVersion"`
 	GOOS      string `json:"os"`
 	GOARCH    string `json:"arch"`
@@ -186,6 +186,7 @@ func CurrentBuild() Build {
 func buildOf(info *debug.BuildInfo) Build {
 	b := Build{
 		Version:   version.Get(),
+		Revision:  version.Revision,
 		GoVersion: runtime.Version(),
 		GOOS:      runtime.GOOS,
 		GOARCH:    runtime.GOARCH,
@@ -195,7 +196,7 @@ func buildOf(info *debug.BuildInfo) Build {
 	}
 	for _, setting := range info.Settings {
 		switch {
-		case setting.Key == "vcs.revision":
+		case setting.Key == "vcs.revision" && b.Revision == "":
 			b.Revision = setting.Value
 		case setting.Key == "-tags" && setting.Value != "":
 			b.Tags = strings.Split(setting.Value, ",")

@@ -85,9 +85,11 @@ type App struct {
 
 	// UI tree.
 	header *header
-	chat   *tui.Container
-	status *tui.Container
-	plan   *planWidget
+	// headerCWD is the folder the header last listed the context of.
+	headerCWD string
+	chat      *tui.Container
+	status    *tui.Container
+	plan      *planWidget
 	// queue shows the follow-ups waiting for the running turn (queue.go).
 	queue                 *queueWidget
 	queuePreference       session.QueueMode
@@ -516,6 +518,7 @@ func (a *App) populateHeader() {
 	if st != nil {
 		cwd = st.GetCWD()
 	}
+	a.headerCWD = cwd
 	contextFiles, unreadFiles := standingContextFiles(cfg, cwd)
 	if st != nil {
 		for _, sk := range st.GetSkills() {
