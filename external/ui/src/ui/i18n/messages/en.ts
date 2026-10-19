@@ -403,7 +403,7 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.providers.api_base.label": "API base URL",
   "settings.schema.providers.api_base.ph": "https://api.openai.com/v1",
   "settings.schema.providers.api_base.desc":
-    "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); ignored by codex and devin, which use their official endpoints.",
+    "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); ignored by codex and devin, which use their official endpoints, and by acp, whose agent runs on this machine.",
   "settings.schema.providers.api_key.label": "API key",
   "settings.schema.providers.api_key.desc":
     "A literal key, a ${ENV} reference expanded when the file is loaded, or empty to read the environment variable the placeholder names at call time.",
@@ -425,6 +425,49 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.providers.usage_limits_panel.label": "Usage limits panel",
   "settings.schema.providers.usage_limits_panel.desc":
     "Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
+
+  "settings.schema.providers.acp.label": "ACP agent",
+  "settings.schema.providers.acp.desc":
+    "The local program this provider runs: an agent that speaks the Agent Client Protocol on stdio, such as claude-agent-acp, codex-acp, opencode acp or coddy acp. It brings its own tools and works in the session's workspace.",
+  "settings.schema.providers.acp.command.label": "Command",
+  "settings.schema.providers.acp.command.ph": "claude-agent-acp",
+  "settings.schema.providers.acp.command.desc":
+    "The agent program, looked up on PATH: claude-agent-acp, codex-acp, opencode, coddy.",
+  "settings.schema.providers.acp.args.label": "Arguments",
+  "settings.schema.providers.acp.args.desc":
+    "Arguments after the command, such as acp for opencode and coddy.",
+  "settings.schema.providers.acp.env.label": "Environment",
+  "settings.schema.providers.acp.env.desc":
+    "Variables added to the environment the agent starts with, such as a key it reads. ${CWD} is the session's workspace.",
+  "settings.schema.providers.acp.cwd.label": "Working folder",
+  "settings.schema.providers.acp.cwd.desc":
+    "A fixed folder for the agent and every session it opens. Empty opens each session in the workspace of the Coddy session it serves.",
+  "settings.schema.providers.acp.auth_method.label": "Authentication method",
+  "settings.schema.providers.acp.auth_method.ph": "api-key",
+  "settings.schema.providers.acp.auth_method.desc":
+    "The authentication method Coddy passes to the ACP authenticate call after start, for an agent that refuses sessions until a client authenticates it (codex-acp: api-key). Empty: the agent's own sign-in.",
+  "settings.schema.providers.acp.permissions.label":
+    "Agent permission requests",
+  "settings.schema.providers.acp.permissions.desc":
+    "What Coddy answers when the agent asks to run one of its tools: ask puts the request in front of you, as Coddy's own tools do (allowed without asking under the bypass permission mode, and an edit under accept_edits); allow approves it once; deny refuses it. In plan and ask mode every request is refused.",
+  "settings.schema.providers.acp.modes.label": "Agent modes",
+  "settings.schema.providers.acp.modes.desc":
+    "The agent's own mode for each Coddy mode (an ACP mode id such as plan or read-only). Empty keeps the agent's default in agent mode; plan and ask need a read-only mode of the agent, or their turns are refused.",
+  "settings.schema.providers.acp.modes.agent.label": "In agent mode",
+  "settings.schema.providers.acp.modes.agent.desc":
+    "The agent's mode while the session is in agent mode.",
+  "settings.schema.providers.acp.modes.plan.label": "In plan mode",
+  "settings.schema.providers.acp.modes.plan.desc":
+    "The agent's mode while the session is in plan mode.",
+  "settings.schema.providers.acp.modes.ask.label": "In ask mode",
+  "settings.schema.providers.acp.modes.ask.desc":
+    "The agent's mode while the session is in ask mode.",
+  "settings.schema.providers.acp.idle_timeout_ms.label": "Idle stop (ms)",
+  "settings.schema.providers.acp.idle_timeout_ms.desc":
+    "Stop the agent this long after its last call; the next call starts it again and replays the conversation into a new session. 0 means sixty minutes.",
+  "settings.schema.providers.acp.process.label": "Agent process",
+  "settings.schema.providers.acp.process.desc":
+    "shared: one agent process serves every session of this provider. per_session: every session gets a process of its own, for an agent that runs one prompt at a time (zcode-acp-server).",
 
   "settings.schema.models.desc":
     "Named model entries the agent and UI can select; ids reference provider prefixes.",
