@@ -286,6 +286,11 @@ func (s *skFeatureState) addSourceAndSync(market string) error {
 	if s.status != http.StatusOK {
 		return fmt.Errorf("add+sync status %d body %v", s.status, s.body)
 	}
+	if sync, ok := s.body["sync"].(map[string]interface{}); ok {
+		if failed, _ := sync["failed"].([]interface{}); len(failed) != 0 {
+			return fmt.Errorf("add+sync failed: %v", failed)
+		}
+	}
 	return nil
 }
 

@@ -17,6 +17,10 @@ import (
 // still need it.
 var gitBin, _ = exec.LookPath("git")
 
+// The fixture's Git still needs its runtime on Windows after the application
+// has been given an empty PATH to exercise the built-in backend.
+var fixtureGitPath = os.Getenv("PATH")
+
 func mustGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	if gitBin == "" {
@@ -25,6 +29,7 @@ func mustGit(t *testing.T, dir string, args ...string) string {
 	cmd := exec.Command(gitBin, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
+		"PATH="+fixtureGitPath,
 		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_CONFIG_SYSTEM=/dev/null",
 	)

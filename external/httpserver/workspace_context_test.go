@@ -284,6 +284,12 @@ func TestWorkspaceFoldersListsOnlyDirectorySymlinksAndResolvesNavigation(t *test
 	if err := os.Mkdir(target, 0o755); err != nil {
 		t.Fatalf("mkdir target: %v", err)
 	}
+	// The endpoint resolves the short Windows spelling of the temp directory.
+	var err error
+	target, err = filepath.EvalSymlinks(target)
+	if err != nil {
+		t.Fatalf("resolve target: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "file"), []byte("not a folder"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
