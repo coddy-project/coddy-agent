@@ -4,7 +4,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -33,19 +35,23 @@ func TestCaptureArtifactDeduplicatesAndRejectsSymlink(t *testing.T) {
 	if first.ID != second.ID || first.SHA256 != second.SHA256 {
 		t.Fatalf("dedup = %#v, %#v", first, second)
 	}
-	if first.SourcePath != file || first.SourceRelativePath != "report.txt" {
+	canonicalFile, err := filepath.EvalSymlinks(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.SourcePath != canonicalFile || first.SourceRelativePath != "report.txt" {
 		t.Fatalf("source metadata = %#v, want absolute %q and relative report.txt", first, file)
 	}
 	if got, err := os.ReadFile(ArtifactPath(sessionDir, first.SHA256)); err != nil || string(got) != "immutable bytes" {
 		t.Fatalf("artifact = %q, %v", got, err)
 	}
 
-	if err := os.Symlink(file, filepath.Join(workspace, "linked.txt")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := CaptureArtifact(sessionDir, workspace, "linked.txt"); err == nil {
-		t.Fatal("symlink source was accepted")
-	}
+	t.Run("symlink source", func(t *testing.T) {
+		artifactTestSymlink(t, file, filepath.Join(workspace, "linked.txt"))
+		if _, err := CaptureArtifact(sessionDir, workspace, "linked.txt"); err == nil {
+			t.Fatal("symlink source was accepted")
+		}
+	})
 }
 
 func TestAssistantPlacesVerifiedArtifactAndKeepsToolFallbackUntilThen(t *testing.T) {
@@ -155,10 +161,20 @@ func TestReadArtifactRejectsTamperedAndSymlinkedContent(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(filepath.Join(workspace, "report.txt"), path); err != nil {
+	t.Run("symlink content", func(t *testing.T) {
+		artifactTestSymlink(t, filepath.Join(workspace, "report.txt"), path)
+		if _, _, err := ReadArtifact(sessionDir, a.ID); err == nil {
+			t.Fatal("symlinked artifact was accepted")
+		}
+	})
+}
+
+func artifactTestSymlink(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		if runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(1314)) {
+			t.Skip("creating symlinks requires Windows Developer Mode or SeCreateSymbolicLinkPrivilege")
+		}
 		t.Fatal(err)
-	}
-	if _, _, err := ReadArtifact(sessionDir, a.ID); err == nil {
-		t.Fatal("symlinked artifact was accepted")
 	}
 }

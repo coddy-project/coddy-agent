@@ -56,6 +56,14 @@ func BuildCoddy(root, dir, tags string) (string, error) {
 // block opens with the build tags the binary was made with, because the
 // synopsis and the console flags differ between builds.
 func CLIReference(binary, tags string) (string, error) {
+	// Some help commands load the configuration and materialize bundled skills.
+	// Give this invocation its own home so concurrent generators and stale files
+	// in the system temp root cannot add warnings to the generated reference.
+	home, err := os.MkdirTemp("", "coddy-docs-home-*")
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = os.RemoveAll(home) }()
 	var b strings.Builder
 	if tags == "" {
 		b.WriteString("Help screens of the default build (no build tags).\n\n")
@@ -64,7 +72,7 @@ func CLIReference(binary, tags string) (string, error) {
 	}
 	for i, s := range cliSections {
 		cmd := exec.Command(binary, s.Args...)
-		cmd.Env = append(os.Environ(), "NO_COLOR=1", "TERM=dumb", "CODDY_HOME="+os.TempDir())
+		cmd.Env = append(os.Environ(), "NO_COLOR=1", "TERM=dumb", "CODDY_HOME="+home)
 		out, _ := cmd.CombinedOutput()
 		text := strings.TrimRight(string(out), "\n")
 		text = strings.ReplaceAll(text, binary, "coddy")

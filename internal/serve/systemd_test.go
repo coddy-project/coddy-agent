@@ -206,7 +206,7 @@ func TestInstallFollowsABinaryThatMoved(t *testing.T) {
 		t.Fatal(err)
 	}
 	body, _ := os.ReadFile(f.userUnit())
-	if !strings.Contains(string(body), "\nExecStart="+moved+" serve\n") {
+	if !strings.Contains(string(body), "\nExecStart="+systemdPath(moved)+" serve\n") {
 		t.Fatalf("unit still runs the old binary:\n%s", body)
 	}
 	if !strings.Contains(strings.Join(f.calls, "|"), "--user restart coddy.service") {
@@ -385,7 +385,9 @@ func TestUninstallKeepsTheUnitWhenSystemctlFails(t *testing.T) {
 
 func TestDropInCarriesTheAbsoluteEntriesOfTheShellPath(t *testing.T) {
 	sep := string(filepath.ListSeparator)
-	abs := func(p string) string { return filepath.Join(string(filepath.Separator), p) }
+	abs := func(p string) string {
+		return filepath.Join(filepath.VolumeName(t.TempDir())+string(filepath.Separator), p)
+	}
 	path := strings.Join([]string{abs("usr/local/go/bin"), "", "relative/bin", ".", abs("home/u/.local/bin")}, sep)
 	got := DropInFile(path)
 	want := "Environment=PATH=" + abs("usr/local/go/bin") + sep + abs("home/u/.local/bin")
@@ -458,7 +460,7 @@ func TestAUnitAnOlderSetupWroteIsStillOurs(t *testing.T) {
 		t.Fatalf("install refused a unit an older install wrote: %v", err)
 	}
 	body, _ := os.ReadFile(f.userUnit())
-	if !strings.Contains(string(body), "\nExecStart="+f.Exe+" serve\n") {
+	if !strings.Contains(string(body), "\nExecStart="+systemdPath(f.Exe)+" serve\n") {
 		t.Fatalf("the unit was not rewritten:\n%s", body)
 	}
 }

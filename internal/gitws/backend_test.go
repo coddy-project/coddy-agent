@@ -89,6 +89,28 @@ func TestDescribeLinkedWorktree(t *testing.T) {
 	})
 }
 
+// Windows cannot remove metadata held by an unclosed file handle. A read of a
+// linked worktree must release commondir before the operation returns.
+func TestBuiltinLinkedWorktreeReleasesCommonDirectoryFile(t *testing.T) {
+	dir := initRepo(t)
+	linked := filepath.Join(t.TempDir(), "login")
+	mustGit(t, dir, "worktree", "add", linked, "feature/login")
+	repo, err := openRepo(linked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.Head(); err != nil {
+		t.Fatal(err)
+	}
+	gitDir, _, ok := gitDirs(linked)
+	if !ok {
+		t.Fatal("linked worktree has no git directory")
+	}
+	if err := os.Remove(filepath.Join(gitDir, "commondir")); err != nil {
+		t.Fatalf("the repository operation kept commondir open: %v", err)
+	}
+}
+
 // Opening a worktree needs `git worktree add`, which the built-in
 // implementation does not have: it says so instead of half-building one.
 func TestEnsureWorktreeWithoutGitBinary(t *testing.T) {

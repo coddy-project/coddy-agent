@@ -328,13 +328,19 @@ Order does not matter for these tags.
 
 On Windows, run Make through Git Bash. The build and install targets use Go's
 executable suffix (`coddy.exe`), including the binary that `make docs` runs.
+The repository keeps text files at LF through `.gitattributes`, including CSS
+source-contract inputs and embedded Markdown. Use `GOFLAGS=-p=4 make test` to
+leave startup time for the suite's child MCP and PowerShell processes. The
+Windows CI job runs the rule adapters, SPA and complete Go suite with the shipped tags.
 Fixtures escape native paths in JSON and YAML, and packaging checks accept CRLF
 checkouts. POSIX mode assertions do not apply on Windows; tests that induce
 failures through Unix directory or file permissions skip there (and when run as
-root). The ACP symlink scenario skips only when Windows denies the symlink
+root). Symlink checks skip only when Windows denies the symlink
 privilege; enable Developer Mode or run an elevated terminal to exercise it.
 Docker asset checks also cover Git checkouts with `core.symlinks=false` by
 reading link modes from the index.
+The preview test that deletes a directory still held by `os.Root` is POSIX-only;
+Windows requires stopping that preview before removing its root directory.
 
 Documentation checks accept CRLF code fences and measure SVG text with LF line
 endings, so Windows checkout conversion does not change the generated inventory.

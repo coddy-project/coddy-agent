@@ -1,11 +1,14 @@
 package gitws
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -50,6 +53,9 @@ func initRepo(t *testing.T) string {
 	}
 	dir := t.TempDir()
 	mustGit(t, dir, "init", "-b", "main")
+	// Commands under test run outside mustGit too. Keep their checkout bytes
+	// independent of Git for Windows' machine-wide core.autocrlf setting.
+	mustGit(t, dir, "config", "core.autocrlf", "false")
 	mustGit(t, dir, "-c", "user.email=coddy@test", "-c", "user.name=coddy",
 		"commit", "--allow-empty", "-m", "init")
 	mustGit(t, dir, "branch", "feature/login")
@@ -189,6 +195,9 @@ func TestEnsureWorktreeRefusesSymlinkedWorktreesRoot(t *testing.T) {
 	outside := t.TempDir()
 	coddy := filepath.Join(dir, ".coddy")
 	if err := os.Symlink(outside, coddy); err != nil {
+		if runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(1314)) {
+			t.Skip("creating symlinks requires Windows Developer Mode or SeCreateSymbolicLinkPrivilege")
+		}
 		t.Fatal(err)
 	}
 	if _, _, err := EnsureWorktree(dir, "feature/login"); err == nil || !strings.Contains(err.Error(), "outside") {

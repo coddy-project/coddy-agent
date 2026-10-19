@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -18,8 +19,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -44,23 +47,21 @@ func offlineSystemSources(t *testing.T) {
 }
 
 type skFeatureState struct {
-	root        string
-	home        string
-	ts          *httptest.Server
-	mgr         *session.Manager
-	srv         *Server
-	markets     map[string]string // marketplace name -> repo path
-	updates     map[string]map[string]interface{}
-	sources     []string
-	status      int
-	body        map[string]interface{}
-	prevHOME    string
-	prevPATH    string
-	hadPATH     bool
-	pathChanged bool
-	prevTMP     string
-	hadTMP      bool
-	tmpChanged  bool
+	root         string
+	home         string
+	ts           *httptest.Server
+	mgr          *session.Manager
+	srv          *Server
+	markets      map[string]string // marketplace name -> repo path
+	updates      map[string]map[string]interface{}
+	sources      []string
+	status       int
+	body         map[string]interface{}
+	prevHOME     string
+	prevPATH     string
+	hadPATH      bool
+	pathChanged  bool
+	previousTemp map[string]*string
 }
 
 func (s *skFeatureState) reset() error {
@@ -99,15 +100,15 @@ func (s *skFeatureState) close() {
 			_ = os.Unsetenv("PATH")
 		}
 	}
-	if s.tmpChanged {
-		if s.hadTMP {
-			_ = os.Setenv("TMPDIR", s.prevTMP)
+	for name, old := range s.previousTemp {
+		if old != nil {
+			_ = os.Setenv(name, *old)
 		} else {
-			_ = os.Unsetenv("TMPDIR")
+			_ = os.Unsetenv(name)
 		}
 	}
 	s.prevPATH, s.hadPATH, s.pathChanged = "", false, false
-	s.prevTMP, s.hadTMP, s.tmpChanged = "", false, false
+	s.previousTemp = nil
 	if s.root != "" {
 		_ = os.RemoveAll(s.root)
 		s.root = ""
@@ -172,7 +173,7 @@ func (s *skFeatureState) do(method, path string, body interface{}) error {
 // ---- marketplace fixture ----
 
 func (s *skFeatureState) marketplaceURL(name string) string {
-	return "file://" + s.markets[name]
+	return "file://" + filepath.ToSlash(s.markets[name])
 }
 
 func writeMarketplace(repo, market, skill, version string) error {
@@ -261,9 +262,18 @@ func (s *skFeatureState) gitUnavailableToCoddy() error {
 }
 
 func (s *skFeatureState) systemTemporaryDirectoryUnavailable() error {
-	s.prevTMP, s.hadTMP = os.LookupEnv("TMPDIR")
-	s.tmpChanged = true
-	return os.Setenv("TMPDIR", filepath.Join(s.root, "missing-tmp"))
+	s.previousTemp = make(map[string]*string)
+	for _, name := range []string{"TMPDIR", "TEMP", "TMP"} {
+		old, exists := os.LookupEnv(name)
+		s.previousTemp[name] = nil
+		if exists {
+			s.previousTemp[name] = &old
+		}
+		if err := os.Setenv(name, filepath.Join(s.root, "missing-tmp")); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *skFeatureState) addSourceAndSync(market string) error {
@@ -857,7 +867,7 @@ func (s *skCWDFeatureState) projectLinksSkillFromOutside(project, skill string) 
 	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
 		return err
 	}
-	return os.Symlink(target, filepath.Join(skillsDir, skill))
+	return skillFixtureSymlink(target, filepath.Join(skillsDir, skill))
 }
 
 func (s *skCWDFeatureState) deleteSkillForSession(skill string) error {
@@ -1091,7 +1101,15 @@ func (s *skCWDFeatureState) projectLinksFolderOutside(project, rel, skill string
 	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 		return err
 	}
-	return os.Symlink(outside, link)
+	return skillFixtureSymlink(outside, link)
+}
+
+func skillFixtureSymlink(target, link string) error {
+	err := os.Symlink(target, link)
+	if runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(1314)) {
+		return godog.ErrSkip // The current account lacks the Windows symlink privilege.
+	}
+	return err
 }
 
 // startServerWithSkills starts the server from a directory that is not a

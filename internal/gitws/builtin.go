@@ -10,13 +10,17 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/go-git/go-billy/v5/osfs"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/cache"
 	"github.com/go-git/go-git/v5/plumbing/protocol/packp"
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/client"
 	"github.com/go-git/go-git/v5/plumbing/transport/server"
+	"github.com/go-git/go-git/v5/storage/filesystem"
+	"github.com/go-git/go-git/v5/storage/filesystem/dotgit"
 )
 
 // This file is the built-in backend used when the git binary is not on PATH:
@@ -25,10 +29,29 @@ import (
 // openRepo opens the repository holding dir, following a `.git` file into a
 // linked worktree and the commondir behind it the way git itself does.
 func openRepo(dir string) (*git.Repository, error) {
-	return git.PlainOpenWithOptions(dir, &git.PlainOpenOptions{
-		DetectDotGit:          true,
-		EnableDotGitCommonDir: true,
-	})
+	gitDir, commonDir, linked := gitDirs(dir)
+	if !linked || gitDir == commonDir {
+		return git.PlainOpenWithOptions(dir, &git.PlainOpenOptions{DetectDotGit: true})
+	}
+	// go-git v5.19.2's common-directory discovery leaves commondir open.
+	// Reuse the paths gitDirs already read and closed, so Windows can remove
+	// or replace the worktree immediately after a repository operation.
+	root, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(root, ".git")); err == nil {
+			break
+		}
+		parent := filepath.Dir(root)
+		if parent == root {
+			return nil, git.ErrRepositoryNotExists
+		}
+		root = parent
+	}
+	fs := dotgit.NewRepositoryFilesystem(osfs.New(gitDir), osfs.New(commonDir))
+	return git.Open(filesystem.NewStorage(fs, cache.NewObjectLRUDefault()), osfs.New(root))
 }
 
 // gitDirs resolves the git dir and the common dir governing dir without the

@@ -339,7 +339,10 @@ func TestPromptCacheInTurnFoldRewritesTheHistoryOnlyAtTheFold(t *testing.T) {
 			_ = os.RemoveAll(d)
 		}
 	})
-	w, err := inTurnLongTurn{window: 60000, steps: 16, fanOut: 4, evictOff: true}.run(tempDir)
+	// Include the larger Windows shell/tool instructions in the fixed overhead
+	// and run enough steps to cross the larger window more than once.
+	const steps = 20
+	w, err := inTurnLongTurn{window: 72000, steps: steps, fanOut: 4, evictOff: true}.run(tempDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,8 +354,8 @@ func TestPromptCacheInTurnFoldRewritesTheHistoryOnlyAtTheFold(t *testing.T) {
 	for i, r := range reqs {
 		hist[i] = withoutTurnContext(r)
 	}
-	if got := len(hist); got != 16+1 {
-		t.Fatalf("the run made %d requests, want %d: a request per step and the answer", got, 17)
+	if got := len(hist); got != steps+1 {
+		t.Fatalf("the run made %d requests, want %d: a request per step and the answer", got, steps+1)
 	}
 
 	// The system message is the same bytes in every request, folds included.

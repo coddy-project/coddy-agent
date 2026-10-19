@@ -21,7 +21,7 @@ Feature: A turn a finished background task started is marked as a wake for the w
     Given a coddy serve HTTP API whose agent is a scripted model that fixes what woke it
     And a browser following the server's events
     When the user asks the agent to "start the tests" in the background
-    Then the woken turn's stream asks permission to run "touch fixed.txt"
+    Then the woken turn's stream asks permission to run "echo fixed > fixed.txt"
     When the web UI allows it
     Then the woken turn's stream carries the answer "Fixed it."
     And the workspace holds "fixed.txt"
