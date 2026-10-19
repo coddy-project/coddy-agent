@@ -992,6 +992,25 @@ export const messagesRu: Record<string, string> = {
   "openCodeApiBase.unknown":
     "Сохранённое значение api_base {value} не соответствует адресу шлюза OpenCode, поэтому запросы пойдут на {fallback}. Выберите шлюз, чтобы заменить его.",
 
+  "openCodeAuth.error.signInFailed": "Не удалось войти в OpenCode.",
+  "openCodeAuth.error.incompleteResponse":
+    "OpenCode вернул неполные инструкции для входа.",
+  "openCodeAuth.fieldLabel": "Аккаунт OpenCode",
+  "openCodeAuth.description":
+    "Войдите в OpenCode Console, подтвердите код устройства и выберите организацию. Токены остаются на сервере Coddy. Сохраните настройки провайдера, чтобы использовать эту строку в чатах.",
+  "openCodeAuth.connected": "Выполнен вход в OpenCode ({account}).",
+  "openCodeAuth.shadowedByKey":
+    "Заданный API-ключ или команда получения ключа имеет приоритет над сохранёнными учётными данными аккаунта. Очистите поле, чтобы использовать аккаунт.",
+  "openCodeAuth.shadowedByEnv":
+    "Переменная окружения {env} на сервере Coddy имеет приоритет над сохранёнными учётными данными аккаунта. Удалите её, чтобы использовать аккаунт.",
+  "openCodeAuth.enterCode":
+    "Подтвердите этот код на странице OpenCode и выберите организацию:",
+  "openCodeAuth.openSignInPage": "Открыть страницу входа",
+  "openCodeAuth.waiting": "Ожидание подтверждения…",
+  "openCodeAuth.signOut": "Выйти",
+  "openCodeAuth.signIn": "Войти через OpenCode",
+  "openCodeAuth.enterProviderName": "Введите имя провайдера перед входом.",
+
   "neuralDeepAuth.error.signInFailed": "Не удалось войти в NeuralDeep.",
   "neuralDeepAuth.error.incompleteResponse": "Хаб вернул неполный ответ входа.",
   "neuralDeepAuth.fieldLabel": "Аккаунт NeuralDeep",

@@ -5,6 +5,7 @@ import { CodexAuthField } from "./CodexAuthField";
 import { FieldLabel } from "./FieldHint";
 import { ContextWindowField } from "./ContextWindowField";
 import { NeuralDeepAuthField } from "./NeuralDeepAuthField";
+import { OpenCodeAuthField } from "./OpenCodeAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
 import { ProviderModelList } from "./ProviderModelList";
@@ -250,13 +251,12 @@ function OpenCodeAPIBaseField(props: {
   const stored = String(value ?? "").trim();
   const matched = matchOpenCodeAPIBase(value);
 
-  // OpenCode serves one API key from two gateways: the Go subscription
+  // OpenCode serves the account or service account key through two gateways:
   // (.../inference/go/v1) and pay-as-you-go Console (.../inference/v1). Only
   // those are offered; the backend ignores anything else and falls back to Go.
   // Nothing is written until the user picks one, so a base entered for another
   // provider type survives switching to opencode and back. The key itself goes
-  // in the api_key field above (or `coddy providers login opencode`); OpenCode
-  // has no browser sign-in for Coddy to drive.
+  // in the api_key field above; account sign-in is offered below the picker.
   return (
     <div className="settings-row">
       <FieldLabel label={label} description={texts.primaryDesc} />
@@ -337,6 +337,8 @@ export function overrideTexts(
       return {
         primary: label(),
         primaryDesc: translate("openCodeApiBase.description"),
+        second: translate("openCodeAuth.fieldLabel"),
+        secondDesc: translate("openCodeAuth.description"),
       };
     }
     if (providerType === "neuraldeep" && path === "api_base") {
@@ -414,7 +416,21 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
     );
   }
   if (rowText(ctx.parentObj, "type") === "opencode") {
-    return <OpenCodeAPIBaseField ctx={ctx} texts={box} />;
+    return (
+      <>
+        <OpenCodeAPIBaseField ctx={ctx} texts={box} />
+        <OpenCodeAuthField
+          providerName={rowText(ctx.parentObj, "name")}
+          hasExplicitKey={
+            rowText(ctx.parentObj, "api_key").trim() !== "" ||
+            rowText(ctx.parentObj, "api_key_command").trim() !== ""
+          }
+          apiBase={matchOpenCodeAPIBase(ctx.value) || OPENCODE_DEFAULT_API_BASE}
+          texts={box}
+          {...rowProxy(ctx.parentObj)}
+        />
+      </>
+    );
   }
   return neuralDeepAPIBaseOverride(ctx, box);
 }

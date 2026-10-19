@@ -17,6 +17,7 @@ func (s *Server) registerProvidersRoutes() {
 	s.mux.HandleFunc("POST /coddy/providers/models", s.coddyProviderModelsPost)
 	s.registerCodexAuthRoutes()
 	s.registerNeuralDeepAuthRoutes()
+	s.registerOpenCodeAuthRoutes()
 	s.registerProviderUsageRoutes()
 }
 

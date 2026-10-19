@@ -18,6 +18,8 @@ import (
 
 const opencodeConsoleURL = "https://opencode.ai/console"
 
+const openCodeClientID = "coddy"
+
 // EnvOpenCodeConsoleURL redirects account requests for a local test stand.
 // Configuration cannot redirect account or refresh tokens to another host.
 const EnvOpenCodeConsoleURL = "CODDY_OPENCODE_CONSOLE_URL"
@@ -65,7 +67,7 @@ func StartOpenCodeDeviceLogin(ctx context.Context, proxySetting string) (*OpenCo
 		Expires      int64  `json:"expires_in"`
 		Interval     int64  `json:"interval"`
 	}
-	if err := openCodeAccountRequest(ctx, client, "/auth/device/code", map[string]any{"client_id": "opencode-cli", "supports_org_scope": true}, "", &device); err != nil {
+	if err := openCodeAccountRequest(ctx, client, "/auth/device/code", map[string]any{"client_id": openCodeClientID, "supports_org_scope": true}, "", &device); err != nil {
 		return nil, err
 	}
 	if device.DeviceCode == "" || device.UserCode == "" || device.Expires <= 0 || device.Expires > 86400 || device.Interval < 0 || device.Interval > 3600 {
@@ -85,8 +87,22 @@ func StartOpenCodeDeviceLogin(ctx context.Context, proxySetting string) (*OpenCo
 // Wait completes authorization, discovers the account and selected organization,
 // and atomically stores tokens. Ctrl-C or the server's expiry cancels the wait.
 func (login *OpenCodeDeviceLogin) Wait(ctx context.Context, authPath, apiBase string) error {
+	return login.WaitWith(ctx, apiBase, func(ctx context.Context, credential []byte) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return SaveOpenCodeAuthFile(authPath, credential)
+	})
+}
+
+// WaitWith hands the completed credential to its owner. HTTP sign-in uses this
+// boundary to serialize storage with cancellation, replacement and logout.
+func (login *OpenCodeDeviceLogin) WaitWith(ctx context.Context, apiBase string, persist func(context.Context, []byte) error) error {
 	if login == nil || login.client == nil {
 		return errors.New("opencode: missing device authorization attempt")
+	}
+	if persist == nil {
+		return errors.New("opencode: missing credential storage callback")
 	}
 	ctx, cancel := context.WithDeadline(ctx, login.expires)
 	defer cancel()
@@ -100,7 +116,7 @@ func (login *OpenCodeDeviceLogin) Wait(ctx context.Context, authPath, apiBase st
 		case <-timer.C:
 		}
 		var token openCodeToken
-		err := openCodeAccountRequest(ctx, login.client, "/auth/device/token", map[string]any{"grant_type": "urn:ietf:params:oauth:grant-type:device_code", "device_code": login.code, "client_id": "opencode-cli"}, "", &token)
+		err := openCodeAccountRequest(ctx, login.client, "/auth/device/token", map[string]any{"grant_type": "urn:ietf:params:oauth:grant-type:device_code", "device_code": login.code, "client_id": openCodeClientID}, "", &token)
 		if err != nil {
 			return err
 		}
@@ -124,8 +140,26 @@ func (login *OpenCodeDeviceLogin) Wait(ctx context.Context, authPath, apiBase st
 		if err := discoverOpenCodeAccount(ctx, login.client, credential); err != nil {
 			return err
 		}
-		return saveOpenCodeCredential(authPath, credential)
+		data, err := json.MarshalIndent(credential, "", "  ")
+		if err != nil {
+			return err
+		}
+		return persist(ctx, data)
 	}
+}
+
+// SaveOpenCodeAuthFile validates and atomically installs a completed login.
+func SaveOpenCodeAuthFile(path string, data []byte) error {
+	var credential opencodeAuthFile
+	if err := json.Unmarshal(data, &credential); err != nil {
+		return errors.New("opencode: invalid credential")
+	}
+	if credential.APIKey == "" && (credential.AccessToken == "" || credential.RefreshToken == "" || credential.ExpiresAt <= 0) {
+		return errors.New("opencode: incomplete credential")
+	}
+	opencodeRefreshMu.Lock()
+	defer opencodeRefreshMu.Unlock()
+	return saveOpenCodeCredential(path, &credential)
 }
 
 func discoverOpenCodeAccount(ctx context.Context, client *http.Client, credential *opencodeAuthFile) error {
@@ -210,7 +244,7 @@ func openCodeCredential(ctx context.Context, explicit, path string, client *http
 	}
 	if credential.AccessToken == "" || credential.ExpiresAt <= time.Now().Add(60*time.Second).Unix() {
 		var token openCodeToken
-		if err := openCodeAccountRequest(ctx, client, "/auth/device/token", map[string]any{"grant_type": "refresh_token", "refresh_token": credential.RefreshToken, "client_id": "opencode-cli"}, "", &token); err != nil {
+		if err := openCodeAccountRequest(ctx, client, "/auth/device/token", map[string]any{"grant_type": "refresh_token", "refresh_token": credential.RefreshToken, "client_id": openCodeClientID}, "", &token); err != nil {
 			return "", "", err
 		}
 		if token.Error != "" {

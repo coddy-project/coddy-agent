@@ -20,6 +20,14 @@ Before each catalog or inference request, Coddy refreshes a token that expires w
 
 An explicit `api_key`, `api_key_command` or the row's `NAME_API_KEY` still wins over the stored login. `coddy providers logout opencode` deletes the local file. Revoke the account session or service account key in the Console to end it on the server.
 
+Device authorization, polling and token refresh identify this application with `client_id: coddy`.
+
+### Sign in from Settings
+
+In **Settings → LLM providers**, open the OpenCode row and click **Sign In with OpenCode** below the gateway picker. Confirm the displayed code on the Console page and select your organization. The form shows the organization after confirmation; **Sign Out** removes the local login and also cancels a pending attempt.
+
+The login uses the gateway and proxy currently shown in the form, including a new row or a saved row switched to OpenCode before Save. Click **Save All** to keep those provider settings for chats and future token refreshes. Use the refresh icon beside the model list to read the catalog with the stored login. Tokens stay on the server and never appear in the browser or config YAML.
+
 ## Use a service account key
 
 1. Sign in to the [OpenCode Console](https://opencode.ai/console).
@@ -103,6 +111,17 @@ OpenCode meters each model against a monthly dollar budget (with 5-hour and week
 - Unit tests: `internal/llm/opencode_test.go` checks exact inference paths for both gateways, headers, credential isolation, redirect refusal and stored credentials. `opencode_google_test.go` covers Gemini tool conversations, signed parts, usage and truncated streams.
 - `features/provider_proxy.feature` covers all four API families, model discovery, account login, token refresh and login config updates through each proxy setting. `opencode_oauth_test.go` verifies HTTPS CONNECT routing, token rotation, concurrent refresh and failed authorization; `cmd/coddy/opencode_test.go` checks the terminal flow.
 - The Responses transport is shared with the Codex backend (`internal/llm/responses_stream.go`); `internal/llm/codex_test.go` covers it.
+
+### Settings screenshots
+
+The screenshots show the running UI connected to a local Console stand.
+
+| State | `1280px` | `390px` |
+| --- | --- | --- |
+| Before | ![Before - wide screen](../assets/opencode-login/before-wide.jpg) | ![Before - narrow screen](../assets/opencode-login/before-narrow.jpg) |
+| Ready to sign in | ![Ready to sign in - wide screen](../assets/opencode-login/after-idle-wide.jpg) | ![Ready to sign in - narrow screen](../assets/opencode-login/after-idle-narrow.jpg) |
+| Waiting for confirmation | ![Waiting for confirmation - wide screen](../assets/opencode-login/after-pending-wide.jpg) | ![Waiting for confirmation - narrow screen](../assets/opencode-login/after-pending-narrow.jpg) |
+| Signed in | ![Signed in - wide screen](../assets/opencode-login/after-connected-wide.jpg) | ![Signed in - narrow screen](../assets/opencode-login/after-connected-narrow.jpg) |
 
 ## See also
 

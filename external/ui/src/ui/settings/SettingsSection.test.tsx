@@ -163,6 +163,86 @@ test("OpenCode keeps its gateway picker and indexes its displayed description", 
   );
 });
 
+// The @ui scenario of features/opencode_login.feature.
+test("OpenCode account sign-in uses the unsaved gateway and proxy", async () => {
+  let approved = false;
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/opencode-auth/device") && init?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({
+            login_id: "oc-login",
+            user_code: "OPEN-CODE",
+            verification_url: "https://opencode.ai/console/device",
+            status: "pending",
+          }),
+        };
+      }
+      if (url.endsWith("/device/oc-login")) {
+        approved = true;
+        return {
+          ok: true,
+          json: async () => ({ status: "completed", connected: true }),
+        };
+      }
+      if (init?.method === "DELETE") {
+        approved = false;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          connected: approved,
+          organization: approved ? "Test Org" : "",
+          source: approved ? "oauth" : "none",
+        }),
+      };
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  const open = vi.spyOn(window, "open").mockImplementation(() => null);
+  render(
+    <Harness
+      provider={{
+        name: "opencode",
+        type: "opencode",
+        api_base: "https://opencode.ai/inference/v1",
+        proxy: "http://proxy.example:8080",
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  expect(screen.getByTestId("opencode-api-base")).toBeInTheDocument();
+  fireEvent.click(await screen.findByTestId("opencode-auth-sign-in"));
+  expect(await screen.findByText("OPEN-CODE")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/coddy/providers/opencode/opencode-auth/device",
+    expect.objectContaining({
+      body: JSON.stringify({
+        api_base: "https://opencode.ai/inference/v1",
+        proxy: "http://proxy.example:8080",
+      }),
+    }),
+  );
+  expect(open).toHaveBeenCalledWith(
+    "https://opencode.ai/console/device",
+    "_blank",
+    "noopener,noreferrer",
+  );
+  expect(
+    await screen.findByText(
+      /Signed in to OpenCode \(Test Org\)/,
+      {},
+      { timeout: 2000 },
+    ),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Sign Out" }));
+  expect(
+    await screen.findByTestId("opencode-auth-sign-in"),
+  ).toBeInTheDocument();
+});
+
 test("NeuralDeep provider picks the API endpoint from the two official ones", async () => {
   render(<Harness />);
   fireEvent.click(screen.getByTestId("settings-master-item-0"));

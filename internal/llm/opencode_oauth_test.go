@@ -22,7 +22,7 @@ func TestOpenCodeAccountRefreshThroughHTTPSProxy(t *testing.T) {
 		if r.URL.Path == "/console/auth/device/token" {
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			if body["grant_type"] != "refresh_token" || body["refresh_token"] != "old-refresh" || body["client_id"] != "opencode-cli" {
+			if body["grant_type"] != "refresh_token" || body["refresh_token"] != "old-refresh" || body["client_id"] != "coddy" {
 				t.Error("unexpected refresh request")
 			}
 			refreshes.Add(1)
@@ -88,8 +88,15 @@ func TestOpenCodeDeviceLoginThroughHTTPSProxy(t *testing.T) {
 		if r.URL.Path == "/console/auth/device/code" {
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			if body["client_id"] != "opencode-cli" || body["supports_org_scope"] != true {
+			if body["client_id"] != "coddy" || body["supports_org_scope"] != true {
 				t.Error("device request does not match OpenCode")
+			}
+		}
+		if r.URL.Path == "/console/auth/device/token" {
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["client_id"] != "coddy" || body["grant_type"] != "urn:ietf:params:oauth:grant-type:device_code" {
+				t.Error("device exchange did not identify Coddy")
 			}
 		}
 		if !answerProviderRequest(w, r) {
