@@ -359,7 +359,7 @@ func RemoveWorktree(wt LinkedWorktree, discard bool) (Removal, error) {
 	if wt.Branch == "" {
 		return removal, nil
 	}
-	removal.BranchDeleted, removal.BranchKept = DeleteBranchIfHeld(wt.MainCheckout, wt.Branch)
+	removal.BranchDeleted, removal.BranchKept = deleteBranchIfHeld(wt.MainCheckout, wt.Branch)
 	return removal, nil
 }
 

@@ -60,8 +60,10 @@ func CopyWorktreeIncludes(main, worktree string) ([]string, error) {
 
 // copyIncluded copies one regular file from src to dst under the same
 // relative path, keeping its mode, and reports whether it did: a link, a
-// folder or a file dst already has is left alone. Both roots keep every path
-// inside its checkout.
+// folder or a file dst already has is left alone, and so is a file whose
+// folder is a link on either side (a link the branch tracks would carry the
+// copy somewhere git does not ignore it). Both roots keep every path inside
+// its checkout.
 func copyIncluded(src, dst *os.Root, rel string) (bool, error) {
 	name := filepath.FromSlash(rel)
 	fi, err := src.Lstat(name)
@@ -71,16 +73,14 @@ func copyIncluded(src, dst *os.Root, rel string) (bool, error) {
 	if _, err := dst.Lstat(name); err == nil {
 		return false, nil
 	}
+	if ok, err := makeParents(src, dst, filepath.Dir(name)); !ok || err != nil {
+		return false, err
+	}
 	in, err := src.Open(name)
 	if err != nil {
 		return false, err
 	}
 	defer func() { _ = in.Close() }()
-	if dir := filepath.Dir(name); dir != "." {
-		if err := dst.MkdirAll(dir, 0o755); err != nil {
-			return false, err
-		}
-	}
 	out, err := dst.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, fi.Mode().Perm())
 	if err != nil {
 		return false, err
@@ -96,6 +96,38 @@ func copyIncluded(src, dst *os.Root, rel string) (bool, error) {
 	if err != nil {
 		_ = dst.Remove(name)
 		return false, err
+	}
+	return true, nil
+}
+
+// makeParents makes sure every folder of dir, relative to both roots, is a
+// real folder in src and in dst, creating the ones dst lacks with the mode of
+// the folder in src (not through the umask: a private folder stays private).
+// It reports false when a folder is a link or no folder on either side.
+func makeParents(src, dst *os.Root, dir string) (bool, error) {
+	if dir == "." || dir == "" {
+		return true, nil
+	}
+	parts := strings.Split(dir, string(filepath.Separator))
+	for i := range parts {
+		prefix := filepath.Join(parts[:i+1]...)
+		from, err := src.Lstat(prefix)
+		if err != nil || !from.IsDir() {
+			return false, nil
+		}
+		at, err := dst.Lstat(prefix)
+		switch {
+		case err == nil && at.IsDir():
+			continue
+		case err == nil, !os.IsNotExist(err):
+			return false, nil
+		}
+		if err := dst.Mkdir(prefix, from.Mode().Perm()); err != nil {
+			return false, err
+		}
+		if err := dst.Chmod(prefix, from.Mode().Perm()); err != nil {
+			return false, err
+		}
 	}
 	return true, nil
 }

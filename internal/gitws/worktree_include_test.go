@@ -166,3 +166,44 @@ func TestOwnWorkCountsChangedIncludeCopies(t *testing.T) {
 	writeFile(t, opened.Path, "local/notes.md", "only here\n")
 	own(false, "local/notes.md", "a named file only the worktree has")
 }
+
+// A folder the branch tracks as a link is not followed: the copy would land
+// where git does not ignore it. Folders the copy makes keep the source
+// folder's mode.
+func TestCopyWorktreeIncludesSkipsLinkedFoldersAndKeepsFolderModes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX links and mode bits")
+	}
+	main := initRepo(t)
+	if err := os.MkdirAll(filepath.Join(main, "public"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	commitFile(t, main, "public/README", "public\n")
+	commitFile(t, main, ".gitignore", "local/.env\nprivate/\n")
+	mustGit(t, main, "branch", "-f", "feature/link")
+	wt := filepath.Join(WorktreesRoot(main), "feature-link")
+	mustGit(t, main, "worktree", "add", "-q", wt, "feature/link")
+	// The branch's own checkout has local as a link to public.
+	if err := os.Symlink("public", filepath.Join(wt, "local")); err != nil {
+		t.Skip("symlinks not available")
+	}
+	writeFile(t, main, ".worktreeinclude", "local/.env\nprivate/\n")
+	writeFile(t, main, "local/.env", "TOKEN=secret\n")
+	writeFile(t, main, "private/config.env", "x\n")
+	if err := os.Chmod(filepath.Join(main, "private"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	included, err := CopyWorktreeIncludes(main, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(included, []string{"private/config.env"}) {
+		t.Fatalf("included = %v, want only private/config.env", included)
+	}
+	if _, err := os.Lstat(filepath.Join(wt, "public", ".env")); !os.IsNotExist(err) {
+		t.Fatalf("the copy went through the linked folder: %v", err)
+	}
+	if fi, err := os.Stat(filepath.Join(wt, "private")); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Fatalf("private/ mode = %v, %v; want the source's 0700", fi.Mode(), err)
+	}
+}

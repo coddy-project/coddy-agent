@@ -212,13 +212,14 @@ func (h *parkedHandle) ProcessStartedAt() time.Time { return time.Time{} }
 
 // openedChildWorktree opens a child's worktree in the rig's repository the way
 // a spawn does, and a run that owns it.
-func openedChildWorktree(t *testing.T, rig *subagentRig) (*childWorktree, *subagentRun) {
+func openedChildWorktree(t *testing.T, rig *subagentRig) (*childWorktree, *subagentRun, string) {
 	t.Helper()
-	w, _, _, err := openChildWorktree(rig.cwd, "fixer", session.NewSessionID(), nil)
+	childID := session.NewSessionID()
+	w, _, _, err := openChildWorktree(rig.cwd, "fixer", childID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return w, &subagentRun{taskID: "bg_child_itself", worktree: w}
+	return w, &subagentRun{taskID: "bg_child_itself", worktree: w}, childID
 }
 
 func gitIn(t *testing.T, dir string, args ...string) string {
@@ -238,7 +239,7 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 func TestSettleKeepsAWorktreeABackgroundTaskRunsIn(t *testing.T) {
 	rig := newSubagentRig(t, nil)
 	gitWorkspace(t, rig.cwd)
-	w, run := openedChildWorktree(t, rig)
+	w, run, _ := openedChildWorktree(t, rig)
 	pool := bgtask.New(bgtask.Config{})
 	t.Cleanup(func() { pool.StopSession("sess_watcher") })
 	if _, err := pool.Launch(bgtask.Spec{SessionID: "sess_watcher", Kind: bgtask.KindServer, Label: "tests", CWD: filepath.Join(w.Path, "pkg")},
@@ -260,7 +261,7 @@ func TestSettleKeepsAWorktreeABackgroundTaskRunsIn(t *testing.T) {
 func TestSettleKeepsAWorktreeWhoseChildCommitted(t *testing.T) {
 	rig := newSubagentRig(t, nil)
 	gitWorkspace(t, rig.cwd)
-	w, run := openedChildWorktree(t, rig)
+	w, run, _ := openedChildWorktree(t, rig)
 	if err := os.WriteFile(filepath.Join(w.Path, "fix.txt"), []byte("fix\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +280,7 @@ func TestSettleKeepsAWorktreeWhoseChildCommitted(t *testing.T) {
 func TestAChildThatSwitchedBranchesIsResumedWhereItIs(t *testing.T) {
 	rig := newSubagentRig(t, nil)
 	gitWorkspace(t, rig.cwd)
-	w, run := openedChildWorktree(t, rig)
+	w, run, childID := openedChildWorktree(t, rig)
 	first := w.Branch
 	gitIn(t, w.Path, "switch", "-q", "-c", "fix/actual")
 	if err := os.WriteFile(filepath.Join(w.Path, "fix.txt"), []byte("fix\n"), 0o644); err != nil {
@@ -289,12 +290,63 @@ func TestAChildThatSwitchedBranchesIsResumedWhereItIs(t *testing.T) {
 	if w.Removed || w.Branch != "fix/actual" || !strings.Contains(run.worktree.reportLine(), "fix/actual") {
 		t.Fatalf("settled = %+v, want it kept and reported on fix/actual", w)
 	}
-	again, folder, _, err := openChildWorktree(rig.cwd, "fixer", session.NewSessionID(), &resumeTarget{worktree: w.Path, branch: first, cwd: w.Path})
+	again, folder, _, err := openChildWorktree(rig.cwd, "fixer", childID, &resumeTarget{worktree: w.Path, cwd: w.Path})
 	if err != nil {
 		t.Fatalf("resume of a child on another branch = %v", err)
 	}
-	if !session.SameWorkspacePath(again.Path, w.Path) || again.Branch != "fix/actual" || !session.SameWorkspacePath(folder, w.Path) {
-		t.Fatalf("resumed in %s on %s (folder %s), want %s on fix/actual", again.Path, again.Branch, folder, w.Path)
+	if !session.SameWorkspacePath(again.Path, w.Path) || again.Branch != "fix/actual" || again.Assigned != first || !session.SameWorkspacePath(folder, w.Path) {
+		t.Fatalf("resumed in %s on %s, assigned %s (folder %s), want %s on fix/actual with %s assigned", again.Path, again.Branch, again.Assigned, folder, w.Path, first)
+	}
+	// Even with nothing left in it, a worktree on another branch is not the
+	// run's to remove, and that branch is not the run's to delete.
+	if err := os.Remove(filepath.Join(w.Path, "fix.txt")); err != nil {
+		t.Fatal(err)
+	}
+	settleChildWorktree(rig.mgr, bgtask.New(bgtask.Config{}), &subagentRun{taskID: "bg_resumed", worktree: again})
+	if again.Removed || !strings.Contains(again.Kept, "moved it from branch "+first+" to fix/actual") {
+		t.Fatalf("settled = %+v, want it kept on the branch the child moved it to", again)
+	}
+}
+
+// A child that committed and then went back to the start commit, detached or
+// on another branch, keeps its worktree, and no branch is deleted that the
+// run was not given.
+func TestSettleKeepsAWorktreeTheChildLeftOffItsBranch(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		leave func(t *testing.T, dir, start string)
+		want  string
+	}{
+		{"detached at the start commit", func(t *testing.T, dir, start string) {
+			gitIn(t, dir, "checkout", "-q", "--detach", start)
+		}, "detached HEAD"},
+		{"an existing branch at the start commit", func(t *testing.T, dir, start string) {
+			gitIn(t, dir, "checkout", "-q", "develop")
+		}, "to develop"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rig := newSubagentRig(t, nil)
+			gitWorkspace(t, rig.cwd)
+			gitIn(t, rig.cwd, "branch", "develop")
+			w, run, _ := openedChildWorktree(t, rig)
+			if err := os.WriteFile(filepath.Join(w.Path, "fix.txt"), []byte("fix\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			gitIn(t, w.Path, "add", "fix.txt")
+			gitIn(t, w.Path, "-c", "user.email=coddy@test", "-c", "user.name=coddy", "commit", "-q", "-m", "fix")
+			committed := gitIn(t, w.Path, "rev-parse", "HEAD")
+			tc.leave(t, w.Path, w.Start)
+			settleChildWorktree(rig.mgr, bgtask.New(bgtask.Config{}), run)
+			if w.Removed || !strings.Contains(w.Kept, tc.want) {
+				t.Fatalf("settled = %+v, want it kept (%s)", w, tc.want)
+			}
+			if got := gitIn(t, rig.cwd, "rev-parse", w.Assigned); got != committed {
+				t.Fatalf("%s = %s, want the child's commit %s", w.Assigned, got, committed)
+			}
+			if got := gitIn(t, rig.cwd, "branch", "--list", "develop"); got == "" {
+				t.Fatal("develop was deleted")
+			}
+		})
 	}
 }
 

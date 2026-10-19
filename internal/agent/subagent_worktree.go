@@ -14,9 +14,13 @@ import (
 // and, once its run ended, what became of it. Fields past Start are written
 // by settleChildWorktree under the run's lock.
 type childWorktree struct {
-	// Path is the worktree's root, Branch its branch.
+	// Path is the worktree's root, Branch the branch it is on (the one the
+	// child left it on, once the run ended).
 	Path   string
 	Branch string
+	// Assigned is the branch the run was given, the only one its end may
+	// delete.
+	Assigned string
 	// Created reports that this launch made the worktree; one that was there
 	// already belongs to an earlier run of the child.
 	Created bool
@@ -50,13 +54,12 @@ func subagentBranch(name, childID string) string {
 // its checkout, or the folder the resumed run worked in) and a line for the
 // task log.
 func openChildWorktree(cwd, name, childID string, resumed *resumeTarget) (*childWorktree, string, string, error) {
-	branch := subagentBranch(name, childID)
+	// The same name for every run of the child: its id does not change.
+	assigned := subagentBranch(name, childID)
+	branch := assigned
 	var opened gitws.WorktreeEnsured
 	reused := false
 	if resumed != nil {
-		if resumed.branch != "" {
-			branch = resumed.branch
-		}
 		if wt, err := gitws.WorktreeOf(resumed.worktree); err == nil && session.SameWorkspacePath(wt.Path, resumed.worktree) &&
 			session.SameWorkspacePath(wt.MainCheckout, repositoryOf(cwd)) {
 			opened, reused = gitws.WorktreeEnsured{Path: wt.Path}, true
@@ -67,7 +70,7 @@ func openChildWorktree(cwd, name, childID string, resumed *resumeTarget) (*child
 	}
 	if !reused {
 		var err error
-		if opened, err = gitws.EnsureLocalWorktree(cwd, branch); err != nil {
+		if opened, err = gitws.EnsureLocalWorktree(cwd, assigned); err != nil {
 			return nil, "", "", fmt.Errorf("subagent %q works in a git worktree of its own (isolation worktree), and none could be opened from %s: %w", name, cwd, err)
 		}
 	}
@@ -90,17 +93,18 @@ func openChildWorktree(cwd, name, childID string, resumed *resumeTarget) (*child
 	if opened.IncludeErr != nil {
 		note += fmt.Sprintf("; some .worktreeinclude files were not copied: %v", opened.IncludeErr)
 	}
-	return &childWorktree{Path: opened.Path, Branch: branch, Created: opened.Created, Start: start}, folder, note, nil
+	return &childWorktree{Path: opened.Path, Branch: branch, Assigned: assigned, Created: opened.Created, Start: start}, folder, note, nil
 }
 
 // settleChildWorktree decides, once the child's run ended, its own tasks
 // stopped and it is no longer live, whether its worktree goes. It does when
-// the child left nothing there: nothing gitws.OwnWork counts, and HEAD still
+// the child left nothing there: nothing gitws.OwnWork counts, the worktree
+// still on the branch the run was given, and both HEAD and that branch still
 // on the commit the run started at, so no commit of the run is left out of a
-// resume however it is held. Another session or a background task of any
-// session working in it keeps it too, asked again right before the removal.
-// Otherwise it stays for the parent, with the reason. Nothing it decides
-// fails the run.
+// resume however it is held, and no branch but the run's own is deleted.
+// Another session or a background task of any session working in it keeps it
+// too, asked again right before the removal. Otherwise it stays for the
+// parent, with the reason. Nothing it decides fails the run.
 func settleChildWorktree(rt SubagentRuntime, pool *bgtask.Pool, run *subagentRun) {
 	run.mu.Lock()
 	w := *run.worktree
@@ -123,12 +127,9 @@ func settleChildWorktree(rt SubagentRuntime, pool *bgtask.Pool, run *subagentRun
 			w.Kept = err.Error()
 			return
 		}
-		created := w.Branch
-		if wt.Branch != "" {
-			// The child may have switched branches: the report names the one
-			// the worktree is on.
-			w.Branch = wt.Branch
-		}
+		// The child may have switched branches: the report names the one the
+		// worktree is on.
+		w.Branch = wt.Branch
 		if why := busy(wt.Path); why != "" {
 			w.Kept = why
 			return
@@ -142,12 +143,25 @@ func settleChildWorktree(rt SubagentRuntime, pool *bgtask.Pool, run *subagentRun
 			w.Kept = "the child left " + own
 			return
 		}
+		switch {
+		case wt.Branch == "":
+			w.Kept = "the child left it on a detached HEAD"
+			return
+		case wt.Branch != w.Assigned:
+			w.Kept = fmt.Sprintf("the child moved it from branch %s to %s", w.Assigned, wt.Branch)
+			return
+		}
 		head, err := gitws.HeadOf(wt.Path)
 		if err != nil {
 			w.Kept = err.Error()
 			return
 		}
-		if head != w.Start {
+		tip, err := gitws.BranchTip(wt.MainCheckout, w.Assigned)
+		if err != nil {
+			w.Kept = err.Error()
+			return
+		}
+		if head != w.Start || tip != w.Start {
 			w.Kept = fmt.Sprintf("the child committed on it (now at %s)", shortCommit(head))
 			return
 		}
@@ -162,11 +176,6 @@ func settleChildWorktree(rt SubagentRuntime, pool *bgtask.Pool, run *subagentRun
 		}
 		w.Removed = true
 		w.BranchKept = removal.BranchKept
-		// The branch the run was given goes too when the child left it for
-		// another one and nothing holds it alone.
-		if created != "" && created != wt.Branch {
-			_, _ = gitws.DeleteBranchIfHeld(wt.MainCheckout, created)
-		}
 	}
 	settle()
 	run.mu.Lock()

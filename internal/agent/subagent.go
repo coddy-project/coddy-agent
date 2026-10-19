@@ -992,7 +992,7 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	}
 	childCWD := cwd
 	var worktree *childWorktree
-	worktreeNote := ""
+	worktreeNote, worktreeLine := "", ""
 	if isolated {
 		w, folder, note, err := openChildWorktree(cwd, def.Name, childID, resumed)
 		if err != nil {
@@ -1000,6 +1000,9 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 			return "", err
 		}
 		worktree, childCWD, worktreeNote = w, folder, note
+		// Read before the run starts: its end rewrites the worktree's fields
+		// under the run's lock.
+		worktreeLine = fmt.Sprintf("It works in the worktree %s on branch %s, not in your folder; the report says whether the worktree stays.\n", w.Path, w.Branch)
 	}
 
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
@@ -1115,9 +1118,7 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	}
 	fmt.Fprintf(&b, "%s subagent %s as background task %s (child session %s).\n", started, def.Name, snap.ID, childID)
 	fmt.Fprintf(&b, "Hard timeout %s.\n", humanSecondsAgent(snap.TimeoutSeconds))
-	if worktree != nil {
-		fmt.Fprintf(&b, "It works in the worktree %s on branch %s, not in your folder; the report says whether the worktree stays.\n", worktree.Path, worktree.Branch)
-	}
+	b.WriteString(worktreeLine)
 	switch {
 	case snap.NotifyOnFinish:
 		b.WriteString("You will be woken with the outcome when it finishes, so you can end your turn now.")
@@ -1413,9 +1414,9 @@ type resumeTarget struct {
 	childID string
 	// model is the model the child's latest run worked on.
 	model string
-	// cwd is the folder the latest run worked in; worktree and branch name
-	// its worktree when it had one of its own (isolation worktree).
-	cwd, worktree, branch string
+	// cwd is the folder the latest run worked in; worktree names its
+	// worktree when it had one of its own (isolation worktree).
+	cwd, worktree string
 }
 
 // findResumeTarget resolves the run a spawn_agent resume names - a task id or
@@ -1484,7 +1485,7 @@ func (a *Agent) findResumeTarget(ref, agentName string) (*resumeTarget, error) {
 	}
 	return &resumeTarget{
 		childID: childID, model: latest.Agent.Model,
-		cwd: was, worktree: strings.TrimSpace(latest.Agent.Worktree), branch: strings.TrimSpace(latest.Agent.Branch),
+		cwd: was, worktree: strings.TrimSpace(latest.Agent.Worktree),
 	}, nil
 }
 

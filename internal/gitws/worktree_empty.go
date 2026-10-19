@@ -69,15 +69,20 @@ func commitsOfItsOwn(dir, branch, rev string) (int, error) {
 	return strconv.Atoi(strings.TrimSpace(out))
 }
 
+// BranchTip names the commit the local branch points at.
+func BranchTip(dir, branch string) (string, error) {
+	return runGit(dir, "rev-parse", "--verify", "-q", "refs/heads/"+branch+"^{commit}")
+}
+
 // HeadOf names the commit HEAD of the checkout at dir is on.
 func HeadOf(dir string) (string, error) {
 	return runGit(dir, "rev-parse", "--verify", "-q", "HEAD^{commit}")
 }
 
-// DeleteBranchIfHeld deletes branch when every commit of it another branch,
+// deleteBranchIfHeld deletes branch when every commit of it another branch,
 // a remote branch or a tag holds, so nothing is lost, and otherwise says why
 // it stays. A branch some worktree has checked out is refused by git.
-func DeleteBranchIfHeld(dir, branch string) (deleted bool, kept string) {
+func deleteBranchIfHeld(dir, branch string) (deleted bool, kept string) {
 	tip, err := runGit(dir, "rev-parse", "--verify", "-q", "refs/heads/"+branch)
 	if err != nil || tip == "" {
 		return false, ""
