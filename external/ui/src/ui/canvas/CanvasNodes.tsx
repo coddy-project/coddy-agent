@@ -194,9 +194,11 @@ function NodeBody(props: {
   const { item } = props;
   switch (item.type) {
     case "text":
+      // Obsidian reads a single newline as a line break, in a card and in a
+      // note alike (its "Strict line breaks" is off by default).
       return (
         <div className="canvas-node-text">
-          <Markdown text={item.text || ""} />
+          <Markdown text={item.text || ""} breaks />
         </div>
       );
     case "link":
@@ -278,7 +280,7 @@ function FileNode(props: {
     return (
       <div className="canvas-node-text canvas-node-note">
         <p className="canvas-node-note-name">{baseName(props.path)}</p>
-        <Markdown text={text.value} />
+        <Markdown text={text.value} breaks />
       </div>
     );
   }
