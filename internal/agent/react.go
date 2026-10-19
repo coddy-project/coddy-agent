@@ -746,7 +746,9 @@ func emptyRecoveryProjection(messages []llm.Message, nudges ...string) []llm.Mes
 		messages = messages[:len(messages)-1]
 	}
 	for _, nudge := range nudges {
-		messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge})
+		// LLM-facing only, never persisted: marked so a provider that keeps
+		// the conversation on its side does not remember having sent it.
+		messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge, Ephemeral: true})
 	}
 	return messages
 }
@@ -1080,10 +1082,11 @@ func (a *Agent) runReActLoop(
 		attemptsBefore := retryAllowance.Snapshot()
 		callReason := nextCallReason
 		nextCallReason = "step"
-		streamCtx, streamCancel := context.WithCancel(llm.WithRetryAllowance(ctx, retryAllowance))
+		// The conversation goes on this call's context only (providerConversation).
+		streamCtx, streamCancel := context.WithCancel(llm.WithConversation(llm.WithRetryAllowance(ctx, retryAllowance), a.providerConversation(mode, toolEnv)))
 		var firstTokenTimedOut atomic.Bool
 		var firstTokenTimer *time.Timer
-		if transport.streaming && firstTokenTimeout > 0 {
+		if transport.streaming && firstTokenTimeout > 0 && !transport.agent {
 			firstTokenTimer = time.AfterFunc(firstTokenTimeout, func() {
 				firstTokenTimedOut.Store(true)
 				streamCancel()
@@ -1323,7 +1326,7 @@ func (a *Agent) runReActLoop(
 				nudge = reasoningLoopNudge
 			}
 			// LLM-facing only; never persisted to the transcript.
-			messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge})
+			messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge, Ephemeral: true})
 			a.log.Warn("loop guard cut a degenerating response",
 				"channel", loopAbortChannelName(loopAbort), "nudge", loopNudges)
 			resetRetries("loop_guard")
@@ -1435,7 +1438,7 @@ func (a *Agent) runReActLoop(
 					// it back after the kept answer instead of ending the request
 					// on that answer. The kept answer is text, so what stood before
 					// it was answered.
-					messages = append(messages, keptAnswerOf(a.state.GetMessages()), llm.Message{Role: llm.RoleUser, Content: providerRecoveryNudge})
+					messages = append(messages, keptAnswerOf(a.state.GetMessages()), llm.Message{Role: llm.RoleUser, Content: providerRecoveryNudge, Ephemeral: true})
 					standing = []string{providerRecoveryNudge}
 				}
 				nextCallReason = "provider_recovery"
@@ -1558,7 +1561,11 @@ func (a *Agent) runReActLoop(
 			"input_tokens", response.InputTokens,
 			"cached_input_tokens", response.CachedInputTokens,
 			"output_tokens", response.OutputTokens)
-		a.recordProviderInputTokens(response.InputTokens, estimateAtSend)
+		if !transport.agent {
+			// An agent's input count measures its own context (its system
+			// prompt, its tools, their results), not this transcript.
+			a.recordProviderInputTokens(response.InputTokens, estimateAtSend)
+		}
 
 		// Accumulate and broadcast token usage after each LLM call.
 		totalInputTokens += response.InputTokens
@@ -1917,7 +1924,7 @@ func (a *Agent) runReActLoop(
 			retryAllowance = fresh
 			if mayAskAfterOutputLimit(turn) {
 				nudge := cutOffToolCallNudge(cutCall.Name)
-				messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge})
+				messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge, Ephemeral: true})
 				recoveries := outputLimitRecoveries + 1
 				resetRetries("output_limit_nudge")
 				outputLimitRecoveries, standing, retryAllowance = recoveries, []string{nudge}, fresh
@@ -2946,6 +2953,12 @@ type llmTransport struct {
 	// first request, moves the revision past rev and makes the loop compare.
 	key string
 	rev uint64
+	// agent marks a model served by a local ACP agent (providers[].type:
+	// acp). Its context is the agent's own: the loop records no provider
+	// input count for it and runs no automatic compaction, and arms no
+	// first-token timer, whose budget the agent's start, handshake and the
+	// replay of a history into a new session would spend.
+	agent bool
 }
 
 // getProvider creates the LLM provider for the given mode.
@@ -2979,6 +2992,7 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 		model:     modelID,
 		key:       modelID + "|" + reasoning,
 		rev:       rev,
+		agent:     rm.ProviderType == "acp",
 	}, nil
 }
 
@@ -3126,7 +3140,7 @@ func (a *Agent) turnProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 	// The first-token timer cuts a streamed call that stays silent, retry
 	// waits included: a server-requested pause the timer would cut anyway
 	// is reported as a quota reset instead of being slept through in vain.
-	if rm.Stream {
+	if rm.Stream && rm.ProviderType != "acp" {
 		if timeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout(); timeout > 0 {
 			in.CallBudget = timeout
 		}
@@ -3158,6 +3172,7 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 		Temperature:   rm.Temperature,
 		DisableStream: !rm.Stream,
 		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
+		ACP:           rm.ACP,
 	}
 	// What the provider's model listing says the model takes, read on the
 	// manager's cache: an OpenRouter-style aggregator gets the reasoning level

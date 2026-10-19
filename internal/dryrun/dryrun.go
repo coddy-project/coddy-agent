@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 )
 
@@ -125,6 +126,8 @@ func Run(ctx context.Context, req Request) *Report {
 		req.Timeout = defaultTimeout
 	}
 	r := &runner{req: req, rep: rep}
+	// The agents the probes of acp providers started end with the run.
+	defer llm.StopACPAgents()
 	r.subsystems()
 	r.paths()
 	r.mcpCommands()

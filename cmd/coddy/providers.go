@@ -132,6 +132,8 @@ func providersLogin(cfg *config.Config, name, providerType string, device, brows
 		return codexLogin(cfg, prov, prov.Name, authPath, noConfig)
 	case "neuraldeep":
 		return neuralDeepLogin(cfg, prov, browser, noConfig, apiBase)
+	case "acp":
+		return fmt.Errorf("provider %q has type acp: its agent signs in on its own (claude login, codex login, opencode auth login, ...), or through acp.auth_method", prov.Name)
 	default:
 		return fmt.Errorf("provider %q has type %q: it authenticates with api_key (or the %s env var), browser sign-in exists only for neuraldeep, codex and devin",
 			prov.Name, prov.Type, config.ProviderAPIKeyEnvVarName(prov.Name))
@@ -363,6 +365,15 @@ func neuralDeepEndpointNote(prov *config.ProviderConfig) string {
 
 func providerCredentialSummary(cfg *config.Config, prov *config.ProviderConfig) string {
 	switch prov.Type {
+	case "acp":
+		if prov.ACP == nil || strings.TrimSpace(prov.ACP.Command) == "" {
+			return "no agent; set acp.command"
+		}
+		summary := "runs the agent `" + strings.TrimSpace(strings.Join(append([]string{prov.ACP.Command}, prov.ACP.Args...), " ")) + "`, which signs in on its own"
+		if m := strings.TrimSpace(prov.ACP.AuthMethod); m != "" {
+			summary += " (authenticate: " + m + ")"
+		}
+		return summary
 	case "devin":
 		return devinCredentialSummary(cfg, prov)
 	case "codex":
