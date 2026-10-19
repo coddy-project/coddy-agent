@@ -1767,6 +1767,9 @@ func initializeSubagentsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a child session ran as subagent "([^"]*)"$`, s.childRanAs)
 	sc.Step(`^the "([^"]*)" child was not offered the spawn_agent tool$`, s.childNotOfferedSpawnByName)
 	sc.Step(`^the delegation to "([^"]*)" inside "([^"]*)" was refused naming the spawns allowlist$`, s.delegationRefusedByAllowlist)
+
+	// features/subagents_worktree.feature
+	registerSubagentWorktreeSteps(sc, s)
 }
 
 func TestSubagentsFeature(t *testing.T) {
@@ -1775,7 +1778,7 @@ func TestSubagentsFeature(t *testing.T) {
 		ScenarioInitializer: initializeSubagentsScenario,
 		Options: &godog.Options{
 			Format:   "pretty",
-			Paths:    []string{"../../features/subagents.feature", "../../features/subagents_reconnect.feature", "../../features/subagents_crossreview.feature"},
+			Paths:    []string{"../../features/subagents.feature", "../../features/subagents_reconnect.feature", "../../features/subagents_crossreview.feature", "../../features/subagents_worktree.feature"},
 			TestingT: t,
 			Strict:   true,
 		},

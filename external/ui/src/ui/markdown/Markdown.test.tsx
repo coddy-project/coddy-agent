@@ -261,3 +261,46 @@ test("a video file in an image slot plays in a video element", () => {
   expect(video?.getAttribute("preload")).toBe("metadata");
   expect(container.querySelector("img")).toBeNull();
 });
+
+// CommonMark makes a single newline a soft break, a space: the chat, the
+// documentation and every other body keep that. A canvas card asks for
+// Obsidian's reading, where the newline is a line break (CanvasNodes.tsx).
+test("a single newline stays a soft break unless breaks is asked for", () => {
+  const { container } = render(<Markdown text={"**Router**\n192.168.1.1"} />);
+  expect(container.querySelector("strong")?.textContent).toBe("Router");
+  expect(container.querySelector("br")).toBeNull();
+  expect(container.querySelector("p")?.textContent).toBe("Router\n192.168.1.1");
+});
+
+test("with breaks a single newline is a line break, as in Obsidian", () => {
+  const { container } = render(
+    <Markdown text={"**Router**\n192.168.1.1\nGateway"} breaks />,
+  );
+  const p = container.querySelector("p")!;
+  expect(p.querySelector("strong")?.textContent).toBe("Router");
+  expect(p.querySelectorAll("br")).toHaveLength(2);
+  expect(p.textContent).toBe("Router\n192.168.1.1\nGateway");
+});
+
+test("with breaks a hard break stays one line break", () => {
+  for (const text of ["a  \nb", "a\\\nb"]) {
+    const { container, unmount } = render(<Markdown text={text} breaks />);
+    expect(container.querySelectorAll("br")).toHaveLength(1);
+    unmount();
+  }
+});
+
+test("with breaks code keeps its newlines", () => {
+  const { container } = render(
+    <Markdown text={"```\nfirst\nsecond\n```\n\nSay `one\ntwo` here"} breaks />,
+  );
+  expect(container.querySelector("pre code")?.textContent).toBe(
+    "first\nsecond\n",
+  );
+  expect(container.querySelector("pre br")).toBeNull();
+  const inline = container.querySelector('[data-testid="md-inline-code"]');
+  expect(inline?.textContent).toBe("one two");
+  expect(inline?.querySelector("br")).toBeNull();
+  // The paragraph's only newline is inside the code span.
+  expect(container.querySelectorAll("p br")).toHaveLength(0);
+});

@@ -24,8 +24,8 @@ const WorktreeCommandName = "worktree"
 const worktreeUsage = "Usage: /worktree shows where the chat works and the worktrees of its repository; " +
 	"/worktree <branch> [--from-head] moves the chat into the worktree of the branch, opening one when there is none (a new branch starts at " +
 	"origin's default branch, or at the current commit with --from-head); /worktree <path> moves it into an existing worktree " +
-	"(a path starts with /, ./, ../ or ~ and is read from the chat's folder); /worktree exit [--remove [--force]] brings the chat back to the main checkout, " +
-	"--remove removes the worktree too and --force drops its uncommitted changes, kept as a snapshot."
+	"(a path starts with /, ./, ../ or ~ and is read from the chat's folder); /worktree exit [--keep | --remove [--force]] brings the chat back to the main checkout " +
+	"and removes the worktree when it holds nothing of its own, keeping it otherwise; --keep keeps it anyway, --remove removes it or refuses, and --force drops its uncommitted changes, kept as a snapshot."
 
 // worktreeCommand is the parsed form of one /worktree invocation.
 type worktreeCommand struct {
@@ -34,6 +34,7 @@ type worktreeCommand struct {
 	Branch   string
 	Exit     bool
 	FromHead bool
+	Keep     bool
 	Remove   bool
 	Force    bool
 	// Problem says why the words do not make a command.
@@ -42,7 +43,7 @@ type worktreeCommand struct {
 
 // parseWorktreeCommand detects the built-in /worktree command. The first word
 // that is not an option is "exit" or the branch; --from-head goes with a
-// branch, --remove and --force with exit.
+// branch, --keep, --remove and --force with exit.
 func parseWorktreeCommand(text string) (worktreeCommand, bool) {
 	t := strings.TrimSpace(text)
 	const cmd = "/" + WorktreeCommandName
@@ -56,6 +57,8 @@ func parseWorktreeCommand(text string) (worktreeCommand, bool) {
 		switch w {
 		case "--from-head":
 			c.FromHead = true
+		case "--keep":
+			c.Keep = true
 		case "--remove":
 			c.Remove = true
 		case "--force":
@@ -80,8 +83,10 @@ func parseWorktreeCommand(text string) (worktreeCommand, bool) {
 	case c.Problem != "":
 	case c.FromHead && c.Branch == "":
 		c.Problem = "--from-head goes with a branch"
-	case (c.Remove || c.Force) && !c.Exit:
-		c.Problem = "--remove and --force go with exit"
+	case (c.Keep || c.Remove || c.Force) && !c.Exit:
+		c.Problem = "--keep, --remove and --force go with exit"
+	case c.Keep && c.Remove:
+		c.Problem = "--keep or --remove, not both"
 	case c.Force && !c.Remove:
 		c.Problem = "--force goes with --remove"
 	}
@@ -137,7 +142,14 @@ func (a *Agent) worktreeCommandReply(ctx context.Context, c worktreeCommand) str
 		return "/worktree: this surface cannot move the chat to another folder."
 	}
 	if c.Exit {
-		left, err := tools.LeaveWorktree(ctx, env, c.Remove, c.Force)
+		action := tools.LeaveAuto
+		switch {
+		case c.Keep:
+			action = tools.LeaveKeep
+		case c.Remove:
+			action = tools.LeaveRemove
+		}
+		left, err := tools.LeaveWorktree(ctx, env, action, c.Force)
 		if err != nil {
 			return "/worktree exit: " + err.Error()
 		}
@@ -158,6 +170,10 @@ func (a *Agent) worktreeCommandReply(ctx context.Context, c worktreeCommand) str
 			fmt.Fprintf(&b, " The worktree %s is removed; %s.", left.Left, left.BranchKept)
 		case left.Removed:
 			fmt.Fprintf(&b, " The worktree %s is removed.", left.Left)
+		case left.Kept != "" && left.Branch != "":
+			fmt.Fprintf(&b, " The worktree stays: %s. /worktree %s goes back to it, /worktree exit --remove from there removes it.", left.Kept, left.Branch)
+		case left.Kept != "":
+			fmt.Fprintf(&b, " The worktree stays: %s.", left.Kept)
 		case left.Branch != "":
 			fmt.Fprintf(&b, " The worktree %s stays; /worktree %s goes back to it.", left.Left, left.Branch)
 		default:

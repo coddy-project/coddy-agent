@@ -1048,8 +1048,8 @@ function workspaceProps(locked: boolean) {
 
 // A chat in a linked worktree goes back to its project from the plate: the
 // button asks first, keep the worktree or remove it, and keeping sends
-// /worktree exit, which the server runs without a model turn.
-test("the plate of a chat in a worktree asks, then sends /worktree exit to go back", async () => {
+// /worktree exit --keep, which the server runs without a model turn.
+test("the plate of a chat in a worktree asks, then sends /worktree exit --keep to go back", async () => {
   const fetchMock = stubSessionChanges(0);
   const changesFetch = fetchMock.getMockImplementation()!;
   fetchMock.mockImplementation(async (input: unknown) => {
@@ -1091,7 +1091,7 @@ test("the plate of a chat in a worktree asks, then sends /worktree exit to go ba
   fireEvent.click(
     within(dialog).getByRole("button", { name: "Keep worktree" }),
   );
-  expect(onSend).toHaveBeenCalledWith("/worktree exit");
+  expect(onSend).toHaveBeenCalledWith("/worktree exit --keep");
   expect(screen.queryByTestId("leave-worktree-dialog")).toBeNull();
   vi.unstubAllGlobals();
 });

@@ -79,8 +79,8 @@ Obsidian keeps a canvas as a `.canvas` file in [JSON Canvas 1.0](https://jsoncan
 What the board shows of the file:
 
 - a file node naming an HTML page of the workspace is a live frame, at the node's size;
-- a text card is its Markdown, rendered;
-- a file node of a `.md` note shows the note, read again every 10 seconds while the board is open, a picture shows the picture, any other file is a card with **Open in Files**;
+- a text card is its Markdown, rendered as in Obsidian, where a single line break is a line break;
+- a file node of a `.md` note shows the note, rendered the same way and read again every 10 seconds while the board is open, a picture shows the picture, any other file is a card with **Open in Files**;
 - a link node is a card that opens the address in a new tab (only an `http` or `https` one);
 - a group is a frame under the nodes, with its label;
 - an edge is a curve from side to side, with its arrows, its label and its colour; colours are the six presets of JSON Canvas or a hex value.

@@ -47,7 +47,7 @@ func BuiltinCommands(compactionEnabled bool) []SkillSummary {
 	})
 	cmds = append(cmds, SkillSummary{
 		Name:        "worktree",
-		Description: "Move the chat into a git worktree or back: /worktree <branch> [--from-head], /worktree exit [--remove [--force]], /worktree",
+		Description: "Move the chat into a git worktree or back: /worktree <branch> [--from-head], /worktree exit [--keep | --remove [--force]], /worktree",
 	})
 	return cmds
 }

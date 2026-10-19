@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
@@ -25,8 +26,10 @@ type worktreeNavigationState struct {
 	// tips a branch to the commit it was left on.
 	worktrees map[string]string
 	tips      map[string]string
-	// listing is what worktree_list answered last.
+	// listing is what worktree_list answered last, and left what
+	// worktree_exit answered.
 	listing apptools.WorktreeListing
+	left    apptools.WorktreeLeave
 }
 
 func (s *worktreeNavigationState) reset() error {
@@ -73,12 +76,26 @@ func (s *worktreeNavigationState) worksInWorktreeWithCommit(branch string) error
 	return nil
 }
 
-func (s *worktreeNavigationState) leaves() error {
-	return s.execute(apptools.ToolWorktreeExit, `{}`)
+func (s *worktreeNavigationState) exit(args string) error {
+	out, err := apptools.NewRegistry().Execute(context.Background(), apptools.ToolWorktreeExit, args, s.env)
+	if err != nil {
+		return fmt.Errorf("%s %s: %w", apptools.ToolWorktreeExit, args, err)
+	}
+	s.left = apptools.WorktreeLeave{}
+	return json.Unmarshal([]byte(out), &s.left)
 }
 
-func (s *worktreeNavigationState) leavesAndRemoves() error {
-	return s.execute(apptools.ToolWorktreeExit, `{"action":"remove"}`)
+func (s *worktreeNavigationState) leaves() error { return s.exit(`{}`) }
+
+func (s *worktreeNavigationState) leavesAndKeeps() error { return s.exit(`{"action":"keep"}`) }
+
+func (s *worktreeNavigationState) leavesAndRemoves() error { return s.exit(`{"action":"remove"}`) }
+
+func (s *worktreeNavigationState) staysForItsCommit() error {
+	if s.left.Removed || !strings.Contains(s.left.Kept, "1 commit(s)") {
+		return fmt.Errorf("worktree_exit answered %+v, want the worktree kept for its one commit", s.left)
+	}
+	return nil
 }
 
 func (s *worktreeNavigationState) createsFromCurrentCommit(branch string) error {
@@ -216,6 +233,8 @@ func TestWorktreeNavigationFeature(t *testing.T) {
 			sc.Step(`^the agent works in a worktree for "([^"]*)" with a commit of its own$`, s.worksInWorktreeWithCommit)
 			sc.Step(`^the agent leaves the worktree$`, s.leaves)
 			sc.Step(`^the agent leaves the worktree and removes it$`, s.leavesAndRemoves)
+			sc.Step(`^the agent leaves the worktree and keeps it$`, s.leavesAndKeeps)
+			sc.Step(`^the answer says the worktree stays for its commit$`, s.staysForItsCommit)
 			sc.Step(`^the agent creates a worktree for "([^"]*)" from the current commit$`, s.createsFromCurrentCommit)
 			sc.Step(`^the session works in the main checkout again$`, s.inMainCheckout)
 			sc.Step(`^the session works in the worktree for "([^"]*)"$`, s.inWorktree)

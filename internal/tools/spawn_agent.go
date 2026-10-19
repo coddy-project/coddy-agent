@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/subagents"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
@@ -68,6 +69,12 @@ func SpawnAgentTool() *tooling.Tool {
 						"type":        "boolean",
 						"description": "For a background run: wake yourself with the outcome when it finishes (default true where available); set false explicitly to prevent a wake. A completed result you collect or a task you stop does not wake you again",
 					},
+					"isolation": map[string]interface{}{
+						"type": "string",
+						"enum": []interface{}{"worktree"},
+						"description": "\"worktree\": the child works in a git worktree of its own, on a new branch at the commit this session's checkout is on (uncommitted changes stay here), so its edits do not touch your files; " +
+							"a definition can ask for it too. A worktree the run left nothing in is removed when it ends; one with work in it stays, and the result names its folder and branch",
+					},
 					"resume": map[string]interface{}{
 						"type": "string",
 						"description": "Continue a finished run of this session instead of starting a new subagent: its task id (bg_...) or its child session id (sess_...) from an earlier spawn_agent result. " +
@@ -92,6 +99,7 @@ type spawnAgentArgs struct {
 	ExpectedSeconds int    `json:"expected_seconds"`
 	TimeoutSeconds  int    `json:"timeout_seconds"`
 	NotifyOnFinish  *bool  `json:"notify_on_finish"`
+	Isolation       string `json:"isolation"`
 	Resume          string `json:"resume"`
 }
 
@@ -110,6 +118,10 @@ func executeSpawnAgent(ctx context.Context, argsJSON string, env *tooling.Env) (
 	if strings.TrimSpace(args.Prompt) == "" {
 		return "", fmt.Errorf("spawn_agent: prompt is required")
 	}
+	isolation, err := subagents.ParseIsolation(args.Isolation)
+	if err != nil {
+		return "", fmt.Errorf("spawn_agent: %w", err)
+	}
 	return env.SpawnAgent(ctx, tooling.SpawnRequest{
 		Agent:           name,
 		Model:           strings.TrimSpace(args.Model),
@@ -120,6 +132,7 @@ func executeSpawnAgent(ctx context.Context, argsJSON string, env *tooling.Env) (
 		ExpectedSeconds: args.ExpectedSeconds,
 		TimeoutSeconds:  args.TimeoutSeconds,
 		NotifyOnFinish:  args.NotifyOnFinish == nil || *args.NotifyOnFinish,
+		Isolation:       isolation,
 		Resume:          strings.TrimSpace(args.Resume),
 	})
 }
