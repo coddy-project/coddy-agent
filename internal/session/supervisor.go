@@ -632,6 +632,34 @@ func (r *goalRun) gate(ctx context.Context) bool {
 	return true
 }
 
+// GateResumedTurn is the risk gate for a turn that runs outside
+// runSupervisedTurn: the one an answer to a persisted permission prompt
+// continues after a server restart (POST /coddy/sessions/{id}/permission). The
+// caller holds the turn lock, takes the gate before the turn starts - it
+// remembers which goal the turn works on - and calls what it returns once the
+// turn ended, with the error the turn returned. It is nil for a turn the
+// supervisor would not watch: a subagent's, one outside agent mode, one of a
+// session with no active goal of its own (the implicit goal of
+// supervisor.enable is never gated).
+//
+// The returned function is goalRun.gate behind the loop's own conditions: a
+// cancelled turn, and a goal paused, cleared or replaced meanwhile, are left
+// alone; a hard finding blocks the goal with the same line and notice. Only
+// the gate runs - no check, recovery or continuation follows such a turn.
+func (m *Manager) GateResumedTurn(st *State) func(ctx context.Context, turnErr error) {
+	if st.Subagent() != nil || st.GetMode() != string(ModeAgent) || !st.GetGoal().Active() {
+		return nil
+	}
+	run := &goalRun{m: m, st: st, cfg: m.activeCfg(), persist: true}
+	run.goalID = run.goal().ID
+	return func(ctx context.Context, turnErr error) {
+		if errors.Is(turnErr, context.Canceled) {
+			return
+		}
+		run.gate(ctx)
+	}
+}
+
 // finish sets the goal's final status for this run and reports whether it
 // did: a goal the operator paused, cleared or replaced meanwhile is left as
 // they left it. The implicit goal of supervisor.enable has no status to keep:

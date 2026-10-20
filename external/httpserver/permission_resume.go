@@ -135,8 +135,15 @@ func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID 
 	// The resumed turn calls the model like any other: its release refreshes
 	// the provider usage.
 	session.MarkTurnRan(ctx)
+	// The supervisor's loop is not around this turn, so the risk gate of the
+	// session's goal is taken here and run once the turn ends: an approved
+	// docker step blocks the goal like one a supervised turn made.
+	gate := s.mgr.GateResumedTurn(st)
 	outcome := session.ActivityOutcomeSuccess
 	_, err = ag.ResumeAfterPermission(ctx, toolCallID, res)
+	if gate != nil {
+		gate(ctx, err)
+	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			outcome = session.ActivityOutcomeCanceled

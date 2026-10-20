@@ -91,6 +91,8 @@ Goal blocked: migration files that existed when the goal started were changed: m
 
 The line holds one clause per kind of finding, joined with `; `. A clause quotes each command in backticks, joins several with `, ` and lists at most 20 items, then `and N more`. The gate asks for no check, spends no recovery turn, adds no message to the history, and the verifier does not run. A pause, a clear or a replacement of the goal made while the gate reads git wins, and the gate then leaves the goal alone. Messages queued behind the turn still run after it as ordinary turns, since the goal is no longer active; with `supervisor.enable` they get its implicit check.
 
+A turn that ends through a permission answer after a server restart (`POST /coddy/sessions/{id}/permission` resumes it outside the supervisor's loop) goes through the same gate when it ends, with the same ownership and cancellation rules. Only the gate: no check, recovery or continuation follows that turn.
+
 The gate looks at what already happened. It never stops a step before it runs, so the container is already gone when the goal blocks. To stop such a step before it runs, use a `PreToolUse` hook with `failClosed: true`; [Hooks](hooks.md#examples) has an example for these two kinds of step.
 
 ### Acknowledging a block
@@ -108,7 +110,6 @@ A new matching call blocks again: it is a new message, even when it is stored in
 - A subagent's own `run_command` calls are in its own transcript and are not read. The migration rule still sees the files a subagent changed.
 - Migration files outside the workspace folder the goal was set in are not checked, which matters when the session works in a subfolder of the repository.
 - The gate tells that a call did not run from the text of its result. A call that ran, but whose own output reads like one of the harness's refusal texts (`permission denied by user`, `not executed: ...` and the like), is read as not run, and a docker command in it does not count.
-- A turn finished through a permission answer after a server restart (`POST /coddy/sessions/{id}/permission` resumes the turn outside the supervisor) is not gated until the next supervised turn of the goal.
 - The rules are lexical and incomplete, and no sandbox: they name the common spellings after the fact.
 
 ## Goal chains

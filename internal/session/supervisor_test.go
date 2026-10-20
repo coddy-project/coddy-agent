@@ -1381,6 +1381,126 @@ func TestGoalGateReadsOnlyTheRowsStoredWhileTheGoalWasActive(t *testing.T) {
 	})
 }
 
+// A turn that runs outside the supervisor's loop - the one an answer to a
+// persisted permission prompt continues after a restart - is read by the same
+// gate when it ends, with the same ownership and cancellation rules.
+func TestGoalGateReadsAResumedTurnLikeASupervisedOne(t *testing.T) {
+	// resumed starts a turn the way the HTTP resume does: the gate is taken
+	// before the turn and run once it ended.
+	resumed := func(t *testing.T) (*goalHarness, func(context.Context, error)) {
+		t.Helper()
+		h := newGoalHarness(t)
+		goal, err := session.NewGoal("remove the old containers")
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.st().SetGoal(goal)
+		gate := h.mgr.GateResumedTurn(h.st())
+		if gate == nil {
+			t.Fatal("no gate for a session with an active goal")
+		}
+		return h, gate
+	}
+	ran := func(h *goalHarness, c shellCall) {
+		args, _ := json.Marshal(map[string]string{"command": c.command})
+		h.st().AddMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: c.id, Name: "run_command", InputJSON: string(args)}}})
+		h.st().AddMessage(llm.Message{Role: llm.RoleTool, ToolCallID: c.id, Content: c.result})
+	}
+
+	t.Run("a docker call that ran blocks the goal with the supervisor's line and notice", func(t *testing.T) {
+		h, gate := resumed(t)
+		ran(h, dockerDown)
+		gate(context.Background(), nil)
+		if g := blockedOn(t, h, dockerFlag); g.StatusReason != dockerFlag {
+			t.Fatalf("reason = %q, want the one line naming the command", g.StatusReason)
+		}
+		if !hasNotice(h.st(), "Goal blocked: "+dockerFlag) || len(h.checks) != 0 {
+			t.Fatalf("notices = %q checks = %d, want the notice and no check", notices(h.st()), len(h.checks))
+		}
+	})
+	t.Run("a call that never ran does not", func(t *testing.T) {
+		h, gate := resumed(t)
+		denied := dockerDown
+		denied.result = session.ToolResultDeniedByUser
+		ran(h, denied)
+		gate(context.Background(), nil)
+		if g := h.st().GetGoal(); g.Status != session.GoalActive {
+			t.Fatalf("goal = %+v, want it still active", g)
+		}
+	})
+	t.Run("a failed turn is read too", func(t *testing.T) {
+		h, gate := resumed(t)
+		ran(h, dockerDown)
+		gate(context.Background(), fmt.Errorf("stream: %w", io.ErrUnexpectedEOF))
+		blockedOn(t, h, dockerFlag)
+	})
+	t.Run("a cancelled turn is left alone", func(t *testing.T) {
+		cancelled, cancel := context.WithCancel(context.Background())
+		cancel()
+		for _, tc := range []struct {
+			name string
+			ctx  context.Context
+			err  error
+			stop bool
+		}{
+			{"the context ended", cancelled, nil, false},
+			{"the turn returned the cancellation", context.Background(), context.Canceled, false},
+			{"the operator pressed Stop", context.Background(), nil, true},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				h, gate := resumed(t)
+				if tc.stop {
+					h.st().SetUserCancelledTurn()
+				}
+				ran(h, dockerDown)
+				gate(tc.ctx, tc.err)
+				if g := h.st().GetGoal(); g.Status != session.GoalActive {
+					t.Fatalf("goal = %+v, want it still active", g)
+				}
+			})
+		}
+	})
+	t.Run("a goal paused or replaced while the turn ran is left as it is", func(t *testing.T) {
+		h, gate := resumed(t)
+		ran(h, dockerDown)
+		_, _ = h.mgr.PauseGoal(h.sid)
+		gate(context.Background(), nil)
+		if g := h.st().GetGoal(); g.Status != session.GoalPaused {
+			t.Fatalf("goal = %+v, want it paused", g)
+		}
+
+		h, gate = resumed(t)
+		ran(h, dockerDown)
+		next, err := session.NewGoal("something else")
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.st().SetGoal(next)
+		gate(context.Background(), nil)
+		if g := h.st().GetGoal(); g.ID != next.ID || g.Status != session.GoalActive {
+			t.Fatalf("goal = %+v, want the replacement untouched", g)
+		}
+	})
+	t.Run("a turn the supervisor would not watch has no gate", func(t *testing.T) {
+		h := newGoalHarness(t)
+		if gate := h.mgr.GateResumedTurn(h.st()); gate != nil {
+			t.Fatal("a session without a goal has a gate")
+		}
+		goal, _ := session.NewGoal("remove the old containers")
+		h.st().SetGoal(goal)
+		_, _ = h.mgr.PauseGoal(h.sid)
+		if gate := h.mgr.GateResumedTurn(h.st()); gate != nil {
+			t.Fatal("a paused goal has a gate")
+		}
+		h = newGoalHarness(t)
+		h.st().SetGoal(goal)
+		h.st().SetMode(string(session.ModePlan))
+		if gate := h.mgr.GateResumedTurn(h.st()); gate != nil {
+			t.Fatal("a plan-mode turn has a gate")
+		}
+	})
+}
+
 // Only a blocked goal gets its findings accepted by /goal resume: a goal the
 // operator paused - while the turn ran, or after the gate blocked it - was
 // never resumed from the block, so the next turn's gate reports the same call.
