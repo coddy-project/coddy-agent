@@ -11,6 +11,8 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"log/slog"
+	"os"
 	"sync"
 	"time"
 
@@ -126,7 +128,11 @@ func Run(ctx context.Context, req Request) *Report {
 		req.Timeout = defaultTimeout
 	}
 	r := &runner{req: req, rep: rep}
-	// The agents the probes of acp providers started end with the run.
+	// The agents the probes of acp providers started end with the run. What
+	// their connections note on the way out (every closed connection, at
+	// info) is not a finding and would land in the middle of the report:
+	// only a warning reaches the terminal.
+	llm.SetACPLogger(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})))
 	defer llm.StopACPAgents()
 	r.subsystems()
 	r.paths()
