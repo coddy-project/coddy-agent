@@ -332,15 +332,21 @@ func TestGoalChainRetriesABusySession(t *testing.T) {
 	h.writesInFirstTurn(nextTask, "write the release notes")
 	h.prompt(h.sid, "/goal --then-file .coddy/next-task.md ship the fix")
 	var next string
+	returned := map[string]int{}
 	deadline := time.After(10 * time.Second)
 	for {
 		select {
 		case id := <-h.started:
 			next = id
+			returned[id]++
 		case <-deadline:
 			t.Fatal("the chained turn never ran")
 		}
-		if runs := h.runsIn(next); len(runs) > 0 {
+		// Done once the kickoff ran and every start of the chained session
+		// has returned: the run that succeeded writes the end of its own
+		// chain into the session folder before its starter returns, and a
+		// test that stopped earlier would race that write with its cleanup.
+		if runs := h.runsIn(next); len(runs) > 0 && returned[next] == h.startsOf(next) {
 			if runs[0].marker == nil || runs[0].marker.Kind != acp.GoalTurnKickoff {
 				t.Fatalf("first run = %+v", runs[0])
 			}
