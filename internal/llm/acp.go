@@ -350,6 +350,13 @@ func (p *acpProvider) runPrompt(ctx context.Context, proc *acpProcess, sessionID
 			quiet()
 		case <-proc.done:
 			handle(sink.drain())
+			// The connection ended before the agent's exit was known, so
+			// startPrompt's goroutine has its outcome, or is about to: the
+			// answer the agent wrote before exiting (the SDK's, or the one
+			// the router kept), else a closed channel. It is waited for,
+			// bounded in case the SDK never lets go.
+			wait := time.NewTimer(acpTermGrace)
+			defer wait.Stop()
 			select {
 			case m, ok := <-respCh:
 				// The agent answered and then exited: the answer stands.
@@ -364,7 +371,7 @@ func (p *acpProvider) runPrompt(ctx context.Context, proc *acpProcess, sessionID
 					}
 					return acpPromptOutcome{resp: st.finish(res), updated: st.updated}
 				}
-			default:
+			case <-wait.C:
 			}
 			return fail(proc.exitError())
 		case <-silence.C:
