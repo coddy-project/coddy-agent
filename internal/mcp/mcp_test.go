@@ -3,6 +3,7 @@ package mcp
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -82,6 +83,22 @@ func runFakeMCPServer() {
 			}
 			_ = json.Unmarshal(req.Params, &params)
 			text := params.Arguments["text"]
+			if params.Name == "picture" {
+				respond(req.ID, map[string]interface{}{"content": []map[string]interface{}{
+					{"type": "text", "text": "Screenshot"},
+					{"type": "image", "mimeType": "image/png", "data": base64.StdEncoding.EncodeToString([]byte("\x89PNG\r\n\x1a\n"))},
+				}})
+				continue
+			}
+			if params.Name == "picture_bad" {
+				respond(req.ID, map[string]interface{}{"content": []map[string]interface{}{
+					{"type": "text", "text": "Still useful"},
+					{"type": "image", "mimeType": "image/png", "data": "not base64!"},
+					{"type": "image", "mimeType": "image/svg+xml", "data": base64.StdEncoding.EncodeToString([]byte("<svg/>"))},
+					{"type": "resource", "resource": map[string]interface{}{"text": "private"}},
+				}})
+				continue
+			}
 			if params.Name == "reverse" {
 				r := []rune(text)
 				for i, j := 0, len(r)-1; i < j; i, j = i+1, j-1 {
@@ -114,6 +131,38 @@ func testCtx(t *testing.T) context.Context {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	t.Cleanup(cancel)
 	return ctx
+}
+
+func TestCallToolResultKeepsImageBlocks(t *testing.T) {
+	srv := fakeServerConfig("image-test")
+	client, err := NewStdioClient(testCtx(t), srv.Name, srv.Command, srv.Args, []string{"GO_WANT_MCP_HELPER=1"}, slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = client.Close() }()
+	got, err := client.CallToolResult(testCtx(t), "picture", `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Text != "Screenshot" || len(got.Images) != 1 || got.Images[0].MIMEType != "image/png" || string(got.Images[0].Data) != "\x89PNG\r\n\x1a\n" {
+		t.Fatalf("result = %+v", got)
+	}
+}
+
+func TestCallToolResultOmitsInvalidImagesWithoutLosingText(t *testing.T) {
+	srv := fakeServerConfig("image-test")
+	client, err := NewStdioClient(testCtx(t), srv.Name, srv.Command, srv.Args, []string{"GO_WANT_MCP_HELPER=1"}, slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = client.Close() }()
+	got, err := client.CallToolResult(testCtx(t), "picture_bad", `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Images) != 0 || !strings.Contains(got.Text, "Still useful") || !strings.Contains(got.Text, "image omitted") || strings.Contains(got.Text, "private") {
+		t.Fatalf("result = %+v", got)
+	}
 }
 
 func TestStdioClientAgainstFakeServer(t *testing.T) {

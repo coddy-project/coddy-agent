@@ -7,10 +7,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -27,6 +29,18 @@ type ToolInfo struct {
 	Name        string
 	Description string
 	InputSchema interface{}
+}
+
+// ToolImage is a decoded image block returned by an MCP tool.
+type ToolImage struct {
+	MIMEType string
+	Data     []byte
+}
+
+// ToolResult keeps text and image blocks from a successful tools/call result.
+type ToolResult struct {
+	Text   string
+	Images []ToolImage
 }
 
 // transport delivers JSON-RPC messages to and from an MCP server. Send ships
@@ -217,8 +231,14 @@ func (c *Client) Alive() bool {
 
 // CallTool invokes a tool on the MCP server and returns the result.
 func (c *Client) CallTool(ctx context.Context, toolName, argsJSON string) (string, error) {
+	result, err := c.CallToolResult(ctx, toolName, argsJSON)
+	return result.Text, err
+}
+
+// CallToolResult invokes a tool and retains its supported image blocks.
+func (c *Client) CallToolResult(ctx context.Context, toolName, argsJSON string) (ToolResult, error) {
 	if c.closed.Load() {
-		return "", fmt.Errorf("mcp %s: client closed", c.name)
+		return ToolResult{}, fmt.Errorf("mcp %s: client closed", c.name)
 	}
 	return c.conn.callTool(ctx, toolName, argsJSON)
 }
@@ -238,14 +258,14 @@ func (c *Client) Close() error {
 
 // ---- internal ----
 
-// callTool invokes a tool over the connection and returns its text result.
-func (c *conn) callTool(ctx context.Context, toolName, argsJSON string) (string, error) {
+// callTool invokes a tool over the connection and returns supported content.
+func (c *conn) callTool(ctx context.Context, toolName, argsJSON string) (ToolResult, error) {
 	// The arguments go to the server as the JSON the model wrote, checked
 	// rather than decoded into an arbitrary value.
 	var args json.RawMessage
 	if argsJSON != "" {
 		if !json.Valid([]byte(argsJSON)) {
-			return "", fmt.Errorf("mcp callTool parse args: invalid JSON")
+			return ToolResult{}, fmt.Errorf("mcp callTool parse args: invalid JSON")
 		}
 		args = json.RawMessage(argsJSON)
 	}
@@ -255,33 +275,65 @@ func (c *conn) callTool(ctx context.Context, toolName, argsJSON string) (string,
 		"arguments": args,
 	})
 	if err != nil {
-		return "", err
+		return ToolResult{}, err
 	}
 
 	// Parse MCP tool result.
 	var resp struct {
 		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			Data     string `json:"data"`
+			MIMEType string `json:"mimeType"`
 		} `json:"content"`
 		IsError bool `json:"isError"`
 	}
 	if err := json.Unmarshal(result, &resp); err != nil {
-		return string(result), nil
+		return ToolResult{Text: string(result)}, nil
 	}
 
 	var parts []string
-	for _, c := range resp.Content {
-		if c.Type == "text" {
-			parts = append(parts, c.Text)
+	out := ToolResult{}
+	imageBytes := 0
+	for _, block := range resp.Content {
+		switch block.Type {
+		case "text":
+			parts = append(parts, block.Text)
+		case "image":
+			// An asset is read back with a 20 MiB limit. Reject larger or
+			// mislabeled payloads here, before saving or showing them.
+			if len(block.Data) > base64.StdEncoding.EncodedLen(20<<20) || len(block.Data) == 0 || len(out.Images) >= 20 {
+				parts = append(parts, "[MCP image omitted: empty, too large, or more than 20 images]")
+				continue
+			}
+			data, err := base64.StdEncoding.DecodeString(block.Data)
+			if err != nil || !supportedToolImage(block.MIMEType, data) {
+				parts = append(parts, "[MCP image omitted: invalid image data or media type]")
+				continue
+			}
+			if len(data) > (20<<20)-imageBytes {
+				parts = append(parts, "[MCP image omitted: call images exceed 20 MiB]")
+				continue
+			}
+			imageBytes += len(data)
+			out.Images = append(out.Images, ToolImage{MIMEType: block.MIMEType, Data: data})
 		}
 	}
-	text := strings.Join(parts, "\n")
+	out.Text = strings.Join(parts, "\n")
 
 	if resp.IsError {
-		return "", fmt.Errorf("mcp tool error: %s", text)
+		return ToolResult{}, fmt.Errorf("mcp tool error: %s", out.Text)
 	}
-	return text, nil
+	return out, nil
+}
+
+func supportedToolImage(mimeType string, data []byte) bool {
+	switch mimeType {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+		return http.DetectContentType(data) == mimeType
+	default:
+		return false
+	}
 }
 
 // close ends the connection (and, for stdio, the server's process group) and

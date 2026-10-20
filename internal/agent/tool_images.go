@@ -12,7 +12,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
-// Pictures a tool call hands the model (read on an image file) ride on that
+// Pictures a tool call hands the model (read or MCP) ride on that
 // call's result message, the one place every surface already looks: the web
 // UI previews them on the call's row, a Telegram chat is sent them, the
 // console and an editor show the call's text. The transcript never gains a
@@ -52,6 +52,16 @@ func (a *Agent) attachToolImage(name, mimeType string, data []byte) error {
 	if err := a.toolImageRefusal(); err != nil {
 		return err
 	}
+	return a.recordToolImage(name, mimeType, data)
+}
+
+// recordToolImage keeps a tool's image even when the current model is text-only.
+// The provider projection omits it for that model, while the transcript and
+// surfaces retain it for a later model switch and for the operator.
+func (a *Agent) recordToolImage(name, mimeType string, data []byte) error {
+	if strings.TrimSpace(a.currentToolCallID) == "" {
+		return fmt.Errorf("no tool call is running to attach the picture to")
+	}
 	part := llm.ImagePart{Name: name, MIMEType: mimeType, Size: len(data)}
 	if sd := strings.TrimSpace(a.state.GetPersistedSessionDir()); sd != "" {
 		asset, thumb, err := session.SaveToolImageAsset(sd, name, mimeType, data)
@@ -66,6 +76,19 @@ func (a *Agent) attachToolImage(name, mimeType string, data []byte) error {
 	}
 	a.callImages = append(a.callImages, part)
 	return nil
+}
+
+func mcpImageExtension(mimeType string) string {
+	switch mimeType {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	default:
+		return ".png"
+	}
 }
 
 // loadToolImage is the data URL of a picture kept as its copy with this

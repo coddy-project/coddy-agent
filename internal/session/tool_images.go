@@ -14,8 +14,8 @@ import (
 	"unicode/utf8"
 )
 
-// ToolImage is a picture a tool call handed the model (read on an image
-// file), as the surfaces find it on the call's final tool_call_update
+// ToolImage is a picture a tool call returned (for example, read or MCP),
+// as the surfaces find it on the call's final tool_call_update
 // (_meta.coddy.images) and on the call's result in the transcript: the file
 // name the model was told, the type it was sent as, and the copy kept with the
 // session's assets. The web UI previews it from URL and PreviewURL, a
@@ -45,7 +45,7 @@ func AssetThumbnailRoute(sessionID, assetName string) string {
 // toolImageStemMax bounds the part of a copy's name taken from the file's.
 const toolImageStemMax = 80
 
-// toolImageThumbnailMaxPixels bounds the pictures a read gets a thumbnail
+// toolImageThumbnailMaxPixels bounds the pictures a tool result gets a thumbnail
 // for. Making one decodes the whole picture, and a session may read many
 // large ones, so past 16 megapixels (64 MB decoded) the copy gets none and
 // the web UI previews the original.

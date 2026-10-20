@@ -2560,7 +2560,7 @@ func (a *Agent) finishToolCall(sessionDir, sessionID string, tc llm.ToolCall, re
 				previewMeta = sharedArtifactMeta(previewMeta, sessionID, artifact)
 			}
 		}
-		// The pictures the call showed the model (read on an image file), for
+		// The pictures the call returned (read or MCP), for
 		// the surfaces that preview them: the web UI on the call's row, a
 		// Telegram chat as photos. After a reload they come from the result
 		// message itself, which keeps them.
@@ -2631,7 +2631,17 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 	}
 	for _, client := range a.state.GetMCPClients() {
 		if client.Name() == serverName {
-			return client.CallTool(ctx, toolName, argsJSON)
+			result, err := client.CallToolResult(ctx, toolName, argsJSON)
+			if err != nil {
+				return "", err
+			}
+			for i, img := range result.Images {
+				name := fmt.Sprintf("%s-%s-%d%s", serverName, toolName, i+1, mcpImageExtension(img.MIMEType))
+				if err := a.recordToolImage(name, img.MIMEType, img.Data); err != nil {
+					return "", err
+				}
+			}
+			return result.Text, nil
 		}
 	}
 	return "", fmt.Errorf("MCP server not found: %s", serverName)

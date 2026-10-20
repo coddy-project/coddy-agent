@@ -329,9 +329,12 @@ tool, the arguments are fields, and the answer is read by its shape - a JSON obj
 same fields, other JSON indented, Markdown (a heading, a code fence, a list) as a document,
 anything else as monospace text. Numbers and JSON are shown as the server wrote them, so
 an id past 2^53 (a Discord or Twitter snowflake) is not rounded and a repeated key keeps
-both values. A failed call keeps its error as raw text. Only the text
-parts of an answer reach the transcript: Coddy passes the `text` content of a
-`tools/call` result to the model and drops images and embedded resources. See
+both values. A failed call keeps its error as raw text. Coddy keeps `text` and
+supported `image` blocks from a `tools/call` result on the tool's transcript row.
+Images are copied into the session assets and appear on the tool's card. A model
+configured with `models[].multimodal` receives them after the tool result; a
+text-only model receives their names without image data. Embedded resources are
+still omitted. See
 [Web UI](../surfaces/web-ui.md) for the card and a screenshot.
 
 ## Supported Transports
