@@ -145,7 +145,7 @@ async function cards(page) {
 async function openMenu(page) {
   return page.evaluate(() => {
     const menus = [...document.querySelectorAll('[role="menu"]')].filter((m) =>
-      m.matches(".inline-artifact-menu"),
+      m.matches(".inline-artifact-menu:not(.inline-artifact-menu--sub)"),
     );
     if (menus.length !== 1) return { count: menus.length };
     const menu = menus[0];
@@ -330,9 +330,13 @@ try {
       const blocked = menu.items
         .filter((item) => !item.reachable)
         .map((item) => item.text);
+      // A desktop's menu is Mention, Copy and Download, the ways to copy in
+      // Copy's submenu; the stacked shell and a touch screen fold them into
+      // the one list (Mention, three ways to copy, Download).
+      const flat = touch || width <= 1199;
       check(
         `${at} every menu item answers the pointer`,
-        menu.items.length === 6 && blocked.length === 0,
+        menu.items.length === (flat ? 5 : 3) && blocked.length === 0,
         blocked.length
           ? `blocked: ${blocked.join(", ")}`
           : `${menu.items.length} items`,
@@ -342,6 +346,57 @@ try {
         menu.items.every((item) => !item.clipped),
       );
       check(`${at} the menu takes the focus`, menu.focused);
+      if (!flat) {
+        // Copy's submenu opens under the pointer beside the menu, inside the
+        // window, every item within reach; another item puts it away.
+        await page
+          .locator('.inline-artifact-menu [aria-haspopup="menu"]')
+          .first()
+          .hover();
+        const sub = await page.evaluate(() => {
+          const panel = document.querySelector(".inline-artifact-menu--sub");
+          const main = document.querySelector(
+            ".inline-artifact-menu:not(.inline-artifact-menu--sub)",
+          );
+          if (!panel || !main) return null;
+          const b = panel.getBoundingClientRect();
+          const m = main.getBoundingClientRect();
+          const items = [...panel.querySelectorAll('[role="menuitem"]')];
+          return {
+            box: { left: b.left, right: b.right, top: b.top, bottom: b.bottom },
+            viewport: { width: innerWidth, height: innerHeight },
+            beside: b.left >= m.right - 1 || b.right <= m.left + 1,
+            items: items.length,
+            reachable: items.every((item) => {
+              const r = item.getBoundingClientRect();
+              const hit = document.elementFromPoint(
+                r.left + r.width / 2,
+                r.top + r.height / 2,
+              );
+              return !!hit && item.contains(hit);
+            }),
+          };
+        });
+        check(
+          `${at} Copy opens its submenu beside the menu, inside the window, its three items within reach`,
+          !!sub &&
+            sub.beside &&
+            sub.items === 3 &&
+            sub.reachable &&
+            onScreen(sub),
+          JSON.stringify(sub),
+        );
+        await page
+          .locator(
+            ".inline-artifact-menu:not(.inline-artifact-menu--sub) [role=menuitem]",
+          )
+          .last()
+          .hover();
+        check(
+          `${at} another item puts the submenu away`,
+          (await page.locator(".inline-artifact-menu--sub").count()) === 0,
+        );
+      }
     }
 
     // The trigger closes what it opened.
@@ -397,11 +452,17 @@ try {
     await press(lastTrigger);
     menu = await openMenu(page);
     if (menu.count === 1) {
-      const triggerTop = await lastTrigger.evaluate(
-        (el) => el.getBoundingClientRect().top,
-      );
+      const trigger = await lastTrigger.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom };
+      });
+      const triggerTop = trigger.top;
       const menuHeight = menu.box.bottom - menu.box.top;
-      const roomAbove = triggerTop - 6 - menuHeight >= 8;
+      // Upward only when the window's foot leaves no room below the trigger
+      // (placeArtifactMenu): a short menu still fits under it.
+      const fitsBelow =
+        trigger.bottom + 6 + menuHeight <= menu.viewport.height - 8;
+      const roomAbove = !fitsBelow && triggerTop - 6 - menuHeight >= 8;
       const blocked = menu.items.filter((item) => !item.reachable);
       check(
         `${at} at the foot of the window the menu is on screen${roomAbove ? ", above the trigger" : ""}`,

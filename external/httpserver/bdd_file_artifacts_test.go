@@ -4,9 +4,11 @@ package httpserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"testing"
 
 	"github.com/cucumber/godog"
@@ -17,6 +19,7 @@ type artifactFeatureState struct {
 	tsURL, sessionID, artifactID string
 	sourcePath                   string
 	body                         string
+	messages                     []byte
 	status                       int
 	opener                       *revealRecorder
 	close                        func()
@@ -28,6 +31,7 @@ func (s *artifactFeatureState) reset() error {
 	}
 	s.tsURL = ""
 	s.body = ""
+	s.messages = nil
 	s.status = 0
 	return nil
 }
@@ -80,6 +84,52 @@ func (s *artifactFeatureState) contains(w string) error {
 	}
 	return nil
 }
+func (s *artifactFeatureState) deleteSource() error {
+	return os.Remove(s.sourcePath)
+}
+
+func (s *artifactFeatureState) readMessages() error {
+	r, e := http.Get(s.tsURL + "/coddy/sessions/" + s.sessionID + "/messages")
+	if e != nil {
+		return e
+	}
+	defer func() { _ = r.Body.Close() }()
+	if r.StatusCode != http.StatusOK {
+		return fmt.Errorf("messages status %d", r.StatusCode)
+	}
+	s.messages, e = io.ReadAll(r.Body)
+	return e
+}
+
+// sourceIs finds the shared report on the tool row of the listing, where its
+// card is drawn from after a reload.
+func (s *artifactFeatureState) sourceIs(want string) error {
+	var listing struct {
+		Messages []struct {
+			Role      string `json:"role"`
+			Artifacts []struct {
+				ID          string `json:"id"`
+				SourceState string `json:"sourceState"`
+			} `json:"artifacts"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(s.messages, &listing); err != nil {
+		return err
+	}
+	for _, m := range listing.Messages {
+		for _, a := range m.Artifacts {
+			if a.ID != s.artifactID {
+				continue
+			}
+			if a.SourceState != want {
+				return fmt.Errorf("source of the shared report is %q, want %q", a.SourceState, want)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("the listing has no shared report: %s", s.messages)
+}
+
 func TestFileArtifactsFeature(t *testing.T) {
 	s := &artifactFeatureState{t: t}
 	suite := godog.TestSuite{Name: "file_artifacts", ScenarioInitializer: func(sc *godog.ScenarioContext) {
@@ -95,6 +145,9 @@ func TestFileArtifactsFeature(t *testing.T) {
 		sc.Step(`^the artifact download contains "([^"]*)"$`, s.contains)
 		sc.Step(`^the client asks the server to reveal the shared artifact$`, s.reveal)
 		sc.Step(`^the server asks the desktop to reveal the shared report$`, s.desktopAskedToRevealTheReport)
+		sc.Step(`^the source of the shared report is deleted from the workspace$`, s.deleteSource)
+		sc.Step(`^the client reads the session's messages$`, s.readMessages)
+		sc.Step(`^the shared report's source is "([^"]*)"$`, s.sourceIs)
 	}, Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/file_artifacts.feature"}, TestingT: t, Strict: true}}
 	if suite.Run() != 0 {
 		t.Fatal("file artifact feature failed")

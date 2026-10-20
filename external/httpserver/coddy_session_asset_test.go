@@ -187,7 +187,7 @@ func TestLlmMsgsToCoddyOpenAIForSessionAddressesOnlyRealAssets(t *testing.T) {
 	if err := os.WriteFile(elsewhere, pngBytes(t), 0o444); err != nil {
 		t.Fatal(err)
 	}
-	out := llmMsgsToCoddyOpenAIForSession("sess_files", assetsDir, []llm.Message{
+	out := llmMsgsToCoddyOpenAIForSession("sess_files", assetsDir, "", []llm.Message{
 		{
 			Role:       llm.RoleUser,
 			Content:    "look",
@@ -209,7 +209,7 @@ func TestLlmMsgsToCoddyOpenAIForSessionIncludesFullSizeAssetURL(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeThumbnail(t, dir, "photo one.png")
-	out := llmMsgsToCoddyOpenAIForSession("sess_files", dir, []llm.Message{
+	out := llmMsgsToCoddyOpenAIForSession("sess_files", dir, "", []llm.Message{
 		{
 			Role:    llm.RoleUser,
 			Content: "look",
@@ -245,7 +245,7 @@ func TestLlmMsgsToCoddyOpenAIForSessionNamesThePicturesOfAToolResult(t *testing.
 		t.Fatal(err)
 	}
 	writeThumbnail(t, dir, "shot-1a2b.png")
-	out := llmMsgsToCoddyOpenAIForSession("sess_files", dir, []llm.Message{{
+	out := llmMsgsToCoddyOpenAIForSession("sess_files", dir, "", []llm.Message{{
 		Role:       llm.RoleTool,
 		ToolCallID: "r1",
 		Content:    "shot.png: PNG image, 4x3",
@@ -283,7 +283,7 @@ func TestLlmMsgsToCoddyOpenAIForSessionAddressesTheCopiesOfAMovedBundle(t *testi
 		t.Fatal(err)
 	}
 	recorded := filepath.Join(t.TempDir(), "sess_moved", "assets", asset)
-	out := llmMsgsToCoddyOpenAIForSession("sess_moved", assetsDir, []llm.Message{{
+	out := llmMsgsToCoddyOpenAIForSession("sess_moved", assetsDir, "", []llm.Message{{
 		Role:       llm.RoleTool,
 		ToolCallID: "r1",
 		Content:    "shot.webp: WebP image, 4x3",
