@@ -490,7 +490,9 @@ func (s *Server) coddySessionPermissionPost(w http.ResponseWriter, r *http.Reque
 	if out == "" {
 		switch opt {
 		case "reject":
-			out = "cancelled"
+			// A person chose Reject; cancelled is a prompt dismissed or
+			// never answered, which the decisions check tells apart.
+			out = "selected"
 		default:
 			out = "allow"
 		}

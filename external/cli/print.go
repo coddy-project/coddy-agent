@@ -16,6 +16,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
+	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -85,8 +86,16 @@ func removeEphemeralSession(mgr backend, id string, errOut io.Writer) {
 	}
 }
 
+// newPrintSender is the sender of a one-shot run on mgr: over --remote the
+// prompts come from the server, so the local mode never approves them.
+func newPrintSender(mgr backend, cfg *config.Config, out, errOut io.Writer) *printSender {
+	_, remoteRun := mgr.(*remote.Handler)
+	return &printSender{mgr: mgr, cfg: cfg, out: out, errOut: errOut, remote: remoteRun}
+}
+
 // printSender streams assistant text to a writer and resolves permissions
-// non-interactively: bypass allows, anything else rejects with a note.
+// non-interactively: bypass allows (a forced prompt excepted), anything else
+// rejects with a note.
 type printSender struct {
 	mgr    backend
 	cfg    *config.Config
@@ -264,7 +273,7 @@ func PrintPrompt(ctx context.Context, mgr backend, opts PrintOptions) error {
 		}
 	}
 
-	snd := &printSender{mgr: mgr, cfg: cfg, out: opts.Out, errOut: opts.ErrOut}
+	snd := newPrintSender(mgr, cfg, opts.Out, opts.ErrOut)
 	// A one-shot print has no footer: no usage refresh at the end.
 	result, err := mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 		SessionID: res.SessionID,

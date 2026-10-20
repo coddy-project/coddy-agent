@@ -1,9 +1,9 @@
 package agent
 
 // Live end-to-end probe of the decisions safety check: a full Agent.Run turn
-// in bypass mode whose scripted model requests two run_command calls - a
-// destructive one the real endpoint must reject, and a plain echo it must let
-// through. Everything between the model's tool call and the transcript runs
+// in bypass mode, on a surface where nobody answers a prompt, whose scripted
+// model requests two run_command calls - a destructive one the real endpoint
+// must reject, and a plain echo it must let through. Everything between the model's tool call and the transcript runs
 // for real: the permission gate, the decisions check against the live
 // POST /v1/decisions, the shell, the tool-call store. Only the chat model is
 // scripted, so no chat quota is spent. Skipped without NEURALDEEP_API_KEY.
@@ -90,7 +90,7 @@ func TestLiveDecisionsE2E(t *testing.T) {
 		Decisions: config.DecisionsConfig{Enabled: true},
 	}
 	st := &session.State{ID: "sess_live_decisions", CWD: cwd, Mode: session.ModeAgent, SessionDir: sessionDir}
-	ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
+	ag := NewAgent(cfg, st, &decisionsPromptSender{}, nil)
 	provider := &liveDecisionsProvider{}
 	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
 

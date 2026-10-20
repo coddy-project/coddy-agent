@@ -2,16 +2,29 @@ Feature: Decisions command safety check
   With the check on, a shell command - run_command, or the remote command of
   ssh_run_command - that the operator did not allow explicitly is asked about
   on the NeuralDeep decisions endpoint before the permission gate decides. A
-  safe command runs without a prompt. An unsafe one is asked about in the ask
-  and accept_edits modes, with the verdict in the prompt, and rejected in
-  bypass mode, where nobody would be asked: the refusal says the command was
-  classified as dangerous and is the call's tool result, so the session
-  records why the command never ran and the model can choose another path. A
-  command the allowlist, a session grant or a hook's allow approves is trusted
-  and not checked.
+  safe command runs without a prompt. An unsafe one is asked about, with the
+  verdict in the prompt, in every mode. In bypass mode that prompt is one no
+  mode and no surface answers by itself, so the operator can still run a
+  command the check stopped, and the agent reads its output in the same turn.
+  Where nobody can answer the prompt - a scheduled job, coddy -p - the command
+  is rejected: the refusal says the command was classified as dangerous and is
+  the call's tool result, so the session records why the command never ran and
+  the model can choose another path. A command the allowlist, a session grant
+  of exactly that command or a hook's allow approves is trusted and not checked.
 
-  Scenario: An unsafe command is rejected in bypass mode
+  Scenario: The operator runs an unsafe command in bypass mode
     Given a coddy session in agent mode under bypass permissions with the decisions check enabled
+    And a decisions endpoint that classifies every command as unsafe
+    And a model that runs the shell command once, then answers
+    When the user asks a question
+    Then the operator was asked to approve the command as one classified dangerous
+    And the command output is in the session
+    And the model read the command output in the same turn
+    And the turn ends with the model's answer
+
+  Scenario: An unsafe command nobody can approve is rejected in bypass mode
+    Given a coddy session in agent mode under bypass permissions with the decisions check enabled
+    And nobody can answer a permission prompt
     And a decisions endpoint that classifies every command as unsafe
     And a model that runs the shell command once, then answers
     When the user asks a question
@@ -19,8 +32,9 @@ Feature: Decisions command safety check
     And the command output is not in the session
     And the turn ends with the model's answer
 
-  Scenario: An unsafe remote command is rejected in bypass mode
+  Scenario: An unsafe remote command nobody can approve is rejected in bypass mode
     Given a coddy session in agent mode under bypass permissions with the decisions check enabled
+    And nobody can answer a permission prompt
     And a decisions endpoint that classifies every command as unsafe
     And a model that runs a remote command over SSH once, then answers
     When the user asks a question

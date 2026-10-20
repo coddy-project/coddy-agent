@@ -40,6 +40,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
@@ -6326,5 +6327,41 @@ func TestCoddySessionsListKeepsANewChatWhoseFirstTurnRuns(t *testing.T) {
 	}
 	if parsed.ActiveCount != 1 {
 		t.Fatalf("active_count = %d, want 1", parsed.ActiveCount)
+	}
+}
+
+// A person who presses Reject chose an option: the answer reaches the turn as
+// selected, so a prompt that tells "a person declined" from "nobody answered"
+// (the decisions check's) reads it right. An explicit cancelled outcome stays a
+// dismissal.
+func TestPermissionAnswerRejectIsAChoiceNotADismissal(t *testing.T) {
+	cfg := &config.Config{}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	for _, tc := range []struct{ body, outcome, option string }{
+		{`{"toolCallId":"c1","optionId":"reject"}`, "selected", "reject"},
+		{`{"toolCallId":"c1","outcome":"cancelled"}`, "cancelled", "reject"},
+	} {
+		ch := registerPermissionWait("sess_reject_choice", "c1", "")
+		res, err := http.Post(ts.URL+"/coddy/sessions/sess_reject_choice/permission", "application/json", strings.NewReader(tc.body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = res.Body.Close()
+		if res.StatusCode != http.StatusNoContent {
+			t.Fatalf("%s: status %d", tc.body, res.StatusCode)
+		}
+		got := <-ch
+		if got == nil || got.Outcome != tc.outcome || got.OptionID != tc.option {
+			t.Fatalf("%s: answer %#v, want %s/%s", tc.body, got, tc.outcome, tc.option)
+		}
+		if permission.Approved(got) {
+			t.Fatalf("%s: a refusal reads as an approval", tc.body)
+		}
 	}
 }
