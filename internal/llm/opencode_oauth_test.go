@@ -336,3 +336,38 @@ func TestOpenCodeRefreshFailureDoesNotSendInference(t *testing.T) {
 		t.Fatal("failed refresh destroyed the credential")
 	}
 }
+
+// Two Coddy processes on one home (a `coddy serve` and a console) refresh the
+// same login. The one that loses the race presents a refresh token the other
+// already rotated; the pair the winner stored is on disk by then, and the loser
+// uses it instead of failing its request with "sign in again".
+func TestOpenCodeRefreshAdoptsATokenAnotherProcessRotated(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	var refreshes atomic.Int32
+	proxy := newProviderHTTPSProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/console/auth/device/token" {
+			http.NotFound(w, r)
+			return
+		}
+		requireOpenCodeClientID(t, r, "refresh_token")
+		refreshes.Add(1)
+		// The other process won: its rotated pair lands on disk while this
+		// request is in flight, and the token this one presents is spent.
+		if err := saveOpenCodeCredential(path, &opencodeAuthFile{AccessToken: "rotated-elsewhere", RefreshToken: "rotated-refresh", ExpiresAt: time.Now().Add(time.Hour).Unix(), OrgID: "org"}); err != nil {
+			t.Error(err)
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+	}))
+	if err := saveOpenCodeCredential(path, &opencodeAuthFile{AccessToken: "old", RefreshToken: "spent-refresh", ExpiresAt: 1, OrgID: "org"}); err != nil {
+		t.Fatal(err)
+	}
+	hc, err := HTTPClientForProviderProxy(proxy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, org, err := openCodeCredential(context.Background(), "", path, hc)
+	if err != nil || key != "rotated-elsewhere" || org != "org" || refreshes.Load() != 1 {
+		t.Fatalf("key=%q org=%q refreshes=%d err=%v", key, org, refreshes.Load(), err)
+	}
+}

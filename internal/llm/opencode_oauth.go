@@ -250,12 +250,20 @@ func openCodeCredential(ctx context.Context, explicit, path string, client *http
 		}
 		return credential.APIKey, "", nil
 	}
-	if credential.AccessToken == "" || credential.ExpiresAt <= time.Now().Add(60*time.Second).Unix() {
+	if !openCodeAccessUsable(credential) {
 		var token openCodeToken
 		if err := openCodeAccountRequest(ctx, client, "/auth/device/token", map[string]any{"grant_type": "refresh_token", "refresh_token": credential.RefreshToken, "client_id": openCodeClientID}, "", &token); err != nil {
 			return "", "", err
 		}
 		if token.Error != "" {
+			// Another Coddy process on the same home (a `coddy serve` next to
+			// a console) may have rotated the refresh token while this request
+			// was in flight. The mutex above is per process; the pair the other
+			// one stored is on disk, and it is as good as a refresh of our own.
+			if current, err := loadOpenCodeAuth(path); err == nil && current != nil &&
+				current.RefreshToken != credential.RefreshToken && openCodeAccessUsable(current) {
+				return current.AccessToken, current.OrgID, nil
+			}
 			return "", "", openCodeGrantError(token.Error)
 		}
 		if err := applyOpenCodeToken(credential, token); err != nil {
@@ -272,6 +280,12 @@ func openCodeCredential(ctx context.Context, explicit, path string, client *http
 		}
 	}
 	return credential.AccessToken, credential.OrgID, nil
+}
+
+// openCodeAccessUsable reports whether the stored access token outlives the
+// next minute, so a request sent with it does not expire on the way.
+func openCodeAccessUsable(credential *opencodeAuthFile) bool {
+	return credential.AccessToken != "" && credential.ExpiresAt > time.Now().Add(60*time.Second).Unix()
 }
 
 func openCodeGrantError(code string) error {
