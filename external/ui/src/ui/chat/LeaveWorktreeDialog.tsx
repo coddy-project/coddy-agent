@@ -14,7 +14,7 @@ export function leaveWorktreeCommand(choice: LeaveWorktreeChoice): string {
     case "discard":
       return "/worktree exit --remove --force";
     default:
-      return "/worktree exit";
+      return "/worktree exit --keep";
   }
 }
 

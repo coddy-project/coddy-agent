@@ -30,6 +30,9 @@ type WorktreeLeave struct {
 	Gone bool `json:"gone,omitempty"`
 	// Removed reports that the worktree was removed on the way.
 	Removed bool `json:"removed"`
+	// Kept says why the worktree stays when action auto left it: what it
+	// holds of its own, or who still works in it.
+	Kept string `json:"kept,omitempty"`
 	// Snapshot is the ref that keeps the uncommitted work a discard dropped
 	// (git stash apply --index <ref> brings it back onto the branch).
 	Snapshot      string `json:"snapshot,omitempty"`
@@ -37,17 +40,44 @@ type WorktreeLeave struct {
 	BranchKept    string `json:"branch_kept,omitempty"`
 }
 
+// LeaveAction is what LeaveWorktree does with the worktree it leaves.
+type LeaveAction string
+
+const (
+	// LeaveAuto removes the worktree when it holds nothing of its own
+	// (gitws.OwnWork) and nothing else stands in the way of the removal, and
+	// keeps it otherwise, saying why (WorktreeLeave.Kept).
+	LeaveAuto LeaveAction = "auto"
+	// LeaveKeep keeps the worktree and its branch for later.
+	LeaveKeep LeaveAction = "keep"
+	// LeaveRemove removes the worktree or refuses to leave.
+	LeaveRemove LeaveAction = "remove"
+)
+
 // LeaveWorktree moves the session from the linked worktree it works in back
-// to the repository's main checkout, and with remove takes the worktree away
-// too (gitws.RemoveWorktree: one Coddy opened, nothing uncommitted unless
-// discard, no commit left on no branch, its branch only when merged).
+// to the repository's main checkout, and does with the worktree what action
+// says. Remove takes it away too (gitws.RemoveWorktree: one Coddy opened,
+// nothing uncommitted unless discard, no commit left on no branch, its branch
+// only when another branch, remote branch or tag holds its commits).
 // Everything that would refuse the removal is checked before the session
 // moves - another live session in the worktree and a background task of any
 // session still running there included - so a refusal leaves it where it was.
-// A session whose worktree folder is gone (removed by hand, or by another
-// chat) comes back to the main checkout that held it. It is worktree_exit and
-// the /worktree command alike.
-func LeaveWorktree(ctx context.Context, env *tooling.Env, remove, discard bool) (WorktreeLeave, error) {
+// Auto removes the worktree only when that removal would lose nothing and
+// nothing refuses it, and otherwise keeps it, never refusing to leave. A
+// session whose worktree folder is gone (removed by hand, or by another chat)
+// comes back to the main checkout that held it. It is worktree_exit and the
+// /worktree command alike.
+func LeaveWorktree(ctx context.Context, env *tooling.Env, action LeaveAction, discard bool) (WorktreeLeave, error) {
+	switch action {
+	case "":
+		action = LeaveAuto
+	case LeaveAuto, LeaveKeep, LeaveRemove:
+	default:
+		return WorktreeLeave{}, fmt.Errorf("unknown action %q: want auto, keep or remove", action)
+	}
+	if discard && action != LeaveRemove {
+		return WorktreeLeave{}, fmt.Errorf("discarding changes goes with removing the worktree")
+	}
 	if env == nil || env.SwitchWorkspace == nil {
 		return WorktreeLeave{}, fmt.Errorf("%s is unavailable without a session workspace", ToolWorktreeExit)
 	}
@@ -71,10 +101,14 @@ func LeaveWorktree(ctx context.Context, env *tooling.Env, remove, discard bool) 
 	if err != nil {
 		return WorktreeLeave{}, err
 	}
-	if remove {
+	kept := ""
+	switch action {
+	case LeaveRemove:
 		if err := removalRefusal(env, wt, discard); err != nil {
 			return WorktreeLeave{}, err
 		}
+	case LeaveAuto:
+		kept = autoKeepReason(env, wt)
 	}
 	if err := env.SwitchWorkspace(ctx, wt.MainCheckout); err != nil {
 		return WorktreeLeave{}, err
@@ -82,17 +116,30 @@ func LeaveWorktree(ctx context.Context, env *tooling.Env, remove, discard bool) 
 	env.CWD = wt.MainCheckout
 	env.WorkspaceChanged = true
 	out := WorktreeLeave{Path: wt.MainCheckout, Left: wt.Path, Branch: wt.Branch}
-	if !remove {
+	if action == LeaveKeep {
 		return out, nil
 	}
 	// The move reloads the session's workspace (MCP servers, hooks) and can
 	// take seconds: whoever came into the worktree meanwhile is asked about
 	// again, right before the removal.
-	if err := removalRefusal(env, wt, discard); err != nil {
+	if action == LeaveAuto {
+		if kept == "" {
+			kept = autoKeepReason(env, wt)
+		}
+		if kept != "" {
+			out.Kept = kept
+			return out, nil
+		}
+	} else if err := removalRefusal(env, wt, discard); err != nil {
 		return out, fmt.Errorf("the session is back in %s, but the worktree %s stays: %w", wt.MainCheckout, wt.Path, err)
 	}
 	removal, err := gitws.RemoveWorktree(wt, discard)
 	if err != nil {
+		if action == LeaveAuto {
+			// A file written since the check: git refused, nothing is lost.
+			out.Kept = err.Error()
+			return out, nil
+		}
 		return out, fmt.Errorf("the session is back in %s, but the worktree %s stays: %w", wt.MainCheckout, wt.Path, err)
 	}
 	out.Removed = true
@@ -100,6 +147,24 @@ func LeaveWorktree(ctx context.Context, env *tooling.Env, remove, discard bool) 
 	out.BranchDeleted = removal.BranchDeleted
 	out.BranchKept = removal.BranchKept
 	return out, nil
+}
+
+// autoKeepReason says why action auto keeps wt, or "" when it may go: what
+// would refuse its removal (another session or a running task in it, a
+// worktree Coddy did not open, uncommitted work), then what it holds of its
+// own (gitws.OwnWork).
+func autoKeepReason(env *tooling.Env, wt gitws.LinkedWorktree) string {
+	if err := removalRefusal(env, wt, false); err != nil {
+		return err.Error()
+	}
+	own, err := gitws.OwnWork(wt)
+	if err != nil {
+		return err.Error()
+	}
+	if own != "" {
+		return "the worktree " + wt.Path + " holds " + own
+	}
+	return ""
 }
 
 // removalRefusal says why removing wt now would lose work or strand someone,
@@ -235,16 +300,17 @@ func WorktreeExitTool() *tooling.Tool {
 		Definition: llm.ToolDefinition{
 			Name: ToolWorktreeExit,
 			Description: "Move this session from its git worktree back to the main checkout of the repository; the next tool call runs there. " +
-				"action \"keep\" (the default) leaves the worktree and its branch for later. \"remove\" also removes the worktree: only one under .coddy/worktrees of the repository, where worktree_open creates them, " +
+				"action \"auto\" (the default) removes the worktree and its branch when it holds nothing of its own - no uncommitted change, no commit that no other branch, remote branch or tag holds - and nobody else works in it, and otherwise keeps it, the answer saying why (kept). " +
+				"\"keep\" leaves the worktree and its branch for later. \"remove\" removes the worktree or refuses to leave: only one under .coddy/worktrees of the repository, where worktree_open creates them, " +
 				"refused while it has uncommitted changes unless discard_changes is true (they are kept as a snapshot ref the answer names; git stash apply --index <ref> brings them back), and always for commits no branch, remote branch or tag holds, initialised submodules, a git repository of its own inside it, a locked worktree, or one another session or a background task works in. " +
-				"Its branch is deleted only when git counts it as merged; a branch with unmerged commits stays and the answer says so.",
+				"Its branch is deleted only when another branch, a remote branch or a tag holds every commit of it; a branch with work of its own stays and the answer says so.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
 						"type":        "string",
-						"enum":        []interface{}{"keep", "remove"},
-						"description": "keep (default) or remove the worktree",
+						"enum":        []interface{}{string(LeaveAuto), string(LeaveKeep), string(LeaveRemove)},
+						"description": "auto (default: remove the worktree when it holds nothing of its own, keep it otherwise), keep, or remove",
 					},
 					"discard_changes": map[string]interface{}{
 						"type":        "boolean",
@@ -264,18 +330,11 @@ func WorktreeExitTool() *tooling.Tool {
 					return "", fmt.Errorf("invalid arguments: %w", err)
 				}
 			}
-			remove := false
-			switch strings.TrimSpace(args.Action) {
-			case "", "keep":
-			case "remove":
-				remove = true
-			default:
-				return "", fmt.Errorf("unknown action %q: want keep or remove", args.Action)
-			}
-			if args.DiscardChanges && !remove {
+			action := LeaveAction(strings.TrimSpace(args.Action))
+			if args.DiscardChanges && action != LeaveRemove {
 				return "", fmt.Errorf("discard_changes applies to action \"remove\" only")
 			}
-			left, err := LeaveWorktree(ctx, env, remove, args.DiscardChanges)
+			left, err := LeaveWorktree(ctx, env, action, args.DiscardChanges)
 			if err != nil {
 				return "", err
 			}

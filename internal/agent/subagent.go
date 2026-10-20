@@ -96,8 +96,9 @@ var subagentMandatoryExclusions = []string{
 	"plan_exit",
 	// A child runs on the model its parent (or its definition) chose.
 	"switch_model",
-	// A child shares the parent's workspace; moving it mid-run would strand
-	// every tool of both, and the child has no switcher wired anyway.
+	// A child stays in the folder it started in - the parent's, or a worktree
+	// of its own under isolation; moving it mid-run would strand every tool of
+	// both, and the child has no switcher wired anyway.
 	"worktree_open", "worktree_exit",
 }
 
@@ -605,7 +606,10 @@ type subagentRun struct {
 	// earlier runs' for a resumed one. The run's turns and its report are read
 	// past them (runMessages).
 	prior int
-	mu    sync.Mutex
+	// worktree is the worktree of a child with isolation worktree; what
+	// became of it is set when the run ends (settleChildWorktree).
+	worktree *childWorktree
+	mu       sync.Mutex
 }
 
 // unfinished reports a run that ended without its report: an error, a stop
@@ -850,6 +854,17 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 			def.Name, def.Path, workspace, def.Name, workspace, def.Name, workspace)
 	}
 
+	// A child works in a worktree of its own when its definition or the call
+	// asks for one. A resumed run goes on where its earlier run worked: in its
+	// worktree when that run had one, in this session's folder otherwise.
+	isolated := def.Isolation == subagents.IsolationWorktree || req.Isolation == subagents.IsolationWorktree
+	if resumed != nil {
+		if resumed.worktree == "" && req.Isolation == subagents.IsolationWorktree {
+			return "", fmt.Errorf("spawn_agent: the run of subagent %s being resumed worked in %s, not in a worktree of its own; a resumed run goes on where it worked, so drop isolation or start a new subagent", def.Name, resumed.cwd)
+		}
+		isolated = resumed.worktree != ""
+	}
+
 	// The parent mode is the mode this turn was admitted in, not the live
 	// session mode: a set_mode landing mid-turn must not hand a plan turn an
 	// agent child. A read-only parent (plan, ask) forces its own mode on the
@@ -975,6 +990,20 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 		return "", fmt.Errorf("cannot start subagent %q: subagents.max_concurrent (%d) runs are already in flight; wait for one with background_wait or background_list, then try again",
 			def.Name, cfg.Subagents.EffectiveMaxConcurrent())
 	}
+	childCWD := cwd
+	var worktree *childWorktree
+	worktreeNote, worktreeLine := "", ""
+	if isolated {
+		w, folder, note, err := openChildWorktree(cwd, def.Name, childID, resumed)
+		if err != nil {
+			release()
+			return "", err
+		}
+		worktree, childCWD, worktreeNote = w, folder, note
+		// Read before the run starts: its end rewrites the worktree's fields
+		// under the run's lock.
+		worktreeLine = fmt.Sprintf("It works in the worktree %s on branch %s, not in your folder; the report says whether the worktree stays.\n", w.Path, w.Branch)
+	}
 
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
 	pool := a.backgroundPool(sd)
@@ -1005,6 +1034,12 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	if unknownModel != "" {
 		modelNote = fmt.Sprintf("model %q is not configured; using the parent's model %q", unknownModel, model)
 	}
+	if worktreeNote != "" {
+		if modelNote != "" {
+			modelNote += "\n"
+		}
+		modelNote += worktreeNote
+	}
 	if resumed != nil && req.Model == "" && resumed.model != "" && cfg.FindModelEntry(resumed.model) == nil {
 		// The model that wrote the transcript was removed from the
 		// configuration since: the run goes on with another, and says so.
@@ -1020,7 +1055,7 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 			ID:                childID,
 			ParentSessionID:   parentID,
 			Name:              def.Name,
-			CWD:               cwd,
+			CWD:               childCWD,
 			Mode:              childMode,
 			PermissionMode:    childPerm,
 			SelectedModelID:   model,
@@ -1046,6 +1081,7 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 		toolCallID:      a.currentToolCallID,
 		relay:           relay,
 		modelNote:       modelNote,
+		worktree:        worktree,
 		cleanup: func() {
 			releaseArbiter(parentID)
 			release()
@@ -1082,6 +1118,7 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	}
 	fmt.Fprintf(&b, "%s subagent %s as background task %s (child session %s).\n", started, def.Name, snap.ID, childID)
 	fmt.Fprintf(&b, "Hard timeout %s.\n", humanSecondsAgent(snap.TimeoutSeconds))
+	b.WriteString(worktreeLine)
 	switch {
 	case snap.NotifyOnFinish:
 		b.WriteString("You will be woken with the outcome when it finishes, so you can end your turn now.")
@@ -1126,6 +1163,9 @@ type childLaunch struct {
 	modelNote string
 	// system marks the runtime's own child (see subagentRun.system).
 	system bool
+	// worktree is the git worktree a child with isolation worktree works in;
+	// the run's end removes it when the child left nothing there.
+	worktree *childWorktree
 	// cleanup runs once with the run's finish: what the launcher acquired
 	// (a limiter slot, an arbiter, an in-flight slot) is released here.
 	cleanup func()
@@ -1162,6 +1202,7 @@ func (a *Agent) launchChildRun(ctx context.Context, rt SubagentRuntime, l childL
 		parentMode: l.parentMode,
 		handle:     handle,
 		startedAt:  time.Now(),
+		worktree:   l.worktree,
 	}
 
 	var finishOnce sync.Once
@@ -1182,6 +1223,13 @@ func (a *Agent) launchChildRun(ctx context.Context, rt SubagentRuntime, l childL
 				pool.ReleaseSession(childID)
 				rt.RetireSubagentSession(childID)
 			}
+			// The child's own work has settled and it is no longer live, so
+			// its worktree is judged on what it left there: by the run that
+			// owned the child, or by the launch that made the worktree and
+			// never got as far (a resume the pool refused).
+			if l.worktree != nil && (owned || l.worktree.Created) {
+				settleChildWorktree(rt, pool, run)
+			}
 			if l.cleanup != nil {
 				l.cleanup()
 			}
@@ -1195,6 +1243,10 @@ func (a *Agent) launchChildRun(ctx context.Context, rt SubagentRuntime, l childL
 		System:    l.system,
 		Model:     l.spec.SelectedModelID,
 		Reasoning: session.ResolveReasoningLevel(a.cfg, l.spec.SelectedModelID, l.spec.SelectedReasoning),
+	}
+	if l.worktree != nil {
+		agentInfo.Worktree = l.worktree.Path
+		agentInfo.Branch = l.worktree.Branch
 	}
 	spec := bgtask.Spec{
 		SessionID:       parentID,
@@ -1271,8 +1323,10 @@ func executeChildRun(ctx context.Context, rt SubagentRuntime, run *subagentRun, 
 			log.Error("subagent run panicked", "agent", run.displayName(), "session", run.childID, "panic", r)
 		}
 		run.sender.Flush()
-		_, _ = io.WriteString(out, formatSubagentReport(run, st))
+		// The run's end settles first - the child's own tasks stop, its
+		// worktree goes or stays - so the report can say what became of it.
 		finish()
+		_, _ = io.WriteString(out, formatSubagentReport(run, st))
 		run.handle.mu.Lock()
 		run.handle.exit = exit
 		if run.status == "failed" && run.err != nil {
@@ -1360,6 +1414,9 @@ type resumeTarget struct {
 	childID string
 	// model is the model the child's latest run worked on.
 	model string
+	// cwd is the folder the latest run worked in; worktree names its
+	// worktree when it had one of its own (isolation worktree).
+	cwd, worktree string
 }
 
 // findResumeTarget resolves the run a spawn_agent resume names - a task id or
@@ -1406,9 +1463,15 @@ func (a *Agent) findResumeTarget(ref, agentName string) (*resumeTarget, error) {
 	}
 	// The transcript's paths and results belong to the workspace the child
 	// worked in, and trust and the tool set are decided for this session's
-	// workspace now: a child of another workspace is not continued here.
-	if was, now := strings.TrimSpace(latest.CWD), strings.TrimSpace(a.state.GetCWD()); was != "" && now != "" &&
-		!session.SameDirectory(was, now) {
+	// workspace now: a child of another workspace is not continued here. A
+	// child that had a worktree of its own goes on in it, so it belongs to
+	// the repository this session works in rather than to its folder.
+	was, now := strings.TrimSpace(latest.CWD), strings.TrimSpace(a.state.GetCWD())
+	if wt := strings.TrimSpace(latest.Agent.Worktree); wt != "" {
+		if repo, here := repositoryOf(wt), repositoryOf(now); repo == "" || here == "" || !session.SameWorkspacePath(repo, here) {
+			return nil, fmt.Errorf("spawn_agent: subagent %s worked in a worktree of %s and this session works in %s now; its transcript belongs to that repository, so start a new subagent for the task here", latest.Agent.Name, wt, now)
+		}
+	} else if was != "" && now != "" && !session.SameDirectory(was, now) {
 		return nil, fmt.Errorf("spawn_agent: subagent %s worked in %s and this session works in %s now; its transcript belongs to that workspace, so start a new subagent for the task here", latest.Agent.Name, was, now)
 	}
 	// A run whose child session was never created left no transcript, and a
@@ -1420,7 +1483,10 @@ func (a *Agent) findResumeTarget(ref, agentName string) (*resumeTarget, error) {
 	if !onDisk {
 		return nil, fmt.Errorf("spawn_agent: the transcript of subagent %s (session %s) is not on disk: its run never got its session, or the session was deleted since; start a new subagent for the task", latest.Agent.Name, childID)
 	}
-	return &resumeTarget{childID: childID, model: latest.Agent.Model}, nil
+	return &resumeTarget{
+		childID: childID, model: latest.Agent.Model,
+		cwd: was, worktree: strings.TrimSpace(latest.Agent.Worktree),
+	}, nil
 }
 
 // resumeHint tells the parent how to go on with a run that ended without its
@@ -1500,6 +1566,10 @@ func formatSubagentReport(run *subagentRun, st *session.State) string {
 		b.WriteString(resumeHint(run))
 		b.WriteString("\n")
 	}
+	if line := run.worktree.reportLine(); line != "" {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
 	b.WriteString("--- report ---\n")
 	report := strings.TrimSpace(run.report)
 	if report == "" && st != nil {
@@ -1526,6 +1596,7 @@ func formatForegroundResult(run *subagentRun, snap bgtask.Snapshot) string {
 	if run.offersResume() {
 		hint = resumeHint(run)
 	}
+	worktreeLine := run.worktree.reportLine()
 	run.mu.Unlock()
 	if report == "" {
 		report = "(the subagent produced no final message)"
@@ -1547,6 +1618,10 @@ func formatForegroundResult(run *subagentRun, snap bgtask.Snapshot) string {
 			b.WriteString(hint)
 			b.WriteString("\n")
 		}
+	}
+	if worktreeLine != "" {
+		b.WriteString(worktreeLine)
+		b.WriteString("\n")
 	}
 	b.WriteString("The user did not see this report: restate what matters in your own reply. ")
 	fmt.Fprintf(&b, "The full transcript is session %s (Tasks panel → Show transcript).", run.childID)

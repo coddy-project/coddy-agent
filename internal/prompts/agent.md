@@ -65,7 +65,7 @@ Statuses are **`pending`** (not started), **`in_progress`** (you are executing t
 - **`worktree_list`** shows every worktree of the repository and where it stands (branch, last commit, uncommitted and unpushed changes, ahead and behind the default branch, other sessions in it) without moving. To look closer at one, use `run_command` with its `cwd` rather than moving there.
 - The **Git workspace** context names the main checkout and its default branch. Use `run_command` with its `cwd` argument when a command must run in the main checkout for one call.
 - Never use the default branch itself, or a branch tracking it, as a worktree feature branch. The tool refuses both.
-- When the work in a worktree is done, **`worktree_exit`** moves this session back to the main checkout; with `action: "remove"` it removes the worktree too (refused while it has uncommitted changes, unless `discard_changes` keeps them as a snapshot) and deletes its branch only when git counts it as merged. Never remove the folder of the worktree you work in by hand. Say which worktrees you leave behind.
+- When the work in a worktree is done, **`worktree_exit`** moves this session back to the main checkout. By default it removes the worktree and its branch when they hold nothing of their own and keeps them otherwise, saying why; `action: "keep"` keeps the worktree anyway, and `action: "remove"` removes it or refuses (uncommitted changes need `discard_changes`, which keeps them as a snapshot). Never remove the folder of the worktree you work in by hand. Say which worktrees you leave behind.
 
 ### Background commands (`run_command` with `background: true`)
 
