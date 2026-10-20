@@ -25,7 +25,10 @@ type httpStatusError struct {
 }
 
 func (e *httpStatusError) Error() string {
-	return fmt.Sprintf("%s: HTTP %d: %s", e.label, e.status, strings.TrimSpace(e.body))
+	if body := strings.TrimSpace(e.body); body != "" {
+		return fmt.Sprintf("%s: HTTP %d: %s", e.label, e.status, body)
+	}
+	return fmt.Sprintf("%s: HTTP %d", e.label, e.status)
 }
 
 // UpstreamStatus reports the HTTP status the provider answered a failed call

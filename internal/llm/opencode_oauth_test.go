@@ -371,3 +371,47 @@ func TestOpenCodeRefreshAdoptsATokenAnotherProcessRotated(t *testing.T) {
 		t.Fatalf("key=%q org=%q refreshes=%d err=%v", key, org, refreshes.Load(), err)
 	}
 }
+
+// A Console that cannot answer a refresh for the moment (a 503) fails the
+// inference request with its status, so the request is retried like any
+// other 5xx, and the retry refreshes and goes through.
+func TestOpenCodeRefreshOutageIsRetried(t *testing.T) {
+	var refreshes, inference atomic.Int32
+	proxy := newProviderHTTPSProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/console/auth/device/token" {
+			requireOpenCodeClientID(t, r, "refresh_token")
+			if refreshes.Add(1) == 1 {
+				w.Header().Set("Retry-After", "0")
+				http.Error(w, "unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = w.Write([]byte(`{"access_token":"fresh","refresh_token":"rotated","expires_in":600}`))
+			return
+		}
+		inference.Add(1)
+		if !answerProviderRequest(t, w, r) {
+			http.NotFound(w, r)
+		}
+	}))
+	path := filepath.Join(t.TempDir(), "auth.json")
+	if err := saveOpenCodeCredential(path, &opencodeAuthFile{AccessToken: "old", RefreshToken: "old-refresh", ExpiresAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	once, err := NewProvider(ProviderInput{Type: "opencode", Model: "glm-5.3", AuthPath: path, ProxyURL: proxy, RetryDisabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = once.Complete(context.Background(), []Message{{Role: RoleUser, Content: "ping"}}, nil)
+	if UpstreamStatus(err) != http.StatusServiceUnavailable || !isRetryableLLMError(err) || inference.Load() != 0 {
+		t.Fatalf("refresh outage: status %d, retryable %v, inference %d (%v)", UpstreamStatus(err), isRetryableLLMError(err), inference.Load(), err)
+	}
+	refreshes.Store(0)
+	retried, err := NewProvider(ProviderInput{Type: "opencode", Model: "glm-5.3", AuthPath: path, ProxyURL: proxy, RetryMax: 1, RetryBase: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := retried.Complete(context.Background(), []Message{{Role: RoleUser, Content: "ping"}}, nil)
+	if err != nil || resp.Content != "pong" || refreshes.Load() != 2 || inference.Load() != 1 {
+		t.Fatalf("retry: %+v, refreshes %d, inference %d, err %v", resp, refreshes.Load(), inference.Load(), err)
+	}
+}

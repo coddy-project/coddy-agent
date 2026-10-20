@@ -333,7 +333,9 @@ func openCodeAccountRequest(ctx context.Context, client *http.Client, path strin
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK && (path != "/auth/device/token" || resp.StatusCode != http.StatusBadRequest) {
-		return fmt.Errorf("opencode account request: HTTP %d", resp.StatusCode)
+		// Typed, so a refresh that hit a passing 5xx or 429 under an inference
+		// request is retried like that request's own; the body stays out.
+		return &httpStatusError{label: "opencode account request", status: resp.StatusCode, header: resp.Header}
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(out); err != nil {
 		return errors.New("opencode: invalid account response")
