@@ -29,6 +29,11 @@ Feature: POST /v1/chat/completions passes a client's tools and images through to
     Then the JSON answer calls "get_weather" with arguments {"city":"Paris"}
     And the JSON answer finishes with "tool_calls"
 
+  Scenario: Concurrent direct completions on one session keep their own answer or get a busy response
+    Given a coddy server whose direct model is a recording stub with tool calling
+    When two OpenAI clients post "first answer" and "second answer" to the same session concurrently
+    Then the first request receives "first answer" and the second request receives 409
+
   Scenario: An image reaches a vision model as an image
     Given a coddy server whose direct model is a recording stub with tool calling
     When an OpenAI client streams "local/qwen3-1.7b" with a text part and an image part

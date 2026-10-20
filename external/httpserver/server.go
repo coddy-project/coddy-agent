@@ -656,6 +656,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if rejectSubagentTurn(w, st) {
 		return
 	}
+	unlock, ok := s.acquireComposerTurnLock(w, sessionID, st)
+	if !ok {
+		return
+	}
+	defer unlock()
 
 	if httpModelIsCoddyProfile(model) {
 		if err := applyProfileSettings(ctx, s.mgr, st, sessionID, model, req.Metadata); err != nil {
@@ -696,17 +701,6 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		// watch from a browser. The lock is taken first in both branches - beginComposerRelay
 		// evicts any relay already registered for the session, so an unlocked second POST
 		// could cut the watchers off the first turn.
-		unlock, lockErr := s.mgr.AcquireComposerTurnLock(sessionID, st)
-		if lockErr != nil {
-			if errors.Is(lockErr, session.ErrSessionTurnBusy) {
-				http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
-				return
-			}
-			s.log.Error("session turn lock", "error", lockErr)
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, lockErr.Error()), http.StatusInternalServerError)
-			return
-		}
-		defer unlock()
 		profileCtx, cancelProfile := profileTurnContext(ctx, st, req.Stream)
 		defer cancelProfile()
 		rel := s.beginComposerRelay(sessionID)
@@ -852,7 +846,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	message := map[string]interface{}{
 		"role":    "assistant",
-		"content": lastAssistantContent(st),
+		"content": strings.TrimSpace(directRes.Content),
 	}
 	finish := openAIFinishReason(directStopReason(directRes))
 	if directRes != nil {
@@ -876,6 +870,20 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) acquireComposerTurnLock(w http.ResponseWriter, sessionID string, st *session.State) (func(), bool) {
+	unlock, err := s.mgr.AcquireComposerTurnLock(sessionID, st)
+	if err == nil {
+		return unlock, true
+	}
+	if errors.Is(err, session.ErrSessionTurnBusy) {
+		http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
+		return nil, false
+	}
+	s.log.Error("session turn lock", "error", err)
+	http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+	return nil, false
 }
 
 // profileTurnContext makes Stop effective as soon as HTTP owns the turn lock,
@@ -1228,6 +1236,11 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	if rejectSubagentTurn(w, st) {
 		return
 	}
+	unlock, ok := s.acquireComposerTurnLock(w, sid, st)
+	if !ok {
+		return
+	}
+	defer unlock()
 
 	if httpModelIsCoddyProfile(model) {
 		if err := applyProfileSettings(ctx, s.mgr, st, sid, model, body.Metadata); err != nil {
@@ -1293,17 +1306,6 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		// See the same block in handleChatCompletions: the relay is opened for every profile
 		// turn, and the turn lock is taken before it in both branches.
 		var bridge *Sender
-		unlock, lockErr := s.mgr.AcquireComposerTurnLock(sid, st)
-		if lockErr != nil {
-			if errors.Is(lockErr, session.ErrSessionTurnBusy) {
-				http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
-				return
-			}
-			s.log.Error("session turn lock", "error", lockErr)
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, lockErr.Error()), http.StatusInternalServerError)
-			return
-		}
-		defer unlock()
 		profileCtx, cancelProfile := profileTurnContext(ctx, st, body.Stream)
 		defer cancelProfile()
 		rel := s.beginComposerRelay(sid)
@@ -1403,7 +1405,8 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	respTurnCtx, respCancelTurn := context.WithCancel(ctx)
 	st.SetCancel(respCancelTurn)
 	defer respCancelTurn()
-	if _, err := s.runDirectYAMLCompletion(respTurnCtx, st, sid, model, bridge, nil, llm.RequestOptions{}); err != nil {
+	directRes, err := s.runDirectYAMLCompletion(respTurnCtx, st, sid, model, bridge, nil, llm.RequestOptions{})
+	if err != nil {
 		if errors.Is(err, context.Canceled) && body.Stream {
 			meta := metadataResponse(s.activeCfg(), model)
 			_ = bridge.FinishStreamWithMetadata(meta)
@@ -1425,7 +1428,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		_ = bridge.FinishStreamWithMetadata(meta)
 		return
 	}
-	text := lastAssistantContent(st)
+	text := strings.TrimSpace(directRes.Content)
 	out := map[string]interface{}{
 		"id":       sid,
 		"object":   "response",
