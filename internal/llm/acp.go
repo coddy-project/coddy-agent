@@ -175,7 +175,12 @@ func (p *acpProvider) Stream(ctx context.Context, messages []Message, _ []ToolDe
 	case out.updated:
 		// The agent reported something before the prompt failed: it may
 		// have acted on the message. It is recorded, never sent again.
-		c.commit(plan, false)
+		if errors.Is(out.err, context.Canceled) {
+			// The person stopped it: the answer so far is the agent's own.
+			c.commitStopped(plan)
+		} else {
+			c.commit(plan, false)
+		}
 		// The binding may go later (a sweep, an idle stop, a crash): the pool
 		// remembers.
 		acpAgents.markUncertain(lostKey, history)

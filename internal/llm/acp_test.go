@@ -212,6 +212,37 @@ func TestACPProviderKeepsConversationsApart(t *testing.T) {
 	}
 }
 
+// Conversations on one shared agent run at once: three prompts meet at the
+// agent's barrier, which a provider that sent them one after another would
+// never reach (the first ones would time out waiting for the others).
+func TestACPProviderRunsConversationsAtOnce(t *testing.T) {
+	in, logPath := acpRow(t, acptest.Script{Turns: []acptest.Turn{{Echo: true, Barrier: 3}}})
+	p := newACPTestProvider(t, in)
+	var wg sync.WaitGroup
+	for _, id := range []string{"a", "b", "c"} {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			resp, err := p.Stream(conversation(t, id), sys(u("hi "+id)), nil, nil)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			if want := "echo: hi " + id + "\nbarrier: 3"; resp.Content != want {
+				t.Errorf("conversation %s got %q, want %q", id, resp.Content, want)
+			}
+		}(id)
+	}
+	wg.Wait()
+	pids := map[int]bool{}
+	for _, r := range acptest.ReadLog(t, logPath) {
+		pids[r.PID] = true
+	}
+	if len(pids) != 1 {
+		t.Fatalf("agent processes = %d, want one shared", len(pids))
+	}
+}
+
 // The agent works where the session works: session/new names the
 // conversation's workspace, and ${CWD} in the block is that workspace.
 func TestACPProviderOpensSessionsInTheWorkspace(t *testing.T) {
@@ -748,8 +779,9 @@ func TestACPProviderCancellation(t *testing.T) {
 	if !errors.As(err, &acpErr) || acpErr.Kind != ACPErrorStalled {
 		t.Fatalf("repeat after cancel: err = %v", err)
 	}
-	// A new message goes on in the same session.
-	if _, err := p.Stream(base, sys(u("one"), u("two")), nil, nil); err != nil {
+	// A new message goes on in the same session. Coddy kept the partial
+	// answer, which the agent's session holds too: only the new message goes.
+	if _, err := p.Stream(base, sys(u("one"), a("working"), u("two")), nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	prompts := readLog(t, logPath, "session/prompt")
@@ -758,6 +790,37 @@ func TestACPProviderCancellation(t *testing.T) {
 	}
 	if texts := promptTexts(t, prompts[1]); len(texts) != 1 || texts[0] != "text:two" {
 		t.Fatalf("after a cancel the next prompt = %q", texts)
+	}
+}
+
+// The loop's guard against a degenerating stream cuts a prompt the same way a
+// person stops it, then calls again with the answer so far kept and a nudge:
+// the agent gets the nudge alone, on the same session, and never its own
+// words back as another model's.
+func TestACPProviderGoesOnWithANudgeAfterACutPrompt(t *testing.T) {
+	in, logPath := acpRow(t, acptest.Script{Turns: []acptest.Turn{{Text: []string{"again and again"}, WaitCancel: true}, {Echo: true}}})
+	p := newACPTestProvider(t, in)
+	base := conversation(t, "s1")
+	ctx, cancel := context.WithCancel(base)
+	defer cancel()
+	if _, err := p.Stream(ctx, sys(u("one")), nil, func(c StreamChunk) {
+		if c.TextDelta != "" {
+			cancel()
+		}
+	}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+	nudge := Message{Role: RoleUser, Content: "You are repeating yourself; go on.", Ephemeral: true}
+	resp, err := p.Stream(base, sys(u("one"), a("again and again"), nudge), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Content != "echo: "+nudge.Content {
+		t.Fatalf("answer = %q", resp.Content)
+	}
+	prompts := readLog(t, logPath, "session/prompt")
+	if len(prompts) != 2 || decodePrompt(t, prompts[0]).SessionID != decodePrompt(t, prompts[1]).SessionID {
+		t.Fatalf("prompts = %d, want two on one session", len(prompts))
 	}
 }
 

@@ -164,6 +164,17 @@ func matchRecord(record []acpRecordEntry, history []Message) (int, bool) {
 	return i, true
 }
 
+// endsWithOwnReply reports whether the last message of a history the record
+// covers whole is the one the record's last answer slot took: an assistant
+// message without tool calls after the prompt the slot answers.
+func endsWithOwnReply(record []acpRecordEntry, history []Message) bool {
+	if len(record) == 0 || !record[len(record)-1].ownReply || len(history) == 0 {
+		return false
+	}
+	last := history[len(history)-1]
+	return last.Role == RoleAssistant && len(last.ToolCalls) == 0
+}
+
 // acpPromptPlan is what one call sends.
 type acpPromptPlan struct {
 	// send are the history messages the prompt carries.
@@ -188,7 +199,15 @@ func (c *acpConversation) planPrompt(history []Message) (plan acpPromptPlan, ok 
 	if held < len(history) {
 		return acpPromptPlan{send: history[held:]}, true, nil
 	}
-	// The session holds the whole history: the call repeats the last prompt.
+	// The session holds the whole history.
+	if c.uncertain && endsWithOwnReply(c.record, history) {
+		// It ends with what the agent wrote before its prompt was stopped:
+		// the loop calls again after cutting a degenerating answer, with a
+		// nudge of its own. The stopped prompt is not sent again; what this
+		// call adds (its ephemeral messages) is.
+		return acpPromptPlan{}, true, nil
+	}
+	// The call repeats the last prompt.
 	if c.uncertain {
 		return acpPromptPlan{}, false, &ACPError{Kind: ACPErrorStalled, Message: "the agent's last prompt in this conversation ended without a clear outcome and may have run; it is not sent again. Send a new message to go on"}
 	}
@@ -209,6 +228,19 @@ func (c *acpConversation) commit(plan acpPromptPlan, armed bool) {
 		c.record = append(c.record, acpRecordEntry{ownReply: true})
 	}
 	c.uncertain = !armed
+}
+
+// commitStopped records a prompt the caller stopped after the agent had
+// reported something. Its outcome stays uncertain, so the same history is
+// never sent again, but what the agent wrote before the stop is in its
+// session as much as in Coddy's transcript: the slot of its answer is armed,
+// and the partial answer Coddy kept is not sent back to the agent as another
+// model's words. No other model answers a stopped turn, which is what keeps
+// that slot from swallowing a fallback's answer (the case of a prompt that
+// failed, which commit leaves unarmed).
+func (c *acpConversation) commitStopped(plan acpPromptPlan) {
+	c.commit(plan, false)
+	c.record = append(c.record, acpRecordEntry{ownReply: true})
 }
 
 // acpPromptBlocks renders what a prompt carries. A single user message goes

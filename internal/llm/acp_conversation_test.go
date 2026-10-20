@@ -74,6 +74,48 @@ func TestPlanPromptSendsAnAnswerItDidNotWriteAsForeign(t *testing.T) {
 	}
 }
 
+func TestPlanPromptTakesAStoppedAnswerAsTheAgentsOwn(t *testing.T) {
+	// The person stopped the prompt with u2 once the agent had written part of
+	// its answer: the agent's session holds that part, Coddy stored it, and
+	// it is not sent back to the agent as another model's words.
+	c := bound([]Message{u("u1")})
+	c.commitStopped(acpPromptPlan{send: []Message{u("u2")}})
+	plan, ok, err := c.planPrompt([]Message{u("u1"), a("agent"), u("u2"), a("partial"), u("u3")})
+	if err != nil || !ok || len(plan.send) != 1 || plan.send[0].Content != "u3" {
+		t.Fatalf("plan = %+v, ok = %v, err = %v", plan, ok, err)
+	}
+	// The stopped prompt may have run: the same history again is still
+	// refused rather than sent twice.
+	_, ok, err = c.planPrompt([]Message{u("u1"), a("agent"), u("u2")})
+	var acpErr *ACPError
+	if ok || !errors.As(err, &acpErr) || acpErr.Kind != ACPErrorStalled {
+		t.Fatalf("repeat after a stop: ok = %v, err = %v", ok, err)
+	}
+}
+
+func TestPlanPromptGoesOnAfterAStoppedAnswerWithNothingNew(t *testing.T) {
+	// The loop cut the agent's answer to u2 (its guard against a degenerating
+	// stream) and calls again with that answer kept and a nudge of its own:
+	// the history holds nothing the session lacks, the old prompt is not sent
+	// again, and only what this call adds goes.
+	c := bound([]Message{u("u1")})
+	c.commitStopped(acpPromptPlan{send: []Message{u("u2")}})
+	plan, ok, err := c.planPrompt([]Message{u("u1"), a("agent"), u("u2"), a("cut short")})
+	if err != nil || !ok || len(plan.send) != 0 || plan.fresh {
+		t.Fatalf("plan = %+v, ok = %v, err = %v", plan, ok, err)
+	}
+	blocks := acpPromptBlocks(plan, []Message{{Role: RoleUser, Content: "nudge", Ephemeral: true}}, false)
+	if len(blocks) != 1 || blocks[0].Text != "nudge" {
+		t.Fatalf("blocks = %+v", blocks)
+	}
+	// What the agent answers then fills a slot of its own.
+	c.commit(plan, true)
+	plan, ok, err = c.planPrompt([]Message{u("u1"), a("agent"), u("u2"), a("cut short"), a("went on"), u("u3")})
+	if err != nil || !ok || len(plan.send) != 1 || plan.send[0].Content != "u3" {
+		t.Fatalf("after the nudge: plan = %+v, ok = %v, err = %v", plan, ok, err)
+	}
+}
+
 func TestPlanPromptStartsOverWhenTheHistoryWentAnotherWay(t *testing.T) {
 	c := bound([]Message{u("u1")}, []Message{u("u2")})
 	cases := map[string][]Message{
