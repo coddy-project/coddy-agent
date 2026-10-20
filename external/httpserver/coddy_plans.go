@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
@@ -18,7 +19,13 @@ type planRunNoopSender struct{}
 
 func (planRunNoopSender) SendSessionUpdate(string, interface{}) error { return nil }
 
-func (planRunNoopSender) RequestPermission(context.Context, acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+// RequestPermission approves the run's prompts, except a forced one (a hook's
+// ask, a command the safety check did not clear): a plan run has nobody to
+// show it to.
+func (planRunNoopSender) RequestPermission(_ context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	if params.Forced {
+		return &acp.PermissionResult{Outcome: permission.OutcomeCancelled, OptionID: permission.OptionReject}, nil
+	}
 	return &acp.PermissionResult{Outcome: "allow"}, nil
 }
 

@@ -1121,12 +1121,12 @@
     "decisions": {
       "type": "object",
       "title": "Command safety decisions",
-      "description": "Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about, or rejected in bypass mode. See https://coddy.dev/docs/features/decisions.",
+      "description": "Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer. See https://coddy.dev/docs/features/decisions.",
       "additionalProperties": false,
       "properties": {
         "enable": {
           "type": "boolean",
-          "description": "Check run_command and ssh_run_command calls the operator did not allow explicitly against the decisions endpoint before the permission gate decides. A safe command runs without a prompt; an unsafe one, or one the check gave no verdict on, is asked about in ask and accept_edits with the verdict in the prompt, and rejected in bypass mode, the rejection returned as the tool result so the session records it. Commands the allowlist, a session grant or a hook's allow approves are not checked, and neither are commands the operator approved in a prompt. Needs a NeuralDeep credential on the first provider row of type neuraldeep: its api_key or api_key_command, its NAME_API_KEY environment variable (NEURALDEEP_API_KEY for a row named neuraldeep or when there is no row) or its stored hub sign-in.",
+          "description": "Check run_command and ssh_run_command calls the operator did not allow explicitly against the decisions endpoint before the permission gate decides. A safe command runs without a prompt; an unsafe one, or one the check gave no verdict on, is asked about in every mode, bypass included, with the verdict in a prompt no mode or surface answers by itself, and where nobody can answer it is rejected, the rejection returned as the tool result so the session records it. Commands the allowlist, a session grant of exactly that command or a hook's allow approves are not checked, and neither are commands the operator approved in a prompt; a program-wide or prefix grant does not exempt a command from the check. Needs a NeuralDeep credential on the first provider row of type neuraldeep: its api_key or api_key_command, its NAME_API_KEY environment variable (NEURALDEEP_API_KEY for a row named neuraldeep or when there is no row) or its stored hub sign-in.",
           "default": false
         },
         "model": {

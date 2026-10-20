@@ -330,17 +330,32 @@ test("the header's view buttons are styled from theme tokens, mark a live sessio
   expect(tip).toContain("var(--coddy-tip-fg)");
 });
 
-test("the view buttons take the top bar's sizes: 42px on a tablet, a 40px icon alone on a phone", () => {
+// The views are icons at every width, the way a phone always showed them:
+// Files the icon alone in a square of the top bar's size, Background tasks the
+// dot and the counts, and the word only while there are no counts yet. The
+// full name is in the tooltip.
+test("the view buttons are icons at every width, in squares of the top bar's sizes", () => {
+  const button = ruleBody(".chat-view-btn {");
+  expect(button).toContain("height: 36px");
+  const square = ruleBody(".chat-view-btn--icon {");
+  expect(square).toContain("width: 36px");
+  expect(square).toContain("padding: 0");
+  expect(ruleBody(".chat-view-label {")).toContain("display: none");
+  expect(
+    ruleBody(".chat-view-btn--tasks:not(.has-tasks) .chat-view-label {"),
+  ).toContain("display: inline");
   const stacked = css.slice(
     css.indexOf(`@media (max-width: 1199px) {\n  .chat-view-btn {`),
   );
-  expect(stacked.slice(0, 120)).toContain("height: 42px");
+  expect(stacked.slice(0, 160)).toMatch(
+    /\.chat-view-btn \{[^}]*height: 42px[^}]*\}\s*\.chat-view-btn--icon \{[^}]*width: 42px/,
+  );
   const phone = css.slice(
     css.indexOf(`@media ${phoneMaxWidthMediaQuery} {\n  .chat-views {`),
   );
-  const block = phone.slice(0, 400);
-  expect(block).toMatch(/\.chat-view-btn \{[^}]*width: 40px;[^}]*height: 40px/);
-  expect(block).toMatch(/\.chat-view-label \{[^}]*display: none/);
+  const block = phone.slice(0, 300);
+  expect(block).toMatch(/\.chat-view-btn \{[^}]*height: 40px/);
+  expect(block).toMatch(/\.chat-view-btn--icon \{[^}]*width: 40px/);
 });
 
 test("no opener is left under the transcript", () => {

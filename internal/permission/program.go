@@ -49,11 +49,14 @@ func SessionModeOption(res *acp.PermissionResult) string {
 }
 
 // AutoApproves reports whether a sender answers a permission request itself,
-// without asking anybody: the mode of the agent that asks is bypass. A
-// subagent's own narrowed mode decides first, then the mode the session's
-// gate stamped, then the configuration's, for a request that carries neither
-// (a caller outside the agent's gate).
+// without asking anybody: the mode of the agent that asks is bypass and the
+// prompt is not forced. A subagent's own narrowed mode decides first, then
+// the mode the session's gate stamped, then the configuration's, for a
+// request that carries neither (a caller outside the agent's gate).
 func AutoApproves(params acp.PermissionRequestParams, configMode string) bool {
+	if params.Forced {
+		return false
+	}
 	if m := strings.TrimSpace(params.EffectivePermissionMode); m != "" {
 		return m == config.PermModeBypass
 	}
@@ -61,6 +64,18 @@ func AutoApproves(params acp.PermissionRequestParams, configMode string) bool {
 		return m == config.PermModeBypass
 	}
 	return configMode == config.PermModeBypass
+}
+
+// ChatApproves reports whether a messenger bot answers a request itself: the
+// bot allows what its own agent asks, because the admin who configured it
+// decided that, but not a forced prompt and not a subagent narrowed below
+// bypass.
+func ChatApproves(params acp.PermissionRequestParams) bool {
+	if params.Forced {
+		return false
+	}
+	m := strings.TrimSpace(params.EffectivePermissionMode)
+	return m == "" || m == config.PermModeBypass
 }
 
 // shellMetacharacters are the characters that let one command line run more than
@@ -156,6 +171,11 @@ type OptionContext struct {
 	// subagent's prompt (its mode was narrowed by its definition and a child
 	// changes nothing of its parent) and for a prompt a hook forced.
 	SessionSwitch bool
+	// ExactGrantOnly leaves the program-wide grant out: the prompt of a
+	// command the decisions check stopped, which only a grant of exactly the
+	// command takes past the check again, so the wider one would remember
+	// nothing.
+	ExactGrantOnly bool
 }
 
 // OptionsFor is Options with the session-wide switches offered where they
@@ -164,7 +184,7 @@ type OptionContext struct {
 // the staged-config commit and rollback, which keep asking because a commit
 // can rewrite the permission policy itself.
 func OptionsFor(toolName, argsJSON string, oc OptionContext) []acp.PermissionOption {
-	options := baseOptions(toolName, argsJSON)
+	options := baseOptions(toolName, argsJSON, oc.ExactGrantOnly)
 	if !oc.SessionSwitch || oc.Mode != config.PermModeAsk {
 		return options
 	}
@@ -185,7 +205,7 @@ func OptionsFor(toolName, argsJSON string, oc OptionContext) []acp.PermissionOpt
 	return out
 }
 
-func baseOptions(toolName, argsJSON string) []acp.PermissionOption {
+func baseOptions(toolName, argsJSON string, exactGrantOnly bool) []acp.PermissionOption {
 	if strings.TrimSpace(toolName) == web.ToolHTTPRequest {
 		return httpRequestOptions(argsJSON)
 	}
@@ -193,7 +213,7 @@ func baseOptions(toolName, argsJSON string) []acp.PermissionOption {
 		{OptionID: OptionAllow, Name: "Allow", Kind: "allow_once"},
 		{OptionID: OptionAllowAlways, Name: "Allow always", Kind: "allow_always"},
 	}
-	if strings.TrimSpace(toolName) == "run_command" {
+	if strings.TrimSpace(toolName) == "run_command" && !exactGrantOnly {
 		if grant, ok := ProgramGrant(ExtractRunCommand(argsJSON)); ok {
 			options = append(options, acp.PermissionOption{
 				OptionID: OptionAllowAlwaysProgram,

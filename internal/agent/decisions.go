@@ -17,11 +17,12 @@ import (
 // shell command - run_command or ssh_run_command - that nobody allowed
 // explicitly: the NeuralDeep decisions endpoint is asked whether the command
 // is safe before the gate decides. A safe command runs without a prompt; an
-// unsafe one, or one the check could not judge, is asked about in the ask and
-// accept_edits modes and rejected in bypass, where nobody would be asked - the
-// refusal travels as the call's tool result, so both the model and the session
-// transcript see why the command did not run. The transport lives in
-// internal/llm/decisions.go.
+// unsafe one, or one the check could not judge, is asked about in every mode,
+// bypass included, with a prompt no sender answers by itself (Forced), so the
+// operator can still run it and the model reads its output. Where nobody
+// answers that prompt the command is rejected - the refusal travels as the
+// call's tool result, so both the model and the session transcript see why
+// the command did not run. The transport lives in internal/llm/decisions.go.
 
 const (
 	// commandRejectedAsUnsafePrefix opens the tool result of a command the
@@ -31,11 +32,11 @@ const (
 	// history the model keeps reasoning on.
 	commandRejectedAsUnsafePrefix = session.ToolResultUnsafePrefix
 
-	// commandNotExecutedPrefix opens the tool result of a command stopped in
-	// bypass mode because the check could not judge it: no credential, a
-	// request the hub refused, an answer the question cannot have, a command
-	// too long for the model to read whole, or an endpoint that did not
-	// answer. A safety net that is on must not fail silently open.
+	// commandNotExecutedPrefix opens the tool result of a command the check
+	// could not judge and nobody approved: no credential, a request the hub
+	// refused, an answer the question cannot have, a command too long for the
+	// model to read whole, or an endpoint that did not answer. A safety net
+	// that is on must not fail silently open.
 	commandNotExecutedPrefix = session.ToolResultCommandNotRunPrefix
 )
 
@@ -51,7 +52,8 @@ type commandVerdict struct {
 	reason string
 }
 
-// refusal is the tool result of a command bypass mode does not run.
+// refusal is the tool result of a command the check stopped and nobody
+// approved.
 func (v commandVerdict) refusal() string {
 	if v.unsafe {
 		return commandRejectedAsUnsafePrefix + v.reason + "; ask the operator or use a safer alternative"
@@ -89,12 +91,23 @@ func (a *Agent) classifyCommand(ctx context.Context, subject llm.NeuralDeepDecis
 }
 
 // commandAllowlisted reports whether the operator allowed a run_command call
-// explicitly: tools.command_allowlist or a session's always-allow grant.
+// explicitly: tools.command_allowlist, or a session's always-allow grant of
+// exactly this command. A grant that matches by prefix - the command with
+// arguments added, a program-wide grant - leaves the command to the check.
 func commandAllowlisted(tc llm.ToolCall, env *tooling.Env, sessionGrants []string) bool {
 	if tc.Name != "run_command" {
 		return false
 	}
-	return permission.CommandAllowedWithSession(env, sessionGrants, permission.ExtractRunCommand(tc.InputJSON))
+	cmd := permission.ExtractRunCommand(tc.InputJSON)
+	if env != nil && env.CommandAllowed(cmd) {
+		return true
+	}
+	for _, grant := range sessionGrants {
+		if cmd != "" && strings.TrimSpace(grant) == cmd {
+			return true
+		}
+	}
+	return false
 }
 
 // askAlwaysTurn reports whether the running turn keeps every prompt for its

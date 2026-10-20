@@ -279,6 +279,16 @@ func ReadArtifact(sd, id string) (Artifact, string, error) {
 	return Artifact{}, "", os.ErrNotExist
 }
 
+// The states of a shared file's source, as its card shows them: still at
+// the path it was copied from in the chat's workspace, gone from there, or
+// not a file of this workspace at all (the chat moved to another folder, or
+// the manifest recorded no source).
+const (
+	ArtifactSourcePresent     = "present"
+	ArtifactSourceDeleted     = "deleted"
+	ArtifactSourceUnavailable = "unavailable"
+)
+
 // ArtifactSourcePath returns the original workspace path recorded while an
 // artifact was verified. Both persisted path forms must still agree with cwd;
 // callers receive no path supplied by an HTTP client.
@@ -291,30 +301,55 @@ func ArtifactSourcePath(sessionDir, cwd, id string) (string, error) {
 		if artifact.ID != id {
 			continue
 		}
-		root, err := canonicalDir(cwd)
-		if err != nil {
-			return "", err
-		}
-		path := strings.TrimSpace(artifact.SourcePath)
-		rel := strings.TrimSpace(artifact.SourceRelativePath)
-		if path == "" || rel == "" || !filepath.IsAbs(path) || filepath.IsAbs(rel) {
-			return "", os.ErrNotExist
-		}
-		want, err := filepath.Rel(root, path)
-		if err != nil || want != rel || want == "." || strings.HasPrefix(want, ".."+string(filepath.Separator)) {
-			return "", os.ErrNotExist
-		}
-		if err := noSymlinkPath(root, path); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return "", ErrArtifactSourceUnavailable
-			}
-			return "", os.ErrNotExist
-		}
-		info, err := os.Lstat(path)
-		if err != nil || !info.Mode().IsRegular() {
-			return "", ErrArtifactSourceUnavailable
-		}
-		return path, nil
+		return verifiedSourcePath(cwd, artifact.SourcePath, artifact.SourceRelativePath)
 	}
 	return "", os.ErrNotExist
+}
+
+// ArtifactSourceState says whether the file an artifact was copied from is
+// still where it was in the workspace cwd: ArtifactSourcePresent,
+// ArtifactSourceDeleted or ArtifactSourceUnavailable. It reads the recorded
+// paths of a listing row, so a listing reads no manifest per row.
+func ArtifactSourceState(cwd, sourcePath, sourceRelativePath string) string {
+	_, err := verifiedSourcePath(cwd, sourcePath, sourceRelativePath)
+	switch {
+	case err == nil:
+		return ArtifactSourcePresent
+	case errors.Is(err, ErrArtifactSourceUnavailable):
+		return ArtifactSourceDeleted
+	default:
+		return ArtifactSourceUnavailable
+	}
+}
+
+// verifiedSourcePath checks a recorded source against cwd: both path forms
+// must agree with the workspace, no link may stand on the way, and the file
+// must still be a regular file. A source that is gone (or no longer a file)
+// is ErrArtifactSourceUnavailable; one that is not this workspace's is
+// os.ErrNotExist.
+func verifiedSourcePath(cwd, sourcePath, sourceRelativePath string) (string, error) {
+	root, err := canonicalDir(cwd)
+	if err != nil {
+		return "", os.ErrNotExist
+	}
+	path := strings.TrimSpace(sourcePath)
+	rel := strings.TrimSpace(sourceRelativePath)
+	if path == "" || rel == "" || !filepath.IsAbs(path) || filepath.IsAbs(rel) {
+		return "", os.ErrNotExist
+	}
+	want, err := filepath.Rel(root, path)
+	if err != nil || want != rel || want == "." || strings.HasPrefix(want, ".."+string(filepath.Separator)) {
+		return "", os.ErrNotExist
+	}
+	if err := noSymlinkPath(root, path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", ErrArtifactSourceUnavailable
+		}
+		return "", os.ErrNotExist
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", ErrArtifactSourceUnavailable
+	}
+	return path, nil
 }
