@@ -70,6 +70,12 @@ func (r *runner) probeProvider(ctx context.Context, prov *config.ProviderConfig,
 	}
 
 	key, kerr := prov.EffectiveAPIKeyContextErr(ctx)
+	authPath := config.ProviderAuthPath(r.req.Paths.Home, prov.Name, prov.Type)
+	if prov.Type == "opencode" {
+		// A stored login is issued for one gateway, and with no explicit key
+		// that gateway is where the requests go, whatever api_base says.
+		base = llm.OpenCodeEffectiveAPIBase(key, prov.APIBase, authPath)
+	}
 	if kerr != nil {
 		out = append(out, r.check(StatusWarning, path, path+".api_key_command",
 			"api_key_command did not answer in time; the environment variable is the fallback",
@@ -93,7 +99,7 @@ func (r *runner) probeProvider(ctx context.Context, prov *config.ProviderConfig,
 		APIKey:   key,
 		BaseURL:  prov.APIBase,
 		ProxyURL: prov.Proxy,
-		AuthPath: config.ProviderAuthPath(r.req.Paths.Home, prov.Name, prov.Type),
+		AuthPath: authPath,
 		// The account a request of this row would use: the CLI login of the
 		// type serves one row only.
 		NoCLILogin: !r.req.Cfg.ProviderMayUseCLILogin(prov.Name, prov.Type),
@@ -179,8 +185,6 @@ func displayBase(prov *config.ProviderConfig) string {
 		return "https://api.anthropic.com"
 	case "neuraldeep":
 		return llm.NeuralDeepDefaultAPIBase()
-	case "opencode":
-		return llm.ProviderEndpoint("opencode", prov.APIBase)
 	case "codex":
 		return "the Codex backend"
 	case "devin":
@@ -275,7 +279,7 @@ func credentialFix(prov *config.ProviderConfig) string {
 	case "neuraldeep":
 		return fmt.Sprintf("run `coddy providers login %s` again, or check api_key if you set one", prov.Name)
 	case "opencode":
-		return fmt.Sprintf("run `coddy providers login %s` to store the key again, or check api_key / %s if you set one", prov.Name, config.ProviderAPIKeyEnvVarName(prov.Name))
+		return fmt.Sprintf("run `coddy providers login %s` to sign in again, or check api_key / %s if you set one", prov.Name, config.ProviderAPIKeyEnvVarName(prov.Name))
 	case "acp":
 		return "sign the agent in on its own, or set acp.auth_method to the method it offers"
 	default:

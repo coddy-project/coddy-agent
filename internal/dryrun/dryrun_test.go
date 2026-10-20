@@ -19,6 +19,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/external/httpserver"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 	"github.com/EvilFreelancer/coddy-agent/internal/webauth"
 )
@@ -1051,5 +1052,25 @@ func TestGatewayWithoutAdminsIsWarned(t *testing.T) {
 		if c.Path == "gateways.pachca.admins" {
 			t.Errorf("a bot with admins was warned: %+v", c)
 		}
+	}
+}
+
+// An opencode row with no api_base talks to the gateway its stored login was
+// issued for, and the probe names that gateway rather than the default one.
+func TestOpenCodeProbeNamesTheGatewayOfTheLogin(t *testing.T) {
+	t.Setenv(llm.EnvOpenCodeBaseURL, "")
+	t.Setenv("OC_API_KEY", "")
+	closed := httptest.NewServer(http.NotFoundHandler())
+	proxy := closed.URL
+	closed.Close()
+	prep, home := prepare(t, fmt.Sprintf("providers:\n  - name: oc\n    type: opencode\n    proxy: %s\n", proxy))
+	console := llm.OpenCodeAPIBases()[1]
+	if err := llm.SaveOpenCodeAuth(config.OpenCodeAuthPath(home, "oc"), "oc-console-key-0123456789", console); err != nil {
+		t.Fatal(err)
+	}
+	rep := Run(context.Background(), Request{Cfg: prep.Cfg, Paths: prep.Paths, Locator: prep.Locator})
+	p := find(t, rep, "providers[oc]")
+	if p.Status != StatusError || !strings.Contains(p.Message, console+":") || strings.Contains(p.Message, llm.OpenCodeDefaultAPIBase()) {
+		t.Errorf("provider check %+v, want it to name %s", p, console)
 	}
 }
