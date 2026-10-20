@@ -3,9 +3,11 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -525,5 +527,30 @@ func TestOpenCodeReasoningCarrierIsolation(t *testing.T) {
 	}
 	if got := p.encodeReasoningItems(nil); got != "" {
 		t.Errorf("encode(nil) = %q, want empty", got)
+	}
+}
+
+// The label on an error names the gateway the request reached: with no
+// api_base and no explicit key that is the gateway the stored login was issued
+// for, not the default the type alone names.
+func TestOpenCodeLabelNamesTheGatewayOfTheLogin(t *testing.T) {
+	t.Setenv(EnvOpenCodeBaseURL, "")
+	path := filepath.Join(t.TempDir(), "opencode-auth.json")
+	if err := SaveOpenCodeAuth(path, "oc-console-key-0123456789", opencodeConsoleBaseURL); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, key, want string
+	}{
+		{"stored Console login", "", opencodeConsoleBaseURL},
+		{"explicit key on the default gateway", "explicit-key", opencodeGoBaseURL},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := labelProvider(&labelTestProvider{err: errors.New("boom")}, ProviderInput{Name: "oc", Type: "opencode", APIKey: tc.key, AuthPath: path})
+			_, err := p.Complete(context.Background(), nil, nil)
+			if err == nil || !strings.Contains(err.Error(), "("+tc.want+")") {
+				t.Fatalf("label %v, want it to name %s", err, tc.want)
+			}
+		})
 	}
 }
