@@ -16,9 +16,18 @@ import { useT } from "../i18n/I18nProvider";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
 import { docsHrefFromCoddyLink } from "../scheduler/hashRoute";
 import { DiagramBlock, MarkdownStreamingContext } from "./DiagramBlock";
+import {
+  FileLink,
+  FileReferenceLink,
+  InsideLinkContext,
+  useFileTarget,
+} from "./FileReference";
+import { localLinkReference, parseFileReference } from "./fileReferences";
 import { MathBlock, MathInline } from "./MathFormula";
 import { normalizeMathDelimiters } from "./mathDelimiters";
 import { REMARK_PLUGINS, REMARK_PLUGINS_WITH_BREAKS } from "./remarkPlugins";
+import { FILE_LINK_SCHEME } from "./remarkFilePaths";
+import { useWorkspaceFilesScope } from "../files/workspaceEntries";
 import { pictureKindOf } from "./pictureRender";
 
 /**
@@ -92,6 +101,14 @@ function InlineCode(props: { className?: string; children?: unknown }) {
   const { t } = useT();
   const text = normalizeText(props.children);
   const [copied, setCopied] = useState(false);
+  // A path the chat's workspace has as a file opens it in the Files window;
+  // any other code copies itself, as it always did. Inside a link the code is
+  // the link's label, and the link decides.
+  const inChat = useWorkspaceFilesScope() !== null;
+  const inLink = useContext(InsideLinkContext);
+  const target = useFileTarget(
+    inChat && !inLink ? parseFileReference(text) : null,
+  );
 
   const onCopy = useCallback(async () => {
     if (!text) return;
@@ -118,6 +135,22 @@ function InlineCode(props: { className?: string; children?: unknown }) {
   const className = ["md-inline-code", props.className || ""]
     .filter(Boolean)
     .join(" ");
+
+  // Inside a link the code is the link's label alone: no button of its own,
+  // no copy on a click, no second tab stop.
+  if (inLink) {
+    return <code className={className}>{props.children as any}</code>;
+  }
+
+  if (target) {
+    return (
+      <FileLink target={target}>
+        <code className={`${className} md-inline-code--file`}>
+          {props.children as any}
+        </code>
+      </FileLink>
+    );
+  }
 
   return (
     <code
@@ -186,6 +219,76 @@ function MarkdownPre(props: PreProps) {
   );
 }
 
+/**
+ * A link of the Markdown: a path in prose (remarkFilePaths), a skill chip, a
+ * page of the documentation, a link to a workspace file or any other address.
+ */
+function MarkdownLink(p: AProps) {
+  const href = typeof p.href === "string" ? p.href : "";
+  // A path in prose (remarkFilePaths): a link once it names a file of
+  // the chat's workspace, the text it was otherwise.
+  if (href.startsWith(FILE_LINK_SCHEME)) {
+    let value = "";
+    try {
+      value = decodeURIComponent(href.slice(FILE_LINK_SCHEME.length));
+    } catch {
+      return <>{p.children as any}</>;
+    }
+    return (
+      <FileReferenceLink
+        reference={parseFileReference(value)}
+        fallback={p.children as any}
+      >
+        {p.children as any}
+      </FileReferenceLink>
+    );
+  }
+  if (href.startsWith("coddy-skill:")) {
+    const name = href.slice("coddy-skill:".length);
+    return (
+      <span
+        className="coddy-skill-chip"
+        data-testid="coddy-skill-span"
+        data-skill-name={name}
+      >
+        {p.children as any}
+      </span>
+    );
+  }
+  // A page of the built-in documentation, as pages link to each other
+  // and as the agent quotes them: open it in the reader.
+  const docsHref = docsHrefFromCoddyLink(href);
+  if (docsHref) {
+    return (
+      <a href={docsHref} className="md-docs-link">
+        {p.children as any}
+      </a>
+    );
+  }
+  const external = /^https?:\/\//i.test(href);
+  const anchor = (
+    <a
+      href={href}
+      {...(external
+        ? ({ target: "_blank", rel: "noreferrer noopener" } as const)
+        : {})}
+    >
+      {p.children as any}
+    </a>
+  );
+  // A link to a file of the chat's workspace opens it in the Files
+  // window; the page address it is otherwise stays as it was.
+  const local = external ? null : localLinkReference(href);
+  if (local) {
+    return (
+      <FileReferenceLink reference={local} fallback={anchor}>
+        {p.children as any}
+      </FileReferenceLink>
+    );
+  }
+  return anchor;
+}
+
 export const Markdown = memo(function Markdown(props: {
   text: string;
   /** The text is still arriving: a diagram that does not parse yet is not an error. */
@@ -204,42 +307,11 @@ export const Markdown = memo(function Markdown(props: {
           <table>{children}</table>
         </div>
       ),
-      a: (p: AProps) => {
-        const href = typeof p.href === "string" ? p.href : "";
-        if (href.startsWith("coddy-skill:")) {
-          const name = href.slice("coddy-skill:".length);
-          return (
-            <span
-              className="coddy-skill-chip"
-              data-testid="coddy-skill-span"
-              data-skill-name={name}
-            >
-              {p.children as any}
-            </span>
-          );
-        }
-        // A page of the built-in documentation, as pages link to each other
-        // and as the agent quotes them: open it in the reader.
-        const docsHref = docsHrefFromCoddyLink(href);
-        if (docsHref) {
-          return (
-            <a href={docsHref} className="md-docs-link">
-              {p.children as any}
-            </a>
-          );
-        }
-        const external = /^https?:\/\//i.test(href);
-        return (
-          <a
-            href={href}
-            {...(external
-              ? ({ target: "_blank", rel: "noreferrer noopener" } as const)
-              : {})}
-          >
-            {p.children as any}
-          </a>
-        );
-      },
+      a: (p: AProps) => (
+        <InsideLinkContext.Provider value={true}>
+          <MarkdownLink {...p} />
+        </InsideLinkContext.Provider>
+      ),
       img: (p: ImgProps) =>
         p.src && VIDEO_SRC.test(p.src) ? (
           <video
@@ -264,7 +336,11 @@ export const Markdown = memo(function Markdown(props: {
   );
 
   const urlTransform = useCallback((url: string) => {
-    if (url.startsWith("coddy-skill:") || url.startsWith("coddy:")) {
+    if (
+      url.startsWith("coddy-skill:") ||
+      url.startsWith("coddy:") ||
+      url.startsWith(FILE_LINK_SCHEME)
+    ) {
       return url;
     }
     return defaultUrlTransform(url);

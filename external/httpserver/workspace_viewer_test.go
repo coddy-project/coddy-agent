@@ -42,7 +42,7 @@ func TestWorkspaceViewerCORSAndOpenAPI(t *testing.T) {
 		}
 	}
 	paths := openAPISpec()["paths"].(map[string]interface{})
-	for _, route := range []string{"tree", "raw", "text", "media-token"} {
+	for _, route := range []string{"tree", "raw", "text", "media-token", "stat"} {
 		if _, ok := paths["/coddy/sessions/{id}/workspace/"+route]; !ok {
 			t.Fatalf("missing OpenAPI route %s", route)
 		}
@@ -280,4 +280,68 @@ func TestWorkspaceViewerCapabilitiesAndRawBoundary(t *testing.T) {
 	if w.Code != 400 {
 		t.Fatalf("traversal: %d", w.Code)
 	}
+}
+
+// The chat asks which paths an answer names are files it can open; a path
+// that leaves the workspace or names nothing is simply not reported.
+func TestWorkspaceStatReportsOnlyWhatIsInTheWorkspace(t *testing.T) {
+	e := newChangesEnv(t)
+	writeInWorkspace(t, e.cwd, "docs/a.md", "a")
+	outside := filepath.Join(filepath.Dir(e.cwd), "outside.txt")
+	if err := os.WriteFile(outside, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(e.cwd, "link.md")
+	if err := os.Symlink(filepath.Join(e.cwd, "docs", "a.md"), link); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	asked := []string{"docs/a.md", "./docs/a.md", "docs", "link.md", "../outside.txt", outside, "missing.go", "", "docs/a.md"}
+	body, _ := json.Marshal(map[string][]string{"paths": asked})
+	w := workspaceRequest(e, "POST", "stat", body, map[string]string{"Content-Type": "application/json"})
+	if w.Code != 200 {
+		t.Fatalf("stat: %d %s", w.Code, w.Body.String())
+	}
+	var res struct {
+		Object  string `json:"object"`
+		Entries []struct {
+			Path string `json:"path_rel"`
+			Kind string `json:"kind"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, entry := range res.Entries {
+		if _, twice := got[entry.Path]; twice {
+			t.Fatalf("%q reported twice: %s", entry.Path, w.Body.String())
+		}
+		got[entry.Path] = entry.Kind
+	}
+	want := map[string]string{"docs/a.md": "file", "./docs/a.md": "file", "docs": "directory", "link.md": "symlink"}
+	if res.Object != "coddy.workspace_stat" || len(got) != len(want) {
+		t.Fatalf("stat answered %s, want %v", w.Body.String(), want)
+	}
+	for path, kind := range want {
+		if got[path] != kind {
+			t.Fatalf("%q is %q, want %q: %s", path, got[path], kind, w.Body.String())
+		}
+	}
+	for _, bad := range [][]byte{[]byte(`{`), []byte(`{"paths":"a"}`), mustJSON(t, map[string][]string{"paths": make([]string, workspaceStatMaxPaths+1)})} {
+		if w := workspaceRequest(e, "POST", "stat", bad, nil); w.Code != 400 {
+			t.Fatalf("stat accepted %.40s: %d", bad, w.Code)
+		}
+	}
+	if w := workspaceRequest(e, "POST", "stat", []byte(`{"paths":[]}`), nil); w.Code != 200 || !strings.Contains(w.Body.String(), `"entries":[]`) {
+		t.Fatalf("empty stat: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }

@@ -119,13 +119,13 @@ type ViewId = "tasks" | "files";
 /**
  * The views of a chat in its header - its files, its background tasks - as a
  * row of buttons at the right of the sticky header, the way the views of a
- * session sit at the top of Claude's app. Files is an icon the size of the
- * rail's, with a short name beside it on a desktop and a tablet; a phone has
- * room for the icon alone, the size of its top bar's. Background tasks come
- * last, at the right edge: the dot and the running / total count of the
- * control the header always had, the dot in the accent while work is in
- * flight. The edits open from git's count in the bar over the composer, not
- * from here. The full name is in the tooltip everywhere. A button opens its
+ * session sit at the top of Claude's app. They are icons at every width, as a
+ * phone always showed them: Files is its icon alone, the size of the rail's, in
+ * a square of the top bar's size. Background tasks come last, at the right
+ * edge: the dot and the running / total count of the control the header always
+ * had, the dot in the accent while work is in flight, and the word only while
+ * there are no counts yet. The edits open from git's count in the bar over the
+ * composer, not from here. The full name is in the tooltip everywhere. A button opens its
  * view and, pressed again, puts it away; the button of a view on show is
  * pressed (aria-pressed: brighter text, border and ground, the way the Tasks
  * control always marked its open panel).
@@ -182,7 +182,9 @@ function HeaderViews(props: {
             type="button"
             className={[
               "chat-view-btn",
-              view.id === "tasks" ? "chat-view-btn--tasks" : "",
+              view.id === "tasks"
+                ? "chat-view-btn--tasks"
+                : "chat-view-btn--icon",
               view.pressed ? "is-active" : "",
               view.id === "tasks" && live ? "is-running" : "",
               view.id === "tasks" && total > 0 ? "has-tasks" : "",
@@ -194,8 +196,10 @@ function HeaderViews(props: {
             aria-label={view.name}
             onClick={view.run}
           >
-            {/* One line of text: the icon sits on it with vertical-align:
-                middle, the middle of the lowercase letters in any font. */}
+            {/* One line of text: the dot sits on it with vertical-align:
+                middle, the middle of the lowercase letters in any font. The
+                names are in the tooltip; only the tasks word shows, until
+                there are counts. */}
             <span className="chat-view-face">
               {view.id === "tasks" ? (
                 <span
@@ -205,9 +209,11 @@ function HeaderViews(props: {
               ) : (
                 <FilesIcon />
               )}
-              <span className="chat-view-label" aria-hidden="true">
-                {view.label}
-              </span>
+              {view.id === "tasks" ? (
+                <span className="chat-view-label" aria-hidden="true">
+                  {view.label}
+                </span>
+              ) : null}
               {view.id === "tasks" && total > 0 ? (
                 <span
                   className="chat-view-count"
