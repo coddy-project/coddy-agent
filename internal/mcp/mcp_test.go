@@ -99,6 +99,7 @@ func runFakeMCPServer() {
 				respond(req.ID, map[string]interface{}{"content": []map[string]interface{}{
 					{"type": "text", "text": "Still useful"},
 					{"type": "image", "mimeType": "image/png", "data": "not base64!"},
+					{"type": "image", "mimeType": "image/png", "data": 123},
 					{"type": "image", "mimeType": "image/svg+xml", "data": base64.StdEncoding.EncodeToString([]byte("<svg/>"))},
 					{"type": "resource", "resource": map[string]interface{}{"text": "private"}},
 				}})

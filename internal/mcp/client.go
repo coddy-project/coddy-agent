@@ -283,10 +283,10 @@ func (c *conn) callTool(ctx context.Context, toolName, argsJSON string) (ToolRes
 	// Parse MCP tool result.
 	var resp struct {
 		Content []struct {
-			Type     string `json:"type"`
-			Text     string `json:"text"`
-			Data     string `json:"data"`
-			MIMEType string `json:"mimeType"`
+			Type     string          `json:"type"`
+			Text     string          `json:"text"`
+			Data     json.RawMessage `json:"data"`
+			MIMEType json.RawMessage `json:"mimeType"`
 		} `json:"content"`
 		IsError bool `json:"isError"`
 	}
@@ -304,12 +304,17 @@ func (c *conn) callTool(ctx context.Context, toolName, argsJSON string) (ToolRes
 		case "image":
 			// Bound decoding before the agent validates the picture against
 			// the model's format, dimensions and per-image size limits.
-			if len(block.Data) > base64.StdEncoding.EncodedLen(maxToolImageBytes) || len(block.Data) == 0 || len(out.Images) >= 20 {
+			if len(block.Data) > base64.StdEncoding.EncodedLen(maxToolImageBytes)+2 || len(block.Data) == 0 || len(out.Images) >= 20 {
 				parts = append(parts, "[MCP image omitted: empty, larger than 3.75 MiB, or more than 20 images]")
 				continue
 			}
-			data, err := base64.StdEncoding.DecodeString(block.Data)
-			if err != nil || !supportedToolImage(block.MIMEType, data) {
+			var encoded, mimeType string
+			if json.Unmarshal(block.Data, &encoded) != nil || json.Unmarshal(block.MIMEType, &mimeType) != nil {
+				parts = append(parts, "[MCP image omitted: invalid image data or media type]")
+				continue
+			}
+			data, err := base64.StdEncoding.DecodeString(encoded)
+			if err != nil || !supportedToolImage(mimeType, data) {
 				parts = append(parts, "[MCP image omitted: invalid image data or media type]")
 				continue
 			}
@@ -318,7 +323,7 @@ func (c *conn) callTool(ctx context.Context, toolName, argsJSON string) (ToolRes
 				continue
 			}
 			imageBytes += len(data)
-			out.Images = append(out.Images, ToolImage{MIMEType: block.MIMEType, Data: data})
+			out.Images = append(out.Images, ToolImage{MIMEType: mimeType, Data: data})
 		}
 	}
 	out.Text = strings.Join(parts, "\n")
