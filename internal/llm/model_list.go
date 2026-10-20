@@ -92,6 +92,16 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 	var url string
 	switch in.Type {
 	case "openai", "anthropic", "neuraldeep", "opencode":
+		if in.Type == "neuraldeep" {
+			// Same credential order as completions: explicit key wins, the
+			// stored hub login fills in when the key is absent.
+			in.APIKey = neuralDeepEffectiveKey(in.APIKey, in.AuthPath)
+		}
+		if in.Type == "opencode" {
+			// Same gateway resolution as completions: a key taken from the
+			// stored login is listed against the gateway that issued it.
+			in.BaseURL = opencodeGatewayFor(in.APIKey, in.BaseURL, in.AuthPath)
+		}
 		base := strings.TrimRight(providerBaseURL(in.Type, in.BaseURL), "/")
 		if base == "" {
 			base = defaultModelListBaseURL(in.Type)
@@ -100,11 +110,6 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 			url = base + "/v1/models"
 		} else {
 			url = base + "/models"
-		}
-		if in.Type == "neuraldeep" {
-			// Same credential order as completions: explicit key wins, the
-			// stored hub login fills in when the key is absent.
-			in.APIKey = neuralDeepEffectiveKey(in.APIKey, in.AuthPath)
 		}
 	default:
 		return nil, &UnsupportedProviderError{Provider: in.Type}
@@ -133,13 +138,13 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 	}
 	if in.Type == "opencode" {
 		// The gateway asks every client to identify itself with its own name
-		// rather than a generic HTTP-library one.
-		req.Header.Set("User-Agent", opencodeUserAgent())
-		sessionID := strings.TrimSpace(in.SessionID)
-		if sessionID == "" {
-			sessionID = newCodexSessionID()
+		// rather than a generic HTTP-library one, and to carry a session id on
+		// every request; opencodeClient injects both over the row's route.
+		wrapped, err := opencodeClient(hc, in.APIKey, opencodeSessionHeader(in.SessionID), in.AuthPath)
+		if err != nil {
+			return nil, err
 		}
-		hc = opencodeClient(hc, in.APIKey, sessionID, in.AuthPath)
+		hc = wrapped
 	}
 
 	resp, err := hc.Do(req)

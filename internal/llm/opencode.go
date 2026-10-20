@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -95,6 +96,48 @@ func opencodeAPIBase(configured string) string {
 		return e
 	}
 	return opencodeGoBaseURL
+}
+
+// opencodeLogicalGateway is the gateway one request is *for*: the allowlisted
+// providers[].api_base when the row names one, else the gateway the stored
+// login was issued against, else the default. It deliberately ignores the
+// process-wide stand override, because Go and Console serve the same model id
+// over different wire protocols and the protocol has to follow the gateway the
+// credential belongs to even while a test points the traffic elsewhere.
+func opencodeLogicalGateway(explicitKey, configured, authPath string) string {
+	if e, ok := opencodeEndpointFor(configured); ok {
+		return e
+	}
+	if strings.TrimSpace(explicitKey) == "" {
+		// A key taken from the stored login is issued for exactly one of the
+		// two gateways. The row names none here, so that gateway decides where
+		// the request reaches - not the default, which would send a Console key
+		// at the Go gateway on every request of a row signed in with
+		// --no-config.
+		if f, err := loadOpenCodeAuth(authPath); err == nil && f != nil {
+			if loginBase, ok := NormalizeOpenCodeAPIBase(f.APIBase); ok {
+				return loginBase
+			}
+		}
+	}
+	return opencodeGoBaseURL
+}
+
+// opencodeGatewayFor is where the request actually goes: the process-wide
+// CODDY_OPENCODE_BASE_URL override first (stands and tests), then the logical
+// gateway above.
+func opencodeGatewayFor(explicitKey, configured, authPath string) string {
+	if v := strings.TrimSpace(os.Getenv(EnvOpenCodeBaseURL)); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+	return opencodeLogicalGateway(explicitKey, configured, authPath)
+}
+
+// OpenCodeEffectiveAPIBase reports the gateway an opencode provider's requests
+// reach. Diagnostics name this, so a message never points at a gateway the
+// credential was not issued for.
+func OpenCodeEffectiveAPIBase(explicitKey, configured, authPath string) string {
+	return opencodeGatewayFor(explicitKey, configured, authPath)
 }
 
 // opencodeUserAgent is the client name the gateway asks for: Coddy's own, with
@@ -206,10 +249,12 @@ func (t *opencodeHeaderTransport) RoundTrip(req *http.Request) (*http.Response, 
 
 // opencodeClient wraps hc's transport with the OpenCode header injection, so
 // every SDK request over it carries the required headers and still takes the
-// row's proxy route.
-func opencodeClient(hc *http.Client, apiKey, sessionID, authPath string) *http.Client {
+// row's proxy route. A nil client is refused rather than dropped: the SDK
+// would then fall back to its own default client, which is http.DefaultClient's
+// route - the environment's proxy, no stall guard and no liveness pings.
+func opencodeClient(hc *http.Client, apiKey, sessionID, authPath string) (*http.Client, error) {
 	if hc == nil {
-		return nil
+		return nil, errors.New("opencode: an http client is required; build it with llm.HTTPClientForProviderProxy")
 	}
 	client := *hc
 	client.Transport = &opencodeHeaderTransport{
@@ -232,51 +277,47 @@ func opencodeClient(hc *http.Client, apiKey, sessionID, authPath string) *http.C
 		}
 		return nil
 	}
-	return &client
+	return &client, nil
 }
 
-// opencodeProvider routes a model to the transport that serves it. It is built
-// per turn, so the concrete provider is chosen once at construction.
-type opencodeProvider struct {
-	inner Provider
-}
-
-func newOpenCodeProvider(p ProviderInput, hc *http.Client) *opencodeProvider {
-	base := opencodeAPIBase(p.BaseURL)
+// newOpenCodeProvider routes a model to the transport that serves it: the wire
+// protocol is chosen once at construction from the model id and the gateway
+// the credential is bound to, and the provider handed back is that protocol's
+// own, with nothing left to decide per call.
+func newOpenCodeProvider(p ProviderInput, hc *http.Client) (Provider, error) {
+	base := opencodeGatewayFor(p.APIKey, p.BaseURL, p.AuthPath)
 	key := p.APIKey
-	session := strings.TrimSpace(p.SessionID)
-	if session == "" {
-		// A conversation always carries its id from the agent; this only fires
-		// for a caller that is not one, which still gets a stable-per-provider
-		// id rather than none.
-		session = newCodexSessionID()
+	client, err := opencodeClient(hc, key, opencodeSessionHeader(p.SessionID), p.AuthPath)
+	if err != nil {
+		return nil, err
 	}
-	client := opencodeClient(hc, key, session, p.AuthPath)
 
-	var inner Provider
-	switch opencodeProtocolForGateway(p.Model, p.BaseURL) {
+	switch opencodeProtocolForGateway(p.Model, opencodeLogicalGateway(p.APIKey, p.BaseURL, p.AuthPath)) {
 	case opencodeResponses:
-		inner = newOpenCodeResponsesProvider(p.Model, key, opencodeOpenAIBase(base), client, p.MaxTokens, p.ReasoningEffort)
+		return newOpenCodeResponsesProvider(p.Model, key, opencodeOpenAIBase(base), client, p.MaxTokens, p.ReasoningEffort), nil
 	case opencodeGoogle:
-		inner = &opencodeGoogleProvider{input: p, client: client, base: strings.TrimSuffix(base, "/v1") + "/google/v1beta"}
+		return &opencodeGoogleProvider{input: p, client: client, base: strings.TrimSuffix(base, "/v1") + "/google/v1beta"}, nil
 	case opencodeMessages:
 		ap := newAnthropicProvider(p.Model, key, opencodeAnthropicBase(base), client, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 		ap.tempSet = p.TemperatureSet
-		inner = ap
+		return ap, nil
 	default:
 		op := newOpenAIProvider(p.Model, key, opencodeOpenAIBase(base), client, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 		op.tempSet = p.TemperatureSet
-		inner = op
+		return op, nil
 	}
-	return &opencodeProvider{inner: inner}
 }
 
-func (p *opencodeProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
-	return p.inner.Complete(ctx, messages, tools)
-}
-
-func (p *opencodeProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
-	return p.inner.Stream(ctx, messages, tools, onChunk)
+// opencodeSessionHeader is the x-opencode-session value a request carries: the
+// conversation's own id when it has one, and a generated one otherwise. A
+// request that is not part of a conversation - the model list of a login, a
+// dry-run probe - still gets an id of its own, because the gateway asks every
+// request for one.
+func opencodeSessionHeader(sessionID string) string {
+	if s := strings.TrimSpace(sessionID); s != "" {
+		return s
+	}
+	return newCodexSessionID()
 }
 
 // opencodeResponsesProvider speaks the OpenAI Responses API to the OpenCode

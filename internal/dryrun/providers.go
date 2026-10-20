@@ -246,7 +246,7 @@ func credentialFix(prov *config.ProviderConfig) string {
 	case "neuraldeep":
 		return fmt.Sprintf("run `coddy providers login %s` again, or check api_key if you set one", prov.Name)
 	case "opencode":
-		return fmt.Sprintf("run `coddy providers login %s` to store the key again, or check api_key / OPENCODE_API_KEY if you set one", prov.Name)
+		return fmt.Sprintf("run `coddy providers login %s` to store the key again, or check api_key / %s if you set one", prov.Name, config.ProviderAPIKeyEnvVarName(prov.Name))
 	default:
 		return fmt.Sprintf("check api_key (or api_key_command / %s); the endpoint says it is not valid", config.ProviderAPIKeyEnvVarName(prov.Name))
 	}

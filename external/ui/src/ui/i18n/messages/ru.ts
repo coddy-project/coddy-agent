@@ -989,6 +989,7 @@ export const messagesRu: Record<string, string> = {
   "openCodeApiBase.optionGo": "Go - подписка (inference/go/v1)",
   "openCodeApiBase.optionConsole":
     "Console - оплата по мере использования (inference/v1)",
+  "openCodeApiBase.unresolved": "Не шлюз OpenCode — выберите шлюз",
   "openCodeApiBase.unknown":
     "Сохранённое значение api_base {value} не соответствует адресу шлюза OpenCode, поэтому запросы пойдут на {fallback}. Выберите шлюз, чтобы заменить его.",
 

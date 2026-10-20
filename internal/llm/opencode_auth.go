@@ -202,6 +202,9 @@ func ApplyOpenCodeLoginToConfig(ctx context.Context, cfg *config.Config, name, a
 			}
 		}
 	}
+	// The first id that survives the check below is the default: the catalog is
+	// already sorted by id, so this is the first model the operator can pick.
+	var defaultRef string
 	for _, m := range models {
 		id := strings.TrimSpace(m.ID)
 		if !catalogModelIDRe.MatchString(id) {
@@ -210,6 +213,9 @@ func ApplyOpenCodeLoginToConfig(ctx context.Context, cfg *config.Config, name, a
 			continue
 		}
 		ref := name + "/" + id
+		if defaultRef == "" {
+			defaultRef = ref
+		}
 		if cfg.FindModelEntry(ref) != nil {
 			continue
 		}
@@ -221,10 +227,9 @@ func ApplyOpenCodeLoginToConfig(ctx context.Context, cfg *config.Config, name, a
 		cmds = append(cmds, config.UCICommand{Op: config.UCIOpSet, Path: fmt.Sprintf("models[model=%s]", ref), Value: string(entryJSON)})
 		added = append(added, "model "+ref)
 	}
-	if strings.TrimSpace(cfg.Agent.Model) == "" && len(models) > 0 {
-		def := name + "/" + models[0].ID
-		cmds = append(cmds, config.UCICommand{Op: config.UCIOpSet, Path: "agent.model", Value: def})
-		added = append(added, "agent.model "+def)
+	if strings.TrimSpace(cfg.Agent.Model) == "" && defaultRef != "" {
+		cmds = append(cmds, config.UCICommand{Op: config.UCIOpSet, Path: "agent.model", Value: defaultRef})
+		added = append(added, "agent.model "+defaultRef)
 	}
 	if len(cmds) == 0 {
 		return nil, nil

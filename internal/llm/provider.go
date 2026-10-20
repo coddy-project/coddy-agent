@@ -361,7 +361,11 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		// explicit api_key or the login `coddy providers login opencode`
 		// stored, and every request carries Coddy's User-Agent and the
 		// conversation's x-opencode-session over the row's proxy route.
-		inner = newOpenCodeProvider(p, hc)
+		opencode, err := newOpenCodeProvider(p, hc)
+		if err != nil {
+			return nil, err
+		}
+		inner = opencode
 	case "codex":
 		// Codex uses ChatGPT OAuth credentials. APIKey and the configured BaseURL are
 		// intentionally ignored: OAuth tokens go to the official Codex backend unless

@@ -250,6 +250,12 @@ function OpenCodeAPIBaseField(props: {
   const label = texts.primary;
   const stored = String(value ?? "").trim();
   const matched = matchOpenCodeAPIBase(value);
+  // A stored value that names no gateway is not the same as an empty one: the
+  // document still holds it, and only a pick can replace it. The select then
+  // shows a placeholder of its own, so picking the gateway on display really
+  // writes it - an option that is already selected fires no change event, and
+  // the stale value would stay behind.
+  const unresolved = stored !== "" && matched === "";
 
   // OpenCode serves the account or service account key through two gateways:
   // (.../inference/go/v1) and pay-as-you-go Console (.../inference/v1). Only
@@ -262,18 +268,23 @@ function OpenCodeAPIBaseField(props: {
       <FieldLabel label={label} description={texts.primaryDesc} />
       <select
         className="settings-input"
-        value={matched || OPENCODE_DEFAULT_API_BASE}
+        value={unresolved ? "" : matched || OPENCODE_DEFAULT_API_BASE}
         aria-label={label}
         data-testid="opencode-api-base"
         onChange={(e) => onChange(e.target.value)}
       >
+        {unresolved ? (
+          <option value="" disabled>
+            {t("openCodeApiBase.unresolved")}
+          </option>
+        ) : null}
         {OPENCODE_API_BASE_OPTIONS.map((opt) => (
           <option key={opt.value} value={opt.value}>
             {t(opt.labelKey)}
           </option>
         ))}
       </select>
-      {stored !== "" && matched === "" ? (
+      {unresolved ? (
         <p className="settings-field-desc">
           {t("openCodeApiBase.unknown", {
             value: stored,

@@ -4,7 +4,7 @@ package main
 // Console use account device authorization or a service account API key.
 // The credential lands in
 // $CODDY_HOME/providers/<name>/opencode-auth.json; an explicit api_key,
-// api_key_command or OPENCODE_API_KEY still wins at request time.
+// api_key_command or the row's NAME_API_KEY still wins at request time.
 
 import (
 	"bufio"
@@ -45,9 +45,10 @@ func resolveOpenCodeAPIBase(flagValue, configured string) (string, error) {
 	if base, ok := llm.NormalizeOpenCodeAPIBase(configured); ok {
 		return base, nil
 	}
-	if strings.TrimSpace(configured) != "" {
-		return llm.OpenCodeDefaultAPIBase(), nil
-	}
+	// A row that names no OpenCode endpoint - empty, or a value left over from
+	// another provider type - resolves to the default explicitly, so the login
+	// records it and repairs the row instead of leaving the unusable value
+	// behind.
 	return llm.OpenCodeDefaultAPIBase(), nil
 }
 
@@ -183,7 +184,7 @@ func opencodeCredentialSummary(cfg *config.Config, prov *config.ProviderConfig) 
 		}
 		return "stored OpenCode key (" + st.Masked + ")"
 	default:
-		return "no credentials; run `" + os.Args[0] + " providers login " + prov.Name + "` or set api_key / OPENCODE_API_KEY"
+		return "no credentials; run `" + os.Args[0] + " providers login " + prov.Name + "` or set api_key / " + config.ProviderAPIKeyEnvVarName(prov.Name)
 	}
 }
 

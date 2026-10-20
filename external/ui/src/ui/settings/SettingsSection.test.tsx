@@ -163,6 +163,43 @@ test("OpenCode keeps its gateway picker and indexes its displayed description", 
   );
 });
 
+test("OpenCode replaces a stored api_base that is not a gateway", async () => {
+  // The select shows the gateway requests actually use, and the note says the
+  // stored value is not it. Picking the gateway on display has to write it: an
+  // option that is already selected fires no change event, so a select that
+  // pretends the default is chosen leaves the stale value in the document.
+  const onDoc = vi.fn();
+  render(
+    <Harness
+      provider={{
+        name: "opencode",
+        type: "opencode",
+        api_base: "https://example.invalid/v1",
+        api_key: "",
+      }}
+      onDoc={onDoc}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  const base = screen.getByTestId("opencode-api-base") as HTMLSelectElement;
+  await waitFor(() => {
+    expect(base.value).toBe("");
+  });
+  expect(document.body.textContent).toContain(
+    "The saved api_base https://example.invalid/v1 is not an OpenCode gateway",
+  );
+
+  fireEvent.change(base, {
+    target: { value: "https://opencode.ai/inference/go/v1" },
+  });
+  await waitFor(() => {
+    expect(onDoc.mock.lastCall?.[0].providers[0].api_base).toBe(
+      "https://opencode.ai/inference/go/v1",
+    );
+  });
+});
+
 // The @ui scenario of features/opencode_login.feature.
 test("OpenCode account sign-in uses the unsaved gateway and proxy", async () => {
   let approved = false;
