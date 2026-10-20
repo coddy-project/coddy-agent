@@ -36,6 +36,8 @@ type ToolCallUpdate = {
   title?: string;
   kind?: string;
   status?: string;
+  /** `agentTool` marks a call of the agent behind an acp model. */
+  _meta?: { coddy?: { agentTool?: boolean } };
 };
 
 type ToolCallStatusUpdate = {
@@ -277,6 +279,7 @@ export async function consumeComposerSseReader(
           if (upd.todoPlan !== undefined) it.todoPlan = upd.todoPlan;
           if (upd.images !== undefined) it.images = upd.images;
           if (upd.artifacts !== undefined) it.artifacts = upd.artifacts;
+          if (upd.agentTool) it.agentTool = true;
           if (upd.startedAtMs !== undefined) it.startedAtMs = upd.startedAtMs;
           if (upd.finishedAtMs !== undefined)
             it.finishedAtMs = upd.finishedAtMs;
@@ -319,6 +322,7 @@ export async function consumeComposerSseReader(
         if (upd.todoPlan !== undefined) merged.todoPlan = upd.todoPlan;
         if (upd.images !== undefined) merged.images = upd.images;
         if (upd.artifacts !== undefined) merged.artifacts = upd.artifacts;
+        if (upd.agentTool) merged.agentTool = true;
         arr[idx] = merged;
         next = arr;
       }
@@ -840,6 +844,7 @@ export async function consumeComposerSseReader(
           };
           if (t.title !== undefined) patch.title = t.title;
           if (t.kind !== undefined) patch.kind = t.kind;
+          if (t._meta?.coddy?.agentTool === true) patch.agentTool = true;
           toolQueue.push(patch);
           scheduleToolFlush();
         } catch {
@@ -1131,6 +1136,7 @@ export async function consumeComposerSseReader(
           };
           if (t.title !== undefined) patch.title = t.title;
           if (t.kind !== undefined) patch.kind = t.kind;
+          if (t._meta?.coddy?.agentTool === true) patch.agentTool = true;
           toolQueue.push(patch);
           scheduleToolFlush();
         } catch {

@@ -720,3 +720,25 @@ test("a turn whose text and reasoning interleave records every segment of its an
   expect(res.assistantIds).toEqual(answers.map((a) => a.id));
   expect(res.lastAssistantId).toBe(answers[1]!.id);
 });
+
+test("a tool call of an acp agent keeps its mark", async () => {
+  const sse =
+    `event: tool_call\ndata: ${JSON.stringify({ sessionUpdate: "tool_call", toolCallId: "acp_t1", title: "read notes.txt", kind: "read", status: "pending", _meta: { coddy: { agentTool: true } } })}\n\n` +
+    `event: tool_call_update\ndata: ${JSON.stringify({ sessionUpdate: "tool_call_update", toolCallId: "acp_t1", status: "completed", content: [{ type: "content", content: { type: "text", text: "banana split" } }] })}\n\n` +
+    `event: tool_call\ndata: ${JSON.stringify({ sessionUpdate: "tool_call", toolCallId: "call_1", title: "read", kind: "read", status: "pending" })}\n\n` +
+    "data: [DONE]\n\n";
+  const items = await drive(sse);
+  const agent = items.find(
+    (it) => it.type === "tool_call" && it.toolCallId === "acp_t1",
+  );
+  const own = items.find(
+    (it) => it.type === "tool_call" && it.toolCallId === "call_1",
+  );
+  expect(agent).toMatchObject({
+    title: "read notes.txt",
+    status: "completed",
+    resultText: "banana split",
+    agentTool: true,
+  });
+  expect(own).not.toHaveProperty("agentTool");
+});

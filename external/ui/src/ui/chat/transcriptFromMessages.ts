@@ -282,6 +282,13 @@ export function transcriptItemsFromMessages(p: {
           ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
         });
       }
+      // The tools the agent behind an acp model ran while it wrote this
+      // answer: rows of their own, before its text, as they mostly were live.
+      for (const it of agentToolItems(m)) {
+        if (toolIdx.has(it.toolCallId)) continue;
+        toolIdx.set(it.toolCallId, next.length);
+        next.push(it);
+      }
       const content = m.content || "";
       let textRow = -1;
       if (joinsRow && content.trim() !== "") {
@@ -415,4 +422,58 @@ export function applyToolCallRows(
     }
     items[idx] = merged;
   }
+}
+
+/** The kinds of an agent's tools (ACP) as Coddy's rows know them: the
+ *  mapping of `session.AgentToolKind`, which the live rows are sent with. */
+function agentToolKind(kind: unknown): string {
+  switch (typeof kind === "string" ? kind.trim() : "") {
+    case "read":
+    case "search":
+    case "fetch":
+      return "read";
+    case "edit":
+    case "delete":
+    case "move":
+      return "write";
+    case "execute":
+      return "run_command";
+    default:
+      return "other";
+  }
+}
+
+/** The tool rows of an assistant message's `agent_tools`: the calls the agent
+ *  behind an acp model ran, with their input and the first lines of their
+ *  output (the rest is GET …/tool-calls/{id}). */
+export function agentToolItems(m: RawSessionMessage): ToolCallItem[] {
+  const raw: unknown[] = Array.isArray(m?.agent_tools) ? m.agent_tools : [];
+  const out: ToolCallItem[] = [];
+  for (const t of raw) {
+    if (!t || typeof t !== "object") continue;
+    const rec = t as Record<string, unknown>;
+    const id = typeof rec.id === "string" ? rec.id.trim() : "";
+    if (!id) continue;
+    const status =
+      rec.status === "failed" || rec.status === "cancelled"
+        ? rec.status
+        : "completed";
+    const it: ToolCallItem = {
+      id: stableToolCallItemId(id),
+      type: "tool_call",
+      toolCallId: id,
+      status,
+      kind: agentToolKind(rec.kind),
+      agentTool: true,
+    };
+    if (typeof rec.title === "string" && rec.title.trim())
+      it.title = rec.title.trim();
+    if (typeof rec.input === "string" && rec.input) it.argsText = rec.input;
+    if (typeof rec.output === "string" && rec.output)
+      it.resultText = rec.output;
+    if (typeof rec.output_lines === "number" && rec.output_lines > 0)
+      it.resultWasTruncated = true;
+    out.push(it);
+  }
+  return out;
 }
