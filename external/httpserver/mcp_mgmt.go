@@ -343,7 +343,11 @@ func (s *Server) coddyMCPProjectTrust(w http.ResponseWriter, r *http.Request) {
 		writeCoddyMCPErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := mcp.SetProjectTrust(s.activeCfg(), body.Policy); err != nil {
+	// SetProjectTrust mirrors the saved policy into the config passed to it.
+	// Keep process overrides on the live pointer until the adjusted reload is
+	// ready, especially when --mcp-project-trust forbids project servers.
+	current := *s.activeCfg()
+	if err := mcp.SetProjectTrust(&current, body.Policy); err != nil {
 		writeCoddyMCPErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -354,6 +358,23 @@ func (s *Server) coddyMCPProjectTrust(w http.ResponseWriter, r *http.Request) {
 		"ok":            true,
 		"project_trust": s.activeCfg().MCP.ResolvedProjectTrust(),
 	})
+}
+
+// reloadConfigFromDisk re-reads config.yaml after an MCP management route
+// persists a change, then applies process overrides before installing it.
+func (s *Server) reloadConfigFromDisk() {
+	c := s.activeCfg()
+	if c == nil {
+		return
+	}
+	reloaded, err := config.LoadWithPaths(c.Paths)
+	if err != nil {
+		s.log.Error("mcp config reload", "error", err)
+		return
+	}
+	if err := s.mgr.InstallConfig(reloaded); err != nil {
+		s.log.Error("mcp config reload", "error", err)
+	}
 }
 
 // coddyMCPServerUntrust withdraws an approval: live sessions close the server

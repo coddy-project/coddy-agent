@@ -291,6 +291,14 @@ func TestUCICommandRedactedString(t *testing.T) {
 	}
 }
 
+func TestMissingSecretListValueIsNotReturnedInError(t *testing.T) {
+	paths := testPathConfig(t, "swarm:\n  pairing_tokens: [present]\n")
+	_, err := CommitUCICommands(paths, mustParseUCI(t, "del_list swarm.pairing_tokens=missing-secret"))
+	if err == nil || strings.Contains(err.Error(), "missing-secret") || !strings.Contains(err.Error(), RedactedValue) {
+		t.Fatalf("secret list deletion error = %v", err)
+	}
+}
+
 func TestFirstCommitIntoMissingFileWritesSnapshotForRollback(t *testing.T) {
 	dir := t.TempDir()
 	paths := Paths{Home: dir, CWD: dir, ConfigPath: filepath.Join(dir, "config.yaml")}

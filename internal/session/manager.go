@@ -253,7 +253,7 @@ func (m *Manager) SetConfigAdjuster(adjust func(*config.Config) error) {
 }
 
 // InstallConfig applies process overrides before publishing a configuration
-// loaded by a settings save, skill edit, or other in-process writer. A failed
+// loaded by a settings save, MCP edit, or other in-process writer. A failed
 // override leaves the previous configuration live so the writer can roll back.
 func (m *Manager) InstallConfig(next *config.Config) error {
 	if next == nil {

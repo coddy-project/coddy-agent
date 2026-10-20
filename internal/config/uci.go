@@ -359,7 +359,7 @@ func applyUCICommand(root *yaml.Node, cmd UCICommand) error {
 			kept = append(kept, entry)
 		}
 		if removed == 0 {
-			return fmt.Errorf("%s: no list entry equals %q", cmd.RedactedString(), cmd.Value)
+			return fmt.Errorf("%s: no list entry equals the requested value", cmd.RedactedString())
 		}
 		node.Content = kept
 		return nil
