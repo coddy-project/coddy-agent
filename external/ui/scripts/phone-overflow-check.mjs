@@ -281,6 +281,28 @@ async function copyOnAPhone(browser) {
         document.getElementById("paste-probe").value = "";
         window.__atClick = undefined;
       });
+      // What a tap at the control's centre reaches: the control. On an iPhone a
+      // scrolling pre took the taps of the code block's button (issue #566, seen
+      // on a device) because the button had no z-index; Playwright's WebKit does
+      // not composite like iOS and reaches the button either way, so this holds
+      // the stacking order (a negative z-index or a block laid over the button
+      // fails it), not the iOS bug itself.
+      const hit = await control.button.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const top = document.elementFromPoint(
+          r.left + r.width / 2,
+          r.top + r.height / 2,
+        );
+        return {
+          ok: !!top && (top === el || el.contains(top)),
+          reaches: top && window.__label(top),
+        };
+      });
+      check(
+        `${at} a tap at the ${control.name}'s centre reaches the ${control.name}`,
+        hit.ok,
+        `reaches ${hit.reaches}`,
+      );
       await control.button.focus();
       await control.button.tap();
       // Straight after the tap, before the paste field takes the focus.
