@@ -218,11 +218,14 @@ type opencodeHeaderTransport struct {
 
 func (t *opencodeHeaderTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	r := req.Clone(req.Context())
-	// SDKs can pick up OPENAI_API_KEY or ANTHROPIC_API_KEY from the process.
+	// SDKs can pick up OPENAI_API_KEY or ANTHROPIC_API_KEY from the process,
+	// and OPENAI_ORG_ID / OPENAI_PROJECT_ID as the scope of an OpenAI account.
 	// This row authenticates only with its own resolved OpenCode credential.
 	r.Header.Del("Authorization")
 	r.Header.Del("x-api-key")
 	r.Header.Del("x-org-id")
+	r.Header.Del("OpenAI-Organization")
+	r.Header.Del("OpenAI-Project")
 	key := t.apiKey
 	if t.authPath != "" {
 		var org string

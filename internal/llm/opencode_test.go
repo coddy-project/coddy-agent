@@ -117,6 +117,9 @@ type opencodeSeen struct {
 	Session   string
 	Auth      string
 	APIKeyHdr string
+	// OpenAIScope is what the OpenAI client sends for OPENAI_ORG_ID and
+	// OPENAI_PROJECT_ID: an account scope of another provider.
+	OpenAIScope string
 }
 
 func newOpenCodeStand(t *testing.T) *opencodeStand {
@@ -125,11 +128,12 @@ func newOpenCodeStand(t *testing.T) *opencodeStand {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		s.requests = append(s.requests, opencodeSeen{
-			Path:      r.URL.Path,
-			UserAgent: r.Header.Get("User-Agent"),
-			Session:   r.Header.Get("x-opencode-session"),
-			Auth:      r.Header.Get("Authorization"),
-			APIKeyHdr: r.Header.Get("x-api-key"),
+			Path:        r.URL.Path,
+			UserAgent:   r.Header.Get("User-Agent"),
+			Session:     r.Header.Get("x-opencode-session"),
+			Auth:        r.Header.Get("Authorization"),
+			APIKeyHdr:   r.Header.Get("x-api-key"),
+			OpenAIScope: r.Header.Get("OpenAI-Organization") + r.Header.Get("OpenAI-Project"),
 		})
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/models"):
@@ -319,6 +323,8 @@ func TestOpenCodeListModels(t *testing.T) {
 func TestOpenCodeDoesNotUseOtherProviderKeys(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "unrelated-openai-key")
 	t.Setenv("ANTHROPIC_API_KEY", "unrelated-anthropic-key")
+	t.Setenv("OPENAI_ORG_ID", "unrelated-org")
+	t.Setenv("OPENAI_PROJECT_ID", "unrelated-project")
 	stand := newOpenCodeStand(t)
 	t.Setenv(EnvOpenCodeBaseURL, stand.srv.URL+"/inference/go/v1")
 	for _, model := range []string{"glm-5.3", "gpt-6-luna", "claude-haiku-5-5"} {
@@ -331,7 +337,7 @@ func TestOpenCodeDoesNotUseOtherProviderKeys(t *testing.T) {
 		}
 	}
 	for _, r := range stand.seen(t) {
-		if r.Auth != "" || r.APIKeyHdr != "" {
+		if r.Auth != "" || r.APIKeyHdr != "" || r.OpenAIScope != "" {
 			t.Errorf("unrelated credentials sent to %s", r.Path)
 		}
 	}
