@@ -40,6 +40,7 @@ export function OpenCodeAuthField(props: {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const generation = useRef(0);
+  const deviceRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const mine = ++generation.current;
@@ -87,14 +88,20 @@ export function OpenCodeAuthField(props: {
           setLogin(null);
           setLoading(false);
         } else if (next.status === "failed") {
-          setLogin(null);
+          // The code stays on screen with the reason: a failed attempt is what
+          // the operator compares against Console before trying again.
+          setLogin((current) =>
+            current ? { ...current, status: "failed" } : current,
+          );
           setLoading(false);
           setError(next.error || translate("openCodeAuth.error.signInFailed"));
         } else timer = setTimeout(() => void poll(), 1000);
       } catch (err) {
         if (!controller.signal.aborted && mine === generation.current) {
           setLoading(false);
-          setLogin(null);
+          setLogin((current) =>
+            current ? { ...current, status: "failed" } : current,
+          );
           setError(err instanceof Error ? err.message : String(err));
         }
       }
@@ -105,6 +112,14 @@ export function OpenCodeAuthField(props: {
       clearTimeout(timer);
     };
   }, [endpoint, login?.login_id, login?.status]);
+
+  // The code is what the operator compares with Console, so the form comes to
+  // rest on it: it stands where a long provider form would otherwise leave it
+  // below the fold.
+  useEffect(() => {
+    if (login?.user_code)
+      deviceRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [login?.user_code]);
 
   const signIn = async () => {
     if (!name) return;
@@ -124,8 +139,12 @@ export function OpenCodeAuthField(props: {
       if (mine !== generation.current) return;
       if (!next.login_id || !next.verification_url || !next.user_code)
         throw new Error(translate("openCodeAuth.error.incompleteResponse"));
+      // The code stays in this form and the confirmation page opens only on
+      // request. Opening it here handed the screen to Console the moment the
+      // code arrived, so the code was never on screen to compare with the one
+      // Console shows for this device.
       setLogin(next);
-      window.open(next.verification_url, "_blank", "noopener,noreferrer");
+      setLoading(false);
     } catch (err) {
       if (mine === generation.current) {
         setLoading(false);
@@ -178,7 +197,7 @@ export function OpenCodeAuthField(props: {
         </p>
       ) : null}
       {login?.user_code && login.verification_url ? (
-        <div className="codex-auth-device">
+        <div className="codex-auth-device" ref={deviceRef}>
           <p className="settings-field-desc">{t("openCodeAuth.enterCode")}</p>
           <code className="codex-auth-code">{login.user_code}</code>
           <a
@@ -189,11 +208,13 @@ export function OpenCodeAuthField(props: {
           >
             {t("openCodeAuth.openSignInPage")}
           </a>
-          <span className="settings-muted">{t("openCodeAuth.waiting")}</span>
+          {login.status === "pending" ? (
+            <span className="settings-muted">{t("openCodeAuth.waiting")}</span>
+          ) : null}
         </div>
       ) : null}
       <div className="codex-auth-actions">
-        {status.connected || login ? (
+        {status.connected || login?.status === "pending" ? (
           <button
             type="button"
             className="settings-btn settings-btn-danger"

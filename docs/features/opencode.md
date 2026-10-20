@@ -24,7 +24,7 @@ Device authorization, polling and token refresh identify this application with `
 
 ### Sign in from Settings
 
-In **Settings → LLM providers**, open the OpenCode row and click **Sign In with OpenCode** below the gateway picker. Confirm the displayed code on the Console page and select your organization. The form shows the organization after confirmation; **Sign Out** removes the local login and also cancels a pending attempt.
+In **Settings → LLM providers**, open the OpenCode row and click **Sign In with OpenCode** below the gateway picker. Coddy shows the device code in the form and waits there. **Open sign-in page** opens Console, where the same code is shown for the device you are approving - compare the two before you approve. The form never opens that page on its own, so the code is on screen when Console asks for it. Then select your organization. The form shows the organization after confirmation; **Sign Out** removes the local login and also cancels a pending attempt.
 
 The login uses the gateway and proxy currently shown in the form, including a new row or a saved row switched to OpenCode before Save. Click **Save All** to keep those provider settings for chats and future token refreshes. Use the refresh icon beside the model list to read the catalog with the stored login. Tokens stay on the server and never appear in the browser or config YAML.
 

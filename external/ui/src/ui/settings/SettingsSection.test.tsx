@@ -262,11 +262,12 @@ test("OpenCode account sign-in uses the unsaved gateway and proxy", async () => 
       }),
     }),
   );
-  expect(open).toHaveBeenCalledWith(
-    "https://opencode.ai/console/device",
-    "_blank",
-    "noopener,noreferrer",
-  );
+  // The code is what the operator compares with Console, so the confirmation
+  // page is a link beside it and never takes the screen on its own.
+  expect(open).not.toHaveBeenCalled();
+  expect(
+    screen.getByRole("link", { name: "Open sign-in page" }),
+  ).toHaveAttribute("href", "https://opencode.ai/console/device");
   expect(
     await screen.findByText(
       /Signed in to OpenCode \(Test Org\)/,
@@ -275,6 +276,58 @@ test("OpenCode account sign-in uses the unsaved gateway and proxy", async () => 
     ),
   ).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Sign Out" }));
+  expect(
+    await screen.findByTestId("opencode-auth-sign-in"),
+  ).toBeInTheDocument();
+});
+
+// A failed attempt keeps the code beside its reason: the operator compares it
+// with what Console showed before signing in again.
+test("OpenCode keeps the code on screen when the login fails", async () => {
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/opencode-auth/device") && init?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({
+            login_id: "oc-fail",
+            user_code: "FAIL-CODE",
+            verification_url: "https://opencode.ai/console/device",
+            status: "pending",
+          }),
+        };
+      }
+      if (url.endsWith("/device/oc-fail")) {
+        return {
+          ok: true,
+          json: async () => ({ status: "failed", error: "denied" }),
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({ connected: false, source: "none" }),
+      };
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <Harness
+      provider={{
+        name: "opencode",
+        type: "opencode",
+        api_base: "https://opencode.ai/inference/go/v1",
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByTestId("opencode-auth-sign-in"));
+  expect(await screen.findByText("FAIL-CODE")).toBeInTheDocument();
+  expect(
+    await screen.findByText("denied", {}, { timeout: 2000 }),
+  ).toBeInTheDocument();
+  expect(screen.getByText("FAIL-CODE")).toBeInTheDocument();
+  // A failed attempt is not a pending one: the Sign In button comes back.
   expect(
     await screen.findByTestId("opencode-auth-sign-in"),
   ).toBeInTheDocument();
