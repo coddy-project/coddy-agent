@@ -320,14 +320,16 @@ func TestReplaceMessagesFromClientKeepsTheStampsOfTheRowsItReplays(t *testing.T)
 		}
 	})
 
-	t.Run("a row the client changed gets no stamp and the rows after it keep theirs", func(t *testing.T) {
+	t.Run("a row the client changed gets no stamp, nor the result of it, and the rows after keep theirs", func(t *testing.T) {
 		st := seed()
 		sent := wire(st.GetMessages())
 		sent[4].ToolCalls = []llm.ToolCall{{ID: "c2", Name: "run_command", InputJSON: `{"command":"docker rm -f other"}`}}
 		st.ReplaceMessagesFromClient(sent)
 
 		got := st.GetMessages()
-		for i, wantGoal := range []string{"", goal.ID, goal.ID, goal.ID, "", goal.ID, goal.ID} {
+		// The result of the changed call is the stored row, but it now follows a
+		// call nobody stored, so it proves nothing about it.
+		for i, wantGoal := range []string{"", goal.ID, goal.ID, goal.ID, "", "", goal.ID} {
 			if got[i].Goal != wantGoal {
 				t.Errorf("row %d carries goal %q, want %q", i, got[i].Goal, wantGoal)
 			}
@@ -359,7 +361,9 @@ func TestReplaceMessagesFromClientKeepsTheStampsOfTheRowsItReplays(t *testing.T)
 		// The rows are matched in the stored order, each stored row once: the
 		// call the client moved ahead keeps its stamp, the ones it jumped over
 		// are no longer the stored rows at their place.
-		for i, wantGoal := range []string{"", goal.ID, goal.ID, "", "", goal.ID, goal.ID} {
+		// The result of the moved call (row 5) stays unstamped too: the call it
+		// follows now is not the stored call it answered.
+		for i, wantGoal := range []string{"", goal.ID, goal.ID, "", "", "", goal.ID} {
 			if got[i].Goal != wantGoal {
 				t.Errorf("row %d carries goal %q, want %q", i, got[i].Goal, wantGoal)
 			}
@@ -373,6 +377,86 @@ func TestReplaceMessagesFromClientKeepsTheStampsOfTheRowsItReplays(t *testing.T)
 			if m.Goal != "" || m.RiskAcknowledged {
 				t.Errorf("row %d was stamped by a replacement that is no client's", i)
 			}
+		}
+	})
+}
+
+// A result proves that a call never ran only next to the call it answered. A
+// provider may reuse a call id, so a client that trims the history can send the
+// refusal of a later call right behind an earlier call of the same id and
+// words, and the stamp the refusal carries would make that earlier call look
+// like one that never ran. A replayed result keeps its stamp only when the
+// assistant row that owned the stored result is the stored row the replayed
+// assistant row before it was matched to.
+func TestReplaceMessagesFromClientKeepsAResultStampOnlyNextToItsOwnCall(t *testing.T) {
+	const down = `{"command":"docker compose down"}`
+	goal, _ := NewGoal("clean up")
+	// The same call twice under one id: it ran the first time and was refused
+	// the second.
+	seed := func() *State {
+		st := &State{ID: "sess_reused_id", Mode: ModeAgent}
+		st.SetGoal(goal)
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "clean up"})
+		st.AddMessage(riskCall("X", "run_command", down))
+		st.AddMessage(riskResult("X", "stopped db"))
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "again"})
+		st.AddMessage(riskCall("X", "run_command", down))
+		st.AddMessage(riskResult("X", ToolResultDeniedByUser))
+		return st
+	}
+	dockerFindings := func(st *State) (n int) {
+		msgs := st.GetMessages()
+		_, all := goalFindings(msgs, goalRows(msgs, goal, false), goal, goalFiles{})
+		for _, f := range all {
+			if f.kind == dockerMutation {
+				n++
+			}
+		}
+		return n
+	}
+
+	t.Run("the refusal of a later call does not pass for the answer to the earlier one", func(t *testing.T) {
+		st := seed()
+		if n := dockerFindings(st); n != 1 {
+			t.Fatalf("the stored history reports %d docker calls, want the one that ran", n)
+		}
+		stored := st.GetMessages()
+		st.ReplaceMessagesFromClient([]llm.Message{
+			{Role: llm.RoleUser, Content: "clean up"},
+			{Role: stored[1].Role, ToolCalls: stored[1].ToolCalls},
+			{Role: stored[5].Role, ToolCallID: stored[5].ToolCallID, Content: stored[5].Content},
+		})
+
+		got := st.GetMessages()
+		if got[1].Goal != goal.ID {
+			t.Fatalf("the replayed call carries goal %q, want %q", got[1].Goal, goal.ID)
+		}
+		if got[2].Goal != "" {
+			t.Errorf("the replayed refusal carries goal %q although it answered another call", got[2].Goal)
+		}
+		if n := dockerFindings(st); n != 1 {
+			t.Fatalf("%d docker findings after the replay, want the call that ran reported", n)
+		}
+	})
+
+	t.Run("a result replayed next to its own call keeps the stamp and still exempts a refused one", func(t *testing.T) {
+		st := seed()
+		stored := st.GetMessages()
+		// The first call and its result trimmed away, the second pair kept.
+		st.ReplaceMessagesFromClient([]llm.Message{
+			{Role: llm.RoleUser, Content: "clean up"},
+			{Role: stored[3].Role, Content: stored[3].Content},
+			{Role: stored[4].Role, ToolCalls: stored[4].ToolCalls},
+			{Role: stored[5].Role, ToolCallID: stored[5].ToolCallID, Content: stored[5].Content},
+		})
+
+		for i, m := range st.GetMessages() {
+			if m.Goal != goal.ID {
+				t.Errorf("row %d carries goal %q, want %q", i, m.Goal, goal.ID)
+			}
+		}
+		if n := dockerFindings(st); n != 0 {
+			t.Fatalf("%d docker findings for a call whose refusal sits next to it, want 0", n)
 		}
 	})
 }

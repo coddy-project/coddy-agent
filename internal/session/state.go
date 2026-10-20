@@ -1951,20 +1951,61 @@ func (s *State) replaceMessages(msgs []llm.Message, keepGoalStamps bool) {
 // carryGoalStamps copies Goal from the stored rows to the rows of next that
 // repeat them, walking both in order: a stored row is matched at most once and
 // only by a row after the one matched before it. RiskAcknowledged goes along
-// only when no other stored row is equal to the matched one.
+// only when no other stored row is equal to the matched one. A tool result
+// keeps its Goal only when the assistant row that owned the stored result is
+// the stored row the replayed assistant row before it was matched to: a
+// provider may reuse a call id, and a stamped refusal moved next to an earlier
+// call of the same id would otherwise prove that call never ran.
 func carryGoalStamps(next, stored []llm.Message) {
+	matched := make([]int, len(next))
 	j := 0
 	for i := range next {
+		matched[i] = -1
 		for k := j; k < len(stored); k++ {
 			if !sameWireRow(next[i], stored[k]) {
 				continue
 			}
+			j, matched[i] = k+1, k
+			if next[i].Role == llm.RoleTool {
+				owner := resultOwner(stored, k)
+				if owner < 0 || owner != matchedOwner(next, matched, i) {
+					break
+				}
+			}
 			next[i].Goal = stored[k].Goal
 			next[i].RiskAcknowledged = stored[k].RiskAcknowledged && soleWireRow(stored, k)
-			j = k + 1
 			break
 		}
 	}
+}
+
+// resultOwner is the index of the assistant row whose tool call the tool
+// result at msgs[k] answers: the row that heads the run of results the row
+// sits in (rows only the UI shows may sit between them), when it made a call
+// with the result's id. It is -1 when there is no such row.
+func resultOwner(msgs []llm.Message, k int) int {
+	o := k - 1
+	for o >= 0 && (msgs[o].Role == llm.RoleTool || isUIOnlyRow(msgs[o])) {
+		o--
+	}
+	if o < 0 || msgs[o].Role != llm.RoleAssistant {
+		return -1
+	}
+	for _, call := range msgs[o].ToolCalls {
+		if call.ID == msgs[k].ToolCallID {
+			return o
+		}
+	}
+	return -1
+}
+
+// matchedOwner is the stored row the owner of the replayed result next[i] was
+// matched to, or -1 when it has no owner or the client wrote or changed it.
+func matchedOwner(next []llm.Message, matched []int, i int) int {
+	if o := resultOwner(next, i); o >= 0 {
+		return matched[o]
+	}
+	return -1
 }
 
 // soleWireRow says no stored row other than stored[k] is equal to it on what a
