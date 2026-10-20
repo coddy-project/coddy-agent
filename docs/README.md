@@ -68,7 +68,7 @@ What the agent can do and how each capability is configured.
 - [Canvas](features/canvas.md) - Live pages on a .canvas board in the Files window of the web UI - canvas_show and canvas_inspect, pointing at an element to ask for a change, the sandbox a frame runs in, and every board an Obsidian .canvas file of the workspace, read and written back as Obsidian writes it.
 - [Context compaction](features/compaction.md) - /compact and automatic summarisation at a threshold, the kept recent turns, result eviction with keep_result.
 - [Long-term memory](features/memory.md) - The memory subagent that runs per turn in the task pool, what it recalls and saves, how the report reaches the turn, the storage layout, configuration and cost.
-- [Command safety (decisions)](features/decisions.md) - The NeuralDeep decisions check that asks whether a shell command is safe before the permission gate: a safe command runs without a prompt, an unsafe one is asked about, or rejected in bypass mode.
+- [Command safety (decisions)](features/decisions.md) - The NeuralDeep decisions check that asks whether a shell command is safe before the permission gate: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer.
 - [Session export](features/session-export.md) - /export and coddy sessions export, formats, path rules, trimming options, the JSON document.
 
 ## Reference

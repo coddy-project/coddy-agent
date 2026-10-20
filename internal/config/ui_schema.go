@@ -764,9 +764,9 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"enable", "model", "dir", "fallback_models", "additional_prompt", "additional_prompt_max_chars", "wait_seconds", "timeout_seconds", "keep_runs", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits", "max_note_chars"},
 			nil),
-		"decisions": objectSchema("Command safety (decisions)", "Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about, or rejected in bypass mode.",
+		"decisions": objectSchema("Command safety (decisions)", "Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer.",
 			map[string]interface{}{
-				"enable": boolProp("Enabled", "Check run_command and ssh_run_command calls you did not allow explicitly before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in ask and accept_edits and rejected in bypass. The allowlist, session grants, a hook's allow and commands you approved in a prompt are not checked."),
+				"enable": boolProp("Enabled", "Check run_command and ssh_run_command calls you did not allow explicitly before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer. The allowlist, a session grant of exactly that command, a hook's allow and commands you approved in a prompt are not checked."),
 				"model": map[string]interface{}{
 					"type":        "string",
 					"title":       "Decisions model",

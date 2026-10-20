@@ -610,10 +610,11 @@ tools:
 # Command safety decisions: before the permission gate decides on a shell command
 # (run_command, or the remote command of ssh_run_command) you did not allow
 # explicitly, ask the NeuralDeep decisions API whether it is safe. A safe command
-# runs without a prompt; an unsafe one is asked about in ask and accept_edits, the
-# verdict in the prompt, and rejected in bypass - the rejection comes back as the
-# result of the call, so the session records it. The command allowlist, session
-# grants, a hook's allow and commands you approved in a prompt are not checked.
+# runs without a prompt; an unsafe one is asked about in every mode, bypass
+# included, the verdict in the prompt, and rejected where nobody can answer - the
+# rejection comes back as the result of the call, so the session records it. The
+# command allowlist, a session grant of exactly that command, a hook's allow and
+# commands you approved in a prompt are not checked.
 # When the endpoint gives no verdict (no credential, a refusal from the hub, a
 # network error, a command longer than the model reads - 512 tokens on
 # frida-decisions) the command counts as unsafe. Needs a NeuralDeep credential on

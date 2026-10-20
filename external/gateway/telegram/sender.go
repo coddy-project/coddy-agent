@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -284,16 +285,16 @@ func (s *Sender) streamDraft(llmText, toolName string) {
 }
 
 // RequestPermission allows what the chat's own agent asks: the admin who
-// configured the bot decided that. A subagent's request carries the child's
-// own effective mode; a child below bypass is not waved through on the parent's
-// behalf but asked about in the chat, with buttons, and the tap decides
-// (permission.go). A sender with nowhere to ask refuses it instead.
+// configured the bot decided that. A forced prompt (a hook's ask, a command
+// the safety check did not clear) and a subagent's request stamped below
+// bypass are not waved through but asked about in the chat, with buttons, and
+// the tap decides (permission.go). A sender with nowhere to ask refuses them
+// instead.
 func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	if s.refuseApprovals {
 		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 	}
-	stamped := strings.TrimSpace(params.EffectivePermissionMode)
-	if stamped == "" || stamped == "bypass" {
+	if permission.ChatApproves(params) {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	if s.asks == nil || s.bot == nil {

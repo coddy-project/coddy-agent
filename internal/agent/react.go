@@ -2326,28 +2326,28 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 
 	// The decisions safety check stands in for the prompt of a shell command
 	// nobody allowed explicitly (decisions.go): safe runs without a prompt,
-	// anything else is asked about, or rejected in bypass where nobody would
-	// be asked. A command the allowlist, a session grant or a hook's allow
-	// approves is trusted and not checked, a hook's ask keeps its prompt, a
-	// restricted turn keeps every prompt for its surface to refuse, and a
-	// call the operator already approved (skipPermission) is not checked again.
-	safetyNote := ""
+	// anything else is asked about in every mode, bypass included, and is
+	// rejected where nobody answers. A command the allowlist, a session grant
+	// or a hook's allow approves is trusted and not checked, a hook's ask
+	// keeps its prompt, a restricted turn keeps every prompt for its surface
+	// to refuse, and a call the operator already approved (skipPermission) is
+	// not checked again.
+	safetyNote, safetyRefusal := "", ""
 	if a.cfg.Decisions.Enabled && !skipPermission && !hookRes.allow && !hookRes.ask && !askAlwaysTurn(a.state) {
 		if subject, ok := commandSafetySubject(tc.Name, tc.InputJSON, env); ok && !commandAllowlisted(tc, env, sessCmdGrants) {
 			verdict := a.classifyCommand(ctx, subject)
-			switch {
-			case verdict.safe:
+			if verdict.safe {
 				requiresPerm = false
-			case env.PermissionMode == config.PermModeBypass:
-				rejection := verdict.refusal()
-				a.finishToolCall(sessionDir, sessionID, tc, rejection, nil, "cancelled")
-				return rejection, nil
-			default:
+			} else {
 				requiresPerm = true
 				safetyNote = "Safety check: " + verdict.reason + "."
+				safetyRefusal = verdict.refusal()
 			}
 		}
 	}
+	// A hook's ask and the check's prompt are for a person: no mode and no
+	// surface answers them by itself.
+	forced := hookRes.ask || safetyNote != ""
 
 	if requiresPerm && !skipPermission {
 		promptBody := permission.PromptBody(tc.Name, tc.InputJSON)
@@ -2379,10 +2379,10 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		// Notification hooks learn that a prompt is about to wait for the
 		// operator (a chat ping, a desktop notification); they cannot answer it.
 		a.runNotificationHooks(ctx, mode, hookNotificationPermissionPrompt, tc, promptBody)
-		// The mode this prompt is asked under: the session's, or ask when a
-		// hook forced the prompt - a sender must not wave that one through.
+		// The mode this prompt is asked under: the session's, or ask when the
+		// prompt is forced - a sender must not wave that one through.
 		askedUnder := env.PermissionMode
-		if hookRes.ask {
+		if forced {
 			askedUnder = config.PermModeAsk
 		}
 		answered := waitingFor(&pendingPermissions)
@@ -2399,13 +2399,25 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 				},
 			},
 			Options: permission.OptionsFor(tc.Name, tc.InputJSON, permission.OptionContext{
-				Mode:          env.PermissionMode,
-				SessionSwitch: a.subagent == nil && !hookRes.ask,
+				Mode:           env.PermissionMode,
+				SessionSwitch:  a.subagent == nil && !hookRes.ask,
+				ExactGrantOnly: safetyNote != "",
 			}),
 			SessionPermissionMode: askedUnder,
+			Forced:                forced,
 		})
 		answered()
 
+		if err == nil && safetyRefusal != "" && (permResult == nil || permResult.Outcome == permission.OutcomeCancelled) {
+			// Nobody answered the check's prompt: its verdict is the call's
+			// result, kept in the history the model reasons on, with the
+			// reason nobody could when the sender gave one.
+			if permResult != nil && strings.TrimSpace(permResult.Reason) != "" {
+				safetyRefusal += "; " + strings.TrimSpace(permResult.Reason)
+			}
+			a.finishToolCall(sessionDir, sessionID, tc, safetyRefusal, nil, "cancelled")
+			return safetyRefusal, nil
+		}
 		if err != nil || !permission.Approved(permResult) {
 			// A prompt nobody answered is resumed later and counted when it
 			// runs; only an answer is a decline.

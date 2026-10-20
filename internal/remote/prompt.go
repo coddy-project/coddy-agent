@@ -398,20 +398,43 @@ func (t *turnStream) onDataFrame(data string) error {
 	return nil
 }
 
+// permissionAnswer is the body of POST .../permission for what the local
+// surface answered: the option a person chose, or a cancelled outcome for a
+// prompt dismissed or never shown, which the server tells apart from a
+// person's Reject.
+func permissionAnswer(toolCallID string, res *acp.PermissionResult, err error) map[string]string {
+	if err != nil || res == nil || res.Outcome == "cancelled" {
+		return map[string]string{"toolCallId": toolCallID, "outcome": "cancelled"}
+	}
+	optionID := res.OptionID
+	switch {
+	case optionID != "":
+	case res.Outcome == "allow":
+		optionID = "allow"
+	default:
+		optionID = "reject"
+	}
+	return map[string]string{"toolCallId": toolCallID, "optionId": optionID}
+}
+
+// answeredHere reports whether the local surface answered a prompt: a choice,
+// or a modal dismissed. One it could not show - an editor that failed or
+// withdrew it, cancelled with no option - has not been answered here.
+func answeredHere(res *acp.PermissionResult, err error) bool {
+	if err != nil || res == nil {
+		return false
+	}
+	return res.Outcome != "cancelled" || strings.TrimSpace(res.OptionID) != ""
+}
+
 // onPermission forwards the request to the surface and posts the answer back.
 func (t *turnStream) onPermission(data string) error {
 	var params acp.PermissionRequestParams
 	if err := json.Unmarshal([]byte(data), &params); err != nil {
 		return nil
 	}
-	optionID := "reject"
 	res, err := t.sender.RequestPermission(t.ctx, params)
-	if err == nil && res != nil && res.OptionID != "" {
-		optionID = res.OptionID
-	} else if err == nil && res != nil && res.Outcome == "allow" {
-		optionID = "allow"
-	}
-	answer := map[string]string{"toolCallId": params.ToolCall.ToolCallID, "optionId": optionID}
+	answer := permissionAnswer(params.ToolCall.ToolCallID, res, err)
 	path := "/coddy/sessions/" + url.PathEscape(t.sessionID) + "/permission"
 	if perr := t.h.postJSON(t.ctx, path, answer, nil); perr != nil {
 		// The server may have withdrawn the prompt while the modal was open:
@@ -453,17 +476,10 @@ func (t *turnStream) askAside(data string) {
 	go func() {
 		defer cancel()
 		res, err := t.sender.RequestPermission(ctx, params)
-		if ctx.Err() != nil || err != nil || res == nil {
+		if ctx.Err() != nil || !answeredHere(res, err) {
 			return
 		}
-		optionID := res.OptionID
-		if optionID == "" && res.Outcome == "allow" {
-			optionID = "allow"
-		}
-		if optionID == "" {
-			return
-		}
-		answer := map[string]string{"toolCallId": callID, "optionId": optionID}
+		answer := permissionAnswer(callID, res, nil)
 		path := "/coddy/sessions/" + url.PathEscape(t.sessionID) + "/permission"
 		if perr := t.h.postJSON(ctx, path, answer, nil); perr != nil && !isStaleAnswer(perr) {
 			t.h.log.Warn("remote woken turn: permission answer failed", "session", t.sessionID, "toolCallId", callID, "error", perr)

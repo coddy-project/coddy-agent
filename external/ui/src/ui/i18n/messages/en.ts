@@ -716,7 +716,7 @@ export const messagesEn: Record<string, string> = {
     "Model the memory subagent runs on; empty uses the session's model.",
   "settings.schema.decisions.enable.label": "Enabled",
   "settings.schema.decisions.enable.desc":
-    "Ask the NeuralDeep decisions API whether a shell command, local or over SSH, is safe before the permission gate decides. A safe command runs without a prompt; an unsafe one is asked about in ask and accept_edits and rejected in bypass, the rejection landing in the chat as the command's result. The command allowlist, session grants, a hook's allow and commands you approved in a prompt are not checked.",
+    "Ask the NeuralDeep decisions API whether a shell command, local or over SSH, is safe before the permission gate decides. A safe command runs without a prompt; an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer, the rejection landing in the chat as the command's result. The command allowlist, a session grant of exactly that command, a hook's allow and commands you approved in a prompt are not checked.",
   "settings.schema.decisions.model.label": "Decisions model",
   "settings.schema.decisions.model.desc":
     "frida-decisions: encoder pass, up to 512 tokens of command text, ~20 ms per request, 1 quota unit. clef-flash: up to 8192 tokens, ~150 ms, 4 quota units.",
