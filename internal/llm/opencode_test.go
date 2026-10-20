@@ -560,3 +560,28 @@ func TestOpenCodeLabelNamesTheGatewayOfTheLogin(t *testing.T) {
 		})
 	}
 }
+
+// Off is a request: on the Responses API it is the "none" tier, as on the
+// Codex backend and the chat path, since leaving the block out lets the model
+// reason at its default level.
+func TestOpenCodeResponsesReasoningOffIsNone(t *testing.T) {
+	bodies := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		bodies <- string(body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"status\":\"completed\",\"output\":[]}}\n\n")
+	}))
+	defer server.Close()
+	t.Setenv(EnvOpenCodeBaseURL, server.URL+"/inference/go/v1")
+	p, err := NewProvider(ProviderInput{Type: "opencode", Model: "gpt-6-luna", APIKey: "oc-key", ReasoningEffort: "off", ProxyURL: "none", RetryDisabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Complete(context.Background(), []Message{{Role: RoleUser, Content: "ping"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if body := <-bodies; !strings.Contains(body, `"effort":"none"`) {
+		t.Fatalf("reasoning off sent as %s", body)
+	}
+}

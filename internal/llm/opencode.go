@@ -363,7 +363,7 @@ func (p *opencodeResponsesProvider) Complete(ctx context.Context, messages []Mes
 }
 
 func (p *opencodeResponsesProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
-	params := buildResponsesParams(p.model, opencodeReasoningEffort(p.reasoningEffort), p.decodeReasoningItems, messages, tools)
+	params := buildResponsesParams(p.model, opencodeResponsesEffort(p.reasoningEffort), p.decodeReasoningItems, messages, tools)
 	if p.maxTokens > 0 {
 		params.MaxOutputTokens = openai.Int(int64(p.maxTokens))
 	}
@@ -375,16 +375,27 @@ func (p *opencodeResponsesProvider) Stream(ctx context.Context, messages []Messa
 	return consumeResponsesStream(stream, onChunk, "opencode", p.encodeReasoningItems)
 }
 
-// opencodeReasoningEffort maps a coddy reasoning level onto one the OpenAI
-// Responses API accepts. Unlike the Codex backend, the gateway serves the
-// standard OpenAI tiers, so "minimal" passes through; only "off" (and an empty
-// level) drop the reasoning block.
+// opencodeReasoningEffort maps a coddy reasoning level onto one the gateway
+// accepts. Unlike the Codex backend, it serves the standard OpenAI tiers, so
+// "minimal" passes through; "off" and an empty level name no level, which on
+// the Google path leaves thinkingConfig out (opencodeResponsesEffort spells
+// "off" for the Responses API).
 func opencodeReasoningEffort(level string) string {
 	level = strings.ToLower(strings.TrimSpace(level))
 	if level == "" || level == reasoningOff {
 		return ""
 	}
 	return level
+}
+
+// opencodeResponsesEffort is the level a Responses request names. Off is the
+// "none" tier there, as on the Codex backend and the chat path: a request
+// without the reasoning block leaves the model at its default level.
+func opencodeResponsesEffort(level string) string {
+	if strings.EqualFold(strings.TrimSpace(level), reasoningOff) {
+		return "none"
+	}
+	return opencodeReasoningEffort(level)
 }
 
 // opencodeReasoningCarrier travels in Message.ReasoningSignature: the reasoning
