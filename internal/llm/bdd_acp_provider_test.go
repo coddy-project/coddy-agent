@@ -50,6 +50,14 @@ func (s *acpFeatureState) agentReadsAndAnswers(answer string) error {
 	return nil
 }
 
+func (s *acpFeatureState) agentCallsToolOn(tool, file string) error {
+	s.script = acptest.Script{Turns: []acptest.Turn{{
+		Tools: []acptest.Tool{{ID: "t1", Title: tool, Path: file}},
+		Text:  []string{"done"},
+	}}}
+	return nil
+}
+
 func (s *acpFeatureState) agentEchoes() error {
 	s.script = acptest.Script{}
 	return nil
@@ -199,6 +207,7 @@ func TestACPProviderFeature(t *testing.T) {
 			})
 			sc.Step(`^an acp provider whose agent reads a file and answers "([^"]*)"$`, s.agentReadsAndAnswers)
 			sc.Step(`^an acp provider whose agent echoes what it is asked$`, s.agentEchoes)
+			sc.Step(`^an acp provider whose agent calls its tool "([^"]*)" and names the file "([^"]*)" only once it runs$`, s.agentCallsToolOn)
 			sc.Step(`^an acp provider whose agent offers the models "([^"]*)"$`, s.agentOffersModels)
 			sc.Step(`^the provider's model is "([^"]*)"$`, s.providersModel)
 			sc.Step(`^an acp provider whose agent asks permission to "([^"]*)"$`, s.agentAsksPermission)

@@ -171,6 +171,12 @@ type acpSessionUpdate struct {
 	CurrentModeID string            `json:"currentModeId,omitempty"`
 	ConfigOptions []acpConfigOption `json:"configOptions,omitempty"`
 	RawInput      json.RawMessage   `json:"rawInput,omitempty"`
+	Locations     []acpToolLocation `json:"locations,omitempty"`
+}
+
+// acpToolLocation is a file a tool call works on.
+type acpToolLocation struct {
+	Path string `json:"path"`
 }
 
 // toolContent returns the content of a tool_call or tool_call_update: an
@@ -200,9 +206,7 @@ type acpPermissionToolCall struct {
 	Kind       string            `json:"kind,omitempty"`
 	Content    []json.RawMessage `json:"content,omitempty"`
 	RawInput   json.RawMessage   `json:"rawInput,omitempty"`
-	Locations  []struct {
-		Path string `json:"path"`
-	} `json:"locations,omitempty"`
+	Locations  []acpToolLocation `json:"locations,omitempty"`
 }
 
 type acpPermissionOption struct {

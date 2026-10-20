@@ -138,6 +138,10 @@ type Tool struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
 	Fail  bool   `json:"fail,omitempty"`
+	// Path is a file in the session's folder the call works on, named the
+	// way OpenCode names it: the call is announced with an empty input, and
+	// an update in progress carries the file as a location and as filePath.
+	Path string `json:"path,omitempty"`
 }
 
 // Permission is the request a turn sends the client.
@@ -248,6 +252,7 @@ func Main(args []string) bool {
 
 type session struct {
 	id      string
+	cwd     string
 	mode    string
 	model   string
 	thought string
@@ -400,9 +405,13 @@ func (a *agent) handle(m message) {
 			}
 			return
 		}
+		var np struct {
+			CWD string `json:"cwd"`
+		}
+		_ = json.Unmarshal(m.Params, &np)
 		a.mu.Lock()
 		a.nextID++
-		s := &session{id: fmt.Sprintf("acp-sess-%d", a.nextID)}
+		s := &session{id: fmt.Sprintf("acp-sess-%d", a.nextID), cwd: np.CWD}
 		if len(a.script.Modes) > 0 {
 			s.mode = a.script.Modes[0]
 		}
@@ -636,6 +645,11 @@ func (a *agent) prompt(m message, t Turn, cancelled <-chan struct{}) {
 	}
 	for _, tool := range t.Tools {
 		a.update(s.id, map[string]interface{}{"sessionUpdate": "tool_call", "toolCallId": tool.ID, "title": tool.Title, "kind": "execute", "status": "pending"})
+		if tool.Path != "" {
+			file := filepath.Join(s.cwd, tool.Path)
+			a.update(s.id, map[string]interface{}{"sessionUpdate": "tool_call_update", "toolCallId": tool.ID, "status": "in_progress",
+				"locations": []map[string]string{{"path": file}}, "rawInput": map[string]string{"filePath": file}})
+		}
 		status := "completed"
 		if tool.Fail {
 			status = "failed"

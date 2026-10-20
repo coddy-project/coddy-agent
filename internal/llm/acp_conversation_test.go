@@ -3,9 +3,12 @@ package llm
 import (
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	acpsdk "github.com/coder/acp-go-sdk"
 )
 
 func u(s string) Message { return Message{Role: RoleUser, Content: s} }
@@ -347,4 +350,65 @@ func TestACPStreamStateBreaksTheTextAfterOtherWork(t *testing.T) {
 func strconvQuote(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
+}
+
+// toolUpdate is a tool_call or tool_call_update of the call c1.
+func toolUpdate(kind string, title, toolKind, status string, raw string, paths ...string) acpSessionUpdate {
+	u := acpSessionUpdate{SessionUpdate: kind, ToolCallID: "c1", Title: title, Kind: toolKind, Status: status}
+	if raw != "" {
+		u.RawInput = json.RawMessage(raw)
+	}
+	for _, p := range paths {
+		u.Locations = append(u.Locations, acpToolLocation{Path: p})
+	}
+	return u
+}
+
+// OpenCode announces a call by the tool's bare name and an empty input, and
+// names the file only in the next update: the line waits for it, and names
+// the file by its path in the workspace.
+func TestACPToolLineWaitsForWhatTheCallWorksOn(t *testing.T) {
+	ws := t.TempDir()
+	file := filepath.Join(ws, "docs", "notes.txt")
+	st := newACPStreamState(nil)
+	st.cwd = ws
+	st.update(toolUpdate("tool_call", "read", "read", "pending", `{}`))
+	if r := st.reasoning.String(); r != "" {
+		t.Fatalf("a bare tool name made a line: %q", r)
+	}
+	st.update(toolUpdate("tool_call_update", "read", "read", "in_progress", `{"filePath":`+strconvQuote(file)+`}`, file))
+	st.update(toolUpdate("tool_call_update", strings.TrimPrefix(file, "/"), "", "completed", ""))
+	if want := "[tool 1] read docs/notes.txt\n\n"; st.reasoning.String() != want {
+		t.Fatalf("reasoning = %q, want %q", st.reasoning.String(), want)
+	}
+}
+
+// A command the agent runs is named by the command its input carries.
+func TestACPToolLineNamesTheCommand(t *testing.T) {
+	st := newACPStreamState(nil)
+	st.update(toolUpdate("tool_call", "bash", "execute", "pending", ""))
+	st.update(toolUpdate("tool_call_update", "bash", "execute", "in_progress", `{"command":"go test ./...\n","description":"run the tests"}`))
+	if want := "[tool 1] bash go test ./...\n\n"; st.reasoning.String() != want {
+		t.Fatalf("reasoning = %q, want %q", st.reasoning.String(), want)
+	}
+}
+
+// A title that says what the call does is a line at once (Claude Code,
+// Codex); a call that never says more is named when it ends, once even when
+// it fails, and one still open when the prompt ends is named then.
+func TestACPToolLineOfTitlesAndEnds(t *testing.T) {
+	st := newACPStreamState(nil)
+	st.update(acpSessionUpdate{SessionUpdate: "tool_call", ToolCallID: "a", Title: "Read README.md", Kind: "read", Status: "pending"})
+	if st.reasoning.String() != "[tool 1] Read README.md\n\n" {
+		t.Fatalf("a descriptive title waited: %q", st.reasoning.String())
+	}
+	st.update(acpSessionUpdate{SessionUpdate: "tool_call", ToolCallID: "b", Title: "think", Kind: "think", Status: "pending"})
+	st.update(acpSessionUpdate{SessionUpdate: "tool_call_update", ToolCallID: "b", Status: "failed"})
+	st.update(acpSessionUpdate{SessionUpdate: "tool_call_update", ToolCallID: "b", Status: "failed"})
+	st.update(acpSessionUpdate{SessionUpdate: "tool_call", ToolCallID: "c", Kind: "other", Status: "pending"})
+	st.finish(acpsdk.PromptResponse{StopReason: acpsdk.StopReasonEndTurn})
+	want := "[tool 1] Read README.md\n\n[tool 2] think\n\n[tool 2 failed] think\n\n[tool 3] other\n\n"
+	if st.reasoning.String() != want {
+		t.Fatalf("reasoning = %q, want %q", st.reasoning.String(), want)
+	}
 }

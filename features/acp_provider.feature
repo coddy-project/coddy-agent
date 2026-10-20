@@ -29,3 +29,8 @@ Feature: A local ACP agent served as a model
     When a session asks "write it" and the person allows it
     Then the person was asked about "Write a.txt"
     And the agent heard its own allow option
+
+  Scenario: The agent's tool is named by what it works on
+    Given an acp provider whose agent calls its tool "read" and names the file "docs/notes.txt" only once it runs
+    When a session asks "read the notes"
+    Then the reasoning names the agent's tool "read docs/notes.txt"

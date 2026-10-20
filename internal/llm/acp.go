@@ -292,6 +292,7 @@ func (p *acpProvider) runPrompt(ctx context.Context, proc *acpProcess, sessionID
 	}
 
 	st := newACPStreamState(onChunk)
+	st.cwd = conv.CWD
 	perms := newACPPermissions(proc)
 	defer perms.cancelAll()
 	handle := func(events []acpEvent) {
@@ -453,16 +454,24 @@ func (p *acpProvider) runPrompt(ctx context.Context, proc *acpProcess, sessionID
 
 // acpToolState is what the agent reported about one of its tool calls.
 type acpToolState struct {
-	n        int
-	title    string
-	kind     string
-	content  []json.RawMessage
-	rawInput json.RawMessage
+	n         int
+	title     string
+	kind      string
+	content   []json.RawMessage
+	rawInput  json.RawMessage
+	locations []acpToolLocation
+	// shown is the label of its line once the reasoning has it; failShown
+	// marks the line of its failure.
+	shown     string
+	failShown bool
 }
 
 // acpStreamState gathers the answer of one prompt.
 type acpStreamState struct {
-	onChunk   func(StreamChunk)
+	onChunk func(StreamChunk)
+	// cwd is the session's workspace: a tool line names a file in it by
+	// its path there.
+	cwd       string
 	text      strings.Builder
 	reasoning strings.Builder
 	tools     map[string]*acpToolState
@@ -556,11 +565,14 @@ func (s *acpStreamState) update(u acpSessionUpdate) {
 // call of Coddy's that a surface could take for one to run. The number keeps
 // the loop guard from reading five calls of one title as a degenerating
 // stream.
+//
+// An agent may announce a call by the tool's bare name with an empty input
+// and name what it works on only in a later update (OpenCode: "read", then
+// the file): the line waits until the call says what it works on, or ends.
 func (s *acpStreamState) tool(u acpSessionUpdate) {
 	s.textBroken = true
 	t := s.tools[u.ToolCallID]
-	first := t == nil
-	if first {
+	if t == nil {
 		t = &acpToolState{n: len(s.tools) + 1}
 		s.tools[u.ToolCallID] = t
 	}
@@ -576,16 +588,123 @@ func (s *acpStreamState) tool(u acpSessionUpdate) {
 	if len(u.RawInput) > 0 && string(u.RawInput) != "null" {
 		t.rawInput = u.RawInput
 	}
-	label := t.title
-	if label == "" {
-		label = t.kind
+	if len(u.Locations) > 0 {
+		t.locations = u.Locations
 	}
-	if first {
-		s.reasoningLine("[tool " + strconv.Itoa(t.n) + "] " + label)
+	ended := u.Status == "completed" || u.Status == "failed"
+	if t.shown == "" {
+		if label, telling := t.label(s.cwd); telling || ended {
+			t.shown = label
+			s.reasoningLine("[tool " + strconv.Itoa(t.n) + "] " + label)
+		}
 	}
-	if u.Status == "failed" {
-		s.reasoningLine("[tool " + strconv.Itoa(t.n) + " failed] " + label)
+	if u.Status == "failed" && !t.failShown {
+		t.failShown = true
+		s.reasoningLine("[tool " + strconv.Itoa(t.n) + " failed] " + t.shown)
 	}
+}
+
+// showPendingTools gives the calls whose line still waits one now, in the
+// order the agent announced them: the prompt is over.
+func (s *acpStreamState) showPendingTools() {
+	pending := make([]*acpToolState, 0, len(s.tools))
+	for _, t := range s.tools {
+		if t.shown == "" {
+			pending = append(pending, t)
+		}
+	}
+	sort.Slice(pending, func(i, j int) bool { return pending[i].n < pending[j].n })
+	for _, t := range pending {
+		t.shown, _ = t.label(s.cwd)
+		s.reasoningLine("[tool " + strconv.Itoa(t.n) + "] " + t.shown)
+	}
+}
+
+// label names a call for its line, and says whether the name tells what
+// the call works on: a title that describes the call, or a bare tool name
+// with the file or the command it works on.
+func (t *acpToolState) label(cwd string) (string, bool) {
+	name := t.title
+	if name == "" {
+		name = t.kind
+	}
+	if name == "" {
+		name = "tool"
+	}
+	if !acpBareToolName(t.title, t.kind) {
+		return name, true
+	}
+	if subject := t.subject(cwd); subject != "" {
+		return name + " " + subject, true
+	}
+	return name, false
+}
+
+// acpBareToolName reports whether a title names the tool and nothing else:
+// empty, the call's kind, or one word with no path or quote in it ("read",
+// "bash", "Terminal").
+func acpBareToolName(title, kind string) bool {
+	title = strings.TrimSpace(title)
+	return title == "" || strings.EqualFold(title, kind) || !strings.ContainsAny(title, " /\\.`\"'")
+}
+
+// acpSubjectKeys are the fields of a tool's input that name what it works
+// on, in the order they are looked for.
+var acpSubjectKeys = []string{"command", "cmd", "filePath", "file_path", "path", "pattern", "query", "url"}
+
+// subject is what a call works on: its first file, by its path in cwd when
+// it lies there, else the first field of its input that names it, on one
+// line and cut short.
+func (t *acpToolState) subject(cwd string) string {
+	for _, l := range t.locations {
+		if p := strings.TrimSpace(l.Path); p != "" {
+			return acpShortPath(p, cwd)
+		}
+	}
+	var input map[string]json.RawMessage
+	if json.Unmarshal(t.rawInput, &input) != nil {
+		return ""
+	}
+	for _, k := range acpSubjectKeys {
+		raw, ok := input[k]
+		if !ok {
+			continue
+		}
+		var v string
+		if json.Unmarshal(raw, &v) != nil {
+			var parts []string
+			if json.Unmarshal(raw, &parts) != nil {
+				continue
+			}
+			v = strings.Join(parts, " ")
+		}
+		if v = strings.Join(strings.Fields(v), " "); v == "" {
+			continue
+		}
+		if k == "filePath" || k == "file_path" || k == "path" {
+			v = acpShortPath(v, cwd)
+		}
+		if r := []rune(v); len(r) > acpSubjectRunes {
+			v = string(r[:acpSubjectRunes]) + "..."
+		}
+		return v
+	}
+	return ""
+}
+
+// acpSubjectRunes bounds what a tool line quotes of a call's input.
+const acpSubjectRunes = 100
+
+// acpShortPath is p relative to cwd when it lies inside it, else p.
+func acpShortPath(p, cwd string) string {
+	if cwd == "" || !filepath.IsAbs(p) {
+		return p
+	}
+	rel, err := filepath.Rel(cwd, p)
+	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
+		return p
+	}
+	return filepath.ToSlash(rel)
 }
 
 // mergedPermission fills a permission request with what earlier updates
@@ -607,6 +726,9 @@ func (s *acpStreamState) mergedPermission(req acpPermissionRequest) acpPermissio
 	}
 	if len(req.ToolCall.RawInput) == 0 || string(req.ToolCall.RawInput) == "null" {
 		req.ToolCall.RawInput = t.rawInput
+	}
+	if len(req.ToolCall.Locations) == 0 {
+		req.ToolCall.Locations = t.locations
 	}
 	return req
 }
@@ -665,6 +787,7 @@ var acpStopNotes = map[string]string{
 }
 
 func (s *acpStreamState) finish(res acpsdk.PromptResponse) *Response {
+	s.showPendingTools()
 	if note := acpStopNotes[string(res.StopReason)]; note != "" {
 		if s.text.Len() > 0 {
 			note = "\n\n" + note
