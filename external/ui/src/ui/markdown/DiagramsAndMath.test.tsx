@@ -10,6 +10,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { pageWithoutClipboardApi, selectedOnce } from "../clipboardTestKit";
 
 // The renderers are chunks loaded on demand; here they are fakes the tests drive.
 const mermaid = vi.hoisted(() => ({
@@ -518,6 +519,25 @@ describe("formulas", () => {
     expect(node.getAttribute("title")).toContain("$E = mc^2$");
     fireEvent.click(node);
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("$E = mc^2$"));
+  });
+
+  test("an inline formula copies without a clipboard API and says Copied only when that worked", async () => {
+    const page = pageWithoutClipboardApi(false);
+    render(<Markdown text={"Energy $E = mc^2$ here"} />);
+    await waitFor(() =>
+      expect(document.querySelector(".md-math-inline .katex")).toBeTruthy(),
+    );
+    const node = screen.getByTestId("md-math-inline");
+    await act(async () => {
+      fireEvent.click(node);
+    });
+    expect(page.copies).toEqual(selectedOnce("$E = mc^2$"));
+    expect(node.getAttribute("title")).toContain("$E = mc^2$");
+    page.answer(true);
+    await act(async () => {
+      fireEvent.click(node);
+    });
+    expect(node.getAttribute("title")).toBe("Copied");
   });
 
   test("display dollars and a math fence are formula blocks with a source switch", async () => {

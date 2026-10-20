@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -7,6 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { pageWithoutClipboardApi, selectedOnce } from "../clipboardTestKit";
 import { AssistantMessage } from "./AssistantMessage";
 
 afterEach(() => cleanup());
@@ -34,6 +36,17 @@ test("assistant shows copy after stream and copies raw markdown", async () => {
   expect(copyBtn).toHaveAttribute("title", "Copy message");
   copyBtn.click();
   expect(writeText).toHaveBeenCalledWith("# Title");
+});
+
+test("message copy works without a clipboard API, refused or not", async () => {
+  const page = pageWithoutClipboardApi(false);
+  render(<AssistantMessage content="# Title" streaming={false} />);
+  const copyBtn = screen.getByTestId("assistant-message-copy");
+  await act(async () => {
+    copyBtn.click();
+  });
+  expect(page.copies).toEqual(selectedOnce("# Title"));
+  expect(document.querySelector("textarea")).toBeNull();
 });
 
 test("renders only a verified file marker as an inline artifact card with actions", () => {

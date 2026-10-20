@@ -5,6 +5,7 @@ import { downloadToolArtifact, type ToolArtifact } from "../chat/toolArtifacts";
 import { ApiImage, ApiImageLightbox } from "../components/ApiImage";
 import { useEscapeCloses } from "../components/useEscapeCloses";
 import { fileTypeIcon } from "./fileTypeIcon";
+import { copyText } from "../clipboard";
 import { useT } from "../i18n/I18nProvider";
 import { remoteApiRequest } from "../env/remoteEnv";
 
@@ -20,7 +21,7 @@ const isImage = (artifact: ToolArtifact) =>
   /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(artifact.name);
 
 function copy(text: string) {
-  void navigator.clipboard?.writeText(text);
+  void copyText(text);
 }
 
 /** The gap between the trigger and its menu, and the least distance of the menu from the window's edges. */

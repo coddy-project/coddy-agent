@@ -7,6 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 
+import { pageWithoutClipboardApi, selectedOnce } from "../clipboardTestKit";
 import { setEnv } from "../env/remoteEnv";
 import { parseToolArtifacts } from "../chat/toolArtifacts";
 import { ToolCallMessage } from "./ToolCallMessage";
@@ -144,6 +145,27 @@ test("opens the actions menu outside the card, which clips what overflows it", (
     screen.getByRole("menuitem", { name: "Mention source" }),
   ).toBeDisabled();
   expect(screen.getByRole("menuitem", { name: "Copy name" })).toHaveFocus();
+});
+
+test("the copy items of the menu work without a clipboard API", () => {
+  const page = pageWithoutClipboardApi();
+  render(
+    <ArtifactCard
+      inline
+      artifact={{ ...artifact, sourcePath: "/work/release-notes.pdf" }}
+    />,
+  );
+  const trigger = screen.getByRole("button", {
+    name: "Actions for release-notes.pdf",
+  });
+  for (const name of ["Copy name", "Copy absolute path"]) {
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("menuitem", { name }));
+  }
+  expect(page.copies).toEqual([
+    ...selectedOnce("release-notes.pdf"),
+    ...selectedOnce("/work/release-notes.pdf"),
+  ]);
 });
 
 test("draws the trigger's dots as an svg, not a text glyph", () => {

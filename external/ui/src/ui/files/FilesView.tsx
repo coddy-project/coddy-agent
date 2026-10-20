@@ -10,6 +10,7 @@ import {
 } from "react";
 import { addFrame, isCanvasFile, isCanvasPage } from "../canvas/api";
 import type { CanvasChatProps } from "../canvas/CanvasBoard";
+import { copyText } from "../clipboard";
 import { useT } from "../i18n/I18nProvider";
 import { Chevron } from "../components/Chevron";
 import { useEscapeCloses } from "../components/useEscapeCloses";
@@ -260,13 +261,8 @@ export function FilesView(props: {
     }
   };
 
-  const copyPath = async () => {
-    if (!active) return;
-    try {
-      await navigator.clipboard?.writeText(active);
-    } catch {
-      // A browser that refuses the clipboard has nothing to report here.
-    }
+  const copyPath = () => {
+    if (active) void copyText(active);
   };
 
   // Tabs whose names collide say which folder they come from.
@@ -421,7 +417,7 @@ export function FilesView(props: {
                         className="mode-item files-menu-item"
                         onClick={() => {
                           setMenuOpen(false);
-                          void copyPath();
+                          copyPath();
                         }}
                       >
                         <span className="files-menu-check" aria-hidden />

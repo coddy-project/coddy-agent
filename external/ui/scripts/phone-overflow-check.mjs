@@ -14,6 +14,12 @@
  * the real components against the real stylesheet, every tool row open, so it
  * needs a vite dev server and no backend at all.
  *
+ * The same stand answers one more question a phone raises: do the copy controls
+ * work where the page has no navigator.clipboard, as on a phone that opens
+ * http://192.168.1.100:12345 (issue #566)? On an emulated iPhone, with the API
+ * taken away, it taps the code block's, the inline code's and the message's
+ * copy control and reads the clipboard back by pasting into a field.
+ *
  * Usage, from external/ui:
  *   npm i --no-save playwright && npx playwright install chromium   # once
  *   npx vite --port 5241 &
@@ -160,6 +166,196 @@ async function probe(page) {
   }, SHORT_LABEL_ROWS);
 }
 
+// The copy controls on a page without navigator.clipboard. Both engines serve
+// 127.0.0.1 as a secure context, so the API is taken away the way an insecure
+// origin lacks it: the attribute is gone from Navigator. A control is tapped,
+// as a finger does, and what it copied is read back by pasting into a field of
+// the page. Proven: the page copies by itself inside the tap, the text arrives
+// whole, the control says Copied, and nothing is left behind (no text area, the
+// focus, the zoom and the scroll of a scrolled page where the tap found them,
+// read straight after the tap, before the paste field takes the focus). Not
+// proven: iOS Safari itself, whose text selection and zoom are UIKit's, not
+// WebKit's alone.
+async function copyOnAPhone(browser) {
+  const { defaultBrowserType: _engine, ...phone } =
+    playwright.devices["iPhone 13"];
+  const context = await browser.newContext(phone);
+  await context.addInitScript(() => {
+    delete Navigator.prototype.clipboard;
+    // What the page had selected when the browser ran the copy command: iOS
+    // zooms into a field set below 16px and selects nothing in a field that
+    // was not selected by range.
+    window.__copied = [];
+    // Where the page stood when the tap's click reached it, before any handler
+    // of the app ran: what a copy has to leave as it found it.
+    window.__label = (el) =>
+      !el
+        ? "(nothing)"
+        : el.tagName.toLowerCase() +
+          (el.id ? `#${el.id}` : "") +
+          (typeof el.className === "string" && el.className
+            ? `.${el.className.split(" ")[0]}`
+            : "");
+    document.addEventListener(
+      "click",
+      () => {
+        window.__atClick = {
+          active: document.activeElement,
+          label: window.__label(document.activeElement),
+          scrollY: window.scrollY,
+          zoom: window.visualViewport.scale,
+        };
+      },
+      true,
+    );
+    document.addEventListener(
+      "copy",
+      () => {
+        const el = document.activeElement;
+        window.__copied.push(
+          el instanceof HTMLTextAreaElement
+            ? {
+                readOnly: el.readOnly,
+                fontPx: parseFloat(getComputedStyle(el).fontSize),
+                selected: el.value.slice(el.selectionStart, el.selectionEnd),
+                value: el.value,
+              }
+            : { other: el && el.tagName },
+        );
+      },
+      true,
+    );
+  });
+  const page = await context.newPage();
+  const at = `${ENGINE} copy on a page without navigator.clipboard:`;
+  try {
+    await page.goto(`${URL_BASE}/phone-overflow-check.html?lang=en`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForSelector(".md-code .md-copy");
+    await page.evaluate(() => {
+      const field = document.createElement("textarea");
+      field.id = "paste-probe";
+      field.style.cssText =
+        "position:fixed;left:0;bottom:0;width:120px;font-size:16px";
+      document.body.append(field);
+    });
+    check(
+      `${at} the API is gone`,
+      await page.evaluate(() => typeof navigator.clipboard === "undefined"),
+      `isSecureContext=${await page.evaluate(() => window.isSecureContext)}`,
+    );
+    const controls = [
+      {
+        name: "code block",
+        button: page.locator(".md-code .md-copy").first(),
+        text: () =>
+          document
+            .querySelector(".md-code pre code")
+            .textContent.replace(/\n$/, ""),
+        says: true,
+      },
+      {
+        name: "inline code",
+        button: page.locator(".md-inline-code").first(),
+        text: () => document.querySelector(".md-inline-code").textContent,
+        says: true,
+      },
+      {
+        name: "message",
+        button: page.getByTestId("user-message-copy"),
+        text: () =>
+          document.querySelector('[data-testid="user-message-body"]')
+            .textContent,
+        says: false,
+      },
+    ];
+    const probe = page.locator("#paste-probe");
+    for (const control of controls) {
+      const want = await page.evaluate(control.text);
+      await control.button.scrollIntoViewIfNeeded();
+      // A page that is scrolled, so a copy that moves it shows; and a control
+      // that has the focus, so a copy that loses it shows.
+      await page.evaluate(() => {
+        if (window.scrollY < 8) window.scrollTo(0, 8);
+        document.getElementById("paste-probe").value = "";
+        window.__atClick = undefined;
+      });
+      await control.button.focus();
+      await control.button.tap();
+      // Straight after the tap, before the paste field takes the focus.
+      const left = await page.evaluate(() => {
+        const at = window.__atClick;
+        return {
+          clicked: !!at,
+          focusKept: !!at && document.activeElement === at.active,
+          wasOn: at && at.label,
+          nowOn: window.__label(document.activeElement),
+          scrollBefore: at && at.scrollY,
+          scrollAfter: window.scrollY,
+          zoomBefore: at && at.zoom,
+          zoomAfter: window.visualViewport.scale,
+          areas: document.querySelectorAll("textarea:not(#paste-probe)").length,
+        };
+      });
+      check(
+        `${at} the ${control.name} is tapped on a scrolled page`,
+        left.clicked && left.scrollBefore > 0,
+        `scrollY=${left.scrollBefore}`,
+      );
+      check(
+        `${at} the ${control.name} leaves the focus where the tap put it`,
+        left.focusKept && left.areas === 0,
+        `was ${left.wasOn}, now ${left.nowOn}, ${left.areas} text areas`,
+      );
+      check(
+        `${at} the ${control.name} leaves the scroll and the zoom as they were`,
+        Math.abs(left.scrollAfter - left.scrollBefore) < 1 &&
+          left.zoomAfter === left.zoomBefore,
+        `scrollY ${left.scrollBefore} -> ${left.scrollAfter}, zoom ${left.zoomBefore} -> ${left.zoomAfter}`,
+      );
+      if (control.says) {
+        const said = await control.button
+          .evaluate(
+            (el) =>
+              new Promise((resolve) => {
+                const look = (tries) =>
+                  el.getAttribute("title") === "Copied"
+                    ? resolve(true)
+                    : tries > 0
+                      ? setTimeout(() => look(tries - 1), 50)
+                      : resolve(false);
+                look(12);
+              }),
+          )
+          .catch(() => false);
+        check(`${at} the ${control.name} says Copied`, said);
+      }
+      await probe.focus();
+      await page.keyboard.press("ControlOrMeta+V");
+      const got = await probe.inputValue();
+      check(
+        `${at} the ${control.name} copied its text`,
+        got === want && want.length > 0,
+        got === want ? `${want.length} characters` : JSON.stringify(got),
+      );
+      const ran = await page.evaluate(() => window.__copied.pop());
+      check(
+        `${at} the ${control.name} copied from a read-only 16px selection of the whole text`,
+        !!ran &&
+          ran.readOnly === true &&
+          ran.fontPx >= 16 &&
+          ran.selected === ran.value &&
+          ran.value === want,
+        ran &&
+          JSON.stringify({ ...ran, selected: undefined, value: undefined }),
+      );
+    }
+  } finally {
+    await context.close();
+  }
+}
+
 const browser = await launcher.launch(
   BROWSER_PATH ? { executablePath: BROWSER_PATH } : {},
 );
@@ -233,6 +429,7 @@ try {
       await page.close();
     }
   }
+  await copyOnAPhone(browser);
 } finally {
   await browser.close();
 }
