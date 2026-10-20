@@ -4,7 +4,6 @@ package platform
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -24,38 +23,6 @@ func DetachProcessGroup(cmd *exec.Cmd) {
 	}
 	cmd.SysProcAttr.Setpgid = true
 }
-
-// DetachSession is DetachProcessGroup for a command that must not have a
-// controlling terminal: the child leads a session of its own (and so a process
-// group of its own, which TerminateProcessGroup reaches), and a program in it
-// that opens /dev/tty fails at once instead of drawing over the console or
-// stopping on SIGTTIN. Setpgid is cleared: setpgid in a session leader fails.
-func DetachSession(cmd *exec.Cmd) {
-	if cmd == nil {
-		return
-	}
-	if cmd.SysProcAttr == nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
-	}
-	cmd.SysProcAttr.Setpgid = false
-	cmd.SysProcAttr.Setsid = true
-}
-
-// InterruptProcessGroup sends SIGINT to the group started by cmd, what Ctrl+C
-// in a terminal does. A group that already exited is not an error.
-func InterruptProcessGroup(cmd *exec.Cmd) error {
-	if cmd == nil || cmd.Process == nil {
-		return nil
-	}
-	if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGINT); err != nil && !errors.Is(err, syscall.ESRCH) {
-		return err
-	}
-	return nil
-}
-
-// ApplyShellCommandLine is a Windows concern (cmd.exe quoting); elsewhere the
-// argv of Shell.Command reaches the shell as it is.
-func ApplyShellCommandLine(*exec.Cmd, Shell, string) {}
 
 // KillTreeOnClose is a Windows job object elsewhere: on unix the process
 // group DetachProcessGroup set up already reaches a child that outlived its
@@ -139,9 +106,6 @@ func ProcessStartedAt(int) time.Time {
 func TerminateProcessGroupByPID(pid int, _ time.Time, grace time.Duration) error {
 	if pid <= 0 {
 		return nil
-	}
-	if refusedGroup(pid) {
-		return fmt.Errorf("process group %d is not one to signal (pid 1, or this process's own)", pid)
 	}
 	pgid := -pid
 
@@ -251,11 +215,4 @@ func DetachFromTerminal(cmd *exec.Cmd) {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.Setsid = true
-}
-
-// refusedGroup names the groups a recorded pid must never reach: pid 1, whose
-// negative is kill(-1), every process the user may signal, and Coddy's own
-// group (a window process that did not get a group of its own).
-func refusedGroup(pid int) bool {
-	return pid == 1 || pid == syscall.Getpgrp()
 }

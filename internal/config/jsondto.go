@@ -197,15 +197,14 @@ type MCPJSON struct {
 }
 
 type ToolsJSON struct {
-	CommandAllowlist  []string                `json:"command_allowlist,omitempty"`
-	SSHConnectTimeout int                     `json:"ssh_connect_timeout,omitempty"`
-	OutputLimits      ToolOutputLimitsJSON    `json:"output_limits,omitempty"`
-	Background        ToolBackgroundJSON      `json:"background,omitempty"`
-	PreviewServer     ToolPreviewServerJSON   `json:"preview_server,omitempty"`
-	OperatorCommand   ToolOperatorCommandJSON `json:"operator_command,omitempty"`
-	Canvas            ToolCanvasJSON          `json:"canvas,omitempty"`
-	WebSearch         ToolWebSearchJSON       `json:"websearch,omitempty"`
-	HTTPRequest       ToolHTTPRequestJSON     `json:"http_request,omitempty"`
+	CommandAllowlist  []string              `json:"command_allowlist,omitempty"`
+	SSHConnectTimeout int                   `json:"ssh_connect_timeout,omitempty"`
+	OutputLimits      ToolOutputLimitsJSON  `json:"output_limits,omitempty"`
+	Background        ToolBackgroundJSON    `json:"background,omitempty"`
+	PreviewServer     ToolPreviewServerJSON `json:"preview_server,omitempty"`
+	Canvas            ToolCanvasJSON        `json:"canvas,omitempty"`
+	WebSearch         ToolWebSearchJSON     `json:"websearch,omitempty"`
+	HTTPRequest       ToolHTTPRequestJSON   `json:"http_request,omitempty"`
 }
 
 // ToolWebSearchJSON mirrors ToolWebSearch for JSON APIs. BraveAPIKey travels
@@ -248,13 +247,6 @@ type ToolPreviewServerJSON struct {
 	Enabled    *bool  `json:"enable,omitempty"`
 	Host       string `json:"host,omitempty"`
 	PublicHost string `json:"public_host,omitempty"`
-}
-
-// ToolOperatorCommandJSON mirrors ToolOperatorCommand for JSON APIs.
-type ToolOperatorCommandJSON struct {
-	Enabled     *bool  `json:"enable,omitempty"`
-	Shell       string `json:"shell,omitempty"`
-	Multiplexer string `json:"multiplexer,omitempty"`
 }
 
 // ToolCanvasJSON mirrors ToolCanvas for JSON APIs.
@@ -586,11 +578,6 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			Host:       c.Tools.PreviewServer.Host,
 			PublicHost: c.Tools.PreviewServer.PublicHost,
 		},
-		OperatorCommand: ToolOperatorCommandJSON{
-			Enabled:     cloneBoolPtr(c.Tools.OperatorCommand.Enabled),
-			Shell:       c.Tools.OperatorCommand.Shell,
-			Multiplexer: c.Tools.OperatorCommand.ToolSettings().Multiplexer,
-		},
 		Canvas: ToolCanvasJSON{
 			Enabled:        cloneBoolPtr(c.Tools.Canvas.Enabled),
 			AllowCDN:       cloneBoolPtr(c.Tools.Canvas.AllowCDN),
@@ -839,11 +826,6 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			Enabled:    cloneBoolPtr(j.Tools.PreviewServer.Enabled),
 			Host:       j.Tools.PreviewServer.Host,
 			PublicHost: j.Tools.PreviewServer.PublicHost,
-		},
-		OperatorCommand: ToolOperatorCommand{
-			Enabled:     cloneBoolPtr(j.Tools.OperatorCommand.Enabled),
-			Shell:       j.Tools.OperatorCommand.Shell,
-			Multiplexer: j.Tools.OperatorCommand.Multiplexer,
 		},
 		Canvas: ToolCanvas{
 			Enabled:        cloneBoolPtr(j.Tools.Canvas.Enabled),

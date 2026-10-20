@@ -58,11 +58,6 @@ func executeConfigSet(_ context.Context, argsJSON string, env *tooling.Env) (str
 	if err != nil {
 		return "", err
 	}
-	for _, cmd := range newCmds {
-		if err := refuseOperatorCommandPath(cmd.Path); err != nil {
-			return "", err
-		}
-	}
 	staged, err := loadStagedConfigCommands(env)
 	if err != nil {
 		return "", err
@@ -105,16 +100,4 @@ func marshalToolResult(result map[string]interface{}, toolName string) (string, 
 
 func toolConfigPaths(env *tooling.Env) config.Paths {
 	return config.Paths{Home: env.ConfigHome, CWD: env.ConfigCWD, ConfigPath: env.ConfigPath}
-}
-
-// refuseOperatorCommandPath keeps tools.operator_command out of the agent's
-// reach: its shell is what every command the operator runs for the agent goes
-// through, so an agent that re-pointed it would make a Run on a harmless card
-// run a script of its own. The operator changes it in Settings or the file.
-func refuseOperatorCommandPath(path string) error {
-	p := strings.TrimSpace(path)
-	if p == "tools" || p == "tools.operator_command" || strings.HasPrefix(p, "tools.operator_command.") || strings.HasPrefix(p, "tools.operator_command[") {
-		return fmt.Errorf("%s: tools.operator_command is the operator's own setting (the shell every operator command runs in); ask the operator to change it in Settings or config.yaml", p)
-	}
-	return nil
 }

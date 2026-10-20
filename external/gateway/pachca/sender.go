@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -263,14 +264,14 @@ func (s *Sender) deliver(ctx context.Context, text string, editID int64) {
 }
 
 // RequestPermission allows what the chat's own agent asks: the operator who
-// configured the bot decided that. A subagent stamped below bypass is asked
-// about in the chat, with buttons, and the click decides (permission.go).
+// configured the bot decided that. A forced prompt (a hook's ask, a command
+// the safety check did not clear) and a subagent stamped below bypass are
+// asked about in the chat, with buttons, and the click decides (permission.go).
 func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	if s.refuseApprovals {
 		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 	}
-	stamped := strings.TrimSpace(params.EffectivePermissionMode)
-	if stamped == "" || stamped == "bypass" {
+	if permission.ChatApproves(params) {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	res, err := s.b.permissions().ask(ctx, s.b, s.c, s.target, params.SessionID, params)

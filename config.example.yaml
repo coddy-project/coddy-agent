@@ -396,14 +396,6 @@ tools:
   #   host: 127.0.0.1       # bind address; 0.0.0.0 inside a container exposes the files
   #   public_host: ""       # host written into the URL, when the browser is elsewhere
 
-  # The operator_command tool: when a shell command is refused to the agent by a
-  # protection rule, the agent asks you to run it. The web UI and the console show
-  # the exact command (you cannot edit it) with Run, Decline and Stop; its output
-  # goes back to the agent. The shell also runs the console's !! commands.
-  # operator_command:
-  #   enable: true
-  #   shell: ""             # empty: PowerShell on Windows, bash elsewhere; or zsh, fish, /path/to/shell
-  #   multiplexer: ""       # macOS, Linux: tmux or screen, for long runs on a real terminal
   # The canvas of the web UI: a .canvas file of the workspace shown in the Files window
   # as a board of live frames, each a page of the workspace (HTML, CSS, JS) running in a
   # sandbox. The agent puts pages there with canvas_show and reads what the browser saw
@@ -602,10 +594,11 @@ tools:
 # Command safety decisions: before the permission gate decides on a shell command
 # (run_command, or the remote command of ssh_run_command) you did not allow
 # explicitly, ask the NeuralDeep decisions API whether it is safe. A safe command
-# runs without a prompt; an unsafe one is asked about in ask and accept_edits, the
-# verdict in the prompt, and rejected in bypass - the rejection comes back as the
-# result of the call, so the session records it. The command allowlist, session
-# grants, a hook's allow and commands you approved in a prompt are not checked.
+# runs without a prompt; an unsafe one is asked about in every mode, bypass
+# included, the verdict in the prompt, and rejected where nobody can answer - the
+# rejection comes back as the result of the call, so the session records it. The
+# command allowlist, a session grant of exactly that command, a hook's allow and
+# commands you approved in a prompt are not checked.
 # When the endpoint gives no verdict (no credential, a refusal from the hub, a
 # network error, a command longer than the model reads - 512 tokens on
 # frida-decisions) the command counts as unsafe. Needs a NeuralDeep credential on

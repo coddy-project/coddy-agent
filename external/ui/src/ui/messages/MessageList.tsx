@@ -411,10 +411,6 @@ export function MessageList(props: {
               ? { resultWasTruncated: true }
               : {})}
             {...(it.todoPlan !== undefined ? { todoPlan: it.todoPlan } : {})}
-            {...(it.operatorCommand !== undefined
-              ? { operatorCommand: it.operatorCommand }
-              : {})}
-            {...(props.sessionId ? { sessionId: props.sessionId } : {})}
             {...(it.images !== undefined ? { images: it.images } : {})}
             {...(it.artifacts !== undefined
               ? {

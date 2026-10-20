@@ -25,9 +25,6 @@ func NewRegistry() *Registry {
 	return NewRegistryFor(nil)
 }
 
-// ToolOperatorCommand is the operator_command tool's name, for the agent.
-const ToolOperatorCommand = shell.OperatorCommandToolName
-
 // NewRegistryFor returns built-in tools plus optional scheduler tools when cfg enables scheduler.
 func NewRegistryFor(cfg *config.Config) *Registry {
 	return NewRegistryForEnvironment(cfg, platform.CurrentEnvironment())
@@ -60,15 +57,6 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 		toolcanvas.RegisterBuiltins(r.Register)
 	}
 	r.Register(QuestionTool())
-	// The operator runs what the agent was refused; the agent offers it only
-	// on a surface where a person can answer (acp.OperatorCommandsOf).
-	if cfg == nil || cfg.Tools.OperatorCommand.ResolvedEnabled() {
-		settings := tooling.OperatorCommandSettings{Enabled: true}
-		if cfg != nil {
-			settings = tooling.OperatorCommandSettings(cfg.Tools.OperatorCommand.ToolSettings())
-		}
-		r.Register(shell.OperatorCommandTool(&settings))
-	}
 	r.Register(ConfigGetTool())
 	r.Register(ConfigSetTool())
 	r.Register(ConfigChangesTool())

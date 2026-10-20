@@ -148,9 +148,6 @@ groups:
       - path: features/canvas.md
         title: Canvas
         summary: Live pages on a .canvas board in the Files window of the web UI - canvas_show and canvas_inspect, pointing at an element to ask for a change, the sandbox a frame runs in, and every board an Obsidian .canvas file of the workspace, read and written back as Obsidian writes it.
-      - path: features/operator-commands.md
-        title: Operator commands
-        summary: "A command the agent was refused, run by you: the read-only card with Run, Decline and Stop in the web UI and the console, the output going back to the turn, the operator shell, tmux or screen for long runs."
       - path: features/compaction.md
         title: Context compaction
         summary: /compact and automatic summarisation at a threshold, the kept recent turns, result eviction with keep_result.
@@ -159,7 +156,7 @@ groups:
         summary: The memory subagent that runs per turn in the task pool, what it recalls and saves, how the report reaches the turn, the storage layout, configuration and cost.
       - path: features/decisions.md
         title: Command safety (decisions)
-        summary: "The NeuralDeep decisions check that asks whether a shell command is safe before the permission gate: a safe command runs without a prompt, an unsafe one is asked about, or rejected in bypass mode."
+        summary: "The NeuralDeep decisions check that asks whether a shell command is safe before the permission gate: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer."
       - path: features/session-export.md
         title: Session export
         summary: /export and coddy sessions export, formats, path rules, trimming options, the JSON document.

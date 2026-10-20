@@ -538,21 +538,6 @@ func UISchemaMap() map[string]interface{} {
 					},
 					[]string{"enable", "host", "public_host"},
 					nil),
-				"operator_command": objectSchema("Operator commands",
-					"The operator_command tool: a command the agent was refused, shown to you exactly as it will run, with Run, Decline and Stop. Its output goes back to the agent. The shell also runs the console's !! commands.",
-					map[string]interface{}{
-						// On when the key is absent: the switch must say so.
-						"enable": boolPropDefault("Enabled", "Offer the operator_command tool (default true). It is offered only where a person can answer: the web UI and the console, and never in Ask mode, to subagents, to scheduled jobs, to non-admin senders or in supervised goal runs.", true),
-						"shell":  strProp("Shell", "A name on PATH (bash, zsh, pwsh, cmd) or a path. Empty uses PowerShell on Windows and bash on Linux, macOS and Android."),
-						"multiplexer": map[string]interface{}{
-							"type":        "string",
-							"title":       "Run inside",
-							"description": "macOS and Linux: run each command in a detached tmux or screen session, for long runs on a real terminal; attaching is for watching, the command still asks nothing. Empty runs it directly.",
-							"enum":        []string{"", OperatorMultiplexerTmux, OperatorMultiplexerScreen},
-						},
-					},
-					[]string{"enable", "shell", "multiplexer"},
-					nil),
 				"canvas": objectSchema("Canvas",
 					"The canvas of the web UI: a .canvas file of the workspace shown in the Files window as a board of live frames, each a page of the workspace running in a sandbox.",
 					map[string]interface{}{
@@ -621,7 +606,7 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"allowlist", "default_headers"},
 					nil),
 			},
-			[]string{"command_allowlist", "output_limits", "background", "preview_server", "operator_command", "canvas", "websearch", "http_request"},
+			[]string{"command_allowlist", "output_limits", "background", "preview_server", "canvas", "websearch", "http_request"},
 			nil),
 		"subagents": objectSchema("Subagents",
 			"User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.",
@@ -726,9 +711,9 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"enable", "model", "dir", "fallback_models", "additional_prompt", "additional_prompt_max_chars", "wait_seconds", "timeout_seconds", "keep_runs", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits", "max_note_chars"},
 			nil),
-		"decisions": objectSchema("Command safety (decisions)", "Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about, or rejected in bypass mode.",
+		"decisions": objectSchema("Command safety (decisions)", "Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer.",
 			map[string]interface{}{
-				"enable": boolProp("Enabled", "Check run_command and ssh_run_command calls you did not allow explicitly before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in ask and accept_edits and rejected in bypass. The allowlist, session grants, a hook's allow and commands you approved in a prompt are not checked."),
+				"enable": boolProp("Enabled", "Check run_command and ssh_run_command calls you did not allow explicitly before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer. The allowlist, a session grant of exactly that command, a hook's allow and commands you approved in a prompt are not checked."),
 				"model": map[string]interface{}{
 					"type":        "string",
 					"title":       "Decisions model",

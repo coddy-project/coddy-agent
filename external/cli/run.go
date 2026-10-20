@@ -447,10 +447,6 @@ func wireLocalManager(mgr *session.Manager) {
 // lateBoundSender lets the manager be constructed before the app exists.
 type lateBoundSender struct{ inner acp.UpdateSender }
 
-// UnwrapSender forwards the console's capabilities (operator commands) once
-// the console exists.
-func (l *lateBoundSender) UnwrapSender() acp.UpdateSender { return l.inner }
-
 // SendControlUpdate forwards a backend-local control notification to the
 // console once it exists; the manager's background MCP connect reports
 // through it.

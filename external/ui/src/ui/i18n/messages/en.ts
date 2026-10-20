@@ -598,22 +598,6 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.tools.preview_server.public_host.desc":
     "Host written into the URL the agent hands out, when the browser is on another machine. Empty uses the bind host.",
   "settings.schema.tools.preview_server.public_host.ph": "The bind host",
-  "settings.schema.tools.operator_command.label": "Operator commands",
-  "settings.schema.tools.operator_command.desc":
-    "The operator_command tool: a command the agent was refused, shown to you exactly as it will run, with Run, Decline and Stop. Its output goes back to the agent. The shell also runs the console's !! commands.",
-  "settings.schema.tools.operator_command.enable.label": "Enabled",
-  "settings.schema.tools.operator_command.enable.desc":
-    "Offer the operator_command tool (default true). It is offered only where a person can answer: the web UI and the console, and never in Ask mode, to subagents, to scheduled jobs, to non-admin senders or in supervised goal runs.",
-  "settings.schema.tools.operator_command.shell.label": "Shell",
-  "settings.schema.tools.operator_command.shell.desc":
-    "A name on PATH (bash, zsh, pwsh, cmd) or a path. Empty uses PowerShell on Windows and bash on Linux, macOS and Android.",
-  "settings.schema.tools.operator_command.shell.ph":
-    "bash (PowerShell on Windows)",
-  "settings.schema.tools.operator_command.multiplexer.label": "Run inside",
-  "settings.schema.tools.operator_command.multiplexer.desc":
-    "macOS and Linux: run each command in a detached tmux or screen session, for long runs on a real terminal; attaching is for watching, the command still asks nothing. Empty runs it directly.",
-  "settings.schema.tools.operator_command.multiplexer.option.none":
-    "Directly (no multiplexer)",
   "settings.schema.tools.websearch.brave_api_key.ph": "Read from BRAVE_API_KEY",
   "settings.schema.tools.websearch.searxng_url.ph": "http://localhost:8888",
   "settings.schema.tools.http_request.label": "HTTP requests",
@@ -689,7 +673,7 @@ export const messagesEn: Record<string, string> = {
     "Model the memory subagent runs on; empty uses the session's model.",
   "settings.schema.decisions.enable.label": "Enabled",
   "settings.schema.decisions.enable.desc":
-    "Ask the NeuralDeep decisions API whether a shell command, local or over SSH, is safe before the permission gate decides. A safe command runs without a prompt; an unsafe one is asked about in ask and accept_edits and rejected in bypass, the rejection landing in the chat as the command's result. The command allowlist, session grants, a hook's allow and commands you approved in a prompt are not checked.",
+    "Ask the NeuralDeep decisions API whether a shell command, local or over SSH, is safe before the permission gate decides. A safe command runs without a prompt; an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer, the rejection landing in the chat as the command's result. The command allowlist, a session grant of exactly that command, a hook's allow and commands you approved in a prompt are not checked.",
   "settings.schema.decisions.model.label": "Decisions model",
   "settings.schema.decisions.model.desc":
     "frida-decisions: encoder pass, up to 512 tokens of command text, ~20 ms per request, 1 quota unit. clef-flash: up to 8192 tokens, ~150 ms, 4 quota units.",
@@ -1728,38 +1712,6 @@ export const messagesEn: Record<string, string> = {
   "prompts.planPreviewEmpty": "Nothing to preview yet.",
   "prompts.planSaveFailed": "save failed ({status})",
   "prompts.planSaveFailedNoStatus": "save failed",
-  // The operator_command card (messages/OperatorCommandCard.tsx): a command the
-  // agent was refused, for the operator to run themselves.
-  "operatorCommand.title": "Run it yourself",
-  "operatorCommand.shell": "Shell",
-  "operatorCommand.host": "Host",
-  "operatorCommand.multiplexer": "Runs inside a terminal multiplexer",
-  "operatorCommand.folder": "Folder",
-  "operatorCommand.reason": "Agent's reason",
-  "operatorCommand.actionsAria": "Run or decline the command",
-  "operatorCommand.run": "Run",
-  "operatorCommand.decline": "Decline",
-  "operatorCommand.stop": "Stop",
-  "operatorCommand.kill": "Kill",
-  "operatorCommand.running": "Running…",
-  "operatorCommand.stopping": "Stopping…",
-  "operatorCommand.exitCode": "Exit code {code}",
-  "operatorCommand.stoppedExit": "Stopped (exit code {code})",
-  "operatorCommand.declined": "Declined",
-  "operatorCommand.declinedNote": "Note: {note}",
-  "operatorCommand.failed": "Did not run",
-  "operatorCommand.cancelled": "Cancelled",
-  "operatorCommand.stopped": "Stopped",
-  "operatorCommand.endedPlain": "Ended",
-  "operatorCommand.attach": "Watch it in a terminal",
-  "operatorCommand.outputAria": "Command output",
-  "operatorCommand.dropped": "The start of the output was dropped ({bytes} B)",
-  "operatorCommand.alreadyAnswered": "Already answered elsewhere",
-  "operatorCommand.ended": "This request has ended",
-  "operatorCommand.sendFailed": "Could not send the answer",
-  "operatorCommand.loadFailed":
-    "The card did not load. Retry, or decline the command.",
-  "operatorCommand.retry": "Retry",
 
   "scheduler.title": "Scheduler",
   "scheduler.close": "Close scheduler",
@@ -2076,7 +2028,6 @@ export const messagesEn: Record<string, string> = {
   "tool.name.webfetch": "fetching a page",
   "tool.name.http_request": "sending an http request",
   "tool.name.preview_server": "starting a preview server",
-  "tool.name.operator_command": "asking you to run a command",
   "tool.name.websearch": "searching the web",
   "tool.name.coddy_docs_search": "searching the documentation",
   "tool.name.coddy_docs_read": "reading the documentation",

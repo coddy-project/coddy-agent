@@ -247,7 +247,6 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/compact", s.coddySessionCompactPost)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/question", s.coddySessionQuestionPost)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/permission", s.coddySessionPermissionPost)
-	s.mux.HandleFunc("POST /coddy/sessions/{id}/operator-command", s.coddySessionOperatorCommandPost)
 	s.mux.HandleFunc("DELETE /coddy/sessions/{id}", s.coddySessionDelete)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/plan", s.coddyPlanGet)
 	s.mux.HandleFunc("PUT /coddy/sessions/{id}/plan", s.coddyPlanPut)
@@ -491,7 +490,9 @@ func (s *Server) coddySessionPermissionPost(w http.ResponseWriter, r *http.Reque
 	if out == "" {
 		switch opt {
 		case "reject":
-			out = "cancelled"
+			// A person chose Reject; cancelled is a prompt dismissed or
+			// never answered, which the decisions check tells apart.
+			out = "selected"
 		default:
 			out = "allow"
 		}
@@ -1271,7 +1272,7 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 			ent["lastErrorSeq"] = lastErrorSeq
 			ent["unreadComplete"] = actSeq > readSeq && !turnActive
 			ent["permissionPending"] = session.PendingPermissionHeld(dir)
-			ent["questionPending"] = QuestionPending(row.SessionID) || OperatorCommandPending(row.SessionID)
+			ent["questionPending"] = QuestionPending(row.SessionID)
 			// Detached work outlives the turn that started it, so a session
 			// with no turn in flight is still not idle while a task runs.
 			// The count is the pool's own, which already leaves out the
@@ -1359,7 +1360,7 @@ func (s *Server) coddySessionActivityGet(w http.ResponseWriter, r *http.Request)
 		"readActivitySeq": readSeq,
 		"lastErrorSeq":    lastErrorSeq,
 		"unreadComplete":  actSeq > readSeq && !turnActive,
-		"questionPending": QuestionPending(id) || OperatorCommandPending(id),
+		"questionPending": QuestionPending(id),
 	}
 	s.addTurnProgress(out, id)
 	w.Header().Set("Content-Type", "application/json")

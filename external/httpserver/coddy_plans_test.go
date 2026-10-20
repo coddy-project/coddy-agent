@@ -15,6 +15,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
@@ -217,5 +218,18 @@ func TestDesignPlanRunRefusedInAskMode(t *testing.T) {
 	}
 	if got := st.GetMode(); got != string(session.ModeAsk) {
 		t.Fatalf("mode switched to %q", got)
+	}
+}
+
+// A plan run has nobody to ask: it waves the run's prompts through, but never
+// one the gate forced (a hook's ask, a command the safety check did not clear).
+func TestDesignPlanRunSenderRefusesAForcedPrompt(t *testing.T) {
+	res, err := planRunNoopSender{}.RequestPermission(context.Background(), acp.PermissionRequestParams{Forced: true})
+	if err != nil || permission.Approved(res) {
+		t.Fatalf("forced prompt = %+v %v, want a refusal", res, err)
+	}
+	res, err = planRunNoopSender{}.RequestPermission(context.Background(), acp.PermissionRequestParams{})
+	if err != nil || !permission.Approved(res) {
+		t.Fatalf("plain prompt = %+v %v, want the run's approval", res, err)
 	}
 }

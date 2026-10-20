@@ -437,10 +437,7 @@ func (a *App) applyToolStatus(tb *toolBox, u acp.ToolCallStatusUpdate) {
 				tb.SetArgs(item.Content.Text)
 			}
 		}
-		// An operator command's frames carry the output window of the run
-		// in meta; the content stays the call's arguments.
-		output, _ := operatorFrameOutput(u.Meta)
-		tb.SetStatus("in_progress", output, 0, 0)
+		tb.SetStatus("in_progress", "", 0, 0)
 	case "completed", "failed", "cancelled":
 		for _, item := range u.Content {
 			if item.Content.Text != "" {

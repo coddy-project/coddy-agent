@@ -10,7 +10,7 @@ Keys are parsed into the `ctrl+x` / `shift+enter` / `alt+backspace` notation of 
 |---|---|
 | enter | send when idle; during a turn queue in `agent.queue_mode` (first use asks for the default) |
 | shift+enter / ctrl+j | newline (a backslash right before enter also splits the line, for terminals that do not report shift+enter) |
-| escape | close the suggestion menu if open; otherwise stop a running [operator command](../features/operator-commands.md) (a second press kills it); otherwise stop a running `!!` command; otherwise interrupt the running turn (`HandleSessionCancel`) |
+| escape | close the suggestion menu if open; otherwise stop a running `!!` command; otherwise interrupt the running turn (`HandleSessionCancel`) |
 | ctrl+c | clear the editor; on an empty editor, twice within 2 s exits |
 | ctrl+d | exit when the editor is empty |
 | ctrl+l | model selector |
@@ -72,8 +72,8 @@ Menus, selectors and prompts:
 | enter / tab | suggestion menu | apply the highlighted row; enter on a slash command applies and submits in one stroke, so `/resume` + enter opens the picker directly |
 | escape | suggestion menu | close it |
 | typed characters, backspace | model, mode, theme and resume selectors | filter the list |
-| enter | selector, permission prompt, question, operator command dialog | choose the highlighted option (a permission prompt offers the options the agent sent; the operator command dialog offers Decline and Run, starts on Decline, and no letter key decides) |
-| escape / ctrl+c | selector, permission prompt, question, operator command dialog | cancel; a cancelled permission prompt rejects the call, a cancelled operator command dialog declines the command |
+| enter | selector, permission prompt, question | choose the highlighted option (a permission prompt offers the options the agent sent) |
+| escape / ctrl+c | selector, permission prompt, question | cancel; a cancelled permission prompt rejects the call |
 | space | question with `multiple: true` | toggle the highlighted option |
 | escape | custom answer editor of a question | back to the option list |
 

@@ -3,13 +3,10 @@
 package cli
 
 import (
-	"fmt"
-	"runtime"
 	"strings"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
-	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/shell"
 )
 
@@ -100,15 +97,7 @@ func (a *App) startLocalShell(command string) {
 	a.curShell, a.lastShell = box, box
 	box.SetExpanded(a.expanded)
 
-	// The operator shell of tools.operator_command: the one shell the
-	// operator runs commands in by hand, here and through the agent.
-	commandShell, err := platform.ResolveShell(a.config().Tools.OperatorCommand.Shell, runtime.GOOS, nil)
-	if err != nil {
-		box.Finish(-1, fmt.Errorf("tools.operator_command.shell: %w", err))
-		a.curShell = nil
-		return
-	}
-	cmd, err := shell.StartOperatorCommandForShell(command, a.config().Paths.CWD, commandShell)
+	cmd, err := shell.StartOperatorCommand(command, a.config().Paths.CWD)
 	if err != nil {
 		box.Finish(-1, err)
 		a.curShell = nil

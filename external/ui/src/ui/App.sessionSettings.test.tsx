@@ -312,8 +312,6 @@ test("a model picked on the start page does not replace an existing session's", 
   // the interface's language, which the documentation answers in.
   expect(meta.surface).toBe("webui");
   expect(meta.lang).toBe("en");
-  // The page answers the operator_command tool, so every turn declares it.
-  expect(meta.coddy_operator_commands).toBe("1");
 });
 
 test("a level picked on the start page stays out of a session with no level of its own", async () => {

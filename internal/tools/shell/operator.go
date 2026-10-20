@@ -18,13 +18,13 @@ import (
 // long the command has been running.
 const operatorOutputCap = 256 << 10
 
-// OperatorCommand is a command the human operator runs: one typed with the
-// console's `!!` prefix, which stays invisible to the agent, or one the agent
-// asked for through operator_command, whose output the tool returns to the
-// turn once the operator pressed Run. It reuses the process handling of
-// run_command (same shell selection, detached process group, decoded and
-// sanitised output) and deliberately nothing else: no permission gate, because
-// the operator is the principal here; no session, no background pool.
+// OperatorCommand is a command the human operator started directly - the
+// console's `!!` prefix - rather than one the model asked for. It reuses the
+// process handling of run_command (same shell selection, detached process
+// group, decoded and sanitised output) and deliberately nothing else: no
+// permission gate, because the operator is the principal here; no session, no
+// background pool, no persisted tool call, so the run stays invisible to the
+// agent.
 type OperatorCommand struct {
 	sc   *startedCommand
 	tail *tailBuffer
@@ -45,28 +45,6 @@ func StartOperatorCommandForShell(command, cwd string, commandShell platform.She
 		return nil, err
 	}
 	return &OperatorCommand{sc: sc, tail: tail}, nil
-}
-
-// StartOperatorToolCommand launches a command the operator ran for the agent
-// through the operator_command tool. It is StartOperatorCommandForShell plus
-// what a command started from a server or under the console's screen needs:
-// a session of its own, so it has no controlling terminal, and cmd.exe's
-// command line handed over verbatim.
-func StartOperatorToolCommand(command, cwd string, commandShell platform.Shell) (*OperatorCommand, error) {
-	tail := &tailBuffer{limit: operatorOutputCap}
-	sc, err := startForegroundInto(command, &tooling.Env{CWD: cwd}, commandShell, tail,
-		platform.DetachSession,
-		func(cmd *exec.Cmd) { platform.ApplyShellCommandLine(cmd, commandShell, command) })
-	if err != nil {
-		return nil, err
-	}
-	return &OperatorCommand{sc: sc, tail: tail}, nil
-}
-
-// Interrupt sends the command what Ctrl+C sends (SIGINT to its process group;
-// nothing on Windows, where the command's console is not Coddy's to deliver it to).
-func (c *OperatorCommand) Interrupt() {
-	_ = platform.InterruptProcessGroup(c.sc.cmd)
 }
 
 // Output returns the retained tail of what the command printed, decoded and

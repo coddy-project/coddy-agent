@@ -29,46 +29,6 @@ func DetachProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr.CreationFlags |= syscall.CREATE_NEW_PROCESS_GROUP
 }
 
-// DetachSession is DetachProcessGroup plus a console of its own: a new process
-// group alone still shares Coddy's console, so a program that prompts there
-// (ssh, Read-Host) or clears it would reach the console TUI. CREATE_NO_WINDOW
-// gives the command a console with no window, which its children inherit: a
-// program that reads that console waits there unseen until it is stopped. Its
-// output still comes over the pipes.
-func DetachSession(cmd *exec.Cmd) {
-	if cmd == nil {
-		return
-	}
-	DetachProcessGroup(cmd)
-	cmd.SysProcAttr.CreationFlags |= createNoWindow
-}
-
-// createNoWindow is CREATE_NO_WINDOW, which syscall does not name.
-const createNoWindow = 0x08000000
-
-// InterruptProcessGroup does nothing on Windows: the command's console is not
-// Coddy's, so Coddy cannot deliver Ctrl+C to it, and a stop goes straight to
-// TerminateProcessGroup.
-func InterruptProcessGroup(*exec.Cmd) error {
-	return nil
-}
-
-// ApplyShellCommandLine hands cmd.exe its command line verbatim. Go quotes
-// every argument the way the C runtime parses them, which cmd does not: a
-// command holding a double quote reaches it mangled. With /s /c and the
-// command in one outer pair of quotes, cmd strips exactly that pair and runs
-// the rest as written; /d skips AutoRun. Other shells parse the C runtime's
-// quoting and keep the argv of Shell.Command.
-func ApplyShellCommandLine(cmd *exec.Cmd, shell Shell, command string) {
-	if cmd == nil || shell.Kind != ShellCmd {
-		return
-	}
-	if cmd.SysProcAttr == nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
-	}
-	cmd.SysProcAttr.CmdLine = syscall.EscapeArg(shell.Path) + ` /d /s /c "` + command + `"`
-}
-
 // KillTreeOnClose puts the process cmd started into a job object that ends
 // every process in it once the job is closed, and returns the function that
 // closes it. What the process starts from then on joins the job too, so the

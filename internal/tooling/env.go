@@ -3,7 +3,6 @@ package tooling
 import (
 	"context"
 	"strings"
-	"sync"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
@@ -191,16 +190,6 @@ type Env struct {
 	// the built-in defaults (enabled, loopback).
 	PreviewServer *PreviewServerSettings
 
-	// OperatorCommand is the resolved tools.operator_command section: the
-	// operator shell and multiplexer the operator_command tool runs with. Nil
-	// means the defaults (enabled, the platform shell, no multiplexer).
-	OperatorCommand *OperatorCommandSettings
-
-	// OperatorDeclined holds the commands the operator declined during this
-	// turn, so the model cannot put the same command up again and again.
-	// Nil means nothing is remembered.
-	OperatorDeclined *OperatorDeclines
-
 	// OutputLineLimits caps how many lines each tool result or error may
 	// contribute to the LLM context, keyed by tool name; the empty-string key
 	// carries the default applied to unlisted (and MCP) tools. A positive value
@@ -358,46 +347,6 @@ type WebSearchSettings struct {
 	SearXNGURL string
 	// BraveAPIKey routes the Brave backend to the official Search API.
 	BraveAPIKey string
-}
-
-// OperatorCommandSettings is the resolved tools.operator_command section. The
-// field order is part of the contract: the agent converts
-// config.ToolOperatorCommandSettings to this type directly.
-type OperatorCommandSettings struct {
-	Enabled     bool
-	Shell       string
-	Multiplexer string
-}
-
-// OperatorDeclines is the set of commands declined in one turn.
-type OperatorDeclines struct {
-	mu   sync.Mutex
-	seen map[string]bool
-}
-
-// NewOperatorDeclines returns an empty set.
-func NewOperatorDeclines() *OperatorDeclines {
-	return &OperatorDeclines{seen: map[string]bool{}}
-}
-
-// Add records a declined command.
-func (d *OperatorDeclines) Add(command string) {
-	if d == nil {
-		return
-	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.seen[command] = true
-}
-
-// Has reports whether the command was declined in this turn.
-func (d *OperatorDeclines) Has(command string) bool {
-	if d == nil {
-		return false
-	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.seen[command]
 }
 
 // PreviewServerSettings is the resolved tools.preview_server section as the

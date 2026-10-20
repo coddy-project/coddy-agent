@@ -10,7 +10,6 @@ import {
   schemaFieldDesc,
   schemaFieldLabel,
   schemaFieldPlaceholder,
-  schemaEnumOptionLabel,
 } from "./schemaI18n";
 import { SETTINGS_REVEAL_EVENT } from "./settingsReveal";
 import { SwitchField } from "./SwitchField";
@@ -455,15 +454,7 @@ function SchemaField(props: {
         <Combobox
           value={v}
           ariaLabel={label}
-          // An empty value that means something (a default behaviour) is
-          // named, in the list and in the field while it is chosen.
-          placeholder={schemaEnumOptionLabel(i18nDomain, path, "") ?? ph}
-          options={schema.enum.map((opt) => {
-            const label = schemaEnumOptionLabel(i18nDomain, path, String(opt));
-            return label
-              ? { value: String(opt), label }
-              : { value: String(opt) };
-          })}
+          options={schema.enum.map((opt) => ({ value: String(opt) }))}
           onChange={(raw) => {
             const match = schema.enum!.find((x) => String(x) === raw);
             onChange(match !== undefined ? match : raw);

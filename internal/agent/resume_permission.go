@@ -14,7 +14,6 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
-	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 	toolweb "github.com/EvilFreelancer/coddy-agent/internal/tools/web"
 )
@@ -385,8 +384,6 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		Background:        a.backgroundPool(sessionDir),
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
 		WebSearch:         webSearchSettings(a.cfg),
-		OperatorCommand:   operatorCommandSettings(a.cfg),
-		OperatorDeclined:  tooling.NewOperatorDeclines(),
 		AttachImage:       a.attachToolImage,
 		ImageRefusal:      a.toolImageRefusal,
 	}

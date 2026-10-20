@@ -201,10 +201,10 @@
     },
     "decisions": {
       "additionalProperties": false,
-      "description": "Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about, or rejected in bypass mode.",
+      "description": "Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer.",
       "properties": {
         "enable": {
-          "description": "Check run_command and ssh_run_command calls you did not allow explicitly before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in ask and accept_edits and rejected in bypass. The allowlist, session grants, a hook's allow and commands you approved in a prompt are not checked.",
+          "description": "Check run_command and ssh_run_command calls you did not allow explicitly before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer. The allowlist, a session grant of exactly that command, a hook's allow and commands you approved in a prompt are not checked.",
           "title": "Enabled",
           "type": "boolean"
         },
@@ -1459,40 +1459,6 @@
             "default_headers"
           ]
         },
-        "operator_command": {
-          "additionalProperties": false,
-          "description": "The operator_command tool: a command the agent was refused, shown to you exactly as it will run, with Run, Decline and Stop. Its output goes back to the agent. The shell also runs the console's !! commands.",
-          "properties": {
-            "enable": {
-              "default": true,
-              "description": "Offer the operator_command tool (default true). It is offered only where a person can answer: the web UI and the console, and never in Ask mode, to subagents, to scheduled jobs, to non-admin senders or in supervised goal runs.",
-              "title": "Enabled",
-              "type": "boolean"
-            },
-            "multiplexer": {
-              "description": "macOS and Linux: run each command in a detached tmux or screen session, for long runs on a real terminal; attaching is for watching, the command still asks nothing. Empty runs it directly.",
-              "enum": [
-                "",
-                "tmux",
-                "screen"
-              ],
-              "title": "Run inside",
-              "type": "string"
-            },
-            "shell": {
-              "description": "A name on PATH (bash, zsh, pwsh, cmd) or a path. Empty uses PowerShell on Windows and bash on Linux, macOS and Android.",
-              "title": "Shell",
-              "type": "string"
-            }
-          },
-          "title": "Operator commands",
-          "type": "object",
-          "x-coddy-property-order": [
-            "enable",
-            "shell",
-            "multiplexer"
-          ]
-        },
         "output_limits": {
           "additionalProperties": false,
           "description": "Maximum lines each tool result or error may return into the LLM context. Enabled limits also apply a 64 KiB per-call byte safety ceiling. 0 disables both limits; unset uses the built-in default.",
@@ -1662,7 +1628,6 @@
         "output_limits",
         "background",
         "preview_server",
-        "operator_command",
         "canvas",
         "websearch",
         "http_request"

@@ -608,23 +608,6 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.tools.preview_server.public_host.desc":
     "Хост, который подставляется в выдаваемую агентом ссылку, когда браузер находится на другой машине. Пусто - используется адрес привязки.",
   "settings.schema.tools.preview_server.public_host.ph": "Адрес привязки",
-  "settings.schema.tools.operator_command.label": "Команды оператора",
-  "settings.schema.tools.operator_command.desc":
-    "Инструмент operator_command: команда, которую агенту не дали выполнить, показанная вам ровно так, как она будет запущена, с кнопками Запустить, Отклонить и Остановить. Её вывод возвращается агенту. Та же оболочка выполняет команды !! консоли.",
-  "settings.schema.tools.operator_command.enable.label": "Включено",
-  "settings.schema.tools.operator_command.enable.desc":
-    'Предлагать инструмент operator_command (по умолчанию включено). Он предлагается только там, где может ответить человек: в веб-интерфейсе и в консоли, и никогда в режиме "Чат", субагентам, задачам планировщика, отправителям без прав администратора и в запусках цели с супервизором.',
-  "settings.schema.tools.operator_command.shell.label": "Оболочка",
-  "settings.schema.tools.operator_command.shell.desc":
-    "Имя из PATH (bash, zsh, pwsh, cmd) или путь. Пусто - PowerShell в Windows и bash в Linux, macOS и Android.",
-  "settings.schema.tools.operator_command.shell.ph":
-    "bash (PowerShell в Windows)",
-  "settings.schema.tools.operator_command.multiplexer.label":
-    "Запускать внутри",
-  "settings.schema.tools.operator_command.multiplexer.desc":
-    "macOS и Linux: запускать каждую команду в отдельной сессии tmux или screen в фоне, для долгих запусков в настоящем терминале; подключаться можно, чтобы наблюдать, команда по-прежнему ничего не спрашивает. Пусто - запуск напрямую.",
-  "settings.schema.tools.operator_command.multiplexer.option.none":
-    "Напрямую (без мультиплексора)",
   "settings.schema.tools.websearch.brave_api_key.ph":
     "Берётся из BRAVE_API_KEY",
   "settings.schema.tools.websearch.searxng_url.ph": "http://localhost:8888",
@@ -703,7 +686,7 @@ export const messagesRu: Record<string, string> = {
     "Модель, на которой работает субагент памяти; пусто - модель сессии.",
   "settings.schema.decisions.enable.label": "Включено",
   "settings.schema.decisions.enable.desc":
-    "Спрашивать NeuralDeep decisions API, безопасна ли команда оболочки, локальная или через SSH, до того как решает шлюз разрешений. Безопасная команда выполняется без запроса. О небезопасной в режимах ask и accept_edits спрашивают, а в режиме bypass её отклоняют, и отказ попадает в чат как результат команды. Список разрешённых команд, гранты сессии, allow-хук и команды, одобренные в запросе разрешения, не проверяются.",
+    "Спрашивать NeuralDeep decisions API, безопасна ли команда оболочки, локальная или через SSH, до того как решает шлюз разрешений. Безопасная команда выполняется без запроса. О небезопасной спрашивают в любом режиме, включая bypass, а если ответить некому, её отклоняют, и отказ попадает в чат как результат команды. Список разрешённых команд, грант сессии именно на эту команду, allow-хук и команды, одобренные в запросе разрешения, не проверяются.",
   "settings.schema.decisions.model.label": "Модель decisions",
   "settings.schema.decisions.model.desc":
     "frida-decisions: проход энкодера, до 512 токенов текста команды, ~20 мс на запрос, 1 единица квоты. clef-flash: до 8192 токенов, ~150 мс, 4 единицы квоты.",
@@ -1775,38 +1758,6 @@ export const messagesRu: Record<string, string> = {
   "prompts.planPreviewEmpty": "Пока нечего показывать.",
   "prompts.planSaveFailed": "ошибка сохранения ({status})",
   "prompts.planSaveFailedNoStatus": "ошибка сохранения",
-  // The operator_command card (messages/OperatorCommandCard.tsx): a command the
-  // agent was refused, for the operator to run themselves.
-  "operatorCommand.title": "Запустите сами",
-  "operatorCommand.shell": "Оболочка",
-  "operatorCommand.host": "Хост",
-  "operatorCommand.multiplexer": "Запускается в терминальном мультиплексоре",
-  "operatorCommand.folder": "Папка",
-  "operatorCommand.reason": "Причина агента",
-  "operatorCommand.actionsAria": "Запустить или отклонить команду",
-  "operatorCommand.run": "Запустить",
-  "operatorCommand.decline": "Отклонить",
-  "operatorCommand.stop": "Остановить",
-  "operatorCommand.kill": "Завершить принудительно",
-  "operatorCommand.running": "Выполняется…",
-  "operatorCommand.stopping": "Останавливается…",
-  "operatorCommand.exitCode": "Код выхода {code}",
-  "operatorCommand.stoppedExit": "Остановлена (код выхода {code})",
-  "operatorCommand.declined": "Отклонена",
-  "operatorCommand.declinedNote": "Примечание: {note}",
-  "operatorCommand.failed": "Не запустилась",
-  "operatorCommand.cancelled": "Отменена",
-  "operatorCommand.stopped": "Остановлена",
-  "operatorCommand.endedPlain": "Завершена",
-  "operatorCommand.attach": "Посмотреть в терминале",
-  "operatorCommand.outputAria": "Вывод команды",
-  "operatorCommand.dropped": "Начало вывода отброшено ({bytes} Б)",
-  "operatorCommand.alreadyAnswered": "Уже отвечено в другом месте",
-  "operatorCommand.ended": "Этот запрос уже завершён",
-  "operatorCommand.sendFailed": "Не удалось отправить ответ",
-  "operatorCommand.loadFailed":
-    "Карточка не загрузилась. Повторите загрузку или отклоните команду.",
-  "operatorCommand.retry": "Повторить",
 
   "scheduler.title": "Планировщик",
   "scheduler.close": "Закрыть планировщик",
@@ -2138,7 +2089,6 @@ export const messagesRu: Record<string, string> = {
   "tool.name.webfetch": "загружаю страницу",
   "tool.name.http_request": "отправляю http-запрос",
   "tool.name.preview_server": "запускаю сервер предпросмотра",
-  "tool.name.operator_command": "прошу вас запустить команду",
   "tool.name.websearch": "ищу в интернете",
   "tool.name.coddy_docs_search": "ищу в документации",
   "tool.name.coddy_docs_read": "читаю документацию",

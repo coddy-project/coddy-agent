@@ -29,15 +29,6 @@ func previewServerSettings(cfg *config.Config) *tooling.PreviewServerSettings {
 	return &out
 }
 
-// operatorCommandSettings resolves tools.operator_command for the tool layer.
-func operatorCommandSettings(cfg *config.Config) *tooling.OperatorCommandSettings {
-	if cfg == nil {
-		return nil
-	}
-	out := tooling.OperatorCommandSettings(cfg.Tools.OperatorCommand.ToolSettings())
-	return &out
-}
-
 // httpRequestEnv puts tools.http_request on the tool environment: the
 // destinations a request reaches without asking and the headers every request
 // sends. It runs wherever the environment is built or refreshed after a config

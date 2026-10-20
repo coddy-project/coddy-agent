@@ -46,11 +46,6 @@ type Tools struct {
 	// serves project files for the operator to open in a browser.
 	PreviewServer ToolPreviewServer `yaml:"preview_server"`
 
-	// OperatorCommand is the operator_command tool: a command the agent was
-	// refused, run by the operator from the web UI or the console, and the
-	// shell the operator runs commands in (the console's !! too).
-	OperatorCommand ToolOperatorCommand `yaml:"operator_command"`
-
 	// Canvas governs the canvas of the web UI: the canvas_show and
 	// canvas_inspect tools and what a frame's page may load.
 	Canvas ToolCanvas `yaml:"canvas"`
@@ -403,8 +398,6 @@ func (l *ToolOutputLimits) AsMap() map[string]int {
 	for _, n := range names {
 		out[n] = l.MaxLines(n)
 	}
-	// What the operator ran for the agent is a shell command too.
-	out["operator_command"] = l.MaxLines("run_command")
 	out[outputLimitDefaultKey] = l.MaxLines(outputLimitDefaultKey)
 	return out
 }
@@ -451,9 +444,6 @@ func (c *Tools) Validate() error {
 		return err
 	}
 	if err := c.PreviewServer.validate(); err != nil {
-		return err
-	}
-	if err := c.OperatorCommand.validate(); err != nil {
 		return err
 	}
 	if err := c.Canvas.validate(); err != nil {
@@ -688,68 +678,4 @@ func (p *ToolPreviewServer) validate() error {
 		}
 	}
 	return nil
-}
-
-// Multiplexers tools.operator_command.multiplexer accepts besides the empty
-// default, which runs the command directly.
-const (
-	OperatorMultiplexerTmux   = "tmux"
-	OperatorMultiplexerScreen = "screen"
-)
-
-// ToolOperatorCommand is the YAML tools.operator_command section. It governs
-// the operator_command tool, through which the agent asks the operator to run
-// a command it was refused, and the shell the operator runs commands in.
-type ToolOperatorCommand struct {
-	// Enabled offers the operator_command tool. Unset means enabled; the tool
-	// is still offered only on a surface where a person can answer.
-	Enabled *bool `yaml:"enable"`
-
-	// Shell is the operator shell: a name on PATH (bash, zsh, pwsh, cmd) or a
-	// path to the executable. Empty means PowerShell on Windows and bash
-	// elsewhere (platform.ResolveShell). It is looked up on the host that
-	// runs the command, so an unknown one is a --dry-run finding, not a
-	// validation error.
-	Shell string `yaml:"shell"`
-
-	// Multiplexer runs the command inside a detached tmux or screen session
-	// (macOS, Linux), for long runs on a real terminal. Empty runs it directly.
-	Multiplexer string `yaml:"multiplexer"`
-}
-
-// ResolvedEnabled reports whether the tool is offered, defaulting to true when
-// the field is unset.
-func (o *ToolOperatorCommand) ResolvedEnabled() bool {
-	if o == nil || o.Enabled == nil {
-		return true
-	}
-	return *o.Enabled
-}
-
-// ToolOperatorCommandSettings is the resolved section handed to the tool.
-type ToolOperatorCommandSettings struct {
-	Enabled     bool
-	Shell       string
-	Multiplexer string
-}
-
-// ToolSettings materializes the section: the shell trimmed, the multiplexer
-// in its canonical lower case.
-func (o *ToolOperatorCommand) ToolSettings() ToolOperatorCommandSettings {
-	out := ToolOperatorCommandSettings{Enabled: o.ResolvedEnabled()}
-	if o == nil {
-		return out
-	}
-	out.Shell = strings.TrimSpace(o.Shell)
-	out.Multiplexer = strings.ToLower(strings.TrimSpace(o.Multiplexer))
-	return out
-}
-
-func (o *ToolOperatorCommand) validate() error {
-	switch m := strings.ToLower(strings.TrimSpace(o.Multiplexer)); m {
-	case "", OperatorMultiplexerTmux, OperatorMultiplexerScreen:
-		return nil
-	default:
-		return fmt.Errorf("tools.operator_command.multiplexer: %q is not one of tmux, screen (empty runs the command directly)", o.Multiplexer)
-	}
 }

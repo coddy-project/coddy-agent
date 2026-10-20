@@ -476,7 +476,7 @@ offers the same tools; under `--remote` the server owns the reload.
 | enter | send when idle; during a turn, queue the draft in `agent.queue_mode` (the first time asks which) |
 | tab | during a turn with a draft, queue it in the other mode |
 | shift+enter / ctrl+j | newline (backslash+enter also splits) |
-| escape | interrupt the running turn (`HandleSessionCancel`) or stop a `!!` command; while an [operator command](../features/operator-commands.md) runs, stop it instead of the turn (a second press kills it) |
+| escape | interrupt the running turn (`HandleSessionCancel`), or stop a `!!` command |
 | ctrl+c | clear editor; twice within 2 s exits |
 | ctrl+d | exit when the editor is empty |
 | ctrl+l | model selector |
@@ -490,14 +490,10 @@ offers the same tools; under `--remote` the server owns the reload.
 ## Local shell (`!!`)
 
 A submitted line that starts with `!!` is not a prompt. Coddy runs the rest of
-it in the workspace with the operator shell of `tools.operator_command` (empty:
-PowerShell on Windows, bash and then sh elsewhere; a shell set there that is not found is reported in
-the block, never replaced by another), and neither the command nor its output
-is shown to the model, persisted in the session bundle, or counted against the
-context window. This is pi's bash-mode prefix. A command whose output the agent
-needs is the other way round: the agent asks you to run it as an
-[operator command](../features/operator-commands.md), and the output goes back
-to the turn.
+it in the workspace with the shell `run_command` uses, and neither the command
+nor its output is shown to the model, persisted in the session bundle, or
+counted against the context window. This is pi's bash-mode prefix; pi's other
+half, `!`, which feeds the output back to the model, is still deferred.
 
 - the prefix counts at the start of the submitted line only; while the buffer
   holds a command the editor rules turn green. To send a prompt that really
@@ -542,17 +538,6 @@ multi-select via space, and a free-text **Custom answer...** unless the question
 sets `custom` to `false`; the typed text joins the options ticked beside it),
 model/reasoning/permission/theme/session
 selectors (`→ ` cursor, type-to-filter, `(i/n)` scroll indicator).
-
-An [operator command](../features/operator-commands.md) - a command the agent
-was refused and asks you to run - opens a modal too: the agent's reason, the
-shell, the host and the folder, and every line of the command, which you cannot
-edit. The selection starts on **Decline**, so an Enter typed before the modal
-appeared never runs anything, and no letter key decides: move to **Run** (the
-second row) and press Enter to run it. Enter on **Decline**, or escape,
-declines, and the agent does not ask for that command again this turn. While it runs, its tool box shows the output, escape stops it (the
-turn goes on with what it printed) and a second escape kills it. In `--remote`
-mode the same modal shows the server's request, and the command runs on the
-server, where the session's files are.
 
 A background subagent keeps working after the turn that spawned it has ended,
 and when it needs a permission it asks through the same modal, titled
@@ -625,8 +610,9 @@ runs out: the web UI's History until its **CLI runs** filter is chosen,
 list` still lists them, so a run that timed out is found by its folder and
 continued with `--session-id <id> -p "..."`. A session the run reopens (`-c`,
 an existing `--session-id`) keeps the origin it had. Permission requests
-resolve non-interactively: `bypass` allows, anything else rejects the call
-with a note on stderr. The question tool returns empty answers. `--model`,
+resolve non-interactively: `bypass` allows, except a forced prompt (a hook's
+`ask`, a command the decisions check did not clear), anything else rejects the
+call with a note on stderr. The question tool returns empty answers. `--model`,
 `--mode`, `--permission-mode`, `--session-id`, and `--continue` all combine
 with `--prompt`; `--resume` does not (it needs the interactive picker).
 

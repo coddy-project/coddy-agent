@@ -62,12 +62,6 @@ type mirroredSender struct {
 	watcher acp.UpdateSender
 }
 
-// UnwrapSender forwards the capabilities of the surface that started the turn
-// (operator commands): a watcher only watches.
-func (m *mirroredSender) UnwrapSender() acp.UpdateSender {
-	return m.primary
-}
-
 func (m *mirroredSender) SendSessionUpdate(sessionID string, update interface{}) error {
 	// The watcher is a spectator: its failures are its own, and they must not
 	// turn into an error the chat sees.
