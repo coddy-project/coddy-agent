@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -124,6 +125,12 @@ type Turn struct {
 	ExitAfterReply bool `json:"exit_after_reply,omitempty"`
 	// Chunks sends this many more one-letter text chunks before the answer.
 	Chunks int `json:"chunks,omitempty"`
+	// Barrier holds the prompt until this many prompts of the process have
+	// reached it, then answers with "barrier: <n>"; after BarrierWait (10 s
+	// when 0) it gives up and answers "barrier: timeout". Prompts a client
+	// sends one after another do not meet: the first ones time out.
+	Barrier     int `json:"barrier,omitempty"`
+	BarrierWait int `json:"barrier_wait_ms,omitempty"`
 }
 
 // Tool is one tool call the fake agent reports.
@@ -257,6 +264,8 @@ type agent struct {
 	authed   string
 	turn     int
 	nextID   int
+	// atBarrier counts the prompts of this process that reached a barrier.
+	atBarrier int
 	// waiting holds the requests this agent sent the client, by id.
 	waiting map[string]chan json.RawMessage
 }
@@ -689,6 +698,9 @@ func (a *agent) prompt(m message, t Turn, cancelled <-chan struct{}) {
 	for _, name := range t.Env {
 		lines = append(lines, name+"="+os.Getenv(name))
 	}
+	if t.Barrier > 0 {
+		lines = append(lines, "barrier: "+a.awaitBarrier(t.Barrier, t.BarrierWait))
+	}
 	text := append([]string{}, t.Text...)
 	if len(lines) > 0 && !t.Quiet {
 		text = append(text, strings.Join(lines, "\n"))
@@ -721,6 +733,34 @@ func (a *agent) prompt(m message, t Turn, cancelled <-chan struct{}) {
 	a.reply(m.ID, result)
 	if t.ExitAfterReply {
 		os.Exit(0)
+	}
+}
+
+// awaitBarrier waits until n prompts of the process have reached a barrier,
+// or the wait (10 s when 0) is over. Arrivals are counted, not the prompts
+// still waiting: the last one to arrive passes at once and must not leave
+// the others short. Prompts a client sends one after another meet only once
+// the first ones gave up.
+func (a *agent) awaitBarrier(n, waitMS int) string {
+	wait := time.Duration(waitMS) * time.Millisecond
+	if wait <= 0 {
+		wait = 10 * time.Second
+	}
+	deadline := time.Now().Add(wait)
+	a.mu.Lock()
+	a.atBarrier++
+	a.mu.Unlock()
+	for {
+		a.mu.Lock()
+		met := a.atBarrier >= n
+		a.mu.Unlock()
+		if met {
+			return strconv.Itoa(n)
+		}
+		if time.Now().After(deadline) {
+			return "timeout"
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
