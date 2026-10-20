@@ -42,6 +42,10 @@ func (a *Agent) providerConversation(mode string, env *tools.Env) llm.Conversati
 	}
 }
 
+// providerToolPrefix opens the title of a provider's permission request, so
+// the person tells the agent's tool from one of Coddy's own.
+const providerToolPrefix = "Agent: "
+
 // providerToolKind maps an ACP tool kind onto the kinds Coddy's surfaces draw
 // its own tool rows with (session.ToolKind).
 func providerToolKind(kind string) string {
@@ -69,7 +73,11 @@ func (a *Agent) askProviderPermission(ctx context.Context, mode, permMode string
 	if title == "" {
 		title = "a tool"
 	}
-	title = "Agent: " + title
+	if !strings.HasPrefix(title, providerToolPrefix) {
+		// An agent that is another Coddy names its own agent's request so
+		// already: the person reads the prefix once, however deep the chain.
+		title = providerToolPrefix + title
+	}
 	kind := providerToolKind(req.Kind)
 	body := strings.TrimSpace(req.Body)
 	if body == "" {

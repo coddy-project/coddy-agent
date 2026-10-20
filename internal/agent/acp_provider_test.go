@@ -204,6 +204,33 @@ func TestACPModelForwardsTheAgentsPermissionRequest(t *testing.T) {
 	}
 }
 
+// An agent that is another Coddy (coddy acp behind an acp row) names its own
+// agent's request "Agent: ..." already: the person reads the prefix once.
+func TestACPModelNamesANestedAgentsRequestOnce(t *testing.T) {
+	cfg, _ := acpLoopConfig(t, acptest.Script{Turns: []acptest.Turn{{Permission: &acptest.Permission{
+		Title: "Agent: Edit main.go", Kind: "edit",
+		Options: []acptest.Option{
+			{ID: "allow", Name: "Allow", Kind: "allow_once"},
+			{ID: "reject", Name: "Reject", Kind: "reject_once"},
+		},
+	}}}})
+	st := &session.State{ID: "sess_acp", CWD: t.TempDir(), Mode: session.ModeAgent}
+	sender := &acpSender{answer: &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}}
+	if err := runACPTurn(t, cfg, st, sender, "edit it"); err != nil {
+		t.Fatal(err)
+	}
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+	if len(sender.asked) != 1 || sender.asked[0].ToolCall.Title != "Agent: Edit main.go" {
+		t.Fatalf("prompts = %+v", sender.asked)
+	}
+	for _, u := range sender.updates {
+		if tc, ok := u.(acp.ToolCallUpdate); ok && tc.Title != "Agent: Edit main.go" {
+			t.Fatalf("tool row title = %q", tc.Title)
+		}
+	}
+}
+
 // A surface's shortcut approval carries no option id (a plan run's sender
 // answers {outcome: allow}); the agent still hears its allow option.
 func TestACPModelTakesAnApprovalWithoutAnOptionID(t *testing.T) {
