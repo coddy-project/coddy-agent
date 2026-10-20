@@ -24,7 +24,16 @@ const openCodeClientID = "coddy"
 // Configuration cannot redirect account or refresh tokens to another host.
 const EnvOpenCodeConsoleURL = "CODDY_OPENCODE_CONSOLE_URL"
 
-var opencodeRefreshMu sync.Mutex
+// opencodeRefreshLocks serializes, per credential file, a refresh with the
+// writes and the removal of that file, so a refresh never overwrites a newer
+// login or brings back one a logout removed. A file of its own per row means a
+// refresh that waits on Console holds up only the requests of its own row.
+var opencodeRefreshLocks sync.Map // credential path -> *sync.Mutex
+
+func opencodeRefreshLock(path string) *sync.Mutex {
+	mu, _ := opencodeRefreshLocks.LoadOrStore(path, &sync.Mutex{})
+	return mu.(*sync.Mutex)
+}
 
 func openCodeConsoleURL() string {
 	if value := strings.TrimSpace(os.Getenv(EnvOpenCodeConsoleURL)); value != "" {
@@ -162,8 +171,9 @@ func SaveOpenCodeAuthFile(path string, data []byte) error {
 	if credential.APIKey == "" && (credential.AccessToken == "" || credential.RefreshToken == "" || credential.ExpiresAt <= 0) {
 		return errors.New("opencode: incomplete credential")
 	}
-	opencodeRefreshMu.Lock()
-	defer opencodeRefreshMu.Unlock()
+	refresh := opencodeRefreshLock(path)
+	refresh.Lock()
+	defer refresh.Unlock()
 	return saveOpenCodeCredential(path, &credential)
 }
 
@@ -238,8 +248,9 @@ func openCodeCredential(ctx context.Context, explicit, path string, client *http
 	if client == nil {
 		return "", "", errors.New("opencode: missing account HTTP client")
 	}
-	opencodeRefreshMu.Lock()
-	defer opencodeRefreshMu.Unlock()
+	refresh := opencodeRefreshLock(path)
+	refresh.Lock()
+	defer refresh.Unlock()
 	credential, err := loadOpenCodeAuth(path)
 	if err != nil || credential == nil {
 		return "", "", err

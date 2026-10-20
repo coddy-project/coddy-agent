@@ -56,8 +56,9 @@ func SaveOpenCodeAuth(path, apiKey, apiBase string) error {
 	if err != nil {
 		return err
 	}
-	opencodeRefreshMu.Lock()
-	defer opencodeRefreshMu.Unlock()
+	refresh := opencodeRefreshLock(path)
+	refresh.Lock()
+	defer refresh.Unlock()
 	opencodeAuthMu.Lock()
 	defer opencodeAuthMu.Unlock()
 	return writePrivateFileAtomic(path, data)
@@ -97,8 +98,9 @@ func RemoveOpenCodeAuth(path string) error {
 	if strings.TrimSpace(path) == "" {
 		return errors.New("opencode auth: credential path is empty")
 	}
-	opencodeRefreshMu.Lock()
-	defer opencodeRefreshMu.Unlock()
+	refresh := opencodeRefreshLock(path)
+	refresh.Lock()
+	defer refresh.Unlock()
 	opencodeAuthMu.Lock()
 	defer opencodeAuthMu.Unlock()
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {

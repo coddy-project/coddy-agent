@@ -483,3 +483,50 @@ func TestOpenCodeDeviceLoginWaitsWhilePending(t *testing.T) {
 		t.Fatalf("credential %+v, err %v", saved, err)
 	}
 }
+
+// One row's refresh waits on Console for up to the account request's bound;
+// another row's login is a file of its own and does not wait for it.
+func TestOpenCodeRefreshOfOneRowDoesNotHoldAnother(t *testing.T) {
+	inFlight := make(chan struct{})
+	release := make(chan struct{})
+	proxy := newProviderHTTPSProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(inFlight)
+		<-release
+		_, _ = w.Write([]byte(`{"access_token":"fresh","refresh_token":"rotated","expires_in":600}`))
+	}))
+	dir := t.TempDir()
+	slow, ready := filepath.Join(dir, "slow.json"), filepath.Join(dir, "ready.json")
+	if err := saveOpenCodeCredential(slow, &opencodeAuthFile{AccessToken: "old", RefreshToken: "old-refresh", ExpiresAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveOpenCodeCredential(ready, &opencodeAuthFile{AccessToken: "valid", RefreshToken: "r", ExpiresAt: time.Now().Add(time.Hour).Unix(), OrgID: "org"}); err != nil {
+		t.Fatal(err)
+	}
+	hc, err := HTTPClientForProviderProxy(proxy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slowDone := make(chan error, 1)
+	go func() {
+		_, _, err := openCodeCredential(context.Background(), "", slow, hc)
+		slowDone <- err
+	}()
+	<-inFlight
+	got := make(chan string, 1)
+	go func() {
+		key, _, _ := openCodeCredential(context.Background(), "", ready, hc)
+		got <- key
+	}()
+	select {
+	case key := <-got:
+		if key != "valid" {
+			t.Fatalf("key %q", key)
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("a row waited for another row's refresh")
+	}
+	close(release)
+	if err := <-slowDone; err != nil {
+		t.Fatal(err)
+	}
+}
