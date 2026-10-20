@@ -50,15 +50,16 @@ func (c UCICommand) String() string {
 // listings), masking values addressed at secret-shaped paths and secret-shaped
 // fields inside JSON object values. The stored command keeps the original value.
 func (c UCICommand) RedactedString() string {
+	path := redactedUCIPath(c.Path)
 	if c.Op == UCIOpDelete {
-		return c.String()
+		return c.Op + " " + path
 	}
 	var keys []string
 	if tokens, err := parseDottedConfigPath(c.Path); err == nil {
 		keys = configPathKeys(tokens)
 	}
 	if configSecretPath(keys) && !publicConfigValue(keys, strings.Trim(c.Value, `"'`)) {
-		return c.Op + " " + c.Path + "=" + RedactedValue
+		return c.Op + " " + path + "=" + RedactedValue
 	}
 	var decoded interface{}
 	if json.Unmarshal([]byte(c.Value), &decoded) == nil && redactSecretJSON(&decoded, keys) {
@@ -67,10 +68,39 @@ func (c UCICommand) RedactedString() string {
 		enc := json.NewEncoder(&buf)
 		enc.SetEscapeHTML(false)
 		if err := enc.Encode(decoded); err == nil {
-			return c.Op + " " + c.Path + "=" + strings.TrimRight(buf.String(), "\n")
+			return c.Op + " " + path + "=" + strings.TrimRight(buf.String(), "\n")
 		}
 	}
-	return c.String()
+	return c.Op + " " + path + "=" + c.Value
+}
+
+// redactedUCIPath hides a selector value when the selector itself addresses a
+// secret field. Those values appear in permission prompts and commit results
+// even for delete commands, which have no right-hand value to redact.
+func redactedUCIPath(path string) string {
+	tokens, err := parseDottedConfigPath(path)
+	if err != nil {
+		return path
+	}
+	secret := false
+	for i := range tokens {
+		selector := tokens[i].selector
+		if selector != nil && configSecretPath(append(configPathKeys(tokens[:i+1]), selector.field)) {
+			secret = true
+			selector.value = RedactedValue
+		}
+	}
+	if !secret {
+		return path
+	}
+	parts := make([]string, len(tokens))
+	for i, token := range tokens {
+		parts[i] = token.key
+		if token.selector != nil {
+			parts[i] += "[" + token.selector.field + "=" + token.selector.value + "]"
+		}
+	}
+	return strings.Join(parts, ".")
 }
 
 // redactSecretJSON masks secret-shaped fields inside a decoded JSON value.

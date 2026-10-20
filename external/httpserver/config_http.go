@@ -18,10 +18,7 @@ func (s *Server) registerConfigRoutes() {
 		// ReplaceConfig on the manager reaches this server through the config
 		// observer registered in New, which is also how a reload from the
 		// agent's own config_commit tool or from the console gets here.
-		Install: func(c *config.Config) error {
-			s.mgr.ReplaceConfig(c)
-			return nil
-		},
+		Install:   s.mgr.InstallConfig,
 		Schema:    func() ([]byte, error) { return config.UISchemaJSONHiding(s.unbuiltSections...) },
 		Decorate:  s.decorateConfigDocument,
 		Revisions: s.served,

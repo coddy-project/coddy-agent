@@ -220,6 +220,9 @@ type Options struct {
 	Log *slog.Logger
 	// Cfg is the already-loaded configuration.
 	Cfg *config.Config
+	// AdjustConfig reapplies process flags and environment values to a new
+	// configuration before an in-process writer installs it.
+	AdjustConfig func(*config.Config) error
 }
 
 // Init fills the runtime in place.
@@ -281,6 +284,7 @@ func (r *Runtime) Init(opts Options) error {
 		return loop.Run(ctx, prompt)
 	}
 	mgr = session.NewManager(opts.Cfg, &defaultSender{live: live}, runner, log, paths.CWD, store)
+	mgr.SetConfigAdjuster(opts.AdjustConfig)
 	// A session this process creates returns before its MCP servers answer,
 	// and its first turn waits for them after announcing itself (issue #357):
 	// a cold server used to hold the first message of a web chat, without a

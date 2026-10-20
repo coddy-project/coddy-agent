@@ -274,6 +274,7 @@ func runServe(args []string) error {
 
 	if err := rt.Init(serve.Options{
 		CLI:                cli,
+		AdjustConfig:       applyProcessOverrides,
 		SessionsRoot:       strings.TrimSpace(*sessionsRoot),
 		PreferredSessionID: strings.TrimSpace(*persistedSession),
 		NeedsSessions:      needsSessions(enabled),

@@ -548,6 +548,7 @@ func (s *Server) reloadConfigFromDisk() {
 		s.log.Error("skills config reload", "error", err)
 		return
 	}
-	s.ReplaceConfig(reloaded)
-	s.mgr.ReplaceConfig(reloaded)
+	if err := s.mgr.InstallConfig(reloaded); err != nil {
+		s.log.Error("skills config reload", "error", err)
+	}
 }

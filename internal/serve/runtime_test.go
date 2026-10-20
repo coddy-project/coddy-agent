@@ -198,6 +198,28 @@ func TestRuntimeWithoutAManagerHoldsTheLiveConfiguration(t *testing.T) {
 	}
 }
 
+func TestRuntimePassesProcessOverridesToItsManager(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Paths.Home = t.TempDir()
+	rt := &Runtime{}
+	if err := rt.Init(Options{
+		Cfg: cfg, NeedsSessions: true, SessionsRoot: t.TempDir(),
+		AdjustConfig: func(next *config.Config) error {
+			next.MCP.ProjectTrust = config.ProjectTrustDeny
+			return nil
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	next := &config.Config{}
+	if err := rt.Mgr.InstallConfig(next); err != nil {
+		t.Fatal(err)
+	}
+	if rt.Cfg() != next || rt.Cfg().MCP.ProjectTrust != config.ProjectTrustDeny {
+		t.Fatalf("runtime installed configuration without process overrides: %+v", rt.Cfg().MCP)
+	}
+}
+
 // A relay alone holds its configuration in the runtime, and two overlapping
 // replacements reach the supervisor in the order they were stored, as they do
 // through a manager: the other order left it rebuilding the relay on the older
