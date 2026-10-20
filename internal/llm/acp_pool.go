@@ -365,7 +365,7 @@ func (pl *acpPool) release(e *acpPoolEntry) {
 	if e.idle != nil {
 		e.idle.Stop()
 	}
-	if !e.proc.init.AgentCapabilities.SessionCapabilities.canClose() && e.proc.opened.Load() >= acpMaxSessions {
+	if !e.proc.canClose() && e.proc.opened.Load() >= acpMaxSessions {
 		// Its sessions pile up in the agent: restart it while nobody uses it.
 		e.idle = time.AfterFunc(0, func() { pl.expire(e) })
 		return

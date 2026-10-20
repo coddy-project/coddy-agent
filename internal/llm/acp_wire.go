@@ -1,32 +1,34 @@
 package llm
 
-// The client side of the Agent Client Protocol wire, as far as the acp
-// provider speaks it: JSON-RPC 2.0 over newline-delimited JSON on the agent's
-// stdin and stdout. internal/acp holds the agent side of the same protocol,
-// but it imports the session and agent packages, so the few client shapes are
-// declared here. Field names are the protocol's camelCase.
+// The client side of the Agent Client Protocol as the acp provider reads it.
+// The protocol itself - JSON-RPC over the agent's stdio, the requests Coddy
+// sends, the initialize and prompt results - is github.com/coder/acp-go-sdk's.
+// What is declared here is what Coddy decodes on its own, leniently, because
+// the agents it runs send more than the SDK's schema holds:
+//
+//   - a session's state (session/new, set_config_option): an option of a
+//     type the schema does not know would fail the whole response there, and
+//     the models of an agent that still offers them the older way
+//     (models, session/set_model) are not in it;
+//   - session/update: Coddy as the agent streams its reasoning as a message
+//     chunk of type "reasoning", and a tool call's content and raw input are
+//     only shown, never interpreted;
+//   - session/request_permission, for the same tool call fields.
 
-import "encoding/json"
+import (
+	"encoding/json"
 
-// acpProtocolVersion is the ACP major version the provider speaks.
-const acpProtocolVersion = 1
-
-// JSON-RPC error codes the provider tells apart.
-const (
-	rpcMethodNotFound = -32601
-	// acpAuthRequired is the code an agent answers session/new with until the
-	// client called authenticate.
-	acpAuthRequired = -32000
+	acpsdk "github.com/coder/acp-go-sdk"
 )
 
-// acpMessage is any JSON-RPC message, decoded far enough to route it.
+// acpAuthRequired is the code an agent answers session/new with until the
+// client called authenticate.
+const acpAuthRequired = -32000
+
+// acpMessage is the answer to a request of Coddy's: its result or its error.
 type acpMessage struct {
-	JSONRPC string          `json:"jsonrpc,omitempty"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *acpRPCError    `json:"error,omitempty"`
+	Result json.RawMessage
+	Error  *acpRPCError
 }
 
 // acpRPCError is a JSON-RPC error object.
@@ -34,67 +36,6 @@ type acpRPCError struct {
 	Code    int             `json:"code"`
 	Message string          `json:"message"`
 	Data    json.RawMessage `json:"data,omitempty"`
-}
-
-type acpInitializeParams struct {
-	ProtocolVersion    int                   `json:"protocolVersion"`
-	ClientCapabilities acpClientCapabilities `json:"clientCapabilities"`
-	ClientInfo         acpImplementation     `json:"clientInfo"`
-}
-
-// acpClientCapabilities says what the agent may ask of Coddy: nothing. The
-// agent reads and writes files and runs commands with its own tools.
-type acpClientCapabilities struct {
-	FS       acpFSCapabilities `json:"fs"`
-	Terminal bool              `json:"terminal"`
-}
-
-type acpFSCapabilities struct {
-	ReadTextFile  bool `json:"readTextFile"`
-	WriteTextFile bool `json:"writeTextFile"`
-}
-
-type acpImplementation struct {
-	Name    string `json:"name"`
-	Title   string `json:"title,omitempty"`
-	Version string `json:"version,omitempty"`
-}
-
-type acpInitializeResult struct {
-	ProtocolVersion   int                  `json:"protocolVersion"`
-	AgentCapabilities acpAgentCapabilities `json:"agentCapabilities"`
-	AgentInfo         *acpImplementation   `json:"agentInfo,omitempty"`
-	AuthMethods       []acpAuthMethod      `json:"authMethods,omitempty"`
-}
-
-type acpAgentCapabilities struct {
-	PromptCapabilities  acpPromptCapabilities  `json:"promptCapabilities"`
-	SessionCapabilities acpSessionCapabilities `json:"sessionCapabilities"`
-}
-
-type acpPromptCapabilities struct {
-	Image bool `json:"image,omitempty"`
-}
-
-// acpSessionCapabilities holds the optional session methods; a present
-// (non-null) member means the agent supports the method.
-type acpSessionCapabilities struct {
-	Close json.RawMessage `json:"close,omitempty"`
-}
-
-func (c acpSessionCapabilities) canClose() bool {
-	return len(c.Close) > 0 && string(c.Close) != "null"
-}
-
-type acpAuthMethod struct {
-	ID          string `json:"id"`
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
-}
-
-type acpNewSessionParams struct {
-	CWD        string        `json:"cwd"`
-	MCPServers []interface{} `json:"mcpServers"`
 }
 
 // acpSessionState is what session/new returns and the agent's later
@@ -180,57 +121,37 @@ func (o acpConfigOption) current() string {
 	return s
 }
 
-type acpSetConfigOptionParams struct {
-	SessionID string `json:"sessionId"`
-	ConfigID  string `json:"configId"`
-	Value     string `json:"value"`
-}
-
 type acpSetConfigOptionResult struct {
 	ConfigOptions []acpConfigOption `json:"configOptions"`
 }
 
-type acpSetModeParams struct {
-	SessionID string `json:"sessionId"`
-	ModeID    string `json:"modeId"`
-}
-
+// acpSetModelParams is session/set_model, the older way of selecting a
+// session's model, which the SDK's schema no longer has.
 type acpSetModelParams struct {
 	SessionID string `json:"sessionId"`
 	ModelID   string `json:"modelId"`
 }
 
-type acpSessionIDParams struct {
-	SessionID string `json:"sessionId"`
-}
-
-type acpPromptParams struct {
-	SessionID string            `json:"sessionId"`
-	Prompt    []acpContentBlock `json:"prompt"`
-}
-
-// acpContentBlock is a prompt or message content block: text or an image.
+// acpContentBlock is a block of a prompt as the provider builds it: text or
+// an image. acpSDKBlocks turns it into the protocol's.
 type acpContentBlock struct {
-	Type     string `json:"type"`
-	Text     string `json:"text,omitempty"`
-	MIMEType string `json:"mimeType,omitempty"`
-	Data     string `json:"data,omitempty"`
-	URI      string `json:"uri,omitempty"`
-	Name     string `json:"name,omitempty"`
+	Type     string
+	Text     string
+	MIMEType string
+	Data     string
 }
 
-type acpPromptResult struct {
-	StopReason string    `json:"stopReason"`
-	Usage      *acpUsage `json:"usage,omitempty"`
-}
-
-// acpUsage is the token usage a prompt result reports.
-type acpUsage struct {
-	InputTokens       int `json:"inputTokens"`
-	OutputTokens      int `json:"outputTokens"`
-	ThoughtTokens     int `json:"thoughtTokens"`
-	CachedReadTokens  int `json:"cachedReadTokens"`
-	CachedWriteTokens int `json:"cachedWriteTokens"`
+// acpSDKBlocks is the prompt as the protocol carries it.
+func acpSDKBlocks(blocks []acpContentBlock) []acpsdk.ContentBlock {
+	out := make([]acpsdk.ContentBlock, 0, len(blocks))
+	for _, b := range blocks {
+		if b.Type == "image" {
+			out = append(out, acpsdk.ImageBlock(b.Data, b.MIMEType))
+			continue
+		}
+		out = append(out, acpsdk.TextBlock(b.Text))
+	}
+	return out
 }
 
 type acpSessionNotification struct {
@@ -290,12 +211,9 @@ type acpPermissionOption struct {
 	Kind     string `json:"kind"`
 }
 
-// acpPermissionOutcome is the client's answer to a permission request.
+// acpPermissionOutcome is Coddy's answer to a permission request: selected
+// with the agent's option id, or cancelled.
 type acpPermissionOutcome struct {
-	Outcome  string `json:"outcome"`
-	OptionID string `json:"optionId,omitempty"`
-}
-
-type acpPermissionResult struct {
-	Outcome acpPermissionOutcome `json:"outcome"`
+	Outcome  string
+	OptionID string
 }

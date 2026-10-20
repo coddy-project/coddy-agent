@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+
+	acpsdk "github.com/coder/acp-go-sdk"
 )
 
 const (
@@ -264,11 +266,11 @@ func (p *acpProvider) runPrompt(ctx context.Context, proc *acpProcess, sessionID
 		// owed an answer: the protocol wants cancelled.
 		for _, ev := range sink.drain() {
 			if ev.permission != nil {
-				proc.respond(ev.permissionID, acpPermissionResult{Outcome: acpPermissionOutcome{Outcome: "cancelled"}})
+				answer(ev.reply, acpPermissionOutcome{Outcome: "cancelled"})
 			}
 		}
 	}()
-	respCh, err := proc.start(ctx, "session/prompt", acpPromptParams{SessionID: sessionID, Prompt: blocks})
+	respCh, err := proc.start(ctx, "session/prompt", acpsdk.PromptRequest{SessionId: acpsdk.SessionId(sessionID), Prompt: acpSDKBlocks(blocks)})
 	if err != nil {
 		// The line may have gone out before the write failed: what the agent
 		// already reported for the prompt says whether it acted on it.
@@ -278,7 +280,7 @@ func (p *acpProvider) runPrompt(ctx context.Context, proc *acpProcess, sessionID
 				updated = true
 			}
 			if ev.permission != nil {
-				proc.respond(ev.permissionID, acpPermissionResult{Outcome: acpPermissionOutcome{Outcome: "cancelled"}})
+				answer(ev.reply, acpPermissionOutcome{Outcome: "cancelled"})
 			}
 		}
 		return acpPromptOutcome{err: withUpdated(err, updated), updated: updated}
@@ -297,7 +299,7 @@ func (p *acpProvider) runPrompt(ctx context.Context, proc *acpProcess, sessionID
 				st.update(*ev.update)
 			case ev.permission != nil:
 				req := st.mergedPermission(*ev.permission)
-				perms.handle(ctx, ev.permissionID, func(pctx context.Context) acpPermissionOutcome {
+				perms.handle(ctx, ev.reply, func(pctx context.Context) acpPermissionOutcome {
 					return p.decidePermission(pctx, conv, req)
 				})
 			}
@@ -331,9 +333,9 @@ func (p *acpProvider) runPrompt(ctx context.Context, proc *acpProcess, sessionID
 			if m.Error != nil {
 				return fail(proc.rpcError("session/prompt", m.Error))
 			}
-			var res acpPromptResult
+			var res acpsdk.PromptResponse
 			_ = json.Unmarshal(m.Result, &res)
-			if res.StopReason == "cancelled" {
+			if res.StopReason == acpsdk.StopReasonCancelled {
 				if err := ctx.Err(); err != nil {
 					return fail(err)
 				}
@@ -355,9 +357,9 @@ func (p *acpProvider) runPrompt(ctx context.Context, proc *acpProcess, sessionID
 					if m.Error != nil {
 						return fail(proc.rpcError("session/prompt", m.Error))
 					}
-					var res acpPromptResult
+					var res acpsdk.PromptResponse
 					_ = json.Unmarshal(m.Result, &res)
-					if res.StopReason == "cancelled" {
+					if res.StopReason == acpsdk.StopReasonCancelled {
 						return fail(&ACPError{Kind: ACPErrorCancelled, Agent: proc.spec.label()})
 					}
 					return acpPromptOutcome{resp: st.finish(res), updated: st.updated}
@@ -379,10 +381,15 @@ func (p *acpProvider) runPrompt(ctx context.Context, proc *acpProcess, sessionID
 	// The protocol's cancellation: session/cancel, every pending permission
 	// request answered cancelled, then the agent's cancelled response,
 	// waited for a bounded time.
-	proc.notify("session/cancel", acpSessionIDParams{SessionID: sessionID})
+	proc.notify("session/cancel", acpsdk.CancelNotification{SessionId: acpsdk.SessionId(sessionID)})
 	perms.cancelAll()
 	deadline := time.NewTimer(acpCancelWait)
 	defer deadline.Stop()
+	// A write still hanging after a grace means the agent does not read its
+	// input - the prompt, or the cancellation itself, never reached it - and
+	// waiting out the cancellation would wait on nothing.
+	stuck := time.NewTimer(acpWriteGrace)
+	defer stuck.Stop()
 	// Late updates are not shown, the caller stopped reading, but what they
 	// say about the prompt counts.
 	settle := func() {
@@ -391,7 +398,7 @@ func (p *acpProvider) runPrompt(ctx context.Context, proc *acpProcess, sessionID
 				st.updated = true
 			}
 			if ev.permission != nil {
-				proc.respond(ev.permissionID, acpPermissionResult{Outcome: acpPermissionOutcome{Outcome: "cancelled"}})
+				answer(ev.reply, acpPermissionOutcome{Outcome: "cancelled"})
 			}
 		}
 	}
@@ -405,6 +412,13 @@ func (p *acpProvider) runPrompt(ctx context.Context, proc *acpProcess, sessionID
 		case <-proc.done:
 			settle()
 			return fail(cancelErr)
+		case <-stuck.C:
+			if proc.writeStuck(acpWriteGrace) {
+				proc.log.Warn("acp agent does not read its input; stopping it", "agent", proc.spec.label())
+				go proc.stop()
+				settle()
+				return fail(cancelErr)
+			}
 		case <-deadline.C:
 			settle()
 			out := fail(cancelErr)
@@ -628,8 +642,8 @@ var acpStopNotes = map[string]string{
 	"refusal":           "(the agent refused to continue)",
 }
 
-func (s *acpStreamState) finish(res acpPromptResult) *Response {
-	if note := acpStopNotes[res.StopReason]; note != "" {
+func (s *acpStreamState) finish(res acpsdk.PromptResponse) *Response {
+	if note := acpStopNotes[string(res.StopReason)]; note != "" {
 		if s.text.Len() > 0 {
 			note = "\n\n" + note
 		}
@@ -642,8 +656,12 @@ func (s *acpStreamState) finish(res acpPromptResult) *Response {
 	if u := res.Usage; u != nil {
 		r.InputTokens = u.InputTokens
 		r.OutputTokens = u.OutputTokens
-		r.CachedInputTokens = u.CachedReadTokens
-		r.ReasoningTokens = u.ThoughtTokens
+		if u.CachedReadTokens != nil {
+			r.CachedInputTokens = *u.CachedReadTokens
+		}
+		if u.ThoughtTokens != nil {
+			r.ReasoningTokens = *u.ThoughtTokens
+		}
 	}
 	return r
 }
@@ -851,19 +869,14 @@ func acpPermissionBody(tc acpPermissionToolCall) string {
 type acpPermissions struct {
 	proc    *acpProcess
 	mu      sync.Mutex
-	pending map[string]acpPendingPermission
+	pending map[chan<- acpPermissionOutcome]context.CancelFunc
 	closed  bool
 	// settled is signalled when a request is answered.
 	settled chan struct{}
 }
 
-type acpPendingPermission struct {
-	id     json.RawMessage
-	cancel context.CancelFunc
-}
-
 func newACPPermissions(proc *acpProcess) *acpPermissions {
-	return &acpPermissions{proc: proc, pending: map[string]acpPendingPermission{}, settled: make(chan struct{}, 1)}
+	return &acpPermissions{proc: proc, pending: map[chan<- acpPermissionOutcome]context.CancelFunc{}, settled: make(chan struct{}, 1)}
 }
 
 // waiting reports whether a request waits for its answer.
@@ -873,28 +886,24 @@ func (a *acpPermissions) waiting() bool {
 	return len(a.pending) > 0
 }
 
-func (a *acpPermissions) handle(ctx context.Context, id json.RawMessage, decide func(context.Context) acpPermissionOutcome) {
+func (a *acpPermissions) handle(ctx context.Context, reply chan<- acpPermissionOutcome, decide func(context.Context) acpPermissionOutcome) {
 	a.mu.Lock()
 	if a.closed {
 		a.mu.Unlock()
-		a.proc.respond(id, acpPermissionResult{Outcome: acpPermissionOutcome{Outcome: "cancelled"}})
+		answer(reply, acpPermissionOutcome{Outcome: "cancelled"})
 		return
 	}
 	pctx, cancel := context.WithCancel(ctx)
-	key := string(id)
-	a.pending[key] = acpPendingPermission{id: id, cancel: cancel}
+	a.pending[reply] = cancel
 	a.mu.Unlock()
 	go func() {
 		outcome := decide(pctx)
 		a.mu.Lock()
-		_, still := a.pending[key]
-		delete(a.pending, key)
+		delete(a.pending, reply)
 		a.mu.Unlock()
 		cancel()
-		if still {
-			// Not answered by cancelAll in the meantime.
-			a.proc.respond(id, acpPermissionResult{Outcome: outcome})
-		}
+		// cancelAll may have answered first: the first answer stands.
+		answer(reply, outcome)
 		select {
 		case a.settled <- struct{}{}:
 		default:
@@ -908,18 +917,23 @@ func (a *acpPermissions) cancelAll() {
 	a.mu.Lock()
 	a.closed = true
 	pending := a.pending
-	a.pending = map[string]acpPendingPermission{}
+	a.pending = map[chan<- acpPermissionOutcome]context.CancelFunc{}
 	a.mu.Unlock()
-	for _, pp := range pending {
-		pp.cancel()
-		a.proc.respond(pp.id, acpPermissionResult{Outcome: acpPermissionOutcome{Outcome: "cancelled"}})
+	for reply, cancel := range pending {
+		cancel()
+		answer(reply, acpPermissionOutcome{Outcome: "cancelled"})
 	}
+}
+
+// canClose reports whether the agent supports session/close.
+func (p *acpProcess) canClose() bool {
+	return p.init.AgentCapabilities.SessionCapabilities.Close != nil
 }
 
 // newSession opens an ACP session in cwd and keeps its state and defaults.
 func (p *acpProcess) newSession(ctx context.Context, cwd string) (string, error) {
 	var st acpSessionState
-	if err := p.call(ctx, "session/new", acpNewSessionParams{CWD: cwd, MCPServers: []interface{}{}}, &st); err != nil {
+	if err := p.call(ctx, "session/new", acpsdk.NewSessionRequest{Cwd: cwd, McpServers: []acpsdk.McpServer{}}, &st); err != nil {
 		return "", err
 	}
 	if st.SessionID == "" {
@@ -973,13 +987,13 @@ func (p *acpProcess) closeSession(id string) {
 	delete(p.defaults, id)
 	delete(p.thoughtSet, id)
 	p.mu.Unlock()
-	if !p.init.AgentCapabilities.SessionCapabilities.canClose() || !p.alive() {
+	if !p.canClose() || !p.alive() {
 		return
 	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), acpCloseTimeout)
 		defer cancel()
-		_ = p.call(ctx, "session/close", acpSessionIDParams{SessionID: id}, nil)
+		_ = p.call(ctx, "session/close", acpsdk.CloseSessionRequest{SessionId: acpsdk.SessionId(id)}, nil)
 	}()
 }
 
@@ -1039,7 +1053,8 @@ func optionIndex(opts []acpConfigOption, category string) int {
 
 func (p *acpProcess) setOption(ctx context.Context, sessionID, configID, value string) error {
 	var res acpSetConfigOptionResult
-	if err := p.call(ctx, "session/set_config_option", acpSetConfigOptionParams{SessionID: sessionID, ConfigID: configID, Value: value}, &res); err != nil {
+	req := acpsdk.SetSessionConfigOptionRequest{ValueId: &acpsdk.SetSessionConfigOptionValueId{SessionId: acpsdk.SessionId(sessionID), ConfigId: acpsdk.SessionConfigId(configID), Value: acpsdk.SessionConfigValueId(value)}}
+	if err := p.call(ctx, "session/set_config_option", req, &res); err != nil {
 		return err
 	}
 	p.storeOptions(sessionID, res.ConfigOptions)
@@ -1123,7 +1138,7 @@ func (p *acpProcess) selectMode(ctx context.Context, sessionID, mode string) err
 				if st.Modes.CurrentModeID == mode {
 					return nil
 				}
-				if err := p.call(ctx, "session/set_mode", acpSetModeParams{SessionID: sessionID, ModeID: mode}, nil); err != nil {
+				if err := p.call(ctx, "session/set_mode", acpsdk.SetSessionModeRequest{SessionId: acpsdk.SessionId(sessionID), ModeId: acpsdk.SessionModeId(mode)}, nil); err != nil {
 					return err
 				}
 				p.mu.Lock()

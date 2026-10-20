@@ -330,3 +330,33 @@ both fixed here:
   interrupted to think or to run a tool as chunks of one message, and the stored answer ran the last sentence
   of one part into the first of the next ("...the file.Created..."). Text that resumes after a thought or a
   tool call now starts a paragraph of its own, the same in the stream as in the stored message.
+
+## On the protocol's Go SDK
+
+The first version spoke the protocol through code of its own: a reader goroutine, a map of pending requests,
+the routing of responses, notifications and requests, and a declaration of every message shape. That is now
+`github.com/coder/acp-go-sdk` (v0.13.5: Apache-2.0, no dependencies of its own), so the protocol is the SDK's
+and the provider keeps what is Coddy's.
+
+- The SDK's `Connection` is the JSON-RPC peer over the agent's stdio: ids, pending requests, the agent's
+  requests answered from a handler on goroutines of their own, a response handed over only after the
+  notifications that preceded it. Every request Coddy sends is the SDK's type (`initialize`, `authenticate`,
+  `session/new`, `session/prompt`, `session/cancel`, `session/close`, `session/set_mode`,
+  `session/set_config_option`), and so are the initialize and prompt results and Coddy's answer to a
+  permission request.
+- Decoded by the provider itself, leniently: a session's state (an option of a type the SDK's schema does not
+  know fails its whole response there, and the older `models` with `session/set_model` are not in it),
+  `session/update` (Coddy as the agent streams reasoning as a message chunk of type `reasoning`) and the
+  permission request's tool call (its content and raw input are only shown).
+- The SDK hands notifications to one queue and the agent's requests each to a goroutine, so a permission
+  request could reach its prompt ahead of the tool call it asks about. The agent's stdout reaches the SDK
+  through a reader that routes every `session/update` itself, line by line in the order the agent wrote it;
+  everything else is the SDK's.
+- The SDK writes without a context. Its writer is the provider's: one goroutine writes to the agent's stdin,
+  every write is bounded (`acpWriteTimeout`), and a write that fails or runs out its bound stops the agent. A
+  call whose context already ended sends nothing; a cancelled prompt whose writes still hang after
+  `acpWriteGrace` stops the agent instead of waiting out the cancellation. The prompt itself is sent under no
+  caller's context, so a prompt that ignores its cancellation still yields its answer to the conversation
+  that waits for it.
+- A line from the agent is bounded at 10 MiB, the SDK's limit (it was 32 MiB). The process, its group, its
+  stderr, the pool, the conversations and everything the provider decides stay as they were.

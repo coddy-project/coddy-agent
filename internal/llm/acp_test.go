@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	acpsdk "github.com/coder/acp-go-sdk"
+
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm/acptest"
 )
@@ -538,7 +540,9 @@ func TestACPProviderRefusesClientMethods(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(resp.Content, "client: method not supported by this client: fs/read_text_file") {
+	// The client advertises no fs or terminal capability: the agent's request
+	// is answered with the protocol's method-not-found, never left waiting.
+	if !strings.Contains(resp.Content, "client: Method not found") {
 		t.Fatalf("answer = %q", resp.Content)
 	}
 }
@@ -907,7 +911,7 @@ func TestACPProcessCancelledCallKeepsTheAgent(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	for i := 0; i < 200; i++ {
-		_ = p.call(ctx, "session/new", acpNewSessionParams{CWD: t.TempDir(), MCPServers: []interface{}{}}, nil)
+		_ = p.call(ctx, "session/new", acpsdk.NewSessionRequest{Cwd: t.TempDir(), McpServers: []acpsdk.McpServer{}}, nil)
 		if p.closing.Load() {
 			t.Fatalf("attempt %d: a cancelled call stopped a healthy agent", i)
 		}
