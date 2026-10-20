@@ -179,7 +179,7 @@ func (p *opencodeGoogleProvider) generate(ctx context.Context, messages []Messag
 	defer func() { _ = raw.Body.Close() }()
 	if raw.StatusCode < 200 || raw.StatusCode >= 300 {
 		snippet, _ := io.ReadAll(io.LimitReader(raw.Body, 512))
-		return nil, fmt.Errorf("opencode google: HTTP %d: %s", raw.StatusCode, strings.TrimSpace(string(snippet)))
+		return nil, &httpStatusError{label: "opencode google", status: raw.StatusCode, header: raw.Header, body: string(snippet)}
 	}
 	result := &Response{}
 	var parts []opencodeGooglePart
