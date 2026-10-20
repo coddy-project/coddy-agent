@@ -108,6 +108,10 @@ type Agent struct {
 	workspaceSwitcher    func(context.Context, string) error
 	workspaceContextCWD  string
 	workspaceContextText string
+	// stepAgentTools are the tool calls the agent behind an acp model ran
+	// during the provider call under way (agent_tools.go); what persists that
+	// call's answer keeps them.
+	stepAgentTools *agentToolRows
 
 	// subagentRuntime owns child sessions; nil when this surface cannot spawn.
 	subagentRuntime SubagentRuntime
@@ -649,7 +653,8 @@ const maxSettingsRetakes = 3
 // model is then asked to continue.
 func (a *Agent) keepInterruptedAnswer(model, text, reasoning string, clockStart, clockEnd time.Time) bool {
 	reasonTrim := strings.TrimSpace(reasoning)
-	if strings.TrimSpace(text) == "" && reasonTrim == "" {
+	agentTools := a.agentToolsOfStep()
+	if strings.TrimSpace(text) == "" && reasonTrim == "" && len(agentTools) == 0 {
 		return false
 	}
 	var reasoningMs int64
@@ -674,9 +679,10 @@ func (a *Agent) keepInterruptedAnswer(model, text, reasoning string, clockStart,
 		// stopped, the step run again is asked to go on from this part, and
 		// every reader of the answer has to walk through it to the start
 		// (session.ContinuedAnswer), so it stays one text with them.
-		Truncated: strings.TrimSpace(text) != "" && session.FollowsTruncated(a.state.GetMessages()),
-		Model:     model,
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		Truncated:  strings.TrimSpace(text) != "" && session.FollowsTruncated(a.state.GetMessages()),
+		Model:      model,
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+		AgentTools: agentTools,
 	})
 	a.refreshConversationContextUsage(true)
 	return strings.TrimSpace(text) != ""
@@ -1187,6 +1193,8 @@ func (a *Agent) runReActLoop(
 		// tool_call, so a call announced by name is not announced again when it
 		// completes: everything after the first is a tool_call_update.
 		announced := make(map[string]bool)
+		agentTools := a.newAgentToolRows(sessionID)
+		a.stepAgentTools = agentTools
 		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
@@ -1216,6 +1224,13 @@ func (a *Agent) runReActLoop(
 				emitText(chunk.TextDelta, now, true)
 			} else if chunk.TextDelta != "" {
 				emitText(chunk.TextDelta, now, false)
+			}
+			if tool := chunk.AgentTool; tool != nil {
+				// A tool the agent behind the provider runs: a row of its
+				// own, never a call of Coddy's.
+				streamedAny = true
+				maybeMarkReasonEnd(now)
+				agentTools.report(*tool)
 			}
 			// A call the model has only named yet announces the same pending row:
 			// the arguments can take seconds to stream, and without the row the
@@ -1284,6 +1299,15 @@ func (a *Agent) runReActLoop(
 				})
 			}
 		})
+		// The agent's calls the stream left open end with it.
+		switch {
+		case streamErr == nil:
+			agentTools.close("completed")
+		case streamCtx.Err() != nil:
+			agentTools.close("cancelled")
+		default:
+			agentTools.close("failed")
+		}
 		if streamErr != nil {
 			status := "failed"
 			if streamCtx.Err() != nil {
@@ -1453,7 +1477,8 @@ func (a *Agent) runReActLoop(
 				reasonTrim := strings.TrimSpace(reasoningBuf.String())
 				hasText := strings.TrimSpace(response.Content) != ""
 				hasTools := len(response.ToolCalls) > 0
-				if hasText || hasTools || reasonTrim != "" {
+				agentToolsKept := agentTools.stored()
+				if hasText || hasTools || reasonTrim != "" || len(agentToolsKept) > 0 {
 					var reasoningMs int64
 					if reasonTrim != "" && !reasonClockStart.IsZero() {
 						end := reasonClockEnd
@@ -1477,6 +1502,7 @@ func (a *Agent) runReActLoop(
 						ReasoningTokens:     response.ReasoningTokens,
 						Model:               transport.model,
 						CreatedAt:           time.Now().UTC().Format(time.RFC3339),
+						AgentTools:          agentToolsKept,
 					}
 					messages = append(messages, assistantMsg)
 					a.state.AddMessage(assistantMsg)
@@ -1659,6 +1685,7 @@ func (a *Agent) runReActLoop(
 			Truncated:           stopsPartway(response, cutCall),
 			Model:               transport.model,
 			CreatedAt:           time.Now().UTC().Format(time.RFC3339),
+			AgentTools:          agentTools.stored(),
 		}
 		messages = append(messages, assistantMsg)
 		a.state.AddMessage(assistantMsg)
@@ -2026,7 +2053,8 @@ func (a *Agent) persistLoopAbortedMessage(
 		reasonStore, reasonSig = reasoningForStorage(reasonTrim, reasonRaw, response)
 	}
 
-	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasonStore) == "" && len(toolCalls) == 0 {
+	agentTools := a.agentToolsOfStep()
+	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasonStore) == "" && len(toolCalls) == 0 && len(agentTools) == 0 {
 		return
 	}
 
@@ -2050,6 +2078,7 @@ func (a *Agent) persistLoopAbortedMessage(
 		ReasoningDurationMs: reasoningMs,
 		Model:               model,
 		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
+		AgentTools:          agentTools,
 	}
 	a.state.AddMessage(msg)
 	if len(toolCalls) > 0 {

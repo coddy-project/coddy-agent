@@ -9,12 +9,13 @@ Feature: An ACP agent as a model behind the web UI's API
     Then the model list offers "alpha/default, alpha/large, beta/default"
     And the models route lists "default, small, large" for the row "alpha"
 
-  Scenario: A chat streams the agent's answer and keeps its tools in the reasoning
+  Scenario: A chat streams the agent's answer and draws its tools as rows that outlive a reload
     Given a server whose acp rows "alpha" and "beta" run scripted agents
     When a chat on "alpha/default" asks "hello"
     Then the stream carries the answer "echo: hello"
-    And the stream's reasoning names the agent's tool "Read README.md"
-    And the stored answer keeps the agent's tool "Read README.md" in its reasoning
+    And the stream draws the agent's tool "Read README.md" as a row with the output "line 1"
+    And the reloaded chat draws the agent's tool "Read README.md" with the output "line 1" cut short
+    And the whole output of the agent's tool "Read README.md" is served
 
   Scenario: The person answers the agent's permission request through the permission route
     Given a server whose acp row "beta" runs an agent that asks to "Write a.txt"

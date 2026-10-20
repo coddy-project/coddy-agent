@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -28,6 +29,9 @@ func TestHelperACPAgent(t *testing.T) {
 // prompts with answer.
 type acpSender struct {
 	answer *acp.PermissionResult
+	// onText, when set, runs at the first answer text that reaches the
+	// surface (a test stopping the turn there).
+	onText func()
 
 	mu      sync.Mutex
 	updates []interface{}
@@ -36,8 +40,17 @@ type acpSender struct {
 
 func (s *acpSender) SendSessionUpdate(_ string, update interface{}) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.updates = append(s.updates, update)
+	stop := s.onText
+	if c, ok := update.(acp.MessageChunkUpdate); ok && c.SessionUpdate == acp.UpdateTypeAgentMessageChunk && c.Content.Type == acp.ContentTypeText && stop != nil {
+		s.onText = nil
+	} else {
+		stop = nil
+	}
+	s.mu.Unlock()
+	if stop != nil {
+		stop()
+	}
 	return nil
 }
 
@@ -311,5 +324,124 @@ func TestACPModelIsNotASummarizer(t *testing.T) {
 	}
 	if n := len(acptest.Methods(acptest.ReadLog(t, logPath), "initialize")); n != 0 {
 		t.Fatalf("compaction started the agent (%d initialize)", n)
+	}
+}
+
+// storedACPSession is a session whose bundle is on disk, as on every surface
+// but a print run: the agent's tool output is written there.
+func storedACPSession(t *testing.T, id string) *session.State {
+	t.Helper()
+	root := t.TempDir()
+	dir, err := (&session.FileStore{Root: root}).EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &session.State{ID: id, CWD: t.TempDir(), Mode: session.ModeAgent, SessionDir: dir}
+}
+
+// The agent's tool calls are tool rows of their own on the surface - its
+// title, its input, its outcome with the first lines of its output - the
+// answer keeps a preview of each, the session's tool_calls folder the whole
+// output, and none of it goes into the reasoning or becomes a Coddy call.
+func TestACPModelShowsTheAgentsToolsAsRows(t *testing.T) {
+	var lines []string
+	for i := 1; i <= 30; i++ {
+		lines = append(lines, fmt.Sprintf("line %d", i))
+	}
+	output := strings.Join(lines, "\n")
+	cfg, _ := acpLoopConfig(t, acptest.Script{Turns: []acptest.Turn{{
+		Thoughts: []string{"looking"},
+		Tools:    []acptest.Tool{{ID: "t1", Title: "Read README.md", Kind: "read", Input: map[string]string{"file_path": "README.md"}, Output: output}},
+		Text:     []string{"done"},
+	}}})
+	st := storedACPSession(t, "sess_rows")
+	sender := &acpSender{}
+	if err := runACPTurn(t, cfg, st, sender, "read it"); err != nil {
+		t.Fatal(err)
+	}
+	sender.mu.Lock()
+	var announced *acp.ToolCallUpdate
+	var input, end *acp.ToolCallStatusUpdate
+	for _, u := range sender.updates {
+		switch v := u.(type) {
+		case acp.ToolCallUpdate:
+			if v.ToolCallID == "acp_t1" {
+				announced = &v
+			}
+		case acp.ToolCallStatusUpdate:
+			if v.ToolCallID != "acp_t1" {
+				continue
+			}
+			if v.Status == "in_progress" {
+				input = &v
+			} else {
+				end = &v
+			}
+		}
+	}
+	sender.mu.Unlock()
+	if announced == nil || announced.Title != "Read README.md" || announced.Kind != "read" || announced.Status != "pending" {
+		t.Fatalf("row = %+v", announced)
+	}
+	if input == nil || len(input.Content) != 1 || input.Content[0].Content.Text != `{"file_path":"README.md"}` {
+		t.Fatalf("input = %+v", input)
+	}
+	if end == nil || end.Status != "completed" || len(end.Content) != 1 || !strings.HasPrefix(end.Content[0].Content.Text, "line 1\n") || strings.Contains(end.Content[0].Content.Text, "line 30") {
+		t.Fatalf("outcome = %+v", end)
+	}
+	if preview, _ := end.Meta["coddy"].(map[string]interface{})["toolResultPreview"].(map[string]interface{}); preview["totalLines"] != 30 {
+		t.Fatalf("outcome meta = %+v", end.Meta)
+	}
+	msgs := st.GetMessages()
+	answer := msgs[len(msgs)-1]
+	if answer.Role != llm.RoleAssistant || answer.Content != "done" || answer.Reasoning != "looking" || len(answer.ToolCalls) != 0 {
+		t.Fatalf("answer = %+v", answer)
+	}
+	if len(answer.AgentTools) != 1 {
+		t.Fatalf("agent tools = %+v", answer.AgentTools)
+	}
+	kept := answer.AgentTools[0]
+	if kept.ID != "acp_t1" || kept.Title != "Read README.md" || kept.Kind != "read" || kept.Status != "completed" || kept.OutputLines != 30 || strings.Contains(kept.Output, "line 30") {
+		t.Fatalf("kept = %+v", kept)
+	}
+	full, err := session.ReadToolCallResult(st.SessionDir, "acp_t1")
+	if err != nil || strings.TrimRight(full, "\n") != output {
+		t.Fatalf("result.md = %q, %v", full, err)
+	}
+	meta, err := session.ReadToolCallMeta(st.SessionDir, "acp_t1")
+	if err != nil || meta.Name != "Read README.md" || meta.Status != "completed" || meta.StartedAt == "" || meta.FinishedAt == "" {
+		t.Fatalf("meta = %+v, %v", meta, err)
+	}
+}
+
+// A call the agent left open when the person stopped the turn ends as
+// cancelled, live and in the kept answer, rather than spinning forever.
+func TestACPModelEndsAnOpenAgentToolOnStop(t *testing.T) {
+	cfg, _ := acpLoopConfig(t, acptest.Script{Turns: []acptest.Turn{{
+		Tools:      []acptest.Tool{{ID: "t1", Title: "Run go test ./...", Open: true}},
+		Text:       []string{"working"},
+		WaitCancel: true,
+	}}})
+	st := storedACPSession(t, "sess_stop")
+	sender := &acpSender{}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	sender.onText = cancel
+	_, _ = NewAgent(cfg, st, sender, nil).Run(ctx, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "run them"}})
+	sender.mu.Lock()
+	var last string
+	for _, u := range sender.updates {
+		if v, ok := u.(acp.ToolCallStatusUpdate); ok && v.ToolCallID == "acp_t1" {
+			last = v.Status
+		}
+	}
+	sender.mu.Unlock()
+	if last != "cancelled" {
+		t.Fatalf("the open call ended as %q", last)
+	}
+	msgs := st.GetMessages()
+	answer := msgs[len(msgs)-1]
+	if len(answer.AgentTools) != 1 || answer.AgentTools[0].Status != "cancelled" {
+		t.Fatalf("kept answer = %+v", answer)
 	}
 }

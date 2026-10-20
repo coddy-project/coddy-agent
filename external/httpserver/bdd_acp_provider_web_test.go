@@ -55,21 +55,31 @@ type acpChat struct {
 	body      string
 	// asked is the toolCall title of every permission event.
 	asked []string
+	// rows are the tool rows the stream drew, by id: title, status, output
+	// and whether the row is marked as the agent's.
+	rows map[string]*webToolRow
+}
+
+type webToolRow struct {
+	title, status, output string
+	agentTool             bool
 }
 
 type acpWebState struct {
-	t       *testing.T
-	root    string
-	cwd     string
-	rows    []config.ProviderConfig
-	models  []config.ModelEntry
-	logs    map[string]string
-	rules   []llmstub.Rule
-	stub    *httptest.Server
-	srv     *Server
-	ts      *httptest.Server
-	chat    *acpChat
-	chats   []*acpChat
+	t      *testing.T
+	root   string
+	cwd    string
+	rows   []config.ProviderConfig
+	models []config.ModelEntry
+	logs   map[string]string
+	rules  []llmstub.Rule
+	stub   *httptest.Server
+	srv    *Server
+	ts     *httptest.Server
+	chat   *acpChat
+	chats  []*acpChat
+	// toolID is the id of the agent's tool row the stored answer names.
+	toolID  string
 	prevEnv *string
 }
 
@@ -124,7 +134,17 @@ func (s *acpWebState) row(name string, script acptest.Script, models ...string) 
 	}
 }
 
-var webEchoTurn = acptest.Turn{Thoughts: []string{"looking"}, Tools: []acptest.Tool{{ID: "t1", Title: "Read README.md"}}, Echo: true}
+// webToolOutput is what the agent's read returns: longer than the first lines
+// a row shows.
+var webToolOutput = func() string {
+	var lines []string
+	for i := 1; i <= 40; i++ {
+		lines = append(lines, fmt.Sprintf("line %d", i))
+	}
+	return strings.Join(lines, "\n")
+}()
+
+var webEchoTurn = acptest.Turn{Thoughts: []string{"looking"}, Tools: []acptest.Tool{{ID: "t1", Title: "Read README.md", Kind: "read", Input: map[string]string{"file_path": "README.md"}, Output: webToolOutput}}, Echo: true}
 
 func (s *acpWebState) twoRows() error {
 	s.row("alpha", acptest.Script{Models: []string{"small", "large"}, Modes: []string{"default", "read"}, Close: true, Turns: []acptest.Turn{webEchoTurn}}, "alpha/default", "alpha/large")
@@ -209,7 +229,7 @@ func (s *acpWebState) ask(model, question string, onPermission func(sid string, 
 		raw, _ := io.ReadAll(res.Body)
 		return nil, fmt.Errorf("POST /v1/responses: %d %s", res.StatusCode, raw)
 	}
-	chat := &acpChat{sid: res.Header.Get("X-Coddy-Session-ID"), question: question}
+	chat := &acpChat{sid: res.Header.Get("X-Coddy-Session-ID"), question: question, rows: map[string]*webToolRow{}}
 	var all strings.Builder
 	sc := bufio.NewScanner(res.Body)
 	sc.Buffer(make([]byte, 1<<20), 16<<20)
@@ -232,6 +252,18 @@ func (s *acpWebState) ask(model, question string, onPermission func(sid string, 
 			break
 		}
 		switch event {
+		case "tool_call":
+			id := gjson.Get(payload, "toolCallId").String()
+			chat.rows[id] = &webToolRow{title: gjson.Get(payload, "title").String(), status: gjson.Get(payload, "status").String(), agentTool: gjson.Get(payload, "_meta.coddy.agentTool").Bool()}
+		case "tool_call_update":
+			if r := chat.rows[gjson.Get(payload, "toolCallId").String()]; r != nil {
+				r.status = gjson.Get(payload, "status").String()
+				if r.status != "in_progress" {
+					if text := gjson.Get(payload, "content.0.content.text"); text.Exists() {
+						r.output = text.String()
+					}
+				}
+			}
 		case "permission":
 			chat.asked = append(chat.asked, gjson.Get(payload, "toolCall.title").String())
 			if onPermission != nil {
@@ -361,28 +393,73 @@ func (s *acpWebState) streamCarries(want string) error {
 	return nil
 }
 
-func (s *acpWebState) streamReasoningNames(title string) error {
-	if !strings.Contains(s.chat.reasoning, "] "+title) {
-		return fmt.Errorf("reasoning = %q", s.chat.reasoning)
+func (s *acpWebState) streamDrawsTool(title, firstLine string) error {
+	if strings.Contains(s.chat.reasoning, title) {
+		return fmt.Errorf("the agent's tool went into the reasoning: %q", s.chat.reasoning)
 	}
-	return nil
+	for _, r := range s.chat.rows {
+		if r.title == title {
+			if !r.agentTool || r.status != "completed" || !strings.HasPrefix(r.output, firstLine+"\n") || strings.Contains(r.output, "line 40") {
+				return fmt.Errorf("row %q = %+v, want the agent's, completed, its first lines from %q", title, r, firstLine)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("the stream drew no row %q: %+v", title, s.chat.rows)
 }
 
-func (s *acpWebState) storedReasoningNames(title string) error {
-	req, err := http.NewRequest(http.MethodGet, s.ts.URL+"/coddy/sessions/"+s.chat.sid+"/messages", nil)
+// get reads a route of the chat's session.
+func (s *acpWebState) get(path string) ([]byte, error) {
+	req, err := http.NewRequest(http.MethodGet, s.ts.URL+path, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header.Set("X-Coddy-Session-ID", s.chat.sid)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = res.Body.Close() }()
+	raw, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GET %s: %d %s", path, res.StatusCode, raw)
+	}
+	return raw, nil
+}
+
+func (s *acpWebState) reloadedDrawsTool(title, firstLine string) error {
+	raw, err := s.get("/coddy/sessions/" + s.chat.sid + "/messages")
+	if err != nil {
 		return err
 	}
-	raw, _ := io.ReadAll(res.Body)
-	_ = res.Body.Close()
 	last := gjson.GetBytes(raw, "messages.#(role==\"assistant\")#|@reverse|0")
-	if !strings.Contains(last.Get("reasoning").String(), "] "+title) {
+	if strings.Contains(last.Get("reasoning").String(), title) {
+		return fmt.Errorf("the stored reasoning names the tool: %s", last.Raw)
+	}
+	tool := last.Get(`agent_tools.#(title=="` + title + `")`)
+	if !tool.Exists() || tool.Get("status").String() != "completed" || !strings.HasPrefix(tool.Get("output").String(), firstLine+"\n") ||
+		tool.Get("output_lines").Int() != 40 || tool.Get("kind").String() != "read" || tool.Get("input").String() != `{"file_path":"README.md"}` {
 		return fmt.Errorf("stored answer = %s", last.Raw)
+	}
+	s.toolID = tool.Get("id").String()
+	return nil
+}
+
+func (s *acpWebState) wholeOutputServed(title string) error {
+	raw, err := s.get("/coddy/sessions/" + s.chat.sid + "/tool-calls/" + s.toolID)
+	if err != nil {
+		return err
+	}
+	if got := strings.TrimRight(gjson.GetBytes(raw, "result").String(), "\n"); got != webToolOutput {
+		return fmt.Errorf("the whole output of %q = %q", title, got)
+	}
+	list, err := s.get("/coddy/sessions/" + s.chat.sid + "/tool-calls")
+	if err != nil {
+		return err
+	}
+	row := gjson.GetBytes(list, `toolCalls.#(toolCallId=="`+s.toolID+`")`)
+	if row.Get("name").String() != title || row.Get("startedAt").String() == "" || row.Get("finishedAt").String() == "" {
+		return fmt.Errorf("the tool-calls list row = %s", row.Raw)
 	}
 	return nil
 }
@@ -448,8 +525,9 @@ func TestACPProviderWebFeature(t *testing.T) {
 			sc.Step(`^the model list offers "([^"]*)"$`, s.modelListOffers)
 			sc.Step(`^the models route lists "([^"]*)" for the row "([^"]*)"$`, s.modelsRouteLists)
 			sc.Step(`^the stream carries the answer "([^"]*)"$`, s.streamCarries)
-			sc.Step(`^the stream's reasoning names the agent's tool "([^"]*)"$`, s.streamReasoningNames)
-			sc.Step(`^the stored answer keeps the agent's tool "([^"]*)" in its reasoning$`, s.storedReasoningNames)
+			sc.Step(`^the stream draws the agent's tool "([^"]*)" as a row with the output "([^"]*)"$`, s.streamDrawsTool)
+			sc.Step(`^the reloaded chat draws the agent's tool "([^"]*)" with the output "([^"]*)" cut short$`, s.reloadedDrawsTool)
+			sc.Step(`^the whole output of the agent's tool "([^"]*)" is served$`, s.wholeOutputServed)
 			sc.Step(`^the stream asked about "([^"]*)"$`, s.streamAsked)
 			sc.Step(`^the chat's answer says the agent heard its allow option$`, s.answerHeardAllow)
 			sc.Step(`^every chat streams the answer to its own question$`, s.everyChatOwnAnswer)

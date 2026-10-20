@@ -7,16 +7,17 @@ package llm
 // calls a Coddy tool. Design: docs/plans/acp-provider.md.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 
@@ -454,16 +455,18 @@ func (p *acpProvider) runPrompt(ctx context.Context, proc *acpProcess, sessionID
 
 // acpToolState is what the agent reported about one of its tool calls.
 type acpToolState struct {
+	id        string
 	n         int
 	title     string
 	kind      string
+	status    string
 	content   []json.RawMessage
 	rawInput  json.RawMessage
 	locations []acpToolLocation
-	// shown is the label of its line once the reasoning has it; failShown
-	// marks the line of its failure.
-	shown     string
-	failShown bool
+	// shown is the title the surfaces know the call by, once they were told
+	// of it; sent is the call as they last heard of it.
+	shown string
+	sent  AgentToolCall
 }
 
 // acpStreamState gathers the answer of one prompt.
@@ -528,21 +531,6 @@ func (s *acpStreamState) addReasoning(t string) {
 	s.emit(StreamChunk{ReasoningDelta: t})
 }
 
-// reasoningLine adds a paragraph of its own to the reasoning channel: the
-// surfaces render reasoning as Markdown, where a single line break joins
-// two lines into one.
-func (s *acpStreamState) reasoningLine(line string) {
-	prefix := ""
-	switch r := s.reasoning.String(); {
-	case r == "", strings.HasSuffix(r, "\n\n"):
-	case strings.HasSuffix(r, "\n"):
-		prefix = "\n"
-	default:
-		prefix = "\n\n"
-	}
-	s.addReasoning(prefix + line + "\n\n")
-}
-
 func (s *acpStreamState) update(u acpSessionUpdate) {
 	switch u.SessionUpdate {
 	case "agent_message_chunk":
@@ -560,27 +548,21 @@ func (s *acpStreamState) update(u acpSessionUpdate) {
 	}
 }
 
-// tool keeps what the agent reports about one of its tool calls and shows
-// it as a numbered line of the reasoning: the agent's own tool, never a tool
-// call of Coddy's that a surface could take for one to run. The number keeps
-// the loop guard from reading five calls of one title as a degenerating
-// stream.
-//
-// An agent may announce a call by the tool's bare name with an empty input
-// and name what it works on only in a later update (OpenCode: "read", then
-// the file): the line waits until the call says what it works on, or ends.
+// tool keeps what the agent reports about one of its tool calls and tells
+// the surfaces of it (StreamChunk.AgentTool): a call of the agent's own,
+// drawn as a tool row, never a tool call of Coddy's that a surface could take
+// for one to run.
 func (s *acpStreamState) tool(u acpSessionUpdate) {
 	s.textBroken = true
-	t := s.tools[u.ToolCallID]
-	if t == nil {
-		t = &acpToolState{n: len(s.tools) + 1}
-		s.tools[u.ToolCallID] = t
-	}
+	t := s.toolOf(u.ToolCallID)
 	if v := strings.TrimSpace(u.Title); v != "" {
 		t.title = v
 	}
 	if u.Kind != "" {
 		t.kind = u.Kind
+	}
+	if u.Status != "" {
+		t.status = u.Status
 	}
 	if items := u.toolContent(); len(items) > 0 {
 		t.content = items
@@ -591,33 +573,111 @@ func (s *acpStreamState) tool(u acpSessionUpdate) {
 	if len(u.Locations) > 0 {
 		t.locations = u.Locations
 	}
-	ended := u.Status == "completed" || u.Status == "failed"
+	s.report(t, false)
+}
+
+// toolOf returns the state of the call id, creating it.
+func (s *acpStreamState) toolOf(id string) *acpToolState {
+	t := s.tools[id]
+	if t == nil {
+		t = &acpToolState{id: id, n: len(s.tools) + 1}
+		s.tools[id] = t
+	}
+	return t
+}
+
+// report tells the surfaces about a call once it says what it works on, or
+// ends, or force says so (a permission request about it), and then of every
+// change. An agent may announce a call by the tool's bare name with an empty
+// input and name what it works on only in a later update (OpenCode: "read",
+// then the file): its row waits for that, so it is titled by what it works
+// on from the start.
+func (s *acpStreamState) report(t *acpToolState, force bool) {
+	if t.id == "" {
+		return
+	}
 	if t.shown == "" {
-		if label, telling := t.label(s.cwd); telling || ended {
-			t.shown = label
-			s.reasoningLine("[tool " + strconv.Itoa(t.n) + "] " + label)
+		label, telling := t.label(s.cwd)
+		if !telling && !force && !acpToolEnded(t.status) {
+			return
+		}
+		t.shown = label
+	}
+	call := t.call()
+	if call == t.sent {
+		return
+	}
+	t.sent = call
+	s.emit(StreamChunk{AgentTool: &call})
+}
+
+// call is the call as the surfaces are told of it.
+func (t *acpToolState) call() AgentToolCall {
+	status := t.status
+	if status == "" {
+		status = "pending"
+	}
+	return AgentToolCall{ID: t.id, Title: t.shown, Kind: t.kind, Status: status, Input: acpToolInput(t.rawInput), Output: acpToolOutput(t.content)}
+}
+
+// acpToolEnded reports whether a status is a call's last.
+func acpToolEnded(status string) bool {
+	return status == "completed" || status == "failed"
+}
+
+// endTools ends the calls the agent left open when its prompt completed, in
+// the order it announced them: a call it never said more of is shown then.
+func (s *acpStreamState) endTools() {
+	open := make([]*acpToolState, 0, len(s.tools))
+	for _, t := range s.tools {
+		if !acpToolEnded(t.status) {
+			open = append(open, t)
 		}
 	}
-	if u.Status == "failed" && !t.failShown {
-		t.failShown = true
-		s.reasoningLine("[tool " + strconv.Itoa(t.n) + " failed] " + t.shown)
+	sort.Slice(open, func(i, j int) bool { return open[i].n < open[j].n })
+	for _, t := range open {
+		t.status = "completed"
+		s.report(t, true)
 	}
 }
 
-// showPendingTools gives the calls whose line still waits one now, in the
-// order the agent announced them: the prompt is over.
-func (s *acpStreamState) showPendingTools() {
-	pending := make([]*acpToolState, 0, len(s.tools))
-	for _, t := range s.tools {
-		if t.shown == "" {
-			pending = append(pending, t)
-		}
+// acpToolInputMax and acpToolOutputMax bound what a call's row carries of
+// its input and output.
+const (
+	acpToolInputMax  = 4 << 10
+	acpToolOutputMax = 256 << 10
+)
+
+// acpToolInput is a call's input as the agent reported it, compact JSON;
+// empty when it reported none.
+func acpToolInput(raw json.RawMessage) string {
+	raw = json.RawMessage(bytes.TrimSpace(raw))
+	if len(raw) == 0 || string(raw) == "null" || string(raw) == "{}" {
+		return ""
 	}
-	sort.Slice(pending, func(i, j int) bool { return pending[i].n < pending[j].n })
-	for _, t := range pending {
-		t.shown, _ = t.label(s.cwd)
-		s.reasoningLine("[tool " + strconv.Itoa(t.n) + "] " + t.shown)
+	var b bytes.Buffer
+	if err := json.Compact(&b, raw); err != nil {
+		return ""
 	}
+	return acpCut(b.String(), acpToolInputMax)
+}
+
+// acpToolOutput is what a call produced: the text of its content, an edit
+// as the lines it takes out and puts in.
+func acpToolOutput(content []json.RawMessage) string {
+	return acpCut(strings.Join(acpToolContentParts(content), "\n\n"), acpToolOutputMax)
+}
+
+// acpCut cuts s to at most limit bytes, on a rune boundary, saying so.
+func acpCut(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + fmt.Sprintf("\n... (%d more bytes)", len(s)-cut)
 }
 
 // label names a call for its line, and says whether the name tells what
@@ -710,11 +770,31 @@ func acpShortPath(p, cwd string) string {
 // mergedPermission fills a permission request with what earlier updates
 // said about the same tool call: an agent may send the request with the
 // tool call's id alone.
+//
+// The call is also shown before the person is asked: an editor renders a
+// prompt only for a call it has seen, and the web UI puts the prompt under
+// the call's row.
 func (s *acpStreamState) mergedPermission(req acpPermissionRequest) acpPermissionRequest {
-	t := s.tools[req.ToolCall.ToolCallID]
-	if t == nil {
+	if req.ToolCall.ToolCallID == "" {
 		return req
 	}
+	t := s.toolOf(req.ToolCall.ToolCallID)
+	if t.title == "" {
+		t.title = strings.TrimSpace(req.ToolCall.Title)
+	}
+	if t.kind == "" {
+		t.kind = req.ToolCall.Kind
+	}
+	if len(t.content) == 0 {
+		t.content = req.ToolCall.Content
+	}
+	if len(t.rawInput) == 0 && len(req.ToolCall.RawInput) > 0 && string(req.ToolCall.RawInput) != "null" {
+		t.rawInput = req.ToolCall.RawInput
+	}
+	if len(t.locations) == 0 {
+		t.locations = req.ToolCall.Locations
+	}
+	s.report(t, true)
 	if strings.TrimSpace(req.ToolCall.Title) == "" {
 		req.ToolCall.Title = t.title
 	}
@@ -787,7 +867,7 @@ var acpStopNotes = map[string]string{
 }
 
 func (s *acpStreamState) finish(res acpsdk.PromptResponse) *Response {
-	s.showPendingTools()
+	s.endTools()
 	if note := acpStopNotes[string(res.StopReason)]; note != "" {
 		if s.text.Len() > 0 {
 			note = "\n\n" + note
@@ -963,8 +1043,28 @@ func acpPromptOptions(agent []acpPermissionOption) ([]PermissionOption, map[stri
 
 // acpPermissionBody renders a tool call's content for the permission prompt.
 func acpPermissionBody(tc acpPermissionToolCall) string {
+	parts := acpToolContentParts(tc.Content)
+	if len(parts) == 0 && len(tc.RawInput) > 0 && string(tc.RawInput) != "null" {
+		parts = append(parts, truncateForLog(string(tc.RawInput), 4000))
+	}
+	var paths []string
+	for _, l := range tc.Locations {
+		if l.Path != "" {
+			paths = append(paths, l.Path)
+		}
+	}
+	if len(paths) > 0 {
+		parts = append(parts, "Paths: "+strings.Join(paths, ", "))
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// acpToolContentParts renders the content items of a tool call: a text as
+// itself, an edit as the lines it takes out and puts in. A terminal of the
+// client's is not shown: Coddy offers none.
+func acpToolContentParts(content []json.RawMessage) []string {
 	var parts []string
-	for _, raw := range tc.Content {
+	for _, raw := range content {
 		var item struct {
 			Type    string          `json:"type"`
 			Content json.RawMessage `json:"content"`
@@ -994,19 +1094,7 @@ func acpPermissionBody(tc acpPermissionToolCall) string {
 			parts = append(parts, strings.TrimRight(b.String(), "\n"))
 		}
 	}
-	if len(parts) == 0 && len(tc.RawInput) > 0 && string(tc.RawInput) != "null" {
-		parts = append(parts, truncateForLog(string(tc.RawInput), 4000))
-	}
-	var paths []string
-	for _, l := range tc.Locations {
-		if l.Path != "" {
-			paths = append(paths, l.Path)
-		}
-	}
-	if len(paths) > 0 {
-		parts = append(parts, "Paths: "+strings.Join(paths, ", "))
-	}
-	return strings.Join(parts, "\n\n")
+	return parts
 }
 
 // acpPermissions answers the permission requests of one prompt, each in a

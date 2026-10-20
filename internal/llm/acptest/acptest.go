@@ -142,6 +142,13 @@ type Tool struct {
 	// way OpenCode names it: the call is announced with an empty input, and
 	// an update in progress carries the file as a location and as filePath.
 	Path string `json:"path,omitempty"`
+	// Kind is the call's kind (execute when empty); Input its rawInput,
+	// announced with it; Output the text its last update carries.
+	Kind   string            `json:"kind,omitempty"`
+	Input  map[string]string `json:"input,omitempty"`
+	Output string            `json:"output,omitempty"`
+	// Open leaves the call announced and never ended.
+	Open bool `json:"open,omitempty"`
 }
 
 // Permission is the request a turn sends the client.
@@ -644,17 +651,32 @@ func (a *agent) prompt(m message, t Turn, cancelled <-chan struct{}) {
 		a.update(s.id, map[string]interface{}{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "reasoning", "text": th}})
 	}
 	for _, tool := range t.Tools {
-		a.update(s.id, map[string]interface{}{"sessionUpdate": "tool_call", "toolCallId": tool.ID, "title": tool.Title, "kind": "execute", "status": "pending"})
+		kind := tool.Kind
+		if kind == "" {
+			kind = "execute"
+		}
+		announce := map[string]interface{}{"sessionUpdate": "tool_call", "toolCallId": tool.ID, "title": tool.Title, "kind": kind, "status": "pending"}
+		if len(tool.Input) > 0 {
+			announce["rawInput"] = tool.Input
+		}
+		a.update(s.id, announce)
 		if tool.Path != "" {
 			file := filepath.Join(s.cwd, tool.Path)
 			a.update(s.id, map[string]interface{}{"sessionUpdate": "tool_call_update", "toolCallId": tool.ID, "status": "in_progress",
 				"locations": []map[string]string{{"path": file}}, "rawInput": map[string]string{"filePath": file}})
 		}
+		if tool.Open {
+			continue
+		}
 		status := "completed"
 		if tool.Fail {
 			status = "failed"
 		}
-		a.update(s.id, map[string]interface{}{"sessionUpdate": "tool_call_update", "toolCallId": tool.ID, "status": status})
+		done := map[string]interface{}{"sessionUpdate": "tool_call_update", "toolCallId": tool.ID, "status": status}
+		if tool.Output != "" {
+			done["content"] = []map[string]interface{}{{"type": "content", "content": map[string]string{"type": "text", "text": tool.Output}}}
+		}
+		a.update(s.id, done)
 	}
 	if t.Error != "" {
 		a.fail(m.ID, -32603, t.Error)

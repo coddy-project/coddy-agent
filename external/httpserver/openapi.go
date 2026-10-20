@@ -2312,6 +2312,7 @@ func openAPISpec() map[string]interface{} {
 					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). **mode** reports the session profile (`agent`, `plan`, or `ask`) so remote clients restore it on load. **settings** is the whole settings snapshot of the session (**model**, **reasoning**, **reasoningChoices**, **toolset** and **toolsetChoices** (only while the configuration has **`toolsets`**), **mode**, **permissionMode**, **configuredPermissionMode**, **overrides**, **version**), the same one **event: session_settings** carries: a composer mirrors it and names its **version** as **`metadata.settingsVersion`** when it sends. **uiLog** holds a **notice** row for a settings change the agent made itself (the model's **switch_model**, a skill's frontmatter); a change the user made - a command, **PATCH**, the permission dialog - leaves none, and the rows a session saved by an earlier version holds for such changes are not returned. Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). User rows with uploaded files include **`files`** metadata, and a tool row carries in **`files`** the pictures its call showed the model (**`read`** on an image file); persisted images carry a session-scoped **`preview_url`** (the bounded thumbnail) and, while the asset is still in the bundle, **`url`** for the original bytes a preview card opens enlarged. " +
 						"**user** and **assistant** rows may include **created_at** (RFC3339 UTC) when the server appended that message to history. " +
 						"A **user** row that opened a turn nobody typed - finished background tasks the model started woke the agent (**notify_on_finish**, on by default) - carries **`background_wake`** **`{tasks: [{id, kind, label, agent, status, exit_code, duration_ms, error}]}`**; its **content** is the instruction the model read, and a UI does not render the row as a message from the user (the bundled UI shows nothing for it: the turn reads as the agent carrying on). A **user** row the session supervisor opened a goal turn with carries **`goal_turn`** **`{kind, index, limit, objective, reason, remaining}`**; a UI shows it as a one-line goal row, not as a message from the user. The answer also carries **goal**, the session goal in the shape of **GET /coddy/sessions/{id}/goal**. " +
+						"An **assistant** row a model of type acp wrote carries **`agent_tools`** **`[{id, title, kind, status, input, output, output_lines}]`**, the tool calls the agent behind it ran on its own side: a UI draws them as tool rows (the bundled UI puts them before the row's text), and the whole output of each is **GET /coddy/sessions/{id}/tool-calls/{toolCallId}**. " +
 						"A memory subagent run leaves nothing in this payload: its record is the **agent** task of kind agent with **`agent.system`** true under **GET /coddy/sessions/{id}/background-tasks**, and its transcript is the child session named there. " +
 						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
 						"**messagesRev** is the revision of the history these **messages** were read at; pass it to **GET /coddy/sessions/{id}/composer-stream** as **`?since_rev=`** to be replayed only the frames of a running turn this transcript does not already hold. " +
@@ -3980,8 +3981,27 @@ func openAPISpec() map[string]interface{} {
 							"description":          "Coddy transcript extension on a user row nobody typed: background tasks the model started ended with their wake on (notify_on_finish, on by default) and the server woke the agent. `tasks` lists each with `id`, `kind`, `label`, `agent`, `status`, `exit_code`, `duration_ms` and `error`. The row's content is the instruction the model read.",
 							"additionalProperties": true,
 						},
+						"agent_tools": map[string]interface{}{
+							"type":        "array",
+							"readOnly":    true,
+							"description": "Coddy transcript extension on an assistant row a model of type acp wrote: the tool calls the agent behind it ran on its own side while it wrote the answer, in the order it announced them. They are drawn as tool rows and are never tool calls of Coddy's: nothing runs them and no model is sent them. `output` holds the first lines of a call's output and `output_lines` how many it had when there were more; the whole output is GET /coddy/sessions/{id}/tool-calls/{toolCallId} with the row's `id`.",
+							"items":       map[string]interface{}{"$ref": "#/components/schemas/CoddyAgentToolCall"},
+						},
 					},
 					"required": []string{"role"},
+				},
+				"CoddyAgentToolCall": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"id":           map[string]interface{}{"type": "string", "description": "The id of the call's tool row: `acp_` and the agent's own id."},
+						"title":        map[string]interface{}{"type": "string", "description": "The call named by what it works on (`read notes.txt`)."},
+						"kind":         map[string]interface{}{"type": "string", "description": "The agent's tool kind (ACP: read, edit, delete, move, search, execute, think, fetch, other)."},
+						"status":       map[string]interface{}{"type": "string", "enum": []string{"completed", "failed", "cancelled"}},
+						"input":        map[string]interface{}{"type": "string", "description": "What the call was given, as the agent reported it (JSON)."},
+						"output":       map[string]interface{}{"type": "string", "description": "The first lines of what the call produced."},
+						"output_lines": map[string]interface{}{"type": "integer", "description": "How many lines the output had when `output` holds only its first ones."},
+					},
+					"required": []string{"id", "title", "status"},
 				},
 				"CoddyMessageFile": map[string]interface{}{
 					"type": "object",

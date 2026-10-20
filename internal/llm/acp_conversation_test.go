@@ -364,51 +364,104 @@ func toolUpdate(kind string, title, toolKind, status string, raw string, paths .
 	return u
 }
 
+// toolRows collects the tool rows a stream state reports, the last state of
+// each and the order they were first reported in.
+type toolRows struct {
+	order []string
+	last  map[string]AgentToolCall
+	n     int
+}
+
+func newToolRowState() (*acpStreamState, *toolRows) {
+	rows := &toolRows{last: map[string]AgentToolCall{}}
+	st := newACPStreamState(func(c StreamChunk) {
+		if c.AgentTool == nil {
+			return
+		}
+		rows.n++
+		if _, seen := rows.last[c.AgentTool.ID]; !seen {
+			rows.order = append(rows.order, c.AgentTool.ID)
+		}
+		rows.last[c.AgentTool.ID] = *c.AgentTool
+	})
+	return st, rows
+}
+
 // OpenCode announces a call by the tool's bare name and an empty input, and
-// names the file only in the next update: the line waits for it, and names
-// the file by its path in the workspace.
-func TestACPToolLineWaitsForWhatTheCallWorksOn(t *testing.T) {
+// names the file only in the next update: the row waits for it, and is titled
+// by the file's path in the workspace.
+func TestACPToolRowWaitsForWhatTheCallWorksOn(t *testing.T) {
 	ws := t.TempDir()
 	file := filepath.Join(ws, "docs", "notes.txt")
-	st := newACPStreamState(nil)
+	st, rows := newToolRowState()
 	st.cwd = ws
 	st.update(toolUpdate("tool_call", "read", "read", "pending", `{}`))
-	if r := st.reasoning.String(); r != "" {
-		t.Fatalf("a bare tool name made a line: %q", r)
+	if rows.n != 0 {
+		t.Fatalf("a bare tool name made a row: %+v", rows.last)
 	}
 	st.update(toolUpdate("tool_call_update", "read", "read", "in_progress", `{"filePath":`+strconvQuote(file)+`}`, file))
-	st.update(toolUpdate("tool_call_update", strings.TrimPrefix(file, "/"), "", "completed", ""))
-	if want := "[tool 1] read docs/notes.txt\n\n"; st.reasoning.String() != want {
-		t.Fatalf("reasoning = %q, want %q", st.reasoning.String(), want)
+	done := toolUpdate("tool_call_update", strings.TrimPrefix(file, "/"), "", "completed", "")
+	done.Content = json.RawMessage(`[{"type":"content","content":{"type":"text","text":"banana split"}}]`)
+	st.update(done)
+	got := rows.last["c1"]
+	if got.Title != "read docs/notes.txt" || got.Kind != "read" || got.Status != "completed" || got.Output != "banana split" || !strings.Contains(got.Input, "notes.txt") {
+		t.Fatalf("row = %+v", got)
+	}
+	if st.reasoning.Len() != 0 {
+		t.Fatalf("the call went into the reasoning: %q", st.reasoning.String())
 	}
 }
 
 // A command the agent runs is named by the command its input carries.
-func TestACPToolLineNamesTheCommand(t *testing.T) {
-	st := newACPStreamState(nil)
+func TestACPToolRowNamesTheCommand(t *testing.T) {
+	st, rows := newToolRowState()
 	st.update(toolUpdate("tool_call", "bash", "execute", "pending", ""))
 	st.update(toolUpdate("tool_call_update", "bash", "execute", "in_progress", `{"command":"go test ./...\n","description":"run the tests"}`))
-	if want := "[tool 1] bash go test ./...\n\n"; st.reasoning.String() != want {
-		t.Fatalf("reasoning = %q, want %q", st.reasoning.String(), want)
+	if got := rows.last["c1"].Title; got != "bash go test ./..." {
+		t.Fatalf("title = %q", got)
 	}
 }
 
-// A title that says what the call does is a line at once (Claude Code,
-// Codex); a call that never says more is named when it ends, once even when
-// it fails, and one still open when the prompt ends is named then.
-func TestACPToolLineOfTitlesAndEnds(t *testing.T) {
-	st := newACPStreamState(nil)
+// A title that says what the call does is a row at once (Claude Code,
+// Codex); a call that never says more is shown when it ends; one still open
+// when the prompt completes is shown then, completed; an edit's output is
+// the lines it changes.
+func TestACPToolRowsOfTitlesAndEnds(t *testing.T) {
+	st, rows := newToolRowState()
 	st.update(acpSessionUpdate{SessionUpdate: "tool_call", ToolCallID: "a", Title: "Read README.md", Kind: "read", Status: "pending"})
-	if st.reasoning.String() != "[tool 1] Read README.md\n\n" {
-		t.Fatalf("a descriptive title waited: %q", st.reasoning.String())
+	if rows.last["a"].Title != "Read README.md" {
+		t.Fatalf("a descriptive title waited: %+v", rows.last)
 	}
 	st.update(acpSessionUpdate{SessionUpdate: "tool_call", ToolCallID: "b", Title: "think", Kind: "think", Status: "pending"})
 	st.update(acpSessionUpdate{SessionUpdate: "tool_call_update", ToolCallID: "b", Status: "failed"})
-	st.update(acpSessionUpdate{SessionUpdate: "tool_call_update", ToolCallID: "b", Status: "failed"})
-	st.update(acpSessionUpdate{SessionUpdate: "tool_call", ToolCallID: "c", Kind: "other", Status: "pending"})
+	st.update(acpSessionUpdate{SessionUpdate: "tool_call", ToolCallID: "c", Title: "Edit a.go", Kind: "edit", Status: "pending",
+		Content: json.RawMessage(`[{"type":"diff","path":"a.go","oldText":"x := 1","newText":"x := 2"}]`)})
+	st.update(acpSessionUpdate{SessionUpdate: "tool_call", ToolCallID: "d", Kind: "other", Status: "pending"})
 	st.finish(acpsdk.PromptResponse{StopReason: acpsdk.StopReasonEndTurn})
-	want := "[tool 1] Read README.md\n\n[tool 2] think\n\n[tool 2 failed] think\n\n[tool 3] other\n\n"
-	if st.reasoning.String() != want {
-		t.Fatalf("reasoning = %q, want %q", st.reasoning.String(), want)
+	if strings.Join(rows.order, ",") != "a,b,c,d" {
+		t.Fatalf("order = %v", rows.order)
+	}
+	if b := rows.last["b"]; b.Title != "think" || b.Status != "failed" {
+		t.Fatalf("b = %+v", b)
+	}
+	if c := rows.last["c"]; c.Status != "completed" || c.Output != "Edit a.go\n- x := 1\n+ x := 2" {
+		t.Fatalf("c = %+v", c)
+	}
+	if d := rows.last["d"]; d.Title != "other" || d.Status != "completed" {
+		t.Fatalf("d = %+v", d)
+	}
+}
+
+// A permission request about a call the agent has not shown yet shows it
+// first, so the prompt has a row to stand under.
+func TestACPToolRowOfAPermissionRequest(t *testing.T) {
+	st, rows := newToolRowState()
+	st.update(acpSessionUpdate{SessionUpdate: "tool_call", ToolCallID: "w", Title: "write", Kind: "edit", Status: "pending"})
+	if rows.n != 0 {
+		t.Fatalf("a bare name made a row: %+v", rows.last)
+	}
+	req := st.mergedPermission(acpPermissionRequest{SessionID: "s", ToolCall: acpPermissionToolCall{ToolCallID: "w"}})
+	if req.ToolCall.Title != "write" || rows.last["w"].Status != "pending" || rows.last["w"].Title != "write" {
+		t.Fatalf("request = %+v, rows = %+v", req, rows.last)
 	}
 }

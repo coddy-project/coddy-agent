@@ -8,7 +8,7 @@ Feature: An ACP agent as a model, end to end through coddy acp
     Given coddy acp whose acp rows "alpha" and "beta" run scripted agents
     When an editor opens a session on "alpha/default" and asks "hello"
     Then the editor sees the answer "echo: hello"
-    And the editor sees the agent's tool "Read README.md" in the reasoning
+    And the editor sees the agent's tool "Read README.md" as a row with the output "# Readme"
     And the session offers the models "alpha/default, alpha/large, beta/default"
 
   Scenario: The agent's permission request reaches the editor
@@ -27,7 +27,8 @@ Feature: An ACP agent as a model, end to end through coddy acp
     Given coddy acp whose acp rows "alpha" and "beta" run scripted agents
     When an editor opens a session on "alpha/default" and asks "one"
     And coddy acp starts again and the editor loads the session and asks "two"
-    Then the agent's new session got the conversation with "one" before "two"
+    Then the editor was shown the agent's tool "Read README.md" again when it loaded the session
+    And the agent's new session got the conversation with "one" before "two"
 
   Scenario: A stopped answer stays the agent's own
     Given coddy acp whose acp row "slow" runs an agent that writes "partial" and waits to be stopped
@@ -39,7 +40,7 @@ Feature: An ACP agent as a model, end to end through coddy acp
     Given coddy acp whose acp row "coddy" runs another coddy acp serving the acp row "inner"
     When an editor opens a session on "coddy/default" and asks "hi"
     Then the editor sees the answer "echo: hi"
-    And the editor sees the agent's tool "Grep TODO" in the reasoning
+    And the editor sees the agent's tool "Grep TODO" as a row with the output "main.go:3: TODO"
     And the inner agent ran two levels down
     And the row "coddy" lists the models "default, inner/default, inner/large"
 

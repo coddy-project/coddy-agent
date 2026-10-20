@@ -333,6 +333,9 @@ type messageRow struct {
 	// started; it is replayed as the goal row, not as the instruction text
 	// the model read.
 	GoalTurn *llm.GoalTurn `json:"goal_turn,omitempty"`
+	// AgentTools are the tool calls the agent behind an acp model ran while
+	// it wrote an assistant row: replayed as their rows, before the text.
+	AgentTools []llm.AgentToolCall `json:"agent_tools,omitempty"`
 }
 
 type messagesResponse struct {

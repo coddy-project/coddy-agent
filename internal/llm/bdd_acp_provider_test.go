@@ -26,6 +26,8 @@ type acpFeatureState struct {
 	asked   []PermissionRequest
 	allow   bool
 	in      *ProviderInput
+	// tools holds the last state of every tool row the agent's calls made.
+	tools map[string]AgentToolCall
 }
 
 // provider builds the row once per scenario: every turn talks to the same
@@ -44,7 +46,7 @@ func (s *acpFeatureState) provider() (Provider, error) {
 
 func (s *acpFeatureState) agentReadsAndAnswers(answer string) error {
 	s.script = acptest.Script{Turns: []acptest.Turn{{
-		Tools: []acptest.Tool{{ID: "t1", Title: "Read README.md"}},
+		Tools: []acptest.Tool{{ID: "t1", Title: "Read README.md", Kind: "read", Output: "# The project"}},
 		Text:  []string{answer},
 	}}}
 	return nil
@@ -107,8 +109,12 @@ func (s *acpFeatureState) ask(text string) error {
 	ctx, cancel := context.WithTimeout(WithConversation(context.Background(), s.conv), 60*time.Second)
 	defer cancel()
 	s.text.Reset()
+	s.tools = map[string]AgentToolCall{}
 	resp, err := p.Stream(ctx, append([]Message{{Role: RoleSystem, Content: "CODDY SYSTEM PROMPT"}}, s.history...), nil, func(c StreamChunk) {
 		s.text.WriteString(c.TextDelta)
+		if c.AgentTool != nil {
+			s.tools[c.AgentTool.ID] = *c.AgentTool
+		}
 	})
 	if err != nil {
 		return err
@@ -130,11 +136,32 @@ func (s *acpFeatureState) answerStreams(want string) error {
 	return nil
 }
 
-func (s *acpFeatureState) reasoningNamesTool(title string) error {
-	if !strings.Contains(s.resp.Reasoning, "] "+title) {
-		return fmt.Errorf("reasoning %q does not name %q", s.resp.Reasoning, title)
+func (s *acpFeatureState) toolRow(title string) (AgentToolCall, error) {
+	for _, t := range s.tools {
+		if t.Title == title {
+			if strings.Contains(s.resp.Reasoning, title) {
+				return t, fmt.Errorf("the tool went into the reasoning too: %q", s.resp.Reasoning)
+			}
+			return t, nil
+		}
+	}
+	return AgentToolCall{}, fmt.Errorf("no tool row titled %q in %+v", title, s.tools)
+}
+
+func (s *acpFeatureState) toolRowWithOutput(title, output string) error {
+	t, err := s.toolRow(title)
+	if err != nil {
+		return err
+	}
+	if t.Status != "completed" || t.Output != output {
+		return fmt.Errorf("row %q = %+v, want completed with output %q", title, t, output)
 	}
 	return nil
+}
+
+func (s *acpFeatureState) toolRowTitled(title string) error {
+	_, err := s.toolRow(title)
+	return err
 }
 
 func (s *acpFeatureState) noSystemPrompt() error {
@@ -215,7 +242,8 @@ func TestACPProviderFeature(t *testing.T) {
 			sc.Step(`^the same session asks "([^"]*)"$`, s.ask)
 			sc.Step(`^a session asks "([^"]*)" and the person allows it$`, s.askAndAllow)
 			sc.Step(`^the answer streams as "([^"]*)"$`, s.answerStreams)
-			sc.Step(`^the reasoning names the agent's tool "([^"]*)"$`, s.reasoningNamesTool)
+			sc.Step(`^the agent's tool "([^"]*)" is a row of its own with the output "([^"]*)"$`, s.toolRowWithOutput)
+			sc.Step(`^the agent's tool is a row titled "([^"]*)"$`, s.toolRowTitled)
 			sc.Step(`^the agent did not receive Coddy's system prompt$`, s.noSystemPrompt)
 			sc.Step(`^the agent opened one session$`, s.oneSession)
 			sc.Step(`^the second prompt carried only "([^"]*)"$`, s.secondPromptCarried)

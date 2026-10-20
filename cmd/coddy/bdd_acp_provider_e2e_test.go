@@ -265,6 +265,29 @@ func (e *acpEditor) newSession(workspace, model string) (string, []string, error
 	return res.SessionID, models, nil
 }
 
+// waitFor waits for a session/update of kind about the session.
+func (e *acpEditor) waitFor(sessionID, kind string) error {
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		e.mu.Lock()
+		for _, raw := range e.updates {
+			var p struct {
+				SessionID string `json:"sessionId"`
+				Update    struct {
+					SessionUpdate string `json:"sessionUpdate"`
+				} `json:"update"`
+			}
+			if json.Unmarshal(raw, &p) == nil && p.SessionID == sessionID && p.Update.SessionUpdate == kind {
+				e.mu.Unlock()
+				return nil
+			}
+		}
+		e.mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+	}
+	return fmt.Errorf("no %s for %s", kind, sessionID)
+}
+
 // prompt asks text in the session and returns the stop reason.
 func (e *acpEditor) prompt(sessionID, text string) (string, error) {
 	raw, err := e.call("session/prompt", map[string]any{"sessionId": sessionID, "prompt": []any{map[string]any{"type": "text", "text": text}}})
@@ -310,6 +333,63 @@ func (e *acpEditor) streamed(sessionID string) (text, reasoning string) {
 		}
 	}
 	return t.String(), r.String()
+}
+
+// editorToolRow is a tool row as an editor draws it from tool_call and
+// tool_call_update.
+type editorToolRow struct {
+	id, title, status, output string
+}
+
+// toolRows returns the tool rows the session's updates drew, from update
+// from on, in the order they were announced.
+func (e *acpEditor) toolRows(sessionID string, from int) []editorToolRow {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var order []string
+	rows := map[string]*editorToolRow{}
+	for _, raw := range e.updates[min(from, len(e.updates)):] {
+		var p struct {
+			SessionID string `json:"sessionId"`
+			Update    struct {
+				SessionUpdate string `json:"sessionUpdate"`
+				ToolCallID    string `json:"toolCallId"`
+				Title         string `json:"title"`
+				Status        string `json:"status"`
+				Content       []struct {
+					Content struct {
+						Text string `json:"text"`
+					} `json:"content"`
+				} `json:"content"`
+			} `json:"update"`
+		}
+		if json.Unmarshal(raw, &p) != nil || p.SessionID != sessionID {
+			continue
+		}
+		u := p.Update
+		switch u.SessionUpdate {
+		case "tool_call":
+			if rows[u.ToolCallID] == nil {
+				order = append(order, u.ToolCallID)
+				rows[u.ToolCallID] = &editorToolRow{id: u.ToolCallID}
+			}
+			rows[u.ToolCallID].title, rows[u.ToolCallID].status = u.Title, u.Status
+		case "tool_call_update":
+			r := rows[u.ToolCallID]
+			if r == nil {
+				continue
+			}
+			r.status = u.Status
+			if u.Status != "in_progress" && len(u.Content) > 0 {
+				r.output = u.Content[0].Content.Text
+			}
+		}
+	}
+	out := make([]editorToolRow, 0, len(order))
+	for _, id := range order {
+		out = append(out, *rows[id])
+	}
+	return out
 }
 
 // close lets go of coddy acp the way an editor does: its stdin ends, and it
@@ -377,6 +457,9 @@ type acpE2EState struct {
 	editor *acpEditor
 	sid    string
 	models []string
+	// loaded is how many updates the editor had once session/load replayed
+	// the conversation.
+	loaded int
 	// questions maps the sessions of the concurrent scenario to what each
 	// was asked.
 	questions map[string]string
@@ -427,7 +510,7 @@ func (s *acpE2EState) fakeRow(name string, script acptest.Script) acpRow {
 	return acpRow{name: name, command: cmd, args: args, modes: "{plan: read, ask: read}"}
 }
 
-var echoTurn = acptest.Turn{Thoughts: []string{"looking"}, Tools: []acptest.Tool{{ID: "t1", Title: "Read README.md"}}, Echo: true}
+var echoTurn = acptest.Turn{Thoughts: []string{"looking"}, Tools: []acptest.Tool{{ID: "t1", Title: "Read README.md", Kind: "read", Output: "# Readme"}}, Echo: true}
 
 var acpAgentModes = []string{"default", "read"}
 
@@ -477,7 +560,7 @@ func (s *acpE2EState) nestedEcho(row, innerRow string) error {
 	if innerRow != "inner" {
 		return fmt.Errorf("the inner row is named inner, not %q", innerRow)
 	}
-	return s.nested(row, acptest.Turn{Thoughts: []string{"looking"}, Tools: []acptest.Tool{{ID: "x1", Title: "Grep TODO"}}, Echo: true, Env: []string{llm.ACPDepthEnv}})
+	return s.nested(row, acptest.Turn{Thoughts: []string{"looking"}, Tools: []acptest.Tool{{ID: "x1", Title: "Grep TODO", Kind: "search", Output: "main.go:3: TODO"}}, Echo: true, Env: []string{llm.ACPDepthEnv}})
 }
 
 func (s *acpE2EState) nestedAsking(row, title string) error {
@@ -527,12 +610,34 @@ func (s *acpE2EState) sees(want string) error {
 	return nil
 }
 
-func (s *acpE2EState) seesTool(title string) error {
+func (s *acpE2EState) seesTool(title, output string) error {
 	_, reasoning := s.editor.streamed(s.sid)
-	if !strings.Contains(reasoning, "] "+title) {
-		return fmt.Errorf("reasoning = %q, want the tool %q", reasoning, title)
+	if strings.Contains(reasoning, title) {
+		return fmt.Errorf("the agent's tool went into the reasoning: %q", reasoning)
 	}
-	return nil
+	rows := s.editor.toolRows(s.sid, 0)
+	for _, r := range rows {
+		if r.title == title {
+			if r.status != "completed" || r.output != output {
+				return fmt.Errorf("row %q = %+v, want completed with %q", title, r, output)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("no tool row %q among %+v", title, rows)
+}
+
+func (s *acpE2EState) shownAgainOnLoad(title string) error {
+	s.editor.mu.Lock()
+	replay := append([]json.RawMessage(nil), s.editor.updates[:s.loaded]...)
+	s.editor.mu.Unlock()
+	replayed := (&acpEditor{updates: replay}).toolRows(s.sid, 0)
+	for _, r := range replayed {
+		if r.title == title && r.status == "completed" && r.output != "" {
+			return nil
+		}
+	}
+	return fmt.Errorf("the loaded session replayed no row %q: %+v", title, replayed)
 }
 
 func splitList(s string) []string {
@@ -668,6 +773,14 @@ func (s *acpE2EState) restartLoadAndAsk(text string) error {
 	if _, err := s.editor.call("session/load", map[string]any{"sessionId": s.sid, "cwd": s.ws, "mcpServers": []any{}}); err != nil {
 		return err
 	}
+	// The replay is done once the slash command catalog that closes a loaded
+	// session arrived; what came before it is the replay alone.
+	if err := s.editor.waitFor(s.sid, "available_commands_update"); err != nil {
+		return err
+	}
+	s.editor.mu.Lock()
+	s.loaded = len(s.editor.updates)
+	s.editor.mu.Unlock()
 	reason, err := s.editor.prompt(s.sid, text)
 	if err != nil {
 		return err
@@ -825,7 +938,8 @@ func initializeACPProviderE2EScenario(t *testing.T) func(*godog.ScenarioContext)
 		sc.Step(`^coddy acp starts again and the editor loads the session and asks "([^"]*)"$`, s.restartLoadAndAsk)
 		sc.Step(`^the editor asks "([^"]*)"$`, s.editorAsks)
 		sc.Step(`^the editor sees the answer "([^"]*)"$`, s.sees)
-		sc.Step(`^the editor sees the agent's tool "([^"]*)" in the reasoning$`, s.seesTool)
+		sc.Step(`^the editor sees the agent's tool "([^"]*)" as a row with the output "([^"]*)"$`, s.seesTool)
+		sc.Step(`^the editor was shown the agent's tool "([^"]*)" again when it loaded the session$`, s.shownAgainOnLoad)
 		sc.Step(`^the session offers the models "([^"]*)"$`, s.offersModels)
 		sc.Step(`^the editor was asked about "([^"]*)"$`, s.editorAsked)
 		sc.Step(`^the agent heard its allow option$`, s.agentHeardAllow)

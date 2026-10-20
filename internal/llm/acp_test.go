@@ -106,14 +106,21 @@ func readLog(t *testing.T, path, method string) []acptest.Received {
 func TestACPProviderStreamsTheAgentsAnswer(t *testing.T) {
 	in, logPath := acpRow(t, acptest.Script{Turns: []acptest.Turn{{
 		Thoughts: []string{"thinking"},
-		Tools:    []acptest.Tool{{ID: "t1", Title: "Read README.md"}, {ID: "t2", Title: "Read README.md", Fail: true}},
-		Text:     []string{"Hello", " world"},
-		Usage:    map[string]int{"inputTokens": 120, "outputTokens": 7, "thoughtTokens": 3, "cachedReadTokens": 50},
+		Tools: []acptest.Tool{
+			{ID: "t1", Title: "Read README.md", Kind: "read", Input: map[string]string{"file_path": "README.md"}, Output: "# Readme"},
+			{ID: "t2", Title: "Run tests", Fail: true, Output: "FAIL ./..."},
+		},
+		Text:  []string{"Hello", " world"},
+		Usage: map[string]int{"inputTokens": 120, "outputTokens": 7, "thoughtTokens": 3, "cachedReadTokens": 50},
 	}}})
 	var text, reasoning strings.Builder
+	tools := map[string]AgentToolCall{}
 	resp, err := newACPTestProvider(t, in).Stream(conversation(t, "s1"), sys(u("hi")), nil, func(c StreamChunk) {
 		text.WriteString(c.TextDelta)
 		reasoning.WriteString(c.ReasoningDelta)
+		if c.AgentTool != nil {
+			tools[c.AgentTool.ID] = *c.AgentTool
+		}
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -121,9 +128,17 @@ func TestACPProviderStreamsTheAgentsAnswer(t *testing.T) {
 	if resp.Content != "Hello world" || text.String() != "Hello world" || resp.StopReason != "end_turn" {
 		t.Fatalf("content = %q, streamed %q, stop %q", resp.Content, text.String(), resp.StopReason)
 	}
-	for _, want := range []string{"thinking", "[tool 1] Read README.md", "[tool 2] Read README.md", "[tool 2 failed] Read README.md"} {
-		if !strings.Contains(resp.Reasoning, want) {
-			t.Errorf("reasoning lacks %q: %q", want, resp.Reasoning)
+	// The agent's tools are rows of their own, out of its reasoning.
+	if resp.Reasoning != "thinking" {
+		t.Errorf("reasoning = %q", resp.Reasoning)
+	}
+	want := map[string]AgentToolCall{
+		"t1": {ID: "t1", Title: "Read README.md", Kind: "read", Status: "completed", Input: `{"file_path":"README.md"}`, Output: "# Readme"},
+		"t2": {ID: "t2", Title: "Run tests", Kind: "execute", Status: "failed", Output: "FAIL ./..."},
+	}
+	for id, w := range want {
+		if tools[id] != w {
+			t.Errorf("tool %s = %+v, want %+v", id, tools[id], w)
 		}
 	}
 	if reasoning.String() != resp.Reasoning {

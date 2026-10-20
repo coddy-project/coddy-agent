@@ -1,14 +1,15 @@
 Feature: A local ACP agent served as a model
   A provider of type acp runs an Agent Client Protocol agent on stdio (claude-agent-acp,
   codex-acp, opencode acp, coddy acp) and serves it as a model. The agent brings its own
-  instructions and tools; a session's turns go to one ACP session of the agent, and what
-  the agent asks permission for reaches the person who holds the session.
+  instructions and tools; a session's turns go to one ACP session of the agent, its tool
+  calls are shown as tool rows of their own, and what the agent asks permission for
+  reaches the person who holds the session.
 
   Scenario: The agent's answer streams back
     Given an acp provider whose agent reads a file and answers "Hello"
     When a session asks "hi"
     Then the answer streams as "Hello"
-    And the reasoning names the agent's tool "Read README.md"
+    And the agent's tool "Read README.md" is a row of its own with the output "# The project"
     And the agent did not receive Coddy's system prompt
 
   Scenario: A conversation continues on one agent session
@@ -33,4 +34,4 @@ Feature: A local ACP agent served as a model
   Scenario: The agent's tool is named by what it works on
     Given an acp provider whose agent calls its tool "read" and names the file "docs/notes.txt" only once it runs
     When a session asks "read the notes"
-    Then the reasoning names the agent's tool "read docs/notes.txt"
+    Then the agent's tool is a row titled "read docs/notes.txt"

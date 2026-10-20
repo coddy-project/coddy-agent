@@ -120,6 +120,37 @@ type Message struct {
 	// that keeps the conversation on its side (acp) sends it with the prompt
 	// and leaves it out of what it remembers having sent.
 	Ephemeral bool `json:"-"`
+	// AgentTools, on an assistant message, are the tool calls the agent
+	// behind an acp model ran on its own side while it wrote this answer,
+	// in the order it announced them: shown as tool rows on every surface,
+	// never sent to a model, never a call Coddy runs. Output holds the
+	// first lines of each call's output; the session's tool_calls folder
+	// keeps the whole of it.
+	AgentTools []AgentToolCall `json:"agent_tools,omitempty"`
+}
+
+// AgentToolCall is a tool call an agent ran on its own side: the agent
+// behind an acp provider reads, edits and runs commands with tools of its
+// own and reports them, and Coddy shows them.
+type AgentToolCall struct {
+	// ID identifies the call: the agent's own id in a stream chunk, the id
+	// of its tool row ("acp_" and the agent's id) in a stored message.
+	ID string `json:"id"`
+	// Title names the call by what it works on ("read notes.txt").
+	Title string `json:"title"`
+	// Kind is the agent's tool kind (ACP: read, edit, delete, move, search,
+	// execute, think, fetch, other).
+	Kind string `json:"kind,omitempty"`
+	// Status is pending, in_progress, completed, failed or cancelled.
+	Status string `json:"status"`
+	// Input is what the call was given, as the agent reported it.
+	Input string `json:"input,omitempty"`
+	// Output is what it produced: all of it in a stream chunk (bounded),
+	// its first lines in a stored message.
+	Output string `json:"output,omitempty"`
+	// OutputLines is how many lines the output had when a stored message
+	// keeps only its first ones; 0 when it keeps all of it.
+	OutputLines int `json:"output_lines,omitempty"`
 }
 
 type Artifact struct {
@@ -188,7 +219,10 @@ type Response struct {
 type StreamChunk struct {
 	TextDelta      string
 	ReasoningDelta string
-	ToolCall       *ToolCall
+	// AgentTool is the state of a tool call the agent behind the provider
+	// runs on its own side, sent whenever it changes (acp provider).
+	AgentTool *AgentToolCall
+	ToolCall  *ToolCall
 	// ToolCallNamed carries a call the model has only begun to write: the name
 	// is known, the arguments are still streaming. It exists so a surface can
 	// say what is happening while that takes seconds, and it is never the call
