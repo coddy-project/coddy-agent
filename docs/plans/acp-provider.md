@@ -405,7 +405,13 @@ and several sessions at once. The suites above keep those runs. Fixed on the way
   guard cutting a degenerating answer and nudging) sends those alone instead of failing;
 - the request of an agent behind another Coddy read "Agent: Agent: ..." in the permission prompt;
 - `coddy --dry-run` printed the protocol library's "connection closed" lines into its report when it stopped the
-  agents it had probed.
+  agents it had probed;
+- an agent's answer its exit overtook was kept for a prompt only: the SDK's wait picks between the answer and the
+  connection's end at random, so an agent refusing `session/new` for want of authentication and exiting at once
+  could be reported as a bare exit (a flaky `TestACPProviderKeepsAnAnswerTheAgentExitedAfter` in CI). The writer
+  notes every request, the router keeps the error answers it reads for them, and a call the SDK gave up takes the
+  error answer of a request of its method sent after it began; a prompt whose agent is gone takes the router's
+  answer at once instead of waiting a bounded time for the SDK's goroutine.
 
 Seen and left as they are: the Telegram bot asks in the chat for an agent's request (its chat agent's own tools it
 approves without asking), which the guide now says; `session/load` replays no reasoning, so an editor shows the
