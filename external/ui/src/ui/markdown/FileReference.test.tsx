@@ -164,7 +164,13 @@ test("inline code inside a link is no link of its own", async () => {
   expect(document.querySelectorAll("a a")).toHaveLength(0);
   expect(web).toHaveAttribute("href", "https://example.com/docs/a.md");
 
-  fireEvent.click(file);
+  // The code is the link's label: no button of its own inside the link, no
+  // copy on a click, one tab stop.
+  expect(file.querySelector("[role=button], [tabindex]")).toBeNull();
+  const writeText = vi.fn(async () => {});
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+  fireEvent.click(file.querySelector("code")!);
+  expect(writeText).not.toHaveBeenCalled();
   expect(opened).toEqual([{ path: "internal/foo.go", line: undefined }]);
   const followed = fireEvent.click(web);
   expect(followed).toBe(true);

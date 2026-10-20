@@ -136,6 +136,12 @@ function InlineCode(props: { className?: string; children?: unknown }) {
     .filter(Boolean)
     .join(" ");
 
+  // Inside a link the code is the link's label alone: no button of its own,
+  // no copy on a click, no second tab stop.
+  if (inLink) {
+    return <code className={className}>{props.children as any}</code>;
+  }
+
   if (target) {
     return (
       <FileLink target={target}>

@@ -4489,8 +4489,9 @@ a.rail-brand {
 }
 
 /* The whole card opens the file it was copied from in the Files window; the
-   actions trigger stands over it, and a picture's thumbnail keeps opening the
-   picture (DESIGN.md, Shared file cards). */
+   actions trigger stands over it. A picture's thumbnail is that button itself
+   (.inline-artifact-image--open), and opens the copy in the lightbox only when
+   the source is gone (DESIGN.md, Shared file cards). */
 .tool-artifact-open {
   position: absolute;
   inset: 0;

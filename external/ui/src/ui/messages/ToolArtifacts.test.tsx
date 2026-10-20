@@ -641,6 +641,48 @@ test("the pointer opens the Copy submenu, and another item puts it away", () => 
   expect(screen.getByRole("menu")).toBeVisible();
 });
 
+// A real click starts with the pointer entering Copy, which opens the submenu;
+// the click must leave it open, not toggle it shut again.
+test("a click on Copy after the pointer entered it keeps the submenu open", () => {
+  render(<ArtifactCard inline artifact={present} />);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Actions for release-notes.pdf" }),
+  );
+  const copy = screen.getByRole("menuitem", { name: "Copy" });
+  fireEvent.mouseEnter(copy);
+  fireEvent.click(copy);
+  expect(copy).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("menu", { name: "Copy" })).toBeVisible();
+});
+
+// The keyboard after the pointer: right on a Copy whose submenu the pointer
+// already opened walks into it, and moving to another item puts it away, so
+// the next Escape closes the menu.
+test("the keyboard takes over a submenu the pointer opened", () => {
+  render(<ArtifactCard inline artifact={present} />);
+  const trigger = screen.getByRole("button", {
+    name: "Actions for release-notes.pdf",
+  });
+  fireEvent.click(trigger);
+  const menu = screen.getByRole("menu");
+  const copy = screen.getByRole("menuitem", { name: "Copy" });
+  fireEvent.mouseEnter(copy);
+  copy.focus();
+  fireEvent.keyDown(copy, { key: "ArrowRight" });
+  expect(screen.getByRole("menuitem", { name: "Absolute path" })).toHaveFocus();
+
+  fireEvent.keyDown(screen.getByRole("menu", { name: "Copy" }), {
+    key: "ArrowLeft",
+  });
+  fireEvent.mouseEnter(copy);
+  fireEvent.keyDown(menu, { key: "ArrowDown" });
+  expect(screen.getByRole("menuitem", { name: "Download" })).toHaveFocus();
+  expect(screen.queryByRole("menu", { name: "Copy" })).toBeNull();
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(trigger).toHaveFocus();
+});
+
 // WAI-ARIA's submenu keys: right opens it on its first item, left and Escape
 // go back to Copy, and the next Escape closes the menu.
 test("the keyboard walks into the Copy submenu and back out", () => {

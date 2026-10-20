@@ -320,10 +320,11 @@ export function ArtifactCard(props: {
     };
   }, [menu]);
 
-  // A closed menu takes its submenu with it.
+  // A closed menu takes its submenu with it, and so does a layout that turned
+  // into the one list (a window narrowed past the stacked shell's edge).
   useEffect(() => {
-    if (!menu) setSub(false);
-  }, [menu]);
+    if (!menu || flat) setSub(false);
+  }, [menu, flat]);
 
   // The submenu is portalled too, and placed from Copy and the menu before
   // its first paint, again whenever the menu moves.
@@ -352,6 +353,13 @@ export function ArtifactCard(props: {
   }, [sub]);
 
   const openSub = (focus: boolean) => {
+    if (sub) {
+      // Already open (the pointer opened it): the keyboard walks in now, and
+      // no armed focus waits for the next placement.
+      if (focus)
+        enabledItems(subRef.current)[0]?.focus({ preventScroll: true });
+      return;
+    }
     subFocusRef.current = focus;
     setSub(true);
   };
@@ -578,6 +586,7 @@ export function ArtifactCard(props: {
                 disabled={!mentionable}
                 title={mentionable ? undefined : openHint}
                 onMouseEnter={() => setSub(false)}
+                onFocus={() => setSub(false)}
                 onClick={() => action(() => props.onMention?.(relative))}
               >
                 {t("messages.artifactMention")}
@@ -609,7 +618,7 @@ export function ArtifactCard(props: {
                   aria-haspopup="menu"
                   aria-expanded={sub}
                   onMouseEnter={() => openSub(false)}
-                  onClick={() => (sub ? setSub(false) : openSub(false))}
+                  onClick={() => openSub(false)}
                   onKeyDown={(event) => {
                     if (
                       event.key === "ArrowRight" ||
@@ -630,6 +639,7 @@ export function ArtifactCard(props: {
                 type="button"
                 disabled={unavailable || downloading}
                 onMouseEnter={() => setSub(false)}
+                onFocus={() => setSub(false)}
                 onClick={() =>
                   action(async () => {
                     setDownloading(true);

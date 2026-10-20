@@ -301,4 +301,4 @@ type LaunchFunc func(taskID string, out io.Writer) (Handle, error)
 - Сервер предпросмотра описан в `features/preview_server.feature` (`internal/tools/preview/bdd_preview_server_test.go` - настоящий пул, настоящий каталог и настоящий HTTP-клиент), отказы (каталог вне рабочей папки, файлы с точкой в начале имени, чужой `Host`, симлинк за пределы корня) - в `internal/tools/preview/preview_test.go`, а задача без таймера - в `internal/bgtask`;
 - Сквозные тесты с настоящей моделью - `examples/httpserver/http_e2e_background.py`, `examples/httpserver/http_e2e_background_reap.py` (убивает собственный coddy посреди задачи и заставляет новый убрать за ним), `examples/acp/acp_e2e_background.py` и `examples/httpserver/http_e2e_preview_server.py` для серверного вида задач.
 
-<!-- docsgen:source sha256=626c3b4073a7c49b -->
+<!-- docsgen:source sha256=e28e03bafc16cd08 -->
