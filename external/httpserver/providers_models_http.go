@@ -129,6 +129,20 @@ func (s *Server) coddyProviderModelsPost(w http.ResponseWriter, r *http.Request)
 			prov.APIKeyCommand = saved.APIKeyCommand
 		}
 	}
+	if strings.TrimSpace(prov.Type) == "acp" {
+		// An acp row runs a program. The request names no program of its
+		// own: the agent is the saved row's, so listing models never starts
+		// a command that only travelled in a request body.
+		saved := c.FindProvider(prov.Name)
+		if saved == nil || saved.Type != "acp" || saved.ACP == nil {
+			writeCoddyConfigErr(w, http.StatusBadRequest, "save the acp provider first: its agent is started only from the saved configuration")
+			return
+		}
+		// A copy: Normalize writes into the block, and the saved one is
+		// what running turns read.
+		acpCopy := *saved.ACP
+		prov.ACP = &acpCopy
+	}
 	prov.Normalize()
 	if err := prov.Validate(); err != nil {
 		writeCoddyConfigErr(w, http.StatusBadRequest, err.Error())
@@ -150,6 +164,7 @@ func (s *Server) writeProviderModels(w http.ResponseWriter, ctx context.Context,
 		// An unsaved row counts toward the rows of its type too, so the
 		// preview uses the account a saved row would.
 		NoCLILogin: !c.ProviderMayUseCLILogin(prov.Name, prov.Type),
+		ACP:        prov.ACP,
 	})
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {

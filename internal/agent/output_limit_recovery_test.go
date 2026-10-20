@@ -140,7 +140,8 @@ func TestPromptCacheProviderRecoveryRunsTheFailedRequestAgain(t *testing.T) {
 				if n := len(failed); len(rerun) != n+2 || rerun[n].Role != llm.RoleAssistant || rerun[n].Content != tc.kept {
 					t.Fatalf("the request run again does not carry the kept answer %q after the failed request:\n%s", tc.kept, tailLines(strings.Join(requestHistory(rerun), "\n"), 4))
 				}
-				want = append(append([]llm.Message(nil), failed...), rerun[len(failed)], llm.Message{Role: llm.RoleUser, Content: providerRecoveryNudge})
+				// The nudge is local to the request: marked ephemeral, never stored.
+				want = append(append([]llm.Message(nil), failed...), rerun[len(failed)], llm.Message{Role: llm.RoleUser, Content: providerRecoveryNudge, Ephemeral: true})
 			}
 			if !reflect.DeepEqual(rerun, want) {
 				t.Fatalf("the request run again is not the one that failed:\nfailed: %s\nagain:  %s",

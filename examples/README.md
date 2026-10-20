@@ -88,6 +88,8 @@ Order: **`acp_smoke_gateway`**, **`acp_e2e_models`**, **`acp_e2e_web`**, **`acp_
 
 Environment overrides: **`CODDY_BIN`**, **`CODDY_CONFIG`**, **`SESSION_ROOT`**, **`SESSION_ID`**, **`BASE_URL`**, **`MODEL`**, etc. (see each script docstring).
 
+**`acp/provider_e2e.sh`** is not part of **`test_acp.sh`**: it checks the other direction, Coddy as the ACP client of a local agent (the **`acp`** provider type, **`docs/features/acp-provider.md`**). For each of **`claude-agent-acp`**, **`codex-acp`**, **`opencode acp`**, **`zcode-acp-server`** and **`coddy acp`** found on **`PATH`** it writes an **`acp`** row into a temporary home and runs **`coddy -p`** three times: an answer in agent mode, the next turn of the same conversation (**`-c`**), an answer in ask mode. It calls real models through the agents, so each agent must already be able to answer on its own; **`ACP_E2E_AGENTS`**, **`ACP_E2E_<AGENT>_ENV`** and **`ACP_E2E_CHILD_CODDY_HOME`** are described in its header.
+
 The scripts that run **`coddy acp`** with the operator's own home (no **`--home`**, no **`CODDY_HOME`**: **`acp_smoke_gateway`**, **`acp_e2e_models`**, **`acp_e2e_web`**, **`acp_e2e_todo`**, **`acp_e2e_mentions`**, **`acp_e2e_config`**, **`acp_e2e_background`**, **`acp_e2e_toolcalls_persist`**, **`acp_e2e_compact`**, **`acp_e2e_plan_files`**, **`acp_e2e_ask_mode`**) leave its **`permission-mode.json`** alone, so their sessions start in the mode the operator chose last (**`ask`** without the file) and the scripts allow every **`session/request_permission`** themselves. The others make a temporary home and start it in **`bypass`**, except **`acp_e2e_background_wake`**, whose stand starts it in **`ask`**.
 
 ## Single demos

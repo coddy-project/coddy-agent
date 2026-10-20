@@ -23,3 +23,28 @@ describe("transcriptHasFilledAssistant", () => {
     expect(transcriptHasFilledAssistant(items, "missing")).toBe(false);
   });
 });
+
+describe("the end of a turn whose answer came in segments", () => {
+  it("a turn whose merged answer carries the id of its first segment counts as answered", () => {
+    // The persisted message replaced the live segments and kept the id of
+    // the first one; the last segment's id is gone. The turn is answered:
+    // syncing it from the server again would bring the last segment back
+    // holding the whole answer, a second copy under the first.
+    const items: TranscriptItem[] = [
+      { id: "u1", type: "user_message", content: "write it" },
+      { id: "th", type: "thinking", status: "completed", content: "r" },
+      {
+        id: "a-seg-1",
+        type: "assistant_message",
+        content: "I'll create the file.\n\nCreated src/hello.ts.",
+        streaming: false,
+      },
+    ];
+    expect(
+      transcriptHasFilledAssistant(items, ["a-init", "a-seg-1", "a-seg-2"]),
+    ).toBe(true);
+    expect(transcriptHasFilledAssistant(items, ["a-init", "a-seg-2"])).toBe(
+      false,
+    );
+  });
+});

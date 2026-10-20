@@ -408,6 +408,9 @@ func runACP(args []string) error {
 	// session the editor opens; they stop when the editor lets go of the agent.
 	mgr.StartGlobalMCPServers()
 	defer mgr.CloseMCP()
+	// So do the agents of acp providers.
+	llm.SetACPLogger(log)
+	defer llm.StopACPAgents()
 	srv = acp.NewServer(mgr, log)
 	// A woken turn opens with a note an editor that renders only the standard
 	// updates can read, live and when session/load replays it. Everything goes

@@ -615,6 +615,35 @@ func TestRemoteDefaultModelIsTheRowTheServerMarks(t *testing.T) {
 	}
 }
 
+// A provider row may be named coddy (a coddy acp agent served as a model):
+// its rows are owned_by coddy like the session profiles, and they are still
+// models to pick; only the profile ids are profiles.
+func TestRemoteKeepsTheModelsOfAProviderNamedCoddy(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"object":"list","data":[
+			{"id":"agent","owned_by":"coddy"},
+			{"id":"plan","owned_by":"coddy"},
+			{"id":"ask","owned_by":"coddy"},
+			{"id":"coddy/default","owned_by":"coddy","default":true},
+			{"id":"coddy/neuraldeep/qwen3.8-27b","owned_by":"coddy"}]}`))
+	}))
+	defer srv.Close()
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.ensureModels(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, m := range h.models {
+		ids = append(ids, m.ID)
+	}
+	if strings.Join(ids, ",") != "coddy/default,coddy/neuraldeep/qwen3.8-27b" || h.defModel != "coddy/default" {
+		t.Fatalf("models = %v, default = %q", ids, h.defModel)
+	}
+}
+
 // ---- config options ----
 
 func TestSetConfigOptionValidatesModelsAndCarriesThePermissionMode(t *testing.T) {

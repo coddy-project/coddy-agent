@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -55,6 +56,18 @@ func (r *runner) probeProvider(ctx context.Context, prov *config.ProviderConfig,
 	path := "providers[" + prov.Name + "]"
 	base := displayBase(prov)
 	var out []Check
+	if prov.Type == "acp" && prov.ACP != nil {
+		// Without a read-only mode of the agent for plan and ask, a session
+		// in those modes refuses to run on this row.
+		for _, m := range []struct{ name, value string }{{"plan", prov.ACP.Modes.Plan}, {"ask", prov.ACP.Modes.Ask}} {
+			if strings.TrimSpace(m.value) == "" {
+				p := path + ".acp.modes." + m.name
+				out = append(out, r.check(StatusWarning, p, p,
+					"no mode of the agent is set for "+m.name+" mode, so a session in "+m.name+" mode cannot run on this provider",
+					"set it to a read-only mode of the agent (claude-agent-acp: plan, codex-acp: read-only, opencode: plan, coddy: ask)"))
+			}
+		}
+	}
 
 	key, kerr := prov.EffectiveAPIKeyContextErr(ctx)
 	if kerr != nil {
@@ -85,8 +98,15 @@ func (r *runner) probeProvider(ctx context.Context, prov *config.ProviderConfig,
 		// type serves one row only.
 		NoCLILogin: !r.req.Cfg.ProviderMayUseCLILogin(prov.Name, prov.Type),
 		Timeout:    r.req.Timeout,
+		ACP:        prov.ACP,
 	}
-	pctx, cancel := context.WithTimeout(ctx, r.req.Timeout)
+	timeout := r.req.Timeout
+	if prov.Type == "acp" && timeout < acpProbeTimeout {
+		// The probe starts the agent: a cold start (Claude Code, an OpenCode
+		// that installs its provider module) takes longer than a request.
+		timeout = acpProbeTimeout
+	}
+	pctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	listed, err := llm.ListModels(pctx, in)
 	if err != nil {
@@ -145,6 +165,10 @@ func needsKey(prov *config.ProviderConfig) bool {
 	return prov.Type == "openai" || prov.Type == "anthropic"
 }
 
+// acpProbeTimeout bounds the probe of an acp row: starting its agent, the
+// handshake and a session that lists its models.
+const acpProbeTimeout = 60 * time.Second
+
 // displayBase names the endpoint a provider talks to, for messages.
 func displayBase(prov *config.ProviderConfig) string {
 	if base := strings.TrimSpace(prov.APIBase); base != "" {
@@ -159,6 +183,11 @@ func displayBase(prov *config.ProviderConfig) string {
 		return "the Codex backend"
 	case "devin":
 		return llm.DevinAPIServerURL()
+	case "acp":
+		if prov.ACP != nil {
+			return "the agent `" + strings.TrimSpace(strings.Join(append([]string{prov.ACP.Command}, prov.ACP.Args...), " ")) + "`"
+		}
+		return "the agent"
 	default:
 		return llm.OpenAIDefaultAPIBase()
 	}
@@ -243,6 +272,8 @@ func credentialFix(prov *config.ProviderConfig) string {
 		return fmt.Sprintf("run `coddy providers login %s` to sign in again (or `devin auth login`), or check api_key if you set one", prov.Name)
 	case "neuraldeep":
 		return fmt.Sprintf("run `coddy providers login %s` again, or check api_key if you set one", prov.Name)
+	case "acp":
+		return "sign the agent in on its own, or set acp.auth_method to the method it offers"
 	default:
 		return fmt.Sprintf("check api_key (or api_key_command / %s); the endpoint says it is not valid", config.ProviderAPIKeyEnvVarName(prov.Name))
 	}

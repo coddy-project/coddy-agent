@@ -411,6 +411,7 @@ export function MessageList(props: {
               ? { resultWasTruncated: true }
               : {})}
             {...(it.todoPlan !== undefined ? { todoPlan: it.todoPlan } : {})}
+            {...(it.agentTool === true ? { agentTool: true } : {})}
             {...(it.images !== undefined ? { images: it.images } : {})}
             {...(it.artifacts !== undefined
               ? {

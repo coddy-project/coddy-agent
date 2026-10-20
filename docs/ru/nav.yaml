@@ -232,6 +232,12 @@ pages:
     en:
       title: "Devin"
       summary: "Using the models of a Devin (Cognition) account - browser sign-in or the Devin CLI login, one model per family with reasoning levels mapped to its variants, where the session token comes from."
+  features/acp-provider.md:
+    title: "ACP-агент как модель"
+    summary: "Локальный ACP-агент (Claude Code, Codex, OpenCode, ZCode, другой Coddy) в роли модели - блок acp, одна сессия агента на сессию Coddy, запросы разрешений агента, режимы \"План\" и \"Чат\", процесс агента."
+    en:
+      title: "ACP agent as a model"
+      summary: "Serving a local ACP agent (Claude Code, Codex, OpenCode, ZCode, another Coddy) as a model - the acp block, one agent session per Coddy session, its permission requests, plan and ask modes, the agent process."
   features/web-search.md:
     title: "Веб-поиск"
     summary: "Какие поисковые системы опрашивает websearch, как заблокированный бэкенд попадает в отчёт, а не считается пустой выдачей, порог релевантности и подключение собственного SearXNG."

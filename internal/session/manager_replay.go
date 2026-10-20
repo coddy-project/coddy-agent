@@ -52,6 +52,13 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 			}
 
 		case llm.RoleAssistant:
+			// The tools the agent behind an acp model ran come first, as they
+			// mostly did live: the agent looks things up, then answers.
+			for _, t := range msg.AgentTools {
+				for _, u := range AgentToolRowUpdates(t) {
+					_ = m.server.SendSessionUpdate(sessionID, u)
+				}
+			}
 			if txt := strings.TrimSpace(msg.Content); txt != "" {
 				_ = m.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: "agent_message_chunk",
