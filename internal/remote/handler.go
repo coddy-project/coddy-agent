@@ -881,6 +881,11 @@ func (h *Handler) replayMessages(sessionID string, rows []messageRow) {
 				})
 			}
 		case "assistant":
+			for _, t := range row.AgentTools {
+				for _, u := range session.AgentToolRowUpdates(t) {
+					_ = sender.SendSessionUpdate(sessionID, u)
+				}
+			}
 			if text := strings.TrimSpace(row.Content); text != "" {
 				_ = sender.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: acp.UpdateTypeAgentMessageChunk,

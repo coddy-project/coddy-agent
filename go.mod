@@ -10,6 +10,7 @@ require (
 	github.com/VictoriaMetrics/metrics v1.44.1
 	github.com/anthropics/anthropic-sdk-go v1.27.1
 	github.com/bmatcuk/doublestar/v4 v4.10.0
+	github.com/coder/acp-go-sdk v0.13.5
 	github.com/cucumber/godog v0.15.1
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/go-shiori/go-readability v0.0.0-20251205110129-5db1dc9836f0

@@ -71,6 +71,12 @@ func IsTransientProviderError(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
+	// An ACP agent decides by kind, ahead of any text: a step it may have
+	// acted on is never run again.
+	var acpErr *ACPError
+	if errors.As(err, &acpErr) {
+		return acpErr.retryable()
+	}
 	// The same request asks the same thing again, whatever status carried the
 	// refusal.
 	if IsContextOverflow(err) {

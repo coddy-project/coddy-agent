@@ -657,7 +657,7 @@ providers:
 
 ## Справочник по провайдерам моделей
 
-Значения **`type`** провайдера соответствуют **`internal/llm.NewProvider`**, это **`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`** и **`devin`**.
+Значения **`type`** провайдера соответствуют **`internal/llm.NewProvider`**, это **`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**, **`devin`** и **`acp`**. Строка **`type: acp`** запускает локального агента, который говорит по Agent Client Protocol (Claude Code, Codex, OpenCode, ZCode, другой Coddy), и подключает его как модель; вместо **`api_base`** и **`api_key`** у неё блок **`acp`** (**`command`**, **`args`**, **`env`**, **`modes`** и другие) - см. [ACP-агент как модель](../features/acp-provider.md).
 
 Разделение в YAML:
 
@@ -795,4 +795,4 @@ models:
 
 Уровни рассуждения для такого id Coddy определяет по модели после автора, поэтому **`openrouter/qwen/qwen3.8-flash`** предлагает уровни **`qwen3.8-flash`**. Список моделей агрегатора называет параметры запроса, которые принимает каждая модель (**`supported_parameters`**), и Coddy читает его вместе с окном контекста модели. Если список называет единый объект **`reasoning`**, а **`reasoning_effort`** не называет, выбранный уровень уходит как **`reasoning: {"effort": "<уровень>"}`**, а **`off`** как **`reasoning: {"enabled": false}`**. Переключатель Qwen3 **`chat_template_kwargs`** уходит только серверу, список которого его называет или не называет ничего. Рассуждение модели приходит в поле **`reasoning`** ответа и видно в чате, как любое другое, а рядом с его длительностью стоят токены, которые агрегатор за него насчитал (**`usage.completion_tokens_details.reasoning_tokens`**) ([Веб-интерфейс](../surfaces/web-ui.md#типы-сообщений-транскрипта)).
 
-<!-- docsgen:source sha256=eda53c2a06141c5b -->
+<!-- docsgen:source sha256=159aafdcaa992086 -->

@@ -1,3 +1,30 @@
+/** The session profiles GET /v1/models lists first (owned_by coddy). */
+const PROFILE_MODEL_IDS: ReadonlySet<string> = new Set([
+  "agent",
+  "plan",
+  "ask",
+]);
+
+/**
+ * Whether a GET /v1/models row is a session profile rather than a configured
+ * backend. owned_by alone does not tell: a model row is owned_by its
+ * provider, and a provider row may itself be named coddy (a coddy acp agent
+ * served as a model). The server knows a profile by its id, and so does this.
+ */
+export function isProfileModelRow(row: {
+  id: string;
+  ownedBy?: string;
+}): boolean {
+  return row.ownedBy === "coddy" && PROFILE_MODEL_IDS.has(row.id.trim());
+}
+
+/** The ids of the configured backends among GET /v1/models rows, in order. */
+export function configuredBackendIds(
+  rows: readonly { id: string; ownedBy?: string }[],
+): string[] {
+  return rows.filter((r) => !isProfileModelRow(r)).map((r) => r.id);
+}
+
 /** Alphabetically first backend id (the surface's very first pick). */
 export function firstAlphabeticalBackend(backends: readonly string[]): string {
   const sorted = backends

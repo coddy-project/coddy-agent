@@ -662,7 +662,7 @@ An environment variable named **`CWD`** does not replace the placeholder (a bare
 
 ## Model Provider Reference
 
-Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**, **`devin`**.
+Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**, **`devin`**, **`acp`**. A **`type: acp`** row runs a local agent that speaks the Agent Client Protocol (Claude Code, Codex, OpenCode, ZCode, another Coddy) and serves it as a model; it takes an **`acp`** block (**`command`**, **`args`**, **`env`**, **`modes`**, ...) instead of **`api_base`** and **`api_key`** - see [ACP agent as a model](../features/acp-provider.md).
 
 YAML split:
 

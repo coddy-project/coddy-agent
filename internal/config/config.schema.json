@@ -25,35 +25,36 @@
           },
           "type": {
             "type": "string",
-            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), \"codex\" for ChatGPT OAuth against the official Codex backend (Responses API), or \"devin\" for a Devin (Cognition) account signed in through the browser or the Devin CLI, served by the Devin API server; see https://coddy.dev/docs/features/devin.",
+            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), \"codex\" for ChatGPT OAuth against the official Codex backend (Responses API), \"devin\" for a Devin (Cognition) account signed in through the browser or the Devin CLI, served by the Devin API server (see https://coddy.dev/docs/features/devin), or \"acp\" for a local agent that speaks the Agent Client Protocol on stdio (claude-agent-acp, codex-acp, opencode acp, coddy acp), named in the acp block; see https://coddy.dev/docs/features/acp-provider.",
             "enum": [
               "openai",
               "anthropic",
               "neuraldeep",
               "codex",
-              "devin"
+              "devin",
+              "acp"
             ]
           },
           "api_base": {
             "type": "string",
-            "description": "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com). For type \"neuraldeep\" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. Ignored for types \"codex\" and \"devin\", which always use their official endpoints."
+            "description": "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com). For type \"neuraldeep\" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. Ignored for types \"codex\" and \"devin\", which always use their official endpoints, and for type \"acp\", whose agent runs on this machine."
           },
           "api_key": {
             "type": "string",
-            "description": "Provider secret. A literal key, a \"${ENV}\" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. For type \"devin\" it is a Devin session token and, when set, wins over the browser login and the Devin CLI login. Ignored for type \"codex\", which signs in with ChatGPT."
+            "description": "Provider secret. A literal key, a \"${ENV}\" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. For type \"devin\" it is a Devin session token and, when set, wins over the browser login and the Devin CLI login. Ignored for type \"codex\", which signs in with ChatGPT, and for type \"acp\", whose agent signs in on its own."
           },
           "api_key_command": {
             "type": "string",
-            "description": "Optional credential-helper command. When api_key is empty it runs via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and the trimmed stdout is used as the key. On failure resolution falls back to NAME_API_KEY. Never run for type \"codex\", which takes no key."
+            "description": "Optional credential-helper command. When api_key is empty it runs via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and the trimmed stdout is used as the key. On failure resolution falls back to NAME_API_KEY. Never run for types \"codex\" and \"acp\", which take no key."
           },
           "proxy": {
             "type": "string",
-            "description": "inherit (the default, the same as leaving the key out), none, or a proxy URL: http://, https://, socks5:// or socks5h://. inherit follows the proxy the environment of the Coddy process names - HTTPS_PROXY, HTTP_PROXY and NO_PROXY, never for a loopback address; ALL_PROXY is not read. none connects directly and ignores those variables. A proxy URL sends every request of this row through that proxy, NO_PROXY and loopback included; with SOCKS the proxy resolves host names. The setting covers every request of the provider: its completions, its model list, its account usage and its sign-in.",
+            "description": "inherit (the default, the same as leaving the key out), none, or a proxy URL: http://, https://, socks5:// or socks5h://. inherit follows the proxy the environment of the Coddy process names - HTTPS_PROXY, HTTP_PROXY and NO_PROXY, never for a loopback address; ALL_PROXY is not read. none connects directly and ignores those variables. A proxy URL sends every request of this row through that proxy, NO_PROXY and loopback included; with SOCKS the proxy resolves host names. The setting covers every request of the provider: its completions, its model list, its account usage and its sign-in. For type \"acp\" the agent makes its own requests: inherit leaves the proxy variables of Coddy's environment as they are, ALL_PROXY included, a proxy URL is passed to it as HTTPS_PROXY and HTTP_PROXY, with NO_PROXY set to the loopback addresses and ALL_PROXY removed, none removes the proxy variables from its environment, and whether the agent honours them is up to the agent.",
             "default": "inherit"
           },
           "timeout_ms": {
             "type": "integer",
-            "description": "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout, so slow prompt processing on large contexts is never cut short.",
+            "description": "Optional bound on each LLM HTTP request to this provider, including the streamed body read; for type \"acp\", on each prompt the agent answers. 0 (the default) sets no client timeout, so slow prompt processing on large contexts is never cut short.",
             "default": 0,
             "minimum": 0
           },
@@ -64,6 +65,89 @@
             ],
             "description": "Show this provider's account usage panel (the console footer line and /usage, the usage section and banner in the web UI) and read the provider's usage endpoint for it (GET /v1/limits for type neuraldeep, the Codex backend's usage endpoint for type codex, the seat-management status RPC for type devin). Omit or true keeps the panel on; false hides it and stops those reads for this row. Only providers whose type has a usage source are affected.",
             "default": true
+          },
+          "acp": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "description": "The agent a provider of type \"acp\" runs: a local program that speaks the Agent Client Protocol on stdio, started on the first call and kept for every session of the row (one per session with process: per_session, one per workspace when a value names ${CWD}), stopped after idle_timeout_ms without a call. Read only on a row of type acp; see https://coddy.dev/docs/features/acp-provider.",
+            "properties": {
+              "command": {
+                "type": "string",
+                "description": "The agent program (looked up on PATH), for example claude-agent-acp, codex-acp, opencode or coddy. Required for type acp."
+              },
+              "args": {
+                "type": "array",
+                "description": "Arguments after the command, for example [acp] for opencode and coddy.",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "env": {
+                "type": "object",
+                "description": "Variables added to the environment Coddy passes the agent, for example a key the agent reads. ${CWD} in a value, in an argument, in the command or in cwd is the session's workspace, and the agent is then started once per workspace.",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "cwd": {
+                "type": "string",
+                "description": "A fixed folder for the agent process and for every ACP session. Empty (the default) opens each session in the workspace of the Coddy session it serves."
+              },
+              "auth_method": {
+                "type": "string",
+                "description": "The id of the authentication method Coddy passes to the ACP authenticate call after initialize, for an agent that refuses a session until a client authenticates it (codex-acp: api-key, with OPENAI_API_KEY in env). Empty calls none: the agent uses the sign-in it has on its own."
+              },
+              "permissions": {
+                "type": "string",
+                "description": "What Coddy answers when the agent asks permission to run one of its tools: ask forwards the request to the person through the session's permission prompt (allowed without asking in a session whose permission mode is bypass, and an edit under accept_edits), allow approves it once, deny refuses it. In the plan and ask modes every request is refused.",
+                "enum": [
+                  "ask",
+                  "allow",
+                  "deny"
+                ],
+                "default": "ask"
+              },
+              "modes": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "The agent's own mode (an ACP mode id, such as plan or read-only) for each Coddy session mode. An empty modes.agent keeps the agent's default mode. modes.plan and modes.ask must name a read-only mode of the agent; without it a turn in that mode is refused.",
+                "properties": {
+                  "agent": {
+                    "type": "string",
+                    "description": "The agent's mode while the session is in agent mode."
+                  },
+                  "plan": {
+                    "type": "string",
+                    "description": "The agent's mode while the session is in plan mode."
+                  },
+                  "ask": {
+                    "type": "string",
+                    "description": "The agent's mode while the session is in ask mode."
+                  }
+                }
+              },
+              "idle_timeout_ms": {
+                "type": "integer",
+                "description": "Stop the agent process this long after its last call; the next call starts it again and replays the conversation into a new session. 0 (the default) means sixty minutes.",
+                "default": 0,
+                "minimum": 0
+              },
+              "process": {
+                "type": "string",
+                "description": "shared (the default): one agent process serves every session of this row, each in an ACP session of its own. per_session: every Coddy session gets an agent process of its own, for an agent that runs one prompt at a time per process (zcode-acp-server).",
+                "enum": [
+                  "shared",
+                  "per_session"
+                ],
+                "default": "shared"
+              }
+            },
+            "required": [
+              "command"
+            ]
           }
         }
       }
@@ -843,7 +927,7 @@
         },
         "levels": {
           "type": "array",
-          "description": "Per-component minimum severity. A component is the dotted name a record carries in its \"component\" attribute (gateway, gateway.telegram, session, agent, scheduler); a parent name covers everything nested under it and the longest configured prefix wins. Records with no component follow \"level\".",
+          "description": "Per-component minimum severity. A component is the dotted name a record carries in its \"component\" attribute (gateway, gateway.telegram, gateway.pachca, session, agent, scheduler, provider.acp); a parent name covers everything nested under it and the longest configured prefix wins. Records with no component follow \"level\".",
           "items": {
             "type": "object",
             "additionalProperties": false,
