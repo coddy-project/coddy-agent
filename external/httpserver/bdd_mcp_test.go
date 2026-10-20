@@ -672,6 +672,30 @@ func TestMCPProjectTrustOverrideKeepsLivePolicyThroughSave(t *testing.T) {
 	}
 }
 
+func TestMCPProjectTrustReportsFailedAdjustedReload(t *testing.T) {
+	s := &mcpFeatureState{}
+	if err := s.reset(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.close()
+	if err := s.startServer(); err != nil {
+		t.Fatal(err)
+	}
+	s.mgr.SetConfigAdjuster(func(*config.Config) error { return fmt.Errorf("override cannot be applied") })
+	before := s.mgr.Cfg()
+	res, err := s.ts.Client().Post(s.ts.URL+"/coddy/mcp/project-trust", "application/json", bytes.NewBufferString(`{"policy":"allow"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("project trust save status = %d, want 500", res.StatusCode)
+	}
+	if s.mgr.Cfg() != before || s.mgr.Cfg().MCP.ResolvedProjectTrust() != config.ProjectTrustAsk {
+		t.Fatal("failed reload changed the live configuration")
+	}
+}
+
 // initializeMCPTrustScenario reuses the management harness: the @http trust
 // scenario drives the same /coddy/mcp surface.
 func initializeMCPTrustScenario(sc *godog.ScenarioContext) { initializeMCPScenario(sc) }

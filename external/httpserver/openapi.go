@@ -2958,6 +2958,7 @@ func openAPISpec() map[string]interface{} {
 							},
 						},
 						"400": errorResponseRef(),
+						"500": errorResponseRef(),
 					},
 				},
 			},
