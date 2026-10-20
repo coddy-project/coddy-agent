@@ -1,4 +1,9 @@
-import { useContext, type MouseEvent, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 
 import { relativeFilePath } from "../files/api";
 import { openWorkspaceFile } from "../files/fileBus";
@@ -10,6 +15,14 @@ import { useT } from "../i18n/I18nProvider";
 import { sessionFilesHash } from "../scheduler/hashRoute";
 import { MarkdownStreamingContext } from "./DiagramBlock";
 import type { FileReference } from "./fileReferences";
+
+/**
+ * Set by every link the Markdown draws, around its text: a path in code inside
+ * a link is the link's label, and the link alone decides where it goes. Read
+ * as a link of its own it nested one anchor in another, opened a file twice,
+ * and took an address of the web for a workspace file.
+ */
+export const InsideLinkContext = createContext(false);
 
 /** A file of the chat's workspace a reference resolved to. */
 export interface FileTarget {

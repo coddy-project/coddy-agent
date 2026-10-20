@@ -187,6 +187,17 @@ export function ArtifactCard(props: {
 }) {
   const { t } = useT();
   const scope = useWorkspaceFilesScope();
+  // The chat on screen now, and whether the card still is: an open that waited
+  // on its check opens nothing once the reader has left the chat.
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   // A download that failed: the copy is gone, and Download is disabled.
   const [failed, setFailed] = useState(false);
   // The source was found gone when the card was about to open it, after the
@@ -405,6 +416,13 @@ export function ArtifactCard(props: {
     const rel = relativeFilePath(path, "", "");
     if (scope && rel) {
       const kind = await checkWorkspaceEntry(scope, rel, { fresh: true });
+      const now = scopeRef.current;
+      if (
+        !mountedRef.current ||
+        now?.sessionId !== scope.sessionId ||
+        now?.workspacePath !== scope.workspacePath
+      )
+        return;
       // A server that could not be asked leaves it to the window to tell.
       if (kind !== undefined && kind !== "file") {
         setFoundDeleted(true);

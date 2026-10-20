@@ -558,6 +558,50 @@ test("a card checks its file before it opens it and opens it when it is there", 
   }
 });
 
+// The check before the open takes a round trip. A chat left meanwhile is not
+// where the file opens: the Files window would read the path against the
+// chat on screen by then.
+test("a card whose chat was left before its check answered opens nothing", async () => {
+  const { opened, stop } = listenForOpens();
+  let answer: (response: Response) => void = () => {};
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    ),
+  );
+  try {
+    const card = (sessionId: string) => (
+      <WorkspaceFilesContext.Provider
+        value={{ sessionId, workspacePath: "/work/repo" }}
+      >
+        <ArtifactCard inline artifact={present} />
+      </WorkspaceFilesContext.Provider>
+    );
+    const { rerender } = render(card("s1"));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open release-notes.pdf in the Files window",
+      }),
+    );
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    rerender(card("s2"));
+    answer(
+      Response.json({
+        object: "coddy.workspace_stat",
+        entries: [{ path_rel: "reports/release-notes.pdf", kind: "file" }],
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(opened).toEqual([]);
+  } finally {
+    stop();
+  }
+});
+
 // The ways to copy are one item, Copy, whose submenu opens beside the menu
 // the way a desktop app's does: the absolute path, the relative path and the
 // file name, in that order.

@@ -146,3 +146,27 @@ test("a path outside the chat's workspace is not asked about", async () => {
   await waitFor(() => expect(asked).toHaveLength(0));
   expect(screen.queryByRole("link")).toBeNull();
 });
+
+// A model often writes a link whose text is the path in code. The link decides
+// where it goes: the code inside it is no second link, so a click opens the
+// file once, and an address of the web is followed, not a workspace file.
+test("inline code inside a link is no link of its own", async () => {
+  renderAnswer(
+    "See [`internal/foo.go`](internal/foo.go) and [`docs/a.md`](https://example.com/docs/a.md).",
+  );
+  await waitFor(() =>
+    expect(
+      screen.getByRole("link", { name: "internal/foo.go" }),
+    ).toHaveAttribute("href", "#/s/s1/files?path=internal%2Ffoo.go"),
+  );
+  const file = screen.getByRole("link", { name: "internal/foo.go" });
+  const web = screen.getByRole("link", { name: "docs/a.md" });
+  expect(document.querySelectorAll("a a")).toHaveLength(0);
+  expect(web).toHaveAttribute("href", "https://example.com/docs/a.md");
+
+  fireEvent.click(file);
+  expect(opened).toEqual([{ path: "internal/foo.go", line: undefined }]);
+  const followed = fireEvent.click(web);
+  expect(followed).toBe(true);
+  expect(opened).toHaveLength(1);
+});
