@@ -232,6 +232,15 @@ before any update are retryable.
 - `features/acp_provider.feature` with `internal/llm/bdd_acp_provider_test.go` (happy paths) and unit tests for
   the edges in `internal/llm` and `internal/agent` (the loop: one session over turns, an empty answer, a
   permission through `RequestPermission`, plan mode without a mapping, a restricted turn, helpers refused).
+- End to end, in CI and with no agent or model installed: `features/acp_provider_e2e.feature`
+  (`cmd/coddy/bdd_acp_provider_e2e_test.go`) runs the real `coddy acp` (`runACP`, the test binary started in its
+  place) between an editor the test plays and scripted agents: a turn, the model option, a permission request,
+  sessions of two rows at once, a restart with `session/load`, a stop, and ACP through ACP - a row whose agent is
+  another `coddy acp` serving a row of its own, the permission request climbing both. `features/acp_provider_web.feature`
+  (`external/httpserver`) does the same over the web UI's API (the model listings, a streamed chat, the permission
+  route, chats on two rows at once, a subagent on an `acp` model) and `features/gateway_telegram_acp_provider.feature`
+  in a Telegram chat. A barrier of the scripted agent (`acptest.Turn.Barrier`) proves the prompts of several sessions
+  were in flight at once instead of timing them.
 - Live check (not in CI): `examples/acp/provider_e2e.sh` runs `coddy -p` on an `acp` row for each agent found,
   one agent after another: an answer in agent mode, the next turn of the same conversation (`coddy -c`), an
   answer in ask mode, each passing on exit status 0 and the word on standard output. Two sessions answering at
@@ -382,3 +391,23 @@ landing after the prompt was cancelled, permission requests bound late, the stuc
 an escaped method, a strict initialize, the reason of a too-long line, the reason of an exit and a last
 line with no newline. Each is fixed as described above; `internal/llm/acp_sdk_test.go` holds a test for each but
 the repeated stuck-write check and the order of the exit reasons.
+
+## What the end-to-end check changed
+
+The provider was then run on every surface against scripted agents (the console's `-p`, `coddy serve` with the web
+UI's API, the Telegram bot on tgfake, the scheduler, a subagent, the remote console, `coddy acp` driven by an editor,
+`coddy acp` as the agent of a row, and a self-referencing row that the depth guard ends at three), with several rows
+and several sessions at once. The suites above keep those runs. Fixed on the way:
+
+- a prompt the person stopped left the agent's partial answer outside the record, so the next message sent it back
+  to the agent as a part "another model may have written": the answer slot of a stopped prompt is now armed
+  (`commitStopped`), the outcome stays uncertain, and a call that adds only ephemeral messages after it (the loop's
+  guard cutting a degenerating answer and nudging) sends those alone instead of failing;
+- the request of an agent behind another Coddy read "Agent: Agent: ..." in the permission prompt;
+- `coddy --dry-run` printed the protocol library's "connection closed" lines into its report when it stopped the
+  agents it had probed.
+
+Seen and left as they are: the Telegram bot asks in the chat for an agent's request (its chat agent's own tools it
+approves without asking), which the guide now says; `session/load` replays no reasoning, so an editor shows the
+agent's tool lines live only (true of every model); in a chain of two Coddys the outer reasoning numbers the inner
+agent's tools and the inner Coddy's permission row separately.

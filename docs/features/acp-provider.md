@@ -98,6 +98,8 @@ When the agent asks before it runs one of its tools, `acp.permissions` decides t
 
 A request nobody answers is refused, not cancelled, so the agent goes on with its turn. Allow always is the agent's own "always": the agent keeps it on its own side, not Coddy.
 
+The Telegram bot approves the tool calls of its chat agent without asking, since the admin who set the bot up decided that. An agent's request is not one of them, so the bot asks in the chat with buttons, as it does for a subagent, and the tap decides.
+
 ## What an agent does not do
 
 An agent answers inside a session only. The calls that are not a session's turn never reach it:
