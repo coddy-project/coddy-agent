@@ -80,3 +80,68 @@ func TestComparisonDoesNotBlockOnAFifoPointerFile(t *testing.T) {
 		}
 	}
 }
+
+// fileHash looks at a path (Lstat) and opens it afterwards. A FIFO renamed over
+// a regular file between the two used to hold the open for good, again with the
+// goal gate's turn lock held. The open is non-blocking and checked on the
+// opened file now: the swap answers with an error, never a hang and never
+// "unchanged". swapAt is the call of fileHash the swap lands in.
+func TestComparisonDoesNotBlockOnAFileSwappedForAFifo(t *testing.T) {
+	const name = "migrations/0001_init.sql"
+	cases := []struct {
+		name   string
+		swapAt int
+		run    func(ctx context.Context, dir string, base FileBaseline) error
+	}{
+		{"Baseline", 1, func(ctx context.Context, dir string, _ FileBaseline) error {
+			_, err := Baseline(ctx, dir, migrationFolders)
+			return err
+		}},
+		{"ChangedSince candidate", 1, func(ctx context.Context, dir string, base FileBaseline) error {
+			_, err := ChangedSince(ctx, dir, base, migrationFolders)
+			return err
+		}},
+		{"ChangedSince dirty at the start", 2, func(ctx context.Context, dir string, base FileBaseline) error {
+			_, err := ChangedSince(ctx, dir, base, migrationFolders)
+			return err
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := commitRepo(t, map[string]string{name: "create table users();\n"})
+			writeFile(t, dir, name, "create table users(id int);\n")
+			base := mustBaseline(t, dir)
+			path := filepath.Join(dir, filepath.FromSlash(name))
+			spare := filepath.Join(dir, "spare.fifo")
+			fifoAt(t, spare)
+			t.Cleanup(func() { // the FIFO sits at path after the swap
+				if f, err := os.OpenFile(path, os.O_RDWR, 0); err == nil {
+					_ = f.Close()
+				}
+			})
+			calls := 0
+			afterInspect = func(p string) {
+				if p != path {
+					return
+				}
+				if calls++; calls == tc.swapAt {
+					if err := os.Rename(spare, p); err != nil {
+						t.Errorf("swap: %v", err)
+					}
+				}
+			}
+			t.Cleanup(func() { afterInspect = nil })
+
+			done := make(chan error, 1)
+			go func() { done <- tc.run(context.Background(), dir, base) }()
+			select {
+			case err := <-done:
+				if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+					t.Fatalf("err = %v, want a refusal of the swapped file", err)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("the comparison blocked on a file swapped for a FIFO")
+			}
+		})
+	}
+}

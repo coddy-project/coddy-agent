@@ -20,6 +20,21 @@ func openRegular(path string) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
+	return regularOrClose(f, path)
+}
+
+// openRegularIn is openRegular for name inside root, nothing outside root
+// reached. The caller has looked at name already, as openRegular does here.
+func openRegularIn(root *os.Root, name string) (*os.File, error) {
+	f, err := root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	return regularOrClose(f, name)
+}
+
+// regularOrClose returns f when it is a regular file and closes it otherwise.
+func regularOrClose(f *os.File, name string) (*os.File, error) {
 	fi, err := f.Stat()
 	if err != nil {
 		_ = f.Close()
@@ -27,7 +42,7 @@ func openRegular(path string) (*os.File, error) {
 	}
 	if !fi.Mode().IsRegular() {
 		_ = f.Close()
-		return nil, fmt.Errorf("%s is not a regular file", path)
+		return nil, fmt.Errorf("%s is not a regular file", name)
 	}
 	return f, nil
 }

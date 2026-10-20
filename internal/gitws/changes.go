@@ -205,6 +205,10 @@ func commitHash(ctx context.Context, dir, head, rel string) (hash string, found 
 	return contentHash(blob), true, nil
 }
 
+// afterInspect, set only by tests, runs with the full path in fileHash between
+// the look at a regular file and the open of it: the window a swap can use.
+var afterInspect func(path string)
+
 // fileHash is the hash of what the working copy holds at the dir-relative slash
 // path: the bytes of a regular file, the link text of a symlink, "" for a path
 // with nothing of either kind.
@@ -231,7 +235,10 @@ func fileHash(dir, rel string) (string, error) {
 		}
 		data = []byte(target)
 	case info.Mode().IsRegular():
-		f, err := root.Open(name)
+		if afterInspect != nil {
+			afterInspect(filepath.Join(dir, name))
+		}
+		f, err := openRegularIn(root, name)
 		if err != nil {
 			return "", err
 		}
