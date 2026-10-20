@@ -417,6 +417,128 @@ func TestStreamTransportErrorEmittedBlocksRetry(t *testing.T) {
 	}
 }
 
+// TestOverloadedProviderIsRetriedLikeA503 pins issue #537. An overloaded
+// provider is a lane that is down for a moment: HTTP 529 joins the statuses
+// the wrapper repeats, so the retry classification and the agent's idea of a
+// transient failure read one table, and an overload spelled in an in-band
+// stream error is retried while nothing reached the caller. What counts as an
+// overload is read from the decoded error object (its type, its code), never
+// from the words of its message.
+func TestOverloadedProviderIsRetriedLikeA503(t *testing.T) {
+	inBand := func(payload string, emitted bool) error {
+		return fmt.Errorf("codex stream: %w", &streamTransportError{
+			cause:   errors.New("received error while streaming: " + payload),
+			emitted: emitted,
+		})
+	}
+	cases := []struct {
+		name    string
+		payload string
+		want    bool
+	}{
+		// The two spellings of the SDKs: openai-go hands over the "error"
+		// member only, anthropic-sdk-go the whole event.
+		{"codex frame", `{"message":"Our servers are currently overloaded. Please try again later.","type":"service_unavailable_error","param":null,"code":"server_is_overloaded"}`, true},
+		{"anthropic event", `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`, true},
+		{"anthropic event with a request id", `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_1"}`, true},
+		{"type alone", `{"type":"service_unavailable_error","message":"try later"}`, true},
+		{"code alone", `{"code":"server_is_overloaded"}`, true},
+		{"numeric 503", `{"code":503,"message":"upstream unavailable"}`, true},
+		{"numeric 529", `{"code":529,"message":"upstream unavailable"}`, true},
+		{"numeric code as a string", `{"code":"503","message":"upstream unavailable"}`, true},
+		{"gateway nesting the object", `{"error":{"type":"service_unavailable_error","code":"server_is_overloaded"}}`, true},
+		// Not an overload: refusals, other outages, and any payload that is
+		// not an object with a verdict of its own.
+		{"invalid request", `{"type":"invalid_request_error","code":"invalid_prompt","message":"The prompt was refused."}`, false},
+		{"words of a refusal that say overloaded", `{"type":"invalid_request_error","code":"context_length_exceeded","message":"Our servers are currently overloaded with this many tokens"}`, false},
+		{"a server error without a verdict", `{"type":"server_error","code":"server_error","message":"The model crashed"}`, false},
+		{"numeric 400", `{"code":400,"message":"overloaded"}`, false},
+		{"plain text", `Our servers are currently overloaded. Please try again later.`, false},
+		{"a bare JSON string", `"server_is_overloaded"`, false},
+		{"a payload cut inside its JSON", `{"type":"service_unavailable_error","code":"server_is_`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isRetryableLLMError(inBand(tc.payload, false)); got != tc.want {
+				t.Errorf("before any output: retryable = %v, want %v", got, tc.want)
+			}
+			if isRetryableLLMError(inBand(tc.payload, true)) {
+				t.Error("after output was emitted nothing is replayed")
+			}
+			if got := IsTransientProviderError(inBand(tc.payload, false)); got != tc.want {
+				t.Errorf("before any output: IsTransientProviderError = %v, want %v", got, tc.want)
+			}
+			if got := IsTransientProviderError(inBand(tc.payload, true)); got != tc.want {
+				t.Errorf("after output: IsTransientProviderError = %v, want %v (the agent may go on from the text)", got, tc.want)
+			}
+		})
+	}
+
+	// The in-band spelling counts only inside the stream wrapper that knows
+	// whether anything was emitted, and only as the SDK's own error.
+	unwrapped := errors.New(`codex stream: received error while streaming: {"code":"server_is_overloaded"}`)
+	if isRetryableLLMError(unwrapped) {
+		t.Error("an in-band error with no emitted flag behind it is not retried")
+	}
+	words := fmt.Errorf("codex stream: %w", &streamTransportError{cause: errors.New("Our servers are currently overloaded. Please try again later.")})
+	if isRetryableLLMError(words) || IsTransientProviderError(words) {
+		t.Error("the words of an overload without the decoded in-band error are not a verdict")
+	}
+
+	for _, provider := range []string{"anthropic", "openai"} {
+		err := retryHTTPError(t, provider, 529, nil)
+		if !isRetryableLLMError(err) || !IsTransientProviderError(err) {
+			t.Errorf("%s 529: retryable %v, transient %v, want both", provider, isRetryableLLMError(err), IsTransientProviderError(err))
+		}
+	}
+	if !isRetryableLLMError(errors.New(`anthropic stream: gateway answered 529 Overloaded`)) {
+		t.Error("a 529 that reached the classifier as text is read like the other statuses")
+	}
+	// The two tables agree: every status that marks a lane as down is retried,
+	// and the one status the wrapper repeats beyond them is the limit.
+	for status := 100; status < 600; status++ {
+		if transientStatus(status) && !isRetryableLLMError(retryHTTPError(t, "openai", status, nil)) {
+			t.Errorf("status %d is a lane failure but not retried", status)
+		}
+	}
+	if transientStatus(429) || !isRetryableLLMError(retryHTTPError(t, "openai", 429, nil)) {
+		t.Error("429 stays a retried limit that is not a lane failure")
+	}
+}
+
+// TestAnthropicHTTP529IsRetried drives a real HTTP 529 overloaded_error
+// answer through the Anthropic provider and the wrapper (issue #537): the
+// first request is refused as overloaded, the second is answered, and the
+// caller sees only the answer.
+func TestAnthropicHTTP529IsRetried(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(529)
+			_, _ = io.WriteString(w, `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, anthropicStreamPrefix+
+			"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n"+
+			"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":5}}\n\n"+
+			"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
+	}))
+	defer srv.Close()
+
+	provider := applyResilientWrap(newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, ""), ProviderInput{
+		RetryMax: 2, RetryBase: time.Millisecond, RetryMaxDelay: time.Millisecond,
+	})
+	resp, err := provider.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if err != nil {
+		t.Fatalf("Stream: %v (after %d requests)", err, calls.Load())
+	}
+	if resp == nil || resp.Content != "Paris" || calls.Load() != 2 {
+		t.Fatalf("content %q after %d requests, want the second attempt's answer after 2", contentOf(resp), calls.Load())
+	}
+}
+
 // TestResilientProviderAppliesMinIntervalBetweenRetries verifies that
 // llm_min_interval_ms paces retry attempts too, not only fresh calls.
 func TestResilientProviderAppliesMinIntervalBetweenRetries(t *testing.T) {
@@ -840,6 +962,7 @@ func TestIsTransientProviderError(t *testing.T) {
 		{"Windows connection aborted before text", fmt.Errorf("openai stream: %w", &streamTransportError{cause: windowsSocketError(10053)}), true},
 		{"stalled", &streamStalledError{idle: time.Minute}, true},
 		{"upstream 503", retryHTTPError(t, "openai", 503, nil), true},
+		{"upstream 529 overloaded", retryHTTPError(t, "anthropic", 529, nil), true},
 		{"upstream 429", retryHTTPError(t, "openai", 429, nil), false},
 		{"limit in the stream", fmt.Errorf("openai stream: %w", &streamServerError{code: 429, emitted: true}), false},
 		{"bad request", retryHTTPError(t, "openai", 400, nil), false},

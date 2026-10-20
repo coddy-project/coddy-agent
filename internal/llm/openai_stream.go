@@ -231,10 +231,9 @@ func streamDecodeTruncation(err error, emitted bool, payloadLen int) *streamTrun
 		// payload itself ends inside its JSON the event was cut like any
 		// other (issue #384); a payload that decodes whole is a real in-band
 		// error and keeps the transport contract it had.
-		const sdkErrPrefix = "received error while streaming: "
-		if i := strings.LastIndex(err.Error(), sdkErrPrefix); i >= 0 {
+		if payload, ok := sdkStreamErrorPayload(err); ok {
 			var v any
-			if syn, ok := json.Unmarshal([]byte(err.Error()[i+len(sdkErrPrefix):]), &v).(*json.SyntaxError); ok && isEndOfInputDiagnostic(syn) {
+			if syn, ok := json.Unmarshal([]byte(payload), &v).(*json.SyntaxError); ok && isEndOfInputDiagnostic(syn) {
 				// The decoder error is derived here, so keep both the SDK's
 				// error and it reachable for logs.
 				return &streamTruncatedError{emitted: emitted, cause: errors.Join(err, syn)}
@@ -249,6 +248,64 @@ func streamDecodeTruncation(err error, emitted bool, payloadLen int) *streamTrun
 		return nil
 	}
 	return &streamTruncatedError{emitted: emitted, cause: err}
+}
+
+// sdkStreamErrorPrefix is how both SDK stream decoders spell an in-band error
+// event: "received error while streaming: <payload>". openai-go hands over the
+// event's "error" member (the Codex backend's {"message":..., "type":...,
+// "code":...}), anthropic-sdk-go the whole event ({"type":"error","error":
+// {...}}).
+const sdkStreamErrorPrefix = "received error while streaming: "
+
+// sdkStreamErrorPayload returns the payload of the SDK's in-band error event
+// spelled in err, however deep it is wrapped.
+func sdkStreamErrorPayload(err error) (string, bool) {
+	if err == nil {
+		return "", false
+	}
+	s := err.Error()
+	i := strings.LastIndex(s, sdkStreamErrorPrefix)
+	if i < 0 {
+		return "", false
+	}
+	return s[i+len(sdkStreamErrorPrefix):], true
+}
+
+// isInBandOverload reports an in-band stream error whose decoded payload says
+// the provider is overloaded or unavailable: the type is
+// service_unavailable_error or overloaded_error, the code is
+// server_is_overloaded, or a gateway put the status 503 or 529 in a numeric
+// code. The verdict is read from those fields and from nothing else, so a
+// refusal whose message happens to say "overloaded" stays final. The payload
+// is the object itself, the event that wraps it (anthropic), or an object
+// nested one level deeper by a gateway.
+func isInBandOverload(err error) bool {
+	payload, ok := sdkStreamErrorPayload(err)
+	if !ok || !gjson.Valid(payload) {
+		return false
+	}
+	obj := gjson.Parse(payload)
+	if nested := obj.Get("error"); nested.IsObject() {
+		obj = nested
+	}
+	if !obj.IsObject() {
+		return false
+	}
+	switch obj.Get("type").String() {
+	case "service_unavailable_error", "overloaded_error":
+		return true
+	}
+	code := obj.Get("code")
+	if code.String() == "server_is_overloaded" {
+		return true
+	}
+	if code.Type == gjson.Number || code.Type == gjson.String {
+		switch code.Int() {
+		case 503, 529:
+			return true
+		}
+	}
+	return false
 }
 
 // isEndOfInputDiagnostic reports whether the decoder's syntax error is its

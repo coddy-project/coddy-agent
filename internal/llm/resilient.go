@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -477,10 +478,18 @@ func isRetryableLLMError(err error) bool {
 		return false
 	}
 	var transport *streamTransportError
-	if errors.As(err, &transport) && transport.emitted {
-		// Same emitted contract for transport failures mid-stream; a fresh
-		// one falls through to normal classification of its cause.
-		return false
+	if errors.As(err, &transport) {
+		// Same emitted contract for transport failures mid-stream.
+		if transport.emitted {
+			return false
+		}
+		// A fresh one is classified by its cause. A provider that answered
+		// 200 and then reported in the stream that it is overloaded left no
+		// status to read: the decoded error object says it, and the request
+		// is repeated like a 503.
+		if isInBandOverload(transport.cause) {
+			return true
+		}
 	}
 	var stalled *streamStalledError
 	if errors.As(err, &stalled) {
@@ -490,8 +499,7 @@ func isRetryableLLMError(err error) bool {
 		// wager as a connection cut before output.
 		return true
 	}
-	switch httpStatusFromError(err) {
-	case 429, 408, 500, 502, 503, 504:
+	if slices.Contains(retryableStatuses, httpStatusFromError(err)) {
 		return true
 	}
 	return isTransientTransportError(err)
@@ -620,7 +628,7 @@ func httpStatusFromError(err error) int {
 		return dev.status
 	}
 	s := err.Error()
-	for _, code := range []int{429, 408, 500, 502, 503, 504} {
+	for _, code := range retryableStatuses {
 		needle := strconv.Itoa(code)
 		if strings.Contains(s, needle+" ") || strings.Contains(s, `"code":"`+needle+`"`) {
 			return code

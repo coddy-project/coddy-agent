@@ -277,9 +277,13 @@ messages: [
    independently of the budget:
 
    - **Transport retries.** The resilient wrapper repeats on HTTP 429, 408,
-     5xx, and transport failures that left no output with the caller; each
-     retry consumes one slot. A cancellation, an unknown host, and any failure
-     after output was emitted stay final.
+     500, 502, 503, 504 and 529 (overloaded), on an overload the provider
+     reports inside the stream (an error event whose decoded `type` or `code`
+     says so: `service_unavailable_error`, `overloaded_error`,
+     `server_is_overloaded`, or a numeric 503 or 529; the words of its message
+     decide nothing), and on transport failures that left no output with the
+     caller; each retry consumes one slot. A cancellation, an unknown host, and
+     any failure after output was emitted stay final.
    - **First-token re-issue.** A streamed call the first-token guard
      (**`llm_first_token_timeout_ms`**) cuts with **nothing produced** is
      re-issued at most once, using a normal **`max_turns`** iteration. The
@@ -382,9 +386,10 @@ messages: [
      take the same path. When the retries are spent the turn ends with
      **`StopReasonMaxTokens`** and a notice (**`outputLimitNotice`**).
    - **Provider recovery.** A call that failed because of the provider's lane
-     (**`llm.IsTransientProviderError`**: 5xx, a cut or silent stream - an event
-     cut inside its JSON included, a stream frame that is not JSON at all not -
-     output already emitted or not; a 429 is left to the wrapper and the limit wait)
+     (**`llm.IsTransientProviderError`**: 5xx and 529, an overload the stream
+     reported in-band, a cut or silent stream - an event cut inside its JSON
+     included, a stream frame that is not JSON at all not - output already
+     emitted or not; a 429 is left to the wrapper and the limit wait)
      does not end the turn. The answer text and
      reasoning already streamed are kept as an assistant message without tool
      calls, a **`notice`** row goes to the UI log, and after a pause
@@ -513,4 +518,4 @@ messages: [
 - Слишком длинный контекст - старые сообщения сжимаются в сводку, работа продолжается со сводкой;
 - Отмена - все операции прерываются, возвращается причина остановки `cancelled`.
 
-<!-- docsgen:source sha256=e3277e5cf58bb2b4 -->
+<!-- docsgen:source sha256=0981a131a70acac3 -->
