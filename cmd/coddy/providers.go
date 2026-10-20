@@ -122,6 +122,12 @@ func providersLogin(cfg *config.Config, name, providerType string, device, brows
 	if devinCLI && prov.Type != "devin" {
 		return fmt.Errorf("providers login: --devin-cli applies to devin providers only, %q has type %q", prov.Name, prov.Type)
 	}
+	if apiKey != "" && prov.Type != "opencode" {
+		return fmt.Errorf("providers login: --api-key applies to opencode providers only, %q has type %q", prov.Name, prov.Type)
+	}
+	if browser && prov.Type != "neuraldeep" {
+		return fmt.Errorf("providers login: --browser applies to neuraldeep providers only, %q has type %q", prov.Name, prov.Type)
+	}
 	switch prov.Type {
 	case "devin":
 		return devinLogin(cfg, prov, devinCLI, noConfig)

@@ -452,6 +452,29 @@ func TestDevinCLIFlagIsRefusedForOtherTypes(t *testing.T) {
 	}
 }
 
+// A flag of another type's sign-in is refused rather than dropped: a key
+// passed to a NeuralDeep login would otherwise be thrown away while the device
+// flow runs, and only NeuralDeep has a loopback browser flow.
+func TestLoginFlagsOfAnotherTypeAreRefused(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"login", "neuraldeep", "--api-key", "k"}, "--api-key applies to opencode providers only"},
+		{[]string{"login", "opencode", "--browser"}, "--browser applies to neuraldeep providers only"},
+		{[]string{"login", "codex", "--browser"}, "--browser applies to neuraldeep providers only"},
+	} {
+		home := t.TempDir()
+		err := runProviders(append(tc.args, "--home", home))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%v: err = %v, want %q", tc.args, err, tc.want)
+		}
+		if _, statErr := os.Stat(filepath.Join(home, "providers")); !os.IsNotExist(statErr) {
+			t.Fatalf("%v: a credential was stored despite the refusal", tc.args)
+		}
+	}
+}
+
 // TestProvidersListKeepsTheCodexCLILoginToOneRow: with two codex rows the
 // Codex CLI login serves the row named codex; the list says the other row is
 // not connected and why, instead of showing it on that account.
