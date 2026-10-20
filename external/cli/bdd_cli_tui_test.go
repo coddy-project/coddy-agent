@@ -131,6 +131,10 @@ type cliTUIState struct {
 	runCancel context.CancelFunc
 	appDone   chan error
 
+	// modelWritesFail makes the failingModelWrites in front of the app's
+	// backend refuse its model (model_memory scenarios).
+	modelWritesFail atomic.Bool
+
 	// bgSessionID and bgTaskID name the pooled command a scenario started.
 	bgSessionID string
 	bgTaskID    string
@@ -215,6 +219,7 @@ func (s *cliTUIState) reset() {
 	s.home, s.cwd, s.homes = "", "", nil
 	s.cfg, s.store, s.app = nil, nil, nil
 	s.permOutcome, s.permOption = "", ""
+	s.modelWritesFail.Store(false)
 	s.detachedAnswers = nil
 	s.questionAns = nil
 	s.prompts = nil
@@ -845,6 +850,12 @@ func (s *cliTUIState) footerHidesUsage() error {
 }
 
 func (s *cliTUIState) startApp(sessionID string) error {
+	return s.launchApp(func(ctx context.Context) error { return s.app.Start(ctx, sessionID, false) })
+}
+
+// launchApp runs start - the startup that happens before raw mode, in the
+// order run.go gives it - and then the console's loop.
+func (s *cliTUIState) launchApp(start func(ctx context.Context) error) error {
 	if s.app == nil {
 		if err := s.buildApp(); err != nil {
 			return err
@@ -852,7 +863,7 @@ func (s *cliTUIState) startApp(sessionID string) error {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.runCtx, s.runCancel = ctx, cancel
-	if err := s.app.Start(ctx, sessionID, false); err != nil {
+	if err := start(ctx); err != nil {
 		cancel()
 		return err
 	}

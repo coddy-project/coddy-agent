@@ -107,30 +107,52 @@ func (a *App) rememberModel(id string) {
 }
 
 // applyInitialModel stamps the console's initial model on a session that was
-// just created. It is only ever called on a proven-new session (never on a
-// resumed or reopened one): the remembered pick, or the alphabetical first on
-// the console's first use.
-func (a *App) applyInitialModel(res *acp.SessionNewResult) {
+// just created: the remembered pick, or the alphabetical first on the
+// console's first use. It is only ever called on a proven-new session (never
+// on a resumed or reopened one).
+//
+// The write is synchronous: the caller applies the startup options (--model)
+// after it, and a write left to a goroutine could land after them and replace
+// the operator's explicit choice (issue #542). Over --remote it is one or two
+// HTTP round trips before the first frame. res.ConfigOptions becomes the
+// options the write returns, so a caller that adopts them next shows the model
+// the session is on, not the one it was created with.
+//
+// A refused write is returned, not reported: the session then runs on the
+// model it was created with, and the caller tells the operator with
+// reportInitialModelError once the console has adopted the session - an update
+// sent from here would carry a session the console is not on yet.
+func (a *App) applyInitialModel(ctx context.Context, res *acp.SessionNewResult) error {
 	if res == nil {
-		return
+		return nil
 	}
 	offered, current := modelOptionValues(res.ConfigOptions)
 	initial := pickInitialModel(loadConsoleState(a.config().Paths.Home).LastModel, offered)
 	if initial == "" || initial == current {
+		return nil
+	}
+	set, err := a.mgr.HandleSessionSetConfigOption(ctx, acp.SessionSetConfigOptionParams{
+		SessionID: res.SessionID, ConfigID: "model", Value: initial,
+	})
+	if err != nil {
+		return err
+	}
+	if set != nil && len(set.ConfigOptions) > 0 {
+		res.ConfigOptions = set.ConfigOptions
+	}
+	return nil
+}
+
+// reportInitialModelError puts a refused initial-model write (the error
+// applyInitialModel returned) in the transcript of the session it concerns. It
+// follows the console's adoption of that session, so the update is the visible
+// session's: sessionSwitched (/new) is queued before it, and Start and the
+// resume picker have adopted the session already.
+func (a *App) reportInitialModelError(sessionID string, err error) {
+	if err == nil {
 		return
 	}
-	sessionID := res.SessionID
-	// A worker, like setModel: the change is written to the session bundle,
-	// and JoinWorkers lets that write finish before the process exits.
-	a.workers.Add(1)
-	go func() {
-		defer a.workers.Done()
-		if _, err := a.mgr.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
-			SessionID: sessionID, ConfigID: "model", Value: initial,
-		}); err != nil {
-			_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: "model: " + err.Error()})
-		}
-	}()
+	_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: "model: " + err.Error()})
 }
 
 // modelOptionValues extracts the "model" config option's offered values and
