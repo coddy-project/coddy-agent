@@ -105,6 +105,14 @@ type acpProcess struct {
 	// permReplies holds the permission requests the router bound to a
 	// prompt, by their params, until the SDK's handler takes them.
 	permReplies map[string][]acpPermissionRoute
+	// sent names the requests Coddy wrote (session/prompt aside, which its
+	// track follows) that the agent has not answered yet, by id; reqSeq
+	// numbers them in the order they went out. lateErrors keeps the error
+	// answers the router read for them, the last few, for a call the SDK
+	// told the connection ended before it handed the answer over.
+	sent       map[string]acpSentRequest
+	reqSeq     uint64
+	lateErrors []acpLateError
 
 	init acpsdk.InitializeResponse
 
@@ -161,6 +169,7 @@ func startACPProcess(ctx context.Context, spec acpSpec, log *slog.Logger) (*acpP
 		thoughtSet:   map[string]string{},
 		prompts:      map[string]*acpPromptTrack{},
 		permReplies:  map[string][]acpPermissionRoute{},
+		sent:         map[string]acpSentRequest{},
 		writeTimeout: acpWriteTimeout,
 		done:         make(chan struct{}),
 		stopped:      make(chan struct{}),
@@ -410,6 +419,95 @@ func (p *acpProcess) noteAnswer(id json.RawMessage, m acpMessage) {
 			tr.answer = &m
 		}
 	}
+	if req, ok := p.sent[key]; ok {
+		delete(p.sent, key)
+		if m.Error != nil {
+			p.lateErrors = append(p.lateErrors, acpLateError{method: req.method, seq: req.seq, err: m.Error})
+			if n := len(p.lateErrors); n > acpLateErrorsKept {
+				p.lateErrors = append([]acpLateError(nil), p.lateErrors[n-acpLateErrorsKept:]...)
+			}
+		}
+	}
+}
+
+// keptAnswer returns the answer the router read for the prompt in flight on
+// a session, if it read one: the prompt's line is out and its track still
+// stands (once startPrompt's goroutine let go of it, the answer is on that
+// goroutine's channel).
+func (p *acpProcess) keptAnswer(sessionID string) (acpMessage, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	tr := p.prompts[sessionID]
+	if tr == nil || tr.answer == nil {
+		return acpMessage{}, false
+	}
+	return *tr.answer, true
+}
+
+// acpSentRequest is a request Coddy wrote: its method and its place in the
+// order requests went out.
+type acpSentRequest struct {
+	method string
+	seq    uint64
+}
+
+// acpLateError is the error answer of a sent request, as the router read it.
+type acpLateError struct {
+	method string
+	seq    uint64
+	err    *acpRPCError
+}
+
+// acpLateErrorsKept bounds lateErrors: they matter only while the calls of a
+// connection that just ended return.
+const acpLateErrorsKept = 16
+
+// noteRequest records a request line on its way to the agent, before it is
+// written, so its answer cannot arrive first. A prompt's line is its
+// track's business (handPrompt).
+func (p *acpProcess) noteRequest(b []byte) {
+	if !bytes.Contains(b, []byte(`"method"`)) {
+		return
+	}
+	var m struct {
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
+	}
+	if err := json.Unmarshal(b, &m); err != nil || m.Method == "" || m.Method == "session/prompt" {
+		return
+	}
+	id := string(bytes.TrimSpace(m.ID))
+	if id == "" || id == "null" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.reqSeq++
+	p.sent[id] = acpSentRequest{method: m.Method, seq: p.reqSeq}
+}
+
+// requestSeq is the number of the last request that went out: a call takes
+// it before its own request, and answers to later requests may be its.
+func (p *acpProcess) requestSeq() uint64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.reqSeq
+}
+
+// lateError takes the first error answer the router read for a request of
+// method sent after the request numbered after: the answer of a call the
+// SDK gave up for the connection's end. Two calls of one method on a
+// connection that ends may swap their errors; neither gets a bare exit.
+func (p *acpProcess) lateError(method string, after uint64) *acpRPCError {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i, e := range p.lateErrors {
+		if e.method == method && e.seq > after {
+			p.lateErrors = append(p.lateErrors[:i:i], p.lateErrors[i+1:]...)
+			return e.err
+		}
+	}
+	return nil
 }
 
 // handle answers what the agent asks of the client through the SDK. Its
@@ -525,6 +623,7 @@ func (p *acpProcess) call(ctx context.Context, method string, params, out interf
 		err error
 	}
 	done := make(chan result, 1)
+	start := p.requestSeq()
 	go func() {
 		raw, err := acpsdk.SendRequest[json.RawMessage](p.conn, ctx, method, params)
 		done <- result{raw, err}
@@ -551,7 +650,7 @@ func (p *acpProcess) call(ctx context.Context, method string, params, out interf
 		return ctx.Err()
 	}
 	if r.err != nil {
-		return p.callError(ctx, method, r.err)
+		return p.callError(ctx, method, start, r.err)
 	}
 	if out != nil && len(r.raw) > 0 && string(r.raw) != "null" {
 		if err := json.Unmarshal(r.raw, out); err != nil {
@@ -564,8 +663,11 @@ func (p *acpProcess) call(ctx context.Context, method string, params, out interf
 // callError tells apart why a request of ours failed: our caller gave up,
 // the connection is gone, or the agent answered with an error. It goes by
 // the error itself, never by whether the agent has exited since: an agent
-// may answer with an error and exit right after.
-func (p *acpProcess) callError(ctx context.Context, method string, err error) error {
+// may answer with an error and exit right after. When the SDK reports the
+// connection's end, the error answer the router read for a request of the
+// call's method sent after start (requestSeq before the call) is the call's
+// answer: the SDK gives up an answer the exit follows too closely.
+func (p *acpProcess) callError(ctx context.Context, method string, start uint64, err error) error {
 	if cerr := ctx.Err(); cerr != nil {
 		return cerr
 	}
@@ -574,6 +676,9 @@ func (p *acpProcess) callError(ctx context.Context, method string, err error) er
 		return p.rpcError(method, acpRPCErrorOf(re))
 	}
 	if re != nil {
+		if late := p.lateError(method, start); late != nil {
+			return p.rpcError(method, late)
+		}
 		return p.exitError()
 	}
 	return &ACPError{Kind: ACPErrorRPC, Agent: p.spec.label(), Method: method, Err: err}
@@ -748,6 +853,9 @@ func (p *acpProcess) write(b []byte) (int, error) {
 	tr, err := p.handPrompt(b)
 	if err != nil {
 		return 0, err
+	}
+	if tr == nil {
+		p.noteRequest(b)
 	}
 	w := acpWrite{line: append([]byte(nil), b...), done: make(chan error, 1)}
 	bound := time.NewTimer(p.writeTimeout)

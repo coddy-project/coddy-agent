@@ -135,6 +135,40 @@ func TestACPProviderKeepsAnAnswerTheAgentExitedAfter(t *testing.T) {
 	}
 }
 
+// The SDK may hand a request's caller "peer disconnected" when the agent's
+// answer and its exit arrive together. The router read the answer first: an
+// error answer of a request of the call's method, written after the call
+// began, is the call's error, the agent's own words (an authentication error
+// keeps its methods) instead of a bare exit. One written before the call
+// began answers an earlier request and is not taken.
+func TestACPCallKeepsAnErrorAnswerTheExitOvertook(t *testing.T) {
+	p := &acpProcess{spec: acpSpec{command: "agent"}, sent: map[string]acpSentRequest{}}
+	p.init.AuthMethods = []acpsdk.AuthMethod{{Agent: &acpsdk.AuthMethodAgent{Id: "login", Name: "login"}}}
+	disconnected := acpsdk.NewInternalError(map[string]any{"error": "peer disconnected before response"})
+
+	p.noteRequest([]byte(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/w"}}`))
+	p.noteAnswer(json.RawMessage(`1`), acpMessage{Error: &acpRPCError{Code: -32602, Message: "stale"}})
+	start := p.requestSeq()
+	p.noteRequest([]byte(`{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"/w"}}`))
+	p.noteAnswer(json.RawMessage(`2`), acpMessage{Error: &acpRPCError{Code: acpAuthRequired, Message: "Authentication required"}})
+
+	err := p.callError(context.Background(), "session/new", start, disconnected)
+	var acpErr *ACPError
+	if !errors.As(err, &acpErr) || acpErr.Kind != ACPErrorAuth || strings.Join(acpErr.AuthMethods, ",") != "login" {
+		t.Fatalf("err = %v, want the authentication error with its method", err)
+	}
+	if len(p.sent) != 0 {
+		t.Fatalf("answered requests are still kept: %v", p.sent)
+	}
+	// Taken once: the next disconnected call of the method finds nothing.
+	p.done = make(chan struct{})
+	close(p.done)
+	p.exitErr = errors.New("exited")
+	if err := p.callError(context.Background(), "session/new", start, disconnected); !errors.Is(err, p.exitErr) {
+		t.Fatalf("err = %v, want the exit", err)
+	}
+}
+
 // A request cancelAll took is answered cancelled, even when the person's
 // answer lands between cancelAll taking it and answering it.
 func TestACPPermissionsCancelAllWinsOverALateAnswer(t *testing.T) {

@@ -355,26 +355,34 @@ func (p *acpProvider) runPrompt(ctx context.Context, proc *acpProcess, sessionID
 			quiet()
 		case <-proc.done:
 			handle(sink.drain())
-			// The connection ended before the agent's exit was known, so
-			// startPrompt's goroutine has its outcome, or is about to: the
-			// answer the agent wrote before exiting (the SDK's, or the one
-			// the router kept), else a closed channel. It is waited for,
+			// The agent answered and then exited: the answer stands.
+			answeredThenExited := func(m acpMessage) acpPromptOutcome {
+				if m.Error != nil {
+					return fail(proc.rpcError("session/prompt", m.Error))
+				}
+				var res acpsdk.PromptResponse
+				_ = json.Unmarshal(m.Result, &res)
+				if res.StopReason == acpsdk.StopReasonCancelled {
+					return fail(&ACPError{Kind: ACPErrorCancelled, Agent: proc.spec.label()})
+				}
+				return acpPromptOutcome{resp: st.finish(res), updated: st.updated}
+			}
+			// The router read every line of the agent's before the
+			// connection ended: an answer it kept stands at once, whether
+			// or not startPrompt's goroutine is through the SDK yet (on a
+			// loaded machine it may not be for a while).
+			if m, ok := proc.keptAnswer(sessionID); ok {
+				return answeredThenExited(m)
+			}
+			// Else startPrompt's goroutine has its outcome, or is about to:
+			// the SDK's answer, else a closed channel. It is waited for,
 			// bounded in case the SDK never lets go.
 			wait := time.NewTimer(acpTermGrace)
 			defer wait.Stop()
 			select {
 			case m, ok := <-respCh:
-				// The agent answered and then exited: the answer stands.
 				if ok {
-					if m.Error != nil {
-						return fail(proc.rpcError("session/prompt", m.Error))
-					}
-					var res acpsdk.PromptResponse
-					_ = json.Unmarshal(m.Result, &res)
-					if res.StopReason == acpsdk.StopReasonCancelled {
-						return fail(&ACPError{Kind: ACPErrorCancelled, Agent: proc.spec.label()})
-					}
-					return acpPromptOutcome{resp: st.finish(res), updated: st.updated}
+					return answeredThenExited(m)
 				}
 			case <-wait.C:
 			}
