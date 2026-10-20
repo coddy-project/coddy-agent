@@ -21,21 +21,25 @@ func openRegular(path string) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return regularOrClose(f, path)
+	return regularOrClose(f, lookedFile{name: path})
 }
 
-// openRegularIn is openRegular for name inside root: the same flags and the
-// same check of the opened file, and nothing outside root is reached.
-func openRegularIn(root *os.Root, name string) (*os.File, error) {
-	f, err := root.OpenFile(name, openRegularFlags, 0)
+// openRegularIn is openRegular for the file looked at inside root: the same
+// flags and the same check of the opened file, nothing outside root is reached,
+// and the file opened must be the one looked at. The root follows a link inside
+// itself, so a link swapped in after the look would otherwise open the file it
+// points at.
+func openRegularIn(root *os.Root, looked lookedFile) (*os.File, error) {
+	f, err := root.OpenFile(looked.name, openRegularFlags, 0)
 	if err != nil {
 		return nil, err
 	}
-	return regularOrClose(f, name)
+	return regularOrClose(f, looked)
 }
 
-// regularOrClose returns f when it is a regular file and closes it otherwise.
-func regularOrClose(f *os.File, name string) (*os.File, error) {
+// regularOrClose returns f when it is a regular file, and the one looked at when
+// the look kept what it found, and closes it otherwise.
+func regularOrClose(f *os.File, looked lookedFile) (*os.File, error) {
 	fi, err := f.Stat()
 	if err != nil {
 		_ = f.Close()
@@ -43,7 +47,11 @@ func regularOrClose(f *os.File, name string) (*os.File, error) {
 	}
 	if !fi.Mode().IsRegular() {
 		_ = f.Close()
-		return nil, fmt.Errorf("%s is not a regular file", name)
+		return nil, fmt.Errorf("%s is not a regular file", looked.name)
+	}
+	if looked.info != nil && !os.SameFile(looked.info, fi) {
+		_ = f.Close()
+		return nil, fmt.Errorf("%s was replaced between the look and the open", looked.name)
 	}
 	return f, nil
 }

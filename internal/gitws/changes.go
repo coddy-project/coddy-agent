@@ -209,6 +209,14 @@ func commitHash(ctx context.Context, dir, head, rel string) (hash string, found 
 // the look at a regular file and the open of it: the window a swap can use.
 var afterInspect func(path string)
 
+// lookedFile is a path inside a root as a look at it found it. info is what
+// Lstat said; an open held to it must reach that same file, and nil holds the
+// open to nothing but being a regular file.
+type lookedFile struct {
+	name string
+	info fs.FileInfo
+}
+
 // fileHash is the hash of what the working copy holds at the dir-relative slash
 // path: the bytes of a regular file, the link text of a symlink, "" for a path
 // with nothing of either kind.
@@ -238,7 +246,7 @@ func fileHash(dir, rel string) (string, error) {
 		if afterInspect != nil {
 			afterInspect(filepath.Join(dir, name))
 		}
-		f, err := openRegularIn(root, name)
+		f, err := openRegularIn(root, lookedFile{name: name, info: info})
 		if err != nil {
 			return "", err
 		}

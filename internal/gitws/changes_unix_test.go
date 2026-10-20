@@ -145,3 +145,70 @@ func TestComparisonDoesNotBlockOnAFileSwappedForAFifo(t *testing.T) {
 		})
 	}
 }
+
+// fileHash looks at a path (Lstat) and opens it afterwards, through a root
+// that follows a link inside it. A symlink renamed over a regular file between
+// the two used to be opened as the copy it points at, and a copy that holds the
+// text the comparison expects reads as "unchanged" while the migration itself is
+// gone. The opened file must be the one looked at now: the swap answers with an
+// error, never with the copy's hash. linked is the text of the file the link points
+// at: what makes the swap read as no change at that step.
+func TestComparisonDoesNotFollowASymlinkSwappedInAfterTheLook(t *testing.T) {
+	const (
+		name      = "migrations/0001_init.sql"
+		committed = "create table users();\n"
+		dirty     = "create table users(id int);\n"
+	)
+	cases := []struct {
+		name   string
+		swapAt int
+		linked string
+		run    func(ctx context.Context, dir string, base FileBaseline) error
+	}{
+		{"Baseline", 1, committed, func(ctx context.Context, dir string, _ FileBaseline) error {
+			_, err := Baseline(ctx, dir, migrationFolders)
+			return err
+		}},
+		{"ChangedSince candidate", 1, committed, func(ctx context.Context, dir string, base FileBaseline) error {
+			_, err := ChangedSince(ctx, dir, base, migrationFolders)
+			return err
+		}},
+		{"ChangedSince dirty at the start", 2, dirty, func(ctx context.Context, dir string, base FileBaseline) error {
+			_, err := ChangedSince(ctx, dir, base, migrationFolders)
+			return err
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := commitRepo(t, map[string]string{name: committed})
+			writeFile(t, dir, name, dirty)
+			base := mustBaseline(t, dir)
+			path := filepath.Join(dir, filepath.FromSlash(name))
+			// The link points into the root, where a root follows it.
+			writeFile(t, dir, "spare.sql", tc.linked)
+			calls := 0
+			afterInspect = func(p string) {
+				if p != path {
+					return
+				}
+				if calls++; calls != tc.swapAt {
+					return
+				}
+				link := p + ".swap"
+				if err := os.Symlink("../spare.sql", link); err != nil {
+					t.Errorf("symlink: %v", err)
+					return
+				}
+				if err := os.Rename(link, p); err != nil {
+					t.Errorf("swap: %v", err)
+				}
+			}
+			t.Cleanup(func() { afterInspect = nil })
+
+			err := tc.run(context.Background(), dir, base)
+			if err == nil || !strings.Contains(err.Error(), "was replaced") {
+				t.Fatalf("err = %v, want a refusal of the file swapped for a link", err)
+			}
+		})
+	}
+}
