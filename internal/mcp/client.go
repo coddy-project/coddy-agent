@@ -43,6 +43,8 @@ type ToolResult struct {
 	Images []ToolImage
 }
 
+const maxToolImageBytes = 3*1024*1024 + 768*1024
+
 // transport delivers JSON-RPC messages to and from an MCP server. Send ships
 // one client->server message; Messages streams server->client messages.
 type transport interface {
@@ -300,10 +302,10 @@ func (c *conn) callTool(ctx context.Context, toolName, argsJSON string) (ToolRes
 		case "text":
 			parts = append(parts, block.Text)
 		case "image":
-			// An asset is read back with a 20 MiB limit. Reject larger or
-			// mislabeled payloads here, before saving or showing them.
-			if len(block.Data) > base64.StdEncoding.EncodedLen(20<<20) || len(block.Data) == 0 || len(out.Images) >= 20 {
-				parts = append(parts, "[MCP image omitted: empty, too large, or more than 20 images]")
+			// Bound decoding before the agent validates the picture against
+			// the model's format, dimensions and per-image size limits.
+			if len(block.Data) > base64.StdEncoding.EncodedLen(maxToolImageBytes) || len(block.Data) == 0 || len(out.Images) >= 20 {
+				parts = append(parts, "[MCP image omitted: empty, larger than 3.75 MiB, or more than 20 images]")
 				continue
 			}
 			data, err := base64.StdEncoding.DecodeString(block.Data)

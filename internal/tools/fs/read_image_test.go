@@ -57,6 +57,43 @@ func encodePNG(t *testing.T, w, h int) []byte {
 	return buf.Bytes()
 }
 
+func TestPrepareImageForModelRejectsBrokenAndOversizedPictures(t *testing.T) {
+	valid := encodePNG(t, 2, 2)
+	if got, mimeType, err := PrepareImageForModel(valid, "image/png"); err != nil || mimeType != "image/png" || !bytes.Equal(got, valid) {
+		t.Fatalf("valid PNG: type %q, error %v", mimeType, err)
+	}
+	for _, tc := range []struct {
+		name string
+		data []byte
+		mime string
+	}{
+		{"truncated PNG", valid[:len(valid)-10], "image/png"},
+		{"wrong MIME", valid, "image/jpeg"},
+		{"oversized PNG", append(append([]byte(nil), valid...), make([]byte, readImageMaxBytes)...), "image/png"},
+		{"wide PNG", encodePNG(t, readImageMaxSide+1, 1), "image/png"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, _, err := PrepareImageForModel(tc.data, tc.mime); err == nil {
+				t.Fatal("invalid picture was accepted")
+			}
+		})
+	}
+}
+
+func TestPrepareImageForModelConvertsGIFToPNG(t *testing.T) {
+	var input bytes.Buffer
+	if err := gif.Encode(&input, solidImage(2, 2), nil); err != nil {
+		t.Fatal(err)
+	}
+	got, mimeType, err := PrepareImageForModel(input.Bytes(), "image/gif")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mimeType != "image/png" || !bytes.HasPrefix(got, []byte("\x89PNG\r\n\x1a\n")) {
+		t.Fatalf("GIF projection: type %q, header %x", mimeType, got[:min(len(got), 8)])
+	}
+}
+
 func writeFile(t *testing.T, env *tooling.Env, name string, data []byte) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(env.CWD, name), data, 0o644); err != nil {

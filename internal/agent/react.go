@@ -2636,8 +2636,13 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 				return "", err
 			}
 			for i, img := range result.Images {
-				name := fmt.Sprintf("%s-%s-%d%s", serverName, toolName, i+1, mcpImageExtension(img.MIMEType))
-				if err := a.recordToolImage(name, img.MIMEType, img.Data); err != nil {
+				data, mimeType, err := fstools.PrepareImageForModel(img.Data, img.MIMEType)
+				if err != nil {
+					result.Text = joinHookText(result.Text, fmt.Sprintf("[MCP image %d omitted: %v]", i+1, err))
+					continue
+				}
+				name := fmt.Sprintf("%s-%s-%d%s", serverName, toolName, i+1, mcpImageExtension(mimeType))
+				if err := a.recordToolImage(name, mimeType, data); err != nil {
 					return "", err
 				}
 			}

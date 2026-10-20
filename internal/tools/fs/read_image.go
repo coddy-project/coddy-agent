@@ -41,6 +41,42 @@ const (
 	gifFrameMaxPixels = 16_000_000
 )
 
+// PrepareImageForModel validates a tool-owned picture against the same limits
+// as read, then converts a GIF to its first frame as PNG. A rejected picture
+// never enters the session history, where it would break later model calls.
+func PrepareImageForModel(data []byte, mimeType string) ([]byte, string, error) {
+	if readImageFormats[mimeType] == "" || sniffKind(data) != mimeType {
+		return nil, "", fmt.Errorf("unsupported or mislabeled image type %q", mimeType)
+	}
+	if len(data) > readImageMaxBytes {
+		return nil, "", fmt.Errorf("image exceeds the %d byte model limit", readImageMaxBytes)
+	}
+	w, h, err := imageSize(data, mimeType)
+	if err == nil {
+		err = imageComplete(data, mimeType)
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("image cannot be decoded: %w", err)
+	}
+	if w > readImageMaxSide || h > readImageMaxSide {
+		return nil, "", fmt.Errorf("image exceeds %d pixels on a side", readImageMaxSide)
+	}
+	if mimeType == "image/gif" {
+		if int64(w)*int64(h) > gifFrameMaxPixels {
+			return nil, "", fmt.Errorf("GIF frame exceeds %d pixels", gifFrameMaxPixels)
+		}
+		frame, err := gifFirstFrame(data)
+		if err != nil {
+			return nil, "", fmt.Errorf("GIF frame cannot be decoded: %w", err)
+		}
+		if len(frame) > readImageMaxBytes {
+			return nil, "", fmt.Errorf("GIF frame exceeds the %d byte model limit", readImageMaxBytes)
+		}
+		return frame, "image/png", nil
+	}
+	return data, mimeType, nil
+}
+
 // readImage answers read for a file whose content sniffs as a picture: it
 // hands the picture to the model through env.AttachImage and says what it is.
 // A picture no provider would take is refused before it reaches the history,

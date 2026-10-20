@@ -2,11 +2,14 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"log/slog"
 	"net/http"
@@ -84,9 +87,11 @@ func runFakeMCPServer() {
 			_ = json.Unmarshal(req.Params, &params)
 			text := params.Arguments["text"]
 			if params.Name == "picture" {
+				var picture bytes.Buffer
+				_ = png.Encode(&picture, image.NewRGBA(image.Rect(0, 0, 1, 1)))
 				respond(req.ID, map[string]interface{}{"content": []map[string]interface{}{
 					{"type": "text", "text": "Screenshot"},
-					{"type": "image", "mimeType": "image/png", "data": base64.StdEncoding.EncodeToString([]byte("\x89PNG\r\n\x1a\n"))},
+					{"type": "image", "mimeType": "image/png", "data": base64.StdEncoding.EncodeToString(picture.Bytes())},
 				}})
 				continue
 			}
@@ -144,7 +149,7 @@ func TestCallToolResultKeepsImageBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Text != "Screenshot" || len(got.Images) != 1 || got.Images[0].MIMEType != "image/png" || string(got.Images[0].Data) != "\x89PNG\r\n\x1a\n" {
+	if got.Text != "Screenshot" || len(got.Images) != 1 || got.Images[0].MIMEType != "image/png" || !bytes.HasPrefix(got.Images[0].Data, []byte("\x89PNG\r\n\x1a\n")) {
 		t.Fatalf("result = %+v", got)
 	}
 }

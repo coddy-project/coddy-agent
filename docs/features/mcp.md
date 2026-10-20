@@ -334,7 +334,10 @@ supported `image` blocks from a `tools/call` result on the tool's transcript row
 Images are copied into the session assets and appear on the tool's card. A model
 configured with `models[].multimodal` receives them after the tool result; a
 text-only model receives their names without image data. Embedded resources are
-still omitted. See
+still omitted. Coddy accepts complete PNG, JPEG, GIF, and WebP images up to
+3.75 MiB and 8000 pixels on a side, using the same limits as `read`. It sends
+the first frame of a GIF as PNG. An invalid or oversized image is omitted with
+a note in the tool result; other text blocks remain available. See
 [Web UI](../surfaces/web-ui.md) for the card and a screenshot.
 
 ## Supported Transports

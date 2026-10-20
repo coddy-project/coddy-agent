@@ -31,6 +31,9 @@ func TestHelperMCPImageServer(t *testing.T) {
 		var req struct {
 			ID     any    `json:"id"`
 			Method string `json:"method"`
+			Params struct {
+				Name string `json:"name"`
+			} `json:"params"`
 		}
 		if json.Unmarshal(reader.Bytes(), &req) != nil || req.ID == nil {
 			continue
@@ -40,12 +43,21 @@ func TestHelperMCPImageServer(t *testing.T) {
 		case "initialize":
 			result = map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{}, "serverInfo": map[string]string{"name": "screens", "version": "1"}}
 		case "tools/list":
-			result = map[string]any{"tools": []any{map[string]any{"name": "capture", "description": "Screenshot", "inputSchema": map[string]any{"type": "object"}}}}
-		case "tools/call":
-			result = map[string]any{"content": []any{
-				map[string]any{"type": "text", "text": "Captured screen"},
-				map[string]any{"type": "image", "mimeType": "image/png", "data": base64.StdEncoding.EncodeToString(testPNG(2, 2, color.NRGBA{R: 200, A: 255}))},
+			result = map[string]any{"tools": []any{
+				map[string]any{"name": "capture", "description": "Screenshot", "inputSchema": map[string]any{"type": "object"}},
+				map[string]any{"name": "capture_only", "description": "Image only", "inputSchema": map[string]any{"type": "object"}},
+				map[string]any{"name": "capture_broken", "description": "Damaged screenshot", "inputSchema": map[string]any{"type": "object"}},
 			}}
+		case "tools/call":
+			picture := testPNG(2, 2, color.NRGBA{R: 200, A: 255})
+			if req.Params.Name == "capture_broken" {
+				picture = picture[:len(picture)-10]
+			}
+			content := []any{map[string]any{"type": "image", "mimeType": "image/png", "data": base64.StdEncoding.EncodeToString(picture)}}
+			if req.Params.Name != "capture_only" {
+				content = append([]any{map[string]any{"type": "text", "text": "Captured screen"}}, content...)
+			}
+			result = map[string]any{"content": content}
 		}
 		response, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": result})
 		_, _ = os.Stdout.Write(append(response, '\n'))
@@ -80,20 +92,57 @@ func (s *mcpImageFeatureState) server() error {
 	return nil
 }
 
-func (s *mcpImageFeatureState) run(multimodal bool) error {
+func (s *mcpImageFeatureState) run(multimodal bool, toolName string) error {
 	s.multimodal = multimodal
 	a := s.agent()
 	s.st.AddSessionMCPClient(s.client)
 	s.provider.steps = []evStep{
-		{calls: []llm.ToolCall{{ID: "mcp1", Name: "screens__capture", InputJSON: `{}`}}},
+		{calls: []llm.ToolCall{{ID: "mcp1", Name: "screens__" + toolName, InputJSON: `{}`}}},
 		{text: "answer"},
 	}
 	_, err := a.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "capture"}})
 	return err
 }
 
-func (s *mcpImageFeatureState) runMultimodal() error { return s.run(true) }
-func (s *mcpImageFeatureState) runTextOnly() error   { return s.run(false) }
+func (s *mcpImageFeatureState) runMultimodal() error { return s.run(true, "capture") }
+func (s *mcpImageFeatureState) runTextOnly() error   { return s.run(false, "capture") }
+func (s *mcpImageFeatureState) runDamaged() error    { return s.run(true, "capture_broken") }
+func (s *mcpImageFeatureState) runImageOnly() error  { return s.run(true, "capture_only") }
+
+func (s *mcpImageFeatureState) imageOnlyResult() error {
+	for _, msg := range s.st.GetMessages() {
+		if msg.Role == llm.RoleTool && msg.ToolCallID == "mcp1" {
+			if msg.Content != "" || len(msg.ImageParts) != 1 || msg.ImageParts[0].Name != "screens-capture_only-1.png" {
+				return fmt.Errorf("image-only MCP result = %+v", msg)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("image-only MCP result not persisted")
+}
+
+func (s *mcpImageFeatureState) damagedResult() error {
+	for _, msg := range s.st.GetMessages() {
+		if msg.Role == llm.RoleTool && msg.ToolCallID == "mcp1" {
+			if !strings.Contains(msg.Content, "Captured screen") || !strings.Contains(msg.Content, "MCP image 1 omitted") || len(msg.ImageParts) != 0 {
+				return fmt.Errorf("damaged MCP result = %+v", msg)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("damaged MCP result not persisted")
+}
+
+func (s *mcpImageFeatureState) noDamagedProjection() error {
+	tail, err := s.requestTail()
+	if err != nil {
+		return err
+	}
+	if len(tail) != 2 || tail[1].Role != llm.RoleTool || len(tail[1].ImageParts) != 0 {
+		return fmt.Errorf("damaged provider tail = %+v", tail)
+	}
+	return nil
+}
 
 func (s *mcpImageFeatureState) resultImage() (llm.ImagePart, error) {
 	for _, msg := range s.st.GetMessages() {
@@ -173,11 +222,16 @@ func TestMCPToolImagesFeature(t *testing.T) {
 			sc.Step(`^an MCP server that returns a screenshot$`, s.server)
 			sc.Step(`^the session model reads MCP images$`, s.modelReadsImages)
 			sc.Step(`^the model calls the MCP screenshot tool and answers$`, s.runMultimodal)
+			sc.Step(`^the model calls the image-only MCP tool and answers$`, s.runImageOnly)
 			sc.Step(`^the text-only model calls the MCP screenshot tool and answers$`, s.runTextOnly)
+			sc.Step(`^the model calls the damaged MCP screenshot tool and answers$`, s.runDamaged)
 			sc.Step(`^the MCP result keeps its screenshot in the transcript and session assets$`, s.savedResult)
+			sc.Step(`^the image-only result keeps its screenshot in the transcript$`, s.imageOnlyResult)
 			sc.Step(`^the next model request carries the screenshot after the MCP result$`, s.projectedImage)
 			sc.Step(`^the next model request names the screenshot without image data$`, s.textOnlyProjection)
 			sc.Step(`^the MCP tool update gives the surfaces the screenshot$`, s.surfaceImage)
+			sc.Step(`^the MCP result keeps its text and reports the omitted image$`, s.damagedResult)
+			sc.Step(`^the next model request has no damaged image data$`, s.noDamagedProjection)
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/mcp_tool_images.feature"}, TestingT: t, Strict: true},
 	}
