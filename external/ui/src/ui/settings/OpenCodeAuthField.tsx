@@ -19,10 +19,30 @@ type DeviceLogin = {
   error?: string;
 };
 
+// An answer the server refused, with its status: a poll answered 404 means
+// the attempt is gone, while a poll that never reached the server says
+// nothing about the sign-in.
+class HTTPError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 async function readResponse<T>(response: Response): Promise<T> {
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
-  return body as T;
+  if (!response.ok) {
+    let message = "";
+    try {
+      const body = (await response.json()) as { error?: unknown };
+      if (typeof body.error === "string") message = body.error.trim();
+    } catch {
+      // A proxy's or a gone server's page is not JSON: the status names it.
+    }
+    throw new HTTPError(message || `HTTP ${response.status}`, response.status);
+  }
+  return (await response.json()) as T;
 }
 
 export function OpenCodeAuthField(props: {
@@ -80,9 +100,13 @@ export function OpenCodeAuthField(props: {
         ).then(readResponse<DeviceLogin>);
         if (controller.signal.aborted || mine !== generation.current) return;
         if (next.status === "completed") {
+          // The login is stored; a status read that fails only costs the
+          // organization's name.
           const account = await fetch(endpoint, {
             signal: controller.signal,
-          }).then(readResponse<AuthStatus>);
+          })
+            .then(readResponse<AuthStatus>)
+            .catch((): AuthStatus => ({ connected: true, source: "oauth" }));
           if (controller.signal.aborted || mine !== generation.current) return;
           setStatus(account);
           setLogin(null);
@@ -97,13 +121,18 @@ export function OpenCodeAuthField(props: {
           setError(next.error || translate("openCodeAuth.error.signInFailed"));
         } else timer = setTimeout(() => void poll(), 1000);
       } catch (err) {
-        if (!controller.signal.aborted && mine === generation.current) {
-          setLoading(false);
-          setLogin((current) =>
-            current ? { ...current, status: "failed" } : current,
-          );
-          setError(err instanceof Error ? err.message : String(err));
+        if (controller.signal.aborted || mine !== generation.current) return;
+        if (!(err instanceof HTTPError) || err.status >= 500) {
+          // The poll did not reach the server, or the server could not answer
+          // it: the attempt may still complete there, so ask again.
+          timer = setTimeout(() => void poll(), 2000);
+          return;
         }
+        setLoading(false);
+        setLogin((current) =>
+          current ? { ...current, status: "failed" } : current,
+        );
+        setError(err.message);
       }
     };
     timer = setTimeout(() => void poll(), 500);

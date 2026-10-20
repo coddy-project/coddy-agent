@@ -71,7 +71,14 @@ const rootSchema: JsonSchema = {
           type: {
             type: "string",
             title: "Provider type",
-            enum: ["openai", "anthropic", "neuraldeep", "opencode", "codex", "acp"],
+            enum: [
+              "openai",
+              "anthropic",
+              "neuraldeep",
+              "opencode",
+              "codex",
+              "acp",
+            ],
           },
           acp: {
             type: "object",
@@ -351,6 +358,99 @@ test("OpenCode keeps the code on screen when the login fails", async () => {
   expect(
     await screen.findByTestId("opencode-auth-sign-in"),
   ).toBeInTheDocument();
+});
+
+// A poll that does not reach the server says nothing about the sign-in: the
+// attempt is still waiting on the server and may yet store the login, so the
+// form keeps polling. A completed attempt whose status read fails still shows
+// the provider signed in.
+test("OpenCode keeps polling through a failed poll request", async () => {
+  let polls = 0;
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/opencode-auth/device") && init?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({
+            login_id: "oc-flaky",
+            user_code: "FLAKY-CODE",
+            verification_url: "https://opencode.ai/console/device",
+            status: "pending",
+          }),
+        };
+      }
+      if (url.endsWith("/device/oc-flaky")) {
+        polls++;
+        if (polls === 1) throw new TypeError("Failed to fetch");
+        return {
+          ok: true,
+          json: async () => ({ status: "completed", connected: true }),
+        };
+      }
+      if (polls > 0) throw new TypeError("Failed to fetch");
+      return {
+        ok: true,
+        json: async () => ({ connected: false, source: "none" }),
+      };
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <Harness
+      provider={{
+        name: "opencode",
+        type: "opencode",
+        api_base: "https://opencode.ai/inference/go/v1",
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByTestId("opencode-auth-sign-in"));
+  expect(await screen.findByText("FLAKY-CODE")).toBeInTheDocument();
+  expect(
+    await screen.findByText(/Signed in to OpenCode/, {}, { timeout: 5000 }),
+  ).toBeInTheDocument();
+  expect(polls).toBe(2);
+  expect(screen.queryByText("Failed to fetch")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Sign Out" })).toBeInTheDocument();
+});
+
+// A proxy or a server that is gone answers with a page, not JSON: the form
+// names the HTTP status instead of the parser's complaint.
+test("OpenCode names the status of an answer that is not JSON", async () => {
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/opencode-auth/device") && init?.method === "POST") {
+        return {
+          ok: false,
+          status: 502,
+          json: async () => {
+            throw new SyntaxError("Unexpected token '<'");
+          },
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({ connected: false, source: "none" }),
+      };
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <Harness
+      provider={{
+        name: "opencode",
+        type: "opencode",
+        api_base: "https://opencode.ai/inference/go/v1",
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByTestId("opencode-auth-sign-in"));
+  expect(await screen.findByText("HTTP 502")).toBeInTheDocument();
+  expect(screen.queryByText(/Unexpected token/)).not.toBeInTheDocument();
 });
 
 test("NeuralDeep provider picks the API endpoint from the two official ones", async () => {
