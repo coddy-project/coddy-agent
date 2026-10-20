@@ -276,16 +276,25 @@ Refuse, before they run, the steps that the [risk gate](session-supervisor.md#ri
 # ~/.coddy/hooks/no-docker-changes.sh
 command=$(jq -r '.tool_input.command // ""') || exit 1
 # Join continued lines, then one command per line, lower case, no quote characters or backslashes.
-commands=$(printf '%s\n' "$command" |
-  awk '{ if (sub(/\\$/, " ")) printf "%s", $0; else print }' |
-  tr 'A-Z;&|' 'a-z\n\n\n' | tr -d "\\\\'\"")
+# Each step runs on its own: a pipe would hide the failure of every tool but the last.
+joined=$(printf '%s\n' "$command" | awk '{ if (sub(/\\$/, " ")) printf "%s", $0; else print }') || exit 1
+lines=$(printf '%s\n' "$joined" | tr 'A-Z;&|' 'a-z\n\n\n') || exit 1
+commands=$(printf '%s\n' "$lines" | tr -d "\\\\'\"") || exit 1
 # A word is a run of [a-z0-9_./-] read from its last /; $w is a character outside a word.
 w='[^a-z0-9_./-]'
-if printf '%s\n' "$commands" |
-  grep -E "(^|$w|/)docker(-compose)?($|$w)" |
-  grep -Eq "(^|$w|/)(up|down|rm|stop|restart|create|run|kill|prune)($|$w)"; then
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"docker commands that change containers or volumes are not allowed here"}}'
-fi
+# grep exits with 1 when nothing matches, which lets the call through, and with more on an error.
+dockers=$(printf '%s\n' "$commands" | grep -E "(^|$w|/)docker(-compose)?($|$w)")
+case $? in
+  0) ;;
+  1) exit 0 ;;
+  *) exit 1 ;;
+esac
+printf '%s\n' "$dockers" | grep -Eq "(^|$w|/)(up|down|rm|stop|restart|create|run|kill|prune)($|$w)"
+case $? in
+  0) printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"docker commands that change containers or volumes are not allowed here"}}' ;;
+  1) ;;
+  *) exit 1 ;;
+esac
 exit 0
 ```
 
@@ -311,7 +320,7 @@ done
 exit 0
 ```
 
-The first script reads the command the way the gate does: it joins continued lines, drops case, quote characters and backslashes, cuts the line into commands at `;`, `&`, `|` and line breaks, and refuses a command that holds the word `docker` or `docker-compose` and one of `up`, `down`, `rm`, `stop`, `restart`, `create`, `run`, `kill` or `prune`. The second script reads `path`, and for `mv` both `src` and `dst`, so moving a tracked migration away and moving another file over one are both refused. It refuses only a file that git tracks, so a new migration can still be written. `git ls-files --error-unmatch` exits with 1 for a path git does not track, and only that status lets the call through. Both scripts exit with 1 when `jq` cannot parse the input, and the second one exits with 1 when git fails in any other way (git missing, no repository, an unreadable index). `failClosed: true` turns every such exit into a block, so neither input that does not parse nor a git that cannot answer lets a call through. A hook sees each call before it runs, while the risk gate reads the results after the turn, and a hook applies to every session, not to a goal only. Neither script catches every spelling: both match text, so the first also refuses `echo docker compose down` and misses a command hidden in a script such as `./deploy.sh`, and the second sees only the file a tool call names, not one that a shell command rewrites.
+The first script reads the command the way the gate does: it joins continued lines, drops case, quote characters and backslashes, cuts the line into commands at `;`, `&`, `|` and line breaks, and refuses a command that holds the word `docker` or `docker-compose` and one of `up`, `down`, `rm`, `stop`, `restart`, `create`, `run`, `kill` or `prune`. The second script reads `path`, and for `mv` both `src` and `dst`, so moving a tracked migration away and moving another file over one are both refused. It refuses only a file that git tracks, so a new migration can still be written. `git ls-files --error-unmatch` exits with 1 for a path git does not track, and only that status lets the call through. Both scripts exit with 1 when `jq` cannot parse the input. The first one also exits with 1 when `awk`, `tr` or `grep` is missing or fails, running each step on its own because a pipe would report only the status of its last tool; `grep` exits with 1 when nothing matches, and only that status lets the call through. The second one exits with 1 when git fails in any other way (git missing, no repository, an unreadable index). `failClosed: true` turns every such exit into a block, so neither input that does not parse, nor a tool that is missing, nor a git that cannot answer lets a call through. A hook sees each call before it runs, while the risk gate reads the results after the turn, and a hook applies to every session, not to a goal only. Neither script catches every spelling: both match text, so the first also refuses `echo docker compose down` and misses a command hidden in a script such as `./deploy.sh`, and the second sees only the file a tool call names, not one that a shell command rewrites.
 
 Run the formatter after every edit and tell the model what it changed:
 

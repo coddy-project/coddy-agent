@@ -276,16 +276,25 @@ exit 0
 # ~/.coddy/hooks/no-docker-changes.sh
 command=$(jq -r '.tool_input.command // ""') || exit 1
 # Join continued lines, then one command per line, lower case, no quote characters or backslashes.
-commands=$(printf '%s\n' "$command" |
-  awk '{ if (sub(/\\$/, " ")) printf "%s", $0; else print }' |
-  tr 'A-Z;&|' 'a-z\n\n\n' | tr -d "\\\\'\"")
+# Each step runs on its own: a pipe would hide the failure of every tool but the last.
+joined=$(printf '%s\n' "$command" | awk '{ if (sub(/\\$/, " ")) printf "%s", $0; else print }') || exit 1
+lines=$(printf '%s\n' "$joined" | tr 'A-Z;&|' 'a-z\n\n\n') || exit 1
+commands=$(printf '%s\n' "$lines" | tr -d "\\\\'\"") || exit 1
 # A word is a run of [a-z0-9_./-] read from its last /; $w is a character outside a word.
 w='[^a-z0-9_./-]'
-if printf '%s\n' "$commands" |
-  grep -E "(^|$w|/)docker(-compose)?($|$w)" |
-  grep -Eq "(^|$w|/)(up|down|rm|stop|restart|create|run|kill|prune)($|$w)"; then
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"docker commands that change containers or volumes are not allowed here"}}'
-fi
+# grep exits with 1 when nothing matches, which lets the call through, and with more on an error.
+dockers=$(printf '%s\n' "$commands" | grep -E "(^|$w|/)docker(-compose)?($|$w)")
+case $? in
+  0) ;;
+  1) exit 0 ;;
+  *) exit 1 ;;
+esac
+printf '%s\n' "$dockers" | grep -Eq "(^|$w|/)(up|down|rm|stop|restart|create|run|kill|prune)($|$w)"
+case $? in
+  0) printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"docker commands that change containers or volumes are not allowed here"}}' ;;
+  1) ;;
+  *) exit 1 ;;
+esac
 exit 0
 ```
 
@@ -311,7 +320,7 @@ done
 exit 0
 ```
 
-Первый скрипт читает команду так же, как барьер: склеивает продолженные строки, отбрасывает регистр, символы кавычек и обратные косые черты, режет строку на команды по `;`, `&`, `|` и переводам строки и отказывает команде, в которой есть слово `docker` или `docker-compose` и одно из слов `up`, `down`, `rm`, `stop`, `restart`, `create`, `run`, `kill` или `prune`. Второй скрипт читает `path`, а у `mv` - и `src`, и `dst`, поэтому отказывает и на перенос отслеживаемой миграции, и на перенос другого файла поверх неё. Он отказывает только на файл, который отслеживает git, поэтому новую миграцию по-прежнему можно записать. `git ls-files --error-unmatch` завершается с кодом 1 для пути, который git не отслеживает, и только этот код пропускает вызов. Оба скрипта завершаются с кодом 1, когда `jq` не может разобрать входные данные, а второй скрипт завершается с кодом 1 и при любом другом сбое git (git не найден, нет репозитория, нечитаемый индекс). `failClosed: true` превращает каждый такой выход в блокировку, поэтому ни входные данные, которые не разбираются, ни git, который не может ответить, не пропускают вызов. Хук видит каждый вызов до его выполнения, а барьер рисков читает результаты после хода. Хук действует в каждой сессии, а не только при цели. Ни один из скриптов не ловит все написания. Оба ищут по тексту, поэтому первый отказывает и на `echo docker compose down`, а команду, спрятанную в скрипте вроде `./deploy.sh`, пропускает. Второй видит только файл, который назван в вызове инструмента, а не тот, что переписывает shell-команда.
+Первый скрипт читает команду так же, как барьер: склеивает продолженные строки, отбрасывает регистр, символы кавычек и обратные косые черты, режет строку на команды по `;`, `&`, `|` и переводам строки и отказывает команде, в которой есть слово `docker` или `docker-compose` и одно из слов `up`, `down`, `rm`, `stop`, `restart`, `create`, `run`, `kill` или `prune`. Второй скрипт читает `path`, а у `mv` - и `src`, и `dst`, поэтому отказывает и на перенос отслеживаемой миграции, и на перенос другого файла поверх неё. Он отказывает только на файл, который отслеживает git, поэтому новую миграцию по-прежнему можно записать. `git ls-files --error-unmatch` завершается с кодом 1 для пути, который git не отслеживает, и только этот код пропускает вызов. Оба скрипта завершаются с кодом 1, когда `jq` не может разобрать входные данные. Первый скрипт завершается с кодом 1 и тогда, когда `awk`, `tr` или `grep` не найден или завершился сбоем: он запускает каждый шаг отдельно, потому что конвейер сообщает только статус своего последнего инструмента. `grep` завершается с кодом 1, когда ничего не нашёл, и только этот код пропускает вызов. Второй скрипт завершается с кодом 1 и при любом другом сбое git (git не найден, нет репозитория, нечитаемый индекс). `failClosed: true` превращает каждый такой выход в блокировку, поэтому ни входные данные, которые не разбираются, ни инструмент, которого нет, ни git, который не может ответить, не пропускают вызов. Хук видит каждый вызов до его выполнения, а барьер рисков читает результаты после хода. Хук действует в каждой сессии, а не только при цели. Ни один из скриптов не ловит все написания. Оба ищут по тексту, поэтому первый отказывает и на `echo docker compose down`, а команду, спрятанную в скрипте вроде `./deploy.sh`, пропускает. Второй видит только файл, который назван в вызове инструмента, а не тот, что переписывает shell-команда.
 
 Запуск форматтера после каждой правки с сообщением модели о том, что он изменил.
 
@@ -370,4 +379,4 @@ exit 0
 - юнит-тесты - `internal/hooks/hooks_test.go` (формат файла, матчеры, области загрузчика, контракт раннера), `internal/hooks/trust_test.go` (расписки, каталог), `internal/config/hooks_test.go`, `cmd/coddy/hooks_test.go`;
 - сквозные тесты с настоящей моделью на каждом интерфейсе, подключённые к трём раннерам, - `examples/acp/acp_e2e_hooks.py` (ACP через stdio; `coddy hooks list` и `coddy hooks trust` между ходами), `examples/httpserver/http_e2e_hooks.py` (`GET /coddy/hooks` с ожидающим одобрения файлом проекта, строка `notice` в `uiLog`, `POST /coddy/hooks/trust`, второй ход, который запускает одобренный хук, `POST /coddy/hooks/untrust`) и `examples/cli/cli_e2e_hooks.py` (консольный TUI с теми же хуками-регистраторами, уведомление в `ui_log.json` сессии, одобрение через CLI). Каждый из них записывает входные данные всех `PreToolUse` и `PostToolUse` настоящего вызова `run_command` через хуки пользовательской области, проверяет, что хук проектной области остаётся неодобренным, одобряет его и проверяет, что следующий ход той же сессии его запускает.
 
-<!-- docsgen:source sha256=de66d5c583c0a641 -->
+<!-- docsgen:source sha256=c873703ad9f615bb -->
