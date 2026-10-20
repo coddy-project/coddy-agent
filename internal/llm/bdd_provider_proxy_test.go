@@ -80,7 +80,7 @@ func (s *providerProxyState) fail(err error) {
 // answerProviderRequest answers every request a provider row makes. The same
 // handler serves the origin server and, for a proxied request, the proxy
 // that stands in for the origin.
-func answerProviderRequest(w http.ResponseWriter, r *http.Request) bool {
+func answerProviderRequest(t *testing.T, w http.ResponseWriter, r *http.Request) bool {
 	path := r.URL.Path
 	if r.Method == http.MethodPost && (strings.HasSuffix(path, "/chat/completions") || strings.HasSuffix(path, "/v1/messages")) {
 		var body struct {
@@ -108,8 +108,10 @@ func answerProviderRequest(w http.ResponseWriter, r *http.Request) bool {
 	}
 	switch {
 	case r.Method == http.MethodPost && path == "/console/auth/device/code":
+		requireOpenCodeClientID(t, r, "")
 		_, _ = io.WriteString(w, `{"device_code":"device-test","user_code":"USER-CODE","verification_uri_complete":"/console/device","expires_in":600,"interval":0}`)
 	case r.Method == http.MethodPost && path == "/console/auth/device/token":
+		requireOpenCodeClientID(t, r, "")
 		_, _ = io.WriteString(w, `{"access_token":"account-access","refresh_token":"account-refresh","expires_in":600,"org_id":"org-test"}`)
 	case r.Method == http.MethodGet && path == "/console/api/user":
 		_, _ = io.WriteString(w, `{"id":"user-test","email":"test@example.com"}`)
@@ -200,7 +202,7 @@ func (s *providerProxyState) newModelServer() *proxyStub {
 			s.fail(fmt.Errorf("the model server got a proxy request for %s", r.URL))
 		}
 		st.count.Add(1)
-		if !answerProviderRequest(w, r) {
+		if !answerProviderRequest(s.t, w, r) {
 			s.fail(fmt.Errorf("the model server has no answer for %s %s", r.Method, r.URL.Path))
 			http.NotFound(w, r)
 		}
@@ -245,7 +247,7 @@ func (s *providerProxyState) newProxyStub(label string) *proxyStub {
 			s.answerDevinRequest(w, r)
 			return
 		}
-		if !answerProviderRequest(w, r) {
+		if !answerProviderRequest(s.t, w, r) {
 			s.fail(fmt.Errorf("%s has no answer for %s %s", label, r.Method, r.URL.Path))
 			http.NotFound(w, r)
 		}

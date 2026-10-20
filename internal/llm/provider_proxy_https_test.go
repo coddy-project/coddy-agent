@@ -99,7 +99,7 @@ func TestProviderProxyHTTPSRefreshCompletionCatalogUsageAndDeviceLogin(t *testin
 	proxy := newProviderHTTPSProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen <- r.Host + r.URL.Path
 		w.Header().Set("Connection", "close")
-		if !answerProviderRequest(w, r) {
+		if !answerProviderRequest(t, w, r) {
 			http.NotFound(w, r)
 		}
 	}))
@@ -151,7 +151,7 @@ func TestOpenCodeHTTPSProxy(t *testing.T) {
 				}
 				seen <- r.URL.Path
 				w.Header().Set("Connection", "close")
-				if !answerProviderRequest(w, r) {
+				if !answerProviderRequest(t, w, r) {
 					http.NotFound(w, r)
 				}
 			}))

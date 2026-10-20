@@ -3,6 +3,7 @@
 package httpserver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -20,6 +21,35 @@ import (
 	"github.com/cucumber/godog"
 )
 
+// requireOpenCodeClientID holds a device-flow request to the contract the
+// gateway mints Coddy's keys under: every grant names the client. A grant that
+// stops sending it breaks account login in a way no stand would otherwise
+// notice. The body is put back on the request, so a later reader still sees
+// it. The value is written out rather than read from the llm package, so
+// renaming the constant cannot quietly rename what Coddy announces.
+func requireOpenCodeClientID(t *testing.T, r *http.Request, wantGrant string) {
+	t.Helper()
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		t.Errorf("%s: read body: %v", r.URL.Path, err)
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(raw))
+	var body map[string]any
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Errorf("%s: decode body: %v", r.URL.Path, err)
+		return
+	}
+	if body["client_id"] != "coddy" {
+		t.Errorf("%s: client_id = %v, want \"coddy\"", r.URL.Path, body["client_id"])
+	}
+	if wantGrant != "" {
+		if got, _ := body["grant_type"].(string); got != wantGrant {
+			t.Errorf("%s: grant_type = %q, want %q", r.URL.Path, got, wantGrant)
+		}
+	}
+}
+
 func openCodeAuthStand(t *testing.T, delay <-chan struct{}) (*Server, *httptest.Server, *atomic.Int32) {
 	t.Helper()
 	calls := &atomic.Int32{}
@@ -30,8 +60,10 @@ func openCodeAuthStand(t *testing.T, delay <-chan struct{}) (*Server, *httptest.
 		calls.Add(1)
 		switch r.URL.Path {
 		case "/console/auth/device/code":
+			requireOpenCodeClientID(t, r, "")
 			_, _ = io.WriteString(w, `{"device_code":"private-device","user_code":"USER-CODE","verification_uri_complete":"/console/device","expires_in":600,"interval":0}`)
 		case "/console/auth/device/token":
+			requireOpenCodeClientID(t, r, "")
 			if delay != nil {
 				select {
 				case <-delay:

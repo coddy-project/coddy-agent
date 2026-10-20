@@ -1,8 +1,10 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,6 +15,49 @@ import (
 	"time"
 )
 
+// The client id every OpenCode grant is minted under. Written out rather than
+// read from openCodeClientID, so renaming the constant cannot quietly rename
+// what Coddy announces to the gateway.
+const wantOpenCodeClientID = "coddy"
+
+// requireOpenCodeClientID fails the test unless a device-flow request carries
+// the client id and grant type the gateway expects, and hands the body back so
+// a stand can check the rest of it. The body is put back on the request, so a
+// stand and the shared answer handler can both look at the same grant. Every
+// stand that serves /auth/device/* runs it, so a grant that stops sending the
+// id cannot pass any of them.
+func requireOpenCodeClientID(t *testing.T, r *http.Request, wantGrant string) map[string]any {
+	t.Helper()
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		t.Errorf("%s: read body: %v", r.URL.Path, err)
+		return nil
+	}
+	r.Body = io.NopCloser(bytes.NewReader(raw))
+	var body map[string]any
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Errorf("%s: decode body: %v", r.URL.Path, err)
+		return nil
+	}
+	if body["client_id"] != wantOpenCodeClientID {
+		t.Errorf("%s: client_id = %v, want %q", r.URL.Path, body["client_id"], wantOpenCodeClientID)
+	}
+	if wantGrant != "" {
+		if got, _ := body["grant_type"].(string); got != wantGrant {
+			t.Errorf("%s: grant_type = %q, want %q", r.URL.Path, got, wantGrant)
+		}
+	}
+	return body
+}
+
+// TestOpenCodeClientIDIsCoddy pins what Coddy announces to the gateway: the
+// three grants send the constant, and the stands above hold them to "coddy".
+func TestOpenCodeClientIDIsCoddy(t *testing.T) {
+	if openCodeClientID != wantOpenCodeClientID {
+		t.Fatalf("openCodeClientID = %q, want %q", openCodeClientID, wantOpenCodeClientID)
+	}
+}
+
 // An expired account login must refresh before discovery and inference, using
 // the row's HTTPS CONNECT proxy for both hosts. Refresh rotation must survive
 // a later discovery failure without depending on /api/user or /api/orgs.
@@ -20,10 +65,9 @@ func TestOpenCodeAccountRefreshThroughHTTPSProxy(t *testing.T) {
 	var refreshes, requests atomic.Int32
 	proxy := newProviderHTTPSProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/console/auth/device/token" {
-			var body map[string]any
-			_ = json.NewDecoder(r.Body).Decode(&body)
-			if body["grant_type"] != "refresh_token" || body["refresh_token"] != "old-refresh" || body["client_id"] != "coddy" {
-				t.Error("unexpected refresh request")
+			body := requireOpenCodeClientID(t, r, "refresh_token")
+			if body["refresh_token"] != "old-refresh" {
+				t.Errorf("refresh_token = %v, want old-refresh", body["refresh_token"])
 			}
 			refreshes.Add(1)
 			_, _ = w.Write([]byte(`{"access_token":"fresh-access","refresh_token":"rotated-refresh","expires_in":600,"org_id":"org-new"}`))
@@ -44,7 +88,7 @@ func TestOpenCodeAccountRefreshThroughHTTPSProxy(t *testing.T) {
 			return
 		}
 		requests.Add(1)
-		if !answerProviderRequest(w, r) {
+		if !answerProviderRequest(t, w, r) {
 			http.NotFound(w, r)
 		}
 	}))
@@ -136,20 +180,15 @@ func TestOpenCodeDeviceLoginThroughHTTPSProxy(t *testing.T) {
 			t.Error("account discovery lost its bearer token")
 		}
 		if r.URL.Path == "/console/auth/device/code" {
-			var body map[string]any
-			_ = json.NewDecoder(r.Body).Decode(&body)
-			if body["client_id"] != "coddy" || body["supports_org_scope"] != true {
-				t.Error("device request does not match OpenCode")
+			body := requireOpenCodeClientID(t, r, "")
+			if body["supports_org_scope"] != true {
+				t.Error("device request does not ask for organization scope")
 			}
 		}
 		if r.URL.Path == "/console/auth/device/token" {
-			var body map[string]any
-			_ = json.NewDecoder(r.Body).Decode(&body)
-			if body["client_id"] != "coddy" || body["grant_type"] != "urn:ietf:params:oauth:grant-type:device_code" {
-				t.Error("device exchange did not identify Coddy")
-			}
+			requireOpenCodeClientID(t, r, "urn:ietf:params:oauth:grant-type:device_code")
 		}
-		if !answerProviderRequest(w, r) {
+		if !answerProviderRequest(t, w, r) {
 			http.NotFound(w, r)
 		}
 	}))
@@ -178,6 +217,7 @@ func TestOpenCodeConcurrentRefreshAndExplicitKey(t *testing.T) {
 	var calls atomic.Int32
 	proxy := newProviderHTTPSProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
+		requireOpenCodeClientID(t, r, "refresh_token")
 		_, _ = w.Write([]byte(`{"access_token":"new","refresh_token":"new-refresh","expires_in":600}`))
 	}))
 	path := filepath.Join(t.TempDir(), "auth.json")
@@ -217,8 +257,10 @@ func TestOpenCodeAccountFailures(t *testing.T) {
 						http.Redirect(w, r, "https://other.example/steal", http.StatusTemporaryRedirect)
 						return
 					}
+					requireOpenCodeClientID(t, r, "")
 					_, _ = w.Write([]byte(`{"device_code":"private","user_code":"USER","verification_uri_complete":"/console/device","expires_in":600,"interval":0}`))
 				case "/console/auth/device/token":
+					requireOpenCodeClientID(t, r, "urn:ietf:params:oauth:grant-type:device_code")
 					switch outcome {
 					case "denied":
 						w.WriteHeader(400)
@@ -269,6 +311,7 @@ func TestOpenCodeRefreshFailureDoesNotSendInference(t *testing.T) {
 	var inference atomic.Int32
 	proxy := newProviderHTTPSProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/console/auth/device/token" {
+			requireOpenCodeClientID(t, r, "refresh_token")
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = w.Write([]byte(`{"error":"invalid_grant","detail":"private-refresh-secret"}`))
 			return
