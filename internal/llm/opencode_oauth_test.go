@@ -29,8 +29,17 @@ func TestOpenCodeAccountRefreshThroughHTTPSProxy(t *testing.T) {
 			_, _ = w.Write([]byte(`{"access_token":"fresh-access","refresh_token":"rotated-refresh","expires_in":600,"org_id":"org-new"}`))
 			return
 		}
-		if r.Header.Get("Authorization") != "Bearer fresh-access" || r.Header.Get("x-org-id") != "org-new" {
-			t.Error("discovery/inference did not use the refreshed account and organization")
+		if strings.HasPrefix(r.URL.Path, "/console/api/") {
+			// The best-effort account discovery after the refresh rotated the
+			// organization carries the refreshed bearer token; the org header
+			// belongs to inference requests only.
+			if r.Header.Get("Authorization") != "Bearer fresh-access" {
+				t.Error("account discovery did not use the refreshed token")
+				http.Error(w, "wrong credential", http.StatusUnauthorized)
+				return
+			}
+		} else if r.Header.Get("Authorization") != "Bearer fresh-access" || r.Header.Get("x-org-id") != "org-new" {
+			t.Error("inference did not use the refreshed account and organization")
 			http.Error(w, "wrong credential", http.StatusUnauthorized)
 			return
 		}
@@ -62,7 +71,11 @@ func TestOpenCodeAccountRefreshThroughHTTPSProxy(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if refreshes.Load() != 1 || requests.Load() != 9 {
+	if refreshes.Load() != 1 || requests.Load() != 11 {
+		// 9 inference/catalog requests plus the best-effort account discovery
+		// after the refresh rotated the organization (its name is not in the
+		// token). The stand's org list has no org-new, so discovery fails and
+		// inference still proceeds.
 		t.Fatalf("refreshes=%d, requests=%d", refreshes.Load(), requests.Load())
 	}
 	data, err := os.ReadFile(path)
@@ -72,6 +85,43 @@ func TestOpenCodeAccountRefreshThroughHTTPSProxy(t *testing.T) {
 	var saved map[string]any
 	if err := json.Unmarshal(data, &saved); err != nil || saved["refresh_token"] != "rotated-refresh" || saved["org_id"] != "org-new" {
 		t.Fatal("rotated credential was not persisted")
+	}
+	// The raw organization id must never stand in for its display name.
+	if name, _ := saved["org_name"].(string); name == "org-new" {
+		t.Fatal("organization id was stored as its display name")
+	}
+}
+
+// A refresh that rotates the organization must refill the display name from
+// the account instead of storing the raw organization id.
+func TestOpenCodeRefreshRefillsOrganizationName(t *testing.T) {
+	proxy := newProviderHTTPSProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/console/auth/device/token":
+			_, _ = w.Write([]byte(`{"access_token":"fresh","refresh_token":"rotated","expires_in":600,"org_id":"org-two"}`))
+		case "/console/api/user":
+			_, _ = w.Write([]byte(`{"email":"u@example.com"}`))
+		case "/console/api/orgs":
+			_, _ = w.Write([]byte(`[{"id":"org-one","name":"One"},{"id":"org-two","name":"Two"}]`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	path := filepath.Join(t.TempDir(), "auth.json")
+	if err := saveOpenCodeCredential(path, &opencodeAuthFile{AccessToken: "old", RefreshToken: "old-refresh", ExpiresAt: 1, OrgID: "org-one", OrgName: "One"}); err != nil {
+		t.Fatal(err)
+	}
+	hc, err := HTTPClientForProviderProxy(proxy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, org, err := openCodeCredential(context.Background(), "", path, hc)
+	if err != nil || key != "fresh" || org != "org-two" {
+		t.Fatalf("key=%q org=%q err=%v", key, org, err)
+	}
+	saved, err := loadOpenCodeAuth(path)
+	if err != nil || saved.OrgID != "org-two" || saved.OrgName != "Two" {
+		t.Fatalf("organization name was not refilled after rotation: %+v", saved)
 	}
 }
 

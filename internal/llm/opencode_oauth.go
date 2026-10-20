@@ -77,6 +77,11 @@ func StartOpenCodeDeviceLogin(ctx context.Context, proxySetting string) (*OpenCo
 	if err != nil {
 		return nil, errors.New("opencode: invalid Console URL")
 	}
+	// Stricter than the upstream client, which checks the scheme only: the
+	// confirmation page must sit on the Console origin itself, so a stand-in
+	// or a compromised account endpoint cannot send the operator to a
+	// look-alike that harvests the code. If Console ever moves the page to
+	// another host, this is the line to relax.
 	verification, err := base.Parse(device.Verification)
 	if err != nil || device.Verification == "" || (verification.Scheme != "https" && verification.Scheme != "http") || verification.User != nil || verification.Host != base.Host || verification.Scheme != base.Scheme {
 		return nil, errors.New("opencode: invalid device verification URL")
@@ -216,7 +221,10 @@ func applyOpenCodeToken(credential *opencodeAuthFile, token openCodeToken) error
 	credential.ExpiresAt = time.Now().Add(time.Duration(token.Expires) * time.Second).Unix()
 	if token.OrgID != nil {
 		if credential.OrgID != *token.OrgID {
-			credential.OrgName = *token.OrgID
+			// The token carries the new organization's id, never its name;
+			// the account discovery fills the name. Storing the id here would
+			// show up as the organization's display name.
+			credential.OrgName = ""
 		}
 		credential.OrgID = *token.OrgID
 	}
@@ -252,6 +260,12 @@ func openCodeCredential(ctx context.Context, explicit, path string, client *http
 		}
 		if err := applyOpenCodeToken(credential, token); err != nil {
 			return "", "", err
+		}
+		if credential.OrgName == "" && credential.OrgID != "" {
+			// A refresh that moved the organization lost its name. Refill it
+			// from the account, best effort: a display name never fails the
+			// inference request that asked for the credential.
+			_ = discoverOpenCodeAccount(ctx, client, credential)
 		}
 		if err := saveOpenCodeCredential(path, credential); err != nil {
 			return "", "", err
