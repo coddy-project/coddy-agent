@@ -149,6 +149,9 @@ type Tool struct {
 	Output string            `json:"output,omitempty"`
 	// Open leaves the call announced and never ended.
 	Open bool `json:"open,omitempty"`
+	// DelayMS is how long the call runs between its announcement and its
+	// end.
+	DelayMS int `json:"delay_ms,omitempty"`
 }
 
 // Permission is the request a turn sends the client.
@@ -667,6 +670,12 @@ func (a *agent) prompt(m message, t Turn, cancelled <-chan struct{}) {
 		}
 		if tool.Open {
 			continue
+		}
+		if tool.DelayMS > 0 {
+			select {
+			case <-time.After(time.Duration(tool.DelayMS) * time.Millisecond):
+			case <-cancelled:
+			}
 		}
 		status := "completed"
 		if tool.Fail {

@@ -67,12 +67,14 @@ The conversation starts over in a new ACP session, with the whole history in its
 What the agent reports while it works:
 
 - its text streams as the answer and its reasoning as reasoning;
-- each of its tool calls is a numbered line of the reasoning, `[tool 3] Read README.md`, and `[tool 3 failed] ...` when it fails. These are the agent's tools, so they are never shown as Coddy tool calls;
+- each of its tool calls is a tool row like those of Coddy's own tools, titled by what it works on (`Read README.md`, `read notes.txt`), with what it was given and what it produced. A call the agent announces by the tool's name alone gets its row once it names the file or the command it works on, or when it ends. The rows are the agent's own tools: Coddy runs none of them and sends them to no model;
 - an answer the agent ends without any text reads `(the agent finished without a message)`, and one it stops short of an ordinary end says why, for example `(the agent stopped: it reached its output limit)`.
 
-![The agent's answer with its reasoning open: its thought and its two tool calls as numbered lines](../assets/acp-provider/acp-provider-answer-dark-1280.png)
+![The agent's answer under its two tool calls, the test run open with its command and its output](../assets/acp-provider/acp-provider-answer-dark-1280.png)
 
-*An answer of an agent: its reasoning holds the agent's own tool calls as numbered lines.*
+*An answer of an agent: its tool calls are rows of their own, the test run open with its command and its output.*
+
+The answer keeps the first lines of each call's output, and the session keeps the whole of it, as it does for Coddy's own tools: the rows come back after a reload, in the console and in an editor that loads the session, and a row's full output is a click away.
 
 The model id selects the agent's model through the agent's model option, the session's reasoning level sets the agent's reasoning option when that option offers a value of the same name, and the session's mode selects the agent's mode through `acp.modes`. A value a turn does not name goes back to what the session started with, so a choice of an earlier turn never sticks.
 
@@ -88,13 +90,13 @@ On top of that, every permission request the agent sends in plan or ask mode is 
 
 When the agent asks before it runs one of its tools, `acp.permissions` decides the answer:
 
-- `ask` - you answer, in the same prompt Coddy's own tools use, on whatever surface holds the session. It shows `Agent:` and the agent's title for the call, what the agent said about it, and three choices - allow, allow always when the agent offers it, and reject. The web UI labels them Allow, Allow always and Reject; the other surfaces show the names the agent gives them. Under the `bypass` permission mode the request is allowed without asking, and under `accept_edits` an edit is;
+- `ask` - you answer, in the same prompt Coddy's own tools use, on whatever surface holds the session. The prompt stands under the row of the agent's call (the console and an editor title it `Agent:` and the call's title), shows what the agent said about the call, and offers three choices - allow, allow always when the agent offers it, and reject. The web UI labels them Allow, Allow always and Reject; the other surfaces show the names the agent gives them. Under the `bypass` permission mode the request is allowed without asking, and under `accept_edits` an edit is;
 - `allow` - every request is allowed once;
 - `deny` - every request is refused.
 
 ![The permission prompt of an agent's write request in the web UI, with its Allow, Allow always and Reject choices](../assets/acp-provider/acp-provider-permission-dark-1280.png)
 
-*The agent asks to write a file: the web UI shows the same prompt as for Coddy's own tools.*
+*The agent asks to write a file: the prompt stands under the call's row, as it does for Coddy's own tools.*
 
 A request nobody answers is refused, not cancelled, so the agent goes on with its turn. Allow always is the agent's own "always": the agent keeps it on its own side, not Coddy.
 
