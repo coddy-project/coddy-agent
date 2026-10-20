@@ -64,6 +64,14 @@ type Script struct {
 	// DeafAfterNew stops reading stdin once a session is open: an agent
 	// that hangs without exiting.
 	DeafAfterNew bool `json:"deaf_after_new,omitempty"`
+	// Banner is a line written to stdout before anything else, not JSON-RPC.
+	Banner string `json:"banner,omitempty"`
+	// ExitAfterNewError exits right after refusing session/new for want of
+	// authentication.
+	ExitAfterNewError bool `json:"exit_after_new_error,omitempty"`
+	// ModeAfterNew sends a current_mode_update right after the session/new
+	// answer.
+	ModeAfterNew string `json:"mode_after_new,omitempty"`
 }
 
 // Turn is the answer to one session/prompt.
@@ -112,6 +120,10 @@ type Turn struct {
 	// Usage is the result's usage object.
 	Usage   map[string]int `json:"usage,omitempty"`
 	DelayMS int            `json:"delay_ms,omitempty"`
+	// ExitAfterReply exits right after the prompt's answer or error.
+	ExitAfterReply bool `json:"exit_after_reply,omitempty"`
+	// Chunks sends this many more one-letter text chunks before the answer.
+	Chunks int `json:"chunks,omitempty"`
 }
 
 // Tool is one tool call the fake agent reports.
@@ -219,6 +231,9 @@ func Main(args []string) bool {
 		os.Exit(2)
 	}
 	a := &agent{script: s, out: bufio.NewWriter(os.Stdout), sessions: map[string]*session{}, waiting: map[string]chan json.RawMessage{}}
+	if s.Banner != "" {
+		_, _ = os.Stdout.WriteString(s.Banner + "\n")
+	}
 	a.run()
 	os.Exit(0)
 	return true
@@ -371,6 +386,9 @@ func (a *agent) handle(m message) {
 	case "session/new":
 		if a.script.RequireAuth != "" && a.authed != a.script.RequireAuth {
 			a.fail(m.ID, -32000, "Authentication required")
+			if a.script.ExitAfterNewError {
+				os.Exit(1)
+			}
 			return
 		}
 		a.mu.Lock()
@@ -388,6 +406,10 @@ func (a *agent) handle(m message) {
 		a.sessions[s.id] = s
 		a.mu.Unlock()
 		a.reply(m.ID, a.sessionState(s))
+		if a.script.ModeAfterNew != "" {
+			s.mode = a.script.ModeAfterNew
+			a.update(s.id, map[string]interface{}{"sessionUpdate": "current_mode_update", "currentModeId": a.script.ModeAfterNew})
+		}
 		if a.script.DeafAfterNew {
 			select {}
 		}
@@ -613,6 +635,9 @@ func (a *agent) prompt(m message, t Turn, cancelled <-chan struct{}) {
 	}
 	if t.Error != "" {
 		a.fail(m.ID, -32603, t.Error)
+		if t.ExitAfterReply {
+			os.Exit(1)
+		}
 		return
 	}
 	var lines []string
@@ -668,6 +693,9 @@ func (a *agent) prompt(m message, t Turn, cancelled <-chan struct{}) {
 	if len(lines) > 0 && !t.Quiet {
 		text = append(text, strings.Join(lines, "\n"))
 	}
+	for i := 0; i < t.Chunks; i++ {
+		text = append(text, "x")
+	}
 	for _, chunk := range text {
 		a.update(s.id, map[string]interface{}{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": chunk}})
 	}
@@ -691,6 +719,9 @@ func (a *agent) prompt(m message, t Turn, cancelled <-chan struct{}) {
 		result["usage"] = t.Usage
 	}
 	a.reply(m.ID, result)
+	if t.ExitAfterReply {
+		os.Exit(0)
+	}
 }
 
 func contains(list []string, v string) bool {

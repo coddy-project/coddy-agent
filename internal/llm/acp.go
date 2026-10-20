@@ -270,7 +270,7 @@ func (p *acpProvider) runPrompt(ctx context.Context, proc *acpProcess, sessionID
 			}
 		}
 	}()
-	respCh, err := proc.start(ctx, "session/prompt", acpsdk.PromptRequest{SessionId: acpsdk.SessionId(sessionID), Prompt: acpSDKBlocks(blocks)})
+	respCh, err := proc.startPrompt(ctx, acpsdk.PromptRequest{SessionId: acpsdk.SessionId(sessionID), Prompt: acpSDKBlocks(blocks)})
 	if err != nil {
 		// The line may have gone out before the write failed: what the agent
 		// already reported for the prompt says whether it acted on it.
@@ -385,10 +385,11 @@ func (p *acpProvider) runPrompt(ctx context.Context, proc *acpProcess, sessionID
 	perms.cancelAll()
 	deadline := time.NewTimer(acpCancelWait)
 	defer deadline.Stop()
-	// A write still hanging after a grace means the agent does not read its
-	// input - the prompt, or the cancellation itself, never reached it - and
-	// waiting out the cancellation would wait on nothing.
-	stuck := time.NewTimer(acpWriteGrace)
+	// A write hanging for longer than the grace - the cancellation itself, a
+	// permission answer - means the agent does not read its input, and
+	// waiting out the cancellation would wait on nothing. Checked until the
+	// prompt ends.
+	stuck := time.NewTimer(acpWriteGrace / 4)
 	defer stuck.Stop()
 	// Late updates are not shown, the caller stopped reading, but what they
 	// say about the prompt counts.
@@ -419,6 +420,7 @@ func (p *acpProvider) runPrompt(ctx context.Context, proc *acpProcess, sessionID
 				settle()
 				return fail(cancelErr)
 			}
+			stuck.Reset(acpWriteGrace / 4)
 		case <-deadline.C:
 			settle()
 			out := fail(cancelErr)
@@ -899,11 +901,15 @@ func (a *acpPermissions) handle(ctx context.Context, reply chan<- acpPermissionO
 	go func() {
 		outcome := decide(pctx)
 		a.mu.Lock()
+		_, still := a.pending[reply]
 		delete(a.pending, reply)
 		a.mu.Unlock()
 		cancel()
-		// cancelAll may have answered first: the first answer stands.
-		answer(reply, outcome)
+		if still {
+			// Not taken by cancelAll in the meantime: once a prompt is
+			// cancelled, every request it held is answered cancelled.
+			answer(reply, outcome)
+		}
 		select {
 		case a.settled <- struct{}{}:
 		default:

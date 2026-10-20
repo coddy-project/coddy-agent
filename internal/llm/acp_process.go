@@ -23,11 +23,19 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
 
+// acpMaxLine bounds one line from the agent, as the SDK's reader does: a
+// longer line ends the connection there, and the router below gives it up
+// too, naming why.
+var acpMaxLine = 10 << 20
+
+// errACPDeaf is the write bound running out: the agent stopped reading.
+var errACPDeaf = errors.New("the agent stopped reading its input")
+
+// errACPPromptGivenUp refuses the line of a prompt its caller gave up before
+// the writer had it.
+var errACPPromptGivenUp = errors.New("the prompt was given up before it was sent")
+
 const (
-	// acpMaxLine bounds one line from the agent, as the SDK's reader does: a
-	// longer line ends the connection there, and the router below stops
-	// keeping it whole too.
-	acpMaxLine = 10 << 20
 	// acpStartTimeout bounds spawning the agent, initialize and authenticate:
 	// an agent that installs a package on its first start (OpenCode fetching a
 	// provider module) takes tens of seconds.
@@ -67,11 +75,16 @@ type acpProcess struct {
 	// writes feeds the one goroutine that writes to the agent's stdin, so a
 	// write the agent does not take is bounded rather than held forever.
 	writes chan acpWrite
+	// writeTimeout is acpWriteTimeout as the process started with it.
+	writeTimeout time.Duration
 	// writing is when the write under way was handed over (Unix nanoseconds),
 	// 0 while none is.
 	writing atomic.Int64
 	// writeErr is why a write failed: the connection is unusable then.
 	writeErr atomic.Pointer[error]
+	// lineErr is why the router gave up on a line of the agent's: the SDK
+	// refuses it too and the connection ends.
+	lineErr atomic.Pointer[error]
 
 	mu sync.Mutex
 	// sinks route session/update notifications and permission requests to the
@@ -87,6 +100,11 @@ type acpProcess struct {
 	thoughtSet map[string]string
 	// opened counts the sessions this process opened.
 	opened atomic.Int64
+	// prompts tracks the session/prompt in flight on each ACP session.
+	prompts map[string]*acpPromptTrack
+	// permReplies holds the permission requests the router bound to a
+	// prompt, by their params, until the SDK's handler takes them.
+	permReplies map[string][]acpPermissionRoute
 
 	init acpsdk.InitializeResponse
 
@@ -131,19 +149,22 @@ func startACPProcess(ctx context.Context, spec acpSpec, log *slog.Logger) (*acpP
 		log.Debug("acp agent runs without a kill-on-close job", "agent", spec.label(), "error", err)
 	}
 	p := &acpProcess{
-		spec:       spec,
-		log:        log,
-		cmd:        cmd,
-		stdin:      stdin,
-		closeJob:   closeJob,
-		stderr:     tail,
-		sinks:      map[string]*acpSink{},
-		states:     map[string]*acpSessionState{},
-		defaults:   map[string]acpSessionDefaults{},
-		thoughtSet: map[string]string{},
-		done:       make(chan struct{}),
-		stopped:    make(chan struct{}),
-		writes:     make(chan acpWrite),
+		spec:         spec,
+		log:          log,
+		cmd:          cmd,
+		stdin:        stdin,
+		closeJob:     closeJob,
+		stderr:       tail,
+		sinks:        map[string]*acpSink{},
+		states:       map[string]*acpSessionState{},
+		defaults:     map[string]acpSessionDefaults{},
+		thoughtSet:   map[string]string{},
+		prompts:      map[string]*acpPromptTrack{},
+		permReplies:  map[string][]acpPermissionRoute{},
+		writeTimeout: acpWriteTimeout,
+		done:         make(chan struct{}),
+		stopped:      make(chan struct{}),
+		writes:       make(chan acpWrite),
 	}
 	p.conn = acpsdk.NewConnection(p.handle, acpStdin{p}, &acpRouter{r: stdout, p: p})
 	p.conn.SetLogger(log.With("agent", spec.label()))
@@ -152,10 +173,16 @@ func startACPProcess(ctx context.Context, spec acpSpec, log *slog.Logger) (*acpP
 
 	hctx, cancel := context.WithTimeout(ctx, acpStartTimeout)
 	defer cancel()
+	var initRaw json.RawMessage
 	err = p.call(hctx, "initialize", acpsdk.InitializeRequest{
 		ProtocolVersion: acpsdk.ProtocolVersionNumber,
 		ClientInfo:      &acpsdk.Implementation{Name: "coddy", Title: acpsdk.Ptr("Coddy"), Version: version.Version},
-	}, &p.init)
+	}, &initRaw)
+	if err == nil {
+		if p.init, err = decodeACPInitialize(initRaw); err != nil {
+			err = &ACPError{Kind: ACPErrorStart, Agent: spec.label(), Method: "initialize", Message: "undecodable result: " + err.Error()}
+		}
+	}
 	if err == nil && p.init.ProtocolVersion != acpsdk.ProtocolVersionNumber {
 		err = &ACPError{Kind: ACPErrorStart, Agent: spec.label(), Message: fmt.Sprintf("the agent speaks ACP protocol version %d; Coddy speaks %d", p.init.ProtocolVersion, acpsdk.ProtocolVersionNumber)}
 	}
@@ -214,13 +241,21 @@ func (p *acpProcess) watch() {
 		p.closeJob()
 	}
 	p.mu.Lock()
-	switch werr := p.writeErr.Load(); {
-	case p.closing.Load() && werr == nil:
-		p.exitErr = &ACPError{Kind: ACPErrorExited, Agent: p.spec.label(), Err: errors.New("the agent was stopped")}
-	case werr != nil:
+	// The most telling reason first: a line the connection could not take,
+	// an agent that stopped reading, Coddy stopping it, then how it exited,
+	// and only then a write that failed on its way out.
+	werr, lerr := p.writeErr.Load(), p.lineErr.Load()
+	switch {
+	case lerr != nil:
+		p.exitErr = &ACPError{Kind: ACPErrorExited, Agent: p.spec.label(), Err: *lerr, Stderr: p.stderr.String()}
+	case werr != nil && errors.Is(*werr, errACPDeaf):
 		p.exitErr = &ACPError{Kind: ACPErrorExited, Agent: p.spec.label(), Err: *werr, Stderr: p.stderr.String()}
+	case p.closing.Load():
+		p.exitErr = &ACPError{Kind: ACPErrorExited, Agent: p.spec.label(), Err: errors.New("the agent was stopped")}
 	case waitErr != nil:
 		p.exitErr = &ACPError{Kind: ACPErrorExited, Agent: p.spec.label(), Err: waitErr, Stderr: p.stderr.String()}
+	case werr != nil:
+		p.exitErr = &ACPError{Kind: ACPErrorExited, Agent: p.spec.label(), Err: *werr, Stderr: p.stderr.String()}
 	default:
 		p.exitErr = &ACPError{Kind: ACPErrorExited, Agent: p.spec.label(), Err: errors.New("the agent exited"), Stderr: p.stderr.String()}
 	}
@@ -235,11 +270,13 @@ func (p *acpProcess) watch() {
 	}
 }
 
-// acpRouter is the agent's stdout as the SDK reads it. On the way it routes
-// every session/update notification itself, in the order the agent wrote
-// it: the SDK hands notifications to one queue and requests each to a
+// acpRouter is the agent's stdout as the SDK reads it. On the way it reads
+// every line itself, in the order the agent wrote it, before the SDK does:
+// session/update notifications and session/request_permission requests go
+// to the prompt running on their session then, and the answer of a prompt
+// is kept. The SDK hands notifications to one queue and requests each to a
 // goroutine of its own, so a permission request could otherwise reach its
-// prompt ahead of the tool call it asks about.
+// prompt ahead of the tool call it asks about, or after the prompt ended.
 type acpRouter struct {
 	r       io.Reader
 	p       *acpProcess
@@ -250,6 +287,11 @@ type acpRouter struct {
 func (a *acpRouter) Read(b []byte) (int, error) {
 	n, err := a.r.Read(b)
 	a.scan(b[:n])
+	if err == io.EOF && len(a.partial) > 0 && !a.skip {
+		// A last line with no newline: the SDK's reader takes it too.
+		a.p.route(a.partial)
+		a.partial = nil
+	}
 	return n, err
 }
 
@@ -260,8 +302,8 @@ func (a *acpRouter) scan(chunk []byte) {
 			if !a.skip {
 				a.partial = append(a.partial, chunk...)
 				if len(a.partial) > acpMaxLine {
-					// The SDK refuses such a line and ends the connection.
 					a.partial, a.skip = nil, true
+					a.p.lineTooLong()
 				}
 			}
 			return
@@ -272,30 +314,52 @@ func (a *acpRouter) scan(chunk []byte) {
 			a.partial = nil
 		}
 		if !a.skip {
-			a.p.route(line)
+			if len(line) > acpMaxLine {
+				a.p.lineTooLong()
+			} else {
+				a.p.route(line)
+			}
 		}
 		a.skip = false
 		chunk = chunk[i+1:]
 	}
 }
 
-// route takes one line of the agent's: a session/update notification goes
-// to the session's state and to the prompt running on it; anything else is
-// the SDK's.
-func (p *acpProcess) route(line []byte) {
-	if !bytes.Contains(line, []byte(`"session/update"`)) {
-		return
+// lineTooLong ends an agent whose line the SDK refuses: it would block on
+// its stdout while the connection is gone.
+func (p *acpProcess) lineTooLong() {
+	err := fmt.Errorf("the agent wrote a JSON-RPC line longer than %d bytes", acpMaxLine)
+	if p.lineErr.CompareAndSwap(nil, &err) && p.cmd != nil {
+		go func() { _ = platform.TerminateProcessGroup(p.cmd, acpTermGrace) }()
 	}
+}
+
+// route takes one line of the agent's, read before the SDK reads it.
+func (p *acpProcess) route(line []byte) {
 	var m struct {
 		ID     json.RawMessage `json:"id"`
 		Method string          `json:"method"`
 		Params json.RawMessage `json:"params"`
+		Result json.RawMessage `json:"result"`
+		Error  *acpRPCError    `json:"error"`
 	}
-	if err := json.Unmarshal(line, &m); err != nil || m.Method != "session/update" || (len(m.ID) > 0 && string(m.ID) != "null") {
+	if err := json.Unmarshal(line, &m); err != nil {
 		return
 	}
+	hasID := len(m.ID) > 0 && string(m.ID) != "null"
+	switch {
+	case m.Method == "session/update" && !hasID:
+		p.routeUpdate(m.Params)
+	case m.Method == "session/request_permission" && hasID:
+		p.routePermission(m.Params)
+	case m.Method == "" && hasID:
+		p.noteAnswer(m.ID, acpMessage{Result: m.Result, Error: m.Error})
+	}
+}
+
+func (p *acpProcess) routeUpdate(params json.RawMessage) {
 	var n acpSessionNotification
-	if err := json.Unmarshal(m.Params, &n); err != nil {
+	if err := json.Unmarshal(params, &n); err != nil {
 		return
 	}
 	var u acpSessionUpdate
@@ -310,30 +374,78 @@ func (p *acpProcess) route(line []byte) {
 	p.mu.Unlock()
 }
 
+// acpPermissionRoute is a permission request as the router bound it: the
+// prompt's reply channel, or none when no prompt ran on its session.
+type acpPermissionRoute struct {
+	reply  chan acpPermissionOutcome
+	routed bool
+}
+
+// routePermission binds a permission request to the prompt running on its
+// session now, and files the binding for the SDK's handler, which answers it.
+func (p *acpProcess) routePermission(params json.RawMessage) {
+	var req acpPermissionRequest
+	if err := json.Unmarshal(params, &req); err != nil {
+		return // the handler answers invalid params
+	}
+	reply := make(chan acpPermissionOutcome, 1)
+	key := string(params)
+	p.mu.Lock()
+	sink := p.sinks[req.SessionID]
+	if sink != nil {
+		sink.push(acpEvent{permission: &req, reply: reply})
+	}
+	p.permReplies[key] = append(p.permReplies[key], acpPermissionRoute{reply: reply, routed: sink != nil})
+	p.mu.Unlock()
+}
+
+// noteAnswer keeps the answer of a prompt in flight: the SDK gives up an
+// answer the agent's exit follows too closely.
+func (p *acpProcess) noteAnswer(id json.RawMessage, m acpMessage) {
+	key := string(bytes.TrimSpace(id))
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, tr := range p.prompts {
+		if tr.id == key && tr.answer == nil {
+			tr.answer = &m
+		}
+	}
+}
+
 // handle answers what the agent asks of the client through the SDK. Its
-// session/update notifications were routed on the way in (acpRouter).
+// session/update notifications were routed on the way in, and its
+// permission requests bound to their prompt there.
 func (p *acpProcess) handle(ctx context.Context, method string, params json.RawMessage) (any, *acpsdk.RequestError) {
 	switch method {
 	case "session/update":
 		return nil, nil
 	case "session/request_permission":
-		var req acpPermissionRequest
-		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, acpsdk.NewInvalidParams(map[string]any{"error": err.Error()})
-		}
-		reply := make(chan acpPermissionOutcome, 1)
+		key := string(params)
 		p.mu.Lock()
-		sink := p.sinks[req.SessionID]
-		if sink != nil {
-			sink.push(acpEvent{permission: &req, reply: reply})
+		routes := p.permReplies[key]
+		var rt acpPermissionRoute
+		found := len(routes) > 0
+		if found {
+			rt = routes[0]
+			if len(routes) == 1 {
+				delete(p.permReplies, key)
+			} else {
+				p.permReplies[key] = routes[1:]
+			}
 		}
 		p.mu.Unlock()
-		if sink == nil {
-			// No prompt runs on that session: nobody can answer.
+		if !found {
+			var req acpPermissionRequest
+			if err := json.Unmarshal(params, &req); err != nil {
+				return nil, acpsdk.NewInvalidParams(map[string]any{"error": err.Error()})
+			}
+		}
+		if !rt.routed {
+			// No prompt ran on that session: nobody can answer.
 			return acpPermissionResponse(acpPermissionOutcome{Outcome: "cancelled"}), nil
 		}
 		select {
-		case o := <-reply:
+		case o := <-rt.reply:
 			return acpPermissionResponse(o), nil
 		case <-ctx.Done():
 		case <-p.done:
@@ -399,6 +511,7 @@ func (p *acpProcess) noteState(sessionID string, u acpSessionUpdate) {
 }
 
 // call sends a request and decodes its result into out (nil discards it).
+// It returns when its context ends, whatever the agent does with the line.
 func (p *acpProcess) call(ctx context.Context, method string, params, out interface{}) error {
 	// A caller that already gave up hands the agent nothing.
 	if err := ctx.Err(); err != nil {
@@ -407,12 +520,41 @@ func (p *acpProcess) call(ctx context.Context, method string, params, out interf
 	if !p.alive() {
 		return p.exitError()
 	}
-	raw, err := acpsdk.SendRequest[json.RawMessage](p.conn, ctx, method, params)
-	if err != nil {
-		return p.callError(ctx, method, err)
+	type result struct {
+		raw json.RawMessage
+		err error
 	}
-	if out != nil && len(raw) > 0 && string(raw) != "null" {
-		if err := json.Unmarshal(raw, out); err != nil {
+	done := make(chan result, 1)
+	go func() {
+		raw, err := acpsdk.SendRequest[json.RawMessage](p.conn, ctx, method, params)
+		done <- result{raw, err}
+	}()
+	var r result
+	select {
+	case r = <-done:
+	case <-ctx.Done():
+		// The SDK writes without a context: a line that cannot go out holds
+		// the request. An agent that has not taken a line for the grace does
+		// not read its input and is stopped, which ends the request too.
+		go func() {
+			grace := time.NewTimer(acpWriteGrace)
+			defer grace.Stop()
+			select {
+			case <-done:
+			case <-grace.C:
+				if p.writeStuck(acpWriteGrace) {
+					p.log.Warn("acp agent does not read its input; stopping it", "agent", p.spec.label())
+					p.stop()
+				}
+			}
+		}()
+		return ctx.Err()
+	}
+	if r.err != nil {
+		return p.callError(ctx, method, r.err)
+	}
+	if out != nil && len(r.raw) > 0 && string(r.raw) != "null" {
+		if err := json.Unmarshal(r.raw, out); err != nil {
 			return &ACPError{Kind: ACPErrorRPC, Agent: p.spec.label(), Method: method, Message: "undecodable result: " + err.Error()}
 		}
 	}
@@ -420,62 +562,137 @@ func (p *acpProcess) call(ctx context.Context, method string, params, out interf
 }
 
 // callError tells apart why a request of ours failed: our caller gave up,
-// the agent is gone, or the agent answered with an error.
+// the connection is gone, or the agent answered with an error. It goes by
+// the error itself, never by whether the agent has exited since: an agent
+// may answer with an error and exit right after.
 func (p *acpProcess) callError(ctx context.Context, method string, err error) error {
 	if cerr := ctx.Err(); cerr != nil {
 		return cerr
 	}
-	if p.gone() {
-		return p.exitError()
-	}
 	var re *acpsdk.RequestError
-	if errors.As(err, &re) {
+	if errors.As(err, &re) && !p.disconnected(re) {
 		return p.rpcError(method, acpRPCErrorOf(re))
+	}
+	if re != nil {
+		return p.exitError()
 	}
 	return &ACPError{Kind: ACPErrorRPC, Agent: p.spec.label(), Method: method, Err: err}
 }
 
-// gone reports whether the connection ended or a write failed: a request
-// that failed then failed for that, whatever the SDK made of it.
-func (p *acpProcess) gone() bool {
+// disconnected reports whether an error the SDK returned for a request is
+// the connection's end (or a write that failed) rather than the agent's
+// answer.
+func (p *acpProcess) disconnected(re *acpsdk.RequestError) bool {
 	if p.writeErr.Load() != nil {
 		return true
 	}
-	select {
-	case <-p.conn.Done():
-		return true
-	default:
+	if re.Code != -32603 {
 		return false
 	}
+	if d, ok := re.Data.(map[string]any); ok {
+		if msg, _ := d["error"].(string); strings.HasPrefix(msg, "peer disconnected") {
+			return true
+		}
+	}
+	return false
 }
 
-// start sends a request without waiting for its response: the returned
-// channel yields it, or closes when the agent is gone. The request belongs
-// to the agent from then on - no caller's cancellation takes it back - so a
-// prompt that ignores its cancellation still yields its answer to whoever
-// waits for it.
-func (p *acpProcess) start(ctx context.Context, method string, params interface{}) (<-chan acpMessage, error) {
+// acpPromptTrack follows the session/prompt in flight on one ACP session.
+type acpPromptTrack struct {
+	// sent closes once the prompt's line is out, or will never be.
+	sent     chan struct{}
+	sentOnce sync.Once
+	// handed: the writer has the line. given: the caller gave up first,
+	// and the line is never written.
+	handed, given bool
+	// id is the request's JSON-RPC id once written; answer is its response
+	// as the router read it.
+	id     string
+	answer *acpMessage
+}
+
+func (t *acpPromptTrack) markSent() { t.sentOnce.Do(func() { close(t.sent) }) }
+
+// startPrompt sends a session/prompt and returns once its line is out: the
+// returned channel yields its response, or closes when the agent is gone. A
+// cancellation sent after it reaches the agent after the prompt. The prompt
+// belongs to the agent from then on - no caller's cancellation takes it back
+// - so a prompt that ignores its cancellation still yields its answer to
+// whoever waits for it. A caller that gives up before the line is out sends
+// nothing.
+func (p *acpProcess) startPrompt(ctx context.Context, req acpsdk.PromptRequest) (<-chan acpMessage, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if !p.alive() {
 		return nil, p.exitError()
 	}
+	sid := string(req.SessionId)
+	tr := &acpPromptTrack{sent: make(chan struct{})}
+	p.mu.Lock()
+	p.prompts[sid] = tr
+	p.mu.Unlock()
 	ch := make(chan acpMessage, 1)
 	go func() {
-		raw, err := acpsdk.SendRequest[json.RawMessage](p.conn, context.Background(), method, params)
+		defer tr.markSent()
+		defer func() {
+			p.mu.Lock()
+			if p.prompts[sid] == tr {
+				delete(p.prompts, sid)
+			}
+			p.mu.Unlock()
+		}()
+		raw, err := acpsdk.SendRequest[json.RawMessage](p.conn, context.Background(), "session/prompt", req)
 		if err == nil {
 			ch <- acpMessage{Result: raw}
 			return
 		}
 		var re *acpsdk.RequestError
-		if !p.gone() && errors.As(err, &re) {
+		if errors.As(err, &re) && !p.disconnected(re) {
 			ch <- acpMessage{Error: acpRPCErrorOf(re)}
+			return
+		}
+		// The SDK gives up an answer the agent's exit followed too closely;
+		// the router read it.
+		p.mu.Lock()
+		ans := tr.answer
+		p.mu.Unlock()
+		if ans != nil {
+			ch <- *ans
 			return
 		}
 		close(ch)
 	}()
-	return ch, nil
+	select {
+	case <-tr.sent:
+		return ch, nil
+	case <-p.done:
+		return nil, p.exitError()
+	case <-ctx.Done():
+	}
+	p.mu.Lock()
+	handed := tr.handed
+	if !handed {
+		tr.given = true
+	}
+	p.mu.Unlock()
+	if !handed {
+		return nil, ctx.Err()
+	}
+	// The line is with the writer: an agent that reads takes it within the
+	// grace, and the caller then cancels it the protocol's way.
+	grace := time.NewTimer(acpWriteGrace)
+	defer grace.Stop()
+	select {
+	case <-tr.sent:
+		return ch, nil
+	case <-p.done:
+		return nil, p.exitError()
+	case <-grace.C:
+		p.log.Warn("acp agent does not read its input; stopping it", "agent", p.spec.label())
+		go p.stop()
+		return nil, ctx.Err()
+	}
 }
 
 // notify sends a notification without waiting for the agent to read it.
@@ -522,16 +739,25 @@ func (s acpStdin) Write(b []byte) (int, error) { return s.p.write(b) }
 // write hands one message to the writer and waits for it under the write
 // bound. A message once with the writer cannot be taken back - half a line
 // would corrupt the stream - so an agent that does not take it in time is
-// stopped, and so is one whose stdin fails.
+// stopped, and so is one whose stdin fails. The line of a prompt is marked
+// out once written, and refused when its caller gave it up first.
 func (p *acpProcess) write(b []byte) (int, error) {
 	if err := p.writeErr.Load(); err != nil {
 		return 0, *err
 	}
+	tr, err := p.handPrompt(b)
+	if err != nil {
+		return 0, err
+	}
 	w := acpWrite{line: append([]byte(nil), b...), done: make(chan error, 1)}
-	bound := time.NewTimer(acpWriteTimeout)
+	bound := time.NewTimer(p.writeTimeout)
 	defer bound.Stop()
 	fail := func(err error) (int, error) {
-		p.writeErr.CompareAndSwap(nil, &err)
+		// A write that fails because Coddy is stopping the agent says
+		// nothing of why the agent ended.
+		if !p.closing.Load() {
+			p.writeErr.CompareAndSwap(nil, &err)
+		}
 		go p.stop()
 		return 0, err
 	}
@@ -542,28 +768,65 @@ func (p *acpProcess) write(b []byte) (int, error) {
 	case <-p.done:
 		return 0, p.exitError()
 	case <-bound.C:
-		p.log.Warn("acp agent took no input for the write bound; stopping it", "agent", p.spec.label(), "bound", acpWriteTimeout)
-		return fail(errors.New("the agent stopped reading its input"))
+		p.log.Warn("acp agent took no input for the write bound; stopping it", "agent", p.spec.label(), "bound", p.writeTimeout)
+		return fail(errACPDeaf)
 	}
 	select {
 	case err := <-w.done:
 		if err != nil {
 			return fail(err)
 		}
+		if tr != nil {
+			tr.markSent()
+		}
 		return len(b), nil
 	case <-p.done:
 		select {
 		case err := <-w.done:
 			if err == nil {
+				if tr != nil {
+					tr.markSent()
+				}
 				return len(b), nil
 			}
 		default:
 		}
 		return 0, p.exitError()
 	case <-bound.C:
-		p.log.Warn("acp agent took no input for the write bound; stopping it", "agent", p.spec.label(), "bound", acpWriteTimeout)
-		return fail(errors.New("the agent stopped reading its input"))
+		p.log.Warn("acp agent took no input for the write bound; stopping it", "agent", p.spec.label(), "bound", p.writeTimeout)
+		return fail(errACPDeaf)
 	}
+}
+
+// handPrompt finds the prompt a line carries, if any: it notes the
+// request's id and that the writer has the line, or refuses a line its
+// caller gave up first.
+func (p *acpProcess) handPrompt(b []byte) (*acpPromptTrack, error) {
+	if !bytes.Contains(b, []byte(`"session/prompt"`)) {
+		return nil, nil
+	}
+	var m struct {
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
+		Params struct {
+			SessionID string `json:"sessionId"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(b, &m); err != nil || m.Method != "session/prompt" {
+		return nil, nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	tr := p.prompts[m.Params.SessionID]
+	if tr == nil {
+		return nil, nil
+	}
+	if tr.given {
+		return nil, errACPPromptGivenUp
+	}
+	tr.handed = true
+	tr.id = string(bytes.TrimSpace(m.ID))
+	return tr, nil
 }
 
 // writeStuck reports whether a write has waited on the agent for longer
@@ -586,6 +849,53 @@ func (p *acpProcess) rpcError(method string, e *acpRPCError) *ACPError {
 		}
 	}
 	return out
+}
+
+// decodeACPInitialize reads an initialize result: the SDK's type when the
+// result fits it, else the few fields the provider uses, read leniently, so
+// a field of a shape the SDK's schema does not expect does not cost the
+// agent.
+func decodeACPInitialize(raw json.RawMessage) (acpsdk.InitializeResponse, error) {
+	var out acpsdk.InitializeResponse
+	if err := json.Unmarshal(raw, &out); err == nil {
+		return out, nil
+	}
+	var loose struct {
+		ProtocolVersion   json.RawMessage `json:"protocolVersion"`
+		AgentCapabilities struct {
+			PromptCapabilities struct {
+				Image json.RawMessage `json:"image"`
+			} `json:"promptCapabilities"`
+			SessionCapabilities struct {
+				Close json.RawMessage `json:"close"`
+			} `json:"sessionCapabilities"`
+		} `json:"agentCapabilities"`
+		AuthMethods []json.RawMessage `json:"authMethods"`
+	}
+	if err := json.Unmarshal(raw, &loose); err != nil {
+		return out, err
+	}
+	var version int
+	if err := json.Unmarshal(loose.ProtocolVersion, &version); err != nil {
+		return out, fmt.Errorf("protocolVersion: %w", err)
+	}
+	out.ProtocolVersion = acpsdk.ProtocolVersion(version)
+	out.AgentCapabilities.PromptCapabilities.Image = string(loose.AgentCapabilities.PromptCapabilities.Image) == "true"
+	switch c := string(bytes.TrimSpace(loose.AgentCapabilities.SessionCapabilities.Close)); c {
+	case "", "null", "false":
+	default:
+		out.AgentCapabilities.SessionCapabilities.Close = &acpsdk.SessionCloseCapabilities{}
+	}
+	for _, m := range loose.AuthMethods {
+		var a struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(m, &a) == nil && a.ID != "" {
+			out.AuthMethods = append(out.AuthMethods, acpsdk.AuthMethod{Agent: &acpsdk.AuthMethodAgent{Id: a.ID, Name: a.Name}})
+		}
+	}
+	return out, nil
 }
 
 // acpAuthMethodID is the id of an authentication method, whichever kind.

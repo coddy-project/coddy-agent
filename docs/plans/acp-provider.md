@@ -339,24 +339,46 @@ the routing of responses, notifications and requests, and a declaration of every
 and the provider keeps what is Coddy's.
 
 - The SDK's `Connection` is the JSON-RPC peer over the agent's stdio: ids, pending requests, the agent's
-  requests answered from a handler on goroutines of their own, a response handed over only after the
-  notifications that preceded it. Every request Coddy sends is the SDK's type (`initialize`, `authenticate`,
-  `session/new`, `session/prompt`, `session/cancel`, `session/close`, `session/set_mode`,
-  `session/set_config_option`), and so are the initialize and prompt results and Coddy's answer to a
+  requests answered from a handler on goroutines of their own. Every request Coddy sends is the SDK's type
+  (`initialize`, `authenticate`, `session/new`, `session/prompt`, `session/cancel`, `session/close`,
+  `session/set_mode`, `session/set_config_option`), and so are the prompt result and Coddy's answer to a
   permission request.
-- Decoded by the provider itself, leniently: a session's state (an option of a type the SDK's schema does not
-  know fails its whole response there, and the older `models` with `session/set_model` are not in it),
+- Decoded by the provider itself, leniently: the initialize result when it does not fit the SDK's type (a
+  capability of another shape, `close: true`), a session's state (an option of a type the SDK's schema does
+  not know fails its whole response there, and the older `models` with `session/set_model` are not in it),
   `session/update` (Coddy as the agent streams reasoning as a message chunk of type `reasoning`) and the
   permission request's tool call (its content and raw input are only shown).
-- The SDK hands notifications to one queue and the agent's requests each to a goroutine, so a permission
-  request could reach its prompt ahead of the tool call it asks about. The agent's stdout reaches the SDK
-  through a reader that routes every `session/update` itself, line by line in the order the agent wrote it;
-  everything else is the SDK's.
-- The SDK writes without a context. Its writer is the provider's: one goroutine writes to the agent's stdin,
-  every write is bounded (`acpWriteTimeout`), and a write that fails or runs out its bound stops the agent. A
-  call whose context already ended sends nothing; a cancelled prompt whose writes still hang after
-  `acpWriteGrace` stops the agent instead of waiting out the cancellation. The prompt itself is sent under no
-  caller's context, so a prompt that ignores its cancellation still yields its answer to the conversation
-  that waits for it.
-- A line from the agent is bounded at 10 MiB, the SDK's limit (it was 32 MiB). The process, its group, its
-  stderr, the pool, the conversations and everything the provider decides stay as they were.
+- Order. The SDK hands notifications to one queue and the agent's requests each to a goroutine, so a
+  permission request could reach its prompt ahead of the tool call it asks about, or after the prompt ended.
+  The agent's stdout reaches the SDK through a router that reads every line first, in the order the agent
+  wrote it: a `session/update` goes to the prompt running on its session, a `session/request_permission` is
+  bound to that prompt then (the SDK's handler takes the binding by the request's params and answers from
+  it), and the answer of a prompt in flight is kept. A line the SDK reads, the router reads too: an escaped
+  `\/` in the method, CRLF, a last line with no newline.
+- Order the other way. `startPrompt` returns once the prompt's line is out, so a `session/cancel` sent
+  after it reaches the agent after the prompt; a caller that gives up before the writer has the line sends
+  nothing (the writer refuses it). The prompt itself is sent under no caller's context, so a prompt that
+  ignores its cancellation still yields its answer to the conversation that waits for it.
+- Answers an exit follows. The SDK hands a response over only after the notifications before it were
+  handled, and gives the response up when the connection ends meanwhile. The prompt's answer is then the
+  one the router kept. A request's error is classified by the error itself (the SDK's "peer disconnected"
+  is the connection's end), never by whether the agent exited since, so an error or an authentication
+  answer followed by the agent's exit stays that answer.
+- Writes. The SDK writes without a context. Its writer is the provider's: one goroutine writes to the
+  agent's stdin, every write is bounded (`acpWriteTimeout`, taken when the process starts), and a write that
+  fails or runs out its bound stops the agent. A call returns when its context ends; a write that still
+  hangs after `acpWriteGrace` stops the agent. While a cancelled prompt waits for its end, a write that
+  hangs for longer than the grace (the cancellation itself, a permission answer) stops the agent too.
+- A line from the agent is bounded at 10 MiB, the SDK's limit (it was 32 MiB): a longer one ends the
+  connection, the agent is terminated at once and the error says why. The reason an agent ended is the most
+  telling one: a line too long, an agent that stopped reading, Coddy stopping it, its exit status, then a
+  write that failed on the way out.
+- The process, its group, its stderr, the pool, the conversations and the provider's decisions stay as they
+  were.
+
+The move was reviewed by the same three reviewers, who found the order of a cancellation against its
+prompt, answers lost to the agent's exit, a cancelled call waiting out the write bound, a person's answer
+landing after the prompt was cancelled, permission requests bound late, the stuck-write check running once,
+an escaped method, a strict initialize, the reason of a too-long line, the reason of an exit and a last
+line with no newline. Each is fixed as described above; `internal/llm/acp_sdk_test.go` holds a test for each but
+the repeated stuck-write check and the order of the exit reasons.
