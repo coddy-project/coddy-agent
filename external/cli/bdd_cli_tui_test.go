@@ -131,10 +131,6 @@ type cliTUIState struct {
 	runCancel context.CancelFunc
 	appDone   chan error
 
-	// modelWritesFail makes the failingModelWrites in front of the app's
-	// backend refuse its model (model_memory scenarios).
-	modelWritesFail atomic.Bool
-
 	// bgSessionID and bgTaskID name the pooled command a scenario started.
 	bgSessionID string
 	bgTaskID    string
@@ -219,7 +215,6 @@ func (s *cliTUIState) reset() {
 	s.home, s.cwd, s.homes = "", "", nil
 	s.cfg, s.store, s.app = nil, nil, nil
 	s.permOutcome, s.permOption = "", ""
-	s.modelWritesFail.Store(false)
 	s.detachedAnswers = nil
 	s.questionAns = nil
 	s.prompts = nil

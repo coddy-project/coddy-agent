@@ -113,10 +113,14 @@ func (a *App) rememberModel(id string) {
 //
 // The write is synchronous: the caller applies the startup options (--model)
 // after it, and a write left to a goroutine could land after them and replace
-// the operator's explicit choice (issue #542). Over --remote it is one or two
-// HTTP round trips before the first frame. res.ConfigOptions becomes the
-// options the write returns, so a caller that adopts them next shows the model
-// the session is on, not the one it was created with.
+// the operator's explicit choice (issue #542). The cost is waiting for it.
+// Locally that is the manager call. Over --remote the model catalog (GET
+// /v1/models and /coddy/info) is already loaded by the session/new that made
+// res; what this adds, only when the initial pick differs from the model the
+// session was created with, is the one PATCH of the selected model, bounded by
+// the REST timeout (30 s). res.ConfigOptions becomes the options the write
+// returns, so a caller that adopts them next shows the model the session is on,
+// not the one it was created with.
 //
 // A refused write is returned, not reported: the session then runs on the
 // model it was created with, and the caller tells the operator with

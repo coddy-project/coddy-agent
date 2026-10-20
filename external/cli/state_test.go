@@ -8,8 +8,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -83,26 +87,80 @@ func TestPickInitialModel(t *testing.T) {
 	}
 }
 
-// lateModelWriteDelay is how long lateModelWrites holds a write back: far
-// longer than the rest of a startup takes, so a writer that is not waited for
-// always loses the race it is meant to lose.
-const lateModelWriteDelay = 200 * time.Millisecond
-
-// lateModelWrites holds the write of one model into a session back by delay,
-// the way a goroutine the scheduler runs late would reach the manager. It
-// orders the two writers of a console session's model deterministically: a
-// startup that does not wait for the write sees it land after everything else.
-type lateModelWrites struct {
+// modelWriteTrace sits in front of the manager and records the writes of a
+// model into a session in the order they land. It can hold the write of one
+// model back until the test lets it go: that is how a test forces the order
+// the lost race of issue #542 needed, the remembered model's write reaching the
+// manager after everything the startup does without waiting for it. The hold
+// is a channel, not a delay, so the order does not depend on how long the rest
+// of the startup takes.
+type modelWriteTrace struct {
 	backend
-	model string
-	delay time.Duration
+	held string
+
+	entered   chan struct{}
+	enterOnce sync.Once
+	release   chan struct{}
+	letOnce   sync.Once
+
+	mu     sync.Mutex
+	landed []string
 }
 
-func (l lateModelWrites) HandleSessionSetConfigOption(ctx context.Context, p acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error) {
-	if p.ConfigID == "model" && p.Value == l.model {
-		time.Sleep(l.delay)
+// newModelWriteTrace holds back the write of held, until letGo. The hold is
+// also let go when the test ends, so a failed test leaves no write parked.
+func newModelWriteTrace(t *testing.T, held string) *modelWriteTrace {
+	m := &modelWriteTrace{held: held, entered: make(chan struct{}), release: make(chan struct{})}
+	t.Cleanup(m.letGo)
+	return m
+}
+
+// around puts the trace in front of b: the wrap newModelStartupApp takes.
+func (m *modelWriteTrace) around(b backend) backend {
+	m.backend = b
+	return m
+}
+
+func (m *modelWriteTrace) HandleSessionSetConfigOption(ctx context.Context, p acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error) {
+	if p.ConfigID != "model" {
+		return m.backend.HandleSessionSetConfigOption(ctx, p)
 	}
-	return l.backend.HandleSessionSetConfigOption(ctx, p)
+	if p.Value == m.held {
+		m.enterOnce.Do(func() { close(m.entered) })
+		select {
+		case <-m.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	res, err := m.backend.HandleSessionSetConfigOption(ctx, p)
+	if err == nil {
+		m.mu.Lock()
+		m.landed = append(m.landed, p.Value)
+		m.mu.Unlock()
+	}
+	return res, err
+}
+
+// requireMade fails the test unless the held write has been made: it is on its
+// way to the manager and waits for letGo.
+func (m *modelWriteTrace) requireMade(t *testing.T) {
+	t.Helper()
+	select {
+	case <-m.entered:
+	default:
+		t.Fatalf("the write of %q was never made", m.held)
+	}
+}
+
+// letGo lets the held write reach the manager.
+func (m *modelWriteTrace) letGo() { m.letOnce.Do(func() { close(m.release) }) }
+
+// writes is the models written into a session, in the order the writes landed.
+func (m *modelWriteTrace) writes() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return slices.Clone(m.landed)
 }
 
 // failingModelWrites refuses the write of one model into a session while fail
@@ -130,9 +188,9 @@ const (
 
 // newModelStartupApp builds a console over a real manager in a temp home with
 // the three models above, agent.model on the last. remembered is what the
-// console's state file holds ("" for a first use); the write of late into a
-// session is held back. The app is not started.
-func newModelStartupApp(t *testing.T, remembered, late string) *App {
+// console's state file holds ("" for a first use); wrap, when set, puts a
+// backend in front of the manager. The app is not started.
+func newModelStartupApp(t *testing.T, remembered string, wrap func(backend) backend) *App {
 	t.Helper()
 	home := t.TempDir()
 	cfg := &config.Config{
@@ -153,7 +211,11 @@ func newModelStartupApp(t *testing.T, remembered, late string) *App {
 	store := &session.FileStore{Root: filepath.Join(home, "sessions")}
 	lateSender := &lateBoundSender{}
 	mgr := session.NewManager(cfg, lateSender, nil, slog.New(slog.DiscardHandler), home, store)
-	app := newApp(cfg, lateModelWrites{backend: mgr, model: late, delay: lateModelWriteDelay}, slog.New(slog.DiscardHandler), &bddTerminal{cols: 100, rows: 35}, "dark", true)
+	var be backend = mgr
+	if wrap != nil {
+		be = wrap(mgr)
+	}
+	app := newApp(cfg, be, slog.New(slog.DiscardHandler), &bddTerminal{cols: 100, rows: 35}, "dark", true)
 	lateSender.inner = app.Sender()
 	// Registered after TempDir, so it runs first: no write may be under way
 	// when the home is removed.
@@ -170,11 +232,57 @@ func sessionModel(t *testing.T, a *App) string {
 	return st.EffectiveModelID(a.config())
 }
 
+// startupVariant is one way the console opens its first session.
+type startupVariant struct {
+	name   string
+	resume bool
+	// cancelPicker leaves a session to resume in the folder and cancels the
+	// picker that offers it: the picker's other way to a new session.
+	cancelPicker bool
+}
+
+var startupVariants = []startupVariant{
+	{name: "new session"},
+	{name: "resume with no session to resume", resume: true},
+	{name: "resume picker cancelled", resume: true, cancelPicker: true},
+}
+
+// run starts the console the way coddy does before raw mode - Start, then
+// after (the command line's options) when there is one - in a goroutine of its
+// own, and returns the channel that carries the first error or nil.
+func (v startupVariant) run(t *testing.T, app *App, after func(ctx context.Context) error) <-chan error {
+	t.Helper()
+	if v.cancelPicker {
+		home := app.config().Paths.Home
+		writeSnapshotFixture(t, filepath.Join(home, "sessions"), "sess_prior", home, time.Now().Add(-time.Hour))
+	}
+	ctx := context.Background()
+	done := make(chan error, 1)
+	go func() {
+		if err := app.Start(ctx, "", v.resume); err != nil {
+			done <- err
+			return
+		}
+		if after == nil {
+			done <- nil
+			return
+		}
+		done <- after(ctx)
+	}()
+	if v.cancelPicker {
+		// The picker reads the keys in order, so the key may be sent before it
+		// has opened: it is read once the picker is up.
+		app.OnTerminalInput([]byte("\x1b"))
+	}
+	return done
+}
+
 // The console's initial model is on the session, and in what the console
-// shows, when Start returns - never a write still on its way - for a new
-// session and for the one the resume picker opens when there is none to resume.
+// shows, when Start returns - never a write still on its way. The write is held
+// at the manager until the test lets it go, so a Start that does not wait for
+// it is caught whatever the scheduler does.
 func TestStartAppliesTheInitialModelBeforeItReturns(t *testing.T) {
-	cases := []struct {
+	picks := []struct {
 		name       string
 		remembered string
 		want       string
@@ -182,87 +290,205 @@ func TestStartAppliesTheInitialModelBeforeItReturns(t *testing.T) {
 		{name: "remembered pick", remembered: startupRemembered, want: startupRemembered},
 		{name: "first use is the alphabetical first", remembered: "", want: startupAlphabetical},
 	}
-	for _, tc := range cases {
-		for _, resume := range []bool{false, true} {
-			name := tc.name
-			if resume {
-				name += " with resume"
-			}
-			t.Run(name, func(t *testing.T) {
-				app := newModelStartupApp(t, tc.remembered, tc.want)
-				if err := app.Start(context.Background(), "", resume); err != nil {
-					t.Fatal(err)
-				}
-				if got := sessionModel(t, app); got != tc.want {
-					t.Fatalf("session model right after Start = %q, want %q", got, tc.want)
-				}
-				if app.modelID != tc.want {
-					t.Fatalf("model the console shows right after Start = %q, want %q", app.modelID, tc.want)
-				}
+	for _, pick := range picks {
+		for _, v := range startupVariants {
+			t.Run(pick.name+"/"+v.name, func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					trace := newModelWriteTrace(t, pick.want)
+					app := newModelStartupApp(t, pick.remembered, trace.around)
+					started := v.run(t, app, nil)
+					// Everything Start does without the write is done: it has
+					// returned, or it waits for the write.
+					synctest.Wait()
+					trace.requireMade(t)
+					select {
+					case err := <-started:
+						t.Fatalf("Start returned (error %v) while the write of the initial model %q was still on its way", err, pick.want)
+					default:
+					}
+					trace.letGo()
+					if err := <-started; err != nil {
+						t.Fatal(err)
+					}
+					if got := sessionModel(t, app); got != pick.want {
+						t.Fatalf("session model right after Start = %q, want %q", got, pick.want)
+					}
+					if app.modelID != pick.want {
+						t.Fatalf("model the console shows right after Start = %q, want %q", app.modelID, pick.want)
+					}
+				})
 			})
 		}
 	}
 }
 
-// --model is the operator's choice for the run: it wins over the remembered
-// model whatever order the scheduler gives the two writes.
+// --model is the operator's choice for the run: it is written after the
+// remembered model whatever the scheduler does. The write of the remembered
+// model is held at the manager until everything the startup does without it is
+// done - the worst order a late goroutine could give - and the writes must
+// still land remembered first, --model last.
 func TestStartupModelFlagBeatsTheRememberedModel(t *testing.T) {
-	for _, resume := range []bool{false, true} {
-		name := "new session"
-		if resume {
-			name = "resume"
+	for _, v := range startupVariants {
+		t.Run(v.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				trace := newModelWriteTrace(t, startupRemembered)
+				app := newModelStartupApp(t, startupRemembered, trace.around)
+				done := v.run(t, app, func(ctx context.Context) error {
+					return app.ApplyStartupOptions(ctx, startupAlphabetical, "", "")
+				})
+				// The startup has applied --model, or waits for the write of
+				// the remembered model.
+				synctest.Wait()
+				trace.requireMade(t)
+				trace.letGo()
+				if err := <-done; err != nil {
+					t.Fatal(err)
+				}
+				// Every write the startup started has finished.
+				app.JoinWorkers(5 * time.Second)
+				if got, want := trace.writes(), []string{startupRemembered, startupAlphabetical}; !slices.Equal(got, want) {
+					t.Fatalf("model writes landed in the order %v, want %v", got, want)
+				}
+				if got := sessionModel(t, app); got != startupAlphabetical {
+					t.Fatalf("session model = %q, want the --model value %q", got, startupAlphabetical)
+				}
+				if app.modelID != startupAlphabetical {
+					t.Fatalf("model the console shows = %q, want %q", app.modelID, startupAlphabetical)
+				}
+			})
+		})
+	}
+}
+
+// refusalText is what the console tells the operator when the backend refuses
+// the write of the remembered model.
+const refusalText = "model: provider refused " + startupRemembered
+
+// drainUpdates takes what is queued for the UI loop.
+func drainUpdates(a *App) []updateMsg {
+	var out []updateMsg
+	for {
+		select {
+		case m := <-a.updatesCh:
+			out = append(out, m)
+		default:
+			return out
 		}
-		t.Run(name, func(t *testing.T) {
-			app := newModelStartupApp(t, startupRemembered, startupRemembered)
-			ctx := context.Background()
-			if err := app.Start(ctx, "", resume); err != nil {
-				t.Fatal(err)
+	}
+}
+
+// statusLines picks the status lines out of queued updates: their index and
+// the messages that carry them.
+func statusLines(msgs []updateMsg) (at []int, got []updateMsg) {
+	for i, m := range msgs {
+		if _, ok := m.update.(statusErr); ok {
+			at = append(at, i)
+			got = append(got, m)
+		}
+	}
+	return at, got
+}
+
+// applyAndCount runs the queued updates through the UI loop in order and says
+// how often the refusal ended up in the transcript: an update the loop drops is
+// never shown.
+func applyAndCount(a *App, msgs []updateMsg) int {
+	for _, m := range msgs {
+		a.applyLoopMessage(m)
+	}
+	return strings.Count(transcriptText(a), refusalText)
+}
+
+// A refused write of the initial model leaves the session on the model it was
+// created with and is reported once, on the session the console is on, however
+// the first session was opened.
+func TestStartReportsARefusedInitialModelOnce(t *testing.T) {
+	for _, v := range startupVariants {
+		t.Run(v.name, func(t *testing.T) {
+			fail := &atomic.Bool{}
+			fail.Store(true)
+			app := newModelStartupApp(t, startupRemembered, func(b backend) backend {
+				return failingModelWrites{backend: b, model: startupRemembered, fail: fail}
+			})
+			done := v.run(t, app, nil)
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatal("Start did not return")
 			}
-			if err := app.ApplyStartupOptions(ctx, startupAlphabetical, "", ""); err != nil {
-				t.Fatal(err)
+			if got := sessionModel(t, app); got != startupDefault {
+				t.Fatalf("session model = %q, want the model it was created with, %q", got, startupDefault)
 			}
-			// Every write the startup started has finished.
-			app.JoinWorkers(5 * time.Second)
-			if got := sessionModel(t, app); got != startupAlphabetical {
-				t.Fatalf("session model = %q, want the --model value %q", got, startupAlphabetical)
+			msgs := drainUpdates(app)
+			_, got := statusLines(msgs)
+			if len(got) != 1 {
+				t.Fatalf("%d status lines queued, want exactly the refusal: %+v", len(got), got)
 			}
-			if app.modelID != startupAlphabetical {
-				t.Fatalf("model the console shows = %q, want %q", app.modelID, startupAlphabetical)
+			if got[0].sessionID != app.sessionID || app.sessionID == "" {
+				t.Fatalf("the refusal names session %q, the console is on %q", got[0].sessionID, app.sessionID)
+			}
+			if e := got[0].update.(statusErr); e.msg != refusalText {
+				t.Fatalf("refusal = %q, want %q", e.msg, refusalText)
+			}
+			if n := applyAndCount(app, msgs); n != 1 {
+				t.Fatalf("the transcript shows the refusal %d times, want once:\n%s", n, transcriptText(app))
 			}
 		})
 	}
 }
 
-// The resume picker's other way to a new session - the operator cancels it
-// with sessions on offer - starts on the initial model too, and --model still
-// beats it.
-func TestResumePickerCancelledStartsOnTheInitialModel(t *testing.T) {
-	app := newModelStartupApp(t, startupRemembered, startupRemembered)
-	home := app.config().Paths.Home
-	writeSnapshotFixture(t, filepath.Join(home, "sessions"), "sess_prior", home, time.Now().Add(-time.Hour))
-
-	ctx := context.Background()
-	started := make(chan error, 1)
-	go func() { started <- app.Start(ctx, "", true) }()
-	// The picker reads the keys in order, so the key may be sent before it
-	// has opened: it is read once the picker is up.
-	app.OnTerminalInput([]byte("\x1b"))
-	select {
-	case err := <-started:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("Start did not return after the resume picker was cancelled")
-	}
-	if got := sessionModel(t, app); got != startupRemembered {
-		t.Fatalf("session model right after Start = %q, want %q", got, startupRemembered)
-	}
-	if err := app.ApplyStartupOptions(ctx, startupAlphabetical, "", ""); err != nil {
+// On /new the refusal follows sessionSwitched: until the loop has taken that
+// message the console is still on the old session and drops a status line sent
+// for the new one. It is reported once, and for the new session.
+func TestNewSessionReportsARefusedInitialModelAfterTheSwitch(t *testing.T) {
+	fail := &atomic.Bool{}
+	app := newModelStartupApp(t, startupRemembered, func(b backend) backend {
+		return failingModelWrites{backend: b, model: startupRemembered, fail: fail}
+	})
+	if err := app.Start(context.Background(), "", false); err != nil {
 		t.Fatal(err)
 	}
-	app.JoinWorkers(5 * time.Second)
-	if got := sessionModel(t, app); got != startupAlphabetical {
-		t.Fatalf("session model = %q, want the --model value %q", got, startupAlphabetical)
+	old := app.sessionID
+	drainUpdates(app)
+
+	fail.Store(true)
+	app.newSession()
+	app.JoinWorkers(10 * time.Second)
+	msgs := drainUpdates(app)
+
+	switched := -1
+	for i, m := range msgs {
+		if _, ok := m.update.(sessionSwitched); ok {
+			if switched >= 0 {
+				t.Fatalf("session switched twice: updates %d and %d", switched, i)
+			}
+			switched = i
+		}
+	}
+	if switched < 0 {
+		t.Fatalf("no sessionSwitched among the queued updates: %+v", msgs)
+	}
+	next := msgs[switched].update.(sessionSwitched).res.SessionID
+	if next == "" || next == old {
+		t.Fatalf("/new switched to %q from %q", next, old)
+	}
+	at, got := statusLines(msgs)
+	if len(got) != 1 {
+		t.Fatalf("%d status lines queued, want exactly the refusal: %+v", len(got), got)
+	}
+	if at[0] < switched {
+		t.Fatalf("the refusal is update %d, before sessionSwitched (%d): the console would drop it", at[0], switched)
+	}
+	if got[0].sessionID != next {
+		t.Fatalf("the refusal names session %q, /new switched to %q", got[0].sessionID, next)
+	}
+	if e := got[0].update.(statusErr); e.msg != refusalText {
+		t.Fatalf("refusal = %q, want %q", e.msg, refusalText)
+	}
+	if n := applyAndCount(app, msgs); n != 1 {
+		t.Fatalf("the transcript shows the refusal %d times, want once:\n%s", n, transcriptText(app))
 	}
 }

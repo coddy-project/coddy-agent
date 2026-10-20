@@ -41,32 +41,6 @@ func (s *cliTUIState) consoleRemembersModel(id string) error {
 	return nil
 }
 
-// writeOfModelLandsLate puts the late writer in front of the app's backend:
-// the write of id into a session reaches the manager a moment after it is
-// made, as a goroutine the scheduler runs late would. Before the app starts,
-// so no worker reads the backend while it is swapped.
-func (s *cliTUIState) writeOfModelLandsLate(id string) error {
-	s.app.mgr = lateModelWrites{backend: s.app.mgr, model: id, delay: lateModelWriteDelay}
-	return nil
-}
-
-// backendCanRefuseWriteOfModel puts a backend in front of the app that refuses
-// the write of id into a session once the scenario says so. Before the app
-// starts, like writeOfModelLandsLate.
-func (s *cliTUIState) backendCanRefuseWriteOfModel(id string) error {
-	s.app.mgr = failingModelWrites{backend: s.app.mgr, model: id, fail: &s.modelWritesFail}
-	return nil
-}
-
-func (s *cliTUIState) backendRefusesThatWrite() error {
-	s.modelWritesFail.Store(true)
-	return nil
-}
-
-func (s *cliTUIState) transcriptShows(text string) error {
-	return s.waitScreen(text, 3*time.Second)
-}
-
 // theConsoleAppStartsWithModel starts the console the way "coddy --model id"
 // does: the session, then the command line's options, then the loop.
 func (s *cliTUIState) theConsoleAppStartsWithModel(id string) error {
@@ -122,7 +96,7 @@ func (s *cliTUIState) sessionIsAlreadyOnModel(id string) error {
 }
 
 // sessionStateRecordsModel polls until the live session's effective model is
-// id: the initial pick and a remembered one are applied by a worker, so the
+// id: a model the operator switches to is written by a worker, so the
 // assertion waits rather than reading once.
 func (s *cliTUIState) sessionStateRecordsModel(id string) error {
 	deadline := time.Now().Add(3 * time.Second)
@@ -159,14 +133,10 @@ func initializeCLIModelMemoryScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the operator starts a new session$`, s.operatorStartsNewSession)
 	sc.Step(`^a coddy console app over a stub agent runner with models "([^"]*)", "([^"]*)" and "([^"]*)" and default model "([^"]*)"$`, s.aConsoleAppWithThreeModelsAndDefault)
 	sc.Step(`^the console remembers the model "([^"]*)"$`, s.consoleRemembersModel)
-	sc.Step(`^the write of the model "([^"]*)" into the session lands late$`, s.writeOfModelLandsLate)
 	sc.Step(`^the console app starts with the model "([^"]*)" on its command line$`, s.theConsoleAppStartsWithModel)
 	sc.Step(`^the console app starts with --resume and the model "([^"]*)" on its command line$`, s.theConsoleAppStartsResumingWithModel)
-	sc.Step(`^the backend can refuse the write of the model "([^"]*)" into a session$`, s.backendCanRefuseWriteOfModel)
-	sc.Step(`^the backend refuses that write from now on$`, s.backendRefusesThatWrite)
 	sc.Step(`^the session is already on the model "([^"]*)"$`, s.sessionIsAlreadyOnModel)
 	sc.Step(`^the session settles on the model "([^"]*)"$`, s.sessionSettlesOnModel)
-	sc.Step(`^the transcript shows "([^"]*)"$`, s.transcriptShows)
 	sc.Step(`^the footer names the model "([^"]*)"$`, s.footerNamesModel)
 	sc.Step(`^the session state records the model "([^"]*)"$`, s.sessionStateRecordsModel)
 }
