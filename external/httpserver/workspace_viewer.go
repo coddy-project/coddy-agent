@@ -35,6 +35,7 @@ func (s *Server) registerWorkspaceViewerRoutes() {
 	s.mux.HandleFunc(workspaceRawPattern, s.workspaceRaw)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/workspace/text", s.workspaceText)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/workspace/media-token", s.workspaceMediaToken)
+	s.mux.HandleFunc("POST /coddy/sessions/{id}/workspace/stat", s.workspaceStat)
 }
 
 // Navigation filters are convenience, not access control: an authenticated
@@ -145,15 +146,9 @@ func (s *Server) workspaceTree(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		kind, size := "file", info.Size()
-		switch {
-		case info.Mode()&os.ModeSymlink != 0:
-			kind = "symlink"
-		case info.IsDir():
-			kind = "directory"
+		kind, size := workspaceEntryKind(info), info.Size()
+		if kind == "directory" {
 			size = 0
-		case !info.Mode().IsRegular():
-			kind = "special"
 		}
 		rows = append(rows, workspaceEntry{name, filepath.ToSlash(p), kind, size, info.ModTime().UTC()})
 	}
@@ -162,6 +157,73 @@ func (s *Server) workspaceTree(w http.ResponseWriter, r *http.Request) {
 		next = string(lastGroup) + "/" + rows[len(rows)-1].Name
 	}
 	writeJSON(w, 200, map[string]any{"entries": rows, "next_cursor": next, "has_more": hasMore})
+}
+
+// workspaceEntryKind names what an Lstat found, the way the tree lists it: a
+// link is a link whatever it points at, since the viewer never follows one.
+func workspaceEntryKind(info fs.FileInfo) string {
+	switch {
+	case info.Mode()&os.ModeSymlink != 0:
+		return "symlink"
+	case info.IsDir():
+		return "directory"
+	case !info.Mode().IsRegular():
+		return "special"
+	}
+	return "file"
+}
+
+// workspaceStatMaxPaths bounds one stat request: an answer names a handful of
+// files, and the page of a long transcript a few dozen.
+const workspaceStatMaxPaths = 256
+
+// workspaceStat tells the chat which of the paths its answers name are
+// entries of the session's workspace, and of what kind, so that only a file
+// the Files window can open is drawn as a link to it. Each entry carries the
+// path as it was asked, which is what the client matches. A path that leaves
+// the workspace, is malformed or names nothing is left out rather than
+// failing the batch: it is simply not a file of this workspace.
+func (s *Server) workspaceStat(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Paths []string `json:"paths"`
+	}
+	if json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req) != nil {
+		writeSubagentsError(w, 400, "invalid stat request")
+		return
+	}
+	if len(req.Paths) > workspaceStatMaxPaths {
+		writeSubagentsError(w, 400, fmt.Sprintf("at most %d paths per request", workspaceStatMaxPaths))
+		return
+	}
+	st := s.coddyEnsureLoaded(w, r, r.PathValue("id"))
+	if st == nil {
+		return
+	}
+	root, err := os.OpenRoot(st.GetCWD())
+	if err != nil {
+		writeSubagentsError(w, 404, "workspace unavailable")
+		return
+	}
+	defer func() { _ = root.Close() }()
+	entries := make([]map[string]string, 0, len(req.Paths))
+	seen := make(map[string]bool, len(req.Paths))
+	for _, asked := range req.Paths {
+		if seen[asked] {
+			continue
+		}
+		seen[asked] = true
+		rel, err := session.NormalizeWorkspaceRelativePath(asked)
+		if err != nil || rel == "" || !filepath.IsLocal(rel) {
+			continue
+		}
+		info, err := root.Lstat(rel)
+		if err != nil {
+			continue
+		}
+		entries = append(entries, map[string]string{"path_rel": asked, "kind": workspaceEntryKind(info)})
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{"object": "coddy.workspace_stat", "entries": entries})
 }
 
 // treeGroup sorts a directory entry into the listing's groups: 'd' for a

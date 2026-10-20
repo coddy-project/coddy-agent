@@ -66,6 +66,13 @@ func TestSenderRequestPermissionNeverWavesThroughANarrowedSubagent(t *testing.T)
 			t.Fatalf("stamped %s with nowhere to ask = %#v, want a denial", mode, got)
 		}
 	}
+	// A prompt the gate forced (a hook's ask, a command the safety check did
+	// not clear) is the chat's own agent's, and still never waved through.
+	forced := params("")
+	forced.Forced = true
+	if got, _ := s.RequestPermission(context.Background(), forced); got.OptionID != "reject" || got.Outcome != "cancelled" {
+		t.Fatalf("forced prompt with nowhere to ask = %#v, want a denial", got)
+	}
 }
 
 // newPermissionWorld is the feature harness without godog, for the edges.

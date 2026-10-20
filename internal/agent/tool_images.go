@@ -148,6 +148,8 @@ func sharedArtifactMeta(meta map[string]interface{}, sessionID string, artifact 
 		"id": artifact.ID, "name": artifact.Name, "sha256": artifact.SHA256,
 		"size": artifact.Size, "sourcePath": artifact.SourcePath, "relativePath": artifact.SourceRelativePath,
 		"url": route, "revealUrl": route + "/reveal",
+		// Copied a moment ago: the file is where it was, and its card opens it.
+		"sourceState": session.ArtifactSourcePresent,
 	}}
 	return meta
 }

@@ -28,3 +28,9 @@ Feature: Preview a session workspace through the HTTP surface
     When I mint a media URL for "clip.txt" using API authentication
     And I read the first five bytes using only that URL
     Then the response is a partial range containing "hello"
+
+  Scenario: Ask which paths an answer names are files of the workspace
+    Given a file viewer server with a workspace
+    And a workspace file "notes/readme.md" containing "# Notes\n"
+    When I ask which of "notes/readme.md, notes, missing.go" are in the workspace
+    Then "notes/readme.md" is a file, "notes" is a directory and "missing.go" is not there

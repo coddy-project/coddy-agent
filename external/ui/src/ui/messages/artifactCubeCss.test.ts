@@ -115,3 +115,29 @@ test("the last row of cards leaves the gap above the answer's foot to the foot",
     /\.inline-artifacts:last-child,\s*\.inline-artifacts:has\(\+ \.msg-assistant-foot\)\s*\{[^}]*margin-bottom:\s*0/,
   );
 });
+
+// The whole card opens the file it was copied from; the trigger stands over
+// the open button, or a click on the dots opened the file too.
+test("the open button covers the card under the actions trigger", () => {
+  const open = block(".tool-artifact-open");
+  expect(open).toMatch(/position: absolute/);
+  expect(open).toMatch(/inset: 0/);
+  expect(open).toMatch(/z-index: 1/);
+  expect(open).toMatch(/background: transparent/);
+  expect(block(".inline-artifact-menu-trigger")).toMatch(/z-index: 2/);
+  expect(block(".tool-artifact-open:focus-visible")).toMatch(/outline: 2px/);
+});
+
+// A deleted source is news, not a failure: the card steps back and says so,
+// in muted text rather than the danger colour of a download that failed.
+test("a card whose source was deleted is struck through and muted, not red", () => {
+  expect(block(".tool-artifact-card--deleted .tool-artifact-name")).toMatch(
+    /text-decoration: line-through/,
+  );
+  expect(
+    block(".tool-artifact-card--deleted .inline-artifact-extension"),
+  ).toMatch(/color: color-mix\(in srgb, var\(--text\) 52%/);
+  const meta = block(".tool-artifact-meta--deleted");
+  expect(meta).toMatch(/color: color-mix\(in srgb, var\(--text\) 74%/);
+  expect(meta).not.toMatch(/danger/);
+});

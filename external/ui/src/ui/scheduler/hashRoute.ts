@@ -460,17 +460,26 @@ export function setSessionTasksHash(
   }
 }
 
+/** The address of the Files window of a chat, on a file and a line. */
+export function sessionFilesHash(
+  sessionId: string,
+  path = "",
+  line = 1,
+): string {
+  const params = new URLSearchParams();
+  if (path) params.set("path", path);
+  if (line > 1) params.set("line", String(line));
+  const query = params.toString();
+  return `#/s/${encodeURIComponent(sessionId)}/files${query ? "?" + query : ""}`;
+}
+
 export function setSessionFilesHash(
   sessionId: string,
   path = "",
   line = 1,
 ): void {
   if (!sessionId.trim()) return;
-  const params = new URLSearchParams();
-  if (path) params.set("path", path);
-  if (line > 1) params.set("line", String(line));
-  const query = params.toString();
-  const next = `#/s/${encodeURIComponent(sessionId)}/files${query ? "?" + query : ""}`;
+  const next = sessionFilesHash(sessionId, path, line);
   if (window.location.hash !== next) {
     history.replaceState(
       null,

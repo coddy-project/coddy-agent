@@ -1074,11 +1074,17 @@ A `read` that showed the model a picture ([Images](../features/images.md)) previ
 
 `share_file` gives the agent an explicit, permission-gated way to hand a report or other workspace file back to the operator. A successful call renders a downloadable file card under its tool row. The browser downloads an immutable copy kept in the session bundle, so the link does not follow later workspace changes; in a remote environment the same action fetches through the configured bearer-authenticated API route. A missing copy stays visible as unavailable rather than becoming a broken image or link.
 
-When a later assistant answer refers to verified shared files, their cards render inline with that answer. Adjacent file markers form one responsive row, which wraps on narrow screens and keeps a 16px gap before the next paragraph; a row that ends the answer leaves the gap above the answer's copy button and time to their own 8px. A card is 134x140px (at most 118x132px on a phone, two to a row). Image artifacts show a thumbnail and open the shared image lightbox at their verified inline preview URL; non-image files keep their type tile. Every card keeps the same actions menu for download, mention, copying paths, and revealing the source on the server host. Its **⋮** sits in the top right corner level with the extension badge in the top left, shows under the pointer, and is always shown on a phone or another screen without hover; the menu opens under it (above it near the bottom of the window), stays inside the window, follows the card while the page scrolls, and closes on a second press of **⋮**, a press elsewhere, **Escape**, **Tab** (the focus moving on from **⋮**), or when the card scrolls out of sight - out of the window, or under the chat's title or the composer. In a window shorter than the menu its items scroll. A reveal the server could not carry out shows **Reveal failed** on the card and leaves the download available. A right click on a card opens the same menu.
+When a later assistant answer refers to verified shared files, their cards render inline with that answer. Adjacent file markers form one responsive row, which wraps on narrow screens and keeps a 16px gap before the next paragraph; a row that ends the answer leaves the gap above the answer's copy button and time to their own 8px. A card is 134x140px (at most 118x132px on a phone, two to a row). Image artifacts show a thumbnail from their verified inline preview URL; non-image files keep their type tile. Every card keeps the same actions menu: **Mention in chat** puts the file's path into the composer as an `@` mention, **Copy** opens a submenu that copies the absolute path, the relative path or the file name, and **Download** saves the copy. On a desktop the submenu opens beside the menu under the pointer, on a click and on the right arrow, and the left arrow or Escape goes back to **Copy**; on a phone, a tablet or a touch screen the menu is one list, the three ways to copy under a **Copy** heading. Its **⋮** sits in the top right corner level with the extension badge in the top left, shows under the pointer, and is always shown on a phone or another screen without hover; the menu opens under it (above it near the bottom of the window), stays inside the window, follows the card while the page scrolls, and closes on a second press of **⋮**, a press elsewhere, **Escape**, **Tab** (the focus moving on from **⋮**), or when the card scrolls out of sight - out of the window, or under the chat's title or the composer. In a window shorter than the menu its items scroll. A right click on a card opens the same menu.
 
-![A shared file card inline in an answer, its actions menu open under the trigger](../assets/web-ui/shared-file-menu-open-dark-1280.png)
+A click on a card opens the file it was copied from in a tab of the [Files window](#workspace-files), and so does a click on the thumbnail of a picture. The card opens it only while the file is in the chat's workspace: the listing of the transcript says where each source is (**`sourceState`**, [HTTP API](../reference/http-api.md)), and the card checks once more on the click. When the file was deleted from the workspace, the card says **File deleted** with its name struck through, a click opens nothing and **Mention in chat** is disabled, while the paths can still be copied and the copy downloaded; the thumbnail of a picture then opens the copy in the shared image lightbox. A file of another folder (the chat moved to a worktree after the file was shared) cannot be opened from the card either; its menu says the file is not in this chat's workspace.
 
-*A shared file card inline in an answer, its actions menu open under the trigger*
+![A shared file card whose source was deleted from the workspace: the name struck through and File deleted under it](../assets/web-ui/shared-file-deleted-dark-1280.png)
+
+*A shared file whose source was deleted: the card says so, and the copy can still be downloaded from its menu*
+
+![A shared file card inline in an answer, its actions menu open under the trigger and the Copy submenu beside it](../assets/web-ui/shared-file-menu-open-dark-1280.png)
+
+*A shared file card inline in an answer, its actions menu open under the trigger and the Copy submenu beside it*
 
 `spawn_agent` has a dedicated argument card: agent icon and name, optional description, a labelled timeout badge, and an inset panel for the multiline prompt. The prompt starts as a compact preview; **More…** opens a bounded, scrollable viewport and **Less** restores the preview, so a long subagent instruction does not take over the transcript. When the spawned task has a child session, the card offers **Show transcript**; the same action is below captured output on the opened background-task card. The timeout is the supplied execution limit in seconds, separate from the elapsed duration beside the tool title. The layout wraps on narrow screens and follows the active light/dark theme. Calls with truncated history arguments load the full arguments once per incomplete preview, including running calls; malformed arguments or failed fetches retain the plain argument preview. Card labels follow the active English/Russian UI locale.
 
@@ -1183,7 +1189,7 @@ The panel is docked **inside the session**, to the right of the transcript (`.bg
 - **The card is one control and opens in place.** The opener button is stretched over the card's summary, so a click anywhere expands it and the summary tints under the pointer; Stop is a sibling above that surface and never toggles the card. The open card shows the command with a copy control (neither an agent run nor a preview server has a shell behind it, and nothing is shown there), the error unless it only repeats the exit code (`taskErrorText`), the output in a box with its own scroll, and once the task has finished a foot with the outcome and the exit code (`Failed · Exit code 2`; no exit code for an agent run or a preview server: the pool's code for them is synthetic). How long the task ran and the way into the task are the summary's and are not said again inside the card. Any number of cards are open at once, each reading its own output through the panel's `loadOutput` (again every 2.5 s while its task runs, once more when it ends); there is no detail pane. Which cards are open is the panel's state, not the address: the route is `#/s/<id>/tasks`, and a link that still names a task (`#/s/<id>/tasks/<task_id>`) opens that card through the panel's `focus` prop, after which the address drops the id. The pointer names its chat and is good for one use (`onFocusHonoured`): every session numbers its tasks from `bg_1` and the panel unmounts with the drawer, so a pointer the shell kept would open a card again on the next opening, in whichever chat is on screen.
 - **Finished N** is a counter; expanding it shows the same cards, capped at 40 rendered with a note naming what stays on disk - a card that is open is shown wherever it stands, so a link to an early task of a long session does not open a card nobody can see - and an open card whose task has just ended opens the section with it. **Clear** drops the finished history for the session.
 - Ordering is purely by start time, newest first, among the live cards and inside the finished history alike.
-- The **opener** is the **Tasks** button at the right edge of the sticky chat header (`chat-views-tasks`), not a nav rail entry. It is rendered from the first message (`Tasks`), adds `running / total` once the chat has tasks (`Tasks 1 / 3`), is a toggle with `aria-pressed`, and at phone width keeps the dot and the numbers. While a turn runs the live status line names the running tasks and opens the same panel. Both count through `countTasks` (`tasks/taskStatus.ts`), which leaves out system tasks such as the memory run of a turn. Nothing is rendered under the transcript.
+- The **opener** is the **Tasks** button at the right edge of the sticky chat header (`chat-views-tasks`), not a nav rail entry. It is rendered from the first message (the dot and `Tasks`), shows the dot and `running / total` in place of the word once the chat has tasks (`1 / 3`) at every width, and is a toggle with `aria-pressed`. While a turn runs the live status line names the running tasks and opens the same panel. Both count through `countTasks` (`tasks/taskStatus.ts`), which leaves out system tasks such as the memory run of a turn. Nothing is rendered under the transcript.
 - On `max-width: 1199px` the panel takes the screen, the cards take more padding, Stop grows to 30px and the output box to 46vh.
 - A transcript `run_command` row that started a task reads like any other command row: the label says it is a background run (*running a command in the background*) and the duration slot carries the task's ticking clock instead of the call's meaningless `0ms`. The outcome is **not** on the row - status, estimate, exit code and error are read on the task's card in this panel. Expanding the row keeps the clock and adds no task controls: Stop is on the task's card. Driven by the same poll.
 - An agent task is read without opening its card: the model, the tokens, the elapsed time and **Show transcript** are all on the folded card. Opening it adds only the child's live progress log, which ends with the `=== subagent report ===` block. A preview server reads the same way - its address is on the folded card - and opening it adds only the request log.
@@ -1193,7 +1199,7 @@ Automated checks:
 - **external/ui/src/ui/tasks/taskStatus.test.ts** (timing, progress, overdue, poll cadence, start-time ordering, grouping, agent task helpers)
 - **external/ui/src/ui/tasks/BackgroundTasksPanel.test.tsx** (one card shape for every task, the tag and the title, the card as one control with Stop apart, expanding in place with the command, copy, output and foot, several cards open at once, a card the shell points at, output re-read while a task runs, the finished counter, Clear, Show transcript on the folded card and said once, empty and error states)
 - **external/ui/src/ui/tasks/api.test.ts** (paths, headers, offline degradation)
-- **external/ui/src/ui/chat/ChatHeader.test.tsx** (the view buttons: Files and Tasks in that order and no Edits button, Tasks with the dot and `running / total` without system tasks, icon, short name and tooltip, `aria-pressed`), **external/ui/src/ui/changes/workingCopy.test.tsx** (one read of git's report per chat, read again on the server's word, a finished tool call and the page's focus) and **ChatScreen.test.tsx** (the toggle, the count on the plate only while git reports changes, nothing under the transcript)
+- **external/ui/src/ui/chat/ChatHeader.test.tsx** (the view buttons: Files and Tasks in that order and no Edits button, Tasks with the dot and `running / total` without system tasks, the Files icon alone in its square and the tooltips, `aria-pressed`), **external/ui/src/ui/changes/workingCopy.test.tsx** (one read of git's report per chat, read again on the server's word, a finished tool call and the page's focus) and **ChatScreen.test.tsx** (the toggle, the count on the plate only while git reports changes, nothing under the transcript)
 - **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (panel docking, the tag, the stretched click surface with Stop above it, the hover tint, the bounded output box, the header control, the live line on a phone, reduced motion)
 - **external/ui/src/ui/messages/ToolCallMessage.test.tsx** (the background row: its label, the task clock in the duration slot, and that no outcome leaks onto the row)
 
@@ -1246,16 +1252,18 @@ A held project hooks file surfaces in the transcript as a **notice-level system 
 
 A chat has three views beside the conversation: its **files**, its **background
 tasks** and its **edits**. Files and background tasks are a row of buttons at the top
-of the chat: **Files**, and **Tasks** at the right edge. On a desktop and a tablet
-Files is an icon with a short name; a phone shows the icon alone, the size of its top
-bar's buttons. Tasks is the control the header always had: a dot and, once the chat
-has tasks, how many run out of how many there are, the dot lit while work is in
-flight. Every button has its full name in a tooltip, the Files one with its key. A
+of the chat: **Files**, and **Tasks** at the right edge. They are icons at every
+width, as a phone always showed them: Files is its icon alone, in a square the size of
+the top bar's buttons. Tasks is the control the header always had: a dot and, once the
+chat has tasks, how many run out of how many there are, the dot lit while work is in
+flight; before the first task the dot stands beside the word Tasks. Every button has
+its full name in a tooltip, the Files one with its key. A
 button opens its view, and pressed again puts it away; the button of the view on show brightens, its
 text, border and ground, the way a pointed-at one does, and the accent is kept for
 tasks that run. The background tasks open in the dock beside the chat, the files in a window
 over the chat. The edits have no button in the header: git's count on [the plate over
-the composer](#the-plate-over-the-composer) opens them. Each icon beside a word sits on
+the composer](#the-plate-over-the-composer) opens them. Each icon beside a word (the
+Tasks dot, the repository and the branch on the plate) sits on
 the middle of its lowercase letters, not of the capitals: the words are mostly
 lowercase, and centred on the line the icon reads a pixel high.
 
@@ -1292,12 +1300,18 @@ under a moving board is drawn again on every frame. The guide is
 The **Files** window shows the session's workspace over the chat, the way the
 documentation reader does: the tree on the left, the files opened from it as tabs on
 the right. Open it with the **Files** button of the chat header, with `Ctrl+Shift+F`,
-or by clicking a workspace mention in a sent message or a file tool's path. Its address keeps the file and an
+or by clicking a workspace mention in a sent message, a file tool's path, the card of a shared file or a path an answer names. Its address keeps the file and an
 optional line, `#/s/<id>/files?path=notes/readme.md&line=15`, so a reload opens it
 there. Escape or the close button returns to the chat and gives the focus back to
 what opened the window; whatever the dock showed stays under it, on a phone or a
 tablet too, and a click beside the window closes it the same way. Reopened, the window
 shows the files it had open, each at its line, and the address names the one on show.
+
+A path an answer names opens the same way. Written as inline code (`internal/foo.go:12`), as the target of a link or in the prose (internal/foo.go), it becomes a link once the server says it is a file of the chat's workspace (**`POST /coddy/sessions/{id}/workspace/stat`**). The link opens the file in a tab, on the line when the path names one (`:12`, `#L12`), and its address is the window's own, so a middle click opens the file in a new browser tab. A path in prose needs a folder and an extension, since prose is full of words with a slash; inline code may be a name alone (`README.md`, `Makefile`). A folder, a path outside the workspace, a name the workspace does not have and every path of an answer still arriving stay as they were, and such inline code still copies itself on a click. Paths are asked about only in a chat; the documentation and a canvas card show them as text.
+
+![An answer whose paths are links to the Files window: a path in inline code with a line, a path in the prose and a link](../assets/web-ui/answer-file-links-dark-1280.png)
+
+*Paths in an answer: inline code, prose and a link open in a tab of the Files window; code that is not a file keeps its look*
 
 ![The Files window: the workspace tree beside two open files, README.md on show as its source with numbered lines](../assets/workspace-files-window-dark-1280.png)
 
@@ -2161,7 +2175,7 @@ asks for a bearer token and a **`coddy serve --swarm`** relay that mounts it wit
 own client token, and drives a browser through the relay's mount only. It checks:
 
 - **the view buttons** show Files and Tasks in that order beside the title and no
-  Edits button, Files an 18px icon with its short name on a desktop, Tasks the dot,
+  Edits button, Files an 18px icon alone in a 36px square on a desktop, Tasks the dot,
   the tooltip in the window on hover (the Files one with its key), the pressed one for
   the view on show, brighter and not in the accent, which a second press puts away;
 - **the plate over the composer** names the repository and the branch, is joined to
@@ -2205,7 +2219,7 @@ own client token, and drives a browser through the relay's mount only. It checks
   no inherited `CODDY_*` variable and an explicit `--cwd`;
 - **at every tier of the grid** (600 to 1920 px), in English and in Russian, the
   window fits the viewport with the tree beside the file, and the view buttons sit
-  beside the title in one row, icon and short name whole, at the top bar's height.
+  beside the title in one row, Files a square and the Tasks word whole, at the top bar's height.
 
 ```bash
 make build TAGS="http ui swarm"

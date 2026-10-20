@@ -73,7 +73,7 @@ test("renders only a verified file marker as an inline artifact card with action
   );
   expect(screen.getByRole("menu")).toBeVisible();
   expect(
-    screen.getByRole("menuitem", { name: "Mention source" }),
+    screen.getByRole("menuitem", { name: "Mention in chat" }),
   ).toBeEnabled();
 });
 

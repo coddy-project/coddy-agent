@@ -128,6 +128,61 @@ func TestArtifactSourcePathReportsRemovedSource(t *testing.T) {
 	}
 }
 
+// The card of a shared file opens the file it was copied from, so the state
+// is decided against the chat's workspace as it is now.
+func TestArtifactSourceStateFollowsTheWorkspace(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	if err := os.MkdirAll(filepath.Join(workspace, "reports"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(workspace, "reports", "report.txt")
+	if err := os.WriteFile(file, []byte("report"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, err := CaptureArtifact(filepath.Join(root, "session"), workspace, filepath.Join("reports", "report.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(root, "other")
+	if err := os.Mkdir(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, cwd, source, rel, want string
+	}{
+		{"in the workspace", workspace, a.SourcePath, a.SourceRelativePath, ArtifactSourcePresent},
+		{"the chat moved to another folder", other, a.SourcePath, a.SourceRelativePath, ArtifactSourceUnavailable},
+		{"the chat's folder is gone", filepath.Join(root, "gone"), a.SourcePath, a.SourceRelativePath, ArtifactSourceUnavailable},
+		{"no source recorded", workspace, "", "", ArtifactSourceUnavailable},
+		{"a relative path that does not name the source", workspace, a.SourcePath, "report.txt", ArtifactSourceUnavailable},
+	} {
+		if got := ArtifactSourceState(tc.cwd, tc.source, tc.rel); got != tc.want {
+			t.Errorf("%s: state %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	if err := os.Remove(file); err != nil {
+		t.Fatal(err)
+	}
+	if got := ArtifactSourceState(workspace, a.SourcePath, a.SourceRelativePath); got != ArtifactSourceDeleted {
+		t.Fatalf("removed source: state %q, want %q", got, ArtifactSourceDeleted)
+	}
+	// A folder where the file was is not the file the card names.
+	if err := os.Mkdir(file, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := ArtifactSourceState(workspace, a.SourcePath, a.SourceRelativePath); got != ArtifactSourceDeleted {
+		t.Fatalf("source replaced by a folder: state %q, want %q", got, ArtifactSourceDeleted)
+	}
+	// The folder that held it went with it.
+	if err := os.RemoveAll(filepath.Join(workspace, "reports")); err != nil {
+		t.Fatal(err)
+	}
+	if got := ArtifactSourceState(workspace, a.SourcePath, a.SourceRelativePath); got != ArtifactSourceDeleted {
+		t.Fatalf("source folder removed: state %q, want %q", got, ArtifactSourceDeleted)
+	}
+}
+
 func TestReadArtifactRejectsTamperedAndSymlinkedContent(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
