@@ -70,12 +70,6 @@ func (r *runner) probeProvider(ctx context.Context, prov *config.ProviderConfig,
 	}
 
 	key, kerr := prov.EffectiveAPIKeyContextErr(ctx)
-	authPath := config.ProviderAuthPath(r.req.Paths.Home, prov.Name, prov.Type)
-	if prov.Type == "opencode" {
-		// A stored login is issued for one gateway, and with no explicit key
-		// that gateway is where the requests go, whatever api_base says.
-		base = llm.OpenCodeEffectiveAPIBase(key, prov.APIBase, authPath)
-	}
 	if kerr != nil {
 		out = append(out, r.check(StatusWarning, path, path+".api_key_command",
 			"api_key_command did not answer in time; the environment variable is the fallback",
@@ -99,7 +93,7 @@ func (r *runner) probeProvider(ctx context.Context, prov *config.ProviderConfig,
 		APIKey:   key,
 		BaseURL:  prov.APIBase,
 		ProxyURL: prov.Proxy,
-		AuthPath: authPath,
+		AuthPath: config.ProviderAuthPath(r.req.Paths.Home, prov.Name, prov.Type),
 		// The account a request of this row would use: the CLI login of the
 		// type serves one row only.
 		NoCLILogin: !r.req.Cfg.ProviderMayUseCLILogin(prov.Name, prov.Type),
@@ -177,6 +171,11 @@ const acpProbeTimeout = 60 * time.Second
 
 // displayBase names the endpoint a provider talks to, for messages.
 func displayBase(prov *config.ProviderConfig) string {
+	if prov.Type == "opencode" {
+		// Pinned to the two gateways: a value that names neither is not where
+		// the requests go.
+		return llm.ProviderEndpoint("opencode", prov.APIBase)
+	}
 	if base := strings.TrimSpace(prov.APIBase); base != "" {
 		return base
 	}

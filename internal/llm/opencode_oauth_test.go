@@ -201,7 +201,7 @@ func TestOpenCodeDeviceLoginThroughHTTPSProxy(t *testing.T) {
 		t.Fatal("wrong verification prompt")
 	}
 	path := filepath.Join(t.TempDir(), "auth.json")
-	if err := login.Wait(context.Background(), path, opencodeGoBaseURL); err != nil {
+	if err := login.Wait(context.Background(), path); err != nil {
 		t.Fatal(err)
 	}
 	saved, err := loadOpenCodeAuth(path)
@@ -297,7 +297,7 @@ func TestOpenCodeAccountFailures(t *testing.T) {
 				cancel()
 			}
 			path := filepath.Join(t.TempDir(), "auth.json")
-			if err := login.Wait(ctx, path, opencodeGoBaseURL); err == nil {
+			if err := login.Wait(ctx, path); err == nil {
 				t.Fatal("failed authorization was accepted")
 			}
 			if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -470,7 +470,7 @@ func TestOpenCodeDeviceLoginWaitsWhilePending(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(t.TempDir(), "auth.json")
-	if err := login.Wait(context.Background(), path, opencodeGoBaseURL); err != nil {
+	if err := login.Wait(context.Background(), path); err != nil {
 		t.Fatal(err)
 	}
 	if polls.Load() != 2 {

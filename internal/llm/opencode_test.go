@@ -3,11 +3,9 @@ package llm
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -442,7 +440,7 @@ func TestOpenCodeEffectiveKey(t *testing.T) {
 	// A stored login fills in when the key is absent.
 	dir := t.TempDir()
 	path := dir + "/opencode-auth.json"
-	if err := SaveOpenCodeAuth(path, "stored-key", opencodeGoBaseURL); err != nil {
+	if err := SaveOpenCodeAuth(path, "stored-key"); err != nil {
 		t.Fatalf("SaveOpenCodeAuth: %v", err)
 	}
 	if got := effectiveKey("", path); got != "stored-key" {
@@ -456,15 +454,12 @@ func TestOpenCodeEffectiveKey(t *testing.T) {
 
 func TestOpenCodeAuthRoundTrip(t *testing.T) {
 	path := t.TempDir() + "/opencode-auth.json"
-	if err := SaveOpenCodeAuth(path, "oc-secret-key-value-1234567890", opencodeConsoleBaseURL); err != nil {
+	if err := SaveOpenCodeAuth(path, "oc-secret-key-value-1234567890"); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	st, err := InspectOpenCodeAuth(path)
 	if err != nil || !st.Connected {
 		t.Fatalf("inspect: %+v %v", st, err)
-	}
-	if st.APIBase != opencodeConsoleBaseURL {
-		t.Errorf("api_base = %q, want console", st.APIBase)
 	}
 	if strings.Contains(st.Masked, "secret-key-value") {
 		t.Errorf("masked leaked the key: %q", st.Masked)
@@ -486,10 +481,10 @@ func TestOpenCodeAuthRoundTrip(t *testing.T) {
 }
 
 func TestOpenCodeSaveRejectsEmpty(t *testing.T) {
-	if err := SaveOpenCodeAuth(t.TempDir()+"/x.json", "  ", opencodeGoBaseURL); err == nil {
+	if err := SaveOpenCodeAuth(t.TempDir()+"/x.json", "  "); err == nil {
 		t.Error("an empty key must be refused")
 	}
-	if err := SaveOpenCodeAuth("", "k", opencodeGoBaseURL); err == nil {
+	if err := SaveOpenCodeAuth("", "k"); err == nil {
 		t.Error("an empty path must be refused")
 	}
 }
@@ -533,31 +528,6 @@ func TestOpenCodeReasoningCarrierIsolation(t *testing.T) {
 	}
 	if got := p.encodeReasoningItems(nil); got != "" {
 		t.Errorf("encode(nil) = %q, want empty", got)
-	}
-}
-
-// The label on an error names the gateway the request reached: with no
-// api_base and no explicit key that is the gateway the stored login was issued
-// for, not the default the type alone names.
-func TestOpenCodeLabelNamesTheGatewayOfTheLogin(t *testing.T) {
-	t.Setenv(EnvOpenCodeBaseURL, "")
-	path := filepath.Join(t.TempDir(), "opencode-auth.json")
-	if err := SaveOpenCodeAuth(path, "oc-console-key-0123456789", opencodeConsoleBaseURL); err != nil {
-		t.Fatal(err)
-	}
-	for _, tc := range []struct {
-		name, key, want string
-	}{
-		{"stored Console login", "", opencodeConsoleBaseURL},
-		{"explicit key on the default gateway", "explicit-key", opencodeGoBaseURL},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			p := labelProvider(&labelTestProvider{err: errors.New("boom")}, ProviderInput{Name: "oc", Type: "opencode", APIKey: tc.key, AuthPath: path})
-			_, err := p.Complete(context.Background(), nil, nil)
-			if err == nil || !strings.Contains(err.Error(), "("+tc.want+")") {
-				t.Fatalf("label %v, want it to name %s", err, tc.want)
-			}
-		})
 	}
 }
 

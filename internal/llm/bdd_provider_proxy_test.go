@@ -532,7 +532,7 @@ func (s *providerProxyState) askOpenCodeAccount(name string) error {
 		return err
 	}
 	path := config.OpenCodeAuthPath(s.home, name)
-	if err := login.Wait(ctx, path, opencodeGoBaseURL); err != nil {
+	if err := login.Wait(ctx, path); err != nil {
 		return err
 	}
 	credential, err := loadOpenCodeAuth(path)

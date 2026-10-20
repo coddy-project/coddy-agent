@@ -49,7 +49,7 @@ func runProviders(args []string) error {
 	noConfig := fs.Bool("no-config", false, "login: do not add the provider and its models to config.yaml after login")
 	devinCLI := fs.Bool("devin-cli", false, "devin: use the login `devin auth login` already holds instead of a browser sign-in")
 	apiKey := fs.String("api-key", "", "opencode: service account key (- reads a secret prompt or stdin); without it, sign in an account by device code")
-	apiBase := fs.String("api-base", "", "neuraldeep: API endpoint to sign in against, one of "+strings.Join(llm.NeuralDeepAPIBases(), ", ")+" (default: the provider's api_base, else the first); opencode: the gateway, one of "+strings.Join(llm.OpenCodeAPIBases(), ", ")+" (default: Go)")
+	apiBase := fs.String("api-base", "", "neuraldeep: API endpoint to sign in against, one of "+strings.Join(llm.NeuralDeepAPIBases(), ", ")+" (default: the provider's api_base, else the first); opencode: the gateway written into the row, one of "+strings.Join(llm.OpenCodeAPIBases(), ", ")+" (default: the row's api_base, else Go)")
 	providerType := fs.String("type", "", "login: type of a provider config.yaml does not list yet (neuraldeep, opencode, codex or devin), so another profile of a type is created by signing it in")
 	if err := fs.Parse(rest); err != nil {
 		return err

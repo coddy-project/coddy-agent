@@ -23,9 +23,10 @@ type openCodeAuthStatusResponse struct {
 	Source       string `json:"source"`
 }
 
+// openCodeDeviceStartRequest names no gateway: the login belongs to the
+// account and serves either, as in the OpenCode client.
 type openCodeDeviceStartRequest struct {
-	APIBase string  `json:"api_base"`
-	Proxy   *string `json:"proxy"`
+	Proxy *string `json:"proxy"`
 }
 
 func (s *Server) registerOpenCodeAuthRoutes() {
@@ -117,17 +118,6 @@ func (s *Server) coddyProviderOpenCodeAuthDevicePost(w http.ResponseWriter, r *h
 		writeCoddyConfigErr(w, 400, err.Error())
 		return
 	}
-	apiBase, known := llm.NormalizeOpenCodeAPIBase(body.APIBase)
-	if body.APIBase != "" && !known {
-		writeCoddyConfigErr(w, 400, "unknown OpenCode gateway")
-		return
-	}
-	if apiBase == "" {
-		apiBase, known = llm.NormalizeOpenCodeAPIBase(provider.APIBase)
-		if !known {
-			apiBase = llm.OpenCodeDefaultAPIBase()
-		}
-	}
 	waitCtx, cancel := context.WithCancel(context.Background())
 	loginID := newCodexAuthLoginID()
 	attempt := &codexAuthLoginAttempt{ProviderName: name, Status: "pending", CreatedAt: time.Now(), cancel: cancel}
@@ -167,7 +157,7 @@ func (s *Server) coddyProviderOpenCodeAuthDevicePost(w http.ResponseWriter, r *h
 	go func() {
 		defer s.bgWG.Done()
 		defer cancel()
-		err := login.WaitWith(waitCtx, apiBase, func(ctx context.Context, credential []byte) error {
+		err := login.WaitWith(waitCtx, func(ctx context.Context, credential []byte) error {
 			s.codexAuthMu.Lock()
 			defer s.codexAuthMu.Unlock()
 			if err := ctx.Err(); err != nil {

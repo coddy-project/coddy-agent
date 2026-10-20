@@ -14,7 +14,7 @@ coddy providers login opencode
 
 Coddy prints a short code and opens the OpenCode Console account page. Sign in, confirm the code and select your organization. You can open the printed URL in a browser on another machine. This follows the [OpenCode client's device method](https://github.com/anomalyco/opencode/blob/f394d9d410bc6bb7cafcebfc5e3180a9b80ebed9/packages/core/src/plugin/provider/opencode.ts).
 
-The login stores access and refresh tokens at `$CODDY_HOME/providers/opencode/opencode-auth.json` with mode `0600`. Unless `--no-config` is given, it also adds the provider row, the gateway's models and an `agent.model` when it is empty to `config.yaml`. Use `--type opencode` to sign in another named profile, or `--api-base https://opencode.ai/inference/v1` for Console instead of Go.
+The login stores access and refresh tokens at `$CODDY_HOME/providers/opencode/opencode-auth.json` with mode `0600`. Unless `--no-config` is given, it also adds the provider row, the gateway's models and an `agent.model` when it is empty to `config.yaml`. Use `--type opencode` to sign in another named profile, or `--api-base https://opencode.ai/inference/v1` to write Console into the row instead of Go. With `--no-config` the row stays as it is, so `--api-base` is refused there.
 
 Before each catalog or inference request, Coddy refreshes a token that expires within 60 seconds and saves rotated tokens atomically. Requests carry the selected organization in `x-org-id`. A revoked refresh token requires a new login. `coddy providers list` shows the account organization without exposing tokens. The stored credential works on every Coddy surface. A running server reads it for an already loaded provider row; restart the server after adding a new row.
 
@@ -26,7 +26,7 @@ Device authorization, polling and token refresh identify this application with `
 
 In **Settings → LLM providers**, open the OpenCode row and click **Sign In with OpenCode** below the gateway picker. Coddy shows the device code in the form and waits there. **Open sign-in page** opens Console, where the same code is shown for the device you are approving - compare the two before you approve. The form never opens that page on its own, so the code is on screen when Console asks for it. Then select your organization. The form shows the organization after confirmation; **Sign Out** removes the local login and also cancels a pending attempt.
 
-The login uses the gateway and proxy currently shown in the form, including a new row or a saved row switched to OpenCode before Save. Click **Save All** to keep those provider settings for chats and future token refreshes. Use the refresh icon beside the model list to read the catalog with the stored login. Tokens stay on the server and never appear in the browser or config YAML.
+The login uses the proxy currently shown in the form, including a new row or a saved row switched to OpenCode before Save. It serves both gateways, so the gateway picker alone decides where the row's requests go. Click **Save All** to keep those provider settings for chats and future token refreshes. Use the refresh icon beside the model list to read the catalog with the stored login. Tokens stay on the server and never appear in the browser or config YAML.
 
 ## Use a service account key
 
@@ -61,7 +61,7 @@ The `-` reads a key from a secret terminal prompt or a line on standard input. `
 
 ## The two gateways
 
-`api_base` picks the inference gateway. Account login uses the same Console device authorization service for both gateways; access depends on the selected organization and its subscription or credits.
+`api_base` picks the inference gateway. Account login uses the same Console device authorization service for both gateways; access depends on the selected organization and its subscription or credits. The stored login belongs to the account, not to a gateway, as in the OpenCode client, where Go and Console are two providers on one `OPENCODE_API_KEY`: the row's `api_base` alone decides which gateway its requests reach, and one login serves a Go row and a Console row alike.
 
 | Gateway | `api_base` | What it is |
 |---------|-----------|------------|

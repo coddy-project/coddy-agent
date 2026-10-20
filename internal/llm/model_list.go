@@ -102,11 +102,6 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 			// stored hub login fills in when the key is absent.
 			in.APIKey = neuralDeepEffectiveKey(in.APIKey, in.AuthPath)
 		}
-		if in.Type == "opencode" {
-			// Same gateway resolution as completions: a key taken from the
-			// stored login is listed against the gateway that issued it.
-			in.BaseURL = opencodeGatewayFor(in.APIKey, in.BaseURL, in.AuthPath)
-		}
 		base := strings.TrimRight(providerBaseURL(in.Type, in.BaseURL), "/")
 		if base == "" {
 			base = defaultModelListBaseURL(in.Type)

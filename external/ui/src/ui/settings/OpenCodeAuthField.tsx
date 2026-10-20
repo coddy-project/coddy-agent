@@ -47,7 +47,6 @@ async function readResponse<T>(response: Response): Promise<T> {
 
 export function OpenCodeAuthField(props: {
   providerName: string;
-  apiBase: string;
   proxy?: string;
   hasExplicitKey: boolean;
   texts: OverrideTexts;
@@ -160,10 +159,11 @@ export function OpenCodeAuthField(props: {
       const next = await fetch(`${endpoint}/device`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          api_base: props.apiBase,
-          ...(props.proxy === undefined ? {} : { proxy: props.proxy }),
-        }),
+        // No gateway: the login belongs to the account and serves the Go
+        // and the Console gateway alike, as in the OpenCode client.
+        body: JSON.stringify(
+          props.proxy === undefined ? {} : { proxy: props.proxy },
+        ),
       }).then(readResponse<DeviceLogin>);
       if (mine !== generation.current) return;
       if (!next.login_id || !next.verification_url || !next.user_code)

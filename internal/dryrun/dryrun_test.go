@@ -1055,22 +1055,32 @@ func TestGatewayWithoutAdminsIsWarned(t *testing.T) {
 	}
 }
 
-// An opencode row with no api_base talks to the gateway its stored login was
-// issued for, and the probe names that gateway rather than the default one.
-func TestOpenCodeProbeNamesTheGatewayOfTheLogin(t *testing.T) {
+// An opencode login belongs to the account, as in the OpenCode client: the
+// probe names the gateway of the row, the one its requests go to, whichever
+// gateway the login was made on.
+func TestOpenCodeProbeNamesTheGatewayOfTheRow(t *testing.T) {
 	t.Setenv(llm.EnvOpenCodeBaseURL, "")
 	t.Setenv("OC_API_KEY", "")
 	closed := httptest.NewServer(http.NotFoundHandler())
 	proxy := closed.URL
 	closed.Close()
-	prep, home := prepare(t, fmt.Sprintf("providers:\n  - name: oc\n    type: opencode\n    proxy: %s\n", proxy))
-	console := llm.OpenCodeAPIBases()[1]
-	if err := llm.SaveOpenCodeAuth(config.OpenCodeAuthPath(home, "oc"), "oc-console-key-0123456789", console); err != nil {
-		t.Fatal(err)
-	}
-	rep := Run(context.Background(), Request{Cfg: prep.Cfg, Paths: prep.Paths, Locator: prep.Locator})
-	p := find(t, rep, "providers[oc]")
-	if p.Status != StatusError || !strings.Contains(p.Message, console+":") || strings.Contains(p.Message, llm.OpenCodeDefaultAPIBase()) {
-		t.Errorf("provider check %+v, want it to name %s", p, console)
+	goBase, console := llm.OpenCodeAPIBases()[0], llm.OpenCodeAPIBases()[1]
+	for _, tc := range []struct{ row, want string }{
+		{"", goBase},
+		{"    api_base: " + console + "\n", console},
+	} {
+		prep, home := prepare(t, fmt.Sprintf("providers:\n  - name: oc\n    type: opencode\n%s    proxy: %s\n", tc.row, proxy))
+		authPath := config.OpenCodeAuthPath(home, "oc")
+		if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(authPath, []byte(`{"api_key":"oc-console-key-0123456789","api_base":"`+console+`"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		rep := Run(context.Background(), Request{Cfg: prep.Cfg, Paths: prep.Paths, Locator: prep.Locator})
+		p := find(t, rep, "providers[oc]")
+		if p.Status != StatusError || !strings.Contains(p.Message, "cannot reach "+tc.want+":") {
+			t.Errorf("row %q: provider check %+v, want it to name %s", tc.row, p, tc.want)
+		}
 	}
 }

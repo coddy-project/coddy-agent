@@ -108,7 +108,7 @@ func TestOpenCodeLoginFeature(t *testing.T) {
 	suite := godog.TestSuite{Name: "opencode_login", Options: &godog.Options{Paths: []string{"../../features/opencode_login.feature"}, Tags: "~@ui", Format: "pretty", TestingT: t, Strict: true}, ScenarioInitializer: func(sc *godog.ScenarioContext) {
 		sc.Step(`^an OpenCode account issuer and a provider settings server$`, func() { srv, proxy, calls = openCodeAuthStand(t, nil) })
 		sc.Step(`^the form starts OpenCode sign-in with its current proxy$`, func() error {
-			body, _ := json.Marshal(map[string]string{"api_base": "https://opencode.ai/inference/v1", "proxy": proxy.URL})
+			body, _ := json.Marshal(map[string]string{"proxy": proxy.URL})
 			w := openCodeAuthRequest(t, srv, "POST", path+"/device", string(body))
 			if w.Code != 200 {
 				return fmt.Errorf("start: %d %s", w.Code, w.Body)
@@ -174,7 +174,7 @@ func TestOpenCodeAuthHTTPValidationAndCancellation(t *testing.T) {
 	defer close(gate)
 	srv, proxy, _ := openCodeAuthStand(t, gate)
 	const path = "/coddy/providers/openai/opencode-auth"
-	for _, body := range []string{`{"proxy":"invalid"}`, `{"api_base":"https://elsewhere.invalid"}`, `{`} {
+	for _, body := range []string{`{"proxy":"invalid"}`, `{`} {
 		w := openCodeAuthRequest(t, srv, "POST", path+"/device", body)
 		if w.Code != 400 {
 			t.Fatalf("invalid body status=%d", w.Code)
@@ -210,7 +210,7 @@ func TestOpenCodeAuthHTTPValidationAndCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := login.WaitWith(ctx, llm.OpenCodeDefaultAPIBase(), func(context.Context, []byte) error { t.Error("cancelled login persisted"); return nil }); err == nil {
+	if err := login.WaitWith(ctx, func(context.Context, []byte) error { t.Error("cancelled login persisted"); return nil }); err == nil {
 		t.Fatal("cancelled login succeeded")
 	}
 }

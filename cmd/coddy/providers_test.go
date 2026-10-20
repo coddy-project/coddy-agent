@@ -463,6 +463,9 @@ func TestLoginFlagsOfAnotherTypeAreRefused(t *testing.T) {
 		{[]string{"login", "neuraldeep", "--api-key", "k"}, "--api-key applies to opencode providers only"},
 		{[]string{"login", "opencode", "--browser"}, "--browser applies to neuraldeep providers only"},
 		{[]string{"login", "codex", "--browser"}, "--browser applies to neuraldeep providers only"},
+		// An OpenCode login belongs to the account; --api-base only picks the
+		// gateway written into the row, which --no-config does not write.
+		{[]string{"login", "opencode", "--no-config", "--api-base", "https://opencode.ai/inference/v1"}, "--api-base picks the gateway of the row"},
 	} {
 		home := t.TempDir()
 		err := runProviders(append(tc.args, "--home", home))

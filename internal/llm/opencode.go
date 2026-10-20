@@ -87,7 +87,9 @@ func NormalizeOpenCodeAPIBase(configured string) (string, bool) {
 
 // opencodeAPIBase resolves the endpoint requests actually go to: the
 // process-wide env override first (stands and tests), then the allowlisted
-// providers[].api_base, then the default gateway.
+// providers[].api_base, then the default gateway. As in the OpenCode client,
+// where Go and Console are two providers on one OPENCODE_API_KEY, the
+// gateway is the row's: a login belongs to the account and serves either.
 func opencodeAPIBase(configured string) string {
 	if v := strings.TrimSpace(os.Getenv(EnvOpenCodeBaseURL)); v != "" {
 		return strings.TrimRight(v, "/")
@@ -96,48 +98,6 @@ func opencodeAPIBase(configured string) string {
 		return e
 	}
 	return opencodeGoBaseURL
-}
-
-// opencodeLogicalGateway is the gateway one request is *for*: the allowlisted
-// providers[].api_base when the row names one, else the gateway the stored
-// login was issued against, else the default. It deliberately ignores the
-// process-wide stand override, because Go and Console serve the same model id
-// over different wire protocols and the protocol has to follow the gateway the
-// credential belongs to even while a test points the traffic elsewhere.
-func opencodeLogicalGateway(explicitKey, configured, authPath string) string {
-	if e, ok := opencodeEndpointFor(configured); ok {
-		return e
-	}
-	if strings.TrimSpace(explicitKey) == "" {
-		// A key taken from the stored login is issued for exactly one of the
-		// two gateways. The row names none here, so that gateway decides where
-		// the request reaches - not the default, which would send a Console key
-		// at the Go gateway on every request of a row signed in with
-		// --no-config.
-		if f, err := loadOpenCodeAuth(authPath); err == nil && f != nil {
-			if loginBase, ok := NormalizeOpenCodeAPIBase(f.APIBase); ok {
-				return loginBase
-			}
-		}
-	}
-	return opencodeGoBaseURL
-}
-
-// opencodeGatewayFor is where the request actually goes: the process-wide
-// CODDY_OPENCODE_BASE_URL override first (stands and tests), then the logical
-// gateway above.
-func opencodeGatewayFor(explicitKey, configured, authPath string) string {
-	if v := strings.TrimSpace(os.Getenv(EnvOpenCodeBaseURL)); v != "" {
-		return strings.TrimRight(v, "/")
-	}
-	return opencodeLogicalGateway(explicitKey, configured, authPath)
-}
-
-// OpenCodeEffectiveAPIBase reports the gateway an opencode provider's requests
-// reach. Diagnostics name this, so a message never points at a gateway the
-// credential was not issued for.
-func OpenCodeEffectiveAPIBase(explicitKey, configured, authPath string) string {
-	return opencodeGatewayFor(explicitKey, configured, authPath)
 }
 
 // opencodeUserAgent is the client name the gateway asks for: Coddy's own, with
@@ -179,8 +139,9 @@ func opencodeProtocolFor(model string) opencodeProtocol {
 	}
 }
 
-// Go and Console publish different API families for the same model ids.
-// Resolve the logical gateway before the stand override changes its address.
+// Go and Console publish different API families for the same model ids. The
+// gateway is the row's api_base, read before the stand override changes the
+// address the requests go to.
 func opencodeProtocolForGateway(model, configured string) opencodeProtocol {
 	id := strings.ToLower(strings.TrimSpace(model))
 	if base, ok := NormalizeOpenCodeAPIBase(configured); ok && base == opencodeConsoleBaseURL {
@@ -284,18 +245,18 @@ func opencodeClient(hc *http.Client, apiKey, sessionID, authPath string) (*http.
 }
 
 // newOpenCodeProvider routes a model to the transport that serves it: the wire
-// protocol is chosen once at construction from the model id and the gateway
-// the credential is bound to, and the provider handed back is that protocol's
-// own, with nothing left to decide per call.
+// protocol is chosen once at construction from the model id and the row's
+// gateway, and the provider handed back is that protocol's own, with nothing
+// left to decide per call.
 func newOpenCodeProvider(p ProviderInput, hc *http.Client) (Provider, error) {
-	base := opencodeGatewayFor(p.APIKey, p.BaseURL, p.AuthPath)
+	base := opencodeAPIBase(p.BaseURL)
 	key := p.APIKey
 	client, err := opencodeClient(hc, key, opencodeSessionHeader(p.SessionID), p.AuthPath)
 	if err != nil {
 		return nil, err
 	}
 
-	switch opencodeProtocolForGateway(p.Model, opencodeLogicalGateway(p.APIKey, p.BaseURL, p.AuthPath)) {
+	switch opencodeProtocolForGateway(p.Model, p.BaseURL) {
 	case opencodeResponses:
 		return newOpenCodeResponsesProvider(p.Model, key, opencodeOpenAIBase(base), client, p.MaxTokens, p.ReasoningEffort), nil
 	case opencodeGoogle:

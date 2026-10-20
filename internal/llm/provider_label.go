@@ -69,17 +69,12 @@ func labelProvider(p Provider, in ProviderInput) Provider {
 	}
 	label := fmt.Sprintf("provider %q", name)
 	endpoint := ProviderEndpoint(in.Type, in.BaseURL)
-	switch in.Type {
-	case "devin":
+	if in.Type == "devin" {
 		// The server a Devin login records (a dedicated deployment) is where
 		// the requests go, not the default the type alone names.
 		if cred, err := resolveDevinCredential(in.APIKey, in.AuthPath, !in.NoCLILogin); err == nil {
 			endpoint = devinAPIServer(cred.apiServer)
 		}
-	case "opencode":
-		// Likewise the gateway a stored OpenCode login was issued for, when
-		// the row names none and carries no key of its own.
-		endpoint = opencodeGatewayFor(in.APIKey, in.BaseURL, in.AuthPath)
 	}
 	if endpoint != "" {
 		label = fmt.Sprintf("provider %q (%s)", name, endpoint)

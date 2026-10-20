@@ -21,9 +21,12 @@ import (
 
 // opencodeAuthFile stores either a service account key or account tokens.
 // Account metadata is used for organization headers and credential status.
+// It names no gateway: as in the OpenCode client, the login belongs to the
+// account and serves the Go and the Console gateway alike, and the row's
+// api_base decides where a request goes (a file an earlier build wrote with
+// "api_base" in it reads the same).
 type opencodeAuthFile struct {
 	APIKey       string `json:"api_key,omitempty"`
-	APIBase      string `json:"api_base"`
 	ObtainedAt   string `json:"obtained_at"`
 	AccessToken  string `json:"access_token,omitempty"`
 	RefreshToken string `json:"refresh_token,omitempty"`
@@ -41,7 +44,7 @@ var opencodeAuthMu sync.Mutex
 // destination directory gets 0600 before content, then replaces the target via
 // rename, so a crash never leaves a truncated credential and the key never
 // exists on disk with looser permissions.
-func SaveOpenCodeAuth(path, apiKey, apiBase string) error {
+func SaveOpenCodeAuth(path, apiKey string) error {
 	if strings.TrimSpace(path) == "" {
 		return errors.New("opencode auth: credential path is empty")
 	}
@@ -50,7 +53,6 @@ func SaveOpenCodeAuth(path, apiKey, apiBase string) error {
 	}
 	data, err := json.MarshalIndent(opencodeAuthFile{
 		APIKey:     apiKey,
-		APIBase:    strings.TrimRight(apiBase, "/"),
 		ObtainedAt: time.Now().UTC().Format(time.RFC3339),
 	}, "", "  ")
 	if err != nil {
@@ -113,7 +115,6 @@ func RemoveOpenCodeAuth(path string) error {
 type OpenCodeAuthStatus struct {
 	Connected    bool
 	Masked       string
-	APIBase      string
 	Account      bool
 	Organization string
 }
@@ -130,7 +131,6 @@ func InspectOpenCodeAuth(path string) (OpenCodeAuthStatus, error) {
 	return OpenCodeAuthStatus{
 		Connected:    true,
 		Masked:       maskOpenCodeKey(f.APIKey),
-		APIBase:      f.APIBase,
 		Account:      f.RefreshToken != "",
 		Organization: f.OrgName,
 	}, nil

@@ -227,8 +227,10 @@ test("OpenCode replaces a stored api_base that is not a gateway", async () => {
   });
 });
 
-// The @ui scenario of features/opencode_login.feature.
-test("OpenCode account sign-in uses the unsaved gateway and proxy", async () => {
+// The @ui scenario of features/opencode_login.feature. The login belongs to
+// the account, as in the OpenCode client, so the request names the unsaved
+// proxy and no gateway: the row's api_base alone decides where requests go.
+test("OpenCode account sign-in uses the unsaved proxy", async () => {
   let approved = false;
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -284,7 +286,6 @@ test("OpenCode account sign-in uses the unsaved gateway and proxy", async () => 
     "/coddy/providers/opencode/opencode-auth/device",
     expect.objectContaining({
       body: JSON.stringify({
-        api_base: "https://opencode.ai/inference/v1",
         proxy: "http://proxy.example:8080",
       }),
     }),

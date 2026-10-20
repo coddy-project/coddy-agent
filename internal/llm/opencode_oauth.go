@@ -100,8 +100,8 @@ func StartOpenCodeDeviceLogin(ctx context.Context, proxySetting string) (*OpenCo
 
 // Wait completes authorization, discovers the account and selected organization,
 // and atomically stores tokens. Ctrl-C or the server's expiry cancels the wait.
-func (login *OpenCodeDeviceLogin) Wait(ctx context.Context, authPath, apiBase string) error {
-	return login.WaitWith(ctx, apiBase, func(ctx context.Context, credential []byte) error {
+func (login *OpenCodeDeviceLogin) Wait(ctx context.Context, authPath string) error {
+	return login.WaitWith(ctx, func(ctx context.Context, credential []byte) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -111,7 +111,7 @@ func (login *OpenCodeDeviceLogin) Wait(ctx context.Context, authPath, apiBase st
 
 // WaitWith hands the completed credential to its owner. HTTP sign-in uses this
 // boundary to serialize storage with cancellation, replacement and logout.
-func (login *OpenCodeDeviceLogin) WaitWith(ctx context.Context, apiBase string, persist func(context.Context, []byte) error) error {
+func (login *OpenCodeDeviceLogin) WaitWith(ctx context.Context, persist func(context.Context, []byte) error) error {
 	if login == nil || login.client == nil {
 		return errors.New("opencode: missing device authorization attempt")
 	}
@@ -147,7 +147,7 @@ func (login *OpenCodeDeviceLogin) WaitWith(ctx context.Context, apiBase string, 
 		default:
 			return openCodeGrantError(token.Error)
 		}
-		credential := &opencodeAuthFile{APIBase: apiBase, ObtainedAt: time.Now().UTC().Format(time.RFC3339)}
+		credential := &opencodeAuthFile{ObtainedAt: time.Now().UTC().Format(time.RFC3339)}
 		if err := applyOpenCodeToken(credential, token); err != nil {
 			return err
 		}

@@ -294,7 +294,7 @@ usage: coddy sessions export <session-id> [--format md|html|json|jsonl] [--out <
 ```text
 Usage of providers:
   -api-base string
-    	neuraldeep: API endpoint to sign in against, one of https://api.neuraldeep.ru/v1, https://api.neuraldeep.tech/v1 (default: the provider's api_base, else the first); opencode: the gateway, one of https://opencode.ai/inference/go/v1, https://opencode.ai/inference/v1 (default: Go)
+    	neuraldeep: API endpoint to sign in against, one of https://api.neuraldeep.ru/v1, https://api.neuraldeep.tech/v1 (default: the provider's api_base, else the first); opencode: the gateway written into the row, one of https://opencode.ai/inference/go/v1, https://opencode.ai/inference/v1 (default: the row's api_base, else Go)
   -api-key string
     	opencode: service account key (- reads a secret prompt or stdin); without it, sign in an account by device code
   -browser

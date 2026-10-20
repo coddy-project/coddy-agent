@@ -2,8 +2,6 @@
 
 package httpserver
 
-import "github.com/EvilFreelancer/coddy-agent/internal/llm"
-
 func mergeOpenCodeAuthOpenAPI(doc map[string]interface{}) {
 	paths := doc["paths"].(map[string]interface{})
 	schemas := doc["components"].(map[string]interface{})["schemas"].(map[string]interface{})
@@ -19,8 +17,7 @@ func mergeOpenCodeAuthOpenAPI(doc map[string]interface{}) {
 	}
 	schemas["OpenCodeAuthDeviceStartRequest"] = map[string]interface{}{
 		"type": "object", "properties": map[string]interface{}{
-			"api_base": map[string]interface{}{"type": "string", "enum": llm.OpenCodeAPIBases(), "description": "Current unsaved Go or Console gateway. Omitted: the saved row, then Go."},
-			"proxy":    map[string]string{"type": "string", "description": "Current unsaved provider proxy. Absent retains the row route, even while switching its type; empty or inherit follows the process proxy, none connects directly, a URL selects that proxy."},
+			"proxy": map[string]string{"type": "string", "description": "Current unsaved provider proxy. Absent retains the row route, even while switching its type; empty or inherit follows the process proxy, none connects directly, a URL selects that proxy."},
 		},
 	}
 	base := "/coddy/providers/{name}/opencode-auth"
@@ -40,7 +37,7 @@ func mergeOpenCodeAuthOpenAPI(doc map[string]interface{}) {
 	}
 	paths[base+"/device"] = map[string]interface{}{"post": map[string]interface{}{
 		"summary": "Start OpenCode account device authorization", "operationId": "startProviderOpenCodeDeviceAuth",
-		"description": "Requires application/json. Uses the form's unsaved gateway and proxy. Returns a verification URL and user code while the server polls Console, discovers the selected organization and stores tokens privately. A new start or logout supersedes earlier attempts; shutdown cancels waits. An overridden route applies to this login only; Save persists the provider settings for later chats and refreshes.",
+		"description": "Requires application/json. Uses the form's unsaved proxy. The login belongs to the account and serves the Go and the Console gateway alike; the row's api_base decides where its requests go. Returns a verification URL and user code while the server polls Console, discovers the selected organization and stores tokens privately. A new start or logout supersedes earlier attempts; shutdown cancels waits. An overridden route applies to this login only; Save persists the provider settings for later chats and refreshes.",
 		"parameters":  []interface{}{codexProviderNameParameter()},
 		"requestBody": map[string]interface{}{"required": false, "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]string{"$ref": "#/components/schemas/OpenCodeAuthDeviceStartRequest"}}}},
 		"responses":   map[string]interface{}{"200": jsonSchemaResponse("Verification page and code.", "#/components/schemas/CodexAuthDeviceStart"), "400": errorResponseRef(), "409": errorResponseRef(), "415": errorResponseRef(), "500": errorResponseRef(), "502": errorResponseRef()},

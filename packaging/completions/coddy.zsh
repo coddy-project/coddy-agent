@@ -68,7 +68,7 @@ _coddy() {
                             '--devin-cli[devin: use the login devin auth login already holds]' \
                             '--no-config[login: do not add the provider and its models to config.yaml]' \
                             '--api-key[opencode: service account key, or - for a secret prompt]:key:' \
-                            '--api-base[neuraldeep/opencode: endpoint to sign in against]:url:' \
+                            '--api-base[neuraldeep: endpoint to sign in against; opencode: gateway written into the row]:url:' \
                             '--home[override CODDY_HOME]:dir:_files -/'
                     else
                         _values 'subcommand' list login logout

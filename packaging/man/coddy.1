@@ -248,6 +248,10 @@ it uses the login
 already holds and opens no browser. An OpenCode login prints a device code
 and opens the Console account page. Select the organization there; access
 and refresh tokens are stored locally and refreshed through the provider proxy.
+The login belongs to the account and serves the Go and the Console gateway
+alike;
+.B \-\-api\-base
+picks the gateway written into the provider row.
 For a service account, pass
 .B \-\-api\-key KEY
 or use

@@ -453,7 +453,6 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
             rowText(ctx.parentObj, "api_key").trim() !== "" ||
             rowText(ctx.parentObj, "api_key_command").trim() !== ""
           }
-          apiBase={matchOpenCodeAPIBase(ctx.value) || OPENCODE_DEFAULT_API_BASE}
           texts={box}
           {...rowProxy(ctx.parentObj)}
         />

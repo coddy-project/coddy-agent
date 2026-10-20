@@ -2,12 +2,14 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -44,68 +46,19 @@ func opencodeConfigTestCatalog(t *testing.T, catalog string) {
 	t.Setenv(EnvOpenCodeBaseURL, stand.URL)
 }
 
-// TestOpenCodeGatewayForBindsAStoredLoginToItsGateway: a login stores its key
-// against one of the two gateways, and when the row names no gateway itself
-// that is where the request goes - not the default, which would send the key
-// at the other gateway. A row that does name one keeps saying where its own
-// requests go.
-func TestOpenCodeGatewayForBindsAStoredLoginToItsGateway(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "opencode-auth.json")
-	if err := SaveOpenCodeAuth(path, "console-key", opencodeConsoleBaseURL); err != nil {
-		t.Fatalf("SaveOpenCodeAuth: %v", err)
-	}
-
-	got := opencodeGatewayFor("", "", path)
-	if got != opencodeConsoleBaseURL {
-		t.Errorf("opencodeGatewayFor(no row) = %q, want %s", got, opencodeConsoleBaseURL)
-	}
-	// The same holds for a row whose api_base names no OpenCode gateway: the
-	// value is discarded, and the login's gateway is what the key is for.
-	got = opencodeGatewayFor("", "https://custom.example/v1", path)
-	if got != opencodeConsoleBaseURL {
-		t.Errorf("opencodeGatewayFor(unusable row) = %q, want %s", got, opencodeConsoleBaseURL)
-	}
-	// A row that names a gateway is the operator's choice for it, and an
-	// explicit api_key is not the login's key and is not bound to it.
-	got = opencodeGatewayFor("", opencodeGoBaseURL, path)
-	if got != opencodeGoBaseURL {
-		t.Errorf("opencodeGatewayFor(row at Go) = %q, want %s", got, opencodeGoBaseURL)
-	}
-	got = opencodeGatewayFor("explicit", opencodeGoBaseURL, path)
-	if got != opencodeGoBaseURL {
-		t.Errorf("opencodeGatewayFor(explicit) = %q, want %s", got, opencodeGoBaseURL)
-	}
-	// No login at all: the row resolves as it always did.
-	got = opencodeGatewayFor("", opencodeConsoleBaseURL, filepath.Join(t.TempDir(), "absent.json"))
-	if got != opencodeConsoleBaseURL {
-		t.Errorf("opencodeGatewayFor(no login) = %q, want %s", got, opencodeConsoleBaseURL)
-	}
-}
-
-// TestOpenCodeLogicalGatewayIgnoresTheStandOverride: the wire protocol a model
-// is served over follows the gateway the credential is for, so the stand that
-// redirects the traffic must not change which protocol is chosen.
-func TestOpenCodeLogicalGatewayIgnoresTheStandOverride(t *testing.T) {
+// TestOpenCodeProtocolIgnoresTheStandOverride: Go and Console serve some ids
+// over different protocols, and the protocol follows the row's gateway even
+// while a stand points the traffic of the process elsewhere.
+func TestOpenCodeProtocolIgnoresTheStandOverride(t *testing.T) {
 	t.Setenv(EnvOpenCodeBaseURL, "https://stand.invalid/inference/go/v1")
-	if got := opencodeLogicalGateway("", opencodeConsoleBaseURL, ""); got != opencodeConsoleBaseURL {
-		t.Errorf("opencodeLogicalGateway = %q, want %s", got, opencodeConsoleBaseURL)
+	if got := opencodeProtocolForGateway("qwen3.8-max", opencodeConsoleBaseURL); got != opencodeChat {
+		t.Errorf("Console qwen3.8-max = %v, want Chat Completions", got)
 	}
-	if got := opencodeGatewayFor("", opencodeConsoleBaseURL, ""); got != "https://stand.invalid/inference/go/v1" {
-		t.Errorf("opencodeGatewayFor = %q, want the stand", got)
+	if got := opencodeProtocolForGateway("qwen3.8-max", ""); got != opencodeMessages {
+		t.Errorf("Go qwen3.8-max = %v, want Messages", got)
 	}
-}
-
-// TestOpenCodeGatewayForEnvOverrideWins: stands and tests redirect the process
-// as a whole, which has to hold for a login's key as much as for an explicit
-// one.
-func TestOpenCodeGatewayForEnvOverrideWins(t *testing.T) {
-	t.Setenv(EnvOpenCodeBaseURL, "https://stand.invalid/inference/go/v1")
-	path := filepath.Join(t.TempDir(), "opencode-auth.json")
-	if err := SaveOpenCodeAuth(path, "console-key", opencodeConsoleBaseURL); err != nil {
-		t.Fatalf("SaveOpenCodeAuth: %v", err)
-	}
-	if got := opencodeGatewayFor("", "", path); got != "https://stand.invalid/inference/go/v1" {
-		t.Errorf("opencodeGatewayFor = %q, want the stand", got)
+	if got := opencodeAPIBase(opencodeConsoleBaseURL); got != "https://stand.invalid/inference/go/v1" {
+		t.Errorf("opencodeAPIBase = %q, want the stand", got)
 	}
 }
 
@@ -209,5 +162,65 @@ func TestApplyOpenCodeLoginToConfigKeepsWhatTheOperatorAlreadyChose(t *testing.T
 	kept := reloaded.FindModelEntry("opencode/glm-5.3")
 	if kept == nil || kept.MaxTokens != 4242 {
 		t.Errorf("the existing model entry lost its settings: %+v", kept)
+	}
+}
+
+// TestOpenCodeLoginServesTheGatewayOfTheRow: as in the OpenCode client, where
+// Go and Console are two providers on one OPENCODE_API_KEY, a login belongs
+// to the account and not to a gateway. The row's api_base alone says where its
+// requests go - completions, the catalog and the label of an error alike - so
+// a login made on Console serves a row left on Go, and the gateway picker in
+// Settings shows where the requests really go.
+func TestOpenCodeLoginServesTheGatewayOfTheRow(t *testing.T) {
+	t.Setenv(EnvOpenCodeBaseURL, "")
+	var mu sync.Mutex
+	var paths []string
+	proxy := newProviderHTTPSProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		paths = append(paths, r.URL.Path)
+		mu.Unlock()
+		if r.Header.Get("Authorization") != "Bearer stored-key" {
+			t.Errorf("%s: the stored login was not used", r.URL.Path)
+		}
+		if !answerProviderRequest(t, w, r) {
+			http.NotFound(w, r)
+		}
+	}))
+	path := filepath.Join(t.TempDir(), "opencode-auth.json")
+	// A login file that names the gateway it was made on, as the earlier
+	// builds of this provider wrote it.
+	if err := os.WriteFile(path, []byte(`{"api_key":"stored-key","api_base":"`+opencodeConsoleBaseURL+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		apiBase, chat, catalog, label string
+	}{
+		{"", "/inference/go/openai/v1/chat/completions", "/inference/go/v1/models", opencodeGoBaseURL},
+		{opencodeConsoleBaseURL, "/inference/openai/v1/chat/completions", "/inference/v1/models", opencodeConsoleBaseURL},
+	} {
+		mu.Lock()
+		paths = nil
+		mu.Unlock()
+		in := ProviderInput{Name: "oc", Type: "opencode", Model: "glm-5.3", BaseURL: tc.apiBase, AuthPath: path, ProxyURL: proxy, RetryDisabled: true}
+		p, err := NewProvider(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := p.Complete(context.Background(), []Message{{Role: RoleUser, Content: "ping"}}, nil); err != nil {
+			t.Fatalf("api_base %q: %v", tc.apiBase, err)
+		}
+		if _, err := ListModels(context.Background(), in); err != nil {
+			t.Fatalf("api_base %q catalog: %v", tc.apiBase, err)
+		}
+		mu.Lock()
+		got := append([]string(nil), paths...)
+		mu.Unlock()
+		if len(got) != 2 || got[0] != tc.chat || got[1] != tc.catalog {
+			t.Errorf("api_base %q reached %v, want %s then %s", tc.apiBase, got, tc.chat, tc.catalog)
+		}
+		labelled := labelProvider(&labelTestProvider{err: errors.New("boom")}, in)
+		if _, err := labelled.Complete(context.Background(), nil, nil); err == nil || !strings.Contains(err.Error(), "("+tc.label+")") {
+			t.Errorf("api_base %q: label %v, want %s", tc.apiBase, err, tc.label)
+		}
 	}
 }
