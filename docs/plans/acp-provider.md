@@ -411,7 +411,12 @@ and several sessions at once. The suites above keep those runs. Fixed on the way
   could be reported as a bare exit (a flaky `TestACPProviderKeepsAnAnswerTheAgentExitedAfter` in CI). The writer
   notes every request, the router keeps the error answers it reads for them, and a call the SDK gave up takes the
   error answer of a request of its method sent after it began; a prompt whose agent is gone takes the router's
-  answer at once instead of waiting a bounded time for the SDK's goroutine.
+  answer at once instead of waiting a bounded time for the SDK's goroutine;
+- the live check on OpenCode showed its tool lines as `[tool 1] read`: OpenCode announces a call by the tool's bare
+  name with an empty input and names the file only in the next update (`locations`, `rawInput.filePath`), and the
+  line was written at the first one. A line now waits until the call says what it works on (a descriptive title, a
+  file of `locations` by its path in the workspace, or the command, path, pattern, query or URL of its input) or
+  ends; a call still open when the prompt ends is named then. OpenCode's read now reads `[tool 1] read notes.txt`.
 
 Seen and left as they are: the Telegram bot asks in the chat for an agent's request (its chat agent's own tools it
 approves without asking), which the guide now says; `session/load` replays no reasoning, so an editor shows the
