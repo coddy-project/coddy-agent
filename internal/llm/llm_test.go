@@ -240,6 +240,17 @@ func TestOpenAIStreamedErrorRetryClassification(t *testing.T) {
 			contentChunk + "error: {\"code\":500,\"message\":\"slot unavailable\",\"type\":\"server_error\"}\n\n", 1, 1},
 		{"streamed 500 after deltas with status-like message text is not retried",
 			contentChunk + "error: {\"code\":500,\"message\":\"upstream said 500 Internal Server Error\",\"type\":\"server_error\"}\n\n", 1, 1},
+		// An overload spelled by type or by a named code carries no status; it
+		// is retried like the 503 the SDK-decoded streams (Codex, Anthropic)
+		// take it for, and only on the fields isOverloadPayload reads.
+		{"streamed overloaded_error without a code is retried",
+			"error: {\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}\n\n", 2, 0},
+		{"streamed server_is_overloaded code is retried",
+			"data: {\"error\":{\"type\":\"service_unavailable_error\",\"code\":\"server_is_overloaded\",\"message\":\"try later\"}}\n\n", 2, 0},
+		{"streamed overload after emitted deltas is not retried",
+			contentChunk + "error: {\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}\n\n", 1, 1},
+		{"streamed refusal whose message says overloaded is not retried",
+			"error: {\"type\":\"invalid_request_error\",\"message\":\"Overloaded with tokens\"}\n\n", 1, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

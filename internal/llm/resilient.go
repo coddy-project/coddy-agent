@@ -629,12 +629,35 @@ func httpStatusFromError(err error) int {
 	}
 	s := err.Error()
 	for _, code := range retryableStatuses {
-		needle := strconv.Itoa(code)
-		if strings.Contains(s, needle+" ") || strings.Contains(s, `"code":"`+needle+`"`) {
+		if statusInText(s, code) {
 			return code
 		}
 	}
 	return 0
+}
+
+// statusInText reports whether s names status as a word of its own: the code
+// followed by a space with no digit in front of it, or a quoted "code" member.
+// "requested 1529 tokens" holds a "529 " and "wrote 4500 bytes" a "500 ", and
+// neither is a status.
+func statusInText(s string, status int) bool {
+	needle := strconv.Itoa(status)
+	if strings.Contains(s, `"code":"`+needle+`"`) {
+		return true
+	}
+	needle += " "
+	for off := 0; off < len(s); {
+		i := strings.Index(s[off:], needle)
+		if i < 0 {
+			return false
+		}
+		i += off
+		if i == 0 || s[i-1] < '0' || s[i-1] > '9' {
+			return true
+		}
+		off = i + 1
+	}
+	return false
 }
 
 // WithAgentResilience copies agent LLM pacing settings into ProviderInput.

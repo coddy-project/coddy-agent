@@ -272,16 +272,23 @@ func sdkStreamErrorPayload(err error) (string, bool) {
 }
 
 // isInBandOverload reports an in-band stream error whose decoded payload says
-// the provider is overloaded or unavailable: the type is
-// service_unavailable_error or overloaded_error, the code is
-// server_is_overloaded, or a gateway put the status 503 or 529 in a numeric
-// code. The verdict is read from those fields and from nothing else, so a
-// refusal whose message happens to say "overloaded" stays final. The payload
-// is the object itself, the event that wraps it (anthropic), or an object
-// nested one level deeper by a gateway.
+// the provider is overloaded or unavailable (isOverloadPayload).
 func isInBandOverload(err error) bool {
 	payload, ok := sdkStreamErrorPayload(err)
-	if !ok || !gjson.Valid(payload) {
+	return ok && isOverloadPayload(payload)
+}
+
+// isOverloadPayload reports whether the error object of a stream says the
+// provider is overloaded or unavailable: the type is service_unavailable_error
+// or overloaded_error, the code is server_is_overloaded, or a gateway put the
+// status 503 or 529 in a numeric code. The verdict is read from those fields
+// and from nothing else, so a refusal whose message happens to say
+// "overloaded" stays final. The payload is the object itself, the event that
+// wraps it (anthropic), or an object nested one level deeper by a gateway. It
+// is the one test of an overload: the SDK-decoded streams (Codex, Anthropic)
+// and the lenient OpenAI-compatible reader (newStreamServerError) both ask it.
+func isOverloadPayload(payload string) bool {
+	if !gjson.Valid(payload) {
 		return false
 	}
 	obj := gjson.Parse(payload)
@@ -368,7 +375,13 @@ func newStreamServerError(obj []byte, emitted bool) error {
 	if msg == "" {
 		msg = streamErrorSnippet(obj)
 	}
-	return &streamServerError{code: int(gjson.GetBytes(obj, "code").Int()), msg: msg, emitted: emitted}
+	code := int(gjson.GetBytes(obj, "code").Int())
+	if code == 0 && isOverloadPayload(string(obj)) {
+		// An overload spelled by type or by a named code carries no status:
+		// it is the 503 the SDK-decoded streams treat it as.
+		code = 503
+	}
+	return &streamServerError{code: code, msg: msg, emitted: emitted}
 }
 
 // Stream implements Provider.Stream over the lenient SSE path.

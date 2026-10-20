@@ -54,6 +54,15 @@ func newRetryBudgetFixture(t *testing.T, retryMax *int, maxTurns int, replies ..
 			_, _ = io.WriteString(w, `{"type":"error","error":{"type":"api_error","message":"temporary failure"}}`)
 			return
 		}
+		// A limit is retried by the wrapper like a 500, but the agent's
+		// provider recovery leaves it alone (llm.IsTransientProviderError), so
+		// it is the failure that shows the wrapper's slots running out.
+		if reply == "limit" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = io.WriteString(w, `{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}`)
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		if reply == "silent" {
 			w.WriteHeader(http.StatusOK)
@@ -203,8 +212,12 @@ func TestReActRetryBudget(t *testing.T) {
 		{"token limit recoveries are bounded", 10, 10, 1 + maxOutputLimitRecoveries, []string{"max_tokens"}, acp.StopReasonMaxTokens, false},
 		{"token limit takes one slot per recovery", 1, 10, 2, []string{"max_tokens"}, acp.StopReasonMaxTokens, false},
 		{"transport then token limit share allowance", 1, 10, 2, []string{"error", "max_tokens", "answer"}, acp.StopReasonMaxTokens, false},
-		{"token limit then transport share allowance", 1, 10, 2, []string{"max_tokens", "error", "answer"}, acp.StopReasonRefused, true},
+		{"token limit then transport share allowance", 1, 10, 2, []string{"max_tokens", "limit", "answer"}, acp.StopReasonRefused, true},
 		{"token limit at the step cap", 3, 1, 1, []string{"max_tokens", "answer"}, acp.StopReasonMaxTokens, false},
+		// A 500 the wrapper has no slot left to retry is the lane's failure, and
+		// the agent's own bounded provider recovery runs the step again (the
+		// rows below that spend the slots use a 429, which it leaves alone).
+		{"token limit then a 500 falls to the provider recovery", 1, 10, 3, []string{"max_tokens", "error", "answer"}, acp.StopReasonEndTurn, false},
 		{"tool progress resets the token limit budget", 1, 10, 4, []string{"max_tokens", "tool", "max_tokens", "answer"}, acp.StopReasonEndTurn, false},
 		// Two recoveries are the bound. The third cut-off is only recovered
 		// because the tool call in between started the count over, and the
@@ -219,7 +232,7 @@ func TestReActRetryBudget(t *testing.T) {
 		{"cut text recoveries are bounded", 10, 10, 1 + maxOutputLimitRecoveries, []string{"text-max"}, acp.StopReasonMaxTokens, false},
 		{"cut text takes one slot per recovery", 1, 10, 2, []string{"text-max"}, acp.StopReasonMaxTokens, false},
 		{"cut text at the step cap", 3, 1, 1, []string{"text-max", "answer"}, acp.StopReasonMaxTokens, false},
-		{"cut text then transport share allowance", 1, 10, 2, []string{"text-max", "error", "answer"}, acp.StopReasonRefused, true},
+		{"cut text then transport share allowance", 1, 10, 2, []string{"text-max", "limit", "answer"}, acp.StopReasonRefused, true},
 		{"cut text then empty step share the count", 10, 20, 3, []string{"text-max", "max_tokens", "max_tokens", "answer"}, acp.StopReasonMaxTokens, false},
 		{"tool progress resets the cut text count", 10, 20, 5, []string{"text-max", "text-max", "tool", "text-max", "answer"}, acp.StopReasonEndTurn, false},
 		// A tool call the limit cut off is not run; it is asked for again
@@ -229,7 +242,7 @@ func TestReActRetryBudget(t *testing.T) {
 		{"cut tool call recoveries are bounded", 10, 10, 1 + maxOutputLimitRecoveries, []string{"cut-tool"}, acp.StopReasonMaxTokens, false},
 		{"cut tool call takes one slot per recovery", 1, 10, 2, []string{"cut-tool"}, acp.StopReasonMaxTokens, false},
 		{"cut tool call at the step cap", 3, 1, 1, []string{"cut-tool", "answer"}, acp.StopReasonMaxTokens, false},
-		{"cut tool call then transport share allowance", 1, 10, 2, []string{"cut-tool", "error", "answer"}, acp.StopReasonRefused, true},
+		{"cut tool call then transport share allowance", 1, 10, 2, []string{"cut-tool", "limit", "answer"}, acp.StopReasonRefused, true},
 		{"cut tool call after a whole one recovers", 3, 10, 2, []string{"tool-cut", "answer"}, acp.StopReasonEndTurn, false},
 		// The whole call before the cut one is progress for the allowance but the
 		// step was cut off all the same, so it is the count that ends the turn.
@@ -237,7 +250,7 @@ func TestReActRetryBudget(t *testing.T) {
 		{"tool progress resets the cut tool call count", 10, 20, 5, []string{"cut-tool", "cut-tool", "tool", "cut-tool", "answer"}, acp.StopReasonEndTurn, false},
 		{"one recovery", 1, 10, 2, []string{"reasoning"}, acp.StopReasonRefused, true},
 		{"transport then empty share allowance", 1, 10, 2, []string{"error", "reasoning", "answer"}, acp.StopReasonRefused, true},
-		{"empty then transport share allowance", 1, 10, 2, []string{"reasoning", "error", "answer"}, acp.StopReasonRefused, true},
+		{"empty then transport share allowance", 1, 10, 2, []string{"reasoning", "limit", "answer"}, acp.StopReasonRefused, true},
 		{"mixed recovery succeeds", 2, 10, 3, []string{"error", "reasoning", "answer"}, acp.StopReasonEndTurn, false},
 		{"silence recovers", 1, 10, 2, []string{"silent", "answer"}, acp.StopReasonEndTurn, false},
 		{"tool progress resets budget", 1, 10, 4, []string{"reasoning", "tool", "reasoning", "answer"}, acp.StopReasonEndTurn, false},

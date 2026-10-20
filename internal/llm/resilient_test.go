@@ -506,6 +506,44 @@ func TestOverloadedProviderIsRetriedLikeA503(t *testing.T) {
 	}
 }
 
+// TestStatusInUntypedTextNeedsADigitBoundary: an error that reached the
+// classifier as text is read for a status by its digits, and a code only
+// counts as a word of its own. "requested 1529 tokens" holds a "529 " and
+// "wrote 4500 bytes" a "500 ", and neither is a status.
+func TestStatusInUntypedTextNeedsADigitBoundary(t *testing.T) {
+	cases := []struct {
+		text string
+		want int
+	}{
+		{"openai stream: requested 1529 tokens", 0},
+		{"anthropic stream: error at offset 2529 in body", 0},
+		{"openai stream: wrote 4500 bytes", 0},
+		{"openai stream: item 10503 of 20000", 0},
+		{`openai stream: {"code":"1529"}`, 0},
+		{"anthropic stream: gateway answered 529 Overloaded", 529},
+		{"openai stream: status 503 Service Unavailable", 503},
+		{"503 Service Unavailable", 503},
+		{"openai stream: 500 Internal Server Error", 500},
+		{"offset 2529, then a gateway answered 529 Overloaded", 529},
+		{`openai stream: {"code":"502"}`, 502},
+		{"openai stream: 429 Too Many Requests", 429},
+	}
+	for _, tc := range cases {
+		err := errors.New(tc.text)
+		if got := httpStatusFromError(err); got != tc.want {
+			t.Errorf("%q: httpStatusFromError = %d, want %d", tc.text, got, tc.want)
+		}
+		wantRetry := tc.want != 0
+		if got := isRetryableLLMError(err); got != wantRetry {
+			t.Errorf("%q: retryable = %v, want %v", tc.text, got, wantRetry)
+		}
+		wantTransient := transientStatus(tc.want)
+		if got := IsTransientProviderError(err); got != wantTransient {
+			t.Errorf("%q: IsTransientProviderError = %v, want %v", tc.text, got, wantTransient)
+		}
+	}
+}
+
 // TestAnthropicHTTP529IsRetried drives a real HTTP 529 overloaded_error
 // answer through the Anthropic provider and the wrapper (issue #537): the
 // first request is refused as overloaded, the second is answered, and the
@@ -536,6 +574,53 @@ func TestAnthropicHTTP529IsRetried(t *testing.T) {
 	}
 	if resp == nil || resp.Content != "Paris" || calls.Load() != 2 {
 		t.Fatalf("content %q after %d requests, want the second attempt's answer after 2", contentOf(resp), calls.Load())
+	}
+}
+
+// TestAnthropicHTTPLaneFailureStaysTransient: the Anthropic stream wraps the
+// SDK's HTTP error in the transport wrapper, so after the last attempt the
+// agent sees that wrapper and must still read the lane failure behind it
+// (issue #537): 529 and 503 are transient, a limit and a refusal are not.
+func TestAnthropicHTTPLaneFailureStaysTransient(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{"529 overloaded", 529, `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`, true},
+		{"503 unavailable", 503, `{"type":"error","error":{"type":"api_error","message":"Service unavailable"}}`, true},
+		{"429 limit", 429, `{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}`, false},
+		{"400 refusal", 400, `{"type":"error","error":{"type":"invalid_request_error","message":"bad"}}`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls.Add(1)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer srv.Close()
+
+			provider := applyResilientWrap(newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, ""), ProviderInput{
+				RetryMax: 1, RetryBase: time.Millisecond, RetryMaxDelay: time.Millisecond,
+			})
+			_, err := provider.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+			if err == nil {
+				t.Fatal("Stream succeeded against a server that always fails")
+			}
+			if !errors.As(err, new(*streamTransportError)) {
+				t.Fatalf("err = %v: the stream path no longer wraps the HTTP error, so this test checks nothing", err)
+			}
+			if got := UpstreamStatus(err); got != tc.status {
+				t.Errorf("UpstreamStatus = %d, want %d", got, tc.status)
+			}
+			if got := IsTransientProviderError(err); got != tc.want {
+				t.Errorf("IsTransientProviderError = %v, want %v (after %d requests)", got, tc.want, calls.Load())
+			}
+		})
 	}
 }
 
