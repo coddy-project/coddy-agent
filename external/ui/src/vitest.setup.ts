@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { beforeEach, vi } from "vitest";
 import { resetPageMemoryForTests } from "./ui/env/pageMemory";
 import { forgetWorkingCopies } from "./ui/changes/workingCopy";
+import { resetWorkspaceEntries } from "./ui/files/workspaceEntries";
 import { resetSystemStatusForTests } from "./ui/settings/systemStatusApi";
 import {
   CODDY_WORKSPACE_DIR_COOKIE,
@@ -15,6 +16,7 @@ beforeEach(() => {
   resetPageMemoryForTests();
   resetSystemStatusForTests();
   forgetWorkingCopies();
+  resetWorkspaceEntries();
   for (const name of [CODDY_WORKSPACE_DIR_COOKIE, CODDY_WORKTREE_COOKIE]) {
     document.cookie = `${name}=; Path=/; Max-Age=0`;
   }

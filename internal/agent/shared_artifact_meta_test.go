@@ -19,9 +19,10 @@ func TestSharedArtifactMetaIsWhereTheWebUIReadsIt(t *testing.T) {
 		Coddy     struct {
 			TodoPlan  string `json:"todoPlan"`
 			Artifacts []struct {
-				ID        string `json:"id"`
-				URL       string `json:"url"`
-				RevealURL string `json:"revealUrl"`
+				ID          string `json:"id"`
+				URL         string `json:"url"`
+				RevealURL   string `json:"revealUrl"`
+				SourceState string `json:"sourceState"`
 			} `json:"artifacts"`
 		} `json:"coddy"`
 	}
@@ -33,6 +34,10 @@ func TestSharedArtifactMetaIsWhereTheWebUIReadsIt(t *testing.T) {
 	}
 	if len(wire.Coddy.Artifacts) != 1 || wire.Coddy.Artifacts[0].ID != "a1" || wire.Coddy.Artifacts[0].URL != "/coddy/sessions/sess_1/artifacts/a1" || wire.Coddy.Artifacts[0].RevealURL != "/coddy/sessions/sess_1/artifacts/a1/reveal" {
 		t.Fatalf("coddy.artifacts %s", raw)
+	}
+	// The file was copied a moment ago, so its card opens it.
+	if wire.Coddy.Artifacts[0].SourceState != "present" {
+		t.Fatalf("the source of a file shared just now is not present: %s", raw)
 	}
 	if wire.Coddy.TodoPlan != "kept" {
 		t.Fatalf("the rest of coddy was lost: %s", raw)

@@ -2,8 +2,8 @@ Feature: The views of a chat
   A chat has three views beside the conversation: its files, its background
   tasks and its edits. Files and Background tasks are a row of buttons in the
   chat header, the way the views of a session sit at the top of Claude's app:
-  Files as an icon with a short name, Background tasks at the right edge with
-  the dot and the running / total count. The tasks open in the dock beside the
+  Files as its icon alone at every width, its name in the tooltip, Background
+  tasks at the right edge with the dot and the running / total count. The tasks open in the dock beside the
   chat, without a tab strip; the files open in a window over the chat, the way
   the documentation does, with the workspace tree on the left and the files
   opened from it as tabs on the right, each with nothing over it (what the

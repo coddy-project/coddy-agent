@@ -57,6 +57,7 @@ import {
 } from "./transcriptScrollPosition";
 import { ScrollToBottomButton } from "./ScrollToBottomButton";
 import { openWorkspaceFile } from "../files/fileBus";
+import { WorkspaceFilesContext } from "../files/workspaceEntries";
 import { TranscriptList, type TranscriptListHandle } from "./TranscriptList";
 import {
   LeaveWorktreeDialog,
@@ -697,6 +698,16 @@ export function ChatScreen(props: {
         )
       : undefined;
   // The Files window belongs to a chat, so it opens only once one exists.
+  // The chat whose workspace the paths of its transcript are looked up in:
+  // a path an answer names, and the source of a shared file, open in the
+  // Files window once the server says they are files there.
+  const filesScope = useMemo(
+    () =>
+      props.sessionId && props.chatWorkspacePath
+        ? { sessionId: props.sessionId, workspacePath: props.chatWorkspacePath }
+        : null,
+    [props.sessionId, props.chatWorkspacePath],
+  );
   const openFiles = props.sessionId
     ? (props.onOpenFiles ?? (() => openWorkspaceFile()))
     : undefined;
@@ -1036,36 +1047,38 @@ export function ChatScreen(props: {
                 />
               </div>
             </div>
-            <TranscriptList
-              items={props.items}
-              sessionId={props.sessionId}
-              scrollerRef={messagesRef}
-              docScroll={mobileDocScroll}
-              stickToBottomRef={stickToBottomRef}
-              hasOlder={props.transcriptHasOlder === true}
-              olderLoad={props.olderTranscriptLoad ?? "idle"}
-              onLoadOlder={() => props.onLoadOlderTranscript?.()}
-              handleRef={transcriptRef}
-              // The window reaching or leaving the newest rows changes what
-              // "at the newest message" means for the same scroll position.
-              onAttachedChange={() => {
-                if (!isEmpty) syncTranscriptPosition();
-              }}
-              messageList={messageListProps}
-              tailWaits={(props.backgroundTasks ?? []).some(
-                isAwaitingPermission,
-              )}
-              tail={
-                <>
-                  {props.backgroundTasks ? (
-                    <SubagentPermissionCards
-                      tasks={props.backgroundTasks}
-                      onAnswered={() => props.onBackgroundTasksChanged?.()}
-                    />
-                  ) : null}
-                </>
-              }
-            />
+            <WorkspaceFilesContext.Provider value={filesScope}>
+              <TranscriptList
+                items={props.items}
+                sessionId={props.sessionId}
+                scrollerRef={messagesRef}
+                docScroll={mobileDocScroll}
+                stickToBottomRef={stickToBottomRef}
+                hasOlder={props.transcriptHasOlder === true}
+                olderLoad={props.olderTranscriptLoad ?? "idle"}
+                onLoadOlder={() => props.onLoadOlderTranscript?.()}
+                handleRef={transcriptRef}
+                // The window reaching or leaving the newest rows changes what
+                // "at the newest message" means for the same scroll position.
+                onAttachedChange={() => {
+                  if (!isEmpty) syncTranscriptPosition();
+                }}
+                messageList={messageListProps}
+                tailWaits={(props.backgroundTasks ?? []).some(
+                  isAwaitingPermission,
+                )}
+                tail={
+                  <>
+                    {props.backgroundTasks ? (
+                      <SubagentPermissionCards
+                        tasks={props.backgroundTasks}
+                        onAnswered={() => props.onBackgroundTasksChanged?.()}
+                      />
+                    ) : null}
+                  </>
+                }
+              />
+            </WorkspaceFilesContext.Provider>
             <div className="chat-scroll-tail" aria-hidden />
           </div>
           {readOnlyNotice ? null : (

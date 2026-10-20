@@ -103,6 +103,10 @@ describe("an answer never widens the transcript", () => {
     expect(decl(rule(".md"), "overflow-wrap")).toBe("anywhere");
   });
 
+  test("a path an answer names breaks like the prose around it", () => {
+    expect(decl(rule(".md a.md-file-link"), "overflow-wrap")).toBe("anywhere");
+  });
+
   test("inline code is at most a line wide and wraps inside its chip", () => {
     const chip = rule(".md-inline-code");
     expect(decl(chip, "max-width")).toBe("100%");
