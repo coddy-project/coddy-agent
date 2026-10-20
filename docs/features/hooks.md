@@ -297,9 +297,13 @@ for key in path src dst; do
   file=$(printf '%s' "$input" | jq -r --arg key "$key" '.tool_input[$key] // empty') || exit 1
   case "/$file" in
     */migrations|*/migrations/*|*/alembic/versions|*/alembic/versions/*|*/db/migrate|*/db/migrate/*|*/db/changelog|*/db/changelog/*)
-      if git ls-files --error-unmatch -- "$file" >/dev/null 2>&1; then
+      git ls-files --error-unmatch -- "$file" >/dev/null 2>&1
+      status=$?
+      if [ "$status" -eq 0 ]; then
         printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"committed migrations are not changed here; add a new migration"}}'
         exit 0
+      elif [ "$status" -ne 1 ]; then
+        exit 1
       fi
       ;;
   esac
@@ -307,7 +311,7 @@ done
 exit 0
 ```
 
-The first script reads the command the way the gate does: it joins continued lines, drops case, quote characters and backslashes, cuts the line into commands at `;`, `&`, `|` and line breaks, and refuses a command that holds the word `docker` or `docker-compose` and one of `up`, `down`, `rm`, `stop`, `restart`, `create`, `run`, `kill` or `prune`. The second script reads `path`, and for `mv` both `src` and `dst`, so moving a tracked migration away and moving another file over one are both refused. It refuses only a file that git tracks, so a new migration can still be written. Both scripts exit with 1 when `jq` cannot parse the input, and `failClosed: true` turns that into a block, so input that does not parse never lets a call through. A hook sees each call before it runs, while the risk gate reads the results after the turn, and a hook applies to every session, not to a goal only. Neither script catches every spelling: both match text, so the first also refuses `echo docker compose down` and misses a command hidden in a script such as `./deploy.sh`, and the second sees only the file a tool call names, not one that a shell command rewrites.
+The first script reads the command the way the gate does: it joins continued lines, drops case, quote characters and backslashes, cuts the line into commands at `;`, `&`, `|` and line breaks, and refuses a command that holds the word `docker` or `docker-compose` and one of `up`, `down`, `rm`, `stop`, `restart`, `create`, `run`, `kill` or `prune`. The second script reads `path`, and for `mv` both `src` and `dst`, so moving a tracked migration away and moving another file over one are both refused. It refuses only a file that git tracks, so a new migration can still be written. `git ls-files --error-unmatch` exits with 1 for a path git does not track, and only that status lets the call through. Both scripts exit with 1 when `jq` cannot parse the input, and the second one exits with 1 when git fails in any other way (git missing, no repository, an unreadable index). `failClosed: true` turns every such exit into a block, so neither input that does not parse nor a git that cannot answer lets a call through. A hook sees each call before it runs, while the risk gate reads the results after the turn, and a hook applies to every session, not to a goal only. Neither script catches every spelling: both match text, so the first also refuses `echo docker compose down` and misses a command hidden in a script such as `./deploy.sh`, and the second sees only the file a tool call names, not one that a shell command rewrites.
 
 Run the formatter after every edit and tell the model what it changed:
 
