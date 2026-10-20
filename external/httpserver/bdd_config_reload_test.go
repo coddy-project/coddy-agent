@@ -260,6 +260,13 @@ func (s *configReloadState) projectTrustRemainsNever() error {
 	if got := s.mgr.Cfg().MCP.ProjectTrust; got != config.ProjectTrustDeny {
 		return fmt.Errorf("running project trust = %q, want %q", got, config.ProjectTrustDeny)
 	}
+	saved, err := config.LoadWithPaths(s.mgr.Cfg().Paths)
+	if err != nil {
+		return err
+	}
+	if got := saved.MCP.ResolvedProjectTrust(); got != config.ProjectTrustAsk {
+		return fmt.Errorf("saved project trust = %q, want the file's original ask policy", got)
+	}
 	return nil
 }
 
