@@ -71,6 +71,23 @@ func TestFileTransportHonorsWindowsDrive(t *testing.T) {
 	})
 }
 
+// A file URL that names a host other than localhost must not quietly fold its
+// path onto the current drive or root, where it names a different repository.
+func TestFileTransportRefusesRemoteHosts(t *testing.T) {
+	dir := initRepo(t)
+	t.Run("localhost stays local", func(t *testing.T) {
+		if err := builtinClone("file://localhost/"+filepath.ToSlash(dir), "", filepath.Join(t.TempDir(), "clone")); err != nil {
+			t.Fatalf("clone via localhost: %v", err)
+		}
+	})
+	t.Run("a foreign host is refused", func(t *testing.T) {
+		source := "file://nas.example/" + filepath.ToSlash(dir)
+		if err := builtinClone(source, "", filepath.Join(t.TempDir(), "clone")); err == nil {
+			t.Fatalf("clone %s opened a local repository under a foreign host", source)
+		}
+	})
+}
+
 func TestDescribeLinkedWorktree(t *testing.T) {
 	eachBackend(t, func(t *testing.T) {
 		dir := initRepo(t)

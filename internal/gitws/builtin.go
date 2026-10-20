@@ -301,22 +301,33 @@ func (s knownHavesSession) UploadPack(ctx context.Context, req *packp.UploadPack
 type fileLoader struct{}
 
 func (fileLoader) Load(ep *transport.Endpoint) (storer.Storer, error) {
+	// A file URL that names a host other than localhost (and, on Windows, a
+	// drive letter) is a UNC path. Folding it onto the current drive would
+	// open a repository the URL never named, so it is refused outright.
+	if ep.Host != "" && !strings.EqualFold(ep.Host, "localhost") && !windowsDriveHost(ep.Host) {
+		return nil, fmt.Errorf("file URL names the host %q: only a local path is supported", ep.Host)
+	}
 	path := ep.Path
-	if runtime.GOOS == "windows" {
+	if windowsDriveHost(ep.Host) {
 		// go-git parses file://C:/repo as Host C and Path /repo, which
 		// otherwise opens /repo on the process's current drive. Standard
 		// file:///C:/repo URLs instead carry /C:/repo in Path.
-		if len(ep.Host) == 1 && ((ep.Host[0] >= 'A' && ep.Host[0] <= 'Z') || (ep.Host[0] >= 'a' && ep.Host[0] <= 'z')) {
-			path = ep.Host + ":" + path
-		} else if (ep.Host == "" || strings.EqualFold(ep.Host, "localhost")) && len(path) >= 3 && path[0] == '/' && path[2] == ':' {
-			path = path[1:]
-		}
+		path = ep.Host + ":" + path
+	} else if runtime.GOOS == "windows" && len(path) >= 3 && path[0] == '/' && path[2] == ':' {
+		path = path[1:]
 	}
 	repo, err := git.PlainOpen(path)
 	if err != nil {
 		return nil, transport.ErrRepositoryNotFound
 	}
 	return repo.Storer, nil
+}
+
+// windowsDriveHost reports whether the host part of a file URL is a single
+// Windows drive letter, the file://C:/repo spelling.
+func windowsDriveHost(host string) bool {
+	return runtime.GOOS == "windows" && len(host) == 1 &&
+		((host[0] >= 'A' && host[0] <= 'Z') || (host[0] >= 'a' && host[0] <= 'z'))
 }
 
 // builtinClone is Clone without the git binary: a shallow clone, with the ref
