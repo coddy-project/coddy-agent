@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -144,12 +145,15 @@ func TestProviderProxyHTTPSRefreshCompletionCatalogUsageAndDeviceLogin(t *testin
 func TestOpenCodeHTTPSProxy(t *testing.T) {
 	for _, base := range []string{opencodeGoBaseURL, opencodeConsoleBaseURL} {
 		t.Run(strings.TrimPrefix(base, "https://"), func(t *testing.T) {
-			seen := make(chan string, 16)
+			// A counter rather than a buffered channel: a regression that sends
+			// more requests than a channel holds would block the handler, and
+			// the stand's Close would then wait for it until the test timeout.
+			var seen atomic.Int32
 			proxy := newProviderHTTPSProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Host != "opencode.ai" || r.Header.Get("Authorization") != "Bearer test-key" || r.Header.Get("x-api-key") != "" || r.Header.Get("x-opencode-session") == "" || r.Header.Get("User-Agent") != opencodeUserAgent() {
 					t.Error("missing OpenCode host or client headers through HTTPS proxy")
 				}
-				seen <- r.URL.Path
+				seen.Add(1)
 				w.Header().Set("Connection", "close")
 				if !answerProviderRequest(t, w, r) {
 					http.NotFound(w, r)
@@ -181,8 +185,8 @@ func TestOpenCodeHTTPSProxy(t *testing.T) {
 			if _, err := ApplyOpenCodeLoginToConfig(ctx, cfg, "oc", base, "test-key", proxy); err != nil {
 				t.Fatal(err)
 			}
-			if len(seen) != 14 {
-				t.Fatalf("HTTPS proxy carried %d requests, want 14", len(seen))
+			if n := seen.Load(); n != 14 {
+				t.Fatalf("HTTPS proxy carried %d requests, want 14", n)
 			}
 		})
 	}

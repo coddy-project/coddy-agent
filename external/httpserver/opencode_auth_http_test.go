@@ -201,7 +201,9 @@ func TestOpenCodeAuthHTTPValidationAndCancellation(t *testing.T) {
 	if _, err := os.Stat(config.OpenCodeAuthPath(srv.activeCfg().Paths.Home, "openai")); !os.IsNotExist(err) {
 		t.Fatal("cancelled login restored a credential")
 	}
-	// Cancellation is checked at the same persistence boundary as logout.
+	// A wait whose context is already cancelled asks Console nothing and stores
+	// nothing; TestOpenCodeAuthSignOutBeforeStorageStoresNothing holds the
+	// boundary where the tokens are issued and storage has not happened yet.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	login, err := llm.StartOpenCodeDeviceLogin(context.Background(), proxy.URL)
@@ -210,5 +212,129 @@ func TestOpenCodeAuthHTTPValidationAndCancellation(t *testing.T) {
 	}
 	if err := login.WaitWith(ctx, llm.OpenCodeDefaultAPIBase(), func(context.Context, []byte) error { t.Error("cancelled login persisted"); return nil }); err == nil {
 		t.Fatal("cancelled login succeeded")
+	}
+}
+
+// openCodeAccountProxy is a forward proxy that is Console itself, with a hook
+// that runs before each answer: a test parks or cancels an attempt there.
+func openCodeAccountProxy(t *testing.T, before func(path string)) (*Server, *httptest.Server) {
+	t.Helper()
+	var devices atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var n int32
+		if r.URL.Path == "/console/auth/device/code" {
+			// Numbered on arrival, so a request the hook parks keeps the
+			// number of the attempt it belongs to.
+			n = devices.Add(1)
+		}
+		before(r.URL.Path)
+		switch r.URL.Path {
+		case "/console/auth/device/code":
+			_, _ = fmt.Fprintf(w, `{"device_code":"device-%d","user_code":"CODE-%d","verification_uri_complete":"/console/device","expires_in":600,"interval":0}`, n, n)
+		case "/console/auth/device/token":
+			_, _ = io.WriteString(w, `{"access_token":"private-access","refresh_token":"private-refresh","expires_in":600,"org_id":"org"}`)
+		case "/console/api/user":
+			_, _ = io.WriteString(w, `{"email":"user@example.com"}`)
+		case "/console/api/orgs":
+			_, _ = io.WriteString(w, `[{"id":"org","name":"Test Org"}]`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(proxy.Close)
+	t.Setenv(llm.EnvOpenCodeConsoleURL, "http://opencode.invalid/console")
+	srv := newNeuralDeepTestServer(t, t.TempDir())
+	srv.activeCfg().Providers = []config.ProviderConfig{{Name: "oc", Type: "opencode", Proxy: proxy.URL}}
+	t.Cleanup(func() { srv.cancelOpenCodeAuthLogins(""); srv.bgWG.Wait() })
+	return srv, proxy
+}
+
+func openCodeLoginState(srv *Server, loginID string) codexAuthLoginResponse {
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/coddy/providers/oc/opencode-auth/device/"+loginID, nil))
+	var state codexAuthLoginResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &state)
+	return state
+}
+
+// A second sign-in of the same provider supersedes the first even while the
+// first still waits for Console to issue its code: the first answers 409, and
+// only the second attempt can store the login.
+func TestOpenCodeAuthDeviceStartSupersededWhileContactingConsole(t *testing.T) {
+	firstAsked := make(chan struct{})
+	release := make(chan struct{})
+	var asked atomic.Int32
+	srv, _ := openCodeAccountProxy(t, func(path string) {
+		if path == "/console/auth/device/code" && asked.Add(1) == 1 {
+			close(firstAsked)
+			<-release
+		}
+	})
+	defer close(release)
+	const path = "/coddy/providers/oc/opencode-auth/device"
+	first := make(chan *httptest.ResponseRecorder, 1)
+	go func() { first <- openCodeAuthRequest(t, srv, "POST", path, "{}") }()
+	<-firstAsked
+	second := openCodeAuthRequest(t, srv, "POST", path, "{}")
+	var start codexAuthLoginResponse
+	if err := json.Unmarshal(second.Body.Bytes(), &start); second.Code != 200 || err != nil || start.UserCode != "CODE-2" {
+		t.Fatalf("second start: %d %s", second.Code, second.Body)
+	}
+	select {
+	case w := <-first:
+		if w.Code != http.StatusConflict {
+			t.Fatalf("superseded start: %d %s, want 409", w.Code, w.Body)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the superseded start did not return while Console held it")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for openCodeLoginState(srv, start.LoginID).Status != "completed" {
+		if time.Now().After(deadline) {
+			t.Fatalf("surviving login: %+v", openCodeLoginState(srv, start.LoginID))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	srv.codexAuthMu.Lock()
+	attempts := len(srv.opencodeAuthLogins)
+	srv.codexAuthMu.Unlock()
+	if attempts != 1 {
+		t.Fatalf("%d attempts kept, want the surviving one", attempts)
+	}
+}
+
+// A sign-out that lands after Console issued the tokens but before they are
+// stored wins: the attempt checks its cancellation under the lock sign-out
+// takes, so the credential the user just removed never comes back.
+func TestOpenCodeAuthSignOutBeforeStorageStoresNothing(t *testing.T) {
+	var srv *Server
+	orgsAnswered := make(chan struct{})
+	srv, _ = openCodeAccountProxy(t, func(path string) {
+		if path == "/console/api/orgs" {
+			// The tokens are issued and the account is known; the attempt
+			// is about to store them and has to take this lock first.
+			srv.codexAuthMu.Lock()
+			close(orgsAnswered)
+		}
+	})
+	w := openCodeAuthRequest(t, srv, "POST", "/coddy/providers/oc/opencode-auth/device", "{}")
+	var start codexAuthLoginResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &start); w.Code != 200 || err != nil {
+		t.Fatalf("start: %d %s", w.Code, w.Body)
+	}
+	<-orgsAnswered
+	// Let the attempt read the answer and reach the lock, then sign out the
+	// way DELETE does, while the attempt waits for it.
+	time.Sleep(200 * time.Millisecond)
+	for _, attempt := range srv.opencodeAuthLogins {
+		attempt.cancel()
+	}
+	srv.codexAuthMu.Unlock()
+	srv.bgWG.Wait()
+	if _, err := os.Stat(config.OpenCodeAuthPath(srv.activeCfg().Paths.Home, "oc")); !os.IsNotExist(err) {
+		t.Fatal("a cancelled attempt stored its credential")
+	}
+	if state := openCodeLoginState(srv, start.LoginID); state.Status != "failed" || state.Connected {
+		t.Fatalf("cancelled attempt reads %+v", state)
 	}
 }

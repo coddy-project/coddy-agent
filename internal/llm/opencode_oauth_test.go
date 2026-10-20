@@ -415,3 +415,71 @@ func TestOpenCodeRefreshOutageIsRetried(t *testing.T) {
 		t.Fatalf("retry: %+v, refreshes %d, inference %d, err %v", resp, refreshes.Load(), inference.Load(), err)
 	}
 }
+
+// The confirmation page a device login shows must be on Console's own origin:
+// an account endpoint (or a stand-in for it) that names another host, another
+// scheme or a URL with credentials in it would send the operator's code to a
+// look-alike page.
+func TestOpenCodeDeviceLoginRefusesAForeignVerificationPage(t *testing.T) {
+	t.Setenv(EnvOpenCodeConsoleURL, "")
+	for _, page := range []string{
+		"https://evil.example/console/device",
+		"https://user:secret@opencode.ai/console/device",
+		"http://opencode.ai/console/device",
+		"javascript:alert(1)",
+		"",
+	} {
+		t.Run(page, func(t *testing.T) {
+			proxy := newProviderHTTPSProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requireOpenCodeClientID(t, r, "")
+				body, _ := json.Marshal(map[string]any{"device_code": "dev", "user_code": "CODE", "verification_uri_complete": page, "expires_in": 600, "interval": 0})
+				_, _ = w.Write(body)
+			}))
+			if login, err := StartOpenCodeDeviceLogin(context.Background(), proxy); err == nil || !strings.Contains(err.Error(), "verification URL") {
+				t.Fatalf("login %+v, err %v: a foreign confirmation page was accepted", login, err)
+			}
+		})
+	}
+}
+
+// The device login keeps polling while Console says the code waits for its
+// confirmation, at least a second apart when Console names no interval.
+func TestOpenCodeDeviceLoginWaitsWhilePending(t *testing.T) {
+	t.Setenv(EnvOpenCodeConsoleURL, "")
+	var polls atomic.Int32
+	var first, second atomic.Int64
+	proxy := newProviderHTTPSProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/console/auth/device/token" {
+			requireOpenCodeClientID(t, r, "urn:ietf:params:oauth:grant-type:device_code")
+			switch polls.Add(1) {
+			case 1:
+				first.Store(time.Now().UnixNano())
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":"authorization_pending"}`))
+				return
+			case 2:
+				second.Store(time.Now().UnixNano())
+			}
+		}
+		if !answerProviderRequest(t, w, r) {
+			http.NotFound(w, r)
+		}
+	}))
+	login, err := StartOpenCodeDeviceLogin(context.Background(), proxy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "auth.json")
+	if err := login.Wait(context.Background(), path, opencodeGoBaseURL); err != nil {
+		t.Fatal(err)
+	}
+	if polls.Load() != 2 {
+		t.Fatalf("polled %d times, want a pending answer and the token", polls.Load())
+	}
+	if gap := time.Duration(second.Load() - first.Load()); gap < 900*time.Millisecond {
+		t.Fatalf("polled again after %v, want at least a second", gap)
+	}
+	if saved, err := loadOpenCodeAuth(path); err != nil || saved.RefreshToken != "account-refresh" {
+		t.Fatalf("credential %+v, err %v", saved, err)
+	}
+}
