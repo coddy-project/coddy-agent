@@ -410,7 +410,7 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.providers.api_base.label": "Базовый URL API",
   "settings.schema.providers.api_base.ph": "https://api.openai.com/v1",
   "settings.schema.providers.api_base.desc":
-    "Необязательное переопределение базового URL API провайдера. Для neuraldeep выбирает развёртывание (Россия или международное зеркало); для codex и devin игнорируется, у них официальные адреса.",
+    "Необязательное переопределение базового URL API провайдера. Для neuraldeep выбирает развёртывание (Россия или международное зеркало); для codex и devin игнорируется, потому что они используют официальные эндпоинты, а для acp - потому что агент работает на этой машине.",
   "settings.schema.providers.api_key.label": "API-ключ",
   "settings.schema.providers.api_key.desc":
     "Ключ напрямую, ссылка ${ENV}, которая разворачивается при загрузке файла, или пусто, чтобы в момент вызова читать переменную окружения из подсказки в поле.",
@@ -433,6 +433,50 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.providers.usage_limits_panel.label": "Панель лимитов",
   "settings.schema.providers.usage_limits_panel.desc":
     "Показывать расход лимитов аккаунта этого провайдера NeuralDeep, Codex или Devin здесь, в футере консоли и в /usage, читая для этого его эндпоинт лимитов. Выключено скрывает панель и прекращает эти запросы для данной строки.",
+
+  "settings.schema.providers.acp.label": "ACP-агент",
+  "settings.schema.providers.acp.desc":
+    "Локальная программа, которую запускает этот провайдер, - агент, говорящий по Agent Client Protocol через stdio, например claude-agent-acp, codex-acp, opencode acp или coddy acp. У него свои инструменты, и работает он в рабочей папке сессии.",
+  "settings.schema.providers.acp.command.label": "Команда",
+  "settings.schema.providers.acp.command.ph": "claude-agent-acp",
+  "settings.schema.providers.acp.command.desc":
+    "Программа агента (ищется в PATH): claude-agent-acp, codex-acp, opencode, coddy.",
+  "settings.schema.providers.acp.args.label": "Аргументы",
+  "settings.schema.providers.acp.args.desc":
+    "Аргументы после команды, например acp для opencode и coddy.",
+  "settings.schema.providers.acp.env.label": "Окружение",
+  "settings.schema.providers.acp.env.desc":
+    "Переменные, которые добавляются в окружение агента при запуске, например ключ, который он читает. ${CWD} - рабочая папка сессии.",
+  "settings.schema.providers.acp.cwd.label": "Рабочая папка",
+  "settings.schema.providers.acp.cwd.desc":
+    "Одна папка для агента и всех его сессий. Пусто - каждая сессия открывается в рабочей папке той сессии Coddy, которую она обслуживает.",
+  "settings.schema.providers.acp.auth_method.label": "Способ аутентификации",
+  "settings.schema.providers.acp.auth_method.ph": "api-key",
+  "settings.schema.providers.acp.auth_method.desc":
+    "Способ аутентификации, который Coddy передаёт в вызов ACP authenticate после запуска. Он нужен агенту, который без этого не открывает сессии (для codex-acp - api-key). Пусто - агент входит сам.",
+  "settings.schema.providers.acp.permissions.label":
+    "Запросы разрешений агента",
+  "settings.schema.providers.acp.permissions.desc":
+    'Что Coddy отвечает, когда агент просит разрешения запустить свой инструмент: ask показывает запрос вам, как для инструментов Coddy (в режиме разрешений bypass он разрешается без вопроса, а в accept_edits так разрешается правка); allow разрешает один раз; deny отказывает. В режимах "План" и "Чат" Coddy отказывает всегда.',
+  "settings.schema.providers.acp.modes.label": "Режимы агента",
+  "settings.schema.providers.acp.modes.desc":
+    'Собственный режим агента для каждого режима Coddy (id режима ACP, например plan или read-only). Пусто в режиме "Агент" - режим агента по умолчанию. Для режимов "План" и "Чат" задайте режим агента только для чтения, иначе Coddy отклоняет их ходы.',
+  "settings.schema.providers.acp.modes.agent.label": 'В режиме "Агент"',
+  "settings.schema.providers.acp.modes.agent.desc":
+    'Режим агента, пока сессия в режиме "Агент".',
+  "settings.schema.providers.acp.modes.plan.label": 'В режиме "План"',
+  "settings.schema.providers.acp.modes.plan.desc":
+    'Режим агента, пока сессия в режиме "План".',
+  "settings.schema.providers.acp.modes.ask.label": 'В режиме "Чат"',
+  "settings.schema.providers.acp.modes.ask.desc":
+    'Режим агента, пока сессия в режиме "Чат".',
+  "settings.schema.providers.acp.idle_timeout_ms.label":
+    "Остановка при простое, мс",
+  "settings.schema.providers.acp.idle_timeout_ms.desc":
+    "Остановить агента через столько миллисекунд после последнего вызова; следующий вызов запустит его снова и перенесёт диалог в новую сессию. 0 - шестьдесят минут.",
+  "settings.schema.providers.acp.process.label": "Процесс агента",
+  "settings.schema.providers.acp.process.desc":
+    "При shared один процесс агента обслуживает все сессии этого провайдера. При per_session у каждой сессии свой процесс - для агента, который выполняет только один промпт за раз (zcode-acp-server).",
 
   "settings.schema.models.desc":
     "Именованные записи моделей, которые агент и UI могут выбирать; id ссылаются на префиксы провайдеров.",
@@ -686,7 +730,7 @@ export const messagesRu: Record<string, string> = {
     "Модель, на которой работает субагент памяти; пусто - модель сессии.",
   "settings.schema.decisions.enable.label": "Включено",
   "settings.schema.decisions.enable.desc":
-    "Спрашивать NeuralDeep decisions API, безопасна ли команда оболочки, локальная или через SSH, до того как решает шлюз разрешений. Безопасная команда выполняется без запроса. О небезопасной в режимах ask и accept_edits спрашивают, а в режиме bypass её отклоняют, и отказ попадает в чат как результат команды. Список разрешённых команд, гранты сессии, allow-хук и команды, одобренные в запросе разрешения, не проверяются.",
+    "Спрашивать NeuralDeep decisions API, безопасна ли команда оболочки, локальная или через SSH, до того как решает шлюз разрешений. Безопасная команда выполняется без запроса. О небезопасной спрашивают в любом режиме, включая bypass, а если ответить некому, её отклоняют, и отказ попадает в чат как результат команды. Список разрешённых команд, грант сессии именно на эту команду, allow-хук и команды, одобренные в запросе разрешения, не проверяются.",
   "settings.schema.decisions.model.label": "Модель decisions",
   "settings.schema.decisions.model.desc":
     "frida-decisions: проход энкодера, до 512 токенов текста команды, ~20 мс на запрос, 1 единица квоты. clef-flash: до 8192 токенов, ~150 мс, 4 единицы квоты.",
@@ -2568,18 +2612,21 @@ export const messagesRu: Record<string, string> = {
   "messages.toolArtifacts": "Переданные файлы",
   "messages.openArtifactImage": "Открыть {fileName}",
   "messages.artifactActions": "Действия для {fileName}",
-  "messages.artifactMention": "Упомянуть источник",
-  "messages.artifactCopyName": "Копировать имя",
-  "messages.artifactCopyRelative": "Копировать относительный путь",
-  "messages.artifactCopyAbsolute": "Копировать абсолютный путь",
-  "messages.artifactReveal": "Показать на сервере",
-  "messages.artifactRevealUnavailable":
-    "Показ на удалённом сервере или сервере без интерфейса недоступен",
-  "messages.artifactRevealFailed": "Не удалось показать",
+  "messages.artifactMention": "Упомянуть в чате",
+  "messages.artifactCopy": "Копировать",
+  "messages.artifactCopyName": "Имя файла",
+  "messages.artifactCopyRelative": "Относительный путь",
+  "messages.artifactCopyAbsolute": "Абсолютный путь",
+  "messages.artifactOpenFile": "Открыть {fileName} в окне файлов",
+  "messages.artifactSourceDeleted": "Файл удалён",
+  "messages.artifactSourceDeletedHint":
+    "Файл удалён из рабочей папки. Его копию можно скачать.",
+  "messages.artifactSourceElsewhere": "Этого файла нет в рабочей папке чата",
   "messages.downloadArtifact": "Скачать {fileName}",
   "messages.downloadArtifactButton": "Скачать",
   "messages.artifactDownloading": "Скачивание…",
   "messages.artifactUnavailable": "Скачивание недоступно",
+  "markdown.openFile": "Открыть {path} в окне файлов",
   "markdown.figure.mermaid": "Диаграмма Mermaid",
   "markdown.figure.svg": "Изображение SVG",
   "markdown.figure.showSource": "Показать исходный код",

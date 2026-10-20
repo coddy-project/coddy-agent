@@ -333,6 +333,23 @@ export function overrideTexts(
     ) {
       return false;
     }
+    // The acp block is the agent an acp row runs: no other type reads it,
+    // and an acp row reads no endpoint or key of its own. The fields inside
+    // the block see the block as their parent, not the row, so only the
+    // block itself is decided by the row's type.
+    if (path.startsWith("acp.")) {
+      return null;
+    }
+    if (path === "acp") {
+      if (providerType !== "acp") {
+        return false;
+      }
+    } else if (
+      providerType === "acp" &&
+      (path === "api_base" || path === "api_key" || path === "api_key_command")
+    ) {
+      return false;
+    }
     if (providerType === "codex") {
       if (path === "api_key" || path === "api_key_command") {
         return false;

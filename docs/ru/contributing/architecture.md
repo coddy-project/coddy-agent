@@ -114,7 +114,8 @@ Coddy - **ACP-харнес, удобный для distroless**, написанн
 Поддерживаемые бэкенды (форматы описаны в **`docs/getting-started/configuration.md`**):
 - OpenAI и OpenAI-совместимые HTTP API (**`type: openai`**);
 - Anthropic (**`type: anthropic`**);
-- Ollama и другие локальные OpenAI-совместимые стеки (**`api_base`**).
+- Ollama и другие локальные OpenAI-совместимые стеки (**`api_base`**);
+- локальный агент, который говорит по Agent Client Protocol (**`type: acp`**, **`acp*.go`**) через Go SDK протокола **`github.com/coder/acp-go-sdk`** (соединение JSON-RPC и запросы, которые отправляет Coddy): по умолчанию один процесс на строку (на сессию Coddy при `process: per_session`, на рабочую папку, если значение содержит `${CWD}`) в общем пуле пакета, одна ACP-сессия на сессию Coddy, привязанная через **`llm.WithConversation`** в контексте потокового вызова, запросы разрешений агента идут через **`Conversation.AskPermission`**; запись о решениях - **`docs/plans/acp-provider.md`**.
 
 ### Реестр инструментов (`internal/tools`)
 
@@ -304,4 +305,4 @@ Coddy - **ACP-харнес, удобный для distroless**, написанн
 
 Необязательные слои **`external/httpserver`**, **`external/ui`**, **`external/scheduler`** и **`external/memory`** не попадают в бинарник, если не передать соответствующие **теги сборки Go**; см. **`docs/contributing/build.md`** и **`README.md`**. Долговременная память включается во время работы ключом **`memory.enable`**, если бинарник собран с **`memory`**.
 
-<!-- docsgen:source sha256=993e82ba305a7647 -->
+<!-- docsgen:source sha256=34e953fc3e9181ec -->

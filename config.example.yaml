@@ -101,6 +101,20 @@ providers:
   #   # api_base: "https://opencode.ai/inference/v1"  # Console instead of Go
   #   api_key: "${OPENCODE_API_KEY}"
 
+  # A local agent that speaks the Agent Client Protocol on stdio, served as a
+  # model: it runs its own tools in the session's workspace and asks you
+  # before it acts (acp.permissions). Its models are <name>/default (the
+  # agent's own) or one of the models it offers. See
+  # https://coddy.dev/docs/features/acp-provider.
+  # - name: claude
+  #   type: acp
+  #   acp:
+  #     command: claude-agent-acp         # opencode / coddy take args: [acp]
+  #     modes: {plan: plan, ask: plan}    # read-only modes for plan and ask (codex-acp: read-only)
+  #     # auth_method: api-key            # codex-acp with OPENAI_API_KEY in env
+  #     # env: {OPENAI_API_KEY: "${OPENAI_API_KEY}"}
+  #     # process: per_session            # zcode-acp-server: one prompt at a time per process
+
   # OpenAI-compatible (DeepSeek, Groq, Together, etc.)
   # Use type openai and include /v1 in api_base.
   # - name: deepseek
@@ -123,6 +137,8 @@ models:
   #   reasoning_default: medium       # level pre-selected for new chats (must be a valid level)
   #   # reasoning_levels: [low, high] # optional: override the offered levels; [] hides the selector; omit the key to auto-detect from the model id
   #   # allow_reasoning_off: true     # optional: add Off only after verifying this deployment honours Coddy's disable-reasoning request
+
+  # - model: "claude/default"          # an acp row: the agent's own model
 
   # - model: "devin/claude-sonnet-5"  # one entry per Devin family; each level is a variant
   #   reasoning_levels: [low, medium, high, xhigh, max]
@@ -610,10 +626,11 @@ tools:
 # Command safety decisions: before the permission gate decides on a shell command
 # (run_command, or the remote command of ssh_run_command) you did not allow
 # explicitly, ask the NeuralDeep decisions API whether it is safe. A safe command
-# runs without a prompt; an unsafe one is asked about in ask and accept_edits, the
-# verdict in the prompt, and rejected in bypass - the rejection comes back as the
-# result of the call, so the session records it. The command allowlist, session
-# grants, a hook's allow and commands you approved in a prompt are not checked.
+# runs without a prompt; an unsafe one is asked about in every mode, bypass
+# included, the verdict in the prompt, and rejected where nobody can answer - the
+# rejection comes back as the result of the call, so the session records it. The
+# command allowlist, a session grant of exactly that command, a hook's allow and
+# commands you approved in a prompt are not checked.
 # When the endpoint gives no verdict (no credential, a refusal from the hub, a
 # network error, a command longer than the model reads - 512 tokens on
 # frida-decisions) the command counts as unsafe. Needs a NeuralDeep credential on

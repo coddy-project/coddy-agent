@@ -129,10 +129,10 @@ test("without a way to open the panel the header has no views", () => {
 
 // The views of a chat in its header - its files, its background tasks - are a
 // row of buttons, the way the views of a session sit at the top of Claude's
-// app: Files an icon with its short name (a phone keeps the icon alone),
-// Background tasks last with the dot and the counts, the full name in a
-// tooltip; no tab strip inside a panel, no menu to open first. The edits open
-// from git's count in the bar over the composer, never from the header.
+// app, and icons at every width: Files its icon alone, Background tasks last
+// with the dot and the counts, the full name in a tooltip; no tab strip inside
+// a panel, no menu to open first. The edits open from git's count in the bar
+// over the composer, never from the header.
 function viewsHeader(
   over: Partial<React.ComponentProps<typeof ChatHeader>> = {},
 ) {
@@ -159,13 +159,14 @@ test("the header shows files and background tasks as buttons in a row", () => {
     "chat-views-files",
     "chat-views-tasks",
   ]);
-  // Files: an icon and a short name; Tasks: the dot and the counts.
+  // Files: the icon alone, in a square; Tasks: the dot and the counts, the
+  // word kept for a chat with no tasks yet. The names are in the tooltips.
   expect(buttons[0]!.querySelector("svg.chat-view-icon")).toBeTruthy();
+  expect(buttons[0]).toHaveClass("chat-view-btn--icon");
+  expect(buttons[0]!.querySelector(".chat-view-label")).toBeNull();
   expect(buttons[1]!.querySelector("svg")).toBeNull();
   expect(buttons[1]!.querySelector(".bgtask-dot")).toBeTruthy();
-  expect(
-    buttons.map((b) => b.querySelector(".chat-view-label")?.textContent),
-  ).toEqual(["Files", "Tasks"]);
+  expect(buttons[1]).not.toHaveClass("chat-view-btn--icon");
   expect(screen.getByTestId("chat-views-tasks-count").textContent).toBe(
     "1 / 2",
   );

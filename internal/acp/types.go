@@ -594,6 +594,9 @@ type ToolCallUpdate struct {
 	Title         string `json:"title,omitempty"`
 	Kind          string `json:"kind,omitempty"` // the agent's kind ("read", "write", "run_command", "other"); the ACP server sends WireToolKind of it
 	Status        string `json:"status"`         // "pending"
+	// Meta carries Coddy's extensions (_meta.coddy): agentTool marks the call
+	// of an agent behind an acp model, titled by what it works on already.
+	Meta map[string]interface{} `json:"_meta,omitempty"`
 }
 
 // ToolCallStatusUpdate reports progress on an existing tool call.
@@ -873,6 +876,12 @@ type PermissionRequestParams struct {
 	// instead of the configuration, so a session switched to ask on a server
 	// configured for bypass is still asked (permission.AutoApproves).
 	SessionPermissionMode string `json:"-"`
+
+	// Forced marks a prompt a person must answer, for in-process senders only
+	// (never serialised): a PreToolUse hook's ask, or a shell command the
+	// decisions safety check did not clear. No sender answers it by itself,
+	// whatever the mode; one with nobody to ask refuses it.
+	Forced bool `json:"-"`
 }
 
 // PermissionToolCall describes the tool call needing permission.

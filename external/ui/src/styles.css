@@ -2487,13 +2487,13 @@ a.rail-brand {
 }
 
 /* The views of a chat at the right of the sticky header: a row of buttons -
-   Files, and Background tasks at the right edge. Files is an icon the size of
-   the rail's with its short name on a desktop and a tablet, the icon alone on
-   a phone; Background tasks are the dot and the running / total count the
-   header always had. The full name and the view's key are in a tooltip
-   everywhere. The row is there from the first message, so
-   the header never jumps when the first task starts. DESIGN.md, Views of a
-   chat. */
+   Files, and Background tasks at the right edge - that are icons at every
+   width, as a phone always showed them. Files is the icon alone, the size of
+   the rail's, in a square; Background tasks are the dot and the running /
+   total count the header always had, and the word only while there are no
+   counts yet. The full name and the view's key are in a tooltip everywhere.
+   The row is there from the first message, so the header never jumps when the
+   first task starts. DESIGN.md, Views of a chat. */
 .chat-views {
   flex: none;
   display: flex;
@@ -2507,9 +2507,9 @@ a.rail-brand {
   display: inline-flex;
 }
 
-/* The look of the top bar's buttons around an 18px icon and its name: 36px
-   high in a desktop header, the top bar's own 42px on a tablet, and a 40px
-   square around the icon alone on a phone (further down). */
+/* The look of the top bar's buttons around an 18px icon: 36px high in a
+   desktop header, the top bar's own 42px on a tablet and 40px on a phone
+   (further down). Files is a square of that size around its icon. */
 .chat-view-btn {
   position: relative;
   flex: none;
@@ -2518,7 +2518,7 @@ a.rail-brand {
   justify-content: center;
   gap: 7px;
   height: 36px;
-  padding: 0 12px 0 10px;
+  padding: 0 12px 0 11px;
   font: inherit;
   font-size: 13px;
   white-space: nowrap;
@@ -2545,6 +2545,11 @@ a.rail-brand {
 
 /* Work in flight in the chat's background: the accent border and tint the
    Tasks control always had, the dot running. */
+.chat-view-btn--icon {
+  width: 36px;
+  padding: 0;
+}
+
 .chat-view-btn.is-running {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--coddy-blend-base));
   background: color-mix(in srgb, var(--accent) 12%, var(--coddy-blend-base));
@@ -2556,12 +2561,11 @@ a.rail-brand {
   outline-offset: 2px;
 }
 
-/* The icon (or the tasks dot), the name and the counts are one line of text,
-   and the icon sits on it with vertical-align: middle - the middle of the
-   lowercase letters, in whatever font the engine draws. Centred on the line box
-   instead, an icon reads a pixel high beside mostly lowercase names, by an
-   amount that differs per font. A phone shows the icon alone, centred in its
-   square (below). */
+/* The tasks dot, the word and the counts are one line of text, and the dot
+   sits on it with vertical-align: middle - the middle of the lowercase
+   letters, in whatever font the engine draws. Centred on the line box instead,
+   a glyph reads a pixel high beside mostly lowercase words, by an amount that
+   differs per font. The Files icon stands alone, centred in its square. */
 .chat-view-face {
   display: block;
   white-space: nowrap;
@@ -2573,8 +2577,7 @@ a.rail-brand {
 }
 
 .chat-view-icon {
-  display: inline-block;
-  vertical-align: middle;
+  display: block;
 }
 
 .chat-view-face .bgtask-dot {
@@ -2582,8 +2585,15 @@ a.rail-brand {
   vertical-align: middle;
 }
 
+/* The names are in the tooltip; the word stays for Background tasks only
+   until there are counts to show. */
 .chat-view-label {
+  display: none;
   line-height: 1;
+}
+
+.chat-view-btn--tasks:not(.has-tasks) .chat-view-label {
+  display: inline;
 }
 
 /* running / total beside the dot. Tabular digits, so a count that changes
@@ -2621,42 +2631,28 @@ a.rail-brand {
 }
 
 /* The stacked shell's top bar has 42px buttons, a phone's 40px: the header's
-   take the same size there. */
+   take the same size there, Files a square of it. */
 @media (max-width: 1199px) {
   .chat-view-btn {
     height: 42px;
   }
+
+  .chat-view-btn--icon {
+    width: 42px;
+  }
 }
 
-/* A phone: Edits and Files are the icon alone, in the 40px square of its top
-   bar's buttons; Background tasks keep the dot and the counts, and the word
-   only while there are no counts yet. */
 @media (max-width: 599px) {
   .chat-views {
     gap: 4px;
   }
 
   .chat-view-btn {
-    width: 40px;
     height: 40px;
-    padding: 0;
   }
 
-  .chat-view-label {
-    display: none;
-  }
-
-  .chat-view-icon {
-    display: block;
-  }
-
-  .chat-view-btn--tasks {
-    width: auto;
-    padding: 0 12px 0 11px;
-  }
-
-  .chat-view-btn--tasks:not(.has-tasks) .chat-view-label {
-    display: inline;
+  .chat-view-btn--icon {
+    width: 40px;
   }
 }
 
@@ -4359,6 +4355,10 @@ a.rail-brand {
   background: transparent;
   cursor: zoom-in;
 }
+/* A picture whose source is in the workspace opens in the Files window. */
+.inline-artifact-image--open {
+  cursor: pointer;
+}
 .inline-artifact-thumb {
   display: block;
   width: 100%;
@@ -4455,6 +4455,77 @@ a.rail-brand {
 .inline-artifact-menu button:disabled {
   opacity: 0.45;
   cursor: default;
+}
+/* Copy and its submenu beside the menu (placeArtifactSubmenu), the way a
+   desktop app nests the ways to copy; the chevron points to where it opens.
+   The item stays lit while its submenu shows. */
+.inline-artifact-menu .inline-artifact-menu-sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.inline-artifact-menu .inline-artifact-menu-sub[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+}
+.inline-artifact-menu-chevron {
+  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+}
+/* A phone's one list: the ways to copy under a Copy heading, set apart by
+   rules from the items around them. */
+.inline-artifact-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+}
+.inline-artifact-menu-group {
+  display: grid;
+}
+.inline-artifact-menu-label {
+  padding: 4px 9px 2px;
+  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* The whole card opens the file it was copied from in the Files window; the
+   actions trigger stands over it. A picture's thumbnail is that button itself
+   (.inline-artifact-image--open), and opens the copy in the lightbox only when
+   the source is gone (DESIGN.md, Shared file cards). */
+.tool-artifact-open {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.tool-artifact-open:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: -2px;
+}
+
+/* A source deleted from the workspace: the badge and the name step back, the
+   name is struck through, and the line under it says so. The copy can still
+   be downloaded from the menu. */
+.tool-artifact-card--deleted .inline-artifact-extension {
+  border-color: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+}
+.tool-artifact-card--deleted .tool-artifact-name {
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--text) 45%, transparent);
+}
+.tool-artifact-card--deleted .inline-artifact-thumb {
+  opacity: 0.55;
+  filter: grayscale(1);
+}
+.tool-artifact-meta--deleted {
+  color: color-mix(in srgb, var(--text) 74%, var(--coddy-blend-base));
+  font-weight: 600;
 }
 
 @media (max-width: 599px) {
@@ -16130,6 +16201,31 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .docs-lightbox-stage.is-panning img.is-zoomed {
   cursor: grabbing;
+}
+
+/* A file of the chat's workspace an answer names, in prose, as inline code or
+   as a link: it opens in a tab of the Files window, and looks like a mention.
+   A long path wraps inside the transcript. */
+.md a.md-file-link {
+  color: color-mix(in srgb, var(--accent) 72%, var(--text));
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  text-underline-offset: 2px;
+}
+.md a.md-file-link:hover {
+  text-decoration-color: currentColor;
+}
+/* As inline code it stays a chip, in the link's colour, with no underline. */
+.md a.md-file-link:has(> .md-inline-code--file) {
+  text-decoration: none;
+}
+.md a.md-file-link > .md-inline-code--file {
+  color: inherit;
+}
+.md a.md-file-link:hover > .md-inline-code--file {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 /* A page of the documentation named in a sent message or an answer, as

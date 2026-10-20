@@ -201,10 +201,10 @@
     },
     "decisions": {
       "additionalProperties": false,
-      "description": "Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about, or rejected in bypass mode.",
+      "description": "Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer.",
       "properties": {
         "enable": {
-          "description": "Check run_command and ssh_run_command calls you did not allow explicitly before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in ask and accept_edits and rejected in bypass. The allowlist, session grants, a hook's allow and commands you approved in a prompt are not checked.",
+          "description": "Check run_command and ssh_run_command calls you did not allow explicitly before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer. The allowlist, a session grant of exactly that command, a hook's allow and commands you approved in a prompt are not checked.",
           "title": "Enabled",
           "type": "boolean"
         },
@@ -1034,8 +1034,115 @@
       "items": {
         "additionalProperties": false,
         "properties": {
+          "acp": {
+            "additionalProperties": false,
+            "description": "The local program this provider runs: an agent that speaks the Agent Client Protocol on stdio, such as claude-agent-acp, codex-acp, opencode acp or coddy acp. It brings its own tools and works in the session's workspace.",
+            "properties": {
+              "args": {
+                "description": "Arguments after the command, such as acp for opencode and coddy.",
+                "items": {
+                  "type": "string"
+                },
+                "title": "Arguments",
+                "type": "array"
+              },
+              "auth_method": {
+                "description": "The ACP authenticate method to call after start, for an agent that refuses sessions until a client does (codex-acp: api-key). Empty: the agent's own sign-in.",
+                "title": "Authentication method",
+                "type": "string"
+              },
+              "command": {
+                "description": "The agent program, looked up on PATH: claude-agent-acp, codex-acp, opencode, coddy.",
+                "title": "Command",
+                "type": "string"
+              },
+              "cwd": {
+                "description": "A fixed folder for the agent and every session it opens. Empty opens each session in the workspace of the Coddy session it serves.",
+                "title": "Working folder",
+                "type": "string"
+              },
+              "env": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Variables added to the environment the agent starts with, such as a key it reads. ${CWD} is the session's workspace.",
+                "title": "Environment",
+                "type": "object"
+              },
+              "idle_timeout_ms": {
+                "description": "Stop the agent this long after its last call; the next call starts it again and replays the conversation into a new session. 0 means sixty minutes.",
+                "title": "Idle stop (ms)",
+                "type": "integer"
+              },
+              "modes": {
+                "additionalProperties": false,
+                "description": "The agent's own mode for each Coddy mode (an ACP mode id such as plan or read-only); empty keeps the agent's default. Put an agent that writes without asking into a read-only mode for plan and ask.",
+                "properties": {
+                  "agent": {
+                    "description": "The agent's mode while the session is in agent mode.",
+                    "title": "In agent mode",
+                    "type": "string"
+                  },
+                  "ask": {
+                    "description": "The agent's mode while the session is in ask mode.",
+                    "title": "In ask mode",
+                    "type": "string"
+                  },
+                  "plan": {
+                    "description": "The agent's mode while the session is in plan mode.",
+                    "title": "In plan mode",
+                    "type": "string"
+                  }
+                },
+                "title": "Agent modes",
+                "type": "object",
+                "x-coddy-property-order": [
+                  "agent",
+                  "plan",
+                  "ask"
+                ]
+              },
+              "permissions": {
+                "default": "ask",
+                "description": "What Coddy answers when the agent asks to run one of its tools: ask puts the request in front of you, as Coddy's own tools do (allowed without asking under the bypass permission mode); allow approves it once; deny refuses it. In plan and ask mode every request is refused.",
+                "enum": [
+                  "ask",
+                  "allow",
+                  "deny"
+                ],
+                "title": "Agent permission requests",
+                "type": "string"
+              },
+              "process": {
+                "default": "shared",
+                "description": "shared: one agent process serves every session of this provider. per_session: every session gets a process of its own, for an agent that runs one prompt at a time (zcode-acp-server).",
+                "enum": [
+                  "shared",
+                  "per_session"
+                ],
+                "title": "Agent process",
+                "type": "string"
+              }
+            },
+            "required": [
+              "command"
+            ],
+            "title": "ACP agent",
+            "type": "object",
+            "x-coddy-property-order": [
+              "command",
+              "args",
+              "env",
+              "cwd",
+              "auth_method",
+              "permissions",
+              "modes",
+              "process",
+              "idle_timeout_ms"
+            ]
+          },
           "api_base": {
-            "description": "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); for opencode it picks the gateway (the Go subscription or pay-as-you-go Console); ignored by codex and devin, which use their official endpoints.",
+            "description": "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); for opencode it picks the gateway (the Go subscription or pay-as-you-go Console); ignored by codex and devin, which use their official endpoints, and by acp, whose agent runs on this machine.",
             "title": "API base URL",
             "type": "string"
           },
@@ -1076,7 +1183,8 @@
               "neuraldeep",
               "opencode",
               "codex",
-              "devin"
+              "devin",
+              "acp"
             ],
             "title": "Provider type",
             "type": "string"
@@ -1096,6 +1204,7 @@
         "x-coddy-property-order": [
           "name",
           "type",
+          "acp",
           "api_base",
           "api_key",
           "api_key_command",

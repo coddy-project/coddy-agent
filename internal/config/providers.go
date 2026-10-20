@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -27,6 +28,7 @@ var AllowedLLMProviderTypes = map[string]struct{}{
 	"opencode":   {},
 	"codex":      {},
 	"devin":      {},
+	"acp":        {},
 }
 
 // ProviderConfig is one entry under YAML key providers.
@@ -58,6 +60,118 @@ type ProviderConfig struct {
 	// row like a provider without a usage source: nothing is fetched and
 	// nothing is shown. Only rows whose type has a usage source are affected.
 	UsageLimitsPanel *bool `yaml:"usage_limits_panel,omitempty"`
+	// ACP is the agent an acp row runs: a local program speaking the Agent
+	// Client Protocol on stdio, served as a model (internal/llm/acp*.go).
+	// Read only on a row of type acp.
+	ACP *ACPProviderConfig `yaml:"acp,omitempty"`
+}
+
+// ACP permission policies: what an acp row does with the agent's
+// session/request_permission.
+const (
+	// ACPPermissionsAsk forwards the request to the person through the
+	// session's permission prompt (the default).
+	ACPPermissionsAsk = "ask"
+	// ACPPermissionsAllow approves every request once.
+	ACPPermissionsAllow = "allow"
+	// ACPPermissionsDeny refuses every request.
+	ACPPermissionsDeny = "deny"
+)
+
+// ACPProviderConfig is the acp block of a provider row of type acp.
+type ACPProviderConfig struct {
+	// Command is the program that speaks ACP on stdio (PATH lookup); Args
+	// follow it.
+	Command string   `yaml:"command" json:"command"`
+	Args    []string `yaml:"args,omitempty" json:"args,omitempty"`
+	// Env is added to the environment Coddy passes the agent.
+	Env map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
+	// CWD, when set, is the folder of the agent process and of every ACP
+	// session; empty opens each session in the Coddy session's workspace.
+	CWD string `yaml:"cwd,omitempty" json:"cwd,omitempty"`
+	// AuthMethod is the ACP authenticate methodId called after initialize
+	// (codex-acp: api-key); empty calls none.
+	AuthMethod string `yaml:"auth_method,omitempty" json:"auth_method,omitempty"`
+	// Permissions is ask (default), allow or deny.
+	Permissions string `yaml:"permissions,omitempty" json:"permissions,omitempty"`
+	// Modes picks the agent's ACP mode for each Coddy session mode; an empty
+	// value keeps the agent's own default.
+	Modes ACPModes `yaml:"modes,omitempty" json:"modes"`
+	// IdleTimeoutMS stops the agent this long after its last call; 0 means
+	// sixty minutes.
+	IdleTimeoutMS int `yaml:"idle_timeout_ms,omitempty" json:"idle_timeout_ms,omitempty"`
+	// Process is shared (default: one agent process serves every session of
+	// the row) or per_session (a process for each Coddy session, for an
+	// agent that runs one prompt at a time, such as zcode-acp-server).
+	Process string `yaml:"process,omitempty" json:"process,omitempty"`
+}
+
+// ACP process sharing values.
+const (
+	ACPProcessShared     = "shared"
+	ACPProcessPerSession = "per_session"
+)
+
+// PerSession reports whether every Coddy session gets an agent process of
+// its own.
+func (c *ACPProviderConfig) PerSession() bool {
+	return c != nil && strings.EqualFold(strings.TrimSpace(c.Process), ACPProcessPerSession)
+}
+
+// ACPModes maps the Coddy session modes onto ACP mode ids of the agent.
+type ACPModes struct {
+	Agent string `yaml:"agent,omitempty" json:"agent,omitempty"`
+	Plan  string `yaml:"plan,omitempty" json:"plan,omitempty"`
+	Ask   string `yaml:"ask,omitempty" json:"ask,omitempty"`
+}
+
+// For returns the ACP mode configured for a Coddy session mode.
+func (m ACPModes) For(mode string) string {
+	switch strings.TrimSpace(mode) {
+	case "plan":
+		return strings.TrimSpace(m.Plan)
+	case "ask":
+		return strings.TrimSpace(m.Ask)
+	default:
+		return strings.TrimSpace(m.Agent)
+	}
+}
+
+// EffectivePermissions returns the permission policy with the default
+// applied.
+func (c *ACPProviderConfig) EffectivePermissions() string {
+	if c == nil {
+		return ACPPermissionsAsk
+	}
+	switch p := strings.ToLower(strings.TrimSpace(c.Permissions)); p {
+	case ACPPermissionsAllow, ACPPermissionsDeny:
+		return p
+	default:
+		return ACPPermissionsAsk
+	}
+}
+
+// NamesWorkspace reports whether any value of the block names ${CWD}: such
+// an agent is started once per workspace rather than once per row.
+func (c *ACPProviderConfig) NamesWorkspace() bool {
+	if c == nil {
+		return false
+	}
+	has := func(s string) bool { return strings.Contains(s, sessionCWDPlaceholder) }
+	if has(c.Command) || has(c.CWD) {
+		return true
+	}
+	for _, a := range c.Args {
+		if has(a) {
+			return true
+		}
+	}
+	for _, v := range c.Env {
+		if has(v) {
+			return true
+		}
+	}
+	return false
 }
 
 // EffectiveUsageLimitsPanel reports whether the row's usage limits panel is
@@ -81,10 +195,18 @@ func ProviderAPIKeyEnvVarName(providerName string) string {
 }
 
 // TakesAPIKey reports whether requests of this row carry an API key at all:
-// every type but codex, which signs in with ChatGPT and never reads api_key,
-// api_key_command or the NAME_API_KEY variable.
+// every type but codex, which signs in with ChatGPT, and acp, whose agent
+// signs in on its own; neither reads api_key, api_key_command or the
+// NAME_API_KEY variable.
 func (p *ProviderConfig) TakesAPIKey() bool {
-	return p != nil && strings.TrimSpace(p.Type) != "codex"
+	if p == nil {
+		return false
+	}
+	switch strings.TrimSpace(p.Type) {
+	case "codex", "acp":
+		return false
+	}
+	return true
 }
 
 // EffectiveAPIKey returns the key to pass to LLM clients. Resolution order:
@@ -170,6 +292,13 @@ func (p *ProviderConfig) Normalize() {
 	p.APIKey = strings.TrimSpace(p.APIKey)
 	p.APIKeyCommand = strings.TrimSpace(p.APIKeyCommand)
 	p.Proxy = normalizeProxySetting(p.Proxy)
+	if p.ACP != nil {
+		p.ACP.Command = strings.TrimSpace(p.ACP.Command)
+		p.ACP.CWD = strings.TrimSpace(p.ACP.CWD)
+		p.ACP.AuthMethod = strings.TrimSpace(p.ACP.AuthMethod)
+		p.ACP.Permissions = strings.ToLower(strings.TrimSpace(p.ACP.Permissions))
+		p.ACP.Process = strings.ToLower(strings.TrimSpace(p.ACP.Process))
+	}
 }
 
 // Validate checks a single provider after Normalize.
@@ -193,6 +322,29 @@ func (p *ProviderConfig) Validate() error {
 	}
 	if p.TimeoutMS < 0 {
 		return fmt.Errorf("providers[%s]: timeout_ms must be >= 0", p.Name)
+	}
+	if p.Type == "acp" {
+		if p.ACP == nil || p.ACP.Command == "" {
+			return fmt.Errorf("providers[%s].acp.command: an acp provider needs the command of its agent", p.Name)
+		}
+		switch p.ACP.Permissions {
+		case "", ACPPermissionsAsk, ACPPermissionsAllow, ACPPermissionsDeny:
+		default:
+			return fmt.Errorf("providers[%s].acp.permissions: must be ask, allow or deny, not %q", p.Name, p.ACP.Permissions)
+		}
+		switch p.ACP.Process {
+		case "", ACPProcessShared, ACPProcessPerSession:
+		default:
+			return fmt.Errorf("providers[%s].acp.process: must be shared or per_session, not %q", p.Name, p.ACP.Process)
+		}
+		if p.ACP.IdleTimeoutMS < 0 {
+			return fmt.Errorf("providers[%s].acp.idle_timeout_ms: must be >= 0", p.Name)
+		}
+		if cwd := p.ACP.CWD; cwd != "" && !filepath.IsAbs(cwd) && cwd != "~" && !strings.HasPrefix(cwd, "~/") && !strings.HasPrefix(cwd, sessionCWDPlaceholder) {
+			// ACP sessions open in an absolute folder; a relative one would
+			// depend on wherever Coddy happened to start.
+			return fmt.Errorf("providers[%s].acp.cwd: must be an absolute path (or start with ~ or ${CWD}), not %q", p.Name, cwd)
+		}
 	}
 	return nil
 }

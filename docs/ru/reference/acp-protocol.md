@@ -699,7 +699,7 @@ false`); такая строка никогда не читается, и обн
 
 ## Запросы разрешения (агент → клиент, ожидается ответ)
 
-Эти запросы отправляются, только когда `permission_mode` равен `ask` (команды и запись) или `accept_edits` (только команды). Когда `permission_mode` равен `bypass`, агент никогда не отправляет `session/request_permission`. Режим задаётся через `session/set_config_option` или командой `/permissions` в промпте; новая сессия начинает в режиме, выбранном последним.
+Эти запросы отправляются, когда `permission_mode` равен `ask` (команды и запись) или `accept_edits` (только команды). При `bypass` агент отправляет `session/request_permission` только о решении `ask` хука `PreToolUse` и о команде оболочки, которую не пропустила [проверка decisions](../features/decisions.md), потому что на такие запросы режим сам не отвечает. Режим задаётся через `session/set_config_option` или командой `/permissions` в промпте; новая сессия начинает в режиме, выбранном последним.
 
 При `ask` запрос, который относится к самой сессии, несёт перед Reject ещё два варианта вида `allow_always` - `allow_session_bypass` (**Bypass for this session**) и, для записи файла, `allow_session_accept_edits` (**Allow edits for this session**). Выбор любого из них одобряет вызов и переключает режим разрешений сессии, о чём агент сообщает через `config_option_update`. Запрос, переданный от субагента, запрос, который вынудил хук, и `config_commit` / `config_rollback` их не несут.
 
@@ -806,4 +806,4 @@ false`); такая строка никогда не читается, и обн
 }
 ```
 
-<!-- docsgen:source sha256=73df23b4344f17aa -->
+<!-- docsgen:source sha256=bcca610b1e1c965f -->

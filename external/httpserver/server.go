@@ -315,6 +315,14 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		// first configured model before declaring nothing is available.
 		modelRef = cfg.FirstModelID()
 	}
+	if cfg.ModelRunsACPAgent(modelRef) {
+		// A local ACP agent answers inside a session only: the describe
+		// call borrows a model of another type, or does without.
+		modelRef = cfg.FirstNonACPModelID()
+		if modelRef == "" {
+			return nil, fmt.Errorf("no model other than an acp agent is configured for the describe call")
+		}
+	}
 	if modelRef == "" {
 		return nil, fmt.Errorf("no model configured")
 	}
@@ -340,6 +348,7 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		DisableStream:     !rm.Stream,
 		Timeout:           time.Duration(rm.TimeoutMS) * time.Millisecond,
 		StreamIdleTimeout: streamIdleTimeout(cfg, rm),
+		ACP:               rm.ACP,
 	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
@@ -369,6 +378,7 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string, opts llm.Request
 		DisableStream:     !rm.Stream,
 		Timeout:           time.Duration(rm.TimeoutMS) * time.Millisecond,
 		StreamIdleTimeout: streamIdleTimeout(cfg, rm),
+		ACP:               rm.ACP,
 	}
 	opts.Apply(&in)
 	return llm.NewProvider(llm.WithAgentResilience(in, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
@@ -629,6 +639,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		genOpts, err = directRequestOptions(s.activeCfg(), model, req)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+			return
+		}
+		if err := directACPRefusal(s.activeCfg(), model); err != nil {
+			writeErrorReply(w, err)
 			return
 		}
 	}
@@ -1205,6 +1219,12 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	if err := coerceMetadataJSON(body.Metadata); err != nil {
 		http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
 		return
+	}
+	if !httpModelIsCoddyProfile(model) {
+		if err := directACPRefusal(s.activeCfg(), model); err != nil {
+			writeErrorReply(w, err)
+			return
+		}
 	}
 	ctx := r.Context()
 	st, sid, createdNew, err := s.resolveSession(ctx, r)

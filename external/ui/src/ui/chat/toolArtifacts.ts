@@ -12,8 +12,18 @@ export type ToolArtifact = {
   previewUrl?: string;
   sourcePath?: string;
   relativePath?: string;
-  revealUrl?: string;
+  /**
+   * Where the file it was copied from is now, which decides whether the card
+   * opens it in the Files window: still at relativePath in the chat's
+   * workspace, deleted from there, or not a file of this workspace. Absent
+   * from an older server.
+   */
+  sourceState?: ArtifactSourceState;
 };
+
+export type ArtifactSourceState = "present" | "deleted" | "unavailable";
+
+const SOURCE_STATES: readonly string[] = ["present", "deleted", "unavailable"];
 
 const SHA256 = /^[a-f0-9]{64}$/i;
 
@@ -48,7 +58,7 @@ export function parseToolArtifacts(raw: unknown): ToolArtifact[] {
     const previewUrl = text(row.preview_url ?? row.previewUrl);
     const sourcePath = text(row.source_path ?? row.sourcePath);
     const relativePath = text(row.relative_path ?? row.relativePath);
-    const revealUrl = text(row.reveal_url ?? row.revealUrl);
+    const sourceState = text(row.source_state ?? row.sourceState);
     artifacts.push({
       id,
       name,
@@ -58,7 +68,9 @@ export function parseToolArtifacts(raw: unknown): ToolArtifact[] {
       ...(previewUrl ? { previewUrl } : {}),
       ...(sourcePath ? { sourcePath } : {}),
       ...(relativePath ? { relativePath } : {}),
-      ...(revealUrl ? { revealUrl } : {}),
+      ...(sourceState && SOURCE_STATES.includes(sourceState)
+        ? { sourceState: sourceState as ArtifactSourceState }
+        : {}),
     });
   }
   return artifacts;

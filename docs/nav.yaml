@@ -121,6 +121,9 @@ groups:
       - path: features/opencode.md
         title: OpenCode
         summary: Using the OpenCode Go and Console gateways with account login or a service account key - model protocols, client headers and gateway selection.
+      - path: features/acp-provider.md
+        title: ACP agent as a model
+        summary: Serving a local ACP agent (Claude Code, Codex, OpenCode, ZCode, another Coddy) as a model - the acp block, one agent session per Coddy session, its permission requests, plan and ask modes, the agent process.
       - path: features/web-search.md
         title: Web search
         summary: The engines websearch asks, how a blocked backend is reported instead of counted as nothing found, the relevance gate, and pointing it at your own SearXNG.
@@ -159,7 +162,7 @@ groups:
         summary: The memory subagent that runs per turn in the task pool, what it recalls and saves, how the report reaches the turn, the storage layout, configuration and cost.
       - path: features/decisions.md
         title: Command safety (decisions)
-        summary: "The NeuralDeep decisions check that asks whether a shell command is safe before the permission gate: a safe command runs without a prompt, an unsafe one is asked about, or rejected in bypass mode."
+        summary: "The NeuralDeep decisions check that asks whether a shell command is safe before the permission gate: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer."
       - path: features/session-export.md
         title: Session export
         summary: /export and coddy sessions export, formats, path rules, trimming options, the JSON document.

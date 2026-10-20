@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import {
+  configuredBackendIds,
   firstAlphabeticalBackend,
   pickDefaultLlmModelForNewChat,
   pickLlmModelForOpenSession,
@@ -84,4 +85,20 @@ test("sessionScopedModelCommand skips non-picks and turn-scoped forms", () => {
     sessionScopedModelCommand("/model openai/gpt-4o --count 3 hi"),
   ).toBeNull();
   expect(sessionScopedModelCommand("say /model openai/gpt-4o")).toBeNull();
+});
+
+test("the models of a provider named coddy are backends and the profiles are not", () => {
+  // GET /v1/models marks the session profiles owned_by coddy, and a model row
+  // owned_by its provider: a provider row may itself be named coddy (a coddy
+  // acp agent served as a model).
+  expect(
+    configuredBackendIds([
+      { id: "agent", ownedBy: "coddy" },
+      { id: "plan", ownedBy: "coddy" },
+      { id: "ask", ownedBy: "coddy" },
+      { id: "coddy/default", ownedBy: "coddy" },
+      { id: "coddy/neuraldeep/qwen3.8-27b", ownedBy: "coddy" },
+      { id: "openai/gpt-4o", ownedBy: "openai" },
+    ]),
+  ).toEqual(["coddy/default", "coddy/neuraldeep/qwen3.8-27b", "openai/gpt-4o"]);
 });

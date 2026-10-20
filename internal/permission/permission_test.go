@@ -593,10 +593,33 @@ func TestAutoApprovesFollowsTheAskersMode(t *testing.T) {
 		{"a narrowed child under a bypass session", acp.PermissionRequestParams{EffectivePermissionMode: "ask", SessionPermissionMode: "bypass"}, "bypass", false},
 		{"no stamp falls back on the config", acp.PermissionRequestParams{}, "bypass", true},
 		{"no stamp on an ask server", acp.PermissionRequestParams{}, "ask", false},
+		{"a forced prompt on a bypass server", acp.PermissionRequestParams{Forced: true}, "bypass", false},
+		{"a forced prompt stamped bypass", acp.PermissionRequestParams{Forced: true, EffectivePermissionMode: "bypass", SessionPermissionMode: "bypass"}, "bypass", false},
 	}
 	for _, c := range cases {
 		if got := AutoApproves(c.params, c.cfg); got != c.want {
 			t.Errorf("%s: AutoApproves = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// A messenger bot allows what its own agent asks, but never a prompt the gate
+// forced, and never a subagent narrowed below bypass.
+func TestChatApprovesOnlyWhatNobodyMustAnswer(t *testing.T) {
+	cases := []struct {
+		name   string
+		params acp.PermissionRequestParams
+		want   bool
+	}{
+		{"the chat's own agent", acp.PermissionRequestParams{SessionPermissionMode: "ask"}, true},
+		{"a subagent stamped bypass", acp.PermissionRequestParams{EffectivePermissionMode: "bypass"}, true},
+		{"a subagent narrowed to ask", acp.PermissionRequestParams{EffectivePermissionMode: "ask"}, false},
+		{"a forced prompt of the chat's own agent", acp.PermissionRequestParams{Forced: true}, false},
+		{"a forced prompt stamped bypass", acp.PermissionRequestParams{Forced: true, EffectivePermissionMode: "bypass"}, false},
+	}
+	for _, c := range cases {
+		if got := ChatApproves(c.params); got != c.want {
+			t.Errorf("%s: ChatApproves = %v, want %v", c.name, got, c.want)
 		}
 	}
 }
@@ -613,5 +636,26 @@ func TestSessionSwitchesAreNamedShort(t *testing.T) {
 	}
 	if got := names[OptionAllowSessionAcceptEdits]; got != "Allow edits for this session" {
 		t.Errorf("accept-edits option name = %q, want %q", got, "Allow edits for this session")
+	}
+}
+
+// The prompt of a command the decisions check stopped offers no program-wide
+// grant: only a grant of exactly the command takes it past the check, so the
+// wider one would remember nothing. The exact command's grant stays.
+func TestExactGrantOnlyLeavesOutTheProgramGrant(t *testing.T) {
+	args := `{"command":"rm -rf build"}`
+	ids := func(oc OptionContext) []string {
+		var out []string
+		for _, o := range OptionsFor("run_command", args, oc) {
+			out = append(out, o.OptionID)
+		}
+		return out
+	}
+	if got := strings.Join(ids(OptionContext{Mode: config.PermModeBypass}), ","); !strings.Contains(got, OptionAllowAlwaysProgram) {
+		t.Fatalf("a plain prompt does not offer the program grant: %s", got)
+	}
+	got := strings.Join(ids(OptionContext{Mode: config.PermModeBypass, ExactGrantOnly: true}), ",")
+	if strings.Contains(got, OptionAllowAlwaysProgram) || !strings.Contains(got, OptionAllowAlways) || !strings.Contains(got, OptionReject) {
+		t.Fatalf("options = %s, want allow, allow_always and reject without the program grant", got)
 	}
 }

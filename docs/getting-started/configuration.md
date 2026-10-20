@@ -662,7 +662,7 @@ An environment variable named **`CWD`** does not replace the placeholder (a bare
 
 ## Model Provider Reference
 
-Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**, **`opencode`**, **`codex`**, **`devin`**.
+Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**, **`opencode`**, **`codex`**, **`devin`**, **`acp`**. A **`type: acp`** row runs a local agent that speaks the Agent Client Protocol (Claude Code, Codex, OpenCode, ZCode, another Coddy) and serves it as a model; it takes an **`acp`** block (**`command`**, **`args`**, **`env`**, **`modes`**, ...) instead of **`api_base`** and **`api_key`** - see [ACP agent as a model](../features/acp-provider.md).
 
 **`type: opencode`** uses the Go subscription gateway by default; **`api_base: https://opencode.ai/inference/v1`** selects pay-as-you-go Console. Sign in an account with **`coddy providers login opencode`** (device code and organization selection in the browser), or use **`--api-key -`** to store a service account key. Stored account tokens refresh automatically through the provider proxy. An explicit **`api_key`** still wins over the login. Coddy selects the inference API per model and gateway; see [OpenCode](../features/opencode.md).
 

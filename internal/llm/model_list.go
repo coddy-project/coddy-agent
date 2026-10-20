@@ -82,6 +82,11 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 		defer cancel()
 		return listDevinModels(ctx, in)
 	}
+	if in.Type == "acp" {
+		ctx, cancel := context.WithTimeout(ctx, acpStartTimeout)
+		defer cancel()
+		return listACPModels(ctx, in)
+	}
 	if in.Type == "codex" {
 		entries, err := fetchCodexCatalog(ctx, in)
 		if err != nil {

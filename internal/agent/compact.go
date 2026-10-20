@@ -622,6 +622,11 @@ func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 	if !comp.IsAutoEnabled() {
 		return false
 	}
+	if a.cfg.ModelRunsACPAgent(a.state.EffectiveModelID(a.cfg)) {
+		// A local ACP agent keeps its own context and compacts it itself;
+		// folding this transcript would only start it over from a summary.
+		return false
+	}
 	window, source := a.contextWindow()
 	if window <= 0 {
 		return false
@@ -746,6 +751,11 @@ func (a *Agent) compactionChain(override, reasoning string) ([]compactionCandida
 		}
 		seen[modelID] = true
 		rm, err := a.cfg.ResolveLLM(modelID)
+		if err == nil && rm.ProviderType == "acp" {
+			// A local ACP agent answers inside a session only and would run
+			// the summary request as a task with its own tools.
+			err = fmt.Errorf("model %q runs an acp agent, which cannot summarize; set compaction.model to a model of another type", modelID)
+		}
 		if err == nil {
 			in := a.llmProviderInput(rm)
 			// The level asked for goes to every model of the chain that

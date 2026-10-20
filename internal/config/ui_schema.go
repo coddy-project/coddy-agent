@@ -212,6 +212,58 @@ func ensureObjectMatchesSchema(obj map[string]interface{}, schemaProps map[strin
 	}
 }
 
+// acpProviderSchema is the acp block of a provider row of type acp: the agent
+// it runs. The settings form shows it on that type only.
+func acpProviderSchema() map[string]interface{} {
+	permissions := strProp("Agent permission requests",
+		"What Coddy answers when the agent asks to run one of its tools: ask puts the request in front of you, as Coddy's own tools do (allowed without asking under the bypass permission mode); allow approves it once; deny refuses it. In plan and ask mode every request is refused.")
+	permissions["enum"] = []string{ACPPermissionsAsk, ACPPermissionsAllow, ACPPermissionsDeny}
+	permissions["default"] = ACPPermissionsAsk
+	process := strProp("Agent process",
+		"shared: one agent process serves every session of this provider. per_session: every session gets a process of its own, for an agent that runs one prompt at a time (zcode-acp-server).")
+	process["enum"] = []string{ACPProcessShared, ACPProcessPerSession}
+	process["default"] = ACPProcessShared
+	args := map[string]interface{}{
+		"type":        "array",
+		"title":       "Arguments",
+		"description": "Arguments after the command, such as acp for opencode and coddy.",
+		"items":       map[string]interface{}{"type": "string"},
+	}
+	env := map[string]interface{}{
+		"type":                 "object",
+		"title":                "Environment",
+		"description":          "Variables added to the environment the agent starts with, such as a key it reads. ${CWD} is the session's workspace.",
+		"additionalProperties": map[string]interface{}{"type": "string"},
+	}
+	modes := objectSchema("Agent modes",
+		"The agent's own mode for each Coddy mode (an ACP mode id such as plan or read-only); empty keeps the agent's default. Put an agent that writes without asking into a read-only mode for plan and ask.",
+		map[string]interface{}{
+			"agent": strProp("In agent mode", "The agent's mode while the session is in agent mode."),
+			"plan":  strProp("In plan mode", "The agent's mode while the session is in plan mode."),
+			"ask":   strProp("In ask mode", "The agent's mode while the session is in ask mode."),
+		},
+		[]string{"agent", "plan", "ask"},
+		nil)
+	return objectSchema("ACP agent",
+		"The local program this provider runs: an agent that speaks the Agent Client Protocol on stdio, such as claude-agent-acp, codex-acp, opencode acp or coddy acp. It brings its own tools and works in the session's workspace.",
+		map[string]interface{}{
+			"command": strProp("Command", "The agent program, looked up on PATH: claude-agent-acp, codex-acp, opencode, coddy."),
+			"args":    args,
+			"env":     env,
+			"cwd": strProp("Working folder",
+				"A fixed folder for the agent and every session it opens. Empty opens each session in the workspace of the Coddy session it serves."),
+			"auth_method": strProp("Authentication method",
+				"The ACP authenticate method to call after start, for an agent that refuses sessions until a client does (codex-acp: api-key). Empty: the agent's own sign-in."),
+			"permissions": permissions,
+			"modes":       modes,
+			"idle_timeout_ms": intProp("Idle stop (ms)",
+				"Stop the agent this long after its last call; the next call starts it again and replays the conversation into a new session. 0 means sixty minutes."),
+			"process": process,
+		},
+		[]string{"command", "args", "env", "cwd", "auth_method", "permissions", "modes", "process", "idle_timeout_ms"},
+		[]string{"command"})
+}
+
 // UISchemaMap builds the JSON Schema as a generic map (for tests and handlers).
 func UISchemaMap() map[string]interface{} {
 	providerName := strProp("Provider id",
@@ -228,9 +280,9 @@ func UISchemaMap() map[string]interface{} {
 			"type":        "string",
 			"title":       "Provider type",
 			"description": "Wire protocol for this provider entry.",
-			"enum":        []string{"openai", "anthropic", "neuraldeep", "opencode", "codex", "devin"},
+			"enum":        []string{"openai", "anthropic", "neuraldeep", "opencode", "codex", "devin", "acp"},
 		},
-		"api_base": strProp("API base URL", "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); for opencode it picks the gateway (the Go subscription or pay-as-you-go Console); ignored by codex and devin, which use their official endpoints."),
+		"api_base": strProp("API base URL", "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); for opencode it picks the gateway (the Go subscription or pay-as-you-go Console); ignored by codex and devin, which use their official endpoints, and by acp, whose agent runs on this machine."),
 		"api_key":  providerAPIKey,
 		"api_key_command": strProp("API key command",
 			"Optional credential helper, run through the host shell when the API key is empty; its trimmed stdout is the key, like git or docker credential helpers. On failure the environment variable is read instead."),
@@ -246,6 +298,7 @@ func UISchemaMap() map[string]interface{} {
 		"usage_limits_panel": boolPropDefault("Usage limits panel",
 			"Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
 			true),
+		"acp": acpProviderSchema(),
 	}
 	modelProps := map[string]interface{}{
 		"model": strProp("Model id", "Logical id in the form provider/api-model-id; must match a provider name prefix."),
@@ -419,7 +472,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "LLM providers",
 			"description": "API credentials and transport selection for upstream LLM vendors.",
 			"items": objectSchema("", "", providerProps,
-				[]string{"name", "type", "api_base", "api_key", "api_key_command", "proxy", "timeout_ms", "usage_limits_panel"},
+				[]string{"name", "type", "acp", "api_base", "api_key", "api_key_command", "proxy", "timeout_ms", "usage_limits_panel"},
 				[]string{"name", "type"}),
 		},
 		"models": map[string]interface{}{
@@ -711,9 +764,9 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"enable", "model", "dir", "fallback_models", "additional_prompt", "additional_prompt_max_chars", "wait_seconds", "timeout_seconds", "keep_runs", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits", "max_note_chars"},
 			nil),
-		"decisions": objectSchema("Command safety (decisions)", "Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about, or rejected in bypass mode.",
+		"decisions": objectSchema("Command safety (decisions)", "Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer.",
 			map[string]interface{}{
-				"enable": boolProp("Enabled", "Check run_command and ssh_run_command calls you did not allow explicitly before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in ask and accept_edits and rejected in bypass. The allowlist, session grants, a hook's allow and commands you approved in a prompt are not checked."),
+				"enable": boolProp("Enabled", "Check run_command and ssh_run_command calls you did not allow explicitly before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer. The allowlist, a session grant of exactly that command, a hook's allow and commands you approved in a prompt are not checked."),
 				"model": map[string]interface{}{
 					"type":        "string",
 					"title":       "Decisions model",

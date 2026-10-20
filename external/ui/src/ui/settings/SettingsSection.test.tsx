@@ -71,7 +71,26 @@ const rootSchema: JsonSchema = {
           type: {
             type: "string",
             title: "Provider type",
-            enum: ["openai", "anthropic", "neuraldeep", "opencode", "codex"],
+            enum: ["openai", "anthropic", "neuraldeep", "opencode", "codex", "acp"],
+          },
+          acp: {
+            type: "object",
+            title: "ACP agent",
+            properties: {
+              command: { type: "string", title: "Command" },
+              args: {
+                type: "array",
+                title: "Arguments",
+                items: { type: "string" },
+              },
+              modes: {
+                type: "object",
+                title: "Agent modes",
+                properties: {
+                  plan: { type: "string", title: "In plan mode" },
+                },
+              },
+            },
           },
           api_base: { type: "string", title: "API base URL" },
           api_key: { type: "string", title: "API key" },
@@ -81,6 +100,7 @@ const rootSchema: JsonSchema = {
         "x-coddy-property-order": [
           "name",
           "type",
+          "acp",
           "api_base",
           "api_key",
           "api_key_command",
@@ -383,6 +403,43 @@ test("NeuralDeep provider flags a stored api_base that is not a NeuralDeep endpo
   expect(document.body.textContent).toContain(
     "The saved api_base https://custom.example/v1 is not a NeuralDeep endpoint",
   );
+});
+
+test("ACP provider shows its agent in place of API credentials", async () => {
+  render(
+    <Harness
+      provider={{
+        name: "claude",
+        type: "acp",
+        api_base: "https://must-not-be-shown.example",
+        api_key: "must-not-be-shown",
+        acp: { command: "claude-agent-acp", modes: { plan: "plan" } },
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  const command = (await screen.findByLabelText("Command")) as HTMLInputElement;
+  expect(command.value).toBe("claude-agent-acp");
+  expect(
+    (screen.getByLabelText("In plan mode") as HTMLInputElement).value,
+  ).toBe("plan");
+  expect(screen.queryByLabelText("API base URL")).toBeNull();
+  expect(screen.queryByLabelText("API key")).toBeNull();
+  expect(screen.queryByLabelText("API key command")).toBeNull();
+});
+
+test("Other provider types do not show the ACP agent block", async () => {
+  render(
+    <Harness
+      provider={{ name: "openai", type: "openai", api_key: "sk-test" }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  expect(await screen.findByLabelText("API key")).toBeInTheDocument();
+  expect(screen.queryByLabelText("Command")).toBeNull();
+  expect(screen.queryByText("ACP agent")).toBeNull();
 });
 
 test("Codex provider replaces API credentials with ChatGPT sign in", async () => {

@@ -238,6 +238,12 @@ pages:
     en:
       title: "OpenCode"
       summary: "Using the OpenCode Go and Console gateways with account login or a service account key - model protocols, client headers and gateway selection."
+  features/acp-provider.md:
+    title: "ACP-агент как модель"
+    summary: "Локальный ACP-агент (Claude Code, Codex, OpenCode, ZCode, другой Coddy) в роли модели - блок acp, одна сессия агента на сессию Coddy, запросы разрешений агента, режимы \"План\" и \"Чат\", процесс агента."
+    en:
+      title: "ACP agent as a model"
+      summary: "Serving a local ACP agent (Claude Code, Codex, OpenCode, ZCode, another Coddy) as a model - the acp block, one agent session per Coddy session, its permission requests, plan and ask modes, the agent process."
   features/web-search.md:
     title: "Веб-поиск"
     summary: "Какие поисковые системы опрашивает websearch, как заблокированный бэкенд попадает в отчёт, а не считается пустой выдачей, порог релевантности и подключение собственного SearXNG."
@@ -312,10 +318,10 @@ pages:
       summary: "The memory subagent that runs per turn in the task pool, what it recalls and saves, how the report reaches the turn, the storage layout, configuration and cost."
   features/decisions.md:
     title: "Безопасность команд (decisions)"
-    summary: "Проверка NeuralDeep decisions, которая спрашивает, безопасна ли shell-команда, до шлюза разрешений: безопасная выполняется без запроса, о небезопасной спрашивают, а в режиме bypass её отклоняют."
+    summary: "Проверка NeuralDeep decisions, которая спрашивает, безопасна ли shell-команда, до шлюза разрешений: безопасная выполняется без запроса, о небезопасной спрашивают в любом режиме, включая bypass, а если ответить некому, её отклоняют."
     en:
       title: "Command safety (decisions)"
-      summary: "The NeuralDeep decisions check that asks whether a shell command is safe before the permission gate: a safe command runs without a prompt, an unsafe one is asked about, or rejected in bypass mode."
+      summary: "The NeuralDeep decisions check that asks whether a shell command is safe before the permission gate: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer."
   features/session-export.md:
     title: "Экспорт сессии"
     summary: "/export и coddy sessions export, форматы, правила путей, параметры обрезки, JSON-документ."

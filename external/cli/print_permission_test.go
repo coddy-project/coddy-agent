@@ -11,6 +11,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -53,5 +54,24 @@ func TestConsolePermissionModeFlagStaysWithItsSession(t *testing.T) {
 	}
 	if got := config.ReadDefaultPermissionMode(app.config().Paths.Home); got != "" {
 		t.Fatalf("the launch flag moved the mode new sessions start in to %q", got)
+	}
+}
+
+// Over --remote a one-shot run's prompt comes from the server, whose policy
+// wanted a human answer: the local configuration's mode never approves it.
+func TestPrintSenderOfARemoteRunIgnoresTheLocalMode(t *testing.T) {
+	h, err := remote.NewHandler(remote.Options{BaseURL: "http://127.0.0.1:9", Log: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Tools: config.Tools{PermissionMode: config.PermModeBypass}}
+	var errOut bytes.Buffer
+	snd := newPrintSender(h, cfg, &bytes.Buffer{}, &errOut)
+	res, err := snd.RequestPermission(context.Background(), acp.PermissionRequestParams{
+		SessionID: "sess_remote",
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "c1", Title: "Run: run_command"},
+	})
+	if err != nil || res == nil || res.OptionID == "allow" {
+		t.Fatalf("a remote prompt was approved by the local mode: %+v %v", res, err)
 	}
 }
