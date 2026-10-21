@@ -69,6 +69,7 @@ func BenchmarkInspectMirroredProject(b *testing.B) {
 func BenchmarkNestedOnADeepPath(b *testing.B) {
 	root := b.TempDir()
 	file := filepath.Join(root, "a", "b", "c", "d", "e", "f", "x.go")
+	writeBenchFile(b, file)
 	f := rules.DefaultFactory("")
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -95,6 +96,7 @@ func BenchmarkNestedSubprojectOfThisRepository(b *testing.B) {
 		}
 	}
 	file := filepath.Join(root, "svc", "internal", "rules", "factory.go")
+	writeBenchFile(b, file)
 	f := rules.DefaultFactory("")
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -104,6 +106,19 @@ func BenchmarkNestedSubprojectOfThisRepository(b *testing.B) {
 			b.Fatal("the subproject's rules were not read")
 		}
 		_ = rules.MatchScoped(got, []string{file})
+	}
+}
+
+// writeBenchFile creates file and the folders above it: a tool call reaches
+// a file that exists, and probing an existing chain costs more than one that
+// ends at its first missing folder.
+func writeBenchFile(b *testing.B, file string) {
+	b.Helper()
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		b.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("package x\n"), 0o644); err != nil {
+		b.Fatal(err)
 	}
 }
 

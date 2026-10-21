@@ -142,12 +142,18 @@ func TestNestedRuleArrivesWithAMentionedFile(t *testing.T) {
 // names the folder on purpose, unlike a call that lists or searches it.
 func TestNestedRuleArrivesWithAMentionedFolder(t *testing.T) {
 	a, tmp := nestedRulesProject(t)
+	mention := func() string {
+		return contentBlocksToText(a.attachActivatedRules([]acp.ContentBlock{
+			{Type: acp.ContentTypeText, Text: "look"},
+			{Type: acp.ContentTypeResource, Resource: &acp.Resource{URI: "file://" + filepath.ToSlash(filepath.Join(tmp, "db"))}},
+		}))
+	}
+	// db's glob rule waits for a path under migrations/, which db is not.
+	if strings.Contains(mention(), nestedDBRuleToken) {
+		t.Fatal("a mentioned folder brought a rule whose globs do not match it")
+	}
 	writeNestedAlwaysRule(t, tmp)
-	blocks := a.attachActivatedRules([]acp.ContentBlock{
-		{Type: acp.ContentTypeText, Text: "look"},
-		{Type: acp.ContentTypeResource, Resource: &acp.Resource{URI: "file://" + filepath.ToSlash(filepath.Join(tmp, "db"))}},
-	})
-	if !strings.Contains(contentBlocksToText(blocks), nestedDBAlwaysToken) {
+	if !strings.Contains(mention(), nestedDBAlwaysToken) {
 		t.Fatal("a mentioned folder did not bring the rule of its rule folder into the message")
 	}
 }

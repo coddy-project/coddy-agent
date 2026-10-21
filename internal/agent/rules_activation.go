@@ -88,9 +88,9 @@ func (a *Agent) nestedDocuments(cwd string, paths []string) []*rules.Rule {
 }
 
 // nestedRules returns the rules of the rule folders of the subfolders on the
-// way down to paths that paths bring into play (issue #557): the folders are
-// read on the spot (rules.Factory.Nested), each rule within its own subtree
-// and, when it has globs, on a path they match there. They are rules, so
+// way down to the paths it is given that apply to one of them (issue #557):
+// the folders are read on the spot (rules.Factory.Nested), and a rule applies
+// within its own subtree and, when it has globs, to a path they match there. They are rules, so
 // rules.auto_discover and rules.systems govern them as they do the workspace's
 // folders, and callers ask only when the template prints {{.Rules}}. A tool
 // call passes files, not folders: a folder a call lists or searches brings in
