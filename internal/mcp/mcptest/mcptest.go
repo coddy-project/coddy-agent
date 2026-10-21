@@ -21,7 +21,9 @@ package mcptest
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -29,7 +31,6 @@ import (
 	"image/color"
 	"image/png"
 	"io"
-	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -90,13 +91,28 @@ func LargePicture(token string) []byte {
 		return data.([]byte)
 	}
 	img := image.NewNRGBA(image.Rect(0, 0, 1280, 900))
-	r := rand.New(rand.NewSource(int64(tokenSeed(token))))
-	for i := 0; i < len(img.Pix); i += 4 {
-		v := r.Uint32()
-		img.Pix[i], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = uint8(v), uint8(v>>8), uint8(v>>16), 255
+	noise := noiseOf(token, len(img.Pix)/4*3)
+	for i, j := 0, 0; i < len(img.Pix); i, j = i+4, j+3 {
+		img.Pix[i], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = noise[j], noise[j+1], noise[j+2], 255
 	}
 	data, _ := largePictures.LoadOrStore(token, encodePNG(img))
 	return data.([]byte)
+}
+
+// noiseOf is n bytes that look random and depend on the token alone: the
+// SHA-256 of the token and a counter, block after block. The test and the
+// server it re-executes draw the same picture from them.
+func noiseOf(token string, n int) []byte {
+	out := make([]byte, 0, n+sha256.Size)
+	var counter [8]byte
+	for c := uint64(0); len(out) < n; c++ {
+		binary.BigEndian.PutUint64(counter[:], c)
+		h := sha256.New()
+		h.Write([]byte(token))
+		h.Write(counter[:])
+		out = h.Sum(out)
+	}
+	return out[:n]
 }
 
 func tokenSeed(token string) uint32 {
