@@ -376,12 +376,7 @@ func (m *Manager) metaCandidates(st *State, cwd string) []MentionCandidate {
 }
 
 func (m *Manager) ruleCandidates(st *State, cwd string) []MentionCandidate {
-	var catalog []*rules.Rule
-	if st != nil {
-		catalog = st.GetRulesCatalog()
-	} else if m != nil {
-		catalog = DiscoverRules(m.Cfg(), cwd)
-	}
+	catalog := m.rulesCatalog(st, cwd)
 	var out []MentionCandidate
 	// A rule kept in two trees (.cursor/rules/x.mdc, .claude/rules/x.md) is
 	// one name to "@rule:", which reads the first in catalog order: offer
@@ -410,21 +405,28 @@ const maxRuleFolderSteps = 20
 // it keeps maxRuleFolderSteps of them.
 const ruleFolderCandidates = 256
 
-// ruleSchemeCandidates is what "@rule:" lists (issue #557). Before a "/" it is
-// the subfolders of the workspace that keep a Coddy rule folder, then the
-// workspace's rules; after "<folder>/", the folders below it that keep one,
-// then the rules of its own .coddy/rules. A folder is a step that keeps the
-// picker open, so the picker walks down a group of projects one folder per
-// query and reads only the folder it shows; nothing is walked. The folders
-// come first so a long list of rules does not push them out of the answer,
-// and only the names that match what was typed after the last "/" and that a
-// reference can spell (mention.RefName) are looked at.
+// ruleSchemeCandidates is what "@rule:" lists: the tree of rule addresses
+// (rule_refs.go) seen from the folder typed before the last "/". It offers
+// every rule whose address starts with that folder - the catalog's by their
+// names, a subproject's with the subproject in front - and, as steps that keep
+// the picker open, the folders one level below it: folders of a rule folder
+// and subprojects that keep a .coddy/rules alike, one step where both share a
+// name. Only the rule folders the folder can lead into are read, one per
+// subproject on the way, and nothing is walked. The steps come first, so a
+// long list of rules does not push them out of the answer; the subprojects
+// offered are the ones that match what was typed after the last "/", ranked
+// before at most maxRuleFolderSteps are kept; a name a reference cannot spell
+// is never offered. Where an address names a rule in two places, the row
+// stands for the one ruleByAddress picks.
 func (m *Manager) ruleSchemeCandidates(st *State, cwd, q string) []MentionCandidate {
 	folder, partial := "", q
 	if i := strings.LastIndexByte(q, '/'); i >= 0 {
 		folder, partial = q[:i], q[i+1:]
 	}
 	partial = strings.TrimSpace(partial)
+	if folder != "" && !ruleAddressSpelling(folder) {
+		return nil
+	}
 	var cfg *config.Config
 	if m != nil {
 		cfg = m.Cfg()
@@ -432,6 +434,54 @@ func (m *Manager) ruleSchemeCandidates(st *State, cwd, q string) []MentionCandid
 	prefix := ""
 	if folder != "" {
 		prefix = folder + "/"
+	}
+	var steps, rows []MentionCandidate
+	seenStep, seenRow := map[string]bool{}, map[string]bool{}
+	addStep := func(ref string) {
+		if key := strings.ToLower(ref); !seenStep[key] && ruleAddressSpelling(ref) {
+			seenStep[key] = true
+			steps = append(steps, MentionCandidate{Kind: mention.KindRule, Insert: "@rule:" + ref + "/", Label: ref + "/", Continue: true})
+		}
+	}
+	// below names the rules of rs under inner (a path inside their rule
+	// folder, "" for all of them) by their address, base in front, and the
+	// folders right below inner as steps.
+	below := func(rs []*rules.Rule, base, inner string) {
+		innerPrefix := ""
+		if inner != "" {
+			innerPrefix = strings.ToLower(inner) + "/"
+		}
+		for _, r := range rs {
+			if r == nil || r.ScopeDir != "" && base == "" {
+				continue
+			}
+			name := r.CanonicalName()
+			if !strings.HasPrefix(strings.ToLower(name), innerPrefix) {
+				continue
+			}
+			address := name
+			if base != "" {
+				address = base + "/" + name
+			}
+			// A trailing dot ends a reference, so "deploy." would name "deploy".
+			if key := strings.ToLower(address); !seenRow[key] && ruleAddressSpelling(address) && !strings.HasSuffix(address, ".") {
+				seenRow[key] = true
+				rows = append(rows, MentionCandidate{Kind: mention.KindRule, Insert: "@rule:" + address, Label: address, Detail: firstLine(strings.TrimSpace(r.Description))})
+			}
+			if rest := name[len(innerPrefix):]; strings.Contains(rest, "/") {
+				addStep(prefix + rest[:strings.IndexByte(rest, '/')])
+			}
+		}
+	}
+	// The catalog first and then the subprojects the folder can start with,
+	// the deepest first: the order ruleByAddress asks them in.
+	below(m.rulesCatalog(st, cwd), "", folder)
+	if folder != "" {
+		segs := strings.Split(folder, "/")
+		for k := len(segs); k >= 1; k-- {
+			sub := strings.Join(segs[:k], "/")
+			below(SubfolderRules(cfg, cwd, sub), sub, strings.Join(segs[k:], "/"))
+		}
 	}
 	keep := func(name string) bool {
 		if !mention.RefName(name) {
@@ -443,9 +493,9 @@ func (m *Manager) ruleSchemeCandidates(st *State, cwd, q string) []MentionCandid
 		_, ok := mention.Score(partial, name)
 		return ok
 	}
-	// Every folder the query matches is ranked before the steps are counted,
-	// so the folder typed in full is offered however many others match it
-	// loosely.
+	// Every subproject the query matches is ranked before the steps are
+	// counted, so the folder typed in full is offered however many others
+	// match it loosely.
 	subs := SubfoldersWithRules(cfg, cwd, folder, keep, ruleFolderCandidates)
 	if partial != "" {
 		score := make(map[string]int, len(subs))
@@ -457,25 +507,22 @@ func (m *Manager) ruleSchemeCandidates(st *State, cwd, q string) []MentionCandid
 	if len(subs) > maxRuleFolderSteps {
 		subs = subs[:maxRuleFolderSteps]
 	}
-	var out []MentionCandidate
 	for _, sub := range subs {
-		ref := prefix + sub + "/"
-		out = append(out, MentionCandidate{Kind: mention.KindRule, Insert: "@rule:" + ref, Label: ref, Continue: true})
+		addStep(prefix + sub)
 	}
-	if folder == "" {
-		return append(out, m.ruleCandidates(st, cwd)...)
+	return append(steps, rows...)
+}
+
+// rulesCatalog is the catalog of a session's rules, or of the folder cwd for
+// a composer with no session yet.
+func (m *Manager) rulesCatalog(st *State, cwd string) []*rules.Rule {
+	if st != nil {
+		return st.GetRulesCatalog()
 	}
-	seen := map[string]bool{}
-	for _, r := range SubfolderRules(cfg, cwd, folder) {
-		name := r.CanonicalName()
-		// A trailing dot ends a reference, so "deploy." would name "deploy".
-		if !mention.RefName(name) || strings.HasSuffix(name, ".") || seen[strings.ToLower(name)] {
-			continue
-		}
-		seen[strings.ToLower(name)] = true
-		out = append(out, MentionCandidate{Kind: mention.KindRule, Insert: "@rule:" + prefix + name, Label: prefix + name, Detail: firstLine(strings.TrimSpace(r.Description))})
+	if m != nil {
+		return DiscoverRules(m.Cfg(), cwd)
 	}
-	return out
+	return nil
 }
 
 func (m *Manager) agentCandidates(cwd string) []MentionCandidate {

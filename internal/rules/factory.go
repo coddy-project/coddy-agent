@@ -259,7 +259,6 @@ func (f *Factory) Nested(root string, paths []string, systems []Source) []*Rule 
 		return nil
 	}
 	admitted := admittedBy(systems)
-	realRoot := realPath(root)
 	seen := map[string]bool{}
 	var out []*Rule
 	for _, p := range paths {
@@ -268,7 +267,7 @@ func (f *Factory) Nested(root string, paths []string, systems []Source) []*Rule 
 				continue
 			}
 			seen[dir] = true
-			out = append(out, f.readFolder(realRoot, dir, admitted)...)
+			out = append(out, f.readFolder(dir, admitted)...)
 		}
 	}
 	return out
@@ -280,15 +279,14 @@ func (f *Factory) Nested(root string, paths []string, systems []Source) []*Rule 
 // session reads Coddy's own folder only, SourceCoddy). dir must be a folder
 // below root, root itself excluded (its rule folder is the catalog's,
 // Discover), reached without a segment the chain never enters (a hidden
-// folder, node_modules, vendor) and, once its links are resolved, still inside
-// root. Each rule is anchored at dir.
+// folder, node_modules, vendor). Each rule is anchored at dir.
 func (f *Factory) Folder(root, dir string, systems []Source) []*Rule {
 	root = cleanRoot(root)
 	dir, ok := subfolderOf(root, dir)
 	if !ok {
 		return nil
 	}
-	return f.readFolder(realPath(root), dir, admittedBy(systems))
+	return f.readFolder(dir, admittedBy(systems))
 }
 
 // Bounds of one FoldersWithRules call: the entries of the folder it reads,
@@ -325,10 +323,6 @@ func (f *Factory) FoldersWithRules(root, dir string, systems []Source, keep func
 		if dir, ok = subfolderOf(root, target); !ok {
 			return nil
 		}
-	}
-	realRoot, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return nil
 	}
 	d, err := os.Open(dir)
 	if err != nil {
@@ -370,11 +364,7 @@ func (f *Factory) FoldersWithRules(root, dir string, systems []Source, keep func
 	for _, name := range names {
 		child := filepath.Join(dir, name)
 		if isLink[name] {
-			real, err := filepath.EvalSymlinks(child)
-			if err != nil || !PathUnderDir(realRoot, real) || SamePath(real, realRoot) {
-				continue
-			}
-			if info, err := os.Stat(real); err != nil || !info.IsDir() {
+			if info, err := os.Stat(child); err != nil || !info.IsDir() {
 				continue
 			}
 		}
@@ -396,11 +386,9 @@ func (f *Factory) FoldersWithRules(root, dir string, systems []Source, keep func
 
 // readFolder reads the chain of project folders under one folder of the
 // workspace into rules anchored there: within the folder the first file of a
-// name wins, as at the root. A rule whose file, its links resolved, lies
-// outside the workspace (realRoot) is not the subfolder's and is dropped, so a
-// checkout cannot hand the model a file of the machine through a link named
-// like a rule.
-func (f *Factory) readFolder(realRoot, dir string, admitted func(Provider) bool) []*Rule {
+// path wins, as at the root. Links are followed as they are in the
+// workspace's own rule folder.
+func (f *Factory) readFolder(dir string, admitted func(Provider) bool) []*Rule {
 	names := map[string]bool{}
 	var out []*Rule
 	for _, r := range f.readChain(dir, admitted, false, &Discovery{}) {
@@ -408,23 +396,11 @@ func (f *Factory) readFolder(realRoot, dir string, admitted func(Provider) bool)
 		if names[key] {
 			continue
 		}
-		if real, err := filepath.EvalSymlinks(r.FilePath); err != nil || !PathUnderDir(realRoot, real) {
-			continue
-		}
 		names[key] = true
 		r.Root, r.ScopeDir = dir, dir
 		out = append(out, r)
 	}
 	return out
-}
-
-// realPath is path with its links resolved, or path itself when they cannot
-// be.
-func realPath(path string) string {
-	if real, err := filepath.EvalSymlinks(path); err == nil {
-		return real
-	}
-	return path
 }
 
 // cleanRoot is the absolute, clean form of a workspace root, "" for none.
@@ -441,8 +417,9 @@ func cleanRoot(root string) string {
 
 // subfolderOf resolves dir (relative to root, or absolute) and reports
 // whether it is an existing folder below root that the chain of Nested
-// reaches - the last folder of the chain to it is dir itself - and that stays
-// below root once its links are resolved.
+// reaches: the last folder of the chain to it is dir itself. The chain is
+// lexical, and links are followed as they are in the workspace's own rule
+// folder.
 func subfolderOf(root, dir string) (string, bool) {
 	dir = strings.TrimSpace(dir)
 	if root == "" || dir == "" {
@@ -457,16 +434,6 @@ func subfolderOf(root, dir string) (string, bool) {
 	}
 	chain := agentsChainDirs(root, dir)
 	if len(chain) == 0 || !SamePath(chain[len(chain)-1], dir) {
-		return "", false
-	}
-	// The chain is read lexically; a link anywhere on the way may still lead
-	// out of the workspace, and what it leads to is not the workspace's.
-	realRoot, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return "", false
-	}
-	real, err := filepath.EvalSymlinks(dir)
-	if err != nil || !PathUnderDir(realRoot, real) || SamePath(real, realRoot) {
 		return "", false
 	}
 	return dir, true

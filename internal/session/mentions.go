@@ -821,37 +821,27 @@ func clipTextFront(s string, limit int) string {
 	return "[…] " + cut
 }
 
-// resolveRule attaches a rule's body: "@rule:<name>" names any rule of the
-// catalog, the way a bare "@name" names a mention-only one, and
-// "@rule:<folder>/<name>" any rule of <folder>/.coddy/rules in the workspace,
-// read on the spot (SubfolderRules): a rule of a subfolder is never in the
-// catalog, so a bare name does not reach it.
+// resolveRule attaches a rule's body: "@rule:<address>" names any rule by its
+// address (ruleByAddress) - a rule of the catalog by its path inside the rule
+// folder, a rule of a subproject's .coddy/rules with the subproject in front -
+// the way a bare "@name" names a mention-only one.
 func (r *mentionResolver) resolveRule(name, typed string) (*acp.Resource, bool) {
-	catalog := r.rules
-	if i := strings.LastIndexByte(name, '/'); i >= 0 {
-		catalog = SubfolderRules(r.cfg, r.cwd, name[:i])
-		name = name[i+1:]
-	}
-	var rule *rules.Rule
-	for _, rl := range catalog {
-		if rl != nil && strings.EqualFold(rl.CanonicalName(), name) {
-			rule = rl
-			break
-		}
-	}
+	rule := ruleByAddress(r.cfg, r.cwd, r.rules, name)
 	if rule == nil {
 		return nil, false
 	}
 	return r.ruleResource(rule, typed)
 }
 
+// findMentionRule is the mention-only rule of catalog a bare "@name" names: by
+// its name, or by the last segment of its name when one rule only has it
+// ("@deploy" for ops/deploy).
 func findMentionRule(catalog []*rules.Rule, name string) *rules.Rule {
-	for _, rl := range catalog {
-		if rl != nil && rl.ApplyMode == rules.ApplyMention && strings.EqualFold(rl.CanonicalName(), name) {
-			return rl
-		}
+	mentionOnly := func(r *rules.Rule) bool { return r.ApplyMode == rules.ApplyMention }
+	if r := ruleNamed(catalog, name, mentionOnly); r != nil {
+		return r
 	}
-	return nil
+	return ruleByLastSegment(catalog, name, mentionOnly)
 }
 
 func (r *mentionResolver) ruleResource(rule *rules.Rule, typed string) (*acp.Resource, bool) {

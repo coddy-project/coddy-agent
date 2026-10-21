@@ -223,6 +223,21 @@ func (s *mentionsFeatureState) subprojectKeepsManualRule(dir, name, body string)
 	return os.WriteFile(p, []byte("---\ndescription: "+name+" by hand\nalwaysApply: false\n---\n"+body+"\n"), 0o644)
 }
 
+// workspaceKeepsManualRule writes a rule that applies by hand only into the
+// workspace's own Coddy rule folder, at name (a path inside it), and reads the
+// session's rules again: the catalog is read when a rules generation starts.
+func (s *mentionsFeatureState) workspaceKeepsManualRule(name, body string) error {
+	p := filepath.Join(s.workspace, ".coddy", "rules", filepath.FromSlash(name)+".mdc")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(p, []byte("---\ndescription: "+name+" by hand\nalwaysApply: false\n---\n"+body+"\n"), 0o644); err != nil {
+		return err
+	}
+	s.mgr.SessionByID(s.sessionID).ReplaceRulesCatalog(session.DiscoverRules(s.mgr.Cfg(), s.workspace))
+	return nil
+}
+
 func (s *mentionsFeatureState) composerCompletes(query string) error {
 	res, err := s.mgr.SearchMentions(context.Background(), session.MentionSearch{SessionID: s.sessionID, Query: strings.TrimPrefix(query, "@")})
 	if err != nil {
@@ -382,6 +397,7 @@ func initializeMentionsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the prompt attaches the subagent "([^"]*)" asking to hand the work to spawn_agent$`, s.attachesSubagent)
 	sc.Step(`^the prompt attaches the documentation "([^"]*)" holding "([^"]*)"$`, s.attachesDocumentation)
 	sc.Step(`^the subproject "([^"]*)" keeps a Coddy rule "([^"]*)" to apply by hand, reading "([^"]*)"$`, s.subprojectKeepsManualRule)
+	sc.Step(`^the workspace keeps a Coddy rule "([^"]*)" to apply by hand, reading "([^"]*)"$`, s.workspaceKeepsManualRule)
 	sc.Step(`^the composer completes "([^"]*)"$`, s.composerCompletes)
 	sc.Step(`^the completion offers "([^"]*)"$`, s.completionOffers)
 	sc.Step(`^the completion offers "([^"]*)" to look into$`, s.completionOffersStep)

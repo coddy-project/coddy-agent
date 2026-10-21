@@ -337,6 +337,12 @@ func loadMarkdownRulesFromRoot(root string, src Source) ([]*Rule, error) {
 		if err != nil {
 			return nil
 		}
+		// Named by its path inside the rule folder, so a file of one name in
+		// two of its folders is two rules (frontend/style, backend/style).
+		if rel, err := filepath.Rel(root, path); err == nil && filepath.IsLocal(rel) {
+			r.RelPath = filepath.ToSlash(rel)
+			r.Name = strings.TrimSuffix(r.RelPath, filepath.Ext(r.RelPath))
+		}
 		out = append(out, r)
 		return nil
 	})

@@ -83,3 +83,13 @@ Feature: "@" mentions in a prompt
     Then the completion offers "@rule:db/deploy"
     When the composer checks the draft "follow @rule:db/deploy"
     Then the check marks "@rule:db/deploy" as a mention of a rule
+
+  Scenario: A rule in a folder of the workspace's rule folder, named by its path there
+    Given the workspace keeps a Coddy rule "frontend/style" to apply by hand, reading "FRONTEND_STYLE_TOKEN"
+    And the workspace keeps a Coddy rule "backend/style" to apply by hand, reading "BACKEND_STYLE_TOKEN"
+    When the composer completes "@rule:"
+    Then the completion offers "@rule:frontend/" to look into
+    When the composer completes "@rule:frontend/"
+    Then the completion offers "@rule:frontend/style"
+    When the user sends "lay it out the way @rule:frontend/style says"
+    Then the prompt attaches ".coddy/rules/frontend/style.mdc" holding "FRONTEND_STYLE_TOKEN"
