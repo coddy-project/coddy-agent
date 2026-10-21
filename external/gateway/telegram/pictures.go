@@ -93,9 +93,10 @@ func (s *Sender) sendPictures(sessionID string, images []session.ToolImage) {
 }
 
 // sendAlbum posts 2 to albumMax pictures as one album and reports whether
-// anything was posted. An album Telegram refuses as photos goes picture by
-// picture, so each can still go as a document; any other failure (a rate
-// limit, a failure on the way) is not tried another way.
+// anything was posted. An album Telegram refuses (a Bad Request, which does
+// not always name the photo that failed it) goes picture by picture, so each
+// can still go as a document; a rate limit or a failure on the way is not
+// tried another way.
 func (s *Sender) sendAlbum(pictures []outgoingPicture) bool {
 	media := make([]interface{}, 0, len(pictures))
 	for _, p := range pictures {
@@ -107,11 +108,11 @@ func (s *Sender) sendAlbum(pictures []outgoingPicture) bool {
 	if err == nil {
 		return true
 	}
-	if !photoRefused(err) {
+	if !badRequest(err) {
 		s.log.Warn("telegram: send album", "pictures", len(pictures), "err", err)
 		return false
 	}
-	s.log.Debug("telegram: album refused as photos, sending its pictures one by one", "pictures", len(pictures), "err", err)
+	s.log.Debug("telegram: album refused, sending its pictures one by one", "pictures", len(pictures), "err", err)
 	posted := false
 	for _, p := range pictures {
 		posted = s.sendPicture(p) || posted
@@ -152,11 +153,19 @@ func (s *Sender) sendPicture(p outgoingPicture) bool {
 // description names the photo or the image.
 func photoRefused(err error) bool {
 	var apiErr *tgbotapi.Error
-	if !errors.As(err, &apiErr) || (apiErr.Code != http.StatusBadRequest && !strings.HasPrefix(apiErr.Message, "Bad Request")) {
+	if !badRequest(err) || !errors.As(err, &apiErr) {
 		return false
 	}
 	desc := strings.ToLower(apiErr.Message)
 	return strings.Contains(desc, "photo") || strings.Contains(desc, "image")
+}
+
+// badRequest reports whether the Bot API refused a request as a Bad Request,
+// by its code or, for an upload whose code the library leaves at zero, by
+// its wording.
+func badRequest(err error) bool {
+	var apiErr *tgbotapi.Error
+	return errors.As(err, &apiErr) && (apiErr.Code == http.StatusBadRequest || strings.HasPrefix(apiErr.Message, "Bad Request"))
 }
 
 // moveLiveBelow keeps the answer under the pictures it follows. Without Rich

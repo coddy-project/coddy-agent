@@ -363,6 +363,37 @@ func TestPromptCacheScreenshotsLeaveTheRequestInBlocks(t *testing.T) {
 	}
 }
 
+// An eviction never cuts into the pictures of the step being added: they
+// came together and go together. Eight pictures in the window and a call
+// that returns fifteen leave the fifteen; the same by bytes. Only a step
+// that alone overflows a request loses its oldest pictures.
+func TestPictureWindowKeepsTheNewestStepWhole(t *testing.T) {
+	steps := func(counts ...int) (sizes, groups []int) {
+		for g, n := range counts {
+			for i := 0; i < n; i++ {
+				sizes = append(sizes, 1000)
+				groups = append(groups, g)
+			}
+		}
+		return sizes, groups
+	}
+	sizes, groups := steps(8, 15)
+	if start := pictureWindowStart(sizes, groups); start != 8 {
+		t.Errorf("8 + 15: the window starts at %d, want 8 (the call whole)", start)
+	}
+	sizes, groups = steps(25)
+	if start := pictureWindowStart(sizes, groups); start != 5 {
+		t.Errorf("one step of 25: the window starts at %d, want 5 (the 20 newest)", start)
+	}
+	mb := 1 << 20
+	big := base64.StdEncoding.EncodedLen(3*mb + 700<<10)
+	sizes = []int{4 * mb, 4 * mb, 3 * mb, big, big, big}
+	groups = []int{0, 1, 2, 3, 3, 3}
+	if start := pictureWindowStart(sizes, groups); start != 3 {
+		t.Errorf("11 MB + a call of three large pictures: the window starts at %d, want 3 (the call whole)", start)
+	}
+}
+
 // The pictures a person attached go out with the request too, so they share
 // its budget with the tool pictures, newest first: the oldest attachment is
 // the one left out, named in its own prompt, and a picture that does not fit
@@ -515,10 +546,10 @@ func TestConversationTokensCountThePicturesARequestCarries(t *testing.T) {
 	}
 	crowded := []llm.Message{{Role: llm.RoleUser, Content: "look"}, toolResultWith("r1", many...)}
 	crowded[1].Content = text[1].Content
-	// 35 pictures: the 21st and the 32nd overflow the request, each time
-	// leaving the ten newest, and three more join the second ten.
-	if got, want := conversationTokens(crowded, true), base+13*imageTokensEach; got < want-10 || got > want+10 {
-		t.Errorf("%d tool pictures: %d tokens, want about %d (13 go out)", len(many), got, want)
+	// 35 pictures of one result: a step that alone overflows the request
+	// keeps its newest 20.
+	if got, want := conversationTokens(crowded, true), base+toolImagesMaxCount*imageTokensEach; got < want-10 || got > want+10 {
+		t.Errorf("%d tool pictures: %d tokens, want about %d (only %d go out)", len(many), got, want, toolImagesMaxCount)
 	}
 }
 

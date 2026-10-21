@@ -2,6 +2,7 @@ package agent
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -79,5 +80,33 @@ func TestMCPPicturesAreNumberedByTheirPlaceInTheResult(t *testing.T) {
 	}
 	if !strings.Contains(msg.Content, "[MCP image 1 omitted: the data is not base64]") || !strings.Contains(msg.Content, "[MCP image 2 omitted: not a PNG, JPEG, GIF or WebP image") {
 		t.Fatalf("the result %q does not number what it left out by place", msg.Content)
+	}
+}
+
+// A picture the agent cannot show (an SVG) is still kept, as a file the
+// agent can open, and named with the reason it was not shown.
+func TestARefusedMCPPictureIsKeptAsAFile(t *testing.T) {
+	s, msg := runMCPImageTool(t, "capture_formats")
+	at := strings.Index(msg.Content, "[MCP image 4 omitted: not a PNG, JPEG, GIF or WebP image")
+	if at < 0 {
+		t.Fatalf("the result %q does not name the SVG", msg.Content)
+	}
+	line := strings.SplitN(msg.Content[at:], "\n", 2)[0]
+	_, path, ok := strings.Cut(strings.TrimSuffix(line, "]"), "; the data is kept as ")
+	if !ok || filepath.Dir(path) != session.AssetsPath(s.st.SessionDir) || !strings.HasSuffix(path, ".svg") {
+		t.Fatalf("the SVG is not kept as a file: %q", line)
+	}
+	if data, err := os.ReadFile(path); err != nil || !strings.HasPrefix(string(data), "<svg") {
+		t.Fatalf("the kept SVG holds %q (%v)", data, err)
+	}
+}
+
+// A result of a picture and a file with no text of its own names the
+// picture first, then the file.
+func TestATextlessMCPResultNamesItsPictureAndItsFile(t *testing.T) {
+	_, msg := runMCPImageTool(t, "capture_and_clip")
+	lines := strings.Split(msg.Content, "\n")
+	if len(lines) != 2 || lines[0] != "[MCP image 1: screens-capture_and_clip-1.png]" || !strings.HasPrefix(lines[1], "[MCP audio 1: audio/wav, 16 bytes, saved as ") {
+		t.Fatalf("the result = %q", msg.Content)
 	}
 }

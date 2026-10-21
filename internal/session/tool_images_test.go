@@ -318,7 +318,7 @@ func TestReadToolImageAssetReadsOnlyTheCopyThatWasSaved(t *testing.T) {
 // every file system and the asset address, plus the digest of its bytes.
 func TestSaveToolFileAssetNamesTheCopySafely(t *testing.T) {
 	dir := t.TempDir()
-	path, err := SaveToolFileAsset(dir, "q3:report\n?.pdf", []byte("%PDF-1.4"))
+	path, err := SaveToolFileAsset(dir, "q3:report\n?.pdf", "", []byte("%PDF-1.4"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,10 +326,38 @@ func TestSaveToolFileAssetNamesTheCopySafely(t *testing.T) {
 	if filepath.Dir(path) != AssetsPath(dir) || !strings.HasPrefix(name, "q3_report__-") || !strings.HasSuffix(name, ".pdf") {
 		t.Fatalf("the copy is %s", path)
 	}
-	if again, err := SaveToolFileAsset(dir, "q3:report\n?.pdf", []byte("%PDF-1.4")); err != nil || again != path {
+	if again, err := SaveToolFileAsset(dir, "q3:report\n?.pdf", "", []byte("%PDF-1.4")); err != nil || again != path {
 		t.Fatalf("the same file saved again: %s, %v", again, err)
 	}
-	if _, err := SaveToolFileAsset("", "x.pdf", []byte("x")); err == nil {
+	if _, err := SaveToolFileAsset("", "x.pdf", "", []byte("x")); err == nil {
 		t.Fatal("a session that keeps no files took one")
+	}
+}
+
+// The extension a server chose is kept only when it is short and plain;
+// the type of the file decides first, and a type with parameters counts by
+// its name.
+func TestSaveToolFileAssetChoosesASafeExtension(t *testing.T) {
+	dir := t.TempDir()
+	for _, tc := range []struct{ name, mimeType, want string }{
+		{"report", "application/pdf", ".pdf"},
+		{"clip.bin", "Audio/WAV; codecs=1", ".wav"},
+		{"a.pdf:stream", "", ""},
+		{"a.p?df", "", ""},
+		{"a." + strings.Repeat("x", 240), "", ""},
+		{"notes.md", "", ".md"},
+	} {
+		path, err := SaveToolFileAsset(dir, tc.name, tc.mimeType, []byte(tc.name))
+		if err != nil {
+			t.Fatalf("%q: %v", tc.name, err)
+		}
+		base := filepath.Base(path)
+		noExtension := tc.want == "" && !strings.Contains(base, ".")
+		if got := filepath.Ext(base); got != tc.want && !noExtension {
+			t.Errorf("%q (%s) is saved as %s, want the extension %q", tc.name, tc.mimeType, base, tc.want)
+		}
+		if strings.ContainsAny(base, ":?\\\n") {
+			t.Errorf("%q is saved as %q", tc.name, base)
+		}
 	}
 }

@@ -226,6 +226,30 @@ func TestCallToolResultKeepsEveryKindOfBlock(t *testing.T) {
 	}
 }
 
+// A resource whose text is null carries its data, an empty text resource
+// is text, and a call keeps at most 20 files, naming the rest.
+func TestCallToolResultReadsTheEdgesOfBlocks(t *testing.T) {
+	got := callFakePictures(t, "blocks_edges")
+	if len(got.Images) != 1 || got.Images[0].Index != 1 {
+		t.Fatalf("images = %+v, want the PNG resource whose text is null", got.Images)
+	}
+	if len(got.Files) != maxToolFiles {
+		t.Fatalf("%d files kept, want %d", len(got.Files), maxToolFiles)
+	}
+	want := "[MCP resource 2: file:///srv/empty.txt (text/plain)]\n\n[MCP audio 21 omitted: the call returned more than 20 files]"
+	if got.Text != want {
+		t.Fatalf("text = %q, want %q", got.Text, want)
+	}
+}
+
+// Pictures and files of one call share what it may decode.
+func TestCallToolResultSharesTheBudgetBetweenPicturesAndFiles(t *testing.T) {
+	got := callFakePictures(t, "blocks_budget")
+	if len(got.Images) != 1 || len(got.Files) != 0 || got.Text != "[MCP audio 1 omitted: the call's images and files exceed 20 MiB]" {
+		t.Fatalf("images %d, files %d, text %q", len(got.Images), len(got.Files), got.Text)
+	}
+}
+
 // An error keeps its text, an embedded text resource included, and decodes
 // nothing binary.
 func TestCallToolResultOfAnErrorKeepsTextResources(t *testing.T) {
@@ -300,6 +324,17 @@ func fakePictures(id interface{}, name string, respond func(interface{}, interfa
 			{"type": "resource", "resource": map[string]interface{}{"uri": "file:///srv/chart.png", "mimeType": "image/png", "blob": onePixel()}},
 			{"type": "audio", "mimeType": "audio/wav", "data": base64.StdEncoding.EncodeToString([]byte("RIFF....WAVEfmt "))},
 		}
+	case "blocks_edges":
+		content = []map[string]interface{}{
+			{"type": "resource", "resource": map[string]interface{}{"uri": "file:///srv/chart.png", "mimeType": "image/png", "text": nil, "blob": onePixel()}},
+			{"type": "resource", "resource": map[string]interface{}{"uri": "file:///srv/empty.txt", "mimeType": "text/plain", "text": "", "blob": nil}},
+		}
+		for i := 0; i < 21; i++ {
+			content = append(content, map[string]interface{}{"type": "audio", "mimeType": "audio/wav", "data": base64.StdEncoding.EncodeToString([]byte("RIFF"))})
+		}
+	case "blocks_budget":
+		blob := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x89}, 15<<20))
+		content = []map[string]interface{}{image("image/png", blob), {"type": "audio", "mimeType": "audio/wav", "data": blob}}
 	case "blocks_error":
 		content = []map[string]interface{}{
 			{"type": "text", "text": "the recording failed"},

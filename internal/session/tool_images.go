@@ -138,20 +138,53 @@ func toolAssetName(name, fallback, ext string, data []byte) string {
 		stem = stem[:len(stem)-size]
 	}
 	if ext == "" {
-		ext = filepath.Ext(base)
+		ext = plainExt(filepath.Ext(base))
 	}
 	return stem + "-" + toolImageDigest(data) + ext
 }
 
+// plainExt is ext when it is a short run of letters and digits after the
+// dot, the only extension a name a server chose may bring along, and ""
+// otherwise: on Windows "a.pdf:stream" names a stream of a.pdf, and an
+// extension of hundreds of bytes makes a name no file system takes.
+func plainExt(ext string) string {
+	if len(ext) < 2 || len(ext) > 17 {
+		return ""
+	}
+	for _, r := range ext[1:] {
+		letter := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z'
+		digit := r >= '0' && r <= '9'
+		if !letter && !digit {
+			return ""
+		}
+	}
+	return ext
+}
+
+// toolFileExt names a file a tool returned by its type. The table is fixed,
+// not the system's, so a name does not depend on the machine.
+var toolFileExt = map[string]string{
+	"audio/wav": ".wav", "audio/x-wav": ".wav", "audio/wave": ".wav", "audio/mpeg": ".mp3", "audio/mp3": ".mp3",
+	"audio/ogg": ".ogg", "audio/opus": ".opus", "audio/webm": ".webm", "audio/flac": ".flac", "audio/aac": ".aac",
+	"audio/mp4": ".m4a", "audio/x-m4a": ".m4a", "audio/aiff": ".aiff",
+	"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp", "image/svg+xml": ".svg",
+	"image/tiff": ".tif", "image/bmp": ".bmp", "image/x-icon": ".ico", "image/avif": ".avif", "image/heic": ".heic",
+	"application/pdf": ".pdf", "application/json": ".json", "application/zip": ".zip",
+	"text/plain": ".txt", "text/csv": ".csv", "text/markdown": ".md", "text/html": ".html",
+}
+
 // SaveToolFileAsset keeps a copy of a file a tool call returned that no
-// model is shown (an MCP audio clip, a binary resource) with the session's
-// assets, read-only, named as a picture's copy is, and returns its path.
-// The agent opens it with its tools, as it opens a prompt's attachment.
-func SaveToolFileAsset(sessionDir, name string, data []byte) (string, error) {
+// model is shown (an MCP audio clip, a binary resource, a picture no model
+// would take) with the session's assets, read-only, named as a picture's
+// copy is, and returns its path. The extension comes from mimeType (its
+// parameters cut), else from name when it is plain. The agent opens the copy
+// with its tools, as it opens a prompt's attachment.
+func SaveToolFileAsset(sessionDir, name, mimeType string, data []byte) (string, error) {
 	if strings.TrimSpace(sessionDir) == "" {
 		return "", fmt.Errorf("the session keeps no files")
 	}
-	assetName := toolAssetName(name, "file", "", data)
+	kind, _, _ := strings.Cut(mimeType, ";")
+	assetName := toolAssetName(name, "file", toolFileExt[strings.ToLower(strings.TrimSpace(kind))], data)
 	assetsDir := AssetsPath(sessionDir)
 	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
 		return "", fmt.Errorf("assets dir: %w", err)

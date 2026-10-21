@@ -56,6 +56,7 @@ func TestHelperMCPImageServer(t *testing.T) {
 				map[string]any{"name": "capture_error", "description": "A failed capture", "inputSchema": map[string]any{"type": "object"}},
 				map[string]any{"name": "capture_shift", "description": "Pictures after refused ones", "inputSchema": map[string]any{"type": "object"}},
 				map[string]any{"name": "capture_blocks", "description": "Every kind of block", "inputSchema": map[string]any{"type": "object"}},
+				map[string]any{"name": "capture_and_clip", "description": "A picture and a clip", "inputSchema": map[string]any{"type": "object"}},
 			}}
 		case "tools/call":
 			if content, isError, ok := mcpImageHelperCall(req.Params.Name); ok {
@@ -110,6 +111,11 @@ func mcpImageHelperCall(name string) (content []any, isError bool, ok bool) {
 			map[string]any{"type": "resource_link", "uri": "https://example.com/report.pdf", "name": "report.pdf", "mimeType": "application/pdf"},
 			map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///srv/report.pdf", "mimeType": "application/pdf", "blob": base64.StdEncoding.EncodeToString([]byte("%PDF-1.4 fake"))}},
 			map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///srv/chart.png", "mimeType": "image/png", "blob": base64.StdEncoding.EncodeToString(testPNG(2, 2, color.NRGBA{B: 200, A: 255}))}},
+			map[string]any{"type": "audio", "mimeType": "audio/wav", "data": base64.StdEncoding.EncodeToString([]byte("RIFF....WAVEfmt "))},
+		}, false, true
+	case "capture_and_clip":
+		return []any{
+			block("image/png", testPNG(2, 2, color.NRGBA{R: 90, A: 255})),
 			map[string]any{"type": "audio", "mimeType": "audio/wav", "data": base64.StdEncoding.EncodeToString([]byte("RIFF....WAVEfmt "))},
 		}, false, true
 	case "capture_error":
@@ -312,8 +318,8 @@ func (s *mcpImageFeatureState) filesNamed() error {
 		return err
 	}
 	for _, f := range []struct{ line, name, data string }{
-		{"[MCP resource 2: report.pdf (application/pdf, 13 bytes), saved as ", "report-", "%PDF-1.4 fake"},
-		{"[MCP audio 1: screens-capture_blocks-audio-1.wav (audio/wav, 16 bytes), saved as ", "screens-capture_blocks-audio-1-", "RIFF....WAVEfmt "},
+		{"[MCP resource 2: file:///srv/report.pdf, application/pdf, 13 bytes, saved as ", "report-", "%PDF-1.4 fake"},
+		{"[MCP audio 1: audio/wav, 16 bytes, saved as ", "screens-capture_blocks-audio-1-", "RIFF....WAVEfmt "},
 	} {
 		at := strings.Index(msg.Content, f.line)
 		if at < 0 {

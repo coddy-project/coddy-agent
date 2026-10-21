@@ -404,16 +404,18 @@ func (c *conn) callTool(ctx context.Context, toolName, argsJSON string) (ToolRes
 			var res struct {
 				URI      json.RawMessage `json:"uri"`
 				MIMEType json.RawMessage `json:"mimeType"`
-				Text     json.RawMessage `json:"text"`
+				Text     *string         `json:"text"`
 				Blob     json.RawMessage `json:"blob"`
 			}
 			_ = json.Unmarshal(block.Resource, &res)
 			uri, mimeType := jsonString(res.URI), jsonString(res.MIMEType)
-			var text string
+			// A server may send both fields, the one it does not use as null
+			// or empty: the data of a resource wins over an empty text.
+			hasBlob := len(res.Blob) > 0 && string(res.Blob) != "null"
 			switch {
-			case json.Unmarshal(res.Text, &text) == nil:
-				parts = append(parts, resourceHeader(resources, uri, mimeType)+"\n"+text)
-			case len(res.Blob) == 0:
+			case res.Text != nil && (*res.Text != "" || !hasBlob):
+				parts = append(parts, resourceHeader(resources, uri, mimeType)+"\n"+*res.Text)
+			case !hasBlob:
 				parts = append(parts, fmt.Sprintf("[MCP resource %d omitted: it carries neither text nor data]", resources))
 			case strings.HasPrefix(mimeType, "image/"):
 				picture(res.Blob, mimeType)

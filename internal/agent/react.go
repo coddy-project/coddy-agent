@@ -2673,11 +2673,18 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 			// against what every provider takes and told by their content;
 			// one no provider would take is named in the result instead.
 			// A picture keeps the number of its block in the result.
-			var kept []string
+			var kept, notes []string
 			for _, img := range result.Images {
 				data, mimeType, err := fstools.PrepareImageForModel(img.Data)
 				if err != nil {
-					result.Text = joinHookText(result.Text, fmt.Sprintf("[MCP image %d omitted: %v]", img.Index, err))
+					// A picture no model would take still reaches the agent,
+					// as a file it can open (and, say, scale down).
+					note := fmt.Sprintf("[MCP image %d omitted: %v]", img.Index, err)
+					if path, saveErr := session.SaveToolFileAsset(a.state.GetPersistedSessionDir(),
+						fmt.Sprintf("%s-%s-image-%d", serverName, toolName, img.Index), img.MIMEType, img.Data); saveErr == nil {
+						note = fmt.Sprintf("[MCP image %d omitted: %v; the data is kept as %s]", img.Index, err, path)
+					}
+					notes = append(notes, note)
 					continue
 				}
 				name := fmt.Sprintf("%s-%s-%d%s", serverName, toolName, img.Index, session.ToolImageExt(mimeType))
@@ -2689,15 +2696,23 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 			// A file no model is shown is kept with the session, where the
 			// agent can open it, and named in the result.
 			for _, f := range result.Files {
-				result.Text = joinHookText(result.Text, a.keepToolFile(serverName, toolName, f))
+				notes = append(notes, a.keepToolFile(serverName, toolName, f))
 			}
-			if strings.TrimSpace(result.Text) == "" && len(kept) > 0 {
-				// A result that is only pictures still says what it is: an
-				// empty tool result shows nothing in the console or an
-				// editor, and not every provider takes one.
-				result.Text = strings.Join(kept, "\n")
+			lines := []string{result.Text}
+			if strings.TrimSpace(result.Text) == "" {
+				// A result with no text of its own still says what it
+				// returned: an empty tool result shows nothing in the console
+				// or an editor, and not every provider takes one.
+				lines = kept
 			}
-			return result.Text, nil
+			lines = append(lines, notes...)
+			var text []string
+			for _, line := range lines {
+				if line != "" {
+					text = append(text, line)
+				}
+			}
+			return strings.Join(text, "\n"), nil
 		}
 	}
 	return "", fmt.Errorf("MCP server not found: %s", serverName)

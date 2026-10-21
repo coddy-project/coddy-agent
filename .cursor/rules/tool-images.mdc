@@ -16,7 +16,8 @@ alwaysApply: false
 - An image read by a tool stays `role:tool` through `ImageParts`; never turn it into a synthetic user message.
 - Provider projection may combine images later, but persisted history retains tool ownership.
 - Read a copied session asset only while its digest matches; never reread the original arbitrary path.
-- Prompt and tool images share one selection policy (`pictureWindowStart`): a run of the newest pictures that only grows until it overflows a request, then loses its oldest together down to half of it, so the request prefix and the prompt cache hold between evictions. Decide it from the part sizes alone, never from which copies load.
+- Prompt and tool images share one selection policy (`pictureWindowStart`): a run of the newest pictures that only grows until it overflows a request, then loses its oldest together down to half of it, so the request prefix and the prompt cache hold between evictions. Decide it from the part sizes alone, never from which copies load, and an eviction never cuts into the pictures of the message being added.
 - Non-multimodal models receive no image parts.
 - An MCP tool's image blocks take the same path (`callMCPTool` -> `recordToolImage`): checked by `fs.PrepareImageForModel` with `read`'s limits and told by content, never by the declared type; kept for a text-only model too, which is sent only their names.
+- Files an MCP result carries that no model is shown (audio, binary resources, pictures the checks refuse) are saved by `keepToolFile` / `session.SaveToolFileAsset` under a name safe for every file system (stem filtered, extension from the type table or a short plain one) and named in the result with their path; they never reach a model or `_meta.coddy.images`.
 - Surfaces render `_meta.coddy.images`; there is no preview configuration switch.

@@ -85,32 +85,26 @@ func (a *Agent) recordToolImage(name, mimeType string, data []byte) error {
 // an audio clip, a binary resource - with the session's assets and returns
 // the line the call's result names it with: the model cannot look at it, but
 // it can open the copy with its tools. A resource keeps the name of its URI;
-// anything else is named after the server, the tool and its place.
+// anything else is named after the server, the tool and its place, and the
+// copy takes the extension of its type (session.SaveToolFileAsset).
 func (a *Agent) keepToolFile(server, tool string, f mcp.ToolFile) string {
 	name := f.Name
 	if name == "" {
-		name = fmt.Sprintf("%s-%s-%s-%d%s", server, tool, f.Kind, f.Index, toolFileExt[f.MIMEType])
+		name = fmt.Sprintf("%s-%s-%s-%d", server, tool, f.Kind, f.Index)
 	}
-	facts := fmt.Sprintf("%d bytes", len(f.Data))
+	var facts []string
+	if f.URI != "" {
+		facts = append(facts, f.URI)
+	}
 	if f.MIMEType != "" {
-		facts = f.MIMEType + ", " + facts
+		facts = append(facts, f.MIMEType)
 	}
-	path, err := session.SaveToolFileAsset(a.state.GetPersistedSessionDir(), name, f.Data)
+	facts = append(facts, fmt.Sprintf("%d bytes", len(f.Data)))
+	path, err := session.SaveToolFileAsset(a.state.GetPersistedSessionDir(), name, f.MIMEType, f.Data)
 	if err != nil {
-		return fmt.Sprintf("[MCP %s %d omitted: %s (%s): %v]", f.Kind, f.Index, name, facts, err)
+		return fmt.Sprintf("[MCP %s %d omitted: %s: %v]", f.Kind, f.Index, strings.Join(facts, ", "), err)
 	}
-	return fmt.Sprintf("[MCP %s %d: %s (%s), saved as %s]", f.Kind, f.Index, name, facts, path)
-}
-
-// toolFileExt names a file a tool returned with no name of its own by its
-// type. The table is fixed, not the system's, so a name does not depend on
-// the machine.
-var toolFileExt = map[string]string{
-	"audio/wav": ".wav", "audio/x-wav": ".wav", "audio/wave": ".wav",
-	"audio/mpeg": ".mp3", "audio/mp3": ".mp3", "audio/ogg": ".ogg", "audio/webm": ".webm",
-	"audio/flac": ".flac", "audio/aac": ".aac", "audio/mp4": ".m4a",
-	"application/pdf": ".pdf", "application/json": ".json", "application/zip": ".zip",
-	"text/plain": ".txt", "text/csv": ".csv",
+	return fmt.Sprintf("[MCP %s %d: %s, saved as %s]", f.Kind, f.Index, strings.Join(facts, ", "), path)
 }
 
 // loadToolImage is the data URL of a picture kept as its copy with this
@@ -267,16 +261,17 @@ func selectPictures(msgs []llm.Message, readsImages bool, load func(llm.ImagePar
 		return kept, missing
 	}
 	var keys []pictureKey
-	var sizes []int
+	var sizes, steps []int
 	for i, m := range msgs {
 		for j, p := range m.ImageParts {
 			if llm.IsPicture(p) {
 				keys = append(keys, pictureKey{i, j})
 				sizes = append(sizes, partBytes(p))
+				steps = append(steps, i)
 			}
 		}
 	}
-	for _, key := range keys[pictureWindowStart(sizes):] {
+	for _, key := range keys[pictureWindowStart(sizes, steps):] {
 		p := msgs[key[0]].ImageParts[key[1]]
 		url := p.DataURL
 		if url == "" && load != nil {
@@ -293,30 +288,32 @@ func selectPictures(msgs []llm.Message, readsImages bool, load func(llm.ImagePar
 }
 
 // pictureWindowStart is the first of the pictures a request carries, given
-// the size of every picture of the history from the oldest on. The window is
-// a run of the newest pictures that grows with every new one until it holds
-// more than toolImagesMaxCount pictures or toolImagesMaxBytes of them; then
-// the oldest leave together, until half of each is left. Every request until
-// the next overflow begins as the one before it did and only adds at its
-// end, so the provider's prompt cache holds: a session of screenshots
-// changes what was sent once every ten pictures or so, not with each one.
-// The newest picture always stays, unless it alone is larger than a request
-// takes. The walk depends on the sizes alone, never on which copies can be
-// read, so every request of a history draws the same window.
-func pictureWindowStart(sizes []int) int {
+// the size of every picture of the history from the oldest on and the
+// message each is in. The window is a run of the newest pictures that grows
+// with every new one until it holds more than toolImagesMaxCount pictures or
+// toolImagesMaxBytes of them; then the oldest leave together, until half of
+// each is left, but never into the message being added: the pictures of one
+// step came together and go to the model together. Every request until the
+// next overflow begins as the one before it did and only adds at its end, so
+// the provider's prompt cache holds: a session of screenshots changes what
+// was sent once every ten pictures or so, not with each one. Only a message
+// that alone holds more than a request takes loses its oldest pictures, down
+// to the limits. The walk depends on the sizes alone, never on which copies
+// can be read, so every request of a history draws the same window.
+func pictureWindowStart(sizes, steps []int) int {
 	start, count, total := 0, 0, 0
-	for _, n := range sizes {
+	for k, n := range sizes {
 		count++
 		total += n
 		if count <= toolImagesMaxCount && total <= toolImagesMaxBytes {
 			continue
 		}
-		for count > 1 && (count > toolImagesMaxCount/2 || total > toolImagesMaxBytes/2) {
+		for count > 1 && steps[start] != steps[k] && (count > toolImagesMaxCount/2 || total > toolImagesMaxBytes/2) {
 			total -= sizes[start]
 			count--
 			start++
 		}
-		if total > toolImagesMaxBytes {
+		for count > toolImagesMaxCount || total > toolImagesMaxBytes {
 			total -= sizes[start]
 			count--
 			start++

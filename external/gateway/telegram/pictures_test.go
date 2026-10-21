@@ -367,3 +367,20 @@ func TestAnAlbumIsNotResentAfterARateLimit(t *testing.T) {
 		t.Fatalf("%d pictures sent one by one after a rate limit, want none", got)
 	}
 }
+
+// Any Bad Request about an album gets each picture its own try, since
+// Telegram does not always name the photo that failed it.
+func TestAnAlbumRefusedForAnyReasonGoesPictureByPicture(t *testing.T) {
+	f := newFakeAPI(t, tgfake.Options{})
+	f.fake.SetFault(tgfake.Fault{Method: "sendMediaGroup", Code: http.StatusBadRequest, Description: "Bad Request: group send failed", Times: 1})
+	dir := t.TempDir()
+	_, update := savedPictures(t, dir, 2)
+	s := newSender(f.api, 5, 0, slog.Default(), richConfig{})
+	s.pictures = fixedSession{id: "sess_chat", dir: dir}
+
+	_ = s.SendSessionUpdate("sess_chat", update)
+
+	if got := len(f.fake.Calls("sendPhoto")); got != 2 {
+		t.Fatalf("%d single photos after the refused album, want 2", got)
+	}
+}
