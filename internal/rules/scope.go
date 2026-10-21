@@ -46,9 +46,11 @@ func PathsUnderDir(dir string, paths []string) bool {
 // play: directory-scoped rules whose ScopeDir contains one of paths, and glob
 // rules one of whose patterns matches one of paths (Claude Code loads a paths
 // rule when a matching file is read; Cursor auto-attaches on a matching file
-// in context). Rules with neither a scope nor globs are ignored on purpose:
-// they are on from the first turn, and callers that feed tool-call paths
-// would otherwise re-match that whole always-on set on every single call.
+// in context). A rule with both, one of a subfolder's rule folder (Nested),
+// needs a path that is inside its folder and matches a pattern. Rules with
+// neither a scope nor globs are ignored on purpose: they are on from the first
+// turn, and callers that feed tool-call paths would otherwise re-match that
+// whole always-on set on every single call.
 func MatchScoped(catalog []*Rule, paths []string) []*Rule {
 	if len(paths) == 0 {
 		return nil
@@ -58,18 +60,27 @@ func MatchScoped(catalog []*Rule, paths []string) []*Rule {
 		if r == nil || r.ApplyMode != ApplyAuto || !r.AlwaysApply {
 			continue
 		}
-		switch {
-		case r.ScopeDir != "":
-			if PathsUnderDir(r.ScopeDir, paths) {
-				out = append(out, r)
-			}
-		case len(r.Globs) > 0:
-			if matchesRuleGlobs(r, paths) {
-				out = append(out, r)
-			}
+		if (r.ScopeDir != "" || len(r.Globs) > 0) && matchesScopeAndGlobs(r, paths) {
+			out = append(out, r)
 		}
 	}
 	return out
+}
+
+// matchesScopeAndGlobs reports whether one of paths is inside r's ScopeDir,
+// when it has one, and matches one of r's globs, when it has any: the scope
+// alone would let a subfolder's glob rule fire on any file of its folder.
+func matchesScopeAndGlobs(r *Rule, paths []string) bool {
+	for _, p := range paths {
+		if r.ScopeDir != "" && !PathUnderDir(r.ScopeDir, p) {
+			continue
+		}
+		if len(r.Globs) > 0 && !matchesRuleGlobs(r, []string{p}) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // normalizeScopePath cleans a path for prefix comparison. filepath.Rel is

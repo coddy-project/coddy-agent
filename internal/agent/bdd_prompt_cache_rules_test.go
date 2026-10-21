@@ -12,6 +12,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +20,9 @@ import (
 
 	"github.com/cucumber/godog"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 // claudeCopyPrefix marks the body of a rule's copy kept for Claude Code, so a
@@ -37,6 +40,8 @@ type pcRulesFeatureState struct {
 	// firstRead maps a path to the id of the call that read it first.
 	firstRead map[string]string
 	calls     int
+	// namingPrompt is the prompt that named rules by their address.
+	namingPrompt string
 }
 
 // projectWithMirroredRules writes each row as a Cursor rule and as the Claude
@@ -116,6 +121,64 @@ func (s *pcRulesFeatureState) folderDescribesItself(dir, token string) error {
 func (s *pcRulesFeatureState) rewriteFolderAgents(dir, token string) error {
 	s.tokens = append(s.tokens, token)
 	return os.WriteFile(filepath.Join(s.cwd, filepath.FromSlash(dir), "AGENTS.md"), []byte(token+"\n"), 0o644)
+}
+
+// subprojectKeepsGlobRule writes a Cursor rule into the rule folder of a
+// subfolder after the session started, with the files its pattern names: a
+// nested rule folder is read when a tool first reaches it, never at the start.
+func (s *pcRulesFeatureState) subprojectKeepsGlobRule(dir, glob, token string) error {
+	if err := writeRuleDoc(filepath.Join(s.cwd, filepath.FromSlash(dir), ".cursor", "rules", "nested.mdc"), []string{"globs: " + glob}, token); err != nil {
+		return err
+	}
+	s.tokens = append(s.tokens, token)
+	for _, f := range []string{"migrations/0001.sql", "migrations/0002.sql"} {
+		path := filepath.Join(s.cwd, filepath.FromSlash(dir), filepath.FromSlash(f))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, []byte("-- "+f+"\n"), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// manualRuleInFolder writes a manual Cursor rule into a folder of the rule
+// folder the session reads, so its name is its path there. It is written
+// before the first turn and the session opened again, as if it had been there
+// when the session started: the catalog is read at the start.
+func (s *pcRulesFeatureState) manualRuleInFolder(name, token string) error {
+	path := filepath.Join(s.cwd, ".cursor", "rules", filepath.FromSlash(name)+".mdc")
+	if err := writeRuleDoc(path, []string{"description: " + name, "alwaysApply: false"}, token); err != nil {
+		return err
+	}
+	s.tokens = append(s.tokens, token)
+	s.buildAgent()
+	return nil
+}
+
+// subprojectKeepsManualRule writes a manual rule into the Coddy rule folder of
+// a subfolder, the one "@rule:<folder>/<name>" reads when a message names it.
+func (s *pcRulesFeatureState) subprojectKeepsManualRule(dir, name, token string) error {
+	path := filepath.Join(s.cwd, filepath.FromSlash(dir), ".coddy", "rules", filepath.FromSlash(name)+".mdc")
+	if err := writeRuleDoc(path, []string{"description: " + name, "alwaysApply: false"}, token); err != nil {
+		return err
+	}
+	s.tokens = append(s.tokens, token)
+	return nil
+}
+
+// userNamesRules runs one turn whose prompt goes through the session
+// manager's mention resolver first, as every surface's prompt does, and the
+// model answers straight away.
+func (s *pcRulesFeatureState) userNamesRules(prompt string) error {
+	s.namingPrompt = prompt
+	mgr := session.NewManager(s.cfg, nil, nil, slog.Default(), s.cwd, nil)
+	blocks := mgr.ResolvePromptMentions(context.Background(), s.st, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: prompt}}, session.MentionScope{})
+	s.provider.steps = []pcStep{{text: "answer"}}
+	s.provider.i = 0
+	_, err := s.ag.Run(context.Background(), blocks)
+	return err
 }
 
 func (s *pcRulesFeatureState) session() error {
@@ -205,6 +268,38 @@ func (s *pcRulesFeatureState) reachWithFirstRead(list, path string) error {
 	return nil
 }
 
+// reachInTheMessageThatNamesThem checks the user message of the prompt that
+// named the rules, as the last request replays it: their bodies ride there,
+// and nowhere before that message.
+func (s *pcRulesFeatureState) reachInTheMessageThatNamesThem(list string) error {
+	reqs := s.requests()
+	if len(reqs) == 0 {
+		return fmt.Errorf("no requests recorded")
+	}
+	var named string
+	found := false
+	for _, m := range reqs[len(reqs)-1] {
+		if m.Role == llm.RoleUser && strings.Contains(m.Content, s.namingPrompt) {
+			named, found = m.Content, true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("the last request replays no user message %q", s.namingPrompt)
+	}
+	for _, tok := range quotedTokens(list) {
+		if !strings.Contains(named, tok) {
+			return fmt.Errorf("the message naming the rules does not carry %s: %q", tok, truncateForError(named))
+		}
+		for i, r := range reqs {
+			if strings.Contains(r[0].Content, tok) {
+				return fmt.Errorf("the system message of request %d carries %s", i, tok)
+			}
+		}
+	}
+	return nil
+}
+
 func (s *pcRulesFeatureState) noRequestCarries(tok string) error {
 	for i, r := range s.requests() {
 		if strings.Contains(wholeRequest(r), tok) {
@@ -239,10 +334,15 @@ func initializePromptCacheRulesScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the model reads ("[^"]+"(?:, then "[^"]+")*), and answers$`, s.modelReadsAndAnswers)
 	sc.Step(`^the user asks again, and the model reads ("[^"]+"(?:, then "[^"]+")*), and answers$`, s.userAsksAgainModelReads)
 	sc.Step(`^someone rewrites the AGENTS\.md of "([^"]*)" to read "([^"]*)"$`, s.rewriteFolderAgents)
+	sc.Step(`^its subproject "([^"]*)" keeps a Cursor rule for "([^"]*)" reading "([^"]*)"$`, s.subprojectKeepsGlobRule)
+	sc.Step(`^its rule folder keeps a manual rule "([^"]*)" reading "([^"]*)"$`, s.manualRuleInFolder)
+	sc.Step(`^its subproject "([^"]*)" keeps a manual Coddy rule "([^"]*)" reading "([^"]*)"$`, s.subprojectKeepsManualRule)
+	sc.Step(`^the user asks "([^"]*)", and the model answers$`, s.userNamesRules)
 
 	sc.Step(`^every request carries each rule at most once$`, s.eachRuleAtMostOnce)
 	sc.Step(`^every request carries "([^"]*)" in its system message$`, s.systemMessageOfEveryRequestCarries)
 	sc.Step(`^("[^"]+"(?: and "[^"]+")*) reach(?:es)? the model with the first read of "([^"]*)"$`, s.reachWithFirstRead)
+	sc.Step(`^("[^"]+"(?: and "[^"]+")*) reach(?:es)? the model in the message that names (?:it|them)$`, s.reachInTheMessageThatNamesThem)
 	sc.Step(`^no request carries "([^"]*)"$`, s.noRequestCarries)
 	sc.Step(`^no request carries the copy of any rule kept for Claude Code$`, s.noRequestCarriesACopy)
 	sc.Step(`^every request opens with the system message of the first request$`, s.sameSystemMessageEveryRequest)

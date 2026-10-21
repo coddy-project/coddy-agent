@@ -69,3 +69,27 @@ Feature: "@" mentions in a prompt
     When the composer checks the draft "compare @coddy:features/mentions with @coddy:features/nowhere"
     Then the check marks "@coddy:features/mentions" as a mention of a doc
     And the check leaves "@coddy:features/nowhere" unmarked
+
+  Scenario: A rule of a subproject's Coddy rule folder, named with its folder
+    Given the subproject "db" keeps a Coddy rule "deploy" to apply by hand, reading "DEPLOY_TOKEN"
+    When the user sends "ship the migration the way @rule:db/deploy says"
+    Then the prompt attaches "db/.coddy/rules/deploy.mdc" holding "DEPLOY_TOKEN"
+
+  Scenario: The composer offers the rules of a subproject under its folder
+    Given the subproject "db" keeps a Coddy rule "deploy" to apply by hand, reading "DEPLOY_TOKEN"
+    When the composer completes "@rule:"
+    Then the completion offers "@rule:db/" to look into
+    When the composer completes "@rule:db/"
+    Then the completion offers "@rule:db/deploy"
+    When the composer checks the draft "follow @rule:db/deploy"
+    Then the check marks "@rule:db/deploy" as a mention of a rule
+
+  Scenario: A rule in a folder of the workspace's rule folder, named by its path there
+    Given the workspace keeps a Coddy rule "frontend/style" to apply by hand, reading "FRONTEND_STYLE_TOKEN"
+    And the workspace keeps a Coddy rule "backend/style" to apply by hand, reading "BACKEND_STYLE_TOKEN"
+    When the composer completes "@rule:"
+    Then the completion offers "@rule:frontend/" to look into
+    When the composer completes "@rule:frontend/"
+    Then the completion offers "@rule:frontend/style"
+    When the user sends "lay it out the way @rule:frontend/style says"
+    Then the prompt attaches ".coddy/rules/frontend/style.mdc" holding "FRONTEND_STYLE_TOKEN"

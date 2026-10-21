@@ -1061,6 +1061,9 @@ func TestRenderCatalogShowsFormat(t *testing.T) {
 	if !strings.Contains(out, "Nested AGENTS.md and DESIGN.md files are not listed: they are read on demand") {
 		t.Fatalf("on-demand note missing:\n%s", out)
 	}
+	if !strings.Contains(out, "Rule folders of subfolders are not listed: they are read on demand") {
+		t.Fatalf("the note on nested rule folders is missing:\n%s", out)
+	}
 }
 
 // --- rules of the operator (${CODDY_HOME}/rules) ---------------------------------
