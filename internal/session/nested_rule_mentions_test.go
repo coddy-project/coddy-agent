@@ -75,6 +75,9 @@ func TestNestedRuleMentionNamesItsFolder(t *testing.T) {
 		"@rule:node_modules/pkg/deploy", // a dependency tree
 		"@rule:.coddy/worktrees/feat/x", // a hidden folder
 		"@rule:nowhere/deploy",          // a folder that does not exist
+		"@rule:/db/deploy",              // a leading slash
+		"@rule:./db/deploy",             // a "." segment
+		"@rule:db//sub/deep",            // an empty segment
 	} {
 		if got := resolve(text); got != "" {
 			t.Fatalf("%s attached %q", text, got)
@@ -150,6 +153,11 @@ func TestNestedRuleCompletionWalksDownOneFolderAtATime(t *testing.T) {
 	}
 	if _, ok := db["@rule:style"]; ok {
 		t.Fatalf("@rule:db/ offered the workspace's rule: %v", db)
+	}
+	for _, q := range []string{"rule:./", "rule:db/./", "rule:db//"} {
+		if got := search(q); len(got) != 0 {
+			t.Fatalf("%s offered %v, a spelling no reference uses", q, got)
+		}
 	}
 	if narrowed := search("rule:db/dep"); len(narrowed) != 1 || narrowed["@rule:db/deploy"].Insert == "" {
 		t.Fatalf("@rule:db/dep = %v, want db's deploy rule alone", narrowed)
@@ -228,5 +236,43 @@ func TestNestedRuleCompletionKeepsItsFolders(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("@rule:p59 does not offer the folder p59: %q", candidateInserts(res))
+	}
+}
+
+// The completion ranks the folders the query matches before it keeps the
+// first twenty, so the folder typed in full is offered however many others
+// match it loosely; and it never offers a rule whose name a reference would
+// read as another one ("deploy." ends where the reader trims the dot).
+func TestNestedRuleCompletionOffersWhatItCanResolve(t *testing.T) {
+	root := t.TempDir()
+	var paths []string
+	for i := 0; i < 25; i++ {
+		paths = append(paths, fmt.Sprintf("a%02d-prod/.coddy/rules/x.mdc", i))
+	}
+	paths = append(paths, "prod/.coddy/rules/x.mdc", "db/.coddy/rules/deploy..mdc")
+	for _, path := range paths {
+		p := filepath.Join(root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("---\nalwaysApply: false\n---\nbody"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m, sid := mentionTestManager(t, root)
+	search := func(q string) []string {
+		res, err := m.SearchMentions(context.Background(), session.MentionSearch{SessionID: sid, Query: q})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return candidateInserts(res)
+	}
+	if got := search("rule:prod"); len(got) == 0 || got[0] != "@rule:prod/" {
+		t.Fatalf("@rule:prod = %q, want the folder prod first", got)
+	}
+	for _, insert := range search("rule:db/") {
+		if strings.HasSuffix(insert, ".") {
+			t.Fatalf("@rule:db/ offered %s, which a reference reads as another name", insert)
+		}
 	}
 }

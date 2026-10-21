@@ -406,6 +406,10 @@ func (m *Manager) ruleCandidates(st *State, cwd string) []MentionCandidate {
 // typing narrows the folders before they are counted.
 const maxRuleFolderSteps = 20
 
+// ruleFolderCandidates bounds the folders one "@rule:" query ranks before
+// it keeps maxRuleFolderSteps of them.
+const ruleFolderCandidates = 256
+
 // ruleSchemeCandidates is what "@rule:" lists (issue #557). Before a "/" it is
 // the subfolders of the workspace that keep a Coddy rule folder, then the
 // workspace's rules; after "<folder>/", the folders below it that keep one,
@@ -418,7 +422,7 @@ const maxRuleFolderSteps = 20
 func (m *Manager) ruleSchemeCandidates(st *State, cwd, q string) []MentionCandidate {
 	folder, partial := "", q
 	if i := strings.LastIndexByte(q, '/'); i >= 0 {
-		folder, partial = strings.Trim(q[:i], "/"), q[i+1:]
+		folder, partial = q[:i], q[i+1:]
 	}
 	partial = strings.TrimSpace(partial)
 	var cfg *config.Config
@@ -439,8 +443,22 @@ func (m *Manager) ruleSchemeCandidates(st *State, cwd, q string) []MentionCandid
 		_, ok := mention.Score(partial, name)
 		return ok
 	}
+	// Every folder the query matches is ranked before the steps are counted,
+	// so the folder typed in full is offered however many others match it
+	// loosely.
+	subs := SubfoldersWithRules(cfg, cwd, folder, keep, ruleFolderCandidates)
+	if partial != "" {
+		score := make(map[string]int, len(subs))
+		for _, sub := range subs {
+			score[sub], _ = mention.Score(partial, sub)
+		}
+		sort.SliceStable(subs, func(i, j int) bool { return score[subs[i]] > score[subs[j]] })
+	}
+	if len(subs) > maxRuleFolderSteps {
+		subs = subs[:maxRuleFolderSteps]
+	}
 	var out []MentionCandidate
-	for _, sub := range SubfoldersWithRules(cfg, cwd, folder, keep, maxRuleFolderSteps) {
+	for _, sub := range subs {
 		ref := prefix + sub + "/"
 		out = append(out, MentionCandidate{Kind: mention.KindRule, Insert: "@rule:" + ref, Label: ref, Continue: true})
 	}
@@ -450,7 +468,8 @@ func (m *Manager) ruleSchemeCandidates(st *State, cwd, q string) []MentionCandid
 	seen := map[string]bool{}
 	for _, r := range SubfolderRules(cfg, cwd, folder) {
 		name := r.CanonicalName()
-		if !mention.RefName(name) || seen[strings.ToLower(name)] {
+		// A trailing dot ends a reference, so "deploy." would name "deploy".
+		if !mention.RefName(name) || strings.HasSuffix(name, ".") || seen[strings.ToLower(name)] {
 			continue
 		}
 		seen[strings.ToLower(name)] = true

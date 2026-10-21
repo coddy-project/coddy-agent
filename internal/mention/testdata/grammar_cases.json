@@ -398,6 +398,23 @@
     ]
   },
   {
+    "in": "a slash at either end, @rule:/x and @rule:db//x",
+    "tokens": [
+      {
+        "span": "@rule:/x",
+        "readings": [
+          "rule:/x"
+        ]
+      },
+      {
+        "span": "@rule:db//x",
+        "readings": [
+          "rule:db//x"
+        ]
+      }
+    ]
+  },
+  {
     "in": "@. and @.. and @/ and @~ are prose",
     "tokens": []
   },

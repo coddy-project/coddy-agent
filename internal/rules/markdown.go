@@ -320,16 +320,14 @@ func loadMarkdownRulesFromRoot(root string, src Source) ([]*Rule, error) {
 		if _, ok := FormatForPath(d.Name()); !ok {
 			return nil
 		}
-		// Only a regular file is a rule, or a link to one: a FIFO or a device
-		// named like a rule would block the read, and a rule folder can come
-		// with any checkout.
-		if !d.Type().IsRegular() {
-			if d.Type()&os.ModeSymlink == 0 {
+		// A FIFO, a socket or a device named like a rule would block the
+		// read, and a rule folder can come with any checkout.
+		if d.Type()&os.ModeSymlink != 0 {
+			if info, err := os.Stat(path); err != nil || info.IsDir() || specialFile(info.Mode()) {
 				return nil
 			}
-			if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
-				return nil
-			}
+		} else if specialFile(d.Type()) {
+			return nil
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {

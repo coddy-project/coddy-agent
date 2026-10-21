@@ -259,6 +259,7 @@ func (f *Factory) Nested(root string, paths []string, systems []Source) []*Rule 
 		return nil
 	}
 	admitted := admittedBy(systems)
+	realRoot := realPath(root)
 	seen := map[string]bool{}
 	var out []*Rule
 	for _, p := range paths {
@@ -267,7 +268,7 @@ func (f *Factory) Nested(root string, paths []string, systems []Source) []*Rule 
 				continue
 			}
 			seen[dir] = true
-			out = append(out, f.readFolder(dir, admitted)...)
+			out = append(out, f.readFolder(realRoot, dir, admitted)...)
 		}
 	}
 	return out
@@ -287,7 +288,7 @@ func (f *Factory) Folder(root, dir string, systems []Source) []*Rule {
 	if !ok {
 		return nil
 	}
-	return f.readFolder(dir, admittedBy(systems))
+	return f.readFolder(realPath(root), dir, admittedBy(systems))
 }
 
 // Bounds of one FoldersWithRules call: the entries of the folder it reads,
@@ -299,9 +300,8 @@ const (
 )
 
 // FoldersWithRules returns the names of the subfolders of dir - root, or a
-// folder Folder accepts - that keep a folder of the chain systems admits, in
-// lexical order and at most limit: what the completion of "@rule:" offers to
-// look into. keep, when set, decides which names are looked at at all (the
+// folder Folder accepts - that keep a folder of the chain systems admits, at
+// most limit: what the completion of "@rule:" offers to look into. keep, when set, decides which names are looked at at all (the
 // part of a query typed after the last "/", the names a reference can spell),
 // so a folder far down a long listing is still found by its name. It looks
 // one level down, at no more than maxFolderEntries entries and
@@ -335,49 +335,59 @@ func (f *Factory) FoldersWithRules(root, dir string, systems []Source, keep func
 		return nil
 	}
 	defer func() { _ = d.Close() }()
-	admitted := admittedBy(systems)
-	var out []string
-	read, probed := 0, 0
-	for read < maxFolderEntries && probed < maxFolderProbes {
+	// The names first, up to maxFolderEntries, in lexical order, so the
+	// children looked into within the budget are the same on every call.
+	var names []string
+	isLink := map[string]bool{}
+	for read := 0; read < maxFolderEntries; {
 		entries, err := d.ReadDir(256)
 		for _, e := range entries {
 			read++
+			if read > maxFolderEntries {
+				break
+			}
 			name := e.Name()
 			if strings.HasPrefix(name, ".") || agentsSkipDirs[name] || (keep != nil && !keep(name)) {
 				continue
 			}
-			if !e.IsDir() && e.Type()&os.ModeSymlink == 0 {
+			link := e.Type()&os.ModeSymlink != 0
+			if !e.IsDir() && !link {
 				continue
 			}
-			probed++
-			if probed > maxFolderProbes {
-				break
-			}
-			child := filepath.Join(dir, name)
-			if e.Type()&os.ModeSymlink != 0 {
-				real, err := filepath.EvalSymlinks(child)
-				if err != nil || !PathUnderDir(realRoot, real) || SamePath(real, realRoot) {
-					continue
-				}
-				if info, err := os.Stat(real); err != nil || !info.IsDir() {
-					continue
-				}
-			}
-			for _, p := range f.chain {
-				if !admitted(p) || filepath.IsAbs(p.RulesRoot()) {
-					continue
-				}
-				if info, err := os.Stat(filepath.Join(child, p.RulesRoot())); err == nil && info.IsDir() {
-					out = append(out, name)
-					break
-				}
-			}
+			names = append(names, name)
+			isLink[name] = link
 		}
 		if err != nil {
 			break
 		}
 	}
-	sort.Strings(out)
+	sort.Strings(names)
+	if len(names) > maxFolderProbes {
+		names = names[:maxFolderProbes]
+	}
+	admitted := admittedBy(systems)
+	var out []string
+	for _, name := range names {
+		child := filepath.Join(dir, name)
+		if isLink[name] {
+			real, err := filepath.EvalSymlinks(child)
+			if err != nil || !PathUnderDir(realRoot, real) || SamePath(real, realRoot) {
+				continue
+			}
+			if info, err := os.Stat(real); err != nil || !info.IsDir() {
+				continue
+			}
+		}
+		for _, p := range f.chain {
+			if !admitted(p) || filepath.IsAbs(p.RulesRoot()) {
+				continue
+			}
+			if info, err := os.Stat(filepath.Join(child, p.RulesRoot())); err == nil && info.IsDir() {
+				out = append(out, name)
+				break
+			}
+		}
+	}
 	if len(out) > limit {
 		out = out[:limit]
 	}
@@ -386,8 +396,11 @@ func (f *Factory) FoldersWithRules(root, dir string, systems []Source, keep func
 
 // readFolder reads the chain of project folders under one folder of the
 // workspace into rules anchored there: within the folder the first file of a
-// name wins, as at the root.
-func (f *Factory) readFolder(dir string, admitted func(Provider) bool) []*Rule {
+// name wins, as at the root. A rule whose file, its links resolved, lies
+// outside the workspace (realRoot) is not the subfolder's and is dropped, so a
+// checkout cannot hand the model a file of the machine through a link named
+// like a rule.
+func (f *Factory) readFolder(realRoot, dir string, admitted func(Provider) bool) []*Rule {
 	names := map[string]bool{}
 	var out []*Rule
 	for _, r := range f.readChain(dir, admitted, false, &Discovery{}) {
@@ -395,11 +408,23 @@ func (f *Factory) readFolder(dir string, admitted func(Provider) bool) []*Rule {
 		if names[key] {
 			continue
 		}
+		if real, err := filepath.EvalSymlinks(r.FilePath); err != nil || !PathUnderDir(realRoot, real) {
+			continue
+		}
 		names[key] = true
 		r.Root, r.ScopeDir = dir, dir
 		out = append(out, r)
 	}
 	return out
+}
+
+// realPath is path with its links resolved, or path itself when they cannot
+// be.
+func realPath(path string) string {
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		return real
+	}
+	return path
 }
 
 // cleanRoot is the absolute, clean form of a workspace root, "" for none.

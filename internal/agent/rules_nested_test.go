@@ -8,6 +8,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -177,5 +178,30 @@ func TestNestedRulesFollowTheRulesSettings(t *testing.T) {
 	a.cfg.Prompts.Dir = promptsDir
 	if got := a.toolCallRules("agent", readCall("r1", "db/migrations/0001.sql"), tmp); got != "" {
 		t.Fatalf("a template without {{.Rules}} still received a nested rule: %q", got)
+	}
+}
+
+// A rule of a subfolder the user attached with "@rule:<folder>/<name>" is one
+// the model can read: a later call that matches it does not attach it again.
+func TestNestedRuleNamedByTheUserIsNotAttachedAgain(t *testing.T) {
+	a, tmp := nestedRulesProject(t)
+	if err := writeRuleDoc(filepath.Join(tmp, "db", ".coddy", "rules", "mig.mdc"), []string{"globs: migrations/**"}, "NESTED_CODDY_RULE_TOKEN"); err != nil {
+		t.Fatal(err)
+	}
+	var named *rules.Rule
+	for _, r := range session.SubfolderRules(a.cfg, tmp, "db") {
+		if r.CanonicalName() == "mig" {
+			named = r
+		}
+	}
+	if named == nil {
+		t.Fatal("db's Coddy rule is not read")
+	}
+	if got := a.toolCallRules("agent", readCall("r0", "db/migrations/0001.sql"), tmp); !strings.Contains(got, "NESTED_CODDY_RULE_TOKEN") {
+		t.Fatalf("without the user's message the call does not bring the rule: %q", got)
+	}
+	a.state.AddMessage(llm.Message{Role: llm.RoleUser, Content: "follow it\n\n" + resourceAttachmentXML(session.RuleAttachment(tmp, "", named))})
+	if got := a.toolCallRules("agent", readCall("r1", "db/migrations/0001.sql"), tmp); strings.Contains(got, "NESTED_CODDY_RULE_TOKEN") {
+		t.Fatalf("the rule the user attached came again with the call: %q", got)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 )
 
@@ -32,10 +33,23 @@ func DiscoverRules(cfg *config.Config, cwd string) []*rules.Rule {
 // out.
 func SubfolderRules(cfg *config.Config, cwd, folder string) []*rules.Rule {
 	systems, ok := coddyRuleSystems(cfg)
-	if !ok || strings.TrimSpace(folder) == "" {
+	if !ok || folder == "" || !ruleFolderSpelling(folder) {
 		return nil
 	}
 	return rules.DefaultFactory("").Folder(cwd, filepath.Join(cwd, filepath.FromSlash(folder)), systems)
+}
+
+// ruleFolderSpelling reports whether folder is written the one way a
+// reference names a subfolder: segments a reference can spell, separated by
+// single slashes, none of them "." or ".." and none hidden, so "/etc",
+// "./db" and "db//sub" name nothing rather than a folder they clean to.
+func ruleFolderSpelling(folder string) bool {
+	for _, seg := range strings.Split(folder, "/") {
+		if !mention.RefName(seg) || strings.HasPrefix(seg, ".") {
+			return false
+		}
+	}
+	return true
 }
 
 // SubfoldersWithRules names the subfolders of folder ("" for the workspace at
@@ -43,7 +57,7 @@ func SubfolderRules(cfg *config.Config, cwd, folder string) []*rules.Rule {
 // limit: what the completion of "@rule:" offers to look into.
 func SubfoldersWithRules(cfg *config.Config, cwd, folder string, keep func(name string) bool, limit int) []string {
 	systems, ok := coddyRuleSystems(cfg)
-	if !ok {
+	if !ok || (folder != "" && !ruleFolderSpelling(folder)) {
 		return nil
 	}
 	return rules.DefaultFactory("").FoldersWithRules(cwd, filepath.Join(cwd, filepath.FromSlash(folder)), systems, keep, limit)
