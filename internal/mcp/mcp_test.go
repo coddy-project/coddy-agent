@@ -86,23 +86,7 @@ func runFakeMCPServer() {
 			}
 			_ = json.Unmarshal(req.Params, &params)
 			text := params.Arguments["text"]
-			if params.Name == "picture" {
-				var picture bytes.Buffer
-				_ = png.Encode(&picture, image.NewRGBA(image.Rect(0, 0, 1, 1)))
-				respond(req.ID, map[string]interface{}{"content": []map[string]interface{}{
-					{"type": "text", "text": "Screenshot"},
-					{"type": "image", "mimeType": "image/png", "data": base64.StdEncoding.EncodeToString(picture.Bytes())},
-				}})
-				continue
-			}
-			if params.Name == "picture_bad" {
-				respond(req.ID, map[string]interface{}{"content": []map[string]interface{}{
-					{"type": "text", "text": "Still useful"},
-					{"type": "image", "mimeType": "image/png", "data": "not base64!"},
-					{"type": "image", "mimeType": "image/png", "data": 123},
-					{"type": "image", "mimeType": "image/svg+xml", "data": base64.StdEncoding.EncodeToString([]byte("<svg/>"))},
-					{"type": "resource", "resource": map[string]interface{}{"text": "private"}},
-				}})
+			if fakePictures(req.ID, params.Name, respond) {
 				continue
 			}
 			if params.Name == "reverse" {
@@ -155,20 +139,121 @@ func TestCallToolResultKeepsImageBlocks(t *testing.T) {
 	}
 }
 
+// The client keeps every image block whose data decodes and leaves judging
+// the picture to the agent (internal/tools/fs PrepareImageForModel): an SVG
+// passes here and is refused there. A block whose data is no base64 string
+// is named in the text, which keeps the text blocks around it.
 func TestCallToolResultOmitsInvalidImagesWithoutLosingText(t *testing.T) {
+	got := callFakePictures(t, "picture_bad")
+	if len(got.Images) != 1 || string(got.Images[0].Data) != "<svg/>" || got.Images[0].MIMEType != "image/svg+xml" || got.Images[0].Index != 3 {
+		t.Fatalf("images = %+v, want the SVG alone, the third image block", got.Images)
+	}
+	want := "Still useful\n[MCP image 1 omitted: the data is not base64]\n[MCP image 2 omitted: the data is not base64]"
+	if got.Text != want {
+		t.Fatalf("text = %q, want %q", got.Text, want)
+	}
+}
+
+// The type a server declares is kept as it was sent; the content decides it
+// later, so a PNG labelled image/jpg is not lost here.
+func TestCallToolResultKeepsAPictureWhateverItsDeclaredType(t *testing.T) {
+	got := callFakePictures(t, "picture_labelled_jpg")
+	if len(got.Images) != 1 || got.Images[0].MIMEType != "image/jpg" || !bytes.HasPrefix(got.Images[0].Data, []byte("\x89PNG")) {
+		t.Fatalf("images = %+v", got.Images)
+	}
+}
+
+// One call keeps at most the pictures one model request carries: twenty, and
+// 20 MiB of them. What comes after is named in the text.
+func TestCallToolResultKeepsWhatOneRequestCarries(t *testing.T) {
+	many := callFakePictures(t, "pictures_many")
+	if len(many.Images) != maxToolImages || many.Text != "[MCP image 21 omitted: the call returned more than 20 images]" {
+		t.Fatalf("21 pictures: kept %d, text %q", len(many.Images), many.Text)
+	}
+	huge := callFakePictures(t, "pictures_huge")
+	total := 0
+	for _, img := range huge.Images {
+		total += len(img.Data)
+	}
+	if len(huge.Images) != 5 || total > maxToolImagesBytes || huge.Text != "[MCP image 6 omitted: the call's images exceed 20 MiB]" {
+		t.Fatalf("six pictures of 3.5 MiB: kept %d (%d bytes), text %q", len(huge.Images), total, huge.Text)
+	}
+}
+
+// A result the server marked as an error is the call's error: its text is
+// the message, and a picture it carried goes nowhere, as a failed read keeps
+// none - it is not even decoded, so a broken one adds nothing to the message.
+func TestCallToolResultOfAnErrorKeepsItsTextOnly(t *testing.T) {
 	srv := fakeServerConfig("image-test")
 	client, err := NewStdioClient(testCtx(t), srv.Name, srv.Command, srv.Args, []string{"GO_WANT_MCP_HELPER=1"}, slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = client.Close() }()
-	got, err := client.CallToolResult(testCtx(t), "picture_bad", `{}`)
+	got, err := client.CallToolResult(testCtx(t), "picture_error", `{}`)
+	if err == nil || err.Error() != "mcp tool error: the page did not load" || len(got.Images) != 0 {
+		t.Fatalf("result %+v, err %v", got, err)
+	}
+}
+
+func callFakePictures(t *testing.T, tool string) ToolResult {
+	t.Helper()
+	srv := fakeServerConfig("image-test")
+	client, err := NewStdioClient(testCtx(t), srv.Name, srv.Command, srv.Args, []string{"GO_WANT_MCP_HELPER=1"}, slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Images) != 0 || !strings.Contains(got.Text, "Still useful") || !strings.Contains(got.Text, "image omitted") || strings.Contains(got.Text, "private") {
-		t.Fatalf("result = %+v", got)
+	defer func() { _ = client.Close() }()
+	got, err := client.CallToolResult(testCtx(t), tool, `{}`)
+	if err != nil {
+		t.Fatal(err)
 	}
+	return got
+}
+
+// fakePictures answers the picture tools of the fake server; false for any
+// other tool.
+func fakePictures(id interface{}, name string, respond func(interface{}, interface{})) bool {
+	onePixel := func() string {
+		var picture bytes.Buffer
+		_ = png.Encode(&picture, image.NewRGBA(image.Rect(0, 0, 1, 1)))
+		return base64.StdEncoding.EncodeToString(picture.Bytes())
+	}
+	image := func(mimeType, data string) map[string]interface{} {
+		return map[string]interface{}{"type": "image", "mimeType": mimeType, "data": data}
+	}
+	var content []map[string]interface{}
+	isError := false
+	switch name {
+	case "picture":
+		content = []map[string]interface{}{{"type": "text", "text": "Screenshot"}, image("image/png", onePixel())}
+	case "picture_bad":
+		content = []map[string]interface{}{
+			{"type": "text", "text": "Still useful"},
+			image("image/png", "not base64!"),
+			{"type": "image", "mimeType": "image/png", "data": 123},
+			image("image/svg+xml", base64.StdEncoding.EncodeToString([]byte("<svg/>"))),
+			{"type": "resource", "resource": map[string]interface{}{"text": "private"}},
+		}
+	case "picture_labelled_jpg":
+		content = []map[string]interface{}{image("image/jpg", onePixel())}
+	case "pictures_many":
+		for i := 0; i < 21; i++ {
+			content = append(content, image("image/png", onePixel()))
+		}
+	case "pictures_huge":
+		blob := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x89}, 3*1024*1024+512*1024))
+		for i := 0; i < 6; i++ {
+			content = append(content, image("image/png", blob))
+		}
+	case "picture_error":
+		content = []map[string]interface{}{{"type": "text", "text": "the page did not load"}, image("image/png", onePixel()), image("image/png", "not base64!")}
+		isError = true
+	default:
+		return false
+	}
+	respond(id, map[string]interface{}{"content": content, "isError": isError})
+	return true
 }
 
 func TestStdioClientAgainstFakeServer(t *testing.T) {

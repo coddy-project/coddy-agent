@@ -1,10 +1,13 @@
 // Package mcptest serves MCP servers for tests, over every transport Coddy
 // connects to: stdio (the test binary re-executed as the server's command,
 // see Stdio and Main, or a local npm package started through npx, see
-// NPX), streamable HTTP (NewHTTPServer) and the legacy HTTP+SSE
-// transport (NewSSEServer). Each offers one tool, Tool, whose call
-// answers with the server's token, so a test can tell which server a call
-// reached and that it came back.
+// NPX), streamable HTTP answering with JSON bodies (NewHTTPServer) or with
+// event streams (NewEventStreamServer), and the legacy HTTP+SSE transport
+// (NewSSEServer). Each offers Tool, whose call answers with the server's
+// token, so a test can tell which server a call reached and that it came
+// back; all but the npx one also offer ScreenshotTool, which answers with
+// the token and a picture, the way a browser automation server returns a
+// screenshot.
 //
 // A test package that runs a stdio server defines the helper test the
 // command re-executes:
@@ -17,9 +20,16 @@ package mcptest
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -31,8 +41,60 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
-// Tool is the one tool every server of this package offers.
+// Tool is the tool every server of this package offers.
 const Tool = "get_token"
+
+// ScreenshotTool answers with the server's token as a text block and a PNG as
+// an image block: Picture(token), or LargePicture(token) when the call's
+// arguments are {"large": true}. The npx server does not offer it.
+const ScreenshotTool = "take_screenshot"
+
+// Picture is the PNG a call of ScreenshotTool returns: 16x12 pixels of one
+// colour taken from the token, so the servers of a test return different
+// pictures.
+func Picture(token string) []byte {
+	sum := tokenSeed(token)
+	img := image.NewNRGBA(image.Rect(0, 0, 16, 12))
+	fill := color.NRGBA{R: uint8(sum), G: uint8(sum >> 8), B: uint8(sum >> 16), A: 255}
+	for y := 0; y < 12; y++ {
+		for x := 0; x < 16; x++ {
+			img.SetNRGBA(x, y, fill)
+		}
+	}
+	return encodePNG(img)
+}
+
+var largePictures sync.Map // token -> []byte
+
+// LargePicture is the PNG a call of ScreenshotTool with {"large": true}
+// returns: 1280x900 pixels of noise seeded by the token, about 3.3 MiB, under
+// the 3.75 MiB a model takes and over 4 MiB once base64 encoded - more than
+// one line of an event stream used to carry.
+func LargePicture(token string) []byte {
+	if data, ok := largePictures.Load(token); ok {
+		return data.([]byte)
+	}
+	img := image.NewNRGBA(image.Rect(0, 0, 1280, 900))
+	r := rand.New(rand.NewSource(int64(tokenSeed(token))))
+	for i := 0; i < len(img.Pix); i += 4 {
+		v := r.Uint32()
+		img.Pix[i], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = uint8(v), uint8(v>>8), uint8(v>>16), 255
+	}
+	data, _ := largePictures.LoadOrStore(token, encodePNG(img))
+	return data.([]byte)
+}
+
+func tokenSeed(token string) uint32 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(token))
+	return h.Sum32()
+}
+
+func encodePNG(img image.Image) []byte {
+	var buf bytes.Buffer
+	_ = png.Encode(&buf, img)
+	return buf.Bytes()
+}
 
 // TokenEnv carries the token of a stdio server into the re-executed test
 // binary; Main serves only when it is set.
@@ -140,6 +202,12 @@ func NPX(name, token, dir string) (config.MCPServerConfig, error) {
 type request struct {
 	ID     any    `json:"id"`
 	Method string `json:"method"`
+	Params struct {
+		Name      string `json:"name"`
+		Arguments struct {
+			Large bool `json:"large"`
+		} `json:"arguments"`
+	} `json:"params"`
 }
 
 // answer is the response to one JSON-RPC message, and false for a
@@ -163,12 +231,24 @@ func answer(line []byte, token string, called *atomic.Int64) (map[string]any, bo
 			"name":        Tool,
 			"description": "Answer with this server's token",
 			"inputSchema": map[string]any{"type": "object"},
+		}, {
+			"name":        ScreenshotTool,
+			"description": "Answer with this server's token and a screenshot",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"large": map[string]any{"type": "boolean"}}},
 		}}}
 	case "tools/call":
 		if called != nil {
 			called.Add(1)
 		}
-		result = map[string]any{"content": []map[string]any{{"type": "text", "text": token}}}
+		content := []map[string]any{{"type": "text", "text": token}}
+		if req.Params.Name == ScreenshotTool {
+			picture := Picture(token)
+			if req.Params.Arguments.Large {
+				picture = LargePicture(token)
+			}
+			content = append(content, map[string]any{"type": "image", "mimeType": "image/png", "data": base64.StdEncoding.EncodeToString(picture)})
+		}
+		result = map[string]any{"content": content}
 	}
 	return map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": result}, true
 }
@@ -216,6 +296,35 @@ func NewHTTPServer(token string) *Server {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(msg)
+	}))
+	s.URL = s.Server.URL + "/mcp"
+	return s
+}
+
+// NewEventStreamServer serves the streamable HTTP transport at URL the way
+// the TypeScript SDK does by default: every request POSTed there is answered
+// with a text/event-stream body carrying the response as one event, on one
+// data line however long it is.
+func NewEventStreamServer(token string) *Server {
+	s := &Server{Token: token}
+	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		msg, ok := answer(body, s.Token, &s.calls)
+		if !ok {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		data, _ := json.Marshal(msg)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
 	}))
 	s.URL = s.Server.URL + "/mcp"
 	return s

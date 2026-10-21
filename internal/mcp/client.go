@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -31,19 +30,33 @@ type ToolInfo struct {
 	InputSchema interface{}
 }
 
-// ToolImage is a decoded image block returned by an MCP tool.
+// ToolImage is the decoded data of an image block an MCP tool returned.
+// Index is the block's place among the image blocks of the result, from 1,
+// which every note about the block uses too. MIMEType is the type the server
+// declared; the agent tells the picture by its content, as read tells a file
+// (internal/tools/fs PrepareImageForModel), so a picture labelled wrong is
+// not lost here.
 type ToolImage struct {
+	Index    int
 	MIMEType string
 	Data     []byte
 }
 
-// ToolResult keeps text and image blocks from a successful tools/call result.
+// ToolResult is a successful tools/call result: its text blocks joined, with
+// a note in place of every image block left out, and the image blocks kept.
 type ToolResult struct {
 	Text   string
 	Images []ToolImage
 }
 
-const maxToolImageBytes = 3*1024*1024 + 768*1024
+// maxToolImages and maxToolImagesBytes are the most pictures, and the most
+// bytes of them, one model request carries (internal/agent toolImagesMaxCount
+// and toolImagesMaxBytes): a call that returned more could never show the
+// model all of them, so the rest are named instead of decoded.
+const (
+	maxToolImages      = 20
+	maxToolImagesBytes = 20 << 20
+)
 
 // transport delivers JSON-RPC messages to and from an MCP server. Send ships
 // one client->server message; Messages streams server->client messages.
@@ -237,7 +250,7 @@ func (c *Client) CallTool(ctx context.Context, toolName, argsJSON string) (strin
 	return result.Text, err
 }
 
-// CallToolResult invokes a tool and retains its supported image blocks.
+// CallToolResult invokes a tool and returns its text and image blocks.
 func (c *Client) CallToolResult(ctx context.Context, toolName, argsJSON string) (ToolResult, error) {
 	if c.closed.Load() {
 		return ToolResult{}, fmt.Errorf("mcp %s: client closed", c.name)
@@ -260,7 +273,8 @@ func (c *Client) Close() error {
 
 // ---- internal ----
 
-// callTool invokes a tool over the connection and returns supported content.
+// callTool invokes a tool over the connection and returns its text and image
+// blocks; every other kind of block is left out.
 func (c *conn) callTool(ctx context.Context, toolName, argsJSON string) (ToolResult, error) {
 	// The arguments go to the server as the JSON the model wrote, checked
 	// rather than decoded into an arbitrary value.
@@ -296,34 +310,44 @@ func (c *conn) callTool(ctx context.Context, toolName, argsJSON string) (ToolRes
 
 	var parts []string
 	out := ToolResult{}
-	imageBytes := 0
+	imageBytes, index := 0, 0
+	omit := func(why string) {
+		parts = append(parts, fmt.Sprintf("[MCP image %d omitted: %s]", index, why))
+	}
 	for _, block := range resp.Content {
 		switch block.Type {
 		case "text":
 			parts = append(parts, block.Text)
 		case "image":
-			// Bound decoding before the agent validates the picture against
-			// the model's format, dimensions and per-image size limits.
-			if len(block.Data) > base64.StdEncoding.EncodedLen(maxToolImageBytes)+2 || len(block.Data) == 0 || len(out.Images) >= 20 {
-				parts = append(parts, "[MCP image omitted: empty, larger than 3.75 MiB, or more than 20 images]")
+			if resp.IsError {
+				// An error keeps no picture, so none is decoded.
 				continue
 			}
-			var encoded, mimeType string
-			if json.Unmarshal(block.Data, &encoded) != nil || json.Unmarshal(block.MIMEType, &mimeType) != nil {
-				parts = append(parts, "[MCP image omitted: invalid image data or media type]")
+			index++
+			if len(out.Images) >= maxToolImages {
+				omit(fmt.Sprintf("the call returned more than %d images", maxToolImages))
+				continue
+			}
+			var encoded string
+			if json.Unmarshal(block.Data, &encoded) != nil {
+				omit("the data is not base64")
+				continue
+			}
+			// Decoding is bounded before it starts: the base64 of a picture
+			// is a third larger than the picture, whatever lines wrap it.
+			if base64.StdEncoding.DecodedLen(len(encoded)) > maxToolImagesBytes-imageBytes {
+				omit(fmt.Sprintf("the call's images exceed %d MiB", maxToolImagesBytes>>20))
 				continue
 			}
 			data, err := base64.StdEncoding.DecodeString(encoded)
-			if err != nil || !supportedToolImage(mimeType, data) {
-				parts = append(parts, "[MCP image omitted: invalid image data or media type]")
+			if err != nil || len(data) == 0 {
+				omit("the data is not base64")
 				continue
 			}
-			if len(data) > (20<<20)-imageBytes {
-				parts = append(parts, "[MCP image omitted: call images exceed 20 MiB]")
-				continue
-			}
+			var mimeType string
+			_ = json.Unmarshal(block.MIMEType, &mimeType)
 			imageBytes += len(data)
-			out.Images = append(out.Images, ToolImage{MIMEType: mimeType, Data: data})
+			out.Images = append(out.Images, ToolImage{Index: index, MIMEType: mimeType, Data: data})
 		}
 	}
 	out.Text = strings.Join(parts, "\n")
@@ -332,15 +356,6 @@ func (c *conn) callTool(ctx context.Context, toolName, argsJSON string) (ToolRes
 		return ToolResult{}, fmt.Errorf("mcp tool error: %s", out.Text)
 	}
 	return out, nil
-}
-
-func supportedToolImage(mimeType string, data []byte) bool {
-	switch mimeType {
-	case "image/png", "image/jpeg", "image/gif", "image/webp":
-		return http.DetectContentType(data) == mimeType
-	default:
-		return false
-	}
 }
 
 // close ends the connection (and, for stdio, the server's process group) and
@@ -593,7 +608,7 @@ func (c *conn) dispatch(data []byte) {
 	}
 
 	if hasResult {
-		ch <- rpcResult{result: raw["result"]}
+		answer(ch, rpcResult{result: raw["result"]})
 		return
 	}
 	// Propagate the JSON-RPC error object so callers see real failures
@@ -603,7 +618,19 @@ func (c *conn) dispatch(data []byte) {
 		Message string `json:"message"`
 	}
 	_ = json.Unmarshal(raw["error"], &rpcErr)
-	ch <- rpcResult{err: fmt.Errorf("mcp %s: jsonrpc error %d: %s", c.name, rpcErr.Code, rpcErr.Message)}
+	answer(ch, rpcResult{err: fmt.Errorf("mcp %s: jsonrpc error %d: %s", c.name, rpcErr.Code, rpcErr.Message)})
+}
+
+// answer hands a call its result without blocking the read loop: the call
+// takes one answer, and a second one for the same id (a server that answered
+// twice, or the error a response stream that ended adds after the response,
+// remote.go) finds the place taken and is dropped, as it is when the call
+// gave up meanwhile.
+func answer(ch chan rpcResult, res rpcResult) {
+	select {
+	case ch <- res:
+	default:
+	}
 }
 
 // ---- stdio transport ----
