@@ -69,3 +69,17 @@ Feature: "@" mentions in a prompt
     When the composer checks the draft "compare @coddy:features/mentions with @coddy:features/nowhere"
     Then the check marks "@coddy:features/mentions" as a mention of a doc
     And the check leaves "@coddy:features/nowhere" unmarked
+
+  Scenario: A rule of a subproject's rule folder, named with its folder
+    Given the subproject "db" keeps a Cursor rule "deploy" to apply by hand, reading "DEPLOY_TOKEN"
+    When the user sends "ship the migration the way @rule:db/deploy says"
+    Then the prompt attaches "db/.cursor/rules/deploy.mdc" holding "DEPLOY_TOKEN"
+
+  Scenario: The composer offers the rules of a subproject under its folder
+    Given the subproject "db" keeps a Cursor rule "deploy" to apply by hand, reading "DEPLOY_TOKEN"
+    When the composer completes "@rule:"
+    Then the completion offers "@rule:db/" to look into
+    When the composer completes "@rule:db/"
+    Then the completion offers "@rule:db/deploy"
+    When the composer checks the draft "follow @rule:db/deploy"
+    Then the check marks "@rule:db/deploy" as a mention of a rule

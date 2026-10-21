@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
@@ -400,6 +401,48 @@ func (m *Manager) ruleCandidates(st *State, cwd string) []MentionCandidate {
 	return out
 }
 
+// maxRuleFolderSteps bounds the subfolders one "@rule:" query offers to look
+// into.
+const maxRuleFolderSteps = 50
+
+// ruleSchemeCandidates is what "@rule:" lists (issue #557). Before a "/" it
+// is the workspace's rules and the subfolders of the workspace that keep a
+// rule folder; after "<folder>/", the rules of that folder's rule folder and
+// the folders below it that keep one. A folder is a step that keeps the
+// picker open, so the picker walks down a group of projects one folder per
+// query and reads only the folder it shows; nothing is walked.
+func (m *Manager) ruleSchemeCandidates(st *State, cwd, q string) []MentionCandidate {
+	folder := ""
+	if i := strings.LastIndexByte(q, '/'); i >= 0 {
+		folder = strings.Trim(q[:i], "/")
+	}
+	var cfg *config.Config
+	if m != nil {
+		cfg = m.Cfg()
+	}
+	var out []MentionCandidate
+	prefix := ""
+	if folder == "" {
+		out = m.ruleCandidates(st, cwd)
+	} else {
+		prefix = folder + "/"
+		seen := map[string]bool{}
+		for _, r := range SubfolderRules(cfg, cwd, folder) {
+			name := r.CanonicalName()
+			if seen[strings.ToLower(name)] {
+				continue
+			}
+			seen[strings.ToLower(name)] = true
+			out = append(out, MentionCandidate{Kind: mention.KindRule, Insert: "@rule:" + prefix + name, Label: prefix + name, Detail: firstLine(strings.TrimSpace(r.Description))})
+		}
+	}
+	for _, sub := range SubfoldersWithRules(cfg, cwd, folder, maxRuleFolderSteps) {
+		ref := prefix + sub + "/"
+		out = append(out, MentionCandidate{Kind: mention.KindRule, Insert: "@rule:" + ref, Label: ref, Continue: true})
+	}
+	return out
+}
+
 func (m *Manager) agentCandidates(cwd string) []MentionCandidate {
 	if m == nil {
 		return nil
@@ -442,7 +485,7 @@ func (m *Manager) searchScheme(_ context.Context, st *State, cwd string, sc ment
 	case mention.SchemeSession:
 		items = m.sessionCandidates(st, cwd)
 	case mention.SchemeRule:
-		items = m.ruleCandidates(st, cwd)
+		items = m.ruleSchemeCandidates(st, cwd, q)
 	case mention.SchemeAgent:
 		items = m.agentCandidates(cwd)
 	}

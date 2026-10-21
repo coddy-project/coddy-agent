@@ -3,6 +3,7 @@ package rules
 import (
 	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -119,12 +120,7 @@ func (f *Factory) Inspect(cwd string, systems []Source) (*Discovery, error) {
 // file itself came from. A project rule wins over the operator's rule of the
 // same file name.
 func (f *Factory) discover(cwd string, systems []Source, inspect bool) (*Discovery, error) {
-	allowAll := len(systems) == 0
-	allowed := make(map[Source]bool, len(systems))
-	for _, s := range systems {
-		allowed[s] = true
-	}
-	admitted := func(p Provider) bool { return allowAll || allowed[p.ID()] }
+	admitted := admittedBy(systems)
 	projectRoot, err := filepath.Abs(cwd)
 	if err != nil {
 		projectRoot = cwd
@@ -258,20 +254,11 @@ func (f *Factory) readChain(dir string, admitted func(Provider) bool, inspect bo
 // a name wins, as at the root; rules of different folders never replace each
 // other, whatever their names.
 func (f *Factory) Nested(root string, paths []string, systems []Source) []*Rule {
-	root = strings.TrimSpace(root)
+	root = cleanRoot(root)
 	if root == "" || len(paths) == 0 {
 		return nil
 	}
-	if abs, err := filepath.Abs(root); err == nil {
-		root = abs
-	}
-	root = filepath.Clean(root)
-	allowAll := len(systems) == 0
-	allowed := make(map[Source]bool, len(systems))
-	for _, s := range systems {
-		allowed[s] = true
-	}
-	admitted := func(p Provider) bool { return allowAll || allowed[p.ID()] }
+	admitted := admittedBy(systems)
 	seen := map[string]bool{}
 	var out []*Rule
 	for _, p := range paths {
@@ -280,19 +267,158 @@ func (f *Factory) Nested(root string, paths []string, systems []Source) []*Rule 
 				continue
 			}
 			seen[dir] = true
-			names := map[string]bool{}
-			for _, r := range f.readChain(dir, admitted, false, &Discovery{}) {
-				key := r.DedupeKey()
-				if names[key] {
-					continue
-				}
-				names[key] = true
-				r.Root, r.ScopeDir = dir, dir
-				out = append(out, r)
-			}
+			out = append(out, f.readFolder(dir, admitted)...)
 		}
 	}
 	return out
+}
+
+// Folder returns the rules of the rule folder of one subfolder of root, read
+// on the spot the way Nested reads every folder on its chain: what
+// "@rule:<folder>/<name>" reads. dir must be a folder below root, root itself
+// excluded (its rule folder is the catalog's, Discover), reached without a
+// segment the chain never enters (a hidden folder, node_modules, vendor).
+// Each rule is anchored at dir.
+func (f *Factory) Folder(root, dir string, systems []Source) []*Rule {
+	root = cleanRoot(root)
+	dir, ok := subfolderOf(root, dir)
+	if !ok {
+		return nil
+	}
+	return f.readFolder(dir, admittedBy(systems))
+}
+
+// maxFolderProbes bounds the entries of one folder FoldersWithRules looks at.
+const maxFolderProbes = 256
+
+// FoldersWithRules returns the names of the subfolders of dir - root, or a
+// folder Folder accepts - that keep a folder of the chain rules.systems
+// admits, in lexical order and at most limit: what the completion of
+// "@rule:" offers to look into. It looks one level down only, at no more
+// than maxFolderProbes entries, and at the rule folders' existence, never
+// their files, so each step down a group of projects costs the folder it
+// shows. A hidden folder, node_modules and vendor are never offered.
+func (f *Factory) FoldersWithRules(root, dir string, systems []Source, limit int) []string {
+	root = cleanRoot(root)
+	if root == "" || limit <= 0 {
+		return nil
+	}
+	target := strings.TrimSpace(dir)
+	if target != "" && !filepath.IsAbs(target) {
+		target = filepath.Join(root, target)
+	}
+	if target == "" || SamePath(target, root) {
+		dir = root
+	} else {
+		var ok bool
+		if dir, ok = subfolderOf(root, target); !ok {
+			return nil
+		}
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	admitted := admittedBy(systems)
+	var out []string
+	probed := 0
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, ".") || agentsSkipDirs[name] {
+			continue
+		}
+		child := filepath.Join(dir, name)
+		if !e.IsDir() {
+			if e.Type()&os.ModeSymlink == 0 {
+				continue
+			}
+			if info, err := os.Stat(child); err != nil || !info.IsDir() {
+				continue
+			}
+		}
+		probed++
+		if probed > maxFolderProbes {
+			break
+		}
+		for _, p := range f.chain {
+			if !admitted(p) || filepath.IsAbs(p.RulesRoot()) {
+				continue
+			}
+			if info, err := os.Stat(filepath.Join(child, p.RulesRoot())); err == nil && info.IsDir() {
+				out = append(out, name)
+				break
+			}
+		}
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+// readFolder reads the chain of project folders under one folder of the
+// workspace into rules anchored there: within the folder the first file of a
+// name wins, as at the root.
+func (f *Factory) readFolder(dir string, admitted func(Provider) bool) []*Rule {
+	names := map[string]bool{}
+	var out []*Rule
+	for _, r := range f.readChain(dir, admitted, false, &Discovery{}) {
+		key := r.DedupeKey()
+		if names[key] {
+			continue
+		}
+		names[key] = true
+		r.Root, r.ScopeDir = dir, dir
+		out = append(out, r)
+	}
+	return out
+}
+
+// cleanRoot is the absolute, clean form of a workspace root, "" for none.
+func cleanRoot(root string) string {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	return filepath.Clean(root)
+}
+
+// subfolderOf resolves dir (relative to root, or absolute) and reports
+// whether it is an existing folder below root that the chain of Nested
+// reaches: the last folder of the chain to it is dir itself.
+func subfolderOf(root, dir string) (string, bool) {
+	dir = strings.TrimSpace(dir)
+	if root == "" || dir == "" {
+		return "", false
+	}
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(root, dir)
+	}
+	dir = filepath.Clean(dir)
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return "", false
+	}
+	chain := agentsChainDirs(root, dir)
+	if len(chain) == 0 || !SamePath(chain[len(chain)-1], dir) {
+		return "", false
+	}
+	return dir, true
+}
+
+// admittedBy is the filter of rules.systems: every provider when systems is
+// empty, else the ones it names.
+func admittedBy(systems []Source) func(Provider) bool {
+	if len(systems) == 0 {
+		return func(Provider) bool { return true }
+	}
+	allowed := make(map[Source]bool, len(systems))
+	for _, s := range systems {
+		allowed[s] = true
+	}
+	return func(p Provider) bool { return allowed[p.ID()] }
 }
 
 // workspaceRel names path relative to root, slash-separated, or as it is when

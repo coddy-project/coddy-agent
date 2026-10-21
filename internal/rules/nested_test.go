@@ -151,3 +151,67 @@ func TestMatchScopedRuleNeedsTheScopeAndTheGlobs(t *testing.T) {
 		}
 	}
 }
+
+// Folder reads the rule folder of the one subfolder "@rule:<folder>/<name>"
+// names, anchored there like a rule Nested reads, and refuses what the chain
+// of Nested never enters: the workspace itself, a folder outside it, one
+// under a hidden folder or a dependency tree, one that does not exist.
+func TestFolderReadsTheRuleFolderOfOneSubfolder(t *testing.T) {
+	tmp := nestedGroup(t)
+	f := rules.DefaultFactory("")
+
+	got := f.Folder(tmp, filepath.Join(tmp, "mobile"), nil)
+	if files := ruleFiles(tmp, got); len(files) != 1 || files[0] != "mobile/.cursor/rules/mobile.mdc" {
+		t.Fatalf("rules of mobile = %v, want its Cursor rule only", files)
+	}
+	if r := got[0]; r.Root != filepath.Join(tmp, "mobile") || r.ScopeDir != r.Root {
+		t.Fatalf("Root=%q ScopeDir=%q, want both the subfolder", r.Root, r.ScopeDir)
+	}
+	if files := ruleFiles(tmp, f.Folder(tmp, filepath.Join(tmp, "db", "sub"), nil)); len(files) != 1 || files[0] != "db/sub/.cursor/rules/deep.mdc" {
+		t.Fatalf("rules of db/sub = %v, want its own rule and not db's", files)
+	}
+	if files := ruleFiles(tmp, f.Folder(tmp, filepath.Join(tmp, "mobile"), []rules.Source{rules.SourceClaude})); len(files) != 1 || files[0] != "mobile/.claude/rules/mobile.md" {
+		t.Fatalf("rules of mobile under systems [claude] = %v", files)
+	}
+	for _, dir := range []string{
+		tmp,                            // the workspace's folder is the catalog's
+		filepath.Join(tmp, "db", ".."), // the workspace again
+		filepath.Dir(tmp),              // outside the workspace
+		filepath.Join(tmp, "node_modules", "pkg"),
+		filepath.Join(tmp, "vendor", "lib"),
+		filepath.Join(tmp, ".coddy", "worktrees", "feat"),
+		filepath.Join(tmp, "nowhere"),
+		filepath.Join(tmp, "mobile", ".cursor", "rules", "mobile.mdc"), // a file, not a folder
+	} {
+		if got := f.Folder(tmp, dir, nil); len(got) != 0 {
+			t.Fatalf("Folder(%s) must read nothing, got %v", dir, ruleFiles(tmp, got))
+		}
+	}
+}
+
+// FoldersWithRules names the subfolders of a folder that keep a rule folder,
+// one level down and in order: what "@rule:" completion offers to look into.
+func TestFoldersWithRulesListsOneLevel(t *testing.T) {
+	tmp := nestedGroup(t)
+	if err := os.MkdirAll(filepath.Join(tmp, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f := rules.DefaultFactory("")
+	if got := f.FoldersWithRules(tmp, tmp, nil, 10); len(got) != 2 || got[0] != "db" || got[1] != "mobile" {
+		t.Fatalf("subfolders of the workspace with rules = %v, want [db mobile]", got)
+	}
+	if got := f.FoldersWithRules(tmp, filepath.Join(tmp, "db"), nil, 10); len(got) != 1 || got[0] != "sub" {
+		t.Fatalf("subfolders of db with rules = %v, want [sub]", got)
+	}
+	if got := f.FoldersWithRules(tmp, tmp, nil, 1); len(got) != 1 {
+		t.Fatalf("a limit of one returned %v", got)
+	}
+	if got := f.FoldersWithRules(tmp, tmp, []rules.Source{rules.SourceClaude}, 10); len(got) != 1 || got[0] != "mobile" {
+		t.Fatalf("subfolders with Claude Code rules = %v, want [mobile]", got)
+	}
+	for _, dir := range []string{filepath.Dir(tmp), filepath.Join(tmp, "node_modules"), filepath.Join(tmp, ".coddy")} {
+		if got := f.FoldersWithRules(tmp, dir, nil, 10); len(got) != 0 {
+			t.Fatalf("FoldersWithRules(%s) = %v, want nothing", dir, got)
+		}
+	}
+}

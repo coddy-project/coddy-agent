@@ -1,6 +1,9 @@
 package session
 
 import (
+	"path/filepath"
+	"strings"
+
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 )
@@ -17,6 +20,28 @@ func DiscoverRules(cfg *config.Config, cwd string) []*rules.Rule {
 		return nil
 	}
 	return cat
+}
+
+// SubfolderRules returns the rules of the rule folder of one subfolder of the
+// workspace at cwd, folder naming it relative to cwd with "/" (issue #557):
+// what "@rule:<folder>/<name>" reads, on the spot. Like the workspace's own
+// folders it reads nothing when rules.auto_discover is off, and rules.systems
+// narrows its chain.
+func SubfolderRules(cfg *config.Config, cwd, folder string) []*rules.Rule {
+	if cfg == nil || !cfg.Rules.AutoDiscoverEnabled() || strings.TrimSpace(folder) == "" {
+		return nil
+	}
+	return rules.DefaultFactory("").Folder(cwd, filepath.Join(cwd, filepath.FromSlash(folder)), rules.ParseSystems(cfg.Rules.Systems))
+}
+
+// SubfoldersWithRules names the subfolders of folder ("" for the workspace
+// at cwd itself) that keep a rule folder, at most limit: what the completion
+// of "@rule:" offers to look into.
+func SubfoldersWithRules(cfg *config.Config, cwd, folder string, limit int) []string {
+	if cfg == nil || !cfg.Rules.AutoDiscoverEnabled() {
+		return nil
+	}
+	return rules.DefaultFactory("").FoldersWithRules(cwd, filepath.Join(cwd, filepath.FromSlash(folder)), rules.ParseSystems(cfg.Rules.Systems), limit)
 }
 
 // RulesPrompt is the standing part of a session's system prompt: the

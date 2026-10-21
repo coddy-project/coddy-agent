@@ -84,6 +84,7 @@ func (m *Manager) CheckMentions(ctx context.Context, req MentionCheck) []Checked
 	if m != nil {
 		r.store = m.store
 		r.live = m.getSession
+		r.cfg = m.Cfg()
 	}
 	out := make([]CheckedMention, 0, len(toks))
 	for _, tok := range toks {

@@ -23,6 +23,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mention"
@@ -155,7 +156,10 @@ type mentionResolver struct {
 	store      *FileStore
 	live       func(id string) *State
 	rules      []*rules.Rule
-	scope      MentionScope
+	// cfg holds the rules settings that "@rule:<folder>/<name>" reads a
+	// subfolder's rule folder under; nil reads none.
+	cfg   *config.Config
+	scope MentionScope
 	// agents are read from scope.Agents the first time a prompt names one.
 	agents       []MentionAgent
 	agentsNote   string
@@ -196,6 +200,7 @@ func (m *Manager) ResolvePromptMentions(ctx context.Context, st *State, blocks [
 	if m != nil {
 		r.store = m.store
 		r.live = m.getSession
+		r.cfg = m.Cfg()
 	}
 	return r.resolve(blocks)
 }
@@ -817,10 +822,18 @@ func clipTextFront(s string, limit int) string {
 }
 
 // resolveRule attaches a rule's body: "@rule:<name>" names any rule of the
-// catalog, the way a bare "@name" names a mention-only one.
+// catalog, the way a bare "@name" names a mention-only one, and
+// "@rule:<folder>/<name>" any rule of the rule folder of that subfolder of the
+// workspace, read on the spot (SubfolderRules): a rule of a subfolder is never
+// in the catalog, so a bare name does not reach it.
 func (r *mentionResolver) resolveRule(name, typed string) (*acp.Resource, bool) {
+	catalog := r.rules
+	if i := strings.LastIndexByte(name, '/'); i >= 0 {
+		catalog = SubfolderRules(r.cfg, r.cwd, name[:i])
+		name = name[i+1:]
+	}
 	var rule *rules.Rule
-	for _, rl := range r.rules {
+	for _, rl := range catalog {
 		if rl != nil && strings.EqualFold(rl.CanonicalName(), name) {
 			rule = rl
 			break

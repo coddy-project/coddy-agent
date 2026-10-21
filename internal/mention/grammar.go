@@ -16,7 +16,8 @@ import (
 	"unicode/utf8"
 )
 
-// Scheme names a meta reference: "@session:<id>", "@rule:<name>",
+// Scheme names a meta reference: "@session:<id>", "@rule:<name>" (or
+// "@rule:<folder>/<name>" for a rule of a subfolder's rule folder),
 // "@agent:<name>", "@coddy:<page>#<section>". A token without a scheme is a
 // path.
 type Scheme string
@@ -225,9 +226,11 @@ func parseURL(text string, at int) (Token, bool) {
 
 // parseScheme reads "@session:<ref>", "@rule:<ref>", "@agent:<ref>" and
 // "@coddy:<ref>". A reference is a run of letters, digits, "_", "-" and ".";
-// a documentation page also takes "/" and "#" (features/mentions#completion).
-// A trailing ".", and for a page a trailing "/" or "#", is the end of a
-// sentence or of an unfinished reference, not part of the name.
+// a rule also takes "/", for a rule of a subfolder's rule folder named with
+// its folder (rule:db/deploy), and a documentation page "/" and "#"
+// (features/mentions#completion). A trailing ".", and for a rule or a page a
+// trailing "/" (and "#" for a page), is the end of a sentence or of an
+// unfinished reference, not part of the name.
 func parseScheme(text string, at int) (Token, bool) {
 	rest := text[at+1:]
 	colon := strings.IndexByte(rest, ':')
@@ -240,19 +243,23 @@ func parseScheme(text string, at int) (Token, bool) {
 	}
 	refStart := at + 1 + colon + 1
 	page := scheme == SchemeCoddy
+	slash := page || scheme == SchemeRule
 	k := refStart
 	for k < len(text) {
 		c := text[k]
 		if c == '_' || c == '-' || c == '.' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-			(page && (c == '/' || c == '#')) {
+			(slash && c == '/') || (page && c == '#') {
 			k++
 			continue
 		}
 		break
 	}
 	trim := "."
-	if page {
+	switch {
+	case page:
 		trim = "./#"
+	case slash:
+		trim = "./"
 	}
 	ref := strings.TrimRight(text[refStart:k], trim)
 	if ref == "" {

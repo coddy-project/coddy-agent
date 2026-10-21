@@ -87,7 +87,7 @@ A rule of a subfolder applies to that subfolder and everything below it, never a
 - a rule there that the root would apply from the first turn (`alwaysApply: true` without patterns, a `.md` rule without `paths`, a file without frontmatter) applies to every file under its folder instead, and arrives with the first call that reads or writes one;
 - it never enters the system message: it arrives with the tool result or the message that first reached it, once, and again after a compaction or when its file has changed, like a glob rule ([Rules and the prompt cache](#rules-and-the-prompt-cache));
 - it is known by its full path, so `db/.cursor/rules/workflow.mdc` and the root's `workflow.mdc` both apply, and neither replaces the other;
-- a manual rule there (no patterns, `alwaysApply: false`) does not answer to `@name`: mention its file to attach its text.
+- any rule there answers to `@rule:<folder>/<name>`, the folder named from the project root (`@rule:db/deploy` for `db/.cursor/rules/deploy.mdc`), and that is how a manual rule there (no patterns, `alwaysApply: false`) reaches the model; a bare `@name` or `@rule:<name>` names a rule of the workspace's own folders only.
 
 They are rule folders, so `rules.auto_discover: false` turns them off together with the workspace's, `rules.systems` narrows their chain the same way, and a template without `{{.Rules}}` gets none of them. Your own folder `~/.coddy/rules/` is read once, for the workspace, never for a subfolder. Skills, MCP servers and hooks of subfolders are not read: they run code and stay behind the workspace trust gate.
 
@@ -166,10 +166,10 @@ Rule files already on disk may change mode after this release; `coddy rules list
 | No `alwaysApply`, no patterns, `.mdc` | Mention-only (Cursor's default) |
 | No `alwaysApply`, no patterns, `.md` | Active immediately (Claude Code loads it unconditionally) |
 | No frontmatter | Active immediately |
-| A rule of a subfolder's rule folder | Read on demand with its folder ([Rule folders of subfolders](#rule-folders-of-subfolders)). Arrives **once**, with the first call or mention of a file under its folder that its patterns match (any file there when it has none), and again after a compaction or when its file has changed. A manual rule there answers to no `@name` |
+| A rule of a subfolder's rule folder | Read on demand with its folder ([Rule folders of subfolders](#rule-folders-of-subfolders)). Arrives **once**, with the first call or mention of a file under its folder that its patterns match (any file there when it has none), and again after a compaction or when its file has changed. A manual rule there arrives only through `@rule:<folder>/<name>` |
 | Nested `AGENTS.md`, `DESIGN.md` | Read on demand, whatever `rules.auto_discover`, `rules.systems` and the template say. The first filesystem tool call inside its directory reads it (with every such document on the chain of folders above it) into that call's result, and the first mention of a path there into that user message; like a glob rule, it comes once, and again after a compaction or when the file has changed - an edit made during the session reaches the model with the next call in that folder. A file the system prompt already carries (named in `instructions.files`, or reached through a link) does not come again. Nothing is read for folders no tool enters and no mention names |
 
-Mention-only rules use **`@name`** (file stem) or **`@rule:name`**; `@rule:name` also attaches any other rule of the catalog by name. They are **not** slash commands and do not appear in the skills catalog. `run_command` activates nothing: a shell string cannot be attributed to a path reliably.
+Mention-only rules use **`@name`** (file stem) or **`@rule:name`**; `@rule:name` also attaches any other rule of the catalog by name, and **`@rule:<folder>/<name>`** a rule of the rule folder of that subfolder ([Rule folders of subfolders](#rule-folders-of-subfolders)). They are **not** slash commands and do not appear in the skills catalog. `run_command` activates nothing: a shell string cannot be attributed to a path reliably.
 
 ## AGENTS.md and DESIGN.md
 
