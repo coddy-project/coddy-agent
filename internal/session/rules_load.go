@@ -22,26 +22,50 @@ func DiscoverRules(cfg *config.Config, cwd string) []*rules.Rule {
 	return cat
 }
 
-// SubfolderRules returns the rules of the rule folder of one subfolder of the
-// workspace at cwd, folder naming it relative to cwd with "/" (issue #557):
-// what "@rule:<folder>/<name>" reads, on the spot. Like the workspace's own
-// folders it reads nothing when rules.auto_discover is off, and rules.systems
-// narrows its chain.
+// SubfolderRules returns the rules of Coddy's own rule folder of one subfolder
+// of the workspace at cwd, folder naming it relative to cwd with "/" (issue
+// #557): what "@rule:<folder>/<name>" reads, on the spot. Only
+// <folder>/.coddy/rules answers to a reference; the folders of other agents
+// under a subfolder still apply by their patterns (Factory.Nested) and are
+// reached by a mention of their file. Like the workspace's own folders it
+// reads nothing when rules.auto_discover is off or rules.systems leaves coddy
+// out.
 func SubfolderRules(cfg *config.Config, cwd, folder string) []*rules.Rule {
-	if cfg == nil || !cfg.Rules.AutoDiscoverEnabled() || strings.TrimSpace(folder) == "" {
+	systems, ok := coddyRuleSystems(cfg)
+	if !ok || strings.TrimSpace(folder) == "" {
 		return nil
 	}
-	return rules.DefaultFactory("").Folder(cwd, filepath.Join(cwd, filepath.FromSlash(folder)), rules.ParseSystems(cfg.Rules.Systems))
+	return rules.DefaultFactory("").Folder(cwd, filepath.Join(cwd, filepath.FromSlash(folder)), systems)
 }
 
-// SubfoldersWithRules names the subfolders of folder ("" for the workspace
-// at cwd itself) that keep a rule folder, at most limit: what the completion
-// of "@rule:" offers to look into.
-func SubfoldersWithRules(cfg *config.Config, cwd, folder string, limit int) []string {
-	if cfg == nil || !cfg.Rules.AutoDiscoverEnabled() {
+// SubfoldersWithRules names the subfolders of folder ("" for the workspace at
+// cwd itself) that keep a Coddy rule folder, the names keep admits, at most
+// limit: what the completion of "@rule:" offers to look into.
+func SubfoldersWithRules(cfg *config.Config, cwd, folder string, keep func(name string) bool, limit int) []string {
+	systems, ok := coddyRuleSystems(cfg)
+	if !ok {
 		return nil
 	}
-	return rules.DefaultFactory("").FoldersWithRules(cwd, filepath.Join(cwd, filepath.FromSlash(folder)), rules.ParseSystems(cfg.Rules.Systems), limit)
+	return rules.DefaultFactory("").FoldersWithRules(cwd, filepath.Join(cwd, filepath.FromSlash(folder)), systems, keep, limit)
+}
+
+// coddyRuleSystems is the chain a subfolder is read with for "@rule:": Coddy's
+// own folder alone, and false when rules.auto_discover is off or rules.systems
+// leaves it out.
+func coddyRuleSystems(cfg *config.Config) ([]rules.Source, bool) {
+	if cfg == nil || !cfg.Rules.AutoDiscoverEnabled() {
+		return nil, false
+	}
+	if systems := rules.ParseSystems(cfg.Rules.Systems); len(systems) > 0 {
+		admitted := false
+		for _, s := range systems {
+			admitted = admitted || s == rules.SourceCoddy
+		}
+		if !admitted {
+			return nil, false
+		}
+	}
+	return []rules.Source{rules.SourceCoddy}, true
 }
 
 // RulesPrompt is the standing part of a session's system prompt: the

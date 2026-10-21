@@ -275,10 +275,12 @@ func (f *Factory) Nested(root string, paths []string, systems []Source) []*Rule 
 
 // Folder returns the rules of the rule folder of one subfolder of root, read
 // on the spot the way Nested reads every folder on its chain: what
-// "@rule:<folder>/<name>" reads. dir must be a folder below root, root itself
-// excluded (its rule folder is the catalog's, Discover), reached without a
-// segment the chain never enters (a hidden folder, node_modules, vendor).
-// Each rule is anchored at dir.
+// "@rule:<folder>/<name>" reads, with systems narrowed by the caller (the
+// session reads Coddy's own folder only, SourceCoddy). dir must be a folder
+// below root, root itself excluded (its rule folder is the catalog's,
+// Discover), reached without a segment the chain never enters (a hidden
+// folder, node_modules, vendor) and, once its links are resolved, still inside
+// root. Each rule is anchored at dir.
 func (f *Factory) Folder(root, dir string, systems []Source) []*Rule {
 	root = cleanRoot(root)
 	dir, ok := subfolderOf(root, dir)
@@ -288,17 +290,26 @@ func (f *Factory) Folder(root, dir string, systems []Source) []*Rule {
 	return f.readFolder(dir, admittedBy(systems))
 }
 
-// maxFolderProbes bounds the entries of one folder FoldersWithRules looks at.
-const maxFolderProbes = 256
+// Bounds of one FoldersWithRules call: the entries of the folder it reads,
+// and the children it looks into (a link resolved, a rule folder stat-ed),
+// charged before the look.
+const (
+	maxFolderEntries = 4096
+	maxFolderProbes  = 256
+)
 
 // FoldersWithRules returns the names of the subfolders of dir - root, or a
-// folder Folder accepts - that keep a folder of the chain rules.systems
-// admits, in lexical order and at most limit: what the completion of
-// "@rule:" offers to look into. It looks one level down only, at no more
-// than maxFolderProbes entries, and at the rule folders' existence, never
-// their files, so each step down a group of projects costs the folder it
-// shows. A hidden folder, node_modules and vendor are never offered.
-func (f *Factory) FoldersWithRules(root, dir string, systems []Source, limit int) []string {
+// folder Folder accepts - that keep a folder of the chain systems admits, in
+// lexical order and at most limit: what the completion of "@rule:" offers to
+// look into. keep, when set, decides which names are looked at at all (the
+// part of a query typed after the last "/", the names a reference can spell),
+// so a folder far down a long listing is still found by its name. It looks
+// one level down, at no more than maxFolderEntries entries and
+// maxFolderProbes children, and at the rule folders' existence, never their
+// files, so each step down a group of projects costs the folder it shows. A
+// hidden folder, node_modules, vendor and a link that leaves root are never
+// offered.
+func (f *Factory) FoldersWithRules(root, dir string, systems []Source, keep func(name string) bool, limit int) []string {
 	root = cleanRoot(root)
 	if root == "" || limit <= 0 {
 		return nil
@@ -315,43 +326,60 @@ func (f *Factory) FoldersWithRules(root, dir string, systems []Source, limit int
 			return nil
 		}
 	}
-	entries, err := os.ReadDir(dir)
+	realRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return nil
 	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = d.Close() }()
 	admitted := admittedBy(systems)
 	var out []string
-	probed := 0
-	for _, e := range entries {
-		name := e.Name()
-		if strings.HasPrefix(name, ".") || agentsSkipDirs[name] {
-			continue
-		}
-		child := filepath.Join(dir, name)
-		if !e.IsDir() {
-			if e.Type()&os.ModeSymlink == 0 {
+	read, probed := 0, 0
+	for read < maxFolderEntries && probed < maxFolderProbes {
+		entries, err := d.ReadDir(256)
+		for _, e := range entries {
+			read++
+			name := e.Name()
+			if strings.HasPrefix(name, ".") || agentsSkipDirs[name] || (keep != nil && !keep(name)) {
 				continue
 			}
-			if info, err := os.Stat(child); err != nil || !info.IsDir() {
+			if !e.IsDir() && e.Type()&os.ModeSymlink == 0 {
 				continue
 			}
-		}
-		probed++
-		if probed > maxFolderProbes {
-			break
-		}
-		for _, p := range f.chain {
-			if !admitted(p) || filepath.IsAbs(p.RulesRoot()) {
-				continue
-			}
-			if info, err := os.Stat(filepath.Join(child, p.RulesRoot())); err == nil && info.IsDir() {
-				out = append(out, name)
+			probed++
+			if probed > maxFolderProbes {
 				break
 			}
+			child := filepath.Join(dir, name)
+			if e.Type()&os.ModeSymlink != 0 {
+				real, err := filepath.EvalSymlinks(child)
+				if err != nil || !PathUnderDir(realRoot, real) || SamePath(real, realRoot) {
+					continue
+				}
+				if info, err := os.Stat(real); err != nil || !info.IsDir() {
+					continue
+				}
+			}
+			for _, p := range f.chain {
+				if !admitted(p) || filepath.IsAbs(p.RulesRoot()) {
+					continue
+				}
+				if info, err := os.Stat(filepath.Join(child, p.RulesRoot())); err == nil && info.IsDir() {
+					out = append(out, name)
+					break
+				}
+			}
 		}
-		if len(out) >= limit {
+		if err != nil {
 			break
 		}
+	}
+	sort.Strings(out)
+	if len(out) > limit {
+		out = out[:limit]
 	}
 	return out
 }
@@ -388,7 +416,8 @@ func cleanRoot(root string) string {
 
 // subfolderOf resolves dir (relative to root, or absolute) and reports
 // whether it is an existing folder below root that the chain of Nested
-// reaches: the last folder of the chain to it is dir itself.
+// reaches - the last folder of the chain to it is dir itself - and that stays
+// below root once its links are resolved.
 func subfolderOf(root, dir string) (string, bool) {
 	dir = strings.TrimSpace(dir)
 	if root == "" || dir == "" {
@@ -403,6 +432,16 @@ func subfolderOf(root, dir string) (string, bool) {
 	}
 	chain := agentsChainDirs(root, dir)
 	if len(chain) == 0 || !SamePath(chain[len(chain)-1], dir) {
+		return "", false
+	}
+	// The chain is read lexically; a link anywhere on the way may still lead
+	// out of the workspace, and what it leads to is not the workspace's.
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", false
+	}
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil || !PathUnderDir(realRoot, real) || SamePath(real, realRoot) {
 		return "", false
 	}
 	return dir, true

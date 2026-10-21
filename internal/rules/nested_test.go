@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -197,21 +198,44 @@ func TestFoldersWithRulesListsOneLevel(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := rules.DefaultFactory("")
-	if got := f.FoldersWithRules(tmp, tmp, nil, 10); len(got) != 2 || got[0] != "db" || got[1] != "mobile" {
+	if got := f.FoldersWithRules(tmp, tmp, nil, nil, 10); len(got) != 2 || got[0] != "db" || got[1] != "mobile" {
 		t.Fatalf("subfolders of the workspace with rules = %v, want [db mobile]", got)
 	}
-	if got := f.FoldersWithRules(tmp, filepath.Join(tmp, "db"), nil, 10); len(got) != 1 || got[0] != "sub" {
+	if got := f.FoldersWithRules(tmp, filepath.Join(tmp, "db"), nil, nil, 10); len(got) != 1 || got[0] != "sub" {
 		t.Fatalf("subfolders of db with rules = %v, want [sub]", got)
 	}
-	if got := f.FoldersWithRules(tmp, tmp, nil, 1); len(got) != 1 {
+	if got := f.FoldersWithRules(tmp, tmp, nil, nil, 1); len(got) != 1 {
 		t.Fatalf("a limit of one returned %v", got)
 	}
-	if got := f.FoldersWithRules(tmp, tmp, []rules.Source{rules.SourceClaude}, 10); len(got) != 1 || got[0] != "mobile" {
+	if got := f.FoldersWithRules(tmp, tmp, []rules.Source{rules.SourceClaude}, nil, 10); len(got) != 1 || got[0] != "mobile" {
 		t.Fatalf("subfolders with Claude Code rules = %v, want [mobile]", got)
 	}
 	for _, dir := range []string{filepath.Dir(tmp), filepath.Join(tmp, "node_modules"), filepath.Join(tmp, ".coddy")} {
-		if got := f.FoldersWithRules(tmp, dir, nil, 10); len(got) != 0 {
+		if got := f.FoldersWithRules(tmp, dir, nil, nil, 10); len(got) != 0 {
 			t.Fatalf("FoldersWithRules(%s) = %v, want nothing", dir, got)
 		}
+	}
+}
+
+// keep decides which names are looked at before the budget is spent, so a
+// folder far down a long listing is still found by the name typed for it, and
+// a name keep refuses is never offered.
+func TestFoldersWithRulesKeepsWhatTheQueryNames(t *testing.T) {
+	tmp := t.TempDir()
+	var files []string
+	for i := 0; i < 300; i++ {
+		files = append(files, fmt.Sprintf("p%03d/.coddy/rules/r.mdc", i))
+	}
+	writeRuleTree(t, tmp, files...)
+	f := rules.DefaultFactory("")
+	if got := f.FoldersWithRules(tmp, tmp, nil, nil, 1000); len(got) == 0 || len(got) > 256 {
+		t.Fatalf("an unfiltered listing of 300 folders returned %d, want at most the probe budget", len(got))
+	}
+	got := f.FoldersWithRules(tmp, tmp, nil, func(name string) bool { return name == "p299" }, 10)
+	if len(got) != 1 || got[0] != "p299" {
+		t.Fatalf("the folder the query names = %v, want [p299]", got)
+	}
+	if got := f.FoldersWithRules(tmp, tmp, nil, func(string) bool { return false }, 10); len(got) != 0 {
+		t.Fatalf("names keep refused were offered: %v", got)
 	}
 }

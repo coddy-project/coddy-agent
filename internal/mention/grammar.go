@@ -247,8 +247,7 @@ func parseScheme(text string, at int) (Token, bool) {
 	k := refStart
 	for k < len(text) {
 		c := text[k]
-		if c == '_' || c == '-' || c == '.' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-			(slash && c == '/') || (page && c == '#') {
+		if refChar(c) || (slash && c == '/') || (page && c == '#') {
 			k++
 			continue
 		}
@@ -266,6 +265,28 @@ func parseScheme(text string, at int) (Token, bool) {
 		return Token{}, false
 	}
 	return Token{Start: at, End: refStart + len(ref), Scheme: scheme, Ref: ref}, true
+}
+
+// refChar reports whether c belongs to a meta reference: an ASCII letter, a
+// digit, "_", "-" or ".".
+func refChar(c byte) bool {
+	return c == '_' || c == '-' || c == '.' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+// RefName reports whether name can be written as one segment of a meta
+// reference ("@rule:<folder>/<name>"): it is not empty and holds only the
+// characters refChar admits. A completion offers nothing a reference cannot
+// spell, so picking it never inserts a mention that names something else.
+func RefName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		if !refChar(name[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // isPathRune reports whether r continues a path run. prev is the rune before

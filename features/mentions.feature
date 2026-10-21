@@ -70,13 +70,13 @@ Feature: "@" mentions in a prompt
     Then the check marks "@coddy:features/mentions" as a mention of a doc
     And the check leaves "@coddy:features/nowhere" unmarked
 
-  Scenario: A rule of a subproject's rule folder, named with its folder
-    Given the subproject "db" keeps a Cursor rule "deploy" to apply by hand, reading "DEPLOY_TOKEN"
+  Scenario: A rule of a subproject's Coddy rule folder, named with its folder
+    Given the subproject "db" keeps a Coddy rule "deploy" to apply by hand, reading "DEPLOY_TOKEN"
     When the user sends "ship the migration the way @rule:db/deploy says"
-    Then the prompt attaches "db/.cursor/rules/deploy.mdc" holding "DEPLOY_TOKEN"
+    Then the prompt attaches "db/.coddy/rules/deploy.mdc" holding "DEPLOY_TOKEN"
 
   Scenario: The composer offers the rules of a subproject under its folder
-    Given the subproject "db" keeps a Cursor rule "deploy" to apply by hand, reading "DEPLOY_TOKEN"
+    Given the subproject "db" keeps a Coddy rule "deploy" to apply by hand, reading "DEPLOY_TOKEN"
     When the composer completes "@rule:"
     Then the completion offers "@rule:db/" to look into
     When the composer completes "@rule:db/"

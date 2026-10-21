@@ -402,43 +402,59 @@ func (m *Manager) ruleCandidates(st *State, cwd string) []MentionCandidate {
 }
 
 // maxRuleFolderSteps bounds the subfolders one "@rule:" query offers to look
-// into.
-const maxRuleFolderSteps = 50
+// into, below the answer's default limit, so the rules after them still show;
+// typing narrows the folders before they are counted.
+const maxRuleFolderSteps = 20
 
-// ruleSchemeCandidates is what "@rule:" lists (issue #557). Before a "/" it
-// is the workspace's rules and the subfolders of the workspace that keep a
-// rule folder; after "<folder>/", the rules of that folder's rule folder and
-// the folders below it that keep one. A folder is a step that keeps the
+// ruleSchemeCandidates is what "@rule:" lists (issue #557). Before a "/" it is
+// the subfolders of the workspace that keep a Coddy rule folder, then the
+// workspace's rules; after "<folder>/", the folders below it that keep one,
+// then the rules of its own .coddy/rules. A folder is a step that keeps the
 // picker open, so the picker walks down a group of projects one folder per
-// query and reads only the folder it shows; nothing is walked.
+// query and reads only the folder it shows; nothing is walked. The folders
+// come first so a long list of rules does not push them out of the answer,
+// and only the names that match what was typed after the last "/" and that a
+// reference can spell (mention.RefName) are looked at.
 func (m *Manager) ruleSchemeCandidates(st *State, cwd, q string) []MentionCandidate {
-	folder := ""
+	folder, partial := "", q
 	if i := strings.LastIndexByte(q, '/'); i >= 0 {
-		folder = strings.Trim(q[:i], "/")
+		folder, partial = strings.Trim(q[:i], "/"), q[i+1:]
 	}
+	partial = strings.TrimSpace(partial)
 	var cfg *config.Config
 	if m != nil {
 		cfg = m.Cfg()
 	}
-	var out []MentionCandidate
 	prefix := ""
-	if folder == "" {
-		out = m.ruleCandidates(st, cwd)
-	} else {
+	if folder != "" {
 		prefix = folder + "/"
-		seen := map[string]bool{}
-		for _, r := range SubfolderRules(cfg, cwd, folder) {
-			name := r.CanonicalName()
-			if seen[strings.ToLower(name)] {
-				continue
-			}
-			seen[strings.ToLower(name)] = true
-			out = append(out, MentionCandidate{Kind: mention.KindRule, Insert: "@rule:" + prefix + name, Label: prefix + name, Detail: firstLine(strings.TrimSpace(r.Description))})
-		}
 	}
-	for _, sub := range SubfoldersWithRules(cfg, cwd, folder, maxRuleFolderSteps) {
+	keep := func(name string) bool {
+		if !mention.RefName(name) {
+			return false
+		}
+		if partial == "" {
+			return true
+		}
+		_, ok := mention.Score(partial, name)
+		return ok
+	}
+	var out []MentionCandidate
+	for _, sub := range SubfoldersWithRules(cfg, cwd, folder, keep, maxRuleFolderSteps) {
 		ref := prefix + sub + "/"
 		out = append(out, MentionCandidate{Kind: mention.KindRule, Insert: "@rule:" + ref, Label: ref, Continue: true})
+	}
+	if folder == "" {
+		return append(out, m.ruleCandidates(st, cwd)...)
+	}
+	seen := map[string]bool{}
+	for _, r := range SubfolderRules(cfg, cwd, folder) {
+		name := r.CanonicalName()
+		if !mention.RefName(name) || seen[strings.ToLower(name)] {
+			continue
+		}
+		seen[strings.ToLower(name)] = true
+		out = append(out, MentionCandidate{Kind: mention.KindRule, Insert: "@rule:" + prefix + name, Label: prefix + name, Detail: firstLine(strings.TrimSpace(r.Description))})
 	}
 	return out
 }

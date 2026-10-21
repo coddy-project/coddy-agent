@@ -823,9 +823,9 @@ func clipTextFront(s string, limit int) string {
 
 // resolveRule attaches a rule's body: "@rule:<name>" names any rule of the
 // catalog, the way a bare "@name" names a mention-only one, and
-// "@rule:<folder>/<name>" any rule of the rule folder of that subfolder of the
-// workspace, read on the spot (SubfolderRules): a rule of a subfolder is never
-// in the catalog, so a bare name does not reach it.
+// "@rule:<folder>/<name>" any rule of <folder>/.coddy/rules in the workspace,
+// read on the spot (SubfolderRules): a rule of a subfolder is never in the
+// catalog, so a bare name does not reach it.
 func (r *mentionResolver) resolveRule(name, typed string) (*acp.Resource, bool) {
 	catalog := r.rules
 	if i := strings.LastIndexByte(name, '/'); i >= 0 {

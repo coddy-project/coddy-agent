@@ -213,10 +213,10 @@ func (s *mentionsFeatureState) checkLeavesUnmarked(token string) error {
 	return fmt.Errorf("the check did not read %s as a token: %+v", token, s.checked)
 }
 
-// subprojectKeepsManualRule writes a Cursor rule that applies by hand only
-// (no patterns, alwaysApply: false) into the rule folder of a subfolder.
+// subprojectKeepsManualRule writes a rule that applies by hand only (no
+// patterns, alwaysApply: false) into Coddy's rule folder of a subfolder.
 func (s *mentionsFeatureState) subprojectKeepsManualRule(dir, name, body string) error {
-	p := filepath.Join(s.workspace, filepath.FromSlash(dir), ".cursor", "rules", name+".mdc")
+	p := filepath.Join(s.workspace, filepath.FromSlash(dir), ".coddy", "rules", name+".mdc")
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
@@ -381,7 +381,7 @@ func initializeMentionsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the prompt attaches the earlier session holding "([^"]*)" and "([^"]*)"$`, s.attachesEarlierSession)
 	sc.Step(`^the prompt attaches the subagent "([^"]*)" asking to hand the work to spawn_agent$`, s.attachesSubagent)
 	sc.Step(`^the prompt attaches the documentation "([^"]*)" holding "([^"]*)"$`, s.attachesDocumentation)
-	sc.Step(`^the subproject "([^"]*)" keeps a Cursor rule "([^"]*)" to apply by hand, reading "([^"]*)"$`, s.subprojectKeepsManualRule)
+	sc.Step(`^the subproject "([^"]*)" keeps a Coddy rule "([^"]*)" to apply by hand, reading "([^"]*)"$`, s.subprojectKeepsManualRule)
 	sc.Step(`^the composer completes "([^"]*)"$`, s.composerCompletes)
 	sc.Step(`^the completion offers "([^"]*)"$`, s.completionOffers)
 	sc.Step(`^the completion offers "([^"]*)" to look into$`, s.completionOffersStep)

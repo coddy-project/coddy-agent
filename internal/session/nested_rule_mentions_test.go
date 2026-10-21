@@ -2,6 +2,7 @@ package session_test
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -14,17 +15,22 @@ import (
 )
 
 // nestedRuleWorkspace is a workspace with a rule of its own and a subproject,
-// db, whose rule folder keeps a rule to apply by hand, with a folder below it
-// that keeps rules too, next to folders the chain of subfolders never enters.
+// db, whose Coddy rule folder keeps a rule to apply by hand, with a folder
+// below it that keeps one too; next to them a subproject that keeps another
+// agent's rule folder only, folders a reference cannot spell, and folders the
+// chain of subfolders never enters.
 func nestedRuleWorkspace(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	for path, body := range map[string]string{
-		".cursor/rules/style.mdc":                   "---\nalwaysApply: false\n---\nSTYLE_TOKEN",
-		"db/.cursor/rules/deploy.mdc":               "---\ndescription: Deploy by hand\nalwaysApply: false\n---\nDEPLOY_TOKEN",
-		"db/sub/.cursor/rules/deep.mdc":             "---\nalwaysApply: false\n---\nDEEP_TOKEN",
-		"node_modules/pkg/.cursor/rules/deploy.mdc": "---\nalwaysApply: false\n---\nDEPENDENCY_TOKEN",
-		".coddy/worktrees/feat/.cursor/rules/x.mdc": "---\nalwaysApply: false\n---\nWORKTREE_TOKEN",
+		".cursor/rules/style.mdc":                  "---\nalwaysApply: false\n---\nSTYLE_TOKEN",
+		"db/.coddy/rules/deploy.mdc":               "---\ndescription: Deploy by hand\nalwaysApply: false\n---\nDEPLOY_TOKEN",
+		"db/sub/.coddy/rules/deep.mdc":             "---\nalwaysApply: false\n---\nDEEP_TOKEN",
+		"web/.cursor/rules/web.mdc":                "---\nalwaysApply: false\n---\nCURSOR_SUBPROJECT_TOKEN",
+		"my app/.coddy/rules/spaced.mdc":           "---\nalwaysApply: false\n---\nSPACED_TOKEN",
+		"мобильное/.coddy/rules/mobile.mdc":        "---\nalwaysApply: false\n---\nCYRILLIC_TOKEN",
+		"node_modules/pkg/.coddy/rules/deploy.mdc": "---\nalwaysApply: false\n---\nDEPENDENCY_TOKEN",
+		".coddy/worktrees/feat/.coddy/rules/x.mdc": "---\nalwaysApply: false\n---\nWORKTREE_TOKEN",
 	} {
 		p := filepath.Join(root, filepath.FromSlash(path))
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -57,11 +63,12 @@ func TestNestedRuleMentionNamesItsFolder(t *testing.T) {
 	resolve := func(text string) string {
 		return attachedText(m.ResolvePromptMentions(context.Background(), st, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: text}}, session.MentionScope{}))
 	}
-	if got := resolve("see @rule:db/sub/deep and @rule:style"); !strings.Contains(got, "db/sub/.cursor/rules/deep.mdc DEEP_TOKEN") || !strings.Contains(got, "STYLE_TOKEN") {
+	if got := resolve("see @rule:db/sub/deep and @rule:style"); !strings.Contains(got, "db/sub/.coddy/rules/deep.mdc DEEP_TOKEN") || !strings.Contains(got, "STYLE_TOKEN") {
 		t.Fatalf("a deeper folder's rule or the workspace's rule is missing: %q", got)
 	}
 	for _, text := range []string{
 		"@rule:deploy",                  // a bare name is the workspace's
+		"@rule:web/web",                 // another agent's rule folder
 		"@rule:db/nope",                 // no such rule there
 		"@rule:db/style",                // the workspace's rule is not db's
 		"@rule:../db/deploy",            // climbs out of the workspace
@@ -128,8 +135,10 @@ func TestNestedRuleCompletionWalksDownOneFolderAtATime(t *testing.T) {
 		t.Fatalf("@rule: lost the workspace's own rule: %v", top)
 	}
 	for insert := range top {
-		if strings.Contains(insert, "node_modules") || strings.Contains(insert, ".coddy") {
-			t.Fatalf("@rule: offered %s", insert)
+		for _, never := range []string{"node_modules", ".coddy", "web/", "my app", "мобильное"} {
+			if strings.Contains(insert, never) {
+				t.Fatalf("@rule: offered %s", insert)
+			}
 		}
 	}
 	db := search("rule:db/")
@@ -158,5 +167,66 @@ func TestNestedRuleMentionCheck(t *testing.T) {
 	}
 	if kinds["@rule:db/deploy"] != "rule" || kinds["@rule:db/nope"] != "" {
 		t.Fatalf("check = %+v", got)
+	}
+}
+
+// "@rule:<folder>/<name>" reads Coddy's own rule folder of a subfolder:
+// rules.systems without coddy turns it off, as it leaves .coddy/rules out of
+// the workspace's chain.
+func TestNestedRuleMentionReadsCoddyRulesOnly(t *testing.T) {
+	root := nestedRuleWorkspace(t)
+	for systems, want := range map[string]bool{"cursor": false, "coddy": true} {
+		cfg := &config.Config{}
+		cfg.Agent.ApplyDefaults()
+		cfg.Rules.Systems = []string{systems}
+		m := session.NewManager(cfg, noopSender{}, noopRunner, slog.New(slog.DiscardHandler), root, &session.FileStore{Root: t.TempDir()})
+		res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: root})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := attachedText(m.ResolvePromptMentions(context.Background(), m.SessionByID(res.SessionID), []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "@rule:db/deploy"}}, session.MentionScope{}))
+		if strings.Contains(got, "DEPLOY_TOKEN") != want {
+			t.Fatalf("rules.systems [%s]: @rule:db/deploy attached %q", systems, got)
+		}
+	}
+}
+
+// The folders "@rule:" offers come before the workspace's rules, so a long
+// list of rules does not push them out of the answer, and the name typed
+// decides which folders are looked at, so one far down a long listing is
+// still found.
+func TestNestedRuleCompletionKeepsItsFolders(t *testing.T) {
+	root := t.TempDir()
+	var paths []string
+	for i := 0; i < 60; i++ {
+		paths = append(paths, fmt.Sprintf(".coddy/rules/rule-%02d.mdc", i), fmt.Sprintf("p%02d/.coddy/rules/r.mdc", i))
+	}
+	for _, path := range paths {
+		p := filepath.Join(root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("---\nalwaysApply: false\n---\nbody"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m, sid := mentionTestManager(t, root)
+	res, err := m.SearchMentions(context.Background(), session.MentionSearch{SessionID: sid, Query: "rule:"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Items) == 0 || !res.Items[0].Continue {
+		t.Fatalf("@rule: with 60 rules of its own does not lead with its folders: %q", candidateInserts(res))
+	}
+	res, err = m.SearchMentions(context.Background(), session.MentionSearch{SessionID: sid, Query: "rule:p59"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range res.Items {
+		found = found || c.Insert == "@rule:p59/"
+	}
+	if !found {
+		t.Fatalf("@rule:p59 does not offer the folder p59: %q", candidateInserts(res))
 	}
 }
