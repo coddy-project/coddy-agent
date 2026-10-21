@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
@@ -66,6 +69,35 @@ func newQueueManagerWith(t *testing.T, run session.AgentRunner) (*session.Manage
 		t.Fatalf("HandleSessionNew: %v", err)
 	}
 	return m, res.SessionID
+}
+
+func TestQueuePreferenceRollsBackWhenProcessOverrideRejectsReload(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(path, []byte("agent:\n  queue_mode: steer\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadWithPaths(config.Paths{Home: home, CWD: home, ConfigPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), home, nil)
+	m.SetConfigAdjuster(func(next *config.Config) error {
+		if next.Agent.QueueMode == string(session.QueueModeAfterTurn) {
+			return fmt.Errorf("process override rejects queue preference")
+		}
+		return nil
+	})
+	if err := m.SetQueueModePreference(session.QueueModeAfterTurn); err == nil {
+		t.Fatal("queue preference save succeeded despite a rejected reload")
+	}
+	saved, err := config.LoadWithPaths(cfg.Paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Agent.QueueMode != "steer" || m.Cfg().Agent.QueueMode != "steer" {
+		t.Fatalf("queue preference changed after rollback: saved=%q live=%q", saved.Agent.QueueMode, m.Cfg().Agent.QueueMode)
+	}
 }
 
 // A message written in the final moments of a turn - after the loop's last read
