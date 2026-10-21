@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 )
 
@@ -534,20 +533,4 @@ func (s *Server) invalidateSlashCache() {
 	s.slashMu.Lock()
 	s.slashCache = make(map[string]slashListCacheEntry)
 	s.slashMu.Unlock()
-}
-
-// reloadConfigFromDisk re-reads config.yaml (after a route persisted it) and
-// swaps it into the running server and session manager.
-func (s *Server) reloadConfigFromDisk() {
-	c := s.activeCfg()
-	if c == nil {
-		return
-	}
-	reloaded, err := config.LoadWithPaths(c.Paths)
-	if err != nil {
-		s.log.Error("skills config reload", "error", err)
-		return
-	}
-	s.ReplaceConfig(reloaded)
-	s.mgr.ReplaceConfig(reloaded)
 }

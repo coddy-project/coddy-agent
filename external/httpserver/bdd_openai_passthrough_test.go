@@ -22,6 +22,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 	"github.com/tidwall/gjson"
@@ -44,21 +45,44 @@ const (
 // answer, an offered get_weather tool gets a call to it, an image gets a
 // description, anything else a greeting.
 type recordingOpenAIBackend struct {
-	mu       sync.Mutex
-	requests []string
+	mu             sync.Mutex
+	requests       []string
+	echoUser       bool
+	nextCompletion *passthroughCompletionGate
+}
+
+type passthroughCompletionGate struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (g *passthroughCompletionGate) open() {
+	g.once.Do(func() { close(g.release) })
 }
 
 func (b *recordingOpenAIBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	raw, _ := io.ReadAll(r.Body)
 	b.mu.Lock()
 	b.requests = append(b.requests, string(raw))
+	echoUser := b.echoUser
+	gate := b.nextCompletion
+	b.nextCompletion = nil
 	b.mu.Unlock()
+	if gate != nil {
+		close(gate.started)
+		<-gate.release
+	}
 
 	hasToolResult := false
 	hasImage := false
+	echoedUser := ""
 	for _, m := range gjson.GetBytes(raw, "messages").Array() {
 		if m.Get("role").String() == "tool" {
 			hasToolResult = true
+		}
+		if echoUser && m.Get("role").String() == "user" {
+			echoedUser = m.Get("content").String()
 		}
 		for _, part := range m.Get("content").Array() {
 			if part.Get("type").String() == "image_url" {
@@ -85,6 +109,8 @@ func (b *recordingOpenAIBackend) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		}
 	case hasImage:
 		text = passthroughImageAnswer
+	case echoUser:
+		text = echoedUser
 	default:
 		text = passthroughPlainAnswer
 	}
@@ -141,15 +167,111 @@ func (b *recordingOpenAIBackend) last() string {
 }
 
 type openAIPassthroughState struct {
-	root      string
-	cwd       string
-	backend   *recordingOpenAIBackend
-	backendTS *httptest.Server
-	srv       *Server
-	ts        *httptest.Server
-	sseBody   string
-	frames    []sseFrame
-	jsonBody  string
+	root                   string
+	cwd                    string
+	backend                *recordingOpenAIBackend
+	backendTS              *httptest.Server
+	srv                    *Server
+	ts                     *httptest.Server
+	sseBody                string
+	frames                 []sseFrame
+	jsonBody               string
+	concurrentFirstAnswer  string
+	concurrentFirstStatus  int
+	concurrentSecondStatus int
+	concurrentSecondBody   string
+}
+
+const passthroughConcurrencyModel = "local/qwen3-1.7b"
+
+func (s *openAIPassthroughState) twoConcurrentDirectPosts(first, second string) error {
+	gate := &passthroughCompletionGate{started: make(chan struct{}), release: make(chan struct{})}
+	defer gate.open()
+	s.backend.mu.Lock()
+	s.backend.echoUser = true
+	s.backend.nextCompletion = gate
+	s.backend.mu.Unlock()
+
+	// Bounded, so a request that waits for the other one fails the step
+	// instead of hanging it.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	post := func(prompt string) (*http.Request, error) {
+		body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}],"stream":false}`, passthroughConcurrencyModel, prompt)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.ts.URL+"/v1/chat/completions", strings.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Coddy-Session-ID", "sess_bdd_direct_concurrency")
+		return req, nil
+	}
+	type result struct {
+		status int
+		body   []byte
+		err    error
+	}
+	firstReq, err := post(first)
+	if err != nil {
+		return err
+	}
+	firstDone := make(chan result, 1)
+	go func() {
+		res, err := http.DefaultClient.Do(firstReq)
+		if err != nil {
+			firstDone <- result{err: err}
+			return
+		}
+		body, readErr := io.ReadAll(res.Body)
+		_ = res.Body.Close()
+		firstDone <- result{status: res.StatusCode, body: body, err: readErr}
+	}()
+	select {
+	case <-gate.started:
+	case <-time.After(2 * time.Second):
+		return fmt.Errorf("first request did not reach the direct model")
+	}
+
+	secondReq, err := post(second)
+	if err != nil {
+		return err
+	}
+	secondRes, err := http.DefaultClient.Do(secondReq)
+	if err != nil {
+		return err
+	}
+	secondBody, readErr := io.ReadAll(secondRes.Body)
+	_ = secondRes.Body.Close()
+	if readErr != nil {
+		return readErr
+	}
+	gate.open()
+	firstResult := <-firstDone
+	if firstResult.err != nil {
+		return firstResult.err
+	}
+	s.jsonBody = string(firstResult.body)
+	s.concurrentFirstStatus = firstResult.status
+	s.concurrentFirstAnswer = gjson.GetBytes(firstResult.body, "choices.0.message.content").String()
+	s.concurrentSecondStatus = secondRes.StatusCode
+	s.concurrentSecondBody = string(secondBody)
+	return nil
+}
+
+func (s *openAIPassthroughState) concurrentDirectResult(answer string, status int) error {
+	if s.concurrentFirstStatus != http.StatusOK {
+		return fmt.Errorf("first request status %d, want 200", s.concurrentFirstStatus)
+	}
+	if s.concurrentFirstAnswer != answer {
+		return fmt.Errorf("first request received %q, want its own answer %q", s.concurrentFirstAnswer, answer)
+	}
+	if s.concurrentSecondStatus != status {
+		return fmt.Errorf("second request status %d, want %d", s.concurrentSecondStatus, status)
+	}
+	if status == http.StatusConflict && !strings.Contains(s.concurrentSecondBody, "session busy") {
+		return fmt.Errorf("second response does not explain the busy session: %s", s.concurrentSecondBody)
+	}
+	return nil
 }
 
 func (s *openAIPassthroughState) reset() error {
@@ -440,6 +562,8 @@ func initializeOpenAIPassthroughScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^an OpenAI client streams "([^"]+)" with a "([^"]+)" tool$`, s.streamsWithTool)
 	sc.Step(`^an OpenAI client streams "([^"]+)" with the tool result "([^"]+)" for call "([^"]+)"$`, s.streamsWithToolResult)
 	sc.Step(`^an OpenAI client posts "([^"]+)" with a "([^"]+)" tool without streaming$`, s.postsWithToolWithoutStreaming)
+	sc.Step(`^two OpenAI clients post "([^"]+)" and "([^"]+)" to the same session concurrently$`, s.twoConcurrentDirectPosts)
+	sc.Step(`^the first request receives "([^"]+)" and the second request receives (\d+)$`, s.concurrentDirectResult)
 	sc.Step(`^an OpenAI client streams "([^"]+)" with a text part and an image part$`, s.streamsWithTextAndImage)
 	sc.Step(`^the upstream request offered the tool "([^"]+)"$`, s.upstreamOfferedTheTool)
 	sc.Step(`^the upstream request offered coddy's own tools and not "([^"]+)"$`, s.upstreamOfferedCoddysToolsNot)

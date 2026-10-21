@@ -4965,9 +4965,12 @@ a.rail-brand {
 
 /* Centred on the first line of the block: 1px border + 6px padding + half an
    18px line = 16px, less half the 26px button. A one-line block has it in
-   its middle. */
+   its middle. The z-index keeps it tappable: iOS Safari hit-tests a scrolling
+   (overflow: auto) pre above an earlier absolutely positioned sibling that has
+   none, so the painted button never got the tap. */
 .md-copy {
   position: absolute;
+  z-index: 1;
   top: 3px;
   right: 5px;
   display: inline-flex;

@@ -368,7 +368,10 @@ func TestConfigSetRefreshesToolDefinitionsWithinSameTurn(t *testing.T) {
 	st := &session.State{ID: "sess_config_reload", CWD: dir, Mode: session.ModeAgent}
 	provider := &configReloadProvider{}
 	ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
-	ag.SetConfigReloader(func(context.Context) ([]string, error) { return nil, nil })
+	ag.SetConfigReloader(func(context.Context) (*config.Config, []string, error) {
+		next, err := config.Load(configPath)
+		return next, nil, err
+	})
 	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
 
 	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "disable skill discovery"}}); err != nil {
@@ -394,6 +397,60 @@ func TestConfigSetRefreshesToolDefinitionsWithinSameTurn(t *testing.T) {
 	if contains(provider.tools[2], "load_skill") {
 		t.Fatal("load_skill should be removed after same-turn config_commit reload")
 	}
+}
+
+// A process override (here `coddy serve --skills-auto-discovery`) outvotes the
+// file for the rest of the turn that committed it, not only for the turns that
+// come after it (issue #441): the agent runs on what the manager installed.
+func TestConfigCommitKeepsProcessOverrideWithinSameTurn(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("skills:\n  auto_discovery: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Providers = []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}}
+	cfg.Models = []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}}
+	cfg.Agent.Model = "fake/model"
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	mgr := session.NewManager(cfg, resumePermissionSender{}, runner, slog.Default(), dir, nil)
+	mgr.SetConfigAdjuster(func(next *config.Config) error {
+		on := true
+		next.Skills.AutoDiscovery = &on
+		return nil
+	})
+	st := &session.State{ID: "sess_config_override", CWD: dir, Mode: session.ModeAgent}
+	provider := &configReloadProvider{}
+	ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
+	ag.SetConfigReloader(func(ctx context.Context) (*config.Config, []string, error) {
+		return mgr.ReloadConfigForSession(ctx, nil)
+	})
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "disable skill discovery"}}); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 3 {
+		t.Fatalf("provider calls = %d, want stage, commit, and final answer", provider.calls)
+	}
+	saved, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Skills.AutoDiscoveryEnabled() {
+		t.Fatal("config_commit did not write skills.auto_discovery: false")
+	}
+	for _, def := range provider.tools[2] {
+		if def.Name == "load_skill" {
+			return
+		}
+	}
+	t.Fatal("load_skill vanished after config_commit although the process override keeps skill discovery on")
 }
 
 // Committing the agent's own config can start MCP processes and change the
@@ -425,7 +482,10 @@ func TestConfigCommitPermissionPerMode(t *testing.T) {
 		sender := &recordingPermissionSender{}
 		provider := &configReloadProvider{}
 		ag := NewAgent(cfg, st, sender, nil)
-		ag.SetConfigReloader(func(context.Context) ([]string, error) { return nil, nil })
+		ag.SetConfigReloader(func(context.Context) (*config.Config, []string, error) {
+			next, err := config.Load(configPath)
+			return next, nil, err
+		})
 		ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
 
 		if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "disable skill discovery"}}); err != nil {

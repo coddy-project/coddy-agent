@@ -395,11 +395,7 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 	}
 	if a.configReloader != nil {
 		env.ReloadConfig = func(ctx context.Context) ([]string, error) {
-			warnings, err := a.configReloader(ctx)
-			if err != nil {
-				return warnings, err
-			}
-			next, err := config.LoadWithPaths(a.cfg.Paths)
+			next, warnings, err := a.configReloader(ctx)
 			if err != nil {
 				return warnings, err
 			}
