@@ -20,14 +20,26 @@ type pictureSession interface {
 	GetPersistedSessionDir() string
 }
 
+// albumMax is the most pictures Telegram takes as one album, and 2 the
+// fewest: one picture goes as a photo of its own.
+const albumMax = 10
+
+// outgoingPicture is a picture of a call read from the copy the session kept.
+type outgoingPicture struct {
+	name string
+	data []byte
+}
+
 // sendPictures posts the pictures a finished call of the chat's own session
-// returned (read on an image file, an MCP tool's image blocks), one photo
-// each, captioned with the picture's name, so the chat sees what the agent
-// looked at while the turn runs. The photo is the copy kept with the session,
-// the picture the model was shown even when the workspace file changed since. A picture Telegram
-// refuses as a photo (a side past its limits) goes as a document; one that
-// cannot be read is left out, and the answer still comes. A subagent's calls
-// belong to another session and are not the chat's to see.
+// returned (read on an image file, an MCP tool's image blocks), captioned
+// with their names, so the chat sees what the agent looked at while the turn
+// runs: one picture as a photo, several as albums of up to ten, a picture
+// left over after the last full album as a photo. The photo is the copy kept
+// with the session, the picture the model was shown even when the workspace
+// file changed since. A picture Telegram refuses as a photo (a side past its
+// limits) goes as a document; one that cannot be read is left out, and the
+// answer still comes. A subagent's calls belong to another session and are
+// not the chat's to see.
 func (s *Sender) sendPictures(sessionID string, images []session.ToolImage) {
 	if len(images) == 0 || s.pictures == nil || sessionID != s.pictures.GetID() {
 		return
@@ -37,12 +49,7 @@ func (s *Sender) sendPictures(sessionID string, images []session.ToolImage) {
 		return
 	}
 	assets := session.AssetsPath(dir)
-	posted := false
-	defer func() {
-		if posted {
-			s.moveLiveBelow()
-		}
-	}()
+	var pictures []outgoingPicture
 	for _, img := range images {
 		// The asset is a bare name inside the session's assets directory; any
 		// other spelling is not a copy this session made.
@@ -69,26 +76,71 @@ func (s *Sender) sendPictures(sessionID string, images []session.ToolImage) {
 		if name == "" {
 			name = img.Asset
 		}
-		file := tgbotapi.FileBytes{Name: name, Bytes: data}
-		photo := tgbotapi.NewPhoto(s.chatID, file)
-		photo.Caption = name
-		if _, err = s.bot.Send(photo); err == nil {
-			posted = true
-			continue
-		}
-		if !photoRefused(err) {
-			s.log.Warn("telegram: send picture", "name", name, "err", err)
-			continue
-		}
-		s.log.Debug("telegram: picture refused as a photo, sending it as a document", "name", name, "err", err)
-		doc := tgbotapi.NewDocument(s.chatID, file)
-		doc.Caption = name
-		if _, err := s.bot.Send(doc); err != nil {
-			s.log.Warn("telegram: send picture", "name", name, "err", err)
-			continue
-		}
-		posted = true
+		pictures = append(pictures, outgoingPicture{name: name, data: data})
 	}
+	posted := false
+	for start := 0; start < len(pictures); start += albumMax {
+		group := pictures[start:min(start+albumMax, len(pictures))]
+		if len(group) == 1 {
+			posted = s.sendPicture(group[0]) || posted
+			continue
+		}
+		posted = s.sendAlbum(group) || posted
+	}
+	if posted {
+		s.moveLiveBelow()
+	}
+}
+
+// sendAlbum posts 2 to albumMax pictures as one album and reports whether
+// anything was posted. An album Telegram refuses as photos goes picture by
+// picture, so each can still go as a document; any other failure (a rate
+// limit, a failure on the way) is not tried another way.
+func (s *Sender) sendAlbum(pictures []outgoingPicture) bool {
+	media := make([]interface{}, 0, len(pictures))
+	for _, p := range pictures {
+		photo := tgbotapi.NewInputMediaPhoto(tgbotapi.FileBytes{Name: p.name, Bytes: p.data})
+		photo.Caption = p.name
+		media = append(media, photo)
+	}
+	_, err := s.bot.SendMediaGroup(tgbotapi.NewMediaGroup(s.chatID, media))
+	if err == nil {
+		return true
+	}
+	if !photoRefused(err) {
+		s.log.Warn("telegram: send album", "pictures", len(pictures), "err", err)
+		return false
+	}
+	s.log.Debug("telegram: album refused as photos, sending its pictures one by one", "pictures", len(pictures), "err", err)
+	posted := false
+	for _, p := range pictures {
+		posted = s.sendPicture(p) || posted
+	}
+	return posted
+}
+
+// sendPicture posts one picture as a photo, or as a document when Telegram
+// refuses it as a photo, and reports whether it was posted.
+func (s *Sender) sendPicture(p outgoingPicture) bool {
+	file := tgbotapi.FileBytes{Name: p.name, Bytes: p.data}
+	photo := tgbotapi.NewPhoto(s.chatID, file)
+	photo.Caption = p.name
+	_, err := s.bot.Send(photo)
+	if err == nil {
+		return true
+	}
+	if !photoRefused(err) {
+		s.log.Warn("telegram: send picture", "name", p.name, "err", err)
+		return false
+	}
+	s.log.Debug("telegram: picture refused as a photo, sending it as a document", "name", p.name, "err", err)
+	doc := tgbotapi.NewDocument(s.chatID, file)
+	doc.Caption = p.name
+	if _, err := s.bot.Send(doc); err != nil {
+		s.log.Warn("telegram: send picture", "name", p.name, "err", err)
+		return false
+	}
+	return true
 }
 
 // photoRefused reports whether Telegram refused a picture as a photo - its

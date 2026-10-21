@@ -46,7 +46,8 @@ const Tool = "get_token"
 
 // ScreenshotTool answers with the server's token as a text block and a PNG as
 // an image block: Picture(token), or LargePicture(token) when the call's
-// arguments are {"large": true}. The npx server does not offer it.
+// arguments are {"large": true}; {"count": n} returns Pictures(token, n)
+// instead. The npx server does not offer it.
 const ScreenshotTool = "take_screenshot"
 
 // Picture is the PNG a call of ScreenshotTool returns: 16x12 pixels of one
@@ -62,6 +63,20 @@ func Picture(token string) []byte {
 		}
 	}
 	return encodePNG(img)
+}
+
+// Pictures are the n PNGs a call of ScreenshotTool with {"count": n}
+// returns: Picture(token) first, then a picture of another colour each.
+func Pictures(token string, n int) [][]byte {
+	out := make([][]byte, 0, n)
+	for i := 1; i <= n; i++ {
+		if i == 1 {
+			out = append(out, Picture(token))
+			continue
+		}
+		out = append(out, Picture(fmt.Sprintf("%s#%d", token, i)))
+	}
+	return out
 }
 
 var largePictures sync.Map // token -> []byte
@@ -206,6 +221,7 @@ type request struct {
 		Name      string `json:"name"`
 		Arguments struct {
 			Large bool `json:"large"`
+			Count int  `json:"count"`
 		} `json:"arguments"`
 	} `json:"params"`
 }
@@ -234,7 +250,7 @@ func answer(line []byte, token string, called *atomic.Int64) (map[string]any, bo
 		}, {
 			"name":        ScreenshotTool,
 			"description": "Answer with this server's token and a screenshot",
-			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"large": map[string]any{"type": "boolean"}}},
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"large": map[string]any{"type": "boolean"}, "count": map[string]any{"type": "integer"}}},
 		}}}
 	case "tools/call":
 		if called != nil {
@@ -242,11 +258,16 @@ func answer(line []byte, token string, called *atomic.Int64) (map[string]any, bo
 		}
 		content := []map[string]any{{"type": "text", "text": token}}
 		if req.Params.Name == ScreenshotTool {
-			picture := Picture(token)
-			if req.Params.Arguments.Large {
-				picture = LargePicture(token)
+			pictures := [][]byte{Picture(token)}
+			switch {
+			case req.Params.Arguments.Count > 1:
+				pictures = Pictures(token, req.Params.Arguments.Count)
+			case req.Params.Arguments.Large:
+				pictures = [][]byte{LargePicture(token)}
 			}
-			content = append(content, map[string]any{"type": "image", "mimeType": "image/png", "data": base64.StdEncoding.EncodeToString(picture)})
+			for _, picture := range pictures {
+				content = append(content, map[string]any{"type": "image", "mimeType": "image/png", "data": base64.StdEncoding.EncodeToString(picture)})
+			}
 		}
 		result = map[string]any{"content": content}
 	}
