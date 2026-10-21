@@ -315,6 +315,35 @@ export function isBareGoalCommand(text: string): boolean {
   return text.trim() === "/goal";
 }
 
+/** Objective length as the server counts it: runes, not UTF-16 units. */
+export function objectiveLength(text: string): number {
+  return Array.from(text.trim()).length;
+}
+
+/** The objective after leading options; null for other messages and controls. */
+export function goalDraftObjective(text: string): string | null {
+  if (!isGoalCommand(text)) return null;
+  let rest = text.trim().slice(5).trim();
+  const takeWord = () => {
+    const word = rest.match(/^\S+/)?.[0] ?? "";
+    rest = rest.slice(word.length).trim();
+    return word;
+  };
+  while (/^(?:--\S*|-[mr](?:=\S*)?)(?:\s|$)/.test(rest)) {
+    const word = takeWord();
+    const name = word.split("=")[0];
+    if (
+      ["--model", "--reasoning", "--then-file", "-m", "-r"].includes(name!) &&
+      !word.includes("=") &&
+      !/^(?:--\S*|-[mr](?:=\S*)?)(?:\s|$)/.test(rest)
+    )
+      takeWord();
+  }
+  if (/^(?:clear|stop|off|cancel|reset|none|pause|resume)$/i.test(rest))
+    return null;
+  return rest;
+}
+
 /**
  * The prompt that sets (or replaces) a goal and starts working on it. The
  * checker and the follow-up file a goal was set with go with it, so an edited

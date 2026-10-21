@@ -18,6 +18,29 @@ import { parseSessionGoal, type SessionGoal } from "./goal";
 
 afterEach(() => cleanup());
 
+test("a goal that is too long keeps its text in the composer", () => {
+  const onSend = vi.fn();
+  const objective = "😀".repeat(4001);
+  const draft = `/goal -m mini --reasoning=high --then-file next.md ${objective}  `;
+  render(<Harness goal={null} initial={draft} onSend={onSend} />);
+  const field = screen.getByRole("textbox", { name: "Message" });
+  expect(screen.getByTestId("composer-goal-count")).toHaveTextContent(
+    "4001 / 4000",
+  );
+  expect(screen.getByRole("alert")).toHaveTextContent("4000");
+  expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  fireEvent.keyDown(field, { key: "Enter" });
+  expect(onSend).not.toHaveBeenCalled();
+  expect(field).toHaveValue(draft);
+  const trimmed = `/goal -m mini ${"😀".repeat(4000)}`;
+  fireEvent.change(field, { target: { value: trimmed } });
+  expect(screen.getByTestId("composer-goal-count")).toHaveTextContent(
+    "4000 / 4000",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(onSend).toHaveBeenCalledWith(trimmed);
+});
+
 function goalOf(over: Record<string, unknown> = {}): SessionGoal {
   return parseSessionGoal({
     id: "goal_1",

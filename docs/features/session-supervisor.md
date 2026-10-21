@@ -6,6 +6,17 @@ The supervisor is a second model rather than the worker grading itself. It judge
 
 ## Commands
 
+Put options before the objective. A trailing assignment such as `--model mini` or
+`-r high` is refused; a typographic dash in an option such as `—model` is reported
+so it can be replaced with `--model`. These options do not count toward the
+4000-character limit. The web composer shows the trimmed objective's character
+count, blocks an overlong goal, and restores a goal's text if the server refuses
+to set it, so you can correct and resend it.
+
+![Goal length counter and warning in the web composer](../assets/session-supervisor/goal-composer-limit-dark-1280.png)
+
+*An overlong goal stays in the composer for correction.*
+
 | Command | What it does |
 |---|---|
 | `/goal [-m\|--model <id>] [-r\|--reasoning <level>] [--then-file <path>] <objective>` | Sets the goal, replacing any earlier one, and starts a turn on it right away. The objective is limited to 4000 characters; put longer specifications in a file and name it. `--model` and `--reasoning` choose the model and the reasoning level that check this goal, like `/compact --model`: a configured `models[].model` (or a part of one that matches exactly one model) and a level that model offers (`default` for its own). `-m` and `-r` are the short spellings. `--then-file` names a file whose text becomes the goal of a new session once this goal is met (see [Goal chains](#goal-chains)). |

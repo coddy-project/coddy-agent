@@ -14,6 +14,8 @@ import (
 func TestSessionGoalWebUIFeature(t *testing.T) {
 	const app = "src/ui/App.goal.test.tsx"
 	steps := map[string][2]string{
+		`^a goal that is too long keeps its text in the composer$`:                    {"src/ui/chat/ComposerGoal.test.tsx", "a goal that is too long keeps its text in the composer"},
+		`^a refused goal restores the typed draft$`:                                   {app, "a refused goal restores the typed draft"},
 		`^the goal of the session read shows on the mark and its turns as goal rows$`: {app, "the goal of the session read shows on the mark, and its turns as goal rows"},
 		`^the mark opens the popover with everything the supervisor knows$`:           {"src/ui/chat/ComposerGoal.test.tsx", "the mark opens the popover with everything the supervisor knows"},
 		`^Pause reaches the goal route and the answer moves the mark$`:                {app, "Pause reaches PATCH /goal and the answer moves the mark"},

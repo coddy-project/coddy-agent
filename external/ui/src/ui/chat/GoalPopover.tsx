@@ -23,6 +23,7 @@ import {
   goalSetPrompt,
   goalStatusKey,
   goalTone,
+  objectiveLength,
   goalVerdictKey,
   type GoalChecklistItem,
   type SessionGoal,
@@ -57,11 +58,6 @@ type FloatRect = {
   bottom?: number;
   maxHeight: number;
 };
-
-/** Objective length as the server counts it: runes, not UTF-16 units. */
-function objectiveLength(text: string): number {
-  return Array.from(text.trim()).length;
-}
 
 function ChecklistIcon(props: { status: string }) {
   return (

@@ -61,31 +61,47 @@ func TestParseGoalCommand(t *testing.T) {
 		"/goal ship the fix":    {Kind: GoalCommandSet, Objective: "ship the fix"},
 		"/goal\nmulti\nline":    {Kind: GoalCommandSet, Objective: "multi\nline"},
 		"/goal clear the cache": {Kind: GoalCommandSet, Objective: "clear the cache"},
-		"/goal --model mini --reasoning high ship it":  {Kind: GoalCommandSet, Objective: "ship it", Model: "mini", Reasoning: "high"},
-		"/goal --model=p2/gpt-4o-mini ship --model it": {Kind: GoalCommandSet, Objective: "ship --model it", Model: "p2/gpt-4o-mini"},
-		"/goal --reasoning=low resume":                 {Kind: GoalCommandResume, Reasoning: "low"},
-		"/goal --model":                                {Kind: GoalCommandSet, Err: "--model needs a value"},
-		"/goal --model mini":                           {Kind: GoalCommandSet, Model: "mini", Err: "the goal objective is empty"},
-		"/goal --frob x ship":                          {Kind: GoalCommandSet, Objective: "x ship", Err: "unknown option --frob"},
-		"/goal --frob -m mini ship":                    {Kind: GoalCommandSet, Objective: "ship", Model: "mini", Err: "unknown option --frob"},
-		"/goal -m= ship it":                            {Kind: GoalCommandSet, Objective: "ship it", Err: "--model needs a value"},
-		"/goal -m mini -r high ship it":                {Kind: GoalCommandSet, Objective: "ship it", Model: "mini", Reasoning: "high"},
-		"/goal -r=low -m=mini resume":                  {Kind: GoalCommandResume, Model: "mini", Reasoning: "low"},
-		"/goal - fix the flaky test":                   {Kind: GoalCommandSet, Objective: "- fix the flaky test"},
-		"/goal -x stays text":                          {Kind: GoalCommandSet, Objective: "-x stays text"},
-		"/goal --model mini clear":                     {Kind: GoalCommandClear, Model: "mini", Err: "--model and --reasoning go with a new goal or /goal resume"},
-		"/goal --then-file .coddy/next.md ship it":     {Kind: GoalCommandSet, Objective: "ship it", ThenFile: ".coddy/next.md"},
-		"/goal --then-file=a.md -m mini ship it":       {Kind: GoalCommandSet, Objective: "ship it", Model: "mini", ThenFile: "a.md"},
-		"/goal --then-file":                            {Kind: GoalCommandSet, Err: "--then-file needs a value"},
-		"/goal --then-file a.md resume":                {Kind: GoalCommandResume, ThenFile: "a.md", Err: "--then-file goes with a new goal"},
-		"/goal --then-file a.md clear":                 {Kind: GoalCommandClear, ThenFile: "a.md", Err: "--then-file goes with a new goal"},
-		`/goal --then-file "my next.md" ship it`:       {Kind: GoalCommandSet, Objective: `next.md" ship it`, ThenFile: `"my`, Err: "--then-file takes a path without quotes or spaces"},
-		"/goals":                                       {},
-		"/goal-x":                                      {},
-		"set a goal":                                   {},
+		"/goal --model mini --reasoning high ship it":               {Kind: GoalCommandSet, Objective: "ship it", Model: "mini", Reasoning: "high"},
+		"/goal --model=p2/gpt-4o-mini explain --model in the guide": {Kind: GoalCommandSet, Objective: "explain --model in the guide", Model: "p2/gpt-4o-mini"},
+		"/goal --reasoning=low resume":                              {Kind: GoalCommandResume, Reasoning: "low"},
+		"/goal --model":                                             {Kind: GoalCommandSet, Err: "--model needs a value"},
+		"/goal --model mini":                                        {Kind: GoalCommandSet, Model: "mini", Err: "the goal objective is empty"},
+		"/goal --frob x ship":                                       {Kind: GoalCommandSet, Objective: "x ship", Err: "unknown option --frob"},
+		"/goal --frob -m mini ship":                                 {Kind: GoalCommandSet, Objective: "ship", Model: "mini", Err: "unknown option --frob"},
+		"/goal -m= ship it":                                         {Kind: GoalCommandSet, Objective: "ship it", Err: "--model needs a value"},
+		"/goal -m mini -r high ship it":                             {Kind: GoalCommandSet, Objective: "ship it", Model: "mini", Reasoning: "high"},
+		"/goal -r=low -m=mini resume":                               {Kind: GoalCommandResume, Model: "mini", Reasoning: "low"},
+		"/goal - fix the flaky test":                                {Kind: GoalCommandSet, Objective: "- fix the flaky test"},
+		"/goal -x stays text":                                       {Kind: GoalCommandSet, Objective: "-x stays text"},
+		"/goal --model mini clear":                                  {Kind: GoalCommandClear, Model: "mini", Err: "--model and --reasoning go with a new goal or /goal resume"},
+		"/goal --then-file .coddy/next.md ship it":                  {Kind: GoalCommandSet, Objective: "ship it", ThenFile: ".coddy/next.md"},
+		"/goal --then-file=a.md -m mini ship it":                    {Kind: GoalCommandSet, Objective: "ship it", Model: "mini", ThenFile: "a.md"},
+		"/goal --then-file":                                         {Kind: GoalCommandSet, Err: "--then-file needs a value"},
+		"/goal --then-file a.md resume":                             {Kind: GoalCommandResume, ThenFile: "a.md", Err: "--then-file goes with a new goal"},
+		"/goal --then-file a.md clear":                              {Kind: GoalCommandClear, ThenFile: "a.md", Err: "--then-file goes with a new goal"},
+		`/goal --then-file "my next.md" ship it`:                    {Kind: GoalCommandSet, Objective: `next.md" ship it`, ThenFile: `"my`, Err: "--then-file takes a path without quotes or spaces"},
+		"/goals":                                                    {},
+		"/goal-x":                                                   {},
+		"set a goal":                                                {},
 	} {
 		if got := ParseGoalCommand(text); got != want {
 			t.Errorf("%q: got %+v, want %+v", text, got, want)
+		}
+	}
+}
+
+func TestGoalOptionsMustPrecedeObjective(t *testing.T) {
+	for _, option := range []string{"--model", "--reasoning", "-m", "-r", "--then-file"} {
+		for _, suffix := range []string{option + " value", option + "=value"} {
+			cmd := ParseGoalCommand("/goal ship it " + suffix)
+			if !strings.Contains(cmd.Err, option+" must come before the objective") {
+				t.Errorf("%q: error = %q", suffix, cmd.Err)
+			}
+		}
+	}
+	for _, text := range []string{"/goal —model mini ship it", "/goal –reasoning high ship it", "/goal ship it —model mini", "/goal -m mini —reasoning high ship it"} {
+		if cmd := ParseGoalCommand(text); !strings.Contains(cmd.Err, "typographic dash") {
+			t.Errorf("%q: error = %q", text, cmd.Err)
 		}
 	}
 }

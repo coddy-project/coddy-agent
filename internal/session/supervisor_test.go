@@ -196,6 +196,8 @@ func TestGoalCommandRefusesBadOptions(t *testing.T) {
 		"/goal --model gpt-4o --reasoning ultra ship": "is not offered by model",
 		"/goal --frob x ship it":                      "unknown option --frob",
 		"/goal --model mini":                          "the goal objective is empty",
+		"/goal ship it --model mini":                  "--model must come before the objective",
+		"/goal —model mini ship it":                   "typographic dash",
 	} {
 		h := newGoalHarness(t)
 		h.mgr.Cfg().Models[0].ReasoningLevels = &levels

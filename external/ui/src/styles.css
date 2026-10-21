@@ -8443,6 +8443,10 @@ html:not([data-theme="light"]) .context-breakdown-error {
   color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
 }
 
+.composer-goal-validation {
+  padding: 0 12px 6px;
+}
+
 .goal-form-count--over {
   color: var(--coddy-danger);
 }
