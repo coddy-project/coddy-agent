@@ -22,6 +22,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/dryrun"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/serve"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
@@ -274,6 +275,7 @@ func runServe(args []string) error {
 
 	if err := rt.Init(serve.Options{
 		CLI:                cli,
+		AdjustConfig:       applyProcessOverrides,
 		SessionsRoot:       strings.TrimSpace(*sessionsRoot),
 		PreferredSessionID: strings.TrimSpace(*persistedSession),
 		NeedsSessions:      needsSessions(enabled),
@@ -287,6 +289,10 @@ func runServe(args []string) error {
 	defer wiring.Start()()
 
 	log.Info("starting coddy serve", "version", version.Get(), "config", paths.ConfigPath, "workspace", paths.CWD)
+	// The agents acp providers started stop with the process; in their own
+	// process groups they would outlive it.
+	llm.SetACPLogger(log)
+	defer llm.StopACPAgents()
 	printServeBanner(os.Stderr, cfg, enabled, httpAddr, swarmAddr, len(httpTokens) > 0, outOfBandLogin().IsSet())
 
 	if rt.Mgr != nil {

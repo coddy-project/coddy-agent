@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -38,6 +39,53 @@ func hideGitBinary(t *testing.T) {
 	if GitAvailable() {
 		t.Fatal("git is still reachable with an empty PATH")
 	}
+}
+
+func TestFileTransportHonorsWindowsDrive(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows file URLs carry drive letters")
+	}
+	dir := initRepo(t)
+	for name, source := range map[string]string{
+		"drive host": "file://" + filepath.ToSlash(dir),
+		"URI path":   "file:///" + filepath.ToSlash(dir),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := builtinClone(source, "", filepath.Join(t.TempDir(), "clone")); err != nil {
+				t.Fatalf("clone %s: %v", source, err)
+			}
+		})
+	}
+	t.Run("another drive is not the current drive", func(t *testing.T) {
+		for drive := 'A'; drive <= 'Z'; drive++ {
+			if _, err := os.Stat(string(drive) + `:\`); !os.IsNotExist(err) {
+				continue
+			}
+			source := "file://" + string(drive) + ":" + filepath.ToSlash(dir[len(filepath.VolumeName(dir)):])
+			if err := builtinClone(source, "", filepath.Join(t.TempDir(), "clone")); err == nil {
+				t.Fatalf("clone %s opened a repository on a different drive", source)
+			}
+			return
+		}
+		t.Skip("every drive letter is mounted")
+	})
+}
+
+// A file URL that names a host other than localhost must not quietly fold its
+// path onto the current drive or root, where it names a different repository.
+func TestFileTransportRefusesRemoteHosts(t *testing.T) {
+	dir := initRepo(t)
+	t.Run("localhost stays local", func(t *testing.T) {
+		if err := builtinClone("file://localhost/"+filepath.ToSlash(dir), "", filepath.Join(t.TempDir(), "clone")); err != nil {
+			t.Fatalf("clone via localhost: %v", err)
+		}
+	})
+	t.Run("a foreign host is refused", func(t *testing.T) {
+		source := "file://nas.example/" + filepath.ToSlash(dir)
+		if err := builtinClone(source, "", filepath.Join(t.TempDir(), "clone")); err == nil {
+			t.Fatalf("clone %s opened a local repository under a foreign host", source)
+		}
+	})
 }
 
 func TestDescribeLinkedWorktree(t *testing.T) {
@@ -87,6 +135,28 @@ func TestDescribeLinkedWorktree(t *testing.T) {
 			t.Fatalf("main checkout described as %+v", main)
 		}
 	})
+}
+
+// Windows cannot remove metadata held by an unclosed file handle. A read of a
+// linked worktree must release commondir before the operation returns.
+func TestBuiltinLinkedWorktreeReleasesCommonDirectoryFile(t *testing.T) {
+	dir := initRepo(t)
+	linked := filepath.Join(t.TempDir(), "login")
+	mustGit(t, dir, "worktree", "add", linked, "feature/login")
+	repo, err := openRepo(linked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.Head(); err != nil {
+		t.Fatal(err)
+	}
+	gitDir, _, ok := gitDirs(linked)
+	if !ok {
+		t.Fatal("linked worktree has no git directory")
+	}
+	if err := os.Remove(filepath.Join(gitDir, "commondir")); err != nil {
+		t.Fatalf("the repository operation kept commondir open: %v", err)
+	}
 }
 
 // Opening a worktree needs `git worktree add`, which the built-in

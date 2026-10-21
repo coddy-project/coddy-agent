@@ -13,6 +13,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/external/memory"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -66,6 +67,13 @@ func (a *Agent) runMemoryBeforeTurn(ctx context.Context, userText, mode string) 
 	} else if m != "" {
 		a.log.Warn("memory.model is not configured; the session's model runs the memory subagent", "model", m, "using", model)
 	}
+	if cfg.ModelRunsACPAgent(model) {
+		// A local ACP agent would take the memory task for the user's
+		// request and work on it with its own tools, in agent mode.
+		release()
+		skip("the memory subagent cannot run on " + model + ", an acp agent; set memory.model to a model of another type")
+		return
+	}
 	// A cut addendum is said at every launch that reads it: the run is one
 	// per turn already, and a silent cut is what the cap must not be.
 	addendum, cut := cfg.Memory.EffectiveAdditionalPrompt()
@@ -98,7 +106,7 @@ func (a *Agent) runMemoryBeforeTurn(ctx context.Context, userText, mode string) 
 			Kind:            session.SubagentKindMemory,
 			PromptTemplate:  memory.PromptTemplate(readOnly),
 			MaxTokens:       cfg.Memory.CopilotMaxTokens,
-			FallbackModels:  memoryFallbackModels(cfg.Memory.FallbackModels, a.state.EffectiveModelID(cfg)),
+			FallbackModels:  memoryFallbackModels(cfg, cfg.Memory.FallbackModels, a.state.EffectiveModelID(cfg)),
 		},
 		prompt:         memory.TaskMessage(userText),
 		parentMode:     mode,
@@ -135,15 +143,16 @@ func (a *Agent) runMemoryBeforeTurn(ctx context.Context, userText, mode string) 
 }
 
 // memoryFallbackModels is the chain behind the memory model: the configured
-// fallbacks, then the session's own model as the last resort.
-func memoryFallbackModels(configured []string, sessionModel string) []string {
+// fallbacks, then the session's own model as the last resort. A model an acp
+// agent serves is never in it.
+func memoryFallbackModels(cfg *config.Config, configured []string, sessionModel string) []string {
 	out := make([]string, 0, len(configured)+1)
 	for _, m := range configured {
-		if m = strings.TrimSpace(m); m != "" {
+		if m = strings.TrimSpace(m); m != "" && !cfg.ModelRunsACPAgent(m) {
 			out = append(out, m)
 		}
 	}
-	if sessionModel = strings.TrimSpace(sessionModel); sessionModel != "" {
+	if sessionModel = strings.TrimSpace(sessionModel); sessionModel != "" && !cfg.ModelRunsACPAgent(sessionModel) {
 		out = append(out, sessionModel)
 	}
 	return out

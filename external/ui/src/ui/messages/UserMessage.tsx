@@ -1,5 +1,6 @@
 import { memo, useState } from "react";
 
+import { copyText } from "../clipboard";
 import { useT } from "../i18n/I18nProvider";
 import { ApiImage, ApiImageLightbox } from "../components/ApiImage";
 import { stripCoddyAttachmentsForUserDisplay } from "../skills/stripCoddyAttachments";
@@ -17,10 +18,6 @@ import { splitQuoteBlocks } from "../chat/quoteDraft";
 
 const USER_MENTION =
   /(^|[\s([])(@(?:"[^"\n]+"|'[^'\n]+'|(?:[~./]|[a-zA-Z0-9_-])[\w./~:@#'"-]*)(?:(?::|#L)\d+(?:-L?\d*)?)?)/g;
-
-function copyUserToken(token: string) {
-  void navigator.clipboard?.writeText(token);
-}
 
 function copyableMentions(text: string, keyPrefix: string) {
   const out: React.ReactNode[] = [];
@@ -49,7 +46,7 @@ function copyableMentions(text: string, keyPrefix: string) {
             !/^(session|rule|agent|coddy):/.test(path)
           )
             openWorkspaceFile(path);
-          else copyUserToken(token);
+          else void copyText(token);
         }}
       >
         {token}
@@ -165,7 +162,7 @@ export const UserMessage = memo(function UserMessage(props: {
             className="msg-user-token"
             data-testid={`user-token-skill-${seg.name}`}
             title={seg.literal}
-            onClick={() => copyUserToken(seg.literal)}
+            onClick={() => void copyText(seg.literal)}
           >
             {seg.literal}
           </button>

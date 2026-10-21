@@ -37,7 +37,7 @@ type LoggerRotation struct {
 type LoggerComponentLevel struct {
 	// Component is the dotted name a logger carries in its "component"
 	// attribute (see internal/logger.Component): gateway, gateway.telegram,
-	// session, agent.
+	// gateway.pachca, session, agent, scheduler, provider.acp.
 	Component string `yaml:"component" json:"component"`
 	// Level is one of debug, info, warn, error.
 	Level string `yaml:"level" json:"level"`

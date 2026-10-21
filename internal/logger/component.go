@@ -28,6 +28,9 @@ const (
 	ComponentSession         = "session"
 	ComponentAgent           = "agent"
 	ComponentScheduler       = "scheduler"
+	// ComponentProviderACP is the acp provider: the local ACP agents it
+	// starts, their sessions and what they report on stderr.
+	ComponentProviderACP = "provider.acp"
 )
 
 // Component returns a logger tagged as belonging to name, so logger.levels can

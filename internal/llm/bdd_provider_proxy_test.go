@@ -80,9 +80,49 @@ func (s *providerProxyState) fail(err error) {
 // answerProviderRequest answers every request a provider row makes. The same
 // handler serves the origin server and, for a proxied request, the proxy
 // that stands in for the origin.
-func answerProviderRequest(w http.ResponseWriter, r *http.Request) bool {
+func answerProviderRequest(t *testing.T, w http.ResponseWriter, r *http.Request) bool {
 	path := r.URL.Path
+	if r.Method == http.MethodPost && (strings.HasSuffix(path, "/chat/completions") || strings.HasSuffix(path, "/v1/messages")) {
+		var body struct {
+			Stream bool `json:"stream"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid inference request", http.StatusBadRequest)
+			return true
+		}
+		if body.Stream {
+			w.Header().Set("Content-Type", "text/event-stream")
+			if strings.HasSuffix(path, "/chat/completions") {
+				_, _ = io.WriteString(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"pong\"},\"finish_reason\":null}]}\n\n"+
+					"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+			} else {
+				events := append(anthropicEvents(anthropicTextBlock(0, "pong")), anthropicMessageEnd("end_turn")...)
+				for _, event := range events {
+					var head struct{ Type string }
+					_ = json.Unmarshal([]byte(event), &head)
+					_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", head.Type, event)
+				}
+			}
+			return true
+		}
+	}
 	switch {
+	case r.Method == http.MethodPost && path == "/console/auth/device/code":
+		requireOpenCodeClientID(t, r, "")
+		_, _ = io.WriteString(w, `{"device_code":"device-test","user_code":"USER-CODE","verification_uri_complete":"/console/device","expires_in":600,"interval":0}`)
+	case r.Method == http.MethodPost && path == "/console/auth/device/token":
+		requireOpenCodeClientID(t, r, "")
+		_, _ = io.WriteString(w, `{"access_token":"account-access","refresh_token":"account-refresh","expires_in":600,"org_id":"org-test"}`)
+	case r.Method == http.MethodGet && path == "/console/api/user":
+		_, _ = io.WriteString(w, `{"id":"user-test","email":"test@example.com"}`)
+	case r.Method == http.MethodGet && path == "/console/api/orgs":
+		_, _ = io.WriteString(w, `[{"id":"org-test","name":"Test"}]`)
+	case r.Method == http.MethodPost && strings.HasSuffix(path, ":streamGenerateContent"):
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", opencodeGoogleAnswer)
+	case r.Method == http.MethodPost && strings.HasSuffix(path, ":generateContent"):
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, opencodeGoogleAnswer)
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/chat/completions"):
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"id":"chatcmpl-p1","object":"chat.completion","created":1,"model":"m",`+
@@ -162,7 +202,7 @@ func (s *providerProxyState) newModelServer() *proxyStub {
 			s.fail(fmt.Errorf("the model server got a proxy request for %s", r.URL))
 		}
 		st.count.Add(1)
-		if !answerProviderRequest(w, r) {
+		if !answerProviderRequest(s.t, w, r) {
 			s.fail(fmt.Errorf("the model server has no answer for %s %s", r.Method, r.URL.Path))
 			http.NotFound(w, r)
 		}
@@ -207,7 +247,7 @@ func (s *providerProxyState) newProxyStub(label string) *proxyStub {
 			s.answerDevinRequest(w, r)
 			return
 		}
-		if !answerProviderRequest(w, r) {
+		if !answerProviderRequest(s.t, w, r) {
 			s.fail(fmt.Errorf("%s has no answer for %s %s", label, r.Method, r.URL.Path))
 			http.NotFound(w, r)
 		}
@@ -299,6 +339,8 @@ func (s *providerProxyState) theEnvironmentNamesAProxy() error {
 
 func (s *providerProxyState) addRow(typ, name, setting string) error {
 	switch typ {
+	case "opencode":
+		s.setenv(EnvOpenCodeBaseURL, s.model.srv.URL+"/inference/go/v1")
 	case "neuraldeep":
 		// A neuraldeep row is pinned to the official deployments; the
 		// process-wide override is how stands and tests aim it elsewhere.
@@ -432,6 +474,91 @@ func (s *providerProxyState) askCompletionAndModels(name string) error {
 		s.fail(fmt.Errorf("%s: model list = %+v, want the one model m", name, models))
 	}
 	return nil
+}
+
+func (s *providerProxyState) askOpenCodeEverything(name, gateway string) error {
+	row, err := s.row(name)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	base, standPath := opencodeGoBaseURL, "/inference/go/v1"
+	if gateway == "Console" {
+		base, standPath = opencodeConsoleBaseURL, "/inference/v1"
+	}
+	s.setenv(EnvOpenCodeBaseURL, s.model.srv.URL+standPath)
+	for _, model := range []string{"glm-5.3", "gpt-6-luna", "claude-haiku-5-5", "gemini-4-argon-contributor", "qwen3.8-max", "minimax-m3"} {
+		p, err := NewProvider(ProviderInput{Type: "opencode", Model: model, BaseURL: base, APIKey: "k", SessionID: "proxy-conversation", ProxyURL: row.setting, RetryDisabled: true})
+		if err != nil {
+			return err
+		}
+		resp, err := p.Complete(ctx, []Message{{Role: RoleUser, Content: "ping"}}, nil)
+		if err != nil {
+			s.fail(err)
+		} else if resp.Content != "pong" {
+			s.fail(fmt.Errorf("%s: content %q", model, resp.Content))
+		}
+		var streamed strings.Builder
+		resp, err = p.Stream(ctx, []Message{{Role: RoleUser, Content: "ping"}}, nil, func(chunk StreamChunk) {
+			streamed.WriteString(chunk.TextDelta)
+		})
+		if err != nil {
+			s.fail(fmt.Errorf("%s stream: %w", model, err))
+		} else if resp.Content != "pong" || streamed.String() != "pong" {
+			s.fail(fmt.Errorf("%s: stream content %q, chunks %q", model, resp.Content, streamed.String()))
+		}
+	}
+	if _, err := ListModels(ctx, ProviderInput{Type: "opencode", BaseURL: base, APIKey: "k", ProxyURL: row.setting}); err != nil {
+		s.fail(err)
+	}
+	if _, err := ApplyOpenCodeLoginToConfig(ctx, s.testConfig(), name, base, "k", row.setting); err != nil {
+		s.fail(err)
+	}
+	return nil
+}
+
+func (s *providerProxyState) askOpenCodeAccount(name string) error {
+	row, err := s.row(name)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	s.setenv(EnvOpenCodeConsoleURL, s.model.srv.URL+"/console")
+	s.setenv(EnvOpenCodeBaseURL, s.model.srv.URL+"/inference/go/v1")
+	login, err := StartOpenCodeDeviceLogin(ctx, row.setting)
+	if err != nil {
+		return err
+	}
+	path := config.OpenCodeAuthPath(s.home, name)
+	if err := login.Wait(ctx, path); err != nil {
+		return err
+	}
+	credential, err := loadOpenCodeAuth(path)
+	if err != nil {
+		return err
+	}
+	if credential.OrgID != "org-test" {
+		return errors.New("device login did not retain its organization")
+	}
+	credential.ExpiresAt = 1
+	if err := saveOpenCodeCredential(path, credential); err != nil {
+		return err
+	}
+	in := ProviderInput{Type: "opencode", Model: "glm-5.3", AuthPath: path, ProxyURL: row.setting, RetryDisabled: true}
+	if _, err := ListModels(ctx, in); err != nil {
+		return err
+	}
+	p, err := NewProvider(in)
+	if err != nil {
+		return err
+	}
+	if _, err := p.Complete(ctx, []Message{{Role: RoleUser, Content: "ping"}}, nil); err != nil {
+		return err
+	}
+	_, err = p.Stream(ctx, []Message{{Role: RoleUser, Content: "ping"}}, nil, func(StreamChunk) {})
+	return err
 }
 
 func (s *providerProxyState) askNeuralDeepEverything(name string) error {
@@ -760,6 +887,8 @@ func initializeProviderProxyScenario(t *testing.T) func(*godog.ScenarioContext) 
 		sc.Step(`^an? "([^"]*)" provider "([^"]*)" with a proxy of its own$`, s.aProviderWithAProxyOfItsOwn)
 		sc.Step(`^"([^"]*)" is asked for a completion$`, s.askCompletion)
 		sc.Step(`^"([^"]*)" is asked for a completion and its model list$`, s.askCompletionAndModels)
+		sc.Step(`^"([^"]*)" is asked for all OpenCode protocols and streams, its model list and a login config apply on "([^"]*)"$`, s.askOpenCodeEverything)
+		sc.Step(`^"([^"]*)" signs in an OpenCode account, refreshes it, lists models and chats$`, s.askOpenCodeAccount)
 		sc.Step(`^"([^"]*)" is asked for a completion, its model list, its account usage, a command safety decision and its auth flow$`, s.askNeuralDeepEverything)
 		sc.Step(`^"([^"]*)" is asked for a completion, its model list, its account usage, a token refresh, a device sign-in and a config apply$`, s.askCodexEverything)
 		sc.Step(`^"([^"]*)" is asked for a credential check, its model list, a chat answer, its account usage and a sign-in$`, s.askDevinEverything)

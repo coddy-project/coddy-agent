@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"hash/crc32"
 	"image"
@@ -129,7 +130,8 @@ func TestReadHandsTheModelAPictureTellingTheTypeByContent(t *testing.T) {
 	if _, err := runRead(env, `{"path":"photo.png"}`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runRead(env, `{"path":"`+filepath.Join(env.CWD, "noext")+`","offset":3,"limit":1}`); err != nil {
+	args, _ := json.Marshal(map[string]any{"path": filepath.Join(env.CWD, "noext"), "offset": 3, "limit": 1})
+	if _, err := runRead(env, string(args)); err != nil {
 		t.Fatalf("an image read with a line range: %v", err)
 	}
 

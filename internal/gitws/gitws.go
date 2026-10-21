@@ -175,7 +175,11 @@ func listWorktrees(dir string) []Worktree {
 		for line := range strings.SplitSeq(block, "\n") {
 			switch {
 			case strings.HasPrefix(line, "worktree "):
-				wt.Path = strings.TrimPrefix(line, "worktree ")
+				// Git prints the path in its own spelling (forward slashes
+				// on Windows); the package hands out and compares the OS
+				// one, so a worktree found again is spelled like one just
+				// created.
+				wt.Path = filepath.Clean(strings.TrimPrefix(line, "worktree "))
 			case strings.HasPrefix(line, "branch refs/heads/"):
 				wt.Branch = strings.TrimPrefix(line, "branch refs/heads/")
 			case line == "locked" || strings.HasPrefix(line, "locked "):

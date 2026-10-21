@@ -47,7 +47,7 @@ def main() -> int:
         return 2
 
     global_mem = home / "memory"
-    project_mem = work / "memory"
+    project_mem = work / ".coddy" / "memory"
     global_mem.mkdir(parents=True, exist_ok=True)
     project_mem.mkdir(parents=True, exist_ok=True)
 

@@ -834,6 +834,26 @@ func (s *Server) coddyToolCallsList(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		}
+		// The tools the agent behind an acp model ran: their files are the
+		// session's like those of Coddy's calls, read below.
+		for _, t := range m.AgentTools {
+			if strings.TrimSpace(t.ID) == "" {
+				continue
+			}
+			if _, ok := idx[t.ID]; ok {
+				continue
+			}
+			idx[t.ID] = len(ordered)
+			row := coddyToolCallRow{
+				ToolCallID:  t.ID,
+				Name:        t.Title,
+				Kind:        session.AgentToolKind(t.Kind),
+				Status:      t.Status,
+				ArgsPreview: previewText(t.Input, 200),
+			}
+			coddyApplyResultPreview(&row, t.Output)
+			ordered = append(ordered, ent{row: row})
+		}
 		if m.Role == llm.RoleTool && strings.TrimSpace(m.ToolCallID) != "" {
 			i, ok := idx[m.ToolCallID]
 			if !ok {
@@ -1487,6 +1507,11 @@ func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir, cwd string, msgs []llm
 			// Nobody typed this message either: the supervisor opened a
 			// goal turn with it.
 			item["goal_turn"] = m.GoalTurn
+		}
+		if m.Role == llm.RoleAssistant && len(m.AgentTools) > 0 {
+			// The tools the agent behind an acp model ran while it wrote
+			// this answer: rows of their own, never Coddy's tool calls.
+			item["agent_tools"] = m.AgentTools
 		}
 		// A prompt's attachments, and the pictures a tool call showed the
 		// model (read on an image file), which stay on that call's result.

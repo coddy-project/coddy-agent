@@ -12,6 +12,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/cucumber/godog"
@@ -130,6 +133,31 @@ func (s *memoryHTTPState) messagesPayloadLacks(field string) error {
 	return nil
 }
 
+// sessionFolderHoldsNote writes a note at a path relative to the session's
+// folder, so the scenario names where on disk the project's notes live.
+func (s *memoryHTTPState) sessionFolderHoldsNote(rel, text string) error {
+	path := filepath.Join(s.root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(text), 0o644)
+}
+
+func (s *memoryHTTPState) getWorkspaceNote(rel string) error {
+	q := url.Values{"root": {"workspace"}, "path": {rel}}
+	return s.do(http.MethodGet, "/coddy/sessions/"+s.sessionID+"/memory/file?"+q.Encode(), "")
+}
+
+func (s *memoryHTTPState) noteReads(text string) error {
+	if s.status != http.StatusOK {
+		return fmt.Errorf("memory file answered %d: %v", s.status, s.body)
+	}
+	if got := s.body["content"]; got != text {
+		return fmt.Errorf("memory file content = %q, want %q", got, text)
+	}
+	return nil
+}
+
 func initializeMemoryHTTPScenario(sc *godog.ScenarioContext) {
 	s := &memoryHTTPState{subagentsHTTPState: &subagentsHTTPState{}}
 	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
@@ -140,10 +168,12 @@ func initializeMemoryHTTPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a running coddy serve server with a session$`, s.startServerWithSession)
 	sc.Step(`^that session started a memory run backed by child session "([^"]*)"$`, s.startedMemoryRun)
 	sc.Step(`^a live memory child session "([^"]*)" of that session whose transcript says "([^"]*)"$`, s.liveMemoryChildSaying)
+	sc.Step(`^the session folder holds the memory note "([^"]*)" saying "([^"]*)"$`, s.sessionFolderHoldsNote)
 
 	sc.Step(`^I GET the background tasks of that session$`, s.listTasks)
 	sc.Step(`^I GET the messages of "([^"]*)"$`, s.getMessages)
 	sc.Step(`^I GET the messages of the parent session$`, s.getParentMessages)
+	sc.Step(`^I GET the workspace memory note "([^"]*)" of that session$`, s.getWorkspaceNote)
 
 	sc.Step(`^the response lists a task of kind "([^"]*)"$`, s.listsTaskOfKind)
 	sc.Step(`^that task row names the agent "([^"]*)" and the child session "([^"]*)"$`, s.taskRowNames)
@@ -151,6 +181,7 @@ func initializeMemoryHTTPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the messages contain "([^"]*)"$`, s.messagesContain)
 	sc.Step(`^the messages payload is read-only and links the parent session$`, s.messagesReadOnlyWithParent)
 	sc.Step(`^the messages payload carries no "([^"]*)" field$`, s.messagesPayloadLacks)
+	sc.Step(`^the memory note reads "([^"]*)"$`, s.noteReads)
 }
 
 func TestMemoryHTTPFeature(t *testing.T) {
