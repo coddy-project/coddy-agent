@@ -348,7 +348,9 @@ skills:
 # One project folder is read under the session CWD: the first of .coddy/rules,
 # the shared .agents/rules, .cursor/rules, .claude/rules and .codex/rules that
 # holds a rule file, so another agent's mirror of the same rules is not loaded
-# twice. Your own ~/.coddy/rules joins it in every workspace. The AGENTS.md and
+# twice. A subfolder's own rule folders are read the same way when a tool reaches
+# a file under them, and apply to that subfolder only. Your own ~/.coddy/rules
+# joins them in every workspace. The AGENTS.md and
 # DESIGN.md documents - yours in ~/.coddy, the workspace's, and the nested ones
 # of the folders a tool enters - are read whatever these keys say and have no
 # key here. .mdc files are read as Cursor rules, .md files as Claude Code rules.

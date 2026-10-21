@@ -142,11 +142,11 @@ Directories scanned for skills (SKILL.md and root .md/.mdc files).
 
 ### `rules`
 
-Discovery of rule files from ${CODDY_HOME}/rules (the operator's own, applied in every workspace) and from one project folder under the session CWD, the first of .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules that holds a rule file; .mdc files are Cursor rules, .md files Claude Code rules. The AGENTS.md and DESIGN.md documents are not rules in this sense and none of these settings turns them off. See https://coddy.dev/docs/features/rules.
+Discovery of rule files from ${CODDY_HOME}/rules (the operator's own, applied in every workspace) and from one project folder under the session CWD, the first of .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules that holds a rule file, and the same way under every subfolder on the way down to a file a tool or a mention reaches, each of those rules applying to its own subfolder; .mdc files are Cursor rules, .md files Claude Code rules. The AGENTS.md and DESIGN.md documents are not rules in this sense and none of these settings turns them off. See https://coddy.dev/docs/features/rules.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `rules.auto_discover` | boolean or null | true | Scan the rule folders automatically: ${CODDY_HOME}/rules and the project folder of the session CWD. The AGENTS.md and DESIGN.md documents are read either way. |
+| `rules.auto_discover` | boolean or null | true | Scan the rule folders automatically: ${CODDY_HOME}/rules, the project folder of the session CWD and those of the subfolders a tool or a mention reaches. The AGENTS.md and DESIGN.md documents are read either way. |
 | `rules.systems` | list of strings | [] | Restrict which rule systems are loaded: user (${CODDY_HOME}/rules), coddy, agents-dir (.agents/rules), cursor, claude, codex. Empty means all. A project folder left out drops out of the chain; of the ones admitted, the first that holds a rule file is read. agents, which used to switch the nested AGENTS.md files, no longer affects them (they are always read); it is still accepted, and a list holding only agents loads no rule folder. |
 
 ### `mcp`
