@@ -27,10 +27,11 @@ const toolCallRulesLead = "Project rules for the path this call touched; follow 
 
 // toolCallRules renders the rules a tool call brings into play for the first
 // time, to travel with its result (llm.Message.Rules): a glob rule (Cursor
-// globs, Claude Code paths) whose pattern matches a file the call targets, and
-// the nested AGENTS.md and DESIGN.md files on the chain of folders down to every
-// path it targets, read at this moment and never before - a session looks at a
-// folder only when a tool enters it. Callers read it before the call runs, on
+// globs, Claude Code paths) whose pattern matches a file the call targets, a
+// rule of the rule folder of a subfolder on the way down to such a file
+// (nestedRules), and the nested AGENTS.md and DESIGN.md files on the chain of
+// folders down to every path it targets, all read at this moment and never
+// before - a session looks at a folder only when a tool enters it. Callers read it before the call runs, on
 // the arguments the model wrote (or the approved ones, when a permission answer
 // resumes the call). A rule document the call itself targets is left out: a
 // read carries its text in the output, a write carries the text the model is
@@ -49,7 +50,9 @@ func (a *Agent) toolCallRules(mode string, tc llm.ToolCall, cwd string) string {
 	}
 	var matched []*rules.Rule
 	if a.rulesRendered(mode) {
-		matched = rules.MatchScoped(rs.GetRulesCatalog(), withoutDirectories(paths))
+		files := withoutDirectories(paths)
+		matched = rules.MatchScoped(rs.GetRulesCatalog(), files)
+		matched = append(matched, a.nestedRules(cwd, files)...)
 	}
 	matched = append(matched, a.nestedDocuments(cwd, paths)...)
 	matched = withoutTargets(matched, paths)
@@ -82,6 +85,23 @@ func (a *Agent) nestedDocuments(cwd string, paths []string) []*rules.Rule {
 		return nil
 	}
 	return rules.AgentsForPaths(cwd, paths, nil)
+}
+
+// nestedRules returns the rules of the rule folders of the subfolders on the
+// way down to files that files bring into play (issue #557): the folders are
+// read on the spot (rules.Factory.Nested), each rule within its own subtree
+// and, when it has globs, on a file they match there. They are rules, so
+// rules.auto_discover and rules.systems govern them as they do the workspace's
+// folders, and callers ask only when the template prints {{.Rules}}. Callers
+// pass files, not folders: a folder a call lists or searches brings in none,
+// the way it brings in no glob rule, so one grep across a group of projects
+// does not attach the rules of every one of them.
+func (a *Agent) nestedRules(cwd string, files []string) []*rules.Rule {
+	if a.cfg == nil || !a.cfg.Rules.AutoDiscoverEnabled() || len(files) == 0 {
+		return nil
+	}
+	nested := rules.DefaultFactory("").Nested(cwd, files, rules.ParseSystems(a.cfg.Rules.Systems))
+	return rules.MatchScoped(nested, files)
 }
 
 // withoutPromptDocuments drops the candidates whose file the system prompt

@@ -33,6 +33,15 @@ Feature: Rules reach the model once and keep the provider's prompt cache
     Then every request opens with the system message of the first request
     And every request repeats the one before it up to its turn context block
 
+  Scenario: The rule folder of a subfolder reaches the model without breaking the prefix
+    Given its subproject "db" keeps a Cursor rule for "migrations/**" reading "DB_NESTED_RULE_TOKEN"
+    When the model reads "main.go", then "db/migrations/0001.sql", and answers
+    And the user asks again, and the model reads "db/migrations/0002.sql", and answers
+    Then "DB_NESTED_RULE_TOKEN" reaches the model with the first read of "db/migrations/0001.sql"
+    And every request carries each rule at most once
+    And every request opens with the system message of the first request
+    And every request repeats the one before it up to its turn context block
+
   Scenario: An AGENTS.md edited during the session reaches the model without breaking the prefix
     When the model reads "internal/api/handler.go", and answers
     And someone rewrites the AGENTS.md of "internal/api" to read "API_AGENTS_REWRITTEN"

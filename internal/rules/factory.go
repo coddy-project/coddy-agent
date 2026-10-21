@@ -138,43 +138,7 @@ func (f *Factory) discover(cwd string, systems []Source, inspect bool) (*Discove
 	}
 
 	d := &Discovery{}
-	var loaded []*Rule
-	read := map[string]bool{}
-	for _, p := range f.chain {
-		if !admitted(p) {
-			continue
-		}
-		d.Chain = append(d.Chain, p.RulesRoot())
-		if d.ProjectFolder != "" && !inspect {
-			continue
-		}
-		// A folder further down the chain is judged the way the one that was
-		// read was chosen: it counts when it yields a rule.
-		rs, err := p.Load(rootOf(p))
-		if err != nil {
-			if inspect && !errors.Is(err, fs.ErrNotExist) {
-				d.Unreadable = append(d.Unreadable, p.RulesRoot()+" ("+err.Error()+")")
-			}
-			continue
-		}
-		if len(rs) == 0 {
-			continue
-		}
-		if d.ProjectFolder != "" {
-			d.Skipped = append(d.Skipped, p.RulesRoot())
-			for _, r := range rs {
-				if !read[strings.ToLower(r.CanonicalName())] {
-					d.OnlySkipped = append(d.OnlySkipped, workspaceRel(projectRoot, r.FilePath))
-				}
-			}
-			continue
-		}
-		d.ProjectFolder = p.RulesRoot()
-		for _, r := range rs {
-			read[strings.ToLower(r.CanonicalName())] = true
-		}
-		loaded = append(loaded, rs...)
-	}
+	loaded := f.readChain(cwd, admitted, inspect, d)
 	for _, p := range f.always {
 		if !admitted(p) {
 			continue
@@ -223,6 +187,112 @@ func (f *Factory) discover(cwd string, systems []Source, inspect bool) (*Discove
 		return d.Rules[i].FilePath < d.Rules[j].FilePath
 	})
 	return d, nil
+}
+
+// readChain reads the project folders of the chain under dir: the first that
+// holds a rule file, and with inspect the ones after it as well, which only
+// fill d. The workspace and every subfolder that Nested reads choose their
+// folder here, so a subproject's mirror of its rules for another agent is
+// skipped the way the workspace's is.
+func (f *Factory) readChain(dir string, admitted func(Provider) bool, inspect bool, d *Discovery) []*Rule {
+	projectRoot, err := filepath.Abs(dir)
+	if err != nil {
+		projectRoot = dir
+	}
+	var loaded []*Rule
+	read := map[string]bool{}
+	for _, p := range f.chain {
+		if !admitted(p) {
+			continue
+		}
+		d.Chain = append(d.Chain, p.RulesRoot())
+		if d.ProjectFolder != "" && !inspect {
+			continue
+		}
+		// A folder further down the chain is judged the way the one that was
+		// read was chosen: it counts when it yields a rule.
+		root := p.RulesRoot()
+		if !filepath.IsAbs(root) {
+			root = filepath.Join(dir, root)
+		}
+		rs, err := p.Load(root)
+		if err != nil {
+			if inspect && !errors.Is(err, fs.ErrNotExist) {
+				d.Unreadable = append(d.Unreadable, p.RulesRoot()+" ("+err.Error()+")")
+			}
+			continue
+		}
+		if len(rs) == 0 {
+			continue
+		}
+		if d.ProjectFolder != "" {
+			d.Skipped = append(d.Skipped, p.RulesRoot())
+			for _, r := range rs {
+				if !read[strings.ToLower(r.CanonicalName())] {
+					d.OnlySkipped = append(d.OnlySkipped, workspaceRel(projectRoot, r.FilePath))
+				}
+			}
+			continue
+		}
+		d.ProjectFolder = p.RulesRoot()
+		for _, r := range rs {
+			read[strings.ToLower(r.CanonicalName())] = true
+		}
+		loaded = append(loaded, rs...)
+	}
+	return loaded
+}
+
+// Nested returns the rules of the rule folders of the subfolders on the way
+// from root down to paths, read on the spot (issue #557). For every path under
+// root, each directory on the chain from root (exclusive) down to the path's
+// own directory is probed for the same chain of project folders as the
+// workspace (readChain), the first that holds a rule file winning, with the
+// stops of the AGENTS.md chain (agentsChainDirs): a hidden directory,
+// node_modules or vendor ends it. Nothing is walked, so a subfolder no tool has
+// reached costs nothing. A rule of a subfolder is anchored there: Root and
+// ScopeDir are its folder, so its globs match paths relative to it and it never
+// applies above or beside it, nor reaches the system prompt (Rule.AlwaysOn).
+// systems narrows the chain as it does in Discover; the operator's own folder
+// is the catalog's and is never read here. Within one folder the first file of
+// a name wins, as at the root; rules of different folders never replace each
+// other, whatever their names.
+func (f *Factory) Nested(root string, paths []string, systems []Source) []*Rule {
+	root = strings.TrimSpace(root)
+	if root == "" || len(paths) == 0 {
+		return nil
+	}
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	root = filepath.Clean(root)
+	allowAll := len(systems) == 0
+	allowed := make(map[Source]bool, len(systems))
+	for _, s := range systems {
+		allowed[s] = true
+	}
+	admitted := func(p Provider) bool { return allowAll || allowed[p.ID()] }
+	seen := map[string]bool{}
+	var out []*Rule
+	for _, p := range paths {
+		for _, dir := range agentsChainDirs(root, p) {
+			if seen[dir] {
+				continue
+			}
+			seen[dir] = true
+			names := map[string]bool{}
+			for _, r := range f.readChain(dir, admitted, false, &Discovery{}) {
+				key := r.DedupeKey()
+				if names[key] {
+					continue
+				}
+				names[key] = true
+				r.Root, r.ScopeDir = dir, dir
+				out = append(out, r)
+			}
+		}
+	}
+	return out
 }
 
 // workspaceRel names path relative to root, slash-separated, or as it is when

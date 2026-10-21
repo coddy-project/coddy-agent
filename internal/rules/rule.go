@@ -88,9 +88,11 @@ type Rule struct {
 	Root string
 	// ScopeDir, when non-empty, restricts an auto rule to a directory subtree.
 	// The rule reaches the model with the first tool call or mention whose
-	// path is ScopeDir itself or lives under it, and again after a compaction
-	// or a change to its file. Set for nested AGENTS.md files read on demand
-	// (AgentsForPaths); empty for every other source.
+	// path is ScopeDir itself or lives under it (and matches its globs, when
+	// it has any), and again after a compaction or a change to its file. Set
+	// for what is read on demand for the folders a tool enters: nested
+	// AGENTS.md files (AgentsForPaths) and the rule folders of subfolders
+	// (Factory.Nested); empty for the rules of the workspace's own folders.
 	ScopeDir string
 }
 
