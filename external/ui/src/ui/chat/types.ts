@@ -150,6 +150,10 @@ export type TranscriptItem =
       images?: TranscriptFile[];
       /** Downloadable files a completed share_file call deliberately shared. */
       artifacts?: ToolArtifact[];
+      /** A call the agent behind an acp model ran on its own side
+       *  (`_meta.coddy.agentTool` live, `agent_tools` after a reload): its
+       *  title names what it works on already. */
+      agentTool?: boolean;
       startedAtMs?: number;
       finishedAtMs?: number;
       durationMs?: number;

@@ -108,6 +108,10 @@ type Agent struct {
 	workspaceSwitcher    func(context.Context, string) error
 	workspaceContextCWD  string
 	workspaceContextText string
+	// stepAgentTools are the tool calls the agent behind an acp model ran
+	// during the provider call under way (agent_tools.go); what persists that
+	// call's answer keeps them.
+	stepAgentTools *agentToolRows
 
 	// subagentRuntime owns child sessions; nil when this surface cannot spawn.
 	subagentRuntime SubagentRuntime
@@ -647,7 +651,8 @@ const maxSettingsRetakes = 3
 // model is then asked to continue.
 func (a *Agent) keepInterruptedAnswer(model, text, reasoning string, clockStart, clockEnd time.Time) bool {
 	reasonTrim := strings.TrimSpace(reasoning)
-	if strings.TrimSpace(text) == "" && reasonTrim == "" {
+	agentTools := a.agentToolsOfStep()
+	if strings.TrimSpace(text) == "" && reasonTrim == "" && len(agentTools) == 0 {
 		return false
 	}
 	var reasoningMs int64
@@ -672,9 +677,10 @@ func (a *Agent) keepInterruptedAnswer(model, text, reasoning string, clockStart,
 		// stopped, the step run again is asked to go on from this part, and
 		// every reader of the answer has to walk through it to the start
 		// (session.ContinuedAnswer), so it stays one text with them.
-		Truncated: strings.TrimSpace(text) != "" && session.FollowsTruncated(a.state.GetMessages()),
-		Model:     model,
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		Truncated:  strings.TrimSpace(text) != "" && session.FollowsTruncated(a.state.GetMessages()),
+		Model:      model,
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+		AgentTools: agentTools,
 	})
 	a.refreshConversationContextUsage(true)
 	return strings.TrimSpace(text) != ""
@@ -744,7 +750,9 @@ func emptyRecoveryProjection(messages []llm.Message, nudges ...string) []llm.Mes
 		messages = messages[:len(messages)-1]
 	}
 	for _, nudge := range nudges {
-		messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge})
+		// LLM-facing only, never persisted: marked so a provider that keeps
+		// the conversation on its side does not remember having sent it.
+		messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge, Ephemeral: true})
 	}
 	return messages
 }
@@ -1078,10 +1086,11 @@ func (a *Agent) runReActLoop(
 		attemptsBefore := retryAllowance.Snapshot()
 		callReason := nextCallReason
 		nextCallReason = "step"
-		streamCtx, streamCancel := context.WithCancel(llm.WithRetryAllowance(ctx, retryAllowance))
+		// The conversation goes on this call's context only (providerConversation).
+		streamCtx, streamCancel := context.WithCancel(llm.WithConversation(llm.WithRetryAllowance(ctx, retryAllowance), a.providerConversation(mode, toolEnv)))
 		var firstTokenTimedOut atomic.Bool
 		var firstTokenTimer *time.Timer
-		if transport.streaming && firstTokenTimeout > 0 {
+		if transport.streaming && firstTokenTimeout > 0 && !transport.agent {
 			firstTokenTimer = time.AfterFunc(firstTokenTimeout, func() {
 				firstTokenTimedOut.Store(true)
 				streamCancel()
@@ -1182,6 +1191,8 @@ func (a *Agent) runReActLoop(
 		// tool_call, so a call announced by name is not announced again when it
 		// completes: everything after the first is a tool_call_update.
 		announced := make(map[string]bool)
+		agentTools := a.newAgentToolRows(sessionID)
+		a.stepAgentTools = agentTools
 		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
@@ -1211,6 +1222,13 @@ func (a *Agent) runReActLoop(
 				emitText(chunk.TextDelta, now, true)
 			} else if chunk.TextDelta != "" {
 				emitText(chunk.TextDelta, now, false)
+			}
+			if tool := chunk.AgentTool; tool != nil {
+				// A tool the agent behind the provider runs: a row of its
+				// own, never a call of Coddy's.
+				streamedAny = true
+				maybeMarkReasonEnd(now)
+				agentTools.report(*tool)
 			}
 			// A call the model has only named yet announces the same pending row:
 			// the arguments can take seconds to stream, and without the row the
@@ -1279,6 +1297,15 @@ func (a *Agent) runReActLoop(
 				})
 			}
 		})
+		// The agent's calls the stream left open end with it.
+		switch {
+		case streamErr == nil:
+			agentTools.close("completed")
+		case streamCtx.Err() != nil:
+			agentTools.close("cancelled")
+		default:
+			agentTools.close("failed")
+		}
 		if streamErr != nil {
 			status := "failed"
 			if streamCtx.Err() != nil {
@@ -1321,7 +1348,7 @@ func (a *Agent) runReActLoop(
 				nudge = reasoningLoopNudge
 			}
 			// LLM-facing only; never persisted to the transcript.
-			messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge})
+			messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge, Ephemeral: true})
 			a.log.Warn("loop guard cut a degenerating response",
 				"channel", loopAbortChannelName(loopAbort), "nudge", loopNudges)
 			resetRetries("loop_guard")
@@ -1433,7 +1460,7 @@ func (a *Agent) runReActLoop(
 					// it back after the kept answer instead of ending the request
 					// on that answer. The kept answer is text, so what stood before
 					// it was answered.
-					messages = append(messages, keptAnswerOf(a.state.GetMessages()), llm.Message{Role: llm.RoleUser, Content: providerRecoveryNudge})
+					messages = append(messages, keptAnswerOf(a.state.GetMessages()), llm.Message{Role: llm.RoleUser, Content: providerRecoveryNudge, Ephemeral: true})
 					standing = []string{providerRecoveryNudge}
 				}
 				nextCallReason = "provider_recovery"
@@ -1448,7 +1475,8 @@ func (a *Agent) runReActLoop(
 				reasonTrim := strings.TrimSpace(reasoningBuf.String())
 				hasText := strings.TrimSpace(response.Content) != ""
 				hasTools := len(response.ToolCalls) > 0
-				if hasText || hasTools || reasonTrim != "" {
+				agentToolsKept := agentTools.stored()
+				if hasText || hasTools || reasonTrim != "" || len(agentToolsKept) > 0 {
 					var reasoningMs int64
 					if reasonTrim != "" && !reasonClockStart.IsZero() {
 						end := reasonClockEnd
@@ -1472,6 +1500,7 @@ func (a *Agent) runReActLoop(
 						ReasoningTokens:     response.ReasoningTokens,
 						Model:               transport.model,
 						CreatedAt:           time.Now().UTC().Format(time.RFC3339),
+						AgentTools:          agentToolsKept,
 					}
 					messages = append(messages, assistantMsg)
 					a.state.AddMessage(assistantMsg)
@@ -1556,7 +1585,11 @@ func (a *Agent) runReActLoop(
 			"input_tokens", response.InputTokens,
 			"cached_input_tokens", response.CachedInputTokens,
 			"output_tokens", response.OutputTokens)
-		a.recordProviderInputTokens(response.InputTokens, estimateAtSend)
+		if !transport.agent {
+			// An agent's input count measures its own context (its system
+			// prompt, its tools, their results), not this transcript.
+			a.recordProviderInputTokens(response.InputTokens, estimateAtSend)
+		}
 
 		// Accumulate and broadcast token usage after each LLM call.
 		totalInputTokens += response.InputTokens
@@ -1650,6 +1683,7 @@ func (a *Agent) runReActLoop(
 			Truncated:           stopsPartway(response, cutCall),
 			Model:               transport.model,
 			CreatedAt:           time.Now().UTC().Format(time.RFC3339),
+			AgentTools:          agentTools.stored(),
 		}
 		messages = append(messages, assistantMsg)
 		a.state.AddMessage(assistantMsg)
@@ -1915,7 +1949,7 @@ func (a *Agent) runReActLoop(
 			retryAllowance = fresh
 			if mayAskAfterOutputLimit(turn) {
 				nudge := cutOffToolCallNudge(cutCall.Name)
-				messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge})
+				messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge, Ephemeral: true})
 				recoveries := outputLimitRecoveries + 1
 				resetRetries("output_limit_nudge")
 				outputLimitRecoveries, standing, retryAllowance = recoveries, []string{nudge}, fresh
@@ -2017,7 +2051,8 @@ func (a *Agent) persistLoopAbortedMessage(
 		reasonStore, reasonSig = reasoningForStorage(reasonTrim, reasonRaw, response)
 	}
 
-	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasonStore) == "" && len(toolCalls) == 0 {
+	agentTools := a.agentToolsOfStep()
+	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasonStore) == "" && len(toolCalls) == 0 && len(agentTools) == 0 {
 		return
 	}
 
@@ -2041,6 +2076,7 @@ func (a *Agent) persistLoopAbortedMessage(
 		ReasoningDurationMs: reasoningMs,
 		Model:               model,
 		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
+		AgentTools:          agentTools,
 	}
 	a.state.AddMessage(msg)
 	if len(toolCalls) > 0 {
@@ -2956,6 +2992,12 @@ type llmTransport struct {
 	// first request, moves the revision past rev and makes the loop compare.
 	key string
 	rev uint64
+	// agent marks a model served by a local ACP agent (providers[].type:
+	// acp). Its context is the agent's own: the loop records no provider
+	// input count for it and runs no automatic compaction, and arms no
+	// first-token timer, whose budget the agent's start, handshake and the
+	// replay of a history into a new session would spend.
+	agent bool
 }
 
 // getProvider creates the LLM provider for the given mode.
@@ -2989,6 +3031,7 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 		model:     modelID,
 		key:       modelID + "|" + reasoning,
 		rev:       rev,
+		agent:     rm.ProviderType == "acp",
 	}, nil
 }
 
@@ -3136,7 +3179,7 @@ func (a *Agent) turnProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 	// The first-token timer cuts a streamed call that stays silent, retry
 	// waits included: a server-requested pause the timer would cut anyway
 	// is reported as a quota reset instead of being slept through in vain.
-	if rm.Stream {
+	if rm.Stream && rm.ProviderType != "acp" {
 		if timeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout(); timeout > 0 {
 			in.CallBudget = timeout
 		}
@@ -3168,6 +3211,11 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 		Temperature:   rm.Temperature,
 		DisableStream: !rm.Stream,
 		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
+		ACP:           rm.ACP,
+		// The opencode gateway routes a conversation and reuses its prompt
+		// cache by a stable per-conversation id; every other provider ignores
+		// it. The session id is that stable value.
+		SessionID: a.state.GetID(),
 	}
 	// What the provider's model listing says the model takes, read on the
 	// manager's cache: an OpenRouter-style aggregator gets the reasoning level

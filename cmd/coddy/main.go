@@ -234,7 +234,7 @@ func printUsage(w io.Writer) {
   %[1]s plugin remove <name>
   %[1]s plugin enable <name> | disable <name>
   %[1]s mcp list | trust <name> | untrust <name> [--cwd DIR]
-  %[1]s providers list | login <name> [--type neuraldeep|codex|devin] [--browser] [--devin-cli] [--no-config] [--api-base URL] | logout <name> [--home DIR]
+  %[1]s providers list | login <name> [--type neuraldeep|opencode|codex|devin] [--browser] [--devin-cli] [--api-key KEY] [--no-config] [--api-base URL] | logout <name> [--home DIR]
   %[1]s rules list [--cwd DIR]
   %[1]s agents list [--cwd DIR]
   %[1]s agents trust <name> [--cwd DIR]
@@ -410,6 +410,9 @@ func runACP(args []string) error {
 	// session the editor opens; they stop when the editor lets go of the agent.
 	mgr.StartGlobalMCPServers()
 	defer mgr.CloseMCP()
+	// So do the agents of acp providers.
+	llm.SetACPLogger(log)
+	defer llm.StopACPAgents()
 	srv = acp.NewServer(mgr, log)
 	// A woken turn opens with a note an editor that renders only the standard
 	// updates can read, live and when session/load replays it. Everything goes

@@ -795,3 +795,61 @@ describe("what reasoning cost", () => {
     ]);
   });
 });
+
+test("an acp model's tool calls are rows of their own before the answer", () => {
+  const msgs: RawSessionMessage[] = [
+    { role: "user", content: "read the notes" },
+    {
+      role: "assistant",
+      content: "banana",
+      reasoning: "looking",
+      agent_tools: [
+        {
+          id: "acp_t1",
+          title: "read notes.txt",
+          kind: "read",
+          status: "completed",
+          input: '{"filePath":"/w/notes.txt"}',
+          output: "banana split",
+          output_lines: 40,
+        },
+        {
+          id: "acp_t2",
+          title: "bash go test",
+          kind: "execute",
+          status: "failed",
+        },
+      ],
+    },
+  ];
+  const { items } = transcriptItemsFromMessages({
+    messages: msgs,
+    window: windowAt(msgs, 0),
+    uiLog: undefined,
+    newId,
+    reasoningDurations: new Map(),
+  });
+  expect(items.map((it) => it.type)).toEqual([
+    "user_message",
+    "thinking",
+    "tool_call",
+    "tool_call",
+    "assistant_message",
+  ]);
+  expect(items[2]).toMatchObject({
+    toolCallId: "acp_t1",
+    title: "read notes.txt",
+    kind: "read",
+    status: "completed",
+    argsText: '{"filePath":"/w/notes.txt"}',
+    resultText: "banana split",
+    resultWasTruncated: true,
+    agentTool: true,
+  });
+  expect(items[3]).toMatchObject({
+    toolCallId: "acp_t2",
+    kind: "run_command",
+    status: "failed",
+    agentTool: true,
+  });
+});

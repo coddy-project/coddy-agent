@@ -14,6 +14,17 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
+// directACPRefusal refuses a direct completion of a model a local ACP agent
+// serves: the call carries the caller's own messages and tools, and the agent
+// answers inside a Coddy session only. The handlers ask before they create a
+// session or open a stream, so the refusal is a 400 on either wire.
+func directACPRefusal(cfg *config.Config, model string) error {
+	if cfg == nil || !cfg.ModelRunsACPAgent(model) {
+		return nil
+	}
+	return &llm.ACPError{Kind: llm.ACPErrorUnsupported, Agent: model, Message: "a model served by an acp agent answers through the coddy profile (a session), not as a direct completion"}
+}
+
 // runDirectYAMLCompletion runs one non-ReAct LLM call for a configured models[].model
 // selector and appends the assistant message. toolDefs are the caller's own tools,
 // offered to the model as they are: a call the model makes is streamed back as an
@@ -26,6 +37,9 @@ func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State,
 		mk = defaultMakeLLMFromYAML
 	}
 	cfg := s.activeCfg()
+	if err := directACPRefusal(cfg, yamlSel); err != nil {
+		return nil, err
+	}
 	// What the provider's model listing said the model takes, as far as the
 	// session's manager has read it: an OpenRouter-style aggregator gets the
 	// reasoning level in the form its listing names (issue #258).

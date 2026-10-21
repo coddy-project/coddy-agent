@@ -2313,3 +2313,21 @@ test("a picture without a thumbnail previews its original, and a failed read non
   );
   expect(screen.queryByTestId("tool-image-thumb")).toBeNull();
 });
+
+test("a row of an acp agent's call is named by its title alone", () => {
+  // The title of an agent's call already says what it works on; its input
+  // names the same file, which a Coddy row would show again as its target.
+  render(
+    <ToolCallMessage
+      toolCallId="acp_t1"
+      title="read notes.txt"
+      kind="read"
+      status="completed"
+      argsText={JSON.stringify({ filePath: "/w/notes.txt" })}
+      resultText="banana split"
+      agentTool
+    />,
+  );
+  expect(screen.getByText("read notes.txt")).toHaveClass("thinking-label");
+  expect(screen.queryByTestId("tool-summary-target")).toBeNull();
+});

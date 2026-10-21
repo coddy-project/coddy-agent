@@ -23,6 +23,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/dryrun"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -274,6 +275,8 @@ func Run(args []string, deps CommandDeps) error {
 		mgr.SetConfigAdjuster(applyProcessOverrides)
 		mgr.SetGoalVerifier(agent.NewGoalVerifier(mgr, log))
 		lateSender.inner = &printSender{mgr: mgr, cfg: cfg, out: stdout, errOut: stderr}
+		llm.SetACPLogger(log)
+		defer llm.StopACPAgents()
 		startScheduler(ctx, cfg, mgr, log)
 		defer mgr.CloseMCP()
 		return PrintPrompt(ctx, mgr, popts)
@@ -299,6 +302,9 @@ func Run(args []string, deps CommandDeps) error {
 	if c, ok := app.mgr.(interface{ CloseMCP() }); ok {
 		defer c.CloseMCP()
 	}
+	// The agents of acp providers stop the same way.
+	llm.SetACPLogger(log)
+	defer llm.StopACPAgents()
 	llmWarmupNotices(log, cfg)
 
 	// Startup that can fail happens before raw mode. With --resume no session
@@ -539,6 +545,7 @@ func runInteractive(ctx context.Context, app *App, term *tui.ProcessTerminal, re
 		if c, ok := app.mgr.(interface{ CloseMCP() }); ok {
 			c.CloseMCP()
 		}
+		llm.StopACPAgents()
 	}
 	defer func() {
 		if r := recover(); r != nil {

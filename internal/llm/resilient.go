@@ -353,6 +353,10 @@ func responseHeadersFromError(err error) (http.Header, bool) {
 	if errors.As(err, &ant) && ant.Response != nil {
 		return ant.Response.Header, true
 	}
+	var raw *httpStatusError
+	if errors.As(err, &raw) && raw.header != nil {
+		return raw.header, true
+	}
 	return nil, false
 }
 
@@ -430,6 +434,12 @@ func isRetryableLLMError(err error) bool {
 	}
 	if errors.Is(err, context.Canceled) {
 		return false
+	}
+	// An ACP agent decides by kind, ahead of every text needle below: its
+	// errors quote the agent's stderr, which may say anything.
+	var acpErr *ACPError
+	if errors.As(err, &acpErr) {
+		return acpErr.retryable()
 	}
 	// A request the provider refused for its size is refused again the same
 	// way. Typed statuses already keep it out of the switch below, but an
@@ -612,6 +622,10 @@ func httpStatusFromError(err error) int {
 		// Authoritative like the typed stream error above: the server's
 		// message may hold digits of its own (a trace ID).
 		return dev.status
+	}
+	var raw *httpStatusError
+	if errors.As(err, &raw) {
+		return raw.status
 	}
 	s := err.Error()
 	for _, code := range []int{429, 408, 500, 502, 503, 504} {

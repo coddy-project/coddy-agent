@@ -751,3 +751,16 @@ func TestMetricsTokenIsSecret(t *testing.T) {
 		t.Fatalf("the commit wrote %q", cfg.Metrics.Token)
 	}
 }
+
+// The environment of an acp provider's agent can hold a credential under
+// any name: config_get keeps every value from the model, names readable.
+func TestACPEnvValuesAreSecret(t *testing.T) {
+	for _, name := range []string{"ANTHROPIC_AUTH_TOKEN", "GITHUB_TOKEN", "HOME"} {
+		if !configSecretPath([]string{"providers", "claude", "acp", "env", name}) {
+			t.Errorf("providers.claude.acp.env.%s must be a secret path", name)
+		}
+	}
+	if configSecretPath([]string{"providers", "claude", "acp", "command"}) {
+		t.Error("providers.claude.acp.command must stay readable")
+	}
+}
