@@ -287,8 +287,10 @@ messages: [
      names no number counts as a 503. A status is also read from the text of
      an untyped error, as a number with no digit in front of it (`529 `, not
      the end of `1529 tokens`). A cancellation, an unknown host, and any
-     failure after output was emitted stay final, and so does a Codex
-     `response.failed` event, which carries no status.
+     failure after output was emitted stay final. A Codex `response.failed`
+     event is read as an untyped error: its `code` (`server_is_overloaded`
+     included) is not decoded, so it is retried only when its message names a
+     status that way (`503 Service Unavailable`) and is final otherwise.
    - **First-token re-issue.** A streamed call the first-token guard
      (**`llm_first_token_timeout_ms`**) cuts with **nothing produced** is
      re-issued at most once, using a normal **`max_turns`** iteration. The
@@ -391,8 +393,12 @@ messages: [
      take the same path. When the retries are spent the turn ends with
      **`StopReasonMaxTokens`** and a notice (**`outputLimitNotice`**).
    - **Provider recovery.** A call that failed because of the provider's lane
-     (**`llm.IsTransientProviderError`**: 5xx and 529, whether the provider
-     answered with that status or the stream reported it in-band, a cut or
+     (**`llm.IsTransientProviderError`**: an answer with HTTP 408, 500, 502,
+     503, 504 or 529; an in-band error that is an overload by the fields
+     above, on every stream, or that carries one of those statuses as its
+     numeric `code` on an OpenAI-compatible stream - an in-band Codex or
+     Anthropic error of another kind, such as an `api_error` with code 500,
+     stays final; a cut or
      silent stream - an event cut inside its JSON included, a stream frame that
      is not JSON at all not - output already emitted or not; a 429 is left to
      the wrapper and the limit wait)
@@ -524,4 +530,4 @@ messages: [
 - Слишком длинный контекст - старые сообщения сжимаются в сводку, работа продолжается со сводкой;
 - Отмена - все операции прерываются, возвращается причина остановки `cancelled`.
 
-<!-- docsgen:source sha256=d797273c3e9d58ec -->
+<!-- docsgen:source sha256=4f47b1295d6d0b26 -->
