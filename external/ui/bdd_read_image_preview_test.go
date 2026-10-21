@@ -8,9 +8,9 @@ import (
 	"github.com/cucumber/godog"
 )
 
-// The preview of a picture a read showed the model is React behaviour, so each
-// step runs the Vitest test that feeds the frame, maps the transcript or
-// renders the row.
+// The preview of a picture a read showed the model, or an MCP tool returned,
+// is React behaviour, so each step runs the Vitest test that feeds the frame,
+// maps the transcript or renders the row.
 func TestReadImagePreviewFeature(t *testing.T) {
 	const stream = "src/ui/chat/consumeComposerSse.order.test.ts"
 	const transcript = "src/ui/chat/transcriptFromMessages.test.ts"
@@ -26,6 +26,15 @@ func TestReadImagePreviewFeature(t *testing.T) {
 			})
 			sc.Step(`^the read's row previews the picture without being opened and opens the original enlarged$`, func() error {
 				return runVitestScenario(row, "a read that showed the model a picture previews it under the row")
+			})
+			sc.Step(`^a completed MCP call keeps the screenshot its tool returned while the turn streams$`, func() error {
+				return runVitestScenario(stream, "a completed MCP call keeps the screenshot its tool returned")
+			})
+			sc.Step(`^a reloaded transcript keeps the screenshot on the MCP call's row$`, func() error {
+				return runVitestScenario(transcript, "an MCP tool row keeps the screenshot its tool returned")
+			})
+			sc.Step(`^the MCP card previews the screenshot without being opened and opens the original enlarged$`, func() error {
+				return runVitestScenario(row, "an MCP card previews the screenshot its tool returned under the card")
 			})
 		},
 		Options: &godog.Options{

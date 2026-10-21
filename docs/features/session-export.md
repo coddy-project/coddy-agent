@@ -48,7 +48,7 @@ The export is built before the `/export` row lands in the transcript, so the fil
 | Type | Content |
 |------|---------|
 | `user` | The prompt text, verbatim. Hydrated `@` mentions (`<coddy_attachment>` blocks) and uploaded files are reduced to an attachment list of paths and names; their bodies are not copied, and the gap they leave is closed. |
-| `assistant` | Reasoning, text, and tool calls paired with their results by `tool_call_id`; a call that showed the model a picture (`read` on an image file, [Images](images.md)) lists it under `pictures` by the copy kept with the session's assets. A copy of a picture or an uploaded file is named where the session's directory is now, even when the directory moved after the file was saved. A row with no text, reasoning, or calls (a cancelled turn) is skipped. |
+| `assistant` | Reasoning, text, and tool calls paired with their results by `tool_call_id`; a call that returned a picture (`read` on an image file, an MCP tool's image block, [Images](images.md)) lists it under `pictures` by the copy kept with the session's assets. A copy of a picture or an uploaded file is named where the session's directory is now, even when the directory moved after the file was saved. A row with no text, reasoning, or calls (a cancelled turn) is skipped. |
 | `tool_result` | A result whose call is not in the transcript. |
 | `compaction_summary` | A summary row inserted by `/compact` or automatic compaction. |
 | `plan_document` | A plan document row with its slug, name, and file path. |

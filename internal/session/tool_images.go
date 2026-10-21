@@ -14,8 +14,8 @@ import (
 	"unicode/utf8"
 )
 
-// ToolImage is a picture a tool call handed the model (read on an image
-// file), as the surfaces find it on the call's final tool_call_update
+// ToolImage is a picture a tool call returned (for example, read or MCP),
+// as the surfaces find it on the call's final tool_call_update
 // (_meta.coddy.images) and on the call's result in the transcript: the file
 // name the model was told, the type it was sent as, and the copy kept with the
 // session's assets. The web UI previews it from URL and PreviewURL, a
@@ -45,7 +45,7 @@ func AssetThumbnailRoute(sessionID, assetName string) string {
 // toolImageStemMax bounds the part of a copy's name taken from the file's.
 const toolImageStemMax = 80
 
-// toolImageThumbnailMaxPixels bounds the pictures a read gets a thumbnail
+// toolImageThumbnailMaxPixels bounds the pictures a tool result gets a thumbnail
 // for. Making one decodes the whole picture, and a session may read many
 // large ones, so past 16 megapixels (64 MB decoded) the copy gets none and
 // the web UI previews the original.
@@ -60,6 +60,10 @@ var toolImageExt = map[string]string{
 	"image/webp": ".webp",
 }
 
+// ToolImageExt is the extension a picture of mimeType is named with, or ""
+// for a type a model is never sent.
+func ToolImageExt(mimeType string) string { return toolImageExt[mimeType] }
+
 // SaveToolImageAsset keeps a copy of a picture a tool call handed the model
 // with the session's assets, read-only, under the file's name plus a digest
 // of its content. The digest is what makes the copy the picture the model was
@@ -72,28 +76,7 @@ func SaveToolImageAsset(sessionDir, name, mimeType string, data []byte) (assetPa
 	if strings.TrimSpace(sessionDir) == "" {
 		return "", "", nil
 	}
-	base := filepath.Base(filepath.Clean(strings.TrimSpace(name)))
-	if base == "." || base == string(filepath.Separator) || base == "" {
-		base = "image"
-	}
-	stem := strings.TrimSuffix(base, filepath.Ext(base))
-	// The asset name is also a segment of the asset address, which refuses a
-	// backslash on every host, while a Unix file name may hold one.
-	stem = strings.ReplaceAll(stem, "\\", "_")
-	if stem == "" {
-		stem = "image"
-	}
-	// The digest and the extension come on top of the name, and a file name
-	// is 255 bytes on most file systems.
-	for len(stem) > toolImageStemMax {
-		_, size := utf8.DecodeLastRuneInString(stem)
-		stem = stem[:len(stem)-size]
-	}
-	ext := toolImageExt[mimeType]
-	if ext == "" {
-		ext = filepath.Ext(base)
-	}
-	assetName := stem + "-" + toolImageDigest(data) + ext
+	assetName := toolAssetName(name, "image", toolImageExt[mimeType], data)
 
 	assetsDir := AssetsPath(sessionDir)
 	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
@@ -125,6 +108,94 @@ func SaveToolImageAsset(sessionDir, name, mimeType string, data []byte) (assetPa
 		return assetPath, "", fmt.Errorf("write thumbnail %s: %w", assetName, err)
 	}
 	return assetPath, thumbPath, nil
+}
+
+// toolAssetName is the name of the copy of data a tool call returned under
+// name: the base of name, the digest of data and ext, or the extension of
+// name when ext is empty; fallback stands for a name with no stem.
+func toolAssetName(name, fallback, ext string, data []byte) string {
+	base := filepath.Base(filepath.Clean(strings.TrimSpace(name)))
+	if base == "." || base == string(filepath.Separator) || base == "" {
+		base = fallback
+	}
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	// The asset name is also a segment of the asset address, which refuses a
+	// backslash on every host, while a Unix file name may hold one; a name a
+	// server chose (a resource's URI) may hold what no file system takes.
+	stem = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || strings.ContainsRune(`\/:*?"<>|`, r) {
+			return '_'
+		}
+		return r
+	}, stem)
+	if stem == "" {
+		stem = fallback
+	}
+	// The digest and the extension come on top of the name, and a file name
+	// is 255 bytes on most file systems.
+	for len(stem) > toolImageStemMax {
+		_, size := utf8.DecodeLastRuneInString(stem)
+		stem = stem[:len(stem)-size]
+	}
+	if ext == "" {
+		ext = plainExt(filepath.Ext(base))
+	}
+	return stem + "-" + toolImageDigest(data) + ext
+}
+
+// plainExt is ext when it is a short run of letters and digits after the
+// dot, the only extension a name a server chose may bring along, and ""
+// otherwise: on Windows "a.pdf:stream" names a stream of a.pdf, and an
+// extension of hundreds of bytes makes a name no file system takes.
+func plainExt(ext string) string {
+	if len(ext) < 2 || len(ext) > 17 {
+		return ""
+	}
+	for _, r := range ext[1:] {
+		letter := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z'
+		digit := r >= '0' && r <= '9'
+		if !letter && !digit {
+			return ""
+		}
+	}
+	return ext
+}
+
+// toolFileExt names a file a tool returned by its type. The table is fixed,
+// not the system's, so a name does not depend on the machine.
+var toolFileExt = map[string]string{
+	"audio/wav": ".wav", "audio/x-wav": ".wav", "audio/wave": ".wav", "audio/mpeg": ".mp3", "audio/mp3": ".mp3",
+	"audio/ogg": ".ogg", "audio/opus": ".opus", "audio/webm": ".webm", "audio/flac": ".flac", "audio/aac": ".aac",
+	"audio/mp4": ".m4a", "audio/x-m4a": ".m4a", "audio/aiff": ".aiff",
+	"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp", "image/svg+xml": ".svg",
+	"image/tiff": ".tif", "image/bmp": ".bmp", "image/x-icon": ".ico", "image/avif": ".avif", "image/heic": ".heic",
+	"application/pdf": ".pdf", "application/json": ".json", "application/zip": ".zip",
+	"text/plain": ".txt", "text/csv": ".csv", "text/markdown": ".md", "text/html": ".html",
+}
+
+// SaveToolFileAsset keeps a copy of a file a tool call returned that no
+// model is shown (an MCP audio clip, a binary resource, a picture no model
+// would take) with the session's assets, read-only, named as a picture's
+// copy is, and returns its path. The extension comes from mimeType (its
+// parameters cut), else from name when it is plain. The agent opens the copy
+// with its tools, as it opens a prompt's attachment.
+func SaveToolFileAsset(sessionDir, name, mimeType string, data []byte) (string, error) {
+	if strings.TrimSpace(sessionDir) == "" {
+		return "", fmt.Errorf("the session keeps no files")
+	}
+	kind, _, _ := strings.Cut(mimeType, ";")
+	assetName := toolAssetName(name, "file", toolFileExt[strings.ToLower(strings.TrimSpace(kind))], data)
+	assetsDir := AssetsPath(sessionDir)
+	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
+		return "", fmt.Errorf("assets dir: %w", err)
+	}
+	path := filepath.Join(assetsDir, assetName)
+	if !holds(path, data) {
+		if err := writeReadOnly(path, data); err != nil {
+			return "", fmt.Errorf("write asset %s: %w", assetName, err)
+		}
+	}
+	return path, nil
 }
 
 // toolImageDigest is the digest a copy's name carries: the first 8 bytes of

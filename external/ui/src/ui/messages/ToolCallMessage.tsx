@@ -246,7 +246,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   resultWasTruncated?: boolean | undefined;
   /** Final todo state saved with this call, used by structured todo previews. */
   todoPlan?: TodoPlanEntry[] | undefined;
-  /** Pictures the call showed the model (`read` on an image file), previewed
+  /** Pictures the call returned (`read` on an image file, an MCP tool), previewed
    *  under the row. */
   images?: readonly TranscriptFile[] | undefined;
   /** Files deliberately shared by a completed share_file tool call. */
