@@ -22,7 +22,7 @@ import (
 func (s *subagentsFeatureState) gitIn(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
+	cmd.Env = append(os.Environ(), gitIsolatedEnv()...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("git %v: %w: %s", args, err, out)
@@ -131,8 +131,11 @@ func (s *subagentsFeatureState) childWorkedInWorktree() error {
 	if !session.SameWorkspacePath(cwd, wt) {
 		return fmt.Errorf("the child worked in %s, want its worktree %s", cwd, wt)
 	}
+	// The fixture's folder may be spelled with the short home name Windows
+	// gives it (C:\Users\RUNNER~1\...) while the worktree comes back long, so
+	// the containment is judged the way the product judges it.
 	root := filepath.Join(s.cwd, ".coddy", "worktrees")
-	if rel, err := filepath.Rel(root, wt); err != nil || strings.HasPrefix(rel, "..") {
+	if !insideFolder(root, wt) {
 		return fmt.Errorf("the child's worktree %s is not under %s", wt, root)
 	}
 	return nil

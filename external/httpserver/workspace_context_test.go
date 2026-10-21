@@ -125,6 +125,11 @@ func TestWorkspaceFoldersDriveSentinelIsAPlainPathWithoutDrives(t *testing.T) {
 
 func TestWorkspaceFoldersDriveRootOffersDriveLevelAsParent(t *testing.T) {
 	dir := t.TempDir()
+	// The API resolves aliases, including Windows short (8.3) home paths.
+	dir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(dir, "child"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -278,6 +283,12 @@ func TestWorkspaceFoldersListsOnlyDirectorySymlinksAndResolvesNavigation(t *test
 	target := filepath.Join(dir, "target")
 	if err := os.Mkdir(target, 0o755); err != nil {
 		t.Fatalf("mkdir target: %v", err)
+	}
+	// The endpoint resolves the short Windows spelling of the temp directory.
+	var err error
+	target, err = filepath.EvalSymlinks(target)
+	if err != nil {
+		t.Fatalf("resolve target: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "file"), []byte("not a folder"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)

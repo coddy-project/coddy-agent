@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -433,6 +434,9 @@ func TestServerKeepsTheHostAllowlistOnALocalhostBind(t *testing.T) {
 }
 
 func TestToolServesARecreatedDirectoryFresh(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows forbids deleting a directory held open by os.Root; this case exercises POSIX unlinked-directory semantics")
+	}
 	env := newEnv(t, bgtask.Config{})
 	dist := filepath.Join(env.CWD, "dist")
 	writeFile(t, filepath.Join(dist, "index.html"), "first build")

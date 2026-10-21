@@ -481,7 +481,7 @@ func fullSnapshot() Snapshot {
 			GOOS: "linux", GOARCH: "arm64", Tags: []string{"cli", "gateway", "http", "metrics"},
 		},
 		StartedAt: docNow.Add(-time.Hour), StartedBy: StartedBySystemd,
-		ConfigFile: filepath.Join("/home/al", ".coddy", "config.yaml"),
+		ConfigFile: "/home/al/.coddy/config.yaml",
 		Subsystems: []SubsystemStatus{
 			{Kind: KindHTTP, State: StateRunning, Address: "127.0.0.1:12345", PendingAddress: "0.0.0.0:12345"},
 			{Kind: KindGateway, State: StateStopped},

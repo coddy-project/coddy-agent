@@ -3214,6 +3214,10 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 		DisableStream: !rm.Stream,
 		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
 		ACP:           rm.ACP,
+		// The opencode gateway routes a conversation and reuses its prompt
+		// cache by a stable per-conversation id; every other provider ignores
+		// it. The session id is that stable value.
+		SessionID: a.state.GetID(),
 	}
 	// What the provider's model listing says the model takes, read on the
 	// manager's cache: an OpenRouter-style aggregator gets the reasoning level

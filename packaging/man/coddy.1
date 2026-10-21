@@ -245,7 +245,18 @@ the address it ended on into the terminal. With
 .B \-\-devin\-cli
 it uses the login
 .B devin auth login
-already holds and opens no browser. A login also adds the provider, the models
+already holds and opens no browser. An OpenCode login prints a device code
+and opens the Console account page. Select the organization there; access
+and refresh tokens are stored locally and refreshed through the provider proxy.
+The login belongs to the account and serves the Go and the Console gateway
+alike;
+.B \-\-api\-base
+picks the gateway written into the provider row.
+For a service account, pass
+.B \-\-api\-key KEY
+or use
+.B \-\-api\-key -
+to read the key without echo or from standard input. A login also adds the provider, the models
 the account can use and an
 .I agent.model
 to the configuration unless
@@ -253,7 +264,7 @@ to the configuration unless
 is given.
 .B \-\-type
 names the type
-.RB ( neuraldeep ", " codex " or " devin )
+.RB ( neuraldeep ", " opencode ", " codex " or " devin )
 of a provider the configuration does not list yet, so another profile of a type
 is created by signing it in, as in
 .BR "coddy providers login codex\-work \-\-type codex" .

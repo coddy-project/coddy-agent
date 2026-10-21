@@ -137,11 +137,12 @@ type Server struct {
 	removeCanvasObserver func()
 
 	codexAuthIssuer string
-	// codexAuthMu guards both browser-login attempt maps; the attempts share
+	// codexAuthMu guards the browser-login attempt maps; the attempts share
 	// one bookkeeping shape and one drain path.
 	codexAuthMu          sync.Mutex
 	codexAuthLogins      map[string]*codexAuthLoginAttempt
 	neuralDeepAuthLogins map[string]*codexAuthLoginAttempt
+	opencodeAuthLogins   map[string]*codexAuthLoginAttempt
 
 	permissionResumeWG sync.WaitGroup
 	// bgWG counts background goroutines owned by this server (codex auth login
@@ -175,6 +176,7 @@ func (s *Server) Drain() {
 	}
 	s.cancelCodexAuthLogins()
 	s.cancelNeuralDeepAuthLogins()
+	s.cancelOpenCodeAuthLogins("")
 	// A memory run stopped mid-persist loses its note: running memory runs get
 	// the drain grace before the pool is closed.
 	if n := agent.MemoryRunsInFlight(); n > 0 {
@@ -211,6 +213,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		codexAuthIssuer:      llm.CodexIssuerURL,
 		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 		neuralDeepAuthLogins: make(map[string]*codexAuthLoginAttempt),
+		opencodeAuthLogins:   make(map[string]*codexAuthLoginAttempt),
 		events:               newServerEventsHub(),
 		served:               configapi.NewRevisions(),
 		sessions:             webauth.NewSessionStore(),

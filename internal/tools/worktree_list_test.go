@@ -63,7 +63,8 @@ func TestWorktreeListPlacesEverySessionInItsOwnWorktree(t *testing.T) {
 	s.env.SessionsInWorkspace = func(dir string) []string {
 		var out []string
 		for id, cwd := range map[string]string{"sess_main": s.root, "sess_one": filepath.Join(one, "pkg")} {
-			if strings.HasPrefix(cwd+string(filepath.Separator), dir+string(filepath.Separator)) || cwd == dir {
+			rel, err := filepath.Rel(session.CanonicalWorkspacePath(dir), session.CanonicalWorkspacePath(cwd))
+			if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 				out = append(out, id)
 			}
 		}

@@ -85,6 +85,22 @@ providers:
   #   type: devin
   #   # usage_limits_panel: false   # hides the account usage panel and stops its reads
 
+  # OpenCode Go / Console gateway: one API key, its curated coding models served
+  # over the right wire protocol per model id (Grok/GPT/Muse on the Responses
+  # API, Gemini on Google, Claude/Qwen/MiniMax M3 on Anthropic for Go, the rest
+  # OpenAI-compatible; Console's Qwen3.8 Max and MiniMax use Chat Completions).
+  # Get a key at https://opencode.ai/console, then either paste it here or run
+  # `coddy providers login opencode` (a device-code account sign-in; --api-key -
+  # reads a service account key instead). The login also writes this row and
+  # the gateway's models. api_base picks the gateway: omit it for Go
+  # (the default) or set https://opencode.ai/inference/v1 for pay-as-you-go
+  # Console. An explicit api_key, api_key_command or OPENCODE_API_KEY env var
+  # wins over the stored login.
+  # - name: opencode
+  #   type: opencode
+  #   # api_base: "https://opencode.ai/inference/v1"  # Console instead of Go
+  #   api_key: "${OPENCODE_API_KEY}"
+
   # A local agent that speaks the Agent Client Protocol on stdio, served as a
   # model: it runs its own tools in the session's workspace and asks you
   # before it acts (acp.permissions). Its models are <name>/default (the

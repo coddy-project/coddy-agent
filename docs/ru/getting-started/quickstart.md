@@ -65,7 +65,7 @@ providers:
     api_key: "~"
 ```
 
-Anthropic, NeuralDeep (`coddy providers login neuraldeep` вместо ключа) и Codex (OAuth ChatGPT) описаны на странице [Конфигурация](configuration.md). Учётная запись Devin входит через `coddy providers login devin` ([Devin](../features/devin.md)).
+Anthropic, NeuralDeep (`coddy providers login neuraldeep` вместо ключа) и Codex (OAuth ChatGPT) описаны на странице [Конфигурация](configuration.md). В аккаунт Devin входят через `coddy providers login devin` ([Devin](../features/devin.md)), а в аккаунт OpenCode Go или Console - через `coddy providers login opencode` ([OpenCode](../features/opencode.md)).
 
 ## 3. Проверка файла
 
@@ -148,4 +148,4 @@ coddy serve 1.2.31
 - [Обновление](update.md) - `coddy update` и что происходит, когда бинарником владеет менеджер пакетов;
 - [Устранение неполадок](troubleshooting.md) - если какой-то шаг выше прошёл не так, как написано.
 
-<!-- docsgen:source sha256=75e0803c9823619d -->
+<!-- docsgen:source sha256=788fcbee2a6fb161 -->
