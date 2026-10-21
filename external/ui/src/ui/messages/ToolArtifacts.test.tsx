@@ -8,6 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 
+import { pageWithoutClipboardApi, selectedOnce } from "../clipboardTestKit";
 import { setEnv } from "../env/remoteEnv";
 import { parseToolArtifacts } from "../chat/toolArtifacts";
 import { onOpenWorkspaceFile, type OpenFileRequest } from "../files/fileBus";
@@ -194,6 +195,44 @@ test("opens the actions menu outside the card, which clips what overflows it", (
     "aria-haspopup",
     "menu",
   );
+});
+
+// The ways to copy sit under Copy, in a submenu beside the menu on a desktop
+// and in the one list of a phone; either way each puts its text where a paste
+// finds it on a page that has no clipboard API.
+const COPIED_BY_THE_MENU = [
+  ...selectedOnce("release-notes.pdf"),
+  ...selectedOnce("reports/release-notes.pdf"),
+  ...selectedOnce("/work/repo/reports/release-notes.pdf"),
+];
+const COPY_ITEMS = ["File name", "Relative path", "Absolute path"];
+
+test("the copy items of the menu work without a clipboard API", () => {
+  const page = pageWithoutClipboardApi();
+  render(<ArtifactCard inline artifact={present} />);
+  const trigger = screen.getByRole("button", {
+    name: "Actions for release-notes.pdf",
+  });
+  for (const name of COPY_ITEMS) {
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy" }));
+    fireEvent.click(screen.getByRole("menuitem", { name }));
+  }
+  expect(page.copies).toEqual(COPIED_BY_THE_MENU);
+});
+
+test("on a phone the copy items of the one-list menu work without a clipboard API", () => {
+  stubMatchMedia((query) => query === shellStackMaxWidthMediaQuery);
+  const page = pageWithoutClipboardApi();
+  render(<ArtifactCard inline artifact={present} />);
+  const trigger = screen.getByRole("button", {
+    name: "Actions for release-notes.pdf",
+  });
+  for (const name of COPY_ITEMS) {
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("menuitem", { name }));
+  }
+  expect(page.copies).toEqual(COPIED_BY_THE_MENU);
 });
 
 test("draws the trigger's dots as an svg, not a text glyph", () => {

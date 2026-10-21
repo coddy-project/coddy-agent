@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
+import { copyText } from "../clipboard";
 import { useT } from "../i18n/I18nProvider";
 import { Chevron } from "../components/Chevron";
 import { parseDiffPatch } from "../messages/parseDiff";
@@ -184,15 +185,11 @@ export function DiffFileSection(props: {
   }, [parsed, props.view]);
 
   const copyPath = () => {
-    void navigator.clipboard
-      .writeText(file.path)
-      .then(() => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1200);
-      })
-      .catch(() => {
-        /* clipboard denied; the path is still selectable in the header */
-      });
+    void copyText(file.path).then((ok) => {
+      if (!ok) return;
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    });
   };
 
   return (

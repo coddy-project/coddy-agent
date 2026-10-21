@@ -12,6 +12,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import { copyText } from "../clipboard";
 import { useT } from "../i18n/I18nProvider";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
 import { docsHrefFromCoddyLink } from "../scheduler/hashRoute";
@@ -83,20 +84,6 @@ function normalizeText(children: unknown): string {
   return "";
 }
 
-function copyTextToClipboard(text: string): Promise<void> {
-  return navigator.clipboard.writeText(text).catch(() => {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.style.position = "fixed";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    document.execCommand("copy");
-    document.body.removeChild(ta);
-  });
-}
-
 function InlineCode(props: { className?: string; children?: unknown }) {
   const { t } = useT();
   const text = normalizeText(props.children);
@@ -112,12 +99,9 @@ function InlineCode(props: { className?: string; children?: unknown }) {
 
   const onCopy = useCallback(async () => {
     if (!text) return;
-    try {
-      await copyTextToClipboard(text);
+    if (await copyText(text)) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 900);
-    } catch {
-      setCopied(false);
     }
   }, [text]);
 
