@@ -61,3 +61,70 @@ func BenchmarkInspectMirroredProject(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkNestedOnADeepPath is what every filesystem tool call pays for the
+// rule folders of subfolders (issue #557) in a workspace whose subfolders keep
+// none: the chain of project folders probed under each folder on the way down
+// to the file.
+func BenchmarkNestedOnADeepPath(b *testing.B) {
+	root := b.TempDir()
+	file := filepath.Join(root, "a", "b", "c", "d", "e", "f", "x.go")
+	f := rules.DefaultFactory("")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if got := f.Nested(root, []string{file}, nil); len(got) != 0 {
+			b.Fatalf("read %d nested rules, want none", len(got))
+		}
+	}
+}
+
+// BenchmarkNestedSubprojectOfThisRepository is what a tool call pays when it
+// reaches a subproject that keeps a copy of this repository's own rules and
+// their Claude Code mirror: Nested reads and parses the subproject's rule
+// folder on every call, nothing is cached between calls.
+func BenchmarkNestedSubprojectOfThisRepository(b *testing.B) {
+	repo, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		b.Fatal(err)
+	}
+	root := b.TempDir()
+	for _, folder := range []string{".cursor/rules", ".claude/rules"} {
+		if err := copyRuleFolder(filepath.Join(repo, filepath.FromSlash(folder)), filepath.Join(root, "svc", filepath.FromSlash(folder))); err != nil {
+			b.Skipf("this checkout has no %s to measure: %v", folder, err)
+		}
+	}
+	file := filepath.Join(root, "svc", "internal", "rules", "factory.go")
+	f := rules.DefaultFactory("")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		got := f.Nested(root, []string{file}, nil)
+		if len(got) == 0 {
+			b.Fatal("the subproject's rules were not read")
+		}
+		_ = rules.MatchScoped(got, []string{file})
+	}
+}
+
+// copyRuleFolder copies the regular files under src to dst.
+func copyRuleFolder(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
+}
