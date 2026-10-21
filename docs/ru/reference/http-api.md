@@ -458,7 +458,7 @@ httpserver:
 
 ## Корни памяти
 
-Как и в `external/memory/README.md`, **`global`** использует настроенный **`memory.dir`** (запасной вариант **`$CODDY_HOME/memory`**). **`workspace`** указывает на **`$CWD/memory`** этого бандла сессии. Заполнители **`agentMemory`** остаются только для агента (`session.json`) и через этот REST не редактируются.
+Как и в `external/memory/README.md`, **`global`** использует настроенный **`memory.dir`** (запасной вариант **`$CODDY_HOME/memory`**). **`workspace`** указывает на **`$CWD/.coddy/memory`** этого бандла сессии. Заполнители **`agentMemory`** остаются только для агента (`session.json`) и через этот REST не редактируются.
 
 Интерактивные запросы разрешений на инструменты пропускаются, когда сессия работает в **`bypass`**, кроме принудительных, то есть решения **`ask`** хука **`PreToolUse`** и команды, которую не пропустила проверка decisions. В остальных случаях встроенный UI показывает **`event: permission`** во время **`POST /v1/responses`** (**`stream: true`**) и завершает ход через **`POST /coddy/sessions/{id}/permission`** (так же, как для **`question`**).
 
@@ -582,4 +582,4 @@ head. Страница занимает не больше 10 МБ. `canvas_show`
 дают ей управлять сервером. Клиент, который сам отправляет `Origin: null` (страница с
 `file://`), получает такой же отказ, а клиента без `Origin` это не касается.
 
-<!-- docsgen:source sha256=c8feb88ba94316dd -->
+<!-- docsgen:source sha256=1dd22f4a5dd2934a -->

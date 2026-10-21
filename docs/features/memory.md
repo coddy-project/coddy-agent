@@ -90,7 +90,7 @@ A note body holds at most `memory.max_note_chars` characters (default 900; chara
 | Root | Where | Scope of the notes |
 |---|---|---|
 | global | `memory.dir`, or `$CODDY_HOME/memory` (`~/.coddy/memory`) when unset; `${CODDY_HOME}` and `~` expand | shared by every session |
-| project | `<session cwd>/memory`, not configurable | the workspace the session runs in |
+| project | `<session cwd>/.coddy/memory` (`<session cwd>/memory` in earlier releases), not configurable | the workspace the session runs in |
 
 Only `.md` and `.txt` files count. Nested folders are encouraged for thematic grouping, and the child calls `coddy_memory_mkdir` before saving into a new branch of the tree. Both roots are plain directories: they can be edited with any editor, and the project root can be committed with the repository or ignored, as the notes deserve.
 
