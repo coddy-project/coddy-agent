@@ -685,7 +685,10 @@ func TestModelToolListsConfigReloadTakesEffectFromTheNextRequest(t *testing.T) {
 		answerStep("done"),
 	)
 	ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
-	ag.SetConfigReloader(func(context.Context) ([]string, error) { return nil, nil })
+	ag.SetConfigReloader(func(context.Context) (*config.Config, []string, error) {
+		next, err := config.Load(configPath)
+		return next, nil, err
+	})
 	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
 
 	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "narrow the tools, then write"}})

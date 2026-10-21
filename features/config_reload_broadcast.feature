@@ -35,3 +35,8 @@ Feature: A configuration reload reaches the clients that are already open
     When another process adds the model "rpa/qwen3.6-35b-a3b" to config.yaml
     Then the browser is told the configuration reloaded
     And the model list the browser reads after that event carries "rpa/qwen3.6-35b-a3b"
+
+  Scenario: Saving settings keeps a command-line policy override active
+    Given a process override sets project trust to deny
+    When the configuration is saved with the model "rpa/qwen3.6-35b-a3b" added
+    Then project trust remains deny in the running configuration

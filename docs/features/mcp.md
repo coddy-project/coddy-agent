@@ -138,12 +138,15 @@ the operator approves that exact declaration for that workspace.
 - `~/.coddy/mcp.json` is operator-authored and is **not** gated;
 - the policy is `mcp.project_trust` in `config.yaml`: `ask` (default), `allow` (start
   project servers automatically; only for workspaces you already trust), `deny` (never
-  load them, no approval path). `coddy acp` and `coddy serve` also take
+  load them, no approval path). The console, `coddy acp` and `coddy serve` also take
   `--mcp-project-trust ask|allow|deny`, which overrides the config for that process only -
   the flag is what a CI job or a container entrypoint uses instead of editing config.yaml.
-  An unknown value fails the launch rather than falling back to a default. A changed
-  policy reaches the live sessions too: moved to `deny`, it takes the project servers
-  away from the sessions holding them, and those servers stop;
+  An unknown value fails the launch rather than falling back to a default. The flag holds
+  for the life of the process: a policy saved from the settings screen, the MCP tab or
+  `config_commit` is written to config.yaml, and the process keeps the flag's policy until
+  it is started without the flag. A changed policy reaches the live sessions too: moved to
+  `deny`, it takes the project servers away from the sessions holding them, and those
+  servers stop;
 - approvals live in `~/.coddy/mcp-trust.json`, keyed by the canonical workspace path (a
   linked git worktree uses its main checkout's:
   [Git worktrees](worktrees.md#what-a-worktree-shares-with-its-main-checkout)) and by
