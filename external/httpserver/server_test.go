@@ -531,111 +531,124 @@ func TestDirectCompletionsRejectConcurrentSessionTurn(t *testing.T) {
 	}
 }
 
-func TestDirectCompletionCannotOverwriteProfileTurn(t *testing.T) {
-	profileStarted := make(chan struct{}, 1)
-	releaseProfile := make(chan struct{})
-	var releaseOnce sync.Once
-	release := func() { releaseOnce.Do(func() { close(releaseProfile) }) }
-	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
-		profileStarted <- struct{}{}
-		select {
-		case <-releaseProfile:
-		case <-ctx.Done():
-			return "", ctx.Err()
-		}
-		var content strings.Builder
-		for _, block := range prompt {
-			if block.Type == "text" {
-				content.WriteString(block.Text)
+// TestCompletionCannotOverwriteRunningProfileTurn holds a profile turn open and
+// sends a second chat completion carrying a history to the same session, for a
+// direct model and for a profile. Both are refused with 409 before they touch
+// the session: neither the client's history nor the direct model's call may
+// reach the transcript of the turn that holds it.
+func TestCompletionCannotOverwriteRunningProfileTurn(t *testing.T) {
+	for _, tc := range []struct{ name, model string }{
+		{name: "direct", model: "openai/gpt-4o"},
+		{name: "profile", model: "agent"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			profileStarted := make(chan struct{}, 2)
+			releaseProfile := make(chan struct{})
+			var releaseOnce sync.Once
+			release := func() { releaseOnce.Do(func() { close(releaseProfile) }) }
+			runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+				profileStarted <- struct{}{}
+				select {
+				case <-releaseProfile:
+				case <-ctx.Done():
+					return "", ctx.Err()
+				}
+				var content strings.Builder
+				for _, block := range prompt {
+					if block.Type == "text" {
+						content.WriteString(block.Text)
+					}
+				}
+				st.AddMessage(llm.Message{Role: llm.RoleUser, Content: strings.TrimSpace(content.String())})
+				st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "profile"})
+				return string(acp.StopReasonEndTurn), nil
 			}
-		}
-		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: strings.TrimSpace(content.String())})
-		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "profile"})
-		return string(acp.StopReasonEndTurn), nil
-	}
-	mgr, srv, _ := testHTTPServerPersistWithRunner(t, runner)
-	directCalls := atomic.Int32{}
-	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) {
-		directCalls.Add(1)
-		return fakeProvider{reply: "direct"}, nil
-	}
-	ts := httptest.NewServer(srv.Handler())
-	// Released before Close waits for the profile handler, as above.
-	t.Cleanup(ts.Close)
-	t.Cleanup(release)
-	sid := "sess_profile_direct_busy"
+			mgr, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+			directCalls := atomic.Int32{}
+			srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) {
+				directCalls.Add(1)
+				return fakeProvider{reply: "direct"}, nil
+			}
+			ts := httptest.NewServer(srv.Handler())
+			// Released before Close waits for the profile handler, as above.
+			t.Cleanup(ts.Close)
+			t.Cleanup(release)
+			sid := "sess_profile_turn_busy"
 
-	profileReq, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(`{"model":"agent","input":"profile prompt","stream":false}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	profileReq.Header.Set("Content-Type", "application/json")
-	profileReq.Header.Set("X-Coddy-Session-ID", sid)
-	profileDone := make(chan error, 1)
-	go func() {
-		res, err := http.DefaultClient.Do(profileReq)
-		if err != nil {
-			profileDone <- err
-			return
-		}
-		body, readErr := ioReadAllClose(res.Body)
-		if readErr != nil {
-			profileDone <- readErr
-			return
-		}
-		if res.StatusCode != http.StatusOK {
-			profileDone <- fmt.Errorf("profile request: %d %s", res.StatusCode, body)
-			return
-		}
-		profileDone <- nil
-	}()
-	select {
-	case <-profileStarted:
-	case <-time.After(2 * time.Second):
-		t.Fatal("profile request did not reach the runner")
-	}
+			profileReq, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(`{"model":"agent","input":"profile prompt","stream":false}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			profileReq.Header.Set("Content-Type", "application/json")
+			profileReq.Header.Set("X-Coddy-Session-ID", sid)
+			profileDone := make(chan error, 1)
+			go func() {
+				res, err := http.DefaultClient.Do(profileReq)
+				if err != nil {
+					profileDone <- err
+					return
+				}
+				body, readErr := ioReadAllClose(res.Body)
+				if readErr != nil {
+					profileDone <- readErr
+					return
+				}
+				if res.StatusCode != http.StatusOK {
+					profileDone <- fmt.Errorf("profile request: %d %s", res.StatusCode, body)
+					return
+				}
+				profileDone <- nil
+			}()
+			select {
+			case <-profileStarted:
+			case <-time.After(2 * time.Second):
+				t.Fatal("profile request did not reach the runner")
+			}
 
-	directCtx, cancelDirect := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancelDirect()
-	directReq, err := http.NewRequestWithContext(directCtx, http.MethodPost, ts.URL+"/v1/chat/completions", strings.NewReader(`{"model":"openai/gpt-4o","messages":[{"role":"user","content":"direct prompt"}],"stream":false}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	directReq.Header.Set("Content-Type", "application/json")
-	directReq.Header.Set("X-Coddy-Session-ID", sid)
-	directRes, err := http.DefaultClient.Do(directReq)
-	if err != nil {
-		t.Fatal(err)
-	}
-	directBody, readErr := ioReadAllClose(directRes.Body)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if directRes.StatusCode != http.StatusConflict {
-		t.Fatalf("direct request status %d body %s, want 409", directRes.StatusCode, directBody)
-	}
-	if got := directCalls.Load(); got != 0 {
-		t.Fatalf("direct provider was called %d times for a rejected request", got)
-	}
-	if got := len(mgr.SessionByID(sid).GetMessages()); got != 0 {
-		t.Fatalf("rejected direct request changed the profile transcript: %d messages", got)
-	}
+			secondCtx, cancelSecond := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancelSecond()
+			body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"earlier"},{"role":"assistant","content":"earlier answer"},{"role":"user","content":"second prompt"}],"stream":false}`, tc.model)
+			secondReq, err := http.NewRequestWithContext(secondCtx, http.MethodPost, ts.URL+"/v1/chat/completions", strings.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			secondReq.Header.Set("Content-Type", "application/json")
+			secondReq.Header.Set("X-Coddy-Session-ID", sid)
+			secondRes, err := http.DefaultClient.Do(secondReq)
+			if err != nil {
+				t.Fatal(err)
+			}
+			secondBody, readErr := ioReadAllClose(secondRes.Body)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if secondRes.StatusCode != http.StatusConflict {
+				t.Fatalf("second request status %d body %s, want 409", secondRes.StatusCode, secondBody)
+			}
+			if got := directCalls.Load(); got != 0 {
+				t.Fatalf("direct provider was called %d times for a rejected request", got)
+			}
+			if got := len(mgr.SessionByID(sid).GetMessages()); got != 0 {
+				t.Fatalf("rejected request changed the running turn's transcript: %d messages", got)
+			}
 
-	release()
-	if err := <-profileDone; err != nil {
-		t.Fatal(err)
-	}
-	var userMessages, assistantMessages int
-	for _, msg := range mgr.SessionByID(sid).GetMessages() {
-		switch msg.Role {
-		case llm.RoleUser:
-			userMessages++
-		case llm.RoleAssistant:
-			assistantMessages++
-		}
-	}
-	if userMessages != 1 || assistantMessages != 1 {
-		t.Fatalf("profile transcript has %d user and %d assistant messages, want one each", userMessages, assistantMessages)
+			release()
+			if err := <-profileDone; err != nil {
+				t.Fatal(err)
+			}
+			var userMessages, assistantMessages int
+			for _, msg := range mgr.SessionByID(sid).GetMessages() {
+				switch msg.Role {
+				case llm.RoleUser:
+					userMessages++
+				case llm.RoleAssistant:
+					assistantMessages++
+				}
+			}
+			if userMessages != 1 || assistantMessages != 1 {
+				t.Fatalf("profile transcript has %d user and %d assistant messages, want one each", userMessages, assistantMessages)
+			}
+		})
 	}
 }
 

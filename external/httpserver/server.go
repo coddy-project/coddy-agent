@@ -911,8 +911,8 @@ func (s *Server) acquireComposerTurnLock(w http.ResponseWriter, sessionID string
 	return nil, false
 }
 
-// profileTurnContext makes Stop effective as soon as HTTP owns the turn lock,
-// before headers, workspace preparation and manager admission. Streaming calls
+// profileTurnContext makes Stop effective before headers, workspace
+// preparation and manager admission. Streaming calls
 // detach exactly once here; detaching again in the manager would lose an early Stop.
 func profileTurnContext(ctx context.Context, st *session.State, stream bool) (context.Context, context.CancelFunc) {
 	if stream {
