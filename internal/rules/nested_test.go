@@ -127,7 +127,7 @@ func TestMatchNestedRulesWithinTheirSubtree(t *testing.T) {
 // A rule scoped to a folder and gated by globs anchored elsewhere still waits
 // for a path inside its folder: the scope and the globs both have to hold.
 func TestMatchScopedRuleNeedsTheScopeAndTheGlobs(t *testing.T) {
-	root := filepath.Join(string(filepath.Separator), "group")
+	root := t.TempDir()
 	r := &rules.Rule{
 		ID: "x", FilePath: filepath.Join(root, "db", ".cursor", "rules", "x.mdc"),
 		AlwaysApply: true, ApplyMode: rules.ApplyAuto,
