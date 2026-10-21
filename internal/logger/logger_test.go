@@ -306,3 +306,29 @@ func TestMinLevelIsTheLowestAnyComponentAsksFor(t *testing.T) {
 		t.Fatalf("minLevel = %v, want debug", got)
 	}
 }
+
+// The acp provider's logger sits under "provider": raising that parent raises
+// it, and its own name narrows it again.
+func TestProviderACPComponentFollowsItsParent(t *testing.T) {
+	var buf bytes.Buffer
+	base := slog.New(newHandler(&buf, config.Logger{
+		Level:  config.LogLevelError,
+		Levels: []config.LoggerComponentLevel{{Component: "provider", Level: config.LogLevelDebug}},
+	}))
+	Component(base, ComponentProviderACP).Debug("agent started")
+	if !strings.Contains(buf.String(), "agent started") || !strings.Contains(buf.String(), "provider.acp") {
+		t.Fatalf("provider did not reach provider.acp; got: %s", buf.String())
+	}
+	buf.Reset()
+	narrowed := slog.New(newHandler(&buf, config.Logger{
+		Level: config.LogLevelDebug,
+		Levels: []config.LoggerComponentLevel{
+			{Component: "provider", Level: config.LogLevelDebug},
+			{Component: ComponentProviderACP, Level: config.LogLevelError},
+		},
+	}))
+	Component(narrowed, ComponentProviderACP).Warn("quiet")
+	if buf.Len() != 0 {
+		t.Fatalf("provider.acp's own level did not win; got: %s", buf.String())
+	}
+}

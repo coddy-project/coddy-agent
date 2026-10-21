@@ -594,6 +594,9 @@ type ToolCallUpdate struct {
 	Title         string `json:"title,omitempty"`
 	Kind          string `json:"kind,omitempty"` // the agent's kind ("read", "write", "run_command", "other"); the ACP server sends WireToolKind of it
 	Status        string `json:"status"`         // "pending"
+	// Meta carries Coddy's extensions (_meta.coddy): agentTool marks the call
+	// of an agent behind an acp model, titled by what it works on already.
+	Meta map[string]interface{} `json:"_meta,omitempty"`
 }
 
 // ToolCallStatusUpdate reports progress on an existing tool call.

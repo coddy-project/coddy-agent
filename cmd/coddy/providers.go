@@ -44,12 +44,13 @@ func runProviders(args []string) error {
 	fs := flag.NewFlagSet("providers", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	home := fs.String("home", "", "override CODDY_HOME")
-	device := fs.Bool("device", false, "neuraldeep: the device flow, which is the default (accepted for compatibility)")
+	device := fs.Bool("device", false, "neuraldeep/opencode: the device flow, which is the default (accepted for compatibility)")
 	browser := fs.Bool("browser", false, "neuraldeep: sign in through a loopback browser callback instead of the device flow")
 	noConfig := fs.Bool("no-config", false, "login: do not add the provider and its models to config.yaml after login")
 	devinCLI := fs.Bool("devin-cli", false, "devin: use the login `devin auth login` already holds instead of a browser sign-in")
-	apiBase := fs.String("api-base", "", "neuraldeep: API endpoint to sign in against, one of "+strings.Join(llm.NeuralDeepAPIBases(), ", ")+" (default: the provider's api_base, else the first)")
-	providerType := fs.String("type", "", "login: type of a provider config.yaml does not list yet (neuraldeep, codex or devin), so another profile of a type is created by signing it in")
+	apiKey := fs.String("api-key", "", "opencode: service account key (- reads a secret prompt or stdin); without it, sign in an account by device code")
+	apiBase := fs.String("api-base", "", "neuraldeep: API endpoint to sign in against, one of "+strings.Join(llm.NeuralDeepAPIBases(), ", ")+" (default: the provider's api_base, else the first); opencode: the gateway written into the row, one of "+strings.Join(llm.OpenCodeAPIBases(), ", ")+" (default: the row's api_base, else Go)")
+	providerType := fs.String("type", "", "login: type of a provider config.yaml does not list yet (neuraldeep, opencode, codex or devin), so another profile of a type is created by signing it in")
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
@@ -66,7 +67,7 @@ func runProviders(args []string) error {
 		}
 		return nil
 	case "login":
-		return providersLogin(cfg, name, *providerType, *device, *browser, *devinCLI, *noConfig, *apiBase)
+		return providersLogin(cfg, name, *providerType, *device, *browser, *devinCLI, *noConfig, *apiBase, *apiKey)
 	case "logout":
 		return providersLogout(cfg, name)
 	default:
@@ -75,7 +76,7 @@ func runProviders(args []string) error {
 }
 
 func providersUsageErr() error {
-	return fmt.Errorf("usage: %s providers list | login <name> [--type neuraldeep|codex|devin] [--browser] [--devin-cli] [--no-config] [--api-base URL] | logout <name> [--home DIR]", os.Args[0])
+	return fmt.Errorf("usage: %s providers list | login <name> [--type neuraldeep|opencode|codex|devin] [--browser] [--devin-cli] [--api-key KEY] [--no-config] [--api-base URL] | logout <name> [--home DIR]", os.Args[0])
 }
 
 // resolveLoginProvider picks the provider entry for login/logout. A name
@@ -92,11 +93,11 @@ func resolveLoginProvider(cfg *config.Config, name, providerType string) (*confi
 		}
 		return prov, nil
 	}
-	if providerType == "" && (name == "neuraldeep" || name == "codex" || name == "devin") {
+	if providerType == "" && (name == "neuraldeep" || name == "opencode" || name == "codex" || name == "devin") {
 		providerType = name
 	}
 	switch providerType {
-	case "neuraldeep", "codex", "devin":
+	case "neuraldeep", "opencode", "codex", "devin":
 		probe := config.ProviderConfig{Name: name, Type: providerType}
 		probe.Normalize()
 		if err := probe.Validate(); err != nil {
@@ -104,13 +105,13 @@ func resolveLoginProvider(cfg *config.Config, name, providerType string) (*confi
 		}
 		return &probe, nil
 	case "":
-		return nil, fmt.Errorf("provider %q is not in config.yaml; add it first, pass --type neuraldeep|codex|devin, or use the conventional names \"neuraldeep\" / \"codex\" / \"devin\"", name)
+		return nil, fmt.Errorf("provider %q is not in config.yaml; add it first, pass --type neuraldeep|opencode|codex|devin, or use the conventional names \"neuraldeep\" / \"opencode\" / \"codex\" / \"devin\"", name)
 	default:
-		return nil, fmt.Errorf("--type %q: sign-in exists only for neuraldeep, codex and devin; other types authenticate with api_key", providerType)
+		return nil, fmt.Errorf("--type %q: sign-in exists only for neuraldeep, opencode, codex and devin; other types authenticate with api_key", providerType)
 	}
 }
 
-func providersLogin(cfg *config.Config, name, providerType string, device, browser, devinCLI, noConfig bool, apiBase string) error {
+func providersLogin(cfg *config.Config, name, providerType string, device, browser, devinCLI, noConfig bool, apiBase, apiKey string) error {
 	if device && browser {
 		return errors.New("providers login: --device and --browser ask for different flows; pass at most one")
 	}
@@ -120,6 +121,12 @@ func providersLogin(cfg *config.Config, name, providerType string, device, brows
 	}
 	if devinCLI && prov.Type != "devin" {
 		return fmt.Errorf("providers login: --devin-cli applies to devin providers only, %q has type %q", prov.Name, prov.Type)
+	}
+	if apiKey != "" && prov.Type != "opencode" {
+		return fmt.Errorf("providers login: --api-key applies to opencode providers only, %q has type %q", prov.Name, prov.Type)
+	}
+	if browser && prov.Type != "neuraldeep" {
+		return fmt.Errorf("providers login: --browser applies to neuraldeep providers only, %q has type %q", prov.Name, prov.Type)
 	}
 	switch prov.Type {
 	case "devin":
@@ -132,8 +139,12 @@ func providersLogin(cfg *config.Config, name, providerType string, device, brows
 		return codexLogin(cfg, prov, prov.Name, authPath, noConfig)
 	case "neuraldeep":
 		return neuralDeepLogin(cfg, prov, browser, noConfig, apiBase)
+	case "opencode":
+		return opencodeLogin(cfg, prov, apiKey, noConfig, apiBase)
+	case "acp":
+		return fmt.Errorf("provider %q has type acp: its agent signs in on its own (claude login, codex login, opencode auth login, ...), or through acp.auth_method", prov.Name)
 	default:
-		return fmt.Errorf("provider %q has type %q: it authenticates with api_key (or the %s env var), browser sign-in exists only for neuraldeep, codex and devin",
+		return fmt.Errorf("provider %q has type %q: it authenticates with api_key (or the %s env var), sign-in exists only for neuraldeep, opencode, codex and devin",
 			prov.Name, prov.Type, config.ProviderAPIKeyEnvVarName(prov.Name))
 	}
 }
@@ -267,6 +278,8 @@ func providersLogout(cfg *config.Config, name string) error {
 	switch prov.Type {
 	case "devin":
 		return devinLogout(cfg, prov)
+	case "opencode":
+		return opencodeLogout(cfg, prov)
 	case "codex":
 		authPath := config.CodexAuthPath(cfg.Paths.Home, prov.Name)
 		if err := llm.RemoveCodexAuth(authPath); err != nil {
@@ -319,7 +332,7 @@ func providersListLines(cfg *config.Config) []string {
 	lines := make([]string, 0, len(cfg.Providers))
 	for i := range cfg.Providers {
 		prov := &cfg.Providers[i]
-		lines = append(lines, "  "+prov.Name+" ("+prov.Type+"): "+providerCredentialSummary(cfg, prov)+neuralDeepEndpointNote(prov))
+		lines = append(lines, "  "+prov.Name+" ("+prov.Type+"): "+providerCredentialSummary(cfg, prov)+neuralDeepEndpointNote(prov)+opencodeEndpointNote(prov))
 	}
 	for i := range cfg.Providers {
 		if w := providerAimWarning(&cfg.Providers[i]); w != "" {
@@ -363,8 +376,19 @@ func neuralDeepEndpointNote(prov *config.ProviderConfig) string {
 
 func providerCredentialSummary(cfg *config.Config, prov *config.ProviderConfig) string {
 	switch prov.Type {
+	case "acp":
+		if prov.ACP == nil || strings.TrimSpace(prov.ACP.Command) == "" {
+			return "no agent; set acp.command"
+		}
+		summary := "runs the agent `" + strings.TrimSpace(strings.Join(append([]string{prov.ACP.Command}, prov.ACP.Args...), " ")) + "`, which signs in on its own"
+		if m := strings.TrimSpace(prov.ACP.AuthMethod); m != "" {
+			summary += " (authenticate: " + m + ")"
+		}
+		return summary
 	case "devin":
 		return devinCredentialSummary(cfg, prov)
+	case "opencode":
+		return opencodeCredentialSummary(cfg, prov)
 	case "codex":
 		cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, "codex")
 		st, err := llm.InspectCodexAuth(config.CodexAuthPath(cfg.Paths.Home, prov.Name), cliLogin)

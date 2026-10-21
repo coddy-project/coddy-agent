@@ -28,3 +28,6 @@ Feature: The settings form takes the models and their windows from the provider
     And the address opens the row it names
     And an address naming no row goes back to the list and clears the name
     And renaming the open row renames it in the address
+
+  Scenario: The models of a provider named coddy are offered in the composer
+    Then the models of a provider named coddy are backends and the profiles are not

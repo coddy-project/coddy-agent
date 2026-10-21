@@ -61,6 +61,14 @@ func (s *Server) enhanceProvider(r *http.Request) (llm.Provider, error) {
 	if modelID == "" && len(cfg.Models) > 0 {
 		modelID = cfg.Models[0].Model
 	}
+	if cfg.ModelRunsACPAgent(modelID) {
+		// A local ACP agent answers inside a session only and would take the
+		// rewrite request for a task: borrow a model of another type.
+		modelID = cfg.FirstNonACPModelID()
+		if modelID == "" {
+			return nil, fmt.Errorf("no model other than an acp agent is configured to improve the prompt")
+		}
+	}
 	if modelID == "" {
 		return nil, fmt.Errorf("no model configured")
 	}
