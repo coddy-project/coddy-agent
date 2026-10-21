@@ -208,10 +208,10 @@ func dataURLType(dataURL string) string {
 
 const (
 	// toolImagesMaxCount and toolImagesMaxBytes bound the pictures one request
-	// carries, the newest first. Pictures stay in the history and go out with
-	// every request, and a provider refuses a request past its limits: the
-	// Anthropic API takes 32 MB in all, and pictures of at most 2000 pixels a
-	// side once a request holds more than 20 of them.
+	// carries (pictureWindowStart). Pictures stay in the history and go out
+	// with every request, and a provider refuses a request past its limits:
+	// the Anthropic API takes 32 MB in all, and pictures of at most 2000
+	// pixels a side once a request holds more than 20 of them.
 	toolImagesMaxCount = 20
 	toolImagesMaxBytes = 20 << 20
 )
@@ -220,46 +220,76 @@ const (
 type pictureKey [2]int
 
 // selectPictures picks the pictures a request carries: every picture of the
-// history, attached to a prompt or returned by a tool, from the newest back,
-// until toolImagesMaxCount pictures or toolImagesMaxBytes of data are taken, a
-// picture too large for the bytes left giving way to an older one that fits.
-// Text files attached to a prompt are no pictures and take no slot. A picture
-// kept as its file is loaded as it is chosen, and one whose copy cannot be
-// read is missing and takes no slot either; with no loader (the context
-// estimate) no file is opened and every copy is taken to be there. Nothing is
-// chosen for a model that does not read images. The data URLs of the chosen
-// pictures come back, keyed by where they are.
+// history, attached to a prompt or returned by a tool, from the oldest to
+// the newest, in one window that ends at the newest picture
+// (pictureWindowStart). Text files attached to a prompt are no pictures and
+// take no place in it. A picture kept as its file is loaded as it is chosen,
+// and one whose copy cannot be read is missing; with no loader (the context
+// estimate) no file is opened and every copy is taken to be there. Nothing
+// is chosen for a model that does not read images. The data URLs of the
+// chosen pictures come back, keyed by where they are.
 func selectPictures(msgs []llm.Message, readsImages bool, load func(llm.ImagePart) (string, error)) (kept map[pictureKey]string, missing map[pictureKey]bool) {
 	kept, missing = map[pictureKey]string{}, map[pictureKey]bool{}
 	if !readsImages {
 		return kept, missing
 	}
-	size := 0
-	for i := len(msgs) - 1; i >= 0 && len(kept) < toolImagesMaxCount; i-- {
-		parts := msgs[i].ImageParts
-		for j := len(parts) - 1; j >= 0 && len(kept) < toolImagesMaxCount; j-- {
-			p := parts[j]
-			if !llm.IsPicture(p) {
-				continue
+	var keys []pictureKey
+	var sizes []int
+	for i, m := range msgs {
+		for j, p := range m.ImageParts {
+			if llm.IsPicture(p) {
+				keys = append(keys, pictureKey{i, j})
+				sizes = append(sizes, partBytes(p))
 			}
-			n := partBytes(p)
-			if size+n > toolImagesMaxBytes {
-				continue
-			}
-			url := p.DataURL
-			if url == "" && load != nil {
-				loaded, err := load(p)
-				if err != nil {
-					missing[pictureKey{i, j}] = true
-					continue
-				}
-				url = loaded
-			}
-			size += n
-			kept[pictureKey{i, j}] = url
 		}
 	}
+	for _, key := range keys[pictureWindowStart(sizes):] {
+		p := msgs[key[0]].ImageParts[key[1]]
+		url := p.DataURL
+		if url == "" && load != nil {
+			loaded, err := load(p)
+			if err != nil {
+				missing[key] = true
+				continue
+			}
+			url = loaded
+		}
+		kept[key] = url
+	}
 	return kept, missing
+}
+
+// pictureWindowStart is the first of the pictures a request carries, given
+// the size of every picture of the history from the oldest on. The window is
+// a run of the newest pictures that grows with every new one until it holds
+// more than toolImagesMaxCount pictures or toolImagesMaxBytes of them; then
+// the oldest leave together, until half of each is left. Every request until
+// the next overflow begins as the one before it did and only adds at its
+// end, so the provider's prompt cache holds: a session of screenshots
+// changes what was sent once every ten pictures or so, not with each one.
+// The newest picture always stays, unless it alone is larger than a request
+// takes. The walk depends on the sizes alone, never on which copies can be
+// read, so every request of a history draws the same window.
+func pictureWindowStart(sizes []int) int {
+	start, count, total := 0, 0, 0
+	for _, n := range sizes {
+		count++
+		total += n
+		if count <= toolImagesMaxCount && total <= toolImagesMaxBytes {
+			continue
+		}
+		for count > 1 && (count > toolImagesMaxCount/2 || total > toolImagesMaxBytes/2) {
+			total -= sizes[start]
+			count--
+			start++
+		}
+		if total > toolImagesMaxBytes {
+			total -= sizes[start]
+			count--
+			start++
+		}
+	}
+	return start
 }
 
 // withToolImages returns msgs as the provider is sent them: the pictures the
