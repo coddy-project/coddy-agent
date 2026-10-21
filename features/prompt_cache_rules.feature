@@ -50,3 +50,14 @@ Feature: Rules reach the model once and keep the provider's prompt cache
     And every request carries each rule at most once
     And every request opens with the system message of the first request
     And every request repeats the one before it up to its turn context block
+
+  Scenario: Rules named by their address reach the model without breaking the prefix
+    Given its rule folder keeps a manual rule "frontend/style" reading "FRONTEND_STYLE_TOKEN"
+    And its subproject "db" keeps a manual Coddy rule "ops/deploy" reading "DB_DEPLOY_TOKEN"
+    When the model reads "main.go", and answers
+    And the user asks "lay it out the way @rule:frontend/style and @rule:db/ops/deploy say", and the model answers
+    And the user asks again, and the model reads "main.go", and answers
+    Then "FRONTEND_STYLE_TOKEN" and "DB_DEPLOY_TOKEN" reach the model in the message that names them
+    And every request carries each rule at most once
+    And every request opens with the system message of the first request
+    And every request repeats the one before it up to its turn context block
