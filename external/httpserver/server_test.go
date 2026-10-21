@@ -439,13 +439,16 @@ func TestDirectCompletionsRejectConcurrentSessionTurn(t *testing.T) {
 			release := make(chan struct{})
 			var releaseOnce sync.Once
 			releaseProvider := func() { releaseOnce.Do(func() { close(release) }) }
-			t.Cleanup(releaseProvider)
 			provider := &blockingDirectProvider{started: started, release: release, reply: "direct", toolCalls: tc.toolCalls}
 			srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) {
 				return provider, nil
 			}
 			ts := httptest.NewServer(srv.Handler())
-			defer ts.Close()
+			// Cleanups run last in, first out: the provider is released before
+			// Close waits for the handlers it holds, so a failed check ends the
+			// test instead of hanging it.
+			t.Cleanup(ts.Close)
+			t.Cleanup(releaseProvider)
 
 			sid := "sess_direct_turn_busy"
 			firstReq, err := http.NewRequest(http.MethodPost, ts.URL+tc.path, strings.NewReader(tc.body))
@@ -454,27 +457,20 @@ func TestDirectCompletionsRejectConcurrentSessionTurn(t *testing.T) {
 			}
 			firstReq.Header.Set("Content-Type", "application/json")
 			firstReq.Header.Set("X-Coddy-Session-ID", sid)
-			firstDone := make(chan struct {
+			type reply struct {
 				status int
 				body   []byte
 				err    error
-			}, 1)
+			}
+			firstDone := make(chan reply, 1)
 			go func() {
 				res, err := http.DefaultClient.Do(firstReq)
 				if err != nil {
-					firstDone <- struct {
-						status int
-						body   []byte
-						err    error
-					}{err: err}
+					firstDone <- reply{err: err}
 					return
 				}
 				body, readErr := ioReadAllClose(res.Body)
-				firstDone <- struct {
-					status int
-					body   []byte
-					err    error
-				}{status: res.StatusCode, body: body, err: readErr}
+				firstDone <- reply{status: res.StatusCode, body: body, err: readErr}
 			}()
 
 			select {
@@ -540,7 +536,6 @@ func TestDirectCompletionCannotOverwriteProfileTurn(t *testing.T) {
 	releaseProfile := make(chan struct{})
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(releaseProfile) }) }
-	t.Cleanup(release)
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
 		profileStarted <- struct{}{}
 		select {
@@ -565,7 +560,9 @@ func TestDirectCompletionCannotOverwriteProfileTurn(t *testing.T) {
 		return fakeProvider{reply: "direct"}, nil
 	}
 	ts := httptest.NewServer(srv.Handler())
-	defer ts.Close()
+	// Released before Close waits for the profile handler, as above.
+	t.Cleanup(ts.Close)
+	t.Cleanup(release)
 	sid := "sess_profile_direct_busy"
 
 	profileReq, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(`{"model":"agent","input":"profile prompt","stream":false}`))
@@ -598,7 +595,9 @@ func TestDirectCompletionCannotOverwriteProfileTurn(t *testing.T) {
 		t.Fatal("profile request did not reach the runner")
 	}
 
-	directReq, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/chat/completions", strings.NewReader(`{"model":"openai/gpt-4o","messages":[{"role":"user","content":"direct prompt"}],"stream":false}`))
+	directCtx, cancelDirect := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelDirect()
+	directReq, err := http.NewRequestWithContext(directCtx, http.MethodPost, ts.URL+"/v1/chat/completions", strings.NewReader(`{"model":"openai/gpt-4o","messages":[{"role":"user","content":"direct prompt"}],"stream":false}`))
 	if err != nil {
 		t.Fatal(err)
 	}

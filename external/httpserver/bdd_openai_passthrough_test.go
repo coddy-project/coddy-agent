@@ -192,9 +192,13 @@ func (s *openAIPassthroughState) twoConcurrentDirectPosts(first, second string) 
 	s.backend.nextCompletion = gate
 	s.backend.mu.Unlock()
 
+	// Bounded, so a request that waits for the other one fails the step
+	// instead of hanging it.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	post := func(prompt string) (*http.Request, error) {
 		body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}],"stream":false}`, passthroughConcurrencyModel, prompt)
-		req, err := http.NewRequest(http.MethodPost, s.ts.URL+"/v1/chat/completions", strings.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.ts.URL+"/v1/chat/completions", strings.NewReader(body))
 		if err != nil {
 			return nil, err
 		}

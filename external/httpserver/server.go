@@ -673,6 +673,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if rejectSubagentTurn(w, st) {
 		return
 	}
+	// One turn at a time, whatever the model: a direct completion rewrites the
+	// history and reads its answer from the same session, so two of them, or
+	// one beside a profile turn, would hand each other their answers (issue
+	// #573). Taken before anything below touches the session, so a busy one
+	// is refused with nothing changed.
 	unlock, ok := s.acquireComposerTurnLock(w, sessionID, st)
 	if !ok {
 		return
@@ -715,7 +720,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		prompt := []acp.ContentBlock{{Type: "text", Text: last.Content}}
 		// Every profile turn publishes to a relay, whatever shape the caller asked its own
 		// answer to take: a script POSTing stream:false is exactly the turn someone wants to
-		// watch from a browser. The lock is taken first in both branches - beginComposerRelay
+		// watch from a browser. The turn lock taken above comes first - beginComposerRelay
 		// evicts any relay already registered for the session, so an unlocked second POST
 		// could cut the watchers off the first turn.
 		profileCtx, cancelProfile := profileTurnContext(ctx, st, req.Stream)
@@ -861,17 +866,17 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		_ = bridge.FinishStreamWithMetadata(meta)
 		return
 	}
+	// The answer is this call's own response, never read back from the shared
+	// transcript (issue #573); a call that succeeded always has one.
 	message := map[string]interface{}{
 		"role":    "assistant",
 		"content": strings.TrimSpace(directRes.Content),
 	}
 	finish := openAIFinishReason(directStopReason(directRes))
-	if directRes != nil {
-		if calls := openAIToolCallsJSON(directRes.ToolCalls); len(calls) > 0 {
-			message["tool_calls"] = calls
-			if message["content"] == "" {
-				message["content"] = nil
-			}
+	if calls := openAIToolCallsJSON(directRes.ToolCalls); len(calls) > 0 {
+		message["tool_calls"] = calls
+		if message["content"] == "" {
+			message["content"] = nil
 		}
 	}
 	resp := map[string]interface{}{
@@ -889,6 +894,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+// acquireComposerTurnLock takes the session's turn lock for a turn posted over
+// HTTP. When it cannot, it has already answered: 409 for a session another turn
+// holds, 500 for any other failure.
 func (s *Server) acquireComposerTurnLock(w http.ResponseWriter, sessionID string, st *session.State) (func(), bool) {
 	unlock, err := s.mgr.AcquireComposerTurnLock(sessionID, st)
 	if err == nil {
@@ -1255,7 +1263,8 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	if createdNew {
 		w.Header().Set("X-Coddy-Session-ID", sid)
 	}
-	// See handleChatCompletions: a child session is read-only for every caller.
+	// See handleChatCompletions: a child session is read-only for every caller,
+	// and the turn lock is taken for every model kind.
 	if rejectSubagentTurn(w, st) {
 		return
 	}
@@ -1327,7 +1336,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// See the same block in handleChatCompletions: the relay is opened for every profile
-		// turn, and the turn lock is taken before it in both branches.
+		// turn, after the turn lock taken above.
 		var bridge *Sender
 		profileCtx, cancelProfile := profileTurnContext(ctx, st, body.Stream)
 		defer cancelProfile()
