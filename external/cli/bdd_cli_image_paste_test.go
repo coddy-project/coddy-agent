@@ -230,7 +230,7 @@ rules:
 	}
 	s.cfg = cfg
 	s.store = &session.FileStore{Root: filepath.Join(home, "sessions")}
-	s.app = buildApp(cfg, s.store, slog.New(slog.DiscardHandler), &bddTerminal{cols: 100, rows: 35}, "dark", true)
+	s.app = buildApp(cfg, s.store, slog.New(slog.DiscardHandler), &bddTerminal{cols: 100, rows: 35}, "dark", true, nil)
 	s.wakerAttached = true
 	return nil
 }

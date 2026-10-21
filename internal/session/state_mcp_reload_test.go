@@ -74,7 +74,7 @@ func TestMCPJSONServerReachesLiveSessionsImmediately(t *testing.T) {
 		t.Fatal(err)
 	}
 	reloadCtx, cancelReload := context.WithCancel(context.Background())
-	warnings, err := mgr.ReloadConfigForSession(reloadCtx, st)
+	_, warnings, err := mgr.ReloadConfigForSession(reloadCtx, st)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -746,7 +746,7 @@ func TestReloadConfigForSessionRequiresProjectTrustAndRefreshesFilter(t *testing
 	}
 	mgr := NewManager(initial, nil, nil, slog.Default(), dir, nil)
 	st := &State{ID: "reload-project-mcp", CWD: dir, Mode: ModeAgent}
-	warnings, err := mgr.ReloadConfigForSession(context.Background(), st)
+	_, warnings, err := mgr.ReloadConfigForSession(context.Background(), st)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -767,7 +767,7 @@ func TestReloadConfigForSessionRequiresProjectTrustAndRefreshesFilter(t *testing
 	if err := mcp.NewTrustGate(mgr.Cfg()).Approve(dir, managed[0]); err != nil {
 		t.Fatal(err)
 	}
-	warnings, err = mgr.ReloadConfigForSession(context.Background(), st)
+	_, warnings, err = mgr.ReloadConfigForSession(context.Background(), st)
 	if err != nil {
 		t.Fatal(err)
 	}

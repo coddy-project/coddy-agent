@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 )
@@ -71,7 +73,7 @@ func TestReadDecodesTextAndRefusesBinaries(t *testing.T) {
 		{name: "doc.pdf", body: "%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj\n<< /Type /Catalog >>\nendobj\n", wantErr: "application/pdf"},
 		{name: "latin1.txt", body: "caf\xe9 au lait\n", want: "café au lait\n"},
 		{name: "utf16.txt", body: "\xff\xfeh\x00i\x00\n\x00", want: "hi\n"},
-		{name: "nul.go", body: "const s = \"a\x00b\"\n", want: "const s = \"a\x00b\"\n"},
+		{name: "embedded-nul.go", body: "const s = \"a\x00b\"\n", want: "const s = \"a\x00b\"\n"},
 		{name: "mixed.txt", body: "hello \xff\xfe world\n", want: "hello \xff\xfe world\n"},
 	}
 	reg := tools.NewRegistry()
@@ -84,6 +86,15 @@ func TestReadDecodesTextAndRefusesBinaries(t *testing.T) {
 		if c.wantErr != "" {
 			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
 				t.Errorf("read %s = %q, %v; want an error naming %s", c.name, result, err, c.wantErr)
+			}
+			continue
+		}
+		if c.name == "mixed.txt" && runtime.GOOS == "windows" {
+			// Windows has an ANSI fallback whose charset is the host's code
+			// page; these bytes may decode there or retain the raw fallback.
+			decoded := utf8.ValidString(result) && strings.HasPrefix(result, "hello ") && strings.HasSuffix(result, " world\n")
+			if err != nil || (result != c.want && !decoded) {
+				t.Errorf("read %s = %q, %v; want raw text or the host's ANSI decoding", c.name, result, err)
 			}
 			continue
 		}

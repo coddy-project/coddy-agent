@@ -384,7 +384,7 @@ func windowsSocketError(code int) error {
 // deadline already in the past fails before any packet is sent.
 func realDialTimeout(t *testing.T) error {
 	t.Helper()
-	_, err := (&net.Dialer{Timeout: time.Nanosecond}).Dial("tcp", "192.0.2.1:443")
+	_, err := (&net.Dialer{Deadline: time.Now().Add(-time.Second)}).Dial("tcp", "192.0.2.1:443")
 	var op *net.OpError
 	if !errors.As(err, &op) || op.Op != "dial" || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("dial error = %#v, want a dial timeout", err)

@@ -23,6 +23,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/dryrun"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -136,18 +137,22 @@ func Run(args []string, deps CommandDeps) error {
 		}
 		return config.RunCheck(os.Stdout, cli)
 	}
+	// applyProcessOverrides re-applies the flags the console was started with:
+	// to the configuration it loads, to the one --dry-run probes and to every
+	// one the agent's config_commit / config_rollback reloads, so a reload does
+	// not drop a decision only the command line carries (issue #441).
+	applyProcessOverrides := func(c *config.Config) error {
+		if *schedulerEnabled {
+			c.Scheduler.Enabled = true
+		}
+		config.ApplySkillsAutoDiscoveryFlag(fs, c, skillsAutoDiscovery)
+		return config.ApplyProjectTrustFlag(fs, c, projectTrust)
+	}
 	if *dryRun {
-		customize := func(c *config.Config) error {
-			if *schedulerEnabled {
-				c.Scheduler.Enabled = true
-			}
-			config.ApplySkillsAutoDiscoveryFlag(fs, c, skillsAutoDiscovery)
-			return config.ApplyProjectTrustFlag(fs, c, projectTrust)
-		}
 		if deps.DryRun != nil {
-			return deps.DryRun(cli, *testConfig, *remoteFlag, *remoteToken, customize)
+			return deps.DryRun(cli, *testConfig, *remoteFlag, *remoteToken, applyProcessOverrides)
 		}
-		return dryrun.RunConsole(os.Stdout, dryrun.SurfaceConsole, cli, *testConfig, *remoteFlag, *remoteToken, customize)
+		return dryrun.RunConsole(os.Stdout, dryrun.SurfaceConsole, cli, *testConfig, *remoteFlag, *remoteToken, applyProcessOverrides)
 	}
 
 	// One-shot print mode needs no terminal at all; only the interactive
@@ -188,11 +193,7 @@ func Run(args []string, deps CommandDeps) error {
 	// built. Best effort: a home that cannot be written still gets the copies
 	// the binary carries (skills.Bundled).
 	_, _ = skills.SeedDelivery(cfg)
-	if *schedulerEnabled {
-		cfg.Scheduler.Enabled = true
-	}
-	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, skillsAutoDiscovery)
-	if err := config.ApplyProjectTrustFlag(fs, cfg, projectTrust); err != nil {
+	if err := applyProcessOverrides(cfg); err != nil {
 		return err
 	}
 
@@ -271,8 +272,11 @@ func Run(args []string, deps CommandDeps) error {
 			return newTurnAgent(mgr, nil, st, snd, log).Run(rctx, prompt)
 		}
 		mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
+		mgr.SetConfigAdjuster(applyProcessOverrides)
 		mgr.SetGoalVerifier(agent.NewGoalVerifier(mgr, log))
 		lateSender.inner = &printSender{mgr: mgr, cfg: cfg, out: stdout, errOut: stderr}
+		llm.SetACPLogger(log)
+		defer llm.StopACPAgents()
 		startScheduler(ctx, cfg, mgr, log)
 		defer mgr.CloseMCP()
 		return PrintPrompt(ctx, mgr, popts)
@@ -290,7 +294,7 @@ func Run(args []string, deps CommandDeps) error {
 			return err
 		}
 	} else {
-		app = buildApp(cfg, store, log, term, resolveThemeName(*themeFlag, *plainFlag), *plainFlag)
+		app = buildApp(cfg, store, log, term, resolveThemeName(*themeFlag, *plainFlag), *plainFlag, applyProcessOverrides)
 	}
 	// The global MCP servers start with a local manager: they stop with the
 	// console on every way out, a startup that fails before the terminal is
@@ -298,6 +302,9 @@ func Run(args []string, deps CommandDeps) error {
 	if c, ok := app.mgr.(interface{ CloseMCP() }); ok {
 		defer c.CloseMCP()
 	}
+	// The agents of acp providers stop the same way.
+	llm.SetACPLogger(log)
+	defer llm.StopACPAgents()
 	llmWarmupNotices(log, cfg)
 
 	// Startup that can fail happens before raw mode. With --resume no session
@@ -333,7 +340,9 @@ func Run(args []string, deps CommandDeps) error {
 // sender registered as the manager's server sender, so replay, mode, config,
 // and slash-catalog updates reach the console. The runner only executes
 // inside manager prompt handling, so mgr and app are set by the time it runs.
-func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, term appTerminal, themeName string, plain bool) *App {
+// adjust re-applies the console's flags to every configuration the manager
+// reloads; nil when there are none.
+func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, term appTerminal, themeName string, plain bool, adjust func(*config.Config) error) *App {
 	var app *App
 	var mgr *session.Manager
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
@@ -341,6 +350,7 @@ func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, te
 	}
 	lateSender := &lateBoundSender{}
 	mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
+	mgr.SetConfigAdjuster(adjust)
 	mgr.SetGoalVerifier(agent.NewGoalVerifier(mgr, log))
 	wireLocalManager(mgr)
 	app = newApp(cfg, mgr, log, term, themeName, plain)
@@ -388,12 +398,12 @@ func newTurnAgent(mgr *session.Manager, app *App, st *session.State, snd acp.Upd
 	if app != nil {
 		loop.SetDetachedPermissionBroker(app)
 	}
-	loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
-		warnings, err := mgr.ReloadConfigForSession(ctx, st)
+	loop.SetConfigReloader(func(ctx context.Context) (*config.Config, []string, error) {
+		next, warnings, err := mgr.ReloadConfigForSession(ctx, st)
 		if err == nil && app != nil {
-			app.replaceConfig(mgr.Cfg(), st)
+			app.replaceConfig(next, st)
 		}
-		return warnings, err
+		return next, warnings, err
 	})
 	return loop
 }
@@ -535,6 +545,7 @@ func runInteractive(ctx context.Context, app *App, term *tui.ProcessTerminal, re
 		if c, ok := app.mgr.(interface{ CloseMCP() }); ok {
 			c.CloseMCP()
 		}
+		llm.StopACPAgents()
 	}
 	defer func() {
 		if r := recover(); r != nil {

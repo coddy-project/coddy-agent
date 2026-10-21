@@ -34,7 +34,13 @@ func Repository(t testing.TB) string {
 	if err := Init(dir); err != nil {
 		t.Fatal(err)
 	}
-	return dir
+	// Git records the physical path; keep derived fixture paths in the same
+	// spelling when Windows gives TempDir an 8.3 user-directory name.
+	physical, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return physical
 }
 
 // Init makes dir, which must exist, a repository on main with one empty
@@ -71,7 +77,7 @@ func Run(dir string, args ...string) error {
 	}
 	cmd := exec.Command(git, args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
 	platform.AdaptCommand(cmd)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git %v: %w\n%s", args, err, out)

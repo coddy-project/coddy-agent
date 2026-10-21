@@ -8,6 +8,7 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -392,7 +393,7 @@ func TestHeldServerIsReportedNotDialed(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(cwd, ".coddy"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	project := `{"mcpServers":{"project-tool":{"command":"` + os.Args[0] + `","args":["-test.run=^TestGatedMCPHelperProcess$"]}}}`
+	project := fmt.Sprintf(`{"mcpServers":{"project-tool":{"command":%q,"args":["-test.run=^TestGatedMCPHelperProcess$"]}}}`, os.Args[0])
 	if err := os.WriteFile(filepath.Join(cwd, ".coddy", "mcp.json"), []byte(project), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -430,7 +431,9 @@ func TestHeldServerIsReportedNotDialed(t *testing.T) {
 // the snapshot the surface shows says the connect it was following is over,
 // ordered after every snapshot read before it.
 func TestReloadClearsTheConnectRecord(t *testing.T) {
-	f := newBackgroundFixture(t, nil, func(m *Manager) { m.SetMCPConnectTimeoutForTest(300 * time.Millisecond) })
+	// The held helper still cannot finish its dial. Give the replacement
+	// process enough startup time on Windows and under a parallel suite.
+	f := newBackgroundFixture(t, nil, func(m *Manager) { m.SetMCPConnectTimeoutForTest(2 * time.Second) })
 	first, _ := f.st.MCPConnectSnapshot()
 	if first.Generation == 0 {
 		t.Fatal("the first snapshot carries no generation")

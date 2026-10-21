@@ -52,3 +52,50 @@ test("code-block copy button is centred on the first line of the block", () => {
   const buttonCentre = px(copy, "top") + buttonHeight / 2;
   expect(buttonCentre).toBe(lineCentre);
 });
+
+// iOS Safari hit-tests a scrolling block (a pre with overflow: auto) above an
+// earlier absolutely positioned sibling that has no z-index: the button is
+// painted over the code and every tap lands on the pre, so nothing is copied
+// (seen on an iPhone, issue #566). A copy button that is positioned takes a
+// z-index, whichever block it sits over: a code block, a figure's source, the
+// command of a background task. The ones in a flex or grid row are static and
+// overlap nothing.
+test("a copy button laid over a scrolling block has a positive z-index", () => {
+  const css = cssText();
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+    selectors: (m[1] ?? "")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split(",")
+      .map((sel) => sel.trim()),
+    body: m[2] ?? "",
+  }));
+  const decl = (body: string, prop: string) =>
+    new RegExp(`(?:^|[;\\s])${prop}:\\s*([^;]+)`).exec(body)?.[1]?.trim();
+  const isCopy = (sel: string) => /(^|[\s>+~])\.md-copy$/.test(sel);
+  const base = rules.find((r) => r.selectors.includes(".md-copy"));
+  expect(base).toBeDefined();
+  expect(decl(base!.body, "position")).toBe("absolute");
+  const baseZ = Number(decl(base!.body, "z-index"));
+  expect(baseZ).toBeGreaterThan(0);
+  const overlays: string[] = [];
+  for (const rule of rules) {
+    for (const sel of rule.selectors.filter(isCopy)) {
+      const position = decl(rule.body, "position") ?? "absolute";
+      if (position === "static") continue;
+      overlays.push(sel);
+      const z = Number(decl(rule.body, "z-index") ?? baseZ);
+      expect(
+        z,
+        `${sel} sits over a block and has no positive z-index`,
+      ).toBeGreaterThan(0);
+    }
+  }
+  // The rules that lay a copy button over a block today.
+  expect(overlays).toEqual(
+    expect.arrayContaining([
+      ".md-copy",
+      ".md-figure-source > .md-copy",
+      ".bgtask-card-command .md-copy",
+    ]),
+  );
+});

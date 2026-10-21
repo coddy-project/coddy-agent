@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -66,6 +67,60 @@ func testConfig() *config.Config {
 			{Model: "p3/claude-3"},
 		},
 		Agent: config.Agent{Model: "p1/gpt-4o"},
+	}
+}
+
+func TestInstallConfigKeepsProcessOverrideAndRejectsInvalidReload(t *testing.T) {
+	initial := testConfig()
+	m := session.NewManager(initial, noopSender{}, noopRunner, slog.Default(), t.TempDir(), nil)
+	m.SetConfigAdjuster(func(c *config.Config) error {
+		if c.Agent.MaxTurns < 0 {
+			return fmt.Errorf("invalid process override")
+		}
+		c.MCP.ProjectTrust = config.ProjectTrustDeny
+		return nil
+	})
+	next := testConfig()
+	if err := m.InstallConfig(next); err != nil {
+		t.Fatal(err)
+	}
+	if m.Cfg() != next || m.Cfg().MCP.ProjectTrust != config.ProjectTrustDeny {
+		t.Fatalf("installed config lost the process override: %+v", m.Cfg().MCP)
+	}
+	bad := testConfig()
+	bad.Agent.MaxTurns = -1
+	if err := m.InstallConfig(bad); err == nil {
+		t.Fatal("invalid process override was accepted")
+	}
+	if m.Cfg() != next {
+		t.Fatal("failed adjustment replaced the live configuration")
+	}
+}
+
+func TestReloadConfigForSessionKeepsProcessOverride(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config.yaml")
+	if err := os.WriteFile(path, []byte("mcp:\n  project_trust: ask\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadWithPaths(config.Paths{Home: root, CWD: root, ConfigPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), root, nil)
+	m.SetConfigAdjuster(func(c *config.Config) error {
+		c.MCP.ProjectTrust = config.ProjectTrustDeny
+		return nil
+	})
+	installed, _, err := m.ReloadConfigForSession(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Cfg().MCP.ProjectTrust; got != config.ProjectTrustDeny {
+		t.Fatalf("project trust = %q, want deny", got)
+	}
+	if installed != m.Cfg() {
+		t.Fatal("ReloadConfigForSession returned a configuration other than the one it installed")
 	}
 }
 
@@ -160,7 +215,7 @@ func TestReloadConfigForSessionRefreshesSkillsAndManagerConfig(t *testing.T) {
 	if err := os.WriteFile(configPath, []byte("agent:\n  max_turns: 22\nskills:\n  dirs:\n    - "+nextSkills+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	warnings, err := mgr.ReloadConfigForSession(context.Background(), st)
+	_, warnings, err := mgr.ReloadConfigForSession(context.Background(), st)
 	if err != nil {
 		t.Fatal(err)
 	}

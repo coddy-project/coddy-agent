@@ -209,3 +209,18 @@ func TestGoalDigestKeepsTheNewestStepsWithinItsBudget(t *testing.T) {
 		t.Fatalf("digest of %d bytes keeps the wrong end", len(d))
 	}
 }
+
+// The goal check is a one-shot judgement: a model served by a local ACP agent
+// would take it for a task, so the check refuses it and names the key to set.
+func TestGoalCheckRefusesAnACPModel(t *testing.T) {
+	cfg := &config.Config{
+		Providers:  []config.ProviderConfig{{Name: "agent", Type: "acp", ACP: &config.ACPProviderConfig{Command: "/nonexistent/acp-agent"}}},
+		Models:     []config.ModelEntry{{Model: "agent/default"}},
+		Supervisor: config.Supervisor{Model: "agent/default"},
+	}
+	st := &State{ID: "sess_goal", CWD: t.TempDir()}
+	_, err := judgeSessionGoal(context.Background(), cfg, st, GoalCheckRequest{Objective: "x"})
+	if err == nil || !strings.Contains(err.Error(), "supervisor.model") {
+		t.Fatalf("err = %v, want the refusal to name supervisor.model", err)
+	}
+}

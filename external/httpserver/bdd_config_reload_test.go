@@ -60,6 +60,7 @@ type configReloadState struct {
 	cfgPath string
 	ts      *httptest.Server
 	srv     *Server
+	mgr     *session.Manager
 
 	stopWatch context.CancelFunc
 	watchDone chan struct{}
@@ -115,6 +116,7 @@ func (s *configReloadState) startServer() error {
 		return "", nil
 	}
 	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), s.root, nil)
+	s.mgr = mgr
 	s.srv = New(cfg, mgr, slog.Default(), s.root)
 	s.ts = httptest.NewServer(s.srv.Handler())
 
@@ -238,6 +240,36 @@ func (s *configReloadState) saveConfigWithModel(model string) error {
 	return nil
 }
 
+func (s *configReloadState) overrideProjectTrust() error {
+	// This scenario exercises the in-process save. Stop the unrelated file
+	// watcher so its unadjusted test fixture cannot race the assertion.
+	if s.stopWatch != nil {
+		s.stopWatch()
+		<-s.watchDone
+		s.stopWatch = nil
+	}
+	adjust := func(c *config.Config) error {
+		c.MCP.ProjectTrust = config.ProjectTrustDeny
+		return nil
+	}
+	s.mgr.SetConfigAdjuster(adjust)
+	return nil
+}
+
+func (s *configReloadState) projectTrustRemainsDeny() error {
+	if got := s.mgr.Cfg().MCP.ProjectTrust; got != config.ProjectTrustDeny {
+		return fmt.Errorf("running project trust = %q, want %q", got, config.ProjectTrustDeny)
+	}
+	saved, err := config.LoadWithPaths(s.mgr.Cfg().Paths)
+	if err != nil {
+		return err
+	}
+	if got := saved.MCP.ResolvedProjectTrust(); got != config.ProjectTrustAsk {
+		return fmt.Errorf("saved project trust = %q, want the file's original ask policy", got)
+	}
+	return nil
+}
+
 func (s *configReloadState) firstBrowserToldReloaded() error {
 	if len(s.browsers) == 0 {
 		return fmt.Errorf("no events subscription")
@@ -298,11 +330,13 @@ func initializeConfigReloadScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a coddy server with a saved configuration$`, s.startServer)
 	sc.Step(`^a browser is subscribed to the server event stream$`, s.subscribe)
 	sc.Step(`^a second browser is subscribed to the server event stream$`, s.subscribe)
+	sc.Step(`^a process override sets project trust to deny$`, s.overrideProjectTrust)
 	sc.Step(`^the configuration is saved with the model "([^"]*)" added$`, s.saveConfigWithModel)
 	sc.Step(`^another process adds the model "([^"]*)" to config\.yaml$`, s.addModelToConfigFile)
 	sc.Step(`^the browser is told the configuration reloaded$`, s.firstBrowserToldReloaded)
 	sc.Step(`^both browsers are told the configuration reloaded$`, s.allBrowsersToldReloaded)
 	sc.Step(`^the model list the browser reads after that event carries "([^"]*)"$`, s.modelsListAfterEventCarries)
+	sc.Step(`^project trust remains deny in the running configuration$`, s.projectTrustRemainsDeny)
 }
 
 func TestConfigReloadBroadcastFeature(t *testing.T) {

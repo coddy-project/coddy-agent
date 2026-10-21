@@ -271,14 +271,23 @@ func runningTasksIn(env *tooling.Env, dir string) int {
 	return n
 }
 
-// within reports whether path is root or below it, both resolved through
-// symlinks when they exist.
+// within reports whether path is root or below it, resolving the longest
+// existing prefix of each path through symlinks and Windows short names.
 func within(root, path string) bool {
 	resolve := func(p string) string {
-		if r, err := filepath.EvalSymlinks(p); err == nil {
-			return r
+		p = filepath.Clean(p)
+		rest := ""
+		for cur := p; ; {
+			if r, err := filepath.EvalSymlinks(cur); err == nil {
+				return filepath.Join(r, rest)
+			}
+			parent := filepath.Dir(cur)
+			if parent == cur {
+				return p
+			}
+			rest = filepath.Join(filepath.Base(cur), rest)
+			cur = parent
 		}
-		return filepath.Clean(p)
 	}
 	rel, err := filepath.Rel(resolve(root), resolve(path))
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))

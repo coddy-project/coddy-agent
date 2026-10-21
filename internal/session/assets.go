@@ -10,6 +10,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -175,6 +176,7 @@ func writeReadOnly(path string, data []byte) error {
 	committed := false
 	defer func() {
 		if !committed {
+			_ = os.Chmod(tmp, 0o600)
 			_ = os.Remove(tmp)
 		}
 	}()
@@ -187,6 +189,20 @@ func writeReadOnly(path string, data []byte) error {
 	}
 	if err := os.Chmod(tmp, 0o444); err != nil {
 		return err
+	}
+	// Unlike POSIX rename, Windows refuses to replace a read-only destination.
+	// Only regular assets are made writable, never a link planted at the path.
+	if runtime.GOOS == "windows" {
+		if info, err := os.Lstat(path); err == nil && info.Mode().IsRegular() {
+			if err := os.Chmod(path, 0o600); err != nil {
+				return err
+			}
+			defer func() {
+				if !committed {
+					_ = os.Chmod(path, info.Mode().Perm())
+				}
+			}()
+		}
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		return err

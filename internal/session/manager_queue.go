@@ -184,12 +184,17 @@ func (m *Manager) SetQueueModePreference(mode QueueMode) error {
 	if !ValidQueueMode(mode) {
 		return fmt.Errorf("invalid queue mode %q", mode)
 	}
-	result, err := config.CommitUCICommands(m.activeCfg().Paths, []config.UCICommand{{Op: config.UCIOpSet, Path: "agent.queue_mode", Value: string(mode)}})
-	if err != nil {
-		return err
-	}
-	m.ReplaceConfig(result.Config)
-	return nil
+	paths := m.activeCfg().Paths
+	_, _, err := config.CommitUCICommandsAndReload(paths,
+		[]config.UCICommand{{Op: config.UCIOpSet, Path: "agent.queue_mode", Value: string(mode)}},
+		func() ([]string, error) {
+			next, err := config.LoadWithPaths(paths)
+			if err != nil {
+				return nil, err
+			}
+			return nil, m.InstallConfig(next)
+		})
+	return err
 }
 
 // AddMessageQueueObserver registers fn for every change of any session's

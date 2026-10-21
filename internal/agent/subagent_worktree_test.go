@@ -37,7 +37,7 @@ func gitWorkspace(t *testing.T, dir string) {
 	} {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
+		cmd.Env = append(os.Environ(), gitIsolatedEnv()...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
@@ -222,11 +222,19 @@ func openedChildWorktree(t *testing.T, rig *subagentRig) (*childWorktree, *subag
 	return w, &subagentRun{taskID: "bg_child_itself", worktree: w}, childID
 }
 
+// gitIsolatedEnv keeps the operator's own Git configuration out of a fixture:
+// Git ignores a config path that does not exist, and /dev/null is one on
+// Windows too. os.DevNull ("NUL" there) is a device instead, and some Windows
+// Git builds refuse to open it as a config file, which aborts `git init`.
+func gitIsolatedEnv() []string {
+	return []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null"}
+}
+
 func gitIn(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
+	cmd.Env = append(os.Environ(), gitIsolatedEnv()...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, out)

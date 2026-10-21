@@ -123,6 +123,7 @@ Glossary (English - Russian):
 - configuration, config - конфигурация; config file - файл конфигурации; key (of the config) - ключ;
 - release - релиз; build - сборка; binary - бинарник; build tag - тег сборки;
 - pull request - пул-реквест; issue - issue; worktree - worktree; daemon - демон; service - сервис;
+- inline code - инлайн-код (never "встроенный код", which reads as built-in); code block - блок кода;
 - page - страница; section - раздел; screenshot - скриншот; caption - подпись.
 
 Names stay in Latin script: Coddy, MCP, ACP, ReAct, SSE, OpenAI, Telegram, GitHub, Docker, systemd,

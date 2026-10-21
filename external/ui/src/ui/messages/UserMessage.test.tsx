@@ -8,6 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
+import { pageWithoutClipboardApi, selectedOnce } from "../clipboardTestKit";
 import { setEnv } from "../env/remoteEnv";
 import { UserMessage } from "./UserMessage";
 import { onOpenWorkspaceFile } from "../files/fileBus";
@@ -73,6 +74,26 @@ test("copy sends raw user text not display-only slash chip source", () => {
   expect(copyBtn).toHaveAttribute("title", "Copy message");
   copyBtn.click();
   expect(writeText).toHaveBeenCalledWith("hi /demo there");
+});
+
+test("the message, a skill and a mention copy without a clipboard API", () => {
+  const page = pageWithoutClipboardApi();
+  // A mention of a session, rule or agent is copied; one of a file opens Files.
+  const content = "run /rpa-gen-rules with @session:demo";
+  render(
+    <UserMessage
+      content={content}
+      knownSkillNames={new Set(["rpa-gen-rules"])}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("user-token-skill-rpa-gen-rules"));
+  fireEvent.click(screen.getByTestId("user-token-mention-session_demo"));
+  fireEvent.click(screen.getByTestId("user-message-copy"));
+  expect(page.copies).toEqual([
+    ...selectedOnce("/rpa-gen-rules"),
+    ...selectedOnce("@session:demo"),
+    ...selectedOnce(content),
+  ]);
 });
 
 test("skills copy their literal text and workspace mentions open Files", async () => {

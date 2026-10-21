@@ -454,7 +454,7 @@ export function Composer(props: {
   sessionId?: string;
   mode: string;
   modes: string[];
-  /** Configured backends (`owned_by` != **`coddy`**). Omitted when empty. */
+  /** Configured backends (every GET /v1/models row but the agent / plan / ask profiles). Omitted when empty. */
   llmModels?: string[];
   /** Reasoning levels of every configured model, for `/goal --reasoning`. */
   llmReasoningLevelsByModel?: Readonly<Record<string, readonly string[]>>;

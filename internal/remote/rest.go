@@ -208,6 +208,21 @@ type modelRow struct {
 	Toolset string `json:"toolset,omitempty"`
 }
 
+// isProfileModel reports whether a GET /v1/models row is a session profile.
+// owned_by alone does not tell: a model row is owned_by its provider, and a
+// provider row may itself be named coddy (a coddy acp agent served as a
+// model). The server knows a profile by its id, and so does this.
+func isProfileModel(row modelRow) bool {
+	if row.OwnedBy != "coddy" {
+		return false
+	}
+	switch strings.TrimSpace(row.ID) {
+	case "agent", "plan", "ask":
+		return true
+	}
+	return false
+}
+
 type modelsResponse struct {
 	Data []modelRow `json:"data"`
 }
@@ -228,7 +243,7 @@ func (h *Handler) ensureModels(ctx context.Context) error {
 	var models []remoteModel
 	defModel := ""
 	for _, row := range res.Data {
-		if row.OwnedBy == "coddy" {
+		if isProfileModel(row) {
 			continue // "agent"/"plan"/"ask" profiles, not selectable backends
 		}
 		if row.Default && defModel == "" {
@@ -318,6 +333,9 @@ type messageRow struct {
 	// started; it is replayed as the goal row, not as the instruction text
 	// the model read.
 	GoalTurn *llm.GoalTurn `json:"goal_turn,omitempty"`
+	// AgentTools are the tool calls the agent behind an acp model ran while
+	// it wrote an assistant row: replayed as their rows, before the text.
+	AgentTools []llm.AgentToolCall `json:"agent_tools,omitempty"`
 }
 
 type messagesResponse struct {
