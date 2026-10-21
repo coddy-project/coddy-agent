@@ -60,6 +60,10 @@ var toolImageExt = map[string]string{
 	"image/webp": ".webp",
 }
 
+// ToolImageExt is the extension a picture of mimeType is named with, or ""
+// for a type a model is never sent.
+func ToolImageExt(mimeType string) string { return toolImageExt[mimeType] }
+
 // SaveToolImageAsset keeps a copy of a picture a tool call handed the model
 // with the session's assets, read-only, under the file's name plus a digest
 // of its content. The digest is what makes the copy the picture the model was

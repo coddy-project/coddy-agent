@@ -55,9 +55,11 @@ func (a *Agent) attachToolImage(name, mimeType string, data []byte) error {
 	return a.recordToolImage(name, mimeType, data)
 }
 
-// recordToolImage keeps a tool's image even when the current model is text-only.
-// The provider projection omits it for that model, while the transcript and
-// surfaces retain it for a later model switch and for the operator.
+// recordToolImage keeps a picture on the running call. An MCP tool's picture
+// goes through it directly, whatever the model: the tool returned it either
+// way, so the transcript and the surfaces keep it for the operator and for a
+// later switch to a model that reads images, while the projection sends a
+// model that does not only its name.
 func (a *Agent) recordToolImage(name, mimeType string, data []byte) error {
 	if strings.TrimSpace(a.currentToolCallID) == "" {
 		return fmt.Errorf("no tool call is running to attach the picture to")
@@ -76,19 +78,6 @@ func (a *Agent) recordToolImage(name, mimeType string, data []byte) error {
 	}
 	a.callImages = append(a.callImages, part)
 	return nil
-}
-
-func mcpImageExtension(mimeType string) string {
-	switch mimeType {
-	case "image/jpeg":
-		return ".jpg"
-	case "image/gif":
-		return ".gif"
-	case "image/webp":
-		return ".webp"
-	default:
-		return ".png"
-	}
 }
 
 // loadToolImage is the data URL of a picture kept as its copy with this
@@ -425,7 +414,7 @@ func toolImagesMessage(parts []llm.ImagePart, names, omitted, missing []string, 
 		if b.Len() > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString("Pictures the tool calls above returned, left out of this request to keep it within what the provider takes; read the file again to see one: ")
+		b.WriteString("Pictures the tool calls above returned, left out of this request to keep it within what the provider takes; read the file again or repeat the call to see one: ")
 		b.WriteString(strings.Join(omitted, ", "))
 		b.WriteString(".")
 	}
@@ -433,7 +422,7 @@ func toolImagesMessage(parts []llm.ImagePart, names, omitted, missing []string, 
 		if b.Len() > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString("Pictures the tool calls above returned whose saved copy is gone; read the file again to see one: ")
+		b.WriteString("Pictures the tool calls above returned whose saved copy is gone; read the file again or repeat the call to see one: ")
 		b.WriteString(strings.Join(missing, ", "))
 		b.WriteString(".")
 	}

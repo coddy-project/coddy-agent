@@ -7,7 +7,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
 	"image/color"
+	"image/color/palette"
+	"image/gif"
+	"image/jpeg"
 	"log/slog"
 	"os"
 	"strings"
@@ -47,8 +51,15 @@ func TestHelperMCPImageServer(t *testing.T) {
 				map[string]any{"name": "capture", "description": "Screenshot", "inputSchema": map[string]any{"type": "object"}},
 				map[string]any{"name": "capture_only", "description": "Image only", "inputSchema": map[string]any{"type": "object"}},
 				map[string]any{"name": "capture_broken", "description": "Damaged screenshot", "inputSchema": map[string]any{"type": "object"}},
+				map[string]any{"name": "capture_formats", "description": "Pictures of every kind", "inputSchema": map[string]any{"type": "object"}},
+				map[string]any{"name": "capture_error", "description": "A failed capture", "inputSchema": map[string]any{"type": "object"}},
+				map[string]any{"name": "capture_shift", "description": "Pictures after refused ones", "inputSchema": map[string]any{"type": "object"}},
 			}}
 		case "tools/call":
+			if content, isError, ok := mcpImageHelperCall(req.Params.Name); ok {
+				result = map[string]any{"content": content, "isError": isError}
+				break
+			}
 			picture := testPNG(2, 2, color.NRGBA{R: 200, A: 255})
 			if req.Params.Name == "capture_broken" {
 				picture = picture[:len(picture)-10]
@@ -63,6 +74,40 @@ func TestHelperMCPImageServer(t *testing.T) {
 		_, _ = os.Stdout.Write(append(response, '\n'))
 	}
 	os.Exit(0)
+}
+
+// mcpImageHelperCall answers the helper's tools beyond the screenshots of
+// the feature: capture_formats returns a PNG labelled image/jpeg, a GIF, a
+// JPEG and an SVG; capture_error is a failed call that carries a picture.
+func mcpImageHelperCall(name string) (content []any, isError bool, ok bool) {
+	block := func(mimeType string, data []byte) map[string]any {
+		return map[string]any{"type": "image", "mimeType": mimeType, "data": base64.StdEncoding.EncodeToString(data)}
+	}
+	switch name {
+	case "capture_formats":
+		var g, j bytes.Buffer
+		frame := image.NewPaletted(image.Rect(0, 0, 3, 2), palette.Plan9)
+		_ = gif.Encode(&g, frame, nil)
+		_ = jpeg.Encode(&j, image.NewNRGBA(image.Rect(0, 0, 3, 2)), nil)
+		return []any{
+			block("image/jpeg", testPNG(2, 2, color.NRGBA{B: 200, A: 255})),
+			block("image/gif", g.Bytes()),
+			block("image/jpeg", j.Bytes()),
+			block("image/svg+xml", []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`)),
+		}, false, true
+	case "capture_shift":
+		return []any{
+			map[string]any{"type": "image", "mimeType": "image/png", "data": "not base64!"},
+			block("image/svg+xml", []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`)),
+			block("image/png", testPNG(2, 2, color.NRGBA{G: 200, A: 255})),
+		}, false, true
+	case "capture_error":
+		return []any{
+			map[string]any{"type": "text", "text": "the page did not load"},
+			block("image/png", testPNG(2, 2, color.NRGBA{R: 200, A: 255})),
+		}, true, true
+	}
+	return nil, false, false
 }
 
 type mcpImageFeatureState struct {
@@ -112,7 +157,7 @@ func (s *mcpImageFeatureState) runImageOnly() error  { return s.run(true, "captu
 func (s *mcpImageFeatureState) imageOnlyResult() error {
 	for _, msg := range s.st.GetMessages() {
 		if msg.Role == llm.RoleTool && msg.ToolCallID == "mcp1" {
-			if msg.Content != "" || len(msg.ImageParts) != 1 || msg.ImageParts[0].Name != "screens-capture_only-1.png" {
+			if msg.Content != "[MCP image 1: screens-capture_only-1.png]" || len(msg.ImageParts) != 1 || msg.ImageParts[0].Name != "screens-capture_only-1.png" {
 				return fmt.Errorf("image-only MCP result = %+v", msg)
 			}
 			return nil

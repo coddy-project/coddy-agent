@@ -58,24 +58,61 @@ func encodePNG(t *testing.T, w, h int) []byte {
 	return buf.Bytes()
 }
 
-func TestPrepareImageForModelRejectsBrokenAndOversizedPictures(t *testing.T) {
-	valid := encodePNG(t, 2, 2)
-	if got, mimeType, err := PrepareImageForModel(valid, "image/png"); err != nil || mimeType != "image/png" || !bytes.Equal(got, valid) {
-		t.Fatalf("valid PNG: type %q, error %v", mimeType, err)
+// A picture a tool returned in memory (an MCP image block) is told by its
+// content, as read tells a file: the type the server declared plays no part,
+// so a PNG labelled image/jpeg goes as the PNG it is.
+func TestPrepareImageForModelTellsTheTypeByContent(t *testing.T) {
+	var jpg bytes.Buffer
+	if err := jpeg.Encode(&jpg, solidImage(8, 6), nil); err != nil {
+		t.Fatal(err)
 	}
-	for _, tc := range []struct {
-		name string
+	for name, tc := range map[string]struct {
 		data []byte
-		mime string
+		want string
 	}{
-		{"truncated PNG", valid[:len(valid)-10], "image/png"},
-		{"wrong MIME", valid, "image/jpeg"},
-		{"oversized PNG", append(append([]byte(nil), valid...), make([]byte, readImageMaxBytes)...), "image/png"},
-		{"wide PNG", encodePNG(t, readImageMaxSide+1, 1), "image/png"},
+		"png":  {encodePNG(t, 2, 2), "image/png"},
+		"jpeg": {jpg.Bytes(), "image/jpeg"},
+		"webp": {webpFile(vp8lChunk(4, 3)), "image/webp"},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, _, err := PrepareImageForModel(tc.data, tc.mime); err == nil {
-				t.Fatal("invalid picture was accepted")
+		t.Run(name, func(t *testing.T) {
+			got, mimeType, err := PrepareImageForModel(tc.data)
+			if err != nil || mimeType != tc.want || !bytes.Equal(got, tc.data) {
+				t.Fatalf("type %q, error %v, same bytes %v", mimeType, err, bytes.Equal(got, tc.data))
+			}
+		})
+	}
+	_, _, err := PrepareImageForModel([]byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`))
+	if err == nil || !strings.Contains(err.Error(), "not a PNG, JPEG, GIF or WebP image") {
+		t.Fatalf("an SVG: err = %v", err)
+	}
+}
+
+// The refusals are the ones read makes, worded for a picture that is no
+// file: nothing in them tells the model to read anything again.
+func TestPrepareImageForModelRefusesWhatReadRefuses(t *testing.T) {
+	valid := encodePNG(t, 2, 2)
+	var g bytes.Buffer
+	big := image.NewPaletted(image.Rect(0, 0, 5000, 4000), palette.Plan9)
+	if err := gif.Encode(&g, big, nil); err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		data []byte
+		want string
+	}{
+		"cut PNG":       {valid[:len(valid)-10], "ends before its image does"},
+		"oversized PNG": {append(append([]byte(nil), valid...), make([]byte, readImageMaxBytes)...), "more than the 3.8 MB one picture may take"},
+		"wide PNG":      {encodePNG(t, readImageMaxSide+1, 1), "larger than the 8000 pixels a side a model takes"},
+		"animated WebP": {webpFile(vp8xChunk(64, 48, true), webpChunk("ANIM", make([]byte, 6))), "animated WebP"},
+		"huge GIF":      {g.Bytes(), "more than the 16 megapixels"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, err := PrepareImageForModel(tc.data)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want it to say %q", err, tc.want)
+			}
+			if strings.Contains(err.Error(), "read") {
+				t.Fatalf("the refusal of a picture no file holds talks about reading: %v", err)
 			}
 		})
 	}
@@ -86,7 +123,7 @@ func TestPrepareImageForModelConvertsGIFToPNG(t *testing.T) {
 	if err := gif.Encode(&input, solidImage(2, 2), nil); err != nil {
 		t.Fatal(err)
 	}
-	got, mimeType, err := PrepareImageForModel(input.Bytes(), "image/gif")
+	got, mimeType, err := PrepareImageForModel(input.Bytes())
 	if err != nil {
 		t.Fatal(err)
 	}

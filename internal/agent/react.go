@@ -2669,16 +2669,28 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 			if err != nil {
 				return "", err
 			}
-			for i, img := range result.Images {
-				data, mimeType, err := fstools.PrepareImageForModel(img.Data, img.MIMEType)
+			// The pictures go the way a read's do (tool_images.go), checked
+			// against what every provider takes and told by their content;
+			// one no provider would take is named in the result instead.
+			// A picture keeps the number of its block in the result.
+			var kept []string
+			for _, img := range result.Images {
+				data, mimeType, err := fstools.PrepareImageForModel(img.Data)
 				if err != nil {
-					result.Text = joinHookText(result.Text, fmt.Sprintf("[MCP image %d omitted: %v]", i+1, err))
+					result.Text = joinHookText(result.Text, fmt.Sprintf("[MCP image %d omitted: %v]", img.Index, err))
 					continue
 				}
-				name := fmt.Sprintf("%s-%s-%d%s", serverName, toolName, i+1, mcpImageExtension(mimeType))
+				name := fmt.Sprintf("%s-%s-%d%s", serverName, toolName, img.Index, session.ToolImageExt(mimeType))
 				if err := a.recordToolImage(name, mimeType, data); err != nil {
 					return "", err
 				}
+				kept = append(kept, fmt.Sprintf("[MCP image %d: %s]", img.Index, name))
+			}
+			if strings.TrimSpace(result.Text) == "" && len(kept) > 0 {
+				// A result that is only pictures still says what it is: an
+				// empty tool result shows nothing in the console or an
+				// editor, and not every provider takes one.
+				result.Text = strings.Join(kept, "\n")
 			}
 			return result.Text, nil
 		}

@@ -275,6 +275,48 @@ func TestWithToolImagesSendsOnlyTheNewestPicturesARequestCanHold(t *testing.T) {
 	}
 }
 
+// A picture left out of a request, or one whose saved copy is gone, came
+// from a file or from a tool that returned it with no file behind it (an MCP
+// screenshot): the note tells the model both ways to see it again.
+func TestWithToolImagesTellsHowToSeeAPictureAgain(t *testing.T) {
+	var history []llm.Message
+	history = append(history, llm.Message{Role: llm.RoleUser, Content: "browse"})
+	// One copy gone takes no place, so two more than a request holds leave
+	// one picture out.
+	for i := 0; i < toolImagesMaxCount+2; i++ {
+		id := fmt.Sprintf("s%02d", i)
+		p := imagePart(fmt.Sprintf("browser-take_screenshot-%02d.png", i))
+		if i == toolImagesMaxCount+1 {
+			// The newest picture is kept as its copy, which is gone.
+			p = llm.ImagePart{Name: p.Name, MIMEType: "image/png", Size: 4, FilePath: filepath.Join("assets", p.Name)}
+		}
+		history = append(history,
+			llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: id, Name: "browser__take_screenshot"}}},
+			toolResultWith(id, p))
+	}
+	notes := 0
+	gone := func(p llm.ImagePart) (string, error) {
+		if p.Name == "browser-take_screenshot-21.png" {
+			return "", fmt.Errorf("gone")
+		}
+		return noToolImageFile(p)
+	}
+	for _, m := range withToolImages(history, true, gone) {
+		if m.Role != llm.RoleUser || !strings.Contains(m.Content, "browser-take_screenshot-") {
+			continue
+		}
+		if strings.Contains(m.Content, "left out") || strings.Contains(m.Content, "copy is gone") {
+			notes++
+			if !strings.Contains(m.Content, "read the file again or repeat the call") {
+				t.Errorf("the note %q tells the model only to read a file", m.Content)
+			}
+		}
+	}
+	if notes != 2 {
+		t.Fatalf("%d notes name a picture left out or gone, want one of each", notes)
+	}
+}
+
 // The pictures a person attached go out with the request too, so they share
 // its budget with the tool pictures, newest first: the oldest attachment is
 // the one left out, named in its own prompt, and a picture that does not fit

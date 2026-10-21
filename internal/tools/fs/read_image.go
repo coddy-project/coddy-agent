@@ -41,40 +41,120 @@ const (
 	gifFrameMaxPixels = 16_000_000
 )
 
-// PrepareImageForModel validates a tool-owned picture against the same limits
-// as read, then converts a GIF to its first frame as PNG. A rejected picture
-// never enters the session history, where it would break later model calls.
-func PrepareImageForModel(data []byte, mimeType string) ([]byte, string, error) {
-	if readImageFormats[mimeType] == "" || sniffKind(data) != mimeType {
-		return nil, "", fmt.Errorf("unsupported or mislabeled image type %q", mimeType)
+// pictureFault says which check a picture failed: preparePicture runs the
+// checks, and read and PrepareImageForModel word the refusal each for its own
+// reader.
+type pictureFault int
+
+const (
+	faultTooLarge         pictureFault = iota + 1 // more bytes than readImageMaxBytes
+	faultStructure                                // not all there: err is a structure sentinel
+	faultUndecodable                              // the decoder's err
+	faultTooWide                                  // a side over readImageMaxSide
+	faultGIFTooLarge                              // a GIF canvas over gifFrameMaxPixels
+	faultFrameUndecodable                         // the first frame of a GIF: the decoder's err
+	faultFrameTooLarge                            // that frame, as a PNG, over readImageMaxBytes
+)
+
+// pictureError is a picture no provider would take. Error words it for a
+// picture that is no file (an MCP image block); read words it itself
+// (readImageRefusal).
+type pictureError struct {
+	fault  pictureFault
+	format string // PNG, JPEG, GIF or WebP
+	w, h   int
+	size   int // the picture's bytes, or the frame's for faultFrameTooLarge
+	err    error
+}
+
+func (e *pictureError) Error() string {
+	switch e.fault {
+	case faultTooLarge:
+		return fmt.Sprintf("a %s image of %s, more than the %s one picture may take", e.format, formatBytes(e.size), formatBytes(readImageMaxBytes))
+	case faultStructure:
+		return "the picture " + e.err.Error()
+	case faultTooWide:
+		return fmt.Sprintf("a %s image of %dx%d, larger than the %d pixels a side a model takes", e.format, e.w, e.h, readImageMaxSide)
+	case faultGIFTooLarge:
+		return fmt.Sprintf("a GIF image of %dx%d, more than the %d megapixels a frame is decoded of", e.w, e.h, gifFrameMaxPixels/1_000_000)
+	case faultFrameTooLarge:
+		return fmt.Sprintf("the first frame of a GIF image is %s as a PNG, more than the %s one picture may take", formatBytes(e.size), formatBytes(readImageMaxBytes))
 	}
+	return fmt.Sprintf("looks like a %s image but cannot be decoded: %v", e.format, e.err)
+}
+
+func (e *pictureError) Unwrap() error { return e.err }
+
+// preparedPicture is a picture every provider takes: what the model is sent
+// (a GIF as its first frame, as a PNG), its type, and the size of the
+// original in pixels.
+type preparedPicture struct {
+	data     []byte
+	mimeType string
+	w, h     int
+}
+
+// preparePicture checks a picture of kind (one of readImageFormats, told by
+// its content) against what every provider Coddy talks to takes, in the
+// order read always checked a file: its bytes, that it is all there, its
+// size in pixels, then the first frame of a GIF. A picture the history kept
+// although a provider refuses it would fail every later request of the
+// session, so a refusal comes before the picture is handed over.
+func preparePicture(data []byte, kind string) (preparedPicture, error) {
+	format := readImageFormats[kind]
 	if len(data) > readImageMaxBytes {
-		return nil, "", fmt.Errorf("image exceeds the %d byte model limit", readImageMaxBytes)
+		return preparedPicture{}, &pictureError{fault: faultTooLarge, format: format, size: len(data)}
 	}
-	w, h, err := imageSize(data, mimeType)
+	w, h, err := imageSize(data, kind)
 	if err == nil {
-		err = imageComplete(data, mimeType)
+		err = imageComplete(data, kind)
+	}
+	if isStructureFault(err) {
+		return preparedPicture{}, &pictureError{fault: faultStructure, format: format, err: err}
 	}
 	if err != nil {
-		return nil, "", fmt.Errorf("image cannot be decoded: %w", err)
+		return preparedPicture{}, &pictureError{fault: faultUndecodable, format: format, err: err}
 	}
 	if w > readImageMaxSide || h > readImageMaxSide {
-		return nil, "", fmt.Errorf("image exceeds %d pixels on a side", readImageMaxSide)
+		return preparedPicture{}, &pictureError{fault: faultTooWide, format: format, w: w, h: h}
 	}
-	if mimeType == "image/gif" {
-		if int64(w)*int64(h) > gifFrameMaxPixels {
-			return nil, "", fmt.Errorf("GIF frame exceeds %d pixels", gifFrameMaxPixels)
-		}
-		frame, err := gifFirstFrame(data)
-		if err != nil {
-			return nil, "", fmt.Errorf("GIF frame cannot be decoded: %w", err)
-		}
-		if len(frame) > readImageMaxBytes {
-			return nil, "", fmt.Errorf("GIF frame exceeds the %d byte model limit", readImageMaxBytes)
-		}
-		return frame, "image/png", nil
+	if kind != "image/gif" {
+		return preparedPicture{data: data, mimeType: kind, w: w, h: h}, nil
 	}
-	return data, mimeType, nil
+	if int64(w)*int64(h) > gifFrameMaxPixels {
+		// A GIF is small on disk for any canvas, and its first frame is
+		// decoded to be sent: the size decides before that decode.
+		return preparedPicture{}, &pictureError{fault: faultGIFTooLarge, format: format, w: w, h: h}
+	}
+	// Not every provider takes an animated GIF, and telling an animated one
+	// from a still one means decoding every frame, which a small file of
+	// many large frames turns into gigabytes. The first frame alone, as a
+	// PNG, is a picture every provider takes.
+	frame, err := gifFirstFrame(data)
+	if err != nil {
+		return preparedPicture{}, &pictureError{fault: faultFrameUndecodable, format: format, err: err}
+	}
+	if len(frame) > readImageMaxBytes {
+		return preparedPicture{}, &pictureError{fault: faultFrameTooLarge, format: format, size: len(frame)}
+	}
+	return preparedPicture{data: frame, mimeType: "image/png", w: w, h: h}, nil
+}
+
+// PrepareImageForModel checks a picture a tool returned in memory - an image
+// block of an MCP tool result - the way read checks an image file: the
+// content tells the type, never the type the tool declared, and the same
+// limits hold. It returns what the model is sent, the picture itself or the
+// first frame of a GIF as a PNG, with its type.
+func PrepareImageForModel(data []byte) ([]byte, string, error) {
+	kind := sniffKind(data)
+	if readImageFormats[kind] == "" {
+		return nil, "", fmt.Errorf("not a PNG, JPEG, GIF or WebP image (%s)", kind)
+	}
+	pic, err := preparePicture(data, kind)
+	if err != nil {
+		return nil, "", err
+	}
+	return pic.data, pic.mimeType, nil
 }
 
 // readImage answers read for a file whose content sniffs as a picture: it
@@ -91,51 +171,59 @@ func readImage(argPath, path string, data []byte, kind string, env *tooling.Env)
 		return "", err
 	}
 	format := readImageFormats[kind]
-	if len(data) > readImageMaxBytes {
-		return "", oversizedImage(argPath, kind, int64(len(data)), env)
-	}
-	w, h, err := imageSize(data, kind)
-	if err == nil {
-		err = imageComplete(data, kind)
-	}
-	if isStructureFault(err) {
-		return "", fmt.Errorf("read: %s %w", argPath, err)
-	}
+	pic, err := preparePicture(data, kind)
 	if err != nil {
-		return "", fmt.Errorf("read: %s looks like a %s image but cannot be decoded: %v", argPath, format, err)
+		return "", readImageRefusal(argPath, kind, len(data), err, env)
 	}
-	if w > readImageMaxSide || h > readImageMaxSide {
-		return "", fmt.Errorf("read: %s is a %s image of %dx%d, larger than the %d pixels a side a model takes; save a scaled-down copy and read that",
-			argPath, format, w, h, readImageMaxSide)
-	}
-
-	sent, sentType, note := data, kind, ""
-	if kind == "image/gif" && int64(w)*int64(h) > gifFrameMaxPixels {
-		// A GIF is small on disk for any canvas, and its first frame is
-		// decoded to be sent: the size decides before that decode.
-		return "", fmt.Errorf("read: %s is a GIF image of %dx%d, more than the %d megapixels read decodes a frame of; save a smaller copy and read that",
-			argPath, w, h, gifFrameMaxPixels/1_000_000)
-	}
+	note := ""
 	if kind == "image/gif" {
-		// Not every provider takes an animated GIF, and telling an animated one
-		// from a still one means decoding every frame, which a small file of
-		// many large frames turns into gigabytes. The first frame alone, as a
-		// PNG, is a picture every provider takes.
-		frame, err := gifFirstFrame(data)
-		if err != nil {
-			return "", fmt.Errorf("read: %s looks like a GIF image but cannot be decoded: %v", argPath, err)
-		}
-		if len(frame) > readImageMaxBytes {
-			return "", fmt.Errorf("read: the first frame of %s is %s as a PNG, more than the %s one picture may take; save a scaled-down copy and read that",
-				argPath, formatBytes(len(frame)), formatBytes(readImageMaxBytes))
-		}
-		sent, sentType, note = frame, "image/png", "; a GIF is shown to you as its first frame"
+		note = "; a GIF is shown to you as its first frame"
 	}
-	if err := env.AttachImage(filepath.Base(path), sentType, sent); err != nil {
+	if err := env.AttachImage(filepath.Base(path), pic.mimeType, pic.data); err != nil {
 		return "", fmt.Errorf("read: %s: %w", argPath, err)
 	}
 	return fmt.Sprintf("%s: %s image, %dx%d, %s%s. The picture is attached for you to look at.",
-		argPath, format, w, h, formatBytes(len(data)), note), nil
+		argPath, format, pic.w, pic.h, formatBytes(len(data)), note), nil
+}
+
+// readImageRefusal words a picture preparePicture refused for read: it names
+// the file and says what the agent can do about it - save a smaller copy, or
+// read again a file still being written.
+func readImageRefusal(argPath, kind string, size int, err error, env *tooling.Env) error {
+	var pe *pictureError
+	if !errors.As(err, &pe) {
+		return fmt.Errorf("read: %s: %w", argPath, err)
+	}
+	switch pe.fault {
+	case faultTooLarge:
+		return oversizedImage(argPath, kind, int64(size), env)
+	case faultStructure:
+		return fmt.Errorf("read: %s %w%s", argPath, pe.err, structureAdvice(pe.err))
+	case faultTooWide:
+		return fmt.Errorf("read: %s is a %s image of %dx%d, larger than the %d pixels a side a model takes; save a scaled-down copy and read that",
+			argPath, pe.format, pe.w, pe.h, readImageMaxSide)
+	case faultGIFTooLarge:
+		return fmt.Errorf("read: %s is a GIF image of %dx%d, more than the %d megapixels read decodes a frame of; save a smaller copy and read that",
+			argPath, pe.w, pe.h, gifFrameMaxPixels/1_000_000)
+	case faultFrameUndecodable:
+		return fmt.Errorf("read: %s looks like a GIF image but cannot be decoded: %v", argPath, pe.err)
+	case faultFrameTooLarge:
+		return fmt.Errorf("read: the first frame of %s is %s as a PNG, more than the %s one picture may take; save a scaled-down copy and read that",
+			argPath, formatBytes(pe.size), formatBytes(readImageMaxBytes))
+	}
+	return fmt.Errorf("read: %s looks like a %s image but cannot be decoded: %v", argPath, pe.format, pe.err)
+}
+
+// structureAdvice is what read adds to a picture that is not all there: a
+// file may still be written, and an animation has a frame to save.
+func structureAdvice(err error) string {
+	switch {
+	case errors.Is(err, errImageCut):
+		return ": the file may still be written, read it again once it is complete"
+	case errors.Is(err, errWebPAnimated):
+		return "; save a frame of it as a PNG and read that"
+	}
+	return ""
 }
 
 // imageRefused is the session's refusal of any picture (Env.ImageRefusal),
@@ -180,13 +268,15 @@ func sniffFileHead(path string) string {
 // A picture that is not all there - a screenshot still being written, a
 // download cut short - would go into the history and fail every later request
 // of the session, so its structure is walked to the end before it is taken.
+// The words say what is wrong with the picture; read adds what to do about a
+// file (structureAdvice).
 var (
-	errImageCut     = errors.New("ends before its image does: the file may still be written, read it again once it is complete")
+	errImageCut     = errors.New("ends before its image does")
 	errPNGNoImage   = errors.New("is a PNG file with no image data")
 	errPNGDamaged   = errors.New("is a damaged PNG file: a chunk of it does not match its checksum")
 	errJPEGNoImage  = errors.New("is a JPEG file with no image data")
 	errWebPNoImage  = errors.New("is a WebP file with no image data")
-	errWebPAnimated = errors.New("is an animated WebP, which not every provider takes; save a frame of it as a PNG and read that")
+	errWebPAnimated = errors.New("is an animated WebP, which not every provider takes")
 )
 
 // isStructureFault reports whether err is one of the refusals above, which
