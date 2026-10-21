@@ -309,28 +309,46 @@ func loadMarkdownRulesFromRoot(root string, src Source) ([]*Rule, error) {
 	}
 	w := &ruleWalk{root: root, src: src, seen: map[string]bool{}}
 	if real, err := filepath.EvalSymlinks(root); err == nil {
+		w.realRoot = real
 		w.seen[real] = true
 	}
-	w.folder(root, entries)
+	w.folder(root, entries, 0)
 	return w.out, nil
 }
 
-// ruleWalk reads a rule folder and the folders inside it, in lexical order. A
-// link is followed like the file or the folder it leads to, as it is
-// everywhere rules are read; a folder reached twice - a link back up the tree,
-// two links to one place - is read once.
+// Bounds of the walk of one rule folder. A link is followed, and a link to a
+// home folder or to / would otherwise walk the whole tree it reaches at every
+// session start; real rule folders are a few levels and files deep.
+const (
+	maxRuleFolderDepth   = 16
+	maxRuleFolderEntries = 10000
+)
+
+// ruleWalk reads a rule folder and the folders inside it, in lexical order,
+// up to maxRuleFolderDepth levels and maxRuleFolderEntries entries. A link is
+// followed like the file or the folder it leads to, as it is everywhere rules
+// are read. A link to a folder inside the same rule folder is passed over, so
+// the rules there keep the names of their real place, and a folder reached
+// twice - a link back up the tree, two links to one place - is read once.
 type ruleWalk struct {
-	root string
-	src  Source
-	seen map[string]bool
-	out  []*Rule
+	root     string
+	realRoot string
+	src      Source
+	seen     map[string]bool
+	entries  int
+	out      []*Rule
 }
 
-func (w *ruleWalk) folder(dir string, entries []os.DirEntry) {
+func (w *ruleWalk) folder(dir string, entries []os.DirEntry, depth int) {
 	for _, e := range entries {
+		w.entries++
+		if w.entries > maxRuleFolderEntries {
+			return
+		}
 		path := filepath.Join(dir, e.Name())
 		mode := e.Type()
-		if mode&os.ModeSymlink != 0 {
+		link := mode&os.ModeSymlink != 0
+		if link {
 			info, err := os.Stat(path)
 			if err != nil {
 				continue
@@ -338,16 +356,19 @@ func (w *ruleWalk) folder(dir string, entries []os.DirEntry) {
 			mode = info.Mode()
 		}
 		if mode.IsDir() {
-			// A subfolder that cannot be read costs its own rules, not the
-			// folder's: the chain would otherwise pass over a folder that
-			// holds rules to another agent's copy of them.
+			if depth+1 > maxRuleFolderDepth {
+				continue
+			}
 			real, err := filepath.EvalSymlinks(path)
-			if err != nil || w.seen[real] {
+			if err != nil || w.seen[real] || (link && w.realRoot != "" && PathUnderDir(w.realRoot, real)) {
 				continue
 			}
 			w.seen[real] = true
+			// A subfolder that cannot be read costs its own rules, not the
+			// folder's: the chain would otherwise pass over a folder that
+			// holds rules to another agent's copy of them.
 			if sub, err := os.ReadDir(path); err == nil {
-				w.folder(path, sub)
+				w.folder(path, sub, depth+1)
 			}
 			continue
 		}

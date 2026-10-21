@@ -142,11 +142,58 @@ func TestRuleAddressOwnedTwiceIsTheSameFileEverywhere(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		found := false
 		for _, c := range res.Items {
-			if c.Insert == "@rule:db/ops/deploy" && c.Detail != "Parent deployment" {
-				t.Fatalf("%s offers db/ops/deploy as %q, but the mention attaches db's rule", q, c.Detail)
+			if c.Insert != "@rule:db/ops/deploy" {
+				continue
+			}
+			found = true
+			if c.Continue || c.Detail != "Parent deployment" {
+				t.Fatalf("%s offers db/ops/deploy as %+v, but the mention attaches db's rule", q, c)
 			}
 		}
+		if !found {
+			t.Fatalf("%s does not offer @rule:db/ops/deploy: %q", q, candidateInserts(res))
+		}
+	}
+}
+
+// Case: a folder of the rule folder and a subproject whose names differ in
+// case are two steps, and a name only a fold of a letter outside ASCII makes
+// equal to an address does not take it.
+func TestRuleAddressesTellCaseAndScriptApart(t *testing.T) {
+	root := t.TempDir()
+	for path, body := range map[string]string{
+		".coddy/rules/DB/style.mdc":      "---\nalwaysApply: false\n---\nCATALOG_DB_TOKEN",
+		"db/.coddy/rules/deploy.mdc":     "---\nalwaysApply: false\n---\nSUBPROJECT_DB_TOKEN",
+		".coddy/rules/\u212a/deploy.mdc": "---\nalwaysApply: false\n---\nKELVIN_TOKEN",
+		"k/.coddy/rules/deploy.mdc":      "---\ndescription: Lowercase k\nalwaysApply: false\n---\nLOWER_K_TOKEN",
+	} {
+		p := filepath.Join(root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Skipf("this filesystem does not keep %s apart: %v", path, err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "DB", ".coddy")); err == nil {
+		t.Skip("this filesystem does not tell DB from db")
+	}
+	m, sid := mentionTestManager(t, root)
+	res, err := m.SearchMentions(context.Background(), session.MentionSearch{SessionID: sid, Query: "rule:"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	steps := map[string]bool{}
+	for _, c := range res.Items {
+		steps[c.Insert] = c.Continue
+	}
+	if !steps["@rule:DB/"] || !steps["@rule:db/"] {
+		t.Fatalf("@rule: does not offer both DB/ and db/: %q", candidateInserts(res))
+	}
+	if got := attachedText(m.ResolvePromptMentions(context.Background(), m.SessionByID(sid), []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "@rule:k/deploy"}}, session.MentionScope{})); !strings.Contains(got, "LOWER_K_TOKEN") {
+		t.Fatalf("@rule:k/deploy attached %q, want the subproject k's rule", got)
 	}
 }
 

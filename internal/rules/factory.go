@@ -455,11 +455,12 @@ func subfolderOf(root, dir string) (string, bool) {
 	return dir, true
 }
 
-// withoutRepeats cuts chain - folders on the way down from root - at the
-// first one that is root or a folder before it on the chain: a link back up
-// the tree (self -> ., db/again -> db) leads into folders the chain already
-// holds, whose rules would arrive a second time under another path. Every
-// other link is followed.
+// withoutRepeats drops from chain - folders on the way down from root - each
+// one that is root or a folder before it on the chain: a link back up the
+// tree (self -> ., db/again -> db) leads into a folder the chain already
+// holds, whose rules would arrive a second time under another path. The
+// folders below such a link stay, since they are real folders of their own
+// (alias/pkg is pkg), and every other link is followed.
 func withoutRepeats(root string, chain []string) []string {
 	if len(chain) == 0 {
 		return chain
@@ -468,21 +469,26 @@ func withoutRepeats(root string, chain []string) []string {
 	if info, err := os.Stat(root); err == nil {
 		seen = append(seen, info)
 	}
-	for i, dir := range chain {
+	out := chain[:0:0]
+	for _, dir := range chain {
 		info, err := os.Stat(dir)
 		if err != nil {
 			// A folder that does not exist yet (a file about to be written)
 			// repeats nothing.
+			out = append(out, dir)
 			continue
 		}
+		repeat := false
 		for _, s := range seen {
-			if os.SameFile(s, info) {
-				return chain[:i]
-			}
+			repeat = repeat || os.SameFile(s, info)
+		}
+		if repeat {
+			continue
 		}
 		seen = append(seen, info)
+		out = append(out, dir)
 	}
-	return chain
+	return out
 }
 
 // admittedBy is the filter of rules.systems: every provider when systems is

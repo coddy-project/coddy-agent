@@ -39,15 +39,38 @@ func ruleByAddress(cfg *config.Config, cwd string, catalog []*rules.Rule, addres
 	return ruleByLastSegment(catalog, address, nil)
 }
 
-// ruleNamed is the first rule of rs named name (case does not matter) that
-// keep admits.
+// ruleNamed is the first rule of rs named name (the case of an ASCII letter
+// does not matter) that keep admits.
 func ruleNamed(rs []*rules.Rule, name string, keep func(*rules.Rule) bool) *rules.Rule {
 	for _, r := range rs {
-		if r != nil && (keep == nil || keep(r)) && strings.EqualFold(r.CanonicalName(), name) {
+		if r != nil && (keep == nil || keep(r)) && asciiEqualFold(r.CanonicalName(), name) {
 			return r
 		}
 	}
 	return nil
+}
+
+// asciiEqualFold reports whether a and b are equal once their ASCII letters
+// are lowercased. An address is ASCII, so only such a name can match one:
+// strings.EqualFold would also fold the Kelvin sign into "k" and let a rule
+// no reference can spell take an address another rule answers to.
+func asciiEqualFold(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		x, y := a[i], b[i]
+		if 'A' <= x && x <= 'Z' {
+			x += 'a' - 'A'
+		}
+		if 'A' <= y && y <= 'Z' {
+			y += 'a' - 'A'
+		}
+		if x != y {
+			return false
+		}
+	}
+	return true
 }
 
 // ruleByLastSegment is the one rule of rs, keep admitting, whose last name
@@ -59,10 +82,10 @@ func ruleByLastSegment(rs []*rules.Rule, name string, keep func(*rules.Rule) boo
 	}
 	var found *rules.Rule
 	for _, r := range rs {
-		if r == nil || (keep != nil && !keep(r)) || !strings.EqualFold(r.BaseName(), name) {
+		if r == nil || (keep != nil && !keep(r)) || !asciiEqualFold(r.BaseName(), name) {
 			continue
 		}
-		if found != nil && !strings.EqualFold(found.CanonicalName(), r.CanonicalName()) {
+		if found != nil && !asciiEqualFold(found.CanonicalName(), r.CanonicalName()) {
 			return nil
 		}
 		if found == nil {

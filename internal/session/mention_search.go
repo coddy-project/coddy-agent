@@ -437,9 +437,12 @@ func (m *Manager) ruleSchemeCandidates(st *State, cwd, q string) []MentionCandid
 	}
 	var steps, rows []MentionCandidate
 	seenStep, seenRow := map[string]bool{}, map[string]bool{}
+	// A step is a folder, and two folders that differ in case are two
+	// folders where the filesystem tells case apart, so steps are told apart
+	// by their exact spelling.
 	addStep := func(ref string) {
-		if key := strings.ToLower(ref); !seenStep[key] && ruleAddressSpelling(ref) {
-			seenStep[key] = true
+		if !seenStep[ref] && ruleAddressSpelling(ref) {
+			seenStep[ref] = true
 			steps = append(steps, MentionCandidate{Kind: mention.KindRule, Insert: "@rule:" + ref + "/", Label: ref + "/", Continue: true})
 		}
 	}
@@ -458,7 +461,7 @@ func (m *Manager) ruleSchemeCandidates(st *State, cwd, q string) []MentionCandid
 			name := r.CanonicalName()
 			// Compared without changing case in place, so the slice below
 			// cuts the name where the prefix ends.
-			if len(name) < len(innerPrefix) || !strings.EqualFold(name[:len(innerPrefix)], innerPrefix) {
+			if len(name) < len(innerPrefix) || !asciiEqualFold(name[:len(innerPrefix)], innerPrefix) {
 				continue
 			}
 			address := name

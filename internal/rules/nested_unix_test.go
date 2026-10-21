@@ -206,3 +206,70 @@ func TestRuleLinkToAFifoIsSkipped(t *testing.T) {
 		t.Fatal("discovery blocked on a link to a FIFO")
 	}
 }
+
+// A link back up the chain is passed over, not the folders below it: a file
+// reached through the link still gets the rules of the real subproject on
+// its way.
+func TestALinkBackUpTheChainKeepsTheFoldersBelowIt(t *testing.T) {
+	root := t.TempDir()
+	writeRuleTree(t, root, "pkg/.coddy/rules/pkg.mdc")
+	if err := os.Symlink(root, filepath.Join(root, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	got := rules.DefaultFactory("").Nested(root, []string{filepath.Join(root, "alias", "pkg", "x.go")}, nil)
+	if len(got) != 1 || got[0].CanonicalName() != "pkg" {
+		t.Fatalf("Nested through alias/pkg read %v, want pkg's rule", ruleFiles(root, got))
+	}
+}
+
+// A link inside a rule folder to another folder of the same rule folder is
+// passed over: the rules keep the names of their real place.
+func TestALinkWithinTheRuleFolderKeepsTheRealNames(t *testing.T) {
+	root := t.TempDir()
+	writeRuleTree(t, root, ".coddy/rules/frontend/style.mdc")
+	if err := os.Symlink(filepath.Join(root, ".coddy", "rules", "frontend"), filepath.Join(root, ".coddy", "rules", "alias")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := rules.DefaultFactory("").Discover(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names := ruleNames(got); len(names) != 1 || names[0] != "frontend/style" {
+		t.Fatalf("names = %v, want [frontend/style]", names)
+	}
+}
+
+// A link from a rule folder to a large tree is read only up to a bound, so a
+// link to the home folder or to / cannot hold a session start.
+func TestALinkedFolderIsReadUpToABound(t *testing.T) {
+	wide := t.TempDir()
+	for i := 0; i < 40; i++ {
+		dir := wide
+		for d := 0; d < 40; d++ {
+			dir = filepath.Join(dir, fmt.Sprintf("d%02d", i))
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "deep.md"), []byte("deep"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root := t.TempDir()
+	writeRuleTree(t, root, ".coddy/rules/own.mdc")
+	if err := os.Symlink(wide, filepath.Join(root, ".coddy", "rules", "wide")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := rules.DefaultFactory("").Discover(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range got {
+		if r.CanonicalName() != "own" {
+			t.Fatalf("read %s, deeper than the bound", r.CanonicalName())
+		}
+	}
+	if len(got) != 1 {
+		t.Fatalf("names = %v, want [own]", ruleNames(got))
+	}
+}
