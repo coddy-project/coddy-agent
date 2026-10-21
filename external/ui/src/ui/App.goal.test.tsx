@@ -29,6 +29,7 @@ let goal: Goal;
 let version: number;
 let posted: Array<{ input?: string }>;
 let goalCalls: Array<{ method: string; body: unknown }>;
+let refuseGoal = false;
 
 function activeGoal(over: Record<string, unknown> = {}): Goal {
   return {
@@ -113,6 +114,11 @@ const fetchMock = vi.fn(
     if (path === "/coddy/events") return eventsStream();
     if (path === "/v1/responses") {
       posted.push(JSON.parse(String(init?.body)));
+      if (refuseGoal)
+        return new Response(
+          'event: coddy_meta\ndata: {"metadata":{"settings_only":"true"}}\n\nevent: done\ndata: [DONE]\n\n',
+          { headers: { "Content-Type": "text/event-stream" } },
+        );
       return emptyStream();
     }
     if (path === "/v1/models") {
@@ -160,6 +166,7 @@ beforeEach(() => {
   version = 100;
   posted = [];
   goalCalls = [];
+  refuseGoal = false;
   initLocale("en");
   localStorage.clear();
   history.replaceState(null, "", "/");
@@ -184,6 +191,17 @@ async function mountSession() {
   await screen.findByText("Fixed the lexer too.");
   await settle();
 }
+
+test("a refused goal restores the typed draft", async () => {
+  refuseGoal = true;
+  await mountSession();
+  const field = screen.getByRole("textbox", { name: "Message" });
+  const draft = "/goal --model missing-model Fix the parser";
+  fireEvent.change(field, { target: { value: draft } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(posted).toHaveLength(1));
+  await waitFor(() => expect(field).toHaveValue(draft));
+});
 
 async function pushEvent(name: string, data: unknown) {
   await act(async () => {

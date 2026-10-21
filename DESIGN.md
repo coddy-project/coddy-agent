@@ -889,6 +889,12 @@ Muted **Auto** pill tracks future modality toggles; UI copy stays English everyw
 
 ### Session goal
 
+Typed `/goal` objectives show a character counter under the composer field,
+using the same trimmed code-point count and 4000 limit as the popover. Leading
+options are excluded. Above the limit, Send and Enter leave the draft in place
+and the popover's length alert appears. A settings-only response to a goal set
+means refusal: the typed text returns to the composer ahead of any newer draft.
+
 A session can carry a goal (`/goal <objective>`, **`docs/features/session-supervisor.md`**): the supervisor checks every turn against it and starts the next turn itself until a check finds it met. The composer shows where the goal stands and is where the operator acts on it; the transcript shows the turns nobody typed as goal rows. The model and the parsers live in **`chat/goal.ts`**, the popover in **`chat/GoalPopover.tsx`**, the row in **`messages/GoalTurnMessage.tsx`**, the target glyph in **`components/TargetIcon.tsx`**.
 
 - **One snapshot, four deliveries.** The goal arrives whole with a version, in one envelope (**`{sessionId, goal, version, notice}`**, `goal: null` once cleared), from **`GET /coddy/sessions/{id}/messages`** (`goal`), from the turn stream (**`event: session_goal`**), from **`GET /coddy/events`** (**`event: session_goal`**, parsed in **`chat/serverEvents.ts`**) and from the answers of **`PATCH`** / **`DELETE /coddy/sessions/{id}/goal`**. **`App.tsx`** keeps it for the viewed session the way it keeps the settings snapshot (**`applySessionGoal`**, **`isNewerGoal`**): the highest version wins, a snapshot of another session is dropped, and a new session on screen starts from nothing until its read lands.

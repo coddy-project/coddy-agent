@@ -57,7 +57,8 @@ var goalClearWords = map[string]bool{"clear": true, "stop": true, "off": true, "
 // GoalCommandNone. Options come first, like /compact's: --model <id>,
 // --reasoning <level>, --then-file <path> (or --model=<id>, ...); the first
 // word that is not an option starts the objective or names the subcommand, so
-// an objective may mention an option without being read as one.
+// an objective may mention an option within a sentence. A trailing option
+// assignment is refused, since it would otherwise silently become text.
 func ParseGoalCommand(text string) GoalCommand {
 	text = strings.TrimSpace(text)
 	if !strings.HasPrefix(text, "/goal") {
@@ -120,6 +121,9 @@ func ParseGoalCommand(text string) GoalCommand {
 	default:
 		cmd.Kind, cmd.Objective = GoalCommandSet, arg
 	}
+	if cmd.Kind == GoalCommandSet && cmd.Err == "" {
+		cmd.Err = misplacedGoalOption(arg)
+	}
 	if cmd.ThenFile != "" && cmd.Err == "" && cmd.Kind != GoalCommandSet {
 		// A resumed goal keeps the follow-up file it was set with.
 		cmd.Err = "--then-file goes with a new goal"
@@ -128,6 +132,32 @@ func ParseGoalCommand(text string) GoalCommand {
 		cmd.Err = "--model and --reasoning go with a new goal or /goal resume"
 	}
 	return cmd
+}
+
+// misplacedGoalOption catches option assignments at the end, and smart
+// punctuation at the start, without rejecting prose about an option.
+func misplacedGoalOption(objective string) string {
+	words := strings.Fields(objective)
+	for i, word := range words {
+		name, _, inline := strings.Cut(word, "=")
+		smart := strings.HasPrefix(name, "—") || strings.HasPrefix(name, "–")
+		plain := name
+		if smart {
+			plain = "--" + strings.TrimLeft(name, "—–")
+		}
+		canonical := goalOptionName(plain)
+		if canonical != "--model" && canonical != "--reasoning" && canonical != "--then-file" {
+			continue
+		}
+		trailing := (inline && i == len(words)-1) || (!inline && i == len(words)-2)
+		if smart && (i == 0 || trailing) {
+			return fmt.Sprintf("%s looks like an option written with a typographic dash; use %s before the objective", name, canonical)
+		}
+		if trailing {
+			return fmt.Sprintf("%s must come before the objective", name)
+		}
+	}
+	return ""
 }
 
 // isGoalOption reports whether text starts with an option word: a --word, or

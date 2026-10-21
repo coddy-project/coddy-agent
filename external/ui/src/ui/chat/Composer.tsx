@@ -73,6 +73,9 @@ import {
   goalStatusKey,
   goalTone,
   isBareGoalCommand,
+  goalDraftObjective,
+  objectiveLength,
+  GOAL_OBJECTIVE_MAX,
   type SessionGoal,
 } from "./goal";
 import { TargetIcon } from "../components/TargetIcon";
@@ -713,6 +716,11 @@ export function Composer(props: {
     props.generating === true &&
     typeof props.onQueue === "function" &&
     (props.value.trim().length > 0 || sendableAttachedFiles.length > 0);
+  const goalObjective =
+    sendableAttachedFiles.length === 0 ? goalDraftObjective(props.value) : null;
+  const goalLength =
+    goalObjective === null ? null : objectiveLength(goalObjective);
+  const goalTooLong = goalLength !== null && goalLength > GOAL_OBJECTIVE_MAX;
   /**
    * Runs a draft that is a command of this composer - `/docs [words]` opens
    * the reader, `/mcp` opens Settings -> MCP servers, a bare `/goal` opens
@@ -723,6 +731,7 @@ export function Composer(props: {
    * always a message, so a command never swallows the attachments.
    */
   const runLocalCommandFromDraft = (): boolean => {
+    if (goalTooLong) return true;
     if (
       props.goalActions &&
       sendableAttachedFiles.length === 0 &&
@@ -777,7 +786,8 @@ export function Composer(props: {
   };
   /** Attachment-only send is valid only while the selected model accepts it. */
   const idleSendDisabled =
-    props.value.trim() === "" && sendableAttachedFiles.length === 0;
+    goalTooLong ||
+    (props.value.trim() === "" && sendableAttachedFiles.length === 0);
   const showAttachHint = useCallback(() => {
     setAttachHint(t("composer.attachUnsupportedModel"));
     if (attachHintTimerRef.current !== null) {
@@ -3635,6 +3645,21 @@ export function Composer(props: {
             </div>
           </div>
 
+          {goalLength !== null ? (
+            <div className="composer-goal-validation">
+              <span
+                className={`goal-form-count${goalTooLong ? " goal-form-count--over" : ""}`}
+                data-testid="composer-goal-count"
+              >
+                {goalLength} / {GOAL_OBJECTIVE_MAX}
+              </span>
+              {goalTooLong ? (
+                <p className="goal-error" role="alert">
+                  {t("goal.objectiveTooLong", { max: GOAL_OBJECTIVE_MAX })}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           {enhanceErr ? (
             <div
               className="composer-enhance-err"

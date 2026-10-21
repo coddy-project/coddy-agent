@@ -4,6 +4,8 @@ import {
   applyGoalTurnToItems,
   goalCanPause,
   goalCanResume,
+  goalDraftObjective,
+  objectiveLength,
   goalTone,
   goalTurnItem,
   goalTurnText,
@@ -20,6 +22,25 @@ import {
 } from "./goal";
 import { translate } from "../i18n/i18n";
 import type { TranscriptItem } from "./types";
+
+test.each([
+  ["hello", null],
+  ["/goals ship", null],
+  ["/goal pause", null],
+  ["/goal -m mini -r high resume", null],
+  ["/goal clear the cache", "clear the cache"],
+  ["/goal -m mini --reasoning=high --then-file next.md  ship it  ", "ship it"],
+  ["/goal --model=mini -r=high ship\nit", "ship\nit"],
+  ["/goal --unknown -m mini ship it", "ship it"],
+  ["/goal -x stays text", "-x stays text"],
+  ["/goal --model", ""],
+])("the objective of %s excludes only leading options", (text, want) => {
+  expect(goalDraftObjective(text!)).toBe(want);
+});
+
+test("objective length trims whitespace and counts Unicode code points", () => {
+  expect(objectiveLength(" \nя😀e\u0301\t ")).toBe(4);
+});
 
 const GOAL = {
   id: "goal_1",
