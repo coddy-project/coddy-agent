@@ -25,19 +25,20 @@ import (
 )
 
 type mentionsFeatureState struct {
-	tmp       []string
-	workspace string
-	outside   string
-	home      string
-	oldHome   string
-	homeSet   bool
-	store     *session.FileStore
-	mgr       *session.Manager
-	sessionID string
-	earlierID string
-	pages     map[string]string
-	seen      []acp.ContentBlock
-	checked   []session.CheckedMention
+	tmp        []string
+	workspace  string
+	outside    string
+	home       string
+	oldHome    string
+	oldProfile string
+	homeSet    bool
+	store      *session.FileStore
+	mgr        *session.Manager
+	sessionID  string
+	earlierID  string
+	pages      map[string]string
+	seen       []acp.ContentBlock
+	checked    []session.CheckedMention
 }
 
 func (s *mentionsFeatureState) tempDir() (string, error) {
@@ -58,6 +59,7 @@ func (s *mentionsFeatureState) close() {
 	}
 	if s.homeSet {
 		_ = os.Setenv("HOME", s.oldHome)
+		_ = os.Setenv("USERPROFILE", s.oldProfile)
 	}
 	mention.RegisterURLFetcher(nil)
 	*s = mentionsFeatureState{}
@@ -114,7 +116,11 @@ func (s *mentionsFeatureState) fileInHomeHolding(name, body string) error {
 	}
 	s.home = home
 	s.oldHome, s.homeSet = os.Getenv("HOME"), true
+	s.oldProfile = os.Getenv("USERPROFILE")
 	if err := os.Setenv("HOME", home); err != nil {
+		return err
+	}
+	if err := os.Setenv("USERPROFILE", home); err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(home, name), []byte(body+"\n"), 0o644)

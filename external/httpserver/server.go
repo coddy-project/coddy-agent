@@ -137,11 +137,12 @@ type Server struct {
 	removeCanvasObserver func()
 
 	codexAuthIssuer string
-	// codexAuthMu guards both browser-login attempt maps; the attempts share
+	// codexAuthMu guards the browser-login attempt maps; the attempts share
 	// one bookkeeping shape and one drain path.
 	codexAuthMu          sync.Mutex
 	codexAuthLogins      map[string]*codexAuthLoginAttempt
 	neuralDeepAuthLogins map[string]*codexAuthLoginAttempt
+	opencodeAuthLogins   map[string]*codexAuthLoginAttempt
 
 	permissionResumeWG sync.WaitGroup
 	// bgWG counts background goroutines owned by this server (codex auth login
@@ -175,6 +176,7 @@ func (s *Server) Drain() {
 	}
 	s.cancelCodexAuthLogins()
 	s.cancelNeuralDeepAuthLogins()
+	s.cancelOpenCodeAuthLogins("")
 	// A memory run stopped mid-persist loses its note: running memory runs get
 	// the drain grace before the pool is closed.
 	if n := agent.MemoryRunsInFlight(); n > 0 {
@@ -211,6 +213,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		codexAuthIssuer:      llm.CodexIssuerURL,
 		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 		neuralDeepAuthLogins: make(map[string]*codexAuthLoginAttempt),
+		opencodeAuthLogins:   make(map[string]*codexAuthLoginAttempt),
 		events:               newServerEventsHub(),
 		served:               configapi.NewRevisions(),
 		sessions:             webauth.NewSessionStore(),
@@ -312,6 +315,14 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		// first configured model before declaring nothing is available.
 		modelRef = cfg.FirstModelID()
 	}
+	if cfg.ModelRunsACPAgent(modelRef) {
+		// A local ACP agent answers inside a session only: the describe
+		// call borrows a model of another type, or does without.
+		modelRef = cfg.FirstNonACPModelID()
+		if modelRef == "" {
+			return nil, fmt.Errorf("no model other than an acp agent is configured for the describe call")
+		}
+	}
 	if modelRef == "" {
 		return nil, fmt.Errorf("no model configured")
 	}
@@ -337,6 +348,7 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		DisableStream:     !rm.Stream,
 		Timeout:           time.Duration(rm.TimeoutMS) * time.Millisecond,
 		StreamIdleTimeout: streamIdleTimeout(cfg, rm),
+		ACP:               rm.ACP,
 	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
@@ -366,6 +378,7 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string, opts llm.Request
 		DisableStream:     !rm.Stream,
 		Timeout:           time.Duration(rm.TimeoutMS) * time.Millisecond,
 		StreamIdleTimeout: streamIdleTimeout(cfg, rm),
+		ACP:               rm.ACP,
 	}
 	opts.Apply(&in)
 	return llm.NewProvider(llm.WithAgentResilience(in, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
@@ -626,6 +639,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		genOpts, err = directRequestOptions(s.activeCfg(), model, req)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+			return
+		}
+		if err := directACPRefusal(s.activeCfg(), model); err != nil {
+			writeErrorReply(w, err)
 			return
 		}
 	}
@@ -1210,6 +1227,12 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	if err := coerceMetadataJSON(body.Metadata); err != nil {
 		http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
 		return
+	}
+	if !httpModelIsCoddyProfile(model) {
+		if err := directACPRefusal(s.activeCfg(), model); err != nil {
+			writeErrorReply(w, err)
+			return
+		}
 	}
 	ctx := r.Context()
 	st, sid, createdNew, err := s.resolveSession(ctx, r)

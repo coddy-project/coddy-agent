@@ -204,8 +204,15 @@ func pumpControls(t *testing.T, a *App, done func(updateMsg) bool) {
 	}
 }
 
+// controlsWait bounds the wait for a control update. The wait is on the update
+// itself; the bound only tells a hang from a slow one. It has to hold on a
+// loaded machine, where a turn of the stub takes far longer than the three
+// seconds a quiet runner needs - the suite's own starvation check runs many
+// copies of a test binary on two CPUs.
+const controlsWait = 30 * time.Second
+
 func awaitControls(a *App, done func(updateMsg) bool) error {
-	timer := time.NewTimer(3 * time.Second)
+	timer := time.NewTimer(controlsWait)
 	defer timer.Stop()
 	for {
 		select {

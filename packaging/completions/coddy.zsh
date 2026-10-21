@@ -62,12 +62,13 @@ _coddy() {
                 providers)
                     if (( CURRENT > 3 )); then
                         _arguments \
-                            '--type[login: type of a provider config.yaml does not list yet]:type:(neuraldeep codex devin)' \
+                            '--type[login: type of a provider config.yaml does not list yet]:type:(neuraldeep opencode codex devin)' \
                             '--browser[neuraldeep: loopback browser callback instead of the device flow]' \
                             '--device[neuraldeep: the device flow, which is the default]' \
                             '--devin-cli[devin: use the login devin auth login already holds]' \
                             '--no-config[login: do not add the provider and its models to config.yaml]' \
-                            '--api-base[neuraldeep: endpoint to sign in against]:url:' \
+                            '--api-key[opencode: service account key, or - for a secret prompt]:key:' \
+                            '--api-base[neuraldeep: endpoint to sign in against; opencode: gateway written into the row]:url:' \
                             '--home[override CODDY_HOME]:dir:_files -/'
                     else
                         _values 'subcommand' list login logout

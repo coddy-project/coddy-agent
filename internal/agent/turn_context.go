@@ -161,5 +161,5 @@ func withTurnContext(msgs []llm.Message, block string) []llm.Message {
 	}
 	out := make([]llm.Message, len(msgs), len(msgs)+1)
 	copy(out, msgs)
-	return append(out, llm.Message{Role: llm.RoleUser, Content: block})
+	return append(out, llm.Message{Role: llm.RoleUser, Content: block, Ephemeral: true})
 }

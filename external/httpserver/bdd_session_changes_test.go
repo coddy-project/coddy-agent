@@ -112,7 +112,7 @@ func (s *sessionChangesState) close() {
 func (s *sessionChangesState) git(args ...string) error {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = s.workspace
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git %v: %v\n%s", args, err, out)
 	}
@@ -129,6 +129,9 @@ func (s *sessionChangesState) startGitServer() error {
 		return err
 	}
 	if err := s.git("init", "-b", "main"); err != nil {
+		return err
+	}
+	if err := s.git("config", "core.autocrlf", "false"); err != nil {
 		return err
 	}
 	return s.startServer()
