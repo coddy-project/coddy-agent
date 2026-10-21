@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -37,11 +38,13 @@ const (
 )
 
 type wakeWorld struct {
-	root  string
-	fake  *fakeAPI
-	model *httptest.Server
-	mgr   *session.Manager
-	bot   *Bot
+	root       string
+	fake       *fakeAPI
+	model      *httptest.Server
+	mgr        *session.Manager
+	bot        *Bot
+	wakeMu     sync.Mutex
+	cancelWake context.CancelFunc
 	// failCommand is what the scripted model starts in the background; the
 	// scenario fixes its exit code.
 	failCommand string
@@ -62,6 +65,14 @@ func (w *wakeWorld) reset() error {
 }
 
 func (w *wakeWorld) close() {
+	if w.cancelWake != nil {
+		w.cancelWake()
+		w.cancelWake = nil
+	}
+	// Serialize teardown with callbacks already queued by the pool. Cancelling
+	// first also releases a callback that is waiting for an active turn.
+	w.wakeMu.Lock()
+	defer w.wakeMu.Unlock()
 	// A draining pool starts no wake, so a task of this scenario cannot reach
 	// the next one's bot.
 	if w.mgr != nil {
@@ -69,7 +80,6 @@ func (w *wakeWorld) close() {
 		for _, id := range w.sessionIDs() {
 			bgtask.Default().StopSession(id)
 		}
-		bgtask.Default().SetDraining(false)
 		bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, nil)
 	}
 	if w.bot != nil {
@@ -90,6 +100,7 @@ func (w *wakeWorld) close() {
 		_ = os.RemoveAll(w.root)
 		w.root = ""
 	}
+	bgtask.Default().SetDraining(false)
 }
 
 func (w *wakeWorld) sessionIDs() []string {
@@ -107,7 +118,8 @@ func (w *wakeWorld) chatKey() string {
 // serve` with the gateway alone: the manager, the agent loop, the task pool,
 // and a waker whose only surface is this bot.
 func (w *wakeWorld) chatWithScriptedModel() error {
-	w.failCommand = "echo 'tests failed' >&2; exit 2"
+	// exit is shared by POSIX shells, PowerShell and cmd.exe.
+	w.failCommand = "exit 2"
 	start, _ := json.Marshal(map[string]any{
 		"command":          w.failCommand,
 		"background":       true,
@@ -149,8 +161,16 @@ func (w *wakeWorld) chatWithScriptedModel() error {
 		Admins: []int64{wakeUserID},
 	}, w.mgr, cwd, log, "", nil)
 	w.bot.setAPI(w.fake.api)
-	agent.NewBackgroundWaker(log, func(ctx context.Context, wake agent.Wake) error {
-		if handled, err := w.bot.RunBackgroundWake(ctx, wake); handled {
+	bot := w.bot
+	wakeCtx, cancelWake := context.WithCancel(context.Background())
+	w.cancelWake = cancelWake
+	agent.NewBackgroundWaker(log, func(_ context.Context, wake agent.Wake) error {
+		w.wakeMu.Lock()
+		defer w.wakeMu.Unlock()
+		if err := wakeCtx.Err(); err != nil {
+			return err
+		}
+		if handled, err := bot.RunBackgroundWake(wakeCtx, wake); handled {
 			return err
 		}
 		return fmt.Errorf("the bot declined the wake of session %s", wake.SessionID)
@@ -188,7 +208,8 @@ func (w *wakeWorld) taskEnds(code int) error {
 		for _, task := range bgtask.Default().List(sessionID) {
 			if task.Status.Finished() {
 				if task.ExitCode == nil || *task.ExitCode != code {
-					return fmt.Errorf("task %s ended %s with exit %v, want %d", task.ID, task.Status, task.ExitCode, code)
+					output, _, _ := bgtask.Default().Output(sessionID, task.ID, 20)
+					return fmt.Errorf("task %s ended %s with exit %v, want %d: %s\n%s", task.ID, task.Status, task.ExitCode, code, task.Error, output)
 				}
 				if !task.NotifyOnFinish {
 					return fmt.Errorf("task %s was not recorded as waking the agent", task.ID)

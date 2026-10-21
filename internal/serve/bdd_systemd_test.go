@@ -24,9 +24,9 @@ import (
 
 // shellPath is the PATH of the shell a scenario runs install from.
 var shellPath = strings.Join([]string{
-	filepath.FromSlash("/home/user/go/bin"),
-	filepath.FromSlash("/home/user/.local/bin"),
-	filepath.FromSlash("/usr/bin"),
+	filepath.VolumeName(os.TempDir()) + filepath.FromSlash("/home/user/go/bin"),
+	filepath.VolumeName(os.TempDir()) + filepath.FromSlash("/home/user/.local/bin"),
+	filepath.VolumeName(os.TempDir()) + filepath.FromSlash("/usr/bin"),
 }, string(filepath.ListSeparator))
 
 type systemdFeatureState struct {
@@ -220,7 +220,7 @@ func (s *systemdFeatureState) unitRuns(path, command string) error {
 		return err
 	}
 	exe, args, _ := strings.Cut(command, " ")
-	want := "ExecStart=" + s.path(exe) + " " + args
+	want := "ExecStart=" + systemdPath(s.path(exe)) + " " + args
 	if !strings.Contains(unit, "\n"+want+"\n") {
 		return fmt.Errorf("unit %s has no line %q:\n%s", path, want, unit)
 	}

@@ -234,6 +234,17 @@ func Methods(log []Received, method string) []Received {
 	return out
 }
 
+// blockForever parks the agent for good, as a deaf or a stubborn agent does.
+// A bare select {} would do it on Linux, where the signal-handling goroutine
+// keeps the process looking busy; on Windows nothing else runs, the runtime
+// reports "all goroutines are asleep" and the agent dies with status 2 instead
+// of hanging. A pending timer keeps the deadlock detector quiet everywhere.
+func blockForever() {
+	for {
+		time.Sleep(time.Hour)
+	}
+}
+
 // Main runs the fake agent when args name it and never returns in that case.
 // It returns false when the arguments do not select the helper, so the
 // calling test can return.
@@ -439,7 +450,7 @@ func (a *agent) handle(m message) {
 			a.update(s.id, map[string]interface{}{"sessionUpdate": "current_mode_update", "currentModeId": a.script.ModeAfterNew})
 		}
 		if a.script.DeafAfterNew {
-			select {}
+			blockForever()
 		}
 	case "session/close":
 		var p struct {
@@ -762,7 +773,7 @@ func (a *agent) prompt(m message, t Turn, cancelled <-chan struct{}) {
 	}
 	stop := t.StopReason
 	if t.IgnoreCancel {
-		select {}
+		blockForever()
 	}
 	if t.WaitCancel {
 		<-cancelled

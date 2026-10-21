@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { copyText } from "../clipboard";
 import { useT } from "../i18n/I18nProvider";
-
-async function copyTextToClipboard(text: string): Promise<void> {
-  await navigator.clipboard.writeText(text);
-}
 
 /** Clipboard glyph for the copy controls that used to spell the word out. */
 export function CopyGlyph() {
@@ -49,24 +46,8 @@ export function CodeBlockCopyButton(props: {
     if (!text.trim()) {
       return;
     }
-    try {
-      await copyTextToClipboard(text);
+    if (await copyText(text)) {
       flashCopied();
-    } catch {
-      try {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        ta.style.position = "fixed";
-        ta.style.opacity = "0";
-        document.body.appendChild(ta);
-        ta.focus();
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-        flashCopied();
-      } catch {
-        setCopied(false);
-      }
     }
   }, [props.textToCopy, flashCopied]);
 

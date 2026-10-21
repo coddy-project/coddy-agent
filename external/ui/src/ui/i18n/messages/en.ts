@@ -1003,6 +1003,33 @@ export const messagesEn: Record<string, string> = {
   "neuralDeepApiBase.unknown":
     "The saved api_base {value} is not a NeuralDeep endpoint, so requests go to {fallback}. Pick an endpoint to replace it.",
 
+  "openCodeApiBase.description":
+    "OpenCode serves one API key from two gateways: the Go subscription and pay-as-you-go Console. Pick the one your key is for; the model list below is fetched with the row as it stands in the form. Enter the key in the API key field above, or run `coddy providers login opencode`.",
+  "openCodeApiBase.optionGo": "Go — subscription (inference/go/v1)",
+  "openCodeApiBase.optionConsole": "Console — pay as you go (inference/v1)",
+  "openCodeApiBase.unresolved": "Not an OpenCode gateway — pick one",
+  "openCodeApiBase.unknown":
+    "The saved api_base {value} is not an OpenCode gateway, so requests go to {fallback}. Pick a gateway to replace it.",
+
+  "openCodeAuth.error.signInFailed": "OpenCode sign in failed.",
+  "openCodeAuth.error.incompleteResponse":
+    "OpenCode returned incomplete sign-in instructions.",
+  "openCodeAuth.fieldLabel": "OpenCode account",
+  "openCodeAuth.description":
+    "Sign in to OpenCode Console, confirm the device code and select your organization. Tokens stay on the Coddy server. Save the provider settings to use this row for chats.",
+  "openCodeAuth.connected": "Signed in to OpenCode ({account}).",
+  "openCodeAuth.shadowedByKey":
+    "The configured API key or key command takes priority over this login. Clear it to use the account.",
+  "openCodeAuth.shadowedByEnv":
+    "The {env} environment variable on the Coddy server takes priority over this login. Unset it to use the account.",
+  "openCodeAuth.enterCode":
+    "Confirm this code on the OpenCode page and select your organization:",
+  "openCodeAuth.openSignInPage": "Open sign-in page",
+  "openCodeAuth.waiting": "Waiting for confirmation…",
+  "openCodeAuth.signOut": "Sign Out",
+  "openCodeAuth.signIn": "Sign In with OpenCode",
+  "openCodeAuth.enterProviderName": "Enter a provider name before signing in.",
+
   "neuralDeepAuth.error.signInFailed": "NeuralDeep sign in failed.",
   "neuralDeepAuth.error.incompleteResponse":
     "The hub returned an incomplete sign-in response.",

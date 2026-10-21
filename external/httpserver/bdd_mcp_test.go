@@ -634,6 +634,68 @@ func TestMCPProjectTrustHTTPFeature(t *testing.T) {
 	}
 }
 
+func TestMCPProjectTrustOverrideKeepsLivePolicyThroughSave(t *testing.T) {
+	s := &mcpFeatureState{}
+	if err := s.reset(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.close()
+	if err := s.startServer(); err != nil {
+		t.Fatal(err)
+	}
+	s.mgr.Cfg().MCP.ProjectTrust = config.ProjectTrustDeny
+	s.mgr.SetConfigAdjuster(func(next *config.Config) error {
+		if got := s.mgr.Cfg().MCP.ResolvedProjectTrust(); got != config.ProjectTrustDeny {
+			return fmt.Errorf("live project trust changed to %q before install", got)
+		}
+		next.MCP.ProjectTrust = config.ProjectTrustDeny
+		return nil
+	})
+	res, err := s.ts.Client().Post(s.ts.URL+"/coddy/mcp/project-trust", "application/json", bytes.NewBufferString(`{"policy":"allow"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		t.Fatalf("project trust save status = %d: %s", res.StatusCode, body)
+	}
+	if got := s.mgr.Cfg().MCP.ResolvedProjectTrust(); got != config.ProjectTrustDeny {
+		t.Fatalf("live project trust = %q", got)
+	}
+	onDisk, err := config.LoadWithPaths(s.mgr.Cfg().Paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := onDisk.MCP.ResolvedProjectTrust(); got != config.ProjectTrustAllow {
+		t.Fatalf("file project trust = %q, want allow", got)
+	}
+}
+
+func TestMCPProjectTrustReportsFailedAdjustedReload(t *testing.T) {
+	s := &mcpFeatureState{}
+	if err := s.reset(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.close()
+	if err := s.startServer(); err != nil {
+		t.Fatal(err)
+	}
+	s.mgr.SetConfigAdjuster(func(*config.Config) error { return fmt.Errorf("override cannot be applied") })
+	before := s.mgr.Cfg()
+	res, err := s.ts.Client().Post(s.ts.URL+"/coddy/mcp/project-trust", "application/json", bytes.NewBufferString(`{"policy":"allow"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("project trust save status = %d, want 500", res.StatusCode)
+	}
+	if s.mgr.Cfg() != before || s.mgr.Cfg().MCP.ResolvedProjectTrust() != config.ProjectTrustAsk {
+		t.Fatal("failed reload changed the live configuration")
+	}
+}
+
 // initializeMCPTrustScenario reuses the management harness: the @http trust
 // scenario drives the same /coddy/mcp surface.
 func initializeMCPTrustScenario(sc *godog.ScenarioContext) { initializeMCPScenario(sc) }

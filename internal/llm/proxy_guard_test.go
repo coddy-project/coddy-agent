@@ -52,7 +52,7 @@ var providerProxyGuardScopes = []struct {
 		return strings.HasSuffix(name, "_auth_http.go") || name == "providers_models_http.go"
 	}},
 	{"../../cmd/coddy", func(name string) bool {
-		return name == "codex.go" || name == "devin.go" || name == "providers.go"
+		return name == "codex.go" || name == "devin.go" || name == "opencode.go" || name == "providers.go"
 	}},
 }
 

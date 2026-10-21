@@ -27,12 +27,14 @@ fields. The Codex sibling accepts the same fields and also parses patch headers.
 from __future__ import annotations
 
 from contextlib import contextmanager
+import errno
 import hashlib
 import json
 import os
 import re
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 if os.name == "nt":
@@ -414,12 +416,22 @@ def session_lock(session_id: str):
     lock_path = state_file(session_id).with_suffix(".lock")
     with lock_path.open("a+b") as handle:
         if os.name == "nt":
-            handle.seek(0, os.SEEK_END)
-            if handle.tell() == 0:
-                handle.write(b"\0")
-                handle.flush()
+            # Windows can lock a byte beyond EOF. Initializing this byte
+            # before locking races with the process that already holds it:
+            # a sharing violation would fall back to duplicate delivery.
             handle.seek(0)
-            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            # LK_LOCK retries only once a second and gives up after ten
+            # attempts. A burst of hooks must not consume that retry budget
+            # while each preceding holder releases the lock in milliseconds.
+            deadline = time.monotonic() + 10
+            while True:
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError as error:
+                    if error.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK) or time.monotonic() >= deadline:
+                        raise
+                    time.sleep(0.01)
         else:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:

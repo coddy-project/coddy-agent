@@ -343,17 +343,43 @@ func (s *Server) coddyMCPProjectTrust(w http.ResponseWriter, r *http.Request) {
 		writeCoddyMCPErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := mcp.SetProjectTrust(s.activeCfg(), body.Policy); err != nil {
+	// SetProjectTrust mirrors the saved policy into the config passed to it.
+	// Keep process overrides on the live pointer until the adjusted reload is
+	// ready, especially when --mcp-project-trust forbids project servers.
+	current := *s.activeCfg()
+	if err := mcp.SetProjectTrust(&current, body.Policy); err != nil {
 		writeCoddyMCPErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.reloadConfigFromDisk()
+	if !s.reloadConfigFromDisk(w) {
+		return
+	}
 	slog.Info("mcp project trust policy set", "policy", body.Policy)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":            true,
 		"project_trust": s.activeCfg().MCP.ResolvedProjectTrust(),
 	})
+}
+
+// reloadConfigFromDisk re-reads config.yaml after an MCP management route
+// persists a change, then applies process overrides before installing it.
+func (s *Server) reloadConfigFromDisk(w http.ResponseWriter) bool {
+	c := s.activeCfg()
+	if c == nil {
+		writeCoddyMCPErr(w, http.StatusInternalServerError, "configuration is unavailable")
+		return false
+	}
+	reloaded, err := config.LoadWithPaths(c.Paths)
+	if err == nil {
+		err = s.mgr.InstallConfig(reloaded)
+	}
+	if err != nil {
+		s.log.Error("mcp config reload", "error", err)
+		writeCoddyMCPErr(w, http.StatusInternalServerError, "MCP change was saved but could not be applied; check the server log")
+		return false
+	}
+	return true
 }
 
 // coddyMCPServerUntrust withdraws an approval: live sessions close the server
@@ -399,7 +425,9 @@ func (s *Server) coddyMCPServerToggle(disable bool) http.HandlerFunc {
 			writeCoddyMCPErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		s.reloadConfigFromDisk()
+		// This switch lives in mcp.json or mcp-overrides.json, not in
+		// config.yaml. Notify open clients without replacing the live config.
+		s.publishMCPSettingsChanged()
 		s.invalidateMCPProbe(srv.Origin, name, cwd)
 		s.refreshLiveMCPServer(r, name, srv.Origin, cwd)
 		slog.Info("mcp server toggled", "name", name, "disabled", disable)
@@ -431,12 +459,17 @@ func (s *Server) coddyMCPToolToggle(disable bool) http.HandlerFunc {
 			writeCoddyMCPErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		s.reloadConfigFromDisk()
+		s.publishMCPSettingsChanged()
 		s.invalidateMCPProbe(srv.Origin, name, cwd)
 		slog.Info("mcp tool toggled", "server", name, "tool", tool, "disabled", disable)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
 	}
+}
+
+func (s *Server) publishMCPSettingsChanged() {
+	s.invalidateSlashCache()
+	s.publishConfigReloaded()
 }
 
 // coddyMCPServerPut creates or updates a server entry in the mcp.json file

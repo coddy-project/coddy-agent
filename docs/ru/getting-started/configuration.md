@@ -657,7 +657,9 @@ providers:
 
 ## Справочник по провайдерам моделей
 
-Значения **`type`** провайдера соответствуют **`internal/llm.NewProvider`**, это **`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**, **`devin`** и **`acp`**. Строка **`type: acp`** запускает локального агента, который говорит по Agent Client Protocol (Claude Code, Codex, OpenCode, ZCode, другой Coddy), и подключает его как модель; вместо **`api_base`** и **`api_key`** у неё блок **`acp`** (**`command`**, **`args`**, **`env`**, **`modes`** и другие) - см. [ACP-агент как модель](../features/acp-provider.md).
+Значения **`type`** провайдера соответствуют **`internal/llm.NewProvider`**, это **`openai`**, **`anthropic`**, **`neuraldeep`**, **`opencode`**, **`codex`**, **`devin`** и **`acp`**. Строка **`type: acp`** запускает локального агента, который говорит по Agent Client Protocol (Claude Code, Codex, OpenCode, ZCode, другой Coddy), и подключает его как модель; вместо **`api_base`** и **`api_key`** у неё блок **`acp`** (**`command`**, **`args`**, **`env`**, **`modes`** и другие) - см. [ACP-агент как модель](../features/acp-provider.md).
+
+**`type: opencode`** по умолчанию использует шлюз подписки Go; **`api_base: https://opencode.ai/inference/v1`** выбирает Console с оплатой по мере использования. Войдите в аккаунт командой **`coddy providers login opencode`** (подтвердите код устройства и выберите организацию в браузере) или сохраните ключ сервисного аккаунта через **`--api-key -`**. Coddy автоматически обновляет токены аккаунта через прокси провайдера. Явный **`api_key`** имеет приоритет над сохранёнными учётными данными. Coddy выбирает API генерации по модели и шлюзу; см. [OpenCode](../features/opencode.md).
 
 Разделение в YAML:
 
@@ -795,4 +797,4 @@ models:
 
 Уровни рассуждения для такого id Coddy определяет по модели после автора, поэтому **`openrouter/qwen/qwen3.8-flash`** предлагает уровни **`qwen3.8-flash`**. Список моделей агрегатора называет параметры запроса, которые принимает каждая модель (**`supported_parameters`**), и Coddy читает его вместе с окном контекста модели. Если список называет единый объект **`reasoning`**, а **`reasoning_effort`** не называет, выбранный уровень уходит как **`reasoning: {"effort": "<уровень>"}`**, а **`off`** как **`reasoning: {"enabled": false}`**. Переключатель Qwen3 **`chat_template_kwargs`** уходит только серверу, список которого его называет или не называет ничего. Рассуждение модели приходит в поле **`reasoning`** ответа и видно в чате, как любое другое, а рядом с его длительностью стоят токены, которые агрегатор за него насчитал (**`usage.completion_tokens_details.reasoning_tokens`**) ([Веб-интерфейс](../surfaces/web-ui.md#типы-сообщений-транскрипта)).
 
-<!-- docsgen:source sha256=159aafdcaa992086 -->
+<!-- docsgen:source sha256=2b16bada5e2f18ed -->

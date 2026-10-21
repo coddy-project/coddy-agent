@@ -49,7 +49,7 @@ _coddy() {
             ;;
         providers)
             [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list login logout" -- "${cur}"))
-            [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--type --browser --device --devin-cli --no-config --api-base --home" -- "${cur}"))
+            [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--type --browser --device --devin-cli --no-config --api-key --api-base --home" -- "${cur}"))
             ;;
         rules)
             [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list" -- "${cur}"))
