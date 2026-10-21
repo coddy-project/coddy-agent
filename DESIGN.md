@@ -1289,7 +1289,7 @@ A **`mermaid`** or **`svg`** fence and a display formula (**`$$...$$`**, **`\[..
 
 ### Memory tree (deferred explorer)
 
-A file-tree over combined **global** (**`memory.dir`** / `$CODDY_HOME/memory`) and **workspace** (`<cwd>/memory`) remains out of scope for this milestone.
+A file-tree over combined **global** (**`memory.dir`** / `$CODDY_HOME/memory`) and **workspace** (`<cwd>/.coddy/memory`) remains out of scope for this milestone.
 
 ### Memory runs
 
