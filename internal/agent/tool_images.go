@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -78,6 +79,38 @@ func (a *Agent) recordToolImage(name, mimeType string, data []byte) error {
 	}
 	a.callImages = append(a.callImages, part)
 	return nil
+}
+
+// keepToolFile saves a file an MCP tool returned that no model is shown -
+// an audio clip, a binary resource - with the session's assets and returns
+// the line the call's result names it with: the model cannot look at it, but
+// it can open the copy with its tools. A resource keeps the name of its URI;
+// anything else is named after the server, the tool and its place.
+func (a *Agent) keepToolFile(server, tool string, f mcp.ToolFile) string {
+	name := f.Name
+	if name == "" {
+		name = fmt.Sprintf("%s-%s-%s-%d%s", server, tool, f.Kind, f.Index, toolFileExt[f.MIMEType])
+	}
+	facts := fmt.Sprintf("%d bytes", len(f.Data))
+	if f.MIMEType != "" {
+		facts = f.MIMEType + ", " + facts
+	}
+	path, err := session.SaveToolFileAsset(a.state.GetPersistedSessionDir(), name, f.Data)
+	if err != nil {
+		return fmt.Sprintf("[MCP %s %d omitted: %s (%s): %v]", f.Kind, f.Index, name, facts, err)
+	}
+	return fmt.Sprintf("[MCP %s %d: %s (%s), saved as %s]", f.Kind, f.Index, name, facts, path)
+}
+
+// toolFileExt names a file a tool returned with no name of its own by its
+// type. The table is fixed, not the system's, so a name does not depend on
+// the machine.
+var toolFileExt = map[string]string{
+	"audio/wav": ".wav", "audio/x-wav": ".wav", "audio/wave": ".wav",
+	"audio/mpeg": ".mp3", "audio/mp3": ".mp3", "audio/ogg": ".ogg", "audio/webm": ".webm",
+	"audio/flac": ".flac", "audio/aac": ".aac", "audio/mp4": ".m4a",
+	"application/pdf": ".pdf", "application/json": ".json", "application/zip": ".zip",
+	"text/plain": ".txt", "text/csv": ".csv",
 }
 
 // loadToolImage is the data URL of a picture kept as its copy with this

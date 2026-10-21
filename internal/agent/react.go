@@ -2686,6 +2686,11 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 				}
 				kept = append(kept, fmt.Sprintf("[MCP image %d: %s]", img.Index, name))
 			}
+			// A file no model is shown is kept with the session, where the
+			// agent can open it, and named in the result.
+			for _, f := range result.Files {
+				result.Text = joinHookText(result.Text, a.keepToolFile(serverName, toolName, f))
+			}
 			if strings.TrimSpace(result.Text) == "" && len(kept) > 0 {
 				// A result that is only pictures still says what it is: an
 				// empty tool result shows nothing in the console or an

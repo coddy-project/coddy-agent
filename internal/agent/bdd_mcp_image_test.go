@@ -14,6 +14,7 @@ import (
 	"image/jpeg"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -54,6 +55,7 @@ func TestHelperMCPImageServer(t *testing.T) {
 				map[string]any{"name": "capture_formats", "description": "Pictures of every kind", "inputSchema": map[string]any{"type": "object"}},
 				map[string]any{"name": "capture_error", "description": "A failed capture", "inputSchema": map[string]any{"type": "object"}},
 				map[string]any{"name": "capture_shift", "description": "Pictures after refused ones", "inputSchema": map[string]any{"type": "object"}},
+				map[string]any{"name": "capture_blocks", "description": "Every kind of block", "inputSchema": map[string]any{"type": "object"}},
 			}}
 		case "tools/call":
 			if content, isError, ok := mcpImageHelperCall(req.Params.Name); ok {
@@ -100,6 +102,15 @@ func mcpImageHelperCall(name string) (content []any, isError bool, ok bool) {
 			map[string]any{"type": "image", "mimeType": "image/png", "data": "not base64!"},
 			block("image/svg+xml", []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`)),
 			block("image/png", testPNG(2, 2, color.NRGBA{G: 200, A: 255})),
+		}, false, true
+	case "capture_blocks":
+		return []any{
+			map[string]any{"type": "text", "text": "Fetched the report"},
+			map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///srv/notes.md", "mimeType": "text/markdown", "text": "Ship on Friday."}},
+			map[string]any{"type": "resource_link", "uri": "https://example.com/report.pdf", "name": "report.pdf", "mimeType": "application/pdf"},
+			map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///srv/report.pdf", "mimeType": "application/pdf", "blob": base64.StdEncoding.EncodeToString([]byte("%PDF-1.4 fake"))}},
+			map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///srv/chart.png", "mimeType": "image/png", "blob": base64.StdEncoding.EncodeToString(testPNG(2, 2, color.NRGBA{B: 200, A: 255}))}},
+			map[string]any{"type": "audio", "mimeType": "audio/wav", "data": base64.StdEncoding.EncodeToString([]byte("RIFF....WAVEfmt "))},
 		}, false, true
 	case "capture_error":
 		return []any{
@@ -252,6 +263,96 @@ func (s *mcpImageFeatureState) surfaceImage() error {
 		return fmt.Errorf("MCP update images = %+v", images)
 	}
 	return nil
+}
+
+func (s *mcpImageFeatureState) runBlocks() error { return s.run(true, "capture_blocks") }
+
+func (s *mcpImageFeatureState) blocksResult() (llm.Message, error) {
+	for _, msg := range s.st.GetMessages() {
+		if msg.Role == llm.RoleTool && msg.ToolCallID == "mcp1" {
+			return msg, nil
+		}
+	}
+	return llm.Message{}, fmt.Errorf("the MCP result was not kept")
+}
+
+func (s *mcpImageFeatureState) textAndLinkInPlace() error {
+	msg, err := s.blocksResult()
+	if err != nil {
+		return err
+	}
+	want := "Fetched the report\n[MCP resource 1: file:///srv/notes.md (text/markdown)]\nShip on Friday.\n[MCP resource link: https://example.com/report.pdf - report.pdf (application/pdf)]\n"
+	if !strings.HasPrefix(msg.Content, want) {
+		return fmt.Errorf("the result = %q, want it to start with %q", msg.Content, want)
+	}
+	return nil
+}
+
+func (s *mcpImageFeatureState) pictureResource() error {
+	msg, err := s.blocksResult()
+	if err != nil {
+		return err
+	}
+	if len(msg.ImageParts) != 1 || msg.ImageParts[0].Name != "screens-capture_blocks-1.png" {
+		return fmt.Errorf("the pictures of the result = %+v", msg.ImageParts)
+	}
+	tail, err := s.requestTail()
+	if err != nil {
+		return err
+	}
+	if len(tail) != 3 || len(tail[2].ImageParts) != 1 {
+		return fmt.Errorf("the request after the call carries no picture: %+v", tail)
+	}
+	return nil
+}
+
+func (s *mcpImageFeatureState) filesNamed() error {
+	msg, err := s.blocksResult()
+	if err != nil {
+		return err
+	}
+	for _, f := range []struct{ line, name, data string }{
+		{"[MCP resource 2: report.pdf (application/pdf, 13 bytes), saved as ", "report-", "%PDF-1.4 fake"},
+		{"[MCP audio 1: screens-capture_blocks-audio-1.wav (audio/wav, 16 bytes), saved as ", "screens-capture_blocks-audio-1-", "RIFF....WAVEfmt "},
+	} {
+		at := strings.Index(msg.Content, f.line)
+		if at < 0 {
+			return fmt.Errorf("the result %q does not name %s", msg.Content, f.name)
+		}
+		path := strings.TrimSuffix(strings.SplitN(msg.Content[at+len(f.line):], "\n", 2)[0], "]")
+		if filepath.Dir(path) != session.AssetsPath(s.st.SessionDir) || !strings.HasPrefix(filepath.Base(path), f.name) {
+			return fmt.Errorf("%s is saved as %s, not with the session's assets", f.name, path)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil || string(data) != f.data {
+			return fmt.Errorf("the file at %s holds %q (%v)", path, data, err)
+		}
+	}
+	return nil
+}
+
+func TestMCPToolBlocksFeature(t *testing.T) {
+	s := &mcpImageFeatureState{}
+	suite := godog.TestSuite{
+		Name: "mcp-tool-blocks",
+		ScenarioInitializer: func(sc *godog.ScenarioContext) {
+			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) { return ctx, s.reset() })
+			sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+				s.close()
+				return ctx, nil
+			})
+			sc.Step(`^an MCP server that returns a screenshot$`, s.server)
+			sc.Step(`^the session model reads MCP images$`, s.modelReadsImages)
+			sc.Step(`^the model calls the MCP tool that returns every kind of block and answers$`, s.runBlocks)
+			sc.Step(`^the MCP result carries the text resource and the resource link in their place$`, s.textAndLinkInPlace)
+			sc.Step(`^the picture resource reaches the model as a picture$`, s.pictureResource)
+			sc.Step(`^the PDF resource and the audio clip are kept as files the result names$`, s.filesNamed)
+		},
+		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/mcp_tool_blocks.feature"}, TestingT: t, Strict: true},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("MCP tool blocks feature failed")
+	}
 }
 
 func TestMCPToolImagesFeature(t *testing.T) {

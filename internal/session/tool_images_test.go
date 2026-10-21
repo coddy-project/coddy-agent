@@ -313,3 +313,23 @@ func TestReadToolImageAssetReadsOnlyTheCopyThatWasSaved(t *testing.T) {
 		t.Error("a link under the copy's name was followed")
 	}
 }
+
+// A file a tool returned is kept under the name it came with, made safe for
+// every file system and the asset address, plus the digest of its bytes.
+func TestSaveToolFileAssetNamesTheCopySafely(t *testing.T) {
+	dir := t.TempDir()
+	path, err := SaveToolFileAsset(dir, "q3:report\n?.pdf", []byte("%PDF-1.4"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := filepath.Base(path)
+	if filepath.Dir(path) != AssetsPath(dir) || !strings.HasPrefix(name, "q3_report__-") || !strings.HasSuffix(name, ".pdf") {
+		t.Fatalf("the copy is %s", path)
+	}
+	if again, err := SaveToolFileAsset(dir, "q3:report\n?.pdf", []byte("%PDF-1.4")); err != nil || again != path {
+		t.Fatalf("the same file saved again: %s, %v", again, err)
+	}
+	if _, err := SaveToolFileAsset("", "x.pdf", []byte("x")); err == nil {
+		t.Fatal("a session that keeps no files took one")
+	}
+}

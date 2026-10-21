@@ -76,28 +76,7 @@ func SaveToolImageAsset(sessionDir, name, mimeType string, data []byte) (assetPa
 	if strings.TrimSpace(sessionDir) == "" {
 		return "", "", nil
 	}
-	base := filepath.Base(filepath.Clean(strings.TrimSpace(name)))
-	if base == "." || base == string(filepath.Separator) || base == "" {
-		base = "image"
-	}
-	stem := strings.TrimSuffix(base, filepath.Ext(base))
-	// The asset name is also a segment of the asset address, which refuses a
-	// backslash on every host, while a Unix file name may hold one.
-	stem = strings.ReplaceAll(stem, "\\", "_")
-	if stem == "" {
-		stem = "image"
-	}
-	// The digest and the extension come on top of the name, and a file name
-	// is 255 bytes on most file systems.
-	for len(stem) > toolImageStemMax {
-		_, size := utf8.DecodeLastRuneInString(stem)
-		stem = stem[:len(stem)-size]
-	}
-	ext := toolImageExt[mimeType]
-	if ext == "" {
-		ext = filepath.Ext(base)
-	}
-	assetName := stem + "-" + toolImageDigest(data) + ext
+	assetName := toolAssetName(name, "image", toolImageExt[mimeType], data)
 
 	assetsDir := AssetsPath(sessionDir)
 	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
@@ -129,6 +108,61 @@ func SaveToolImageAsset(sessionDir, name, mimeType string, data []byte) (assetPa
 		return assetPath, "", fmt.Errorf("write thumbnail %s: %w", assetName, err)
 	}
 	return assetPath, thumbPath, nil
+}
+
+// toolAssetName is the name of the copy of data a tool call returned under
+// name: the base of name, the digest of data and ext, or the extension of
+// name when ext is empty; fallback stands for a name with no stem.
+func toolAssetName(name, fallback, ext string, data []byte) string {
+	base := filepath.Base(filepath.Clean(strings.TrimSpace(name)))
+	if base == "." || base == string(filepath.Separator) || base == "" {
+		base = fallback
+	}
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	// The asset name is also a segment of the asset address, which refuses a
+	// backslash on every host, while a Unix file name may hold one; a name a
+	// server chose (a resource's URI) may hold what no file system takes.
+	stem = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || strings.ContainsRune(`\/:*?"<>|`, r) {
+			return '_'
+		}
+		return r
+	}, stem)
+	if stem == "" {
+		stem = fallback
+	}
+	// The digest and the extension come on top of the name, and a file name
+	// is 255 bytes on most file systems.
+	for len(stem) > toolImageStemMax {
+		_, size := utf8.DecodeLastRuneInString(stem)
+		stem = stem[:len(stem)-size]
+	}
+	if ext == "" {
+		ext = filepath.Ext(base)
+	}
+	return stem + "-" + toolImageDigest(data) + ext
+}
+
+// SaveToolFileAsset keeps a copy of a file a tool call returned that no
+// model is shown (an MCP audio clip, a binary resource) with the session's
+// assets, read-only, named as a picture's copy is, and returns its path.
+// The agent opens it with its tools, as it opens a prompt's attachment.
+func SaveToolFileAsset(sessionDir, name string, data []byte) (string, error) {
+	if strings.TrimSpace(sessionDir) == "" {
+		return "", fmt.Errorf("the session keeps no files")
+	}
+	assetName := toolAssetName(name, "file", "", data)
+	assetsDir := AssetsPath(sessionDir)
+	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
+		return "", fmt.Errorf("assets dir: %w", err)
+	}
+	path := filepath.Join(assetsDir, assetName)
+	if !holds(path, data) {
+		if err := writeReadOnly(path, data); err != nil {
+			return "", fmt.Errorf("write asset %s: %w", assetName, err)
+		}
+	}
+	return path, nil
 }
 
 // toolImageDigest is the digest a copy's name carries: the first 8 bytes of

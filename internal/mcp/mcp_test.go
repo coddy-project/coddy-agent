@@ -142,13 +142,14 @@ func TestCallToolResultKeepsImageBlocks(t *testing.T) {
 // The client keeps every image block whose data decodes and leaves judging
 // the picture to the agent (internal/tools/fs PrepareImageForModel): an SVG
 // passes here and is refused there. A block whose data is no base64 string
-// is named in the text, which keeps the text blocks around it.
+// is named in the text, which keeps the text blocks around it, and the text
+// of an embedded resource comes under a line naming it.
 func TestCallToolResultOmitsInvalidImagesWithoutLosingText(t *testing.T) {
 	got := callFakePictures(t, "picture_bad")
 	if len(got.Images) != 1 || string(got.Images[0].Data) != "<svg/>" || got.Images[0].MIMEType != "image/svg+xml" || got.Images[0].Index != 3 {
 		t.Fatalf("images = %+v, want the SVG alone, the third image block", got.Images)
 	}
-	want := "Still useful\n[MCP image 1 omitted: the data is not base64]\n[MCP image 2 omitted: the data is not base64]"
+	want := "Still useful\n[MCP image 1 omitted: the data is not base64]\n[MCP image 2 omitted: the data is not base64]\n[MCP resource 1]\nprivate"
 	if got.Text != want {
 		t.Fatalf("text = %q, want %q", got.Text, want)
 	}
@@ -175,7 +176,7 @@ func TestCallToolResultKeepsWhatOneRequestCarries(t *testing.T) {
 	for _, img := range huge.Images {
 		total += len(img.Data)
 	}
-	if len(huge.Images) != 5 || total > maxToolImagesBytes || huge.Text != "[MCP image 6 omitted: the call's images exceed 20 MiB]" {
+	if len(huge.Images) != 5 || total > maxToolImagesBytes || huge.Text != "[MCP image 6 omitted: the call's images and files exceed 20 MiB]" {
 		t.Fatalf("six pictures of 3.5 MiB: kept %d (%d bytes), text %q", len(huge.Images), total, huge.Text)
 	}
 }
@@ -193,6 +194,50 @@ func TestCallToolResultOfAnErrorKeepsItsTextOnly(t *testing.T) {
 	got, err := client.CallToolResult(testCtx(t), "picture_error", `{}`)
 	if err == nil || err.Error() != "mcp tool error: the page did not load" || len(got.Images) != 0 {
 		t.Fatalf("result %+v, err %v", got, err)
+	}
+}
+
+// Every kind of block a result may carry reaches the agent: an embedded text
+// resource and a resource link as text in their place, a binary resource of
+// a picture type with the pictures, and any other binary resource and an
+// audio clip as files, each numbered among the blocks of its kind.
+func TestCallToolResultKeepsEveryKindOfBlock(t *testing.T) {
+	got := callFakePictures(t, "blocks")
+	want := strings.Join([]string{
+		"Fetched the report",
+		"[MCP resource 1: file:///srv/notes.md (text/markdown)]\n# Notes\nShip on Friday.",
+		"[MCP resource link: https://example.com/report.pdf - Quarterly report (application/pdf, 52000 bytes)]\nThe full report",
+	}, "\n")
+	if got.Text != want {
+		t.Fatalf("text = %q, want %q", got.Text, want)
+	}
+	if len(got.Images) != 1 || got.Images[0].Index != 1 || got.Images[0].MIMEType != "image/png" {
+		t.Fatalf("images = %+v, want the PNG resource as image 1", got.Images)
+	}
+	if len(got.Files) != 2 {
+		t.Fatalf("files = %+v, want the PDF resource and the audio clip", got.Files)
+	}
+	pdf, audio := got.Files[0], got.Files[1]
+	if pdf.Kind != "resource" || pdf.Index != 2 || pdf.URI != "file:///srv/report.pdf" || pdf.Name != "report.pdf" || pdf.MIMEType != "application/pdf" || string(pdf.Data) != "%PDF-1.4 fake" {
+		t.Errorf("the PDF resource = %+v", pdf)
+	}
+	if audio.Kind != "audio" || audio.Index != 1 || audio.MIMEType != "audio/wav" || string(audio.Data) != "RIFF....WAVEfmt " {
+		t.Errorf("the audio clip = %+v", audio)
+	}
+}
+
+// An error keeps its text, an embedded text resource included, and decodes
+// nothing binary.
+func TestCallToolResultOfAnErrorKeepsTextResources(t *testing.T) {
+	srv := fakeServerConfig("image-test")
+	client, err := NewStdioClient(testCtx(t), srv.Name, srv.Command, srv.Args, []string{"GO_WANT_MCP_HELPER=1"}, slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = client.Close() }()
+	_, err = client.CallToolResult(testCtx(t), "blocks_error", `{}`)
+	if err == nil || err.Error() != "mcp tool error: the recording failed\n[MCP resource 1: file:///srv/log.txt (text/plain)]\ndisk full" {
+		t.Fatalf("err = %v", err)
 	}
 }
 
@@ -246,6 +291,22 @@ func fakePictures(id interface{}, name string, respond func(interface{}, interfa
 		for i := 0; i < 6; i++ {
 			content = append(content, image("image/png", blob))
 		}
+	case "blocks":
+		content = []map[string]interface{}{
+			{"type": "text", "text": "Fetched the report"},
+			{"type": "resource", "resource": map[string]interface{}{"uri": "file:///srv/notes.md", "mimeType": "text/markdown", "text": "# Notes\nShip on Friday."}},
+			{"type": "resource_link", "uri": "https://example.com/report.pdf", "name": "report.pdf", "title": "Quarterly report", "description": "The full report", "mimeType": "application/pdf", "size": 52000},
+			{"type": "resource", "resource": map[string]interface{}{"uri": "file:///srv/report.pdf", "mimeType": "application/pdf", "blob": base64.StdEncoding.EncodeToString([]byte("%PDF-1.4 fake"))}},
+			{"type": "resource", "resource": map[string]interface{}{"uri": "file:///srv/chart.png", "mimeType": "image/png", "blob": onePixel()}},
+			{"type": "audio", "mimeType": "audio/wav", "data": base64.StdEncoding.EncodeToString([]byte("RIFF....WAVEfmt "))},
+		}
+	case "blocks_error":
+		content = []map[string]interface{}{
+			{"type": "text", "text": "the recording failed"},
+			{"type": "audio", "mimeType": "audio/wav", "data": "not base64!"},
+			{"type": "resource", "resource": map[string]interface{}{"uri": "file:///srv/log.txt", "mimeType": "text/plain", "text": "disk full"}},
+		}
+		isError = true
 	case "picture_error":
 		content = []map[string]interface{}{{"type": "text", "text": "the page did not load"}, image("image/png", onePixel()), image("image/png", "not base64!")}
 		isError = true
