@@ -417,7 +417,7 @@ const ruleFolderCandidates = 256
 // offered are the ones that match what was typed after the last "/", ranked
 // before at most maxRuleFolderSteps are kept; a name a reference cannot spell
 // is never offered. Where an address names a rule in two places, the row
-// stands for the one ruleByAddress picks.
+// stands for the one ruleByAddress picks, the owner nearer the workspace.
 func (m *Manager) ruleSchemeCandidates(st *State, cwd, q string) []MentionCandidate {
 	folder, partial := "", q
 	if i := strings.LastIndexByte(q, '/'); i >= 0 {
@@ -449,14 +449,16 @@ func (m *Manager) ruleSchemeCandidates(st *State, cwd, q string) []MentionCandid
 	below := func(rs []*rules.Rule, base, inner string) {
 		innerPrefix := ""
 		if inner != "" {
-			innerPrefix = strings.ToLower(inner) + "/"
+			innerPrefix = inner + "/"
 		}
 		for _, r := range rs {
-			if r == nil || r.ScopeDir != "" && base == "" {
+			if r == nil {
 				continue
 			}
 			name := r.CanonicalName()
-			if !strings.HasPrefix(strings.ToLower(name), innerPrefix) {
+			// Compared without changing case in place, so the slice below
+			// cuts the name where the prefix ends.
+			if len(name) < len(innerPrefix) || !strings.EqualFold(name[:len(innerPrefix)], innerPrefix) {
 				continue
 			}
 			address := name
@@ -474,11 +476,14 @@ func (m *Manager) ruleSchemeCandidates(st *State, cwd, q string) []MentionCandid
 		}
 	}
 	// The catalog first and then the subprojects the folder can start with,
-	// the deepest first: the order ruleByAddress asks them in.
+	// the one nearest the workspace first: the order ruleByAddress asks them
+	// in, so a row stands for the file the mention attaches. A subproject
+	// deeper than the folder typed owns no address a shallower owner here
+	// already has, since those win.
 	below(m.rulesCatalog(st, cwd), "", folder)
 	if folder != "" {
 		segs := strings.Split(folder, "/")
-		for k := len(segs); k >= 1; k-- {
+		for k := 1; k <= len(segs); k++ {
 			sub := strings.Join(segs[:k], "/")
 			below(SubfolderRules(cfg, cwd, sub), sub, strings.Join(segs[k:], "/"))
 		}

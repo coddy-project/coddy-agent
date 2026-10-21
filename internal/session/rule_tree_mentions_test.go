@@ -114,3 +114,61 @@ func TestRuleCompletionWalksTheTreeOfAddresses(t *testing.T) {
 		t.Fatalf("@rule:sty does not find both style rules: %v", style)
 	}
 }
+
+// Where two subprojects give an address a rule - db's ops/deploy and the
+// subproject db/ops's deploy - the one nearer the workspace wins, in the
+// mention and in every row of the completion that offers the address.
+func TestRuleAddressOwnedTwiceIsTheSameFileEverywhere(t *testing.T) {
+	root := t.TempDir()
+	for path, body := range map[string]string{
+		"db/.coddy/rules/ops/deploy.mdc": "---\ndescription: Parent deployment\nalwaysApply: false\n---\nPARENT_TOKEN",
+		"db/ops/.coddy/rules/deploy.mdc": "---\ndescription: Nested deployment\nalwaysApply: false\n---\nNESTED_TOKEN",
+	} {
+		p := filepath.Join(root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m, sid := mentionTestManager(t, root)
+	got := attachedText(m.ResolvePromptMentions(context.Background(), m.SessionByID(sid), []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "@rule:db/ops/deploy"}}, session.MentionScope{}))
+	if !strings.Contains(got, "PARENT_TOKEN") {
+		t.Fatalf("@rule:db/ops/deploy attached %q, want db's own rule", got)
+	}
+	for _, q := range []string{"rule:db/", "rule:db/ops/"} {
+		res, err := m.SearchMentions(context.Background(), session.MentionSearch{SessionID: sid, Query: q})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range res.Items {
+			if c.Insert == "@rule:db/ops/deploy" && c.Detail != "Parent deployment" {
+				t.Fatalf("%s offers db/ops/deploy as %q, but the mention attaches db's rule", q, c.Detail)
+			}
+		}
+	}
+}
+
+// A bare name falls back to a last segment only when one rule of the whole
+// catalog has it: a mention-only rule and an automatic one that share it
+// leave "@style" naming nothing.
+func TestBareNameFallbackCountsTheWholeCatalog(t *testing.T) {
+	root := t.TempDir()
+	for path, body := range map[string]string{
+		".coddy/rules/frontend/style.mdc": "---\nalwaysApply: false\n---\nFRONTEND_TOKEN",
+		".coddy/rules/backend/style.mdc":  "---\nalwaysApply: true\n---\nBACKEND_TOKEN",
+	} {
+		p := filepath.Join(root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m, sid := mentionTestManager(t, root)
+	if got := attachedText(m.ResolvePromptMentions(context.Background(), m.SessionByID(sid), []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "@style"}}, session.MentionScope{})); got != "" {
+		t.Fatalf("@style attached %q, want nothing: two rules end in style", got)
+	}
+}

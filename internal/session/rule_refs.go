@@ -17,9 +17,12 @@ import (
 
 // ruleByAddress finds the rule "@rule:<address>" names: a rule of the catalog
 // with that name first, then a rule of the subprojects the address can start
-// with, the deepest first, so where an address names a rule in two places the
-// workspace's own rule folder wins. A name with no "/" that no rule has whole
-// finds the rule whose last segment it is, when exactly one has it.
+// with, the one nearest the workspace first, so where an address names a rule
+// in two places its owner nearer the workspace wins - the workspace's own rule
+// folder over a subproject, db's ops/deploy over the subproject db/ops's
+// deploy. The completion lists rows in the same order. A name with no "/" that
+// no rule has whole finds the rule whose last segment it is, when exactly one
+// has it.
 func ruleByAddress(cfg *config.Config, cwd string, catalog []*rules.Rule, address string) *rules.Rule {
 	if !ruleAddressSpelling(address) {
 		return nil
@@ -28,7 +31,7 @@ func ruleByAddress(cfg *config.Config, cwd string, catalog []*rules.Rule, addres
 		return r
 	}
 	segs := strings.Split(address, "/")
-	for k := len(segs) - 1; k >= 1; k-- {
+	for k := 1; k < len(segs); k++ {
 		if r := ruleNamed(SubfolderRules(cfg, cwd, strings.Join(segs[:k], "/")), strings.Join(segs[k:], "/"), nil); r != nil {
 			return r
 		}

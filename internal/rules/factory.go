@@ -262,7 +262,7 @@ func (f *Factory) Nested(root string, paths []string, systems []Source) []*Rule 
 	seen := map[string]bool{}
 	var out []*Rule
 	for _, p := range paths {
-		for _, dir := range agentsChainDirs(root, p) {
+		for _, dir := range withoutRepeats(root, agentsChainDirs(root, p)) {
 			if seen[dir] {
 				continue
 			}
@@ -324,6 +324,14 @@ func (f *Factory) FoldersWithRules(root, dir string, systems []Source, keep func
 			return nil
 		}
 	}
+	// The folders from root down to dir, so a child that is a link back to
+	// one of them is not offered.
+	var above []os.FileInfo
+	for _, a := range append([]string{root}, agentsChainDirs(root, dir)...) {
+		if info, err := os.Stat(a); err == nil {
+			above = append(above, info)
+		}
+	}
 	d, err := os.Open(dir)
 	if err != nil {
 		return nil
@@ -364,7 +372,15 @@ func (f *Factory) FoldersWithRules(root, dir string, systems []Source, keep func
 	for _, name := range names {
 		child := filepath.Join(dir, name)
 		if isLink[name] {
-			if info, err := os.Stat(child); err != nil || !info.IsDir() {
+			info, err := os.Stat(child)
+			if err != nil || !info.IsDir() {
+				continue
+			}
+			back := false
+			for _, a := range above {
+				back = back || os.SameFile(a, info)
+			}
+			if back {
 				continue
 			}
 		}
@@ -433,10 +449,40 @@ func subfolderOf(root, dir string) (string, bool) {
 		return "", false
 	}
 	chain := agentsChainDirs(root, dir)
-	if len(chain) == 0 || !SamePath(chain[len(chain)-1], dir) {
+	if len(chain) == 0 || !SamePath(chain[len(chain)-1], dir) || len(withoutRepeats(root, chain)) != len(chain) {
 		return "", false
 	}
 	return dir, true
+}
+
+// withoutRepeats cuts chain - folders on the way down from root - at the
+// first one that is root or a folder before it on the chain: a link back up
+// the tree (self -> ., db/again -> db) leads into folders the chain already
+// holds, whose rules would arrive a second time under another path. Every
+// other link is followed.
+func withoutRepeats(root string, chain []string) []string {
+	if len(chain) == 0 {
+		return chain
+	}
+	seen := make([]os.FileInfo, 0, len(chain)+1)
+	if info, err := os.Stat(root); err == nil {
+		seen = append(seen, info)
+	}
+	for i, dir := range chain {
+		info, err := os.Stat(dir)
+		if err != nil {
+			// A folder that does not exist yet (a file about to be written)
+			// repeats nothing.
+			continue
+		}
+		for _, s := range seen {
+			if os.SameFile(s, info) {
+				return chain[:i]
+			}
+		}
+		seen = append(seen, info)
+	}
+	return chain
 }
 
 // admittedBy is the filter of rules.systems: every provider when systems is

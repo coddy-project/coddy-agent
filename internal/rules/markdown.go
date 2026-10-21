@@ -303,53 +303,75 @@ func loadMarkdownRulesFromRoot(root string, src Source) ([]*Rule, error) {
 	if !info.IsDir() {
 		return nil, os.ErrNotExist
 	}
-	var out []*Rule
-	err = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			// A subfolder that cannot be read costs its own rules, not the
-			// folder's: the chain would otherwise pass over a folder that
-			// holds rules to another agent's copy of them.
-			if path != root {
-				return nil
-			}
-			return walkErr
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if _, ok := FormatForPath(d.Name()); !ok {
-			return nil
-		}
-		// A FIFO, a socket or a device named like a rule would block the
-		// read, and a rule folder can come with any checkout.
-		if d.Type()&os.ModeSymlink != 0 {
-			if info, err := os.Stat(path); err != nil || info.IsDir() || specialFile(info.Mode()) {
-				return nil
-			}
-		} else if specialFile(d.Type()) {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		r, err := ParseRuleFile(path, src, data)
-		if err != nil {
-			return nil
-		}
-		// Named by its path inside the rule folder, so a file of one name in
-		// two of its folders is two rules (frontend/style, backend/style).
-		if rel, err := filepath.Rel(root, path); err == nil && filepath.IsLocal(rel) {
-			r.RelPath = filepath.ToSlash(rel)
-			r.Name = strings.TrimSuffix(r.RelPath, filepath.Ext(r.RelPath))
-		}
-		out = append(out, r)
-		return nil
-	})
+	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	w := &ruleWalk{root: root, src: src, seen: map[string]bool{}}
+	if real, err := filepath.EvalSymlinks(root); err == nil {
+		w.seen[real] = true
+	}
+	w.folder(root, entries)
+	return w.out, nil
+}
+
+// ruleWalk reads a rule folder and the folders inside it, in lexical order. A
+// link is followed like the file or the folder it leads to, as it is
+// everywhere rules are read; a folder reached twice - a link back up the tree,
+// two links to one place - is read once.
+type ruleWalk struct {
+	root string
+	src  Source
+	seen map[string]bool
+	out  []*Rule
+}
+
+func (w *ruleWalk) folder(dir string, entries []os.DirEntry) {
+	for _, e := range entries {
+		path := filepath.Join(dir, e.Name())
+		mode := e.Type()
+		if mode&os.ModeSymlink != 0 {
+			info, err := os.Stat(path)
+			if err != nil {
+				continue
+			}
+			mode = info.Mode()
+		}
+		if mode.IsDir() {
+			// A subfolder that cannot be read costs its own rules, not the
+			// folder's: the chain would otherwise pass over a folder that
+			// holds rules to another agent's copy of them.
+			real, err := filepath.EvalSymlinks(path)
+			if err != nil || w.seen[real] {
+				continue
+			}
+			w.seen[real] = true
+			if sub, err := os.ReadDir(path); err == nil {
+				w.folder(path, sub)
+			}
+			continue
+		}
+		// A FIFO, a socket or a device named like a rule would block the
+		// read, and a rule folder can come with any checkout.
+		if _, ok := FormatForPath(e.Name()); !ok || specialFile(mode) {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		r, err := ParseRuleFile(path, w.src, data)
+		if err != nil {
+			continue
+		}
+		// Named by its path inside the rule folder, so a file of one name in
+		// two of its folders is two rules (frontend/style, backend/style).
+		if rel, err := filepath.Rel(w.root, path); err == nil && filepath.IsLocal(rel) {
+			r.RelPath = filepath.ToSlash(rel)
+			r.Name = strings.TrimSuffix(r.RelPath, filepath.Ext(r.RelPath))
+		}
+		w.out = append(w.out, r)
+	}
 }
 
 // MatchGlob reports whether file matches pattern. Patterns use doublestar

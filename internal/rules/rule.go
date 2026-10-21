@@ -76,8 +76,7 @@ type Rule struct {
 	FilePath string
 	// RelPath is the file's path inside its rule folder, slash-separated,
 	// extension included ("frontend/style.mdc"); "" for a rule not read from
-	// a rule folder (a nested AGENTS.md). Rules of two folders that share it
-	// are the same rule kept twice, and the first one read wins.
+	// a rule folder (a nested AGENTS.md).
 	RelPath     string
 	Source      Source
 	Format      Format
@@ -127,10 +126,12 @@ func (r *Rule) CanonicalName() string {
 }
 
 // DedupeKey returns a stable key for catalog deduplication: the file's path
-// inside its rule folder (RelPath), so the project's rule and the operator's
-// rule at the same path are one rule, while files of one name in different
-// folders of a rule folder are different rules. Nested AGENTS.md files all
-// share a basename, so agents rules key on the full path.
+// inside its rule folder, extension included (RelPath), so the project's rule
+// and the operator's rule at the same path are one rule, while files of one
+// name in different folders of a rule folder are different rules, and so are
+// the two dialects of one name a shared folder keeps for different agents
+// (x.mdc for Cursor, x.md for Claude Code). Nested AGENTS.md files all share a
+// basename, so agents rules key on the full path.
 func (r *Rule) DedupeKey() string {
 	if r == nil {
 		return ""

@@ -834,14 +834,17 @@ func (r *mentionResolver) resolveRule(name, typed string) (*acp.Resource, bool) 
 }
 
 // findMentionRule is the mention-only rule of catalog a bare "@name" names: by
-// its name, or by the last segment of its name when one rule only has it
-// ("@deploy" for ops/deploy).
+// its name, or by the last segment of its name when one rule of the whole
+// catalog has it and that rule is mention-only ("@deploy" for ops/deploy).
 func findMentionRule(catalog []*rules.Rule, name string) *rules.Rule {
 	mentionOnly := func(r *rules.Rule) bool { return r.ApplyMode == rules.ApplyMention }
 	if r := ruleNamed(catalog, name, mentionOnly); r != nil {
 		return r
 	}
-	return ruleByLastSegment(catalog, name, mentionOnly)
+	if r := ruleByLastSegment(catalog, name, nil); r != nil && mentionOnly(r) {
+		return r
+	}
+	return nil
 }
 
 func (r *mentionResolver) ruleResource(rule *rules.Rule, typed string) (*acp.Resource, bool) {
