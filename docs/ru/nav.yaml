@@ -264,10 +264,10 @@ pages:
       summary: "Pointing at things with @ in a prompt - files anywhere on disk, line ranges, folders, other sessions, rules, subagents, web pages - resolved once into the message, with completion on every surface."
   features/images.md:
     title: "Изображения"
-    summary: "Модель смотрит на картинку - read файла PNG, JPEG, GIF или WebP для модели с пометкой multimodal, ограничения, что уходит провайдеру, и предпросмотр в веб-интерфейсе и в чате Telegram."
+    summary: "Модель смотрит на картинку - read файла PNG, JPEG, GIF или WebP для модели с пометкой multimodal, скриншот, который возвращает инструмент MCP, ограничения, что уходит провайдеру, и предпросмотр в веб-интерфейсе и в чате Telegram."
     en:
       title: "Images"
-      summary: "The model looking at a picture - read of a PNG, JPEG, GIF or WebP file for a model marked multimodal, the limits, what the provider is sent, and the preview in the web UI and a Telegram chat."
+      summary: "The model looking at a picture - read of a PNG, JPEG, GIF or WebP file for a model marked multimodal, a screenshot an MCP tool returns, the limits, what the provider is sent, and the preview in the web UI and a Telegram chat."
   features/picture-markup.md:
     title: "Вставка и разметка картинок"
     summary: "Скопированная картинка в промпте - ctrl+v в консоли, вставка в веб-интерфейсе - и редактор разметки, в котором она сначала открывается: карандаш, фигуры, стрелка, текст, обрезка, поворот и отмена."

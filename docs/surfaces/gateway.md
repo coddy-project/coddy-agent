@@ -908,9 +908,10 @@ The download goes through `gateways.telegram.proxy`, like every request of the b
 ## Pictures the agent looked at
 
 When the chat's agent reads an image file and the session's model reads images
-(`models[].multimodal: true`), the bot sends that picture into the chat as a
-photo, captioned with the file's name, as soon as the `read` finishes
-([Images](../features/images.md)). The person sees what the agent looked at
+(`models[].multimodal: true`), or calls an MCP tool that returns a picture, the
+bot sends that picture into the chat as a photo, captioned with its name, as
+soon as the call finishes ([Images](../features/images.md)). MCP tools are the
+bot's admins', so only an admin's turn calls one. The person sees what the agent looked at
 before the answer comes, in private chats and groups alike. The photo is the
 copy Coddy kept with the session, so it is the picture the model was shown
 even when the workspace file changed since. Without Rich Messages the live
@@ -923,8 +924,9 @@ photos not allowed in the chat - goes as a document instead; a rate limit, a
 failure on the way or a refusal about the chat itself is not retried as a
 document. Only the chat's own session sends
 pictures: what a subagent reads stays in its session, and the web UI shows it
-there. A model without `multimodal` is refused the picture, so nothing is sent
-and the `read` reports why.
+there. A model without `multimodal` is refused the picture a `read` would show
+it, so nothing is sent and the `read` reports why; the picture an MCP tool
+returned is sent all the same, since the tool returned it either way.
 
 ## Session lifecycle
 

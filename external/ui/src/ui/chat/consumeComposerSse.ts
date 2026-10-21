@@ -48,7 +48,7 @@ type ToolCallStatusUpdate = {
     coddy?: {
       toolResultPreview?: { truncated?: boolean; totalLines?: number };
       todoPlan?: unknown;
-      /** Pictures the call showed the model, in the files shape of a message. */
+      /** Pictures the call returned, in the files shape of a message. */
       images?: unknown;
       /** Downloadable files a share_file tool call deliberately shared. */
       artifacts?: unknown;

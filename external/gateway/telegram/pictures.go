@@ -21,10 +21,10 @@ type pictureSession interface {
 }
 
 // sendPictures posts the pictures a finished call of the chat's own session
-// showed the model (read on an image file), one photo each, captioned with the
-// file's name, so the chat sees what the agent looked at while the turn runs.
-// The photo is the copy kept with the session, the picture the model was
-// shown even when the workspace file changed since. A picture Telegram
+// returned (read on an image file, an MCP tool's image blocks), one photo
+// each, captioned with the picture's name, so the chat sees what the agent
+// looked at while the turn runs. The photo is the copy kept with the session,
+// the picture the model was shown even when the workspace file changed since. A picture Telegram
 // refuses as a photo (a side past its limits) goes as a document; one that
 // cannot be read is left out, and the answer still comes. A subagent's calls
 // belong to another session and are not the chat's to see.

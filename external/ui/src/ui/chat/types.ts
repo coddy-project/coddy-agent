@@ -145,7 +145,7 @@ export type TranscriptItem =
       resultWasTruncated?: boolean;
       /** Final todo state saved with this call, so historical cards stay stable. */
       todoPlan?: TodoPlanEntry[];
-      /** Pictures the call showed the model (`read` on an image file), from
+      /** Pictures the call returned (`read` on an image file, an MCP tool), from
        *  `_meta.coddy.images` live and the tool row's `files` after a reload. */
       images?: TranscriptFile[];
       /** Downloadable files a completed share_file call deliberately shared. */

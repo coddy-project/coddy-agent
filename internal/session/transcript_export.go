@@ -544,8 +544,8 @@ type ExportToolCall struct {
 	// the call (the turn was cancelled or is still running), an empty string
 	// when the tool returned nothing.
 	Result *string `json:"result,omitempty"`
-	// Pictures are the pictures the call showed the model (read on an image
-	// file): the copies kept with the session's assets.
+	// Pictures are the pictures the call returned (read on an image file, an
+	// MCP tool's image blocks): the copies kept with the session's assets.
 	Pictures []ExportAttachment `json:"pictures,omitempty"`
 }
 

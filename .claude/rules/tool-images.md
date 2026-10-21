@@ -8,6 +8,7 @@ paths:
   - "external/httpserver/coddy_coddy.go"
   - "external/httpserver/coddy_session_asset*.go"
   - "external/gateway/telegram/pictures.go"
+  - "internal/mcp/client.go"
 ---
 # Tool images
 
@@ -16,4 +17,5 @@ paths:
 - Read a copied session asset only while its digest matches; never reread the original arbitrary path.
 - Prompt and tool images share one selection policy, with newer images preferred.
 - Non-multimodal models receive no image parts.
+- An MCP tool's image blocks take the same path (`callMCPTool` -> `recordToolImage`): checked by `fs.PrepareImageForModel` with `read`'s limits and told by content, never by the declared type; kept for a text-only model too, which is sent only their names.
 - Surfaces render `_meta.coddy.images`; there is no preview configuration switch.
