@@ -410,6 +410,14 @@ func (b *stagedConfigBackend) offered() [][]string {
 // manager, real store, real agent, no LLM.
 func newConsoleOverStub(t *testing.T, backend http.Handler) (*App, *config.Config) {
 	t.Helper()
+	return newConsoleOverStubWithFlags(t, backend, nil)
+}
+
+// newConsoleOverStubWithFlags is newConsoleOverStub for a console started with
+// flags: adjust applies them to the startup config, as Run does, and to every
+// config the manager reloads.
+func newConsoleOverStubWithFlags(t *testing.T, backend http.Handler, adjust func(*config.Config) error) (*App, *config.Config) {
+	t.Helper()
 	ts := httptest.NewServer(backend)
 	t.Cleanup(ts.Close)
 	home, cwd := t.TempDir(), t.TempDir()
@@ -426,8 +434,13 @@ func newConsoleOverStub(t *testing.T, backend http.Handler) (*App, *config.Confi
 	if err != nil {
 		t.Fatal(err)
 	}
+	if adjust != nil {
+		if err := adjust(cfg); err != nil {
+			t.Fatal(err)
+		}
+	}
 	store := &session.FileStore{Root: filepath.Join(home, "sessions")}
-	app := buildApp(cfg, store, slog.New(slog.DiscardHandler), &bddTerminal{cols: 80, rows: 24}, "dark", true)
+	app := buildApp(cfg, store, slog.New(slog.DiscardHandler), &bddTerminal{cols: 80, rows: 24}, "dark", true, adjust)
 	t.Cleanup(app.Close)
 	return app, cfg
 }
@@ -495,6 +508,26 @@ func TestConsoleAdoptsTheConfigAfterCommit(t *testing.T) {
 	app.applyLoopMessage(*reloaded)
 	if ids := app.modelIDs(); !slices.Contains(ids, "stub/model") {
 		t.Fatalf("model catalog after the reload = %v", ids)
+	}
+}
+
+// A flag the console was started with (here --mcp-project-trust deny) holds
+// after the agent's own config_commit reloads config.yaml (issue #441).
+func TestConsoleKeepsItsFlagsAfterCommit(t *testing.T) {
+	backend := &stagedConfigBackend{script: true}
+	app, _ := newConsoleOverStubWithFlags(t, backend, func(c *config.Config) error {
+		c.MCP.ProjectTrust = config.ProjectTrustDeny
+		return nil
+	})
+	runConsoleTurn(t, app, "set agent.max_turns to 19")
+	if got := len(backend.offered()); got != 3 {
+		t.Fatalf("stub calls = %d, want stage, commit, and the final answer", got)
+	}
+	if got := app.config().Agent.MaxTurns; got != 19 {
+		t.Fatalf("live agent.max_turns = %d, want 19", got)
+	}
+	if got := app.config().MCP.ResolvedProjectTrust(); got != config.ProjectTrustDeny {
+		t.Fatalf("live mcp.project_trust = %q after config_commit, want the flag's deny", got)
 	}
 }
 

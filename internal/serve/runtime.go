@@ -273,7 +273,7 @@ func (r *Runtime) Init(opts Options) error {
 		loop.SetWorkspaceSwitcher(func(ctx context.Context, dir string) error {
 			return mgr.SetSessionWorkspaceDuringTurn(ctx, st, dir)
 		})
-		loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
+		loop.SetConfigReloader(func(ctx context.Context) (*config.Config, []string, error) {
 			return mgr.ReloadConfigForSession(ctx, st)
 		})
 		loop.SetSubagentRuntime(mgr)

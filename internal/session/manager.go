@@ -597,18 +597,20 @@ func (m *Manager) storeConfig(next *config.Config) (*config.Config, string) {
 // ReloadConfigForSession reloads config.yaml and applies runtime-owned state to
 // the current session. Configured MCP clients are replaced; ACP session MCP
 // clients are preserved. Individual MCP start failures are returned as warnings.
-func (m *Manager) ReloadConfigForSession(ctx context.Context, st *State) ([]string, error) {
+// It returns the configuration it installed, process overrides applied, which
+// is what the turn that asked for the reload runs on from then on.
+func (m *Manager) ReloadConfigForSession(ctx context.Context, st *State) (*config.Config, []string, error) {
 	current := m.activeCfg()
 	if current == nil {
-		return nil, fmt.Errorf("active config is unavailable")
+		return nil, nil, fmt.Errorf("active config is unavailable")
 	}
 	next, err := config.LoadWithPaths(current.Paths)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if m.configAdjust != nil {
 		if err := m.configAdjust(next); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	loader := skills.NewLoader(next.Skills.SearchDirs())
@@ -661,7 +663,7 @@ func (m *Manager) ReloadConfigForSession(ctx context.Context, st *State) ([]stri
 		defer cancel()
 		m.reloadConfiguredMCPServersExcept(reloadCtx, st)
 	}
-	return warnings, nil
+	return next, warnings, nil
 }
 
 func (m *Manager) loadSkills(cwd string, cfg *config.Config) ([]*skills.Skill, error) {

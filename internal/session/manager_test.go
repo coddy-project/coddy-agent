@@ -112,11 +112,15 @@ func TestReloadConfigForSessionKeepsProcessOverride(t *testing.T) {
 		c.MCP.ProjectTrust = config.ProjectTrustDeny
 		return nil
 	})
-	if _, err := m.ReloadConfigForSession(context.Background(), nil); err != nil {
+	installed, _, err := m.ReloadConfigForSession(context.Background(), nil)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if got := m.Cfg().MCP.ProjectTrust; got != config.ProjectTrustDeny {
 		t.Fatalf("project trust = %q, want deny", got)
+	}
+	if installed != m.Cfg() {
+		t.Fatal("ReloadConfigForSession returned a configuration other than the one it installed")
 	}
 }
 
@@ -211,7 +215,7 @@ func TestReloadConfigForSessionRefreshesSkillsAndManagerConfig(t *testing.T) {
 	if err := os.WriteFile(configPath, []byte("agent:\n  max_turns: 22\nskills:\n  dirs:\n    - "+nextSkills+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	warnings, err := mgr.ReloadConfigForSession(context.Background(), st)
+	_, warnings, err := mgr.ReloadConfigForSession(context.Background(), st)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -104,7 +104,7 @@ type Agent struct {
 	registry             *tools.Registry
 	environment          platform.Environment
 	providerFactory      func(llm.ProviderInput) (llm.Provider, error)
-	configReloader       func(context.Context) ([]string, error)
+	configReloader       func(context.Context) (*config.Config, []string, error)
 	workspaceSwitcher    func(context.Context, string) error
 	workspaceContextCWD  string
 	workspaceContextText string
@@ -210,7 +210,9 @@ func (a *Agent) SetProviderFactory(mk func(llm.ProviderInput) (llm.Provider, err
 }
 
 // SetConfigReloader wires config_commit and config_rollback to the process/session runtime owner.
-func (a *Agent) SetConfigReloader(reload func(context.Context) ([]string, error)) {
+// reload returns the configuration it installed, process overrides included: the
+// rest of the turn runs on it rather than on config.yaml as written.
+func (a *Agent) SetConfigReloader(reload func(context.Context) (*config.Config, []string, error)) {
 	if a == nil {
 		return
 	}
@@ -468,11 +470,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	}
 	if a.configReloader != nil {
 		toolEnv.ReloadConfig = func(ctx context.Context) ([]string, error) {
-			warnings, err := a.configReloader(ctx)
-			if err != nil {
-				return warnings, err
-			}
-			next, err := config.LoadWithPaths(a.cfg.Paths)
+			next, warnings, err := a.configReloader(ctx)
 			if err != nil {
 				return warnings, err
 			}

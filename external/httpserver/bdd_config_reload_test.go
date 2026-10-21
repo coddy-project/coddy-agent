@@ -256,7 +256,7 @@ func (s *configReloadState) overrideProjectTrust() error {
 	return nil
 }
 
-func (s *configReloadState) projectTrustRemainsNever() error {
+func (s *configReloadState) projectTrustRemainsDeny() error {
 	if got := s.mgr.Cfg().MCP.ProjectTrust; got != config.ProjectTrustDeny {
 		return fmt.Errorf("running project trust = %q, want %q", got, config.ProjectTrustDeny)
 	}
@@ -336,7 +336,7 @@ func initializeConfigReloadScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the browser is told the configuration reloaded$`, s.firstBrowserToldReloaded)
 	sc.Step(`^both browsers are told the configuration reloaded$`, s.allBrowsersToldReloaded)
 	sc.Step(`^the model list the browser reads after that event carries "([^"]*)"$`, s.modelsListAfterEventCarries)
-	sc.Step(`^project trust remains deny in the running configuration$`, s.projectTrustRemainsNever)
+	sc.Step(`^project trust remains deny in the running configuration$`, s.projectTrustRemainsDeny)
 }
 
 func TestConfigReloadBroadcastFeature(t *testing.T) {
