@@ -88,20 +88,21 @@ func (a *Agent) nestedDocuments(cwd string, paths []string) []*rules.Rule {
 }
 
 // nestedRules returns the rules of the rule folders of the subfolders on the
-// way down to files that files bring into play (issue #557): the folders are
+// way down to paths that paths bring into play (issue #557): the folders are
 // read on the spot (rules.Factory.Nested), each rule within its own subtree
-// and, when it has globs, on a file they match there. They are rules, so
+// and, when it has globs, on a path they match there. They are rules, so
 // rules.auto_discover and rules.systems govern them as they do the workspace's
-// folders, and callers ask only when the template prints {{.Rules}}. Callers
-// pass files, not folders: a folder a call lists or searches brings in none,
-// the way it brings in no glob rule, so one grep across a group of projects
-// does not attach the rules of every one of them.
-func (a *Agent) nestedRules(cwd string, files []string) []*rules.Rule {
-	if a.cfg == nil || !a.cfg.Rules.AutoDiscoverEnabled() || len(files) == 0 {
+// folders, and callers ask only when the template prints {{.Rules}}. A tool
+// call passes files, not folders: a folder a call lists or searches brings in
+// none, the way it brings in no glob rule, so one grep across a group of
+// projects does not attach the rules of every one of them. A mention passes
+// the folders it names as well, as it does for the workspace's glob rules.
+func (a *Agent) nestedRules(cwd string, paths []string) []*rules.Rule {
+	if a.cfg == nil || !a.cfg.Rules.AutoDiscoverEnabled() || len(paths) == 0 {
 		return nil
 	}
-	nested := rules.DefaultFactory("").Nested(cwd, files, rules.ParseSystems(a.cfg.Rules.Systems))
-	return rules.MatchScoped(nested, files)
+	nested := rules.DefaultFactory("").Nested(cwd, paths, rules.ParseSystems(a.cfg.Rules.Systems))
+	return rules.MatchScoped(nested, paths)
 }
 
 // withoutPromptDocuments drops the candidates whose file the system prompt

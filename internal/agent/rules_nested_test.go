@@ -13,6 +13,18 @@ import (
 
 const nestedDBRuleToken = "NESTED_DB_RULE_TOKEN"
 
+// nestedDBAlwaysToken is the body of a rule of db's folder without patterns,
+// which applies to every path under db.
+const nestedDBAlwaysToken = "NESTED_DB_ALWAYS_TOKEN"
+
+// writeNestedAlwaysRule adds a rule without patterns to db's rule folder.
+func writeNestedAlwaysRule(t *testing.T, tmp string) {
+	t.Helper()
+	if err := writeRuleDoc(filepath.Join(tmp, "db", ".cursor", "rules", "always.mdc"), []string{"alwaysApply: true"}, nestedDBAlwaysToken); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // nestedRulesProject is a workspace with one subproject, db, whose own
 // .cursor/rules holds a rule gated on migrations/**, and the files around it.
 func nestedRulesProject(t *testing.T) (*Agent, string) {
@@ -54,6 +66,9 @@ func TestNestedRuleArrivesWithTheReadOfAMatchingFile(t *testing.T) {
 // projects would otherwise attach the rules of every one of them.
 func TestNestedRuleIgnoresAFolderTheCallTargets(t *testing.T) {
 	a, tmp := nestedRulesProject(t)
+	// A rule that applies to every path under db, the folder itself included,
+	// so only the folder check keeps it out of these calls.
+	writeNestedAlwaysRule(t, tmp)
 	for _, tc := range []llm.ToolCall{
 		{ID: "g1", Name: "grep", InputJSON: `{"pattern":"x","path":"db"}`},
 		{ID: "g2", Name: "glob", InputJSON: `{"pattern":"*.sql","path":"db/migrations"}`},
@@ -79,11 +94,34 @@ func TestNestedRuleIsDeliveredOnceAndAgainAfterACompaction(t *testing.T) {
 	}
 }
 
+// A nested rule folder is read on every call, so an edit to one of its rules
+// reaches the model with the next call that matches it, under the same path.
+func TestNestedRuleComesAgainWhenItsFileChanges(t *testing.T) {
+	a, tmp := nestedRulesProject(t)
+	if first := recordResult(a, readCall("r1", "db/migrations/0001.sql"), tmp); !strings.Contains(first.Rules, nestedDBRuleToken) {
+		t.Fatalf("the first read carries no rule: %+v", first)
+	}
+	const rewritten = "NESTED_DB_RULE_REWRITTEN"
+	if err := writeRuleDoc(filepath.Join(tmp, "db", ".cursor", "rules", "db.mdc"), []string{"globs: migrations/**"}, rewritten); err != nil {
+		t.Fatal(err)
+	}
+	got := a.toolCallRules("agent", readCall("r2", "db/migrations/0001.sql"), tmp)
+	if !strings.Contains(got, rewritten) || !strings.Contains(got, `path="db/.cursor/rules/db.mdc"`) {
+		t.Fatalf("the edited nested rule did not come again under its path: %q", got)
+	}
+}
+
 // A read of the rule file itself carries its text in the output, so the rule
-// does not ride with it a second time.
+// does not ride with it a second time. The rule has no patterns and applies to
+// every file under db, its own file included: only the check for the call's
+// own target keeps it out.
 func TestAReadOfANestedRuleFileDoesNotAttachIt(t *testing.T) {
 	a, tmp := nestedRulesProject(t)
-	if got := a.toolCallRules("agent", readCall("r1", "db/.cursor/rules/db.mdc"), tmp); strings.Contains(got, nestedDBRuleToken) {
+	writeNestedAlwaysRule(t, tmp)
+	if got := a.toolCallRules("agent", readCall("r1", "db/schema.sql"), tmp); !strings.Contains(got, nestedDBAlwaysToken) {
+		t.Fatalf("a read under db did not bring db's rule without patterns: %q", got)
+	}
+	if got := a.toolCallRules("agent", readCall("r2", "db/.cursor/rules/always.mdc"), tmp); strings.Contains(got, nestedDBAlwaysToken) {
 		t.Fatalf("the read of the rule file attached the rule: %q", got)
 	}
 }
@@ -96,6 +134,21 @@ func TestNestedRuleArrivesWithAMentionedFile(t *testing.T) {
 	})
 	if !strings.Contains(contentBlocksToText(blocks), nestedDBRuleToken) {
 		t.Fatal("a mentioned migration did not bring db's rule into the message")
+	}
+}
+
+// A mentioned folder brings the rules of its rule folder that apply to all of
+// it, as it brings a glob rule of the workspace that matches it: the prompt
+// names the folder on purpose, unlike a call that lists or searches it.
+func TestNestedRuleArrivesWithAMentionedFolder(t *testing.T) {
+	a, tmp := nestedRulesProject(t)
+	writeNestedAlwaysRule(t, tmp)
+	blocks := a.attachActivatedRules([]acp.ContentBlock{
+		{Type: acp.ContentTypeText, Text: "look"},
+		{Type: acp.ContentTypeResource, Resource: &acp.Resource{URI: "file://" + filepath.ToSlash(filepath.Join(tmp, "db"))}},
+	})
+	if !strings.Contains(contentBlocksToText(blocks), nestedDBAlwaysToken) {
+		t.Fatal("a mentioned folder did not bring the rule of its rule folder into the message")
 	}
 }
 

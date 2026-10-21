@@ -40,9 +40,11 @@ func resourceAttachmentXML(res *acp.Resource) string {
 
 // attachActivatedRules appends to blocks the path-scoped rules the prompt's
 // mentioned files and folders bring into play: a rule whose globs match one of
-// them, a rule of the rule folder of a subfolder on the way down to a mentioned
-// file (nestedRules), and the nested AGENTS.md (and DESIGN.md) files on the
-// chain of folders down to each. Their text travels in the user message, never in the system
+// them, a rule of the rule folder of a subfolder on the way down to one of them
+// that applies to it (nestedRules), and the nested AGENTS.md (and DESIGN.md)
+// files on the chain of folders down to each. A mentioned folder counts like a
+// file here, unlike a folder a tool call lists or searches: the prompt names it
+// on purpose. Their text travels in the user message, never in the system
 // prompt, so the system message this turn starts with stays the one the
 // previous turn ended with. A rule the model can already read with the same
 // text - attached to a message or a tool result it is still sent, or named in
@@ -69,7 +71,7 @@ func (a *Agent) attachActivatedRules(blocks []acp.ContentBlock) []acp.ContentBlo
 				matched = append(matched, r)
 			}
 		}
-		matched = append(matched, a.nestedRules(cwd, withoutDirectories(paths))...)
+		matched = append(matched, a.nestedRules(cwd, paths)...)
 	}
 	matched = append(matched, a.nestedDocuments(cwd, paths)...)
 	matched = withoutTargets(matched, paths)

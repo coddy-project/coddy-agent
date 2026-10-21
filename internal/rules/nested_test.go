@@ -11,7 +11,8 @@ import (
 // nestedGroup is a folder that holds several projects, each with a rule folder
 // of its own (issue #557): a group rule at the root, a subproject that mirrors
 // its Cursor rule for Claude Code, a subproject with a glob rule and a folder
-// inside it with rules again, and a dependency tree that carries rules too.
+// inside it with rules again, dependency trees that carry rules too, and a
+// hidden folder (a worktree under .coddy/worktrees) with a copy of the group's.
 func nestedGroup(t *testing.T) string {
 	t.Helper()
 	tmp := t.TempDir()
@@ -21,6 +22,8 @@ func nestedGroup(t *testing.T) string {
 		"mobile/.claude/rules/mobile.md",
 		"db/sub/.cursor/rules/deep.mdc",
 		"node_modules/pkg/.cursor/rules/dep.mdc",
+		"vendor/lib/.cursor/rules/lib.mdc",
+		".coddy/worktrees/feat/.cursor/rules/group.mdc",
 	)
 	path := filepath.Join(tmp, "db", ".coddy", "rules", "db.mdc")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -79,6 +82,8 @@ func TestNestedSkipsWhatDiscoveryNeverEnters(t *testing.T) {
 	f := rules.DefaultFactory("")
 	for _, p := range []string{
 		filepath.Join(tmp, "node_modules", "pkg", "x.js"),
+		filepath.Join(tmp, "vendor", "lib", "x.go"),
+		filepath.Join(tmp, ".coddy", "worktrees", "feat", "x.go"),
 		filepath.Join(tmp, "main.go"),                 // the root's folder is the catalog's
 		filepath.Join(filepath.Dir(tmp), "x", "y.go"), // outside the workspace
 		"",
