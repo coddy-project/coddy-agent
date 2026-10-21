@@ -337,8 +337,25 @@ both values. A failed call keeps its error as raw text. The `text` blocks of a
 browser server's screenshot, a chart - is kept with the call, previewed under its
 card and shown to a model that reads images, checked the way `read` checks an
 image file ([Pictures an MCP tool returns](images.md#pictures-an-mcp-tool-returns)).
-Embedded resources, resource links and audio are left out. See
-[Web UI](../surfaces/web-ui.md) for the card and a screenshot.
+See [Web UI](../surfaces/web-ui.md) for the card and a screenshot.
+
+The other blocks a result may carry reach the agent too. The text of an embedded
+resource comes into the result in its place, under a line naming its URI and type,
+`[MCP resource 1: file:///srv/notes.md (text/markdown)]`, and a resource link comes as
+a line with its address, title, type and size, its description below it. A binary
+resource of an image type is a picture like an image block. Any other binary resource
+and an audio clip are kept as files in the session's `assets/` directory, each with the
+extension of its type, and the result names each with its URI, type, size and path, so
+the agent can open it with its tools; no model is sent them:
+
+```text
+[MCP audio 1: audio/wav, 120344 bytes, saved as /home/me/.coddy/sessions/sess_4d2c9a1e7b3f5a60/assets/browser-record-audio-1-9c2f4e1a0b7d3e58.wav]
+```
+
+A call keeps at most 20 files, and its pictures and files take at most 20 MB together;
+what is past that, and a block whose data is not base64, is named in the result instead.
+A result the server marks as an error keeps its text, the text of its resources
+included, and nothing binary.
 
 ## Supported Transports
 

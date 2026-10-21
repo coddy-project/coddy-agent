@@ -910,7 +910,9 @@ The download goes through `gateways.telegram.proxy`, like every request of the b
 When the chat's agent reads an image file and the session's model reads images
 (`models[].multimodal: true`), or calls an MCP tool that returns a picture, the
 bot sends that picture into the chat as a photo, captioned with its name, as
-soon as the call finishes ([Images](../features/images.md)). MCP tools are the
+soon as the call finishes ([Images](../features/images.md)); the pictures of one
+call go as albums of up to ten, and one left over after the last album as a
+photo. MCP tools are the
 bot's admins', so only an admin's turn calls one. The person sees what the agent looked at
 before the answer comes, in private chats and groups alike. The photo is the
 copy Coddy kept with the session, so it is the picture the model was shown
@@ -922,7 +924,8 @@ reply to the question; the old message is deleted when Telegram allows it.
 A picture Telegram refuses as a photo - a side too long, a shape too narrow,
 photos not allowed in the chat - goes as a document instead; a rate limit, a
 failure on the way or a refusal about the chat itself is not retried as a
-document. Only the chat's own session sends
+document. An album Telegram refuses as photos goes picture by picture, so
+each can still go as a document. Only the chat's own session sends
 pictures: what a subagent reads stays in its session, and the web UI shows it
 there. A model without `multimodal` is refused the picture a `read` would show
 it, so nothing is sent and the `read` reports why; the picture an MCP tool
