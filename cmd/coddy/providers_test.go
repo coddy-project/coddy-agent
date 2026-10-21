@@ -452,6 +452,32 @@ func TestDevinCLIFlagIsRefusedForOtherTypes(t *testing.T) {
 	}
 }
 
+// A flag of another type's sign-in is refused rather than dropped: a key
+// passed to a NeuralDeep login would otherwise be thrown away while the device
+// flow runs, and only NeuralDeep has a loopback browser flow.
+func TestLoginFlagsOfAnotherTypeAreRefused(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"login", "neuraldeep", "--api-key", "k"}, "--api-key applies to opencode providers only"},
+		{[]string{"login", "opencode", "--browser"}, "--browser applies to neuraldeep providers only"},
+		{[]string{"login", "codex", "--browser"}, "--browser applies to neuraldeep providers only"},
+		// An OpenCode login belongs to the account; --api-base only picks the
+		// gateway written into the row, which --no-config does not write.
+		{[]string{"login", "opencode", "--no-config", "--api-base", "https://opencode.ai/inference/v1"}, "--api-base picks the gateway of the row"},
+	} {
+		home := t.TempDir()
+		err := runProviders(append(tc.args, "--home", home))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%v: err = %v, want %q", tc.args, err, tc.want)
+		}
+		if _, statErr := os.Stat(filepath.Join(home, "providers")); !os.IsNotExist(statErr) {
+			t.Fatalf("%v: a credential was stored despite the refusal", tc.args)
+		}
+	}
+}
+
 // TestProvidersListKeepsTheCodexCLILoginToOneRow: with two codex rows the
 // Codex CLI login serves the row named codex; the list says the other row is
 // not connected and why, instead of showing it on that account.
@@ -515,7 +541,7 @@ func TestProvidersLoginTypeCreatesAProfile(t *testing.T) {
 	if _, err := resolveLoginProvider(cfg, "mine", "codex"); err == nil || !strings.Contains(err.Error(), `type "openai"`) {
 		t.Fatalf("--type against a listed row of another type: err = %v", err)
 	}
-	if _, err := resolveLoginProvider(cfg, "x", "openai"); err == nil || !strings.Contains(err.Error(), "neuraldeep, codex and devin") {
+	if _, err := resolveLoginProvider(cfg, "x", "openai"); err == nil || !strings.Contains(err.Error(), "neuraldeep, opencode, codex and devin") {
 		t.Fatalf("--type of a plain-key type: err = %v", err)
 	}
 	if prov, err := resolveLoginProvider(cfg, "codex", "codex"); err != nil || prov != &cfg.Providers[0] {

@@ -161,8 +161,8 @@ func gitInit(t *testing.T, root string) {
 func TestDocsMarkdownSkipsWhatGitIgnores(t *testing.T) {
 	// Neutralise the developer's own git configuration: the answer must come
 	// from the .gitignore written below and from nothing else.
-	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
-	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
+	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, ".gitignore", "docs/superpowers/\ndocs/scratch.md\n")

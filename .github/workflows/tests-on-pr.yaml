@@ -348,14 +348,8 @@ jobs:
           path: dist/coddy_android_amd64.tar.gz
           retention-days: 14
 
-  # Cross-building proves the Windows code compiles, not that it works. These
-  # packages own the behaviour that differs by platform - the process group
-  # probe, the console shell, the background task pool that starts real
-  # processes through it, the self-update helper that replaces a running
-  # coddy.exe, the rule glob matcher that anchors drive-letter paths at the
-  # workspace - and their Windows-only tests have no other place to run. The
-  # scope is deliberately narrow; widen it as the rest of the tree is shown to
-  # hold on Windows.
+  # Run the shipped suite natively as well: cross-building cannot exercise
+  # Windows process groups, paths, file handles or the console shell.
   test-windows:
     name: Test suite (Windows)
     runs-on: windows-latest
@@ -370,21 +364,42 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run platform tests
-        run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/... ./internal/update/... ./internal/hooks/... ./internal/rules/...
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: external/ui/package-lock.json
 
-      - name: Run console TUI tests (fake terminal, no pty)
-        run: go test -tags=cli ./external/cli/...
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-      # No per-OS code in these, but their tests write files and compare paths:
-      # backslash separators, no POSIX mode bits, a CRLF checkout (Git on this
-      # runner converts line endings). Those expectations broke on Windows
-      # unnoticed while only Linux ran them. internal/session and
-      # internal/tools belong here too and are held back: on Windows the
-      # mentions suite does not resolve a "~" path and the built-in docs suite
-      # reads the CRLF checkout, both open at the time of writing.
-      - name: Run file and path tests
-        run: go test ./cmd/coddy/... ./internal/config/... ./internal/dryrun/... ./internal/swarm/...
+      - name: Test the repository rule adapters
+        shell: bash
+        run: |
+          python -m unittest -v scripts/test_agent_rule_adapters.py
+          node --test .opencode/tests/project-rules.test.js
+
+      - name: Build and test the web UI
+        shell: bash
+        run: |
+          cd external/ui
+          npm ci --no-fund --no-audit
+          npm run build:go
+          npm test
+
+      - name: Check native Windows fixture regressions
+        run: >-
+          go test -p=4 -tags='http,ui,scheduler,memory,cli,gateway,swarm,metrics'
+          ./internal/gitws ./external/httpserver
+          -run '^(TestDescribeRepo|TestFileTransportHonorsWindowsDrive|TestSkillsMarketplaceFeature|TestWorkspaceFoldersListsOnlyDirectorySymlinksAndResolvesNavigation)$'
+
+      # Exercise the same shipped modules as make test. Bounded package
+      # concurrency leaves time for the child MCP and PowerShell processes.
+      - name: Run the complete Go suite
+        run: go test -p=4 -tags='http,ui,scheduler,memory,cli,gateway,swarm,metrics' ./...
 
   # The console is a raw-mode terminal program, and nothing above runs it on
   # macOS, where bare `coddy` opens on a Terminal.app pty. A hang there was

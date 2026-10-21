@@ -4965,9 +4965,12 @@ a.rail-brand {
 
 /* Centred on the first line of the block: 1px border + 6px padding + half an
    18px line = 16px, less half the 26px button. A one-line block has it in
-   its middle. */
+   its middle. The z-index keeps it tappable: iOS Safari hit-tests a scrolling
+   (overflow: auto) pre above an earlier absolutely positioned sibling that has
+   none, so the painted button never got the tap. */
 .md-copy {
   position: absolute;
+  z-index: 1;
   top: 3px;
   right: 5px;
   display: inline-flex;
@@ -10588,6 +10591,19 @@ html:not([data-theme="light"]) .settings.drawer {
 .settings-btn-danger {
   border-color: rgba(248, 113, 113, 0.45);
   color: #fecaca;
+}
+
+/* The dark pink reads as nothing on the light canvas; the light canvas takes
+   the danger red of its theme, as the confirmation dialog's button does. */
+[data-theme="light"] .settings-btn-danger {
+  border-color: rgba(220, 38, 38, 0.45);
+  color: #b91c1c;
+}
+
+[data-theme="light"] .settings-btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, #dc2626 18%, var(--coddy-glass-panel-bg));
+  border-color: rgba(220, 38, 38, 0.7);
+  box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.35);
 }
 
 .settings-error {

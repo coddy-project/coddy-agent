@@ -596,6 +596,7 @@ func TestSearchMentionsBrowsesAbsoluteAndHomePaths(t *testing.T) {
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	_ = os.WriteFile(filepath.Join(home, "todo.txt"), []byte("x"), 0o644)
 	res, _ = m.SearchMentions(context.Background(), session.MentionSearch{SessionID: sid, Query: "~/to"})
 	if got := candidateInserts(res); len(got) != 1 || got[0] != "@~/todo.txt" {

@@ -261,6 +261,9 @@ func TestUCICommandRedactedString(t *testing.T) {
 		{line: "set tools.websearch.brave_api_key=BSA-secret", want: "set tools.websearch.brave_api_key=<redacted>"},
 		{line: "add_list skills.dirs=/opt/skills", want: "add_list skills.dirs=/opt/skills"},
 		{line: "delete providers[name=x]", want: "delete providers[name=x]"},
+		{line: "delete providers[api_key=tok-secret]", want: "delete providers[api_key=<redacted>]"},
+		{line: "set providers[api_key=tok-secret].name=renamed", want: "set providers[api_key=<redacted>].name=renamed"},
+		{line: "set providers[api_key=tok-secret].api_key=new-secret", want: "set providers[api_key=<redacted>].api_key=<redacted>"},
 		{line: "set agent.max_turns=20", want: "set agent.max_turns=20"},
 		// A proxy keyword is no secret: the prompt shows what is being set.
 		{line: "set providers.0.proxy=none", want: "set providers.0.proxy=none"},
@@ -285,6 +288,14 @@ func TestUCICommandRedactedString(t *testing.T) {
 	got := cmd.RedactedString()
 	if strings.Contains(got, "tok-embedded") || !strings.Contains(got, "<redacted>") || !strings.Contains(got, "openai") {
 		t.Fatalf("embedded secret not masked: %q", got)
+	}
+}
+
+func TestMissingSecretListValueIsNotReturnedInError(t *testing.T) {
+	paths := testPathConfig(t, "swarm:\n  pairing_tokens: [present]\n")
+	_, err := CommitUCICommands(paths, mustParseUCI(t, "del_list swarm.pairing_tokens=missing-secret"))
+	if err == nil || strings.Contains(err.Error(), "missing-secret") || !strings.Contains(err.Error(), RedactedValue) {
+		t.Fatalf("secret list deletion error = %v", err)
 	}
 }
 

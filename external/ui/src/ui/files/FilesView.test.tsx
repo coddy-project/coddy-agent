@@ -8,6 +8,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { pageWithoutClipboardApi, selectedOnce } from "../clipboardTestKit";
 import { FilesView, forgetOpenFiles } from "./FilesView";
 import { t } from "../i18n/i18n";
 import type { FileEntry } from "./api";
@@ -495,6 +496,15 @@ test("the window opened again keeps the files that were open in it", async () =>
   cleanup();
   render(view({ sessionId: "s2" }));
   expect(await screen.findByTestId("files-empty")).toBeTruthy();
+});
+
+test("Copy path works without a clipboard API", async () => {
+  const page = pageWithoutClipboardApi();
+  render(view({ initialPath: "notes.txt" }));
+  await screen.findByText("first note");
+  fireEvent.click(screen.getByTestId("files-more"));
+  fireEvent.click(screen.getByRole("menuitem", { name: t("files.copyPath") }));
+  await waitFor(() => expect(page.copies).toEqual(selectedOnce("notes.txt")));
 });
 
 test("hidden files are a choice of the window's menu", async () => {

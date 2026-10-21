@@ -1,6 +1,7 @@
 import React from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -8,6 +9,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { pageWithoutClipboardApi, selectedOnce } from "../clipboardTestKit";
 import { EditsView } from "./EditsView";
 import type { SessionChanges } from "./types";
 import { t } from "../i18n/i18n";
@@ -537,6 +539,23 @@ test("the header copies the file path", async () => {
   await screen.findByTestId("dv-file-src/a.ts");
   fireEvent.click(screen.getByTestId("dv-copy-src/a.ts"));
   expect(navigator.clipboard.writeText).toHaveBeenCalledWith("src/a.ts");
+});
+
+test("the header copies the path without a clipboard API and says so only when that worked", async () => {
+  const page = pageWithoutClipboardApi(false);
+  open();
+  await screen.findByTestId("dv-file-src/a.ts");
+  const copy = screen.getByTestId("dv-copy-src/a.ts");
+  await act(async () => {
+    fireEvent.click(copy);
+  });
+  expect(page.copies).toEqual(selectedOnce("src/a.ts"));
+  expect(copy).toHaveAttribute("title", t("changes.viewer.copyPath"));
+  page.answer(true);
+  await act(async () => {
+    fireEvent.click(copy);
+  });
+  expect(copy).toHaveAttribute("title", t("changes.viewer.copied"));
 });
 
 test("says how many new files it left out", async () => {

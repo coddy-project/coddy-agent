@@ -66,15 +66,16 @@ type subagentTaskRef struct {
 type subagentsHTTPState struct {
 	// userHome restores HOME after a scenario that pointed it at a folder of
 	// its own (nil when it did not); extraDirs are removed with the scenario.
-	userHome  *string
-	extraDirs []string
-	root      string
-	sessRoot  string
-	home      string
-	ts        *httptest.Server
-	mgr       *session.Manager
-	srv       *Server
-	sessionID string
+	userHome    *string
+	userProfile *string
+	extraDirs   []string
+	root        string
+	sessRoot    string
+	home        string
+	ts          *httptest.Server
+	mgr         *session.Manager
+	srv         *Server
+	sessionID   string
 	// tasks maps a child session id to the task representing its run.
 	tasks map[string]subagentTaskRef
 	// children lists every child session the scenario created, for cleanup.
@@ -118,6 +119,10 @@ func (s *subagentsHTTPState) close() {
 	if s.userHome != nil {
 		_ = os.Setenv("HOME", *s.userHome)
 		s.userHome = nil
+	}
+	if s.userProfile != nil {
+		_ = os.Setenv("USERPROFILE", *s.userProfile)
+		s.userProfile = nil
 	}
 	for _, d := range s.extraDirs {
 		_ = os.RemoveAll(d)
@@ -315,6 +320,11 @@ func (s *subagentsHTTPState) userHomeDefinition(name string) error {
 	old := os.Getenv("HOME")
 	s.userHome = &old
 	if err := os.Setenv("HOME", userHome); err != nil {
+		return err
+	}
+	oldProfile := os.Getenv("USERPROFILE")
+	s.userProfile = &oldProfile
+	if err := os.Setenv("USERPROFILE", userHome); err != nil {
 		return err
 	}
 	dir := filepath.Join(userHome, ".agents", "agents")

@@ -336,6 +336,9 @@ func expandPath(path, cwd, agentHome string) string {
 		}
 		path = filepath.Join(cwd, path)
 	}
+	if path != "" && !strings.Contains(path, "${") {
+		path = filepath.Clean(path)
+	}
 	return path
 }
 

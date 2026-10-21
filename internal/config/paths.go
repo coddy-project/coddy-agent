@@ -32,6 +32,12 @@ func NeuralDeepAuthPath(home, providerName string) string {
 	return providerAuthFile(home, providerName, "neuraldeep-auth.json")
 }
 
+// OpenCodeAuthPath returns the Coddy-managed credential path for one opencode
+// provider (the API key stored by `coddy providers login opencode`).
+func OpenCodeAuthPath(home, providerName string) string {
+	return providerAuthFile(home, providerName, "opencode-auth.json")
+}
+
 // DevinAuthPath returns the Coddy-managed session-token path for one devin
 // provider (the credential obtained via `coddy providers login`).
 func DevinAuthPath(home, providerName string) string {
@@ -48,6 +54,8 @@ func ProviderAuthPath(home, providerName, providerType string) string {
 		return CodexAuthPath(home, providerName)
 	case "neuraldeep":
 		return NeuralDeepAuthPath(home, providerName)
+	case "opencode":
+		return OpenCodeAuthPath(home, providerName)
 	case "devin":
 		return DevinAuthPath(home, providerName)
 	default:

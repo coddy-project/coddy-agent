@@ -1,6 +1,7 @@
 import { useContext, useEffect, useId, useState, type ReactNode } from "react";
 import { PaneHidden } from "../components/PanePortal";
 import { readServerVersion, releaseNotesUrl } from "../chat/HeroFooter";
+import { copyText } from "../clipboard";
 import { useT } from "../i18n/I18nProvider";
 import { appNavHrefDocs } from "../scheduler/hashRoute";
 import { RestartNotice } from "./RestartNotice";
@@ -78,35 +79,6 @@ function Block(props: {
       {props.empty ? props.na : props.children}
     </section>
   );
-}
-
-/**
- * Puts text on the clipboard: through the clipboard API, else (a page served
- * over plain HTTP from another machine has none, and a browser may refuse it)
- * through a selected text area. True only when one of the two worked.
- */
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    // No clipboard API here, or it refused: the page copies by itself.
-  }
-  const focused = document.activeElement as HTMLElement | null;
-  const area = document.createElement("textarea");
-  area.value = text;
-  area.style.position = "fixed";
-  area.style.opacity = "0";
-  document.body.appendChild(area);
-  area.select();
-  try {
-    return document.execCommand("copy");
-  } catch {
-    return false;
-  } finally {
-    area.remove();
-    focused?.focus();
-  }
 }
 
 function CopyButton(props: { text: string }) {
