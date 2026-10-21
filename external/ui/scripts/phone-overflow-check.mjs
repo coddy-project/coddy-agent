@@ -170,12 +170,13 @@ async function probe(page) {
 // 127.0.0.1 as a secure context, so the API is taken away the way an insecure
 // origin lacks it: the attribute is gone from Navigator. A control is tapped,
 // as a finger does, and what it copied is read back by pasting into a field of
-// the page. Proven: the page copies by itself inside the tap, the text arrives
-// whole, the control says Copied, and nothing is left behind (no text area, the
-// focus, the zoom and the scroll of a scrolled page where the tap found them,
-// read straight after the tap, before the paste field takes the focus). Not
-// proven: iOS Safari itself, whose text selection and zoom are UIKit's, not
-// WebKit's alone.
+// the page. Proven: the page copies by itself, the text arrives whole, the
+// control says Copied, and nothing is left behind (no text area, the focus, the
+// zoom and the scroll of a scrolled page where the tap found them, read
+// straight after the tap, before the paste field takes the focus). Not proven:
+// that the copy runs inside the tap, since both engines run the copy command
+// without one (clipboard.test.ts holds that), and iOS Safari itself, whose text
+// selection and zoom are UIKit's, not WebKit's alone.
 async function copyOnAPhone(browser) {
   const { defaultBrowserType: _engine, ...phone } =
     playwright.devices["iPhone 13"];

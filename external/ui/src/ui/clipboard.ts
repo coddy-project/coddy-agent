@@ -18,7 +18,9 @@ export async function copyText(text: string): Promise<boolean> {
       await navigator.clipboard.writeText(text);
       return true;
     } catch {
-      // Refused (a policy, a page that lost focus): the page can still copy.
+      // Refused (a policy, a page that lost focus): the page tries by itself.
+      // This runs after an await, outside the tap, so a browser that ties the
+      // copy command to the tap may refuse it too, and the false says so.
     }
   }
   return copyThroughPage(text);

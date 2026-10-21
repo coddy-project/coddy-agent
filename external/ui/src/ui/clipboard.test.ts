@@ -127,15 +127,16 @@ const MAY_TOUCH_THE_CLIPBOARD = new Set([
 /** A path under src as the allow-list spells it: with "/", whatever the platform joined it with. */
 const underSrc = (path: string) => path.replaceAll("\\", "/");
 
+/** The names a page copies text by: navigator.clipboard, its writeText, document.execCommand. */
+const CLIPBOARD_NAMES = new Set(["clipboard", "writeText", "execCommand"]);
+
 /**
- * What in a source file reaches for the clipboard by itself, found in the
- * syntax tree so that no spelling slips by (`clipboard!.writeText`,
- * `["writeText"]`, `execCommand?.("copy")`, a destructured `clipboard`, a
- * literal key in brackets) and a comment, a string or an array binding that
- * merely shares the name is not a hit: any access to a member called clipboard
- * or writeText, and any use of execCommand but a call with a literal command
- * other than "copy". A member named by an expression that is not a literal is
- * out of reach of a static check.
+ * Every place in a source file that names one of CLIPBOARD_NAMES, as an
+ * identifier or as a literal key (`navigator["clipboard"]`), found in the
+ * syntax tree so that a comment, a sentence in a string or `clipboardData` is
+ * not a hit. Stricter than it has to be on purpose: a local that is merely
+ * called `clipboard`, or an execCommand of another command, is a hit too and
+ * is renamed or moved rather than excused.
  */
 function clipboardUses(source: string, fileName: string): string[] {
   const file = ts.createSourceFile(
@@ -145,91 +146,14 @@ function clipboardUses(source: string, fileName: string): string[] {
     true,
   );
   const hits: string[] = [];
-  // The text of a key written as a literal, through the parentheses and casts
-  // around it: "x", `x`, ("x"), "x" as const.
-  const literalText = (expr: ts.Expression): string => {
-    let e = expr;
-    while (
-      ts.isParenthesizedExpression(e) ||
-      ts.isNonNullExpression(e) ||
-      ts.isAsExpression(e) ||
-      ts.isSatisfiesExpression(e) ||
-      ts.isTypeAssertionExpression(e)
-    ) {
-      e = e.expression;
-    }
-    return ts.isStringLiteralLike(e) ? e.text : "";
-  };
-  const keyText = (key: ts.Node): string => {
-    if (ts.isIdentifier(key) || ts.isStringLiteralLike(key)) return key.text;
-    return ts.isComputedPropertyName(key) ? literalText(key.expression) : "";
-  };
-  // An object literal that is the target of an assignment, or part of one:
-  // ({ clipboard } = navigator), ({ a: { clipboard } } = x).
-  const isAssignmentPattern = (literal: ts.Node): boolean => {
-    let at = literal;
-    for (let up = at.parent; up; at = up, up = up.parent) {
-      if (ts.isBinaryExpression(up)) {
-        return (
-          up.left === at && up.operatorToken.kind === ts.SyntaxKind.EqualsToken
-        );
-      }
-      if (ts.isForInStatement(up) || ts.isForOfStatement(up)) {
-        return up.initializer === at;
-      }
-      const inside =
-        ts.isPropertyAssignment(up) ||
-        ts.isArrayLiteralExpression(up) ||
-        ts.isObjectLiteralExpression(up) ||
-        ts.isSpreadAssignment(up) ||
-        ts.isSpreadElement(up) ||
-        ts.isParenthesizedExpression(up);
-      if (!inside) return false;
-    }
-    return false;
-  };
-  const nameOf = (node: ts.Node): string => {
-    if (ts.isPropertyAccessExpression(node)) return node.name.text;
-    if (ts.isElementAccessExpression(node)) {
-      return literalText(node.argumentExpression);
-    }
-    // const { clipboard } = navigator; const { ["clipboard"]: c } = navigator.
-    // An array pattern names no member, and a rest binding names a local.
-    if (ts.isBindingElement(node)) {
-      return ts.isObjectBindingPattern(node.parent) && !node.dotDotDotToken
-        ? keyText(node.propertyName ?? node.name)
-        : "";
-    }
-    if (
-      (ts.isPropertyAssignment(node) ||
-        ts.isShorthandPropertyAssignment(node)) &&
-      isAssignmentPattern(node.parent)
-    ) {
-      return keyText(node.name);
-    }
-    return "";
-  };
-  const isOtherCommand = (node: ts.Node): boolean => {
-    let call = node.parent;
-    while (ts.isNonNullExpression(call) || ts.isParenthesizedExpression(call)) {
-      call = call.parent;
-    }
-    const first = ts.isCallExpression(call) ? call.arguments[0] : undefined;
-    return (
-      !!first &&
-      ts.isStringLiteralLike(first) &&
-      first.text.toLowerCase() !== "copy"
-    );
-  };
   const visit = (node: ts.Node) => {
-    const name = nameOf(node);
     if (
-      name === "clipboard" ||
-      name === "writeText" ||
-      (name === "execCommand" && !isOtherCommand(node))
+      (ts.isIdentifier(node) || ts.isStringLiteralLike(node)) &&
+      CLIPBOARD_NAMES.has(node.text)
     ) {
       const { line } = file.getLineAndCharacterOfPosition(node.getStart(file));
-      hits.push(`${line + 1}: ${node.getText(file).slice(0, 60)}`);
+      const [where = ""] = node.parent.getText(file).split("\n");
+      hits.push(`${line + 1}: ${where.slice(0, 60)}`);
     }
     ts.forEachChild(node, visit);
   };
@@ -244,49 +168,15 @@ test.each([
   ["an element access", 'navigator.clipboard["writeText"](t);'],
   ["a quoted clipboard", 'navigator["clipboard"].writeText(t);'],
   ["a cast navigator", "(navigator as any).clipboard.writeText(t);"],
-  ["window.navigator", "window.navigator.clipboard.writeText(t);"],
   ["a destructured clipboard", "const { clipboard } = navigator;"],
-  ["a renamed clipboard", "const { clipboard: api } = navigator;"],
   ["a destructured writeText", "const { writeText } = navigator.clipboard;"],
   ["a clipboard in a variable", "const c = props.clip; c.writeText(t);"],
   ["execCommand", 'document.execCommand("copy");'],
   ["an optional call", 'document.execCommand?.("copy");'],
-  ["a non-null call", 'document.execCommand!("copy");'],
   ["an element access call", 'document["execCommand"]("copy");'],
-  ["a template literal command", "(document as any).execCommand(`copy`);"],
-  ["a command in a variable", "document.execCommand(command);"],
-  ["a bound execCommand", "const run = document.execCommand.bind(document);"],
-  ["a destructured execCommand", "const { execCommand } = document;"],
-  [
-    "a literal computed key of execCommand",
-    'const { ["execCommand"]: run } = document; run("copy");',
-  ],
-  [
-    "a template computed key of execCommand",
-    "const { [`execCommand`]: run } = document;",
-  ],
-  [
-    "a literal computed key of clipboard",
-    'const { ["clipboard"]: api } = navigator;',
-  ],
-  ["a quoted key of clipboard", 'const { "clipboard": api } = navigator;'],
-  [
-    "a literal computed key of writeText",
-    'const { ["writeText"]: write } = api;',
-  ],
-  [
-    "a nested pattern with a computed key",
-    'const { inner: { ["writeText"]: write } } = api;',
-  ],
-  [
-    "a parenthesised computed key",
-    'const { [("clipboard")]: api } = navigator;',
-  ],
-  ["a parenthesised element key", 'navigator[("clipboard")].writeText(t);'],
+  ["a template literal key", "const { [`execCommand`]: run } = document;"],
   ["a pattern in a parameter", "function f({ clipboard }: Navigator) {}"],
   ["an assignment pattern", "({ clipboard: api } = navigator);"],
-  ["a shorthand assignment pattern", "({ clipboard } = navigator);"],
-  ["a nested assignment pattern", "({ inner: { clipboard } } = x);"],
 ])("the source guard finds %s", (_spelling, code) => {
   expect(clipboardUses(code, "a.ts")).not.toEqual([]);
 });
@@ -303,22 +193,10 @@ test("the source guard finds it in a component", () => {
 test.each([
   ["the helper", "void copyText(text);"],
   ["clipboardData of a paste", "ev.clipboardData?.items;"],
+  ["clipboardData destructured", "const { clipboardData } = ev;"],
   ["a comment", "// navigator.clipboard.writeText(t) and execCommand('copy')"],
   ["a string", 'const s = "navigator.clipboard.writeText(t)";'],
-  ["another command", 'document.execCommand("insertText", false, s);'],
   ["the picture copy's own name", "const write = item.write;"],
-  ["an array binding", "const [clipboard] = history;"],
-  [
-    "an array binding of the other names",
-    "const [writeText, execCommand] = a;",
-  ],
-  ["a local renamed to clipboard", "const { a: clipboard } = x;"],
-  ["a plain variable", "const clipboard = 1; use(clipboard);"],
-  ["a rest binding", "const { a, ...clipboard } = x;"],
-  ["clipboardData destructured", "const { clipboardData } = ev;"],
-  ["a computed key of another name", 'const { ["items"]: list } = ev;'],
-  ["an object that has a clipboard key", "const o = { clipboard: 1 };"],
-  ["an object on the right of an assignment", "x = { clipboard };"],
 ])("the source guard leaves %s alone", (_what, code) => {
   expect(clipboardUses(code, "a.ts")).toEqual([]);
 });
