@@ -9,6 +9,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -118,13 +119,13 @@ func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID 
 	ag.SetWorkspaceSwitcher(func(ctx context.Context, dir string) error {
 		return s.mgr.SetSessionWorkspaceDuringTurn(ctx, st, dir)
 	})
-	ag.SetConfigReloader(func(ctx context.Context) ([]string, error) {
-		warnings, err := s.mgr.ReloadConfigForSession(ctx, st)
+	ag.SetConfigReloader(func(ctx context.Context) (*config.Config, []string, error) {
+		next, warnings, err := s.mgr.ReloadConfigForSession(ctx, st)
 		if err == nil {
 			// ReplaceConfig also drops the slash cache and announces the reload.
-			s.ReplaceConfig(s.mgr.Cfg())
+			s.ReplaceConfig(next)
 		}
-		return warnings, err
+		return next, warnings, err
 	})
 	ag.SetProviderFactory(s.agentProviderFactory)
 	// A resumed turn keeps running the ReAct loop, so it may spawn subagents

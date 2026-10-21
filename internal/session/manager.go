@@ -139,6 +139,9 @@ type Manager struct {
 	// two overlapping replacements otherwise reached an observer newest first,
 	// leaving it on the older configuration while the manager held the newer.
 	cfgReplaceMu sync.Mutex
+	// configAdjust reapplies process-owned flags and environment values to a
+	// freshly loaded document before it becomes live. Set once at startup.
+	configAdjust func(*config.Config) error
 
 	// deleting marks sessions whose bundles are being removed by
 	// DeleteSessionTree, so a turn racing the delete is refused instead of
@@ -244,6 +247,28 @@ func (m *Manager) ReplaceConfig(next *config.Config) {
 	ctx, cancel := context.WithTimeout(context.Background(), mcpReloadTimeout)
 	defer cancel()
 	m.reloadConfiguredMCPServers(ctx)
+}
+
+// SetConfigAdjuster supplies the process overrides for configurations loaded
+// inside this manager. Call it before serving requests or starting turns.
+func (m *Manager) SetConfigAdjuster(adjust func(*config.Config) error) {
+	m.configAdjust = adjust
+}
+
+// InstallConfig applies process overrides before publishing a configuration
+// loaded by a settings save, MCP edit, or other in-process writer. A failed
+// override leaves the previous configuration live so the writer can roll back.
+func (m *Manager) InstallConfig(next *config.Config) error {
+	if next == nil {
+		return fmt.Errorf("configuration is unavailable")
+	}
+	if m.configAdjust != nil {
+		if err := m.configAdjust(next); err != nil {
+			return err
+		}
+	}
+	m.ReplaceConfig(next)
+	return nil
 }
 
 // toolsetsMoved reports whether a new configuration changes what a session's
@@ -575,14 +600,21 @@ func (m *Manager) storeConfig(next *config.Config) (*config.Config, string) {
 // ReloadConfigForSession reloads config.yaml and applies runtime-owned state to
 // the current session. Configured MCP clients are replaced; ACP session MCP
 // clients are preserved. Individual MCP start failures are returned as warnings.
-func (m *Manager) ReloadConfigForSession(ctx context.Context, st *State) ([]string, error) {
+// It returns the configuration it installed, process overrides applied, which
+// is what the turn that asked for the reload runs on from then on.
+func (m *Manager) ReloadConfigForSession(ctx context.Context, st *State) (*config.Config, []string, error) {
 	current := m.activeCfg()
 	if current == nil {
-		return nil, fmt.Errorf("active config is unavailable")
+		return nil, nil, fmt.Errorf("active config is unavailable")
 	}
 	next, err := config.LoadWithPaths(current.Paths)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	if m.configAdjust != nil {
+		if err := m.configAdjust(next); err != nil {
+			return nil, nil, err
+		}
 	}
 	loader := skills.NewLoader(next.Skills.SearchDirs())
 	var warnings []string
@@ -634,7 +666,7 @@ func (m *Manager) ReloadConfigForSession(ctx context.Context, st *State) ([]stri
 		defer cancel()
 		m.reloadConfiguredMCPServersExcept(reloadCtx, st)
 	}
-	return warnings, nil
+	return next, warnings, nil
 }
 
 func (m *Manager) loadSkills(cwd string, cfg *config.Config) ([]*skills.Skill, error) {

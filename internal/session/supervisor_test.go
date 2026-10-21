@@ -16,6 +16,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -127,8 +128,10 @@ func (h *goalHarness) run(ctx context.Context, st *session.State, prompt []acp.C
 
 // toolTurn records one finished tool call with args and result, then a final
 // answer, the way the agent reports them.
+var goalTestCallID atomic.Uint64
+
 func toolTurn(st *session.State, snd acp.UpdateSender, args, result string) string {
-	id := fmt.Sprintf("call_%d", time.Now().UnixNano())
+	id := fmt.Sprintf("call_%d", goalTestCallID.Add(1))
 	st.AddMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: id, Name: "read", InputJSON: args}}})
 	_ = snd.SendSessionUpdate(st.ID, acp.ToolCallUpdate{SessionUpdate: acp.UpdateTypeToolCall, ToolCallID: id, Kind: "read", Title: "read", Status: "pending"})
 	_ = snd.SendSessionUpdate(st.ID, acp.ToolCallStatusUpdate{SessionUpdate: acp.UpdateTypeToolCallUpdate, ToolCallID: id, Status: "in_progress"})

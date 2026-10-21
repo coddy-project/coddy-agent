@@ -550,8 +550,11 @@ func TestRedactingClientTakesTheTokenOut(t *testing.T) {
 	if _, err = c.Do(req); err == nil || strings.Contains(err.Error(), "SECRET") {
 		t.Fatalf("a bad redirect: %v, want an error without the token", err)
 	}
-	slow := redactingClient{token: "123:SECRET", inner: &http.Client{Timeout: time.Nanosecond}}
+	slow := redactingClient{token: "123:SECRET", inner: &http.Client{}}
 	req, _ = http.NewRequest(http.MethodGet, redirect.URL+"/bot123:SECRET/getMe", nil)
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	req = req.WithContext(ctx)
 	_, err = slow.Do(req)
 	var timeout interface{ Timeout() bool }
 	if err == nil || strings.Contains(err.Error(), "SECRET") || !errors.As(err, &timeout) || !timeout.Timeout() {

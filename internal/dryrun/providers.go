@@ -171,6 +171,11 @@ const acpProbeTimeout = 60 * time.Second
 
 // displayBase names the endpoint a provider talks to, for messages.
 func displayBase(prov *config.ProviderConfig) string {
+	if prov.Type == "opencode" {
+		// Pinned to the two gateways: a value that names neither is not where
+		// the requests go.
+		return llm.ProviderEndpoint("opencode", prov.APIBase)
+	}
 	if base := strings.TrimSpace(prov.APIBase); base != "" {
 		return base
 	}
@@ -272,6 +277,8 @@ func credentialFix(prov *config.ProviderConfig) string {
 		return fmt.Sprintf("run `coddy providers login %s` to sign in again (or `devin auth login`), or check api_key if you set one", prov.Name)
 	case "neuraldeep":
 		return fmt.Sprintf("run `coddy providers login %s` again, or check api_key if you set one", prov.Name)
+	case "opencode":
+		return fmt.Sprintf("run `coddy providers login %s` to sign in again, or check api_key / %s if you set one", prov.Name, config.ProviderAPIKeyEnvVarName(prov.Name))
 	case "acp":
 		return "sign the agent in on its own, or set acp.auth_method to the method it offers"
 	default:

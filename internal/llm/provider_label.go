@@ -28,6 +28,8 @@ func ProviderEndpoint(providerType, configured string) string {
 	switch providerType {
 	case "neuraldeep":
 		return neuralDeepAPIBase(configured)
+	case "opencode":
+		return opencodeAPIBase(configured)
 	case "codex":
 		return codexBaseURL()
 	case "devin":

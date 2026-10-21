@@ -21,6 +21,7 @@ func commitRepo(t *testing.T, files map[string]string) string {
 	t.Helper()
 	dir := t.TempDir()
 	mustGit(t, dir, "init", "-b", "main")
+	mustGit(t, dir, "config", "core.autocrlf", "false")
 	for name, body := range files {
 		writeFile(t, dir, name, body)
 	}

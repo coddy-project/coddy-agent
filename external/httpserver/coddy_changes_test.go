@@ -109,7 +109,7 @@ func gitInRepo(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
@@ -123,6 +123,7 @@ func (e *changesEnv) commitWorkspace(t *testing.T, files map[string]string) {
 		t.Skip("git binary not available")
 	}
 	gitInRepo(t, e.cwd, "init", "-b", "main")
+	gitInRepo(t, e.cwd, "config", "core.autocrlf", "false")
 	for name, body := range files {
 		writeInWorkspace(t, e.cwd, name, body)
 	}

@@ -25,6 +25,7 @@ var AllowedLLMProviderTypes = map[string]struct{}{
 	"openai":     {},
 	"anthropic":  {},
 	"neuraldeep": {},
+	"opencode":   {},
 	"codex":      {},
 	"devin":      {},
 	"acp":        {},

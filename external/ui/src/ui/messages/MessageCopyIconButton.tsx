@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { copyText } from "../clipboard";
 
 export function MessageCopyIconButton(props: {
   textToCopy: string;
@@ -6,26 +7,8 @@ export function MessageCopyIconButton(props: {
   ariaLabel: string;
   dataTestId: string;
 }) {
-  const onCopy = useCallback(async () => {
-    const text = props.textToCopy;
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      try {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        ta.style.position = "fixed";
-        ta.style.opacity = "0";
-        document.body.appendChild(ta);
-        ta.focus();
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-      } catch {
-        /* ignore */
-      }
-    }
+  const onCopy = useCallback(() => {
+    if (props.textToCopy) void copyText(props.textToCopy);
   }, [props.textToCopy]);
 
   const hasText = props.textToCopy.trim().length > 0;
@@ -38,7 +21,7 @@ export function MessageCopyIconButton(props: {
       data-testid={props.dataTestId}
       disabled={!hasText}
       title={hasText ? props.tooltip : undefined}
-      onClick={() => void onCopy()}
+      onClick={onCopy}
     >
       <svg
         className="msg-copy-icon-btn__glyph"

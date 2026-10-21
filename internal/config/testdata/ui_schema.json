@@ -1142,7 +1142,7 @@
             ]
           },
           "api_base": {
-            "description": "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); ignored by codex and devin, which use their official endpoints, and by acp, whose agent runs on this machine.",
+            "description": "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); for opencode it picks the gateway (the Go subscription or pay-as-you-go Console); ignored by codex and devin, which use their official endpoints, and by acp, whose agent runs on this machine.",
             "title": "API base URL",
             "type": "string"
           },
@@ -1181,6 +1181,7 @@
               "openai",
               "anthropic",
               "neuraldeep",
+              "opencode",
               "codex",
               "devin",
               "acp"
