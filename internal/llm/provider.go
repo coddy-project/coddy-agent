@@ -331,6 +331,13 @@ type ProviderInput struct {
 	// no such guard. A blocking answer (stream: false) arrives in one piece
 	// and is never guarded.
 	StreamIdleTimeout time.Duration
+	// SessionID is the stable id of the conversation this call belongs to.
+	// The opencode gateway asks for it in x-opencode-session so it can keep a
+	// conversation on one route and reuse its prompt cache; a provider that
+	// needs one and finds it empty generates a random id for the call. Empty
+	// for the callers that are not a conversation (a model list, a dry-run
+	// probe), for which the OpenCode transport generates an id.
+	SessionID string
 }
 
 // neuralDeepBaseURL is the default NeuralDeep deployment; neuralDeepEndpoints
@@ -344,6 +351,12 @@ func providerBaseURL(providerType, configured string) string {
 		// be aimed at an arbitrary host. CODDY_NEURALDEEP_BASE_URL still
 		// redirects the process as a whole for tests and stands.
 		return neuralDeepAPIBase(configured)
+	}
+	if providerType == "opencode" {
+		// Pinned to the official gateways for the same reason: an OpenCode key
+		// only ever goes to opencode.ai. CODDY_OPENCODE_BASE_URL redirects the
+		// process as a whole for tests and stands.
+		return opencodeAPIBase(configured)
 	}
 	return strings.TrimSpace(configured)
 }
@@ -388,6 +401,16 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		op.tempSet = p.TemperatureSet
 		op.modelParams = p.SupportedParameters
 		inner = op
+	case "opencode":
+		// One gateway, four wire protocols chosen per model id; the key is an
+		// explicit api_key or the login `coddy providers login opencode`
+		// stored, and every request carries Coddy's User-Agent and the
+		// conversation's x-opencode-session over the row's proxy route.
+		opencode, err := newOpenCodeProvider(p, hc)
+		if err != nil {
+			return nil, err
+		}
+		inner = opencode
 	case "codex":
 		// Codex uses ChatGPT OAuth credentials. APIKey and the configured BaseURL are
 		// intentionally ignored: OAuth tokens go to the official Codex backend unless

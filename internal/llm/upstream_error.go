@@ -3,12 +3,34 @@ package llm
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/openai/openai-go"
 )
+
+// httpStatusError is a non-2xx answer a provider read off the wire itself,
+// with no SDK in between (the native Google API of the OpenCode gateway). It
+// keeps the status and the headers, so the classifiers read it as they read
+// the SDK errors of the other providers: a 429 or a 5xx is retried, its
+// Retry-After is the pause, and UpstreamStatus names the status.
+type httpStatusError struct {
+	label  string
+	status int
+	header http.Header
+	body   string
+}
+
+func (e *httpStatusError) Error() string {
+	if body := strings.TrimSpace(e.body); body != "" {
+		return fmt.Sprintf("%s: HTTP %d: %s", e.label, e.status, body)
+	}
+	return fmt.Sprintf("%s: HTTP %d", e.label, e.status)
+}
 
 // UpstreamStatus reports the HTTP status the provider answered a failed call
 // with, or 0 when the error carries none (a transport failure, an error of
@@ -35,6 +57,10 @@ func UpstreamStatus(err error) int {
 	var dev *devinAPIError
 	if errors.As(err, &dev) {
 		return dev.status
+	}
+	var raw *httpStatusError
+	if errors.As(err, &raw) {
+		return raw.status
 	}
 	var sse *streamServerError
 	if errors.As(err, &sse) {

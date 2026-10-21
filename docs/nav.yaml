@@ -118,6 +118,9 @@ groups:
       - path: features/devin.md
         title: Devin
         summary: Using the models of a Devin (Cognition) account - browser sign-in or the Devin CLI login, one model per family with reasoning levels mapped to its variants, where the session token comes from.
+      - path: features/opencode.md
+        title: OpenCode
+        summary: Using the OpenCode Go and Console gateways with account login or a service account key - model protocols, client headers and gateway selection.
       - path: features/acp-provider.md
         title: ACP agent as a model
         summary: Serving a local ACP agent (Claude Code, Codex, OpenCode, ZCode, another Coddy) as a model - the acp block, one agent session per Coddy session, its permission requests, plan and ask modes, the agent process.

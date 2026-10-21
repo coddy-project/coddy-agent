@@ -354,6 +354,10 @@ func responseHeadersFromError(err error) (http.Header, bool) {
 	if errors.As(err, &ant) && ant.Response != nil {
 		return ant.Response.Header, true
 	}
+	var raw *httpStatusError
+	if errors.As(err, &raw) && raw.header != nil {
+		return raw.header, true
+	}
 	return nil, false
 }
 
@@ -626,6 +630,10 @@ func httpStatusFromError(err error) int {
 		// Authoritative like the typed stream error above: the server's
 		// message may hold digits of its own (a trace ID).
 		return dev.status
+	}
+	var raw *httpStatusError
+	if errors.As(err, &raw) {
+		return raw.status
 	}
 	s := err.Error()
 	for _, code := range retryableStatuses {

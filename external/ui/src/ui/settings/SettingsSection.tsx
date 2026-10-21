@@ -5,6 +5,7 @@ import { CodexAuthField } from "./CodexAuthField";
 import { FieldLabel } from "./FieldHint";
 import { ContextWindowField } from "./ContextWindowField";
 import { NeuralDeepAuthField } from "./NeuralDeepAuthField";
+import { OpenCodeAuthField } from "./OpenCodeAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
 import { ProviderModelList } from "./ProviderModelList";
@@ -53,6 +54,34 @@ const NEURALDEEP_API_BASE_OPTIONS = [
   },
 ] as const;
 const NEURALDEEP_DEFAULT_API_BASE = NEURALDEEP_API_BASE_OPTIONS[0].value;
+
+// The gateways an opencode provider may point at, mirroring opencodeEndpoints
+// in internal/llm/opencode.go. The backend ignores anything else in api_base
+// and falls back to the first entry (Go).
+const OPENCODE_API_BASE_OPTIONS = [
+  {
+    value: "https://opencode.ai/inference/go/v1",
+    labelKey: "openCodeApiBase.optionGo",
+  },
+  {
+    value: "https://opencode.ai/inference/v1",
+    labelKey: "openCodeApiBase.optionConsole",
+  },
+] as const;
+const OPENCODE_DEFAULT_API_BASE = OPENCODE_API_BASE_OPTIONS[0].value;
+
+/** Canonical spelling of a stored api_base, or "" when it names no OpenCode gateway. */
+function matchOpenCodeAPIBase(value: unknown): string {
+  let want = String(value ?? "").trim();
+  while (want.endsWith("/")) {
+    want = want.slice(0, -1);
+  }
+  want = want.toLowerCase();
+  return (
+    OPENCODE_API_BASE_OPTIONS.find((o) => o.value.toLowerCase() === want)
+      ?.value ?? ""
+  );
+}
 
 /** Canonical spelling of a stored api_base, or "" when it names no NeuralDeep endpoint. */
 function matchNeuralDeepAPIBase(value: unknown): string {
@@ -211,6 +240,62 @@ function neuralDeepAPIBaseOverride(
   );
 }
 
+function OpenCodeAPIBaseField(props: {
+  ctx: FieldOverrideContext;
+  texts: OverrideTexts;
+}) {
+  const { value, onChange } = props.ctx;
+  const { texts } = props;
+  const { t } = useT();
+  const label = texts.primary;
+  const stored = String(value ?? "").trim();
+  const matched = matchOpenCodeAPIBase(value);
+  // A stored value that names no gateway is not the same as an empty one: the
+  // document still holds it, and only a pick can replace it. The select then
+  // shows a placeholder of its own, so picking the gateway on display really
+  // writes it - an option that is already selected fires no change event, and
+  // the stale value would stay behind.
+  const unresolved = stored !== "" && matched === "";
+
+  // OpenCode serves the account or service account key through two gateways:
+  // (.../inference/go/v1) and pay-as-you-go Console (.../inference/v1). Only
+  // those are offered; the backend ignores anything else and falls back to Go.
+  // Nothing is written until the user picks one, so a base entered for another
+  // provider type survives switching to opencode and back. The key itself goes
+  // in the api_key field above; account sign-in is offered below the picker.
+  return (
+    <div className="settings-row">
+      <FieldLabel label={label} description={texts.primaryDesc} />
+      <select
+        className="settings-input"
+        value={unresolved ? "" : matched || OPENCODE_DEFAULT_API_BASE}
+        aria-label={label}
+        data-testid="opencode-api-base"
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {unresolved ? (
+          <option value="" disabled>
+            {t("openCodeApiBase.unresolved")}
+          </option>
+        ) : null}
+        {OPENCODE_API_BASE_OPTIONS.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {t(opt.labelKey)}
+          </option>
+        ))}
+      </select>
+      {unresolved ? (
+        <p className="settings-field-desc">
+          {t("openCodeApiBase.unknown", {
+            value: stored,
+            fallback: OPENCODE_DEFAULT_API_BASE,
+          })}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * What an override draws in a field's box: false (nothing), null (the
  * schema's own control) or its texts. The overrides draw from it and the
@@ -275,6 +360,14 @@ export function overrideTexts(
           primaryDesc: translate(SETTINGS_TEXTS.codexAccount.desc),
         };
       }
+    }
+    if (providerType === "opencode" && path === "api_base") {
+      return {
+        primary: label(),
+        primaryDesc: translate("openCodeApiBase.description"),
+        second: translate("openCodeAuth.fieldLabel"),
+        secondDesc: translate("openCodeAuth.description"),
+      };
     }
     if (providerType === "neuraldeep" && path === "api_base") {
       return {
@@ -348,6 +441,22 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
         texts={box}
         {...rowProxy(ctx.parentObj)}
       />
+    );
+  }
+  if (rowText(ctx.parentObj, "type") === "opencode") {
+    return (
+      <>
+        <OpenCodeAPIBaseField ctx={ctx} texts={box} />
+        <OpenCodeAuthField
+          providerName={rowText(ctx.parentObj, "name")}
+          hasExplicitKey={
+            rowText(ctx.parentObj, "api_key").trim() !== "" ||
+            rowText(ctx.parentObj, "api_key_command").trim() !== ""
+          }
+          texts={box}
+          {...rowProxy(ctx.parentObj)}
+        />
+      </>
     );
   }
   return neuralDeepAPIBaseOverride(ctx, box);

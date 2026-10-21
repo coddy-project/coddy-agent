@@ -10590,6 +10590,19 @@ html:not([data-theme="light"]) .settings.drawer {
   color: #fecaca;
 }
 
+/* The dark pink reads as nothing on the light canvas; the light canvas takes
+   the danger red of its theme, as the confirmation dialog's button does. */
+[data-theme="light"] .settings-btn-danger {
+  border-color: rgba(220, 38, 38, 0.45);
+  color: #b91c1c;
+}
+
+[data-theme="light"] .settings-btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, #dc2626 18%, var(--coddy-glass-panel-bg));
+  border-color: rgba(220, 38, 38, 0.7);
+  box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.35);
+}
+
 .settings-error {
   color: #fecaca;
   margin: 4px 0 0;
