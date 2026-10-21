@@ -2112,7 +2112,7 @@ export const messagesRu: Record<string, string> = {
     "Вернуть разговор к виду до этой правки. Изменения в файлах не откатываются.",
   "messages.attachedFiles": "Прикреплённые файлы",
   "messages.openAttachmentImage": "Открыть {fileName} крупнее",
-  "messages.toolImages": "Картинки, которые вызов показал модели",
+  "messages.toolImages": "Картинки, которые вернул вызов",
   "messages.openToolImage": "Открыть {fileName} крупнее",
   "messages.systemLabel": "Система",
   "messages.refresh": "Обновить",

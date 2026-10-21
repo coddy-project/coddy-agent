@@ -6,6 +6,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -163,12 +165,21 @@ func (t *streamableHTTPTransport) Send(ctx context.Context, data []byte) error {
 		// until the server closes this response stream, the call that
 		// opened it gives up or the transport closes.
 		handedOff = true
+		id := requestID(data)
 		go func() {
 			defer finish()
 			defer func() { _ = resp.Body.Close() }()
-			_ = readSSE(resp.Body, func(event, data string) {
+			err := readSSE(resp.Body, func(event, data string) {
 				t.deliver([]byte(data))
 			})
+			if id != nil {
+				// This transport does not resume a stream, so a request
+				// whose stream ended unanswered never will be: it fails now
+				// rather than waiting for its caller to give up. Once the
+				// response came, the request no longer waits and this
+				// answer goes nowhere.
+				t.deliver(streamEndedAnswer(id, err))
+			}
 		}()
 		return nil
 	default:
@@ -182,6 +193,34 @@ func (t *streamableHTTPTransport) Send(ctx context.Context, data []byte) error {
 		}
 		return nil
 	}
+}
+
+// requestID is the id of the JSON-RPC request data, or nil for a
+// notification, which no one waits an answer for.
+func requestID(data []byte) json.RawMessage {
+	var msg struct {
+		ID json.RawMessage `json:"id"`
+	}
+	if json.Unmarshal(data, &msg) != nil || len(msg.ID) == 0 || string(msg.ID) == "null" {
+		return nil
+	}
+	return msg.ID
+}
+
+// streamEndedAnswer is the JSON-RPC error a request whose response stream
+// ended without its response is answered with: broke with err, or closed by
+// the server when err is nil.
+func streamEndedAnswer(id json.RawMessage, err error) []byte {
+	why := "the server closed the response stream without answering"
+	if err != nil {
+		why = "the response stream broke: " + err.Error()
+	}
+	msg, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"error":   map[string]any{"code": -32603, "message": why},
+	})
+	return msg
 }
 
 func (t *streamableHTTPTransport) deliver(data []byte) {
@@ -402,11 +441,17 @@ func (t *sseTransport) Close() error {
 
 // ---- SSE parsing ----
 
+// sseMaxLine bounds one line of an event stream. A server sends a JSON-RPC
+// message as one data line, and a tool result may carry 20 MiB of pictures
+// (maxToolImagesBytes), about 27 MiB once base64 encoded, with its text
+// beside them.
+const sseMaxLine = 32 << 20
+
 // readSSE parses a text/event-stream, invoking emit once per event with the
 // event name ("" for unnamed = "message" events) and the joined data payload.
 func readSSE(r io.Reader, emit func(event, data string)) error {
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), sseMaxLine)
 	event := ""
 	var dataLines []string
 	flush := func() {
@@ -430,5 +475,8 @@ func readSSE(r io.Reader, emit func(event, data string)) error {
 		}
 	}
 	flush()
+	if errors.Is(scanner.Err(), bufio.ErrTooLong) {
+		return fmt.Errorf("a line of the event stream is longer than %d MiB", sseMaxLine>>20)
+	}
 	return scanner.Err()
 }
