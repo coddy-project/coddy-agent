@@ -2229,6 +2229,47 @@ test("an offer of nothing but a free slot still shows that slot", () => {
   expect(rows[0]?.textContent).toContain("hello");
 });
 
+// A screenshot an MCP tool returned is previewed under the call's card the
+// way a read's picture is, with the card closed.
+test("an MCP card previews the screenshot its tool returned under the card", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="m1"
+      title="browser__take_screenshot"
+      kind="other"
+      status="completed"
+      argsText="{}"
+      resultText=""
+      images={[
+        {
+          name: "browser-take_screenshot-1.png",
+          mimeType: "image/png",
+          previewUrl: "/coddy/sessions/s1/assets/shot-1a2b.png/thumbnail",
+          url: "/coddy/sessions/s1/assets/shot-1a2b.png",
+        },
+      ]}
+    />,
+  );
+  const details = screen.getByTestId("tool-details-m1") as HTMLDetailsElement;
+  expect(details.open).toBe(false);
+  expect(
+    details.querySelector(".structured-tool-mcp-server")?.textContent,
+  ).toBe("browser");
+  const thumb = screen.getByTestId("tool-image-thumb");
+  expect(thumb).toHaveAttribute(
+    "src",
+    "/coddy/sessions/s1/assets/shot-1a2b.png/thumbnail",
+  );
+  expect(details.contains(thumb)).toBe(false);
+
+  fireEvent.click(
+    screen.getByLabelText("Open browser-take_screenshot-1.png enlarged"),
+  );
+  expect(
+    document.querySelector(".docs-lightbox-stage img")?.getAttribute("src"),
+  ).toBe("/coddy/sessions/s1/assets/shot-1a2b.png");
+});
+
 // A read that showed the model a picture previews it under the row, without
 // opening the row: the preview is what the reader wants to see.
 test("a read that showed the model a picture previews it under the row", () => {

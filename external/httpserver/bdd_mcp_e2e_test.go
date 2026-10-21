@@ -145,7 +145,10 @@ type mcpE2EState struct {
 	provider *mcpScriptedProvider
 	// kinds is the state of the scenario with one server of every kind
 	// (bdd_mcp_kinds_test.go).
-	kinds    *mcpKindsState
+	kinds *mcpKindsState
+	// shots is the state of the scenario with screenshot servers
+	// (bdd_mcp_images_test.go).
+	shots    *mcpShotsState
 	mgr      *session.Manager
 	srv      *Server
 	ts       *httptest.Server
@@ -182,6 +185,10 @@ func (s *mcpE2EState) close() {
 	if s.kinds != nil {
 		s.kinds.close()
 		s.kinds = nil
+	}
+	if s.shots != nil {
+		s.shots.close()
+		s.shots = nil
 	}
 	// Only a home this scenario saved is put back: TestMain always sets one,
 	// so an empty value means the scenario never changed it.
@@ -436,6 +443,7 @@ func initializeMCPE2EScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the final assistant message contains the alpha token$`, s.finalAnswerContainsAlpha)
 	sc.Step(`^the "beta" server received exactly one tool call$`, s.betaReceivedExactlyOneCall)
 	s.registerKindsSteps(sc)
+	s.registerShotSteps(sc)
 }
 
 func TestMCPToolCallsOpenAIE2E(t *testing.T) {

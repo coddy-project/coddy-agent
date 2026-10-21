@@ -8,7 +8,10 @@ Feature: MCP tool calls reach the model and results reach the answer
   token. How a server is started is the operator's choice, and every kind
   works the same: a program run directly, an npm package run through npx
   (saved and started exactly as it was written), a remote server over
-  streamable HTTP and one over the legacy SSE transport.
+  streamable HTTP and one over the legacy SSE transport. A tool that returns
+  a screenshot hands it to a model that reads images and to the web UI over
+  each of them, a picture over 3 MiB included: more than 4 MiB of base64 on
+  one line of an event stream.
 
   @openai
   Scenario: HTTP gateway turns call MCP tools across transports and honor disable switches
@@ -33,6 +36,15 @@ Feature: MCP tool calls reach the model and results reach the answer
     When I send an agent prompt over POST /v1/responses
     Then the model was offered the tool of every MCP server
     And the final assistant message contains the token of every MCP server
+
+  @openai
+  Scenario: Screenshots MCP tools return reach a model that reads images and the web UI over every transport
+    Given a coddy HTTP server whose model reads images, with screenshot tools on MCP servers "native" run as a binary, "remote" over streamable http, "streamed" over streamable http answering with event streams and "legacy" over sse
+    And a scripted model that takes a screenshot with every MCP server in turn and then answers
+    When I send an agent prompt over POST /v1/responses with streaming on
+    Then the stream gives every screenshot call its picture for the web UI
+    And the model saw every screenshot right after its tool result
+    And the transcript keeps every screenshot on its tool row and serves the picture the server returned
 
   @acp
   Scenario: ACP session turn calls a stdio MCP tool
