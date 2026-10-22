@@ -28,7 +28,10 @@ The extension key is independent of `httpserver.auth_token`. It grants access to
 browser registration, browser file transfers and the extension's conversation API.
 It does not grant direct access to settings or workspace file routes. Anyone holding
 the key can start agent conversations, which use the server's normal tool permissions.
-Changing the key rebuilds the listener and disconnects extensions using the old key.
+The key reaches only the conversations it started: the chat list shows those alone,
+and a permission prompt, question or transcript of a conversation somebody else
+started is refused. Changing the key rebuilds the listener and disconnects
+extensions using the old key.
 
 ## Install the extension
 
@@ -73,9 +76,9 @@ Origins include the scheme and port. Sharing a tab and allowing a website are
 separate requirements. A saved website grant does not share other tabs at that site.
 Stop cancels pending work and clears shared tabs. Select them again to resume.
 
-The chat panel lists server conversations, starts a new conversation, streams the
-answer and shows tool permission requests and questions. Conversations are stored
-on the server and can be continued from Coddy's other surfaces.
+The chat panel lists the conversations this key started, starts a new conversation,
+streams the answer and shows tool permission requests and questions. Conversations
+are stored on the server and can be continued from Coddy's other surfaces.
 
 ## Files and browser differences
 

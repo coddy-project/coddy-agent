@@ -145,7 +145,11 @@ func (h *Hub) UpdateTabs(c *Connection, tabs []Tab, grant ...string) error {
 		}
 	}
 	c.tabs = next
-	if len(grant) > 0 {
+	// grant is variadic so tests can leave it out. The websocket handler
+	// always passes one string, so len(grant) alone cannot tell "no grant in
+	// this message" from "an empty grant" — and storing the latter would make
+	// every later Call stamp a grant the extension no longer recognises.
+	if len(grant) > 0 && grant[0] != "" {
 		c.grant = grant[0]
 	}
 	return nil

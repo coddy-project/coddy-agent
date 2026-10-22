@@ -3,10 +3,16 @@
 export async function chromeInput(api, tabId, action, params) {
   const target = { tabId };
   const send = (method, data) => api.debugger.sendCommand(target, method, data);
+  // DevTools keeps its own debugger attachment on the tab, and Chrome reports
+  // that lowercase ("Another debugger is already attached to the tab with
+  // id: N."). Attach is then skipped, and the detach below has to be skipped
+  // too — it would cut DevTools off.
+  let attached = false;
   try {
     await api.debugger.attach(target, "1.3");
+    attached = true;
   } catch (e) {
-    if (!String(e).includes("Already attached")) throw e;
+    if (!/already attached/i.test(String(e))) throw e;
   }
   try {
     if (action === "screenshot") {
@@ -138,9 +144,11 @@ export async function chromeInput(api, tabId, action, params) {
     } else throw new Error("Unsupported native action");
     return { ok: true, input: "native" };
   } finally {
-    try {
-      await api.debugger.detach(target);
-    } catch {}
+    if (attached) {
+      try {
+        await api.debugger.detach(target);
+      } catch {}
+    }
   }
 }
 

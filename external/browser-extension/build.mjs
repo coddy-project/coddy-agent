@@ -69,9 +69,17 @@ for (const browser of ["chrome", "firefox", "yandex"]) {
     "panel.html",
     "panel.js",
     "panel.css",
-    "icon.svg",
   ])
     await copyFile(`${root}${file}`, `${out}/${file}`);
+  // The notification icon is the shared logo asset, copied under the name
+  // background.js passes to notifications.create. A checked-in placeholder
+  // path would ship as a text file on a checkout without symlink privilege.
+  await copyFile(
+    fileURLToPath(
+      new URL("../../docs/assets/coddy-logo-mark-icon.svg", import.meta.url),
+    ),
+    `${out}/icon.svg`,
+  );
   await zipDirectory(
     out,
     `${root}dist/coddy-${browser}.${browser === "firefox" ? "xpi" : "zip"}`,

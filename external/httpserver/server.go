@@ -199,6 +199,35 @@ func (s *Server) CloseObservers() {
 // manager's configuration wins from then on: every replacement reaches the
 // server, and so does one the manager made before the server subscribed.
 func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD string) *Server {
+	s := newServer(cfg, mgr, log, defaultCWD)
+	s.observeTurnsAndBoard()
+	s.observeConfig(cfg)
+	// A fresh server means this process intends to serve again, so reopen the
+	// task pool a previous Drain closed. Who wakes the agent when a task ends
+	// is the process's decision: `coddy serve` offers this server to its
+	// runtime (Serve), a test attaches the server's own waker.
+	bgtask.Default().SetDraining(false)
+	return s
+}
+
+// NewHandlerOnly builds a server whose Handler is the only thing its owner
+// uses: the browser extension port forwards a handful of conversation routes
+// through it and drops every other request in front of it. Such a server owns
+// no listener and no process-wide lifecycle, so it must not reopen the
+// background task pool a Drain closed — a listener rebuilt during shutdown
+// would otherwise let one more task start that the exiting process orphans.
+// It also stays off the turn, usage, queue, settings, goal and board
+// observers: nothing subscribes to this server's events hub, so those would
+// fan every session turn out into a stream nobody reads. It keeps the config
+// observer alone, because the routes it does answer are only as current as
+// the settings they run with.
+func NewHandlerOnly(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD string) *Server {
+	s := newServer(cfg, mgr, log, defaultCWD)
+	s.observeConfig(cfg)
+	return s
+}
+
+func newServer(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD string) *Server {
 	s := &Server{
 		workspaceMediaKey:    rand.Text(),
 		mgr:                  mgr,
@@ -222,37 +251,6 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		loginThrottle:        &webauth.Throttle{},
 	}
 	s.cfgAt.Store(cfg)
-	// A board changes from a tool call of any surface's turn or from a route
-	// of this server; either way the web UI reads it again on the event.
-	s.removeCanvasObserver = canvas.OnChange(s.publishCanvasChanged)
-	// Several servers may share one manager (tests do), so each takes its own removable
-	// observer registration rather than a single manager-wide slot.
-	if mgr != nil {
-		s.removeTurnObserver = mgr.AddTurnObserver(s.publishTurnEvent)
-		s.removeUsageObserver = mgr.AddUsageObserver(s.publishProviderUsageEvent)
-		// A session is shared: a follow-up queued in one browser has to appear
-		// in the others and in a console attached over --remote, none of which
-		// may be reading the stream of the turn that is running.
-		s.removeQueueObserver = mgr.AddMessageQueueObserver(s.publishMessageQueueEvent)
-		s.removeSettingsObserver = mgr.AddSessionSettingsObserver(s.publishSessionSettingsEvent)
-		s.removeGoalObserver = mgr.AddSessionGoalObserver(s.publishSessionGoalEvent)
-		// The manager is the one place every reload path passes through - the
-		// settings screen, the agent's config_commit tool, the console - so
-		// following it is how the handlers see an edit no matter who made it.
-		s.removeConfigObserver = mgr.AddConfigObserver(s.ReplaceConfig)
-		// A configuration the manager installed after cfg was read and before
-		// the observer above was registered was announced to nobody here, and
-		// is not announced again. Catch up with it, unless the observer has
-		// already stored a newer one.
-		if cur := mgr.Cfg(); cur != nil && cur != cfg {
-			s.cfgAt.CompareAndSwap(cfg, cur)
-		}
-	}
-	// A fresh server means this process intends to serve again, so reopen the
-	// task pool a previous Drain closed. Who wakes the agent when a task ends
-	// is the process's decision: `coddy serve` offers this server to its
-	// runtime (Serve), a test attaches the server's own waker.
-	bgtask.Default().SetDraining(false)
 	s.mux.HandleFunc("GET /v1/models", s.handleModels)
 	s.mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
 	s.mux.HandleFunc("POST /v1/responses", s.handleResponsesCreate)
@@ -272,6 +270,45 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	}
 	mountEmbeddedSPARoot(s)
 	return s
+}
+
+// observeTurnsAndBoard follows everything that feeds the events hub a
+// streaming client is reading: the session manager and the shared board.
+func (s *Server) observeTurnsAndBoard() {
+	// A board changes from a tool call of any surface's turn or from a route
+	// of this server; either way the web UI reads it again on the event.
+	s.removeCanvasObserver = canvas.OnChange(s.publishCanvasChanged)
+	if s.mgr == nil {
+		return
+	}
+	// Several servers may share one manager (tests do), so each takes its own removable
+	// observer registration rather than a single manager-wide slot.
+	s.removeTurnObserver = s.mgr.AddTurnObserver(s.publishTurnEvent)
+	s.removeUsageObserver = s.mgr.AddUsageObserver(s.publishProviderUsageEvent)
+	// A session is shared: a follow-up queued in one browser has to appear
+	// in the others and in a console attached over --remote, none of which
+	// may be reading the stream of the turn that is running.
+	s.removeQueueObserver = s.mgr.AddMessageQueueObserver(s.publishMessageQueueEvent)
+	s.removeSettingsObserver = s.mgr.AddSessionSettingsObserver(s.publishSessionSettingsEvent)
+	s.removeGoalObserver = s.mgr.AddSessionGoalObserver(s.publishSessionGoalEvent)
+}
+
+// observeConfig follows the manager for configuration reloads. The manager is
+// the one place every reload path passes through - the settings screen, the
+// agent's config_commit tool, the console - so following it is how the
+// handlers see an edit no matter who made it.
+func (s *Server) observeConfig(cfg *config.Config) {
+	if s.mgr == nil {
+		return
+	}
+	s.removeConfigObserver = s.mgr.AddConfigObserver(s.ReplaceConfig)
+	// A configuration the manager installed after cfg was read and before
+	// the observer above was registered was announced to nobody here, and
+	// is not announced again. Catch up with it, unless the observer has
+	// already stored a newer one.
+	if cur := s.mgr.Cfg(); cur != nil && cur != cfg {
+		s.cfgAt.CompareAndSwap(cfg, cur)
+	}
 }
 
 func (s *Server) activeCfg() *config.Config {

@@ -172,6 +172,13 @@ async function loadChats() {
     const id = s.id || s.sessionId || s.session_id;
     if (id) $("sessions").add(new Option(s.title || id, id));
   }
+  // The list holds only the conversations this key started. A stored one that
+  // is no longer in it (the server restarted and forgot which were ours) would
+  // be refused on the next send, so drop it and start a new chat instead.
+  if (session && ![...$("sessions").options].some((o) => o.value === session)) {
+    session = "";
+    await api.storage.local.set({ panelSession: session });
+  }
   $("sessions").value = session;
   const models = await chat("/v1/models");
   $("model").replaceChildren(new Option("Agent", "agent"));
@@ -205,12 +212,10 @@ $("chat-form").onsubmit = async (e) => {
   const prompt = $("prompt").value;
   showMessage("user", prompt);
   $("prompt").value = "";
-  session ||=
-    "sess_" +
-    [...crypto.getRandomValues(new Uint8Array(12))]
-      .map((x) => x.toString(16).padStart(2, "0"))
-      .join("");
-  await api.storage.local.set({ panelSession: session });
+  // A new chat deliberately sends no session id. The server mints one and
+  // reports it back (the "session" event below), which is what keeps the
+  // extension key to the conversations this panel started rather than to
+  // every session on the server.
   const answer = showMessage("assistant", "Working…");
   let text = "";
   const port = api.runtime.connect({ name: "coddy-chat" });
@@ -235,6 +240,13 @@ $("chat-form").onsubmit = async (e) => {
       return;
     }
     const data = msg.data;
+    // Keep the conversation the server minted for this turn, so a follow-up,
+    // cancel and the chat list all name the same one. Permission and question
+    // frames carry their own sessionId as a fallback.
+    if (data?.sessionId && (msg.event === "session" || !session)) {
+      session = data.sessionId;
+      void api.storage.local.set({ panelSession: session });
+    }
     if (msg.event === "permission") {
       const box = document.createElement("div");
       box.className = "permission";

@@ -24,9 +24,52 @@ var (
 	mouseEvent  = user32.NewProc("mouse_event")
 	sendInput   = user32.NewProc("SendInput")
 	keyEvent    = user32.NewProc("keybd_event")
+	sysParams   = user32.NewProc("SystemParametersInfoW")
 	openProcess = syscall.NewLazyDLL("kernel32.dll").NewProc("OpenProcess")
 	processName = syscall.NewLazyDLL("kernel32.dll").NewProc("QueryFullProcessImageNameW")
 )
+
+// firefoxTabTitle strips the suffix Firefox puts after the active tab's own
+// title ("Page — Mozilla Firefox", also the " - " form and profile tails). The
+// window title is the only per-tab signal SendInput leaves us, so the guard
+// below has to compare that whole leading segment: a page that sets
+// document.title to a substring of another tab's title must not claim it.
+func firefoxTabTitle(window string) string {
+	window = strings.TrimSpace(window)
+	for _, sep := range []string{" — ", " - "} {
+		if i := strings.LastIndex(window, sep); i > 0 {
+			if strings.Contains(strings.ToLower(window[i+len(sep):]), "firefox") {
+				return strings.TrimSpace(window[:i])
+			}
+		}
+	}
+	return window
+}
+
+// wheelScrollLines is the system's "lines per wheel notch" setting.
+func wheelScrollLines() int {
+	const spiGetWheelScrollLines = 0x0068
+	var lines uint32
+	ok, _, _ := sysParams.Call(spiGetWheelScrollLines, 0, uintptr(unsafe.Pointer(&lines)), 0)
+	if ok == 0 || lines == 0 {
+		return 3
+	}
+	return int(lines)
+}
+
+// wheelUnits converts the tool's viewport CSS pixels into mouse_event wheel
+// data, which Windows counts in WHEEL_DELTA (120) notches. One notch scrolls
+// wheelScrollLines() text lines. The CDP and DOM paths honour the CSS-pixel
+// contract exactly; the OS speaks in lines rather than pixels, so this
+// conversion is as close as the native adapter can get to them.
+func wheelUnits(pixels float64) int32 {
+	const (
+		wheelDelta      = 120 // WHEEL_DELTA
+		wheelTextLinePx = 20  // one scrolled text line
+	)
+	perNotch := float64(wheelScrollLines() * wheelTextLinePx)
+	return int32(math.Round(pixels * wheelDelta / perNotch))
+}
 
 func checkTarget(title string) error {
 	if title == "" {
@@ -52,7 +95,11 @@ func checkTarget(title string) error {
 	}
 	buffer := make([]uint16, 4096)
 	_, _, _ = windowText.Call(hwnd, uintptr(unsafe.Pointer(&buffer[0])), uintptr(len(buffer)))
-	if !strings.Contains(syscall.UTF16ToString(buffer), title) {
+	// Equality on the whole tab title, not a substring anywhere in it: title
+	// is document.title, which the shared page itself controls, and a page
+	// titled "Mozilla" would otherwise keep receiving keystrokes after the
+	// user switched to another Firefox tab mid-action.
+	if !strings.EqualFold(firefoxTabTitle(syscall.UTF16ToString(buffer)), strings.TrimSpace(title)) {
 		return fmt.Errorf("active Firefox tab changed; inspect it again")
 	}
 	return nil
@@ -173,11 +220,14 @@ func execute(ctx context.Context, r request) error {
 		if err := move(x, y); err != nil {
 			return err
 		}
+		// dx,dy are viewport CSS pixels like every other input capability;
+		// mouse_event takes wheel notches, so convert. Positive wheel data
+		// scrolls up, the opposite of scrollBy({top}).
 		if r.DY != 0 {
-			_, _, _ = mouseEvent.Call(0x800, 0, 0, uintptr(int32(-r.DY)), 0)
+			_, _, _ = mouseEvent.Call(0x800, 0, 0, uintptr(int32(-wheelUnits(r.DY))), 0)
 		}
 		if r.DX != 0 {
-			_, _, _ = mouseEvent.Call(0x1000, 0, 0, uintptr(int32(r.DX)), 0)
+			_, _, _ = mouseEvent.Call(0x1000, 0, 0, uintptr(int32(wheelUnits(r.DX))), 0)
 		}
 	case "drag":
 		if err := move(x, y); err != nil {

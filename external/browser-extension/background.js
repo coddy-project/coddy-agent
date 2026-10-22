@@ -38,15 +38,33 @@ api.runtime.onInstalled.addListener((details) => {
 function send(data) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(data));
 }
+// The MV3 service worker is torn down ~30s after its last incoming event and
+// takes in-memory state with it. Without this, a restart left `shared` empty,
+// so the next publish() unshared every tab and dropped the server-side leases.
+async function saveShared(ids) {
+  shared = ids;
+  await api.storage.local.set({ shared });
+}
 async function publish() {
   const tabs = [];
+  const live = [];
   for (const id of shared) {
+    let t;
     try {
-      const t = await api.tabs.get(id);
+      t = await api.tabs.get(id);
+    } catch {
+      continue;
+    }
+    live.push(id);
+    try {
       siteOf(t.url);
       tabs.push({ id, title: (t.title || "").slice(0, 1000), url: t.url });
     } catch {}
   }
+  // A tab id that no longer resolves is gone for good — a restored selection
+  // after a browser restart, or one closed while the worker was down. Dropping
+  // it only from this publish would leave a stale checkmark in the panel.
+  if (live.length !== shared.length) await saveShared(live);
   send({ type: "tabs", tabs, grant });
 }
 function cancelAll() {
@@ -58,7 +76,7 @@ function cancelAll() {
 }
 async function stop() {
   cancelAll();
-  shared = [];
+  await saveShared([]);
   grant = crypto.randomUUID();
   send({ type: "stop" });
   await api.action.setBadgeText({ text: "" });
@@ -465,7 +483,7 @@ api.runtime.onMessage.addListener((msg, sender, respond) => {
       if (msg.ids.length > 100) throw new Error("Select at most 100 tabs");
       cancelAll();
       grant = crypto.randomUUID();
-      shared = [...new Set(msg.ids)].filter(Number.isInteger);
+      await saveShared([...new Set(msg.ids)].filter(Number.isInteger));
       await publish();
       return { ok: true };
     }
@@ -548,7 +566,9 @@ api.runtime.onConnect.addListener((port) => {
           headers: {
             Authorization: `Bearer ${config.key}`,
             "Content-Type": "application/json",
-            "X-Coddy-Session-ID": msg.session,
+            // A new chat sends no session id at all: the server mints one and
+            // only then does this key get to reach that conversation.
+            ...(msg.session ? { "X-Coddy-Session-ID": msg.session } : {}),
           },
           body: JSON.stringify({
             model: "agent",
@@ -561,6 +581,11 @@ api.runtime.onConnect.addListener((port) => {
         },
       );
       if (!response.ok) throw new Error((await response.text()).slice(0, 500));
+      // The id the server minted for this turn is the conversation the panel
+      // has to keep naming; a turn of a chat already under way reports none.
+      const started = response.headers.get("X-Coddy-Session-ID");
+      if (started)
+        port.postMessage({ event: "session", data: { sessionId: started } });
       await consumeSSE(response.body, (event, data) =>
         port.postMessage({ event, data }),
       );
@@ -575,7 +600,7 @@ api.runtime.onConnect.addListener((port) => {
   });
 });
 api.tabs.onRemoved.addListener(async (id) => {
-  shared = shared.filter((x) => x !== id);
+  await saveShared(shared.filter((x) => x !== id));
   await publish();
 });
 api.tabs.onUpdated.addListener((id, info) => {
@@ -589,10 +614,11 @@ api.alarms.onAlarm.addListener(() => {
 setInterval(() => send({ type: "ping" }), 20000);
 async function initialize() {
   await api.alarms.create("coddy-connection", { periodInMinutes: 0.5 });
-  const stored = await api.storage.local.get(["config", "allowed"]);
+  const stored = await api.storage.local.get(["config", "allowed", "shared"]);
   config = stored.config || { id: crypto.randomUUID() };
   config.id ||= crypto.randomUUID();
   allowed = stored.allowed || [];
+  shared = (stored.shared || []).filter(Number.isInteger);
   if (api.storage.local.setAccessLevel)
     await api.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
   await api.storage.local.set({ config });
