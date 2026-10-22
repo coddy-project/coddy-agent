@@ -404,7 +404,13 @@ func newStreamServerError(obj []byte, emitted bool) error {
 	if msg == "" {
 		msg = streamErrorSnippet(obj)
 	}
-	code := int(gjson.GetBytes(obj, "code").Int())
+	// The code is read where the SDK-decoded streams read it (inBandStatus):
+	// the object itself, then an error object a gateway nested in it.
+	parsed := gjson.ParseBytes(obj)
+	code := numericCode(parsed)
+	if code == 0 {
+		code = numericCode(parsed.Get("error"))
+	}
 	if code == 0 && isOverloadPayload(string(obj)) {
 		// An overload spelled by type or by a named code carries no status:
 		// it is the 503 the SDK-decoded streams treat it as.

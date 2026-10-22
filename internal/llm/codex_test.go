@@ -888,6 +888,9 @@ func TestCodexInBandErrorRetry(t *testing.T) {
 		{name: "an invalid request that says overloaded is final", scripts: []func(io.Writer){
 			inBand("invalid_request_error", "context_length_exceeded", overloadMessage), hello},
 			wantRequests: 1, wantErr: true},
+		{name: "a gateway's 500 before any output is retried and succeeds", scripts: []func(io.Writer){
+			inBand("api_error", "500", "upstream failed"), hello},
+			wantRequests: 2, wantStreamed: "Hello"},
 		{name: "an invalid request whose message names a status is final", scripts: []func(io.Writer){
 			inBand("invalid_request_error", "invalid_prompt", "Unsupported identifier 529 was supplied"), hello},
 			wantRequests: 1, wantErr: true},

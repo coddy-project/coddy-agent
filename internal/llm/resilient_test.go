@@ -541,6 +541,8 @@ func TestInBandStatusCode(t *testing.T) {
 		{"a server error without a status", `{"type":"error","error":{"type":"api_error","message":"Internal server error"}}`, false, false, "error"},
 		{"a refusal", `{"code":400,"message":"bad request"}`, false, false, "client_error"},
 		{"a refusal that quotes a dropped connection", `{"type":"invalid_request_error","message":"tool output: connection reset by peer"}`, false, false, "error"},
+		{"a code outside the statuses", `{"code":600,"message":"odd"}`, false, false, "error"},
+		{"a code nested only", `{"type":"error","error":{"code":504,"message":"timeout"}}`, true, true, "server_error"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -561,6 +563,25 @@ func TestInBandStatusCode(t *testing.T) {
 				t.Errorf("CallOutcome = %q, want %q", got, tc.outcome)
 			}
 		})
+	}
+}
+
+// TestInBandLimitNamingALongPauseIsAReset: a limit an in-band event names by
+// its code takes the wrapper's limit handling, a pause beyond what the
+// retries could wait included.
+func TestInBandLimitNamingALongPauseIsAReset(t *testing.T) {
+	limit := fmt.Errorf("anthropic stream: %w", &streamTransportError{cause: errors.New(
+		`received error while streaming: {"error":{"code":"429","message":"Rate limit reached, retry in 3600s"}}`)})
+	var calls atomic.Int32
+	inner := &stubProvider{streamFn: func(context.Context, []Message, []ToolDefinition, func(StreamChunk)) (*Response, error) {
+		calls.Add(1)
+		return nil, limit
+	}}
+	p := wrapResilient(inner, ResilientOptions{RetryMax: 2, RetryBase: time.Millisecond, RetryMaxDelay: time.Millisecond})
+	_, err := p.Stream(context.Background(), nil, nil, nil)
+	var reset *QuotaResetError
+	if !errors.As(err, &reset) || calls.Load() != 1 {
+		t.Fatalf("err = %v after %d calls, want a QuotaResetError after one", err, calls.Load())
 	}
 }
 
@@ -1557,6 +1578,8 @@ func TestCallOutcome(t *testing.T) {
 			`received error while streaming: {"type":"invalid_request_error","code":"invalid_prompt","message":"refused"}`)}), "error"},
 		{"an in-band refusal whose message names a status", fmt.Errorf("codex stream: %w", &streamTransportError{cause: errors.New(
 			`received error while streaming: {"type":"invalid_request_error","message":"upstream said 503 Service Unavailable"}`)}), "error"},
+		{"a server error without a code whose message quotes a dropped connection", fmt.Errorf("openai stream: %w",
+			&streamServerError{msg: "upstream: connection reset by peer"}), "error"},
 		{"a corrupt stream", fmt.Errorf("openai stream: %w", &streamUndecodableError{snippet: "<html>"}), "error"},
 		{"a failure without a status", fmt.Errorf("codex stream: %w", &streamServerError{msg: "response.failed"}), "error"},
 		{"a transport error that is not a drop", fmt.Errorf("openai stream: %w", &streamTransportError{cause: errors.New("x509: certificate signed by unknown authority")}), "error"},
