@@ -271,15 +271,32 @@ messages: [
 
    Recovery attempts and transport retries draw from the **`llm_retry_max`**
    shared budget (default 3). The initial model request for a step is not
-   charged; each extra attempt or recovery consumes one slot; the budget resets
+   charged; each extra attempt or recovery, the provider recovery excepted,
+   consumes one slot; the budget resets
    when the model makes progress (a tool call or an answered followup) — it is
    not a lifetime cap on all LLM calls in a turn. Per-strategy limits apply
    independently of the budget:
 
    - **Transport retries.** The resilient wrapper repeats on HTTP 429, 408,
-     5xx, and transport failures that left no output with the caller; each
-     retry consumes one slot. A cancellation, an unknown host, and any failure
-     after output was emitted stay final.
+     500, 502, 503, 504 and 529 (overloaded), on an overload the provider
+     reports inside the stream (an error object whose decoded `type` or `code`
+     says so: `service_unavailable_error`, `overloaded_error`,
+     `server_is_overloaded`, or a numeric 503 or 529; the words of its message
+     decide nothing), and on transport failures that left no output with the
+     caller; each retry consumes one slot. The Codex, Anthropic and
+     OpenAI-compatible streams read the same fields, and an overload that
+     names no number counts as a 503. Any other in-band error is read by its
+     numeric `code` (a number or a numeric string) on each of those streams:
+     it is retried when the code is one of those statuses and is final
+     otherwise, whatever status or connection phrase its message holds. A
+     status is also read from the text of
+     an untyped error, as a number with no digit in front of it (`529 `, not
+     the end of `1529 tokens`). A cancellation, an unknown host, and any
+     failure after output was emitted stay final. A Codex `response.failed`
+     event is read as an untyped error: its `code` (`server_is_overloaded`
+     included) only joins the text of the message and is not classified, so
+     it is retried only when its message names a status that way
+     (`503 Service Unavailable`) and is final otherwise.
    - **First-token re-issue.** A streamed call the first-token guard
      (**`llm_first_token_timeout_ms`**) cuts with **nothing produced** is
      re-issued at most once, using a normal **`max_turns`** iteration. The
@@ -382,9 +399,14 @@ messages: [
      take the same path. When the retries are spent the turn ends with
      **`StopReasonMaxTokens`** and a notice (**`outputLimitNotice`**).
    - **Provider recovery.** A call that failed because of the provider's lane
-     (**`llm.IsTransientProviderError`**: 5xx, a cut or silent stream - an event
-     cut inside its JSON included, a stream frame that is not JSON at all not -
-     output already emitted or not; a 429 is left to the wrapper and the limit wait)
+     (**`llm.IsTransientProviderError`**: an answer with HTTP 408, 500, 502,
+     503, 504 or 529; an in-band error, on each of those three streams, that
+     is an overload by the fields above or that carries one of those
+     statuses as its numeric `code` - an in-band error of another kind, such
+     as an `api_error` that names no status, stays final; a cut or
+     silent stream - an event cut inside its JSON included, a stream frame that
+     is not JSON at all not - output already emitted or not; a 429 is left to
+     the wrapper and the limit wait)
      does not end the turn. The answer text and
      reasoning already streamed are kept as an assistant message without tool
      calls, a **`notice`** row goes to the UI log, and after a pause
@@ -399,7 +421,9 @@ messages: [
      recoveries (and like the loop guard's nudge), so a compaction before the
      step runs again puts it back after the kept answer instead of ending the
      request on that answer. At most **`maxProviderRecoveries`** (2) in a row; a successful call resets
-     the count. Uses a normal **`max_turns`** iteration.
+     the count. Uses a normal **`max_turns`** iteration. It takes no slot of
+     the shared budget: its own count bounds it, and `llm_retry_max: 0` turns
+     it off.
    - **Overflow recovery.** A call the provider refused as larger than the
      model's window (**`llm.IsContextOverflow`**) with nothing streamed yet
      compacts the turn and runs the step again, once per step
@@ -513,4 +537,4 @@ messages: [
 - Слишком длинный контекст - старые сообщения сжимаются в сводку, работа продолжается со сводкой;
 - Отмена - все операции прерываются, возвращается причина остановки `cancelled`.
 
-<!-- docsgen:source sha256=e3277e5cf58bb2b4 -->
+<!-- docsgen:source sha256=25408b02a15c41e0 -->

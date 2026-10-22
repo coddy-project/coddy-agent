@@ -110,6 +110,9 @@ func agentsChainDirs(root, p string) []string {
 // rule, or returns nil when the folder does not have it (or it is empty).
 func readAgentsRule(root, dir, file string) *Rule {
 	path := filepath.Join(dir, file)
+	if info, err := os.Stat(path); err != nil || info.IsDir() || specialFile(info.Mode()) {
+		return nil
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil

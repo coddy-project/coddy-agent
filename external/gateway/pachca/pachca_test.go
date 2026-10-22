@@ -814,3 +814,32 @@ func TestSender_GoalTurnsAreMessagesInOrder(t *testing.T) {
 		t.Fatalf("progress posted or answers merged:\n%s", joined)
 	}
 }
+
+// The bot allows what its own agent asks, except a prompt the gate forced (a
+// hook's ask, a command the safety check did not clear): that one is asked in
+// the chat with buttons, like a narrowed subagent's, and nobody tapping is no.
+func TestForcedPromptOfTheChatsOwnAgentIsAskedInTheChat(t *testing.T) {
+	e := newTestEnv(t, pachcafake.Options{IgnoreSelfMessages: true}, nil)
+	e.fake.AddUser(1, "u1", "U")
+	s := e.bot.newSender(context.Background(), e.client, UserTarget(1), 0)
+	params := permissionParams("sess_forced", "", "rm -rf build")
+	params.EffectivePermissionMode = ""
+	params.Forced = true
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	res, err := s.RequestPermission(ctx, params)
+	if err != nil || res == nil || res.OptionID == "allow" {
+		t.Fatalf("a forced prompt was answered without the person: %+v %v", res, err)
+	}
+	// Nobody tapped, so the request was settled: its buttons are gone and the
+	// message says it no longer waits.
+	asked := false
+	for _, m := range e.fake.Messages(e.fake.PersonalChat(1)) {
+		if m.UserID == e.fake.BotUserID() && strings.Contains(m.Content, "rm -rf build") && strings.HasSuffix(m.Content, "No longer waiting.") {
+			asked = true
+		}
+	}
+	if !asked {
+		t.Fatalf("the forced prompt was not asked in the chat: %+v", e.fake.Messages(e.fake.PersonalChat(1)))
+	}
+}

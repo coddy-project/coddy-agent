@@ -142,8 +142,8 @@ func TestDocsGitignoreFeature(t *testing.T) {
 	}
 	// The answer must come from the .gitignore each scenario writes and from
 	// nothing the developer configured globally.
-	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
-	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
+	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
 	suite := godog.TestSuite{
 		Name:                "docsgen-gitignore",
 		ScenarioInitializer: initializeDocsIgnoreScenario,

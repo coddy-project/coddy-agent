@@ -246,11 +246,14 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   resultWasTruncated?: boolean | undefined;
   /** Final todo state saved with this call, used by structured todo previews. */
   todoPlan?: TodoPlanEntry[] | undefined;
-  /** Pictures the call showed the model (`read` on an image file), previewed
+  /** Pictures the call returned (`read` on an image file, an MCP tool), previewed
    *  under the row. */
   images?: readonly TranscriptFile[] | undefined;
   /** Files deliberately shared by a completed share_file tool call. */
   artifacts?: readonly ToolArtifact[] | undefined;
+  /** A call the agent behind an acp model ran: its title names what it
+   *  works on already, so no target is read out of its input. */
+  agentTool?: boolean | undefined;
   durationMs?: number;
   /** Wall-clock start for live elapsed while pending/in_progress. */
   startedAtMs?: number;
@@ -332,8 +335,11 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     [props.argsText, props.kind, props.title],
   );
   const summaryTargetFull = useMemo(
-    () => (isQuestionTool ? "" : toolCallTargetText(targetContext).trim()),
-    [isQuestionTool, targetContext],
+    () =>
+      isQuestionTool || props.agentTool
+        ? ""
+        : toolCallTargetText(targetContext).trim(),
+    [isQuestionTool, props.agentTool, targetContext],
   );
   // The row is one line and clips its end, which is where a path carries the file
   // name. Against the session's own directory the same file is a few segments, so

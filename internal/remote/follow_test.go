@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -482,5 +483,43 @@ func TestAFollowerPicksTheSameTurnUpWhereItStopped(t *testing.T) {
 
 	if got := probe.reads(); len(got) != 3 || got[0] != "all" || got[1] != "last=4" || got[2] != "all" {
 		t.Fatalf("relay reads = %v, want the turn, the same turn after frame 4, then a new turn", got)
+	}
+}
+
+// A session loaded over REST draws the tool calls the agent behind an acp
+// model ran as their rows, before the answer, as a local load does.
+func TestReplayDrawsTheAgentsToolRows(t *testing.T) {
+	h, err := NewHandler(Options{BaseURL: "http://127.0.0.1:1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &collectSender{}
+	h.SetServer(sender)
+	var rows []messageRow
+	if err := json.Unmarshal([]byte(`[
+		{"role":"user","content":"read the notes"},
+		{"role":"assistant","content":"banana","agent_tools":[
+			{"id":"acp_t1","title":"read notes.txt","kind":"read","status":"completed","output":"banana split"}]}
+	]`), &rows); err != nil {
+		t.Fatal(err)
+	}
+	h.replayMessages("sess_1", rows)
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+	var seq []string
+	for _, u := range sender.updates {
+		switch v := u.(type) {
+		case acp.ToolCallUpdate:
+			seq = append(seq, "row "+v.Title+" "+v.Kind)
+		case acp.ToolCallStatusUpdate:
+			seq = append(seq, v.Status+" "+v.Content[0].Content.Text)
+		case acp.MessageChunkUpdate:
+			if v.SessionUpdate == acp.UpdateTypeAgentMessageChunk {
+				seq = append(seq, "answer "+v.Content.Text)
+			}
+		}
+	}
+	if want := []string{"row read notes.txt read", "completed banana split", "answer banana"}; strings.Join(seq, "|") != strings.Join(want, "|") {
+		t.Fatalf("replay = %q, want %q", seq, want)
 	}
 }

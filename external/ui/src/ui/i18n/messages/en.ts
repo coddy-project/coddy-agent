@@ -420,7 +420,7 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.providers.api_base.label": "API base URL",
   "settings.schema.providers.api_base.ph": "https://api.openai.com/v1",
   "settings.schema.providers.api_base.desc":
-    "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); ignored by codex and devin, which use their official endpoints.",
+    "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); ignored by codex and devin, which use their official endpoints, and by acp, whose agent runs on this machine.",
   "settings.schema.providers.api_key.label": "API key",
   "settings.schema.providers.api_key.desc":
     "A literal key, a ${ENV} reference expanded when the file is loaded, or empty to read the environment variable the placeholder names at call time.",
@@ -442,6 +442,49 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.providers.usage_limits_panel.label": "Usage limits panel",
   "settings.schema.providers.usage_limits_panel.desc":
     "Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
+
+  "settings.schema.providers.acp.label": "ACP agent",
+  "settings.schema.providers.acp.desc":
+    "The local program this provider runs: an agent that speaks the Agent Client Protocol on stdio, such as claude-agent-acp, codex-acp, opencode acp or coddy acp. It brings its own tools and works in the session's workspace.",
+  "settings.schema.providers.acp.command.label": "Command",
+  "settings.schema.providers.acp.command.ph": "claude-agent-acp",
+  "settings.schema.providers.acp.command.desc":
+    "The agent program, looked up on PATH: claude-agent-acp, codex-acp, opencode, coddy.",
+  "settings.schema.providers.acp.args.label": "Arguments",
+  "settings.schema.providers.acp.args.desc":
+    "Arguments after the command, such as acp for opencode and coddy.",
+  "settings.schema.providers.acp.env.label": "Environment",
+  "settings.schema.providers.acp.env.desc":
+    "Variables added to the environment the agent starts with, such as a key it reads. ${CWD} is the session's workspace.",
+  "settings.schema.providers.acp.cwd.label": "Working folder",
+  "settings.schema.providers.acp.cwd.desc":
+    "A fixed folder for the agent and every session it opens. Empty opens each session in the workspace of the Coddy session it serves.",
+  "settings.schema.providers.acp.auth_method.label": "Authentication method",
+  "settings.schema.providers.acp.auth_method.ph": "api-key",
+  "settings.schema.providers.acp.auth_method.desc":
+    "The authentication method Coddy passes to the ACP authenticate call after start, for an agent that refuses sessions until a client authenticates it (codex-acp: api-key). Empty: the agent's own sign-in.",
+  "settings.schema.providers.acp.permissions.label":
+    "Agent permission requests",
+  "settings.schema.providers.acp.permissions.desc":
+    "What Coddy answers when the agent asks to run one of its tools: ask puts the request in front of you, as Coddy's own tools do (allowed without asking under the bypass permission mode, and an edit under accept_edits); allow approves it once; deny refuses it. In plan and ask mode every request is refused.",
+  "settings.schema.providers.acp.modes.label": "Agent modes",
+  "settings.schema.providers.acp.modes.desc":
+    "The agent's own mode for each Coddy mode (an ACP mode id such as plan or read-only). Empty keeps the agent's default in agent mode; plan and ask need a read-only mode of the agent, or their turns are refused.",
+  "settings.schema.providers.acp.modes.agent.label": "In agent mode",
+  "settings.schema.providers.acp.modes.agent.desc":
+    "The agent's mode while the session is in agent mode.",
+  "settings.schema.providers.acp.modes.plan.label": "In plan mode",
+  "settings.schema.providers.acp.modes.plan.desc":
+    "The agent's mode while the session is in plan mode.",
+  "settings.schema.providers.acp.modes.ask.label": "In ask mode",
+  "settings.schema.providers.acp.modes.ask.desc":
+    "The agent's mode while the session is in ask mode.",
+  "settings.schema.providers.acp.idle_timeout_ms.label": "Idle stop (ms)",
+  "settings.schema.providers.acp.idle_timeout_ms.desc":
+    "Stop the agent this long after its last call; the next call starts it again and replays the conversation into a new session. 0 means sixty minutes.",
+  "settings.schema.providers.acp.process.label": "Agent process",
+  "settings.schema.providers.acp.process.desc":
+    "shared: one agent process serves every session of this provider. per_session: every session gets a process of its own, for an agent that runs one prompt at a time (zcode-acp-server).",
 
   "settings.schema.models.desc":
     "Named model entries the agent and UI can select; ids reference provider prefixes.",
@@ -690,7 +733,7 @@ export const messagesEn: Record<string, string> = {
     "Model the memory subagent runs on; empty uses the session's model.",
   "settings.schema.decisions.enable.label": "Enabled",
   "settings.schema.decisions.enable.desc":
-    "Ask the NeuralDeep decisions API whether a shell command, local or over SSH, is safe before the permission gate decides. A safe command runs without a prompt; an unsafe one is asked about in ask and accept_edits and rejected in bypass, the rejection landing in the chat as the command's result. The command allowlist, session grants, a hook's allow and commands you approved in a prompt are not checked.",
+    "Ask the NeuralDeep decisions API whether a shell command, local or over SSH, is safe before the permission gate decides. A safe command runs without a prompt; an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer, the rejection landing in the chat as the command's result. The command allowlist, a session grant of exactly that command, a hook's allow and commands you approved in a prompt are not checked.",
   "settings.schema.decisions.model.label": "Decisions model",
   "settings.schema.decisions.model.desc":
     "frida-decisions: encoder pass, up to 512 tokens of command text, ~20 ms per request, 1 quota unit. clef-flash: up to 8192 tokens, ~150 ms, 4 quota units.",
@@ -976,6 +1019,33 @@ export const messagesEn: Record<string, string> = {
   "neuralDeepApiBase.optionTech": "api.neuraldeep.tech — international mirror",
   "neuralDeepApiBase.unknown":
     "The saved api_base {value} is not a NeuralDeep endpoint, so requests go to {fallback}. Pick an endpoint to replace it.",
+
+  "openCodeApiBase.description":
+    "OpenCode serves one API key from two gateways: the Go subscription and pay-as-you-go Console. Pick the one your key is for; the model list below is fetched with the row as it stands in the form. Enter the key in the API key field above, or run `coddy providers login opencode`.",
+  "openCodeApiBase.optionGo": "Go — subscription (inference/go/v1)",
+  "openCodeApiBase.optionConsole": "Console — pay as you go (inference/v1)",
+  "openCodeApiBase.unresolved": "Not an OpenCode gateway — pick one",
+  "openCodeApiBase.unknown":
+    "The saved api_base {value} is not an OpenCode gateway, so requests go to {fallback}. Pick a gateway to replace it.",
+
+  "openCodeAuth.error.signInFailed": "OpenCode sign in failed.",
+  "openCodeAuth.error.incompleteResponse":
+    "OpenCode returned incomplete sign-in instructions.",
+  "openCodeAuth.fieldLabel": "OpenCode account",
+  "openCodeAuth.description":
+    "Sign in to OpenCode Console, confirm the device code and select your organization. Tokens stay on the Coddy server. Save the provider settings to use this row for chats.",
+  "openCodeAuth.connected": "Signed in to OpenCode ({account}).",
+  "openCodeAuth.shadowedByKey":
+    "The configured API key or key command takes priority over this login. Clear it to use the account.",
+  "openCodeAuth.shadowedByEnv":
+    "The {env} environment variable on the Coddy server takes priority over this login. Unset it to use the account.",
+  "openCodeAuth.enterCode":
+    "Confirm this code on the OpenCode page and select your organization:",
+  "openCodeAuth.openSignInPage": "Open sign-in page",
+  "openCodeAuth.waiting": "Waiting for confirmation…",
+  "openCodeAuth.signOut": "Sign Out",
+  "openCodeAuth.signIn": "Sign In with OpenCode",
+  "openCodeAuth.enterProviderName": "Enter a provider name before signing in.",
 
   "neuralDeepAuth.error.signInFailed": "NeuralDeep sign in failed.",
   "neuralDeepAuth.error.incompleteResponse":
@@ -1997,7 +2067,7 @@ export const messagesEn: Record<string, string> = {
     "Restore the conversation as it was before this edit. File changes are not reverted.",
   "messages.attachedFiles": "Attached files",
   "messages.openAttachmentImage": "Open {fileName} enlarged",
-  "messages.toolImages": "Pictures the call showed the model",
+  "messages.toolImages": "Pictures the call returned",
   "messages.openToolImage": "Open {fileName} enlarged",
   "messages.systemLabel": "System",
   "messages.refresh": "Refresh",
@@ -2457,20 +2527,24 @@ export const messagesEn: Record<string, string> = {
   "status.turnTokens.one": "{shown} token",
   "status.turnTokens.other": "{shown} tokens",
   "messages.toolArtifacts": "Shared files",
+  "messages.artifactOpenFile": "Open {fileName} in the Files window",
+  "messages.artifactSourceDeleted": "File deleted",
+  "messages.artifactSourceDeletedHint":
+    "The file was deleted from the workspace. Its shared copy can still be downloaded.",
+  "messages.artifactSourceElsewhere":
+    "The file is not in this chat's workspace",
   "messages.downloadArtifact": "Download {fileName}",
   "messages.downloadArtifactButton": "Download",
   "messages.artifactDownloading": "Downloading…",
   "messages.artifactUnavailable": "Download unavailable",
   "messages.openArtifactImage": "Open {fileName}",
   "messages.artifactActions": "Actions for {fileName}",
-  "messages.artifactMention": "Mention source",
-  "messages.artifactCopyName": "Copy name",
-  "messages.artifactCopyRelative": "Copy relative path",
-  "messages.artifactCopyAbsolute": "Copy absolute path",
-  "messages.artifactReveal": "Reveal on server",
-  "messages.artifactRevealUnavailable":
-    "Reveal is unavailable for this remote or headless server",
-  "messages.artifactRevealFailed": "Reveal failed",
+  "messages.artifactMention": "Mention in chat",
+  "messages.artifactCopy": "Copy",
+  "messages.artifactCopyName": "File name",
+  "messages.artifactCopyRelative": "Relative path",
+  "messages.artifactCopyAbsolute": "Absolute path",
+  "markdown.openFile": "Open {path} in the Files window",
   "markdown.figure.mermaid": "Mermaid diagram",
   "markdown.figure.svg": "SVG image",
   "markdown.figure.showSource": "Show the source code",

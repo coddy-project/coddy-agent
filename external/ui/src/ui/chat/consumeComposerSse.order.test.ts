@@ -173,6 +173,40 @@ test("a completed read keeps the pictures its call showed the model", async () =
   expect(items.some((item) => item.type === "user_message")).toBe(false);
 });
 
+test("a completed MCP call keeps the screenshot its tool returned", async () => {
+  const images = [
+    {
+      name: "browser-take_screenshot-1.png",
+      mime_type: "image/png",
+      asset: "browser-take_screenshot-1-1a2b.png",
+      url: "/coddy/sessions/s1/assets/browser-take_screenshot-1-1a2b.png",
+      preview_url:
+        "/coddy/sessions/s1/assets/browser-take_screenshot-1-1a2b.png/thumbnail",
+    },
+  ];
+  const sse =
+    `event: tool_call\ndata: ${JSON.stringify({ toolCallId: "m1", title: "browser__take_screenshot", kind: "other", status: "pending" })}\n\n` +
+    `event: tool_call_update\ndata: ${JSON.stringify({ toolCallId: "m1", status: "completed", content: [], _meta: { coddy: { images } } })}\n\n` +
+    `data: [DONE]\n\n`;
+
+  const items = await drive(sse);
+  const call = items.find(
+    (item): item is Extract<TranscriptItem, { type: "tool_call" }> =>
+      item.type === "tool_call" && item.toolCallId === "m1",
+  );
+
+  expect(call?.images).toEqual([
+    {
+      name: "browser-take_screenshot-1.png",
+      mimeType: "image/png",
+      url: "/coddy/sessions/s1/assets/browser-take_screenshot-1-1a2b.png",
+      previewUrl:
+        "/coddy/sessions/s1/assets/browser-take_screenshot-1-1a2b.png/thumbnail",
+    },
+  ]);
+  expect(items.some((item) => item.type === "user_message")).toBe(false);
+});
+
 // Two tool calls with text before, between, and after must all interleave.
 test("streaming interleaves across multiple tool calls", async () => {
   const tool = (id: string) =>
@@ -678,4 +712,67 @@ test("a call without reasoning text or a count touches no earlier row", async ()
   );
   expect(rows).toHaveLength(1);
   expect(rows[0]!.reasoningTokens).toBeUndefined();
+});
+
+test("a turn whose text and reasoning interleave records every segment of its answer", async () => {
+  // An ACP agent served as a model thinks between two parts of one answer:
+  // each part is a row of its own, and the stream reports both ids, so the
+  // end of the turn can find its answer under either of them.
+  vi.stubGlobal("requestAnimationFrame", () => 0);
+  const items: TranscriptItem[] = [];
+  let idc = 0;
+  const reasoning = (r: string) =>
+    `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: r } }] })}\n\n`;
+  const res = await consumeComposerSseReader({
+    reader: mockReader(
+      reasoning("The user wants a helper.") +
+        textEvent("I'll create the file.") +
+        reasoning("[tool 1] Write src/hello.ts") +
+        textEvent("Created src/hello.ts.") +
+        "data: [DONE]\n\n",
+    ),
+    dec: new TextDecoder(),
+    carry: { buf: "" },
+    assistantId: "a-init",
+    applyStreamItems: (fn) => {
+      const next = fn(items.slice());
+      items.length = 0;
+      items.push(...next);
+    },
+    setTokenUsage: () => {},
+    setContextUsage: () => {},
+    tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
+    reasoningDurationMsByContentRef: { current: new Map() },
+    newId: (p) => `${p}-${idc++}`,
+    applyMemoryRunToItems: (prev) => prev,
+  });
+  const answers = items.filter((it) => it.type === "assistant_message");
+  expect(answers.map((a) => a.content)).toEqual([
+    "I'll create the file.",
+    "Created src/hello.ts.",
+  ]);
+  expect(res.assistantIds).toEqual(answers.map((a) => a.id));
+  expect(res.lastAssistantId).toBe(answers[1]!.id);
+});
+
+test("a tool call of an acp agent keeps its mark", async () => {
+  const sse =
+    `event: tool_call\ndata: ${JSON.stringify({ sessionUpdate: "tool_call", toolCallId: "acp_t1", title: "read notes.txt", kind: "read", status: "pending", _meta: { coddy: { agentTool: true } } })}\n\n` +
+    `event: tool_call_update\ndata: ${JSON.stringify({ sessionUpdate: "tool_call_update", toolCallId: "acp_t1", status: "completed", content: [{ type: "content", content: { type: "text", text: "banana split" } }] })}\n\n` +
+    `event: tool_call\ndata: ${JSON.stringify({ sessionUpdate: "tool_call", toolCallId: "call_1", title: "read", kind: "read", status: "pending" })}\n\n` +
+    "data: [DONE]\n\n";
+  const items = await drive(sse);
+  const agent = items.find(
+    (it) => it.type === "tool_call" && it.toolCallId === "acp_t1",
+  );
+  const own = items.find(
+    (it) => it.type === "tool_call" && it.toolCallId === "call_1",
+  );
+  expect(agent).toMatchObject({
+    title: "read notes.txt",
+    status: "completed",
+    resultText: "banana split",
+    agentTool: true,
+  });
+  expect(own).not.toHaveProperty("agentTool");
 });

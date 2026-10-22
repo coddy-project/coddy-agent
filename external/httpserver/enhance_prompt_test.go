@@ -121,3 +121,34 @@ func TestCoddyEnhancePromptReportsNoConfiguredModel(t *testing.T) {
 		t.Fatalf("want 503 got %d", res.StatusCode)
 	}
 }
+
+// A session on a model an acp agent serves improves its prompt with another
+// model: the agent answers inside a session only.
+func TestCoddyEnhancePromptBorrowsAModelThatIsNotAnAgent(t *testing.T) {
+	mgr, srv, _ := testHTTPServerPersist(t)
+	cfg := srv.activeCfg()
+	cfg.Providers = append(cfg.Providers, config.ProviderConfig{Name: "agent", Type: "acp", ACP: &config.ACPProviderConfig{Command: "claude-agent-acp"}})
+	cfg.Models = append(cfg.Models, config.ModelEntry{Model: "agent/default"})
+	var gotModel string
+	srv.makeLLMFromYAML = func(_ *config.Config, model string, _ llm.RequestOptions) (llm.Provider, error) {
+		gotModel = model
+		return fakeProvider{reply: "Better draft."}, nil
+	}
+	sn, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applySessionYAMLModel(cfg, mgr.SessionByID(sn.SessionID), "agent/default"); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, body := postEnhancePrompt(t, ts.URL, sn.SessionID, `{"text":"fix memory thing"}`)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d body %s", res.StatusCode, body)
+	}
+	if gotModel == "" || gotModel == "agent/default" || gotModel != cfg.FirstNonACPModelID() {
+		t.Fatalf("enhance model = %q, want %q", gotModel, cfg.FirstNonACPModelID())
+	}
+}

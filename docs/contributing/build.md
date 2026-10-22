@@ -4,7 +4,7 @@ This page is the detailed reference for local builds. For a short version, see [
 
 ## Prerequisites
 
-- **Go** - **1.26** or newer, the `go` line of [`go.mod`](../../go.mod). The `toolchain` line next to it (currently **`go1.26.9`**) is the oldest release any build links: CI and the release archives build with exactly that one, and with the default `GOTOOLCHAIN=auto` an older local `go` downloads it on first use. A newer local Go, or a newer patch in the `golang:1.26` image the Dockerfile starts from, builds with itself, which only adds fixes. Raise it when a Go patch release fixes a vulnerability the code reaches: `go mod edit -toolchain=go1.26.N` (see [AppSec scanning](security-scanning.md#the-go-toolchain)).
+- **Go** - **1.26** or newer, the `go` line of [`go.mod`](../../go.mod). The `toolchain` line next to it (currently **`go1.26.10`**) is the oldest release any build links: CI and the release archives build with exactly that one, and with the default `GOTOOLCHAIN=auto` an older local `go` downloads it on first use. A newer local Go, or a newer patch in the `golang:1.26` image the Dockerfile starts from, builds with itself, which only adds fixes. Raise it when a Go patch release fixes a vulnerability the code reaches: `go mod edit -toolchain=go1.26.N` (see [AppSec scanning](security-scanning.md#the-go-toolchain)).
 - **Git** - the Makefile embeds a version string from tags or `git describe` when available.
 - **Node.js and npm** - required when you build with both **`http`** and **`ui`**, because the Makefile runs **`ui-build`** (see [`Makefile`](../../Makefile)) to produce the assets that **`go:embed`** picks up, and by **`make test`** and **`make lint`**, which run the SPA's vitest suite and its TypeScript check.
 
@@ -331,13 +331,19 @@ Order does not matter for these tags.
 
 On Windows, run Make through Git Bash. The build and install targets use Go's
 executable suffix (`coddy.exe`), including the binary that `make docs` runs.
+The repository keeps text files at LF through `.gitattributes`, including CSS
+source-contract inputs and embedded Markdown. Use `GOFLAGS=-p=4 make test` to
+leave startup time for the suite's child MCP and PowerShell processes. The
+Windows CI job runs the rule adapters, SPA and complete Go suite with the shipped tags.
 Fixtures escape native paths in JSON and YAML, and packaging checks accept CRLF
 checkouts. POSIX mode assertions do not apply on Windows; tests that induce
 failures through Unix directory or file permissions skip there (and when run as
-root). The ACP symlink scenario skips only when Windows denies the symlink
+root). Symlink checks skip only when Windows denies the symlink
 privilege; enable Developer Mode or run an elevated terminal to exercise it.
 Docker asset checks also cover Git checkouts with `core.symlinks=false` by
 reading link modes from the index.
+The preview test that deletes a directory still held by `os.Root` is POSIX-only;
+Windows requires stopping that preview before removing its root directory.
 
 Documentation checks accept CRLF code fences and measure SVG text with LF line
 endings, so Windows checkout conversion does not change the generated inventory.

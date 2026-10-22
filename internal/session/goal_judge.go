@@ -247,6 +247,11 @@ func judgeSessionGoal(ctx context.Context, cfg *config.Config, st *State, req Go
 	if err != nil {
 		return GoalCheckResult{}, err
 	}
+	if rm.ProviderType == "acp" {
+		// The check is a one-shot judgement, not a session: a local ACP
+		// agent would take it for a task to run with its own tools.
+		return GoalCheckResult{}, fmt.Errorf("the goal check cannot run on %q, an acp agent; set supervisor.model to a model of another type", model)
+	}
 	// The same input the agent builds for its own calls (agent.llmProviderInput):
 	// the row's proxy, its transport choice and the retries of agent.*.
 	base := llm.ProviderInput{
@@ -257,6 +262,7 @@ func judgeSessionGoal(ctx context.Context, cfg *config.Config, st *State, req Go
 		ReasoningEffort:     GoalCheckReasoning(cfg, st),
 		SupportedParameters: st.ModelParameters(cfg, rm.ProviderName, rm.Model),
 		DisableStream:       !rm.Stream, Timeout: time.Duration(rm.TimeoutMS) * time.Millisecond,
+		ACP: rm.ACP,
 	}
 	if rm.Stream {
 		base.StreamIdleTimeout = cfg.Agent.EffectiveLLMStreamIdleTimeout()

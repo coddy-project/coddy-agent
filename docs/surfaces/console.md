@@ -610,8 +610,9 @@ runs out: the web UI's History until its **CLI runs** filter is chosen,
 list` still lists them, so a run that timed out is found by its folder and
 continued with `--session-id <id> -p "..."`. A session the run reopens (`-c`,
 an existing `--session-id`) keeps the origin it had. Permission requests
-resolve non-interactively: `bypass` allows, anything else rejects the call
-with a note on stderr. The question tool returns empty answers. `--model`,
+resolve non-interactively: `bypass` allows, except a forced prompt (a hook's
+`ask`, a command the decisions check did not clear), anything else rejects the
+call with a note on stderr. The question tool returns empty answers. `--model`,
 `--mode`, `--permission-mode`, `--session-id`, and `--continue` all combine
 with `--prompt`; `--resume` does not (it needs the interactive picker).
 

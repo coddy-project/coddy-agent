@@ -10,7 +10,45 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
+
+// The project notes sit in .coddy/memory of the session folder, beside the
+// project's other Coddy files, never in a bare memory folder of the checkout.
+func TestNewStoreRoots(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	work := filepath.Join(t.TempDir(), "work")
+	custom := filepath.Join(t.TempDir(), "notes")
+	cases := []struct {
+		name        string
+		mem         config.MemoryConfig
+		cwd         string
+		wantGlobal  string
+		wantProject string
+	}{
+		{"defaults", config.MemoryConfig{}, work, filepath.Join(home, "memory"), filepath.Join(work, ".coddy", "memory")},
+		{"memory.dir", config.MemoryConfig{Dir: custom}, work, custom, filepath.Join(work, ".coddy", "memory")},
+		{"no cwd", config.MemoryConfig{}, "  ", filepath.Join(home, "memory"), filepath.Join(".coddy", "memory")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st, err := NewStore(&tc.mem, config.Paths{Home: home}, tc.cwd)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if st.GlobalRoot() != tc.wantGlobal {
+				t.Errorf("global root = %q, want %q", st.GlobalRoot(), tc.wantGlobal)
+			}
+			if st.ProjectRoot() != tc.wantProject {
+				t.Errorf("project root = %q, want %q", st.ProjectRoot(), tc.wantProject)
+			}
+			if got := ProjectRootFor(tc.cwd); got != tc.wantProject {
+				t.Errorf("ProjectRootFor(%q) = %q, want %q", tc.cwd, got, tc.wantProject)
+			}
+		})
+	}
+}
 
 func TestStoreSearch(t *testing.T) {
 	tmp := t.TempDir()

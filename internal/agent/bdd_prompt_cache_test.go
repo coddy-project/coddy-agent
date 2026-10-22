@@ -76,6 +76,7 @@ type pcFeatureState struct {
 	tmpDirs    []string
 	cwd        string
 	sessionDir string
+	cfg        *config.Config
 	st         *session.State
 	ag         *Agent
 	provider   *pcScriptProvider
@@ -123,6 +124,7 @@ func (s *pcFeatureState) buildAgent() {
 	}
 	cfg.Agent.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
+	s.cfg = cfg
 	s.st = &session.State{ID: "sess_bdd_pcache", CWD: s.cwd, Mode: session.ModeAgent, SessionDir: s.sessionDir}
 	s.st.ReplaceRulesCatalog(session.DiscoverRules(cfg, s.cwd))
 	s.ag = NewAgent(cfg, s.st, resumePermissionSender{}, nil)

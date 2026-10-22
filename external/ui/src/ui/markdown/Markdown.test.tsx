@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -9,6 +10,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { pageWithoutClipboardApi, selectedOnce } from "../clipboardTestKit";
 import { Markdown } from "./Markdown";
 
 const stylesPath = join(
@@ -167,6 +169,41 @@ test("inline backtick code uses md-inline-code and copies on click", async () =>
   await waitFor(() => {
     expect(inline).toHaveAttribute("title", "Copied");
   });
+});
+
+// A page served over plain HTTP from another machine has no
+// navigator.clipboard (issue #566): the controls copy through the page, and
+// say Copied only for a copy that happened.
+test("a code block copies without a clipboard API and says Copied only when that worked", async () => {
+  const page = pageWithoutClipboardApi(false);
+  render(<Markdown text={"```js\nconst a = 1;\n```"} />);
+  const copy = screen.getByRole("button", { name: /copy code/i });
+  await act(async () => {
+    fireEvent.click(copy);
+  });
+  expect(copy).toHaveAttribute("title", "Copy");
+  expect(page.copies).toEqual(selectedOnce("const a = 1;"));
+  page.answer(true);
+  await act(async () => {
+    fireEvent.click(copy);
+  });
+  expect(copy).toHaveAttribute("title", "Copied");
+});
+
+test("inline code copies without a clipboard API and says Copied only when that worked", async () => {
+  const page = pageWithoutClipboardApi(false);
+  render(<Markdown text="Run `make test` locally." />);
+  const inline = screen.getByTestId("md-inline-code");
+  await act(async () => {
+    fireEvent.click(inline);
+  });
+  expect(page.copies).toEqual(selectedOnce("make test"));
+  expect(inline).toHaveAttribute("title", "Copy");
+  page.answer(true);
+  await act(async () => {
+    fireEvent.click(inline);
+  });
+  expect(inline).toHaveAttribute("title", "Copied");
 });
 
 test("inline code uses native title tooltip for Copy", () => {

@@ -308,6 +308,10 @@ settings, so an edit that only moves those changes nothing and announces nothing
 
 Flags outrank the file, on a reload as much as at startup. A daemon started with
 `--gateway` or `-H 0.0.0.0` keeps them when somebody else saves an unrelated setting.
+A save the process makes itself - from the settings screen, the MCP tab, or the agent's
+`config_commit` and `config_rollback` - goes live with the flags applied as well. A save
+the flags cannot be applied to is reported as an error, and the running configuration
+stays as it was.
 
 ### Restarting itself
 

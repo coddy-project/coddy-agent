@@ -90,6 +90,39 @@ func TestWorkspaceViewerFeature(t *testing.T) {
 				}
 				return nil
 			})
+			sc.Step(`^I ask which of "([^"]+)" are in the workspace$`, func(list string) error {
+				paths := strings.Split(list, ", ")
+				body, err := json.Marshal(map[string][]string{"paths": paths})
+				if err != nil {
+					return err
+				}
+				return request("POST", "stat", string(body), map[string]string{"Content-Type": "application/json"})
+			})
+			sc.Step(`^"([^"]+)" is a file, "([^"]+)" is a directory and "([^"]+)" is not there$`, func(file, dir, missing string) error {
+				var stat struct {
+					Entries []struct {
+						Path string `json:"path_rel"`
+						Kind string `json:"kind"`
+					} `json:"entries"`
+				}
+				if status != 200 {
+					return fmt.Errorf("stat status %d: %s", status, data)
+				}
+				if err := json.Unmarshal(data, &stat); err != nil {
+					return err
+				}
+				kinds := map[string]string{}
+				for _, e := range stat.Entries {
+					kinds[e.Path] = e.Kind
+				}
+				if kinds[file] != "file" || kinds[dir] != "directory" || len(kinds) != 2 {
+					return fmt.Errorf("unexpected stat: %s", data)
+				}
+				if _, ok := kinds[missing]; ok {
+					return fmt.Errorf("%q reported although it does not exist: %s", missing, data)
+				}
+				return nil
+			})
 			sc.Step(`^a large workspace text file$`, func() error { return s.workspaceContains("large.txt", strings.Repeat("hello world\n", 100000)) })
 			sc.Step(`^I read the large file from line offset (\d+)$`, func(offset int) error {
 				return request("GET", fmt.Sprintf("text?path_rel=large.txt&offset=%d&max_lines=1", offset), "", nil)

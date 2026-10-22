@@ -33,7 +33,7 @@ type worktreeCreateState struct {
 func (s *worktreeCreateState) git(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("git %v: %w: %s", args, err, out)
@@ -205,7 +205,7 @@ func (s *worktreeCreateState) check() error {
 	if s.worktree == s.root || !strings.Contains(s.worktree, filepath.Join(".coddy", "worktrees")) {
 		return fmt.Errorf("session did not move into a worktree: %q", s.worktree)
 	}
-	if !strings.Contains(s.output, s.worktree) {
+	if !strings.Contains(filepath.ToSlash(s.output), filepath.ToSlash(s.worktree)) {
 		return fmt.Errorf("run_command output %q does not name worktree %q", s.output, s.worktree)
 	}
 	return nil

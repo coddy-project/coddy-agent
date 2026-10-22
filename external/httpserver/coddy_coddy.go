@@ -490,7 +490,9 @@ func (s *Server) coddySessionPermissionPost(w http.ResponseWriter, r *http.Reque
 	if out == "" {
 		switch opt {
 		case "reject":
-			out = "cancelled"
+			// A person chose Reject; cancelled is a prompt dismissed or
+			// never answered, which the decisions check tells apart.
+			out = "selected"
 		default:
 			out = "allow"
 		}
@@ -651,7 +653,10 @@ type coddyToolCallRow struct {
 	Artifacts              []map[string]interface{} `json:"artifacts,omitempty"`
 }
 
-func artifactDTOs(sessionID string, artifacts []llm.Artifact) []map[string]interface{} {
+// artifactDTOs describes the shared files of a message for its cards. cwd is
+// the session's workspace now: sourceState says whether the file each was
+// copied from is still there, which is what the card opens in the Files window.
+func artifactDTOs(sessionID, cwd string, artifacts []llm.Artifact) []map[string]interface{} {
 	if sessionID == "" || len(artifacts) == 0 {
 		return nil
 	}
@@ -661,6 +666,9 @@ func artifactDTOs(sessionID string, artifacts []llm.Artifact) []map[string]inter
 			continue
 		}
 		row := map[string]interface{}{"id": a.ID, "name": a.Name, "sha256": a.SHA256, "size": a.Size, "sourcePath": a.SourcePath, "relativePath": a.SourceRelativePath, "url": "/coddy/sessions/" + url.PathEscape(sessionID) + "/artifacts/" + url.PathEscape(a.ID), "revealUrl": "/coddy/sessions/" + url.PathEscape(sessionID) + "/artifacts/" + url.PathEscape(a.ID) + "/reveal"}
+		if strings.TrimSpace(cwd) != "" {
+			row["sourceState"] = session.ArtifactSourceState(cwd, a.SourcePath, a.SourceRelativePath)
+		}
 		if artifactImageName(a.Name) {
 			row["previewUrl"] = "/coddy/sessions/" + url.PathEscape(sessionID) + "/artifacts/" + url.PathEscape(a.ID) + "/preview"
 		}
@@ -826,6 +834,26 @@ func (s *Server) coddyToolCallsList(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		}
+		// The tools the agent behind an acp model ran: their files are the
+		// session's like those of Coddy's calls, read below.
+		for _, t := range m.AgentTools {
+			if strings.TrimSpace(t.ID) == "" {
+				continue
+			}
+			if _, ok := idx[t.ID]; ok {
+				continue
+			}
+			idx[t.ID] = len(ordered)
+			row := coddyToolCallRow{
+				ToolCallID:  t.ID,
+				Name:        t.Title,
+				Kind:        session.AgentToolKind(t.Kind),
+				Status:      t.Status,
+				ArgsPreview: previewText(t.Input, 200),
+			}
+			coddyApplyResultPreview(&row, t.Output)
+			ordered = append(ordered, ent{row: row})
+		}
 		if m.Role == llm.RoleTool && strings.TrimSpace(m.ToolCallID) != "" {
 			i, ok := idx[m.ToolCallID]
 			if !ok {
@@ -835,7 +863,7 @@ func (s *Server) coddyToolCallsList(w http.ResponseWriter, r *http.Request) {
 			}
 			ordered[i].row.Status = "completed"
 			coddyApplyResultPreview(&ordered[i].row, m.Content)
-			ordered[i].row.Artifacts = artifactDTOs(id, m.Artifacts)
+			ordered[i].row.Artifacts = artifactDTOs(id, st.GetCWD(), m.Artifacts)
 		}
 	}
 
@@ -903,7 +931,7 @@ func (s *Server) coddyToolCallGet(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, m := range st.GetMessages() {
 		if m.Role == llm.RoleTool && m.ToolCallID == toolCallID {
-			payload["artifacts"] = artifactDTOs(id, m.Artifacts)
+			payload["artifacts"] = artifactDTOs(id, st.GetCWD(), m.Artifacts)
 			break
 		}
 	}
@@ -1392,7 +1420,7 @@ func (s *Server) addTurnProgress(out map[string]interface{}, id string) {
 }
 
 func llmMsgsToCoddyOpenAI(msgs []llm.Message) []map[string]interface{} {
-	return llmMsgsToCoddyOpenAIForSession("", "", msgs)
+	return llmMsgsToCoddyOpenAIForSession("", "", "", msgs)
 }
 
 // isRegularFile reports whether path is a regular file, a link not followed.
@@ -1417,7 +1445,7 @@ func recordedAsset(assetsDir, path string) string {
 	return filepath.Base(path)
 }
 
-func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir string, msgs []llm.Message) []map[string]interface{} {
+func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir, cwd string, msgs []llm.Message) []map[string]interface{} {
 	out := make([]map[string]interface{}, 0, len(msgs))
 	for _, m := range msgs {
 		item := map[string]interface{}{
@@ -1437,7 +1465,7 @@ func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir string, msgs []llm.Mess
 			item["tool_call_id"] = m.ToolCallID
 		}
 		if len(m.Artifacts) > 0 {
-			item["artifacts"] = artifactDTOs(sessionID, m.Artifacts)
+			item["artifacts"] = artifactDTOs(sessionID, cwd, m.Artifacts)
 		}
 		if len(m.ToolCalls) > 0 {
 			tc := make([]map[string]interface{}, 0, len(m.ToolCalls))
@@ -1480,8 +1508,14 @@ func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir string, msgs []llm.Mess
 			// goal turn with it.
 			item["goal_turn"] = m.GoalTurn
 		}
-		// A prompt's attachments, and the pictures a tool call showed the
-		// model (read on an image file), which stay on that call's result.
+		if m.Role == llm.RoleAssistant && len(m.AgentTools) > 0 {
+			// The tools the agent behind an acp model ran while it wrote
+			// this answer: rows of their own, never Coddy's tool calls.
+			item["agent_tools"] = m.AgentTools
+		}
+		// A prompt's attachments, and the pictures a tool call returned (read
+		// on an image file, an MCP tool's image blocks), which stay on that
+		// call's result.
 		if (m.Role == llm.RoleUser || m.Role == llm.RoleTool) && len(m.ImageParts) > 0 {
 			files := make([]map[string]interface{}, 0, len(m.ImageParts))
 			for _, part := range m.ImageParts {
@@ -1786,7 +1820,7 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 	out := map[string]interface{}{
 		"object":    "coddy.messages",
 		"sessionId": id,
-		"messages":  llmMsgsToCoddyOpenAIForSession(id, session.AssetsPath(st.GetPersistedSessionDir()), msgs[page.Offset:page.End]),
+		"messages":  llmMsgsToCoddyOpenAIForSession(id, session.AssetsPath(st.GetPersistedSessionDir()), st.GetCWD(), msgs[page.Offset:page.End]),
 		// The revision this history was read at: a client attaching to the composer
 		// relay passes it back as since_rev and is replayed only what it lacks.
 		"messagesRev": rev,

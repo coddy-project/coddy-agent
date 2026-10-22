@@ -348,7 +348,9 @@ skills:
 # One project folder is read under the session CWD: the first of .coddy/rules,
 # the shared .agents/rules, .cursor/rules, .claude/rules and .codex/rules that
 # holds a rule file, so another agent's mirror of the same rules is not loaded
-# twice. Your own ~/.coddy/rules joins it in every workspace. The AGENTS.md and
+# twice. A subfolder's own rule folders are read the same way when a tool reaches
+# a file under them, and apply to that subfolder only. Your own ~/.coddy/rules
+# joins them in every workspace. The AGENTS.md and
 # DESIGN.md documents - yours in ~/.coddy, the workspace's, and the nested ones
 # of the folders a tool enters - are read whatever these keys say and have no
 # key here. .mdc files are read as Cursor rules, .md files as Claude Code rules.
@@ -657,7 +659,9 @@ providers:
 
 ## Справочник по провайдерам моделей
 
-Значения **`type`** провайдера соответствуют **`internal/llm.NewProvider`**, это **`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`** и **`devin`**.
+Значения **`type`** провайдера соответствуют **`internal/llm.NewProvider`**, это **`openai`**, **`anthropic`**, **`neuraldeep`**, **`opencode`**, **`codex`**, **`devin`** и **`acp`**. Строка **`type: acp`** запускает локального агента, который говорит по Agent Client Protocol (Claude Code, Codex, OpenCode, ZCode, другой Coddy), и подключает его как модель; вместо **`api_base`** и **`api_key`** у неё блок **`acp`** (**`command`**, **`args`**, **`env`**, **`modes`** и другие) - см. [ACP-агент как модель](../features/acp-provider.md).
+
+**`type: opencode`** по умолчанию использует шлюз подписки Go; **`api_base: https://opencode.ai/inference/v1`** выбирает Console с оплатой по мере использования. Войдите в аккаунт командой **`coddy providers login opencode`** (подтвердите код устройства и выберите организацию в браузере) или сохраните ключ сервисного аккаунта через **`--api-key -`**. Coddy автоматически обновляет токены аккаунта через прокси провайдера. Явный **`api_key`** имеет приоритет над сохранёнными учётными данными. Coddy выбирает API генерации по модели и шлюзу; см. [OpenCode](../features/opencode.md).
 
 Разделение в YAML:
 
@@ -795,4 +799,4 @@ models:
 
 Уровни рассуждения для такого id Coddy определяет по модели после автора, поэтому **`openrouter/qwen/qwen3.8-flash`** предлагает уровни **`qwen3.8-flash`**. Список моделей агрегатора называет параметры запроса, которые принимает каждая модель (**`supported_parameters`**), и Coddy читает его вместе с окном контекста модели. Если список называет единый объект **`reasoning`**, а **`reasoning_effort`** не называет, выбранный уровень уходит как **`reasoning: {"effort": "<уровень>"}`**, а **`off`** как **`reasoning: {"enabled": false}`**. Переключатель Qwen3 **`chat_template_kwargs`** уходит только серверу, список которого его называет или не называет ничего. Рассуждение модели приходит в поле **`reasoning`** ответа и видно в чате, как любое другое, а рядом с его длительностью стоят токены, которые агрегатор за него насчитал (**`usage.completion_tokens_details.reasoning_tokens`**) ([Веб-интерфейс](../surfaces/web-ui.md#типы-сообщений-транскрипта)).
 
-<!-- docsgen:source sha256=eda53c2a06141c5b -->
+<!-- docsgen:source sha256=b17a9736e401aaf6 -->

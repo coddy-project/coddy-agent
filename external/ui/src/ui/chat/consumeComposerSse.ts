@@ -36,6 +36,8 @@ type ToolCallUpdate = {
   title?: string;
   kind?: string;
   status?: string;
+  /** `agentTool` marks a call of the agent behind an acp model. */
+  _meta?: { coddy?: { agentTool?: boolean } };
 };
 
 type ToolCallStatusUpdate = {
@@ -46,7 +48,7 @@ type ToolCallStatusUpdate = {
     coddy?: {
       toolResultPreview?: { truncated?: boolean; totalLines?: number };
       todoPlan?: unknown;
-      /** Pictures the call showed the model, in the files shape of a message. */
+      /** Pictures the call returned, in the files shape of a message. */
       images?: unknown;
       /** Downloadable files a share_file tool call deliberately shared. */
       artifacts?: unknown;
@@ -190,6 +192,8 @@ export type ConsumeComposerSseResult = {
   ) => void;
   /** Id of the last (currently open) assistant text segment, for finalize/fill. */
   lastAssistantId: string;
+  /** Every row the stream wrote its answer into, in order (see assistantIds). */
+  assistantIds: string[];
 };
 
 export async function consumeComposerSseReader(
@@ -226,6 +230,11 @@ export async function consumeComposerSseReader(
   // `assistantSegmentDirty` means the next text delta must start a fresh one.
   const resuming = !!cursor && cursor.frames > 0;
   let currentAssistantId = resuming ? cursor.assistantId : assistantId;
+  // Every row this stream wrote its answer into: an answer whose text and
+  // reasoning interleave (an ACP agent thinking between two parts of one
+  // answer) is a row per part. Once the persisted message replaces them it
+  // carries the id of one of them, which the end of the turn looks for.
+  const assistantIds = new Set<string>();
   let assistantSegmentDirty = resuming ? cursor.segmentDirty : false;
 
   const toolQueue: Array<
@@ -270,6 +279,7 @@ export async function consumeComposerSseReader(
           if (upd.todoPlan !== undefined) it.todoPlan = upd.todoPlan;
           if (upd.images !== undefined) it.images = upd.images;
           if (upd.artifacts !== undefined) it.artifacts = upd.artifacts;
+          if (upd.agentTool) it.agentTool = true;
           if (upd.startedAtMs !== undefined) it.startedAtMs = upd.startedAtMs;
           if (upd.finishedAtMs !== undefined)
             it.finishedAtMs = upd.finishedAtMs;
@@ -312,6 +322,7 @@ export async function consumeComposerSseReader(
         if (upd.todoPlan !== undefined) merged.todoPlan = upd.todoPlan;
         if (upd.images !== undefined) merged.images = upd.images;
         if (upd.artifacts !== undefined) merged.artifacts = upd.artifacts;
+        if (upd.agentTool) merged.agentTool = true;
         arr[idx] = merged;
         next = arr;
       }
@@ -330,6 +341,7 @@ export async function consumeComposerSseReader(
   const ensureAssistant = (
     patch?: Partial<Extract<TranscriptItem, { type: "assistant_message" }>>,
   ) => {
+    assistantIds.add(currentAssistantId);
     applyStreamItems((prev) => {
       const idx = prev.findIndex(
         (x) => x.type === "assistant_message" && x.id === currentAssistantId,
@@ -832,6 +844,7 @@ export async function consumeComposerSseReader(
           };
           if (t.title !== undefined) patch.title = t.title;
           if (t.kind !== undefined) patch.kind = t.kind;
+          if (t._meta?.coddy?.agentTool === true) patch.agentTool = true;
           toolQueue.push(patch);
           scheduleToolFlush();
         } catch {
@@ -1123,6 +1136,7 @@ export async function consumeComposerSseReader(
           };
           if (t.title !== undefined) patch.title = t.title;
           if (t.kind !== undefined) patch.kind = t.kind;
+          if (t._meta?.coddy?.agentTool === true) patch.agentTool = true;
           toolQueue.push(patch);
           scheduleToolFlush();
         } catch {
@@ -1208,6 +1222,9 @@ export async function consumeComposerSseReader(
     ensureAssistant,
     get lastAssistantId() {
       return currentAssistantId;
+    },
+    get assistantIds() {
+      return [...assistantIds];
     },
   };
 }

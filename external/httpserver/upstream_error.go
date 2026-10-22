@@ -38,6 +38,13 @@ func replyForError(err error) errorReply {
 		reply.status = http.StatusConflict
 		return reply
 	}
+	if llm.IsACPUnsupported(err) {
+		// A request an acp model does not serve: the caller asked for the
+		// wrong thing, nothing failed upstream.
+		reply.status = http.StatusBadRequest
+		e["type"] = "invalid_request_error"
+		return reply
+	}
 	upstream := llm.UpstreamStatus(err)
 	switch {
 	case upstream >= 400 && upstream < 500:

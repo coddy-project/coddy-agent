@@ -234,7 +234,7 @@ func printUsage(w io.Writer) {
   %[1]s plugin remove <name>
   %[1]s plugin enable <name> | disable <name>
   %[1]s mcp list | trust <name> | untrust <name> [--cwd DIR]
-  %[1]s providers list | login <name> [--type neuraldeep|codex|devin] [--browser] [--devin-cli] [--no-config] [--api-base URL] | logout <name> [--home DIR]
+  %[1]s providers list | login <name> [--type neuraldeep|opencode|codex|devin] [--browser] [--devin-cli] [--api-key KEY] [--no-config] [--api-base URL] | logout <name> [--home DIR]
   %[1]s rules list [--cwd DIR]
   %[1]s agents list [--cwd DIR]
   %[1]s agents trust <name> [--cwd DIR]
@@ -288,14 +288,19 @@ func runACP(args []string) error {
 	if *testConfig && !*dryRun {
 		return runConfigTest(cli)
 	}
+	// applyProcessOverrides re-applies the flags the agent was started with: to
+	// the configuration it loads, to the one --dry-run probes and to every one
+	// the agent's config_commit / config_rollback reloads, so a reload does not
+	// drop a decision only the command line carries (issue #441).
+	applyProcessOverrides := func(c *config.Config) error {
+		if *schedulerEnabled {
+			c.Scheduler.Enabled = true
+		}
+		config.ApplySkillsAutoDiscoveryFlag(fs, c, skillsAutoDiscovery)
+		return config.ApplyProjectTrustFlag(fs, c, projectTrust)
+	}
 	if *dryRun {
-		return dryrun.RunConsole(configTestOutput, dryrun.SurfaceACP, cli, *testConfig, *remoteFlag, *remoteToken, func(c *config.Config) error {
-			if *schedulerEnabled {
-				c.Scheduler.Enabled = true
-			}
-			config.ApplySkillsAutoDiscoveryFlag(fs, c, skillsAutoDiscovery)
-			return config.ApplyProjectTrustFlag(fs, c, projectTrust)
-		})
+		return dryrun.RunConsole(configTestOutput, dryrun.SurfaceACP, cli, *testConfig, *remoteFlag, *remoteToken, applyProcessOverrides)
 	}
 	paths, err := config.Resolve(cli)
 	if err != nil {
@@ -309,11 +314,7 @@ func runACP(args []string) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
-	if *schedulerEnabled {
-		cfg.Scheduler.Enabled = true
-	}
-	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, skillsAutoDiscovery)
-	if err := config.ApplyProjectTrustFlag(fs, cfg, projectTrust); err != nil {
+	if err := applyProcessOverrides(cfg); err != nil {
 		return err
 	}
 	if err := cfg.Scheduler.Validate(cfg); err != nil {
@@ -389,13 +390,14 @@ func runACP(args []string) error {
 		loop.SetWorkspaceSwitcher(func(ctx context.Context, dir string) error {
 			return mgr.SetSessionWorkspaceDuringTurn(ctx, st, dir)
 		})
-		loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
+		loop.SetConfigReloader(func(ctx context.Context) (*config.Config, []string, error) {
 			return mgr.ReloadConfigForSession(ctx, st)
 		})
 		loop.SetSubagentRuntime(mgr)
 		return loop.Run(ctx, prompt)
 	}
 	mgr = session.NewManager(cfg, ref, runner, log, paths.CWD, store)
+	mgr.SetConfigAdjuster(applyProcessOverrides)
 	// A met goal is confirmed against the workspace by the goal verifier.
 	mgr.SetGoalVerifier(agent.NewGoalVerifier(mgr, log))
 	if pid := strings.TrimSpace(*persistedSession); pid != "" {
@@ -408,6 +410,9 @@ func runACP(args []string) error {
 	// session the editor opens; they stop when the editor lets go of the agent.
 	mgr.StartGlobalMCPServers()
 	defer mgr.CloseMCP()
+	// So do the agents of acp providers.
+	llm.SetACPLogger(log)
+	defer llm.StopACPAgents()
 	srv = acp.NewServer(mgr, log)
 	// A woken turn opens with a note an editor that renders only the standard
 	// updates can read, live and when session/load replays it. Everything goes

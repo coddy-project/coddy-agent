@@ -20,6 +20,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -42,6 +44,8 @@ type transportRetryState struct {
 	release chan struct{}
 	resp    *Response
 	callErr error
+	// authDir holds the Codex credential file of the overload scenario.
+	authDir string
 }
 
 func (s *transportRetryState) reset() {
@@ -164,6 +168,47 @@ func (s *transportRetryState) cleanup() {
 		s.server.Close()
 		s.server = nil
 	}
+	if s.authDir != "" {
+		_ = os.RemoveAll(s.authDir)
+		s.authDir = ""
+	}
+}
+
+// aCodexProviderWhoseUpstreamReportsAnOverloadOnce runs the real Codex
+// provider against a backend that answers its first request the way the live
+// one does when it is overloaded: HTTP 200, then an in-band error event with
+// no text before it. The resilient wrapper has no status to read, so the
+// decoded error object has to say that the request is worth repeating.
+func (s *transportRetryState) aCodexProviderWhoseUpstreamReportsAnOverloadOnce() error {
+	s.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		if s.requests.Add(1) == 1 {
+			sse(w, "error", map[string]any{"error": map[string]any{
+				"type": "service_unavailable_error", "code": "server_is_overloaded", "param": nil,
+				"message": "Our servers are currently overloaded. Please try again later.",
+			}})
+			return
+		}
+		sse(w, "response.output_text.delta", map[string]any{"delta": "Hello after retry"})
+		sseCompleted(w)
+	}))
+	dir, err := os.MkdirTemp("", "coddy-codex-overload-*")
+	if err != nil {
+		return err
+	}
+	s.authDir = dir
+	authPath := filepath.Join(dir, "codex-auth.json")
+	auth := fmt.Sprintf(`{"auth_mode":"chatgpt","tokens":{"access_token":%q,"refresh_token":"rt","account_id":"acct"}}`,
+		makeJWT(time.Now().Add(time.Hour)))
+	if err := os.WriteFile(authPath, []byte(auth), 0o600); err != nil {
+		return err
+	}
+	s.provider = WrapResilient(newCodexProvider("gpt-5.5", authPath, true, s.server.URL, http.DefaultClient, 0, ""), ResilientOptions{
+		RetryMax:      1,
+		RetryBase:     time.Millisecond,
+		RetryMaxDelay: time.Millisecond,
+	})
+	return nil
 }
 
 func (s *transportRetryState) aProviderWhoseUpstreamCutsOnce() error {
@@ -380,6 +425,7 @@ func initializeTransportRetryScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^an "openai" provider whose upstream leaves the first TLS handshake unanswered and then streams a completion$`, s.aProviderWhoseFirstTLSHandshakeStalls)
 	sc.Step(`^an "openai" provider whose upstream resets the first HTTP/2 stream before any output and then streams a completion$`, s.aProviderWhoseUpstreamResetsFirstH2Stream)
 	sc.Step(`^an "openai" provider whose upstream goes silent on the first connection, pings included, and then streams a completion$`, s.aProviderWhoseUpstreamGoesSilentOnFirstConnection)
+	sc.Step(`^a "codex" provider whose upstream reports an in-band overload once before any output and then streams a completion$`, s.aCodexProviderWhoseUpstreamReportsAnOverloadOnce)
 	sc.Step(`^(\d+) requests? reached the upstream handler$`, s.requestsReachedTheHandler)
 	sc.Step(`^a streaming completion is requested$`, s.aTransportRetryStreamingCompletionIsRequested)
 	sc.Step(`^the call succeeds with text "([^"]*)" in (\d+) upstream requests$`, s.theCallSucceedsWithTextInRequests)

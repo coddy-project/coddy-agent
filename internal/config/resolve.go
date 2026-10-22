@@ -29,6 +29,23 @@ type ResolvedLLM struct {
 	// Stream is the transport chosen for this model (models[].stream); false means
 	// one blocking request instead of an SSE stream.
 	Stream bool
+	// ACP is the agent of an acp row (providers[].acp); nil on other types.
+	ACP *ACPProviderConfig
+}
+
+// ModelRunsACPAgent reports whether the models[] entry modelRef is served by
+// a provider of type acp: a local agent that answers inside a session only,
+// with its own tools and its own context.
+func (c *Config) ModelRunsACPAgent(modelRef string) bool {
+	if c == nil {
+		return false
+	}
+	entry := c.FindModelEntry(strings.TrimSpace(modelRef))
+	if entry == nil {
+		return false
+	}
+	prov := c.FindProvider(entry.ProviderName())
+	return prov != nil && prov.Type == "acp"
 }
 
 // FindProvider returns the provider with the given name, or nil.
@@ -105,6 +122,24 @@ func (c *Config) FirstModelID() string {
 	ids := make([]string, 0, len(c.Models))
 	for _, m := range c.Models {
 		if s := strings.TrimSpace(m.Model); s != "" {
+			ids = append(ids, s)
+		}
+	}
+	sort.Strings(ids)
+	if len(ids) == 0 {
+		return ""
+	}
+	return ids[0]
+}
+
+// FirstNonACPModelID is FirstModelID among the models no acp provider
+// serves: the model a utility call (the title and tags of a chat, a prompt
+// rewrite) borrows when the one it would use runs a local agent, which
+// answers inside a session only.
+func (c *Config) FirstNonACPModelID() string {
+	ids := make([]string, 0, len(c.Models))
+	for _, m := range c.Models {
+		if s := strings.TrimSpace(m.Model); s != "" && !c.ModelRunsACPAgent(s) {
 			ids = append(ids, s)
 		}
 	}
@@ -204,6 +239,7 @@ func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 		Temperature:  entry.Temperature,
 		TimeoutMS:    prov.TimeoutMS,
 		Stream:       entry.EffectiveStream(),
+		ACP:          prov.ACP,
 	}, nil
 }
 

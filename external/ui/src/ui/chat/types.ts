@@ -145,11 +145,15 @@ export type TranscriptItem =
       resultWasTruncated?: boolean;
       /** Final todo state saved with this call, so historical cards stay stable. */
       todoPlan?: TodoPlanEntry[];
-      /** Pictures the call showed the model (`read` on an image file), from
+      /** Pictures the call returned (`read` on an image file, an MCP tool), from
        *  `_meta.coddy.images` live and the tool row's `files` after a reload. */
       images?: TranscriptFile[];
       /** Downloadable files a completed share_file call deliberately shared. */
       artifacts?: ToolArtifact[];
+      /** A call the agent behind an acp model ran on its own side
+       *  (`_meta.coddy.agentTool` live, `agent_tools` after a reload): its
+       *  title names what it works on already. */
+      agentTool?: boolean;
       startedAtMs?: number;
       finishedAtMs?: number;
       durationMs?: number;

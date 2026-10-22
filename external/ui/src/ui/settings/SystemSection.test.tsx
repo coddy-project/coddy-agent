@@ -18,6 +18,7 @@ import {
   screen,
   within,
 } from "@testing-library/react";
+import { pageWithoutClipboardApi, selectedOnce } from "../clipboardTestKit";
 import SystemSection from "./SystemSection";
 import { Sparkline } from "./Sparkline";
 import { fakeStatus } from "./systemStatus.fakes";
@@ -449,15 +450,7 @@ describe("this installation", () => {
   // it has no navigator.clipboard, and the button must not say Copied for a
   // path that never reached the clipboard.
   test("without a clipboard API it copies through the page and says Copied only when that worked", async () => {
-    vi.stubGlobal("navigator", {});
-    const exec = vi.fn((_command: string) => false);
-    Object.defineProperty(document, "execCommand", {
-      value: exec,
-      configurable: true,
-    });
-    onTestFinished(() => {
-      delete (document as { execCommand?: unknown }).execCommand;
-    });
+    const page = pageWithoutClipboardApi(false);
     await open([doc()]);
     const copy = within(block("installation")).getByRole("button", {
       name: /copy/i,
@@ -465,9 +458,9 @@ describe("this installation", () => {
     await act(async () => {
       fireEvent.click(copy);
     });
-    expect(exec).toHaveBeenCalledWith("copy");
+    expect(page.copies).toEqual(selectedOnce("~/.coddy/config.yaml"));
     expect(copy.textContent).toBe("Copy");
-    exec.mockReturnValue(true);
+    page.answer(true);
     await act(async () => {
       fireEvent.click(copy);
     });

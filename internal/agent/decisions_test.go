@@ -87,7 +87,8 @@ func decisionBody(option string, safe, unsafe float64) string {
 }
 
 // newDecisionsAgent builds an agent whose shell commands run in bypass mode
-// against the stand.
+// against the stand, on a surface where nobody answers a prompt (a scheduled
+// job, coddy -p).
 func newDecisionsAgent(t *testing.T, enabled bool) (*Agent, *session.State, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -105,7 +106,7 @@ func newDecisionsAgent(t *testing.T, enabled bool) (*Agent, *session.State, stri
 		},
 		Providers: []config.ProviderConfig{{Name: "neuraldeep", Type: "neuraldeep", APIKey: "sk-stand-key-0123456789abcd"}},
 	}
-	ag := NewAgent(cfg, st, &todoSnapshotSender{}, nil)
+	ag := NewAgent(cfg, st, &decisionsPromptSender{}, nil)
 	return ag, st, dir
 }
 
@@ -143,9 +144,11 @@ func quoteJSON(s string) string {
 	return b.String()
 }
 
-func TestDecisionsGateRejectsAnUnsafeCommandInBypassMode(t *testing.T) {
+// In bypass mode an unsafe command is asked about like in ask mode; where
+// nobody can answer the prompt, the refusal stays the call's result.
+func TestDecisionsGateRejectsAnUnsafeCommandNobodyCanApproveInBypassMode(t *testing.T) {
 	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
-	ag, st, dir := newDecisionsAgent(t, true)
+	ag, st, dir, sender := newDecisionsPromptAgent(t, config.PermModeBypass)
 	res := runCommandToolCall(t, ag, st, dir, "rm -rf /", false)
 	if !strings.HasPrefix(res, commandRejectedAsUnsafePrefix) {
 		t.Fatalf("result = %q, want the unsafe rejection", res)
@@ -153,8 +156,8 @@ func TestDecisionsGateRejectsAnUnsafeCommandInBypassMode(t *testing.T) {
 	if !strings.Contains(res, "classified the command as dangerous") || !strings.Contains(res, "unsafe at 0.99") || !strings.Contains(res, "threshold 0.50") {
 		t.Fatalf("result = %q, want the classification, the probability and the threshold", res)
 	}
-	if stand.calls.Load() != 1 {
-		t.Fatalf("calls = %d, want one decision request", stand.calls.Load())
+	if stand.calls.Load() != 1 || len(sender.prompts) != 1 || !sender.prompts[0].Forced {
+		t.Fatalf("calls = %d prompts = %+v, want one decision request and one forced prompt", stand.calls.Load(), sender.prompts)
 	}
 	meta, err := session.ReadToolCallMeta(dir, "call_decisions_1")
 	if err != nil || meta.Status != "cancelled" {
@@ -163,6 +166,62 @@ func TestDecisionsGateRejectsAnUnsafeCommandInBypassMode(t *testing.T) {
 	stored, err := session.ReadToolCallResult(dir, "call_decisions_1")
 	if err != nil || !strings.HasPrefix(stored, commandRejectedAsUnsafePrefix) {
 		t.Fatalf("stored result = %q err = %v, want the rejection in the session", stored, err)
+	}
+}
+
+// A person who can answer is asked in bypass mode too: the prompt carries the
+// verdict, no mode or sender approves it by itself, and an approved command
+// runs, its output the call's result.
+func TestDecisionsGateAsksAboutAnUnsafeCommandInBypassMode(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, verdict string
+	}{
+		{"unsafe", decisionUnsafeBody(), "classified the command as dangerous"},
+		{"no verdict", `{"answers":{"safety":{"choice":"dangerous"}}}`, "gave no verdict"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: tc.body})
+			ag, st, dir, sender := newDecisionsPromptAgent(t, config.PermModeBypass)
+			sender.human = true
+			res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
+			if !strings.Contains(res, "coddy-shell-ok") {
+				t.Fatalf("result = %q, want the command output", res)
+			}
+			if len(sender.prompts) != 1 {
+				t.Fatalf("prompts = %d, want one", len(sender.prompts))
+			}
+			p := sender.prompts[0]
+			if !p.Forced || p.SessionPermissionMode != config.PermModeAsk || permission.AutoApproves(p, config.PermModeBypass) {
+				t.Fatalf("prompt forced=%v stamped %q: a bypass sender would answer it by itself", p.Forced, p.SessionPermissionMode)
+			}
+			if body := promptText(p); !strings.Contains(body, "Safety check:") || !strings.Contains(body, tc.verdict) {
+				t.Fatalf("prompt body = %q, want the verdict", body)
+			}
+			for _, o := range p.Options {
+				if o.OptionID == permission.OptionAllowAlwaysProgram {
+					t.Fatalf("the prompt offers a program-wide grant, which would exempt the program from the check: %v", p.Options)
+				}
+			}
+			meta, err := session.ReadToolCallMeta(dir, "call_decisions_1")
+			if err != nil || meta.Status != "completed" {
+				t.Fatalf("meta = %+v err = %v, want status completed", meta, err)
+			}
+		})
+	}
+}
+
+// A person who rejects the prompt refuses the call the way any prompt's
+// rejection does.
+func TestDecisionsGateTheOperatorRejectsAnUnsafeCommandInBypassMode(t *testing.T) {
+	newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
+	ag, st, dir, sender := newDecisionsPromptAgent(t, config.PermModeBypass)
+	sender.reject = true
+	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
+	if res != permissionDeniedByUser {
+		t.Fatalf("result = %q, want %q", res, permissionDeniedByUser)
+	}
+	if len(sender.prompts) != 1 {
+		t.Fatalf("prompts = %d, want one", len(sender.prompts))
 	}
 }
 
@@ -460,19 +519,26 @@ func TestDecisionsGateStopsOnAnAnswerOutsideTheQuestion(t *testing.T) {
 
 // decisionsPromptSender records the permission prompts a call raises and
 // answers them the way a surface does: by itself under bypass, and otherwise
-// as the person would - approving with human, refusing without.
+// as the person would - approving with human, rejecting with reject, and with
+// neither nobody answers.
 type decisionsPromptSender struct {
 	todoSnapshotSender
 	prompts []acp.PermissionRequestParams
 	human   bool
+	reject  bool
+	// reason is what a refusal nobody answered says, as a subagent's relay does.
+	reason string
 }
 
 func (s *decisionsPromptSender) RequestPermission(_ context.Context, p acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	s.prompts = append(s.prompts, p)
-	if s.human || permission.AutoApproves(p, "") {
+	switch {
+	case s.reject:
+		return &acp.PermissionResult{Outcome: "selected", OptionID: permission.OptionReject}, nil
+	case s.human || permission.AutoApproves(p, ""):
 		return &acp.PermissionResult{Outcome: "selected", OptionID: permission.OptionAllow}, nil
 	}
-	return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
+	return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject", Reason: s.reason}, nil
 }
 
 // promptText is the body a permission prompt shows.
@@ -514,15 +580,15 @@ func newDecisionsPromptAgent(t *testing.T, mode string) (*Agent, *session.State,
 	return ag, st, dir, sender
 }
 
-func TestDecisionsGateRejectsAnUnsafeRemoteCommandInBypassMode(t *testing.T) {
+func TestDecisionsGateRejectsAnUnsafeRemoteCommandNobodyCanApproveInBypassMode(t *testing.T) {
 	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
 	ag, st, dir, sender := newDecisionsPromptAgent(t, config.PermModeBypass)
 	res := sshToolCall(t, ag, st, dir, "deploy@203.0.113.7", "rm -rf /var/lib/postgresql", false)
 	if !strings.HasPrefix(res, commandRejectedAsUnsafePrefix) {
 		t.Fatalf("result = %q, want the unsafe rejection", res)
 	}
-	if stand.calls.Load() != 1 || len(sender.prompts) != 0 {
-		t.Fatalf("calls = %d prompts = %d, want one decision request and no prompt", stand.calls.Load(), len(sender.prompts))
+	if stand.calls.Load() != 1 || len(sender.prompts) != 1 || !sender.prompts[0].Forced {
+		t.Fatalf("calls = %d prompts = %+v, want one decision request and one forced prompt", stand.calls.Load(), sender.prompts)
 	}
 	state, _ := stand.lastState.Load().(string)
 	if !strings.Contains(state, "rm -rf /var/lib/postgresql") || !strings.Contains(state, "deploy@203.0.113.7") {
@@ -599,6 +665,11 @@ func TestDecisionsGateLeavesAHookDecisionAlone(t *testing.T) {
 			if stand.calls.Load() != 0 || len(sender.prompts) != tc.wantPrompts {
 				t.Fatalf("calls = %d prompts = %d, want no decision request and %d prompts", stand.calls.Load(), len(sender.prompts), tc.wantPrompts)
 			}
+			// The prompt a hook's ask raises is one a person must answer,
+			// whatever surface would answer others by itself.
+			if tc.wantPrompts == 1 && !sender.prompts[0].Forced {
+				t.Fatalf("the prompt the hook's ask raised is not forced: %+v", sender.prompts[0])
+			}
 		})
 	}
 }
@@ -607,5 +678,59 @@ func TestTheGoalVerifierSenderRefusesWhatItIsAsked(t *testing.T) {
 	res, err := nopUpdateSender{}.RequestPermission(context.Background(), acp.PermissionRequestParams{})
 	if err != nil || permission.Approved(res) {
 		t.Fatalf("result = %+v %v, want a refusal", res, err)
+	}
+}
+
+// Only the configured allowlist and a session grant of exactly the command
+// take it past the check: a grant matched by prefix (the command with
+// arguments added, a program-wide grant) leaves it to the check, so "always
+// allow rm -rf build" never lets "rm -rf build /" through unchecked.
+func TestDecisionsGateTrustsOnlyAnExactSessionGrant(t *testing.T) {
+	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
+	ag, st, dir, sender := newDecisionsPromptAgent(t, config.PermModeBypass)
+	st.AddCommandGrantIfNew("echo coddy-granted")
+	if res := runCommandToolCall(t, ag, st, dir, "echo coddy-granted", false); !strings.Contains(res, "coddy-granted") {
+		t.Fatalf("exact grant: result = %q, want the command output", res)
+	}
+	if stand.calls.Load() != 0 || len(sender.prompts) != 0 {
+		t.Fatalf("exact grant: calls = %d prompts = %d, want neither", stand.calls.Load(), len(sender.prompts))
+	}
+	res := runCommandToolCall(t, ag, st, dir, "echo coddy-granted coddy-extended", false)
+	if !strings.HasPrefix(res, commandRejectedAsUnsafePrefix) {
+		t.Fatalf("extended command: result = %q, want the unsafe rejection", res)
+	}
+	if stand.calls.Load() != 1 || len(sender.prompts) != 1 {
+		t.Fatalf("extended command: calls = %d prompts = %d, want one of each", stand.calls.Load(), len(sender.prompts))
+	}
+}
+
+// Where nobody answers the check's prompt, ask and accept_edits end the call
+// with the check's refusal too, recorded cancelled.
+func TestDecisionsGateRejectsWhatNobodyApprovesInEveryMode(t *testing.T) {
+	for _, mode := range []string{config.PermModeAsk, config.PermModeAcceptEdits} {
+		t.Run(mode, func(t *testing.T) {
+			newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
+			ag, st, dir, sender := newDecisionsPromptAgent(t, mode)
+			res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
+			if !strings.HasPrefix(res, commandRejectedAsUnsafePrefix) || len(sender.prompts) != 1 || !sender.prompts[0].Forced {
+				t.Fatalf("result = %q prompts = %d, want the unsafe rejection after one forced prompt", res, len(sender.prompts))
+			}
+			meta, err := session.ReadToolCallMeta(dir, "call_decisions_1")
+			if err != nil || meta.Status != "cancelled" {
+				t.Fatalf("meta = %+v err = %v, want status cancelled", meta, err)
+			}
+		})
+	}
+}
+
+// A refusal that names why nobody could answer (a subagent's relay with no
+// client) keeps that reason next to the check's verdict.
+func TestDecisionsGateKeepsTheReasonNobodyCouldAnswer(t *testing.T) {
+	newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
+	ag, st, dir, sender := newDecisionsPromptAgent(t, config.PermModeBypass)
+	sender.reason = "nobody could be asked; finish and report"
+	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
+	if !strings.HasPrefix(res, commandRejectedAsUnsafePrefix) || !strings.Contains(res, sender.reason) {
+		t.Fatalf("result = %q, want the unsafe rejection with the reason", res)
 	}
 }

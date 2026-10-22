@@ -3,11 +3,34 @@ package llm
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/openai/openai-go"
 )
+
+// httpStatusError is a non-2xx answer a provider read off the wire itself,
+// with no SDK in between (the native Google API of the OpenCode gateway). It
+// keeps the status and the headers, so the classifiers read it as they read
+// the SDK errors of the other providers: a 429 or a 5xx is retried, its
+// Retry-After is the pause, and UpstreamStatus names the status.
+type httpStatusError struct {
+	label  string
+	status int
+	header http.Header
+	body   string
+}
+
+func (e *httpStatusError) Error() string {
+	if body := strings.TrimSpace(e.body); body != "" {
+		return fmt.Sprintf("%s: HTTP %d: %s", e.label, e.status, body)
+	}
+	return fmt.Sprintf("%s: HTTP %d", e.label, e.status)
+}
 
 // UpstreamStatus reports the HTTP status the provider answered a failed call
 // with, or 0 when the error carries none (a transport failure, an error of
@@ -35,6 +58,10 @@ func UpstreamStatus(err error) int {
 	if errors.As(err, &dev) {
 		return dev.status
 	}
+	var raw *httpStatusError
+	if errors.As(err, &raw) {
+		return raw.status
+	}
 	var sse *streamServerError
 	if errors.As(err, &sse) {
 		return sse.code
@@ -58,7 +85,8 @@ func UpstreamRetryAfter(err error) (time.Duration, bool) {
 }
 
 // IsTransientProviderError reports whether err is a failure of the provider's
-// lane rather than of the request - a 5xx, a connection that died, a stream
+// lane rather than of the request - a 5xx, an overload (529, or an error
+// event the stream carried that says so), a connection that died, a stream
 // cut or gone silent - so the same step may run again after a pause.
 // Unlike the retry classification of the resilient wrapper it holds after
 // text has streamed: the wrapper must not replay a call whose deltas the
@@ -70,6 +98,12 @@ func UpstreamRetryAfter(err error) (time.Duration, bool) {
 func IsTransientProviderError(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
+	}
+	// An ACP agent decides by kind, ahead of any text: a step it may have
+	// acted on is never run again.
+	var acpErr *ACPError
+	if errors.As(err, &acpErr) {
+		return acpErr.retryable()
 	}
 	// The same request asks the same thing again, whatever status carried the
 	// refusal.
@@ -99,7 +133,18 @@ func IsTransientProviderError(err error) bool {
 	}
 	var transport *streamTransportError
 	if errors.As(err, &transport) {
-		return isDialFailure(transport.cause) || isTransientTransportError(transport.cause)
+		// An error the stream reported in-band is judged by its decoded
+		// fields: an overload, or a code that marks the lane as down, is the
+		// lane's before text and after it alike (the agent keeps what was
+		// shown and goes on), and any other is final whatever its message
+		// says. A status the SDK's HTTP error behind the wrapper carries (the
+		// Anthropic and Codex streams wrap it as it came) is read the same
+		// way; a limit was ruled out above.
+		if status, decoded := inBandStatus(transport.cause); decoded {
+			return transientStatus(status)
+		}
+		return transientStatus(UpstreamStatus(transport.cause)) || isDialFailure(transport.cause) ||
+			isTransientTransportError(transport.cause)
 	}
 	if status := UpstreamStatus(err); status != 0 {
 		return transientStatus(status)
@@ -107,12 +152,19 @@ func IsTransientProviderError(err error) bool {
 	return httpStatusFromError(err) != 429 && isRetryableLLMError(err)
 }
 
-// transientStatus reports the statuses a lane answers with when it is down
-// rather than when the request is wrong or a limit was reached.
+// laneDownStatuses are the statuses a lane answers with when it is down
+// rather than when the request is wrong or a limit was reached: a timeout, a
+// server failure, and 529, Anthropic's "overloaded". It is the one list the
+// resilient wrapper's retry classification (with the limit, 429, on top),
+// its scan of an untyped message for a status and IsTransientProviderError
+// all read.
+var laneDownStatuses = []int{408, 500, 502, 503, 504, 529}
+
+// retryableStatuses is what the resilient wrapper repeats: the lane failures
+// and the limit, whose backoff and reset handling the wrapper owns.
+var retryableStatuses = append([]int{429}, laneDownStatuses...)
+
+// transientStatus reports whether status marks the lane as down.
 func transientStatus(status int) bool {
-	switch status {
-	case 408, 500, 502, 503, 504, 529:
-		return true
-	}
-	return false
+	return slices.Contains(laneDownStatuses, status)
 }

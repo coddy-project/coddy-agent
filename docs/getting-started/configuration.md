@@ -348,7 +348,9 @@ skills:
 # One project folder is read under the session CWD: the first of .coddy/rules,
 # the shared .agents/rules, .cursor/rules, .claude/rules and .codex/rules that
 # holds a rule file, so another agent's mirror of the same rules is not loaded
-# twice. Your own ~/.coddy/rules joins it in every workspace. The AGENTS.md and
+# twice. A subfolder's own rule folders are read the same way when a tool reaches
+# a file under them, and apply to that subfolder only. Your own ~/.coddy/rules
+# joins them in every workspace. The AGENTS.md and
 # DESIGN.md documents - yours in ~/.coddy, the workspace's, and the nested ones
 # of the folders a tool enters - are read whatever these keys say and have no
 # key here. .mdc files are read as Cursor rules, .md files as Claude Code rules.
@@ -662,7 +664,9 @@ An environment variable named **`CWD`** does not replace the placeholder (a bare
 
 ## Model Provider Reference
 
-Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**, **`devin`**.
+Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**, **`opencode`**, **`codex`**, **`devin`**, **`acp`**. A **`type: acp`** row runs a local agent that speaks the Agent Client Protocol (Claude Code, Codex, OpenCode, ZCode, another Coddy) and serves it as a model; it takes an **`acp`** block (**`command`**, **`args`**, **`env`**, **`modes`**, ...) instead of **`api_base`** and **`api_key`** - see [ACP agent as a model](../features/acp-provider.md).
+
+**`type: opencode`** uses the Go subscription gateway by default; **`api_base: https://opencode.ai/inference/v1`** selects pay-as-you-go Console. Sign in an account with **`coddy providers login opencode`** (device code and organization selection in the browser), or use **`--api-key -`** to store a service account key. Stored account tokens refresh automatically through the provider proxy. An explicit **`api_key`** still wins over the login. Coddy selects the inference API per model and gateway; see [OpenCode](../features/opencode.md).
 
 YAML split:
 

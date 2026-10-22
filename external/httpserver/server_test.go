@@ -40,6 +40,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
@@ -376,6 +377,279 @@ func (p fakeProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinit
 
 func (p fakeProvider) Stream(context.Context, []llm.Message, []llm.ToolDefinition, func(llm.StreamChunk)) (*llm.Response, error) {
 	return &llm.Response{Content: p.reply, StopReason: "end_turn"}, nil
+}
+
+type blockingDirectProvider struct {
+	started   chan<- struct{}
+	release   <-chan struct{}
+	reply     string
+	toolCalls []llm.ToolCall
+}
+
+func (p *blockingDirectProvider) Complete(ctx context.Context, _ []llm.Message, _ []llm.ToolDefinition) (*llm.Response, error) {
+	select {
+	case p.started <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	select {
+	case <-p.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return &llm.Response{Content: p.reply, ToolCalls: p.toolCalls, StopReason: "end_turn"}, nil
+}
+
+func (p *blockingDirectProvider) Stream(ctx context.Context, messages []llm.Message, tools []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	resp, err := p.Complete(ctx, messages, tools)
+	if err == nil && resp != nil && onChunk != nil {
+		if resp.Content != "" {
+			onChunk(llm.StreamChunk{TextDelta: resp.Content})
+		}
+		for i := range resp.ToolCalls {
+			toolCall := resp.ToolCalls[i]
+			onChunk(llm.StreamChunk{ToolCall: &toolCall})
+		}
+		onChunk(llm.StreamChunk{StopReason: resp.StopReason})
+	}
+	return resp, err
+}
+
+func TestDirectCompletionsRejectConcurrentSessionTurn(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		path      string
+		body      string
+		toolCalls []llm.ToolCall
+	}{
+		{name: "chat completions", path: "/v1/chat/completions", body: `{"model":"openai/gpt-4o","messages":[{"role":"user","content":"first"}],"stream":false}`},
+		{name: "chat completions stream", path: "/v1/chat/completions", body: `{"model":"openai/gpt-4o","messages":[{"role":"user","content":"first"}],"stream":true}`},
+		{
+			name:      "chat completions tool call",
+			path:      "/v1/chat/completions",
+			body:      `{"model":"openai/gpt-4o","messages":[{"role":"user","content":"first"}],"tools":[{"type":"function","function":{"name":"get_weather","parameters":{"type":"object"}}}],"stream":false}`,
+			toolCalls: []llm.ToolCall{{ID: "call-weather", Name: "get_weather", InputJSON: `{"city":"Paris"}`}},
+		},
+		{name: "responses", path: "/v1/responses", body: `{"model":"openai/gpt-4o","input":"first","stream":false}`},
+		{name: "responses stream", path: "/v1/responses", body: `{"model":"openai/gpt-4o","input":"first","stream":true}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr, srv, _ := testHTTPServerPersist(t)
+			started := make(chan struct{}, 2)
+			release := make(chan struct{})
+			var releaseOnce sync.Once
+			releaseProvider := func() { releaseOnce.Do(func() { close(release) }) }
+			provider := &blockingDirectProvider{started: started, release: release, reply: "direct", toolCalls: tc.toolCalls}
+			srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) {
+				return provider, nil
+			}
+			ts := httptest.NewServer(srv.Handler())
+			// Cleanups run last in, first out: the provider is released before
+			// Close waits for the handlers it holds, so a failed check ends the
+			// test instead of hanging it.
+			t.Cleanup(ts.Close)
+			t.Cleanup(releaseProvider)
+
+			sid := "sess_direct_turn_busy"
+			firstReq, err := http.NewRequest(http.MethodPost, ts.URL+tc.path, strings.NewReader(tc.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			firstReq.Header.Set("Content-Type", "application/json")
+			firstReq.Header.Set("X-Coddy-Session-ID", sid)
+			type reply struct {
+				status int
+				body   []byte
+				err    error
+			}
+			firstDone := make(chan reply, 1)
+			go func() {
+				res, err := http.DefaultClient.Do(firstReq)
+				if err != nil {
+					firstDone <- reply{err: err}
+					return
+				}
+				body, readErr := ioReadAllClose(res.Body)
+				firstDone <- reply{status: res.StatusCode, body: body, err: readErr}
+			}()
+
+			select {
+			case <-started:
+			case <-time.After(2 * time.Second):
+				t.Fatal("first direct request did not reach the provider")
+			}
+
+			secondCtx, cancelSecond := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancelSecond()
+			secondReq, err := http.NewRequestWithContext(secondCtx, http.MethodPost, ts.URL+tc.path, strings.NewReader(tc.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			secondReq.Header.Set("Content-Type", "application/json")
+			secondReq.Header.Set("X-Coddy-Session-ID", sid)
+			secondRes, err := http.DefaultClient.Do(secondReq)
+			if err != nil {
+				t.Fatalf("second request: %v", err)
+			}
+			secondBody, readErr := ioReadAllClose(secondRes.Body)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if secondRes.StatusCode != http.StatusConflict {
+				t.Fatalf("second request status %d body %s, want 409", secondRes.StatusCode, secondBody)
+			}
+			select {
+			case <-started:
+				t.Fatal("second direct request reached the provider")
+			default:
+			}
+
+			releaseProvider()
+			first := <-firstDone
+			if first.err != nil {
+				t.Fatalf("first request: %v", first.err)
+			}
+			if first.status != http.StatusOK {
+				t.Fatalf("first request status %d body %s", first.status, first.body)
+			}
+			if !strings.Contains(string(first.body), "direct") {
+				t.Fatalf("first request body %s does not contain its provider response", first.body)
+			}
+			if len(tc.toolCalls) > 0 && gjson.GetBytes(first.body, "choices.0.message.tool_calls.0.function.name").String() != tc.toolCalls[0].Name {
+				t.Fatalf("first request tool calls = %s, want %q", gjson.GetBytes(first.body, "choices.0.message.tool_calls").Raw, tc.toolCalls[0].Name)
+			}
+			userMessages := 0
+			for _, msg := range mgr.SessionByID(sid).GetMessages() {
+				if msg.Role == llm.RoleUser {
+					userMessages++
+				}
+			}
+			if userMessages != 1 {
+				t.Fatalf("session has %d user messages after rejected concurrent request, want 1", userMessages)
+			}
+		})
+	}
+}
+
+// TestCompletionCannotOverwriteRunningProfileTurn holds a profile turn open and
+// sends a second chat completion carrying a history to the same session, for a
+// direct model and for a profile. Both are refused with 409 before they touch
+// the session: neither the client's history nor the direct model's call may
+// reach the transcript of the turn that holds it.
+func TestCompletionCannotOverwriteRunningProfileTurn(t *testing.T) {
+	for _, tc := range []struct{ name, model string }{
+		{name: "direct", model: "openai/gpt-4o"},
+		{name: "profile", model: "agent"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			profileStarted := make(chan struct{}, 2)
+			releaseProfile := make(chan struct{})
+			var releaseOnce sync.Once
+			release := func() { releaseOnce.Do(func() { close(releaseProfile) }) }
+			runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+				profileStarted <- struct{}{}
+				select {
+				case <-releaseProfile:
+				case <-ctx.Done():
+					return "", ctx.Err()
+				}
+				var content strings.Builder
+				for _, block := range prompt {
+					if block.Type == "text" {
+						content.WriteString(block.Text)
+					}
+				}
+				st.AddMessage(llm.Message{Role: llm.RoleUser, Content: strings.TrimSpace(content.String())})
+				st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "profile"})
+				return string(acp.StopReasonEndTurn), nil
+			}
+			mgr, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+			directCalls := atomic.Int32{}
+			srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) {
+				directCalls.Add(1)
+				return fakeProvider{reply: "direct"}, nil
+			}
+			ts := httptest.NewServer(srv.Handler())
+			// Released before Close waits for the profile handler, as above.
+			t.Cleanup(ts.Close)
+			t.Cleanup(release)
+			sid := "sess_profile_turn_busy"
+
+			profileReq, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(`{"model":"agent","input":"profile prompt","stream":false}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			profileReq.Header.Set("Content-Type", "application/json")
+			profileReq.Header.Set("X-Coddy-Session-ID", sid)
+			profileDone := make(chan error, 1)
+			go func() {
+				res, err := http.DefaultClient.Do(profileReq)
+				if err != nil {
+					profileDone <- err
+					return
+				}
+				body, readErr := ioReadAllClose(res.Body)
+				if readErr != nil {
+					profileDone <- readErr
+					return
+				}
+				if res.StatusCode != http.StatusOK {
+					profileDone <- fmt.Errorf("profile request: %d %s", res.StatusCode, body)
+					return
+				}
+				profileDone <- nil
+			}()
+			select {
+			case <-profileStarted:
+			case <-time.After(2 * time.Second):
+				t.Fatal("profile request did not reach the runner")
+			}
+
+			secondCtx, cancelSecond := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancelSecond()
+			body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"earlier"},{"role":"assistant","content":"earlier answer"},{"role":"user","content":"second prompt"}],"stream":false}`, tc.model)
+			secondReq, err := http.NewRequestWithContext(secondCtx, http.MethodPost, ts.URL+"/v1/chat/completions", strings.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			secondReq.Header.Set("Content-Type", "application/json")
+			secondReq.Header.Set("X-Coddy-Session-ID", sid)
+			secondRes, err := http.DefaultClient.Do(secondReq)
+			if err != nil {
+				t.Fatal(err)
+			}
+			secondBody, readErr := ioReadAllClose(secondRes.Body)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if secondRes.StatusCode != http.StatusConflict {
+				t.Fatalf("second request status %d body %s, want 409", secondRes.StatusCode, secondBody)
+			}
+			if got := directCalls.Load(); got != 0 {
+				t.Fatalf("direct provider was called %d times for a rejected request", got)
+			}
+			if got := len(mgr.SessionByID(sid).GetMessages()); got != 0 {
+				t.Fatalf("rejected request changed the running turn's transcript: %d messages", got)
+			}
+
+			release()
+			if err := <-profileDone; err != nil {
+				t.Fatal(err)
+			}
+			var userMessages, assistantMessages int
+			for _, msg := range mgr.SessionByID(sid).GetMessages() {
+				switch msg.Role {
+				case llm.RoleUser:
+					userMessages++
+				case llm.RoleAssistant:
+					assistantMessages++
+				}
+			}
+			if userMessages != 1 || assistantMessages != 1 {
+				t.Fatalf("profile transcript has %d user and %d assistant messages, want one each", userMessages, assistantMessages)
+			}
+		})
+	}
 }
 
 type capturingHTTPProvider struct {
@@ -5713,7 +5987,7 @@ func TestBackgroundWakeOnABusySessionLeavesTheRunningRelay(t *testing.T) {
 // a reloaded tab reads; a message somebody typed carries none.
 func TestSessionMessagesMarkOnlyTheWake(t *testing.T) {
 	two := 2
-	rows := llmMsgsToCoddyOpenAIForSession("sess_x", "", []llm.Message{
+	rows := llmMsgsToCoddyOpenAIForSession("sess_x", "", "", []llm.Message{
 		{Role: llm.RoleUser, Content: "start the tests"},
 		{Role: llm.RoleUser, Content: "A background task you started has finished.", BackgroundWake: &llm.BackgroundWake{
 			Tasks: []llm.BackgroundWakeTask{{ID: "bg_1", Status: "failed", ExitCode: &two, DurationMs: 1200}},
@@ -6326,5 +6600,41 @@ func TestCoddySessionsListKeepsANewChatWhoseFirstTurnRuns(t *testing.T) {
 	}
 	if parsed.ActiveCount != 1 {
 		t.Fatalf("active_count = %d, want 1", parsed.ActiveCount)
+	}
+}
+
+// A person who presses Reject chose an option: the answer reaches the turn as
+// selected, so a prompt that tells "a person declined" from "nobody answered"
+// (the decisions check's) reads it right. An explicit cancelled outcome stays a
+// dismissal.
+func TestPermissionAnswerRejectIsAChoiceNotADismissal(t *testing.T) {
+	cfg := &config.Config{}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	for _, tc := range []struct{ body, outcome, option string }{
+		{`{"toolCallId":"c1","optionId":"reject"}`, "selected", "reject"},
+		{`{"toolCallId":"c1","outcome":"cancelled"}`, "cancelled", "reject"},
+	} {
+		ch := registerPermissionWait("sess_reject_choice", "c1", "")
+		res, err := http.Post(ts.URL+"/coddy/sessions/sess_reject_choice/permission", "application/json", strings.NewReader(tc.body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = res.Body.Close()
+		if res.StatusCode != http.StatusNoContent {
+			t.Fatalf("%s: status %d", tc.body, res.StatusCode)
+		}
+		got := <-ch
+		if got == nil || got.Outcome != tc.outcome || got.OptionID != tc.option {
+			t.Fatalf("%s: answer %#v, want %s/%s", tc.body, got, tc.outcome, tc.option)
+		}
+		if permission.Approved(got) {
+			t.Fatalf("%s: a refusal reads as an approval", tc.body)
+		}
 	}
 }

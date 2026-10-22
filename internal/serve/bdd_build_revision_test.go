@@ -54,7 +54,7 @@ func fixtureEnv(extra ...string) []string {
 		}
 	}
 	env = append(env,
-		"GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull,
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null",
 		"GOFLAGS=-buildvcs=true", "GOTOOLCHAIN=local", "GOWORK=off")
 	return append(env, extra...)
 }

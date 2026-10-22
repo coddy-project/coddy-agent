@@ -172,6 +172,29 @@ func TestGoalDigestRecordsEvidenceFlagsAndClaims(t *testing.T) {
 	}
 }
 
+// The mv tool names its files src and dst, so a moved test file is listed
+// and flagged like an edited one.
+func TestGoalDigestListsAndFlagsAMovedTestFile(t *testing.T) {
+	goal, _ := NewGoal("fix the parser")
+	msgs := []llm.Message{
+		{Role: llm.RoleUser, Content: "kickoff", GoalTurn: &llm.GoalTurn{Kind: "kickoff", Objective: "fix the parser"}},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+			{ID: "1", Name: "mv", InputJSON: `{"src":"tests/parse_case.json","dst":"tests/disabled/parse_case.json"}`},
+		}},
+		{Role: llm.RoleTool, ToolCallID: "1", Content: "moved"},
+		{Role: llm.RoleAssistant, Content: "Done."},
+	}
+	d := buildGoalDigest(msgs, goal, false)
+	for _, want := range []string{
+		"## Files the turns changed\ntests/disabled/parse_case.json\ntests/parse_case.json\n",
+		"tests, test data or CI files were changed: tests/disabled/parse_case.json, tests/parse_case.json",
+	} {
+		if !strings.Contains(d, want) {
+			t.Errorf("digest lacks %q:\n%s", want, d)
+		}
+	}
+}
+
 func TestGoalDigestKeepsTheNewestStepsWithinItsBudget(t *testing.T) {
 	goal, _ := NewGoal("x")
 	msgs := []llm.Message{{Role: llm.RoleUser, Content: "k", GoalTurn: &llm.GoalTurn{Kind: "kickoff", Objective: "x"}}}
@@ -184,5 +207,20 @@ func TestGoalDigestKeepsTheNewestStepsWithinItsBudget(t *testing.T) {
 	d := buildGoalDigest(msgs, goal, false)
 	if len(d) > goalDigestBudget+6000 || !strings.Contains(d, "earlier steps omitted") || !strings.Contains(d, `"path":"f199"`) || strings.Contains(d, `"path":"f0"}`) {
 		t.Fatalf("digest of %d bytes keeps the wrong end", len(d))
+	}
+}
+
+// The goal check is a one-shot judgement: a model served by a local ACP agent
+// would take it for a task, so the check refuses it and names the key to set.
+func TestGoalCheckRefusesAnACPModel(t *testing.T) {
+	cfg := &config.Config{
+		Providers:  []config.ProviderConfig{{Name: "agent", Type: "acp", ACP: &config.ACPProviderConfig{Command: "/nonexistent/acp-agent"}}},
+		Models:     []config.ModelEntry{{Model: "agent/default"}},
+		Supervisor: config.Supervisor{Model: "agent/default"},
+	}
+	st := &State{ID: "sess_goal", CWD: t.TempDir()}
+	_, err := judgeSessionGoal(context.Background(), cfg, st, GoalCheckRequest{Objective: "x"})
+	if err == nil || !strings.Contains(err.Error(), "supervisor.model") {
+		t.Fatalf("err = %v, want the refusal to name supervisor.model", err)
 	}
 }

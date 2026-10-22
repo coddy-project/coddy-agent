@@ -383,13 +383,15 @@ func (a *App) Start(ctx context.Context, sessionID string, resume bool) error {
 		if err != nil {
 			return fmt.Errorf("session/new: %w", err)
 		}
-		a.adoptSession(res.SessionID, res.Modes, res.ConfigOptions)
 		// A pinned id may reopen a persisted bundle (its saved model then
 		// arrives in the adopted options); only a session minted now gets the
-		// console's initial pick.
+		// console's initial pick, before the options are adopted.
+		var modelErr error
 		if sessionID == "" {
-			a.applyInitialModel(res)
+			modelErr = a.applyInitialModel(ctx, res)
 		}
+		a.adoptSession(res.SessionID, res.Modes, res.ConfigOptions)
+		a.reportInitialModelError(res.SessionID, modelErr)
 		// Ready (slash catalog + deferred replay for reopened bundles) fires
 		// once the UI loop is draining updates, so a large replay can never
 		// fill the channel while nothing consumes it.
@@ -1354,8 +1356,9 @@ func (a *App) pickSessionBlocking(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("session/new: %w", err)
 		}
+		modelErr := a.applyInitialModel(ctx, newRes)
 		a.adoptSession(newRes.SessionID, newRes.Modes, newRes.ConfigOptions)
-		a.applyInitialModel(newRes)
+		a.reportInitialModelError(newRes.SessionID, modelErr)
 		go a.mgr.HandleSessionReady(newRes.SessionID)
 		return nil
 	}
@@ -1392,8 +1395,9 @@ func (a *App) pickSessionBlocking(ctx context.Context) error {
 				if err != nil {
 					return fmt.Errorf("session/new: %w", err)
 				}
+				modelErr := a.applyInitialModel(ctx, newRes)
 				a.adoptSession(newRes.SessionID, newRes.Modes, newRes.ConfigOptions)
-				a.applyInitialModel(newRes)
+				a.reportInitialModelError(newRes.SessionID, modelErr)
 				go a.mgr.HandleSessionReady(newRes.SessionID)
 				return nil
 			}
@@ -1532,7 +1536,7 @@ func (a *App) startNewSessionWorker(old string) {
 			_ = a.Sender().SendSessionUpdate(old, statusErr{msg: "new session: " + err.Error(), always: true})
 			return
 		}
-		a.applyInitialModel(res)
+		modelErr := a.applyInitialModel(a.workCtx, res)
 		if old != "" && old != res.SessionID {
 			a.mgr.ForgetLiveSession(old)
 		}
@@ -1540,6 +1544,10 @@ func (a *App) startNewSessionWorker(old string) {
 		case a.updatesCh <- updateMsg{sessionID: res.SessionID, update: sessionSwitched{res: res}}:
 		case <-a.closed:
 		}
+		// After sessionSwitched: the console still shows the old session
+		// until the loop takes that message, and drops a status line sent
+		// for another one.
+		a.reportInitialModelError(res.SessionID, modelErr)
 		a.mgr.HandleSessionReady(res.SessionID)
 	}()
 }

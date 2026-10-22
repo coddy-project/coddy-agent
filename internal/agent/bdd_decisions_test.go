@@ -22,6 +22,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -65,8 +66,13 @@ func (p *bddDecisionsProvider) Stream(_ context.Context, messages []llm.Message,
 type bddDecisionsSender struct {
 	resumePermissionSender
 	updates []interface{}
-	// prompts are the permission prompts the turn raised.
+	// prompts are the permission prompts that reached the person.
 	prompts []acp.PermissionRequestParams
+	// cfgMode is the configured permission mode, which a surface reads for a
+	// request the gate did not stamp.
+	cfgMode string
+	// nobody is a surface where nobody answers a prompt.
+	nobody bool
 }
 
 func (s *bddDecisionsSender) SendSessionUpdate(_ string, update interface{}) error {
@@ -74,10 +80,17 @@ func (s *bddDecisionsSender) SendSessionUpdate(_ string, update interface{}) err
 	return nil
 }
 
-// RequestPermission answers the way every surface does: by itself under
-// bypass, and otherwise as the operator approving the prompt.
+// RequestPermission answers the way every surface does: by itself what the
+// asker's mode covers (permission.AutoApproves), and otherwise as the
+// operator approving the prompt, or nobody answering it.
 func (s *bddDecisionsSender) RequestPermission(ctx context.Context, p acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	if permission.AutoApproves(p, s.cfgMode) {
+		return s.resumePermissionSender.RequestPermission(ctx, p)
+	}
 	s.prompts = append(s.prompts, p)
+	if s.nobody {
+		return &acp.PermissionResult{Outcome: permission.OutcomeCancelled, OptionID: permission.OptionReject}, nil
+	}
 	return s.resumePermissionSender.RequestPermission(ctx, p)
 }
 
@@ -188,6 +201,7 @@ func (s *bddDecisionsState) sessionUnderPermissions(mode string) error {
 		Tools:     config.Tools{PermissionMode: permMode},
 		Decisions: config.DecisionsConfig{Enabled: true},
 	}
+	s.sender.cfgMode = permMode
 	if !s.keySaved {
 		s.oldKey, s.hadKey = os.LookupEnv("NEURALDEEP_API_KEY")
 		s.keySaved = true
@@ -230,6 +244,25 @@ func (s *bddDecisionsState) endpointClassifies(choice string) error {
 func (s *bddDecisionsState) commandOnTheAllowlist() error {
 	s.cfg.Tools.CommandAllowlist = []string{"echo"}
 	return nil
+}
+
+func (s *bddDecisionsState) nobodyCanAnswer() error {
+	s.sender.nobody = true
+	return nil
+}
+
+// modelReadTheOutput checks the request after the call: the command's output
+// is the tool result the model reasons on in the same turn.
+func (s *bddDecisionsState) modelReadTheOutput() error {
+	if len(s.provider.seen) < 2 {
+		return fmt.Errorf("the model was asked %d time(s), want a second request after the call", len(s.provider.seen))
+	}
+	for _, m := range s.provider.seen[1] {
+		if m.Role == llm.RoleTool && m.ToolCallID == bddDecisionsCallID && strings.Contains(m.Content, bddDecisionsMarker) {
+			return nil
+		}
+	}
+	return fmt.Errorf("the second request does not carry the command output as the tool result")
 }
 
 func (s *bddDecisionsState) nobodyWasAsked() error {
@@ -387,6 +420,8 @@ func initializeDecisionsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a model that runs the shell command once, then answers$`, s.modelRunsTheCommandThenAnswers)
 	sc.Step(`^a model that runs a remote command over SSH once, then answers$`, s.modelRunsARemoteCommandThenAnswers)
 	sc.Step(`^the command is on the command allowlist$`, s.commandOnTheAllowlist)
+	sc.Step(`^nobody can answer a permission prompt$`, s.nobodyCanAnswer)
+	sc.Step(`^the model read the command output in the same turn$`, s.modelReadTheOutput)
 	sc.Step(`^nobody was asked to approve the command$`, s.nobodyWasAsked)
 	sc.Step(`^the operator was asked to approve the command as one classified dangerous$`, s.operatorAskedAboutADangerousCommand)
 	sc.Step(`^the decisions endpoint was asked about the command on its remote host$`, s.endpointWasAskedAboutTheRemoteCommand)

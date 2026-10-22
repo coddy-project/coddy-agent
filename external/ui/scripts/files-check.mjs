@@ -736,8 +736,8 @@ async function writeReleaseNotes(page) {
 
 /**
  * The view buttons of the chat header as the reader sees them: which, with what
- * short name shown (none on a phone), what tooltip, pressed or not, where, and
- * how big the icon is.
+ * word shown (the Tasks one before the first task, none for Files), what
+ * tooltip, pressed or not, where, and how big the icon is.
  */
 const viewButtons = (page) =>
   page.$$eval("[data-testid=chat-views] button", (buttons) => {
@@ -1109,10 +1109,11 @@ async function scenarioViews() {
     JSON.stringify(buttons.map((b) => b.id)),
   );
   check(
-    "on a desktop Files shows an 18px icon and a short name, Tasks the dot and its word",
-    buttons.map((b) => b.label).join(",") === "Files,Tasks" &&
+    "on a desktop Files is an 18px icon alone in a 36px square, Tasks the dot and its word",
+    buttons.map((b) => b.label).join(",") === ",Tasks" &&
       buttons.every((b) => b.labelFits) &&
       buttons[0].icon === 18 &&
+      Math.round(buttons[0].box.width) === 36 &&
       !buttons[0].dot &&
       buttons[1].dot,
     JSON.stringify(
@@ -1234,10 +1235,12 @@ async function scenarioViews() {
   );
   await a.page.mouse.move(5, 400);
 
+  // The Tasks dot beside its word, the repository and the branch on the
+  // plate; the Files icon stands alone, with no word to sit on.
   const offsets = await iconOffsets(a.page);
   check(
     "every icon beside a word sits on the middle of its lowercase letters, the plate's a pixel above it",
-    offsets.length >= 4 && offsets.every(iconSitsRight),
+    offsets.length >= 3 && offsets.every(iconSitsRight),
     JSON.stringify(offsets),
   );
 
@@ -2180,17 +2183,19 @@ async function scenarioWidths(sid) {
       const row = await viewButtons(w.page);
       const height = width < 1200 ? 42 : 36;
       check(
-        `${lang} ${width}px: the view buttons sit beside the title in one row, icon and short name whole`,
+        `${lang} ${width}px: the view buttons sit beside the title in one row, Files a square, the Tasks word whole`,
         row.length === 2 &&
           row.every(
             (b) =>
               b.inHeader &&
               b.besideTitle &&
-              b.label !== "" &&
               b.labelFits &&
               Math.round(b.box.height) === height,
           ) &&
+          row[0].label === "" &&
           row[0].icon === 18 &&
+          Math.round(row[0].box.width) === height &&
+          row[1].label !== "" &&
           row[1].dot &&
           new Set(row.map((b) => Math.round(b.box.top))).size === 1,
         JSON.stringify(

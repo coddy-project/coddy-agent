@@ -35,7 +35,8 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
-const wakeWebFailCommand = "echo 'tests failed' >&2; exit 2"
+// Both commands run on POSIX shells, PowerShell and cmd.exe.
+const wakeWebFailCommand = "exit 2"
 
 type wakeWebState struct {
 	root  string
@@ -71,6 +72,9 @@ func (s *wakeWebState) close() {
 	bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, nil)
 	if s.sid != "" {
 		bgtask.Default().StopSession(s.sid)
+		if s.srv != nil {
+			s.srv.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: s.sid})
+		}
 	}
 	if s.eventsCancel != nil {
 		s.eventsCancel()
@@ -107,7 +111,7 @@ func (s *wakeWebState) startServer(fixes bool) error {
 	if fixes {
 		woken = llmstub.Rule{
 			Match:  "background task you started has finished",
-			Tool:   &llmstub.ToolCall{Name: "run_command", Arguments: json.RawMessage(`{"command":"touch fixed.txt"}`)},
+			Tool:   &llmstub.ToolCall{Name: "run_command", Arguments: json.RawMessage(`{"command":"echo fixed > fixed.txt"}`)},
 			Answer: "Fixed it.",
 		}
 	}
@@ -135,7 +139,7 @@ func (s *wakeWebState) startServer(fixes bool) error {
 	// Commands are asked about, except the one the first turn starts: the
 	// woken turn's command is the prompt under test.
 	cfg.Tools.PermissionMode = config.PermModeAsk
-	cfg.Tools.CommandAllowlist = []string{"echo"}
+	cfg.Tools.CommandAllowlist = []string{wakeWebFailCommand}
 	log := slog.New(slog.DiscardHandler)
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
 		return agent.NewAgent(cfg, st, snd, log).Run(ctx, prompt)
@@ -246,8 +250,10 @@ func readSSEStream(r io.Reader, fn func(sseFrame)) {
 }
 
 func (s *wakeWebState) userAsks(text string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	body, _ := json.Marshal(map[string]any{"model": "agent", "input": text, "stream": true})
-	req, err := http.NewRequest(http.MethodPost, s.ts.URL+"/v1/responses", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.ts.URL+"/v1/responses", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -258,7 +264,10 @@ func (s *wakeWebState) userAsks(text string) error {
 		return err
 	}
 	defer func() { _ = res.Body.Close() }()
-	raw, _ := io.ReadAll(res.Body)
+	raw, readErr := io.ReadAll(res.Body)
+	if readErr != nil {
+		return fmt.Errorf("the first turn's stream did not finish: %w\n%s", readErr, raw)
+	}
 	if answer := streamedText(parseSSEFrames(string(raw))); res.StatusCode != http.StatusOK || !strings.Contains(answer, "Started the tests in the background.") {
 		return fmt.Errorf("the first turn answered %s %q:\n%s", res.Status, answer, raw)
 	}
@@ -460,7 +469,15 @@ func (s *wakeWebState) relayAsksPermission(command string) error {
 	if err != nil {
 		return err
 	}
-	if !strings.Contains(f.data, command) {
+	var params acp.PermissionRequestParams
+	if err := json.Unmarshal([]byte(f.data), &params); err != nil {
+		return err
+	}
+	description := params.ToolCall.Title
+	for _, item := range params.ToolCall.Content {
+		description += "\n" + item.Content.Text
+	}
+	if !strings.Contains(description, command) {
 		return fmt.Errorf("permission prompt %s does not name %q", f.data, command)
 	}
 	return nil

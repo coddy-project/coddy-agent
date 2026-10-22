@@ -358,12 +358,58 @@
     ]
   },
   {
-    "in": "only coddy: pages take a slash, @rule:deploy/x stops at it",
+    "in": "only rule: and coddy: take a slash, @agent:explore/x and @session:s1/x stop at it",
     "tokens": [
       {
-        "span": "@rule:deploy",
+        "span": "@agent:explore",
         "readings": [
-          "rule:deploy"
+          "agent:explore"
+        ]
+      },
+      {
+        "span": "@session:s1",
+        "readings": [
+          "session:s1"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "a subfolder's rule: @rule:db/deploy, @rule:apps/web/release. and an unfinished @rule:db/",
+    "tokens": [
+      {
+        "span": "@rule:db/deploy",
+        "readings": [
+          "rule:db/deploy"
+        ]
+      },
+      {
+        "span": "@rule:apps/web/release",
+        "readings": [
+          "rule:apps/web/release"
+        ]
+      },
+      {
+        "span": "@rule:db",
+        "readings": [
+          "rule:db"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "a slash at either end, @rule:/x and @rule:db//x",
+    "tokens": [
+      {
+        "span": "@rule:/x",
+        "readings": [
+          "rule:/x"
+        ]
+      },
+      {
+        "span": "@rule:db//x",
+        "readings": [
+          "rule:db//x"
         ]
       }
     ]

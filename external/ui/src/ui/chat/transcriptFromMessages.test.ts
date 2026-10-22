@@ -356,6 +356,56 @@ test("tool previews enrich only the rows of the page", () => {
   expect(mapped.items.filter((it) => it.type === "tool_call")).toHaveLength(1);
 });
 
+test("an MCP tool row keeps the screenshot its tool returned", () => {
+  const msgs: RawSessionMessage[] = [
+    { role: "user", content: "take a screenshot" },
+    {
+      role: "assistant",
+      content: "",
+      tool_calls: [
+        {
+          id: "m1",
+          type: "function",
+          function: { name: "browser__take_screenshot", arguments: "{}" },
+        },
+      ],
+    },
+    {
+      role: "tool",
+      tool_call_id: "m1",
+      content: "",
+      files: [
+        {
+          name: "browser-take_screenshot-1.png",
+          mime_type: "image/png",
+          preview_url: "/p/thumbnail",
+          url: "/p",
+        },
+      ],
+    },
+    { role: "assistant", content: "blank page" },
+  ];
+  const { items } = transcriptItemsFromMessages({
+    messages: msgs,
+    window: windowAt(msgs, 0),
+    uiLog: undefined,
+    newId,
+    reasoningDurations: new Map(),
+  });
+  expect(items.find((it) => it.type === "tool_call")).toMatchObject({
+    toolCallId: "m1",
+    images: [
+      {
+        name: "browser-take_screenshot-1.png",
+        mimeType: "image/png",
+        previewUrl: "/p/thumbnail",
+        url: "/p",
+      },
+    ],
+  });
+  expect(items.filter((it) => it.type === "user_message")).toHaveLength(1);
+});
+
 test("a tool result carries the pictures its call showed the model", () => {
   const msgs: RawSessionMessage[] = [
     { role: "user", content: "look" },
@@ -793,5 +843,63 @@ describe("what reasoning cost", () => {
       "thinking:",
       "answer:the rest.",
     ]);
+  });
+});
+
+test("an acp model's tool calls are rows of their own before the answer", () => {
+  const msgs: RawSessionMessage[] = [
+    { role: "user", content: "read the notes" },
+    {
+      role: "assistant",
+      content: "banana",
+      reasoning: "looking",
+      agent_tools: [
+        {
+          id: "acp_t1",
+          title: "read notes.txt",
+          kind: "read",
+          status: "completed",
+          input: '{"filePath":"/w/notes.txt"}',
+          output: "banana split",
+          output_lines: 40,
+        },
+        {
+          id: "acp_t2",
+          title: "bash go test",
+          kind: "execute",
+          status: "failed",
+        },
+      ],
+    },
+  ];
+  const { items } = transcriptItemsFromMessages({
+    messages: msgs,
+    window: windowAt(msgs, 0),
+    uiLog: undefined,
+    newId,
+    reasoningDurations: new Map(),
+  });
+  expect(items.map((it) => it.type)).toEqual([
+    "user_message",
+    "thinking",
+    "tool_call",
+    "tool_call",
+    "assistant_message",
+  ]);
+  expect(items[2]).toMatchObject({
+    toolCallId: "acp_t1",
+    title: "read notes.txt",
+    kind: "read",
+    status: "completed",
+    argsText: '{"filePath":"/w/notes.txt"}',
+    resultText: "banana split",
+    resultWasTruncated: true,
+    agentTool: true,
+  });
+  expect(items[3]).toMatchObject({
+    toolCallId: "acp_t2",
+    kind: "run_command",
+    status: "failed",
+    agentTool: true,
   });
 });

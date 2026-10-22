@@ -238,6 +238,18 @@ pages:
     en:
       title: "Devin"
       summary: "Using the models of a Devin (Cognition) account - browser sign-in or the Devin CLI login, one model per family with reasoning levels mapped to its variants, where the session token comes from."
+  features/opencode.md:
+    title: "OpenCode"
+    summary: "Шлюзы OpenCode Go и Console со входом в аккаунт или ключом сервисного аккаунта - протоколы моделей, заголовки клиента и выбор шлюза."
+    en:
+      title: "OpenCode"
+      summary: "Using the OpenCode Go and Console gateways with account login or a service account key - model protocols, client headers and gateway selection."
+  features/acp-provider.md:
+    title: "ACP-агент как модель"
+    summary: "Локальный ACP-агент (Claude Code, Codex, OpenCode, ZCode, другой Coddy) в роли модели - блок acp, одна сессия агента на сессию Coddy, запросы разрешений агента, режимы \"План\" и \"Чат\", процесс агента."
+    en:
+      title: "ACP agent as a model"
+      summary: "Serving a local ACP agent (Claude Code, Codex, OpenCode, ZCode, another Coddy) as a model - the acp block, one agent session per Coddy session, its permission requests, plan and ask modes, the agent process."
   features/web-search.md:
     title: "Веб-поиск"
     summary: "Какие поисковые системы опрашивает websearch, как заблокированный бэкенд попадает в отчёт, а не считается пустой выдачей, порог релевантности и подключение собственного SearXNG."
@@ -258,10 +270,10 @@ pages:
       summary: "Pointing at things with @ in a prompt - files anywhere on disk, line ranges, folders, other sessions, rules, subagents, web pages - resolved once into the message, with completion on every surface."
   features/images.md:
     title: "Изображения"
-    summary: "Модель смотрит на картинку - read файла PNG, JPEG, GIF или WebP для модели с пометкой multimodal, ограничения, что уходит провайдеру, и предпросмотр в веб-интерфейсе и в чате Telegram."
+    summary: "Модель смотрит на картинку - read файла PNG, JPEG, GIF или WebP для модели с пометкой multimodal, скриншот, который возвращает инструмент MCP, ограничения, что уходит провайдеру, и предпросмотр в веб-интерфейсе и в чате Telegram."
     en:
       title: "Images"
-      summary: "The model looking at a picture - read of a PNG, JPEG, GIF or WebP file for a model marked multimodal, the limits, what the provider is sent, and the preview in the web UI and a Telegram chat."
+      summary: "The model looking at a picture - read of a PNG, JPEG, GIF or WebP file for a model marked multimodal, a screenshot an MCP tool returns, the limits, what the provider is sent, and the preview in the web UI and a Telegram chat."
   features/picture-markup.md:
     title: "Вставка и разметка картинок"
     summary: "Скопированная картинка в промпте - ctrl+v в консоли, вставка в веб-интерфейсе - и редактор разметки, в котором она сначала открывается: карандаш, фигуры, стрелка, текст, обрезка, поворот и отмена."
@@ -312,10 +324,10 @@ pages:
       summary: "The memory subagent that runs per turn in the task pool, what it recalls and saves, how the report reaches the turn, the storage layout, configuration and cost."
   features/decisions.md:
     title: "Безопасность команд (decisions)"
-    summary: "Проверка NeuralDeep decisions, которая спрашивает, безопасна ли shell-команда, до шлюза разрешений: безопасная выполняется без запроса, о небезопасной спрашивают, а в режиме bypass её отклоняют."
+    summary: "Проверка NeuralDeep decisions, которая спрашивает, безопасна ли shell-команда, до шлюза разрешений: безопасная выполняется без запроса, о небезопасной спрашивают в любом режиме, включая bypass, а если ответить некому, её отклоняют."
     en:
       title: "Command safety (decisions)"
-      summary: "The NeuralDeep decisions check that asks whether a shell command is safe before the permission gate: a safe command runs without a prompt, an unsafe one is asked about, or rejected in bypass mode."
+      summary: "The NeuralDeep decisions check that asks whether a shell command is safe before the permission gate: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer."
   features/session-export.md:
     title: "Экспорт сессии"
     summary: "/export и coddy sessions export, форматы, правила путей, параметры обрезки, JSON-документ."

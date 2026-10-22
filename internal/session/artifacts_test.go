@@ -4,7 +4,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -33,19 +35,23 @@ func TestCaptureArtifactDeduplicatesAndRejectsSymlink(t *testing.T) {
 	if first.ID != second.ID || first.SHA256 != second.SHA256 {
 		t.Fatalf("dedup = %#v, %#v", first, second)
 	}
-	if first.SourcePath != file || first.SourceRelativePath != "report.txt" {
+	canonicalFile, err := filepath.EvalSymlinks(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.SourcePath != canonicalFile || first.SourceRelativePath != "report.txt" {
 		t.Fatalf("source metadata = %#v, want absolute %q and relative report.txt", first, file)
 	}
 	if got, err := os.ReadFile(ArtifactPath(sessionDir, first.SHA256)); err != nil || string(got) != "immutable bytes" {
 		t.Fatalf("artifact = %q, %v", got, err)
 	}
 
-	if err := os.Symlink(file, filepath.Join(workspace, "linked.txt")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := CaptureArtifact(sessionDir, workspace, "linked.txt"); err == nil {
-		t.Fatal("symlink source was accepted")
-	}
+	t.Run("symlink source", func(t *testing.T) {
+		artifactTestSymlink(t, file, filepath.Join(workspace, "linked.txt"))
+		if _, err := CaptureArtifact(sessionDir, workspace, "linked.txt"); err == nil {
+			t.Fatal("symlink source was accepted")
+		}
+	})
 }
 
 func TestAssistantPlacesVerifiedArtifactAndKeepsToolFallbackUntilThen(t *testing.T) {
@@ -128,6 +134,61 @@ func TestArtifactSourcePathReportsRemovedSource(t *testing.T) {
 	}
 }
 
+// The card of a shared file opens the file it was copied from, so the state
+// is decided against the chat's workspace as it is now.
+func TestArtifactSourceStateFollowsTheWorkspace(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	if err := os.MkdirAll(filepath.Join(workspace, "reports"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(workspace, "reports", "report.txt")
+	if err := os.WriteFile(file, []byte("report"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, err := CaptureArtifact(filepath.Join(root, "session"), workspace, filepath.Join("reports", "report.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(root, "other")
+	if err := os.Mkdir(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, cwd, source, rel, want string
+	}{
+		{"in the workspace", workspace, a.SourcePath, a.SourceRelativePath, ArtifactSourcePresent},
+		{"the chat moved to another folder", other, a.SourcePath, a.SourceRelativePath, ArtifactSourceUnavailable},
+		{"the chat's folder is gone", filepath.Join(root, "gone"), a.SourcePath, a.SourceRelativePath, ArtifactSourceUnavailable},
+		{"no source recorded", workspace, "", "", ArtifactSourceUnavailable},
+		{"a relative path that does not name the source", workspace, a.SourcePath, "report.txt", ArtifactSourceUnavailable},
+	} {
+		if got := ArtifactSourceState(tc.cwd, tc.source, tc.rel); got != tc.want {
+			t.Errorf("%s: state %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	if err := os.Remove(file); err != nil {
+		t.Fatal(err)
+	}
+	if got := ArtifactSourceState(workspace, a.SourcePath, a.SourceRelativePath); got != ArtifactSourceDeleted {
+		t.Fatalf("removed source: state %q, want %q", got, ArtifactSourceDeleted)
+	}
+	// A folder where the file was is not the file the card names.
+	if err := os.Mkdir(file, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := ArtifactSourceState(workspace, a.SourcePath, a.SourceRelativePath); got != ArtifactSourceDeleted {
+		t.Fatalf("source replaced by a folder: state %q, want %q", got, ArtifactSourceDeleted)
+	}
+	// The folder that held it went with it.
+	if err := os.RemoveAll(filepath.Join(workspace, "reports")); err != nil {
+		t.Fatal(err)
+	}
+	if got := ArtifactSourceState(workspace, a.SourcePath, a.SourceRelativePath); got != ArtifactSourceDeleted {
+		t.Fatalf("source folder removed: state %q, want %q", got, ArtifactSourceDeleted)
+	}
+}
+
 func TestReadArtifactRejectsTamperedAndSymlinkedContent(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
@@ -155,10 +216,20 @@ func TestReadArtifactRejectsTamperedAndSymlinkedContent(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(filepath.Join(workspace, "report.txt"), path); err != nil {
+	t.Run("symlink content", func(t *testing.T) {
+		artifactTestSymlink(t, filepath.Join(workspace, "report.txt"), path)
+		if _, _, err := ReadArtifact(sessionDir, a.ID); err == nil {
+			t.Fatal("symlinked artifact was accepted")
+		}
+	})
+}
+
+func artifactTestSymlink(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		if runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(1314)) {
+			t.Skip("creating symlinks requires Windows Developer Mode or SeCreateSymbolicLinkPrivilege")
+		}
 		t.Fatal(err)
-	}
-	if _, _, err := ReadArtifact(sessionDir, a.ID); err == nil {
-		t.Fatal("symlinked artifact was accepted")
 	}
 }

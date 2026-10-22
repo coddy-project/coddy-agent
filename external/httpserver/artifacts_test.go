@@ -149,6 +149,9 @@ func TestSessionArtifactDownloadGuardsAndDTOs(t *testing.T) {
 		if !bytes.Contains(raw, []byte(`"artifacts"`)) || !bytes.Contains(raw, []byte(a.ID)) || !bytes.Contains(raw, []byte(`"sourcePath"`)) || !bytes.Contains(raw, []byte(`"relativePath"`)) {
 			t.Errorf("%s lacks artifact dto: %s", u, raw)
 		}
+		if !bytes.Contains(raw, []byte(`"sourceState":"present"`)) {
+			t.Errorf("%s does not say the source is present: %s", u, raw)
+		}
 	}
 	response := get("GET", "/coddy/sessions/"+id+"/messages", nil)
 	messageBody, _ := io.ReadAll(response.Body)
@@ -202,11 +205,11 @@ func TestSessionArtifactPreviewServesOnlyImages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	imageDTO := artifactDTOs(id, []llm.Artifact{{ID: image.ID, Name: image.Name}})
+	imageDTO := artifactDTOs(id, "", []llm.Artifact{{ID: image.ID, Name: image.Name}})
 	if got := imageDTO[0]["previewUrl"]; got != "/coddy/sessions/"+id+"/artifacts/"+image.ID+"/preview" {
 		t.Fatalf("image artifact preview URL = %#v", got)
 	}
-	reportDTO := artifactDTOs(id, []llm.Artifact{{ID: report.ID, Name: report.Name}})
+	reportDTO := artifactDTOs(id, "", []llm.Artifact{{ID: report.ID, Name: report.Name}})
 	if _, ok := reportDTO[0]["previewUrl"]; ok {
 		t.Fatalf("non-image artifact unexpectedly has a preview URL: %#v", reportDTO[0])
 	}
@@ -218,7 +221,7 @@ func TestSessionArtifactPreviewServesOnlyImages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bmpDTO := artifactDTOs(id, []llm.Artifact{{ID: bmp.ID, Name: bmp.Name}})
+	bmpDTO := artifactDTOs(id, "", []llm.Artifact{{ID: bmp.ID, Name: bmp.Name}})
 	if got := bmpDTO[0]["previewUrl"]; got != "/coddy/sessions/"+id+"/artifacts/"+bmp.ID+"/preview" {
 		t.Fatalf("BMP artifact preview URL = %#v", got)
 	}

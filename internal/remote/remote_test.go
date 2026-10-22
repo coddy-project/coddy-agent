@@ -6,12 +6,14 @@ package remote
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -610,6 +612,35 @@ func TestRemoteDefaultModelIsTheRowTheServerMarks(t *testing.T) {
 				t.Fatalf("default model = %q, want %q", h.defModel, tc.want)
 			}
 		})
+	}
+}
+
+// A provider row may be named coddy (a coddy acp agent served as a model):
+// its rows are owned_by coddy like the session profiles, and they are still
+// models to pick; only the profile ids are profiles.
+func TestRemoteKeepsTheModelsOfAProviderNamedCoddy(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"object":"list","data":[
+			{"id":"agent","owned_by":"coddy"},
+			{"id":"plan","owned_by":"coddy"},
+			{"id":"ask","owned_by":"coddy"},
+			{"id":"coddy/default","owned_by":"coddy","default":true},
+			{"id":"coddy/neuraldeep/qwen3.8-27b","owned_by":"coddy"}]}`))
+	}))
+	defer srv.Close()
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.ensureModels(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, m := range h.models {
+		ids = append(ids, m.ID)
+	}
+	if strings.Join(ids, ",") != "coddy/default,coddy/neuraldeep/qwen3.8-27b" || h.defModel != "coddy/default" {
+		t.Fatalf("models = %v, default = %q", ids, h.defModel)
 	}
 }
 
@@ -1407,5 +1438,52 @@ func TestRemoteToolsetBeforeTheFirstPrompt(t *testing.T) {
 	}
 	if opt == nil || opt.CurrentValue != "lean" || len(opt.Options) != 3 || opt.Options[2].Value != "default" {
 		t.Fatalf("toolset option = %+v", opt)
+	}
+}
+
+// A prompt the local surface dismissed or could not show is posted as a
+// cancelled outcome, not as the reject option a person chooses: the server
+// tells the two apart for a command the decisions check stopped.
+func TestPermissionAnswerTellsADismissalFromAReject(t *testing.T) {
+	cases := []struct {
+		name string
+		res  *acp.PermissionResult
+		err  error
+		want map[string]string
+	}{
+		{"allowed", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}, nil, map[string]string{"toolCallId": "c1", "optionId": "allow"}},
+		{"bare allow", &acp.PermissionResult{Outcome: "allow"}, nil, map[string]string{"toolCallId": "c1", "optionId": "allow"}},
+		{"rejected", &acp.PermissionResult{Outcome: "selected", OptionID: "reject"}, nil, map[string]string{"toolCallId": "c1", "optionId": "reject"}},
+		{"dismissed", &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil, map[string]string{"toolCallId": "c1", "outcome": "cancelled"}},
+		{"not shown", nil, errors.New("no surface"), map[string]string{"toolCallId": "c1", "outcome": "cancelled"}},
+	}
+	for _, c := range cases {
+		got := permissionAnswer("c1", c.res, c.err)
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: answer = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// A woken turn's prompt asked aside is answered from here only when this
+// surface answered it: one it could not show (an editor that failed or
+// withdrew it) stays open for the web UI.
+func TestAnsweredHereLeavesAPromptNobodyShowedOpen(t *testing.T) {
+	cases := []struct {
+		name string
+		res  *acp.PermissionResult
+		err  error
+		want bool
+	}{
+		{"chosen", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}, nil, true},
+		{"dismissed in a modal", &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil, true},
+		{"withdrawn by an editor", &acp.PermissionResult{Outcome: "cancelled"}, nil, false},
+		{"not delivered", nil, errors.New("closed"), false},
+		{"no answer", nil, nil, false},
+	}
+	for _, c := range cases {
+		if got := answeredHere(c.res, c.err); got != c.want {
+			t.Errorf("%s: answeredHere = %v, want %v", c.name, got, c.want)
+		}
 	}
 }
