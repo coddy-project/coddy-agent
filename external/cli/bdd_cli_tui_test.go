@@ -845,6 +845,12 @@ func (s *cliTUIState) footerHidesUsage() error {
 }
 
 func (s *cliTUIState) startApp(sessionID string) error {
+	return s.launchApp(func(ctx context.Context) error { return s.app.Start(ctx, sessionID, false) })
+}
+
+// launchApp runs start - the startup that happens before raw mode, in the
+// order run.go gives it - and then the console's loop.
+func (s *cliTUIState) launchApp(start func(ctx context.Context) error) error {
 	if s.app == nil {
 		if err := s.buildApp(); err != nil {
 			return err
@@ -852,7 +858,7 @@ func (s *cliTUIState) startApp(sessionID string) error {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.runCtx, s.runCancel = ctx, cancel
-	if err := s.app.Start(ctx, sessionID, false); err != nil {
+	if err := start(ctx); err != nil {
 		cancel()
 		return err
 	}
