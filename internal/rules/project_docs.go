@@ -2,6 +2,7 @@ package rules
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,19 @@ const projectDocMaxBytes = 256 * 1024
 
 // ErrDocIsFolder reports a document path that names a folder.
 var ErrDocIsFolder = errors.New("is a folder, not a file")
+
+// ErrDocNotAFile reports a document path that names a pipe, a socket or a
+// device, whose read could block or never end.
+var ErrDocNotAFile = errors.New("is a pipe, a socket or a device, not a file")
+
+// specialFile reports whether mode names a file whose read may block or never
+// end: a named pipe, a socket or a device. A rule or a document is read only
+// when it is none of them. It is a list of what to refuse rather than of what
+// to read, since Windows reports a reparse point that is not a link, a
+// OneDrive placeholder for one, as irregular rather than regular.
+func specialFile(mode fs.FileMode) bool {
+	return mode&(fs.ModeNamedPipe|fs.ModeSocket|fs.ModeDevice|fs.ModeCharDevice) != 0
+}
 
 // ErrDocEmpty reports a document that holds nothing but white space: it is
 // there and adds nothing to the prompt.
@@ -114,8 +128,9 @@ func RenderUserDocs(docs []ProjectDoc) string {
 }
 
 // CheckDoc reports why the document at path would not reach the prompt - it
-// does not exist, cannot be read, names a folder (ErrDocIsFolder) or holds
-// nothing (ErrDocEmpty) - and nil when it would.
+// does not exist, cannot be read, names a folder (ErrDocIsFolder) or a pipe,
+// a socket or a device (ErrDocNotAFile), or holds nothing (ErrDocEmpty) - and
+// nil when it would.
 func CheckDoc(path string) error {
 	_, err := loadProjectDoc(path)
 	return err
@@ -126,6 +141,8 @@ func CheckDoc(path string) error {
 func loadProjectDoc(path string) (ProjectDoc, error) {
 	if st, err := os.Stat(path); err == nil && st.IsDir() {
 		return ProjectDoc{}, ErrDocIsFolder
+	} else if err == nil && specialFile(st.Mode()) {
+		return ProjectDoc{}, ErrDocNotAFile
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {

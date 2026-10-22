@@ -2050,7 +2050,7 @@ export const messagesEn: Record<string, string> = {
     "Restore the conversation as it was before this edit. File changes are not reverted.",
   "messages.attachedFiles": "Attached files",
   "messages.openAttachmentImage": "Open {fileName} enlarged",
-  "messages.toolImages": "Pictures the call showed the model",
+  "messages.toolImages": "Pictures the call returned",
   "messages.openToolImage": "Open {fileName} enlarged",
   "messages.systemLabel": "System",
   "messages.refresh": "Refresh",

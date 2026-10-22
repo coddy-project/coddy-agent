@@ -7,6 +7,7 @@ package telegram
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -243,5 +244,143 @@ func TestAnAssetThatIsNotAPictureIsNotSent(t *testing.T) {
 
 	if calls := len(f.fake.Calls("sendPhoto")) + len(f.fake.Calls("sendDocument")); calls != 0 {
 		t.Fatalf("sent %d files for an asset that is not a picture", calls)
+	}
+}
+
+// savedPictures writes n PNGs of different colours into the session's assets
+// and returns them with the update of one call that announces them all.
+func savedPictures(t *testing.T, sessionDir string, n int) ([][]byte, acp.ToolCallStatusUpdate) {
+	t.Helper()
+	dir := session.AssetsPath(sessionDir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var data [][]byte
+	var images []session.ToolImage
+	for i := 1; i <= n; i++ {
+		img := image.NewNRGBA(image.Rect(0, 0, 3, 2))
+		img.Set(0, 0, color.NRGBA{R: uint8(i * 10), A: 255})
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, img); err != nil {
+			t.Fatal(err)
+		}
+		asset := fmt.Sprintf("shot-%d-1a.png", i)
+		if err := os.WriteFile(filepath.Join(dir, asset), buf.Bytes(), 0o444); err != nil {
+			t.Fatal(err)
+		}
+		data = append(data, buf.Bytes())
+		images = append(images, session.ToolImage{Name: fmt.Sprintf("shot-%d.png", i), MIMEType: "image/png", Asset: asset})
+	}
+	return data, acp.ToolCallStatusUpdate{
+		SessionUpdate: acp.UpdateTypeToolCallUpdate,
+		ToolCallID:    "m1",
+		Status:        "completed",
+		Meta:          session.ToolImagesMeta(nil, images),
+	}
+}
+
+// photosOf is the bot's photos in the chat, with the album each is in.
+func photosOf(f *fakeAPI, chatID int64) []tgfake.MessageView {
+	var out []tgfake.MessageView
+	for _, m := range f.fake.Chat(chatID).Messages {
+		if m.From == "bot" && (m.Photo != nil || m.Document != nil) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// Telegram takes 2 to 10 pictures as one album: twelve pictures of one call
+// go as an album of ten and one of two, each captioned with its name; eleven
+// go as an album of ten and a photo, since an album of one is no album.
+func TestThePicturesOfOneCallGoAsAlbumsOfTen(t *testing.T) {
+	for _, tc := range []struct {
+		n, albums, photos int
+	}{{12, 2, 0}, {11, 1, 1}, {2, 1, 0}} {
+		t.Run(fmt.Sprint(tc.n), func(t *testing.T) {
+			f := newFakeAPI(t, tgfake.Options{})
+			dir := t.TempDir()
+			data, update := savedPictures(t, dir, tc.n)
+			s := newSender(f.api, 5, 0, slog.Default(), richConfig{})
+			s.pictures = fixedSession{id: "sess_chat", dir: dir}
+
+			_ = s.SendSessionUpdate("sess_chat", update)
+
+			if got := len(f.fake.Calls("sendMediaGroup")); got != tc.albums {
+				t.Fatalf("%d albums, want %d", got, tc.albums)
+			}
+			if got := len(f.fake.Calls("sendPhoto")); got != tc.photos {
+				t.Fatalf("%d single photos, want %d", got, tc.photos)
+			}
+			photos := photosOf(f, 5)
+			if len(photos) != tc.n {
+				t.Fatalf("the chat holds %d pictures, want %d", len(photos), tc.n)
+			}
+			for i, m := range photos {
+				if m.Caption != fmt.Sprintf("shot-%d.png", i+1) {
+					t.Errorf("picture %d is captioned %q", i+1, m.Caption)
+				}
+				if got, ok := f.fake.File(m.Photo.FileID); !ok || !bytes.Equal(got, data[i]) {
+					t.Errorf("picture %d is not the saved one", i+1)
+				}
+				inAlbum := i < tc.albums*10 && i < tc.n-tc.photos
+				if inAlbum != (m.MediaGroupID != "") {
+					t.Errorf("picture %d: in an album %v, want %v", i+1, m.MediaGroupID != "", inAlbum)
+				}
+			}
+		})
+	}
+}
+
+// An album Telegram refuses as photos goes picture by picture, the way a
+// single picture does, so each can still go as a document.
+func TestAnAlbumRefusedAsPhotosGoesPictureByPicture(t *testing.T) {
+	f := newFakeAPI(t, tgfake.Options{})
+	f.fake.SetFault(tgfake.Fault{Method: "sendMediaGroup", Code: http.StatusBadRequest, Description: "Bad Request: PHOTO_INVALID_DIMENSIONS", Times: 1})
+	dir := t.TempDir()
+	_, update := savedPictures(t, dir, 3)
+	s := newSender(f.api, 5, 0, slog.Default(), richConfig{})
+	s.pictures = fixedSession{id: "sess_chat", dir: dir}
+
+	_ = s.SendSessionUpdate("sess_chat", update)
+
+	if got := len(f.fake.Calls("sendPhoto")); got != 3 {
+		t.Fatalf("%d single photos after the refused album, want 3", got)
+	}
+	if photos := photosOf(f, 5); len(photos) != 3 || photos[0].Caption != "shot-1.png" {
+		t.Fatalf("chat = %+v", photos)
+	}
+}
+
+// A rate limit is not another way to send the album: nothing more is tried.
+func TestAnAlbumIsNotResentAfterARateLimit(t *testing.T) {
+	f := newFakeAPI(t, tgfake.Options{})
+	f.fake.SetFault(tgfake.Fault{Method: "sendMediaGroup", Code: http.StatusTooManyRequests, Description: "Too Many Requests: retry after 5", RetryAfter: 5, Times: 1})
+	dir := t.TempDir()
+	_, update := savedPictures(t, dir, 3)
+	s := newSender(f.api, 5, 0, slog.Default(), richConfig{})
+	s.pictures = fixedSession{id: "sess_chat", dir: dir}
+
+	_ = s.SendSessionUpdate("sess_chat", update)
+
+	if got := len(f.fake.Calls("sendPhoto")) + len(f.fake.Calls("sendDocument")); got != 0 {
+		t.Fatalf("%d pictures sent one by one after a rate limit, want none", got)
+	}
+}
+
+// Any Bad Request about an album gets each picture its own try, since
+// Telegram does not always name the photo that failed it.
+func TestAnAlbumRefusedForAnyReasonGoesPictureByPicture(t *testing.T) {
+	f := newFakeAPI(t, tgfake.Options{})
+	f.fake.SetFault(tgfake.Fault{Method: "sendMediaGroup", Code: http.StatusBadRequest, Description: "Bad Request: group send failed", Times: 1})
+	dir := t.TempDir()
+	_, update := savedPictures(t, dir, 2)
+	s := newSender(f.api, 5, 0, slog.Default(), richConfig{})
+	s.pictures = fixedSession{id: "sess_chat", dir: dir}
+
+	_ = s.SendSessionUpdate("sess_chat", update)
+
+	if got := len(f.fake.Calls("sendPhoto")); got != 2 {
+		t.Fatalf("%d single photos after the refused album, want 2", got)
 	}
 }

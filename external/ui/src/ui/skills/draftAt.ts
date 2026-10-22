@@ -11,8 +11,10 @@
 import { blockquoteLine, inMarkdownFenceBeforeCaret } from "./draftSlash";
 
 /**
- * A meta reference: **`@session:<id>`**, **`@rule:<name>`**, **`@agent:<name>`**,
- * **`@coddy:<page>#<section>`** (a page of the built-in documentation).
+ * A meta reference: **`@session:<id>`**, **`@rule:<name>`** (or
+ * **`@rule:<folder>/<name>`** for a rule of a subfolder's rule folder),
+ * **`@agent:<name>`**, **`@coddy:<page>#<section>`** (a page of the built-in
+ * documentation).
  */
 export type MentionScheme = "session" | "rule" | "agent" | "coddy";
 
@@ -292,10 +294,13 @@ function parseURL(text: string, at: number): MentionToken | null {
   return { start: at, end, kind: "url", url, readings: [] };
 }
 
-/** Drops the trailing **`.`**, **`/`** and **`#`** of a documentation page reference. */
-function trimRightPageRef(s: string): string {
+/**
+ * Drops the trailing characters of **`trim`** from a reference: **`./#`** for a
+ * documentation page, **`./`** for a rule named with its folder.
+ */
+function trimRightRef(s: string, trim: string): string {
   let end = s.length;
-  while (end > 0 && "./#".includes(s[end - 1]!)) {
+  while (end > 0 && trim.includes(s[end - 1]!)) {
     end--;
   }
   return s.slice(0, end);
@@ -315,10 +320,11 @@ function isRefChar(c: number): boolean {
 
 /**
  * Reads **`@session:<ref>`**, **`@rule:<ref>`**, **`@agent:<ref>`** and
- * **`@coddy:<ref>`**. A documentation page also takes **`/`** and **`#`**
- * (**`features/mentions#completion`**). A trailing **`.`**, and for a page a
- * trailing **`/`** or **`#`**, is the end of a sentence or of an unfinished
- * reference, not part of the name.
+ * **`@coddy:<ref>`**. A rule also takes **`/`**, for a rule of a subfolder's
+ * rule folder named with its folder (**`rule:db/deploy`**), and a documentation
+ * page **`/`** and **`#`** (**`features/mentions#completion`**). A trailing
+ * **`.`**, and for a rule or a page a trailing **`/`** (and **`#`** for a page),
+ * is the end of a sentence or of an unfinished reference, not part of the name.
  */
 function parseScheme(text: string, at: number): MentionToken | null {
   const rest = at + 1;
@@ -327,18 +333,21 @@ function parseScheme(text: string, at: number): MentionToken | null {
     return null;
   }
   const page = scheme === "coddy";
+  const slash = page || scheme === "rule";
   const refStart = rest + scheme.length + 1;
   let k = refStart;
   while (k < text.length) {
     const c = text.charCodeAt(k);
-    if (!isRefChar(c) && !(page && (c === 0x2f || c === 0x23))) {
+    if (!isRefChar(c) && !(slash && c === 0x2f) && !(page && c === 0x23)) {
       break;
     }
     k++;
   }
   const ref = page
-    ? trimRightPageRef(text.slice(refStart, k))
-    : trimRightDots(text.slice(refStart, k));
+    ? trimRightRef(text.slice(refStart, k), "./#")
+    : slash
+      ? trimRightRef(text.slice(refStart, k), "./")
+      : trimRightDots(text.slice(refStart, k));
   if (ref === "") {
     return null;
   }

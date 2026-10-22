@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	memstorage "github.com/EvilFreelancer/coddy-agent/external/memory/storage"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -114,7 +115,7 @@ func (s *Server) coddyMemoryTree(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	wsRoot := filepath.Join(filepath.Clean(st.GetCWD()), "memory")
+	wsRoot := memstorage.ProjectRootFor(st.GetCWD())
 	var base string
 	switch rootQ {
 	case "global":
@@ -198,7 +199,7 @@ func (s *Server) coddyResolveMemoryAbs(st *session.State, rootKind, rel string) 
 		}
 		base = p.globalMemoryRoot
 	case "workspace":
-		base = filepath.Join(filepath.Clean(st.GetCWD()), "memory")
+		base = memstorage.ProjectRootFor(st.GetCWD())
 	default:
 		return "", fmt.Errorf("invalid root")
 	}
@@ -353,7 +354,7 @@ func (s *Server) coddyMemoryFileDelete(w http.ResponseWriter, r *http.Request) {
 	case "global":
 		memRoot = p.globalMemoryRoot
 	case "workspace":
-		memRoot = filepath.Join(filepath.Clean(st.GetCWD()), "memory")
+		memRoot = memstorage.ProjectRootFor(st.GetCWD())
 	default:
 		http.Error(w, `{"error":{"message":"invalid root"}}`, http.StatusBadRequest)
 		return

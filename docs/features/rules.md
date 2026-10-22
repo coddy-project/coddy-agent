@@ -2,7 +2,7 @@
 
 Coddy reads standing instructions from two places and injects them into the system prompt, separate from skills (**`{{.Skills}}`**).
 
-- The **workspace**: the rule folders of the session working directory and its `AGENTS.md`, which travel with the checkout and apply to whoever opens it;
+- The **workspace**: the rule folders of the session working directory and its `AGENTS.md`, and those of its subfolders once the agent reaches them, which travel with the checkout and apply to whoever opens it;
 - your **agent home** (`~/.coddy`): `AGENTS.md`, `DESIGN.md` and `rules/` next to `config.yaml`, which belong to the person running Coddy and apply in every workspace.
 
 Nothing has to be configured for either. The `AGENTS.md` and `DESIGN.md` documents come in three layers that are always read and that no setting turns off - yours, the workspace's, and those of the folders the agent works in ([AGENTS.md and DESIGN.md](#agentsmd-and-designmd)). The rules that always apply reach the model through **`{{.Rules}}`**, and a rule scoped to paths arrives with the tool result or the message that first touches a matching path. `instructions.files` is empty by default and only adds files below the documents, in **`{{.Instructions}}`**.
@@ -38,10 +38,11 @@ conversation already grows, and costs its own length once:
 
 - a **tool call** that reads or writes a matching file brings it in the **result of that call**, after
   the output, under a one-line lead; a nested `AGENTS.md` comes the same way with the call that
-  enters its folder;
+  enters its folder, and a rule of a subfolder's rule folder with the call that reads or writes a
+  file it applies to;
 - a **mention** brings it in the **user's message** as an attachment (`kind="rule"`): a mention-only
-  rule the user names, and a path-gated rule or a nested `AGENTS.md` that a mentioned file or folder
-  activates. See [Mentions](mentions.md#mentions-and-the-prompt-cache).
+  rule the user names, and a path-gated rule, a rule of a subfolder's rule folder or a nested
+  `AGENTS.md` that a mentioned file or folder activates. See [Mentions](mentions.md#mentions-and-the-prompt-cache).
 
 Either way it arrives **once**: while an earlier result or message that carries it with the same
 text is still sent to the model, a later match attaches nothing. When a compaction folds that result
@@ -54,11 +55,11 @@ it only to the model.
 
 ## Discovery
 
-When `rules.auto_discover` is true (default), Coddy reads your own folder and **one** project folder:
+When `rules.auto_discover` is true (default), Coddy reads your own folder and **one** project folder of the workspace (the rule folders of its subfolders are read later, when the agent reaches them: [Rule folders of subfolders](#rule-folders-of-subfolders)):
 
 | System | Path | Notes |
 |--------|------|-------|
-| `user` | `~/.coddy/rules/` | **Yours**, not the project's: read in every workspace, never part of a checkout. A project rule of the same file name overrides it |
+| `user` | `~/.coddy/rules/` | **Yours**, not the project's: read in every workspace, never part of a checkout. A project rule at the same path inside its folder, extension included, overrides it |
 | `coddy` | `.coddy/rules/` | Coddy's own folder, the first project folder looked at |
 | `agents-dir` | `.agents/rules/` | The tool-neutral `.agents/` tree, next to `.agents/skills`: rules meant for every agent that works on the project |
 | `cursor` | `.cursor/rules/` | Cursor's folder, in the `.mdc` dialect Coddy's own rules are written in |
@@ -68,7 +69,7 @@ When `rules.auto_discover` is true (default), Coddy reads your own folder and **
 
 The project folders form a chain, in the order of the table: Coddy reads the **first one that holds a rule file** and none after it. Every agent keeps its rules in a folder of its own, and a project that works with several of them keeps the same rules in each - `.cursor/rules/workflow.mdc` and its Claude Code mirror `.claude/rules/workflow.md` - so reading every folder would hand the model each rule twice. A project with `.coddy/rules/` is read from there alone; one that writes its rules for every agent in `.agents/rules/` is read from there; otherwise Coddy borrows Cursor's folder, and Claude Code's when there is no Cursor folder either. A folder with no `.md` or `.mdc` file in it - empty, or holding only Codex's `*.rules` - does not count, and the chain moves on.
 
-Every folder read is scanned recursively for `.md` and `.mdc` files; those are small rule folders, and nothing else of the workspace is read at session start. Your own folder joins whichever project folder was read, and when a file name appears in both, the project's file wins. Nested documents are keyed by full path, so they never collapse into each other.
+Every folder read is scanned recursively for `.md` and `.mdc` files; those are small rule folders, and nothing else of the workspace is read at session start. A rule is named by its file's path inside the folder, without the extension: `.coddy/rules/frontend/style.mdc` is `frontend/style`, so files of one name in different folders are different rules, and another agent's mirror is matched by that path too ([Naming a rule](#naming-a-rule)). Your own folder joins whichever project folder was read, and when a file has the same path inside both, the project's file wins. Links in a rule folder are followed, a linked folder or file included, in the workspace's folder and in the rule folders of subfolders alike. A link to a folder of the same rule folder is passed over, so its rules keep the names of their real place; a folder reached twice is read once; and a rule folder is read up to 16 levels and 10,000 entries deep. Since links are followed, a rule folder that comes with a checkout can bring in any file the session can read: look at the rule folders of a checkout you do not trust as you would at its code. Nested documents are keyed by full path, so they never collapse into each other.
 
 Nested `AGENTS.md` files are **read on demand**, the way Codex reads the `AGENTS.md` chain of the folder it works in, and a `DESIGN.md` beside one is read with it - a folder that describes itself is read whichever of the two it wrote, the same pair the workspace root and the agent home are read for. Nothing walks the tree to find them: the first time a filesystem tool call or an attached `file://` path targets a path, every such document on the chain of folders from the project root (exclusive) down to that path's directory is read and arrives with that call's result, or in the message that attached the path. Reading `a/b/c/f.go` pulls in `a/AGENTS.md`, `a/b/AGENTS.md` and `a/b/c/AGENTS.md`, plus whichever of those folders also has a `DESIGN.md`; a sibling folder nobody enters is never opened, and a file written after the session started is picked up the moment a tool enters its folder. Hidden directories, `node_modules` and `vendor` end the chain. `run_command` does not activate anything: a shell string cannot be attributed to a directory reliably.
 
@@ -76,7 +77,35 @@ This is what keeps a repo with vendored sibling checkouts usable — 45 nested f
 
 The **root** pair is not part of this set: it is the second layer of the documents, always in the system prompt ([AGENTS.md and DESIGN.md](#agentsmd-and-designmd)).
 
-CLI: `coddy rules list [--cwd DIR]` prints the discovered catalog: the source folder (`SOURCE`), the dialect each file was read with (`FORMAT`), the activation mode (`APPLY`: `auto` or `mention`), whether the rule is in every prompt (`ALWAYS`: an auto rule with no patterns and no directory scope) and what activates the others (`ACTIVATES ON`). Under the table, `Project rules folder:` names the folder the project rules came from, `Not read:` names the folders further down the chain that hold rules too - usually another agent's copy of the same rules - and `Only in a folder not read:` lists the files of those folders whose name the folder read has no file for, the rules a session goes without rather than mirrors of rules it has. `Could not read:` names a folder of the chain that exists and could not be read; the chain passed over it. Nested `AGENTS.md` and `DESIGN.md` files are not in the table, since listing them would mean walking the workspace; a line under the table says they are read on demand from the folders a tool enters.
+### Rule folders of subfolders
+
+A folder that holds several projects, each a repository with rules of its own (a group folder with `mobile`, `db`, `backend` and the rest), gets the rules of each of them where they apply. The rule folders of a subfolder are read on demand, like nested `AGENTS.md`: the first time a filesystem tool call targets a file, or a mention or an attached `file://` path names a file or a folder, every folder on the chain from the project root (exclusive) down to that file's directory, or to that folder, is probed for the same chain of project folders as the root, and the first that holds a rule file is read. A subproject's `.cursor/rules` and its Claude Code mirror are not both read. Hidden directories, `node_modules` and `vendor` end the chain, a folder that a call lists or searches reads nothing, and nothing is walked at session start.
+
+A rule of a subfolder applies to that subfolder and everything below it, never above or beside it:
+
+- its patterns are anchored at its own folder: `globs: migrations/**` in `db/.coddy/rules/` matches `db/migrations/0001.sql` and nothing outside `db/`;
+- a rule there that the root would apply from the first turn (`alwaysApply: true` without patterns, a `.md` rule without `paths`, a file without frontmatter) applies to every file under its folder instead, and arrives with the first call that reads or writes one;
+- it never enters the system message: it arrives with the tool result or the message that first reached it, once, and again after a compaction or when its file has changed, like a glob rule ([Rules and the prompt cache](#rules-and-the-prompt-cache));
+- it is known by its full path, so `db/.cursor/rules/workflow.mdc` and the root's `workflow.mdc` both apply, and neither replaces the other;
+- a manual rule there (no patterns, `alwaysApply: false`) reaches the model when a prompt names it: by `@rule:<folder>/<name>` when it lives in the subfolder's `.coddy/rules/` ([Naming a rule](#naming-a-rule)), by a mention of its file in any rule folder.
+
+They are rule folders, so `rules.auto_discover: false` turns them off together with the workspace's, `rules.systems` narrows their chain the same way, and a template without `{{.Rules}}` gets none of them. Your own folder `~/.coddy/rules/` is read once, for the workspace, never for a subfolder. Skills, MCP servers and hooks of subfolders are not read: they run code and stay behind the workspace trust gate.
+
+A git worktree of the workspace's own repository is read like any other checkout. The chain never enters one under a hidden folder (`.coddy/worktrees/`, `.claude/worktrees/`), and a session opened inside a worktree reads its rule folder as the workspace's. A worktree added to a plain subfolder of the workspace (`git worktree add wt/feature`) is read as a subproject, so its copies of the workspace's rules arrive next to the workspace's own: keep worktrees in a hidden folder or outside the workspace.
+
+### Naming a rule
+
+A rule is named in a prompt by its address. A rule of the catalog - the workspace's rule folder and your `~/.coddy/rules/` - is addressed by its name, the path of its file inside the rule folder without the extension: `@rule:style` for `.coddy/rules/style.mdc`, `@rule:frontend/style` for `.coddy/rules/frontend/style.mdc`. A rule of a subfolder's own Coddy folder has the subfolder in front, written from the workspace: `@rule:db/deploy` for `db/.coddy/rules/deploy.mdc`, `@rule:db/ops/deploy` for `db/.coddy/rules/ops/deploy.mdc`. The workspace's rule folder and the `.coddy/rules/` of its subfolders make one tree of addresses, and the rule folder of a subfolder is read when the message that names it is sent.
+
+- Where an address names a rule in two places, its owner nearer the workspace wins: the catalog (the workspace's rule folder and yours) over a subproject, so a folder `db/` of the workspace's rule folder over a subproject `db`, and the rule `ops/deploy` of `db` over the rule `deploy` of a subproject `db/ops`. The completion offers that rule.
+- The reference names nothing in a subfolder where the chain of subfolders stops: the workspace itself, a folder outside it, a hidden folder, `node_modules`, `vendor` and a link back to the workspace or to a folder above it on the way.
+- The rule folders of other agents under a subfolder (`.cursor/rules`, `.claude/rules` and the rest) do not answer to it; a mention of their file attaches the text.
+- A name with no `/` also finds the rule of the catalog whose last segment it is, when exactly one rule has it: `@rule:lint` finds `solo/lint`, while `@rule:style` names nothing when both `frontend/style` and `backend/style` exist. A bare `@name` does the same for a mention-only rule.
+- An address is written in segments of ASCII letters, digits, `_`, `-` and `.`, none of them starting with a dot, joined by single `/`.
+
+The completion of `@rule:` walks the tree. It offers, ahead of the rules, the folders one level below the folder typed, as steps that keep the picker open: folders of a rule folder and subfolders that keep a `.coddy/rules/` alike, one step where both share a name. After the steps come the rules whose address starts with that folder, so `@rule:` lists the catalog, `@rule:db/` the rules of `db` and of the workspace's folder `db/`, and `@rule:sty` finds every rule whose address matches `sty`. A subfolder that keeps no `.coddy/rules/` itself, a group of projects, is typed (`@rule:apps/`). `rules.auto_discover: false` and a `rules.systems` list without `coddy` turn off the addresses of subfolders.
+
+CLI: `coddy rules list [--cwd DIR]` prints the discovered catalog: the source folder (`SOURCE`), the dialect each file was read with (`FORMAT`), the activation mode (`APPLY`: `auto` or `mention`), whether the rule is in every prompt (`ALWAYS`: an auto rule with no patterns and no directory scope) and what activates the others (`ACTIVATES ON`). Under the table, `Project rules folder:` names the folder the project rules came from, `Not read:` names the folders further down the chain that hold rules too - usually another agent's copy of the same rules - and `Only in a folder not read:` lists the files of those folders whose name the folder read has no file for, the rules a session goes without rather than mirrors of rules it has. `Could not read:` names a folder of the chain that exists and could not be read; the chain passed over it. Nested `AGENTS.md` and `DESIGN.md` files and the rule folders of subfolders are not in the table, since listing them would mean walking the workspace; two lines under the table say they are read on demand.
 
 ```text
 12 rule(s) under .
@@ -123,13 +152,16 @@ The two headers above mean the same thing in `http-layer.mdc` and `http-layer.md
 
 ### Glob patterns
 
-Patterns follow Cursor and Claude Code: `*` matches within one path segment, `**` any number of directories, `{a,b}` alternatives, `[abc]` character classes. They are anchored at the project root (the session cwd): a file is matched by its path relative to the root, so `internal/**/*.go` matches `internal/agent/react.go` but not `external/x.go`, `*.md` names markdown files in the root only (use `**/*.md` for any depth), and a file outside the workspace, such as a sibling checkout or a module cache, never matches anything. In `.mdc` files several patterns are separated by commas (`docs/**/*.md, README.md`); a comma inside braces (`*.{ts,tsx}`) does not split.
+Patterns follow Cursor and Claude Code: `*` matches within one path segment, `**` any number of directories, `{a,b}` alternatives, `[abc]` character classes. They are anchored at the project root (the session cwd), or at its own folder for a rule of a subfolder's rule folder: a file is matched by its path relative to that folder, so `internal/**/*.go` matches `internal/agent/react.go` but not `external/x.go`, `*.md` names markdown files in the root only (use `**/*.md` for any depth), and a file outside the workspace, such as a sibling checkout or a module cache, never matches anything. In `.mdc` files several patterns are separated by commas (`docs/**/*.md, README.md`); a comma inside braces (`*.{ts,tsx}`) does not split.
 
 ### Upgrading from earlier releases
 
 Rule files already on disk may change mode after this release; `coddy rules list` shows the result.
 
 - The rule folders of the project are no longer merged: only the first of `.coddy/rules`, `.agents/rules`, `.cursor/rules`, `.claude/rules` and `.codex/rules` that holds a rule file is read. A project that kept different rules in, say, `.cursor/rules` and `.claude/rules` now gets the Cursor ones alone; `coddy rules list` names the folder it skipped under the table. Put what Coddy should read in `.coddy/rules` or `.agents/rules`, or narrow the chain with `rules.systems`.
+- A rule in a folder of a rule folder is named by its path there (`frontend/style`), and files of one name in different folders are all read; before, the first file of a name won and every rule answered to its file name alone. `@rule:style` still finds `frontend/style` when no other rule has that last name, and so does a bare `@style` for a mention-only rule.
+- A `@rule:` reference takes a `/`: `@rule:<folder>/<name>` names a rule of a subfolder, so `@rule:deploy/rollback`, which attached the rule `deploy` and left `/rollback` as text, now names the rule `rollback` of `deploy/.coddy/rules/`.
+- The rule folders of subfolders were never read; they are now read when the agent reaches a file under them, and each of their rules applies to its own subfolder ([Rule folders of subfolders](#rule-folders-of-subfolders)). No setting turns them off alone: `rules.auto_discover: false` turns off the rule folders of the workspace too, and `rules.systems` narrows the chain of the workspace and of every subfolder alike.
 - A rule gated by patterns, and a nested `AGENTS.md`, no longer move into the system prompt once they have matched: they arrive once with the tool result or the message that brought their path in, and again after a compaction.
 - `AGENTS.md`, `DESIGN.md` and the files of `instructions.files` are read when the session starts and after a compaction, a config reload or a workspace switch, not on every turn. Mention `@AGENTS.md` to hand the model an edit right away.
 - The `AGENTS.md` and `DESIGN.md` layers no longer depend on any setting: `rules.auto_discover: false`, a `rules.systems` list without `agents` and a `prompts.dir` template without `{{.Rules}}` used to drop the nested documents (and such a template the home pair as well); they now come in every case. `instructions.files` defaults to an empty list instead of `["AGENTS.md", "DESIGN.md"]`, and a list you write adds files after the documents rather than replacing a default; entries naming the documents are skipped, so an existing list keeps working. A file of `instructions.files` is now cut at 256 KiB; earlier releases sent it whole.
@@ -148,9 +180,10 @@ Rule files already on disk may change mode after this release; `coddy rules list
 | No `alwaysApply`, no patterns, `.mdc` | Mention-only (Cursor's default) |
 | No `alwaysApply`, no patterns, `.md` | Active immediately (Claude Code loads it unconditionally) |
 | No frontmatter | Active immediately |
+| A rule of a subfolder's rule folder | Read on demand with its folder ([Rule folders of subfolders](#rule-folders-of-subfolders)). Arrives **once**, with the first call or mention of a file under its folder that its patterns match (any file there when it has none), and again after a compaction or when its file has changed. A manual rule there arrives when a prompt names it: `@rule:<folder>/<name>` for one in a subfolder's `.coddy/rules/`, a mention of its file for any |
 | Nested `AGENTS.md`, `DESIGN.md` | Read on demand, whatever `rules.auto_discover`, `rules.systems` and the template say. The first filesystem tool call inside its directory reads it (with every such document on the chain of folders above it) into that call's result, and the first mention of a path there into that user message; like a glob rule, it comes once, and again after a compaction or when the file has changed - an edit made during the session reaches the model with the next call in that folder. A file the system prompt already carries (named in `instructions.files`, or reached through a link) does not come again. Nothing is read for folders no tool enters and no mention names |
 
-Mention-only rules use **`@name`** (file stem) or **`@rule:name`**; `@rule:name` also attaches any other rule of the catalog by name. They are **not** slash commands and do not appear in the skills catalog. `run_command` activates nothing: a shell string cannot be attributed to a path reliably.
+Mention-only rules use **`@rule:name`**, the name being the rule's path inside its rule folder without the extension, or a bare **`@name`** for a name with no `/` (a rule at the top of the folder, or the last segment of one no other rule shares); `@rule:name` also attaches any other rule of the catalog by name, and **`@rule:<folder>/<name>`** a rule of `<folder>/.coddy/rules/` ([Naming a rule](#naming-a-rule)). They are **not** slash commands and do not appear in the skills catalog. `run_command` activates nothing: a shell string cannot be attributed to a path reliably.
 
 ## AGENTS.md and DESIGN.md
 
@@ -249,6 +282,6 @@ rules:
 - [Claude `.claude/rules`](https://code.claude.com/docs/en/memory#organize-rules-with-clauderules)
 - [Codex hooks](https://developers.openai.com/codex/hooks)
 - [Codex `AGENTS.md`](https://developers.openai.com/codex/guides/agents-md)
-- Implementation: `internal/rules/*` (the folder chain in `factory.go`, dialects and glob matching in `markdown.go`, directory scoping in `scope.go`, the document layers and the dedupe in `project_docs.go` and `dockey.go`, the nested chain in `agents.go`), the entries of `instructions.files` in `internal/session/instructions_load.go`, the per-session rendering of the standing parts in `internal/session/rules_load.go` and `internal/agent/rules_prompt.go`, their placement in a template in `internal/agent/system_prompt.go`; tool-path activation and the rules a tool result carries in `internal/agent/rules_activation.go` and `internal/tools/fs/toolpaths.go`
-- Specs: `features/rules_one_folder.feature`, `features/rules_agents_dir.feature`, `features/agents_md_scoping.feature`, `features/global_instructions.feature`, and the prompt-cache group `features/prompt_cache_rules.feature` and `features/prompt_cache_prefix.feature` (`make test-cache`); the context a session over this repository's own rules costs is measured by `BenchmarkContextOfThisRepositoryRules` (`make test-perf BENCH=Context`)
+- Implementation: `internal/rules/*` (the folder chain and the rule folders of subfolders, `Factory.Nested`, in `factory.go`, dialects and glob matching in `markdown.go`, directory scoping in `scope.go`, the document layers and the dedupe in `project_docs.go` and `dockey.go`, the nested chain in `agents.go`), the entries of `instructions.files` in `internal/session/instructions_load.go`, the per-session rendering of the standing parts in `internal/session/rules_load.go` and `internal/agent/rules_prompt.go`, their placement in a template in `internal/agent/system_prompt.go`; tool-path activation and the rules a tool result carries in `internal/agent/rules_activation.go` and `internal/tools/fs/toolpaths.go`
+- Specs: `features/rules_one_folder.feature`, `features/rules_agents_dir.feature`, `features/agents_md_scoping.feature`, `features/rules_nested_folders.feature`, `features/global_instructions.feature`, and the prompt-cache group `features/prompt_cache_rules.feature` and `features/prompt_cache_prefix.feature` (`make test-cache`); the context a session over this repository's own rules costs is measured by `BenchmarkContextOfThisRepositoryRules` (`make test-perf BENCH=Context`)
 - End-to-end against a real model: `examples/cli/cli_e2e_rules.py` (a project glob rule through the console) and `examples/cli/cli_e2e_global_instructions.py` (an `AGENTS.md` and a rule in an isolated `CODDY_HOME`, a workspace with nothing in it)

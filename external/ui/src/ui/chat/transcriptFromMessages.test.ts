@@ -356,6 +356,56 @@ test("tool previews enrich only the rows of the page", () => {
   expect(mapped.items.filter((it) => it.type === "tool_call")).toHaveLength(1);
 });
 
+test("an MCP tool row keeps the screenshot its tool returned", () => {
+  const msgs: RawSessionMessage[] = [
+    { role: "user", content: "take a screenshot" },
+    {
+      role: "assistant",
+      content: "",
+      tool_calls: [
+        {
+          id: "m1",
+          type: "function",
+          function: { name: "browser__take_screenshot", arguments: "{}" },
+        },
+      ],
+    },
+    {
+      role: "tool",
+      tool_call_id: "m1",
+      content: "",
+      files: [
+        {
+          name: "browser-take_screenshot-1.png",
+          mime_type: "image/png",
+          preview_url: "/p/thumbnail",
+          url: "/p",
+        },
+      ],
+    },
+    { role: "assistant", content: "blank page" },
+  ];
+  const { items } = transcriptItemsFromMessages({
+    messages: msgs,
+    window: windowAt(msgs, 0),
+    uiLog: undefined,
+    newId,
+    reasoningDurations: new Map(),
+  });
+  expect(items.find((it) => it.type === "tool_call")).toMatchObject({
+    toolCallId: "m1",
+    images: [
+      {
+        name: "browser-take_screenshot-1.png",
+        mimeType: "image/png",
+        previewUrl: "/p/thumbnail",
+        url: "/p",
+      },
+    ],
+  });
+  expect(items.filter((it) => it.type === "user_message")).toHaveLength(1);
+});
+
 test("a tool result carries the pictures its call showed the model", () => {
   const msgs: RawSessionMessage[] = [
     { role: "user", content: "look" },

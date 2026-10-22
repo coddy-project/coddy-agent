@@ -133,8 +133,16 @@ func renderFolders(w io.Writer, d *Discovery) error {
 // them, and a session never does.
 const agentsOnDemandNote = "Nested AGENTS.md and DESIGN.md files are not listed: they are read on demand, from the folders a tool enters (the pairs of the agent home and of the workspace are always in the prompt)."
 
+// nestedRulesOnDemandNote says the same of the rule folders of subfolders
+// (Factory.Nested), which the listing does not walk for either.
+const nestedRulesOnDemandNote = "Rule folders of subfolders are not listed: they are read on demand, when a tool reaches a file under them, and apply to that subfolder only."
+
 func renderAgentsNote(w io.Writer) error {
 	_, err := fmt.Fprintln(w, agentsOnDemandNote)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(w, nestedRulesOnDemandNote)
 	return err
 }
 

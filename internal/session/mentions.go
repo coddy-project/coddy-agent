@@ -23,6 +23,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mention"
@@ -155,7 +156,10 @@ type mentionResolver struct {
 	store      *FileStore
 	live       func(id string) *State
 	rules      []*rules.Rule
-	scope      MentionScope
+	// cfg holds the rules settings that "@rule:<folder>/<name>" reads a
+	// subfolder's rule folder under; nil reads none.
+	cfg   *config.Config
+	scope MentionScope
 	// agents are read from scope.Agents the first time a prompt names one.
 	agents       []MentionAgent
 	agentsNote   string
@@ -196,6 +200,7 @@ func (m *Manager) ResolvePromptMentions(ctx context.Context, st *State, blocks [
 	if m != nil {
 		r.store = m.store
 		r.live = m.getSession
+		r.cfg = m.Cfg()
 	}
 	return r.resolve(blocks)
 }
@@ -816,27 +821,28 @@ func clipTextFront(s string, limit int) string {
 	return "[…] " + cut
 }
 
-// resolveRule attaches a rule's body: "@rule:<name>" names any rule of the
-// catalog, the way a bare "@name" names a mention-only one.
+// resolveRule attaches a rule's body: "@rule:<address>" names any rule by its
+// address (ruleByAddress) - a rule of the catalog by its path inside the rule
+// folder, a rule of a subproject's .coddy/rules with the subproject in front -
+// the way a bare "@name" names a mention-only one.
 func (r *mentionResolver) resolveRule(name, typed string) (*acp.Resource, bool) {
-	var rule *rules.Rule
-	for _, rl := range r.rules {
-		if rl != nil && strings.EqualFold(rl.CanonicalName(), name) {
-			rule = rl
-			break
-		}
-	}
+	rule := ruleByAddress(r.cfg, r.cwd, r.rules, name)
 	if rule == nil {
 		return nil, false
 	}
 	return r.ruleResource(rule, typed)
 }
 
+// findMentionRule is the mention-only rule of catalog a bare "@name" names: by
+// its name, or by the last segment of its name when one rule of the whole
+// catalog has it and that rule is mention-only ("@deploy" for ops/deploy).
 func findMentionRule(catalog []*rules.Rule, name string) *rules.Rule {
-	for _, rl := range catalog {
-		if rl != nil && rl.ApplyMode == rules.ApplyMention && strings.EqualFold(rl.CanonicalName(), name) {
-			return rl
-		}
+	mentionOnly := func(r *rules.Rule) bool { return r.ApplyMode == rules.ApplyMention }
+	if r := ruleNamed(catalog, name, mentionOnly); r != nil {
+		return r
+	}
+	if r := ruleByLastSegment(catalog, name, nil); r != nil && mentionOnly(r) {
+		return r
 	}
 	return nil
 }

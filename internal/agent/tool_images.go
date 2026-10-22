@@ -9,10 +9,11 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
-// Pictures a tool call hands the model (read on an image file) ride on that
+// Pictures a tool call hands the model (read or MCP) ride on that
 // call's result message, the one place every surface already looks: the web
 // UI previews them on the call's row, a Telegram chat is sent them, the
 // console and an editor show the call's text. The transcript never gains a
@@ -52,6 +53,18 @@ func (a *Agent) attachToolImage(name, mimeType string, data []byte) error {
 	if err := a.toolImageRefusal(); err != nil {
 		return err
 	}
+	return a.recordToolImage(name, mimeType, data)
+}
+
+// recordToolImage keeps a picture on the running call. An MCP tool's picture
+// goes through it directly, whatever the model: the tool returned it either
+// way, so the transcript and the surfaces keep it for the operator and for a
+// later switch to a model that reads images, while the projection sends a
+// model that does not only its name.
+func (a *Agent) recordToolImage(name, mimeType string, data []byte) error {
+	if strings.TrimSpace(a.currentToolCallID) == "" {
+		return fmt.Errorf("no tool call is running to attach the picture to")
+	}
 	part := llm.ImagePart{Name: name, MIMEType: mimeType, Size: len(data)}
 	if sd := strings.TrimSpace(a.state.GetPersistedSessionDir()); sd != "" {
 		asset, thumb, err := session.SaveToolImageAsset(sd, name, mimeType, data)
@@ -66,6 +79,32 @@ func (a *Agent) attachToolImage(name, mimeType string, data []byte) error {
 	}
 	a.callImages = append(a.callImages, part)
 	return nil
+}
+
+// keepToolFile saves a file an MCP tool returned that no model is shown -
+// an audio clip, a binary resource - with the session's assets and returns
+// the line the call's result names it with: the model cannot look at it, but
+// it can open the copy with its tools. A resource keeps the name of its URI;
+// anything else is named after the server, the tool and its place, and the
+// copy takes the extension of its type (session.SaveToolFileAsset).
+func (a *Agent) keepToolFile(server, tool string, f mcp.ToolFile) string {
+	name := f.Name
+	if name == "" {
+		name = fmt.Sprintf("%s-%s-%s-%d", server, tool, f.Kind, f.Index)
+	}
+	var facts []string
+	if f.URI != "" {
+		facts = append(facts, f.URI)
+	}
+	if f.MIMEType != "" {
+		facts = append(facts, f.MIMEType)
+	}
+	facts = append(facts, fmt.Sprintf("%d bytes", len(f.Data)))
+	path, err := session.SaveToolFileAsset(a.state.GetPersistedSessionDir(), name, f.MIMEType, f.Data)
+	if err != nil {
+		return fmt.Sprintf("[MCP %s %d omitted: %s: %v]", f.Kind, f.Index, strings.Join(facts, ", "), err)
+	}
+	return fmt.Sprintf("[MCP %s %d: %s, saved as %s]", f.Kind, f.Index, strings.Join(facts, ", "), path)
 }
 
 // loadToolImage is the data URL of a picture kept as its copy with this
@@ -196,10 +235,10 @@ func dataURLType(dataURL string) string {
 
 const (
 	// toolImagesMaxCount and toolImagesMaxBytes bound the pictures one request
-	// carries, the newest first. Pictures stay in the history and go out with
-	// every request, and a provider refuses a request past its limits: the
-	// Anthropic API takes 32 MB in all, and pictures of at most 2000 pixels a
-	// side once a request holds more than 20 of them.
+	// carries (pictureWindowStart). Pictures stay in the history and go out
+	// with every request, and a provider refuses a request past its limits:
+	// the Anthropic API takes 32 MB in all, and pictures of at most 2000
+	// pixels a side once a request holds more than 20 of them.
 	toolImagesMaxCount = 20
 	toolImagesMaxBytes = 20 << 20
 )
@@ -208,46 +247,79 @@ const (
 type pictureKey [2]int
 
 // selectPictures picks the pictures a request carries: every picture of the
-// history, attached to a prompt or returned by a tool, from the newest back,
-// until toolImagesMaxCount pictures or toolImagesMaxBytes of data are taken, a
-// picture too large for the bytes left giving way to an older one that fits.
-// Text files attached to a prompt are no pictures and take no slot. A picture
-// kept as its file is loaded as it is chosen, and one whose copy cannot be
-// read is missing and takes no slot either; with no loader (the context
-// estimate) no file is opened and every copy is taken to be there. Nothing is
-// chosen for a model that does not read images. The data URLs of the chosen
-// pictures come back, keyed by where they are.
+// history, attached to a prompt or returned by a tool, from the oldest to
+// the newest, in one window that ends at the newest picture
+// (pictureWindowStart). Text files attached to a prompt are no pictures and
+// take no place in it. A picture kept as its file is loaded as it is chosen,
+// and one whose copy cannot be read is missing; with no loader (the context
+// estimate) no file is opened and every copy is taken to be there. Nothing
+// is chosen for a model that does not read images. The data URLs of the
+// chosen pictures come back, keyed by where they are.
 func selectPictures(msgs []llm.Message, readsImages bool, load func(llm.ImagePart) (string, error)) (kept map[pictureKey]string, missing map[pictureKey]bool) {
 	kept, missing = map[pictureKey]string{}, map[pictureKey]bool{}
 	if !readsImages {
 		return kept, missing
 	}
-	size := 0
-	for i := len(msgs) - 1; i >= 0 && len(kept) < toolImagesMaxCount; i-- {
-		parts := msgs[i].ImageParts
-		for j := len(parts) - 1; j >= 0 && len(kept) < toolImagesMaxCount; j-- {
-			p := parts[j]
-			if !llm.IsPicture(p) {
-				continue
+	var keys []pictureKey
+	var sizes, steps []int
+	for i, m := range msgs {
+		for j, p := range m.ImageParts {
+			if llm.IsPicture(p) {
+				keys = append(keys, pictureKey{i, j})
+				sizes = append(sizes, partBytes(p))
+				steps = append(steps, i)
 			}
-			n := partBytes(p)
-			if size+n > toolImagesMaxBytes {
-				continue
-			}
-			url := p.DataURL
-			if url == "" && load != nil {
-				loaded, err := load(p)
-				if err != nil {
-					missing[pictureKey{i, j}] = true
-					continue
-				}
-				url = loaded
-			}
-			size += n
-			kept[pictureKey{i, j}] = url
 		}
 	}
+	for _, key := range keys[pictureWindowStart(sizes, steps):] {
+		p := msgs[key[0]].ImageParts[key[1]]
+		url := p.DataURL
+		if url == "" && load != nil {
+			loaded, err := load(p)
+			if err != nil {
+				missing[key] = true
+				continue
+			}
+			url = loaded
+		}
+		kept[key] = url
+	}
 	return kept, missing
+}
+
+// pictureWindowStart is the first of the pictures a request carries, given
+// the size of every picture of the history from the oldest on and the
+// message each is in. The window is a run of the newest pictures that grows
+// with every new one until it holds more than toolImagesMaxCount pictures or
+// toolImagesMaxBytes of them; then the oldest leave together, until half of
+// each is left, but never into the message being added: the pictures of one
+// step came together and go to the model together. Every request until the
+// next overflow begins as the one before it did and only adds at its end, so
+// the provider's prompt cache holds: a session of screenshots changes what
+// was sent once every ten pictures or so, not with each one. Only a message
+// that alone holds more than a request takes loses its oldest pictures, down
+// to the limits. The walk depends on the sizes alone, never on which copies
+// can be read, so every request of a history draws the same window.
+func pictureWindowStart(sizes, steps []int) int {
+	start, count, total := 0, 0, 0
+	for k, n := range sizes {
+		count++
+		total += n
+		if count <= toolImagesMaxCount && total <= toolImagesMaxBytes {
+			continue
+		}
+		for count > 1 && steps[start] != steps[k] && (count > toolImagesMaxCount/2 || total > toolImagesMaxBytes/2) {
+			total -= sizes[start]
+			count--
+			start++
+		}
+		for count > toolImagesMaxCount || total > toolImagesMaxBytes {
+			total -= sizes[start]
+			count--
+			start++
+		}
+	}
+	return start
 }
 
 // withToolImages returns msgs as the provider is sent them: the pictures the
@@ -402,7 +474,7 @@ func toolImagesMessage(parts []llm.ImagePart, names, omitted, missing []string, 
 		if b.Len() > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString("Pictures the tool calls above returned, left out of this request to keep it within what the provider takes; read the file again to see one: ")
+		b.WriteString("Pictures the tool calls above returned, left out of this request to keep it within what the provider takes; read the file again or repeat the call to see one: ")
 		b.WriteString(strings.Join(omitted, ", "))
 		b.WriteString(".")
 	}
@@ -410,7 +482,7 @@ func toolImagesMessage(parts []llm.ImagePart, names, omitted, missing []string, 
 		if b.Len() > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString("Pictures the tool calls above returned whose saved copy is gone; read the file again to see one: ")
+		b.WriteString("Pictures the tool calls above returned whose saved copy is gone; read the file again or repeat the call to see one: ")
 		b.WriteString(strings.Join(missing, ", "))
 		b.WriteString(".")
 	}

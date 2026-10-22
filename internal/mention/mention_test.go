@@ -380,3 +380,14 @@ func TestStdinAttachmentXMLAndDisplay(t *testing.T) {
 		t.Fatalf("display: %q", got)
 	}
 }
+
+func TestRefNameIsWhatAReferenceCanSpell(t *testing.T) {
+	for name, want := range map[string]bool{
+		"db": true, "apps-web_2.0": true, "Release": true,
+		"": false, "my app": false, "café": false, "мобильное": false, "a/b": false, "x#y": false,
+	} {
+		if got := RefName(name); got != want {
+			t.Fatalf("RefName(%q) = %v, want %v", name, got, want)
+		}
+	}
+}

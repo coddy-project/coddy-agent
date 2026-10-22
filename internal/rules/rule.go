@@ -67,9 +67,17 @@ const (
 
 // Rule is a loaded project rule file.
 type Rule struct {
-	ID          string
-	Name        string
-	FilePath    string
+	ID string
+	// Name is how the rule is named: its file's path inside the rule folder
+	// it was read from, slash-separated and without the extension
+	// ("frontend/style" for .coddy/rules/frontend/style.mdc, "style" at the
+	// top of the folder). It is what @rule: and a bare @name answer to.
+	Name     string
+	FilePath string
+	// RelPath is the file's path inside its rule folder, slash-separated,
+	// extension included ("frontend/style.mdc"); "" for a rule not read from
+	// a rule folder (a nested AGENTS.md).
+	RelPath     string
 	Source      Source
 	Format      Format
 	Description string
@@ -88,9 +96,11 @@ type Rule struct {
 	Root string
 	// ScopeDir, when non-empty, restricts an auto rule to a directory subtree.
 	// The rule reaches the model with the first tool call or mention whose
-	// path is ScopeDir itself or lives under it, and again after a compaction
-	// or a change to its file. Set for nested AGENTS.md files read on demand
-	// (AgentsForPaths); empty for every other source.
+	// path is ScopeDir itself or lives under it (and matches its globs, when
+	// it has any), and again after a compaction or a change to its file. Set
+	// for what is read on demand for the folders a tool enters: nested
+	// AGENTS.md files (AgentsForPaths) and the rule folders of subfolders
+	// (Factory.Nested); empty for the rules of the workspace's own folders.
 	ScopeDir string
 }
 
@@ -102,7 +112,8 @@ func (r *Rule) AlwaysOn() bool {
 	return r != nil && r.ApplyMode == ApplyAuto && r.AlwaysApply && len(r.Globs) == 0 && r.ScopeDir == ""
 }
 
-// CanonicalName is the @mention identifier (file stem).
+// CanonicalName is the @mention identifier: Name, or the file stem when the
+// rule has none.
 func (r *Rule) CanonicalName() string {
 	if r == nil {
 		return ""
@@ -114,8 +125,13 @@ func (r *Rule) CanonicalName() string {
 	return strings.TrimSuffix(base, filepath.Ext(base))
 }
 
-// DedupeKey returns a stable key for catalog deduplication (basename across sources).
-// Nested AGENTS.md files all share a basename, so agents rules key on the full path.
+// DedupeKey returns a stable key for catalog deduplication: the file's path
+// inside its rule folder, extension included (RelPath), so the project's rule
+// and the operator's rule at the same path are one rule, while files of one
+// name in different folders of a rule folder are different rules, and so are
+// the two dialects of one name a shared folder keeps for different agents
+// (x.mdc for Cursor, x.md for Claude Code). Nested AGENTS.md files all share a
+// basename, so agents rules key on the full path.
 func (r *Rule) DedupeKey() string {
 	if r == nil {
 		return ""
@@ -123,5 +139,18 @@ func (r *Rule) DedupeKey() string {
 	if r.Source == SourceAgents {
 		return strings.ToLower(filepath.ToSlash(r.FilePath))
 	}
+	if r.RelPath != "" {
+		return strings.ToLower(r.RelPath)
+	}
 	return strings.ToLower(filepath.Base(r.FilePath))
+}
+
+// BaseName is the last segment of the rule's name: "style" for
+// "frontend/style".
+func (r *Rule) BaseName() string {
+	name := r.CanonicalName()
+	if i := strings.LastIndexByte(name, '/'); i >= 0 {
+		return name[i+1:]
+	}
+	return name
 }
