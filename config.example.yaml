@@ -732,6 +732,15 @@ logger:
 #         proxy: "socks5://127.0.0.1:1080"
 #         ca_file: "/etc/coddy/internal-ca.pem"
 
+# Browser extension listener (independent port and credential).
+# browser:
+#   enable: true
+#   host: 127.0.0.1
+#   port: 12348
+#   token: ${CODDY_BROWSER_KEY}
+#   cert_file: ""
+#   key_file: ""
+
 # ----------------------------------------------------------------------------
 # metrics - the Prometheus exporter: GET /metrics on a port of its own, run by
 # coddy serve. Needs a binary built with -tags metrics; others refuse enable.

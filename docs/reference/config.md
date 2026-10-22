@@ -413,6 +413,19 @@ Messenger bot adapters (used only by binaries built with -tags gateway, or -tags
 | `gateways.pachca.chats[].isolation` | string, one of `individual`, `shared`, `admin` |  | Per-chat session isolation override. |
 | `gateways.pachca.chats[].access` | string |  | Per-chat access override: "all", "admins", or "group:<name>". |
 
+### `browser`
+
+Connect browser extensions directly to Coddy on a separate port. Off by default.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `browser.enable` | boolean | false | Accept browser extension connections in coddy serve. |
+| `browser.host` | string | "" | Browser listener bind address. Empty uses 127.0.0.1. |
+| `browser.port` | integer | 0 | Browser listener port. 0 uses 12348. |
+| `browser.token` | string | "" | Separate browser extension key, at least 32 characters when enabled. Write-only. Use an environment reference to keep it out of YAML. |
+| `browser.cert_file` | string | "" | TLS certificate PEM for the browser listener. Set together with key_file; remote extensions require HTTPS. |
+| `browser.key_file` | string | "" | TLS private key PEM for the browser listener. |
+
 ### `decisions`
 
 Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about, or rejected in bypass mode. See https://coddy.dev/docs/features/decisions.

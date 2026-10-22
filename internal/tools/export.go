@@ -4,6 +4,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
+	toolbrowser "github.com/EvilFreelancer/coddy-agent/internal/tools/browser"
 	toolcanvas "github.com/EvilFreelancer/coddy-agent/internal/tools/canvas"
 	toolfs "github.com/EvilFreelancer/coddy-agent/internal/tools/fs"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/preview"
@@ -34,6 +35,9 @@ func NewRegistryFor(cfg *config.Config) *Registry {
 func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environment) *Registry {
 	r := tooling.NewRegistry()
 	toolfs.RegisterBuiltins(r.Register)
+	if cfg != nil && cfg.Browser.Enable {
+		r.Register(toolbrowser.Tool())
+	}
 	r.Register(shell.RunCommandToolForShell(environment.Shell))
 	r.Register(ShareFileTool())
 	r.Register(WorktreeOpenTool())

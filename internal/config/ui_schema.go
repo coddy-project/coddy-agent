@@ -816,6 +816,15 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"level", "levels", "outputs", "file", "format", "rotation"},
 			nil),
+		"browser": objectSchema("Browser", "Connect browser extensions directly to this server on a separate port.",
+			map[string]interface{}{
+				"enable":    boolProp("Enabled", "Accept browser extension connections."),
+				"host":      strProp("Listen host", "Empty uses 127.0.0.1."),
+				"port":      intProp("Listen port", "0 uses 12348."),
+				"token":     secretProp("Extension key", "At least 32 characters. Write-only: leave empty to keep the current key.", "token_configured"),
+				"cert_file": strProp("TLS certificate", "Certificate PEM for HTTPS; use together with key_file."),
+				"key_file":  strProp("TLS private key", "Private key PEM for HTTPS."),
+			}, []string{"enable", "host", "port", "token", "cert_file", "key_file"}, nil),
 		"metrics": objectSchema("Metrics", "Prometheus exporter on a port of its own. It takes effect only in a binary built with the metrics tag.",
 			map[string]interface{}{
 				"enable": boolProp("Enabled", "Serve /metrics from this process."),
@@ -877,7 +886,7 @@ func UISchemaMap() map[string]interface{} {
 	// model), then what the agent can do (tools, MCP servers, skills,
 	// subagents, hooks), then what runs it without a person at the composer
 	// (the scheduler, the messenger gateways), and last the operation of the
-	// process (the logger and the metrics exporter, then prompts and
+	// process (the logger, the metrics exporter and browser connections, then prompts and
 	// instructions, which the web UI folds into one System tab). The sessions
 	// key belongs to the Sessions tab.
 	rootOrder := []string{
@@ -885,7 +894,7 @@ func UISchemaMap() map[string]interface{} {
 		"agent", "supervisor", "compaction", "memory", "decisions",
 		"tools", "skills", "subagents", "hooks",
 		"scheduler", "gateways",
-		"logger", "metrics", "sessions", "prompts", "instructions",
+		"logger", "metrics", "browser", "sessions", "prompts", "instructions",
 	}
 
 	doc := map[string]interface{}{

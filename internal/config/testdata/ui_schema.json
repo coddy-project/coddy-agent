@@ -112,6 +112,54 @@
         "wait_for_limit_reset_max_ms"
       ]
     },
+    "browser": {
+      "additionalProperties": false,
+      "description": "Connect browser extensions directly to this server on a separate port.",
+      "properties": {
+        "cert_file": {
+          "description": "Certificate PEM for HTTPS; use together with key_file.",
+          "title": "TLS certificate",
+          "type": "string"
+        },
+        "enable": {
+          "description": "Accept browser extension connections.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "host": {
+          "description": "Empty uses 127.0.0.1.",
+          "title": "Listen host",
+          "type": "string"
+        },
+        "key_file": {
+          "description": "Private key PEM for HTTPS.",
+          "title": "TLS private key",
+          "type": "string"
+        },
+        "port": {
+          "description": "0 uses 12348.",
+          "title": "Listen port",
+          "type": "integer"
+        },
+        "token": {
+          "description": "At least 32 characters. Write-only: leave empty to keep the current key.",
+          "title": "Extension key",
+          "type": "string",
+          "writeOnly": true,
+          "x-coddy-configured": "token_configured"
+        }
+      },
+      "title": "Browser",
+      "type": "object",
+      "x-coddy-property-order": [
+        "enable",
+        "host",
+        "port",
+        "token",
+        "cert_file",
+        "key_file"
+      ]
+    },
     "compaction": {
       "additionalProperties": false,
       "description": "Summarize older conversation history so long sessions keep fitting the model context window.",
@@ -1694,6 +1742,7 @@
     "gateways",
     "logger",
     "metrics",
+    "browser",
     "sessions",
     "prompts",
     "instructions"

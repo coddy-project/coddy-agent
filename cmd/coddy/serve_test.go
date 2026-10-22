@@ -270,3 +270,17 @@ func TestServeBannerListsTheExporter(t *testing.T) {
 		t.Errorf("the surface line is gone:\n%s", got)
 	}
 }
+
+func TestServeBannerListsBrowserWithoutKey(t *testing.T) {
+	cfg := &config.Config{Browser: config.BrowserConfig{Enable: true, Token: strings.Repeat("s", 32)}}
+	for _, scheme := range []string{"http", "https"} {
+		if scheme == "https" {
+			cfg.Browser.CertFile, cfg.Browser.KeyFile = "cert.pem", "key.pem"
+		}
+		var out bytes.Buffer
+		printServeBanner(&out, cfg, []serve.Subsystem{{Kind: serve.KindBrowser}}, "", "", false, false)
+		if !strings.Contains(out.String(), "browser     "+scheme+"://127.0.0.1:12348  (extension key)") || strings.Contains(out.String(), cfg.Browser.Token) {
+			t.Fatalf("browser listener address or key handling: %s", out.String())
+		}
+	}
+}

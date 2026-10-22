@@ -46,6 +46,12 @@ groups:
       title: "Contributing"
       summary: "How Coddy is built, tested, documented and released."
 pages:
+  features/browser-extension.md:
+    title: "Расширение браузера"
+    summary: "Выбранные вкладки Chrome, Firefox и Яндекс Браузера подключаются прямо к вашему серверу Coddy."
+    en:
+      title: "Browser extension"
+      summary: "Connect selected Chrome, Firefox and Yandex Browser tabs directly to your own Coddy server."
   getting-started/quickstart.md:
     title: "Быстрый старт"
     summary: "От свежей установки до первого ответа за пять минут - в консоли, в браузере и из редактора."

@@ -2,6 +2,27 @@
 # rows of the configuration reference (docs/ru/reference/config.md). `en` is
 # the English description the entry translates; make docs-check reports an
 # entry whose English text has changed since, and a key without an entry.
+browser:
+  en: "Connect browser extensions directly to Coddy on a separate port. Off by default."
+  ru: "Расширения браузеров подключаются прямо к Coddy на отдельном порту. По умолчанию выключено."
+browser.enable:
+  en: "Accept browser extension connections in coddy serve."
+  ru: "Принимать подключения расширений браузеров в coddy serve."
+browser.host:
+  en: "Browser listener bind address. Empty uses 127.0.0.1."
+  ru: "Адрес, на котором сервер принимает подключения расширений. Пустое значение означает 127.0.0.1."
+browser.port:
+  en: "Browser listener port. 0 uses 12348."
+  ru: "Браузерный порт. При 0 используется 12348."
+browser.token:
+  en: "Separate browser extension key, at least 32 characters when enabled. Write-only. Use an environment reference to keep it out of YAML."
+  ru: "Отдельный ключ расширения браузера, не меньше 32 символов при включении. Доступен только для записи. Чтобы не хранить ключ в YAML, укажите ссылку на переменную окружения."
+browser.cert_file:
+  en: "TLS certificate PEM for the browser listener. Set together with key_file; remote extensions require HTTPS."
+  ru: "TLS-сертификат браузерного порта в PEM. Укажите вместе с key_file; удалённым расширениям нужен HTTPS."
+browser.key_file:
+  en: "TLS private key PEM for the browser listener."
+  ru: "Закрытый TLS-ключ браузерного порта в PEM."
 providers:
   en: "API credentials and transport selection for upstream LLM vendors. When api_key is empty, the runtime reads the NAME_API_KEY environment variable (NAME is the provider name in uppercase with hyphens mapped to underscores); a row of type \"codex\" signs in with ChatGPT and reads no key."
   ru: "Учётные данные API и выбор транспорта для внешних LLM-провайдеров. Если api_key пуст, Coddy читает переменную окружения NAME_API_KEY (NAME - имя провайдера в верхнем регистре, дефисы заменены подчёркиваниями); строка типа \"codex\" входит через ChatGPT и ключ не читает."

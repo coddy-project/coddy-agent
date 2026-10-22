@@ -79,6 +79,8 @@ agent:
 
 ## What it does
 
+- **Your browser**: connect selected Chrome, Firefox or Yandex Browser tabs directly to your own Coddy server, with a separate port and key, website approvals, file transfers and a chat panel ([Browser extension](docs/features/browser-extension.md)).
+
 - **Three operating modes**: `agent` with every tool, `plan` for planning and text files, `ask` for read-only research, switched from any surface ([Operating modes](docs/features/modes.md)).
 - **Rules and project files**: the first of `.coddy/rules`, `.agents/rules`, `.cursor/rules`, `.claude/rules` and `.codex/rules` that holds rules, so a mirror kept for another agent is not loaded twice, and nested `AGENTS.md` are picked up as the agent works without moving the cached system prompt; your own `~/.coddy/AGENTS.md`, `~/.coddy/DESIGN.md` and `~/.coddy/rules` apply in every workspace ([Rules and instructions](docs/features/rules.md)).
 - **Skills**: `SKILL.md` packs become slash commands. Six ship inside the binary and are there on the first run - `/rpa-init`, `/rpa-feat`, `/rpa-bugfix`, `/rpa-gen-rules`, `/configure-coddy` and `/crossreview` (a quorum code review over external code-agent CLIs and internal reviewers) - and more install from skills.sh, the skillsbd registry or any repository ([Skills](docs/features/skills.md)).

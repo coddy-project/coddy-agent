@@ -89,3 +89,5 @@ worktrees/
 # both sides regenerate the same concatenation of all of them.
 /docs/llms.txt
 /docs/llms-full.txt
+# Local build caches used by isolated verification.
+/.cache/
