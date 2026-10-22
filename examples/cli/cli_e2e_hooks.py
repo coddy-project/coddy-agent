@@ -92,6 +92,18 @@ def read_events(path: Path) -> list[dict]:
     return out
 
 
+def same_dir(payload_cwd: object, work: Path) -> bool:
+    """The payload names the workspace by its real path; the temp folder may sit behind a symlink (/tmp, /var on macOS).
+
+    The payload path must be absolute and an existing directory, so resolve() cannot
+    turn a relative or dangling path (work/missing/..) into a match.
+    """
+    if not isinstance(payload_cwd, str):
+        return False
+    path = Path(payload_cwd)
+    return path.is_absolute() and path.is_dir() and path.resolve() == work.resolve()
+
+
 def prompt_for(marker: str) -> str:
     return (
         f"Call run_command once with the command: echo {marker}. Then reply with one short "
@@ -123,7 +135,7 @@ def main() -> int:
         if not pre or not post:
             raise AssertionError(f"recorder hooks did not see run_command (pre={len(pre)} post={len(post)} events={len(recorded)})")
         session_dir = tui.single_session_dir()
-        if pre[0].get("session_id") != session_dir.name or pre[0].get("cwd") != str(work):
+        if pre[0].get("session_id") != session_dir.name or not same_dir(pre[0].get("cwd"), work):
             raise AssertionError(f"PreToolUse payload lacks the session and workspace: {json.dumps(pre[0])[:300]}")
         if MARKER_ONE not in str((pre[0].get("tool_input") or {}).get("command", "")):
             raise AssertionError(f"PreToolUse tool_input does not carry the command: {pre[0].get('tool_input')!r}")
