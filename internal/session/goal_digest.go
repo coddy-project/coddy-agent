@@ -241,10 +241,11 @@ func compactSpace(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// callPaths pulls the file paths out of a write tool's arguments.
+// callPaths pulls the file paths out of a write tool's arguments; mv names
+// its two files src and dst.
 func callPaths(input string) []string {
 	var out []string
-	for _, key := range []string{"path", "file_path", "source", "destination", "target"} {
+	for _, key := range []string{"path", "file_path", "src", "dst", "source", "destination", "target"} {
 		re := regexp.MustCompile(`"` + key + `"\s*:\s*"([^"]+)"`)
 		for _, m := range re.FindAllStringSubmatch(input, -1) {
 			out = append(out, m[1])
