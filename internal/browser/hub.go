@@ -207,10 +207,21 @@ func (h *Hub) Reply(c *Connection, reply Reply) {
 	}
 }
 
+// actionTimeout bounds one command by its class: an interaction answers in
+// seconds, while download_file streams up to 32 MiB through the browser's own
+// connection and needs the wider bound. The socket stays alive through it by
+// the extension's 20 s pings against the 60 s read deadline.
+func actionTimeout(action string) time.Duration {
+	if action == "download_file" {
+		return 10 * time.Minute
+	}
+	return 2 * time.Minute
+}
+
 // Call never retries an action. Losing a response to a click is an unknown
 // outcome, not permission to click twice.
 func (h *Hub) Call(ctx context.Context, sessionID, browserID string, cmd Command) (json.RawMessage, error) {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, actionTimeout(cmd.Action))
 	defer cancel()
 	h.mu.Lock()
 	c := h.connections[browserID]

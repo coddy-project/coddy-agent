@@ -67,3 +67,12 @@ func TestDuplicateConnectionRefused(t *testing.T) {
 		t.Fatal("live browser replaced")
 	}
 }
+
+func TestActionTimeoutBoundsDownloadsWider(t *testing.T) {
+	if got := actionTimeout("click"); got != 2*time.Minute {
+		t.Fatalf("an interaction is bounded by %s", got)
+	}
+	if got := actionTimeout("download_file"); got != 10*time.Minute {
+		t.Fatalf("a download is bounded by %s", got)
+	}
+}

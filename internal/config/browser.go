@@ -29,6 +29,18 @@ func (b *BrowserConfig) ListenAddr() string {
 	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
+// ExposedWithoutTLS reports a listener bound off loopback without a
+// certificate: the extension key and the tab data it carries would cross the
+// network in the clear. The extension itself refuses plain HTTP for a remote
+// server, but the listener does not force that decision on whoever else dials.
+func (b *BrowserConfig) ExposedWithoutTLS() bool {
+	if b == nil || b.CertFile != "" {
+		return false
+	}
+	host, _, err := net.SplitHostPort(b.ListenAddr())
+	return err != nil || !isLoopbackHostname(host)
+}
+
 func (b *BrowserConfig) Validate() error {
 	if b.Port < 0 || b.Port > 65535 {
 		return fmt.Errorf("browser.port %d is out of range", b.Port)

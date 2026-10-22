@@ -19,6 +19,12 @@ import (
 // lives for the process rather than for one listener: a browser.* reload
 // rebuilds the listener and its handler, and a set owned by the handler would
 // lock the extension out of the chats it is already holding.
+//
+// The set is deliberately never pruned: entries are one session id each, it
+// holds only what this port started, and a restart empties it - after which
+// the panel sees its conversations gone from the list and starts a new chat.
+// A conversation whose session was deleted from the store simply stops
+// answering, and its id in the set grants nothing.
 var browserChats = &chatScope{started: make(map[string]struct{})}
 
 // chatScope bounds what the extension key can reach. The key is documented to

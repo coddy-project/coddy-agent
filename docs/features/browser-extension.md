@@ -78,7 +78,10 @@ Stop cancels pending work and clears shared tabs. Select them again to resume.
 
 The chat panel lists the conversations this key started, starts a new conversation,
 streams the answer and shows tool permission requests and questions. Conversations
-are stored on the server and can be continued from Coddy's other surfaces.
+are stored on the server and can be continued from Coddy's other surfaces. The list
+reads one page of the server's session store, so on a server with very many sessions
+an older extension conversation may be missing from it; start a new chat or continue
+the old one from another surface.
 
 ## Files and browser differences
 
