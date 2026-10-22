@@ -271,7 +271,8 @@ messages: [
 
    Recovery attempts and transport retries draw from the **`llm_retry_max`**
    shared budget (default 3). The initial model request for a step is not
-   charged; each extra attempt or recovery consumes one slot; the budget resets
+   charged; each extra attempt or recovery, the provider recovery excepted,
+   consumes one slot; the budget resets
    when the model makes progress (a tool call or an answered followup) — it is
    not a lifetime cap on all LLM calls in a turn. Per-strategy limits apply
    independently of the budget:

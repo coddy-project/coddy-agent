@@ -258,17 +258,16 @@ func streamDecodeTruncation(err error, emitted bool, payloadLen int) *streamTrun
 const sdkStreamErrorPrefix = "received error while streaming: "
 
 // sdkStreamErrorPayload returns the payload of the SDK's in-band error event
-// spelled in err, however deep it is wrapped.
+// in err's chain, however deep it is wrapped: the text of the error the SDK
+// built after its own prefix, so a message that quotes the prefix does not
+// move where the payload starts.
 func sdkStreamErrorPayload(err error) (string, bool) {
-	if err == nil {
-		return "", false
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		if s := e.Error(); strings.HasPrefix(s, sdkStreamErrorPrefix) {
+			return s[len(sdkStreamErrorPrefix):], true
+		}
 	}
-	s := err.Error()
-	i := strings.LastIndex(s, sdkStreamErrorPrefix)
-	if i < 0 {
-		return "", false
-	}
-	return s[i+len(sdkStreamErrorPrefix):], true
+	return "", false
 }
 
 // inBandOverload reads the SDK's in-band error event spelled in err. decoded
@@ -290,17 +289,20 @@ func inBandOverload(err error) (overload, decoded bool) {
 // status 503 or 529 in a numeric code. The verdict is read from those fields
 // and from nothing else, so a refusal whose message happens to say
 // "overloaded" stays final. The payload is the object itself, the event that
-// wraps it (anthropic), or an object nested one level deeper by a gateway. It
-// is the one test of an overload: the SDK-decoded streams (Codex, Anthropic)
-// and the lenient OpenAI-compatible reader (newStreamServerError) both ask it.
+// wraps it (anthropic), or an object nested one level deeper by a gateway, and
+// either level may carry the verdict. It is the one test of an overload: the
+// SDK-decoded streams (Codex, Anthropic) and the lenient OpenAI-compatible
+// reader (newStreamServerError) both ask it.
 func isOverloadPayload(payload string) bool {
 	if !gjson.Valid(payload) {
 		return false
 	}
 	obj := gjson.Parse(payload)
-	if nested := obj.Get("error"); nested.IsObject() {
-		obj = nested
-	}
+	return isOverloadObject(obj) || isOverloadObject(obj.Get("error"))
+}
+
+// isOverloadObject reads the verdict of isOverloadPayload off one JSON object.
+func isOverloadObject(obj gjson.Result) bool {
 	if !obj.IsObject() {
 		return false
 	}

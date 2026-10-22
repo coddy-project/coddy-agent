@@ -184,11 +184,6 @@ func CallOutcome(err error) string {
 		return outcomeTimeout
 	}
 	status := UpstreamStatus(err)
-	if overload, _ := inBandOverload(err); status == 0 && overload {
-		// An overload the stream reported in-band has no status of its own:
-		// it is the 503 the retry classification takes it for.
-		status = 503
-	}
 	if status == 0 {
 		status = httpStatusFromError(err)
 	}

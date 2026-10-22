@@ -481,6 +481,13 @@ func isRetryableLLMError(err error) bool {
 		// nothing reached the caller.
 		return false
 	}
+	var sse *streamServerError
+	if errors.As(err, &sse) && sse.emitted {
+		// A failure the server reported after output reached the caller is
+		// never replayed: the status scan below already reads none for it,
+		// and the transport phrases at the end must not read its message.
+		return false
+	}
 	var transport *streamTransportError
 	if errors.As(err, &transport) {
 		// Same emitted contract for transport failures mid-stream.
@@ -635,6 +642,18 @@ func httpStatusFromError(err error) int {
 	var raw *httpStatusError
 	if errors.As(err, &raw) {
 		return raw.status
+	}
+	// An error event the stream carried in-band has no status of its own,
+	// and the words of its message are not one: an overload is the 503 it
+	// stands for, any other decoded event has none.
+	var transport *streamTransportError
+	if errors.As(err, &transport) {
+		if overload, decoded := inBandOverload(transport.cause); decoded {
+			if overload {
+				return 503
+			}
+			return 0
+		}
 	}
 	s := err.Error()
 	for _, code := range retryableStatuses {

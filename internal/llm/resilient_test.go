@@ -447,6 +447,7 @@ func TestOverloadedProviderIsRetriedLikeA503(t *testing.T) {
 		{"numeric 529", `{"code":529,"message":"upstream unavailable"}`, true},
 		{"numeric code as a string", `{"code":"503","message":"upstream unavailable"}`, true},
 		{"gateway nesting the object", `{"error":{"type":"service_unavailable_error","code":"server_is_overloaded"}}`, true},
+		{"a verdict at the top beside a nested error", `{"type":"overloaded_error","error":{"message":"try later"}}`, true},
 		// Not an overload: refusals, other outages, and any payload that is
 		// not an object with a verdict of its own.
 		{"invalid request", `{"type":"invalid_request_error","code":"invalid_prompt","message":"The prompt was refused."}`, false},
@@ -456,6 +457,10 @@ func TestOverloadedProviderIsRetriedLikeA503(t *testing.T) {
 		{"a refusal whose message names a status", `{"type":"invalid_request_error","code":"invalid_prompt","message":"Unsupported identifier 529 was supplied"}`, false},
 		{"a refusal that quotes a 503", `{"type":"invalid_request_error","message":"upstream said 503 Service Unavailable"}`, false},
 		{"a refusal that quotes a dropped connection", `{"type":"invalid_request_error","message":"tool output: connection reset by peer"}`, false},
+		// The payload is what follows the SDK's own words, even when the
+		// message quotes them.
+		{"a refusal that quotes the SDK's words", `{"type":"invalid_request_error","message":"received error while streaming: upstream said 503 Service Unavailable"}`, false},
+		{"an overload that quotes the SDK's words", `{"type":"overloaded_error","message":"received error while streaming: try later"}`, true},
 		{"a server error without a verdict", `{"type":"server_error","code":"server_error","message":"The model crashed"}`, false},
 		{"numeric 400", `{"code":400,"message":"overloaded"}`, false},
 		{"plain text", `Our servers are currently overloaded. Please try again later.`, false},
@@ -508,6 +513,33 @@ func TestOverloadedProviderIsRetriedLikeA503(t *testing.T) {
 	}
 	if transientStatus(429) || !isRetryableLLMError(retryHTTPError(t, "openai", 429, nil)) {
 		t.Error("429 stays a retried limit that is not a lane failure")
+	}
+}
+
+// TestInBandOverloadIsNotReadAsALimit: an overload the stream reported is the
+// 503 it stands for, whatever its message says, so a message that names a 429
+// and a long pause neither turns the retry into a usage-limit reset nor counts
+// as a limit.
+func TestInBandOverloadIsNotReadAsALimit(t *testing.T) {
+	overload := fmt.Errorf("codex stream: %w", &streamTransportError{cause: errors.New(
+		`received error while streaming: {"type":"overloaded_error","message":"upstream returned 429 Too Many Requests; retry in 3600s"}`)})
+	if got := httpStatusFromError(overload); got != 503 {
+		t.Errorf("httpStatusFromError = %d, want 503", got)
+	}
+	if got := CallOutcome(overload); got != "server_error" {
+		t.Errorf("CallOutcome = %q, want server_error", got)
+	}
+	var calls atomic.Int32
+	inner := &stubProvider{streamFn: func(context.Context, []Message, []ToolDefinition, func(StreamChunk)) (*Response, error) {
+		if calls.Add(1) == 1 {
+			return nil, overload
+		}
+		return &Response{Content: "ok", StopReason: "end_turn"}, nil
+	}}
+	p := wrapResilient(inner, ResilientOptions{RetryMax: 2, RetryBase: time.Millisecond, RetryMaxDelay: time.Millisecond})
+	resp, err := p.Stream(context.Background(), nil, nil, nil)
+	if err != nil || resp == nil || resp.Content != "ok" || calls.Load() != 2 {
+		t.Fatalf("resp = %+v, err = %v after %d calls; want the second attempt's answer", resp, err, calls.Load())
 	}
 }
 

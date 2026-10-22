@@ -240,6 +240,8 @@ func TestOpenAIStreamedErrorRetryClassification(t *testing.T) {
 			contentChunk + "error: {\"code\":500,\"message\":\"slot unavailable\",\"type\":\"server_error\"}\n\n", 1, 1},
 		{"streamed 500 after deltas with status-like message text is not retried",
 			contentChunk + "error: {\"code\":500,\"message\":\"upstream said 500 Internal Server Error\",\"type\":\"server_error\"}\n\n", 1, 1},
+		{"streamed 500 after deltas with a transport phrase in its message is not retried",
+			contentChunk + "error: {\"code\":500,\"message\":\"upstream: connection reset by peer\",\"type\":\"server_error\"}\n\n", 1, 1},
 		// An overload spelled by type or by a named code carries no status; it
 		// is retried like the 503 the SDK-decoded streams (Codex, Anthropic)
 		// take it for, and only on the fields isOverloadPayload reads.
