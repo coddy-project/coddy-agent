@@ -284,13 +284,16 @@ messages: [
      decide nothing), and on transport failures that left no output with the
      caller; each retry consumes one slot. The Codex, Anthropic and
      OpenAI-compatible streams read the same fields, and an overload that
-     names no number counts as a 503. A status is also read from the text of
+     names no number counts as a 503. Any other in-band error the Codex or
+     Anthropic SDK decoded whole is final, whatever status or connection
+     phrase its message holds. A status is also read from the text of
      an untyped error, as a number with no digit in front of it (`529 `, not
      the end of `1529 tokens`). A cancellation, an unknown host, and any
      failure after output was emitted stay final. A Codex `response.failed`
      event is read as an untyped error: its `code` (`server_is_overloaded`
-     included) is not decoded, so it is retried only when its message names a
-     status that way (`503 Service Unavailable`) and is final otherwise.
+     included) only joins the text of the message and is not classified, so
+     it is retried only when its message names a status that way
+     (`503 Service Unavailable`) and is final otherwise.
    - **First-token re-issue.** A streamed call the first-token guard
      (**`llm_first_token_timeout_ms`**) cuts with **nothing produced** is
      re-issued at most once, using a normal **`max_turns`** iteration. The
@@ -395,7 +398,7 @@ messages: [
    - **Provider recovery.** A call that failed because of the provider's lane
      (**`llm.IsTransientProviderError`**: an answer with HTTP 408, 500, 502,
      503, 504 or 529; an in-band error that is an overload by the fields
-     above, on every stream, or that carries one of those statuses as its
+     above, on each of those three streams, or that carries one of those statuses as its
      numeric `code` on an OpenAI-compatible stream - an in-band Codex or
      Anthropic error of another kind, such as an `api_error` with code 500,
      stays final; a cut or
@@ -416,7 +419,9 @@ messages: [
      recoveries (and like the loop guard's nudge), so a compaction before the
      step runs again puts it back after the kept answer instead of ending the
      request on that answer. At most **`maxProviderRecoveries`** (2) in a row; a successful call resets
-     the count. Uses a normal **`max_turns`** iteration.
+     the count. Uses a normal **`max_turns`** iteration. It takes no slot of
+     the shared budget: its own count bounds it, and `llm_retry_max: 0` turns
+     it off.
    - **Overflow recovery.** A call the provider refused as larger than the
      model's window (**`llm.IsContextOverflow`**) with nothing streamed yet
      compacts the turn and runs the step again, once per step

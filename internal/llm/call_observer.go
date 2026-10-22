@@ -168,8 +168,9 @@ func (p *resilientProvider) observeAttempt(clock *attemptClock, resp *Response, 
 // CallOutcome sorts the error of one attempt into one of CallOutcomes. The
 // status comes from the typed errors the adapters return and, failing that,
 // from the guess the retry classification makes; a failure inside an HTTP 200
-// answer counts by the status its adapter error carries, and one that carries
-// none is "error".
+// answer counts by the status its adapter error carries, an overload the
+// stream reported by the 503 it stands for, and one that carries none is
+// "error".
 func CallOutcome(err error) string {
 	switch {
 	case err == nil:
@@ -183,6 +184,11 @@ func CallOutcome(err error) string {
 		return outcomeTimeout
 	}
 	status := UpstreamStatus(err)
+	if overload, _ := inBandOverload(err); status == 0 && overload {
+		// An overload the stream reported in-band has no status of its own:
+		// it is the 503 the retry classification takes it for.
+		status = 503
+	}
 	if status == 0 {
 		status = httpStatusFromError(err)
 	}

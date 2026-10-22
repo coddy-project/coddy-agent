@@ -451,6 +451,11 @@ func TestOverloadedProviderIsRetriedLikeA503(t *testing.T) {
 		// not an object with a verdict of its own.
 		{"invalid request", `{"type":"invalid_request_error","code":"invalid_prompt","message":"The prompt was refused."}`, false},
 		{"words of a refusal that say overloaded", `{"type":"invalid_request_error","code":"context_length_exceeded","message":"Our servers are currently overloaded with this many tokens"}`, false},
+		// A payload that decodes is judged by its fields alone: a status or a
+		// connection phrase in the words of a refusal is not a lane failure.
+		{"a refusal whose message names a status", `{"type":"invalid_request_error","code":"invalid_prompt","message":"Unsupported identifier 529 was supplied"}`, false},
+		{"a refusal that quotes a 503", `{"type":"invalid_request_error","message":"upstream said 503 Service Unavailable"}`, false},
+		{"a refusal that quotes a dropped connection", `{"type":"invalid_request_error","message":"tool output: connection reset by peer"}`, false},
 		{"a server error without a verdict", `{"type":"server_error","code":"server_error","message":"The model crashed"}`, false},
 		{"numeric 400", `{"code":400,"message":"overloaded"}`, false},
 		{"plain text", `Our servers are currently overloaded. Please try again later.`, false},
@@ -1464,6 +1469,12 @@ func TestCallOutcome(t *testing.T) {
 		{"a connection reset", fmt.Errorf("openai stream: %w", &streamTransportError{cause: syscall.ECONNRESET}), "server_error"},
 		{"a connection nobody answers", &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}, "server_error"},
 		{"a truncated stream", fmt.Errorf("openai stream: %w", &streamTruncatedError{emitted: true}), "server_error"},
+		{"an overload inside a stream", fmt.Errorf("codex stream: %w", &streamTransportError{cause: errors.New(
+			`received error while streaming: {"type":"service_unavailable_error","code":"server_is_overloaded","message":"try later"}`)}), "server_error"},
+		{"an anthropic overload event after text", fmt.Errorf("anthropic stream: %w", &streamTransportError{cause: errors.New(
+			`received error while streaming: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`), emitted: true}), "server_error"},
+		{"an in-band refusal", fmt.Errorf("codex stream: %w", &streamTransportError{cause: errors.New(
+			`received error while streaming: {"type":"invalid_request_error","code":"invalid_prompt","message":"refused"}`)}), "error"},
 		{"a corrupt stream", fmt.Errorf("openai stream: %w", &streamUndecodableError{snippet: "<html>"}), "error"},
 		{"a failure without a status", fmt.Errorf("codex stream: %w", &streamServerError{msg: "response.failed"}), "error"},
 		{"a transport error that is not a drop", fmt.Errorf("openai stream: %w", &streamTransportError{cause: errors.New("x509: certificate signed by unknown authority")}), "error"},

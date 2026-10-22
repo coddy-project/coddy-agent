@@ -271,11 +271,17 @@ func sdkStreamErrorPayload(err error) (string, bool) {
 	return s[i+len(sdkStreamErrorPrefix):], true
 }
 
-// isInBandOverload reports an in-band stream error whose decoded payload says
-// the provider is overloaded or unavailable (isOverloadPayload).
-func isInBandOverload(err error) bool {
+// inBandOverload reads the SDK's in-band error event spelled in err. decoded
+// reports a payload that is whole JSON: such an event is judged by its fields
+// alone, overload being the verdict of isOverloadPayload, so a status or a
+// connection phrase in the words of its message decides nothing. A payload
+// that does not decode leaves err to the usual classification.
+func inBandOverload(err error) (overload, decoded bool) {
 	payload, ok := sdkStreamErrorPayload(err)
-	return ok && isOverloadPayload(payload)
+	if !ok || !gjson.Valid(payload) {
+		return false, false
+	}
+	return isOverloadPayload(payload), true
 }
 
 // isOverloadPayload reports whether the error object of a stream says the

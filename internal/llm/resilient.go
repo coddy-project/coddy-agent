@@ -488,11 +488,12 @@ func isRetryableLLMError(err error) bool {
 			return false
 		}
 		// A fresh one is classified by its cause. A provider that answered
-		// 200 and then reported in the stream that it is overloaded left no
-		// status to read: the decoded error object says it, and the request
-		// is repeated like a 503.
-		if isInBandOverload(transport.cause) {
-			return true
+		// 200 and then reported an error in the stream left no status to
+		// read: the decoded error object decides. An overload is repeated
+		// like a 503, any other in-band error is final whatever its message
+		// says.
+		if overload, decoded := inBandOverload(transport.cause); decoded {
+			return overload
 		}
 	}
 	var stalled *streamStalledError
