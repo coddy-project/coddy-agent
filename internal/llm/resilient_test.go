@@ -516,6 +516,54 @@ func TestOverloadedProviderIsRetriedLikeA503(t *testing.T) {
 	}
 }
 
+// TestInBandStatusCode: an in-band error event that is not an overload is
+// judged by its fields too, and a numeric code (a number or a numeric
+// string, as gateways write it) is its status: a lane failure is retried
+// before output and transient after it, a limit is retried by the wrapper
+// and left alone by the agent, and anything else is final.
+func TestInBandStatusCode(t *testing.T) {
+	inBand := func(payload string, emitted bool) error {
+		return fmt.Errorf("anthropic stream: %w", &streamTransportError{
+			cause:   errors.New("received error while streaming: " + payload),
+			emitted: emitted,
+		})
+	}
+	cases := []struct {
+		name      string
+		payload   string
+		retryable bool
+		transient bool
+		outcome   string
+	}{
+		{"a gateway's 500 as a string", `{"error":{"message":"upstream failed","type":"None","param":"None","code":"500"}}`, true, true, "server_error"},
+		{"a 502 as a number", `{"type":"api_error","code":502,"message":"bad gateway"}`, true, true, "server_error"},
+		{"a limit", `{"code":"429","message":"slow down"}`, true, false, "rate_limited"},
+		{"a server error without a status", `{"type":"error","error":{"type":"api_error","message":"Internal server error"}}`, false, false, "error"},
+		{"a refusal", `{"code":400,"message":"bad request"}`, false, false, "client_error"},
+		{"a refusal that quotes a dropped connection", `{"type":"invalid_request_error","message":"tool output: connection reset by peer"}`, false, false, "error"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := inBand(tc.payload, false)
+			if got := isRetryableLLMError(err); got != tc.retryable {
+				t.Errorf("retryable = %v, want %v", got, tc.retryable)
+			}
+			if isRetryableLLMError(inBand(tc.payload, true)) {
+				t.Error("after output was emitted nothing is replayed")
+			}
+			if got := IsTransientProviderError(err); got != tc.transient {
+				t.Errorf("IsTransientProviderError = %v, want %v", got, tc.transient)
+			}
+			if got := IsTransientProviderError(inBand(tc.payload, true)); got != tc.transient {
+				t.Errorf("after output: IsTransientProviderError = %v, want %v", got, tc.transient)
+			}
+			if got := CallOutcome(err); got != tc.outcome {
+				t.Errorf("CallOutcome = %q, want %q", got, tc.outcome)
+			}
+		})
+	}
+}
+
 // TestInBandOverloadIsNotReadAsALimit: an overload the stream reported is the
 // 503 it stands for, whatever its message says, so a message that names a 429
 // and a long pause neither turns the retry into a usage-limit reset nor counts
@@ -1507,6 +1555,8 @@ func TestCallOutcome(t *testing.T) {
 			`received error while streaming: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`), emitted: true}), "server_error"},
 		{"an in-band refusal", fmt.Errorf("codex stream: %w", &streamTransportError{cause: errors.New(
 			`received error while streaming: {"type":"invalid_request_error","code":"invalid_prompt","message":"refused"}`)}), "error"},
+		{"an in-band refusal whose message names a status", fmt.Errorf("codex stream: %w", &streamTransportError{cause: errors.New(
+			`received error while streaming: {"type":"invalid_request_error","message":"upstream said 503 Service Unavailable"}`)}), "error"},
 		{"a corrupt stream", fmt.Errorf("openai stream: %w", &streamUndecodableError{snippet: "<html>"}), "error"},
 		{"a failure without a status", fmt.Errorf("codex stream: %w", &streamServerError{msg: "response.failed"}), "error"},
 		{"a transport error that is not a drop", fmt.Errorf("openai stream: %w", &streamTransportError{cause: errors.New("x509: certificate signed by unknown authority")}), "error"},

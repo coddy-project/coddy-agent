@@ -270,17 +270,28 @@ func sdkStreamErrorPayload(err error) (string, bool) {
 	return "", false
 }
 
-// inBandOverload reads the SDK's in-band error event spelled in err. decoded
+// inBandStatus reads the SDK's in-band error event in err's chain. decoded
 // reports a payload that is whole JSON: such an event is judged by its fields
-// alone, overload being the verdict of isOverloadPayload, so a status or a
-// connection phrase in the words of its message decides nothing. A payload
-// that does not decode leaves err to the usual classification.
-func inBandOverload(err error) (overload, decoded bool) {
+// alone, so a status or a connection phrase in the words of its message
+// decides nothing. Its status is 503 for an overload (isOverloadPayload),
+// else the HTTP status its numeric code names (a number or a numeric string,
+// at the top level or in a nested error object), else 0. A payload that does
+// not decode leaves err to the usual classification.
+func inBandStatus(err error) (status int, decoded bool) {
 	payload, ok := sdkStreamErrorPayload(err)
 	if !ok || !gjson.Valid(payload) {
-		return false, false
+		return 0, false
 	}
-	return isOverloadPayload(payload), true
+	if isOverloadPayload(payload) {
+		return 503, true
+	}
+	obj := gjson.Parse(payload)
+	for _, o := range []gjson.Result{obj, obj.Get("error")} {
+		if code := numericCode(o); code >= 400 && code < 600 {
+			return code, true
+		}
+	}
+	return 0, true
 }
 
 // isOverloadPayload reports whether the error object of a stream says the
@@ -310,17 +321,27 @@ func isOverloadObject(obj gjson.Result) bool {
 	case "service_unavailable_error", "overloaded_error":
 		return true
 	}
-	code := obj.Get("code")
-	if code.String() == "server_is_overloaded" {
+	if obj.Get("code").String() == "server_is_overloaded" {
 		return true
 	}
-	if code.Type == gjson.Number || code.Type == gjson.String {
-		switch code.Int() {
-		case 503, 529:
-			return true
-		}
+	switch numericCode(obj) {
+	case 503, 529:
+		return true
 	}
 	return false
+}
+
+// numericCode is the code member of a JSON object as a number, written as one
+// or as a numeric string; 0 when it is neither.
+func numericCode(obj gjson.Result) int {
+	if !obj.IsObject() {
+		return 0
+	}
+	code := obj.Get("code")
+	if code.Type != gjson.Number && code.Type != gjson.String {
+		return 0
+	}
+	return int(code.Int())
 }
 
 // isEndOfInputDiagnostic reports whether the decoder's syntax error is its

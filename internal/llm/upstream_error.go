@@ -134,14 +134,14 @@ func IsTransientProviderError(err error) bool {
 	var transport *streamTransportError
 	if errors.As(err, &transport) {
 		// An error the stream reported in-band is judged by its decoded
-		// fields: an overload is the lane's, before text and after it alike
-		// (the agent keeps what was shown and goes on), and any other is
-		// final whatever its message says. A status the SDK's HTTP error
-		// behind the wrapper carries (the Anthropic and Codex streams wrap it
-		// as it came) is the lane's when it marks the lane as down; a limit
-		// was ruled out above.
-		if overload, decoded := inBandOverload(transport.cause); decoded {
-			return overload
+		// fields: an overload, or a code that marks the lane as down, is the
+		// lane's before text and after it alike (the agent keeps what was
+		// shown and goes on), and any other is final whatever its message
+		// says. A status the SDK's HTTP error behind the wrapper carries (the
+		// Anthropic and Codex streams wrap it as it came) is read the same
+		// way; a limit was ruled out above.
+		if status, decoded := inBandStatus(transport.cause); decoded {
+			return transientStatus(status)
 		}
 		return transientStatus(UpstreamStatus(transport.cause)) || isDialFailure(transport.cause) ||
 			isTransientTransportError(transport.cause)

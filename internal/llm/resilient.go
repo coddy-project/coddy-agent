@@ -482,11 +482,11 @@ func isRetryableLLMError(err error) bool {
 		return false
 	}
 	var sse *streamServerError
-	if errors.As(err, &sse) && sse.emitted {
-		// A failure the server reported after output reached the caller is
-		// never replayed: the status scan below already reads none for it,
-		// and the transport phrases at the end must not read its message.
-		return false
+	if errors.As(err, &sse) {
+		// The typed stream error is authoritative, as in httpStatusFromError:
+		// its code decides and the words of its message never do, and a
+		// failure reported after output reached the caller is not replayed.
+		return !sse.emitted && slices.Contains(retryableStatuses, sse.code)
 	}
 	var transport *streamTransportError
 	if errors.As(err, &transport) {
@@ -495,12 +495,12 @@ func isRetryableLLMError(err error) bool {
 			return false
 		}
 		// A fresh one is classified by its cause. A provider that answered
-		// 200 and then reported an error in the stream left no status to
-		// read: the decoded error object decides. An overload is repeated
-		// like a 503, any other in-band error is final whatever its message
-		// says.
-		if overload, decoded := inBandOverload(transport.cause); decoded {
-			return overload
+		// 200 and then reported an error in the stream left no HTTP status:
+		// the decoded error object decides, an overload repeated like a 503
+		// and any other event by the status its code names, whatever its
+		// message says.
+		if status, decoded := inBandStatus(transport.cause); decoded {
+			return slices.Contains(retryableStatuses, status)
 		}
 	}
 	var stalled *streamStalledError
@@ -643,16 +643,12 @@ func httpStatusFromError(err error) int {
 	if errors.As(err, &raw) {
 		return raw.status
 	}
-	// An error event the stream carried in-band has no status of its own,
-	// and the words of its message are not one: an overload is the 503 it
-	// stands for, any other decoded event has none.
+	// An error event the stream carried in-band has no HTTP status, and the
+	// words of its message are not one: its decoded fields name it.
 	var transport *streamTransportError
 	if errors.As(err, &transport) {
-		if overload, decoded := inBandOverload(transport.cause); decoded {
-			if overload {
-				return 503
-			}
-			return 0
+		if status, decoded := inBandStatus(transport.cause); decoded {
+			return status
 		}
 	}
 	s := err.Error()

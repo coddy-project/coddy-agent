@@ -240,6 +240,8 @@ func TestOpenAIStreamedErrorRetryClassification(t *testing.T) {
 			contentChunk + "error: {\"code\":500,\"message\":\"slot unavailable\",\"type\":\"server_error\"}\n\n", 1, 1},
 		{"streamed 500 after deltas with status-like message text is not retried",
 			contentChunk + "error: {\"code\":500,\"message\":\"upstream said 500 Internal Server Error\",\"type\":\"server_error\"}\n\n", 1, 1},
+		{"streamed 400 with a transport phrase in its message is not retried",
+			"error: {\"code\":400,\"message\":\"bad input: unexpected EOF\",\"type\":\"invalid_request_error\"}\n\n", 1, 0},
 		{"streamed 500 after deltas with a transport phrase in its message is not retried",
 			contentChunk + "error: {\"code\":500,\"message\":\"upstream: connection reset by peer\",\"type\":\"server_error\"}\n\n", 1, 1},
 		// An overload spelled by type or by a named code carries no status; it

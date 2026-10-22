@@ -285,9 +285,11 @@ messages: [
      decide nothing), and on transport failures that left no output with the
      caller; each retry consumes one slot. The Codex, Anthropic and
      OpenAI-compatible streams read the same fields, and an overload that
-     names no number counts as a 503. Any other in-band error the Codex or
-     Anthropic SDK decoded whole is final, whatever status or connection
-     phrase its message holds. A status is also read from the text of
+     names no number counts as a 503. Any other in-band error is read by its
+     numeric `code` (a number or a numeric string) on each of those streams:
+     it is retried when the code is one of those statuses and is final
+     otherwise, whatever status or connection phrase its message holds. A
+     status is also read from the text of
      an untyped error, as a number with no digit in front of it (`529 `, not
      the end of `1529 tokens`). A cancellation, an unknown host, and any
      failure after output was emitted stay final. A Codex `response.failed`
@@ -398,11 +400,10 @@ messages: [
      **`StopReasonMaxTokens`** and a notice (**`outputLimitNotice`**).
    - **Provider recovery.** A call that failed because of the provider's lane
      (**`llm.IsTransientProviderError`**: an answer with HTTP 408, 500, 502,
-     503, 504 or 529; an in-band error that is an overload by the fields
-     above, on each of those three streams, or that carries one of those statuses as its
-     numeric `code` on an OpenAI-compatible stream - an in-band Codex or
-     Anthropic error of another kind, such as an `api_error` with code 500,
-     stays final; a cut or
+     503, 504 or 529; an in-band error, on each of those three streams, that
+     is an overload by the fields above or that carries one of those
+     statuses as its numeric `code` - an in-band error of another kind, such
+     as an `api_error` that names no status, stays final; a cut or
      silent stream - an event cut inside its JSON included, a stream frame that
      is not JSON at all not - output already emitted or not; a 429 is left to
      the wrapper and the limit wait)

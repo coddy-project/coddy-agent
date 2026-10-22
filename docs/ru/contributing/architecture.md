@@ -305,4 +305,4 @@ Coddy - **ACP-харнес, удобный для distroless**, написанн
 
 Необязательные слои **`external/httpserver`**, **`external/ui`**, **`external/scheduler`** и **`external/memory`** не попадают в бинарник, если не передать соответствующие **теги сборки Go**; см. **`docs/contributing/build.md`** и **`README.md`**. Долговременная память включается во время работы ключом **`memory.enable`**, если бинарник собран с **`memory`**.
 
-<!-- docsgen:source sha256=34e953fc3e9181ec -->
+<!-- docsgen:source sha256=110cd24d85182cda -->

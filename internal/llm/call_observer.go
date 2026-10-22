@@ -187,6 +187,11 @@ func CallOutcome(err error) string {
 	if status == 0 {
 		status = httpStatusFromError(err)
 	}
+	if _, decoded := inBandStatus(err); decoded && status == 0 {
+		// An error event the stream carried is judged by its fields alone:
+		// the words of its message are not a dropped connection.
+		return outcomeError
+	}
 	switch {
 	case status == 429:
 		return outcomeRateLimited
