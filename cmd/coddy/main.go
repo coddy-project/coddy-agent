@@ -137,40 +137,14 @@ func main() {
 		return
 	}
 
-	var err error
-	switch args[0] {
-	case "acp":
-		err = runACP(args[1:])
-	case "cli":
-		err = runCLI(args[1:])
-	case "serve":
-		err = runServe(args[1:])
-	case "sessions":
-		err = runSessions(args[1:])
-	case "skills":
-		err = runSkills(args[1:])
-	case "plugin":
-		err = runPlugin(args[1:])
-	case "mcp":
-		err = runMCP(args[1:])
-	case "providers":
-		err = runProviders(args[1:])
-	case "rules":
-		err = runRules(args[1:])
-	case "agents":
-		err = runAgents(args[1:])
-	case "hooks":
-		err = runHooks(args[1:])
-	case "docs":
-		err = runDocs(args[1:], os.Stdout)
-	case "update":
-		err = runUpdate(args[1:])
-	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", args[0])
-		printUsage(os.Stderr)
-		os.Exit(1)
-	}
+	err := runCommand(args)
 	if err != nil {
+		var unknown *unknownCommandError
+		if errors.As(err, &unknown) {
+			fmt.Fprintf(os.Stderr, "unknown command %q\n\n", unknown.name)
+			printUsage(os.Stderr)
+			os.Exit(1)
+		}
 		fmt.Fprintln(os.Stderr, err)
 		// A command may want a status of its own: a `coddy serve` worker that
 		// exits because a listen address moved is asking its dispatcher for a
@@ -181,6 +155,44 @@ func main() {
 			os.Exit(coded.Code)
 		}
 		os.Exit(1)
+	}
+}
+
+// runCommand dispatches one top-level command: the switch main runs after the
+// global flags, and the one `coddy help <command>` runs with --help. An
+// unknown name answers with an unknownCommandError.
+func runCommand(args []string) error {
+	switch args[0] {
+	case "acp":
+		return runACP(args[1:])
+	case "cli":
+		return runCLI(args[1:])
+	case "serve":
+		return runServe(args[1:])
+	case "sessions":
+		return runSessions(args[1:])
+	case "skills":
+		return runSkills(args[1:])
+	case "plugin":
+		return runPlugin(args[1:])
+	case "mcp":
+		return runMCP(args[1:])
+	case "providers":
+		return runProviders(args[1:])
+	case "rules":
+		return runRules(args[1:])
+	case "agents":
+		return runAgents(args[1:])
+	case "hooks":
+		return runHooks(args[1:])
+	case "docs":
+		return runDocs(args[1:], os.Stdout)
+	case "update":
+		return runUpdate(args[1:])
+	case "help":
+		return runHelp(args[1:])
+	default:
+		return &unknownCommandError{name: args[0]}
 	}
 }
 
@@ -247,6 +259,8 @@ func printUsage(w io.Writer) {
         web UI; without --lang it speaks the terminal's language: CODDY_LANG,
         then LC_ALL, LC_MESSAGES, LANG)
   %[1]s update [flags]
+  %[1]s help [command] (the command list, or the usage of that command:
+        the same answers as %[1]s --help and as that command's own --help)
 `, os.Args[0])
 }
 
@@ -474,9 +488,20 @@ func openSessionStore(flagValue string, cfg *config.Config) (*session.FileStore,
 	return serve.OpenSessionStore(flagValue, cfg)
 }
 
+// sessionsUsage is the one usage line of `coddy sessions`.
+func sessionsUsage() string {
+	return fmt.Sprintf("usage: %s sessions list [--sessions-dir <path>] [--cwd <filter>] [--origin local|gateway|print] | sessions export <session-id> [flags]", os.Args[0])
+}
+
 func runSessions(args []string) error {
+	// A help flag where the verb stands names this line; one after a verb
+	// belongs to that verb's own flag set (`coddy help sessions export`).
+	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
+		fmt.Println(sessionsUsage())
+		return nil
+	}
 	if len(args) < 1 {
-		return fmt.Errorf("usage: %s sessions list [--sessions-dir <path>] [--cwd <filter>] [--origin local|gateway|print] | sessions export <session-id> [flags]", os.Args[0])
+		return fmt.Errorf("%s", sessionsUsage())
 	}
 	switch strings.TrimSpace(args[0]) {
 	case "export":
@@ -548,9 +573,21 @@ func sessionsList(w io.Writer, store *session.FileStore, cwd string, origin sess
 	return nil
 }
 
+// skillsUsage is the one usage line of `coddy skills`.
+func skillsUsage() string {
+	return fmt.Sprintf("usage: %s skills list|enable|disable|add|sync|remove", os.Args[0])
+}
+
 func runSkills(args []string) error {
+	// A -h or --help anywhere is a question about the command - `coddy help
+	// skills enable` is `coddy skills enable --help` - never a skill name to
+	// enable or a source to add.
+	if wantsHelp(args) {
+		fmt.Println(skillsUsage())
+		return nil
+	}
 	if len(args) < 1 {
-		return fmt.Errorf("usage: %s skills list|enable|disable|add|sync|remove", os.Args[0])
+		return fmt.Errorf("%s", skillsUsage())
 	}
 	cfg, err := loadSkillsConfig()
 	if err != nil {
@@ -629,6 +666,21 @@ func runSkills(args []string) error {
 // /plugin command so both stay in lockstep. Only the terminal approves a
 // project marketplace (`plugin marketplace trust`).
 func runPlugin(args []string) error {
+	// A -h or --help anywhere is a question about the command - `coddy help
+	// plugin install` is `coddy plugin install --help` - never a plugin name
+	// to install. The usage screen reads no configuration, so it answers even
+	// when config.yaml does not load.
+	if wantsHelp(args) {
+		args = []string{"help"}
+	}
+	if len(args) == 1 && args[0] == "help" {
+		out, err := skills.RunPluginCommandWith(context.Background(), nil, "", args, skills.PluginOptions{AllowTrust: true})
+		if err != nil {
+			return err
+		}
+		fmt.Println(out)
+		return nil
+	}
 	cfg, err := loadSkillsConfig()
 	if err != nil {
 		return err
@@ -662,7 +714,16 @@ func printSyncResult(res *skills.SyncResult) {
 	}
 }
 
+// rulesUsage is the one usage line of `coddy rules`.
+func rulesUsage() string {
+	return fmt.Sprintf("usage: %s rules list [--cwd DIR]", os.Args[0])
+}
+
 func runRules(args []string) error {
+	if wantsHelp(args) {
+		fmt.Println(rulesUsage())
+		return nil
+	}
 	cfg, err := config.LoadFromCLI(config.CLIPaths{})
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -674,5 +735,5 @@ func runRules(args []string) error {
 		}
 		return rules.ListCatalog(cwd, rules.DefaultFactory(cfg.Paths.Home), rules.ParseSystems(cfg.Rules.Systems))
 	}
-	return fmt.Errorf("usage: %s rules list [--cwd DIR]", os.Args[0])
+	return fmt.Errorf("%s", rulesUsage())
 }

@@ -7,7 +7,7 @@ _coddy() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    commands="cli acp serve sessions skills plugin mcp providers rules agents hooks docs update"
+    commands="cli acp serve sessions skills plugin mcp providers rules agents hooks docs update help"
     # The one-shot flags of the console, after `coddy` and after `coddy cli`.
     local prompt_flags="-p --prompt -i --prompt-file --no-stdin --ephemeral"
 
@@ -92,6 +92,10 @@ _coddy() {
             ;;
         update)
             COMPREPLY=($(compgen -W "--check -y --yes --version --repo --no-restart --no-notes" -- "${cur}"))
+            ;;
+        help)
+            # `coddy help <command>` names a command of its own.
+            [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "${commands}" -- "${cur}"))
             ;;
         cli)
             COMPREPLY=($(compgen -W "-t --test-config --dry-run --config --home --cwd --log-level --log-output --log-file --log-format --remote --remote-token -c --continue ${prompt_flags} --model --mode --permission-mode" -- "${cur}"))
