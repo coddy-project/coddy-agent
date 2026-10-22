@@ -502,6 +502,79 @@ func TestAnthropicStreamErrorEventCutInsideJSON(t *testing.T) {
 	}
 }
 
+// TestAnthropicStreamInBandErrorRetry is the whole-payload twin of the cut
+// event above (issue #537): the SDK hands over the complete event, so the
+// overload is read from its decoded error object. Before any output it is
+// retried like a 503 and the second attempt's answer is the caller's; after a
+// delta it is not replayed, and the text stays next to an error the agent
+// recovers from. An error event that is not an overload stays final.
+func TestAnthropicStreamInBandErrorRetry(t *testing.T) {
+	event := func(errType, message string) string {
+		return "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"" + errType + "\",\"message\":\"" + message + "\"}}\n\n"
+	}
+	whole := anthropicStreamPrefix +
+		"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n" +
+		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":5}}\n\n" +
+		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+	// A stream that has delivered nothing yet: the opening events carry no text.
+	const opening = "event: message_start\n" +
+		"data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"test-model\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":3,\"output_tokens\":0}}}\n\n"
+
+	cases := []struct {
+		name          string
+		scripts       []string
+		wantRequests  int32
+		wantErr       bool
+		wantTransient bool
+		wantContent   string
+	}{
+		{name: "overload before any output is retried and succeeds",
+			scripts: []string{opening + event("overloaded_error", "Overloaded"), whole}, wantRequests: 2, wantContent: "Paris"},
+		{name: "overload after a text delta is not replayed",
+			scripts:      []string{anthropicStreamPrefix + event("overloaded_error", "Overloaded"), whole},
+			wantRequests: 1, wantErr: true, wantTransient: true, wantContent: "Paris"},
+		{name: "an error event that is not an overload is final",
+			scripts:      []string{opening + event("invalid_request_error", "Overloaded"), whole},
+			wantRequests: 1, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				n := int(calls.Add(1)) - 1
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, tc.scripts[min(n, len(tc.scripts)-1)])
+			}))
+			defer srv.Close()
+			provider := applyResilientWrap(newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, ""), ProviderInput{
+				RetryMax: 2, RetryBase: time.Millisecond, RetryMaxDelay: time.Millisecond,
+			})
+
+			var streamed strings.Builder
+			resp, err := provider.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil,
+				func(c StreamChunk) { streamed.WriteString(c.TextDelta) })
+			if got := calls.Load(); got != tc.wantRequests {
+				t.Errorf("requests = %d, want %d", got, tc.wantRequests)
+			}
+			if got := streamed.String(); got != tc.wantContent {
+				t.Errorf("streamed text = %q, want %q: a retry must never show text twice", got, tc.wantContent)
+			}
+			if !tc.wantErr {
+				if err != nil || resp == nil || resp.Content != "Paris" || resp.StopReason != "end_turn" {
+					t.Fatalf("resp = %+v, err = %v, want the second attempt's whole answer", resp, err)
+				}
+				return
+			}
+			if err == nil || !strings.HasPrefix(err.Error(), "anthropic stream: received error while streaming: ") {
+				t.Fatalf("err = %v, want the in-band error the user saw before", err)
+			}
+			if got := IsTransientProviderError(err); got != tc.wantTransient {
+				t.Errorf("IsTransientProviderError = %v, want %v", got, tc.wantTransient)
+			}
+		})
+	}
+}
+
 // TestHTTPStatusFromErrorIgnoresStreamDecodeText: a truncation's cause and an
 // undecodable frame carry server bytes, so their text is never scanned for a
 // status the way an untyped message still is.

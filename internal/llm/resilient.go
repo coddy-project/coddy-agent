@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -480,11 +481,27 @@ func isRetryableLLMError(err error) bool {
 		// nothing reached the caller.
 		return false
 	}
+	var sse *streamServerError
+	if errors.As(err, &sse) {
+		// The typed stream error is authoritative, as in httpStatusFromError:
+		// its code decides and the words of its message never do, and a
+		// failure reported after output reached the caller is not replayed.
+		return !sse.emitted && slices.Contains(retryableStatuses, sse.code)
+	}
 	var transport *streamTransportError
-	if errors.As(err, &transport) && transport.emitted {
-		// Same emitted contract for transport failures mid-stream; a fresh
-		// one falls through to normal classification of its cause.
-		return false
+	if errors.As(err, &transport) {
+		// Same emitted contract for transport failures mid-stream.
+		if transport.emitted {
+			return false
+		}
+		// A fresh one is classified by its cause. A provider that answered
+		// 200 and then reported an error in the stream left no HTTP status:
+		// the decoded error object decides, an overload repeated like a 503
+		// and any other event by the status its code names, whatever its
+		// message says.
+		if status, decoded := inBandStatus(transport.cause); decoded {
+			return slices.Contains(retryableStatuses, status)
+		}
 	}
 	var stalled *streamStalledError
 	if errors.As(err, &stalled) {
@@ -494,8 +511,7 @@ func isRetryableLLMError(err error) bool {
 		// wager as a connection cut before output.
 		return true
 	}
-	switch httpStatusFromError(err) {
-	case 429, 408, 500, 502, 503, 504:
+	if slices.Contains(retryableStatuses, httpStatusFromError(err)) {
 		return true
 	}
 	return isTransientTransportError(err)
@@ -627,14 +643,45 @@ func httpStatusFromError(err error) int {
 	if errors.As(err, &raw) {
 		return raw.status
 	}
+	// An error event the stream carried in-band has no HTTP status, and the
+	// words of its message are not one: its decoded fields name it.
+	var transport *streamTransportError
+	if errors.As(err, &transport) {
+		if status, decoded := inBandStatus(transport.cause); decoded {
+			return status
+		}
+	}
 	s := err.Error()
-	for _, code := range []int{429, 408, 500, 502, 503, 504} {
-		needle := strconv.Itoa(code)
-		if strings.Contains(s, needle+" ") || strings.Contains(s, `"code":"`+needle+`"`) {
+	for _, code := range retryableStatuses {
+		if statusInText(s, code) {
 			return code
 		}
 	}
 	return 0
+}
+
+// statusInText reports whether s names status as a word of its own: the code
+// followed by a space with no digit in front of it, or a quoted "code" member.
+// "requested 1529 tokens" holds a "529 " and "wrote 4500 bytes" a "500 ", and
+// neither is a status.
+func statusInText(s string, status int) bool {
+	needle := strconv.Itoa(status)
+	if strings.Contains(s, `"code":"`+needle+`"`) {
+		return true
+	}
+	needle += " "
+	for off := 0; off < len(s); {
+		i := strings.Index(s[off:], needle)
+		if i < 0 {
+			return false
+		}
+		i += off
+		if i == 0 || s[i-1] < '0' || s[i-1] > '9' {
+			return true
+		}
+		off = i + 1
+	}
+	return false
 }
 
 // WithAgentResilience copies agent LLM pacing settings into ProviderInput.

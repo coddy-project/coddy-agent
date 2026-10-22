@@ -75,7 +75,7 @@ A scrape asks no provider, bot API or MCP server anything. The `go_*` and `proce
 
 An **attempt** is one call into a provider that the retry wrapper makes, so a retried call counts once per try: the first try is `attempt="first"`, every later one `attempt="retry"`, and the `first` attempts count the calls. Model listing, usage reads and sign-in are not attempts. Tokens come from the response of an attempt whenever one exists. The time to the first token is observed only for an attempt that streamed content to a caller; a non-streaming call and a stream that ended before any content have none.
 
-Every attempt lands in exactly one `outcome`: `ok`, `canceled` (the caller stopped it), `timeout` (a deadline ran out or the stream stalled), `rate_limited` (HTTP 429), `auth` (401 or 403), `context_overflow` (the prompt does not fit the model's context), `client_error` (any other 4xx), `server_error` (a 5xx, a cut stream, a failed dial or a transient transport error) and `error` (everything else).
+Every attempt lands in exactly one `outcome`: `ok`, `canceled` (the caller stopped it), `timeout` (a deadline ran out or the stream stalled), `rate_limited` (HTTP 429), `auth` (401 or 403), `context_overflow` (the prompt does not fit the model's context), `client_error` (any other 4xx), `server_error` (a 5xx, a cut stream, a failed dial, a transient transport error or an overload the provider reported inside its stream) and `error` (everything else).
 
 ### Tool calls
 
