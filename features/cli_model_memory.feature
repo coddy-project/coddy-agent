@@ -18,11 +18,17 @@ Feature: Model memory on the console
     And the operator starts a new session
     Then the session state records the model "stub/model-two"
 
-  Scenario: The remembered model is on the session when startup returns
+  Scenario: Without --model the first session starts on the remembered model
     Given a coddy console app over a stub agent runner with models "stub/aaa-model", "stub/model-two" and "stub/zed-model" and default model "stub/zed-model"
     And the console remembers the model "stub/model-two"
     When the console app starts
     Then the session is already on the model "stub/model-two"
+    And the footer names the model "(stub) model-two"
+
+  # The scenarios state the outcome; they cannot hold one write back without a
+  # clock. The order of the two writes is forced in external/cli/state_test.go
+  # (TestStartupModelFlagBeatsTheRememberedModel, a synctest bubble), which
+  # fails on the startup that lost the race of issue #542.
 
   Scenario: An explicit --model beats the remembered model
     Given a coddy console app over a stub agent runner with models "stub/aaa-model", "stub/model-two" and "stub/zed-model" and default model "stub/zed-model"

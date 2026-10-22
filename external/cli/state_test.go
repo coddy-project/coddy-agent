@@ -440,6 +440,49 @@ func TestStartReportsARefusedInitialModelOnce(t *testing.T) {
 	}
 }
 
+// On /new the console shows the remembered model from the switch on. The
+// write's own config update names the new session and is queued before
+// sessionSwitched, so the loop drops it as another session's: the switch has to
+// carry the options the write returned. The first session runs on --model,
+// which does not rewrite the memory, so the console shows a third model until
+// the switch.
+func TestNewSessionShowsTheRememberedModelFromTheSwitch(t *testing.T) {
+	app := newModelStartupApp(t, startupRemembered, nil)
+	ctx := context.Background()
+	if err := app.Start(ctx, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.ApplyStartupOptions(ctx, startupAlphabetical, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	old := app.sessionID
+	for _, m := range drainUpdates(app) {
+		app.applyLoopMessage(m)
+	}
+	if app.modelID != startupAlphabetical {
+		t.Fatalf("model the console shows before /new = %q, want the --model value %q", app.modelID, startupAlphabetical)
+	}
+
+	app.newSession()
+	app.JoinWorkers(10 * time.Second)
+	msgs := drainUpdates(app)
+	if _, got := statusLines(msgs); len(got) != 0 {
+		t.Fatalf("%d status lines queued, want none: %+v", len(got), got)
+	}
+	for _, m := range msgs {
+		app.applyLoopMessage(m)
+	}
+	if app.sessionID == old || app.sessionID == "" {
+		t.Fatalf("/new left the console on %q (was %q)", app.sessionID, old)
+	}
+	if got := sessionModel(t, app); got != startupRemembered {
+		t.Fatalf("session model after /new = %q, want %q", got, startupRemembered)
+	}
+	if app.modelID != startupRemembered {
+		t.Fatalf("model the console shows after /new = %q, want %q", app.modelID, startupRemembered)
+	}
+}
+
 // On /new the refusal follows sessionSwitched: until the loop has taken that
 // message the console is still on the old session and drops a status line sent
 // for the new one. It is reported once, and for the new session.

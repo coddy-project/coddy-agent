@@ -72,18 +72,11 @@ func (s *cliTUIState) theConsoleAppStartsResumingWithModel(id string) error {
 // the way to another model: a late writer's overwrite is waited for.
 func (s *cliTUIState) sessionSettlesOnModel(id string) error {
 	s.app.JoinWorkers(5 * time.Second)
-	st := s.app.mgr.SessionByID(s.app.sessionID)
-	if st == nil {
-		return fmt.Errorf("no live session")
-	}
-	if got := st.EffectiveModelID(s.cfg); got != id {
-		return fmt.Errorf("session model = %q, want %q", got, id)
-	}
-	return nil
+	return s.sessionIsAlreadyOnModel(id)
 }
 
-// sessionIsAlreadyOnModel reads the session once, with nothing waited for: the
-// model is on it when the console app has started, not some time after.
+// sessionIsAlreadyOnModel reads the session once, as soon as the console has
+// drawn its first frame, with no write waited for and no polling.
 func (s *cliTUIState) sessionIsAlreadyOnModel(id string) error {
 	st := s.app.mgr.SessionByID(s.app.sessionID)
 	if st == nil {
