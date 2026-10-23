@@ -89,15 +89,18 @@ test("every motion of the checklist is drawn only without a request for less mot
   }
 });
 
-test("the item in progress spins and shimmers while a turn runs", () => {
-  expect(motion(".todo-checklist-row--live .todo-tool-preview-mark")).toMatch(
-    /animation: todo-checklist-spin /,
+// An item in progress carries a still mark of its own - the accent ring with
+// a dot in it - whether this tab sees a turn running or not: a spinning ring
+// and a band running through the text drew the eye away from the answer.
+test("an item in progress carries a still mark of its own", () => {
+  expect(plain(".todo-checklist .todo-tool-preview-mark--in_progress")).toMatch(
+    /radial-gradient/,
   );
-  expect(motion(".todo-checklist-row--live .todo-checklist-content")).toMatch(
-    /animation: todo-checklist-shimmer /,
-  );
-  expect(css).toMatch(/@keyframes todo-checklist-spin\b/);
-  expect(css).toMatch(/@keyframes todo-checklist-shimmer\b/);
+  for (const rule of motionRules)
+    expect(rule.decls, rule.selector).not.toMatch(
+      /todo-checklist-(spin|shimmer)/,
+    );
+  expect(css).not.toMatch(/@keyframes todo-checklist-(spin|shimmer)/);
 });
 
 test("a status moves its mark, its text and its glyph instead of swapping them", () => {
@@ -141,4 +144,21 @@ test("an entrance fills only backwards, so the fade of a fold or an exit can run
     expect(motion(selector), selector).toMatch(/ backwards[;,]/);
     expect(motion(selector), selector).not.toMatch(/\b(both|forwards)\b/);
   }
+});
+
+// On a desktop the card is as wide as its longest line, within bounds: no
+// wider than the other cards of the transcript and no narrower than a head
+// with its count. On a phone it takes the column, as every card does there.
+test("the card fits its text on a desktop and takes the column on a phone", () => {
+  const row = plain(".message-row-todo");
+  expect(row).toMatch(/width: fit-content/);
+  expect(row).toMatch(/min-width: min\(320px, 100%\)/);
+  expect(row).toMatch(/max-width: 720px/);
+  expect(row).toMatch(/align-self: flex-start/);
+  const phone = blocks
+    .filter((b) => b.prelude === "@media (max-width: 599px)")
+    .flatMap((b) => rulesOf(b.body))
+    .find((r) => r.selector === ".message-row-todo");
+  expect(phone?.decls).toMatch(/width: 100%/);
+  expect(phone?.decls).toMatch(/align-self: stretch/);
 });

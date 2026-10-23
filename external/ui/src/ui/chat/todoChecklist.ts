@@ -108,8 +108,8 @@ export function todoChecklistShown(
 }
 
 /**
- * The items a folded list keeps in view: every item in progress, or, with none,
- * the next pending one. A finished list keeps none: its head says it is done.
+ * The items a folded list keeps in view: the ones in progress and nothing
+ * else. With none, the head alone says how far the list got.
  */
 export function todoChecklistFocus(
   entries: readonly TodoPlanEntry[],
@@ -118,10 +118,6 @@ export function todoChecklistFocus(
   entries.forEach((entry, index) => {
     if (entry.status === "in_progress") focus.add(index);
   });
-  if (focus.size === 0) {
-    const next = entries.findIndex((entry) => entry.status === "pending");
-    if (next >= 0) focus.add(next);
-  }
   return focus;
 }
 

@@ -37,14 +37,9 @@ const unfolded = () =>
       ),
   ).map((row) => row.textContent);
 
-test("the item in progress is named on its row, and its mark spins only while a turn runs", () => {
-  const { rerender } = render(
-    <TodoChecklistMessage
-      sessionId="s1"
-      entries={ENTRIES}
-      live={false}
-      shown={true}
-    />,
+test("the item in progress is named on its row as the current step", () => {
+  render(
+    <TodoChecklistMessage sessionId="s1" entries={ENTRIES} shown={true} />,
   );
   const list = screen.getByRole("list", { name: "Todo list, 1 of 3 done" });
   const rows = within(list).getAllByRole("listitem");
@@ -53,28 +48,14 @@ test("the item in progress is named on its row, and its mark spins only while a 
     "In progress: Fix the parser",
     "Pending: Run the whole suite",
   ]);
-  // The one the agent is on is the current step of the list.
+  // The one the agent is on is the current step of the list; its mark spins
+  // whether a turn runs or not (todoChecklistCss.test.ts).
   expect(rows.map((row) => row.getAttribute("aria-current"))).toEqual([
     null,
     "step",
     null,
   ]);
-  // No turn runs: the mark of the item in progress stands still.
-  expect(list.querySelectorAll(".todo-checklist-row--live")).toHaveLength(0);
-
-  rerender(
-    <TodoChecklistMessage
-      sessionId="s1"
-      entries={ENTRIES}
-      live={true}
-      shown={true}
-    />,
-  );
-  const live = screen
-    .getByRole("list", { name: "Todo list, 1 of 3 done" })
-    .querySelectorAll(".todo-checklist-row--live");
-  expect(live).toHaveLength(1);
-  expect(live[0]).toHaveTextContent("Fix the parser");
+  expect(rows[1]).toHaveClass("todo-checklist-row--in_progress");
 });
 
 test("every item carries the status mark the todo rows use", () => {
@@ -86,7 +67,6 @@ test("every item carries the status mark the todo rows use", () => {
         { content: "Try the old build", status: "failed" },
         { content: "Bisect", status: "cancelled" },
       ]}
-      live={false}
       shown={true}
     />,
   );
@@ -115,12 +95,7 @@ test("every item carries the status mark the todo rows use", () => {
 test("the list speaks Russian in the Russian interface", () => {
   initLocale("ru");
   render(
-    <TodoChecklistMessage
-      sessionId="s1"
-      entries={ENTRIES}
-      live={false}
-      shown={true}
-    />,
+    <TodoChecklistMessage sessionId="s1" entries={ENTRIES} shown={true} />,
   );
   const list = screen.getByRole("list", {
     name: "Список задач, выполнено 1 из 3",
@@ -136,12 +111,7 @@ test("the list speaks Russian in the Russian interface", () => {
 
 test("a click on the head folds the list to the item in progress, and the choice is remembered", () => {
   const { unmount } = render(
-    <TodoChecklistMessage
-      sessionId="s1"
-      entries={ENTRIES}
-      live={true}
-      shown={true}
-    />,
+    <TodoChecklistMessage sessionId="s1" entries={ENTRIES} shown={true} />,
   );
   // Open by default: the head names the list and how far it got.
   expect(head()).toHaveAccessibleName("Todo list 1/3");
@@ -160,18 +130,13 @@ test("a click on the head folds the list to the item in progress, and the choice
   expect(
     screen
       .getByTestId("todo-checklist")
-      .querySelector(".todo-checklist-row--live"),
+      .querySelector(".todo-checklist-row--in_progress"),
   ).toHaveTextContent("Fix the parser");
 
   // Another chat, or the same one after a reload, opens folded.
   unmount();
   render(
-    <TodoChecklistMessage
-      sessionId="s1"
-      entries={ENTRIES}
-      live={false}
-      shown={true}
-    />,
+    <TodoChecklistMessage sessionId="s1" entries={ENTRIES} shown={true} />,
   );
   expect(head()).toHaveAttribute("aria-expanded", "false");
   expect(unfolded()).toEqual(["Fix the parser"]);
@@ -181,7 +146,7 @@ test("a click on the head folds the list to the item in progress, and the choice
   expect(folded()).toEqual([]);
 });
 
-test("folded with nothing in progress, the next pending item stays in view", () => {
+test("folded with nothing in progress, only the head stays", () => {
   render(
     <TodoChecklistMessage
       sessionId="s1"
@@ -190,35 +155,17 @@ test("folded with nothing in progress, the next pending item stays in view", () 
         { content: "Fix the parser", status: "pending" },
         { content: "Run the whole suite", status: "pending" },
       ]}
-      live={false}
       shown={true}
     />,
   );
   fireEvent.click(head());
-  expect(unfolded()).toEqual(["Fix the parser"]);
-
-  cleanup();
-  // Folded and finished, only the head is left.
-  render(
-    <TodoChecklistMessage
-      sessionId="s1"
-      entries={ENTRIES.map((e) => ({ ...e, status: "completed" }))}
-      live={true}
-      shown={true}
-    />,
-  );
-  expect(head()).toHaveAccessibleName("Todo list 3/3");
+  expect(head()).toHaveAccessibleName("Todo list 1/3");
   expect(unfolded()).toEqual([]);
 });
 
 test("a status changes the mark in place and pops its glyph in", () => {
   const { rerender } = render(
-    <TodoChecklistMessage
-      sessionId="s1"
-      entries={ENTRIES}
-      live={true}
-      shown={true}
-    />,
+    <TodoChecklistMessage sessionId="s1" entries={ENTRIES} shown={true} />,
   );
   const markOf = (text: string) =>
     within(screen.getByTestId("todo-checklist"))
@@ -236,7 +183,6 @@ test("a status changes the mark in place and pops its glyph in", () => {
         { content: "Fix the parser", status: "completed" },
         { content: "Run the whole suite", status: "in_progress" },
       ]}
-      live={true}
       shown={true}
     />,
   );
@@ -249,23 +195,13 @@ test("a status changes the mark in place and pops its glyph in", () => {
 
 test("a list that stops showing fades out before it leaves, and stays when shown again", async () => {
   const { rerender } = render(
-    <TodoChecklistMessage
-      sessionId="s1"
-      entries={ENTRIES}
-      live={true}
-      shown={true}
-    />,
+    <TodoChecklistMessage sessionId="s1" entries={ENTRIES} shown={true} />,
   );
   const row = screen.getByTestId("todo-checklist");
   expect(row).not.toHaveClass("is-leaving");
 
   rerender(
-    <TodoChecklistMessage
-      sessionId="s1"
-      entries={undefined}
-      live={false}
-      shown={false}
-    />,
+    <TodoChecklistMessage sessionId="s1" entries={undefined} shown={false} />,
   );
   // Still there for its exit, with the list it had, out of the reader's way.
   expect(screen.getByTestId("todo-checklist")).toBe(row);
@@ -275,22 +211,12 @@ test("a list that stops showing fades out before it leaves, and stays when shown
 
   // Shown again before the exit ends: it simply stays.
   rerender(
-    <TodoChecklistMessage
-      sessionId="s1"
-      entries={ENTRIES}
-      live={true}
-      shown={true}
-    />,
+    <TodoChecklistMessage sessionId="s1" entries={ENTRIES} shown={true} />,
   );
   expect(screen.getByTestId("todo-checklist")).not.toHaveClass("is-leaving");
 
   rerender(
-    <TodoChecklistMessage
-      sessionId="s1"
-      entries={ENTRIES}
-      live={false}
-      shown={false}
-    />,
+    <TodoChecklistMessage sessionId="s1" entries={ENTRIES} shown={false} />,
   );
   await waitFor(() =>
     expect(screen.queryByTestId("todo-checklist")).toBeNull(),
@@ -299,46 +225,26 @@ test("a list that stops showing fades out before it leaves, and stays when shown
 
 test("a list never shown has no exit to play", () => {
   render(
-    <TodoChecklistMessage
-      sessionId="s1"
-      entries={ENTRIES}
-      live={false}
-      shown={false}
-    />,
+    <TodoChecklistMessage sessionId="s1" entries={ENTRIES} shown={false} />,
   );
   expect(screen.queryByTestId("todo-checklist")).toBeNull();
 });
 
 test("another chat never plays the exit of the list it left", () => {
   const { rerender } = render(
-    <TodoChecklistMessage
-      sessionId="s1"
-      entries={ENTRIES}
-      live={true}
-      shown={true}
-    />,
+    <TodoChecklistMessage sessionId="s1" entries={ENTRIES} shown={true} />,
   );
   expect(screen.getByTestId("todo-checklist")).toBeInTheDocument();
   // The transcript stays mounted when the reader switches chats.
   rerender(
-    <TodoChecklistMessage
-      sessionId="s2"
-      entries={undefined}
-      live={false}
-      shown={false}
-    />,
+    <TodoChecklistMessage sessionId="s2" entries={undefined} shown={false} />,
   );
   expect(screen.queryByTestId("todo-checklist")).toBeNull();
 });
 
 test("an item added above keeps the rows below it, marks and all", () => {
   const { rerender } = render(
-    <TodoChecklistMessage
-      sessionId="s1"
-      entries={ENTRIES}
-      live={true}
-      shown={true}
-    />,
+    <TodoChecklistMessage sessionId="s1" entries={ENTRIES} shown={true} />,
   );
   const rowOf = (text: string) =>
     within(screen.getByTestId("todo-checklist")).getByText(text).closest("li");
@@ -350,7 +256,6 @@ test("an item added above keeps the rows below it, marks and all", () => {
         { content: "Reproduce the bug", status: "completed" },
         ...ENTRIES,
       ]}
-      live={true}
       shown={true}
     />,
   );

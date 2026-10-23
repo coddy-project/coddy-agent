@@ -3432,12 +3432,25 @@ a.rail-brand {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 10px 14px;
+  /* Two row gaps above it - the column's and this padding - and the same two
+     between it and the composer (chat/composerReserve.ts). */
+  padding: var(--coddy-transcript-row-gap, 10px) 14px 0;
   /* Blockified as a flex item of the column .msg-assistant-stack; without this its
      min-content width follows the unbreakable phrase in the status label and pushes
      the row past .messages-inner. */
   min-width: 0;
   max-width: 100%;
+}
+
+/* Between turns the live line's room stays, transparent and still: the line
+   coming and going moved the transcript over it as each step ended. */
+.typing-dots-slot {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.typing-dots-slot .typing-dots-dot {
+  animation: none;
 }
 
 .typing-dots-dot {
@@ -3605,27 +3618,6 @@ a.rail-brand {
   .typing-dots-turn-item:last-child::after {
     content: none;
   }
-}
-
-.msg-assistant-foot {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 6px;
-  margin-top: 8px;
-  min-height: 28px;
-  box-sizing: border-box;
-}
-
-/* Whole control sits on the same inset as prose; small nudge fixes subpixel vs icon box */
-.msg-assistant-time {
-  font-size: 12px;
-  line-height: 1.3;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
-  user-select: none;
-  white-space: nowrap;
-  cursor: help;
 }
 
 .msg-copy-icon-btn {
@@ -4298,11 +4290,9 @@ a.rail-brand {
   margin: 12px 0 16px;
 }
 
-/* The 16px are for the paragraph after the cards. The answer's foot keeps its
-   own margin, and both together stood it twice as far from the cards as from
-   a paragraph. */
-.inline-artifacts:last-child,
-.inline-artifacts:has(+ .msg-assistant-foot) {
+/* The 16px are for the paragraph after the cards; cards that end the answer
+   keep none. */
+.inline-artifacts:last-child {
   margin-bottom: 0;
 }
 
@@ -13034,11 +13024,19 @@ html:not([data-theme="light"]) .settings.drawer {
 .message-row-todo {
   display: grid;
   grid-template-rows: 1fr;
-  align-self: stretch;
-  width: 100%;
+  align-self: flex-start;
+  width: fit-content;
+  min-width: min(320px, 100%);
   max-width: 720px;
-  min-width: 0;
   box-sizing: border-box;
+}
+
+/* A phone gives the card its whole column, as it does every card. */
+@media (max-width: 599px) {
+  .message-row-todo {
+    align-self: stretch;
+    width: 100%;
+  }
 }
 
 .message-row-todo.is-leaving {
@@ -13124,6 +13122,14 @@ html:not([data-theme="light"]) .settings.drawer {
   line-height: 1.45;
 }
 
+/* An item in progress: the accent ring with a dot in it, still. A spinning
+   ring and a band running through the text drew the eye from the answer. */
+.todo-checklist .todo-tool-preview-mark--in_progress {
+  border-color: var(--accent);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent) 0 3px, transparent 3.5px);
+}
+
 .todo-checklist-glyph {
   display: inline-block;
 }
@@ -13177,29 +13183,6 @@ html:not([data-theme="light"]) .settings.drawer {
   .todo-checklist-content {
     transition: color 0.25s ease;
   }
-
-  .todo-checklist-row--live .todo-tool-preview-mark {
-    border-color: color-mix(in srgb, var(--accent) 22%, transparent);
-    border-top-color: var(--accent);
-    background: none;
-    animation: todo-checklist-spin 0.9s linear infinite;
-  }
-
-  .todo-checklist-row--live .todo-checklist-content {
-    background: linear-gradient(
-      90deg,
-      var(--text) 0%,
-      var(--text) 40%,
-      color-mix(in srgb, var(--accent) 60%, var(--text)) 50%,
-      var(--text) 60%,
-      var(--text) 100%
-    );
-    background-size: 300% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    animation: todo-checklist-shimmer 2.4s linear infinite;
-  }
 }
 
 @keyframes todo-checklist-in {
@@ -13222,21 +13205,6 @@ html:not([data-theme="light"]) .settings.drawer {
   from {
     opacity: 0;
     transform: scale(0.3);
-  }
-}
-
-@keyframes todo-checklist-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes todo-checklist-shimmer {
-  from {
-    background-position: 100% 0;
-  }
-  to {
-    background-position: 0% 0;
   }
 }
 

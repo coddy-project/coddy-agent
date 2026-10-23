@@ -822,9 +822,9 @@ async function scenarioScroll() {
   });
   await openAndTime(page, `${NODE}/#/s/${LONG}`);
   await page.waitForTimeout(1000);
-  // The copy control of the newest answer keeps the focus while the reader
+  // The copy control of the newest prompt keeps the focus while the reader
   // flicks up: a focused button must not stop the window from dropping rows.
-  await page.locator(".msg-assistant-stack .msg-copy-icon-btn").last().click();
+  await page.getByTestId("user-message-copy").last().click();
   const frames = await scrollFrames(page, 120, -300);
   const up = await scrollAndMeasure(page, 100, -300);
   const deep = await readTranscript(page);

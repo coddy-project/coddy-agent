@@ -135,8 +135,8 @@ const rowLabels = () =>
   within(screen.getByTestId("todo-checklist"))
     .getAllByRole("listitem")
     .map((row) => row.getAttribute("aria-label"));
-const liveRows = () =>
-  Array.from(document.querySelectorAll(".todo-checklist-row--live")).map(
+const inProgress = () =>
+  Array.from(document.querySelectorAll(".todo-checklist-row--in_progress")).map(
     (row) => row.textContent,
   );
 
@@ -181,15 +181,14 @@ test("opening a conversation shows its checklist under the newest message", asyn
   ]);
   // The newest message is right above it.
   expect(list!.previousElementSibling).toHaveTextContent("Planned the work.");
-  // No turn runs, so the mark of the item in progress stands still.
-  expect(liveRows()).toEqual([]);
+  // The item the agent is on is marked as in progress.
+  expect(inProgress()).toEqual(["Fix the parser"]);
 });
 
-test("the plan frames of a running turn move the checklist, its item in progress spinning", async () => {
+test("the plan frames of a running turn move the checklist, its item in progress with it", async () => {
   await mountSession();
   await startTurn();
-  // The turn runs: the item the agent is on spins.
-  await waitFor(() => expect(liveRows()).toEqual(["Fix the parser"]));
+  await waitFor(() => expect(inProgress()).toEqual(["Fix the parser"]));
 
   await planFrame(entries("completed", "completed", "in_progress"));
   await waitFor(() =>
@@ -199,7 +198,7 @@ test("the plan frames of a running turn move the checklist, its item in progress
       "In progress: Run the whole suite",
     ]),
   );
-  expect(liveRows()).toEqual(["Run the whole suite"]);
+  expect(inProgress()).toEqual(["Run the whole suite"]);
   expect(
     screen.getByRole("list", { name: "Todo list, 2 of 3 done" }),
   ).toBeInTheDocument();
@@ -243,7 +242,7 @@ test("a list already finished when a turn starts does not come back during it", 
 
   // A list the turn writes shows, and stays once the turn finishes it.
   await planFrame(entries("in_progress", "pending", "pending"));
-  await waitFor(() => expect(liveRows()).toEqual(["Read the failing test"]));
+  await waitFor(() => expect(inProgress()).toEqual(["Read the failing test"]));
   await planFrame(entries("completed", "completed", "completed"));
   await waitFor(() =>
     expect(

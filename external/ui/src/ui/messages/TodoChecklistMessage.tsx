@@ -25,19 +25,18 @@ export const TODO_CHECKLIST_EXIT_MS = 240;
 /**
  * The session's todo checklist at the newest end of the transcript (DESIGN.md
  * "Todo checklist under the transcript"): every item with the status mark the
- * todo tool rows use, the item in progress as the current step. While a turn
- * runs (`live`) that item's mark spins and its text shimmers, so the list says
- * which item the agent is on now; idle, the mark stands still.
+ * todo tool rows use, the item in progress as the current step. The mark of
+ * every item in progress spins and its text shimmers (styles.css), so the list
+ * says which item the agent is on now.
  *
- * The head folds the list down to the item in progress (or the next pending
- * one), a choice this browser keeps for every chat. A card that stops showing
+ * The head folds the list down to the items in progress, a choice this
+ * browser keeps for every chat. A card that stops showing
  * (`shown` turns false) stays with the list it had for its exit, hidden from
  * assistive technology, and goes once the exit is over.
  */
 function TodoChecklistMessageImpl(props: {
   sessionId: string;
   entries: readonly TodoPlanEntry[] | undefined;
-  live: boolean;
   shown: boolean;
 }) {
   const { t } = useT();
@@ -132,9 +131,6 @@ function TodoChecklistMessageImpl(props: {
                   className={[
                     "todo-checklist-row",
                     `todo-checklist-row--${entry.status}`,
-                    current && props.live && !leaving
-                      ? "todo-checklist-row--live"
-                      : "",
                     folded ? "is-folded" : "",
                   ]
                     .filter(Boolean)

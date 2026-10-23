@@ -146,7 +146,7 @@ test("a read issued before the last plan frame moves nothing back, a later one d
   expect(order.acceptsRead("s2", 150)).toBe(true);
 });
 
-test("a folded list keeps the items in progress, else the next pending one", () => {
+test("a folded list keeps the items in progress and nothing else", () => {
   expect([
     ...todoChecklistFocus([
       entry("completed"),
@@ -160,10 +160,6 @@ test("a folded list keeps the items in progress, else the next pending one", () 
       entry("completed"),
       entry("failed"),
       entry("pending", "next"),
-      entry("pending", "later"),
     ]),
-  ]).toEqual([2]);
-  expect([
-    ...todoChecklistFocus([entry("completed"), entry("cancelled")]),
   ]).toEqual([]);
 });

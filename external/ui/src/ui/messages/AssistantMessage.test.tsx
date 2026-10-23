@@ -8,45 +8,37 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { pageWithoutClipboardApi, selectedOnce } from "../clipboardTestKit";
 import { AssistantMessage } from "./AssistantMessage";
+import { formatUtcToLocalFullDetail } from "./formatMessageTime";
 
 afterEach(() => cleanup());
 
-test("assistant hides footer while streaming", () => {
-  render(<AssistantMessage content="Hi" streaming />);
-  expect(screen.queryByTestId("assistant-message-copy")).toBeNull();
-});
-
-test("assistant shows copy after stream and copies raw markdown", async () => {
-  const writeText = vi.fn().mockResolvedValue(undefined);
-  Object.defineProperty(globalThis.navigator, "clipboard", {
-    value: { writeText },
-    configurable: true,
-    writable: true,
-  });
-  render(
+// An answer is prose alone: no copy control and no minute under it, finished
+// or not. The row they made appeared when a turn ended, right above the todo
+// checklist, which then jumped down by its height. When the answer was
+// written is in the tooltip of the answer.
+test("an answer carries no copy control and no time, its time is in a tooltip", () => {
+  const createdAtUtc = "2026-01-01T10:15:30.000Z";
+  const { container } = render(
     <AssistantMessage
       content="# Title"
       streaming={false}
-      createdAtUtc="2026-01-01T00:00:00.000Z"
+      createdAtUtc={createdAtUtc}
     />,
   );
-  const copyBtn = screen.getByTestId("assistant-message-copy");
-  expect(copyBtn).toHaveAttribute("title", "Copy message");
-  copyBtn.click();
-  expect(writeText).toHaveBeenCalledWith("# Title");
+  expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
+  expect(container.querySelector("time")).toBeNull();
+  expect(container.querySelector(".msg-assistant")).toHaveAttribute(
+    "title",
+    formatUtcToLocalFullDetail(createdAtUtc),
+  );
 });
 
-test("message copy works without a clipboard API, refused or not", async () => {
-  const page = pageWithoutClipboardApi(false);
-  render(<AssistantMessage content="# Title" streaming={false} />);
-  const copyBtn = screen.getByTestId("assistant-message-copy");
-  await act(async () => {
-    copyBtn.click();
-  });
-  expect(page.copies).toEqual(selectedOnce("# Title"));
-  expect(document.querySelector("textarea")).toBeNull();
+test("an answer without a time has no tooltip", () => {
+  const { container } = render(<AssistantMessage content="Hi" streaming />);
+  expect(container.querySelector(".msg-assistant")).not.toHaveAttribute(
+    "title",
+  );
 });
 
 test("renders only a verified file marker as an inline artifact card with actions", () => {

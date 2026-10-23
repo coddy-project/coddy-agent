@@ -136,33 +136,6 @@ export function MessageList(props: {
     [props.items, props.userMsgIndexBase],
   );
 
-  // The answer that closes each turn is the only one with an action row: the answers a
-  // turn leaves behind between tool calls would otherwise stack the same copy button and
-  // the same minute down the transcript. Every finished turn keeps its own, so an older
-  // answer stays copyable; the turn still running does not, because its last answer is
-  // not yet the answer.
-  const turnClosingAssistantIds = useMemo(() => {
-    const ids = new Set<string>();
-    let seenInTurn = false;
-    // Walking back, everything after the last user message belongs to the turn in
-    // flight; its answers are not final yet, however many of them have arrived.
-    let inRunningTurn = props.generating === true;
-    for (let i = props.items.length - 1; i >= 0; i--) {
-      const item = props.items[i];
-      if (!item) continue;
-      if (opensTurn(item)) {
-        seenInTurn = false;
-        inRunningTurn = false;
-        continue;
-      }
-      if (item.type !== "assistant_message") continue;
-      if (seenInTurn) continue;
-      seenInTurn = true;
-      if (!inRunningTurn) ids.add(item.id);
-    }
-    return ids;
-  }, [props.generating, props.items]);
-
   // Which turn the newest prompt opened: the server's count of prompts before
   // the window plus the ones in it, so a page loaded above changes nothing and
   // a queued follow-up the same admitted turn runs is a new turn here.
@@ -301,7 +274,6 @@ export function MessageList(props: {
               {...(props.onMentionArtifact
                 ? { onMentionArtifact: props.onMentionArtifact }
                 : {})}
-              showFoot={turnClosingAssistantIds.has(it.id)}
               {...(typeof it.streaming === "boolean"
                 ? { streaming: it.streaming }
                 : {})}
@@ -465,7 +437,6 @@ export function MessageList(props: {
         <TodoChecklistMessage
           sessionId={(props.sessionId ?? "").trim()}
           entries={props.todoPlan}
-          live={props.generating === true}
           shown={todoChecklistOnScreen}
         />
       ) : null}
@@ -502,6 +473,13 @@ export function MessageList(props: {
           runningTasks={tailTasks}
           {...(props.onOpenTasks ? { onOpenTasks: props.onOpenTasks } : {})}
         />
+      ) : null}
+      {/* Between turns the line keeps its room, empty, so nothing above it
+          moves when a turn ends or starts. */}
+      {props.generating !== true &&
+      tailTasks === 0 &&
+      renderEnd === props.items.length ? (
+        <TypingDotsMessage idle={true} />
       ) : null}
     </>
   );
