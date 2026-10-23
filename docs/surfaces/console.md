@@ -77,6 +77,10 @@ an `acp` agent or an OpenAI-compatible `api_base` of its own - the header says
 so in the warning colour and points at `/login`, and the same line follows a
 turn that failed for that reason.
 
+![The first start on a fresh install: the header points at /login](../assets/screenshot-console-login-hint.png)
+
+*The first start with no `config.yaml`: the line in the warning colour points at `/login`, and the footer names no model.*
+
 `/login` runs the sign-in of `coddy providers login` without leaving the
 console:
 
@@ -974,7 +978,9 @@ in a real **Konsole** window (1920 px wide, cropped to the used rows): the
 launch line and header with `[Context]` / `[Skills]`
 (`screenshot-console-start.png`), the `ctrl+l` model selector
 (`screenshot-console-models.png`), and a finished turn with a tool box, a
-thinking block, and the footer counters (`screenshot-console-chat.png`). Use
+thinking block, and the footer counters (`screenshot-console-chat.png`), plus
+the first start of a fresh install, its header pointing at `/login`
+(`screenshot-console-login-hint.png`, on an empty `CODDY_HOME`). Use
 these in README and on the site: they show what a user actually sees in a
 terminal emulator. They are taken on a clean `CODDY_HOME` with two skills of
 its own and a small project with an `AGENTS.md`, so the header lists what a
