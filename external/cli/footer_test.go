@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 )
 
 // TestDetectGitBranchGivesUpOnAHungGit pins the bound behind the footer's
@@ -206,5 +207,24 @@ func TestFooterKeepsTheNotesBesideTheModelOnANarrowLine(t *testing.T) {
 	}
 	if line := plain(f.Render(120)[0]); !strings.HasSuffix(line, "(neuraldeep) qwen3.8-27b-noreason • medium") {
 		t.Fatalf("with room the model is whole: %q", line)
+	}
+}
+
+// Before the first turn a session on a provider without a usage source has
+// nothing for the second line; the overrides line then follows the first one
+// with no blank row between them.
+func TestFooterLeavesNoBlankRowAboveTheOverrides(t *testing.T) {
+	f := newFooter(newTheme("dark"), "/work")
+	f.SetModel("stub/coddy-demo", "")
+	f.SetSettings("bypass", []acp.TurnOverride{{Setting: "model", Value: "stub/coddy-mini", TurnsLeft: 1}})
+	lines := f.Render(100)
+	if len(lines) != 2 || !strings.Contains(plain(lines[1]), "next turn: model stub/coddy-mini") {
+		t.Fatalf("footer = %q", plainLines(lines))
+	}
+	// Without overrides the empty second line stays, so the footer keeps its
+	// height when the first turn fills it.
+	f.SetSettings("bypass", nil)
+	if lines := f.Render(100); len(lines) != 2 || strings.TrimSpace(plain(lines[1])) != "" {
+		t.Fatalf("footer = %q", plainLines(lines))
 	}
 }

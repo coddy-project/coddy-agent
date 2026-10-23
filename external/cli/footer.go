@@ -277,8 +277,15 @@ const footerMinModel = 12
 // the context and the account's usage under the model, then the turn
 // overrides while there are any. A line with a right side reaches width.
 func (f *footer) Render(width int) []string {
-	lines := []string{f.firstLine(width), f.secondLine(width)}
-	if ov := f.overridesText(); ov != "" {
+	lines := []string{f.firstLine(width)}
+	second := f.secondLine(width)
+	ov := f.overridesText()
+	// An empty second line keeps the footer's height until the first turn
+	// fills it, but it never leaves a blank row above the overrides.
+	if ov == "" || tui.VisibleWidth(second) > 0 {
+		lines = append(lines, second)
+	}
+	if ov != "" {
 		lines = append(lines, f.theme.Fg(roleAccent, tui.TruncateToWidth(ov, width, "...")))
 	}
 	return lines
