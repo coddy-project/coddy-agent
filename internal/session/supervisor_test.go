@@ -286,8 +286,13 @@ func TestGoalResumeWithAMentionKeepsTheAttachment(t *testing.T) {
 	if got := h.kinds(); strings.Join(got, ",") != "kickoff,resume" {
 		t.Fatalf("turns = %v", got)
 	}
+	if g := h.st().GetGoal(); g.Status != session.GoalComplete {
+		t.Fatalf("goal = %+v", g)
+	}
+	// The resume text comes first and the attachment after it, wherever the
+	// client put it, as in the kickoff.
 	blocks := h.blocks[1]
-	if len(blocks) != 2 || blocks[0].Type != acp.ContentTypeText || blocks[1].Resource == nil || blocks[1].Resource.Text != "the new notes" {
+	if len(blocks) != 2 || !strings.HasPrefix(blocks[0].Text, "[Goal resumed]") || blocks[1].Resource == nil || blocks[1].Resource.Text != "the new notes" {
 		t.Fatalf("resume blocks = %+v", blocks)
 	}
 }
@@ -1087,13 +1092,19 @@ func TestGoalCommandQueuedWithPicturesRunsAtTheBoundary(t *testing.T) {
 		kickoffPictures = len(st.TakePendingImageParts())
 		return toolTurn(st, snd, `{"path":"b"}`, "ok"), nil
 	}
-	h.verdict(met())
+	// Work is left after the kickoff, so the queued /goal pause pauses a
+	// goal that is really active, before any continuation.
+	h.verdict(notMet("open"))
 	h.prompt("look around first")
 	if got := h.kinds(); strings.Join(got, ",") != "user,kickoff" {
 		t.Fatalf("turns = %v", got)
 	}
-	if goal := h.st().GetGoal(); goal.Objective != "ship it" || kickoffPictures != 1 {
+	goal := h.st().GetGoal()
+	if goal.Objective != "ship it" || goal.Status != session.GoalPaused || kickoffPictures != 1 {
 		t.Fatalf("goal=%+v, the kickoff read %d pictures", goal, kickoffPictures)
+	}
+	if q := h.st().QueuedMessages(); len(q) != 0 {
+		t.Fatalf("still queued: %+v", q)
 	}
 	if left := h.st().TakePendingImageParts(); len(left) != 0 {
 		t.Errorf("%d pictures of the queued /goal pause wait for the next prompt", len(left))
