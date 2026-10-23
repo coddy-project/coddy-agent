@@ -71,7 +71,10 @@ function DiffPreview({
   );
 }
 
-function todoStatusLabel(status: string, t: (key: string) => string): string {
+export function todoStatusLabel(
+  status: string,
+  t: (key: string) => string,
+): string {
   switch (status) {
     case "in_progress":
       return t("todo.status.inProgress");

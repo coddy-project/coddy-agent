@@ -29,6 +29,7 @@ import { finishedToolCalls } from "../changes/toolActivity";
 import { useWorkingCopy } from "../changes/workingCopy";
 import { WorkspaceBar } from "./WorkspaceBar";
 import type { TurnProgress } from "./turnProgress";
+import type { TodoPlanEntry } from "./todoToolPreview";
 import { SubagentPermissionCards } from "./SubagentPermissionCard";
 import { SubagentReadOnlyNotice } from "./SubagentReadOnlyNotice";
 import { ArchivedSessionNotice } from "./ArchivedSessionNotice";
@@ -214,6 +215,8 @@ export function ChatScreen(props: {
   pathRoots?: readonly string[];
   /** The running turn's clock and generated tokens as the server reports them. */
   turnProgress?: TurnProgress | null;
+  /** The session's todo checklist, shown under the newest message. */
+  todoPlan?: readonly TodoPlanEntry[];
   /** Workspace context chips (folder / branch / worktree) above the composer field. */
   workspaceCtx?: import("./workspaceContext").WorkspaceContext | null;
   /** The folder the chat runs in (the picked one before a session exists). */
@@ -723,6 +726,7 @@ export function ChatScreen(props: {
     generating: props.generating === true,
     ...(props.pathRoots !== undefined ? { pathRoots: props.pathRoots } : {}),
     ...(props.turnProgress ? { turnProgress: props.turnProgress } : {}),
+    ...(props.todoPlan ? { todoPlan: props.todoPlan } : {}),
     ...(runningTasks > 0 ? { runningTasks } : {}),
     ...(props.onOpenBackgroundTasks
       ? { onOpenTasks: props.onOpenBackgroundTasks }

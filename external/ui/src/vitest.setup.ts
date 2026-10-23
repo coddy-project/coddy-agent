@@ -8,6 +8,7 @@ import {
   CODDY_WORKSPACE_DIR_COOKIE,
   CODDY_WORKTREE_COOKIE,
 } from "./ui/chat/workspaceCookies";
+import { TODO_CHECKLIST_COLLAPSED_COOKIE } from "./ui/chat/todoChecklistPrefs";
 
 // What a page keeps while it is open starts empty for every test, as it does
 // for every page; so does what the browser remembers for the start screen (a
@@ -17,7 +18,11 @@ beforeEach(() => {
   resetSystemStatusForTests();
   forgetWorkingCopies();
   resetWorkspaceEntries();
-  for (const name of [CODDY_WORKSPACE_DIR_COOKIE, CODDY_WORKTREE_COOKIE]) {
+  for (const name of [
+    CODDY_WORKSPACE_DIR_COOKIE,
+    CODDY_WORKTREE_COOKIE,
+    TODO_CHECKLIST_COLLAPSED_COOKIE,
+  ]) {
     document.cookie = `${name}=; Path=/; Max-Age=0`;
   }
 });

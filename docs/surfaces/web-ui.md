@@ -1724,13 +1724,28 @@ Automated checks:
 - `external/ui/src/ui/chat/PlanDocumentSection.test.tsx`
 - `external/ui/src/ui/messages/MessageList.test.tsx` (handler forwarding, read-only transcript)
 
+## Todo checklist under the transcript
+
+![The todo checklist under the newest message while a turn runs: two items done, the mark of the item in progress spinning, one item pending](../assets/web-ui/todo-checklist-running-dark-1280.png)
+
+*The todo checklist under the newest message while a turn runs*
+
+While the session keeps a todo checklist with work left in it, the newest end of the conversation shows the whole list, right above the live status line. Every item carries the mark its tool row uses: a ticked square for a completed item, an empty square for a pending one, a half-filled circle for the item in progress. While a turn runs, the mark of the item in progress spins and a light band runs through its text, so the list says which item the agent is on now.
+
+- The list shows while an item is pending or in progress. Once every item is completed, failed or cancelled, it stays only until the turn that closed the last item ends: an idle chat with a finished list shows nothing, although the session keeps the list until the agent replaces or archives it.
+- The list comes with every read of the transcript (**`todoPlan`** of **`GET /coddy/sessions/{id}/messages`**), so a reloaded tab shows it at once, and the **`plan`** frames of a running turn move it as the agent ticks items off. A design plan that **`plan_write`** publishes on the same event is not the checklist and does not show here.
+- A click on the list's head, **Todo list** with the count of items done, folds the list down to the item in progress, or to the next pending item when none is in progress. Another click unfolds it, and the browser keeps the choice for every chat.
+- A change of status, a new item, folding and the list leaving move smoothly instead of jumping. Under reduced motion every state appears at once and nothing spins.
+- The list belongs to the newest end of the transcript: a reader who scrolled up into the older pages of a long session sees it again once back at the end.
+- Automated checks: **`messages/TodoChecklistMessage.test.tsx`**, **`messages/todoChecklistCss.test.ts`**, **`App.todoChecklist.test.tsx`**, **`features/todo_checklist_web_ui.feature`**.
+
 ## Todo checklist (tool card)
 
 ![The checklist of the todo tools: the plan replaced in one call, then one item marked in progress](../assets/todo-tool-preview-dark.png)
 
 *The checklist of the todo tools: the plan replaced in one call, then one item marked in progress*
 
-- The **`coddy_todo_*`** tools show their checklist as the preview of their transcript row (**`chat/todoToolPreview.ts`**). The web UI does not read **`GET /coddy/sessions/{id}/plan`** (**`PUT`**, **`POST .../plan/archive`**); the routes stay for other clients.
+- The **`coddy_todo_*`** tools show their checklist as the preview of their transcript row (**`chat/todoToolPreview.ts`**). The web UI does not read **`GET /coddy/sessions/{id}/plan`** (**`PUT`**, **`POST .../plan/archive`**): the list under the transcript comes with the transcript read, and the routes stay for other clients.
 - Distinct from the **`plan_document`** transcript card above.
 
 ## Long term memory

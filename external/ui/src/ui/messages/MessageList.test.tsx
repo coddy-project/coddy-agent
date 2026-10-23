@@ -5,6 +5,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
 import { MessageList } from "./MessageList";
@@ -647,6 +648,89 @@ test("a window renders its slice of the rows, each one stamped with its id", () 
   ).toEqual(["a6", "a7", "a8"]);
   // The live line belongs under the newest row, which this slice stops short of.
   expect(container.querySelector("[data-testid=typing-dots]")).toBeNull();
+});
+
+test("the todo checklist stands above the live line, only at the newest end of the transcript", async () => {
+  const items: TranscriptItem[] = Array.from({ length: 4 }, (_, i) => ({
+    id: `a${i}`,
+    type: "assistant_message" as const,
+    content: `answer ${i}`,
+  }));
+  const todoPlan = [
+    { content: "Fix the parser", status: "in_progress" },
+    { content: "Run the whole suite", status: "pending" },
+  ];
+  const { container, rerender } = render(
+    <MessageList items={items} generating={true} todoPlan={todoPlan} />,
+  );
+  const checklist = screen.getByTestId("todo-checklist");
+  const dots = screen.getByTestId("typing-dots");
+  // Under the newest answer, right above the line saying what runs now.
+  expect(checklist.previousElementSibling).toHaveAttribute("data-row-id", "a3");
+  expect(checklist.nextElementSibling).toBe(dots);
+  expect(container.querySelectorAll(".todo-checklist-row--live")).toHaveLength(
+    1,
+  );
+
+  // A window cut short of the newest row leaves the tail out, the list too.
+  rerender(
+    <MessageList
+      items={items}
+      renderStart={0}
+      renderEnd={2}
+      generating={true}
+      todoPlan={todoPlan}
+    />,
+  );
+  expect(screen.queryByTestId("todo-checklist")).toBeNull();
+
+  // Idle, the list with work left stays; its mark of the item in progress stands still.
+  rerender(<MessageList items={items} todoPlan={todoPlan} />);
+  expect(screen.getByTestId("todo-checklist")).toBeInTheDocument();
+  expect(container.querySelector(".todo-checklist-row--live")).toBeNull();
+
+  // Idle and finished, nothing is left to follow: the card plays its exit.
+  rerender(
+    <MessageList
+      items={items}
+      todoPlan={todoPlan.map((e) => ({ ...e, status: "completed" }))}
+    />,
+  );
+  expect(screen.getByTestId("todo-checklist")).toHaveClass("is-leaving");
+  await waitFor(() =>
+    expect(screen.queryByTestId("todo-checklist")).toBeNull(),
+  );
+});
+
+test("a finished checklist leaves once a queued prompt starts, though the turn never ended", async () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "fix the parser" },
+    { id: "a1", type: "assistant_message", content: "Working on it." },
+  ];
+  const open = [{ content: "Fix the parser", status: "in_progress" }];
+  const done = [{ content: "Fix the parser", status: "completed" }];
+  const { rerender } = render(
+    <MessageList items={items} generating={true} todoPlan={open} />,
+  );
+  // The answer ticks the last item: the list stays while the turn writes.
+  rerender(<MessageList items={items} generating={true} todoPlan={done} />);
+  expect(screen.getByTestId("todo-checklist")).toBeInTheDocument();
+  // The next queued message runs inside the same admitted turn, so
+  // generating stays on; its prompt is a new turn for the list.
+  rerender(
+    <MessageList
+      items={[
+        ...items,
+        { id: "u2", type: "user_message", content: "and the docs" },
+      ]}
+      generating={true}
+      todoPlan={done}
+    />,
+  );
+  expect(screen.getByTestId("todo-checklist")).toHaveClass("is-leaving");
+  await waitFor(() =>
+    expect(screen.queryByTestId("todo-checklist")).toBeNull(),
+  );
 });
 
 test("an edit names the prompt by the server's index when the list holds only the end of the history", () => {

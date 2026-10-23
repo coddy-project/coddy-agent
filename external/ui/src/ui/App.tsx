@@ -76,6 +76,7 @@ import {
 import type { GoalActions } from "./chat/GoalPopover";
 import { useSessionTurnActivity } from "./chat/useSessionTurnActivity";
 import { mergeTurnProgress, type TurnProgress } from "./chat/turnProgress";
+import { TodoPlanOrder, sameTodoPlan } from "./chat/todoChecklist";
 import type { QueuedMessageEvent } from "./chat/serverEvents";
 import { QueueDeliveryOrder } from "./chat/messageQueueState";
 import { useProviderUsage } from "./chat/useProviderUsage";
@@ -120,7 +121,10 @@ import {
 } from "./chat/toolsPermissionPolicy";
 import { reattachLocalQuestionPrompts } from "./chat/transcriptQuestionReattach";
 import { retireRelayedPermissionPrompts } from "./chat/relayedPermissionPrompts";
-import { normalizeTodoPlanSnapshot } from "./chat/todoToolPreview";
+import {
+  normalizeTodoPlanSnapshot,
+  type TodoPlanEntry,
+} from "./chat/todoToolPreview";
 import {
   clearQuestionPromptRecords,
   hasUnresolvedQuestionPrompt,
@@ -1012,6 +1016,30 @@ export function App() {
       return rest;
     });
   });
+
+  // The todo checklist per session (DESIGN.md "Todo checklist under the
+  // transcript"), from the transcript read and from the plan frames of a
+  // running turn. A read issued before a frame this tab applied is older than
+  // that frame and moves nothing back.
+  const [todoPlanBySid, setTodoPlanBySid] = useState<
+    Record<string, TodoPlanEntry[]>
+  >({});
+  const todoPlanOrderRef = useRef(new TodoPlanOrder());
+  const applyTodoPlan = useStableHandler(
+    (sid: string, entries: TodoPlanEntry[], readIssuedAt?: number) => {
+      const key = sid.trim();
+      if (!key) return;
+      const order = todoPlanOrderRef.current;
+      if (readIssuedAt === undefined) {
+        order.noteFrame(key, Date.now());
+      } else if (!order.acceptsRead(key, readIssuedAt)) {
+        return;
+      }
+      setTodoPlanBySid((prev) =>
+        sameTodoPlan(prev[key], entries) ? prev : { ...prev, [key]: entries },
+      );
+    },
+  );
 
   const turnActivity = useSessionTurnActivity({
     sessionId,
@@ -3855,6 +3883,7 @@ export function App() {
       selectedReasoning?: string;
       settings?: unknown;
       goal?: unknown;
+      todoPlan?: unknown;
       subagent?: {
         parentSessionId?: string;
         name?: string;
@@ -3892,6 +3921,12 @@ export function App() {
       }
       return null;
     }
+    // Every read brings the checklist as it is now; no key, no list.
+    const readTodoPlan =
+      res.data.todoPlan === undefined
+        ? []
+        : normalizeTodoPlanSnapshot(res.data.todoPlan);
+    if (readTodoPlan) applyTodoPlan(sid, readTodoPlan, issuedAt);
     if (viewingNow === sid) {
       mirrorSettingsRead(sid, res.data);
       // The session goal, versioned like the settings: the chip and the
@@ -5183,6 +5218,11 @@ export function App() {
             applyTurnProgress(key, progress, "stream");
           }
         },
+        onTodoPlan: (entries) => {
+          if (ownsRelay() && !fetchCtl.signal.aborted) {
+            applyTodoPlan(key, entries);
+          }
+        },
       });
       if (!ownsRelay() || fetchCtl.signal.aborted) return;
 
@@ -5948,6 +5988,11 @@ export function App() {
         onTurnProgress: (progress) => {
           if (ownsPost() && !abortCtl.signal.aborted) {
             applyTurnProgress(streamKey, progress, "stream");
+          }
+        },
+        onTodoPlan: (entries) => {
+          if (ownsPost() && !abortCtl.signal.aborted) {
+            applyTodoPlan(streamKey, entries);
           }
         },
         onSettingsOnly: () => {
@@ -8136,6 +8181,9 @@ export function App() {
             onOpenSession={openSessionInPlace}
             pathRoots={transcriptPathRoots}
             turnProgress={turnProgressBySid[sessionId.trim()] ?? null}
+            {...(todoPlanBySid[sessionId.trim()]
+              ? { todoPlan: todoPlanBySid[sessionId.trim()] }
+              : {})}
             backgroundTasksOpen={tasksPanelOpen}
             onCloseBackgroundTasks={closeTasksDrawer}
             workspaceCtx={workspaceCtx}

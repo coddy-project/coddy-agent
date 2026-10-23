@@ -19,6 +19,11 @@ import { ToolCallMessage } from "./ToolCallMessage";
 import type { BackgroundTask } from "../tasks/types";
 import type { TurnProgress } from "../chat/turnProgress";
 import { TypingDotsMessage } from "./TypingDotsMessage";
+import {
+  TodoChecklistMessage,
+  useTodoChecklistShown,
+} from "./TodoChecklistMessage";
+import type { TodoPlanEntry } from "../chat/todoToolPreview";
 import { UserMessage } from "./UserMessage";
 import {
   artifactMarkerIds,
@@ -100,6 +105,9 @@ export function MessageList(props: {
   onOpenTasks?: () => void;
   /** Inserts an artifact source mention into the active composer. */
   onMentionArtifact?: (path: string) => void;
+  /** The session's todo checklist, shown at the tail while it has work left
+   *  or the turn that closed it runs. */
+  todoPlan?: readonly TodoPlanEntry[];
 }) {
   // Tasks the tail has to speak for itself: while the turn runs, its own line counts them.
   const tailTasks =
@@ -154,6 +162,20 @@ export function MessageList(props: {
     }
     return ids;
   }, [props.generating, props.items]);
+
+  // Which turn the newest prompt opened: the server's count of prompts before
+  // the window plus the ones in it, so a page loaded above changes nothing and
+  // a queued follow-up the same admitted turn runs is a new turn here.
+  const turnKey = useMemo(
+    () => (props.userMsgIndexBase ?? 0) + props.items.filter(opensTurn).length,
+    [props.items, props.userMsgIndexBase],
+  );
+  const todoChecklistOnScreen = useTodoChecklistShown(
+    props.todoPlan,
+    props.generating === true,
+    (props.sessionId ?? "").trim(),
+    turnKey,
+  );
 
   // What the running turn is doing right now, for the label next to the typing dots.
   const liveStatus = useMemo(
@@ -437,6 +459,16 @@ export function MessageList(props: {
       })}
       {/* The tail rows below belong under the newest message: a window cut short
           of it (the reader deep in history) leaves them out. */}
+      {/* The todo checklist sits right above the live line, so the item the
+          agent is on reads next to what it is doing now. */}
+      {renderEnd === props.items.length ? (
+        <TodoChecklistMessage
+          sessionId={(props.sessionId ?? "").trim()}
+          entries={props.todoPlan}
+          live={props.generating === true}
+          shown={todoChecklistOnScreen}
+        />
+      ) : null}
       {/* The live line stands under the transcript for the whole turn and always
           says what is happening, in general words at least. It used to vanish once
           the turn had written any text and to fall silent under a reasoning row,
