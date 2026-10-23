@@ -57,7 +57,9 @@ var goalClearWords = map[string]bool{"clear": true, "stop": true, "off": true, "
 // GoalCommandNone. Options come first, like /compact's: --model <id>,
 // --reasoning <level>, --then-file <path> (or --model=<id>, ...); the first
 // word that is not an option starts the objective or names the subcommand, so
-// an objective may mention an option within a sentence. A trailing option
+// an objective may mention an option within a sentence. A subcommand word
+// followed by a known option is that subcommand with those options (/goal
+// resume -m <id>), and text left after them is refused. A trailing option
 // assignment is refused, since it would otherwise silently become text.
 func ParseGoalCommand(text string) GoalCommand {
 	text = strings.TrimSpace(text)
