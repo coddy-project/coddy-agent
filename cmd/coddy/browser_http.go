@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -16,41 +18,49 @@ import (
 )
 
 // browserChats is the set of conversations the extension port has started. It
-// lives for the process rather than for one listener: a browser.* reload
-// rebuilds the listener and its handler, and a set owned by the handler would
-// lock the extension out of the chats it is already holding.
-//
-// The set is deliberately never pruned: entries are one session id each, it
-// holds only what this port started, and a restart empties it - after which
-// the panel sees its conversations gone from the list and starts a new chat.
-// A conversation whose session was deleted from the store simply stops
-// answering, and its id in the set grants nothing.
+// is used by handler-only tests. Running servers also persist ownership under
+// their own home, so listener rebuilds and process restarts retain access.
+
 var browserChats = &chatScope{started: make(map[string]struct{})}
 
 // chatScope bounds what the extension key can reach. The key is documented to
 // "start agent conversations", not to reach every conversation on the server:
 // a leaked key must not be able to answer another operator's pending
 // permission prompt or read their transcript. A conversation is in the set
-// when this port started it, and the inner server says exactly that — it mints
+// when this port started it, and the inner server says exactly that вЂ” it mints
 // the id itself and answers with X-Coddy-Session-ID only on the request that
 // created the session. A session id the extension simply names is never
 // admitted, so it cannot claim one somebody else started.
 type chatScope struct {
 	mu      sync.Mutex
 	started map[string]struct{}
+	dir     string
 }
 
 func (c *chatScope) owns(id string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	_, ok := c.started[id]
+	if !ok && c.dir != "" && filepath.Base(id) == id {
+		data, err := os.ReadFile(filepath.Join(c.dir, id))
+		ok = err == nil && string(data) == "browser-chat\n"
+	}
 	return ok
 }
 
-func (c *chatScope) adopt(id string) {
+func (c *chatScope) adopt(id string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.dir != "" {
+		if err := os.MkdirAll(c.dir, 0700); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(c.dir, id), []byte("browser-chat\n"), 0600); err != nil {
+			return err
+		}
+	}
 	c.started[id] = struct{}{}
+	return nil
 }
 
 // chatStartResponse forwards a turn unchanged and records the conversation
@@ -58,9 +68,10 @@ func (c *chatScope) adopt(id string) {
 // and the sender flushes after every frame.
 type chatStartResponse struct {
 	http.ResponseWriter
-	scope    *chatScope
-	minted   bool // the request carried no session id of the client's
-	recorded bool
+	scope     *chatScope
+	minted    bool // the request carried no session id of the client's
+	recordErr error
+	recorded  bool
 }
 
 func (c *chatStartResponse) Unwrap() http.ResponseWriter { return c.ResponseWriter }
@@ -80,17 +91,23 @@ func (c *chatStartResponse) record() {
 		return
 	}
 	if id := strings.TrimSpace(c.Header().Get("X-Coddy-Session-ID")); id != "" {
-		c.scope.adopt(id)
+		c.recordErr = c.scope.adopt(id)
 	}
 }
 
 func (c *chatStartResponse) WriteHeader(code int) {
 	c.record()
+	if c.recordErr != nil {
+		code = http.StatusInternalServerError
+	}
 	c.ResponseWriter.WriteHeader(code)
 }
 
 func (c *chatStartResponse) Write(b []byte) (int, error) {
 	c.record()
+	if c.recordErr != nil {
+		return 0, c.recordErr
+	}
 	return c.ResponseWriter.Write(b)
 }
 
@@ -171,19 +188,18 @@ func keepStartedChats(body []byte, scope *chatScope) ([]byte, error) {
 		return nil, err
 	}
 	doc["sessions"] = sessions
-	// The inner handler pages through the whole store; the rows in this port's
-	// reach may end on a page boundary, so a cursor would lead somewhere this
-	// caller may not go.
-	doc["nextCursor"] = json.RawMessage("null")
-	doc["hasMore"] = json.RawMessage("false")
 	return json.Marshal(doc)
 }
 
 // browserChatHandler exposes only conversation routes on the extension port.
 // The internal credential never leaves this handler; the extension key cannot
-// reach configuration, workspace files or any route omitted here — and within
+// reach configuration, workspace files or any route omitted here вЂ” and within
 // conversations it reaches only the ones this port started (chatScope).
 func browserChatHandler(rt *serve.Runtime) (http.Handler, func()) {
+	scope := browserChats
+	if rt.Paths.Home != "" {
+		scope = &chatScope{started: make(map[string]struct{}), dir: filepath.Join(rt.Paths.Home, "browser-chats")}
+	}
 	var raw [32]byte
 	_, _ = rand.Read(raw[:])
 	token := hex.EncodeToString(raw[:])
@@ -211,7 +227,7 @@ func browserChatHandler(rt *serve.Runtime) (http.Handler, func()) {
 		} else if r.Method == http.MethodPost && path == "/v1/responses" {
 			clientSession = strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))
 		}
-		if clientSession != "" && !browserChats.owns(clientSession) {
+		if clientSession != "" && !scope.owns(clientSession) {
 			http.Error(w, `{"error":{"message":"this extension key did not start that conversation"}}`, http.StatusForbidden)
 			return
 		}
@@ -225,11 +241,11 @@ func browserChatHandler(rt *serve.Runtime) (http.Handler, func()) {
 		case r.Method == http.MethodPost && path == "/v1/responses":
 			s.Handler().ServeHTTP(&chatStartResponse{
 				ResponseWriter: w,
-				scope:          browserChats,
+				scope:          scope,
 				minted:         clientSession == "",
 			}, clone)
 		case r.Method == http.MethodGet && path == "/coddy/sessions":
-			list := &chatListResponse{scope: browserChats}
+			list := &chatListResponse{scope: scope}
 			s.Handler().ServeHTTP(list, clone)
 			list.filter(w)
 		default:

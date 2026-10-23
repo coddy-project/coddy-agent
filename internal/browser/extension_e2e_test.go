@@ -31,8 +31,13 @@ func TestExtensionBrowser(t *testing.T) {
 			return
 		}
 		if r.URL.Path == "/v1/responses" && r.Method == "POST" {
+			sessionID := r.Header.Get("X-Coddy-Session-ID")
+			if sessionID == "" {
+				sessionID = "sess_browser_fixture"
+				w.Header().Set("X-Coddy-Session-ID", sessionID)
+			}
 			w.Header().Set("Content-Type", "text/event-stream")
-			_, _ = w.Write([]byte("event: permission\ndata: {\"sessionId\":\"" + r.Header.Get("X-Coddy-Session-ID") + "\",\"toolCall\":{\"toolCallId\":\"test-tool\",\"title\":\"Browser action\"},\"options\":[{\"optionId\":\"allow\",\"name\":\"Allow tool once\"}]}\n\n"))
+			_, _ = w.Write([]byte("event: permission\ndata: {\"sessionId\":\"" + sessionID + "\",\"toolCall\":{\"toolCallId\":\"test-tool\",\"title\":\"Browser action\"},\"options\":[{\"optionId\":\"allow\",\"name\":\"Allow tool once\"}]}\n\n"))
 			w.(http.Flusher).Flush()
 			select {
 			case <-permission:

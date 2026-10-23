@@ -61,7 +61,7 @@ async function publish() {
       tabs.push({ id, title: (t.title || "").slice(0, 1000), url: t.url });
     } catch {}
   }
-  // A tab id that no longer resolves is gone for good — a restored selection
+  // A tab id that no longer resolves is gone for good вЂ” a restored selection
   // after a browser restart, or one closed while the worker was down. Dropping
   // it only from this publish would leave a stale checkmark in the panel.
   if (live.length !== shared.length) await saveShared(live);
@@ -103,7 +103,7 @@ async function connect() {
     status = "Enter the extension key (at least 32 characters)";
     return;
   }
-  status = "Connecting…";
+  status = "ConnectingвЂ¦";
   nativeReady = !!api.debugger;
   if (!nativeReady && config.nativeInput) {
     try {
@@ -175,7 +175,7 @@ async function connect() {
   ws.onclose = () => {
     clearTimeout(handshakeTimer);
     cancelAll();
-    status = connectionError || "Disconnected — reconnecting";
+    status = connectionError || "Disconnected вЂ” reconnecting";
     if (config.enabled) reconnectTimer = setTimeout(connect, 3000);
   };
   ws.onerror = () => {
@@ -264,7 +264,12 @@ function toBase64(bytes) {
 }
 async function run(cmd, generation, ws) {
   const abort = new AbortController();
-  active.set(cmd.id, { abort, tab: cmd.tab_id, session: cmd.session_id });
+  active.set(cmd.id, {
+    abort,
+    tab: cmd.tab_id,
+    session: cmd.session_id,
+    action: cmd.action,
+  });
   const check = () => {
     if (
       generation !== epoch ||
@@ -306,18 +311,25 @@ async function run(cmd, generation, ws) {
       result = await script(tab.id, "snapshot", p);
     } else if (cmd.action === "screenshot") {
       if (api.debugger)
-        result = await chromeInput(api, tab.id, "screenshot", p);
+        result = await chromeInput(api, tab.id, "screenshot", {
+          ...p,
+          cancelled: () => generation !== epoch || abort.signal.aborted,
+        });
       else {
         const previous = (
           await api.tabs.query({ windowId: tab.windowId, active: true })
         )[0];
         await api.tabs.update(tab.id, { active: true });
+        await script(tab.id, "screen", p);
+        check();
         try {
           result = {
             data_url: await api.tabs.captureVisibleTab(tab.windowId, {
               format: "png",
             }),
           };
+          await script(tab.id, "screen", p);
+          check();
         } finally {
           if (previous && previous.id !== tab.id)
             await api.tabs
@@ -604,6 +616,10 @@ api.tabs.onRemoved.addListener(async (id) => {
   await publish();
 });
 api.tabs.onUpdated.addListener((id, info) => {
+  if (info.url || info.status === "loading") {
+    for (const a of active.values())
+      if (a.tab === id && a.action !== "navigate") a.abort.abort();
+  }
   if (shared.includes(id) && (info.url || info.title)) void publish();
 });
 api.alarms.onAlarm.addListener(() => {

@@ -31,6 +31,7 @@ export async function pageAction(action, params) {
   }
   if (action === "snapshot") {
     state.refs.clear();
+    state.nonce = crypto.randomUUID();
     const items = [];
     function walk(root) {
       for (const e of root.querySelectorAll("*")) {

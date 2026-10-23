@@ -50,3 +50,53 @@ test("site grants are exact origins and cannot share an unselected tab", () => {
   ])
     assert.throws(() => siteOf(s));
 });
+
+test("old snapshot refs cannot target replacement elements", async () => {
+  globalThis.location = { origin: "https://example.test" };
+  globalThis.getComputedStyle = () => ({ visibility: "visible" });
+  globalThis.HTMLInputElement = class {};
+  globalThis.innerWidth = 800;
+  globalThis.innerHeight = 600;
+  const element = () => ({
+    isConnected: true,
+    scrollIntoView() {},
+    focus() {},
+    click() {},
+    tagName: "BUTTON",
+    innerText: "button",
+    getClientRects: () => [{}],
+    matches: () => true,
+    getAttribute: () => null,
+    getBoundingClientRect: () => ({ x: 0, y: 0, width: 10, height: 10 }),
+  });
+  let elements = [element()];
+  globalThis.document = {
+    querySelectorAll: () => elements,
+    body: { innerText: "" },
+  };
+  try {
+    const first = await pageAction("snapshot", {
+      expected_origin: location.origin,
+    });
+    elements = [element()];
+    await pageAction("snapshot", { expected_origin: location.origin });
+    await assert.rejects(
+      pageAction("click", {
+        expected_origin: location.origin,
+        ref: first.elements[0].ref,
+      }),
+      /Element no longer exists/,
+    );
+  } finally {
+    for (const key of [
+      "location",
+      "document",
+      "getComputedStyle",
+      "HTMLInputElement",
+      "innerWidth",
+      "innerHeight",
+      "__coddyPageState",
+    ])
+      delete globalThis[key];
+  }
+});

@@ -67,7 +67,7 @@ async function refresh() {
       const small = document.createElement("small");
       small.textContent =
         new URL(tab.url).host +
-        (state.active.some((a) => a.tab === tab.id) ? " · Working" : "");
+        (state.active.some((a) => a.tab === tab.id) ? " В· Working" : "");
       text.append(small);
       label.append(check, text);
       tabs.append(label);
@@ -165,8 +165,19 @@ function showMessage(role, text) {
   return node;
 }
 async function loadChats() {
-  const { data } = await chat("/coddy/sessions");
-  const rows = data.sessions || data.data || [];
+  const rows = [];
+  let cursor = "";
+  do {
+    const { data } = await chat(
+      "/coddy/sessions?limit=100" +
+        (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""),
+    );
+    rows.push(...(data.sessions || data.data || []));
+    const next = data.hasMore ? data.nextCursor : null;
+    if (next != null && String(next) === cursor)
+      throw new Error("Chat pagination did not advance");
+    cursor = next == null ? "" : String(next);
+  } while (cursor);
   $("sessions").replaceChildren(new Option("New chat", ""));
   for (const s of rows) {
     const id = s.id || s.sessionId || s.session_id;
@@ -216,7 +227,7 @@ $("chat-form").onsubmit = async (e) => {
   // reports it back (the "session" event below), which is what keeps the
   // extension key to the conversations this panel started rather than to
   // every session on the server.
-  const answer = showMessage("assistant", "Working…");
+  const answer = showMessage("assistant", "WorkingвЂ¦");
   let text = "";
   const port = api.runtime.connect({ name: "coddy-chat" });
   const finish = () => {

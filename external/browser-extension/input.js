@@ -2,11 +2,27 @@
 // unless a native input host is explicitly enabled by the user.
 export async function chromeInput(api, tabId, action, params) {
   const target = { tabId };
-  const send = (method, data) => api.debugger.sendCommand(target, method, data);
+  let documentID;
+  const send = async (method, data) => {
+    if (params.cancelled?.()) throw new Error("Stopped");
+    const { frameTree } = await api.debugger.sendCommand(
+      target,
+      "Page.getFrameTree",
+    );
+    const frame = frameTree.frame;
+    if (
+      new URL(frame.url).origin !== params.expected_origin ||
+      (documentID && documentID !== frame.loaderId)
+    )
+      throw new Error("Page changed before the action; inspect it again");
+    documentID ||= frame.loaderId;
+    if (params.cancelled?.()) throw new Error("Stopped");
+    return api.debugger.sendCommand(target, method, data);
+  };
   // DevTools keeps its own debugger attachment on the tab, and Chrome reports
   // that lowercase ("Another debugger is already attached to the tab with
   // id: N."). Attach is then skipped, and the detach below has to be skipped
-  // too — it would cut DevTools off.
+  // too вЂ” it would cut DevTools off.
   let attached = false;
   try {
     await api.debugger.attach(target, "1.3");
@@ -27,7 +43,7 @@ export async function chromeInput(api, tabId, action, params) {
         button: "left",
         clickCount: 1,
       });
-      await send("Input.dispatchMouseEvent", {
+      await api.debugger.sendCommand(target, "Input.dispatchMouseEvent", {
         type: "mouseReleased",
         x: params.x,
         y: params.y,
@@ -43,7 +59,7 @@ export async function chromeInput(api, tabId, action, params) {
           modifiers: navigator.platform.includes("Mac") ? 4 : 2,
           windowsVirtualKeyCode: 65,
         });
-        await send("Input.dispatchKeyEvent", {
+        await api.debugger.sendCommand(target, "Input.dispatchKeyEvent", {
           type: "keyUp",
           key: "a",
           code: "KeyA",
@@ -94,7 +110,7 @@ export async function chromeInput(api, tabId, action, params) {
         text: k[2],
         modifiers,
       });
-      await send("Input.dispatchKeyEvent", {
+      await api.debugger.sendCommand(target, "Input.dispatchKeyEvent", {
         type: "keyUp",
         key: name,
         code: k[1],
@@ -133,7 +149,7 @@ export async function chromeInput(api, tabId, action, params) {
           });
         }
       } finally {
-        await send("Input.dispatchMouseEvent", {
+        await api.debugger.sendCommand(target, "Input.dispatchMouseEvent", {
           type: "mouseReleased",
           x: params.to_x,
           y: params.to_y,

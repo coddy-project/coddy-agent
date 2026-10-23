@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -22,7 +24,9 @@ func TestChatScopeOwnsOnlyWhatItAdopted(t *testing.T) {
 	if scope.owns("sess_a") {
 		t.Fatal("a conversation nobody started is already owned")
 	}
-	scope.adopt("sess_a")
+	if err := scope.adopt("sess_a"); err != nil {
+		t.Fatal(err)
+	}
 	if !scope.owns("sess_a") {
 		t.Fatal("an adopted conversation is not owned")
 	}
@@ -57,9 +61,8 @@ func TestKeepStartedChatsDropsForeignRows(t *testing.T) {
 	if len(doc.Sessions) != 1 || doc.Sessions[0]["id"] != "sess_mine" {
 		t.Fatalf("list kept the conversations outside this port's reach: %s", out)
 	}
-	// The inner handler pages through the whole store; a cursor would lead
-	// somewhere this caller may not go.
-	if doc.NextCursor != nil || doc.HasMore {
+	// Preserve the cursor so the panel can reach owned chats on later pages.
+	if doc.NextCursor == nil || *doc.NextCursor != "12" || !doc.HasMore {
 		t.Fatalf("pagination still points past a filtered list: %s", out)
 	}
 }
@@ -116,5 +119,58 @@ func TestBrowserChatStillDropsRoutesItDoesNotExpose(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("an unexposed route answered %d, want 404", w.Code)
+	}
+}
+
+func TestChatScopeSurvivesRestart(t *testing.T) {
+	dir := t.TempDir()
+	first := &chatScope{started: make(map[string]struct{}), dir: dir}
+	if err := first.adopt("sess_mine"); err != nil {
+		t.Fatal(err)
+	}
+	restarted := &chatScope{started: make(map[string]struct{}), dir: dir}
+	if !restarted.owns("sess_mine") || restarted.owns("sess_foreign") {
+		t.Fatal("restart lost ownership or granted a foreign conversation")
+	}
+}
+
+func TestChatScopeDoesNotGrantWhenPersistenceFails(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(path, []byte("occupied"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	scope := &chatScope{started: make(map[string]struct{}), dir: path}
+	w := httptest.NewRecorder()
+	w.Header().Set("X-Coddy-Session-ID", "sess_mine")
+	response := &chatStartResponse{ResponseWriter: w, scope: scope, minted: true}
+	response.WriteHeader(http.StatusOK)
+	if w.Code != http.StatusInternalServerError || scope.owns("sess_mine") {
+		t.Fatal("failed persistence reported success or granted access")
+	}
+}
+
+func TestKeepStartedChatsCanContinuePastForeignPage(t *testing.T) {
+	scope := &chatScope{started: map[string]struct{}{"sess_mine": {}}}
+	out, err := keepStartedChats([]byte(`{"sessions":[{"id":"sess_foreign"}],"nextCursor":"50","hasMore":true}`), scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var page struct {
+		Sessions   []any
+		NextCursor string
+		HasMore    bool
+	}
+	if err := json.Unmarshal(out, &page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Sessions) != 0 || page.NextCursor != "50" || !page.HasMore {
+		t.Fatalf("lost continuation after a foreign page: %s", out)
+	}
+	out, err = keepStartedChats([]byte(`{"sessions":[{"id":"sess_mine"}],"nextCursor":null,"hasMore":false}`), scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "sess_mine") {
+		t.Fatal("lost owned chat on next page")
 	}
 }
