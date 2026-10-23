@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -62,7 +63,7 @@ func ParseGoalCommand(text string) GoalCommand {
 		return GoalCommand{}
 	}
 	rest := text[len("/goal"):]
-	if rest != "" && !strings.ContainsAny(rest[:1], " \t\r\n") {
+	if r, size := utf8.DecodeRuneInString(rest); size > 0 && !unicode.IsSpace(r) {
 		return GoalCommand{} // "/goals", "/goal-x": another command
 	}
 	var cmd GoalCommand
@@ -196,13 +197,38 @@ func resolveGoalChecker(cfg *config.Config, st *State, cmd GoalCommand, keep Goa
 	return "", "", fmt.Errorf("reasoning %q is not offered by model %q (offered: %s, default)", level, checker, strings.Join(choices, ", "))
 }
 
-// goalCommandOf is the /goal command a prompt is: one text block and nothing
-// else (an attachment makes it an ordinary message).
-func goalCommandOf(prompt []acp.ContentBlock) GoalCommand {
-	if len(prompt) != 1 || prompt[0].Type != acp.ContentTypeText {
-		return GoalCommand{}
+// goalCommandOf is the /goal command a prompt is, with the attachments it
+// came with: one text block - what the operator typed - plus any number of
+// resource blocks (an @ mention resolved into a file, a resource the composer
+// or an editor attached). The attachments stay with the turn the command
+// starts (applyGoalCommand), where the model reads what the objective names.
+// Any other shape - two text blocks, a block that is neither text nor a
+// resource - is an ordinary message, as it always was.
+func goalCommandOf(prompt []acp.ContentBlock) (GoalCommand, []acp.ContentBlock) {
+	text := ""
+	seen := false
+	var attachments []acp.ContentBlock
+	for _, b := range prompt {
+		switch b.Type {
+		case acp.ContentTypeText:
+			if seen {
+				return GoalCommand{}, nil
+			}
+			seen, text = true, b.Text
+		case acp.ContentTypeResource:
+			attachments = append(attachments, b)
+		default:
+			return GoalCommand{}, nil
+		}
 	}
-	return ParseGoalCommand(prompt[0].Text)
+	if !seen || strings.TrimSpace(text) == "" {
+		return GoalCommand{}, nil
+	}
+	cmd := ParseGoalCommand(text)
+	if cmd.Kind == GoalCommandNone {
+		return GoalCommand{}, nil
+	}
+	return cmd, attachments
 }
 
 // GoalStatusText is the answer to a bare /goal on a surface that shows text;

@@ -15,3 +15,10 @@ Feature: A browser follows the session goal over HTTP
     Then the goal route reports the goal "write the docs" as paused
     When the browser clears the goal through the goal route
     Then the goal route reports no goal
+
+  Scenario: A /goal with an @ mention sets the goal and the file rides with the kickoff
+    Given a Coddy server whose supervisor finds the goal met at once
+    And the workspace holds "plan.md" with the plan text
+    When the browser sends "/goal finish the plan described in @plan.md" as a streamed prompt
+    Then the goal route reports the objective "finish the plan described in @plan.md"
+    And the kickoff turn's message carries the plan.md attachment
