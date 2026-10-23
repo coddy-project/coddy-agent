@@ -361,6 +361,9 @@ func TestGoalCommandChoosesTheCheckingModelAndLevel(t *testing.T) {
 	if res := h.prompt("/goal pause --model mini"); !strings.Contains(res.SettingsNotice, "go with a new goal or /goal resume") {
 		t.Fatalf("pause with --model: notice=%q goal=%+v", res.SettingsNotice, h.st().GetGoal())
 	}
+	if g := h.st().GetGoal(); g.Objective != "ship the fix" || g.Status != session.GoalPaused {
+		t.Fatalf("a refused pause changed the goal: %+v", g)
+	}
 	h.prompt("/goal resume --model mini -r high")
 	if g := h.st().GetGoal(); g.Objective != "ship the fix" || g.Model != "p2/gpt-4o-mini" || g.Reasoning != "high" || checkedBy != "p2/gpt-4o-mini" {
 		t.Fatalf("resume followed by its options: goal=%+v checked by %q", g, checkedBy)
