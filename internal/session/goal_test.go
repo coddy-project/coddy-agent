@@ -107,9 +107,28 @@ func TestGoalOptionsMustPrecedeObjective(t *testing.T) {
 			}
 		}
 	}
-	for _, text := range []string{"/goal —model mini ship it", "/goal –reasoning high ship it", "/goal ship it —model mini", "/goal -m mini —reasoning high ship it"} {
+	// A sentence that ends with an option and one more word reads as the
+	// option and its value: the two cannot be told apart, so it is refused
+	// too, and the operator rewords the end.
+	for _, text := range []string{"/goal document the --model flag", "/goal explain what -r does"} {
+		if cmd := ParseGoalCommand(text); !strings.Contains(cmd.Err, "must come before the objective") {
+			t.Errorf("%q: error = %q", text, cmd.Err)
+		}
+	}
+	for _, text := range []string{
+		"/goal —model mini ship it", "/goal –reasoning high ship it", "/goal ship it —model mini", "/goal -m mini —reasoning high ship it",
+		// A typographic dash option ends the objective with no value after it.
+		"/goal ship it —model", "/goal ship it –reasoning", "/goal ship it —then-file",
+	} {
 		if cmd := ParseGoalCommand(text); !strings.Contains(cmd.Err, "typographic dash") {
 			t.Errorf("%q: error = %q", text, cmd.Err)
+		}
+	}
+	// A plain option word with nothing after it, or anywhere else in the
+	// sentence, stays text.
+	for _, text := range []string{"/goal ship it --model", "/goal explain --model in the guide", "/goal explain —model in the guide"} {
+		if cmd := ParseGoalCommand(text); cmd.Err != "" || cmd.Kind != GoalCommandSet {
+			t.Errorf("%q: %+v", text, cmd)
 		}
 	}
 }

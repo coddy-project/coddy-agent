@@ -134,8 +134,11 @@ func ParseGoalCommand(text string) GoalCommand {
 	return cmd
 }
 
-// misplacedGoalOption catches option assignments at the end, and smart
-// punctuation at the start, without rejecting prose about an option.
+// misplacedGoalOption catches an option with its value at the end of the
+// objective (the last two words, or a last --opt=value), and an option
+// written with a typographic dash at either end. An option word followed by
+// one more word at the end cannot be told from prose that ends that way, so
+// such a sentence is refused too; anywhere else an option word is text.
 func misplacedGoalOption(objective string) string {
 	words := strings.Fields(objective)
 	for i, word := range words {
@@ -149,8 +152,11 @@ func misplacedGoalOption(objective string) string {
 		if canonical != "--model" && canonical != "--reasoning" && canonical != "--then-file" {
 			continue
 		}
-		trailing := (inline && i == len(words)-1) || (!inline && i == len(words)-2)
-		if smart && (i == 0 || trailing) {
+		last := i == len(words)-1
+		trailing := (inline && last) || (!inline && i == len(words)-2)
+		// A typographic dash marks an option nobody meant as prose, so one
+		// at either end is refused even with no value after it.
+		if smart && (i == 0 || last || trailing) {
 			return fmt.Sprintf("%s looks like an option written with a typographic dash; use %s before the objective", name, canonical)
 		}
 		if trailing {
