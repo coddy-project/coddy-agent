@@ -124,4 +124,4 @@ Cognition не публикует протокол. Coddy повторяет т�
 
 `CODDY_DEVIN_API_SERVER_URL`, `CODDY_DEVIN_WEBAPP_URL` и `CODDY_DEVIN_API_URL` переносят сервер API, страницу входа и обмен кода для всего процесса; `internal/devinfake` - офлайн-стенд, который играет роль всех трёх, а `features/devin_provider.feature` прогоняет против него вход, вход Devin CLI, полный ход агента и результат инструмента не в UTF-8, без аккаунта и без сети.
 
-<!-- docsgen:source sha256=f4a6b4c63ccbdc6f -->
+<!-- docsgen:source sha256=3d96da6863169c1a -->

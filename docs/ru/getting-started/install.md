@@ -300,4 +300,4 @@ coddy update -y
 
 См. [build.md](../contributing/build.md) и раздел README **Other installation methods**.
 
-<!-- docsgen:source sha256=04105abe630a2f24 -->
+<!-- docsgen:source sha256=45b2fa2b21c1f2c8 -->

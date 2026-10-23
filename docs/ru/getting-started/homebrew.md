@@ -206,4 +206,4 @@ brew style coddy
 подсказку **`brew upgrade coddy`**, что уже и происходит. Как пользователи cask из тапа перейдут на
 формулу, решается вместе с этим изменением.
 
-<!-- docsgen:source sha256=5fbe765da53cff79 -->
+<!-- docsgen:source sha256=40537a3f3cf8ce29 -->

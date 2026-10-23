@@ -150,4 +150,4 @@ coddy serve 1.2.31
 - [Обновление](update.md) - `coddy update` и что происходит, когда бинарником владеет менеджер пакетов;
 - [Устранение неполадок](troubleshooting.md) - если какой-то шаг выше прошёл не так, как написано.
 
-<!-- docsgen:source sha256=788fcbee2a6fb161 -->
+<!-- docsgen:source sha256=df7f331199a4f2a2 -->
