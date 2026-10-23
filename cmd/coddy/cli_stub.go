@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -12,10 +13,19 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/dryrun"
 )
 
+// leanCLIMessage is what a lean build says of the interactive console: the
+// error of any run of it, and the answer to `coddy help cli`, which must not
+// fail in a build that answers every other question.
+const leanCLIMessage = "interactive console is not built in (rebuild with: go build -tags=cli, or make build TAGS=cli)"
+
 // runCLI reports that the interactive console is not compiled in. The two
 // console flags that need no console, -t / --test-config and --dry-run, still
 // work, so `coddy -t` and `coddy --dry-run` mean the same thing in every build.
 func runCLI(args []string) error {
+	if wantsHelp(args) {
+		fmt.Println(leanCLIMessage)
+		return nil
+	}
 	if req, ok := leanCheckRequestFrom(args); ok {
 		if req.dryRun {
 			return runConsoleDryRun(req.cli, req.testConfig, req.remote, req.remoteToken, func(c *config.Config) error {
@@ -27,7 +37,7 @@ func runCLI(args []string) error {
 		}
 		return runConfigTest(req.cli)
 	}
-	return fmt.Errorf("interactive console is not built in (rebuild with: go build -tags=cli, or make build TAGS=cli)")
+	return errors.New(leanCLIMessage)
 }
 
 // leanCheckRequest is what the lean stub understands of the console flags: the

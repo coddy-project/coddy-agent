@@ -69,6 +69,12 @@ func docsVerbList(want string) string {
 // search, or a page or one section of it. It works in every build, the lean
 // one without the console included, and reads nothing but the binary.
 func runDocs(args []string, out io.Writer) error {
+	// A -h or --help anywhere is a question about the command - `coddy help
+	// docs show` is `coddy docs show --help` - never a page to open.
+	if wantsHelp(args) {
+		_, _ = fmt.Fprintln(out, docsUsage())
+		return nil
+	}
 	usage := fmt.Errorf("%s", docsUsage())
 	lang, args, ok := docsLang(args)
 	if !ok {

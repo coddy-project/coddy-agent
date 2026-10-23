@@ -118,7 +118,9 @@ func RunPluginCommand(ctx context.Context, cfg *config.Config, cwd string, args 
 }
 
 // RunPluginCommandWith is RunPluginCommand for a surface with its own
-// options; the CLI (`coddy plugin ...`) runs it with AllowTrust.
+// options; the CLI (`coddy plugin ...`) runs it with AllowTrust. The usage
+// screen - no arguments, `help`, or a -h / -help - reads neither cfg nor cwd,
+// so a caller asking for help (`coddy help plugin`) may pass nil for both.
 func RunPluginCommandWith(ctx context.Context, cfg *config.Config, cwd string, args []string, opts PluginOptions) (string, error) {
 	args = trimTokens(args)
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {

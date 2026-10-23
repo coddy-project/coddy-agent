@@ -14,7 +14,9 @@ coddy providers login opencode
 
 Coddy выводит короткий код и открывает страницу аккаунта в OpenCode Console. Войдите, подтвердите код и выберите организацию. Адрес из терминала можно открыть в браузере на другой машине. Этот способ повторяет [вход по коду устройства в клиенте OpenCode](https://github.com/anomalyco/opencode/blob/f394d9d410bc6bb7cafcebfc5e3180a9b80ebed9/packages/core/src/plugin/provider/opencode.ts).
 
-Команда сохраняет access- и refresh-токены в `$CODDY_HOME/providers/opencode/opencode-auth.json` с правами `0600`. Если не указан `--no-config`, она также добавляет в `config.yaml` строку провайдера, модели шлюза и `agent.model`, если он пуст. Для отдельного именованного профиля укажите `--type opencode`, а чтобы записать в строку Console вместо Go, укажите `--api-base https://opencode.ai/inference/v1`. С `--no-config` строка остаётся как есть, поэтому в этом случае `--api-base` отклоняется.
+В консоли `/login opencode` выполняет тот же вход и записывает в `config.yaml` строку провайдера и модели шлюза ([Консоль](../surfaces/console.md#вход-в-аккаунт-провайдера-login)).
+
+Вход сохраняет access- и refresh-токены в `$CODDY_HOME/providers/opencode/opencode-auth.json` с правами `0600`. Если не указан `--no-config`, он также добавляет в `config.yaml` строку провайдера и модели шлюза, а `agent.model` - если тот пуст или работает на провайдере, который не может ответить. Для отдельного именованного профиля укажите `--type opencode`, а чтобы записать в строку Console вместо Go, укажите `--api-base https://opencode.ai/inference/v1`. С `--no-config` строка остаётся как есть, поэтому в этом случае `--api-base` отклоняется.
 
 Перед каждым запросом каталога или генерации Coddy обновляет токен, если до истечения его срока осталось не более 60 с, и атомарно сохраняет новые токены. Запросы передают выбранную организацию в `x-org-id`. После отзыва refresh-токена нужно войти заново. `coddy providers list` показывает организацию аккаунта без токенов. Сохранённые учётные данные используются во всех интерфейсах Coddy. Работающий сервер читает их для уже загруженной строки провайдера; после добавления новой строки перезапустите сервер.
 
@@ -129,4 +131,4 @@ OpenCode учитывает расход каждой модели по меся
 - [Переменные окружения](../reference/environment-variables.md) - `OPENCODE_API_KEY`, `CODDY_OPENCODE_BASE_URL`, `CODDY_OPENCODE_CONSOLE_URL`;
 - [Справочник конфигурации](../reference/config.md) - поля `providers[]` и `models[]`.
 
-<!-- docsgen:source sha256=0b2eacf26ef49d9d -->
+<!-- docsgen:source sha256=72c2542cfef0871e -->

@@ -89,6 +89,22 @@ func (s *homebrewTapState) itInstallsTheBinaryManPageAndCompletions() error {
 	return nil
 }
 
+// itsCaveatsSayHowZshLoadsTheCompletion holds the caveat a brew install prints:
+// the cask links _coddy into Homebrew's site-functions, and the zsh macOS ships
+// reads that directory only once compinit runs, which it does not by itself.
+func (s *homebrewTapState) itsCaveatsSayHowZshLoadsTheCompletion() error {
+	for _, want := range []string{
+		"#{HOMEBREW_PREFIX}/share/zsh/site-functions",
+		"fpath=(#{HOMEBREW_PREFIX}/share/zsh/site-functions $fpath)",
+		"autoload -Uz compinit && compinit",
+	} {
+		if !strings.Contains(s.facts.text, want) {
+			return fmt.Errorf("the cask's caveats do not carry %q:\n%s", want, s.facts.text)
+		}
+	}
+	return nil
+}
+
 // quarantineStepRe is the post-install step that takes the quarantine attribute
 // Homebrew sets on a cask download off the binary it linked.
 var quarantineStepRe = regexp.MustCompile(`(?s)postflight_steps do\s+run "/usr/bin/xattr", args: \["-d", "com\.apple\.quarantine", "\{\{staged_path\}\}/coddy"\]`)
@@ -169,6 +185,7 @@ func TestHomebrewTapFeature(t *testing.T) {
 			sc.Step(`^the cask "([^"]*)" is at version "([^"]*)"$`, s.theCaskIsAt)
 			sc.Step(`^on "([^"]*)" it downloads "([^"]*)" with that archive's checksum$`, s.onArchItDownloads)
 			sc.Step(`^it installs the binary, the man page and the bash and zsh completions$`, s.itInstallsTheBinaryManPageAndCompletions)
+			sc.Step(`^its caveats say how zsh loads the completion$`, s.itsCaveatsSayHowZshLoadsTheCompletion)
 			sc.Step(`^it lifts the quarantine from the installed binary$`, s.itLiftsTheQuarantine)
 			sc.Step(`^it uses no stanza current Homebrew deprecates$`, s.itUsesNoDeprecatedStanza)
 			sc.Step(`^a Homebrew tap whose cask is at release "([^"]*)"$`, s.aTapWhoseCaskIsAt(t))

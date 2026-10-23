@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -242,11 +243,13 @@ func TestWithToolImagesSendsOnlyTheNewestPicturesARequestCanHold(t *testing.T) {
 			leftOut = append(leftOut, m.Content)
 		}
 	}
-	if sent != toolImagesMaxCount {
-		t.Fatalf("the request carries %d pictures, want %d", sent, toolImagesMaxCount)
+	// The 21st picture overflows the request: the oldest leave together,
+	// down to half of it, and the 22nd joins the ten that stayed.
+	if want := toolImagesMaxCount/2 + 1; sent != want {
+		t.Fatalf("the request carries %d pictures, want %d", sent, want)
 	}
-	if len(leftOut) != 2 || !strings.Contains(leftOut[0], "p00.png") || !strings.Contains(leftOut[1], "p01.png") {
-		t.Errorf("the two oldest pictures are not named as left out: %q", leftOut)
+	if len(leftOut) != toolImagesMaxCount/2+1 || !strings.Contains(leftOut[0], "p00.png") || !strings.Contains(leftOut[len(leftOut)-1], "p10.png") {
+		t.Errorf("p00.png to p10.png are not named as left out: %q", leftOut)
 	}
 	last := out[len(out)-1]
 	if got := imageNames(last); len(got) != 1 || got[0] != fmt.Sprintf("p%02d.png", toolImagesMaxCount+1) {
@@ -267,11 +270,127 @@ func TestWithToolImagesSendsOnlyTheNewestPicturesARequestCanHold(t *testing.T) {
 	}
 	out = withToolImages(heavy, true, noToolImageFile)
 	pictures := out[len(out)-1]
-	if got := imageNames(pictures); strings.Join(got, ",") != "b.png,c.png" {
-		t.Errorf("under the byte budget the request carries %v, want the two newest", got)
+	// c.png overflows the 20 MB: the older ones leave until half of it is
+	// left, which here is the newest alone.
+	if got := imageNames(pictures); strings.Join(got, ",") != "c.png" {
+		t.Errorf("under the byte budget the request carries %v, want the newest", got)
 	}
-	if !strings.Contains(pictures.Content, "a.png") || !strings.Contains(pictures.Content, "left out") {
-		t.Errorf("the step's message %q does not name a.png as left out", pictures.Content)
+	if !strings.Contains(pictures.Content, "a.png") || !strings.Contains(pictures.Content, "b.png") || !strings.Contains(pictures.Content, "left out") {
+		t.Errorf("the step's message %q does not name a.png and b.png as left out", pictures.Content)
+	}
+}
+
+// A picture left out of a request, or one whose saved copy is gone, came
+// from a file or from a tool that returned it with no file behind it (an MCP
+// screenshot): the note tells the model both ways to see it again.
+func TestWithToolImagesTellsHowToSeeAPictureAgain(t *testing.T) {
+	var history []llm.Message
+	history = append(history, llm.Message{Role: llm.RoleUser, Content: "browse"})
+	// One copy gone takes no place, so two more than a request holds leave
+	// one picture out.
+	for i := 0; i < toolImagesMaxCount+2; i++ {
+		id := fmt.Sprintf("s%02d", i)
+		p := imagePart(fmt.Sprintf("browser-take_screenshot-%02d.png", i))
+		if i == toolImagesMaxCount+1 {
+			// The newest picture is kept as its copy, which is gone.
+			p = llm.ImagePart{Name: p.Name, MIMEType: "image/png", Size: 4, FilePath: filepath.Join("assets", p.Name)}
+		}
+		history = append(history,
+			llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: id, Name: "browser__take_screenshot"}}},
+			toolResultWith(id, p))
+	}
+	notes := 0
+	gone := func(p llm.ImagePart) (string, error) {
+		if p.Name == "browser-take_screenshot-21.png" {
+			return "", fmt.Errorf("gone")
+		}
+		return noToolImageFile(p)
+	}
+	for _, m := range withToolImages(history, true, gone) {
+		if m.Role != llm.RoleUser || !strings.Contains(m.Content, "browser-take_screenshot-") {
+			continue
+		}
+		kind := 0
+		if strings.Contains(m.Content, "left out") {
+			kind |= 1
+		}
+		if strings.Contains(m.Content, "copy is gone") {
+			kind |= 2
+		}
+		notes |= kind
+		if kind != 0 {
+			if !strings.Contains(m.Content, "read the file again or repeat the call") {
+				t.Errorf("the note %q tells the model only to read a file", m.Content)
+			}
+		}
+	}
+	if notes != 3 {
+		t.Fatalf("the notes name pictures left out: %v, gone: %v; want both", notes&1 != 0, notes&2 != 0)
+	}
+}
+
+// A session of screenshots changes what a request starts with only when its
+// pictures overflow the request, and then by a block: between two of those
+// every request starts with the one before it, so the provider's prompt
+// cache holds. Each request carries the newest picture and at most 20.
+func TestPromptCacheScreenshotsLeaveTheRequestInBlocks(t *testing.T) {
+	history := []llm.Message{{Role: llm.RoleSystem, Content: "sys"}, {Role: llm.RoleUser, Content: "browse"}}
+	var prev []llm.Message
+	var breaks []int
+	for n := 1; n <= 45; n++ {
+		id := fmt.Sprintf("s%02d", n)
+		history = append(history,
+			llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: id, Name: "browser__take_screenshot"}}},
+			toolResultWith(id, imagePart(fmt.Sprintf("shot%02d.png", n))))
+		cur := withToolImages(history, true, noToolImageFile)
+		pictures, newest := 0, false
+		for _, m := range cur {
+			pictures += len(m.ImageParts)
+			for _, p := range m.ImageParts {
+				newest = newest || p.Name == fmt.Sprintf("shot%02d.png", n)
+			}
+		}
+		if pictures > toolImagesMaxCount || !newest {
+			t.Fatalf("after %d screenshots the request carries %d pictures (the newest: %v)", n, pictures, newest)
+		}
+		if prev != nil && !reflect.DeepEqual(cur[:len(prev)], prev) {
+			breaks = append(breaks, n)
+		}
+		prev = cur
+	}
+	if want := []int{21, 32, 43}; !reflect.DeepEqual(breaks, want) {
+		t.Fatalf("the request changed before its end after screenshots %v, want only %v", breaks, want)
+	}
+}
+
+// An eviction never cuts into the pictures of the step being added: they
+// came together and go together. Eight pictures in the window and a call
+// that returns fifteen leave the fifteen; the same by bytes. Only a step
+// that alone overflows a request loses its oldest pictures.
+func TestPictureWindowKeepsTheNewestStepWhole(t *testing.T) {
+	steps := func(counts ...int) (sizes, groups []int) {
+		for g, n := range counts {
+			for i := 0; i < n; i++ {
+				sizes = append(sizes, 1000)
+				groups = append(groups, g)
+			}
+		}
+		return sizes, groups
+	}
+	sizes, groups := steps(8, 15)
+	if start := pictureWindowStart(sizes, groups); start != 8 {
+		t.Errorf("8 + 15: the window starts at %d, want 8 (the call whole)", start)
+	}
+	sizes, groups = steps(25)
+	if start := pictureWindowStart(sizes, groups); start != 5 {
+		t.Errorf("one step of 25: the window starts at %d, want 5 (the 20 newest)", start)
+	}
+	mb := 1 << 20
+	big := base64.StdEncoding.EncodedLen(3*mb + 700<<10)
+	sizes = []int{4 * mb, 4 * mb, 3 * mb, big, big, big}
+	groups = []int{0, 1, 2, 3, 3, 3}
+	if start := pictureWindowStart(sizes, groups); start != 3 {
+		t.Errorf("11 MB + a call of three large pictures: the window starts at %d, want 3 (the call whole)", start)
 	}
 }
 
@@ -279,7 +398,7 @@ func TestWithToolImagesSendsOnlyTheNewestPicturesARequestCanHold(t *testing.T) {
 // its budget with the tool pictures, newest first: the oldest attachment is
 // the one left out, named in its own prompt, and a picture that does not fit
 // the bytes left is skipped for an older one that does.
-func TestWithToolImagesCountsTheAttachmentsAndSkipsWhatDoesNotFit(t *testing.T) {
+func TestWithToolImagesCountsTheAttachmentsAndLeavesTheOldestInBlocks(t *testing.T) {
 	sized := func(name string, mb int) llm.ImagePart {
 		p := imagePart(name)
 		p.DataURL = "data:image/png;base64," + strings.Repeat("A", mb<<20)
@@ -300,11 +419,13 @@ func TestWithToolImagesCountsTheAttachmentsAndSkipsWhatDoesNotFit(t *testing.T) 
 	if got := imageNames(out[len(out)-1]); strings.Join(got, ",") != "a.png,b.png,c.png" {
 		t.Errorf("next to %d attachments the request carries %v, want every tool picture of the last step", len(attached), got)
 	}
-	if got := imageNames(out[0]); len(got) != len(attached)-1 || got[0] != "u01.png" {
-		t.Errorf("the prompt goes with %v, want every attachment but the oldest", got)
+	// 18 attachments and 3 tool pictures overflow the 20 a request holds:
+	// the ten newest stay, the last seven attachments among them.
+	if got := imageNames(out[0]); len(got) != 7 || got[0] != "u11.png" {
+		t.Errorf("the prompt goes with %v, want u11.png to u17.png", got)
 	}
-	if !strings.Contains(out[0].Content, "u00.png") || !strings.Contains(out[0].Content, "left out") {
-		t.Errorf("the prompt %q does not name u00.png as left out", out[0].Content)
+	if !strings.Contains(out[0].Content, "u00.png") || !strings.Contains(out[0].Content, "u10.png") || !strings.Contains(out[0].Content, "left out") {
+		t.Errorf("the prompt %q does not name u00.png to u10.png as left out", out[0].Content)
 	}
 
 	history = []llm.Message{
@@ -316,11 +437,13 @@ func TestWithToolImagesCountsTheAttachmentsAndSkipsWhatDoesNotFit(t *testing.T) 
 	}
 	out = withToolImages(history, true, noToolImageFile)
 	last := out[len(out)-1]
-	if got := imageNames(last); strings.Join(got, ",") != "small.png,big.png" {
-		t.Errorf("under the byte budget the request carries %v, want the newest and the small one that still fits", got)
+	// A window is a run of the newest pictures: an older small one does not
+	// come back into it past a larger one that left.
+	if got := imageNames(last); strings.Join(got, ",") != "big.png" {
+		t.Errorf("under the byte budget the request carries %v, want the newest alone", got)
 	}
-	if !strings.Contains(last.Content, "middle.png") || !strings.Contains(last.Content, "left out") {
-		t.Errorf("the message %q does not name middle.png as left out", last.Content)
+	if !strings.Contains(last.Content, "small.png") || !strings.Contains(last.Content, "middle.png") || !strings.Contains(last.Content, "left out") {
+		t.Errorf("the message %q does not name small.png and middle.png as left out", last.Content)
 	}
 }
 
@@ -423,6 +546,8 @@ func TestConversationTokensCountThePicturesARequestCarries(t *testing.T) {
 	}
 	crowded := []llm.Message{{Role: llm.RoleUser, Content: "look"}, toolResultWith("r1", many...)}
 	crowded[1].Content = text[1].Content
+	// 35 pictures of one result: a step that alone overflows the request
+	// keeps its newest 20.
 	if got, want := conversationTokens(crowded, true), base+toolImagesMaxCount*imageTokensEach; got < want-10 || got > want+10 {
 		t.Errorf("%d tool pictures: %d tokens, want about %d (only %d go out)", len(many), got, want, toolImagesMaxCount)
 	}
@@ -477,8 +602,8 @@ func TestTheRequestBudgetCoversEveryPictureAndOnlyPictures(t *testing.T) {
 	}
 	out = withToolImages(history, true, noToolImageFile)
 	sent := len(out[0].ImageParts) + len(out[2].ImageParts)
-	if sent != toolImagesMaxCount || len(out[2].ImageParts) != 15 {
-		t.Fatalf("sent %d pictures (%d of the newer prompt), want %d with the newer prompt whole", sent, len(out[2].ImageParts), toolImagesMaxCount)
+	if sent != 19 || len(out[2].ImageParts) != 15 {
+		t.Fatalf("sent %d pictures (%d of the newer prompt), want 19 with the newer prompt whole", sent, len(out[2].ImageParts))
 	}
 	if !strings.Contains(out[0].Content, "old00.png") || !strings.Contains(out[0].Content, "left out") {
 		t.Errorf("the first prompt %q does not name what was left out", out[0].Content)
@@ -527,8 +652,9 @@ func TestAToolPictureIsSentOnlyFromItsOwnCopy(t *testing.T) {
 		t.Error("a copy whose bytes no longer match its name was read")
 	}
 
-	// A missing copy takes no slot: with the budget full but for one, the
-	// older picture that fits still goes.
+	// The window is drawn from the sizes alone, so a missing copy keeps its
+	// place in it: it is not sent and is named as gone, and no older picture
+	// takes its place, which would change the request each time a copy goes.
 	history := []llm.Message{{Role: llm.RoleUser, Content: "look"}}
 	for i := 0; i < toolImagesMaxCount-1; i++ {
 		id := fmt.Sprintf("r%02d", i)
@@ -546,8 +672,15 @@ func TestAToolPictureIsSentOnlyFromItsOwnCopy(t *testing.T) {
 			sent[p.Name] = true
 		}
 	}
-	if !sent["first.png"] || sent["gone.png"] || len(sent) != toolImagesMaxCount {
-		t.Errorf("sent %d pictures, first.png=%v gone.png=%v; want the missing copy skipped and the oldest picture in its slot", len(sent), sent["first.png"], sent["gone.png"])
+	if sent["first.png"] || sent["gone.png"] || len(sent) != toolImagesMaxCount/2-1 {
+		t.Errorf("sent %d pictures, first.png=%v gone.png=%v; want the nine newest that are there", len(sent), sent["first.png"], sent["gone.png"])
+	}
+	named := false
+	for _, m := range out {
+		named = named || (m.Role == llm.RoleUser && strings.Contains(m.Content, "gone.png") && strings.Contains(m.Content, "copy is gone"))
+	}
+	if !named {
+		t.Error("the missing copy is not named as gone")
 	}
 }
 

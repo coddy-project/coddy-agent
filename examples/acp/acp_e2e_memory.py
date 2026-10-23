@@ -5,7 +5,7 @@ Verifies the memory subagent behaves like an internal voice (not main-agent tool
 
 - Pre-seeded global markdown is found by the memory subagent (RECALL) and influences the main reply without read_file to that path.
 - A second turn asks, in so many words, to remember a fact stated in the user message (a favorite fruit named by a codeword):
-  the memory subagent (PERSIST) must write it under $CODDY_HOME/memory or <cwd>/memory. The fact is in the user text on
+  the memory subagent (PERSIST) must write it under $CODDY_HOME/memory or <cwd>/.coddy/memory. The fact is in the user text on
   purpose: the memory subagent works from the user message alone and never sees the assistant's reply, so a fact the
   assistant invents in its answer is not something PERSIST can be asked to keep (issue #235).
 - A third question is asked in a fresh session of the same process, where the codeword was never said: the reply can only
@@ -226,7 +226,7 @@ def main() -> None:
         cleanup_work = not args.keep_work_dir
 
     global_mem = Path(coddy_home) / "memory"
-    project_mem = Path(work) / "memory"
+    project_mem = Path(work) / ".coddy" / "memory"
     global_mem.mkdir(parents=True, exist_ok=True)
     project_mem.mkdir(parents=True, exist_ok=True)
 

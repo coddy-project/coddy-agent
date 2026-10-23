@@ -1513,8 +1513,9 @@ func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir, cwd string, msgs []llm
 			// this answer: rows of their own, never Coddy's tool calls.
 			item["agent_tools"] = m.AgentTools
 		}
-		// A prompt's attachments, and the pictures a tool call showed the
-		// model (read on an image file), which stay on that call's result.
+		// A prompt's attachments, and the pictures a tool call returned (read
+		// on an image file, an MCP tool's image blocks), which stay on that
+		// call's result.
 		if (m.Role == llm.RoleUser || m.Role == llm.RoleTool) && len(m.ImageParts) > 0 {
 			files := make([]map[string]interface{}, 0, len(m.ImageParts))
 			for _, part := range m.ImageParts {

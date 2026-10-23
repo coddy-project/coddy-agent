@@ -25,6 +25,11 @@
 # The `zap` stanza names ~/.coddy - sessions, skills, credentials and the
 # config. Only `brew zap` removes it; `brew uninstall` leaves it alone.
 #
+# The zsh completion is linked into $(brew --prefix)/share/zsh/site-functions,
+# which `brew shellenv` puts on fpath; zsh reads it only once compinit runs, and
+# the zsh macOS ships runs none. install.sh writes that block into ~/.zshrc; a
+# cask must not touch dotfiles, so `caveats` gives the two lines instead.
+#
 # tmux is recommended in `caveats` rather than declared: a cask's depends_on has
 # no optional form, and Coddy runs without tmux, so the cask names it and
 # installs nothing. The deb and rpm suggest it the same way.
@@ -63,6 +68,13 @@ cask "coddy" do
   zap trash: "~/.coddy"
 
   caveats <<~EOS
+    The zsh completion is linked into #{HOMEBREW_PREFIX}/share/zsh/site-functions.
+    zsh loads it once compinit runs with that directory on fpath, and the zsh
+    macOS ships runs no compinit. If Tab does not complete coddy, add to ~/.zshrc:
+      fpath=(#{HOMEBREW_PREFIX}/share/zsh/site-functions $fpath)
+      autoload -Uz compinit && compinit
+    and open a new terminal.
+
     Coddy does not need tmux, but its console runs well inside it: a session
     there outlives a closed terminal or a dropped SSH connection. To add it:
       brew install tmux

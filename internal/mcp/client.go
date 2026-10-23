@@ -7,12 +7,15 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,6 +31,53 @@ type ToolInfo struct {
 	Description string
 	InputSchema interface{}
 }
+
+// ToolImage is the decoded data of an image block an MCP tool returned.
+// Index is the block's place among the image blocks of the result, from 1,
+// which every note about the block uses too. MIMEType is the type the server
+// declared; the agent tells the picture by its content, as read tells a file
+// (internal/tools/fs PrepareImageForModel), so a picture labelled wrong is
+// not lost here.
+type ToolImage struct {
+	Index    int
+	MIMEType string
+	Data     []byte
+}
+
+// ToolFile is binary content an MCP tool returned that no model is shown as
+// a picture: an audio block, or an embedded resource of another type. Kind
+// is "audio" or "resource" and Index the block's place among the blocks of
+// its kind, from 1; a resource also carries its URI and the base name of it.
+type ToolFile struct {
+	Kind     string
+	Index    int
+	Name     string
+	URI      string
+	MIMEType string
+	Data     []byte
+}
+
+// ToolResult is a successful tools/call result. Text holds the text blocks,
+// the text of embedded resources under a line naming them and every resource
+// link, in their order, with a note in place of every block left out; the
+// pictures (image blocks and embedded resources of an image type) and the
+// files come apart.
+type ToolResult struct {
+	Text   string
+	Images []ToolImage
+	Files  []ToolFile
+}
+
+// maxToolImages and maxToolImagesBytes are the most pictures, and the most
+// bytes of them, one model request carries (internal/agent toolImagesMaxCount
+// and toolImagesMaxBytes): a call that returned more could never show the
+// model all of them, so the rest are named instead of decoded. The bytes
+// bound the files of a call too, and maxToolFiles their number.
+const (
+	maxToolImages      = 20
+	maxToolImagesBytes = 20 << 20
+	maxToolFiles       = 20
+)
 
 // transport delivers JSON-RPC messages to and from an MCP server. Send ships
 // one client->server message; Messages streams server->client messages.
@@ -217,8 +267,14 @@ func (c *Client) Alive() bool {
 
 // CallTool invokes a tool on the MCP server and returns the result.
 func (c *Client) CallTool(ctx context.Context, toolName, argsJSON string) (string, error) {
+	result, err := c.CallToolResult(ctx, toolName, argsJSON)
+	return result.Text, err
+}
+
+// CallToolResult invokes a tool and returns its text and image blocks.
+func (c *Client) CallToolResult(ctx context.Context, toolName, argsJSON string) (ToolResult, error) {
 	if c.closed.Load() {
-		return "", fmt.Errorf("mcp %s: client closed", c.name)
+		return ToolResult{}, fmt.Errorf("mcp %s: client closed", c.name)
 	}
 	return c.conn.callTool(ctx, toolName, argsJSON)
 }
@@ -238,14 +294,15 @@ func (c *Client) Close() error {
 
 // ---- internal ----
 
-// callTool invokes a tool over the connection and returns its text result.
-func (c *conn) callTool(ctx context.Context, toolName, argsJSON string) (string, error) {
+// callTool invokes a tool over the connection and returns what its result
+// carries: text, pictures, embedded resources, resource links and audio.
+func (c *conn) callTool(ctx context.Context, toolName, argsJSON string) (ToolResult, error) {
 	// The arguments go to the server as the JSON the model wrote, checked
 	// rather than decoded into an arbitrary value.
 	var args json.RawMessage
 	if argsJSON != "" {
 		if !json.Valid([]byte(argsJSON)) {
-			return "", fmt.Errorf("mcp callTool parse args: invalid JSON")
+			return ToolResult{}, fmt.Errorf("mcp callTool parse args: invalid JSON")
 		}
 		args = json.RawMessage(argsJSON)
 	}
@@ -255,33 +312,188 @@ func (c *conn) callTool(ctx context.Context, toolName, argsJSON string) (string,
 		"arguments": args,
 	})
 	if err != nil {
-		return "", err
+		return ToolResult{}, err
 	}
 
 	// Parse MCP tool result.
 	var resp struct {
 		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type        string          `json:"type"`
+			Text        string          `json:"text"`
+			Data        json.RawMessage `json:"data"`
+			MIMEType    json.RawMessage `json:"mimeType"`
+			Resource    json.RawMessage `json:"resource"`
+			URI         json.RawMessage `json:"uri"`
+			Name        json.RawMessage `json:"name"`
+			Title       json.RawMessage `json:"title"`
+			Description json.RawMessage `json:"description"`
+			Size        json.RawMessage `json:"size"`
 		} `json:"content"`
 		IsError bool `json:"isError"`
 	}
 	if err := json.Unmarshal(result, &resp); err != nil {
-		return string(result), nil
+		return ToolResult{Text: string(result)}, nil
 	}
 
 	var parts []string
-	for _, c := range resp.Content {
-		if c.Type == "text" {
-			parts = append(parts, c.Text)
+	out := ToolResult{}
+	binary, images, audios, resources := 0, 0, 0, 0
+	// decode reads the base64 of a block within what one call keeps, or says
+	// why it does not.
+	decode := func(raw json.RawMessage) ([]byte, string) {
+		var encoded string
+		if json.Unmarshal(raw, &encoded) != nil {
+			return nil, "the data is not base64"
+		}
+		// Decoding is bounded before it starts: the base64 of the data is a
+		// third larger than the data, whatever lines wrap it.
+		if base64.StdEncoding.DecodedLen(len(encoded)) > maxToolImagesBytes-binary {
+			return nil, fmt.Sprintf("the call's images and files exceed %d MiB", maxToolImagesBytes>>20)
+		}
+		data, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil || len(data) == 0 {
+			return nil, "the data is not base64"
+		}
+		binary += len(data)
+		return data, ""
+	}
+	// An error keeps no picture and no file, so neither is decoded.
+	picture := func(raw json.RawMessage, mimeType string) {
+		if resp.IsError {
+			return
+		}
+		images++
+		if len(out.Images) >= maxToolImages {
+			parts = append(parts, fmt.Sprintf("[MCP image %d omitted: the call returned more than %d images]", images, maxToolImages))
+			return
+		}
+		data, why := decode(raw)
+		if why != "" {
+			parts = append(parts, fmt.Sprintf("[MCP image %d omitted: %s]", images, why))
+			return
+		}
+		out.Images = append(out.Images, ToolImage{Index: images, MIMEType: mimeType, Data: data})
+	}
+	file := func(f ToolFile, raw json.RawMessage) {
+		if resp.IsError {
+			return
+		}
+		if len(out.Files) >= maxToolFiles {
+			parts = append(parts, fmt.Sprintf("[MCP %s %d omitted: the call returned more than %d files]", f.Kind, f.Index, maxToolFiles))
+			return
+		}
+		data, why := decode(raw)
+		if why != "" {
+			parts = append(parts, fmt.Sprintf("[MCP %s %d omitted: %s]", f.Kind, f.Index, why))
+			return
+		}
+		f.Data = data
+		out.Files = append(out.Files, f)
+	}
+	for _, block := range resp.Content {
+		switch block.Type {
+		case "text":
+			parts = append(parts, block.Text)
+		case "image":
+			picture(block.Data, jsonString(block.MIMEType))
+		case "audio":
+			audios++
+			file(ToolFile{Kind: "audio", Index: audios, MIMEType: jsonString(block.MIMEType)}, block.Data)
+		case "resource":
+			resources++
+			var res struct {
+				URI      json.RawMessage `json:"uri"`
+				MIMEType json.RawMessage `json:"mimeType"`
+				Text     *string         `json:"text"`
+				Blob     json.RawMessage `json:"blob"`
+			}
+			_ = json.Unmarshal(block.Resource, &res)
+			uri, mimeType := jsonString(res.URI), jsonString(res.MIMEType)
+			// A server may send both fields, the one it does not use as null
+			// or empty: the data of a resource wins over an empty text.
+			hasBlob := len(res.Blob) > 0 && string(res.Blob) != "null"
+			switch {
+			case res.Text != nil && (*res.Text != "" || !hasBlob):
+				parts = append(parts, resourceHeader(resources, uri, mimeType)+"\n"+*res.Text)
+			case !hasBlob:
+				parts = append(parts, fmt.Sprintf("[MCP resource %d omitted: it carries neither text nor data]", resources))
+			case strings.HasPrefix(mimeType, "image/"):
+				picture(res.Blob, mimeType)
+			default:
+				file(ToolFile{Kind: "resource", Index: resources, Name: uriBaseName(uri), URI: uri, MIMEType: mimeType}, res.Blob)
+			}
+		case "resource_link":
+			parts = append(parts, resourceLink(jsonString(block.URI), jsonString(block.Title), jsonString(block.Name),
+				jsonString(block.Description), jsonString(block.MIMEType), block.Size))
 		}
 	}
-	text := strings.Join(parts, "\n")
+	out.Text = strings.Join(parts, "\n")
 
 	if resp.IsError {
-		return "", fmt.Errorf("mcp tool error: %s", text)
+		return ToolResult{}, fmt.Errorf("mcp tool error: %s", out.Text)
 	}
-	return text, nil
+	return out, nil
+}
+
+// jsonString is the string raw holds, or "" for anything else.
+func jsonString(raw json.RawMessage) string {
+	var s string
+	_ = json.Unmarshal(raw, &s)
+	return s
+}
+
+// resourceHeader is the line an embedded text resource is put under.
+func resourceHeader(index int, uri, mimeType string) string {
+	line := fmt.Sprintf("[MCP resource %d", index)
+	if uri != "" {
+		line += ": " + uri
+	}
+	if mimeType != "" {
+		line += " (" + mimeType + ")"
+	}
+	return line + "]"
+}
+
+// resourceLink is the text a resource link reaches the model as: its
+// address, its title or name, its type and size when the server gave them,
+// and its description on the next line.
+func resourceLink(uri, title, name, description, mimeType string, size json.RawMessage) string {
+	line := "[MCP resource link: " + uri
+	if title == "" {
+		title = name
+	}
+	if title != "" {
+		line += " - " + title
+	}
+	var facts []string
+	if mimeType != "" {
+		facts = append(facts, mimeType)
+	}
+	var n json.Number
+	if json.Unmarshal(size, &n) == nil && n != "" {
+		facts = append(facts, n.String()+" bytes")
+	}
+	if len(facts) > 0 {
+		line += " (" + strings.Join(facts, ", ") + ")"
+	}
+	line += "]"
+	if strings.TrimSpace(description) != "" {
+		line += "\n" + description
+	}
+	return line
+}
+
+// uriBaseName is the last element of the path of uri, "" when it has none.
+func uriBaseName(uri string) string {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return ""
+	}
+	name := path.Base(u.Path)
+	if name == "." || name == "/" {
+		return ""
+	}
+	return name
 }
 
 // close ends the connection (and, for stdio, the server's process group) and
@@ -534,7 +746,7 @@ func (c *conn) dispatch(data []byte) {
 	}
 
 	if hasResult {
-		ch <- rpcResult{result: raw["result"]}
+		answer(ch, rpcResult{result: raw["result"]})
 		return
 	}
 	// Propagate the JSON-RPC error object so callers see real failures
@@ -544,7 +756,19 @@ func (c *conn) dispatch(data []byte) {
 		Message string `json:"message"`
 	}
 	_ = json.Unmarshal(raw["error"], &rpcErr)
-	ch <- rpcResult{err: fmt.Errorf("mcp %s: jsonrpc error %d: %s", c.name, rpcErr.Code, rpcErr.Message)}
+	answer(ch, rpcResult{err: fmt.Errorf("mcp %s: jsonrpc error %d: %s", c.name, rpcErr.Code, rpcErr.Message)})
+}
+
+// answer hands a call its result without blocking the read loop: the call
+// takes one answer, and a second one for the same id (a server that answered
+// twice, or the error a response stream that ended adds after the response,
+// remote.go) finds the place taken and is dropped, as it is when the call
+// gave up meanwhile.
+func answer(ch chan rpcResult, res rpcResult) {
+	select {
+	case ch <- res:
+	default:
+	}
 }
 
 // ---- stdio transport ----

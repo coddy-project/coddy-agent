@@ -63,7 +63,11 @@ def messages_text(session_dir: Path, role: str | None = None) -> str:
 
 
 def wait_agent_task(parent: Path, timeout: float = 60.0) -> dict:
-    """Poll the parent bundle for a finished task of kind agent."""
+    """Poll the parent bundle for the finished task of the spawned definition.
+
+    The per-turn memory run is a task of kind agent as well (agent.system true)
+    and is usually bg_1, so the task is told apart by the definition's name.
+    """
     deadline = time.time() + timeout
     while time.time() < deadline:
         bg = parent / "background"
@@ -76,10 +80,13 @@ def wait_agent_task(parent: Path, timeout: float = 60.0) -> dict:
                     snap = json.loads(meta.read_text())
                 except json.JSONDecodeError:
                     continue
-                if snap.get("kind") == "agent" and snap.get("status") not in ("queued", "running"):
+                # The name identifies the definition, not the run: fine for this single fresh spawn; a resume
+                # extension should bind to the task id from the spawn_agent result instead.
+                name = (snap.get("agent") or {}).get("name")
+                if snap.get("kind") == "agent" and name == AGENT and snap.get("status") not in ("queued", "running"):
                     return snap
         time.sleep(0.5)
-    raise AssertionError("no finished task of kind agent under the parent session")
+    raise AssertionError(f"no finished task of the {AGENT} subagent under the parent session")
 
 
 def wait_parent_reply(parent: Path, timeout: float = 240.0) -> str:

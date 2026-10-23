@@ -23,6 +23,8 @@ type header struct {
 	skillNames   []string
 	rulesCount   int
 	mcpNames     []string
+	// loginHint shows the /login pointer while no provider can answer.
+	loginHint bool
 }
 
 func newHeader(theme *tui.Theme) *header {
@@ -40,6 +42,16 @@ func (h *header) SetSections(contextFiles, unreadFiles, skillNames []string, rul
 	h.skillNames = skillNames
 	h.rulesCount = rulesCount
 	h.mcpNames = mcpNames
+	h.rebuild()
+}
+
+// SetLoginHint shows or hides the line that points a fresh install at
+// /login.
+func (h *header) SetLoginHint(show bool) {
+	if h.loginHint == show {
+		return
+	}
+	h.loginHint = show
 	h.rebuild()
 }
 
@@ -65,6 +77,7 @@ var fullHints = []string{
 	"ctrl+t to expand thinking",
 	"F1 (or /docs) for the documentation",
 	"/ for commands",
+	"/login to sign in to a model provider",
 	"!! to run a local command the agent never sees",
 	"enter to send, shift+enter (ctrl+j) for newline",
 	"up/down for prompt history",
@@ -88,8 +101,10 @@ func (h *header) rebuild() {
 	} else {
 		h.AddChild(tui.NewText(th.Fg(roleDim, compactHints), 1, 0, nil))
 	}
-	h.AddChild(tui.NewSpacer(1))
-	h.AddChild(tui.NewText(th.Fg(roleDim, "Coddy drives this workspace with the same agent as ACP and HTTP. Ask it anything about the code."), 1, 0, nil))
+	if h.loginHint {
+		h.AddChild(tui.NewSpacer(1))
+		h.AddChild(tui.NewText(th.Fg(roleWarning, loginHint), 1, 0, nil))
+	}
 
 	if len(h.contextFiles) > 0 || len(h.unreadFiles) > 0 {
 		h.AddChild(tui.NewSpacer(1))

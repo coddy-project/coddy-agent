@@ -6,24 +6,16 @@ package rules
 
 // MatchAuto returns the auto rules a set of context paths matches.
 // Directory-scoped rules require a context path inside their subtree; rules with
-// globs require a context file match; rules with neither match immediately.
+// globs require a context file match, inside the subtree as well when they
+// have one (MatchScoped); rules with neither match immediately.
 func MatchAuto(catalog []*Rule, contextFiles []string) []*Rule {
 	var out []*Rule
 	for _, r := range catalog {
 		if r == nil || r.ApplyMode != ApplyAuto || !r.AlwaysApply {
 			continue
 		}
-		switch {
-		case r.ScopeDir != "":
-			if PathsUnderDir(r.ScopeDir, contextFiles) {
-				out = append(out, r)
-			}
-		case len(r.Globs) == 0:
+		if (r.ScopeDir == "" && len(r.Globs) == 0) || matchesScopeAndGlobs(r, contextFiles) {
 			out = append(out, r)
-		default:
-			if matchesRuleGlobs(r, contextFiles) {
-				out = append(out, r)
-			}
 		}
 	}
 	return out

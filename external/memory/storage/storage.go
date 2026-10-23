@@ -45,12 +45,19 @@ func NewStore(m *config.MemoryConfig, p config.Paths, cwd string) (*Store, error
 	if g == "" {
 		g = filepath.Join(home, "memory")
 	}
+	return &Store{globalRoot: filepath.Clean(g), projectRoot: ProjectRootFor(cwd)}, nil
+}
+
+// ProjectRootFor is the project memory root of a session working in cwd:
+// .coddy/memory of that folder, beside the project's other Coddy files
+// (.coddy/mcp.json, .coddy/rules, .coddy/agents). An empty cwd stands for
+// the current directory.
+func ProjectRootFor(cwd string) string {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
 		cwd = "."
 	}
-	proj := filepath.Join(cwd, "memory")
-	return &Store{globalRoot: filepath.Clean(g), projectRoot: filepath.Clean(proj)}, nil
+	return filepath.Join(cwd, ".coddy", "memory")
 }
 
 // NewWithRoots builds a store from explicit filesystem roots (tests and narrow call sites).

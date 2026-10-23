@@ -332,10 +332,30 @@ tool, the arguments are fields, and the answer is read by its shape - a JSON obj
 same fields, other JSON indented, Markdown (a heading, a code fence, a list) as a document,
 anything else as monospace text. Numbers and JSON are shown as the server wrote them, so
 an id past 2^53 (a Discord or Twitter snowflake) is not rounded and a repeated key keeps
-both values. A failed call keeps its error as raw text. Only the text
-parts of an answer reach the transcript: Coddy passes the `text` content of a
-`tools/call` result to the model and drops images and embedded resources. See
-[Web UI](../surfaces/web-ui.md) for the card and a screenshot.
+both values. A failed call keeps its error as raw text. The `text` blocks of a
+`tools/call` result reach the transcript and the model. An `image` block - a
+browser server's screenshot, a chart - is kept with the call, previewed under its
+card and shown to a model that reads images, checked the way `read` checks an
+image file ([Pictures an MCP tool returns](images.md#pictures-an-mcp-tool-returns)).
+See [Web UI](../surfaces/web-ui.md) for the card and a screenshot.
+
+The other blocks a result may carry reach the agent too. The text of an embedded
+resource comes into the result in its place, under a line naming its URI and type,
+`[MCP resource 1: file:///srv/notes.md (text/markdown)]`, and a resource link comes as
+a line with its address, title, type and size, its description below it. A binary
+resource of an image type is a picture like an image block. Any other binary resource
+and an audio clip are kept as files in the session's `assets/` directory, each with the
+extension of its type, and the result names each with its URI, type, size and path, so
+the agent can open it with its tools; no model is sent them:
+
+```text
+[MCP audio 1: audio/wav, 120344 bytes, saved as /home/me/.coddy/sessions/sess_4d2c9a1e7b3f5a60/assets/browser-record-audio-1-9c2f4e1a0b7d3e58.wav]
+```
+
+A call keeps at most 20 files, and its pictures and files take at most 20 MB together;
+what is past that, and a block whose data is not base64, is named in the result instead.
+A result the server marks as an error keeps its text, the text of its resources
+included, and nothing binary.
 
 ## Supported Transports
 
@@ -387,7 +407,11 @@ endpoint and answered as `application/json` bodies or `text/event-stream` chunks
 with every request (e.g. `Authorization`). URL-only entries (no `command`, no `type`)
 default to `http`. When the endpoint rejects the handshake (legacy servers answer POST
 with 4xx), the client automatically falls back to the legacy SSE transport at the same
-URL, mirroring Cursor and Claude Code behavior. The agent advertises
+URL, mirroring Cursor and Claude Code behavior. A message on an event stream - this
+transport's or the legacy one's - may take up to 32 MB on one line, room for a result
+that carries 20 MB of pictures as base64. Coddy does not resume a stream, so a call
+whose event stream closes or breaks before its answer fails at once instead of waiting
+for the turn to be cancelled. The agent advertises
 `mcpCapabilities.http: true` and `mcpCapabilities.sse: true`. The `type` value is `stdio`,
 `http` or `sse`, and the `streamable-http` / `streamable_http` aliases for `http` are
 accepted as well.

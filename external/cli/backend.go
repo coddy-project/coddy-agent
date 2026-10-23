@@ -57,7 +57,7 @@ type backend interface {
 	CancelQueuedTurnMessage(sessionID, messageID string) ([]session.QueuedMessage, error)
 	ClearQueuedTurnMessages(sessionID string) error
 	// ProviderUsageForSession reads the account usage behind a provider row
-	// (the status bar's third line); refresh asks for a fresh read, and a
+	// (the footer's quota under the model); refresh asks for a fresh read, and a
 	// read the backend defers reports its result to sessionID through the
 	// sender when it lands. A provider type without a usage source answers
 	// Unsupported.

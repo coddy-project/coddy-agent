@@ -25,6 +25,12 @@ func agentsUsage() string {
 }
 
 func runAgents(args []string) error {
+	// A -h or --help anywhere is a question about the command, never an agent
+	// name (`coddy help agents trust` is `coddy agents trust --help`).
+	if wantsHelp(args) {
+		fmt.Println(agentsUsage())
+		return nil
+	}
 	if len(args) < 1 {
 		return fmt.Errorf("%s", agentsUsage())
 	}

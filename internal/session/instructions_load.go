@@ -93,7 +93,7 @@ func UnreadReason(err error) string {
 		return "does not exist"
 	case errors.Is(err, fs.ErrPermission):
 		return "cannot be read: permission denied"
-	case errors.Is(err, rules.ErrDocIsFolder), errors.Is(err, rules.ErrDocEmpty):
+	case errors.Is(err, rules.ErrDocIsFolder), errors.Is(err, rules.ErrDocNotAFile), errors.Is(err, rules.ErrDocEmpty):
 		return err.Error()
 	}
 	var pathErr *fs.PathError

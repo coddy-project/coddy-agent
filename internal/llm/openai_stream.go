@@ -231,10 +231,9 @@ func streamDecodeTruncation(err error, emitted bool, payloadLen int) *streamTrun
 		// payload itself ends inside its JSON the event was cut like any
 		// other (issue #384); a payload that decodes whole is a real in-band
 		// error and keeps the transport contract it had.
-		const sdkErrPrefix = "received error while streaming: "
-		if i := strings.LastIndex(err.Error(), sdkErrPrefix); i >= 0 {
+		if payload, ok := sdkStreamErrorPayload(err); ok {
 			var v any
-			if syn, ok := json.Unmarshal([]byte(err.Error()[i+len(sdkErrPrefix):]), &v).(*json.SyntaxError); ok && isEndOfInputDiagnostic(syn) {
+			if syn, ok := json.Unmarshal([]byte(payload), &v).(*json.SyntaxError); ok && isEndOfInputDiagnostic(syn) {
 				// The decoder error is derived here, so keep both the SDK's
 				// error and it reachable for logs.
 				return &streamTruncatedError{emitted: emitted, cause: errors.Join(err, syn)}
@@ -249,6 +248,100 @@ func streamDecodeTruncation(err error, emitted bool, payloadLen int) *streamTrun
 		return nil
 	}
 	return &streamTruncatedError{emitted: emitted, cause: err}
+}
+
+// sdkStreamErrorPrefix is how both SDK stream decoders spell an in-band error
+// event: "received error while streaming: <payload>". openai-go hands over the
+// event's "error" member (the Codex backend's {"message":..., "type":...,
+// "code":...}), anthropic-sdk-go the whole event ({"type":"error","error":
+// {...}}).
+const sdkStreamErrorPrefix = "received error while streaming: "
+
+// sdkStreamErrorPayload returns the payload of the SDK's in-band error event
+// in err's chain, however deep it is wrapped: the text of the error the SDK
+// built after its own prefix, so a message that quotes the prefix does not
+// move where the payload starts.
+func sdkStreamErrorPayload(err error) (string, bool) {
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		if s := e.Error(); strings.HasPrefix(s, sdkStreamErrorPrefix) {
+			return s[len(sdkStreamErrorPrefix):], true
+		}
+	}
+	return "", false
+}
+
+// inBandStatus reads the SDK's in-band error event in err's chain. decoded
+// reports a payload that is whole JSON: such an event is judged by its fields
+// alone, so a status or a connection phrase in the words of its message
+// decides nothing. Its status is 503 for an overload (isOverloadPayload),
+// else the HTTP status its numeric code names (a number or a numeric string,
+// at the top level or in a nested error object), else 0. A payload that does
+// not decode leaves err to the usual classification.
+func inBandStatus(err error) (status int, decoded bool) {
+	payload, ok := sdkStreamErrorPayload(err)
+	if !ok || !gjson.Valid(payload) {
+		return 0, false
+	}
+	if isOverloadPayload(payload) {
+		return 503, true
+	}
+	obj := gjson.Parse(payload)
+	for _, o := range []gjson.Result{obj, obj.Get("error")} {
+		if code := numericCode(o); code >= 400 && code < 600 {
+			return code, true
+		}
+	}
+	return 0, true
+}
+
+// isOverloadPayload reports whether the error object of a stream says the
+// provider is overloaded or unavailable: the type is service_unavailable_error
+// or overloaded_error, the code is server_is_overloaded, or a gateway put the
+// status 503 or 529 in a numeric code. The verdict is read from those fields
+// and from nothing else, so a refusal whose message happens to say
+// "overloaded" stays final. The payload is the object itself, the event that
+// wraps it (anthropic), or an object nested one level deeper by a gateway, and
+// either level may carry the verdict. It is the one test of an overload: the
+// SDK-decoded streams (Codex, Anthropic) and the lenient OpenAI-compatible
+// reader (newStreamServerError) both ask it.
+func isOverloadPayload(payload string) bool {
+	if !gjson.Valid(payload) {
+		return false
+	}
+	obj := gjson.Parse(payload)
+	return isOverloadObject(obj) || isOverloadObject(obj.Get("error"))
+}
+
+// isOverloadObject reads the verdict of isOverloadPayload off one JSON object.
+func isOverloadObject(obj gjson.Result) bool {
+	if !obj.IsObject() {
+		return false
+	}
+	switch obj.Get("type").String() {
+	case "service_unavailable_error", "overloaded_error":
+		return true
+	}
+	if obj.Get("code").String() == "server_is_overloaded" {
+		return true
+	}
+	switch numericCode(obj) {
+	case 503, 529:
+		return true
+	}
+	return false
+}
+
+// numericCode is the code member of a JSON object as a number, written as one
+// or as a numeric string; 0 when it is neither.
+func numericCode(obj gjson.Result) int {
+	if !obj.IsObject() {
+		return 0
+	}
+	code := obj.Get("code")
+	if code.Type != gjson.Number && code.Type != gjson.String {
+		return 0
+	}
+	return int(code.Int())
 }
 
 // isEndOfInputDiagnostic reports whether the decoder's syntax error is its
@@ -311,7 +404,19 @@ func newStreamServerError(obj []byte, emitted bool) error {
 	if msg == "" {
 		msg = streamErrorSnippet(obj)
 	}
-	return &streamServerError{code: int(gjson.GetBytes(obj, "code").Int()), msg: msg, emitted: emitted}
+	// The code is read where the SDK-decoded streams read it (inBandStatus):
+	// the object itself, then an error object a gateway nested in it.
+	parsed := gjson.ParseBytes(obj)
+	code := numericCode(parsed)
+	if code == 0 {
+		code = numericCode(parsed.Get("error"))
+	}
+	if code == 0 && isOverloadPayload(string(obj)) {
+		// An overload spelled by type or by a named code carries no status:
+		// it is the 503 the SDK-decoded streams treat it as.
+		code = 503
+	}
+	return &streamServerError{code: code, msg: msg, emitted: emitted}
 }
 
 // Stream implements Provider.Stream over the lenient SSE path.

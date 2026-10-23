@@ -839,6 +839,110 @@ func TestCodexStreamInBandErrorThroughTheDecoder(t *testing.T) {
 	}
 }
 
+// TestCodexInBandErrorRetry drives the in-band error event of the live
+// backend through the real SDK decoder and the resilient wrapper (issue
+// #537): an overload before any output is retried like a 503 and the next
+// attempt's answer is what the caller gets; the same event after a text delta
+// is not replayed (the agent's provider recovery owns it), and an in-band
+// error that is not an overload stays final whatever its message says.
+func TestCodexInBandErrorRetry(t *testing.T) {
+	const overloadMessage = "Our servers are currently overloaded. Please try again later."
+	inBand := func(errType, code, message string) func(io.Writer) {
+		return func(w io.Writer) {
+			sse(w, "error", map[string]any{"error": map[string]any{
+				"type": errType, "code": code, "message": message, "param": nil,
+			}})
+		}
+	}
+	overload := inBand("service_unavailable_error", "server_is_overloaded", overloadMessage)
+	hello := func(w io.Writer) {
+		sse(w, "response.output_text.delta", map[string]any{"delta": "Hello"})
+		sseCompleted(w)
+	}
+	afterText := func(w io.Writer) {
+		sse(w, "response.output_text.delta", map[string]any{"delta": "Hel"})
+		overload(w)
+	}
+	cases := []struct {
+		name          string
+		scripts       []func(io.Writer)
+		wantRequests  int32
+		wantErr       bool
+		wantTransient bool
+		wantStreamed  string
+		// wantText is the exact error the caller gets, where the case pins it.
+		wantText string
+	}{
+		{name: "overload before any output is retried and succeeds", scripts: []func(io.Writer){overload, hello},
+			wantRequests: 2, wantStreamed: "Hello"},
+		{name: "overload on every attempt ends with the provider's error after the retries", scripts: []func(io.Writer){overload},
+			wantRequests: 3, wantErr: true, wantTransient: true,
+			wantText: `codex stream: received error while streaming: {"code":"server_is_overloaded","message":"` + overloadMessage + `","param":null,"type":"service_unavailable_error"}`},
+		{name: "overload after a text delta is not replayed", scripts: []func(io.Writer){afterText, hello},
+			wantRequests: 1, wantErr: true, wantTransient: true, wantStreamed: "Hel"},
+		{name: "invalid request is final", scripts: []func(io.Writer){
+			inBand("invalid_request_error", "invalid_prompt", "The prompt was refused."), hello},
+			wantRequests: 1, wantErr: true},
+		// The words of a message are not a verdict: only the decoded type and
+		// code are.
+		{name: "an invalid request that says overloaded is final", scripts: []func(io.Writer){
+			inBand("invalid_request_error", "context_length_exceeded", overloadMessage), hello},
+			wantRequests: 1, wantErr: true},
+		{name: "a gateway's 500 before any output is retried and succeeds", scripts: []func(io.Writer){
+			inBand("api_error", "500", "upstream failed"), hello},
+			wantRequests: 2, wantStreamed: "Hello"},
+		{name: "an invalid request whose message names a status is final", scripts: []func(io.Writer){
+			inBand("invalid_request_error", "invalid_prompt", "Unsupported identifier 529 was supplied"), hello},
+			wantRequests: 1, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				n := int(calls.Add(1)) - 1
+				w.Header().Set("Content-Type", "text/event-stream")
+				tc.scripts[min(n, len(tc.scripts)-1)](w)
+			}))
+			defer srv.Close()
+			inner := newCodexTestProvider(t, srv.URL)
+			provider := applyResilientWrap(inner, ProviderInput{
+				RetryMax: 2, RetryBase: time.Millisecond, RetryMaxDelay: time.Millisecond,
+			})
+
+			var streamed strings.Builder
+			resp, err := provider.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil,
+				func(c StreamChunk) { streamed.WriteString(c.TextDelta) })
+			if got := calls.Load(); got != tc.wantRequests {
+				t.Errorf("requests = %d, want %d", got, tc.wantRequests)
+			}
+			if got := streamed.String(); got != tc.wantStreamed {
+				t.Errorf("streamed text = %q, want %q: a retry must never show text twice", got, tc.wantStreamed)
+			}
+			if !tc.wantErr {
+				if err != nil {
+					t.Fatalf("Stream: %v (after %d requests)", err, calls.Load())
+				}
+				if resp == nil || resp.Content != "Hello" || resp.StopReason != "end_turn" {
+					t.Fatalf("resp = %+v, want the second attempt's whole answer", resp)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Stream succeeded with %+v, want the provider's error", resp)
+			}
+			if !strings.HasPrefix(err.Error(), "codex stream: received error while streaming: ") {
+				t.Errorf("error = %q, want the same in-band error the user saw before", err)
+			}
+			if tc.wantText != "" && err.Error() != tc.wantText {
+				t.Errorf("error = %q, want %q", err, tc.wantText)
+			}
+			if got := IsTransientProviderError(err); got != tc.wantTransient {
+				t.Errorf("IsTransientProviderError = %v, want %v", got, tc.wantTransient)
+			}
+		})
+	}
+}
+
 // TestCodexEventDecoderWithoutABody mirrors ssestream.NewDecoder: a request
 // that failed before a response hands the SDK's stream a nil Decoder, which
 // it neither reads nor closes, never a typed nil it would call into.

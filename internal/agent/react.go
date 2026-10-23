@@ -2598,7 +2598,7 @@ func (a *Agent) finishToolCall(sessionDir, sessionID string, tc llm.ToolCall, re
 				previewMeta = sharedArtifactMeta(previewMeta, sessionID, artifact)
 			}
 		}
-		// The pictures the call showed the model (read on an image file), for
+		// The pictures the call returned (read or MCP), for
 		// the surfaces that preview them: the web UI on the call's row, a
 		// Telegram chat as photos. After a reload they come from the result
 		// message itself, which keeps them.
@@ -2669,7 +2669,54 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 	}
 	for _, client := range a.state.GetMCPClients() {
 		if client.Name() == serverName {
-			return client.CallTool(ctx, toolName, argsJSON)
+			result, err := client.CallToolResult(ctx, toolName, argsJSON)
+			if err != nil {
+				return "", err
+			}
+			// The pictures go the way a read's do (tool_images.go), checked
+			// against what every provider takes and told by their content;
+			// one no provider would take is named in the result instead.
+			// A picture keeps the number of its block in the result.
+			var kept, notes []string
+			for _, img := range result.Images {
+				data, mimeType, err := fstools.PrepareImageForModel(img.Data)
+				if err != nil {
+					// A picture no model would take still reaches the agent,
+					// as a file it can open (and, say, scale down).
+					note := fmt.Sprintf("[MCP image %d omitted: %v]", img.Index, err)
+					if path, saveErr := session.SaveToolFileAsset(a.state.GetPersistedSessionDir(),
+						fmt.Sprintf("%s-%s-image-%d", serverName, toolName, img.Index), img.MIMEType, img.Data); saveErr == nil {
+						note = fmt.Sprintf("[MCP image %d omitted: %v; the data is kept as %s]", img.Index, err, path)
+					}
+					notes = append(notes, note)
+					continue
+				}
+				name := fmt.Sprintf("%s-%s-%d%s", serverName, toolName, img.Index, session.ToolImageExt(mimeType))
+				if err := a.recordToolImage(name, mimeType, data); err != nil {
+					return "", err
+				}
+				kept = append(kept, fmt.Sprintf("[MCP image %d: %s]", img.Index, name))
+			}
+			// A file no model is shown is kept with the session, where the
+			// agent can open it, and named in the result.
+			for _, f := range result.Files {
+				notes = append(notes, a.keepToolFile(serverName, toolName, f))
+			}
+			lines := []string{result.Text}
+			if strings.TrimSpace(result.Text) == "" {
+				// A result with no text of its own still says what it
+				// returned: an empty tool result shows nothing in the console
+				// or an editor, and not every provider takes one.
+				lines = kept
+			}
+			lines = append(lines, notes...)
+			var text []string
+			for _, line := range lines {
+				if line != "" {
+					text = append(text, line)
+				}
+			}
+			return strings.Join(text, "\n"), nil
 		}
 	}
 	return "", fmt.Errorf("MCP server not found: %s", serverName)

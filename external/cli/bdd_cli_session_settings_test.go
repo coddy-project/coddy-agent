@@ -14,10 +14,14 @@ import (
 
 // footerPermission is the permission mode the footer names: the segment after
 // the folder, empty while the session asks (the footer names only a mode that
-// asks less).
+// asks less). The model closes the same line on the right, after a gap of two
+// spaces or more, and is cut off first.
 func (s *cliTUIState) footerPermission() string {
 	for _, line := range strings.Split(s.screenText(), "\n") {
 		line = strings.TrimSpace(line)
+		if i := strings.Index(line, "  "); i >= 0 {
+			line = line[:i]
+		}
 		folder, mode := line, ""
 		if i := strings.LastIndex(line, " • "); i >= 0 {
 			folder, mode = strings.TrimSpace(line[:i]), strings.TrimSpace(line[i+len(" • "):])

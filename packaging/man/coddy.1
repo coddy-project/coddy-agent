@@ -1,6 +1,6 @@
 .\" Manual page for coddy.
 .\" Keep the command list in sync with printUsage() in cmd/coddy/main.go.
-.TH CODDY 1 "2026-09-11" "Coddy" "User Commands"
+.TH CODDY 1 "2026-10-22" "Coddy" "User Commands"
 .SH NAME
 coddy \- coding agent with a console, an editor protocol, an HTTP gateway and a messenger gateway
 .SH SYNOPSIS
@@ -16,6 +16,9 @@ coddy \- coding agent with a console, an editor protocol, an HTTP gateway and a 
 .B coddy
 .RB [ \-h | \-\-help ]
 .RB [ \-v | \-\-version ]
+.br
+.B coddy help
+.RI [ command ]
 .SH DESCRIPTION
 .B coddy
 is a coding agent built around a ReAct loop: the model reasons, calls tools, and
@@ -315,6 +318,19 @@ the web UI on its Docs screen.
 Install the latest release. See
 .B SELF\-UPDATE
 below.
+.TP
+.B help
+Print the command list, the screen
+.B \-\-help
+prints; or the usage of one command.
+.BI "coddy help " command
+answers what
+.BI "coddy " command " \-\-help"
+answers, and
+.BI "coddy help " command " " subcommand
+what
+.BI "coddy " command " " subcommand " \-\-help"
+answers.
 .SH OPTIONS
 Every command parses its own flags;
 .BI "coddy " command " \-\-help"
@@ -322,6 +338,10 @@ prints them. The options accepted before any command are:
 .TP
 .BR \-h ", " \-\-help
 Print the command list and exit.
+.B coddy help
+prints the same screen, and
+.BI "coddy help " command
+the usage of one command.
 .TP
 .BR \-v ", " \-\-version
 Print the version and exit.

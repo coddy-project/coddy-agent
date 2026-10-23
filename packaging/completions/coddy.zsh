@@ -20,6 +20,7 @@ _coddy() {
         'hooks:list and trust lifecycle hooks'
         'docs:read and search the built-in documentation'
         'update:install the latest release'
+        'help:print the command list or the usage of one command'
     )
 
     _arguments -C \
@@ -98,6 +99,10 @@ _coddy() {
                     else
                         compadd -- --lang
                     fi
+                    ;;
+                help)
+                    # `coddy help <command>` names a command of its own.
+                    _describe -t commands 'coddy command' commands
                     ;;
                 update)
                     _arguments \

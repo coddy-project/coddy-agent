@@ -172,6 +172,29 @@ func TestGoalDigestRecordsEvidenceFlagsAndClaims(t *testing.T) {
 	}
 }
 
+// The mv tool names its files src and dst, so a moved test file is listed
+// and flagged like an edited one.
+func TestGoalDigestListsAndFlagsAMovedTestFile(t *testing.T) {
+	goal, _ := NewGoal("fix the parser")
+	msgs := []llm.Message{
+		{Role: llm.RoleUser, Content: "kickoff", GoalTurn: &llm.GoalTurn{Kind: "kickoff", Objective: "fix the parser"}},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+			{ID: "1", Name: "mv", InputJSON: `{"src":"tests/parse_case.json","dst":"tests/disabled/parse_case.json"}`},
+		}},
+		{Role: llm.RoleTool, ToolCallID: "1", Content: "moved"},
+		{Role: llm.RoleAssistant, Content: "Done."},
+	}
+	d := buildGoalDigest(goalTurns(goal, msgs...), goal, false, goalFiles{})
+	for _, want := range []string{
+		"## Files the turns changed\ntests/disabled/parse_case.json\ntests/parse_case.json\n",
+		"tests, test data or CI files were changed: tests/disabled/parse_case.json, tests/parse_case.json",
+	} {
+		if !strings.Contains(d, want) {
+			t.Errorf("digest lacks %q:\n%s", want, d)
+		}
+	}
+}
+
 func TestGoalDigestKeepsTheNewestStepsWithinItsBudget(t *testing.T) {
 	goal, _ := NewGoal("x")
 	msgs := []llm.Message{{Role: llm.RoleUser, Content: "k", GoalTurn: &llm.GoalTurn{Kind: "kickoff", Objective: "x"}}}

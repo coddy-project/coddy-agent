@@ -54,6 +54,15 @@ func newRetryBudgetFixture(t *testing.T, retryMax *int, maxTurns int, replies ..
 			_, _ = io.WriteString(w, `{"type":"error","error":{"type":"api_error","message":"temporary failure"}}`)
 			return
 		}
+		// A limit is retried by the wrapper like a 500, but the agent's
+		// provider recovery leaves it alone (llm.IsTransientProviderError), so
+		// it is the failure that shows the wrapper's slots running out.
+		if reply == "limit" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = io.WriteString(w, `{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}`)
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		if reply == "silent" {
 			w.WriteHeader(http.StatusOK)
@@ -83,13 +92,18 @@ func retryBudgetSSE(reply string, index int) string {
 	var out strings.Builder
 	event := func(kind, data string) { fmt.Fprintf(&out, "event: %s\ndata: %s\n\n", kind, data) }
 	event("message_start", `{"type":"message_start","message":{"id":"msg_fixture","type":"message","role":"assistant","model":"model","content":[],"usage":{"input_tokens":1,"output_tokens":0}}}`)
-	if reply == "json-cut" {
-		// Text reaches the loop, then a framed event whose JSON stops short:
-		// the SDK decoder dispatches it and fails at the end of its input
-		// (issue #384).
+	if reply == "json-cut" || reply == "overloaded" {
+		// Text reaches the loop, then the stream fails: "json-cut" with a
+		// framed event whose JSON stops short, which the SDK decoder dispatches
+		// and fails at the end of its input (issue #384), "overloaded" with the
+		// in-band error event of a provider that is overloaded (issue #537).
 		event("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`)
 		event("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello fr"}}`)
-		event("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","te`)
+		if reply == "overloaded" {
+			event("error", `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`)
+		} else {
+			event("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","te`)
+		}
 		return out.String()
 	}
 	switch reply {
@@ -203,8 +217,13 @@ func TestReActRetryBudget(t *testing.T) {
 		{"token limit recoveries are bounded", 10, 10, 1 + maxOutputLimitRecoveries, []string{"max_tokens"}, acp.StopReasonMaxTokens, false},
 		{"token limit takes one slot per recovery", 1, 10, 2, []string{"max_tokens"}, acp.StopReasonMaxTokens, false},
 		{"transport then token limit share allowance", 1, 10, 2, []string{"error", "max_tokens", "answer"}, acp.StopReasonMaxTokens, false},
-		{"token limit then transport share allowance", 1, 10, 2, []string{"max_tokens", "error", "answer"}, acp.StopReasonRefused, true},
+		{"token limit then transport share allowance", 1, 10, 2, []string{"max_tokens", "limit", "answer"}, acp.StopReasonRefused, true},
 		{"token limit at the step cap", 3, 1, 1, []string{"max_tokens", "answer"}, acp.StopReasonMaxTokens, false},
+		// A 500 the wrapper has no slot left to retry is the lane's failure, and
+		// the agent's own bounded provider recovery runs the step again (the
+		// rows that spend the slots on a transport failure use a 429, which it
+		// leaves alone).
+		{"token limit then a 500 falls to the provider recovery", 1, 10, 3, []string{"max_tokens", "error", "answer"}, acp.StopReasonEndTurn, false},
 		{"tool progress resets the token limit budget", 1, 10, 4, []string{"max_tokens", "tool", "max_tokens", "answer"}, acp.StopReasonEndTurn, false},
 		// Two recoveries are the bound. The third cut-off is only recovered
 		// because the tool call in between started the count over, and the
@@ -219,7 +238,7 @@ func TestReActRetryBudget(t *testing.T) {
 		{"cut text recoveries are bounded", 10, 10, 1 + maxOutputLimitRecoveries, []string{"text-max"}, acp.StopReasonMaxTokens, false},
 		{"cut text takes one slot per recovery", 1, 10, 2, []string{"text-max"}, acp.StopReasonMaxTokens, false},
 		{"cut text at the step cap", 3, 1, 1, []string{"text-max", "answer"}, acp.StopReasonMaxTokens, false},
-		{"cut text then transport share allowance", 1, 10, 2, []string{"text-max", "error", "answer"}, acp.StopReasonRefused, true},
+		{"cut text then transport share allowance", 1, 10, 2, []string{"text-max", "limit", "answer"}, acp.StopReasonRefused, true},
 		{"cut text then empty step share the count", 10, 20, 3, []string{"text-max", "max_tokens", "max_tokens", "answer"}, acp.StopReasonMaxTokens, false},
 		{"tool progress resets the cut text count", 10, 20, 5, []string{"text-max", "text-max", "tool", "text-max", "answer"}, acp.StopReasonEndTurn, false},
 		// A tool call the limit cut off is not run; it is asked for again
@@ -229,7 +248,7 @@ func TestReActRetryBudget(t *testing.T) {
 		{"cut tool call recoveries are bounded", 10, 10, 1 + maxOutputLimitRecoveries, []string{"cut-tool"}, acp.StopReasonMaxTokens, false},
 		{"cut tool call takes one slot per recovery", 1, 10, 2, []string{"cut-tool"}, acp.StopReasonMaxTokens, false},
 		{"cut tool call at the step cap", 3, 1, 1, []string{"cut-tool", "answer"}, acp.StopReasonMaxTokens, false},
-		{"cut tool call then transport share allowance", 1, 10, 2, []string{"cut-tool", "error", "answer"}, acp.StopReasonRefused, true},
+		{"cut tool call then transport share allowance", 1, 10, 2, []string{"cut-tool", "limit", "answer"}, acp.StopReasonRefused, true},
 		{"cut tool call after a whole one recovers", 3, 10, 2, []string{"tool-cut", "answer"}, acp.StopReasonEndTurn, false},
 		// The whole call before the cut one is progress for the allowance but the
 		// step was cut off all the same, so it is the count that ends the turn.
@@ -237,7 +256,7 @@ func TestReActRetryBudget(t *testing.T) {
 		{"tool progress resets the cut tool call count", 10, 20, 5, []string{"cut-tool", "cut-tool", "tool", "cut-tool", "answer"}, acp.StopReasonEndTurn, false},
 		{"one recovery", 1, 10, 2, []string{"reasoning"}, acp.StopReasonRefused, true},
 		{"transport then empty share allowance", 1, 10, 2, []string{"error", "reasoning", "answer"}, acp.StopReasonRefused, true},
-		{"empty then transport share allowance", 1, 10, 2, []string{"reasoning", "error", "answer"}, acp.StopReasonRefused, true},
+		{"empty then transport share allowance", 1, 10, 2, []string{"reasoning", "limit", "answer"}, acp.StopReasonRefused, true},
 		{"mixed recovery succeeds", 2, 10, 3, []string{"error", "reasoning", "answer"}, acp.StopReasonEndTurn, false},
 		{"silence recovers", 1, 10, 2, []string{"silent", "answer"}, acp.StopReasonEndTurn, false},
 		{"tool progress resets budget", 1, 10, 4, []string{"reasoning", "tool", "reasoning", "answer"}, acp.StopReasonEndTurn, false},
@@ -257,68 +276,74 @@ func TestReActRetryBudget(t *testing.T) {
 	}
 }
 
-// TestReActRecoversFromAnEventCutInsideItsJSON drives the real Anthropic
-// adapter, SDK and resilient wrapper: a framed event whose JSON stops short
-// after text reached the loop is a truncation the wrapper does not replay, and
-// the bounded provider recovery runs the step again with the delivered text
-// kept, asking the model to go on from where the answer broke off (issue
-// #384). With retries off the turn ends with the error instead.
-func TestReActRecoversFromAnEventCutInsideItsJSON(t *testing.T) {
-	one := 1
-	f := newRetryBudgetFixture(t, &one, 10, "json-cut", "answer")
-	f.run()
-	if got := f.requestCount(); got != 2 {
-		t.Errorf("upstream requests = %d, want 2: one cut, one recovery", got)
-	}
-	if f.stop != string(acp.StopReasonEndTurn) || f.err != nil {
-		t.Errorf("stop = %s, err = %v; want end_turn without error", f.stop, f.err)
-	}
-	f.mu.Lock()
-	second := ""
-	if len(f.requests) > 1 {
-		second = f.requests[1]
-	}
-	f.mu.Unlock()
-	if !strings.Contains(second, "Continue exactly where it stopped") {
-		t.Errorf("the recovery request does not carry the continue nudge: %s", second)
-	}
-	// The text delivered before the cut travels as assistant history, not
-	// merely somewhere in the body, so the model continues its own answer.
-	var req struct {
-		Messages []struct {
-			Role    string
-			Content []struct {
-				Type string
-				Text string
+// TestReActRecoversFromAFailureAfterText drives the real Anthropic adapter,
+// SDK and resilient wrapper: a stream that fails after text reached the loop
+// is not replayed by the wrapper, and the bounded provider recovery runs the
+// step again with the delivered text kept, asking the model to go on from
+// where the answer broke off. The failure is a framed event whose JSON stops
+// short (issue #384) or the in-band error event of an overloaded provider
+// (issue #537). With retries off the turn ends with the error instead.
+func TestReActRecoversFromAFailureAfterText(t *testing.T) {
+	for _, failure := range []string{"json-cut", "overloaded"} {
+		t.Run(failure, func(t *testing.T) {
+			one := 1
+			f := newRetryBudgetFixture(t, &one, 10, failure, "answer")
+			f.run()
+			if got := f.requestCount(); got != 2 {
+				t.Errorf("upstream requests = %d, want 2: one failure, one recovery", got)
 			}
-		}
-	}
-	if err := json.Unmarshal([]byte(second), &req); err != nil {
-		t.Fatalf("decode the recovery request: %v", err)
-	}
-	kept := false
-	for _, msg := range req.Messages {
-		if msg.Role != "assistant" {
-			continue
-		}
-		for _, block := range msg.Content {
-			if strings.Contains(block.Text, "Hello fr") {
-				kept = true
+			if f.stop != string(acp.StopReasonEndTurn) || f.err != nil {
+				t.Errorf("stop = %s, err = %v; want end_turn without error", f.stop, f.err)
 			}
-		}
-	}
-	if !kept {
-		t.Errorf("the recovery request does not carry the delivered text as an assistant message: %s", second)
-	}
+			f.mu.Lock()
+			second := ""
+			if len(f.requests) > 1 {
+				second = f.requests[1]
+			}
+			f.mu.Unlock()
+			if !strings.Contains(second, "Continue exactly where it stopped") {
+				t.Errorf("the recovery request does not carry the continue nudge: %s", second)
+			}
+			// The text delivered before the failure travels as assistant
+			// history, not merely somewhere in the body, so the model continues
+			// its own answer.
+			var req struct {
+				Messages []struct {
+					Role    string
+					Content []struct {
+						Type string
+						Text string
+					}
+				}
+			}
+			if err := json.Unmarshal([]byte(second), &req); err != nil {
+				t.Fatalf("decode the recovery request: %v", err)
+			}
+			kept := false
+			for _, msg := range req.Messages {
+				if msg.Role != "assistant" {
+					continue
+				}
+				for _, block := range msg.Content {
+					if strings.Contains(block.Text, "Hello fr") {
+						kept = true
+					}
+				}
+			}
+			if !kept {
+				t.Errorf("the recovery request does not carry the delivered text as an assistant message: %s", second)
+			}
 
-	zero := 0
-	f = newRetryBudgetFixture(t, &zero, 10, "json-cut")
-	f.run()
-	if got := f.requestCount(); got != 1 {
-		t.Errorf("upstream requests with retries off = %d, want 1", got)
-	}
-	if f.stop != string(acp.StopReasonRefused) || f.err == nil {
-		t.Errorf("stop = %s, err = %v; want refused with the truncation error", f.stop, f.err)
+			zero := 0
+			f = newRetryBudgetFixture(t, &zero, 10, failure)
+			f.run()
+			if got := f.requestCount(); got != 1 {
+				t.Errorf("upstream requests with retries off = %d, want 1", got)
+			}
+			if f.stop != string(acp.StopReasonRefused) || f.err == nil {
+				t.Errorf("stop = %s, err = %v; want refused with the provider's error", f.stop, f.err)
+			}
+		})
 	}
 }
 

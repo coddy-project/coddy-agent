@@ -354,6 +354,7 @@ func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, te
 	mgr.SetGoalVerifier(agent.NewGoalVerifier(mgr, log))
 	wireLocalManager(mgr)
 	app = newApp(cfg, mgr, log, term, themeName, plain)
+	app.installConfig = mgr.InstallConfig
 	lateSender.inner = app.Sender()
 	// A task the model started with notify_on_finish begins its own turn in
 	// this console when it ends. A console attached to a remote server does

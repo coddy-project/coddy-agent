@@ -39,6 +39,7 @@ type mentionsFeatureState struct {
 	pages      map[string]string
 	seen       []acp.ContentBlock
 	checked    []session.CheckedMention
+	completed  session.MentionSearchResult
 }
 
 func (s *mentionsFeatureState) tempDir() (string, error) {
@@ -212,6 +213,73 @@ func (s *mentionsFeatureState) checkLeavesUnmarked(token string) error {
 	return fmt.Errorf("the check did not read %s as a token: %+v", token, s.checked)
 }
 
+// subprojectKeepsManualRule writes a rule that applies by hand only (no
+// patterns, alwaysApply: false) into Coddy's rule folder of a subfolder.
+func (s *mentionsFeatureState) subprojectKeepsManualRule(dir, name, body string) error {
+	p := filepath.Join(s.workspace, filepath.FromSlash(dir), ".coddy", "rules", name+".mdc")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(p, []byte("---\ndescription: "+name+" by hand\nalwaysApply: false\n---\n"+body+"\n"), 0o644)
+}
+
+// workspaceKeepsManualRule writes a rule that applies by hand only into the
+// workspace's own Coddy rule folder, at name (a path inside it), and reads the
+// session's rules again: the catalog is read when a rules generation starts.
+func (s *mentionsFeatureState) workspaceKeepsManualRule(name, body string) error {
+	p := filepath.Join(s.workspace, ".coddy", "rules", filepath.FromSlash(name)+".mdc")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(p, []byte("---\ndescription: "+name+" by hand\nalwaysApply: false\n---\n"+body+"\n"), 0o644); err != nil {
+		return err
+	}
+	s.mgr.SessionByID(s.sessionID).ReplaceRulesCatalog(session.DiscoverRules(s.mgr.Cfg(), s.workspace))
+	return nil
+}
+
+func (s *mentionsFeatureState) composerCompletes(query string) error {
+	res, err := s.mgr.SearchMentions(context.Background(), session.MentionSearch{SessionID: s.sessionID, Query: strings.TrimPrefix(query, "@")})
+	if err != nil {
+		return err
+	}
+	s.completed = res
+	return nil
+}
+
+func (s *mentionsFeatureState) completionCandidate(insert string) (session.MentionCandidate, error) {
+	var inserts []string
+	for _, c := range s.completed.Items {
+		if c.Insert == insert {
+			return c, nil
+		}
+		inserts = append(inserts, c.Insert)
+	}
+	return session.MentionCandidate{}, fmt.Errorf("the completion does not offer %s: %q", insert, inserts)
+}
+
+func (s *mentionsFeatureState) completionOffers(insert string) error {
+	c, err := s.completionCandidate(insert)
+	if err != nil {
+		return err
+	}
+	if c.Continue {
+		return fmt.Errorf("%s is offered as a step to look into, not as a rule: %+v", insert, c)
+	}
+	return nil
+}
+
+func (s *mentionsFeatureState) completionOffersStep(insert string) error {
+	c, err := s.completionCandidate(insert)
+	if err != nil {
+		return err
+	}
+	if !c.Continue {
+		return fmt.Errorf("%s does not keep the picker open: %+v", insert, c)
+	}
+	return nil
+}
+
 func (s *mentionsFeatureState) resources() []*acp.Resource {
 	var out []*acp.Resource
 	for _, b := range s.seen {
@@ -328,6 +396,11 @@ func initializeMentionsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the prompt attaches the earlier session holding "([^"]*)" and "([^"]*)"$`, s.attachesEarlierSession)
 	sc.Step(`^the prompt attaches the subagent "([^"]*)" asking to hand the work to spawn_agent$`, s.attachesSubagent)
 	sc.Step(`^the prompt attaches the documentation "([^"]*)" holding "([^"]*)"$`, s.attachesDocumentation)
+	sc.Step(`^the subproject "([^"]*)" keeps a Coddy rule "([^"]*)" to apply by hand, reading "([^"]*)"$`, s.subprojectKeepsManualRule)
+	sc.Step(`^the workspace keeps a Coddy rule "([^"]*)" to apply by hand, reading "([^"]*)"$`, s.workspaceKeepsManualRule)
+	sc.Step(`^the composer completes "([^"]*)"$`, s.composerCompletes)
+	sc.Step(`^the completion offers "([^"]*)"$`, s.completionOffers)
+	sc.Step(`^the completion offers "([^"]*)" to look into$`, s.completionOffersStep)
 }
 
 func TestMentionsFeature(t *testing.T) {
