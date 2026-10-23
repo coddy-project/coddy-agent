@@ -46,7 +46,7 @@ func TestUsageFooterLineReadsPlanWindowsAndWallet(t *testing.T) {
 	th := newTheme("dark")
 	segs := usageFooterSegments(usageFixtureUpdate(), "neuraldeep/qwen3.8-27b", usageNow)
 	line := plain(renderUsageLine(th, segs, 120))
-	want := "Pro • 3h 3% (resets 17:59) • week 7% (resets 00:00) • wallet -1 229 ₽"
+	want := "Pro • 3h 3% • week 7% • wallet -1 229 ₽"
 	if line != want {
 		t.Fatalf("footer line = %q, want %q", line, want)
 	}
@@ -59,10 +59,10 @@ func TestUsageFooterDropsSegmentsOnNarrowTerminals(t *testing.T) {
 		width int
 		want  string
 	}{
-		{60, "Pro • 3h 3% (resets 17:59) • week 7% (resets 00:00)"},
-		{40, "Pro • 3h 3% (resets 17:59)"},
-		{24, "3h 3% (resets 17:59)"},
-		{12, "3h 3% (reset"},
+		{36, "Pro • 3h 3% • week 7%"},
+		{20, "Pro • 3h 3%"},
+		{10, "3h 3%"},
+		{4, "3h …"},
 	}
 	for _, tc := range cases {
 		got := plain(renderUsageLine(th, segs, tc.width))
@@ -90,7 +90,7 @@ func TestUsageFooterWarnsAtTheThresholdAndOnABlock(t *testing.T) {
 		t.Fatalf("negative wallet = %+v, want the warning role", segs[3])
 	}
 	line := renderUsageLine(th, segs, 120)
-	if !strings.Contains(line, th.Fg(roleWarning, "3h 82% (resets 17:59)")) {
+	if !strings.Contains(line, th.Fg(roleWarning, "3h 82%")) {
 		t.Fatalf("rendered line lacks the warning-coloured segment: %q", line)
 	}
 
@@ -156,7 +156,7 @@ func TestUsageFooterUnlimitedModelAndKey(t *testing.T) {
 	u.Windows = u.Windows[2:] // only the day window survives on such a key
 	u.Windows[0].UsedPercent = 12.5
 	segs = usageFooterSegments(u, "neuraldeep/qwen3.8-27b", usageNow)
-	if got := plain(renderUsageLine(th, segs, 120)); got != "Pro • ∞ volume • day 13% (resets 00:00) • wallet -1 229 ₽" {
+	if got := plain(renderUsageLine(th, segs, 120)); got != "Pro • ∞ volume • day 13% • wallet -1 229 ₽" {
 		t.Fatalf("unlimited key line = %q", got)
 	}
 }
@@ -164,7 +164,7 @@ func TestUsageFooterUnlimitedModelAndKey(t *testing.T) {
 func TestUsageFooterErrorsAndStaleness(t *testing.T) {
 	th := newTheme("dark")
 	rejected := &acp.ProviderUsageUpdate{Provider: "nd-work", ProviderType: "neuraldeep", Error: "unauthorized"}
-	if got := plain(renderUsageLine(th, usageFooterSegments(rejected, "nd-work/x", usageNow), 120)); got != "nd-work: key rejected, run coddy providers login nd-work" {
+	if got := plain(renderUsageLine(th, usageFooterSegments(rejected, "nd-work/x", usageNow), 120)); got != "nd-work: key rejected, /login nd-work" {
 		t.Fatalf("rejected key line = %q", got)
 	}
 	if segs := usageFooterSegments(&acp.ProviderUsageUpdate{Provider: "neuraldeep", Error: "unavailable"}, "neuraldeep/x", usageNow); segs != nil {
@@ -177,7 +177,7 @@ func TestUsageFooterErrorsAndStaleness(t *testing.T) {
 	}
 	revoked := usageFixtureUpdate()
 	revoked.Error = "unauthorized"
-	if got := plain(renderUsageLine(th, usageFooterSegments(revoked, "neuraldeep/x", usageNow), 120)); got != "neuraldeep: key rejected, run coddy providers login neuraldeep" {
+	if got := plain(renderUsageLine(th, usageFooterSegments(revoked, "neuraldeep/x", usageNow), 120)); got != "neuraldeep: key rejected, /login neuraldeep" {
 		t.Fatalf("a rejected key must outrank old numbers: %q", got)
 	}
 	if lines := usageReportLines(revoked, "neuraldeep/x", usageNow); len(lines) != 2 || !strings.Contains(lines[1], "key rejected") {
@@ -461,12 +461,12 @@ func TestThemeSwitchKeepsTheUsageLine(t *testing.T) {
 	a.refreshFooterModel()
 	a.foot.now = func() time.Time { return usageNow }
 	a.applyProviderUsage(*usageFixtureUpdate())
-	if lines := a.foot.Render(120); len(lines) != 3 {
+	if lines := a.foot.Render(120); len(lines) != 2 || !strings.Contains(plain(lines[1]), "3h 3%") {
 		t.Fatalf("footer before the switch = %q", lines)
 	}
 	a.switchTheme("light")
 	lines := a.foot.Render(120)
-	if len(lines) != 3 || !strings.Contains(plain(lines[2]), "3h 3% (resets 17:59)") {
+	if len(lines) != 2 || !strings.Contains(plain(lines[1]), "3h 3% • week 7%") {
 		t.Fatalf("footer after the switch = %q", lines)
 	}
 }
@@ -477,23 +477,23 @@ func TestFooterShowsUsageOnlyForTheActiveProvider(t *testing.T) {
 	f.SetModel("neuraldeep/qwen3.8-27b", "")
 	f.SetUsage(usageFixtureUpdate())
 	lines := f.Render(120)
-	if len(lines) != 3 || !strings.Contains(plain(lines[2]), "3h 3%") {
+	if len(lines) != 2 || !strings.Contains(plain(lines[1]), "3h 3%") {
 		t.Fatalf("footer = %q", lines)
 	}
 	f.SetModel("stub/model", "")
-	if lines = f.Render(120); len(lines) != 2 {
-		t.Fatalf("another provider must hide the line: %q", lines)
+	if lines = f.Render(120); len(lines) != 2 || strings.Contains(plain(lines[1]), "3h") {
+		t.Fatalf("another provider must hide the usage: %q", lines)
 	}
 	// A foreign row's update never blanks the active provider's line.
 	other := usageFixtureUpdate()
 	other.Provider = "nd-work"
 	f.SetUsage(other)
 	f.SetModel("neuraldeep/qwen3.8-27b", "")
-	if lines = f.Render(120); len(lines) != 3 || !strings.Contains(plain(lines[2]), "3h 3%") {
+	if lines = f.Render(120); len(lines) != 2 || !strings.Contains(plain(lines[1]), "3h 3%") {
 		t.Fatalf("foreign update hid the active line: %q", lines)
 	}
 	f.SetModel("neuraldeep/qwen3.6-35b-a3b", "")
-	if lines = f.Render(120); len(lines) != 3 || !strings.Contains(plain(lines[2]), "∞ volume") {
+	if lines = f.Render(120); len(lines) != 2 || !strings.Contains(plain(lines[1]), "∞ volume") {
 		t.Fatalf("unlimited model must read ∞: %q", lines)
 	}
 }

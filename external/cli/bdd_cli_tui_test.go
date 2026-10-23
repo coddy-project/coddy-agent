@@ -191,6 +191,9 @@ type cliTUIState struct {
 	skillDirs    []string
 	skillSources []string
 	silentSource *silentListener
+	// loginStand is the stand-in hub of a /login scenario
+	// (features/cli_login.feature).
+	loginStand *loginStand
 }
 
 // syncBuffer is a goroutine-safe string sink for the one-shot print steps.
@@ -279,6 +282,10 @@ func (s *cliTUIState) shutdown() {
 	if s.silentSource != nil {
 		s.silentSource.close()
 		s.silentSource = nil
+	}
+	if s.loginStand != nil {
+		s.loginStand.stop()
+		s.loginStand = nil
 	}
 	if s.usageEnvSet {
 		_ = os.Setenv(llm.EnvNeuralDeepBaseURL, s.prevBaseEnv)
@@ -1925,6 +1932,7 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	})
 
 	sc.Step(`^a coddy console app over a stub agent runner$`, s.aConsoleAppOverStubRunner)
+	registerCLILoginSteps(sc, s)
 	sc.Step(`^the workspace holds a nested AGENTS\.md in a folder no tool has entered$`, s.workspaceHoldsUntouchedNestedAgents)
 	sc.Step(`^rules discovery is switched on for that app$`, s.rulesDiscoveryOn)
 	sc.Step(`^the session catalog holds no nested AGENTS\.md$`, s.catalogHoldsNoNestedAgents)
@@ -2112,7 +2120,7 @@ func TestCLITUIFeature(t *testing.T) {
 		ScenarioInitializer: initializeCLITUIScenario,
 		Options: &godog.Options{
 			Format:   "pretty",
-			Paths:    []string{"../../features/cli_tui.feature", "../../features/cli_mcp.feature"},
+			Paths:    []string{"../../features/cli_tui.feature", "../../features/cli_mcp.feature", "../../features/cli_login.feature"},
 			TestingT: t,
 			Strict:   true,
 		},

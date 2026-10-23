@@ -17,6 +17,7 @@ Feature: Coddy installs from its own Homebrew tap
     And on "arm" it downloads "coddy_1.3.14_darwin_arm64.tar.gz" with that archive's checksum
     And on "intel" it downloads "coddy_1.3.14_darwin_amd64.tar.gz" with that archive's checksum
     And it installs the binary, the man page and the bash and zsh completions
+    And its caveats say how zsh loads the completion
     And it lifts the quarantine from the installed binary
     And it uses no stanza current Homebrew deprecates
 

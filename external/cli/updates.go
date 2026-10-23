@@ -69,6 +69,11 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		}
 		if u.err != nil {
 			a.appendStatus(roleError, "Turn failed: "+u.err.Error())
+			// A fresh install fails its first turn for want of a provider,
+			// and a session can sit on a provider nobody signed in.
+			if hint := a.turnFailureHint(); hint != "" {
+				a.appendStatus(roleDim, hint)
+			}
 		} else if u.stop == "cancelled" {
 			a.appendStatus(roleDim, "Operation aborted")
 		} else if u.notice != "" {
@@ -105,6 +110,14 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 				if opt.ID == "model" {
 					a.modelID = opt.CurrentValue
 				}
+			}
+		}
+		if a.modelID == "" {
+			// A session that had no model to run on (a fresh install signing
+			// in) runs on the default the new configuration names.
+			a.modelID = a.config().Agent.Model
+			if a.modelID == "" {
+				a.modelID = a.config().FirstModelID()
 			}
 		}
 		a.refreshFooterModel()
