@@ -24,7 +24,7 @@ Feature: Signing in to a model provider from the console
     Then the screen shows the hub's verification page and the code "WXYZ-2345"
     And the screen shows "Signed in to NeuralDeep as dev"
     And config.yaml lists the provider "neuraldeep" with the models "neuraldeep/qwen3.8-27b" and "neuraldeep/gpt-oss-120b"
-    And the footer shows "neuraldeep/qwen3.8-27b"
+    And the footer shows "(neuraldeep) qwen3.8-27b"
     And the screen no longer shows "Type /login to sign in to NeuralDeep"
     And the model selector offers "neuraldeep/gpt-oss-120b"
 

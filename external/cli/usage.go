@@ -17,9 +17,10 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
-// Provider usage on the status bar: the third footer line shows how much of
-// the account's quota behind the active model is spent and when it resets
-// (plus the wallet for wallet keys), a transcript notice warns at 80 % and
+// Provider usage on the status bar: the right of the footer's second line,
+// under the model, shows how much of the account's quota behind the active
+// model is spent (plus the wallet for wallet keys; the reset times are left
+// to /usage and to a hit limit), a transcript notice warns at 80 % and
 // on a hit limit, and /usage prints the whole breakdown. The numbers come
 // from acp.ProviderUsageUpdate, which the manager publishes at session ready
 // and at turn end; the console asks for one after /model and when a window's
@@ -339,7 +340,7 @@ func usageFooterSegments(u *acp.ProviderUsageUpdate, modelID string, now time.Ti
 	if u.Error == "unauthorized" {
 		// A rejected key outranks whatever numbers were read with it.
 		provider := tui.SanitizeText(u.Provider)
-		return []usageSegment{{text: provider + ": key rejected, run coddy providers login " + provider, role: roleWarning}}
+		return []usageSegment{{text: provider + ": key rejected, /login " + provider, role: roleWarning}}
 	}
 	// A missing ProviderType is the legacy NeuralDeep shape; only the
 	// subscription sources (Codex, Devin) get the new presentation.
@@ -434,7 +435,8 @@ func renderUsageLine(th *tui.Theme, segs []usageSegment, width int) string {
 	for {
 		line := joinUsageSegments(th, current)
 		if tui.VisibleWidth(line) <= width || len(current) <= 1 {
-			return tui.TruncateToWidth(line, width, "")
+			// A cut segment says so: "3h 3" would read as a smaller number.
+			return tui.TruncateToWidth(line, width, "…")
 		}
 		// Drop the segment with the highest drop rank; ties keep the first.
 		victim, rank := -1, dropNever
@@ -444,7 +446,7 @@ func renderUsageLine(th *tui.Theme, segs []usageSegment, width int) string {
 			}
 		}
 		if victim < 0 {
-			return tui.TruncateToWidth(line, width, "")
+			return tui.TruncateToWidth(line, width, "…")
 		}
 		current = append(current[:victim], current[victim+1:]...)
 	}
@@ -492,7 +494,7 @@ func usageReportLines(u *acp.ProviderUsageUpdate, modelID string, now time.Time)
 	lines := []string{head}
 	if u.Error == "unauthorized" {
 		provider := tui.SanitizeText(u.Provider)
-		return append(lines, "  key rejected, run coddy providers login "+provider)
+		return append(lines, "  key rejected, /login "+provider)
 	}
 	if modelUnlimited(u, modelID) {
 		lines = append(lines, "  volume        ∞ (this model bypasses the session and week windows)")

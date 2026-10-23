@@ -460,3 +460,48 @@ func TestDefaultModelAndProviderReady(t *testing.T) {
 		t.Fatalf("a provider with no model has none: %q", got)
 	}
 }
+
+// RepointAgentModel decides on config.yaml as it is when the sign-in ends:
+// an agent.model the operator moved to a working provider meanwhile stays.
+func TestRepointAgentModelReadsTheFileAsItIsNow(t *testing.T) {
+	home := isolate(t)
+	paths := freshConfig(home).Paths
+	body := "providers:\n  - name: openai\n    type: openai\n  - name: local\n    type: openai\n    api_base: http://127.0.0.1:8080/v1\n  - name: neuraldeep\n    type: neuraldeep\nmodels:\n  - model: openai/a\n  - model: local/b\n  - model: neuraldeep/c\nagent:\n  model: local/b\n"
+	if err := os.WriteFile(paths.ConfigPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if from, to, err := RepointAgentModel(paths, "neuraldeep"); err != nil || from != "" || to != "" {
+		t.Fatalf("a working agent.model moved: %q -> %q (%v)", from, to, err)
+	}
+	if err := os.WriteFile(paths.ConfigPath, []byte(strings.Replace(body, "agent:\n  model: local/b\n", "agent:\n  model: openai/a\n", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	from, to, err := RepointAgentModel(paths, "neuraldeep")
+	if err != nil || from != "openai/a" || to != "neuraldeep/c" {
+		t.Fatalf("an agent.model without a key: %q -> %q (%v)", from, to, err)
+	}
+}
+
+// A Codex row is ready by its stored ChatGPT sign-in, read without the lock
+// a refresh holds; an API-key login file is not a ChatGPT sign-in.
+func TestReadyReadsTheCodexSignIn(t *testing.T) {
+	home := isolate(t)
+	cfg := freshConfig(home)
+	cfg.Providers = []config.ProviderConfig{{Name: "codex", Type: "codex"}}
+	path := config.CodexAuthPath(home, "codex")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"auth_mode":"chatgpt","tokens":{"access_token":"x","refresh_token":"y"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !Ready(cfg) {
+		t.Fatal("a stored ChatGPT sign-in makes the codex row ready")
+	}
+	if err := os.WriteFile(path, []byte(`{"auth_mode":"apikey","OPENAI_API_KEY":"sk-x"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if Ready(cfg) {
+		t.Fatal("an API-key file is not a ChatGPT sign-in")
+	}
+}

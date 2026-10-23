@@ -330,3 +330,60 @@ func TestFinishLoginMovesTheSessionOffAProviderThatCannotAnswer(t *testing.T) {
 		t.Fatalf("a working session was moved (%q) or not told how to switch: %q", b.modelID, transcriptText(b))
 	}
 }
+
+// A sign-in that fails says why; only escape (or the console closing) reads
+// as a stop.
+func TestAFailedSignInSaysWhy(t *testing.T) {
+	t.Setenv(llm.EnvNeuralDeepHubURL, "http://127.0.0.1:1")
+	t.Setenv("NEURALDEEP_API_KEY", "")
+	a := newManagedTestApp(t)
+	a.browserAvailable = func() bool { return false }
+	prov, err := providerlogin.Resolve(a.config(), providerlogin.DefaultType, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.startLogin(*prov)
+	deadline := time.Now().Add(10 * time.Second)
+	for a.login != nil && time.Now().Before(deadline) {
+		select {
+		case msg := <-a.updatesCh:
+			a.applyLoopMessage(msg)
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	text := strings.Join(strings.Fields(transcriptText(a)), " ")
+	if !strings.Contains(text, "Sign-in to NeuralDeep failed:") || strings.Contains(text, "stopped") {
+		t.Fatalf("a hub that cannot be reached is a failure with its reason: %q", text)
+	}
+}
+
+// After a failed turn the console names the setup problem behind it: no
+// provider at all, or the session's model on a provider with no key or
+// sign-in; a turn that failed on a working provider gets no such line.
+func TestTurnFailureHint(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("NEURALDEEP_API_KEY", "")
+	a := newTestApp(t)
+	if got := a.turnFailureHint(); got != loginHint {
+		t.Fatalf("no provider at all: %q", got)
+	}
+	cfg := a.config()
+	cfg.Providers = []config.ProviderConfig{{Name: "openai", Type: "openai"}, {Name: "local", Type: "openai", APIBase: "http://127.0.0.1:8080/v1"}, {Name: "neuraldeep", Type: "neuraldeep"}}
+	a.modelID = "openai/gpt-5.6-terra"
+	if got := a.turnFailureHint(); !strings.Contains(got, `Provider "openai" has no key`) || !strings.Contains(got, "OPENAI_API_KEY") || !strings.Contains(got, "ctrl+l") {
+		t.Fatalf("a model on a row without a key: %q", got)
+	}
+	a.modelID = "neuraldeep/qwen3.8-27b"
+	if got := a.turnFailureHint(); !strings.Contains(got, "type /login neuraldeep") {
+		t.Fatalf("a model on a sign-in row nobody signed in: %q", got)
+	}
+	a.modelID = "local/b"
+	if got := a.turnFailureHint(); got != "" {
+		t.Fatalf("a turn that failed on a working provider: %q", got)
+	}
+	a.remoteURL = "https://coddy.example.test"
+	a.modelID = "openai/gpt-5.6-terra"
+	if got := a.turnFailureHint(); got != "" {
+		t.Fatalf("over --remote the server's configuration decides: %q", got)
+	}
+}

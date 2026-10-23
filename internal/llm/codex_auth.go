@@ -303,6 +303,38 @@ func InspectCodexAuth(path string, cliLogin bool) (CodexAuthStatus, error) {
 	return CodexAuthStatus{}, nil
 }
 
+// CodexLoginStored reports whether path, or the Codex CLI login when cliLogin
+// allows it, holds a ChatGPT sign-in, the way InspectCodexAuth decides it but
+// without the lock a token refresh holds through its request: a surface asks
+// this while it draws. Only a regular file counts, and one that cannot be read
+// or parsed counts as signed in, since a refresh rewrites it in place.
+func CodexLoginStored(path string, cliLogin bool) bool {
+	candidates := []string{strings.TrimSpace(path)}
+	if cliPath := codexAuthPath(); cliLogin && cliPath != "" {
+		candidates = append(candidates, cliPath)
+	}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		fi, err := os.Stat(candidate)
+		if err != nil || !fi.Mode().IsRegular() {
+			continue
+		}
+		data, err := os.ReadFile(candidate)
+		if err != nil {
+			return true
+		}
+		var auth codexAuthFile
+		if err := json.Unmarshal(data, &auth); err != nil {
+			return true
+		}
+		return (auth.AuthMode == "" || auth.AuthMode == codexAuthModeChatGPT) &&
+			(strings.TrimSpace(auth.Tokens.AccessToken) != "" || strings.TrimSpace(auth.Tokens.RefreshToken) != "")
+	}
+	return false
+}
+
 // CodexAuthNotice is one startup observation about a codex provider credential.
 // Warning marks states that need the operator to act (no credential at all, or
 // an expired token with nothing left to refresh it with).

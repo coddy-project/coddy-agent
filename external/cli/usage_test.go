@@ -62,7 +62,7 @@ func TestUsageFooterDropsSegmentsOnNarrowTerminals(t *testing.T) {
 		{36, "Pro • 3h 3% • week 7%"},
 		{20, "Pro • 3h 3%"},
 		{10, "3h 3%"},
-		{4, "3h 3"},
+		{4, "3h …"},
 	}
 	for _, tc := range cases {
 		got := plain(renderUsageLine(th, segs, tc.width))
@@ -164,7 +164,7 @@ func TestUsageFooterUnlimitedModelAndKey(t *testing.T) {
 func TestUsageFooterErrorsAndStaleness(t *testing.T) {
 	th := newTheme("dark")
 	rejected := &acp.ProviderUsageUpdate{Provider: "nd-work", ProviderType: "neuraldeep", Error: "unauthorized"}
-	if got := plain(renderUsageLine(th, usageFooterSegments(rejected, "nd-work/x", usageNow), 120)); got != "nd-work: key rejected, run coddy providers login nd-work" {
+	if got := plain(renderUsageLine(th, usageFooterSegments(rejected, "nd-work/x", usageNow), 120)); got != "nd-work: key rejected, /login nd-work" {
 		t.Fatalf("rejected key line = %q", got)
 	}
 	if segs := usageFooterSegments(&acp.ProviderUsageUpdate{Provider: "neuraldeep", Error: "unavailable"}, "neuraldeep/x", usageNow); segs != nil {
@@ -177,7 +177,7 @@ func TestUsageFooterErrorsAndStaleness(t *testing.T) {
 	}
 	revoked := usageFixtureUpdate()
 	revoked.Error = "unauthorized"
-	if got := plain(renderUsageLine(th, usageFooterSegments(revoked, "neuraldeep/x", usageNow), 120)); got != "neuraldeep: key rejected, run coddy providers login neuraldeep" {
+	if got := plain(renderUsageLine(th, usageFooterSegments(revoked, "neuraldeep/x", usageNow), 120)); got != "neuraldeep: key rejected, /login neuraldeep" {
 		t.Fatalf("a rejected key must outrank old numbers: %q", got)
 	}
 	if lines := usageReportLines(revoked, "neuraldeep/x", usageNow); len(lines) != 2 || !strings.Contains(lines[1], "key rejected") {

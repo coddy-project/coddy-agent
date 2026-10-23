@@ -240,11 +240,26 @@ func neuralDeepWriteConfig(ctx context.Context, cfg *config.Config, name, hub, a
 	}
 	if len(added) == 0 {
 		fmt.Println("config.yaml already lists this provider and its models.")
-		return nil
+	} else {
+		fmt.Printf("Updated %s: %s\n", cfg.Paths.ConfigPath, strings.Join(added, ", "))
+		fmt.Println("A running `coddy serve` server keeps its loaded config; restart it (or edit settings in the UI) to pick the changes up.")
 	}
-	fmt.Printf("Updated %s: %s\n", cfg.Paths.ConfigPath, strings.Join(added, ", "))
-	fmt.Println("A running `coddy serve` server keeps its loaded config; restart it (or edit settings in the UI) to pick the changes up.")
+	moveAgentModelAfterLogin(cfg, name)
 	return nil
+}
+
+// moveAgentModelAfterLogin moves agent.model to the provider just signed in
+// when the model it names runs on a provider that cannot answer - the
+// example config's openai row with its key unset - and says so. A failure is
+// a note: the sign-in and the catalog are in place either way.
+func moveAgentModelAfterLogin(cfg *config.Config, name string) {
+	from, to, err := providerlogin.RepointAgentModel(cfg.Paths, name)
+	switch {
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "note: could not move agent.model to provider %q: %v\n", name, err)
+	case to != "":
+		fmt.Printf("agent.model was %s, whose provider cannot answer; it is %s now.\n", from, to)
+	}
 }
 
 func providersLogout(cfg *config.Config, name string) error {

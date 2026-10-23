@@ -107,10 +107,11 @@ func devinWriteConfig(ctx context.Context, cfg *config.Config, prov *config.Prov
 	}
 	if len(added) == 0 {
 		fmt.Println("config.yaml already lists this provider and its models.")
-		return
+	} else {
+		fmt.Printf("Updated %s: %s\n", cfg.Paths.ConfigPath, providerlogin.SummarizeAdded(added))
+		fmt.Println("A running `coddy serve` server keeps its loaded config; restart it (or edit settings in the UI) to pick the changes up.")
 	}
-	fmt.Printf("Updated %s: %s\n", cfg.Paths.ConfigPath, providerlogin.SummarizeAdded(added))
-	fmt.Println("A running `coddy serve` server keeps its loaded config; restart it (or edit settings in the UI) to pick the changes up.")
+	moveAgentModelAfterLogin(cfg, prov.Name)
 }
 
 // devinCredentialSummary is the `providers list` line of a devin row.

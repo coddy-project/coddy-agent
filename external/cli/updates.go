@@ -69,9 +69,10 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		}
 		if u.err != nil {
 			a.appendStatus(roleError, "Turn failed: "+u.err.Error())
-			// A fresh install fails its first turn for want of a provider.
-			if a.needsLogin() {
-				a.appendStatus(roleDim, loginHint)
+			// A fresh install fails its first turn for want of a provider,
+			// and a session can sit on a provider nobody signed in.
+			if hint := a.turnFailureHint(); hint != "" {
+				a.appendStatus(roleDim, hint)
 			}
 		} else if u.stop == "cancelled" {
 			a.appendStatus(roleDim, "Operation aborted")

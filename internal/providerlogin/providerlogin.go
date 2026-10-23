@@ -2,7 +2,8 @@
 // sign-ins of NeuralDeep, Codex and OpenCode and the browser sign-in of Devin,
 // then the catalog each one adds to config.yaml. The console's /login runs it
 // whole; `coddy providers login` shares its provider resolution, its endpoint
-// rules and its summary of what a sign-in added.
+// rules, its summary of what a sign-in added and the move of an agent.model
+// that cannot answer (RepointAgentModel).
 package providerlogin
 
 import (
@@ -188,19 +189,17 @@ func rowReady(cfg *config.Config, prov *config.ProviderConfig) bool {
 	case "acp":
 		return prov.ACP != nil && strings.TrimSpace(prov.ACP.Command) != ""
 	case "codex":
-		// The file, not llm.InspectCodexAuth: that one waits on the lock a
-		// token refresh holds through its request, and a surface asks this
-		// while it draws.
-		if fileExists(config.CodexAuthPath(home, prov.Name)) {
-			return true
-		}
-		return cfg.ProviderMayUseCLILogin(prov.Name, "codex") && llm.CodexCLILoginPresent()
+		// Not llm.InspectCodexAuth: that one waits on the lock a token
+		// refresh holds through its request, and a surface asks this while
+		// it draws.
+		return llm.CodexLoginStored(config.CodexAuthPath(home, prov.Name), cfg.ProviderMayUseCLILogin(prov.Name, "codex"))
 	}
 	if keySource(prov) != "" {
 		return true
 	}
 	switch prov.Type {
-	case "openai":
+	case "openai", "anthropic":
+		// An endpoint of its own may need no key: a local server, a gateway.
 		return strings.TrimSpace(prov.APIBase) != ""
 	case "neuraldeep":
 		st, err := llm.InspectNeuralDeepAuth(config.NeuralDeepAuthPath(home, prov.Name))
@@ -242,14 +241,6 @@ func DefaultModel(cfg *config.Config, provider string) string {
 		}
 	}
 	return ""
-}
-
-func fileExists(path string) bool {
-	if path == "" {
-		return false
-	}
-	_, err := os.Stat(path)
-	return err == nil
 }
 
 // keySource names the key a row carries besides a sign-in, without running
@@ -319,12 +310,17 @@ type Result struct {
 	// AgentModelFrom is the agent.model the sign-in replaced because its
 	// provider could not answer; "" when it left agent.model alone.
 	AgentModelFrom string
+	// AgentModelErr is set when that replacement failed; the provider and
+	// its models are in config.yaml either way.
+	AgentModelErr error
 }
 
 // Run signs prov in the way a person at a terminal can - the device flow of
 // NeuralDeep, Codex and OpenCode, the browser sign-in of Devin - and then
 // adds the provider row and every model the account serves to config.yaml,
 // agent.model too when none is set: the catalog `coddy providers login` adds.
+// An agent.model whose provider cannot answer moves to the provider signed in
+// (RepointAgentModel).
 // Every request goes through the row's own proxy setting. A sign-in stopped
 // through ctx returns an error that wraps ctx's.
 func Run(ctx context.Context, cfg *config.Config, prov *config.ProviderConfig, h Hooks) (Result, error) {
@@ -353,46 +349,51 @@ func Run(ctx context.Context, cfg *config.Config, prov *config.ProviderConfig, h
 		return Result{}, err
 	}
 	if res.ConfigErr == nil {
-		repointAgentModel(cfg, prov.Name, &res)
+		from, to, err := RepointAgentModel(cfg.Paths, prov.Name)
+		switch {
+		case err != nil:
+			res.AgentModelErr = err
+		case to != "":
+			res.Added = append(res.Added, "agent.model "+to)
+			res.AgentModelFrom = from
+		}
 	}
 	return res, nil
 }
 
-// repointAgentModel moves agent.model to the provider just signed in when
-// the model it names runs on a row that cannot answer - the example config's
-// openai row with OPENAI_API_KEY unset - so a new session does not start on
-// a model no request reaches. A working agent.model stays as it is.
-func repointAgentModel(cfg *config.Config, provider string, res *Result) {
+// RepointAgentModel moves agent.model to provider, just signed in, when the
+// model it names runs on a row that cannot answer - the example config's
+// openai row with OPENAI_API_KEY unset - so a new session does not start on a
+// model no request reaches. It decides on config.yaml as it is now, after the
+// sign-in wrote its catalog: an agent.model that answers, or one the operator
+// changed meanwhile to a provider that answers, stays. It returns the model
+// it replaced and the one it set, both "" when it left agent.model alone.
+func RepointAgentModel(paths config.Paths, provider string) (from, to string, err error) {
+	cfg, err := config.LoadWithPaths(paths)
+	if err != nil {
+		return "", "", err
+	}
 	current := strings.TrimSpace(cfg.Agent.Model)
 	if current == "" {
-		// The catalog the sign-in added set it already.
-		return
+		return "", "", nil
 	}
 	owner, _, _ := config.SplitModelRef(current)
 	if owner == provider || ProviderReady(cfg, owner) {
-		return
+		return "", "", nil
 	}
-	next, err := config.LoadWithPaths(cfg.Paths)
-	if err != nil {
-		res.ConfigErr = err
-		return
-	}
-	target := ""
-	for _, m := range next.Models {
+	for _, m := range cfg.Models {
 		if o, _, _ := config.SplitModelRef(m.Model); o == provider {
-			target = m.Model
+			to = m.Model
 			break
 		}
 	}
-	if target == "" {
-		return
+	if to == "" {
+		return "", "", nil
 	}
-	if _, err := config.CommitUCICommands(cfg.Paths, []config.UCICommand{{Op: config.UCIOpSet, Path: "agent.model", Value: target}}); err != nil {
-		res.ConfigErr = err
-		return
+	if _, err := config.CommitUCICommands(paths, []config.UCICommand{{Op: config.UCIOpSet, Path: "agent.model", Value: to}}); err != nil {
+		return "", "", err
 	}
-	res.Added = append(res.Added, "agent.model "+target)
-	res.AgentModelFrom = current
+	return current, to, nil
 }
 
 func (h Hooks) prompt(p Prompt) {

@@ -51,10 +51,11 @@ func codexWriteConfig(ctx context.Context, cfg *config.Config, prov *config.Prov
 	}
 	if len(added) == 0 {
 		fmt.Println("config.yaml already lists this provider and its models.")
-		return
+	} else {
+		fmt.Printf("Updated %s: %s\n", cfg.Paths.ConfigPath, strings.Join(added, ", "))
+		fmt.Println("A running `coddy serve` server keeps its loaded config; restart it (or edit settings in the UI) to pick the changes up.")
 	}
-	fmt.Printf("Updated %s: %s\n", cfg.Paths.ConfigPath, strings.Join(added, ", "))
-	fmt.Println("A running `coddy serve` server keeps its loaded config; restart it (or edit settings in the UI) to pick the changes up.")
+	moveAgentModelAfterLogin(cfg, name)
 }
 
 func codexStatus(name, authPath string, cliLogin bool) error {

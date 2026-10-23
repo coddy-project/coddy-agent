@@ -58,6 +58,27 @@ func (a *App) needsLogin() bool {
 	return a.remoteURL == "" && !providerlogin.Ready(a.config())
 }
 
+// turnFailureHint is the line after a failed turn whose cause is the setup
+// rather than the request: no provider can answer at all, or the session's
+// model runs on one that cannot. "" otherwise, and over --remote.
+func (a *App) turnFailureHint() string {
+	if a.remoteURL != "" {
+		return ""
+	}
+	cfg := a.config()
+	if !providerlogin.Ready(cfg) {
+		return loginHint
+	}
+	owner := usageProviderOf(a.modelID)
+	if owner == "" || providerlogin.ProviderReady(cfg, owner) {
+		return ""
+	}
+	if prov := cfg.FindProvider(owner); prov != nil && providerlogin.Supports(prov.Type) {
+		return fmt.Sprintf("Provider %q has no sign-in: type /login %s, or press ctrl+l for a model of another provider.", owner, owner)
+	}
+	return fmt.Sprintf("Provider %q has no key: set api_key or %s, or press ctrl+l for a model of another provider.", owner, config.ProviderAPIKeyEnvVarName(owner))
+}
+
 // dispatchLogin handles /login [provider]. Every refusal says why before
 // anything starts.
 func (a *App) dispatchLogin(args []string) {
@@ -199,7 +220,9 @@ func (a *App) finishLogin(run *loginRun, res providerlogin.Result, err, reloadEr
 		a.login = nil
 	}
 	if err != nil {
-		if errors.Is(err, context.Canceled) || (run.ctx != nil && run.ctx.Err() != nil) {
+		// Run wraps the cancellation of its context; the worker's own cancel
+		// after Run returned must not turn a failure into a stop.
+		if errors.Is(err, context.Canceled) {
 			a.appendStatus(roleDim, "Sign-in to "+run.title+" stopped")
 			return
 		}
@@ -224,6 +247,9 @@ func (a *App) finishLogin(run *loginRun, res providerlogin.Result, err, reloadEr
 		if reloadErr != nil {
 			a.appendStatus(roleWarning, "The console could not load the new config.yaml ("+reloadErr.Error()+"); restart coddy to use it")
 		}
+	}
+	if res.AgentModelErr != nil {
+		a.appendStatus(roleWarning, "Could not move agent.model to provider "+res.Provider+": "+res.AgentModelErr.Error())
 	}
 	if res.AgentModelFrom != "" {
 		a.appendStatus(roleDim, "agent.model named "+tui.SanitizeText(res.AgentModelFrom)+", whose provider cannot answer; new sessions start on the signed-in provider now")

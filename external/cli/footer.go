@@ -19,8 +19,8 @@ import (
 // line 1: dim cwd (git branch) • session title [• plan] and its notes left,
 // (provider) model • reasoning [• tools <toolset>] right;
 // line 2: token stats + context occupancy left and, while the active model's
-// provider reports account usage, plan • window percentages with reset
-// times • wallet right, under the model (usage.go);
+// provider reports account usage, plan • window percentages • wallet right,
+// under the model (usage.go);
 // line 3, only while a setting is changed for a number of turns: the turn
 // overrides.
 type footer struct {
@@ -173,6 +173,19 @@ func (f *footer) goalNote(avail int) (note, role string) {
 	return "", ""
 }
 
+// goalNoteMinWidth is the width of the goal note's shortest form, the status
+// alone, or 0 without a goal.
+func (f *footer) goalNoteMinWidth() int {
+	if f.goal == nil {
+		return 0
+	}
+	status := strings.TrimSpace(f.goal.Status)
+	if status == "" {
+		status = acp.GoalStatusActive
+	}
+	return tui.VisibleWidth(" • ◎ goal " + tui.SanitizeText(status))
+}
+
 // goalStatusRole is the colour of a goal status: the accent while the
 // supervisor works on it, the warning when it waits for the operator, success
 // once it is met, muted while it is held.
@@ -244,7 +257,8 @@ func (f *footer) Usage() *acp.ProviderUsageUpdate {
 	return f.usages[f.provider]
 }
 
-// usageLine renders the third line, or "" when nothing applies.
+// usageLine renders the account usage for the right of the second line in at
+// most width cells, or "" when nothing applies.
 func (f *footer) usageLine(width int) string {
 	u := f.Usage()
 	if u == nil {
@@ -340,7 +354,9 @@ func (f *footer) firstNotes() (notes, perm string) {
 // cut, and a line too narrow for even a cut model gives the model up.
 func (f *footer) firstLine(width int) string {
 	notes, perm := f.firstNotes()
-	kept := tui.VisibleWidth(notes) + tui.VisibleWidth(perm)
+	// The goal note shortens down to its status before it goes; the model is
+	// cut first, so the status keeps its room.
+	kept := tui.VisibleWidth(notes) + tui.VisibleWidth(perm) + f.goalNoteMinWidth()
 	right := f.modelSegment()
 	if right != "" {
 		maxRight := width - footerGap - kept - 8
@@ -449,8 +465,11 @@ func (f *footer) secondLine(width int) string {
 		return th.Fg(roleDim, tui.TruncateToWidth(left, width, ""))
 	}
 	gap := width - tui.VisibleWidth(left) - tui.VisibleWidth(usage)
-	if gap < 1 {
+	if gap < 1 && left != "" {
 		gap = 1
+	}
+	if gap < 0 {
+		gap = 0
 	}
 	return th.Fg(roleDim, left) + strings.Repeat(" ", gap) + usage
 }

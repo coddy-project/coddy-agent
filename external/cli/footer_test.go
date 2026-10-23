@@ -228,3 +228,36 @@ func TestFooterLeavesNoBlankRowAboveTheOverrides(t *testing.T) {
 		t.Fatalf("footer = %q", plainLines(lines))
 	}
 }
+
+// The model shares the first line with the session goal too: on a narrow
+// line the model is cut before the goal loses its status.
+func TestFooterKeepsTheGoalStatusBesideTheModel(t *testing.T) {
+	f := newFooter(newTheme("dark"), "/home/operator/projects/coddy")
+	f.SetModel("neuraldeep/qwen3.8-27b", "high")
+	f.SetRunningTasks(2)
+	f.permission = "bypass"
+	f.SetGoal(&acp.SessionGoal{Status: acp.GoalStatusBlocked})
+	for _, width := range []int{120, 100, 80} {
+		line := plain(f.Render(width)[0])
+		if !strings.Contains(line, "◎ goal blocked") {
+			t.Fatalf("at %d cells the goal status is gone:\n%q", width, line)
+		}
+		if got := tui.VisibleWidth(line); got > width {
+			t.Fatalf("at %d cells the line is %d wide", width, got)
+		}
+	}
+}
+
+// With nothing on its left the usage reaches the right edge and no further.
+func TestFooterSecondLineNeverOverflows(t *testing.T) {
+	f := newFooter(newTheme("dark"), "/work")
+	f.now = func() time.Time { return usageNow }
+	f.SetModel("neuraldeep/qwen3.8-27b", "")
+	f.SetUsage(usageFixtureUpdate())
+	for _, width := range []int{120, 40, 21, 11, 5} {
+		lines := f.Render(width)
+		if got := tui.VisibleWidth(lines[1]); got > width {
+			t.Fatalf("at %d cells the second line is %d wide: %q", width, got, plain(lines[1]))
+		}
+	}
+}
