@@ -107,12 +107,11 @@ test("the actions menu is fixed to the window, outside the clipping card", () =>
   expect(menu).toMatch(/overflow-y:\s*auto/);
 });
 
-// The row keeps 16px before the paragraph after it, but the answer's foot has a
-// margin of its own: added to it, the foot stood twice as far from the cards as
-// from a paragraph.
-test("the last row of cards leaves the gap above the answer's foot to the foot", () => {
+// The row keeps 16px before the paragraph after it; cards that end the answer
+// keep none, so the answer's box ends with them.
+test("the last row of cards keeps no margin under it", () => {
   expect(css).toMatch(
-    /\.inline-artifacts:last-child,\s*\.inline-artifacts:has\(\+ \.msg-assistant-foot\)\s*\{[^}]*margin-bottom:\s*0/,
+    /\.inline-artifacts:last-child\s*\{[^}]*margin-bottom:\s*0/,
   );
 });
 

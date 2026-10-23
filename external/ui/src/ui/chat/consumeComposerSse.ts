@@ -13,6 +13,8 @@ import {
   openAIStreamErrorMessage,
 } from "./streamError";
 import { normalizeTodoPlanSnapshot } from "./todoToolPreview";
+import { todoPlanFromPlanFrame } from "./todoChecklist";
+import type { TodoPlanEntry } from "./todoToolPreview";
 import { parseSSEBlocks } from "./sse";
 import { queuedUserMessageItem } from "./queuedUserMessage";
 import { sessionMessageFiles } from "./sessionMessageFiles";
@@ -162,6 +164,9 @@ export type ConsumeComposerSseParams = {
   onSessionGoal?: (update: SessionGoalUpdate) => void;
   /** Coddy extension. The running turn's clock and generated tokens (`event: turn_progress`). */
   onTurnProgress?: (progress: TurnProgress) => void;
+  /** The session's todo checklist after a change the turn made (`event: plan`);
+   *  an empty list once it is archived. A design plan's frame is not passed on. */
+  onTodoPlan?: (entries: TodoPlanEntry[]) => void;
   /** Coddy extension. The input was only settings commands: no turn ran and
    *  nothing of the exchange is in the history (`coddy_meta` carries
    *  `settings_only`); the selectors show the change. */
@@ -218,6 +223,7 @@ export async function consumeComposerSseReader(
     onSessionSettings,
     onSessionGoal,
     onTurnProgress,
+    onTodoPlan,
     onSettingsOnly,
     cursor,
   } = p;
@@ -235,6 +241,19 @@ export async function consumeComposerSseReader(
   // answer) is a row per part. Once the persisted message replaces them it
   // carries the id of one of them, which the end of the turn looks for.
   const assistantIds = new Set<string>();
+
+  // The checklist a plan frame carries; a design plan's frame, or one that
+  // does not read as a checklist, is dropped.
+  const deliverTodoPlan = (data: string) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(data);
+    } catch {
+      return;
+    }
+    const entries = todoPlanFromPlanFrame(parsed);
+    if (entries) onTodoPlan?.(entries);
+  };
   let assistantSegmentDirty = resuming ? cursor.segmentDirty : false;
 
   const toolQueue: Array<
@@ -666,6 +685,11 @@ export async function consumeComposerSseReader(
         continue;
       }
 
+      if (ev.event === "plan") {
+        deliverTodoPlan(ev.data);
+        continue;
+      }
+
       if (ev.event === "usage_update") {
         try {
           const raw = JSON.parse(ev.data) as ContextUsageUpdate;
@@ -991,6 +1015,10 @@ export async function consumeComposerSseReader(
         } catch {
           // ignore
         }
+        continue;
+      }
+      if (ev.event === "plan") {
+        deliverTodoPlan(ev.data);
         continue;
       }
       // A turn nobody typed opens with the wake: an item that shows

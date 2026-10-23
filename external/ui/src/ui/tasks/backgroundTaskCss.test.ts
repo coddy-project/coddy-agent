@@ -387,3 +387,22 @@ test("a card keeps its height when an open neighbour needs the room", () => {
   // first thing the flex column squeezes.
   expect(ruleBody(".bgtask-card {")).toContain("flex: none");
 });
+
+// The live line stands as far from the row above it as from the composer
+// below: two row gaps each (composerReserveFor). The column's row gap is one
+// of them above it, its own padding the other; nothing under its text. Its box
+// used to add 10px on either side, and the reserve another 18px under it, so
+// the line hung far over the composer.
+test("the live line keeps even room above it and below it", () => {
+  expect(ruleBody(".typing-dots {")).toMatch(
+    /padding: var\(--coddy-transcript-row-gap, 10px\) 14px 0;/,
+  );
+});
+
+// The empty slot the live line leaves between turns is transparent and still.
+test("the live line's slot shows nothing and does not move", () => {
+  expect(ruleBody(".typing-dots-slot {")).toMatch(/opacity: 0;/);
+  expect(ruleBody(".typing-dots-slot .typing-dots-dot {")).toMatch(
+    /animation: none;/,
+  );
+});

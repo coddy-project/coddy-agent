@@ -25,7 +25,7 @@ func TestWebUICopyPlainHTTPFeature(t *testing.T) {
 			"src/ui/markdown/DiagramsAndMath.test.tsx",
 			"formulas an inline formula copies without a clipboard API and says Copied only when that worked"},
 		{`^the copy button of a message copies$`,
-			"src/ui/messages/AssistantMessage.test.tsx",
+			"src/ui/messages/MessageCopyIconButton.test.tsx",
 			"message copy works without a clipboard API, refused or not"},
 		{`^a skill and a mention in a sent message copy$`,
 			"src/ui/messages/UserMessage.test.tsx",

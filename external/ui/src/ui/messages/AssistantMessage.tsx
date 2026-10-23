@@ -1,12 +1,7 @@
 import { memo } from "react";
 
 import { Markdown } from "../markdown/Markdown";
-import { useT } from "../i18n/I18nProvider";
-import {
-  formatUtcToLocalFullDetail,
-  formatUtcToLocalHM,
-} from "./formatMessageTime";
-import { MessageCopyIconButton } from "./MessageCopyIconButton";
+import { formatUtcToLocalFullDetail } from "./formatMessageTime";
 import { ToolArtifactCards } from "./ToolArtifactCards";
 import {
   groupAssistantArtifactTokens,
@@ -20,26 +15,16 @@ export const AssistantMessage = memo(function AssistantMessage(props: {
    *  find it on screen. */
   rowId?: string;
   streaming?: boolean;
+  /** When the answer was written: the tooltip of the answer. An answer carries
+   *  no copy control and no time under it; the row they made appeared as a turn
+   *  ended and pushed what follows the answer down. */
   createdAtUtc?: string;
-  /** Only the answer that hands the turn back carries the action row. The answers a
-   *  turn leaves behind between tool calls would stack the same copy button and the
-   *  same minute over and over, which reads as chrome rather than as information. */
-  showFoot?: boolean;
   artifacts?: ReadonlyMap<string, ToolArtifact>;
   onMentionArtifact?: (path: string) => void;
 }) {
-  const { t } = useT();
-  const showFoot =
-    props.showFoot !== false &&
-    !props.streaming &&
-    (props.content.trim() !== "" || Boolean(props.createdAtUtc));
-  const timeHM = props.createdAtUtc
-    ? formatUtcToLocalHM(props.createdAtUtc)
+  const timeFull = props.createdAtUtc
+    ? formatUtcToLocalFullDetail(props.createdAtUtc)
     : "";
-  const timeFull =
-    props.createdAtUtc && timeHM
-      ? formatUtcToLocalFullDetail(props.createdAtUtc)
-      : "";
   const contentTokens = props.artifacts
     ? groupAssistantArtifactTokens(
         tokenizeAssistantArtifacts(props.content, props.artifacts),
@@ -47,7 +32,10 @@ export const AssistantMessage = memo(function AssistantMessage(props: {
     : [{ type: "markdown" as const, text: props.content }];
   return (
     <div className="msg-assistant-stack" data-row-id={props.rowId}>
-      <div className="msg msg-assistant">
+      <div
+        className="msg msg-assistant"
+        {...(timeFull ? { title: timeFull } : {})}
+      >
         {contentTokens.map((token, index) =>
           token.type === "artifacts" ? (
             <ToolArtifactCards
@@ -66,25 +54,6 @@ export const AssistantMessage = memo(function AssistantMessage(props: {
             />
           ) : null,
         )}
-        {showFoot ? (
-          <div className="msg-assistant-foot">
-            <MessageCopyIconButton
-              textToCopy={props.content}
-              tooltip={t("messages.copyMessage")}
-              ariaLabel={t("messages.copyMessage")}
-              dataTestId="assistant-message-copy"
-            />
-            {timeHM ? (
-              <time
-                className="msg-assistant-time"
-                dateTime={props.createdAtUtc}
-                title={timeFull || undefined}
-              >
-                {timeHM}
-              </time>
-            ) : null}
-          </div>
-        ) : null}
       </div>
     </div>
   );

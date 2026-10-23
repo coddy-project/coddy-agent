@@ -5,6 +5,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
 import { MessageList } from "./MessageList";
@@ -365,7 +366,7 @@ test("compaction summary renders as a foldout, not a user bubble", () => {
   expect(screen.getByText(/Key facts preserved here/)).toBeInTheDocument();
 });
 
-test("only the answer that hands the turn back carries an action row", () => {
+test("no answer carries an action row, finished or still running", () => {
   const items: TranscriptItem[] = [
     { id: "u1", type: "user_message", content: "Go" },
     {
@@ -390,97 +391,20 @@ test("only the answer that hands the turn back carries an action row", () => {
       content: "Done.",
       createdAtUtc: "2026-01-01T10:00:04.000Z",
     },
+    { id: "u2", type: "user_message", content: "Next" },
+    { id: "a3", type: "assistant_message", content: "Working on it." },
   ];
 
-  const { container } = render(<MessageList items={items} />);
-
-  expect(screen.getAllByTestId("assistant-message-copy")).toHaveLength(1);
-  expect(container.querySelectorAll(".msg-assistant-foot")).toHaveLength(1);
-  // The copy button and the minute both belong to the closing answer, not to the
-  // answers the turn left behind between tool calls.
-  const closing = screen
-    .getByText("Done.")
-    .closest<HTMLElement>(".msg-assistant")!;
-  expect(within(closing).getByTestId("assistant-message-copy")).toBeTruthy();
-  const intermediate = screen
-    .getByText("Reading the file.")
-    .closest(".msg-assistant")!;
-  expect(intermediate.querySelector(".msg-assistant-foot")).toBeNull();
-});
-
-test("a turn still in flight offers no copy control on its last answer", () => {
-  const items: TranscriptItem[] = [
-    { id: "u1", type: "user_message", content: "Go" },
-    { id: "a1", type: "assistant_message", content: "Working on it." },
-    {
-      id: "t1",
-      type: "tool_call",
-      toolCallId: "call_1",
-      title: "read",
-      kind: "read",
-      status: "in_progress",
-      argsText: '{"path":"a.txt"}',
-    },
-  ];
-
-  const { container } = render(<MessageList items={items} generating />);
-
-  expect(screen.queryByTestId("assistant-message-copy")).toBeNull();
-  expect(container.querySelector(".msg-assistant-foot")).toBeNull();
-});
-
-test("every finished turn keeps the action row on the answer that closed it", () => {
-  const items: TranscriptItem[] = [
-    { id: "u1", type: "user_message", content: "First" },
-    { id: "a1", type: "assistant_message", content: "Looking." },
-    {
-      id: "t1",
-      type: "tool_call",
-      toolCallId: "call_1",
-      title: "read",
-      kind: "read",
-      status: "completed",
-      argsText: '{"path":"a.txt"}',
-      resultText: "OK",
-    },
-    { id: "a2", type: "assistant_message", content: "First answer." },
-    { id: "u2", type: "user_message", content: "Second" },
-    { id: "a3", type: "assistant_message", content: "Second answer." },
-  ];
-
-  render(<MessageList items={items} />);
-
-  // One per turn: the older answer stays copyable, the mid-turn one does not.
-  expect(screen.getAllByTestId("assistant-message-copy")).toHaveLength(2);
-  expect(
-    screen
-      .getByText("First answer.")
-      .closest(".msg-assistant")!
-      .querySelector(".msg-assistant-foot"),
-  ).not.toBeNull();
-  expect(
-    screen
-      .getByText("Looking.")
-      .closest(".msg-assistant")!
-      .querySelector(".msg-assistant-foot"),
-  ).toBeNull();
-});
-
-test("a new turn does not strip the action row off the previous answer", () => {
-  const items: TranscriptItem[] = [
-    { id: "u1", type: "user_message", content: "First" },
-    { id: "a1", type: "assistant_message", content: "First answer." },
-    { id: "u2", type: "user_message", content: "Second" },
-  ];
-
-  render(<MessageList items={items} generating />);
-
-  expect(
-    screen
-      .getByText("First answer.")
-      .closest(".msg-assistant")!
-      .querySelector(".msg-assistant-foot"),
-  ).not.toBeNull();
+  for (const generating of [false, true]) {
+    const { container } = render(
+      <MessageList items={items} generating={generating} />,
+    );
+    expect(
+      container.querySelectorAll(".msg-assistant .msg-copy-icon-btn"),
+    ).toHaveLength(0);
+    expect(container.querySelectorAll(".msg-assistant time")).toHaveLength(0);
+    cleanup();
+  }
 });
 
 // An assistant row holding nothing but whitespace is zero pixels tall and still
@@ -505,7 +429,10 @@ test("a whitespace-only assistant row takes no place in the transcript", () => {
     },
   ];
   const { container } = render(<MessageList items={items} />);
-  expect(container.querySelectorAll(".msg-assistant-stack")).toHaveLength(0);
+  // The live line's empty slot shares the stack's layout and is no answer.
+  expect(
+    container.querySelectorAll(".msg-assistant-stack:not(.typing-dots-slot)"),
+  ).toHaveLength(0);
 });
 
 test("a woken turn shows neither a note nor a user bubble, only the agent carrying on", () => {
@@ -596,12 +523,6 @@ test("a goal turn is a goal row, not a user bubble, and a later prompt keeps the
   fireEvent.click(edits[1]!);
   // The goal turn is user message 1 on the server, so "thanks" is message 2.
   expect(onEdit).toHaveBeenCalledWith("thanks", 2);
-  // The goal row opens a turn: the answer before it closes the first turn
-  // and keeps its action row.
-  const firstAnswer = screen
-    .getByText("First pass done.")
-    .closest("[data-row-id]") as HTMLElement;
-  expect(firstAnswer.querySelector(".msg-assistant-foot")).not.toBeNull();
 });
 
 test("a kickoff row without open items is a plain line", () => {
@@ -647,6 +568,85 @@ test("a window renders its slice of the rows, each one stamped with its id", () 
   ).toEqual(["a6", "a7", "a8"]);
   // The live line belongs under the newest row, which this slice stops short of.
   expect(container.querySelector("[data-testid=typing-dots]")).toBeNull();
+});
+
+test("the todo checklist stands above the live line, only at the newest end of the transcript", async () => {
+  const items: TranscriptItem[] = Array.from({ length: 4 }, (_, i) => ({
+    id: `a${i}`,
+    type: "assistant_message" as const,
+    content: `answer ${i}`,
+  }));
+  const todoPlan = [
+    { content: "Fix the parser", status: "in_progress" },
+    { content: "Run the whole suite", status: "pending" },
+  ];
+  const { container, rerender } = render(
+    <MessageList items={items} generating={true} todoPlan={todoPlan} />,
+  );
+  const checklist = screen.getByTestId("todo-checklist");
+  const dots = screen.getByTestId("typing-dots");
+  // Under the newest answer, right above the line saying what runs now.
+  expect(checklist.previousElementSibling).toHaveAttribute("data-row-id", "a3");
+  expect(checklist.nextElementSibling).toBe(dots);
+
+  // A window cut short of the newest row leaves the tail out, the list too.
+  rerender(
+    <MessageList
+      items={items}
+      renderStart={0}
+      renderEnd={2}
+      generating={true}
+      todoPlan={todoPlan}
+    />,
+  );
+  expect(screen.queryByTestId("todo-checklist")).toBeNull();
+
+  // Idle, the list with work left stays.
+  rerender(<MessageList items={items} todoPlan={todoPlan} />);
+  expect(screen.getByTestId("todo-checklist")).toBeInTheDocument();
+
+  // Idle and finished, nothing is left to follow: the card plays its exit.
+  rerender(
+    <MessageList
+      items={items}
+      todoPlan={todoPlan.map((e) => ({ ...e, status: "completed" }))}
+    />,
+  );
+  expect(screen.getByTestId("todo-checklist")).toHaveClass("is-leaving");
+  await waitFor(() =>
+    expect(screen.queryByTestId("todo-checklist")).toBeNull(),
+  );
+});
+
+test("a finished checklist leaves once a queued prompt starts, though the turn never ended", async () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "fix the parser" },
+    { id: "a1", type: "assistant_message", content: "Working on it." },
+  ];
+  const open = [{ content: "Fix the parser", status: "in_progress" }];
+  const done = [{ content: "Fix the parser", status: "completed" }];
+  const { rerender } = render(
+    <MessageList items={items} generating={true} todoPlan={open} />,
+  );
+  // The answer ticks the last item: the list stays while the turn writes.
+  rerender(<MessageList items={items} generating={true} todoPlan={done} />);
+  expect(screen.getByTestId("todo-checklist")).toBeInTheDocument();
+  // The next queued message runs inside the same admitted turn, so
+  // generating stays on; its prompt is a new turn for the list.
+  rerender(
+    <MessageList
+      items={[
+        ...items,
+        { id: "u2", type: "user_message", content: "and the docs" },
+      ]}
+      generating={true}
+      todoPlan={done}
+    />,
+  );
+  expect(screen.getByTestId("todo-checklist")).toHaveClass("is-leaving");
+  await waitFor(() =>
+    expect(screen.queryByTestId("todo-checklist")).toBeNull(),
+  );
 });
 
 test("an edit names the prompt by the server's index when the list holds only the end of the history", () => {

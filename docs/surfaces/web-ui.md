@@ -1014,6 +1014,7 @@ For the whole of a running turn, streaming text included, the typing dots carry 
 
 - The turn's own numbers lead the line: how long the turn has been running, how many tokens the model has generated in it, how many background tasks are running right now (`15m 08s · 13.5k tokens · 1 running task · Thinking…`). Before the first token the line is the clock and the phrase alone (`57s · Waiting for the model`), and the tasks segment appears only while something runs. It is a button: it opens the [Tasks panel](../features/background-tasks.md#ui).
 - When the turn has ended and background tasks it started are still running, the dots stay at the tail of the transcript with the count and nothing else (`1 running task`): no clock and no tokens, because there is no turn to time. It opens the same panel, and it goes as soon as the last task finishes.
+- Between turns the line keeps its room at the tail of the transcript, empty and transparent, so nothing above it moves when a turn ends or starts. The line stands two row gaps under the row above it and two row gaps over the composer, and so does the last row of an idle chat.
 - The clock and the tokens are the server's: the agent publishes `turn_progress` on the turn stream ([HTTP API](../reference/http-api.md)) and keeps the same numbers behind `GET /coddy/sessions/{id}/activity`, which a reloaded tab reads, so the clock carries on where it was. `chat/turnProgress.ts` folds the two sources: a reading names its turn by the server's `startedAt` and is dated by the turn's age on the server's clock, so the newer reading wins whichever way it came - an activity answer read before the stream's last frame and delivered after it is dropped, and an answer a throttled tab handles seconds late is still the same turn. The tab drops the numbers when the turn ends and on any activity read that finds the session idle, so the next turn never opens on the previous turn's clock. A server that predates `turn_progress` leaves the clock counting from the turn's user message, without tokens.
 - The phrase of the current step, and a step counter when the step runs something other than the model - a tool call, the memory run (`2m 05s · 1.2k tokens · Running a command · 45s`). Waiting, thinking and writing are covered by the turn clock. On a phone the line takes two rows: the phrase next to the dots, the turn's numbers under it as a caption.
 - **The line carries the phase and nothing the step acts on.** No path, no command, no pattern, no url: what a step acts on is named once, on the transcript row above the line. So every phrase is complete on its own - `Running a command`, never `Running` waiting for a command to follow it - and a phrase that reads as a fragment fails the dictionary check in every locale (`external/ui/src/ui/i18n/statusPhrases.test.ts`). A phrase too long for the row ellipsizes rather than wrapping it.
@@ -1110,7 +1111,7 @@ Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklis
 
 - `assistant_message`
   - Final assistant output text for the turn, after tool calls.
-  - Only the answer that closes a turn carries the action row (**`.msg-assistant-foot`**: the copy control and the timestamp). The answers a turn leaves behind between tool calls render prose alone - a column of identical copy buttons and repeated minutes reads as chrome, not as information. Every finished turn keeps its own row, so an older answer stays copyable; only the turn still running has none, because its last answer is not yet the answer.
+  - An answer carries no copy control and no time under it, finished or not: that row appeared as a turn ended and pushed the todo checklist and the live line down by its height. When an answer was written is the tooltip of the answer. A user's message keeps its copy control, its edit control and its time.
 
 ## Tool permission card
 
@@ -1724,13 +1725,28 @@ Automated checks:
 - `external/ui/src/ui/chat/PlanDocumentSection.test.tsx`
 - `external/ui/src/ui/messages/MessageList.test.tsx` (handler forwarding, read-only transcript)
 
+## Todo checklist under the transcript
+
+![The todo checklist under the newest message while a turn runs: two items done, the item in progress marked, one item pending](../assets/web-ui/todo-checklist-running-dark-1280.png)
+
+*The todo checklist under the newest message while a turn runs*
+
+While the session keeps a todo checklist with work left in it, the newest end of the conversation shows the whole list, right above the live status line. Every item carries the mark its tool row uses: a ticked square for a completed item, an empty square for a pending one, a half-filled circle for the item in progress. An item in progress carries a still mark of its own, an accent ring with a dot in it, so the list says which item the agent is on now without drawing the eye. On a desktop the card is as wide as its text, within the width of the other cards; on a phone it takes the whole column.
+
+- The list shows while an item is pending or in progress. Once every item is completed, failed or cancelled, it stays only until the turn that closed the last item ends: an idle chat with a finished list shows nothing, although the session keeps the list until the agent replaces or archives it.
+- The list comes with every read of the transcript (**`todoPlan`** of **`GET /coddy/sessions/{id}/messages`**), so a reloaded tab shows it at once, and the **`plan`** frames of a running turn move it as the agent ticks items off. A design plan that **`plan_write`** publishes on the same event is not the checklist and does not show here.
+- A click on the list's head, **Todo list** with the count of items done, folds the list down to the items in progress; with none in progress only the head stays. Another click unfolds it, and the browser keeps the choice for every chat.
+- A change of status, a new item, folding and the list leaving move smoothly instead of jumping. Under reduced motion every state appears at once.
+- The list belongs to the newest end of the transcript: a reader who scrolled up into the older pages of a long session sees it again once back at the end.
+- Automated checks: **`messages/TodoChecklistMessage.test.tsx`**, **`messages/todoChecklistCss.test.ts`**, **`App.todoChecklist.test.tsx`**, **`features/todo_checklist_web_ui.feature`**.
+
 ## Todo checklist (tool card)
 
 ![The checklist of the todo tools: the plan replaced in one call, then one item marked in progress](../assets/todo-tool-preview-dark.png)
 
 *The checklist of the todo tools: the plan replaced in one call, then one item marked in progress*
 
-- The **`coddy_todo_*`** tools show their checklist as the preview of their transcript row (**`chat/todoToolPreview.ts`**). The web UI does not read **`GET /coddy/sessions/{id}/plan`** (**`PUT`**, **`POST .../plan/archive`**); the routes stay for other clients.
+- The **`coddy_todo_*`** tools show their checklist as the preview of their transcript row (**`chat/todoToolPreview.ts`**). The web UI does not read **`GET /coddy/sessions/{id}/plan`** (**`PUT`**, **`POST .../plan/archive`**): the list under the transcript comes with the transcript read, and the routes stay for other clients.
 - Distinct from the **`plan_document`** transcript card above.
 
 ## Long term memory

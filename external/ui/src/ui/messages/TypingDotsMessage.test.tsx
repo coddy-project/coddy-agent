@@ -563,3 +563,46 @@ test("a running turn carries the count once: the second line is not added", () =
   expect(screen.queryAllByTestId("typing-dots").length).toBe(1);
   expect(screen.queryAllByTestId("typing-dots-turn-tasks").length).toBe(1);
 });
+
+// Between turns the live line keeps its room, empty: the line coming and going
+// at every turn moved the transcript over it and made it jump as a step ended.
+// The slot has the line's shape - the dots, the phrase and the caption the
+// phone puts under it - so it is as tall as the line it stands in for.
+test("an idle slot keeps the line's room and shows nothing", () => {
+  render(<TypingDotsMessage idle />);
+  const slot = screen.getByTestId("live-line-slot");
+  expect(slot).toHaveAttribute("aria-hidden", "true");
+  expect(slot).toHaveClass("typing-dots-slot");
+  expect(slot.querySelectorAll(".typing-dots-dot")).toHaveLength(3);
+  expect(slot.querySelector(".typing-dots-status")).not.toBeNull();
+  expect(slot.querySelector(".typing-dots-turn")).not.toBeNull();
+  expect(slot.textContent?.trim()).toBe("");
+  expect(screen.queryByTestId("typing-dots")).toBeNull();
+});
+
+test("MessageList keeps the live line's room after the turn and only at the newest end", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "Hello" },
+    { id: "a1", type: "assistant_message", content: "Hi" },
+  ];
+  const { rerender } = render(<MessageList items={items} generating={true} />);
+  expect(screen.getByTestId("typing-dots")).toBeInTheDocument();
+  expect(screen.queryByTestId("live-line-slot")).toBeNull();
+
+  rerender(<MessageList items={items} generating={false} />);
+  expect(screen.queryByTestId("typing-dots")).toBeNull();
+  const slot = screen.getByTestId("live-line-slot");
+  // Where the line stood: the last row of the column.
+  expect(slot.parentElement?.lastElementChild).toBe(slot);
+
+  // A window cut short of the newest row has no tail at all.
+  rerender(
+    <MessageList
+      items={items}
+      generating={false}
+      renderStart={0}
+      renderEnd={1}
+    />,
+  );
+  expect(screen.queryByTestId("live-line-slot")).toBeNull();
+});
