@@ -16,7 +16,7 @@ Coddy prints a short code and opens the OpenCode Console account page. Sign in, 
 
 In the console, `/login opencode` runs the same sign-in and writes the provider row and the gateway's models into `config.yaml` ([Console](../surfaces/console.md#signing-in-to-a-provider-login)).
 
-The login stores access and refresh tokens at `$CODDY_HOME/providers/opencode/opencode-auth.json` with mode `0600`. Unless `--no-config` is given, it also adds the provider row, the gateway's models and an `agent.model` when it is empty to `config.yaml`. Use `--type opencode` to sign in another named profile, or `--api-base https://opencode.ai/inference/v1` to write Console into the row instead of Go. With `--no-config` the row stays as it is, so `--api-base` is refused there.
+The login stores access and refresh tokens at `$CODDY_HOME/providers/opencode/opencode-auth.json` with mode `0600`. Unless `--no-config` is given, it also adds the provider row, the gateway's models and an `agent.model` to `config.yaml`, the last one when it is empty or runs on a provider that cannot answer. Use `--type opencode` to sign in another named profile, or `--api-base https://opencode.ai/inference/v1` to write Console into the row instead of Go. With `--no-config` the row stays as it is, so `--api-base` is refused there.
 
 Before each catalog or inference request, Coddy refreshes a token that expires within 60 seconds and saves rotated tokens atomically. Requests carry the selected organization in `x-org-id`. A revoked refresh token requires a new login. `coddy providers list` shows the account organization without exposing tokens. The stored credential works on every Coddy surface. A running server reads it for an already loaded provider row; restart the server after adding a new row.
 

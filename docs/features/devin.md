@@ -14,7 +14,7 @@ The command opens the Devin sign-in page in a browser and waits. After you sign 
 
 - the session token, to `$CODDY_HOME/providers/devin/devin-auth.json` with mode `0600`;
 - the provider row and one model per family the account can use, into `config.yaml`;
-- `agent.model`, when the config has none yet.
+- `agent.model`, when the config has none yet or the one it has runs on a provider that cannot answer (the example config's `openai` row with its key unset).
 
 ```text
 $ coddy providers login devin

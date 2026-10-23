@@ -177,7 +177,7 @@ agent:
   # wait_for_limit_reset_max_ms: 14400000   # at most 4 h per turn, the default
 ```
 
-A top-level turn then waits for the reset, reports `Usage limit reached · resuming at 20:59` every 20 seconds, and re-issues the same call; Escape stops the wait like any turn. A key the hub rejects reads `key rejected` in the footer and is repaired with `coddy providers login neuraldeep`. See [Console (TUI)](../surfaces/console.md) and the [`agent` reference](../reference/config.md#agent).
+A top-level turn then waits for the reset, reports `Usage limit reached · resuming at 20:59` every 20 seconds, and re-issues the same call; Escape stops the wait like any turn. A key the hub rejects reads `key rejected` in the footer and is repaired with `coddy providers login neuraldeep`, or `/login neuraldeep` in the console. See [Console (TUI)](../surfaces/console.md) and the [`agent` reference](../reference/config.md#agent).
 
 ## A turn fails with a network error before the provider answers
 

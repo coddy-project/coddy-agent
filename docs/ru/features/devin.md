@@ -14,7 +14,7 @@ coddy providers login devin
 
 - токен сессии - в `$CODDY_HOME/providers/devin/devin-auth.json` с правами `0600`;
 - строку провайдера и по одной модели на каждое семейство, доступное аккаунту, - в `config.yaml`;
-- `agent.model`, если в конфигурации его ещё нет.
+- `agent.model`, если в конфигурации его ещё нет или он работает на провайдере, который не может ответить (строка `openai` из примера конфигурации без ключа).
 
 ```text
 $ coddy providers login devin

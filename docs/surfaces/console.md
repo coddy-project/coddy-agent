@@ -73,9 +73,13 @@ A fresh install has no model provider Coddy can talk to: there is no
 `install.sh` wrote the example one, whose `openai` row reads its key from
 `OPENAI_API_KEY`. While no provider row can answer - none has a key in
 `api_key`, `api_key_command` or its `NAME_API_KEY` variable, a stored sign-in,
-an `acp` agent or an OpenAI-compatible `api_base` of its own - the header says
-so in the warning colour and points at `/login`, and the same line follows a
-turn that failed for that reason.
+an `acp` agent or, on an OpenAI- or Anthropic-compatible row, an `api_base` of
+its own - the header says so in the warning colour and points at `/login`, and
+the same line follows a turn that failed for that reason. A turn that failed
+because the session's model runs on a provider with no key or sign-in is
+followed by a line that names the provider and the way out: `/login <name>` for
+a provider that signs in, its key for one that takes a key, ctrl+l for a model
+of another provider.
 
 ![The first start on a fresh install: the header points at /login](../assets/screenshot-console-login-hint.png)
 
@@ -109,7 +113,8 @@ line is gone. When `agent.model` runs on a provider that cannot answer - the
 example config's `openai` row with its key unset - the sign-in moves
 `agent.model` to the provider it signed in, and the console moves the session
 the same way and says so; a session on a provider that answers keeps its model,
-and ctrl+l or `/model` picks one of the new ones. Settings in the web UI add models one at a time instead, with the
+and ctrl+l or `/model` picks one of the new ones. `coddy providers login` moves
+`agent.model` the same way. Settings in the web UI add models one at a time instead, with the
 plus next to each ([Web UI](web-ui.md#settings-provider-models)). A row of
 another type, such as `openai` or `anthropic`, takes a key, and `/login` says
 so; an `acp` agent signs in on its own. Over `--remote` the configuration is the
@@ -290,8 +295,8 @@ Top to bottom:
   limit reached · resuming at 20:59` without a running counter, the footer
   keeps the hub's numbers, and the same call runs again when the limit
   lifts (Esc stops the wait like any turn). A model on NeuralDeep's unlimited option (Qwen ∞)
-  reads `∞ volume`. A rejected key reads `neuraldeep: key rejected, run
-  coddy providers login neuraldeep`; when the hub cannot be reached the last
+  reads `∞ volume`. A rejected key reads `neuraldeep: key rejected,
+  /login neuraldeep`; when the hub cannot be reached the last
   numbers stay with `(stale)`. On narrow terminals the wallet, the day, the
   week and the plan leave in that order. The numbers arrive from the session
   manager at session start and after every turn (`provider_usage` update,
