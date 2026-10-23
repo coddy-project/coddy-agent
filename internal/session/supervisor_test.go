@@ -267,6 +267,31 @@ func TestGoalCommandWithAnAttachedFileSetsTheGoalAndKeepsIt(t *testing.T) {
 	}
 }
 
+// /goal resume carries what came with it into the turn it starts, like the
+// kickoff of a new goal.
+func TestGoalResumeWithAMentionKeepsTheAttachment(t *testing.T) {
+	h := newGoalHarness(t)
+	h.prompt("/goal work the notes")
+	h.st().UpdateGoal("", func(g *session.GoalState) bool { g.Status = session.GoalPaused; return true })
+	attached := acp.ContentBlock{Type: acp.ContentTypeResource, Resource: &acp.Resource{
+		URI: "notes.md", MimeType: "text/plain; charset=utf-8", Text: "the new notes",
+		Mention: &acp.ResourceMention{Kind: "file", Path: "notes.md"},
+	}}
+	if _, err := h.mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+		SessionID: h.sid,
+		Prompt:    []acp.ContentBlock{attached, {Type: acp.ContentTypeText, Text: "/goal resume"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.kinds(); strings.Join(got, ",") != "kickoff,resume" {
+		t.Fatalf("turns = %v", got)
+	}
+	blocks := h.blocks[1]
+	if len(blocks) != 2 || blocks[0].Type != acp.ContentTypeText || blocks[1].Resource == nil || blocks[1].Resource.Text != "the new notes" {
+		t.Fatalf("resume blocks = %+v", blocks)
+	}
+}
+
 // A /goal that starts no turn - a refusal, a pause, a show - takes the
 // pictures the composer sent with it (inline files, held for the next user
 // message) away with it, as the agent does for a prompt a hook rejected:
