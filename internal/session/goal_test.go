@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/gitws"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -76,6 +77,8 @@ func TestParseGoalCommand(t *testing.T) {
 		"/goal -m= ship it":                            {Kind: GoalCommandSet, Objective: "ship it", Err: "--model needs a value"},
 		"/goal -m mini -r high ship it":                {Kind: GoalCommandSet, Objective: "ship it", Model: "mini", Reasoning: "high"},
 		"/goal -r=low -m=mini resume":                  {Kind: GoalCommandResume, Model: "mini", Reasoning: "low"},
+		"/goal\u00a0nbsp after the command":            {Kind: GoalCommandSet, Objective: "nbsp after the command"},
+		"/goal\u2003em space sets it":                  {Kind: GoalCommandSet, Objective: "em space sets it"},
 		"/goal - fix the flaky test":                   {Kind: GoalCommandSet, Objective: "- fix the flaky test"},
 		"/goal -x stays text":                          {Kind: GoalCommandSet, Objective: "-x stays text"},
 		"/goal --model mini clear":                     {Kind: GoalCommandClear, Model: "mini", Err: "--model and --reasoning go with a new goal or /goal resume"},
@@ -809,5 +812,41 @@ func TestSetGoalObjectiveGivesAFreshGoalItsOwnEvidence(t *testing.T) {
 	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "working"})
 	if rows := goalRows(st.GetMessages(), st.GetGoal(), false); len(rows) != 1 || rows[0] != 1 {
 		t.Errorf("rows of the new goal = %v, want only the one stored after it was set", rows)
+	}
+}
+
+// A prompt of one text block plus attachments - an @ mention resolved into a
+// resource, a file the composer or an editor attached - is still a /goal
+// command: the attachments come back for the turn it starts (issue #534).
+// Any other shape stays an ordinary message.
+func TestGoalCommandOfReadsTextWithAttachments(t *testing.T) {
+	text := func(s string) acp.ContentBlock { return acp.ContentBlock{Type: acp.ContentTypeText, Text: s} }
+	file := func(uri string) acp.ContentBlock {
+		return acp.ContentBlock{Type: acp.ContentTypeResource, Resource: &acp.Resource{URI: uri, Text: "body"}}
+	}
+	for _, tc := range []struct {
+		name   string
+		prompt []acp.ContentBlock
+		kind   GoalCommandKind
+		want   int // attachments
+	}{
+		{name: "text only", prompt: []acp.ContentBlock{text("/goal ship it")}, kind: GoalCommandSet},
+		{name: "a mention after the text", prompt: []acp.ContentBlock{text("/goal ship @plan.md"), file("plan.md")}, kind: GoalCommandSet, want: 1},
+		{name: "an attachment before the text", prompt: []acp.ContentBlock{file("plan.md"), text("/goal ship it")}, kind: GoalCommandSet, want: 1},
+		{name: "several attachments", prompt: []acp.ContentBlock{text("/goal ship it"), file("a.md"), file("b.md")}, kind: GoalCommandSet, want: 2},
+		{name: "a show with an attachment", prompt: []acp.ContentBlock{text("/goal"), file("plan.md")}, kind: GoalCommandShow, want: 1},
+		{name: "prose with an attachment", prompt: []acp.ContentBlock{text("ship it"), file("plan.md")}, kind: GoalCommandNone},
+		{name: "two text blocks", prompt: []acp.ContentBlock{text("/goal ship it"), text("and more")}, kind: GoalCommandNone},
+		{name: "attachments only", prompt: []acp.ContentBlock{file("plan.md")}, kind: GoalCommandNone},
+		{name: "an empty text with an attachment", prompt: []acp.ContentBlock{text("  "), file("plan.md")}, kind: GoalCommandNone},
+		{name: "empty", prompt: nil, kind: GoalCommandNone},
+	} {
+		cmd, attachments := goalCommandOf(tc.prompt)
+		if cmd.Kind != tc.kind || len(attachments) != tc.want {
+			t.Errorf("%s: cmd = %+v, attachments = %d, want kind %d with %d", tc.name, cmd, len(attachments), tc.kind, tc.want)
+		}
+		if tc.kind == GoalCommandSet && cmd.Objective == "" {
+			t.Errorf("%s: the objective was lost: %+v", tc.name, cmd)
+		}
 	}
 }

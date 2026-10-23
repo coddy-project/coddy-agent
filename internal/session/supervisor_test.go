@@ -40,6 +40,7 @@ type goalHarness struct {
 
 	mu       sync.Mutex
 	prompts  []string
+	blocks   [][]acp.ContentBlock
 	markers  []*llm.GoalTurn
 	steps    map[int]goalStep
 	verdicts []goalVerdictStep
@@ -116,6 +117,7 @@ func (h *goalHarness) run(ctx context.Context, st *session.State, prompt []acp.C
 	h.mu.Lock()
 	n := len(h.prompts)
 	h.prompts = append(h.prompts, text)
+	h.blocks = append(h.blocks, prompt)
 	h.markers = append(h.markers, marker)
 	step := h.steps[n]
 	h.mu.Unlock()
@@ -209,6 +211,59 @@ func TestGoalCommandSetsTheGoalAndStartsWorking(t *testing.T) {
 	msgs := h.st().GetMessages()
 	if msgs[0].GoalTurn == nil || msgs[0].GoalTurn.Kind != acp.GoalTurnKickoff {
 		t.Fatalf("the kickoff message carries no marker: %+v", msgs[0])
+	}
+}
+
+// A /goal command that carries attachments - an @ mention resolved into a
+// file, a resource the composer attached - sets the goal from its text, and
+// the attachments stay with the kickoff turn, where the model reads what the
+// objective names (issue #534).
+func TestGoalCommandWithAMentionSetsTheGoalAndKeepsTheAttachment(t *testing.T) {
+	h := newGoalHarness(t)
+	if err := os.WriteFile(filepath.Join(h.st().GetCWD(), "plan.md"), []byte("step one: the parser\nstep two: the docs\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.prompt("/goal finish the plan in @plan.md")
+	goal := h.st().GetGoal()
+	if goal.Objective != "finish the plan in @plan.md" || goal.Status != session.GoalComplete {
+		t.Fatalf("goal = %+v", goal)
+	}
+	if got := h.kinds(); len(got) != 1 || got[0] != acp.GoalTurnKickoff {
+		t.Fatalf("turns = %v, want one kickoff", got)
+	}
+	blocks := h.blocks[0]
+	if len(blocks) != 2 || blocks[0].Type != acp.ContentTypeText || blocks[1].Type != acp.ContentTypeResource {
+		t.Fatalf("kickoff blocks = %+v", blocks)
+	}
+	if res := blocks[1].Resource; res == nil || !strings.HasSuffix(res.URI, "plan.md") || !strings.Contains(res.Text, "step two: the docs") {
+		t.Fatalf("the mention's attachment left the kickoff: %+v", blocks[1])
+	}
+}
+
+// The composer's own attachments ride with the kickoff turn the same way.
+func TestGoalCommandWithAnAttachedFileSetsTheGoalAndKeepsIt(t *testing.T) {
+	h := newGoalHarness(t)
+	attached := acp.ContentBlock{Type: acp.ContentTypeResource, Resource: &acp.Resource{
+		URI: "notes.md", MimeType: "text/plain; charset=utf-8", Text: "the notes",
+		Mention: &acp.ResourceMention{Kind: "file", Path: "notes.md"},
+	}}
+	res, err := h.mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+		SessionID: h.sid,
+		Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "/goal work the notes"}, attached},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil || res.StopReason != acp.StopReasonEndTurn {
+		t.Fatalf("res = %+v", res)
+	}
+	goal := h.st().GetGoal()
+	if goal.Objective != "work the notes" || goal.Status != session.GoalComplete {
+		t.Fatalf("goal = %+v", goal)
+	}
+	blocks := h.blocks[0]
+	if len(blocks) != 2 || blocks[1].Resource == nil || blocks[1].Resource.Text != "the notes" {
+		t.Fatalf("kickoff blocks = %+v", blocks)
 	}
 }
 

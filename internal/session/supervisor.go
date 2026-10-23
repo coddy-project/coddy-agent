@@ -162,10 +162,10 @@ func (m *Manager) runSupervisedTurn(ctx context.Context, st *State, prompt []acp
 				return string(acp.StopReasonEndTurn), nil
 			}
 			first = kickoff.marker
-		} else if cmd := goalCommandOf(prompt); cmd.Kind != GoalCommandNone {
+		} else if cmd, attachments := goalCommandOf(prompt); cmd.Kind != GoalCommandNone {
 			var notice string
 			var err error
-			prompt, first, notice, err = m.applyGoalCommand(st, cmd, opts)
+			prompt, first, notice, err = m.applyGoalCommand(st, cmd, attachments, opts)
 			if err != nil {
 				notice = err.Error()
 			}
@@ -205,9 +205,10 @@ func (m *Manager) answerGoalCommand(st *State, sender acp.UpdateSender, notice s
 }
 
 // applyGoalCommand carries out a /goal command. A command that starts work
-// (set, resume) returns the prompt and the marker of the turn to run; the
-// others return only the notice.
-func (m *Manager) applyGoalCommand(st *State, cmd GoalCommand, opts *PromptRunOpts) ([]acp.ContentBlock, *llm.GoalTurn, string, error) {
+// (set, resume) returns the prompt and the marker of the turn to run, with the
+// attachments the command came with after its text; the others return only
+// the notice.
+func (m *Manager) applyGoalCommand(st *State, cmd GoalCommand, attachments []acp.ContentBlock, opts *PromptRunOpts) ([]acp.ContentBlock, *llm.GoalTurn, string, error) {
 	cfg := m.activeCfg()
 	if cmd.Kind != GoalCommandShow && opts != nil && opts.Restriction != nil {
 		return nil, nil, "", fmt.Errorf("only the bot's admins can change the session goal")
@@ -239,7 +240,7 @@ func (m *Manager) applyGoalCommand(st *State, cmd GoalCommand, opts *PromptRunOp
 		}
 		g := st.GetGoal()
 		marker := &llm.GoalTurn{Kind: acp.GoalTurnResume, Objective: g.Objective, Limit: cfg.Supervisor.ContinuationLimit()}
-		return goalPrompt(goalResumeText(g, cfg)), marker, "", nil
+		return goalPromptWithAttachments(goalResumeText(g, cfg), attachments), marker, "", nil
 	case GoalCommandSet:
 		goal, err := NewGoal(cmd.Objective)
 		if err != nil {
@@ -260,13 +261,25 @@ func (m *Manager) applyGoalCommand(st *State, cmd GoalCommand, opts *PromptRunOp
 		goal.Start = goalStartFor(st.GetCWD())
 		st.SetGoalWithNotice(goal, "Goal set: "+goal.Objective)
 		marker := &llm.GoalTurn{Kind: acp.GoalTurnKickoff, Objective: goal.Objective, Limit: cfg.Supervisor.ContinuationLimit()}
-		return goalPrompt(goalKickoffText(goal, cfg)), marker, "", nil
+		return goalPromptWithAttachments(goalKickoffText(goal, cfg), attachments), marker, "", nil
 	}
 	return nil, nil, "", nil
 }
 
 func goalPrompt(text string) []acp.ContentBlock {
 	return []acp.ContentBlock{{Type: acp.ContentTypeText, Text: text}}
+}
+
+// goalPromptWithAttachments is goalPrompt with the attachments a /goal command
+// came with after its text: the model reads what the objective names in the
+// turn the command starts.
+func goalPromptWithAttachments(text string, attachments []acp.ContentBlock) []acp.ContentBlock {
+	if len(attachments) == 0 {
+		return goalPrompt(text)
+	}
+	blocks := make([]acp.ContentBlock, 0, 1+len(attachments))
+	blocks = append(blocks, acp.ContentBlock{Type: acp.ContentTypeText, Text: text})
+	return append(blocks, attachments...)
 }
 
 // loop runs prompt, checks the result and continues until the check is met,
