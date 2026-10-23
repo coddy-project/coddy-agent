@@ -343,26 +343,25 @@ export function goalDraftObjective(text: string): string | null {
   if (control.test(rest)) return null;
   // The options of resume may follow it (/goal resume -m mini), and the
   // server reads a control word followed by its options - a known one, or
-  // option words with at most one other word, a mistyped option and its
-  // value - as that command (goalOptionTail).
+  // dash words alone, each with at most one value - as that command
+  // (goalOptionTail).
   const [first = "", ...more] = rest.split(/\s+/);
-  const isOption = (w: string) => /^(?:--\S*|-[mr](?:=\S*)?)$/.test(w);
+  const isOption = (w: string) => /^-\S+$/.test(w);
   const next = (more[0] ?? "").split("=")[0]!;
   if (control.test(first) && more.length > 0 && isOption(more[0]!)) {
     const known = ["--model", "--reasoning", "--then-file", "-m", "-r"];
-    let plain = 0;
+    if (known.includes(next)) return null;
+    let options = true;
     for (let i = 0; i < more.length; i++) {
       const word = more[i]!;
-      if (!isOption(word)) plain++;
-      else if (
-        known.includes(word.split("=")[0]!) &&
-        !word.includes("=") &&
-        i + 1 < more.length &&
-        !isOption(more[i + 1]!)
-      )
-        i++; // the value of a known option is no stray word
+      if (!isOption(word)) {
+        options = false;
+        break;
+      }
+      if (!word.includes("=") && i + 1 < more.length && !isOption(more[i + 1]!))
+        i++; // its value
     }
-    if (known.includes(next) || plain <= 1) return null;
+    if (options) return null;
   }
   return rest;
 }

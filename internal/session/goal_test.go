@@ -107,18 +107,25 @@ func TestParseGoalCommand(t *testing.T) {
 		// A mistyped or unknown option after a control word, with at most one
 		// word after it, is that command and refused, never a new goal named
 		// after the typo; longer text after it is prose.
-		"/goal pause --modle mini":         {Kind: GoalCommandPause, Err: "unknown option --modle" + goalTailHint},
-		"/goal clear --all":                {Kind: GoalCommandClear, Err: "unknown option --all" + goalTailHint},
-		"/goal resume --frob":              {Kind: GoalCommandResume, Err: "unknown option --frob" + goalTailHint},
-		"/goal stop --force -m x":          {Kind: GoalCommandClear, Model: "x", Err: "unknown option --force" + goalTailHint},
-		"/goal pause --modle mini -r high": {Kind: GoalCommandPause, Err: "unknown option --modle" + goalTailHint},
-		"/goal PAUSE --modle mini":         {Kind: GoalCommandPause, Err: "unknown option --modle" + goalTailHint},
-		"/goal reset --hard HEAD":          {Kind: GoalCommandClear, Err: "unknown option --hard" + goalTailHint},
-		"/goal stop -x":                    {Kind: GoalCommandSet, Objective: "stop -x"},
-		"/goal reset --hard the repo":      {Kind: GoalCommandSet, Objective: "reset --hard the repo"},
-		"/goals":                           {},
-		"/goal-x":                          {},
-		"set a goal":                       {},
+		"/goal pause --modle mini":                   {Kind: GoalCommandPause, Err: "unknown option --modle" + goalTailHint},
+		"/goal clear --all":                          {Kind: GoalCommandClear, Err: "unknown option --all" + goalTailHint},
+		"/goal resume --frob":                        {Kind: GoalCommandResume, Err: "unknown option --frob" + goalTailHint},
+		"/goal stop --force -m x":                    {Kind: GoalCommandClear, Model: "x", Err: "unknown option --force" + goalTailHint},
+		"/goal pause --modle mini -r high":           {Kind: GoalCommandPause, Err: "unknown option --modle" + goalTailHint},
+		"/goal PAUSE --modle mini":                   {Kind: GoalCommandPause, Err: "unknown option --modle" + goalTailHint},
+		"/goal reset --hard HEAD":                    {Kind: GoalCommandClear, Err: "unknown option --hard" + goalTailHint},
+		"/goal stop -x":                              {Kind: GoalCommandClear, Err: "unknown option -x" + goalTailHint},
+		"/goal resume -model mini":                   {Kind: GoalCommandResume, Err: "unknown option -model" + goalTailHint},
+		"/goal resume -m mini -verbose":              {Kind: GoalCommandResume, Model: "mini", Err: "unknown option -verbose" + goalTailHint},
+		"/goal resume --modle gpt-5 --reasonin high": {Kind: GoalCommandResume, Err: "unknown option --modle" + goalTailHint},
+		// Prose that starts with a control word and a dash word stays an
+		// objective once a word is left over after one value per option.
+		"/goal reset - the repo":       {Kind: GoalCommandSet, Objective: "reset - the repo"},
+		"/goal pause --modle mini now": {Kind: GoalCommandSet, Objective: "pause --modle mini now"},
+		"/goal reset --hard the repo":  {Kind: GoalCommandSet, Objective: "reset --hard the repo"},
+		"/goals":                       {},
+		"/goal-x":                      {},
+		"set a goal":                   {},
 	} {
 		if got := ParseGoalCommand(text); got != want {
 			t.Errorf("%q: got %+v, want %+v", text, got, want)

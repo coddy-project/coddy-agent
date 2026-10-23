@@ -85,7 +85,13 @@ func ParseGoalCommand(text string) GoalCommand {
 		case cmd.Err != before && strings.HasPrefix(cmd.Err, "unknown option"):
 			cmd.Err += goalTailHint
 		case more != "" && cmd.Err == "":
-			cmd.Err = fmt.Sprintf("%s takes no text after its options", strings.ToLower(control))
+			if word, _ := cutGoalWord(more); isTailOptionWord(word) {
+				// A dash word readGoalOptions does not know (-model).
+				name, _, _ := strings.Cut(word, "=")
+				cmd.Err = "unknown option " + name + goalTailHint
+			} else {
+				cmd.Err = fmt.Sprintf("%s takes no text after its options", strings.ToLower(control))
+			}
 		}
 	}
 	word := strings.ToLower(arg)
@@ -166,35 +172,34 @@ func goalControlWord(word string) bool {
 }
 
 // goalOptionTail reports whether the text after a control word reads as the
-// options of that command: it starts with a known option, or it starts with
-// an option word and holds at most one word that is not one (a mistyped
-// option and its value), so a typo pauses nothing and names no new goal.
-// Longer text is prose that happens to start that way (/goal reset --hard
-// the repo).
+// options of that command: it starts with a known option, or it is made of
+// option words alone - any dash word, so a single-dash -model counts - each
+// followed by at most one value. A mistyped option then pauses nothing and
+// names no new goal, while text with a word left over is prose that happens
+// to start that way (/goal reset --hard the repo).
 func goalOptionTail(tail string) bool {
 	if isKnownGoalOption(tail) {
 		return true
 	}
-	if !isGoalOption(tail) {
+	words := strings.Fields(tail)
+	if len(words) == 0 {
 		return false
 	}
-	words := strings.Fields(tail)
-	plain := 0
 	for i := 0; i < len(words); i++ {
-		if !isGoalOption(words[i]) {
-			plain++
-			continue
+		if !isTailOptionWord(words[i]) {
+			return false
 		}
-		// The value of a known option is no stray word.
-		name, _, inline := strings.Cut(words[i], "=")
-		switch goalOptionName(name) {
-		case "--model", "--reasoning", "--then-file":
-			if !inline && i+1 < len(words) && !isGoalOption(words[i+1]) {
-				i++
-			}
+		if !strings.Contains(words[i], "=") && i+1 < len(words) && !isTailOptionWord(words[i+1]) {
+			i++ // its value
 		}
 	}
-	return plain <= 1
+	return true
+}
+
+// isTailOptionWord reports whether a word after a control word reads as an
+// option: any word that starts with a dash, but a lone dash.
+func isTailOptionWord(word string) bool {
+	return len(word) > 1 && word[0] == '-'
 }
 
 // goalTailHint follows the refusal of an unknown option after a subcommand
