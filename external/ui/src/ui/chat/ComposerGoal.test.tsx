@@ -41,6 +41,25 @@ test("a goal that is too long keeps its text in the composer", () => {
   expect(onSend).toHaveBeenCalledWith(trimmed);
 });
 
+// A /goal with a file attached sets the goal, the file riding with its first
+// turn, so the objective is held to the same limit as one without.
+test("a goal with an attached file counts its objective too", () => {
+  const onSend = vi.fn();
+  const file = new File(["# plan"], "plan.md", { type: "text/markdown" });
+  const draft = `/goal ${"x".repeat(4001)}`;
+  render(
+    <Harness goal={null} initial={draft} onSend={onSend} files={[file]} />,
+  );
+  expect(screen.getByTestId("composer-goal-count")).toHaveTextContent(
+    "4001 / 4000",
+  );
+  expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), {
+    key: "Enter",
+  });
+  expect(onSend).not.toHaveBeenCalled();
+});
+
 function goalOf(over: Record<string, unknown> = {}): SessionGoal {
   return parseSessionGoal({
     id: "goal_1",
@@ -81,6 +100,7 @@ function Harness(props: {
   initial?: string;
   generating?: boolean;
   onSend?: (text: string) => void;
+  files?: File[];
 }) {
   const [value, setValue] = useState(props.initial ?? "");
   return (
@@ -97,6 +117,13 @@ function Harness(props: {
         goal={props.goal}
         {...(props.actions ? { goalActions: props.actions } : {})}
         {...(props.generating ? { generating: true, onStop: () => {} } : {})}
+        {...(props.files
+          ? {
+              llmModelMultimodal: true,
+              attachedFiles: props.files,
+              onAttachedFilesChange: () => {},
+            }
+          : {})}
         // The plate a running chat hands in, with git's count on it.
         cardTop={(goalMark) => (
           <WorkspaceBar

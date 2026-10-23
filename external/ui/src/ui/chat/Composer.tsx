@@ -716,8 +716,9 @@ export function Composer(props: {
     props.generating === true &&
     typeof props.onQueue === "function" &&
     (props.value.trim().length > 0 || sendableAttachedFiles.length > 0);
-  const goalObjective =
-    sendableAttachedFiles.length === 0 ? goalDraftObjective(props.value) : null;
+  // A typed /goal is held to the server's limit whether or not files go with
+  // it: the server sets the goal and the files ride with its first turn.
+  const goalObjective = goalDraftObjective(props.value);
   const goalLength =
     goalObjective === null ? null : objectiveLength(goalObjective);
   const goalTooLong = goalLength !== null && goalLength > GOAL_OBJECTIVE_MAX;
@@ -728,7 +729,9 @@ export function Composer(props: {
    * Like the console, `/mcp` ignores what follows it rather than send it to
    * the model; `/goal` with anything after it (an objective, pause, resume,
    * clear) is the server's and goes as typed. A draft with files attached is
-   * always a message, so a command never swallows the attachments.
+   * always a message, so a command never swallows the attachments. A /goal
+   * whose objective is over the limit goes nowhere: it stays in the field,
+   * files and all, for the operator to shorten.
    */
   const runLocalCommandFromDraft = (): boolean => {
     if (goalTooLong) return true;
