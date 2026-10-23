@@ -58,7 +58,7 @@ var goalClearWords = map[string]bool{"clear": true, "stop": true, "off": true, "
 // --reasoning <level>, --then-file <path> (or --model=<id>, ...); the first
 // word that is not an option starts the objective or names the subcommand, so
 // an objective may mention an option within a sentence. A subcommand word
-// followed by a known option is that subcommand with those options (/goal
+// followed by its options is that subcommand with those options (/goal
 // resume -m <id>), and text left after them is refused. A trailing option
 // assignment is refused, since it would otherwise silently become text.
 func ParseGoalCommand(text string) GoalCommand {
@@ -73,10 +73,11 @@ func ParseGoalCommand(text string) GoalCommand {
 	var cmd GoalCommand
 	arg, optioned := readGoalOptions(&cmd, strings.TrimSpace(rest))
 	// The options of resume may also follow it, as the usage writes them
-	// (/goal resume -m <id>); so may options a pause or a clear refuses.
-	// Only a known option there makes the control word a command: other text
-	// after it is an objective, as it always was.
-	if control, tail := cutGoalWord(arg); goalControlWord(control) && isKnownGoalOption(tail) {
+	// (/goal resume -m <id>); so may options a pause or a clear refuses, and
+	// a mistyped one is refused there instead of replacing the goal. Prose
+	// that merely starts with a control word stays an objective
+	// (goalOptionTail).
+	if control, tail := cutGoalWord(arg); goalControlWord(control) && goalOptionTail(tail) {
 		more, _ := readGoalOptions(&cmd, tail)
 		arg = control
 		if more != "" && cmd.Err == "" {
@@ -158,6 +159,28 @@ func readGoalOptions(cmd *GoalCommand, arg string) (string, bool) {
 func goalControlWord(word string) bool {
 	word = strings.ToLower(word)
 	return goalClearWords[word] || word == "pause" || word == "resume"
+}
+
+// goalOptionTail reports whether the text after a control word reads as the
+// options of that command: it starts with a known option, or it starts with
+// an option word and holds at most one word that is not one (a mistyped
+// option and its value), so a typo pauses nothing and names no new goal.
+// Longer text is prose that happens to start that way (/goal reset --hard
+// the repo).
+func goalOptionTail(tail string) bool {
+	if isKnownGoalOption(tail) {
+		return true
+	}
+	if !isGoalOption(tail) {
+		return false
+	}
+	plain := 0
+	for _, word := range strings.Fields(tail) {
+		if !isGoalOption(word) {
+			plain++
+		}
+	}
+	return plain <= 1
 }
 
 // isKnownGoalOption reports whether text starts with one of the options /goal

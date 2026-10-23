@@ -342,14 +342,17 @@ export function goalDraftObjective(text: string): string | null {
   const control = /^(?:clear|stop|off|cancel|reset|none|pause|resume)$/i;
   if (control.test(rest)) return null;
   // The options of resume may follow it (/goal resume -m mini), and the
-  // server reads a control word followed by a known option as that command.
+  // server reads a control word followed by its options - a known one, or
+  // option words with at most one other word, a mistyped option and its
+  // value - as that command (goalOptionTail).
   const [first = "", ...more] = rest.split(/\s+/);
-  const next = (more[0] ?? "").split("=")[0];
-  if (
-    control.test(first) &&
-    ["--model", "--reasoning", "--then-file", "-m", "-r"].includes(next!)
-  )
-    return null;
+  const isOption = (w: string) => /^(?:--\S*|-[mr](?:=\S*)?)$/.test(w);
+  const next = (more[0] ?? "").split("=")[0]!;
+  if (control.test(first) && more.length > 0 && isOption(more[0]!)) {
+    const known = ["--model", "--reasoning", "--then-file", "-m", "-r"];
+    if (known.includes(next) || more.filter((w) => !isOption(w)).length <= 1)
+      return null;
+  }
   return rest;
 }
 
