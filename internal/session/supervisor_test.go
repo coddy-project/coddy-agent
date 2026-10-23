@@ -267,6 +267,31 @@ func TestGoalCommandWithAnAttachedFileSetsTheGoalAndKeepsIt(t *testing.T) {
 	}
 }
 
+// A /goal that starts no turn - a refusal, a pause, a show - takes the
+// pictures the composer sent with it (inline files, held for the next user
+// message) away with it, as the agent does for a prompt a hook rejected:
+// otherwise they ride with whatever the operator sends next. The web composer
+// gives a refused goal back with its files.
+func TestGoalCommandWithoutATurnDropsTheComposerFiles(t *testing.T) {
+	pictures := []acp.ImagePartRef{{DataURL: "data:image/png;base64,iVBORw0KGgo=", Name: "shot.png"}}
+	for _, text := range []string{"/goal ship it --model mini", "/goal pause", "/goal"} {
+		h := newGoalHarness(t)
+		if _, err := h.mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+			SessionID:  h.sid,
+			Prompt:     []acp.ContentBlock{{Type: acp.ContentTypeText, Text: text}},
+			ImageParts: pictures,
+		}); err != nil {
+			t.Fatalf("%s: %v", text, err)
+		}
+		if len(h.prompts) != 0 {
+			t.Fatalf("%s: %d turns ran", text, len(h.prompts))
+		}
+		if left := h.st().TakePendingImageParts(); len(left) != 0 {
+			t.Errorf("%s: %d composer files wait for the next prompt", text, len(left))
+		}
+	}
+}
+
 func TestGoalCommandChoosesTheCheckingModelAndLevel(t *testing.T) {
 	h := newGoalHarness(t)
 	levels := []string{"low", "medium", "high"}

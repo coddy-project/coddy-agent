@@ -170,6 +170,9 @@ func (m *Manager) runSupervisedTurn(ctx context.Context, st *State, prompt []acp
 				notice = err.Error()
 			}
 			if first == nil {
+				// No turn reads the pictures the composer sent with the
+				// command; left pending, they would ride with the next prompt.
+				st.TakePendingImageParts()
 				m.answerGoalCommand(st, sender, notice)
 				return string(acp.StopReasonEndTurn), nil
 			}
