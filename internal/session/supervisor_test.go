@@ -1035,6 +1035,46 @@ func TestGoalCommandQueuedDuringATurnRunsAtTheBoundary(t *testing.T) {
 	}
 }
 
+// A /goal queued with the composer's pictures is a command like one without:
+// it waits for the boundary instead of reading into the running step as text,
+// sets the goal there with the pictures riding on its kickoff, and a queued
+// command that starts no turn takes its pictures away with it.
+func TestGoalCommandQueuedWithPicturesRunsAtTheBoundary(t *testing.T) {
+	h := newGoalHarness(t)
+	pictures := []acp.ImagePartRef{{DataURL: "data:image/png;base64,iVBORw0KGgo=", Name: "shot.png"}}
+	h.steps[0] = func(_ context.Context, st *session.State, snd acp.UpdateSender, _ int) (string, error) {
+		for _, text := range []string{"/goal ship it", "/goal pause"} {
+			msg, _, err := h.mgr.EnqueueTurnMessageWithMode(st.ID, text, session.QueueModeSteer, pictures)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if msg.Mode != session.QueueModeAfterTurn {
+				t.Errorf("%s with pictures reads into the running step: mode %s", text, msg.Mode)
+			}
+			if _, err := h.mgr.SetQueuedTurnMessageMode(st.ID, msg.ID, session.QueueModeSteer); err != session.ErrGoalCommandAfterTurn {
+				t.Errorf("switching %s with pictures to steer: %v", text, err)
+			}
+		}
+		return toolTurn(st, snd, `{"path":"a"}`, "ok"), nil
+	}
+	var kickoffPictures int
+	h.steps[1] = func(_ context.Context, st *session.State, snd acp.UpdateSender, _ int) (string, error) {
+		kickoffPictures = len(st.TakePendingImageParts())
+		return toolTurn(st, snd, `{"path":"b"}`, "ok"), nil
+	}
+	h.verdict(met())
+	h.prompt("look around first")
+	if got := h.kinds(); strings.Join(got, ",") != "user,kickoff" {
+		t.Fatalf("turns = %v", got)
+	}
+	if goal := h.st().GetGoal(); goal.Objective != "ship it" || kickoffPictures != 1 {
+		t.Fatalf("goal=%+v, the kickoff read %d pictures", goal, kickoffPictures)
+	}
+	if left := h.st().TakePendingImageParts(); len(left) != 0 {
+		t.Errorf("%d pictures of the queued /goal pause wait for the next prompt", len(left))
+	}
+}
+
 // ---- the risk gate: a hard finding blocks the goal before anything else reads the turn ----
 
 // gitRun runs git in dir for a test; it skips the test without git.
