@@ -167,6 +167,10 @@ func (m *Manager) runSupervisedTurn(ctx context.Context, st *State, prompt []acp
 				notice = err.Error()
 			}
 			if first == nil {
+				// The images of this prompt were set aside for the turn it did
+				// not start (a show, a pause, a clear, a refusal): without one
+				// they would ride the next prompt instead.
+				st.TakePendingImageParts()
 				m.answerGoalCommand(st, sender, notice)
 				return string(acp.StopReasonEndTurn), nil
 			}

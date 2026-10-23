@@ -944,3 +944,58 @@ func TestGoalCommandQueuedDuringATurnRunsAtTheBoundary(t *testing.T) {
 		t.Fatalf("goal=%+v runs=%d checks=%d", goal, len(h.prompts), len(h.checks))
 	}
 }
+
+// A queued /goal command with images waits for the boundary the same way: the
+// running step must not read it as text and leave the goal unset.
+func TestGoalCommandQueuedWithImagesRunsAtTheBoundary(t *testing.T) {
+	h := newGoalHarness(t)
+	h.steps[0] = func(_ context.Context, st *session.State, snd acp.UpdateSender, _ int) (string, error) {
+		msg, _, err := h.mgr.EnqueueTurnMessageWithMode(st.ID, "/goal pause", session.QueueModeSteer,
+			[]acp.ImagePartRef{{Name: "shot.png", DataURL: "data:image/png;base64,AAAA"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if msg.Mode != session.QueueModeAfterTurn {
+			t.Errorf("a queued /goal command with images reads into the running step: mode %s", msg.Mode)
+		}
+		if _, err := h.mgr.SetQueuedTurnMessageMode(st.ID, msg.ID, session.QueueModeSteer); err != session.ErrGoalCommandAfterTurn {
+			t.Errorf("switching it to steer: %v", err)
+		}
+		return toolTurn(st, snd, `{"path":"a"}`, "ok"), nil
+	}
+	h.verdict(notMet("open"))
+	h.prompt("/goal ship it")
+	if goal := h.st().GetGoal(); goal.Status != session.GoalPaused || len(h.prompts) != 1 || len(h.checks) != 0 {
+		t.Fatalf("goal=%+v runs=%d checks=%d", goal, len(h.prompts), len(h.checks))
+	}
+	if left := h.st().TakePendingImageParts(); len(left) != 0 {
+		t.Fatalf("the queued images were left for the next prompt: %+v", left)
+	}
+}
+
+// A /goal command that answers without a turn (a show, a pause, a clear) had
+// its images set aside for that turn: with no turn to ride they must not
+// attach to whatever the operator sends next.
+func TestGoalCommandWithoutATurnTakesItsImages(t *testing.T) {
+	h := newGoalHarness(t)
+	if _, err := h.mgr.SetGoalObjective(h.sid, "ship it"); err != nil {
+		t.Fatal(err)
+	}
+	res, err := h.mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+		SessionID:  h.sid,
+		Prompt:     []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "/goal pause"}},
+		ImageParts: []acp.ImagePartRef{{Name: "shot.png", DataURL: "data:image/png;base64,AAAA"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil || !strings.Contains(res.SettingsNotice, "Goal paused") {
+		t.Fatalf("res = %+v", res)
+	}
+	if len(h.prompts) != 0 {
+		t.Fatalf("a pause started a turn: %v", h.prompts)
+	}
+	if left := h.st().TakePendingImageParts(); len(left) != 0 {
+		t.Fatalf("the pause's images were left for the next prompt: %+v", left)
+	}
+}

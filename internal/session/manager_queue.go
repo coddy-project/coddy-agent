@@ -28,8 +28,9 @@ func (m *Manager) EnqueueTurnMessageWithMode(sessionID, text string, mode QueueM
 	}
 	// A /goal command is the operator's, like a settings command: read into
 	// the running step it would reach the model as text. It waits for the
-	// turn boundary, where the supervisor runs it before any continuation.
-	if len(parts) == 0 && ParseGoalCommand(text).Kind != GoalCommandNone {
+	// turn boundary, where the supervisor runs it before any continuation,
+	// with any images it was queued with riding the turn it starts.
+	if ParseGoalCommand(text).Kind != GoalCommandNone {
 		mode = QueueModeAfterTurn
 	}
 	msg, err := st.EnqueueMessageWithMode(text, mode, parts)
@@ -135,7 +136,7 @@ func (m *Manager) SetQueuedTurnMessageMode(sessionID, messageID string, mode Que
 	}
 	if mode == QueueModeSteer {
 		for _, q := range st.QueuedMessages() {
-			if q.ID == messageID && len(q.ImageParts) == 0 && ParseGoalCommand(q.Text).Kind != GoalCommandNone {
+			if q.ID == messageID && ParseGoalCommand(q.Text).Kind != GoalCommandNone {
 				return st.QueuedMessages(), ErrGoalCommandAfterTurn
 			}
 		}
