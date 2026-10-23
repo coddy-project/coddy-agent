@@ -75,6 +75,66 @@ func registerCLILoginSteps(sc *godog.ScenarioContext, s *cliTUIState) {
 	sc.Step(`^the screen no longer shows "([^"]*)"$`, s.footerNoLongerShows)
 	sc.Step(`^the model selector offers "([^"]*)"$`, s.modelSelectorOffers)
 	sc.Step(`^the slash menu offers "([^"]*)"$`, s.slashMenuOffers)
+	sc.Step(`^a coddy console app on the example config with OPENAI_API_KEY unset$`, s.buildExampleConfigApp)
+	sc.Step(`^config\.yaml names "([^"]*)" as agent\.model$`, s.configNamesAgentModel)
+}
+
+// exampleConfig is the part of config.example.yaml that decides a fresh
+// install.sh setup: an openai row reading OPENAI_API_KEY, its model, and
+// agent.model on it.
+const exampleConfig = `providers:
+  - name: openai
+    type: openai
+    api_key: "${OPENAI_API_KEY}"
+models:
+  - model: openai/gpt-5.6-terra
+agent:
+  model: openai/gpt-5.6-terra
+`
+
+// buildExampleConfigApp is buildFreshApp over the example config, loaded the
+// way coddy loads it, with OPENAI_API_KEY unset.
+func (s *cliTUIState) buildExampleConfigApp() error {
+	if s.loginStand == nil {
+		s.loginStand = &loginStand{env: map[string]*string{}}
+	}
+	if err := s.loginStand.setenv("OPENAI_API_KEY", ""); err != nil {
+		return err
+	}
+	if err := s.buildFreshApp(); err != nil {
+		return err
+	}
+	if err := os.WriteFile(s.cfg.Paths.ConfigPath, []byte(exampleConfig), 0o644); err != nil {
+		return err
+	}
+	loaded, err := config.LoadWithPaths(s.cfg.Paths)
+	if err != nil {
+		return err
+	}
+	loaded.Tools.PermissionMode = s.cfg.Tools.PermissionMode
+	loaded.Rules.AutoDiscover = s.cfg.Rules.AutoDiscover
+	// The app and the manager were built over the bare configuration; both
+	// take the loaded one the way a start of coddy would have read it.
+	*s.cfg = *loaded
+	return nil
+}
+
+func (s *cliTUIState) configNamesAgentModel(model string) error {
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		cfg, err := config.LoadWithPaths(s.cfg.Paths)
+		if err == nil && cfg.Agent.Model == model {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			got := ""
+			if cfg != nil {
+				got = cfg.Agent.Model
+			}
+			return fmt.Errorf("config.yaml names %q as agent.model, want %q (%v)", got, model, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // buildFreshApp assembles the console over a home with no config.yaml: no
@@ -198,15 +258,20 @@ func (s *cliTUIState) modelSelectorOffers(model string) error {
 	return err
 }
 
-// slashMenuOffers reads the open autocomplete list for one command row.
+// slashMenuOffers reads the open autocomplete list for one command row: a
+// line that starts with the command (after the selection arrow) and goes on
+// with its description. The header's /login line names the command too, so
+// a word anywhere on the screen proves nothing.
 func (s *cliTUIState) slashMenuOffers(name string) error {
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		for _, line := range strings.Split(s.screenText(), "\n") {
-			for _, f := range strings.Fields(line) {
-				if f == name || f == "/"+name {
-					return nil
-				}
+			fields := strings.Fields(line)
+			if len(fields) > 0 && fields[0] == "→" {
+				fields = fields[1:]
+			}
+			if len(fields) > 1 && fields[0] == name {
+				return nil
 			}
 		}
 		time.Sleep(15 * time.Millisecond)

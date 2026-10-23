@@ -14,7 +14,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
@@ -40,6 +39,8 @@ type loginRun struct {
 	// paste feeds a Devin sign-in the address its browser was sent back to,
 	// pasted into the editor; nil for the device flows.
 	paste *io.PipeWriter
+	// modelBefore is the model the session ran on when the sign-in started.
+	modelBefore string
 }
 
 // loginTarget is the provider a /login names: NeuralDeep when it names none.
@@ -100,7 +101,7 @@ func (a *App) dispatchLogin(args []string) {
 // how it ends come back to the UI loop.
 func (a *App) startLogin(prov config.ProviderConfig) {
 	ctx, cancel := context.WithCancel(a.workCtx)
-	run := &loginRun{title: providerlogin.Title(prov.Type), typ: prov.Type, ctx: ctx, cancel: cancel}
+	run := &loginRun{title: providerlogin.Title(prov.Type), typ: prov.Type, ctx: ctx, cancel: cancel, modelBefore: a.modelID}
 	hooks := providerlogin.Hooks{
 		OnPrompt: func(p providerlogin.Prompt) {
 			a.postUI(func() { a.showLoginPrompt(run, p) })
@@ -129,6 +130,7 @@ func (a *App) startLogin(prov config.ProviderConfig) {
 	a.workers.Add(1)
 	go func() {
 		defer a.workers.Done()
+		defer cancel()
 		res, err := providerlogin.Run(ctx, cfg, &prov, hooks)
 		if pasteWriter != nil {
 			// The sign-in reads the pipe on a goroutine of its own, which
@@ -221,10 +223,45 @@ func (a *App) finishLogin(run *loginRun, res providerlogin.Result, err, reloadEr
 		a.appendStatus(roleDim, "Added to config.yaml: "+providerlogin.SummarizeAdded(res.Added))
 		if reloadErr != nil {
 			a.appendStatus(roleWarning, "The console could not load the new config.yaml ("+reloadErr.Error()+"); restart coddy to use it")
-		} else if !strings.HasPrefix(a.modelID, res.Provider+"/") {
-			a.appendStatus(roleDim, "ctrl+l or /model picks one of its models")
 		}
 	}
+	if res.AgentModelFrom != "" {
+		a.appendStatus(roleDim, "agent.model named "+tui.SanitizeText(res.AgentModelFrom)+", whose provider cannot answer; new sessions start on the signed-in provider now")
+	}
+	if reloadErr == nil {
+		a.adoptSignedInModel(res.Provider)
+	}
+	if run.modelBefore != "" && a.modelID != run.modelBefore {
+		// The session moved: through agent.model the reload brought, or by
+		// adoptSignedInModel.
+		a.appendStatus(roleDim, "This session runs on "+tui.SanitizeText(a.modelID)+" now")
+	}
+	// The stored sign-in is what makes the provider ready, whether or not
+	// config.yaml changed: the header and the usage line follow it now.
+	a.populateHeader()
+	a.refreshUsage(usageProviderOf(a.modelID), false)
+}
+
+// adoptSignedInModel moves the session to the provider just signed in when
+// the model it runs on cannot answer - a fresh install's session on the
+// example config's openai row without a key - and otherwise says how to pick
+// one of the new models.
+func (a *App) adoptSignedInModel(provider string) {
+	if strings.HasPrefix(a.modelID, provider+"/") {
+		return
+	}
+	cfg := a.config()
+	if a.modelID != "" && providerlogin.ProviderReady(cfg, usageProviderOf(a.modelID)) {
+		a.appendStatus(roleDim, "ctrl+l or /model picks one of its models")
+		return
+	}
+	target := providerlogin.DefaultModel(cfg, provider)
+	if target == "" {
+		return
+	}
+	a.modelID = target
+	a.refreshFooterModel()
+	a.setModel(target)
 }
 
 // stopLogin stops the running sign-in; finishLogin reports it.
@@ -250,15 +287,13 @@ func (a *App) feedLoginPaste(text string) bool {
 	return true
 }
 
-// looksLikeCallback reports an address a sign-in page sends the browser back
-// to: one http(s) URL with a code in its query, and nothing else on the line.
+// looksLikeCallback reports what a Devin sign-in takes as pasted: one word
+// with a code in it - the address the browser was sent back to, quoted or
+// not, with its scheme or without, or the query alone. The sign-in checks the
+// state itself and says why it refuses a line (OnPasteRejected).
 func looksLikeCallback(text string) bool {
-	t := strings.TrimSpace(text)
-	if t == "" || strings.ContainsAny(t, " \t\n") {
-		return false
-	}
-	u, err := url.Parse(t)
-	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Query().Get("code") != ""
+	t := strings.Trim(strings.TrimSpace(text), `"'`)
+	return t != "" && !strings.ContainsAny(t, " \t\n") && strings.Contains(t, "code=")
 }
 
 // Defaults of the browser seams, which tests replace.

@@ -188,8 +188,13 @@ func rowReady(cfg *config.Config, prov *config.ProviderConfig) bool {
 	case "acp":
 		return prov.ACP != nil && strings.TrimSpace(prov.ACP.Command) != ""
 	case "codex":
-		st, err := llm.InspectCodexAuth(config.CodexAuthPath(home, prov.Name), cfg.ProviderMayUseCLILogin(prov.Name, "codex"))
-		return err == nil && st.Connected
+		// The file, not llm.InspectCodexAuth: that one waits on the lock a
+		// token refresh holds through its request, and a surface asks this
+		// while it draws.
+		if fileExists(config.CodexAuthPath(home, prov.Name)) {
+			return true
+		}
+		return cfg.ProviderMayUseCLILogin(prov.Name, "codex") && llm.CodexCLILoginPresent()
 	}
 	if keySource(prov) != "" {
 		return true
@@ -208,6 +213,43 @@ func rowReady(cfg *config.Config, prov *config.ProviderConfig) bool {
 		return err == nil && st.Connected
 	}
 	return false
+}
+
+// ProviderReady reports whether the provider row name can answer, the way
+// Ready decides it for the whole configuration.
+func ProviderReady(cfg *config.Config, name string) bool {
+	if cfg == nil {
+		return false
+	}
+	prov := cfg.FindProvider(name)
+	return prov != nil && rowReady(cfg, prov)
+}
+
+// DefaultModel is the model a session moves to after a sign-in to provider:
+// agent.model when it runs on that provider, else the provider's first
+// model in config.yaml, which a sign-in lists in the provider's own order.
+// "" when config.yaml lists none.
+func DefaultModel(cfg *config.Config, provider string) string {
+	if cfg == nil {
+		return ""
+	}
+	if owner, _, _ := config.SplitModelRef(strings.TrimSpace(cfg.Agent.Model)); owner == provider {
+		return strings.TrimSpace(cfg.Agent.Model)
+	}
+	for _, m := range cfg.Models {
+		if owner, _, _ := config.SplitModelRef(m.Model); owner == provider {
+			return m.Model
+		}
+	}
+	return ""
+}
+
+func fileExists(path string) bool {
+	if path == "" {
+		return false
+	}
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // keySource names the key a row carries besides a sign-in, without running
@@ -274,6 +316,9 @@ type Result struct {
 	// Override names a key of the row that wins over the sign-in at every
 	// request, so the sign-in is not what requests use until it goes.
 	Override string
+	// AgentModelFrom is the agent.model the sign-in replaced because its
+	// provider could not answer; "" when it left agent.model alone.
+	AgentModelFrom string
 }
 
 // Run signs prov in the way a person at a terminal can - the device flow of
@@ -307,7 +352,47 @@ func Run(ctx context.Context, cfg *config.Config, prov *config.ProviderConfig, h
 		}
 		return Result{}, err
 	}
+	if res.ConfigErr == nil {
+		repointAgentModel(cfg, prov.Name, &res)
+	}
 	return res, nil
+}
+
+// repointAgentModel moves agent.model to the provider just signed in when
+// the model it names runs on a row that cannot answer - the example config's
+// openai row with OPENAI_API_KEY unset - so a new session does not start on
+// a model no request reaches. A working agent.model stays as it is.
+func repointAgentModel(cfg *config.Config, provider string, res *Result) {
+	current := strings.TrimSpace(cfg.Agent.Model)
+	if current == "" {
+		// The catalog the sign-in added set it already.
+		return
+	}
+	owner, _, _ := config.SplitModelRef(current)
+	if owner == provider || ProviderReady(cfg, owner) {
+		return
+	}
+	next, err := config.LoadWithPaths(cfg.Paths)
+	if err != nil {
+		res.ConfigErr = err
+		return
+	}
+	target := ""
+	for _, m := range next.Models {
+		if o, _, _ := config.SplitModelRef(m.Model); o == provider {
+			target = m.Model
+			break
+		}
+	}
+	if target == "" {
+		return
+	}
+	if _, err := config.CommitUCICommands(cfg.Paths, []config.UCICommand{{Op: config.UCIOpSet, Path: "agent.model", Value: target}}); err != nil {
+		res.ConfigErr = err
+		return
+	}
+	res.Added = append(res.Added, "agent.model "+target)
+	res.AgentModelFrom = current
 }
 
 func (h Hooks) prompt(p Prompt) {

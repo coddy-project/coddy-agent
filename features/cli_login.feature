@@ -28,6 +28,20 @@ Feature: Signing in to a model provider from the console
     And the screen no longer shows "Type /login to sign in to NeuralDeep"
     And the model selector offers "neuraldeep/gpt-oss-120b"
 
+  Scenario: /login on the example config moves the session to the signed-in provider
+    install.sh writes config.yaml from the example, whose openai row reads an
+    unset OPENAI_API_KEY and whose agent.model runs on that row. The sign-in
+    moves agent.model and the session to the provider it signed in.
+
+    Given a stand-in NeuralDeep hub whose tier serves the models "qwen3.8-27b" and "gpt-oss-120b"
+    And a coddy console app on the example config with OPENAI_API_KEY unset
+    When the console app starts
+    Then the screen shows "Type /login to sign in to NeuralDeep"
+    When the operator submits the command "/login"
+    Then the screen shows "This session runs on neuraldeep/qwen3.8-27b now"
+    And the footer shows "(neuraldeep) qwen3.8-27b"
+    And config.yaml names "neuraldeep/qwen3.8-27b" as agent.model
+
   Scenario Outline: The slash menu offers /<command>
     Given a coddy console app with no model provider configured
     When the console app starts

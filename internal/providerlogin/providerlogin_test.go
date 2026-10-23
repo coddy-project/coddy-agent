@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -378,5 +379,84 @@ func TestRunNamesAnExplicitKeyThatWinsOverTheLogin(t *testing.T) {
 	}
 	if res.Override != "api_key from config.yaml" {
 		t.Fatalf("the row's own key wins over the login and the result says so: %q", res.Override)
+	}
+}
+
+// install.sh writes the example config: an openai row reading an unset
+// OPENAI_API_KEY and agent.model on it. A sign-in moves agent.model to the
+// provider it signed in, so a new session starts on a model that answers;
+// an agent.model that works stays.
+func TestRunRepointsAnAgentModelThatCannotAnswer(t *testing.T) {
+	home := isolate(t)
+	neuralDeepHub(t)
+	paths := freshConfig(home).Paths
+	example := "providers:\n  - name: openai\n    type: openai\n    api_key: \"${OPENAI_API_KEY}\"\nmodels:\n  - model: openai/gpt-5.6-terra\nagent:\n  model: openai/gpt-5.6-terra\n"
+	if err := os.WriteFile(paths.ConfigPath, []byte(example), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov, _ := Resolve(cfg, DefaultType, "")
+	res, err := Run(context.Background(), cfg, prov, Hooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.AgentModelFrom != "openai/gpt-5.6-terra" || !slices.Contains(res.Added, "agent.model neuraldeep/qwen3.8-27b") {
+		t.Fatalf("result: %+v", res)
+	}
+	got, err := config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Agent.Model != "neuraldeep/qwen3.8-27b" {
+		t.Fatalf("agent.model = %q, want the signed-in provider's first model", got.Agent.Model)
+	}
+	if got.FindModelEntry("openai/gpt-5.6-terra") == nil {
+		t.Fatal("the openai model the operator listed stays in config.yaml")
+	}
+
+	// With the key set the openai row answers, and agent.model stays.
+	home = isolate(t)
+	t.Setenv("OPENAI_API_KEY", "sk-env")
+	paths = freshConfig(home).Paths
+	if err := os.WriteFile(paths.ConfigPath, []byte(example), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov, _ = Resolve(cfg, DefaultType, "")
+	if res, err = Run(context.Background(), cfg, prov, Hooks{}); err != nil {
+		t.Fatal(err)
+	}
+	if res.AgentModelFrom != "" {
+		t.Fatalf("a working agent.model was replaced: %+v", res)
+	}
+	if got, _ = config.LoadWithPaths(paths); got.Agent.Model != "openai/gpt-5.6-terra" {
+		t.Fatalf("agent.model = %q, want it untouched", got.Agent.Model)
+	}
+}
+
+func TestDefaultModelAndProviderReady(t *testing.T) {
+	isolate(t)
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "openai", Type: "openai"}, {Name: "local", Type: "openai", APIBase: "http://127.0.0.1:8080/v1"}},
+		Models:    []config.ModelEntry{{Model: "openai/a"}, {Model: "local/b"}, {Model: "local/c"}},
+		Agent:     config.Agent{Model: "local/c"},
+	}
+	if ProviderReady(cfg, "openai") || !ProviderReady(cfg, "local") || ProviderReady(cfg, "missing") {
+		t.Fatal("ProviderReady decides one row the way Ready decides them all")
+	}
+	if got := DefaultModel(cfg, "local"); got != "local/c" {
+		t.Fatalf("agent.model on the provider wins: %q", got)
+	}
+	if got := DefaultModel(cfg, "openai"); got != "openai/a" {
+		t.Fatalf("else the provider's first model: %q", got)
+	}
+	if got := DefaultModel(cfg, "none"); got != "" {
+		t.Fatalf("a provider with no model has none: %q", got)
 	}
 }

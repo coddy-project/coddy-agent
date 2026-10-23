@@ -8,12 +8,14 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/providerlogin"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
@@ -80,10 +82,24 @@ func TestLoginTarget(t *testing.T) {
 	}
 }
 
-func TestSlashCatalogOffersLoginAndExit(t *testing.T) {
+// newManagedTestApp is newTestApp over a real manager, for the paths that
+// read the session (the header, the slash catalog). The configuration has
+// the paths a sign-in writes config.yaml to.
+func newManagedTestApp(t *testing.T) *App {
+	t.Helper()
 	a := newTestApp(t)
 	cfg := a.config()
+	cfg.Paths.ConfigPath = filepath.Join(cfg.Paths.Home, "config.yaml")
 	a.mgr = session.NewManager(cfg, nil, nil, slog.New(slog.DiscardHandler), cfg.Paths.CWD, &session.FileStore{Root: t.TempDir()})
+	t.Cleanup(func() {
+		a.Close()
+		a.JoinWorkers(3 * time.Second)
+	})
+	return a
+}
+
+func TestSlashCatalogOffersLoginAndExit(t *testing.T) {
+	a := newManagedTestApp(t)
 	var names []string
 	for _, it := range a.slashCatalog() {
 		names = append(names, it.Value)
@@ -174,10 +190,10 @@ func TestPastedCallbackGoesToTheSignIn(t *testing.T) {
 		}
 	}()
 	callback := "http://127.0.0.1:43123/callback?code=abc&state=xyz"
-	a.onSubmit(callback)
+	a.onSubmit(`"` + callback + `"`)
 	select {
 	case line := <-got:
-		if line != callback {
+		if line != `"`+callback+`"` {
 			t.Fatalf("the sign-in read %q", line)
 		}
 	case <-time.After(2 * time.Second):
@@ -186,15 +202,23 @@ func TestPastedCallbackGoesToTheSignIn(t *testing.T) {
 	if strings.Contains(transcriptText(a), "Turn failed") {
 		t.Fatal("the address was sent to the model")
 	}
-	if !looksLikeCallback(callback) || looksLikeCallback("what does code=1 mean here?") || looksLikeCallback("fix the login page") {
-		t.Fatal("only an address with a code completes a sign-in")
+	// Every form the sign-in itself takes reaches it; a sentence does not.
+	for _, pasted := range []string{callback, `"` + callback + `"`, "127.0.0.1:43123/callback?code=abc&state=xyz", "code=abc&state=xyz"} {
+		if !looksLikeCallback(pasted) {
+			t.Fatalf("%q is a callback the sign-in takes", pasted)
+		}
+	}
+	for _, typed := range []string{"what does code=1 mean here?", "fix the login page", ""} {
+		if looksLikeCallback(typed) {
+			t.Fatalf("%q is a prompt, not a callback", typed)
+		}
 	}
 }
 
 // What a finished sign-in prints: who signed in, what config.yaml gained or
 // why it could not, and a stop or a failure in words.
 func TestFinishLoginReports(t *testing.T) {
-	a := newTestApp(t)
+	a := newManagedTestApp(t)
 	run := &loginRun{title: "NeuralDeep", cancel: func() {}}
 	a.login = run
 	a.finishLogin(run, providerlogin.Result{
@@ -211,7 +235,7 @@ func TestFinishLoginReports(t *testing.T) {
 		t.Fatal("a finished sign-in is not running any more")
 	}
 
-	b := newTestApp(t)
+	b := newManagedTestApp(t)
 	run = &loginRun{title: "Codex", cancel: func() {}}
 	b.login = run
 	b.finishLogin(run, providerlogin.Result{Provider: "codex", Type: "codex"}, nil, nil)
@@ -219,7 +243,7 @@ func TestFinishLoginReports(t *testing.T) {
 		t.Fatalf("a sign-in that added nothing says so: %q", transcriptText(b))
 	}
 
-	c := newTestApp(t)
+	c := newManagedTestApp(t)
 	run = &loginRun{title: "Codex", cancel: func() {}}
 	c.login = run
 	c.finishLogin(run, providerlogin.Result{Provider: "codex", Type: "codex", ConfigErr: errors.New("disk full")}, nil, nil)
@@ -237,11 +261,72 @@ func TestFinishLoginReports(t *testing.T) {
 		t.Fatalf("a stopped sign-in says so: %q", transcriptText(d))
 	}
 
-	e := newTestApp(t)
+	e := newManagedTestApp(t)
 	run = &loginRun{title: "OpenCode", cancel: func() {}}
 	e.login = run
 	e.finishLogin(run, providerlogin.Result{}, errors.New("device code expired"), nil)
 	if !strings.Contains(transcriptText(e), "Sign-in to OpenCode failed: device code expired") {
 		t.Fatalf("a failed sign-in names the reason: %q", transcriptText(e))
+	}
+}
+
+// A sign-in that added nothing - config.yaml listed the provider already, the
+// login was all it lacked - still takes the /login line out of the header.
+func TestFinishLoginRefreshesTheHeaderWhenNothingWasAdded(t *testing.T) {
+	t.Setenv("NEURALDEEP_API_KEY", "")
+	a := newManagedTestApp(t)
+	cfg := a.config()
+	cfg.Providers = []config.ProviderConfig{{Name: "neuraldeep", Type: "neuraldeep"}}
+	cfg.Models = []config.ModelEntry{{Model: "neuraldeep/qwen3.8-27b"}}
+	a.populateHeader()
+	if !a.header.loginHint {
+		t.Fatal("a row nobody signed in leaves the console without a provider")
+	}
+	if err := llm.SaveNeuralDeepAuth(config.NeuralDeepAuthPath(cfg.Paths.Home, "neuraldeep"), "sk-stored-0123456789abcdef", "https://hub.invalid", llm.NeuralDeepClientID, "coddy"); err != nil {
+		t.Fatal(err)
+	}
+	run := &loginRun{title: "NeuralDeep", cancel: func() {}}
+	a.login = run
+	a.finishLogin(run, providerlogin.Result{Provider: "neuraldeep", Type: "neuraldeep"}, nil, nil)
+	if a.header.loginHint {
+		t.Fatal("the header still points at /login after the sign-in")
+	}
+}
+
+// The example config install.sh writes keeps agent.model on its openai row;
+// after a sign-in the session must not stay on a model no request reaches.
+func TestFinishLoginMovesTheSessionOffAProviderThatCannotAnswer(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("NEURALDEEP_API_KEY", "")
+	a := newManagedTestApp(t)
+	cfg := a.config()
+	cfg.Providers = []config.ProviderConfig{{Name: "openai", Type: "openai"}, {Name: "neuraldeep", Type: "neuraldeep"}}
+	cfg.Models = []config.ModelEntry{{Model: "openai/gpt-5.6-terra"}, {Model: "neuraldeep/qwen3.8-27b"}, {Model: "neuraldeep/gpt-oss-120b"}}
+	cfg.Agent.Model = "openai/gpt-5.6-terra"
+	if err := llm.SaveNeuralDeepAuth(config.NeuralDeepAuthPath(cfg.Paths.Home, "neuraldeep"), "sk-stored-0123456789abcdef", "https://hub.invalid", llm.NeuralDeepClientID, "coddy"); err != nil {
+		t.Fatal(err)
+	}
+	a.modelID = "openai/gpt-5.6-terra"
+	run := &loginRun{title: "NeuralDeep", cancel: func() {}, modelBefore: a.modelID}
+	a.login = run
+	a.finishLogin(run, providerlogin.Result{Provider: "neuraldeep", Type: "neuraldeep", Added: []string{"model neuraldeep/qwen3.8-27b"}}, nil, nil)
+	if a.modelID != "neuraldeep/qwen3.8-27b" {
+		t.Fatalf("the session stayed on %q", a.modelID)
+	}
+	if text := transcriptText(a); !strings.Contains(text, "This session runs on neuraldeep/qwen3.8-27b now") {
+		t.Fatalf("the switch is not said: %q", text)
+	}
+
+	// A session on a provider that answers keeps its model.
+	b := newManagedTestApp(t)
+	cfg = b.config()
+	cfg.Providers = []config.ProviderConfig{{Name: "openai", Type: "openai", APIKey: "sk-set"}, {Name: "neuraldeep", Type: "neuraldeep"}}
+	cfg.Models = []config.ModelEntry{{Model: "openai/gpt-5.6-terra"}, {Model: "neuraldeep/qwen3.8-27b"}}
+	b.modelID = "openai/gpt-5.6-terra"
+	run = &loginRun{title: "NeuralDeep", cancel: func() {}}
+	b.login = run
+	b.finishLogin(run, providerlogin.Result{Provider: "neuraldeep", Type: "neuraldeep", Added: []string{"model neuraldeep/qwen3.8-27b"}}, nil, nil)
+	if b.modelID != "openai/gpt-5.6-terra" || !strings.Contains(transcriptText(b), "ctrl+l or /model picks one of its models") {
+		t.Fatalf("a working session was moved (%q) or not told how to switch: %q", b.modelID, transcriptText(b))
 	}
 }
