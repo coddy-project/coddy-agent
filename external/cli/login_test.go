@@ -252,9 +252,9 @@ func TestFinishLoginReports(t *testing.T) {
 	}
 
 	d := newTestApp(t)
-	ctx, cancel := context.WithCancel(context.Background())
+	_, cancel := context.WithCancel(context.Background())
 	cancel()
-	run = &loginRun{title: "Devin", cancel: cancel, ctx: ctx}
+	run = &loginRun{title: "Devin", cancel: cancel}
 	d.login = run
 	d.finishLogin(run, providerlogin.Result{}, context.Canceled, nil)
 	if !strings.Contains(transcriptText(d), "Sign-in to Devin stopped") {
@@ -380,6 +380,16 @@ func TestTurnFailureHint(t *testing.T) {
 	a.modelID = "local/b"
 	if got := a.turnFailureHint(); got != "" {
 		t.Fatalf("a turn that failed on a working provider: %q", got)
+	}
+	// A model whose provider config.yaml does not list: a sign-in type is
+	// one /login creates, any other name is not there to fix.
+	a.modelID = "devin/swe-2"
+	if got := a.turnFailureHint(); !strings.Contains(got, "type /login devin") {
+		t.Fatalf("a model on a missing devin row: %q", got)
+	}
+	a.modelID = "gone/m"
+	if got := a.turnFailureHint(); !strings.Contains(got, `Provider "gone" is not in config.yaml`) || strings.Contains(got, "GONE_API_KEY") {
+		t.Fatalf("a model on a provider config.yaml does not list: %q", got)
 	}
 	a.remoteURL = "https://coddy.example.test"
 	a.modelID = "openai/gpt-5.6-terra"

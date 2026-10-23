@@ -33,7 +33,6 @@ type loginRun struct {
 	// title names the product ("NeuralDeep"), typ the provider type.
 	title string
 	typ   string
-	ctx   context.Context
 	// cancel stops the sign-in (escape, or the console closing).
 	cancel context.CancelFunc
 	// paste feeds a Devin sign-in the address its browser was sent back to,
@@ -73,8 +72,13 @@ func (a *App) turnFailureHint() string {
 	if owner == "" || providerlogin.ProviderReady(cfg, owner) {
 		return ""
 	}
-	if prov := cfg.FindProvider(owner); prov != nil && providerlogin.Supports(prov.Type) {
+	prov := cfg.FindProvider(owner)
+	switch {
+	case prov != nil && providerlogin.Supports(prov.Type), prov == nil && providerlogin.Supports(owner):
+		// A missing row named after a sign-in type is one /login creates.
 		return fmt.Sprintf("Provider %q has no sign-in: type /login %s, or press ctrl+l for a model of another provider.", owner, owner)
+	case prov == nil:
+		return fmt.Sprintf("Provider %q is not in config.yaml: press ctrl+l for a model of a provider it lists.", owner)
 	}
 	return fmt.Sprintf("Provider %q has no key: set api_key or %s, or press ctrl+l for a model of another provider.", owner, config.ProviderAPIKeyEnvVarName(owner))
 }
@@ -122,7 +126,7 @@ func (a *App) dispatchLogin(args []string) {
 // how it ends come back to the UI loop.
 func (a *App) startLogin(prov config.ProviderConfig) {
 	ctx, cancel := context.WithCancel(a.workCtx)
-	run := &loginRun{title: providerlogin.Title(prov.Type), typ: prov.Type, ctx: ctx, cancel: cancel, modelBefore: a.modelID}
+	run := &loginRun{title: providerlogin.Title(prov.Type), typ: prov.Type, cancel: cancel, modelBefore: a.modelID}
 	hooks := providerlogin.Hooks{
 		OnPrompt: func(p providerlogin.Prompt) {
 			a.postUI(func() { a.showLoginPrompt(run, p) })

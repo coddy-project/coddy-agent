@@ -166,8 +166,8 @@ func SummarizeAdded(added []string) string {
 // Ready reports whether cfg names a provider that can answer a request: a
 // row with a key (api_key, api_key_command or its NAME_API_KEY variable), a
 // sign-in stored for it or the CLI login it may use, an acp row (its agent
-// signs in on its own), or an OpenAI-compatible row aimed at an endpoint of
-// its own, which may need no key (a local server). A fresh install answers
+// signs in on its own), or an openai or anthropic row aimed at an endpoint of
+// its own, which may need no key (a local server, a gateway). A fresh install answers
 // false - no config.yaml, or the example one with its key unset - and that
 // is when /login is the way on. It runs no credential helper and makes no
 // request, so a surface can ask it whenever it draws.
