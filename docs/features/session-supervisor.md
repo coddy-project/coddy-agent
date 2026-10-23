@@ -6,17 +6,6 @@ The supervisor is a second model rather than the worker grading itself. It judge
 
 ## Commands
 
-Put options before the objective. A trailing assignment such as `--model mini` or
-`-r high` is refused; a typographic dash in an option such as `—model` is reported
-so it can be replaced with `--model`. These options do not count toward the
-4000-character limit. The web composer shows the trimmed objective's character
-count, blocks an overlong goal, and restores a goal's text if the server refuses
-to set it, so you can correct and resend it.
-
-![Goal length counter and warning in the web composer](../assets/session-supervisor/goal-composer-limit-dark-1280.png)
-
-*An overlong goal stays in the composer for correction.*
-
 | Command | What it does |
 |---|---|
 | `/goal [-m\|--model <id>] [-r\|--reasoning <level>] [--then-file <path>] <objective>` | Sets the goal, replacing any earlier one, and starts a turn on it right away. The objective is limited to 4000 characters; put longer specifications in a file and name it, with an `@` mention (`/goal finish @plan.md`) or by attaching the file in the composer - the file rides with the first turn, where the worker reads it. `--model` and `--reasoning` choose the model and the reasoning level that check this goal, like `/compact --model`: a configured `models[].model` (or a part of one that matches exactly one model) and a level that model offers (`default` for its own). `-m` and `-r` are the short spellings. `--then-file` names a file whose text becomes the goal of a new session once this goal is met (see [Goal chains](#goal-chains)). |
@@ -26,6 +15,14 @@ to set it, so you can correct and resend it.
 | `/goal clear` | Removes the goal. `stop`, `off`, `cancel`, `reset` and `none` work as well. |
 
 The commands work in the web composer, the console, ACP editors, `POST /v1/responses`, Telegram and Pachca. In a messenger, only the bot's admins can set, pause, resume or clear a goal; any permitted user can show it. A goal is worked on in agent mode. It is saved with the session, so it survives a restart, and a compaction keeps the progress toward it in the summary.
+
+Options go before the objective; they do not count toward its 4000 characters. An option with its value at the end of the objective (`/goal ship it --model mini`) is refused with a notice that names it, and so is an option written with a typographic dash at the start or at the end (`—model`, which smart punctuation makes of `--model`). An option word inside a sentence of the objective stays text.
+
+The web composer counts the objective as you type `/goal`, the way the server counts it: without the leading options, trimmed, in characters. It does not send an objective longer than 4000 characters, and a `/goal` the server refuses comes back into the field with its attached files, so you can shorten it and send it again.
+
+![Goal length counter and warning in the web composer](../assets/session-supervisor/goal-composer-limit-dark-1280.png)
+
+*An overlong goal stays in the composer for correction.*
 
 ## How a goal is worked on
 
