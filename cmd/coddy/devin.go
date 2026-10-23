@@ -12,10 +12,10 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/providerlogin"
 )
 
 // devinPasteInput is where a sign-in reads a pasted callback address from.
@@ -109,29 +109,8 @@ func devinWriteConfig(ctx context.Context, cfg *config.Config, prov *config.Prov
 		fmt.Println("config.yaml already lists this provider and its models.")
 		return
 	}
-	fmt.Printf("Updated %s: %s\n", cfg.Paths.ConfigPath, summarizeAdded(added))
+	fmt.Printf("Updated %s: %s\n", cfg.Paths.ConfigPath, providerlogin.SummarizeAdded(added))
 	fmt.Println("A running `coddy serve` server keeps its loaded config; restart it (or edit settings in the UI) to pick the changes up.")
-}
-
-// summarizeAdded names what a login added, folding a long model list into a
-// count so a catalog of forty families does not flood the terminal.
-func summarizeAdded(added []string) string {
-	var models, other []string
-	for _, a := range added {
-		if strings.HasPrefix(a, "model ") {
-			models = append(models, strings.TrimPrefix(a, "model "))
-			continue
-		}
-		other = append(other, a)
-	}
-	if len(models) > 6 {
-		other = append(other, fmt.Sprintf("%d models (%s, ...)", len(models), strings.Join(models[:3], ", ")))
-	} else {
-		for _, m := range models {
-			other = append(other, "model "+m)
-		}
-	}
-	return strings.Join(other, ", ")
 }
 
 // devinCredentialSummary is the `providers list` line of a devin row.

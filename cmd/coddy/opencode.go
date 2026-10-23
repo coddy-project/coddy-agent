@@ -20,6 +20,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/providerlogin"
 )
 
 // opencodeKeyInput is where a login reads a pasted key from when it is not
@@ -27,40 +28,13 @@ import (
 // feed it (or leave the terminal alone).
 var opencodeKeyInput io.Reader = os.Stdin
 
-// resolveOpenCodeAPIBase settles which OpenCode gateway the row the login
-// writes talks to: --api-base wins, then the provider row, then the default
-// (Go). The login itself belongs to the account and serves either gateway, as
-// in the OpenCode client. An unknown flag value is an error rather than a
-// silent fallback, so a row never ends up on a gateway the operator did not
-// mean. A row that names no OpenCode endpoint resolves to the default
-// explicitly, so the login repairs the row instead of leaving the unusable
-// value behind.
-func resolveOpenCodeAPIBase(flagValue, configured string) (string, error) {
-	if strings.TrimSpace(flagValue) != "" {
-		base, ok := llm.NormalizeOpenCodeAPIBase(flagValue)
-		if !ok {
-			return "", fmt.Errorf("--api-base %q is not an OpenCode gateway; use one of %s",
-				strings.TrimSpace(flagValue), strings.Join(llm.OpenCodeAPIBases(), ", "))
-		}
-		return base, nil
-	}
-	if base, ok := llm.NormalizeOpenCodeAPIBase(configured); ok {
-		return base, nil
-	}
-	// A row that names no OpenCode endpoint - empty, or a value left over from
-	// another provider type - resolves to the default explicitly, so the login
-	// records it and repairs the row instead of leaving the unusable value
-	// behind.
-	return llm.OpenCodeDefaultAPIBase(), nil
-}
-
 // opencodeLogin signs in an account, or stores an explicit service account
 // key. Unless --no-config, it also writes the gateway's catalog into config.yaml.
 func opencodeLogin(cfg *config.Config, prov *config.ProviderConfig, apiKey string, noConfig bool, apiBase string) error {
 	if noConfig && strings.TrimSpace(apiBase) != "" {
 		return errors.New("providers login: --api-base picks the gateway of the row in config.yaml, which --no-config leaves alone; the OpenCode login serves both gateways, so set the row's api_base instead")
 	}
-	endpoint, err := resolveOpenCodeAPIBase(apiBase, prov.APIBase)
+	endpoint, err := providerlogin.OpenCodeAPIBase(apiBase, prov.APIBase)
 	if err != nil {
 		return err
 	}
@@ -150,7 +124,7 @@ func opencodeWriteConfig(cfg *config.Config, prov *config.ProviderConfig, endpoi
 		fmt.Println("config.yaml already lists this provider and its models.")
 		return
 	}
-	fmt.Printf("Updated %s: %s\n", cfg.Paths.ConfigPath, summarizeAdded(added))
+	fmt.Printf("Updated %s: %s\n", cfg.Paths.ConfigPath, providerlogin.SummarizeAdded(added))
 	fmt.Println("A running `coddy serve` server keeps its loaded config; restart it (or edit settings in the UI) to pick the changes up.")
 }
 

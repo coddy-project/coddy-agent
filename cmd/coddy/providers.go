@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"strings"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
+	"github.com/EvilFreelancer/coddy-agent/internal/providerlogin"
 )
 
 // neuralDeepLogoutTimeout bounds the best-effort server-side key revoke.
@@ -79,36 +79,20 @@ func providersUsageErr() error {
 	return fmt.Errorf("usage: %s providers list | login <name> [--type neuraldeep|opencode|codex|devin] [--browser] [--devin-cli] [--api-key KEY] [--no-config] [--api-base URL] | logout <name> [--home DIR]", os.Args[0])
 }
 
-// resolveLoginProvider picks the provider entry for login/logout. A name
-// present in config.yaml wins; otherwise providerType (the --type flag), or
-// the conventional names "neuraldeep", "codex" and "devin" themselves,
-// synthesize a probe entry of that type, so a fresh install - or another
-// profile of a type already configured - can sign in before editing
-// config.yaml.
+// resolveLoginProvider picks the provider entry for login/logout
+// (providerlogin.Resolve) and words a refusal in terms of this command's
+// flags.
 func resolveLoginProvider(cfg *config.Config, name, providerType string) (*config.ProviderConfig, error) {
-	providerType = strings.TrimSpace(providerType)
-	if prov := cfg.FindProvider(name); prov != nil {
-		if providerType != "" && providerType != prov.Type {
-			return nil, fmt.Errorf("provider %q has type %q in config.yaml, not %q", prov.Name, prov.Type, providerType)
-		}
-		return prov, nil
-	}
-	if providerType == "" && (name == "neuraldeep" || name == "opencode" || name == "codex" || name == "devin") {
-		providerType = name
-	}
-	switch providerType {
-	case "neuraldeep", "opencode", "codex", "devin":
-		probe := config.ProviderConfig{Name: name, Type: providerType}
-		probe.Normalize()
-		if err := probe.Validate(); err != nil {
-			return nil, err
-		}
-		return &probe, nil
-	case "":
+	prov, err := providerlogin.Resolve(cfg, name, providerType)
+	var notConfigured *providerlogin.NotConfiguredError
+	var unsupported *providerlogin.UnsupportedTypeError
+	switch {
+	case errors.As(err, &notConfigured):
 		return nil, fmt.Errorf("provider %q is not in config.yaml; add it first, pass --type neuraldeep|opencode|codex|devin, or use the conventional names \"neuraldeep\" / \"opencode\" / \"codex\" / \"devin\"", name)
-	default:
+	case errors.As(err, &unsupported):
 		return nil, fmt.Errorf("--type %q: sign-in exists only for neuraldeep, opencode, codex and devin; other types authenticate with api_key", providerType)
 	}
+	return prov, err
 }
 
 func providersLogin(cfg *config.Config, name, providerType string, device, browser, devinCLI, noConfig bool, apiBase, apiKey string) error {
@@ -149,31 +133,6 @@ func providersLogin(cfg *config.Config, name, providerType string, device, brows
 	}
 }
 
-// resolveNeuralDeepAPIBase settles which NeuralDeep deployment a login talks
-// to: --api-base wins, then the provider row, then the default (reported as an
-// empty string when the row is silent). An unknown flag value is an error
-// rather than a silent fallback - the user would otherwise sign in against the
-// wrong hub and only find out when requests start failing. A row that names
-// no NeuralDeep endpoint resolves to the default explicitly, so the login
-// records it and repairs the row instead of leaving the unusable value behind.
-func resolveNeuralDeepAPIBase(flagValue, configured string) (string, error) {
-	if strings.TrimSpace(flagValue) != "" {
-		base, ok := llm.NormalizeNeuralDeepAPIBase(flagValue)
-		if !ok {
-			return "", fmt.Errorf("--api-base %q is not a NeuralDeep endpoint; use one of %s",
-				strings.TrimSpace(flagValue), strings.Join(llm.NeuralDeepAPIBases(), ", "))
-		}
-		return base, nil
-	}
-	if base, ok := llm.NormalizeNeuralDeepAPIBase(configured); ok {
-		return base, nil
-	}
-	if strings.TrimSpace(configured) != "" {
-		return llm.NeuralDeepDefaultAPIBase(), nil
-	}
-	return "", nil
-}
-
 // neuralDeepLogin signs in to the hub. The device flow is the default: the
 // loopback callback only completes when a browser can reach this process's own
 // 127.0.0.1, which is false for every machine reached over SSH, in a container,
@@ -185,7 +144,7 @@ func neuralDeepLogin(cfg *config.Config, prov *config.ProviderConfig, browser, n
 	// The endpoint decides which hub mints the key, so it has to be settled
 	// before the flow starts: --api-base wins, then the provider row, then the
 	// default deployment. A fresh install outside Russia has no row yet.
-	endpoint, err := resolveNeuralDeepAPIBase(apiBase, prov.APIBase)
+	endpoint, err := providerlogin.NeuralDeepAPIBase(apiBase, prov.APIBase)
 	if err != nil {
 		return err
 	}
@@ -450,23 +409,7 @@ func explicitKeySource(prov *config.ProviderConfig) string {
 // openBrowserFn opens a URL in the user's default browser, best-effort. It is
 // a variable so tests (and callers that must not spawn processes) can replace
 // it; the printed URL always remains the source of truth.
-var openBrowserFn = openBrowser
-
-func openBrowser(url string) error {
-	argv := platform.BrowserOpenArgv(url)
-	if len(argv) == 0 {
-		return errors.New("no browser opener found in PATH")
-	}
-	cmd := exec.Command(argv[0], argv[1:]...) //nolint:gosec // argv comes from a fixed list of openers
-	platform.AdaptCommand(cmd)
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	// A sign-in waits for up to fifteen minutes; an unreaped opener would sit
-	// as a zombie for all of it.
-	go func() { _ = cmd.Wait() }()
-	return nil
-}
+var openBrowserFn = platform.OpenBrowser
 
 // localBrowserAvailableFn is a variable so tests can decide what the machine
 // looks like without touching the environment.
