@@ -284,6 +284,11 @@ test-agent-rules:
 test-opencode-rules:
 	node --test .opencode/tests/project-rules.test.js
 
+# Test the browser extension's own Node suite: its access policy and the SSE
+# framing the chat panel reads. Node alone, no npm install.
+browser-extension-test:
+	node --test external/browser-extension/tests/*.test.mjs
+
 # ---- Tests ----
 #
 # Two speeds. `make test` is the express run: the SPA's vitest suite, then one
@@ -334,13 +339,13 @@ TEST_TAG_SETS := \
 
 # Express run: the SPA suite, then the whole Go tree once with every optional
 # module compiled in.
-test: test-agent-rules ui-build ui-test
+test: test-agent-rules browser-extension-test ui-build ui-test
 	go test -tags=$(FULL_TAGS_CSV) ./...
 
 # Full matrix: every combination in TEST_TAG_SETS, in sequence. CI's job; run
 # it locally only when a build-tag boundary moved and one combination is not
 # enough.
-test-matrix: test-agent-rules ui-build ui-test
+test-matrix: test-agent-rules browser-extension-test ui-build ui-test
 	go test ./...
 	@set -e; for tags in $(TEST_TAG_SETS); do \
 		echo "go test -tags=$$tags ./..."; \

@@ -142,6 +142,7 @@ func Run(ctx context.Context, req Request) *Report {
 	r.miniApp()
 	r.listeners()
 	r.metricsExposure()
+	r.browserExposure()
 	r.unsentModelSettings()
 	r.unknownToolsetTools()
 	r.gatewayAdmins()

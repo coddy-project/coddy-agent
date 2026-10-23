@@ -40,6 +40,9 @@ jobs:
       - name: Test the web UI
         run: make ui-test
 
+      - name: Test the browser extension
+        run: make browser-extension-test
+
       - name: Read the tag combinations
         id: sets
         run: echo "sets=$(make -s print-test-tag-sets)" >> "$GITHUB_OUTPUT"

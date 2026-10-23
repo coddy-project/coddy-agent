@@ -267,6 +267,23 @@ export const messagesEn: Record<string, string> = {
   "settings.section.logger.label": "Logger",
   "settings.section.logger.desc": "Level, outputs, rotation",
   "settings.section.metrics.label": "Metrics",
+  "settings.section.browser.label": "Browser",
+  "settings.section.browser.desc": "Browser extensions, own port and key",
+  "settings.schema.browser.enable.label": "Enabled",
+  "settings.schema.browser.enable.desc":
+    "Accept browser extension connections.",
+  "settings.schema.browser.host.label": "Listen host",
+  "settings.schema.browser.host.desc": "Empty uses 127.0.0.1.",
+  "settings.schema.browser.port.label": "Listen port",
+  "settings.schema.browser.port.desc": "0 uses 12348.",
+  "settings.schema.browser.token.label": "Extension key",
+  "settings.schema.browser.token.desc":
+    "At least 32 characters. Leave empty to keep the current key.",
+  "settings.schema.browser.cert_file.label": "TLS certificate",
+  "settings.schema.browser.cert_file.desc":
+    "Certificate PEM for HTTPS. Set together with the private key.",
+  "settings.schema.browser.key_file.label": "TLS private key",
+  "settings.schema.browser.key_file.desc": "Private key PEM for HTTPS.",
   "settings.section.metrics.desc": "Prometheus exporter, own port",
   "settings.section.status.label": "System",
   "settings.section.status.desc": "Version, disk, activity",

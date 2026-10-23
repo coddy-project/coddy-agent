@@ -320,6 +320,51 @@ func TestAnExporterOffLoopbackWithoutATokenIsWarned(t *testing.T) {
 	}
 }
 
+// A browser listener bound off loopback without TLS would carry the extension
+// key and the tab data in the clear, so a start without a certificate is
+// warned about, once, at the line of the host that opens it.
+func TestABrowserListenerOffLoopbackWithoutTLSIsWarned(t *testing.T) {
+	serveBrowser := func(addr string) func(*Request) {
+		return func(r *Request) {
+			r.Surface = SurfaceServe
+			r.Listeners = []Listener{{Path: "browser", Addr: addr}}
+		}
+	}
+	key := "token: 0123456789abcdef0123456789abcdef\n"
+	open := "browser:\n  enable: true\n  host: 0.0.0.0\n  " + key
+	c := find(t, run(t, open, serveBrowser("0.0.0.0:0")), "browser.cert_file")
+	if c.Status != StatusWarning || !strings.Contains(c.Message, "without TLS") || c.Line != 4 {
+		t.Errorf("an open browser listener: %+v", c)
+	}
+	n := 0
+	for _, c := range run(t, open, serveBrowser("0.0.0.0:0")).Checks {
+		if c.Path == "browser.cert_file" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("%d findings, want one", n)
+	}
+
+	for name, body := range map[string]string{
+		"TLS":      "browser:\n  enable: true\n  host: 0.0.0.0\n  " + key + "  cert_file: cert.pem\n  key_file: key.pem\n",
+		"loopback": "browser:\n  enable: true\n  " + key,
+	} {
+		for _, c := range run(t, body, serveBrowser("127.0.0.1:0")).Checks {
+			if c.Path == "browser.cert_file" {
+				t.Errorf("%s was warned: %+v", name, c)
+			}
+		}
+	}
+	// A configuration that leaves the subsystem off binds nothing: serve lists
+	// no listener, and there is nothing to warn of.
+	for _, c := range run(t, open, func(r *Request) { r.Surface = SurfaceServe }).Checks {
+		if c.Path == "browser.cert_file" {
+			t.Errorf("a listener that would not run was warned: %+v", c)
+		}
+	}
+}
+
 func TestTelegramTokenProbe(t *testing.T) {
 	var status int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

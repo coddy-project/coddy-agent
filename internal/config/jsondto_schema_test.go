@@ -69,7 +69,7 @@ func TestUISchemaRootPropertyOrder(t *testing.T) {
 		"agent", "supervisor", "compaction", "memory", "decisions",
 		"tools", "skills", "subagents", "hooks",
 		"scheduler", "gateways",
-		"logger", "metrics", "sessions", "prompts", "instructions",
+		"logger", "metrics", "browser", "sessions", "prompts", "instructions",
 	}
 	if !reflect.DeepEqual(ord, want) {
 		t.Fatalf("root order:\n got %v\nwant %v", ord, want)

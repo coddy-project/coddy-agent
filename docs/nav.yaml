@@ -85,6 +85,9 @@ groups:
     title: Features
     summary: What the agent can do and how each capability is configured.
     pages:
+      - path: features/browser-extension.md
+        title: Browser extension
+        summary: Connect selected Chrome, Firefox and Yandex Browser tabs directly to your own Coddy server.
       - path: features/modes.md
         title: Operating modes
         summary: agent, plan and ask, which tools each mode allows and how to switch on every surface.

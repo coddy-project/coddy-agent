@@ -35,6 +35,7 @@ const (
 	KindSwarm         Kind = "swarm"
 	KindScheduler     Kind = "scheduler"
 	KindMetrics       Kind = "metrics"
+	KindBrowser       Kind = "browser"
 )
 
 // Subsystem describes one surface: whether the configuration asks for it,

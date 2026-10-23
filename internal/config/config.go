@@ -91,6 +91,9 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 }
 
 func validateSubconfigs(cfg *Config) error {
+	if err := cfg.Browser.Validate(); err != nil {
+		return err
+	}
 	if err := cfg.Logger.Validate(); err != nil {
 		return fmt.Errorf("logger: %w", err)
 	}

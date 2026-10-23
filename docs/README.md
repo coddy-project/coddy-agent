@@ -44,6 +44,7 @@ Running Coddy as a service, reaching it from elsewhere and bounding what it may 
 
 What the agent can do and how each capability is configured.
 
+- [Browser extension](features/browser-extension.md) - Connect selected Chrome, Firefox and Yandex Browser tabs directly to your own Coddy server.
 - [Operating modes](features/modes.md) - agent, plan and ask, which tools each mode allows and how to switch on every surface.
 - [Session settings](features/session-settings.md) - Switching the model, reasoning level, mode and permission mode from the conversation with /model, /reasoning, /think, /nothink, /agent, /plan, /ask and /permissions, for the session or the next turns, the permission dialog's session switch, and the model switching itself.
 - [Session goal and supervisor](features/session-supervisor.md) - /goal keeps the agent working until a second model, judging the evidence, finds the objective met and a read-only verifier confirms it; continuations, budgets, the watchdog for stalls and loops.

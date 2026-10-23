@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -20,11 +21,13 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/external/scheduler"
 	"github.com/EvilFreelancer/coddy-agent/external/swarm"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
+	"github.com/EvilFreelancer/coddy-agent/internal/browser"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/dryrun"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/serve"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
 
@@ -645,6 +648,28 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 				})
 			},
 		},
+		{
+			Kind: serve.KindBrowser, ConfigKey: "browser.enable", Available: true, NeedsSessions: true,
+			Enabled: func(c *config.Config) bool { return c.Browser.Enable },
+			Address: func(c *config.Config) string { return c.Browser.ListenAddr() },
+			Fingerprint: func(c *config.Config) string {
+				raw, _ := json.Marshal(c.Browser)
+				return fmt.Sprintf("%x", sha256.Sum256(raw))
+			},
+			Run: func(ctx context.Context, c *config.Config) error {
+				remove := rt.Mgr.AddTurnObserver(func(event session.TurnEvent) {
+					if event.Phase == session.TurnPhaseEnded {
+						browser.Default().Release(event.SessionID)
+					}
+				})
+				defer remove()
+				srv := browser.NewServer(browser.Default(), c.Browser.Token)
+				chat, cleanup := browserChatHandler(rt)
+				defer cleanup()
+				srv.Chat = chat
+				return srv.Serve(ctx, c.Browser.ListenAddr(), c.Browser.CertFile, c.Browser.KeyFile)
+			},
+		},
 		metrics,
 	}
 }
@@ -748,6 +773,12 @@ func printServeBanner(w io.Writer, cfg *config.Config, enabled []serve.Subsystem
 			_, _ = fmt.Fprintf(w, "  gateway     pachca\n")
 		case serve.KindScheduler:
 			_, _ = fmt.Fprintf(w, "  scheduler   %s\n", cfg.SchedulerUserDir())
+		case serve.KindBrowser:
+			scheme := "http"
+			if cfg.Browser.CertFile != "" {
+				scheme = "https"
+			}
+			_, _ = fmt.Fprintf(w, "  browser     %s://%s  (extension key)\n", scheme, cfg.Browser.ListenAddr())
 		case serve.KindMetrics:
 			// Whether a scrape needs a credential, never the credential.
 			auth := "no token"
