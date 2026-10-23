@@ -177,7 +177,7 @@ agent:
   # wait_for_limit_reset_max_ms: 14400000   # at most 4 h per turn, the default
 ```
 
-Тогда ход верхнего уровня ждёт сброса, каждые 20 секунд сообщает `Usage limit reached · resuming at 20:59` и повторяет тот же вызов; Escape прерывает ожидание, как и любой ход. Если хаб отвергает ключ, в нижней строке появляется `key rejected`, а чинит это `coddy providers login neuraldeep`. См. [Консоль (TUI)](../surfaces/console.md) и [справочник по `agent`](../reference/config.md#agent).
+Тогда ход верхнего уровня ждёт сброса, каждые 20 секунд сообщает `Usage limit reached · resuming at 20:59` и повторяет тот же вызов; Escape прерывает ожидание, как и любой ход. Если хаб отвергает ключ, в нижней строке появляется `key rejected`, а чинит это `coddy providers login neuraldeep` или `/login neuraldeep` в консоли. См. [Консоль (TUI)](../surfaces/console.md) и [справочник по `agent`](../reference/config.md#agent).
 
 ## Ход падает с сетевой ошибкой до ответа провайдера
 
@@ -404,4 +404,4 @@ coddy acp --log-level debug
 
 Те же настройки можно сохранить в разделе `logger` файла `config.yaml` (`level`, `levels`, `outputs`, `file`, `format`). Справка - [Конфигурация](configuration.md), [`logger`](../reference/config.md#logger).
 
-<!-- docsgen:source sha256=a01d45d2ff94ce8c -->
+<!-- docsgen:source sha256=e16c2aacd2552a6a -->

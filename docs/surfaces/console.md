@@ -51,7 +51,7 @@ the footer is read with a three-second bound for the same reason. A first
 ctrl+c during startup cancels it; a second one ends the process the default
 way instead of being swallowed.
 
-Quitting the console (double ctrl+c, ctrl+d, `/quit`) prints a resume hint
+Quitting the console (double ctrl+c, ctrl+d, `/quit` or `/exit`) prints a resume hint
 after the terminal is restored:
 
 ```
@@ -64,6 +64,65 @@ closed without one - or left with `/new` before anything was sent - leaves no
 folder in the sessions root and no row in History, and prints no hint: there
 is nothing to continue. The settings changed before that first prompt (the
 model, the mode, the permission mode) are kept in memory and written with it.
+
+
+## Signing in to a provider (`/login`)
+
+A fresh install has no model provider Coddy can talk to: there is no
+`config.yaml` yet (Homebrew, the Linux packages, a binary unpacked by hand), or
+`install.sh` wrote the example one, whose `openai` row reads its key from
+`OPENAI_API_KEY`. While no provider row can answer - none has a key in
+`api_key`, `api_key_command` or its `NAME_API_KEY` variable, a stored sign-in,
+an `acp` agent or, on an OpenAI- or Anthropic-compatible row, an `api_base` of
+its own - the header says so in the warning colour and points at `/login`, and
+the same line follows a turn that failed for that reason. A turn that failed
+because the session's model runs on a provider with no key or sign-in is
+followed by a line that names the provider and the way out: `/login <name>` for
+a provider that signs in, its key for one that takes a key, ctrl+l for a model
+of another provider.
+
+![The first start on a fresh install: the header points at /login](../assets/screenshot-console-login-hint.png)
+
+*The first start with no `config.yaml`: the line in the warning colour points at `/login`, and the footer names no model.*
+
+`/login` runs the sign-in of `coddy providers login` without leaving the
+console:
+
+| Command | Signs in to | How |
+|---|---|---|
+| `/login` | NeuralDeep | device code: open the hub's page, confirm the code |
+| `/login codex` | Codex (ChatGPT) | device code |
+| `/login devin` | Devin | browser sign-in; the page sends the browser back to this machine |
+| `/login opencode` | OpenCode | device code, then the organization on the page |
+| `/login <name>` | a provider `config.yaml` lists | the sign-in of its type |
+
+The console prints the page to open and the code to confirm, and opens the page
+in this machine's browser when it has one; over SSH it prints the address only,
+for any browser, a phone's included. Escape stops the sign-in. A Devin sign-in
+whose browser runs on another machine completes from the address that browser
+was sent back to: paste it into the editor and press Enter. A bare `/login`
+signs in against the NeuralDeep deployment for Russia; for the international
+mirror, give the `neuraldeep` row `api_base: https://api.neuraldeep.tech/v1`
+first and then run `/login neuraldeep` ([NeuralDeep](../getting-started/configuration.md#neuraldeep)).
+
+Once the sign-in succeeds, the console adds the provider row and every model the
+account serves to `config.yaml`, and `agent.model` when none is set, the same
+catalog `coddy providers login` adds. Then it loads the new configuration at
+once: the footer names the model, ctrl+l lists the new models and the header
+line is gone. When `agent.model` runs on a provider that cannot answer - the
+example config's `openai` row with its key unset - the sign-in moves
+`agent.model` to the provider it signed in, and the console moves the session
+the same way and says so; a session on a provider that answers keeps its model,
+and ctrl+l or `/model` picks one of the new ones. `coddy providers login` moves
+`agent.model` the same way. Settings in the web UI add models one at a time instead, with the
+plus next to each ([Web UI](web-ui.md#settings-provider-models)). A row of
+another type, such as `openai` or `anthropic`, takes a key, and `/login` says
+so; an `acp` agent signs in on its own. Over `--remote` the configuration is the
+server's, so `/login` sends you there.
+
+![The console after a bare /login: the hub's page and the code, Signed in to NeuralDeep, what config.yaml gained, and the footer on the new model with its usage](../assets/cli-tui/login-signed-in-dark-1280.png)
+
+*A bare `/login` on a fresh install: the page and the code, the account, the provider and its five models in `config.yaml`, and the footer on `neuraldeep/qwen3.8-27b` with the account usage.*
 
 
 ## Live file drafts
@@ -115,7 +174,8 @@ Top to bottom:
 
 - **Header**: `coddy` (bold accent) + dim version; a dim hint line
   (`escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ctrl+o more`);
-  a dim welcome line; `[Context]` (the documents the session's prompt carries:
+  while no provider can answer, a line in the warning colour that points at
+  `/login` ([Signing in](#signing-in-to-a-provider-login)); `[Context]` (the documents the session's prompt carries:
   your and the workspace's `AGENTS.md` and `DESIGN.md` that exist, then the
   files `instructions.files` adds, each once; after them, in the warning
   colour, an `instructions.files` entry whose file the session cannot read,
@@ -189,9 +249,13 @@ Top to bottom:
   `@Dockerfile:21-31` or `@f.go#L21-31`, absolute paths included. In remote mode the
   list comes from the server that runs the session. The grammar, what each kind
   attaches and the limits are in [Mentions](../features/mentions.md).
-- **Footer**: dim `cwd (git-branch) [• plan|ask] [• MCP N/M] [• N tasks running (/tasks)] [• accept edits|bypass]`,
-  then `↑in ↓out  N.N%/ctx (auto)` left and `(provider) model [• reasoning]`
-  right. The permission mode closes the first line when it is not `ask`,
+- **Footer**: two dim lines. The first holds
+  `cwd (git-branch) [• plan|ask] [• MCP N/M] [• N tasks running (/tasks)] [• accept edits|bypass]`
+  on the left and `(provider) model [• reasoning] [• tools <preset>]` on the
+  right, the reasoning level whenever the model has one; the second holds
+  `↑in ↓out N.N%/ctx` (the tokens of the session and how much of the context
+  window it fills) on the left and, under the model, the account usage
+  described below. The permission mode closes the left side of the first line when it is not `ask`,
   `bypass` in the warning colour, so a session that approves everything never
   looks like one that asks; it is the mode of the session on screen, and
   `/new` and `/resume` move it, with the line of turn overrides, to the
@@ -202,16 +266,17 @@ Top to bottom:
   count is there only while a configured server is still connecting after
   the first frame - connected out of the ones being dialed, a held project
   declaration not counted - and leaves the line once every one has
-  answered. When the line does not fit, the path gives way and the notes
-  stay.
-  A third line appears while the active model's provider reports account
+  answered. When the first line does not fit, the notes stay whole: the path
+  gives way first, then the model is cut.
+  The right side of the second line shows while the active model's provider reports account
   usage (today: `neuraldeep`, read from the hub's `GET /v1/limits`; `codex`,
   read from the Codex backend's usage endpoint; `devin`, read from the
   seat-management status RPC):
-  `Pro • 3h 3% (resets 20:59) • week 7% (resets Mon 03:00) • wallet -1 229 ₽`,
-  the plan, each metered window as percent **used** with its reset time in
-  your clock (time of day within 24 h, weekday within a week, date and time beyond),
-  and the account's own ruble balance for NeuralDeep wallet keys. NeuralDeep
+  `Pro • 3h 3% • week 7% • wallet -1 229 ₽`,
+  the plan, each metered window as percent **used**, and the account's own
+  ruble balance for NeuralDeep wallet keys. The reset times stay out of the
+  footer: `/usage` prints them in your clock (time of day within 24 h, weekday
+  within a week, date and time beyond), and so does a hit limit. NeuralDeep
   shows the day window only when it is above zero; Codex and Devin show every
   window they report, a zero one included. Codex windows are labelled by
   their upstream durations (`5h`, `week`, and feature-scoped entries such as
@@ -230,8 +295,8 @@ Top to bottom:
   limit reached · resuming at 20:59` without a running counter, the footer
   keeps the hub's numbers, and the same call runs again when the limit
   lifts (Esc stops the wait like any turn). A model on NeuralDeep's unlimited option (Qwen ∞)
-  reads `∞ volume`. A rejected key reads `neuraldeep: key rejected, run
-  coddy providers login neuraldeep`; when the hub cannot be reached the last
+  reads `∞ volume`. A rejected key reads `neuraldeep: key rejected,
+  /login neuraldeep`; when the hub cannot be reached the last
   numbers stay with `(stale)`. On narrow terminals the wallet, the day, the
   week and the plan leave in that order. The numbers arrive from the session
   manager at session start and after every turn (`provider_usage` update,
@@ -256,7 +321,7 @@ Slash commands: the settings commands `/model`, `/reasoning` (`/effort`),
 `/think`, `/nothink`, `/toolset`, `/agent`, `/plan`, `/ask` and `/permissions`, each with
 `--once` or `--count=N` for the next turns only
 ([Session settings](../features/session-settings.md)); client-side `/resume`,
-`/new`, `/theme`, `/hotkeys`, `/queue`, `/usage`, `/tasks`, `/mcp`, `/docs`, `/quit`, and a bare `/goal`, which opens
+`/new`, `/login`, `/theme`, `/hotkeys`, `/queue`, `/usage`, `/tasks`, `/mcp`, `/docs`, `/quit` (`/exit`), and a bare `/goal`, which opens
 the goal menu; server-driven `/compact`, `/goal <objective>` and its `pause`, `resume` and `clear` forms, `/export`,
 `/plugin`, `/worktree`, and every loaded skill (from the ACP available-commands catalog).
 A bare `/model`, `/reasoning`, `/toolset` or `/permissions` opens its picker; with a value
@@ -476,7 +541,7 @@ offers the same tools; under `--remote` the server owns the reload.
 | enter | send when idle; during a turn, queue the draft in `agent.queue_mode` (the first time asks which) |
 | tab | during a turn with a draft, queue it in the other mode |
 | shift+enter / ctrl+j | newline (backslash+enter also splits) |
-| escape | interrupt the running turn (`HandleSessionCancel`), or stop a `!!` command |
+| escape | interrupt the running turn (`HandleSessionCancel`), or stop a `!!` command or a `/login` sign-in |
 | ctrl+c | clear editor; twice within 2 s exits |
 | ctrl+d | exit when the editor is empty |
 | ctrl+l | model selector |
@@ -930,7 +995,9 @@ in a real **Konsole** window (1920 px wide, cropped to the used rows): the
 launch line and header with `[Context]` / `[Skills]`
 (`screenshot-console-start.png`), the `ctrl+l` model selector
 (`screenshot-console-models.png`), and a finished turn with a tool box, a
-thinking block, and the footer counters (`screenshot-console-chat.png`). Use
+thinking block, and the footer counters (`screenshot-console-chat.png`), plus
+the first start of a fresh install, its header pointing at `/login`
+(`screenshot-console-login-hint.png`, on an empty `CODDY_HOME`). Use
 these in README and on the site: they show what a user actually sees in a
 terminal emulator. They are taken on a clean `CODDY_HOME` with two skills of
 its own and a small project with an `AGENTS.md`, so the header lists what a
@@ -959,6 +1026,10 @@ and types `@ment` against a provider that is never asked anything.
 `examples/cli/capture_settings.py`: `/permissions bypass`, then a chained
 `/model --once /reasoning --count=3`, with a temporary home standing in for
 `HOME` too, so the header lists the bundled skills only.
+`login-signed-in-dark-1280` comes from `examples/cli/capture_login.py`: a
+bare `/login` on an empty `CODDY_HOME`, with the hub and the API base pointed
+at a local stand-in that answers the device sign-in, the account, the tier's
+models and the usage, so neither a hub nor a key is needed.
 
 
 ## Testing

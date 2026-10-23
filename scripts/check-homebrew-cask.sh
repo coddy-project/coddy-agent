@@ -11,7 +11,8 @@
 #
 # Either way it checks that `coddy -v` prints the version, that the linked
 # binary lives in the Caskroom with no quarantine attribute left on it, that the
-# man page and both completions are linked, that `coddy update` names
+# man page and both completions are linked, that zsh registers the linked
+# completion once compinit runs, that `coddy update` names
 # `brew upgrade --cask coddy` and that this command runs. Then it uninstalls the
 # cask and removes the tap it added, unless --keep. Nothing it runs turns on
 # Homebrew's developer mode, which would stay on for every later brew command.
@@ -157,6 +158,17 @@ for linked in share/man/man1/coddy.1 etc/bash_completion.d/coddy share/zsh/site-
     [ -e "${prefix}/${linked}" ] || fail "the cask did not link ${prefix}/${linked}"
     echo "${prefix}/${linked}"
 done
+
+step "zsh registers the completion"
+# What `brew shellenv` puts on fpath and a compinit, the two lines the caveats
+# give: the linked _coddy has to be a completion zsh can load from there.
+if command -v zsh >/dev/null 2>&1; then
+    registered=$(zsh -f -c "fpath[1,0]=${prefix}/share/zsh/site-functions; autoload -Uz compinit && compinit -u -D; print -r -- \${_comps[coddy]-}")
+    [ "$registered" = "_coddy" ] || fail "zsh with Homebrew's site-functions on fpath does not register _coddy for coddy (got '${registered}')"
+    echo "_comps[coddy]=${registered}"
+else
+    echo "no zsh on this machine; skipped"
+fi
 
 step "coddy update sends a cask install back to brew"
 status=0

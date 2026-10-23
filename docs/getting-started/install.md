@@ -116,6 +116,10 @@ cp /usr/share/doc/coddy/config.example.yaml ~/.coddy/config.yaml
 coddy
 ```
 
+Or skip the copy: run **`coddy`** and type **`/login`**, which signs in to NeuralDeep (or
+**`/login codex`**, **`devin`**, **`opencode`**) and writes the provider and its models into
+**`~/.coddy/config.yaml`** ([Console](../surfaces/console.md#signing-in-to-a-provider-login)).
+
 ### Upgrading and removing
 
 Upgrade through the package manager, or let Coddy fetch the release package for you as root - both
@@ -165,7 +169,9 @@ and every release updates it. The command adds the tap, trusts this one cask and
 **`coddy`** binary from the macOS archive of the latest release, plus **`man coddy`** and the bash and zsh
 completions. It needs macOS 12 or later. It does not install **`tmux`**: its caveats, printed after
 the install and by **`brew info --cask coddy`**, recommend **`brew install tmux`** for a console
-session that outlives the terminal.
+session that outlives the terminal. They also give the two lines for **`~/.zshrc`** that make zsh load
+the completion: the zsh macOS ships runs no **`compinit`**, and without it Tab does not complete
+**`coddy`** ([Homebrew](homebrew.md#installing-today)).
 
 Upgrades follow the releases:
 
@@ -223,7 +229,7 @@ is on its own page: [Android (Termux)](android.md).
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
 coddy -v
-# edit ~/.coddy/config.yaml
+# edit ~/.coddy/config.yaml, or run coddy and type /login
 coddy serve            # in this terminal
 coddy serve --daemon   # in the background, restarted if it dies
 coddy serve install    # Linux: as a systemd user service

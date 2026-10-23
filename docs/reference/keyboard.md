@@ -10,7 +10,7 @@ Keys are parsed into the `ctrl+x` / `shift+enter` / `alt+backspace` notation of 
 |---|---|
 | enter | send when idle; during a turn queue in `agent.queue_mode` (first use asks for the default) |
 | shift+enter / ctrl+j | newline (a backslash right before enter also splits the line, for terminals that do not report shift+enter) |
-| escape | close the suggestion menu if open; otherwise stop a running `!!` command; otherwise interrupt the running turn (`HandleSessionCancel`) |
+| escape | close the suggestion menu if open; otherwise stop a running `!!` command; otherwise stop a `/login` sign-in that waits for the browser; otherwise interrupt the running turn (`HandleSessionCancel`) |
 | ctrl+c | clear the editor; on an empty editor, twice within 2 s exits |
 | ctrl+d | exit when the editor is empty |
 | ctrl+l | model selector |

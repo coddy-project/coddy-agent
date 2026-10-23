@@ -216,28 +216,40 @@ type App struct {
 	pasted    map[int]pastedImage
 	pastedSeq int
 
+	// The sign-in /login runs (login.go): the one in progress, how the
+	// configuration it writes is installed (the manager's InstallConfig; nil
+	// over --remote), how its page is opened, and the ChatGPT issuer a test
+	// replaces.
+	login            *loginRun
+	installConfig    func(*config.Config) error
+	openURL          func(string) error
+	browserAvailable func() bool
+	codexIssuer      string
+
 	quitErr error
 }
 
 // newApp assembles the application over an existing manager and terminal.
 func newApp(cfg *config.Config, mgr backend, log *slog.Logger, term appTerminal, themeName string, plain bool) *App {
 	a := &App{
-		mgr:             mgr,
-		log:             log,
-		term:            term,
-		themeName:       themeName,
-		plain:           plain,
-		toolBoxes:       map[string]*toolBox{},
-		toolFullCache:   map[string]string{},
-		toolFullPending: map[string]bool{},
-		updatesCh:       make(chan updateMsg, 1024),
-		permCh:          make(chan permRequest),
-		questCh:         make(chan questRequest),
-		inputCh:         make(chan []byte, 64),
-		pasteCh:         make(chan []byte, 8),
-		resizeCh:        make(chan struct{}, 1),
-		closed:          make(chan struct{}),
-		doneCh:          make(chan struct{}),
+		mgr:              mgr,
+		log:              log,
+		term:             term,
+		themeName:        themeName,
+		plain:            plain,
+		toolBoxes:        map[string]*toolBox{},
+		toolFullCache:    map[string]string{},
+		toolFullPending:  map[string]bool{},
+		updatesCh:        make(chan updateMsg, 1024),
+		permCh:           make(chan permRequest),
+		questCh:          make(chan questRequest),
+		inputCh:          make(chan []byte, 64),
+		pasteCh:          make(chan []byte, 8),
+		resizeCh:         make(chan struct{}, 1),
+		closed:           make(chan struct{}),
+		doneCh:           make(chan struct{}),
+		openURL:          defaultOpenURL,
+		browserAvailable: defaultBrowserAvailable,
 	}
 	a.cfgAt.Store(cfg)
 	a.workCtx, a.workStop = context.WithCancel(context.Background())
@@ -523,6 +535,7 @@ func (a *App) populateHeader() {
 		rulesCount = len(st.GetRulesCatalog())
 	}
 	a.header.SetSections(contextFiles, unreadFiles, skillNames, rulesCount, a.headerMCPNames())
+	a.header.SetLoginHint(a.needsLogin())
 	a.seedMCPStatus()
 }
 
@@ -778,6 +791,10 @@ func (a *App) handleGlobalKey(data []byte) bool {
 			a.stopLocalShell()
 			return true
 		}
+		if a.login != nil {
+			a.stopLogin()
+			return true
+		}
 		if a.remoteTurnActive || (a.turnActive && a.turnSessionID == a.sessionID) {
 			a.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: a.sessionID})
 			if a.remoteURL != "" {
@@ -911,6 +928,10 @@ func (a *App) openQuestionModal(req questRequest) {
 
 func (a *App) onSubmit(text string) {
 	if strings.TrimSpace(text) == "" {
+		return
+	}
+	// The address a Devin sign-in waits for is no prompt, nor history.
+	if a.feedLoginPaste(text) {
 		return
 	}
 	a.editor.AddToHistory(text)
@@ -1561,6 +1582,7 @@ func (a *App) slashCatalog() []tui.AutocompleteItem {
 	items = append(items,
 		tui.AutocompleteItem{Value: "resume", Label: "resume", Description: "Resume another session"},
 		tui.AutocompleteItem{Value: "new", Label: "new", Description: "Start a new session"},
+		tui.AutocompleteItem{Value: "login", Label: "login", Description: "Sign in to a model provider and add its models: NeuralDeep, or /login codex, devin, opencode"},
 		tui.AutocompleteItem{Value: "theme", Label: "theme", Description: "Switch color theme"},
 		tui.AutocompleteItem{Value: "hotkeys", Label: "hotkeys", Description: "Show keyboard shortcuts"},
 		tui.AutocompleteItem{Value: "queue", Label: "queue", Description: "List, drop or clear the messages queued for the running turn"},
@@ -1569,6 +1591,7 @@ func (a *App) slashCatalog() []tui.AutocompleteItem {
 		tui.AutocompleteItem{Value: "mcp", Label: "mcp", Description: "Manage MCP servers, tools and workspace trust"},
 		tui.AutocompleteItem{Value: "goal", Label: "goal", Description: "Show and manage the session goal; /goal <objective> sets one and starts work"},
 		tui.AutocompleteItem{Value: "docs", Label: "docs", Description: "Search and read Coddy's built-in documentation (F1); /docs <words or page>"},
+		tui.AutocompleteItem{Value: "exit", Label: "exit", Description: "Exit coddy"},
 		tui.AutocompleteItem{Value: "quit", Label: "quit", Description: "Exit coddy"},
 	)
 	// The settings commands come from the manager's registry, like the

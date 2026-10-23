@@ -28,6 +28,8 @@ Debian, Ubuntu, Fedora and their relatives can take the `.deb` or `.rpm` instead
 
 ## 2. Give it a model
 
+The shortest way needs neither a key nor an edit: run `coddy` and type `/login`. A bare `/login` signs in to NeuralDeep, `/login codex`, `/login devin` and `/login opencode` to the others; the console prints the page and the code to confirm in a browser, then writes the provider and every model it serves into `config.yaml` and runs on them ([Signing in from the console](../surfaces/console.md#signing-in-to-a-provider-login)). The rest of this section sets a provider up by hand.
+
 Everything Coddy needs to know lives in `~/.coddy/config.yaml` (`%USERPROFILE%\.coddy\config.yaml` on Windows). The file the installer created is a copy of `config.example.yaml`, with every section explained in comments; the minimum for an OpenAI-compatible provider is three blocks:
 
 ```yaml
@@ -65,7 +67,7 @@ providers:
     api_key: "~"
 ```
 
-Anthropic, NeuralDeep (`coddy providers login neuraldeep` instead of a key) and Codex (ChatGPT OAuth) are covered in [Configuration](configuration.md); a Devin account signs in with `coddy providers login devin` ([Devin](../features/devin.md)), and an OpenCode Go or Console account with `coddy providers login opencode` ([OpenCode](../features/opencode.md)).
+Anthropic, NeuralDeep (`coddy providers login neuraldeep`, or `/login` in the console, instead of a key) and Codex (ChatGPT OAuth) are covered in [Configuration](configuration.md); a Devin account signs in with `coddy providers login devin` ([Devin](../features/devin.md)), and an OpenCode Go or Console account with `coddy providers login opencode` ([OpenCode](../features/opencode.md)); in the console `/login devin` and `/login opencode` do the same.
 
 ## 3. Check the file
 
@@ -87,7 +89,7 @@ cd ~/src/my-project
 coddy
 ```
 
-That opens the interactive console: type a request, press Enter, and watch the tool boxes, the thinking block and the answer stream in. Under the default permission mode the agent asks before it runs a command or writes a file. Escape interrupts a turn, `/quit` (or Ctrl-C twice) leaves, and `coddy -c` reopens the latest session of this folder.
+That opens the interactive console: type a request, press Enter, and watch the tool boxes, the thinking block and the answer stream in. Under the default permission mode the agent asks before it runs a command or writes a file. Escape interrupts a turn, `/quit` or `/exit` (or Ctrl-C twice) leaves, and `coddy -c` reopens the latest session of this folder.
 
 ![The console after a finished turn](../assets/screenshot-console-chat.png)
 

@@ -118,6 +118,10 @@ cp /usr/share/doc/coddy/config.example.yaml ~/.coddy/config.yaml
 coddy
 ```
 
+Можно обойтись без копирования - запустите **`coddy`** и наберите **`/login`**. Команда входит в
+NeuralDeep (или **`/login codex`**, **`devin`**, **`opencode`**) и записывает провайдера и его модели в
+**`~/.coddy/config.yaml`** ([Консоль](../surfaces/console.md#вход-в-аккаунт-провайдера-login)).
+
 ### Обновление и удаление
 
 Обновляйтесь через пакетный менеджер или дайте Coddy скачать пакет релиза за вас от root - оба пути
@@ -167,7 +171,9 @@ Cask лежит в собственном тапе Coddy, [coddy-project/homebre
 **`coddy`** из архива для macOS последнего релиза, а также **`man coddy`** и автодополнения bash и zsh.
 Нужна macOS 12 или новее. **`tmux`** cask не ставит. Его caveats, которые выводятся после установки
 и командой **`brew info --cask coddy`**, рекомендуют **`brew install tmux`** для консольной сессии,
-которая переживает терминал.
+которая переживает терминал. Ещё они дают две строки для **`~/.zshrc`**, с которыми zsh загружает
+автодополнение. zsh из поставки macOS не запускает **`compinit`**, и без него Tab не дополняет
+**`coddy`** ([Homebrew](homebrew.md#установка-сейчас)).
 
 Обновления приходят вместе с релизами.
 
@@ -227,7 +233,7 @@ man-страница и автодополнения в **`~/.local/share`** и 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
 coddy -v
-# edit ~/.coddy/config.yaml
+# edit ~/.coddy/config.yaml, or run coddy and type /login
 coddy serve            # in this terminal
 coddy serve --daemon   # in the background, restarted if it dies
 coddy serve install    # Linux: as a systemd user service
@@ -294,4 +300,4 @@ coddy update -y
 
 См. [build.md](../contributing/build.md) и раздел README **Other installation methods**.
 
-<!-- docsgen:source sha256=04105abe630a2f24 -->
+<!-- docsgen:source sha256=45b2fa2b21c1f2c8 -->
