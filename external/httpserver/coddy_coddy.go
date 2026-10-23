@@ -1877,6 +1877,12 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 	if u, err := s.mgr.SessionGoal(id); err == nil {
 		out["goal"] = goalPayload(u)
 	}
+	// The todo checklist, as GET /coddy/sessions/{id}/plan reads it: the
+	// bundled UI shows it under the newest message, so every read of the
+	// transcript brings the list as it is then. No list, no key.
+	if entries := st.GetPlan(); len(entries) > 0 {
+		out["todoPlan"] = entries
+	}
 	// A session saved before only the agent's own settings changes were
 	// noted keeps the notices of the operator's: they are not shown.
 	if u := page.UILog(msgs, session.VisibleUILog(msgs, st.GetUILog())); len(u) > 0 {

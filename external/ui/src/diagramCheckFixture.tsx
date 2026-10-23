@@ -157,7 +157,7 @@ function Fixture() {
     >
       <div className="messages-inner">
         {answers.map((text, i) => (
-          <AssistantMessage key={i} content={text} showFoot={false} />
+          <AssistantMessage key={i} content={text} />
         ))}
       </div>
     </div>

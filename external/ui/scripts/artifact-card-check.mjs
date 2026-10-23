@@ -260,39 +260,25 @@ try {
       );
     }
 
-    // Cards that end an answer leave the gap above its foot to the foot's own
-    // margin: the row's margin for the paragraph after it used to stand on top
-    // of that and set the foot twice as far from the cards as from a paragraph.
-    const feet = await page.evaluate(() =>
-      [...document.querySelectorAll(".msg-assistant-foot")]
-        .filter((foot) =>
-          foot.previousElementSibling?.matches(".inline-artifacts"),
-        )
-        .map((foot) => {
-          const cards = [
-            ...foot.previousElementSibling.querySelectorAll(
-              ".tool-artifact-card",
-            ),
-          ];
-          const bottom = Math.max(
-            ...cards.map((card) => card.getBoundingClientRect().bottom),
-          );
-          return {
-            gap: foot.getBoundingClientRect().top - bottom,
-            margin: parseFloat(getComputedStyle(foot).marginTop),
-          };
-        }),
+    // Cards that end an answer keep no margin under them: the 16px are for a
+    // paragraph after the cards, and the answer ends with them.
+    const ends = await page.evaluate(() =>
+      [
+        ...document.querySelectorAll(
+          ".msg-assistant .inline-artifacts:last-child",
+        ),
+      ].map((row) => parseFloat(getComputedStyle(row).marginBottom)),
     );
     check(
       `${at} the stand ends an answer with its cards`,
-      feet.length > 0,
-      `${feet.length} answers`,
+      ends.length > 0,
+      `${ends.length} answers`,
     );
-    for (const foot of feet) {
+    for (const margin of ends) {
       check(
-        `${at} the foot stands its own margin under the cards`,
-        Math.abs(foot.gap - foot.margin) <= TOLERANCE,
-        `${foot.gap.toFixed(2)}px, margin ${foot.margin}px`,
+        `${at} cards that end an answer keep no margin under them`,
+        margin === 0,
+        `${margin}px`,
       );
     }
 

@@ -2258,6 +2258,8 @@ export const messagesEn: Record<string, string> = {
   "messages.webSearchEngineError": "error",
   "messages.toolLoading": "Loading…",
   "messages.toolMore": "More…",
+  "todo.checklist.label": "Todo list, {done} of {total} done",
+  "todo.checklist.title": "Todo list",
   "todo.preview.updatedItem": "Updated item",
   "todo.preview.plan": "Todo plan",
   "todo.preview.position": "{index} of {total}",
