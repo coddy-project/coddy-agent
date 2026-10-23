@@ -73,6 +73,9 @@ import {
   goalStatusKey,
   goalTone,
   isBareGoalCommand,
+  goalDraftObjective,
+  objectiveLength,
+  GOAL_OBJECTIVE_MAX,
   type SessionGoal,
 } from "./goal";
 import { TargetIcon } from "../components/TargetIcon";
@@ -713,6 +716,12 @@ export function Composer(props: {
     props.generating === true &&
     typeof props.onQueue === "function" &&
     (props.value.trim().length > 0 || sendableAttachedFiles.length > 0);
+  // A typed /goal is held to the server's limit whether or not files go with
+  // it: the server sets the goal and the files ride with its first turn.
+  const goalObjective = goalDraftObjective(props.value);
+  const goalLength =
+    goalObjective === null ? null : objectiveLength(goalObjective);
+  const goalTooLong = goalLength !== null && goalLength > GOAL_OBJECTIVE_MAX;
   /**
    * Runs a draft that is a command of this composer - `/docs [words]` opens
    * the reader, `/mcp` opens Settings -> MCP servers, a bare `/goal` opens
@@ -720,9 +729,12 @@ export function Composer(props: {
    * Like the console, `/mcp` ignores what follows it rather than send it to
    * the model; `/goal` with anything after it (an objective, pause, resume,
    * clear) is the server's and goes as typed. A draft with files attached is
-   * always a message, so a command never swallows the attachments.
+   * always a message, so a command never swallows the attachments. A /goal
+   * whose objective is over the limit goes nowhere: it stays in the field,
+   * files and all, for the operator to shorten.
    */
   const runLocalCommandFromDraft = (): boolean => {
+    if (goalTooLong) return true;
     if (
       props.goalActions &&
       sendableAttachedFiles.length === 0 &&
@@ -777,7 +789,8 @@ export function Composer(props: {
   };
   /** Attachment-only send is valid only while the selected model accepts it. */
   const idleSendDisabled =
-    props.value.trim() === "" && sendableAttachedFiles.length === 0;
+    goalTooLong ||
+    (props.value.trim() === "" && sendableAttachedFiles.length === 0);
   const showAttachHint = useCallback(() => {
     setAttachHint(t("composer.attachUnsupportedModel"));
     if (attachHintTimerRef.current !== null) {
@@ -3635,6 +3648,21 @@ export function Composer(props: {
             </div>
           </div>
 
+          {goalLength !== null ? (
+            <div className="composer-goal-validation">
+              <span
+                className={`goal-form-count${goalTooLong ? " goal-form-count--over" : ""}`}
+                data-testid="composer-goal-count"
+              >
+                {goalLength} / {GOAL_OBJECTIVE_MAX}
+              </span>
+              {goalTooLong ? (
+                <p className="goal-error" role="alert">
+                  {t("goal.objectiveTooLong", { max: GOAL_OBJECTIVE_MAX })}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           {enhanceErr ? (
             <div
               className="composer-enhance-err"

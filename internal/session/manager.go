@@ -184,6 +184,9 @@ type Manager struct {
 		// afterTreeScan runs once DeleteSessionTree took its first snapshot
 		// of the tree and before it marks anything.
 		afterTreeScan func(rootID string)
+		// afterGoalFiles runs once the risk gate has read the workspace for
+		// a goal's turn, which it does without the state lock.
+		afterGoalFiles func(sessionID string)
 	}
 }
 

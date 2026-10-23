@@ -700,7 +700,7 @@ const openingLabel = "[the message this turn started with] "
 func digestOf(msgs ...llm.Message) string {
 	goal, _ := NewGoal("fix the parser")
 	all := append([]llm.Message{{Role: llm.RoleUser, Content: "kickoff", GoalTurn: &llm.GoalTurn{Kind: "kickoff", Objective: "fix the parser"}}}, msgs...)
-	return buildGoalDigest(all, goal, false)
+	return buildGoalDigest(goalTurns(goal, all...), goal, false, goalFiles{})
 }
 
 // An in-turn row is two steps of the digest: the opening message in front of it,
@@ -772,10 +772,10 @@ func firstOf(s string, n int) string {
 	return s
 }
 
-// goalStartIndex for the implicit goal of supervisor.enable is the latest
+// latestRequestIndex, where the implicit goal of supervisor.enable is the latest
 // request. A fold inside the turn inserts a user-role summary row after the
 // prompt, and that row is no request.
-func TestGoalStartIndexSkipsASummaryRow(t *testing.T) {
+func TestLatestRequestIndexSkipsASummaryRow(t *testing.T) {
 	prompt := llm.Message{Role: llm.RoleUser, Content: "Fix the parser."}
 	row := NewInTurnCompactionSummaryMessage("Fix the parser.", "the worker read parse.go", "m")
 	msgs := []llm.Message{
@@ -785,15 +785,15 @@ func TestGoalStartIndexSkipsASummaryRow(t *testing.T) {
 	}
 
 	t.Run("an in-turn row after the prompt", func(t *testing.T) {
-		if got := goalStartIndex(msgs, GoalState{}, true); got != 2 {
-			t.Fatalf("goalStartIndex = %d, want 2 (the prompt, not the summary row at 5)", got)
+		if got := latestRequestIndex(msgs); got != 2 {
+			t.Fatalf("latestRequestIndex = %d, want 2 (the prompt, not the summary row at 5)", got)
 		}
 	})
 
 	t.Run("a plain row after the prompt", func(t *testing.T) {
 		plain := append(append([]llm.Message(nil), msgs[:5]...), NewCompactionSummaryMessage("earlier turns", "m"), msgs[6])
-		if got := goalStartIndex(plain, GoalState{}, true); got != 2 {
-			t.Fatalf("goalStartIndex = %d, want 2", got)
+		if got := latestRequestIndex(plain); got != 2 {
+			t.Fatalf("latestRequestIndex = %d, want 2", got)
 		}
 	})
 
@@ -801,14 +801,14 @@ func TestGoalStartIndexSkipsASummaryRow(t *testing.T) {
 		woken := append(append([]llm.Message(nil), msgs...),
 			llm.Message{Role: llm.RoleUser, Content: "wake", BackgroundWake: &llm.BackgroundWake{}},
 			llm.Message{Role: llm.RoleUser, Content: "go on", GoalTurn: &llm.GoalTurn{Kind: "continue"}})
-		if got := goalStartIndex(woken, GoalState{}, true); got != 2 {
-			t.Fatalf("goalStartIndex = %d, want 2", got)
+		if got := latestRequestIndex(woken); got != 2 {
+			t.Fatalf("latestRequestIndex = %d, want 2", got)
 		}
 	})
 
 	t.Run("nothing but summary rows falls back to the start", func(t *testing.T) {
-		if got := goalStartIndex([]llm.Message{row, {Role: llm.RoleAssistant, Content: "x"}}, GoalState{}, true); got != 0 {
-			t.Fatalf("goalStartIndex = %d, want 0", got)
+		if got := latestRequestIndex([]llm.Message{row, {Role: llm.RoleAssistant, Content: "x"}}); got != 0 {
+			t.Fatalf("latestRequestIndex = %d, want 0", got)
 		}
 	})
 }

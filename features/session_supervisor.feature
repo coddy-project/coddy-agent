@@ -3,6 +3,8 @@ Feature: A session goal is worked on until a second model confirms it
   the supervisor checks the result against the objective, using the tool
   results as evidence, and starts a continuation that names what is left until
   the check is met.
+  A docker step that changes containers or volumes, or a migration the goal
+  rewrote, blocks the goal before any check, until the operator resumes it.
 
   Scenario: A goal set with /goal continues until the check is met
     Given an agent session whose model ships the fix only on its second turn
@@ -17,3 +19,11 @@ Feature: A session goal is worked on until a second model confirms it
     When the operator sends "/goal migrate the store"
     Then the goal is blocked with the question for the operator
     And no continuation was started
+
+  Scenario: A destructive docker step blocks the goal until the operator resumes it
+    Given an agent session whose worker runs "docker compose down -v" and whose checker would answer met
+    When the operator sends "/goal remove the old containers"
+    Then the goal is blocked naming "docker compose down -v"
+    And neither the judge nor the verifier ran
+    When the operator sends "/goal resume"
+    Then the goal is complete and the command did not block it again

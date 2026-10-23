@@ -1188,10 +1188,12 @@ func normalizeModelID(cfg *config.Config, id string) string {
 	return id
 }
 
-// AddMessage appends a message to the conversation history.
+// AddMessage appends a message to the conversation history. A row stored
+// while the session's goal is active carries the goal's id (llm.Message.Goal).
 func (s *State) AddMessage(msg llm.Message) {
 	s.mu.Lock()
 	placePendingArtifacts(s.Messages, &msg)
+	s.stampGoalLocked(&msg)
 	s.Messages = append(s.Messages, msg)
 	s.markMessagesAppended()
 	s.mu.Unlock()
@@ -1739,7 +1741,8 @@ func (s *State) TakePendingImageParts() []llm.ImagePart {
 	return out
 }
 
-// AppendPlanDocument adds a UI transcript row for a design plan file.
+// AppendPlanDocument adds a UI transcript row for a design plan file. Like any
+// stored row it carries the id of the session's goal while that goal is active.
 func (s *State) AppendPlanDocument(doc plans.Document) {
 	s.mu.Lock()
 	updated := ""
@@ -1752,7 +1755,7 @@ func (s *State) AppendPlanDocument(doc plans.Document) {
 			path = p
 		}
 	}
-	s.Messages = append(s.Messages, llm.Message{
+	row := llm.Message{
 		Role: llm.RoleAssistant,
 		PlanDocument: &llm.PlanDocumentSnapshot{
 			Slug:      doc.Slug,
@@ -1764,7 +1767,9 @@ func (s *State) AppendPlanDocument(doc plans.Document) {
 			UpdatedAt: updated,
 		},
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-	})
+	}
+	s.stampGoalLocked(&row)
+	s.Messages = append(s.Messages, row)
 	s.markMessagesAppended()
 	s.mu.Unlock()
 	s.touchPersist()
@@ -1900,6 +1905,32 @@ func (s *State) SetPlanWithoutPersist(entries []acp.PlanEntry) {
 // there would change this history without touching its revisions - which
 // persistence reads as "nothing moved".
 func (s *State) ReplaceMessagesWithoutPersist(msgs []llm.Message) {
+	s.replaceMessages(msgs, false)
+}
+
+// ReplaceMessagesFromClient replaces the history with the one a client sent
+// along with a request (POST /v1/chat/completions), without persisting.
+//
+// A client cannot send what the server stamped on a row - the goal's id and
+// the risk acknowledgement are never on the wire - so a replacement taken as
+// it comes would erase the evidence the goal's risk gate reads. The rows of
+// msgs that are the stored rows, matched in the stored order (the same role,
+// text, tool call id and tool calls, each stored row once), keep their Goal; a
+// row the client wrote, changed or moved ahead of the stored one carries none,
+// since nothing says the goal stored it. Losing the stamp is the dangerous
+// direction, so it is carried greedily. The acknowledgement is carried only
+// when the match is unambiguous - the matched row is the only stored row equal
+// to the client's - since a client that trims or reorders the history can make
+// the first of several identical rows stand for a later one nobody accepted;
+// a dropped acknowledgement blocks the goal again. Rows only the UI shows,
+// which a client has no way to send, are skipped over.
+func (s *State) ReplaceMessagesFromClient(msgs []llm.Message) {
+	s.replaceMessages(msgs, true)
+}
+
+// replaceMessages is the one replacement both entry points share: it owns a copy
+// of msgs, plan documents included, and swaps it in under the lock.
+func (s *State) replaceMessages(msgs []llm.Message, keepGoalStamps bool) {
 	owned := make([]llm.Message, len(msgs))
 	copy(owned, msgs)
 	for i := range owned {
@@ -1909,9 +1940,89 @@ func (s *State) ReplaceMessagesWithoutPersist(msgs []llm.Message) {
 		}
 	}
 	s.mu.Lock()
+	if keepGoalStamps {
+		carryGoalStamps(owned, s.Messages)
+	}
 	s.Messages = owned
 	s.markMessagesEdited()
 	s.mu.Unlock()
+}
+
+// carryGoalStamps copies Goal from the stored rows to the rows of next that
+// repeat them, walking both in order: a stored row is matched at most once and
+// only by a row after the one matched before it. RiskAcknowledged goes along
+// only when no other stored row is equal to the matched one. A tool result
+// keeps its Goal only when the assistant row that owned the stored result is
+// the stored row the replayed assistant row before it was matched to: a
+// provider may reuse a call id, and a stamped refusal moved next to an earlier
+// call of the same id would otherwise prove that call never ran.
+func carryGoalStamps(next, stored []llm.Message) {
+	matched := make([]int, len(next))
+	j := 0
+	for i := range next {
+		matched[i] = -1
+		for k := j; k < len(stored); k++ {
+			if !sameWireRow(next[i], stored[k]) {
+				continue
+			}
+			j, matched[i] = k+1, k
+			if next[i].Role == llm.RoleTool {
+				owner := resultOwner(stored, k)
+				if owner < 0 || owner != matchedOwner(next, matched, i) {
+					break
+				}
+			}
+			next[i].Goal = stored[k].Goal
+			next[i].RiskAcknowledged = stored[k].RiskAcknowledged && soleWireRow(stored, k)
+			break
+		}
+	}
+}
+
+// resultOwner is the index of the assistant row whose tool call the tool
+// result at msgs[k] answers: the row that heads the run of results the row
+// sits in (rows only the UI shows may sit between them), when it made a call
+// with the result's id. It is -1 when there is no such row.
+func resultOwner(msgs []llm.Message, k int) int {
+	o := k - 1
+	for o >= 0 && (msgs[o].Role == llm.RoleTool || isUIOnlyRow(msgs[o])) {
+		o--
+	}
+	if o < 0 || msgs[o].Role != llm.RoleAssistant {
+		return -1
+	}
+	for _, call := range msgs[o].ToolCalls {
+		if call.ID == msgs[k].ToolCallID {
+			return o
+		}
+	}
+	return -1
+}
+
+// matchedOwner is the stored row the owner of the replayed result next[i] was
+// matched to, or -1 when it has no owner or the client wrote or changed it.
+func matchedOwner(next []llm.Message, matched []int, i int) int {
+	if o := resultOwner(next, i); o >= 0 {
+		return matched[o]
+	}
+	return -1
+}
+
+// soleWireRow says no stored row other than stored[k] is equal to it on what a
+// client can send back.
+func soleWireRow(stored []llm.Message, k int) bool {
+	for l := range stored {
+		if l != k && sameWireRow(stored[k], stored[l]) {
+			return false
+		}
+	}
+	return true
+}
+
+// sameWireRow says two rows agree on everything a client can send back of a
+// message: its role, text, tool call id and tool calls.
+func sameWireRow(a, b llm.Message) bool {
+	return a.Role == b.Role && a.Content == b.Content && a.ToolCallID == b.ToolCallID && slices.Equal(a.ToolCalls, b.ToolCalls)
 }
 
 // RestoreMetaWithoutPersist restores mode, model/reasoning and memory from disk

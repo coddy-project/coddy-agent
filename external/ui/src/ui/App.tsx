@@ -68,6 +68,7 @@ import {
 } from "./chat/sessionSettings";
 import {
   GOAL_RESUME_PROMPT,
+  goalDraftObjective,
   isNewerGoal,
   parseSessionGoalUpdate,
   type SessionGoal,
@@ -6005,6 +6006,9 @@ export function App() {
       // conversation, and the change is on the selectors. The reload below
       // shows the transcript as the server holds it.
       if (settingsOnly) {
+        // Setting a goal starts a turn on success. A settings-only answer
+        // means it was refused; preserve the draft for correction.
+        if (goalDraftObjective(text) !== null) giveBack();
         applyStreamItems((prev) =>
           prev.filter(
             (it) =>

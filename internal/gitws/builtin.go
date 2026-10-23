@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -58,7 +59,10 @@ func openRepo(dir string) (*git.Repository, error) {
 // gitDirs resolves the git dir and the common dir governing dir without the
 // git binary: it walks up to the first `.git`, reads a `.git` file's `gitdir:`
 // pointer when it is one, and follows `<git dir>/commondir` to the storage
-// shared by every linked worktree.
+// shared by every linked worktree. The pointer files are read with
+// readSmallFile, so a `.git` or a `commondir` that is a link, a FIFO, a device
+// or oversized answers "not a repository" at once instead of holding the
+// caller (the comparison runs this before any cancellable git call).
 func gitDirs(dir string) (gitDir, commonDir string, ok bool) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -75,7 +79,7 @@ func gitDirs(dir string) (gitDir, commonDir string, ok bool) {
 		case fi.IsDir():
 			gitDir = entry
 		default:
-			body, err := os.ReadFile(entry)
+			body, err := readSmallFile(entry, pointerFileLimit)
 			if err != nil {
 				return "", "", false
 			}
@@ -98,11 +102,17 @@ func gitDirs(dir string) (gitDir, commonDir string, ok bool) {
 		d = parent
 	}
 	commonDir = gitDir
-	if body, err := os.ReadFile(filepath.Join(gitDir, "commondir")); err == nil {
+	switch body, err := readSmallFile(filepath.Join(gitDir, "commondir"), pointerFileLimit); {
+	case err == nil:
 		commonDir = strings.TrimSpace(string(body))
 		if !filepath.IsAbs(commonDir) {
 			commonDir = filepath.Join(gitDir, commonDir)
 		}
+	case !errors.Is(err, fs.ErrNotExist):
+		// A commondir that is there but cannot be read as a pointer file
+		// is not a repository git would open; only its absence means a
+		// git dir that is its own common dir.
+		return "", "", false
 	}
 	return gitDir, commonDir, true
 }

@@ -130,8 +130,13 @@ func (a *App) setGoal(g *acp.SessionGoal) {
 // goalEchoPrefix is the notice a goal command's own answer already says: a
 // pause and a clear answer with the line the change publishes. A set and a
 // resume answer with their turn's row, whose notice GoalEndNote leaves out.
+// A command the parser refuses changes nothing and publishes no line.
 func goalEchoPrefix(text string) string {
-	switch session.ParseGoalCommand(text).Kind {
+	cmd := session.ParseGoalCommand(text)
+	if cmd.Err != "" {
+		return ""
+	}
+	switch cmd.Kind {
 	case session.GoalCommandPause:
 		return "Goal paused:"
 	case session.GoalCommandClear:

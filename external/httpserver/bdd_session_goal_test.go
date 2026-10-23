@@ -16,6 +16,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -30,14 +32,15 @@ import (
 )
 
 type goalHTTPState struct {
-	root   string
-	ts     *httptest.Server
-	srv    *Server
-	mgr    *session.Manager
-	sid    string
-	stream string
-	checks int
-	mu     sync.Mutex
+	root      string
+	ts        *httptest.Server
+	srv       *Server
+	mgr       *session.Manager
+	sid       string
+	stream    string
+	checks    int
+	metAtOnce bool
+	mu        sync.Mutex
 }
 
 func (s *goalHTTPState) close() {
@@ -67,10 +70,10 @@ func (s *goalHTTPState) server() error {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		s.checks++
-		if s.checks == 1 {
-			return session.GoalCheckResult{Verdict: session.GoalVerdictNotMet, Reason: "no fix yet", Remaining: []string{"ship the fix"}}, nil
+		if s.metAtOnce || s.checks >= 2 {
+			return session.GoalCheckResult{Verdict: session.GoalVerdictMet, Reason: "shipped"}, nil
 		}
-		return session.GoalCheckResult{Verdict: session.GoalVerdictMet, Reason: "shipped"}, nil
+		return session.GoalCheckResult{Verdict: session.GoalVerdictNotMet, Reason: "no fix yet", Remaining: []string{"ship the fix"}}, nil
 	})
 	s.srv = New(cfg, s.mgr, slog.Default(), s.root)
 	s.srv.agentProviderFactory = factory
@@ -99,6 +102,59 @@ func (s *goalHTTPState) sendStreamed(prompt string) error {
 	}
 	s.stream = string(body)
 	return nil
+}
+
+// workspaceFile writes one file of the workspace the session runs in, the way
+// an operator's checkout would hold it before a goal names it.
+func (s *goalHTTPState) workspaceFile(name, body string) error {
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(s.root, name)), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(s.root, name), []byte(body), 0o644)
+}
+
+func (s *goalHTTPState) objectiveIs(objective string) error {
+	out, err := s.goalRoute(http.MethodGet, nil)
+	if err != nil {
+		return err
+	}
+	goal, _ := out["goal"].(map[string]interface{})
+	if goal == nil || goal["objective"] != objective {
+		return fmt.Errorf("GET goal objective = %v, want %q", goal, objective)
+	}
+	return nil
+}
+
+// kickoffCarriesAttachment reads the kickoff turn's user message: the mention
+// the /goal command came with stays there, so the model read the file in the
+// turn that started the goal.
+func (s *goalHTTPState) kickoffCarriesAttachment(name, body string) error {
+	res, err := http.Get(s.ts.URL + "/coddy/sessions/" + s.sid + "/messages")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	var out struct {
+		Messages []map[string]interface{} `json:"messages"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		return err
+	}
+	for _, m := range out.Messages {
+		if m["goal_turn"] == nil {
+			continue
+		}
+		kind, _ := m["goal_turn"].(map[string]interface{})["kind"].(string)
+		if kind != "kickoff" {
+			continue
+		}
+		content, _ := m["content"].(string)
+		if strings.Contains(content, name) && strings.Contains(content, body) {
+			return nil
+		}
+		return fmt.Errorf("the kickoff message carries no %s attachment:\n%s", name, content)
+	}
+	return fmt.Errorf("no kickoff message in %d rows", len(out.Messages))
 }
 
 func (s *goalHTTPState) streamCarriesGoal() error {
@@ -230,9 +286,18 @@ func TestSessionGoalHTTPFeature(t *testing.T) {
 				return ctx, err
 			})
 			sc.Step(`^a Coddy server whose supervisor finds the goal met on its second check$`, s.server)
+			sc.Step(`^a Coddy server whose supervisor finds the goal met at once$`,
+				func() error { s.metAtOnce = true; return s.server() })
+			sc.Step(`^the workspace holds "([^"]*)" with the plan text$`,
+				func(name string) error {
+					return s.workspaceFile(name, "step one: fix the parser\nstep two: write the docs\n")
+				})
 			sc.Step(`^the browser sends "([^"]*)" as a streamed prompt$`, s.sendStreamed)
 			sc.Step(`^the stream carries the goal kickoff and the goal updates$`, s.streamCarriesGoal)
 			sc.Step(`^the goal route reports the goal complete after one continuation$`, s.completeAfterOne)
+			sc.Step(`^the goal route reports the objective "([^"]*)"$`, s.objectiveIs)
+			sc.Step(`^the kickoff turn's message carries the plan\.md attachment$`,
+				func() error { return s.kickoffCarriesAttachment("plan.md", "step two: write the docs") })
 			sc.Step(`^the session messages carry the goal and both goal turns$`, s.messagesCarryGoal)
 			sc.Step(`^the goal route names the checker "([^"]*)" at its default level "([^"]*)"$`, s.checkerAtDefault)
 			sc.Step(`^the browser sets the objective "([^"]*)" through the goal route$`, s.setObjective)

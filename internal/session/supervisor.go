@@ -109,6 +109,9 @@ type goalRun struct {
 	goalID string
 	nudges int
 	idle   int
+	// files is what the migration rule found after the latest turn of the
+	// session's goal (gate): the check of the same step reads it.
+	files goalFiles
 }
 
 // stillOurs reports whether the goal is still the one this run started on
@@ -159,14 +162,17 @@ func (m *Manager) runSupervisedTurn(ctx context.Context, st *State, prompt []acp
 				return string(acp.StopReasonEndTurn), nil
 			}
 			first = kickoff.marker
-		} else if cmd := goalCommandOf(prompt); cmd.Kind != GoalCommandNone {
+		} else if cmd, attachments := goalCommandOf(prompt); cmd.Kind != GoalCommandNone {
 			var notice string
 			var err error
-			prompt, first, notice, err = m.applyGoalCommand(st, cmd, opts)
+			prompt, first, notice, err = m.applyGoalCommand(st, cmd, attachments, opts)
 			if err != nil {
 				notice = err.Error()
 			}
 			if first == nil {
+				// No turn reads the pictures the composer sent with the
+				// command; left pending, they would ride with the next prompt.
+				st.TakePendingImageParts()
 				m.answerGoalCommand(st, sender, notice)
 				return string(acp.StopReasonEndTurn), nil
 			}
@@ -202,9 +208,10 @@ func (m *Manager) answerGoalCommand(st *State, sender acp.UpdateSender, notice s
 }
 
 // applyGoalCommand carries out a /goal command. A command that starts work
-// (set, resume) returns the prompt and the marker of the turn to run; the
-// others return only the notice.
-func (m *Manager) applyGoalCommand(st *State, cmd GoalCommand, opts *PromptRunOpts) ([]acp.ContentBlock, *llm.GoalTurn, string, error) {
+// (set, resume) returns the prompt and the marker of the turn to run, with the
+// attachments the command came with after its text; the others return only
+// the notice.
+func (m *Manager) applyGoalCommand(st *State, cmd GoalCommand, attachments []acp.ContentBlock, opts *PromptRunOpts) ([]acp.ContentBlock, *llm.GoalTurn, string, error) {
 	cfg := m.activeCfg()
 	if cmd.Kind != GoalCommandShow && opts != nil && opts.Restriction != nil {
 		return nil, nil, "", fmt.Errorf("only the bot's admins can change the session goal")
@@ -236,7 +243,7 @@ func (m *Manager) applyGoalCommand(st *State, cmd GoalCommand, opts *PromptRunOp
 		}
 		g := st.GetGoal()
 		marker := &llm.GoalTurn{Kind: acp.GoalTurnResume, Objective: g.Objective, Limit: cfg.Supervisor.ContinuationLimit()}
-		return goalPrompt(goalResumeText(g, cfg)), marker, "", nil
+		return goalPromptWithAttachments(goalResumeText(g, cfg), attachments), marker, "", nil
 	case GoalCommandSet:
 		goal, err := NewGoal(cmd.Objective)
 		if err != nil {
@@ -254,15 +261,28 @@ func (m *Manager) applyGoalCommand(st *State, cmd GoalCommand, opts *PromptRunOp
 		if goal.Model, goal.Reasoning, err = resolveGoalChecker(cfg, st, cmd, GoalState{}); err != nil {
 			return nil, nil, "", fmt.Errorf("%v. %s", err, GoalUsage)
 		}
+		goal.Start = goalStartFor(st.GetCWD())
 		st.SetGoalWithNotice(goal, "Goal set: "+goal.Objective)
 		marker := &llm.GoalTurn{Kind: acp.GoalTurnKickoff, Objective: goal.Objective, Limit: cfg.Supervisor.ContinuationLimit()}
-		return goalPrompt(goalKickoffText(goal, cfg)), marker, "", nil
+		return goalPromptWithAttachments(goalKickoffText(goal, cfg), attachments), marker, "", nil
 	}
 	return nil, nil, "", nil
 }
 
 func goalPrompt(text string) []acp.ContentBlock {
 	return []acp.ContentBlock{{Type: acp.ContentTypeText, Text: text}}
+}
+
+// goalPromptWithAttachments is goalPrompt with the attachments a /goal command
+// came with after its text: the model reads what the objective names in the
+// turn the command starts.
+func goalPromptWithAttachments(text string, attachments []acp.ContentBlock) []acp.ContentBlock {
+	if len(attachments) == 0 {
+		return goalPrompt(text)
+	}
+	blocks := make([]acp.ContentBlock, 0, 1+len(attachments))
+	blocks = append(blocks, acp.ContentBlock{Type: acp.ContentTypeText, Text: text})
+	return append(blocks, attachments...)
 }
 
 // loop runs prompt, checks the result and continues until the check is met,
@@ -278,6 +298,12 @@ func (r *goalRun) loop(ctx context.Context, prompt []acp.ContentBlock, marker *l
 		}
 		if !r.stillOurs() {
 			// Cleared, paused or replaced while the turn ran.
+			return stop, err
+		}
+		// The hard rules come before every other reading of the turn: a
+		// wrap-up, queued messages, a recovery or a deferred check would
+		// otherwise carry a destructive step on unchecked.
+		if r.gate(ctx) {
 			return stop, err
 		}
 		goal := r.goal()
@@ -522,7 +548,7 @@ func (r *goalRun) check(ctx context.Context) (GoalCheckResult, error) {
 		Objective: goal.Objective,
 		Implicit:  !r.persist,
 		Checklist: goal.Checklist,
-		Digest:    buildGoalDigest(r.st.GetMessages(), goal, !r.persist),
+		Digest:    buildGoalDigest(r.st.GetMessages(), goal, !r.persist, r.files),
 	}
 	// The check and the verification take a while with the turn lock held:
 	// a surface that shows notices says what the session is waiting for.
@@ -585,6 +611,69 @@ func (r *goalRun) check(ctx context.Context) (GoalCheckResult, error) {
 		return true
 	})
 	return result, nil
+}
+
+// gate applies the hard rules of goalRiskRules to the session's goal and
+// blocks it on a finding /goal resume has not accepted, with the line that
+// names it: no check is asked, no recovery spent, no verifier run. The git
+// work runs without the state lock; a pause, clear or replacement made
+// meanwhile wins. It reports whether the run ends here: the goal blocked, the
+// turn cancelled meanwhile, or the goal no longer this run's. The implicit
+// goal of supervisor.enable has no start to compare with and is not gated.
+func (r *goalRun) gate(ctx context.Context) bool {
+	if !r.persist {
+		return false
+	}
+	files := goalMigrationChanges(ctx, r.goal())
+	if hook := r.m.testHooks.afterGoalFiles; hook != nil {
+		hook(r.st.ID)
+	}
+	if ctx.Err() != nil || r.st.IsUserCancelledTurn() || !r.stillOurs() {
+		return true
+	}
+	r.files = files
+	goal, msgs := r.goal(), r.st.GetMessages()
+	_, findings := goalFindings(msgs, goalRows(msgs, goal, false), goal, files)
+	var fresh []goalFinding
+	for _, f := range findings {
+		if goalRiskRules[f.kind].severity == goalRiskHard && !f.acknowledged {
+			fresh = append(fresh, f)
+		}
+	}
+	if len(fresh) == 0 {
+		return false
+	}
+	reason := strings.Join(flagLines(fresh, false), "; ")
+	r.finish(GoalBlocked, reason, "Goal blocked: "+reason)
+	return true
+}
+
+// GateResumedTurn is the risk gate for a turn that runs outside
+// runSupervisedTurn: the one an answer to a persisted permission prompt
+// continues after a server restart (POST /coddy/sessions/{id}/permission). The
+// caller holds the turn lock, takes the gate before the turn starts - it
+// remembers which goal the turn works on - and calls what it returns once the
+// turn ended, with the error the turn returned. It is nil for a turn the
+// supervisor would not watch: a subagent's, one outside agent mode, one of a
+// session with no active goal of its own (the implicit goal of
+// supervisor.enable is never gated).
+//
+// The returned function is goalRun.gate behind the loop's own conditions: a
+// cancelled turn, and a goal paused, cleared or replaced meanwhile, are left
+// alone; a hard finding blocks the goal with the same line and notice. Only
+// the gate runs - no check, recovery or continuation follows such a turn.
+func (m *Manager) GateResumedTurn(st *State) func(ctx context.Context, turnErr error) {
+	if st.Subagent() != nil || st.GetMode() != string(ModeAgent) || !st.GetGoal().Active() {
+		return nil
+	}
+	run := &goalRun{m: m, st: st, cfg: m.activeCfg(), persist: true}
+	run.goalID = run.goal().ID
+	return func(ctx context.Context, turnErr error) {
+		if errors.Is(turnErr, context.Canceled) {
+			return
+		}
+		run.gate(ctx)
+	}
 }
 
 // finish sets the goal's final status for this run and reports whether it

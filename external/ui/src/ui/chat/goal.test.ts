@@ -4,6 +4,8 @@ import {
   applyGoalTurnToItems,
   goalCanPause,
   goalCanResume,
+  goalDraftObjective,
+  objectiveLength,
   goalTone,
   goalTurnItem,
   goalTurnText,
@@ -20,6 +22,42 @@ import {
 } from "./goal";
 import { translate } from "../i18n/i18n";
 import type { TranscriptItem } from "./types";
+
+test.each([
+  ["hello", null],
+  ["/goals ship", null],
+  ["/goal pause", null],
+  ["/goal -m mini -r high resume", null],
+  ["/goal clear the cache", "clear the cache"],
+  ["/goal -m mini --reasoning=high --then-file next.md  ship it  ", "ship it"],
+  ["/goal --model=mini -r=high ship\nit", "ship\nit"],
+  ["/goal --unknown -m mini ship it", "ship it"],
+  ["/goal -x stays text", "-x stays text"],
+  ["/goal --model", ""],
+  ["/goal resume -m mini", null],
+  ["/goal pause --model=mini", null],
+  ["/goal Resume -r high", null],
+  ["/goal stop --then-file next.md", null],
+  ["/goal pause --modle mini", null],
+  ["/goal clear --all", null],
+  ["/goal stop -x", null],
+  ["/goal resume -model mini", null],
+  ["/goal resume --modle gpt-5 --reasonin high", null],
+  ["/goal reset - the repo", "reset - the repo"],
+  ["/goal pause --modle mini now", "pause --modle mini now"],
+  ["/goal pause --modle mini -r high", null],
+  ["/goal resume --frob", null],
+  ["/goal stop --force -m x", null],
+  ["/goal reset --hard HEAD", null],
+  ["/goal resume the old work", "resume the old work"],
+  ["/goal reset --hard the repo", "reset --hard the repo"],
+])("the objective of %s excludes only leading options", (text, want) => {
+  expect(goalDraftObjective(text!)).toBe(want);
+});
+
+test("objective length trims whitespace and counts Unicode code points", () => {
+  expect(objectiveLength(" \nя😀e\u0301\t ")).toBe(4);
+});
 
 const GOAL = {
   id: "goal_1",

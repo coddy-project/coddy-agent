@@ -1,9 +1,11 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -55,18 +57,74 @@ var goalClearWords = map[string]bool{"clear": true, "stop": true, "off": true, "
 // GoalCommandNone. Options come first, like /compact's: --model <id>,
 // --reasoning <level>, --then-file <path> (or --model=<id>, ...); the first
 // word that is not an option starts the objective or names the subcommand, so
-// an objective may mention an option without being read as one.
+// an objective may mention an option within a sentence. A subcommand word
+// followed by its options is that subcommand with those options (/goal
+// resume -m <id>), and text left after them is refused. A trailing option
+// assignment is refused, since it would otherwise silently become text.
 func ParseGoalCommand(text string) GoalCommand {
 	text = strings.TrimSpace(text)
 	if !strings.HasPrefix(text, "/goal") {
 		return GoalCommand{}
 	}
 	rest := text[len("/goal"):]
-	if rest != "" && !strings.ContainsAny(rest[:1], " \t\r\n") {
+	if r, size := utf8.DecodeRuneInString(rest); size > 0 && !unicode.IsSpace(r) {
 		return GoalCommand{} // "/goals", "/goal-x": another command
 	}
 	var cmd GoalCommand
-	arg := strings.TrimSpace(rest)
+	arg, optioned := readGoalOptions(&cmd, strings.TrimSpace(rest))
+	// The options of resume may also follow it, as the usage writes them
+	// (/goal resume -m <id>); so may options a pause or a clear refuses, and
+	// a mistyped one is refused there instead of replacing the goal. Prose
+	// that merely starts with a control word stays an objective
+	// (goalOptionTail).
+	if control, tail := cutGoalWord(arg); goalControlWord(control) && goalOptionTail(tail) {
+		before := cmd.Err
+		more, _ := readGoalOptions(&cmd, tail)
+		arg = control
+		switch {
+		case cmd.Err != before && strings.HasPrefix(cmd.Err, "unknown option"):
+			cmd.Err += goalTailHint
+		case more != "" && cmd.Err == "":
+			if word, _ := cutGoalWord(more); isTailOptionWord(word) {
+				// A dash word readGoalOptions does not know (-model).
+				name, _, _ := strings.Cut(word, "=")
+				cmd.Err = "unknown option " + name + goalTailHint
+			} else {
+				cmd.Err = fmt.Sprintf("%s takes no text after its options", strings.ToLower(control))
+			}
+		}
+	}
+	word := strings.ToLower(arg)
+	switch {
+	case arg == "" && optioned:
+		cmd.Kind, cmd.Err = GoalCommandSet, firstNonEmpty(cmd.Err, "the goal objective is empty")
+	case arg == "":
+		cmd.Kind = GoalCommandShow
+	case goalClearWords[word]:
+		cmd.Kind = GoalCommandClear
+	case word == "pause":
+		cmd.Kind = GoalCommandPause
+	case word == "resume":
+		cmd.Kind = GoalCommandResume
+	default:
+		cmd.Kind, cmd.Objective = GoalCommandSet, arg
+	}
+	if cmd.Kind == GoalCommandSet && cmd.Err == "" {
+		cmd.Err = misplacedGoalOption(arg)
+	}
+	if cmd.ThenFile != "" && cmd.Err == "" && cmd.Kind != GoalCommandSet {
+		// A resumed goal keeps the follow-up file it was set with.
+		cmd.Err = "--then-file goes with a new goal"
+	}
+	if (cmd.Model != "" || cmd.Reasoning != "") && cmd.Err == "" && (cmd.Kind == GoalCommandClear || cmd.Kind == GoalCommandPause) {
+		cmd.Err = "--model and --reasoning go with a new goal or /goal resume"
+	}
+	return cmd
+}
+
+// readGoalOptions reads the options at the start of arg into cmd and returns
+// what follows them, and whether there were any.
+func readGoalOptions(cmd *GoalCommand, arg string) (string, bool) {
 	optioned := false
 	for isGoalOption(arg) {
 		optioned = true
@@ -103,29 +161,96 @@ func ParseGoalCommand(text string) GoalCommand {
 			cmd.Err = fmt.Sprintf("%s needs a value", name)
 		}
 	}
-	word := strings.ToLower(arg)
-	switch {
-	case arg == "" && optioned:
-		cmd.Kind, cmd.Err = GoalCommandSet, firstNonEmpty(cmd.Err, "the goal objective is empty")
-	case arg == "":
-		cmd.Kind = GoalCommandShow
-	case goalClearWords[word]:
-		cmd.Kind = GoalCommandClear
-	case word == "pause":
-		cmd.Kind = GoalCommandPause
-	case word == "resume":
-		cmd.Kind = GoalCommandResume
-	default:
-		cmd.Kind, cmd.Objective = GoalCommandSet, arg
+	return arg, optioned
+}
+
+// goalControlWord reports whether word names a subcommand of /goal rather
+// than starting an objective.
+func goalControlWord(word string) bool {
+	word = strings.ToLower(word)
+	return goalClearWords[word] || word == "pause" || word == "resume"
+}
+
+// goalOptionTail reports whether the text after a control word reads as the
+// options of that command: it starts with a known option, or it is made of
+// option words alone - any dash word, so a single-dash -model counts - each
+// followed by at most one value. A mistyped option then pauses nothing and
+// names no new goal, while text with a word left over is prose that happens
+// to start that way (/goal reset --hard the repo).
+func goalOptionTail(tail string) bool {
+	if isKnownGoalOption(tail) {
+		return true
 	}
-	if cmd.ThenFile != "" && cmd.Err == "" && cmd.Kind != GoalCommandSet {
-		// A resumed goal keeps the follow-up file it was set with.
-		cmd.Err = "--then-file goes with a new goal"
+	words := strings.Fields(tail)
+	if len(words) == 0 {
+		return false
 	}
-	if (cmd.Model != "" || cmd.Reasoning != "") && cmd.Err == "" && (cmd.Kind == GoalCommandClear || cmd.Kind == GoalCommandPause) {
-		cmd.Err = "--model and --reasoning go with a new goal or /goal resume"
+	for i := 0; i < len(words); i++ {
+		if !isTailOptionWord(words[i]) {
+			return false
+		}
+		if !strings.Contains(words[i], "=") && i+1 < len(words) && !isTailOptionWord(words[i+1]) {
+			i++ // its value
+		}
 	}
-	return cmd
+	return true
+}
+
+// isTailOptionWord reports whether a word after a control word reads as an
+// option: any word that starts with a dash, but a lone dash.
+func isTailOptionWord(word string) bool {
+	return len(word) > 1 && word[0] == '-'
+}
+
+// goalTailHint follows the refusal of an unknown option after a subcommand
+// word, which may be an objective that only starts like a command.
+const goalTailHint = "; if this is an objective, start it with another word"
+
+// isKnownGoalOption reports whether text starts with one of the options /goal
+// takes (--model, --reasoning, --then-file, -m, -r, alone or with =value).
+func isKnownGoalOption(text string) bool {
+	if !isGoalOption(text) {
+		return false
+	}
+	word, _ := cutGoalWord(text)
+	name, _, _ := strings.Cut(word, "=")
+	switch goalOptionName(name) {
+	case "--model", "--reasoning", "--then-file":
+		return true
+	}
+	return false
+}
+
+// misplacedGoalOption catches an option with its value at the end of the
+// objective (the last two words, or a last --opt=value), and an option
+// written with a typographic dash at either end. An option word followed by
+// one more word at the end cannot be told from prose that ends that way, so
+// such a sentence is refused too; anywhere else an option word is text.
+func misplacedGoalOption(objective string) string {
+	words := strings.Fields(objective)
+	for i, word := range words {
+		name, _, inline := strings.Cut(word, "=")
+		smart := strings.HasPrefix(name, "—") || strings.HasPrefix(name, "–")
+		plain := name
+		if smart {
+			plain = "--" + strings.TrimLeft(name, "—–")
+		}
+		canonical := goalOptionName(plain)
+		if canonical != "--model" && canonical != "--reasoning" && canonical != "--then-file" {
+			continue
+		}
+		last := i == len(words)-1
+		trailing := (inline && last) || (!inline && i == len(words)-2)
+		// A typographic dash marks an option nobody meant as prose, so one
+		// at either end is refused even with no value after it.
+		if smart && (i == 0 || last || trailing) {
+			return fmt.Sprintf("%s looks like an option written with a typographic dash; use %s before the objective", name, canonical)
+		}
+		if trailing {
+			return fmt.Sprintf("%s must come before the objective", name)
+		}
+	}
+	return ""
 }
 
 // isGoalOption reports whether text starts with an option word: a --word, or
@@ -196,13 +321,38 @@ func resolveGoalChecker(cfg *config.Config, st *State, cmd GoalCommand, keep Goa
 	return "", "", fmt.Errorf("reasoning %q is not offered by model %q (offered: %s, default)", level, checker, strings.Join(choices, ", "))
 }
 
-// goalCommandOf is the /goal command a prompt is: one text block and nothing
-// else (an attachment makes it an ordinary message).
-func goalCommandOf(prompt []acp.ContentBlock) GoalCommand {
-	if len(prompt) != 1 || prompt[0].Type != acp.ContentTypeText {
-		return GoalCommand{}
+// goalCommandOf is the /goal command a prompt is, with the attachments it
+// came with: one text block - what the operator typed - plus any number of
+// resource blocks (an @ mention resolved into a file, a resource the composer
+// or an editor attached). The attachments stay with the turn the command
+// starts (applyGoalCommand), where the model reads what the objective names.
+// Any other shape - two text blocks, a block that is neither text nor a
+// resource - is an ordinary message, as it always was.
+func goalCommandOf(prompt []acp.ContentBlock) (GoalCommand, []acp.ContentBlock) {
+	text := ""
+	seen := false
+	var attachments []acp.ContentBlock
+	for _, b := range prompt {
+		switch b.Type {
+		case acp.ContentTypeText:
+			if seen {
+				return GoalCommand{}, nil
+			}
+			seen, text = true, b.Text
+		case acp.ContentTypeResource:
+			attachments = append(attachments, b)
+		default:
+			return GoalCommand{}, nil
+		}
 	}
-	return ParseGoalCommand(prompt[0].Text)
+	if !seen || strings.TrimSpace(text) == "" {
+		return GoalCommand{}, nil
+	}
+	cmd := ParseGoalCommand(text)
+	if cmd.Kind == GoalCommandNone {
+		return GoalCommand{}, nil
+	}
+	return cmd, attachments
 }
 
 // GoalStatusText is the answer to a bare /goal on a surface that shows text;
@@ -273,6 +423,7 @@ func (m *Manager) SetGoalObjective(sessionID, objective string) (GoalState, erro
 	if err != nil {
 		return GoalState{}, err
 	}
+	goal.Start = goalStartFor(st.GetCWD())
 	st.SetGoalWithNotice(goal, "Goal set: "+goal.Objective)
 	return goal, nil
 }
@@ -331,7 +482,10 @@ func (m *Manager) pauseGoal(st *State, reason string) (string, error) {
 }
 
 // resumeGoal makes the goal active again with a fresh continuation and token
-// budget; the caller starts the turn.
+// budget; the caller starts the turn. A blocked goal is resumed with what the
+// risk gate finds now accepted, in the same change (goal_risk.go): a goal
+// paused while a turn ran had no gate after that turn, so its next turn's
+// gate reports what the turn did instead.
 func (m *Manager) resumeGoal(st *State, model, reasoning string) error {
 	g := st.GetGoal()
 	if !g.Set() {
@@ -340,12 +494,24 @@ func (m *Manager) resumeGoal(st *State, model, reasoning string) error {
 	if g.Status == GoalComplete {
 		return fmt.Errorf("the goal is complete; /goal <objective> sets a new one")
 	}
-	st.UpdateGoal("Goal resumed: "+g.Objective, func(g *GoalState) bool {
-		g.Status, g.StatusReason = GoalActive, ""
-		g.Continuations = 0
-		g.TokensBase = g.TokensUsed
-		g.Model, g.Reasoning = model, reasoning
+	var files goalFiles
+	if g.Status == GoalBlocked {
+		files = goalMigrationChanges(context.Background(), g)
+	}
+	if !st.UpdateGoal("Goal resumed: "+g.Objective, func(next *GoalState) bool {
+		if next.ID != g.ID || next.Status != g.Status {
+			return false
+		}
+		if next.Status == GoalBlocked {
+			st.acceptGoalRisksLocked(next, files)
+		}
+		next.Status, next.StatusReason = GoalActive, ""
+		next.Continuations = 0
+		next.TokensBase = next.TokensUsed
+		next.Model, next.Reasoning = model, reasoning
 		return true
-	})
+	}) {
+		return fmt.Errorf("the goal changed meanwhile; /goal shows it")
+	}
 	return nil
 }
