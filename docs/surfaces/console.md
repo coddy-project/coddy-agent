@@ -96,13 +96,20 @@ The console prints the page to open and the code to confirm, and opens the page
 in this machine's browser when it has one; over SSH it prints the address only,
 for any browser, a phone's included. Escape stops the sign-in. A Devin sign-in
 whose browser runs on another machine completes from the address that browser
-was sent back to: paste it into the editor and press Enter.
+was sent back to: paste it into the editor and press Enter. A bare `/login`
+signs in against the NeuralDeep deployment for Russia; for the international
+mirror, give the `neuraldeep` row `api_base: https://api.neuraldeep.tech/v1`
+first and then run `/login neuraldeep` ([NeuralDeep](../getting-started/configuration.md#neuraldeep)).
 
 Once the sign-in succeeds, the console adds the provider row and every model the
 account serves to `config.yaml`, and `agent.model` when none is set, the same
 catalog `coddy providers login` adds. Then it loads the new configuration at
 once: the footer names the model, ctrl+l lists the new models and the header
-line is gone. Settings in the web UI add models one at a time instead, with the
+line is gone. When `agent.model` runs on a provider that cannot answer - the
+example config's `openai` row with its key unset - the sign-in moves
+`agent.model` to the provider it signed in, and the console moves the session
+the same way and says so; a session on a provider that answers keeps its model,
+and ctrl+l or `/model` picks one of the new ones. Settings in the web UI add models one at a time instead, with the
 plus next to each ([Web UI](web-ui.md#settings-provider-models)). A row of
 another type, such as `openai` or `anthropic`, takes a key, and `/login` says
 so; an `acp` agent signs in on its own. Over `--remote` the configuration is the
@@ -237,9 +244,13 @@ Top to bottom:
   `@Dockerfile:21-31` or `@f.go#L21-31`, absolute paths included. In remote mode the
   list comes from the server that runs the session. The grammar, what each kind
   attaches and the limits are in [Mentions](../features/mentions.md).
-- **Footer**: dim `cwd (git-branch) [• plan|ask] [• MCP N/M] [• N tasks running (/tasks)] [• accept edits|bypass]`,
-  then `↑in ↓out  N.N%/ctx (auto)` left and `(provider) model [• reasoning]`
-  right. The permission mode closes the first line when it is not `ask`,
+- **Footer**: two dim lines. The first holds
+  `cwd (git-branch) [• plan|ask] [• MCP N/M] [• N tasks running (/tasks)] [• accept edits|bypass]`
+  on the left and `(provider) model [• reasoning] [• tools <preset>]` on the
+  right, the reasoning level whenever the model has one; the second holds
+  `↑in ↓out N.N%/ctx` (the tokens of the session and how much of the context
+  window it fills) on the left and, under the model, the account usage
+  described below. The permission mode closes the left side of the first line when it is not `ask`,
   `bypass` in the warning colour, so a session that approves everything never
   looks like one that asks; it is the mode of the session on screen, and
   `/new` and `/resume` move it, with the line of turn overrides, to the
@@ -250,16 +261,17 @@ Top to bottom:
   count is there only while a configured server is still connecting after
   the first frame - connected out of the ones being dialed, a held project
   declaration not counted - and leaves the line once every one has
-  answered. When the line does not fit, the path gives way and the notes
-  stay.
-  A third line appears while the active model's provider reports account
+  answered. When the first line does not fit, the notes stay whole: the path
+  gives way first, then the model is cut.
+  The right side of the second line shows while the active model's provider reports account
   usage (today: `neuraldeep`, read from the hub's `GET /v1/limits`; `codex`,
   read from the Codex backend's usage endpoint; `devin`, read from the
   seat-management status RPC):
-  `Pro • 3h 3% (resets 20:59) • week 7% (resets Mon 03:00) • wallet -1 229 ₽`,
-  the plan, each metered window as percent **used** with its reset time in
-  your clock (time of day within 24 h, weekday within a week, date and time beyond),
-  and the account's own ruble balance for NeuralDeep wallet keys. NeuralDeep
+  `Pro • 3h 3% • week 7% • wallet -1 229 ₽`,
+  the plan, each metered window as percent **used**, and the account's own
+  ruble balance for NeuralDeep wallet keys. The reset times stay out of the
+  footer: `/usage` prints them in your clock (time of day within 24 h, weekday
+  within a week, date and time beyond), and so does a hit limit. NeuralDeep
   shows the day window only when it is above zero; Codex and Devin show every
   window they report, a zero one included. Codex windows are labelled by
   their upstream durations (`5h`, `week`, and feature-scoped entries such as
@@ -524,7 +536,7 @@ offers the same tools; under `--remote` the server owns the reload.
 | enter | send when idle; during a turn, queue the draft in `agent.queue_mode` (the first time asks which) |
 | tab | during a turn with a draft, queue it in the other mode |
 | shift+enter / ctrl+j | newline (backslash+enter also splits) |
-| escape | interrupt the running turn (`HandleSessionCancel`), or stop a `!!` command |
+| escape | interrupt the running turn (`HandleSessionCancel`), or stop a `!!` command or a `/login` sign-in |
 | ctrl+c | clear editor; twice within 2 s exits |
 | ctrl+d | exit when the editor is empty |
 | ctrl+l | model selector |

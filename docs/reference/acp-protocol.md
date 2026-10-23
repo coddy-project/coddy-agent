@@ -535,8 +535,8 @@ define; a client that ignores unknown kinds keeps working.
 - **`usage_update`** when the context window occupancy changes (a model call,
   manual or automatic compaction): `used` and `size` in tokens.
 - **`provider_usage`**: the account quota behind the session's model
-  provider, so a client can draw a status bar like the console's third footer
-  line. Sent at session ready and after every turn (never for a subagent
+  provider, so a client can draw a status bar like the quota under the model
+  in the console's footer. Sent at session ready and after every turn (never for a subagent
   child), once the provider has a usage source and the row's panel is on
   (`providers[].usage_limits_panel`, default true); the types with a source
   today are `neuraldeep` (the hub's read-only `GET /v1/limits`), `codex`
