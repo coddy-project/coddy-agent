@@ -26,6 +26,13 @@ const neuralDeepLogoutTimeout = 15 * time.Second
 // pasting keys by hand. Credentials land in the same files the HTTP surface
 // and the SPA use ($CODDY_HOME/providers/<name>/*-auth.json).
 func runProviders(args []string) error {
+	// A help flag where the verb stands names this command's usage
+	// (`coddy help providers`); one after a verb is read by that verb's flag
+	// set, whose definitions are the screen `providers login --help` prints.
+	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
+		fmt.Println(providersUsage())
+		return nil
+	}
 	if len(args) == 0 {
 		return providersUsageErr()
 	}
@@ -33,10 +40,13 @@ func runProviders(args []string) error {
 	rest := args[1:]
 	var name string
 	if sub == "login" || sub == "logout" {
-		if len(rest) == 0 || strings.HasPrefix(rest[0], "-") {
+		if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+			name, rest = rest[0], rest[1:]
+		} else if !wantsHelp(rest) {
+			// A name is what login and logout act on; a help flag without one
+			// still prints the flag definitions below.
 			return providersUsageErr()
 		}
-		name, rest = rest[0], rest[1:]
 	} else if sub != "list" {
 		return providersUsageErr()
 	}
@@ -52,6 +62,9 @@ func runProviders(args []string) error {
 	apiBase := fs.String("api-base", "", "neuraldeep: API endpoint to sign in against, one of "+strings.Join(llm.NeuralDeepAPIBases(), ", ")+" (default: the provider's api_base, else the first); opencode: the gateway written into the row, one of "+strings.Join(llm.OpenCodeAPIBases(), ", ")+" (default: the row's api_base, else Go)")
 	providerType := fs.String("type", "", "login: type of a provider config.yaml does not list yet (neuraldeep, opencode, codex or devin), so another profile of a type is created by signing it in")
 	if err := fs.Parse(rest); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 
@@ -75,8 +88,13 @@ func runProviders(args []string) error {
 	}
 }
 
+// providersUsage is the one usage line of `coddy providers`.
+func providersUsage() string {
+	return fmt.Sprintf("usage: %s providers list | login <name> [--type neuraldeep|opencode|codex|devin] [--browser] [--devin-cli] [--api-key KEY] [--no-config] [--api-base URL] | logout <name> [--home DIR]", os.Args[0])
+}
+
 func providersUsageErr() error {
-	return fmt.Errorf("usage: %s providers list | login <name> [--type neuraldeep|opencode|codex|devin] [--browser] [--devin-cli] [--api-key KEY] [--no-config] [--api-base URL] | logout <name> [--home DIR]", os.Args[0])
+	return fmt.Errorf("%s", providersUsage())
 }
 
 // resolveLoginProvider picks the provider entry for login/logout
