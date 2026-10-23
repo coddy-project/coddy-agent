@@ -373,14 +373,14 @@ func usageFooterSegments(u *acp.ProviderUsageUpdate, modelID string, now time.Ti
 			if w.ID == "day" {
 				continue
 			}
-			segs = append(segs, windowSegment(w, now, dropFor(w.ID)))
+			segs = append(segs, windowSegment(w, dropFor(w.ID)))
 		}
 	}
 	for _, w := range u.Windows {
 		// Only NeuralDeep hides a quiet day meter; other sources show
 		// whatever windows they reported, a zero one included.
 		if w.ID == "day" && (w.UsedPercent > 0 || w.Exhausted || !neuraldeep) && !u.Blocked {
-			segs = append(segs, windowSegment(w, now, dropDay))
+			segs = append(segs, windowSegment(w, dropDay))
 		}
 	}
 	if len(u.Windows) == 0 && u.Wallet == nil && !u.Blocked && blockedModel == nil && !modelUnlimited(u, modelID) && !neuraldeep {
@@ -406,9 +406,11 @@ func dropFor(windowID string) int {
 	return dropNever
 }
 
-// windowSegment renders "3h 3% (resets 20:59)"; the warning role from the
-// threshold up.
-func windowSegment(w acp.UsageWindow, now time.Time, drop int) usageSegment {
+// windowSegment renders "3h 3%"; the warning role from the threshold up. The
+// reset time stays out of the footer, where the line shares its row with the
+// context counters; /usage prints it, and so do a reached limit and a
+// blocked model, whose reset is the news.
+func windowSegment(w acp.UsageWindow, drop int) usageSegment {
 	label := tui.SanitizeText(strings.TrimSpace(w.Label))
 	if label == "" {
 		label = tui.SanitizeText(w.ID)
@@ -418,7 +420,7 @@ func windowSegment(w acp.UsageWindow, now time.Time, drop int) usageSegment {
 	if pct >= usageWarnPercent || w.Exhausted {
 		role = roleWarning
 	}
-	return usageSegment{text: fmt.Sprintf("%s %d%%%s", label, pct, resetPhrase(w.ResetsAt, now)), role: role, drop: drop}
+	return usageSegment{text: fmt.Sprintf("%s %d%%", label, pct), role: role, drop: drop}
 }
 
 // renderUsageLine joins the segments with dim separators and drops the most

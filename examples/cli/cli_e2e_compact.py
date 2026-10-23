@@ -4,7 +4,7 @@
 The first turn attaches a large log file (``@service.log``, about 12k estimated
 tokens), two short turns follow, and ``/compact`` then folds the first turn
 (``keep_recent_turns`` keeps the two newest verbatim). The footer's context
-percentage (``N.N%/<window> (auto)``) has to lose at least half of what the
+percentage (``N.N%/<window>``) has to lose at least half of what the
 log occupied, and stay down after the next turn.
 """
 
@@ -19,7 +19,7 @@ from cli_tui_driver import CR, CoddyTUI, ok
 
 FILE_NAME = "service.log"
 LOG_TOKENS = 12000
-FOOTER_CONTEXT = re.compile(r"(\d+(?:\.\d+)?)%/(\d+(?:\.\d+)?)([kM]?) \(auto\)")
+FOOTER_CONTEXT = re.compile(r"(\d+(?:\.\d+)?)%/(\d+(?:\.\d+)?)([kM]?)\b")
 
 
 def service_log(tokens: int) -> str:
