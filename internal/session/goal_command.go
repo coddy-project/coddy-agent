@@ -200,10 +200,12 @@ func resolveGoalChecker(cfg *config.Config, st *State, cmd GoalCommand, keep Goa
 // goalCommandOf is the /goal command a prompt is, with the attachments it
 // came with: one text block - what the operator typed - plus any number of
 // resource blocks (an @ mention resolved into a file, a resource the composer
-// or an editor attached). The attachments stay with the turn the command
-// starts (applyGoalCommand), where the model reads what the objective names.
-// Any other shape - two text blocks, a block that is neither text nor a
-// resource - is an ordinary message, as it always was.
+// or an editor attached) and the line naming a link nothing could open (a
+// resource_link of an editor, hydrated into that line by promptfiles.go).
+// The attachments stay with the turn the command starts (applyGoalCommand),
+// where the model reads what the objective names. Any other shape - two text
+// blocks, a block that is neither text nor a resource - is an ordinary
+// message, as it always was.
 func goalCommandOf(prompt []acp.ContentBlock) (GoalCommand, []acp.ContentBlock) {
 	text := ""
 	seen := false
@@ -211,6 +213,12 @@ func goalCommandOf(prompt []acp.ContentBlock) (GoalCommand, []acp.ContentBlock) 
 	for _, b := range prompt {
 		switch b.Type {
 		case acp.ContentTypeText:
+			// The placeholder of an unreadable link is what the prompt's
+			// resource_link became, not a second thing the operator typed.
+			if isLinkedResourceLine(b.Text) {
+				attachments = append(attachments, b)
+				continue
+			}
 			if seen {
 				return GoalCommand{}, nil
 			}

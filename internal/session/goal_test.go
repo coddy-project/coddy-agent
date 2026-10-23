@@ -191,6 +191,8 @@ func TestGoalCommandOfReadsTextWithAttachments(t *testing.T) {
 		{name: "an attachment before the text", prompt: []acp.ContentBlock{file("plan.md"), text("/goal ship it")}, kind: GoalCommandSet, want: 1},
 		{name: "several attachments", prompt: []acp.ContentBlock{text("/goal ship it"), file("a.md"), file("b.md")}, kind: GoalCommandSet, want: 2},
 		{name: "a show with an attachment", prompt: []acp.ContentBlock{text("/goal"), file("plan.md")}, kind: GoalCommandShow, want: 1},
+		{name: "an unreadable link after the text", prompt: []acp.ContentBlock{text("/goal ship it"), text("[Linked resource: buf <zed://buffer/123>]")}, kind: GoalCommandSet, want: 1},
+		{name: "an unreadable link before the text", prompt: []acp.ContentBlock{text("[Linked resource: buf <zed://buffer/123>]"), text("/goal ship it")}, kind: GoalCommandSet, want: 1},
 		{name: "prose with an attachment", prompt: []acp.ContentBlock{text("ship it"), file("plan.md")}, kind: GoalCommandNone},
 		{name: "two text blocks", prompt: []acp.ContentBlock{text("/goal ship it"), text("and more")}, kind: GoalCommandNone},
 		{name: "attachments only", prompt: []acp.ContentBlock{file("plan.md")}, kind: GoalCommandNone},
@@ -204,5 +206,29 @@ func TestGoalCommandOfReadsTextWithAttachments(t *testing.T) {
 		if tc.kind == GoalCommandSet && cmd.Objective == "" {
 			t.Errorf("%s: the objective was lost: %+v", tc.name, cmd)
 		}
+	}
+}
+
+// An editor's resource_link to something the agent cannot open - an internal
+// URI like zed://buffer/123 - is hydrated into a line naming it
+// (promptfiles.go). That line is not a second thing the operator typed: the
+// prompt is still a /goal command, and the line rides the kickoff (issue
+// #534).
+func TestGoalCommandOfReadsThroughAnUnreadableLink(t *testing.T) {
+	cwd := t.TempDir()
+	prompt := []acp.ContentBlock{
+		{Type: acp.ContentTypeText, Text: "/goal fix the parser"},
+		{Type: acp.ContentTypeResourceLink, URI: "zed://buffer/123", Name: "buf"},
+	}
+	blocks, err := hydrateClientResources(cwd, prompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd, attachments := goalCommandOf(blocks)
+	if cmd.Kind != GoalCommandSet || cmd.Objective != "fix the parser" {
+		t.Fatalf("cmd = %+v, want the goal set from the typed text", cmd)
+	}
+	if len(attachments) != 1 || !isLinkedResourceLine(attachments[0].Text) {
+		t.Fatalf("attachments = %+v, want the line naming the link", attachments)
 	}
 }

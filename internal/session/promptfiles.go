@@ -456,8 +456,19 @@ func (r *mentionResolver) resourceLinkBlock(b acp.ContentBlock) acp.ContentBlock
 			return acp.ContentBlock{Type: acp.ContentTypeResource, Resource: res}
 		}
 	}
+	return acp.ContentBlock{Type: acp.ContentTypeText, Text: linkedResourceLine(label, uri, strings.TrimSpace(b.Description))}
+}
+
+// linkedResourceLine names a link nothing can open - an editor-internal URI -
+// in the prompt's own text, so the model at least knows what the user pointed
+// at. It is what a resource_link became rather than anything the operator
+// typed, which is what isLinkedResourceLine (its other half, read by
+// goalCommandOf) keys on.
+const linkedResourcePrefix = "[Linked resource"
+
+func linkedResourceLine(label, uri, description string) string {
 	var line strings.Builder
-	line.WriteString("[Linked resource")
+	line.WriteString(linkedResourcePrefix)
 	if label != "" {
 		line.WriteString(": ")
 		line.WriteString(label)
@@ -467,12 +478,19 @@ func (r *mentionResolver) resourceLinkBlock(b acp.ContentBlock) acp.ContentBlock
 		line.WriteString(uri)
 		line.WriteString(">")
 	}
-	if d := strings.TrimSpace(b.Description); d != "" {
+	if description != "" {
 		line.WriteString(" - ")
-		line.WriteString(d)
+		line.WriteString(description)
 	}
 	line.WriteString("]")
-	return acp.ContentBlock{Type: acp.ContentTypeText, Text: line.String()}
+	return line.String()
+}
+
+// isLinkedResourceLine reports whether text is a line linkedResourceLine
+// wrote: the placeholder of a link the agent could not read.
+func isLinkedResourceLine(text string) bool {
+	t := strings.TrimSpace(text)
+	return strings.HasPrefix(t, linkedResourcePrefix) && strings.HasSuffix(t, "]")
 }
 
 // isLocalResourceURI reports whether a link names a local path: a file:// URI
