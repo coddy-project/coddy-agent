@@ -28,6 +28,8 @@ coddy -v
 
 ## 2. Подключение модели
 
+Быстрее всего обойтись без ключа и правки файла - запустите `coddy` и наберите `/login`. `/login` без аргумента входит в NeuralDeep, а `/login codex`, `/login devin` и `/login opencode` - в остальных провайдеров. Консоль печатает страницу и код, которые нужно подтвердить в браузере, затем записывает в `config.yaml` провайдера и все его модели и начинает на них работать ([Вход из консоли](../surfaces/console.md#вход-в-провайдера-login)). Дальше в этом разделе провайдер настраивается вручную.
+
 Всё, что нужно знать Coddy, лежит в `~/.coddy/config.yaml` (`%USERPROFILE%\.coddy\config.yaml` в Windows). Файл, созданный установщиком, - копия `config.example.yaml`, где каждый раздел объяснён в комментариях. Для OpenAI-совместимого провайдера минимально нужны три блока.
 
 ```yaml
@@ -65,7 +67,7 @@ providers:
     api_key: "~"
 ```
 
-Anthropic, NeuralDeep (`coddy providers login neuraldeep` вместо ключа) и Codex (OAuth ChatGPT) описаны на странице [Конфигурация](configuration.md). В аккаунт Devin входят через `coddy providers login devin` ([Devin](../features/devin.md)), а в аккаунт OpenCode Go или Console - через `coddy providers login opencode` ([OpenCode](../features/opencode.md)).
+Anthropic, NeuralDeep (`coddy providers login neuraldeep` или `/login` в консоли вместо ключа) и Codex (OAuth ChatGPT) описаны на странице [Конфигурация](configuration.md). В аккаунт Devin входят через `coddy providers login devin` ([Devin](../features/devin.md)), а в аккаунт OpenCode Go или Console - через `coddy providers login opencode` ([OpenCode](../features/opencode.md)); в консоли то же делают `/login devin` и `/login opencode`.
 
 ## 3. Проверка файла
 
@@ -87,7 +89,7 @@ cd ~/src/my-project
 coddy
 ```
 
-Откроется интерактивная консоль. Наберите запрос, нажмите Enter и смотрите, как потоком появляются блоки инструментов, блок рассуждения и ответ. В режиме разрешений по умолчанию агент спрашивает вас, прежде чем выполнить команду или записать файл. Escape прерывает ход, `/quit` (или дважды Ctrl-C) закрывает консоль, а `coddy -c` снова открывает последнюю сессию этой папки.
+Откроется интерактивная консоль. Наберите запрос, нажмите Enter и смотрите, как потоком появляются блоки инструментов, блок рассуждения и ответ. В режиме разрешений по умолчанию агент спрашивает вас, прежде чем выполнить команду или записать файл. Escape прерывает ход, `/quit` или `/exit` (или дважды Ctrl-C) закрывает консоль, а `coddy -c` снова открывает последнюю сессию этой папки.
 
 ![Консоль после завершённого хода](../../assets/screenshot-console-chat.png)
 

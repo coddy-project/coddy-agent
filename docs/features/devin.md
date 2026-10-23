@@ -28,6 +28,8 @@ Updated /home/jane/.coddy/config.yaml: provider devin, agent.model devin/claude-
 
 On a machine reached over SSH there is no browser to open, and a browser on your laptop cannot reach the server's loopback port. Open the printed address on the laptop, sign in, and when the browser lands on the `127.0.0.1` page that does not load, copy that address from the address bar and paste it into the terminal: it carries the code, and the sign-in completes the same way. A line that is not such an address is refused with a note and the wait goes on. The wait ends after ten minutes, or sooner with Ctrl-C.
 
+In the console, `/login devin` runs the same sign-in and writes the same three things, then the console runs on the new models without a restart; the address of a browser on another machine is pasted into the editor ([Console](../surfaces/console.md#signing-in-to-a-provider-login)).
+
 `--no-config` stores the token and leaves `config.yaml` alone. A second login only adds what is missing: rows and models already in the file stay as you wrote them.
 
 ### Reuse the Devin CLI login

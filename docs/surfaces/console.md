@@ -51,7 +51,7 @@ the footer is read with a three-second bound for the same reason. A first
 ctrl+c during startup cancels it; a second one ends the process the default
 way instead of being swallowed.
 
-Quitting the console (double ctrl+c, ctrl+d, `/quit`) prints a resume hint
+Quitting the console (double ctrl+c, ctrl+d, `/quit` or `/exit`) prints a resume hint
 after the terminal is restored:
 
 ```
@@ -64,6 +64,49 @@ closed without one - or left with `/new` before anything was sent - leaves no
 folder in the sessions root and no row in History, and prints no hint: there
 is nothing to continue. The settings changed before that first prompt (the
 model, the mode, the permission mode) are kept in memory and written with it.
+
+
+## Signing in to a provider (`/login`)
+
+A fresh install has no model provider Coddy can talk to: there is no
+`config.yaml` yet (Homebrew, the Linux packages, a binary unpacked by hand), or
+`install.sh` wrote the example one, whose `openai` row reads its key from
+`OPENAI_API_KEY`. While no provider row can answer - none has a key in
+`api_key`, `api_key_command` or its `NAME_API_KEY` variable, a stored sign-in,
+an `acp` agent or an OpenAI-compatible `api_base` of its own - the header says
+so in the warning colour and points at `/login`, and the same line follows a
+turn that failed for that reason.
+
+`/login` runs the sign-in of `coddy providers login` without leaving the
+console:
+
+| Command | Signs in to | How |
+|---|---|---|
+| `/login` | NeuralDeep | device code: open the hub's page, confirm the code |
+| `/login codex` | Codex (ChatGPT) | device code |
+| `/login devin` | Devin | browser sign-in; the page sends the browser back to this machine |
+| `/login opencode` | OpenCode | device code, then the organization on the page |
+| `/login <name>` | a provider `config.yaml` lists | the sign-in of its type |
+
+The console prints the page to open and the code to confirm, and opens the page
+in this machine's browser when it has one; over SSH it prints the address only,
+for any browser, a phone's included. Escape stops the sign-in. A Devin sign-in
+whose browser runs on another machine completes from the address that browser
+was sent back to: paste it into the editor and press Enter.
+
+Once the sign-in succeeds, the console adds the provider row and every model the
+account serves to `config.yaml`, and `agent.model` when none is set, the same
+catalog `coddy providers login` adds. Then it loads the new configuration at
+once: the footer names the model, ctrl+l lists the new models and the header
+line is gone. Settings in the web UI add models one at a time instead, with the
+plus next to each ([Web UI](web-ui.md#settings-provider-models)). A row of
+another type, such as `openai` or `anthropic`, takes a key, and `/login` says
+so; an `acp` agent signs in on its own. Over `--remote` the configuration is the
+server's, so `/login` sends you there.
+
+![The console after a bare /login: the hub's page and the code, Signed in to NeuralDeep, what config.yaml gained, and the footer on the new model with its usage](../assets/cli-tui/login-signed-in-dark-1280.png)
+
+*A bare `/login` on a fresh install: the page and the code, the account, the provider and its five models in `config.yaml`, and the footer on `neuraldeep/qwen3.8-27b` with the account usage.*
 
 
 ## Live file drafts
@@ -115,7 +158,8 @@ Top to bottom:
 
 - **Header**: `coddy` (bold accent) + dim version; a dim hint line
   (`escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ctrl+o more`);
-  a dim welcome line; `[Context]` (the documents the session's prompt carries:
+  while no provider can answer, a line in the warning colour that points at
+  `/login` ([Signing in](#signing-in-to-a-provider-login)); `[Context]` (the documents the session's prompt carries:
   your and the workspace's `AGENTS.md` and `DESIGN.md` that exist, then the
   files `instructions.files` adds, each once; after them, in the warning
   colour, an `instructions.files` entry whose file the session cannot read,
@@ -256,7 +300,7 @@ Slash commands: the settings commands `/model`, `/reasoning` (`/effort`),
 `/think`, `/nothink`, `/toolset`, `/agent`, `/plan`, `/ask` and `/permissions`, each with
 `--once` or `--count=N` for the next turns only
 ([Session settings](../features/session-settings.md)); client-side `/resume`,
-`/new`, `/theme`, `/hotkeys`, `/queue`, `/usage`, `/tasks`, `/mcp`, `/docs`, `/quit`, and a bare `/goal`, which opens
+`/new`, `/login`, `/theme`, `/hotkeys`, `/queue`, `/usage`, `/tasks`, `/mcp`, `/docs`, `/quit` (`/exit`), and a bare `/goal`, which opens
 the goal menu; server-driven `/compact`, `/goal <objective>` and its `pause`, `resume` and `clear` forms, `/export`,
 `/plugin`, `/worktree`, and every loaded skill (from the ACP available-commands catalog).
 A bare `/model`, `/reasoning`, `/toolset` or `/permissions` opens its picker; with a value
@@ -959,6 +1003,10 @@ and types `@ment` against a provider that is never asked anything.
 `examples/cli/capture_settings.py`: `/permissions bypass`, then a chained
 `/model --once /reasoning --count=3`, with a temporary home standing in for
 `HOME` too, so the header lists the bundled skills only.
+`login-signed-in-dark-1280` comes from `examples/cli/capture_login.py`: a
+bare `/login` on an empty `CODDY_HOME`, with the hub and the API base pointed
+at a local stand-in that answers the device sign-in, the account, the tier's
+models and the usage, so neither a hub nor a key is needed.
 
 
 ## Testing
