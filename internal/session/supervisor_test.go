@@ -355,6 +355,16 @@ func TestGoalCommandChoosesTheCheckingModelAndLevel(t *testing.T) {
 	if g := h.st().GetGoal(); g.Model != "p3/claude-3" || g.Reasoning != "" || checkedBy != "p3/claude-3" {
 		t.Fatalf("resume with --model: goal=%+v checked by %q", g, checkedBy)
 	}
+	// The options may follow resume, as the usage writes them, and a pause
+	// with an option is refused instead of becoming a new goal.
+	h.st().UpdateGoal("", func(g *session.GoalState) bool { g.Status = session.GoalPaused; return true })
+	if res := h.prompt("/goal pause --model mini"); !strings.Contains(res.SettingsNotice, "go with a new goal or /goal resume") {
+		t.Fatalf("pause with --model: notice=%q goal=%+v", res.SettingsNotice, h.st().GetGoal())
+	}
+	h.prompt("/goal resume --model mini -r high")
+	if g := h.st().GetGoal(); g.Objective != "ship the fix" || g.Model != "p2/gpt-4o-mini" || g.Reasoning != "high" || checkedBy != "p2/gpt-4o-mini" {
+		t.Fatalf("resume followed by its options: goal=%+v checked by %q", g, checkedBy)
+	}
 }
 
 func TestGoalCommandRefusesBadOptions(t *testing.T) {

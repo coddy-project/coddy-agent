@@ -339,7 +339,16 @@ export function goalDraftObjective(text: string): string | null {
     )
       takeWord();
   }
-  if (/^(?:clear|stop|off|cancel|reset|none|pause|resume)$/i.test(rest))
+  const control = /^(?:clear|stop|off|cancel|reset|none|pause|resume)$/i;
+  if (control.test(rest)) return null;
+  // The options of resume may follow it (/goal resume -m mini), and the
+  // server reads a control word followed by a known option as that command.
+  const [first = "", ...more] = rest.split(/\s+/);
+  const next = (more[0] ?? "").split("=")[0];
+  if (
+    control.test(first) &&
+    ["--model", "--reasoning", "--then-file", "-m", "-r"].includes(next!)
+  )
     return null;
   return rest;
 }

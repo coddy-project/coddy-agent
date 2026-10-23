@@ -69,7 +69,49 @@ func ParseGoalCommand(text string) GoalCommand {
 		return GoalCommand{} // "/goals", "/goal-x": another command
 	}
 	var cmd GoalCommand
-	arg := strings.TrimSpace(rest)
+	arg, optioned := readGoalOptions(&cmd, strings.TrimSpace(rest))
+	// The options of resume may also follow it, as the usage writes them
+	// (/goal resume -m <id>); so may options a pause or a clear refuses.
+	// Only a known option there makes the control word a command: other text
+	// after it is an objective, as it always was.
+	if control, tail := cutGoalWord(arg); goalControlWord(control) && isKnownGoalOption(tail) {
+		more, _ := readGoalOptions(&cmd, tail)
+		arg = control
+		if more != "" && cmd.Err == "" {
+			cmd.Err = fmt.Sprintf("%s takes no text after its options", strings.ToLower(control))
+		}
+	}
+	word := strings.ToLower(arg)
+	switch {
+	case arg == "" && optioned:
+		cmd.Kind, cmd.Err = GoalCommandSet, firstNonEmpty(cmd.Err, "the goal objective is empty")
+	case arg == "":
+		cmd.Kind = GoalCommandShow
+	case goalClearWords[word]:
+		cmd.Kind = GoalCommandClear
+	case word == "pause":
+		cmd.Kind = GoalCommandPause
+	case word == "resume":
+		cmd.Kind = GoalCommandResume
+	default:
+		cmd.Kind, cmd.Objective = GoalCommandSet, arg
+	}
+	if cmd.Kind == GoalCommandSet && cmd.Err == "" {
+		cmd.Err = misplacedGoalOption(arg)
+	}
+	if cmd.ThenFile != "" && cmd.Err == "" && cmd.Kind != GoalCommandSet {
+		// A resumed goal keeps the follow-up file it was set with.
+		cmd.Err = "--then-file goes with a new goal"
+	}
+	if (cmd.Model != "" || cmd.Reasoning != "") && cmd.Err == "" && (cmd.Kind == GoalCommandClear || cmd.Kind == GoalCommandPause) {
+		cmd.Err = "--model and --reasoning go with a new goal or /goal resume"
+	}
+	return cmd
+}
+
+// readGoalOptions reads the options at the start of arg into cmd and returns
+// what follows them, and whether there were any.
+func readGoalOptions(cmd *GoalCommand, arg string) (string, bool) {
 	optioned := false
 	for isGoalOption(arg) {
 		optioned = true
@@ -106,32 +148,29 @@ func ParseGoalCommand(text string) GoalCommand {
 			cmd.Err = fmt.Sprintf("%s needs a value", name)
 		}
 	}
-	word := strings.ToLower(arg)
-	switch {
-	case arg == "" && optioned:
-		cmd.Kind, cmd.Err = GoalCommandSet, firstNonEmpty(cmd.Err, "the goal objective is empty")
-	case arg == "":
-		cmd.Kind = GoalCommandShow
-	case goalClearWords[word]:
-		cmd.Kind = GoalCommandClear
-	case word == "pause":
-		cmd.Kind = GoalCommandPause
-	case word == "resume":
-		cmd.Kind = GoalCommandResume
-	default:
-		cmd.Kind, cmd.Objective = GoalCommandSet, arg
+	return arg, optioned
+}
+
+// goalControlWord reports whether word names a subcommand of /goal rather
+// than starting an objective.
+func goalControlWord(word string) bool {
+	word = strings.ToLower(word)
+	return goalClearWords[word] || word == "pause" || word == "resume"
+}
+
+// isKnownGoalOption reports whether text starts with one of the options /goal
+// takes (--model, --reasoning, --then-file, -m, -r, alone or with =value).
+func isKnownGoalOption(text string) bool {
+	if !isGoalOption(text) {
+		return false
 	}
-	if cmd.Kind == GoalCommandSet && cmd.Err == "" {
-		cmd.Err = misplacedGoalOption(arg)
+	word, _ := cutGoalWord(text)
+	name, _, _ := strings.Cut(word, "=")
+	switch goalOptionName(name) {
+	case "--model", "--reasoning", "--then-file":
+		return true
 	}
-	if cmd.ThenFile != "" && cmd.Err == "" && cmd.Kind != GoalCommandSet {
-		// A resumed goal keeps the follow-up file it was set with.
-		cmd.Err = "--then-file goes with a new goal"
-	}
-	if (cmd.Model != "" || cmd.Reasoning != "") && cmd.Err == "" && (cmd.Kind == GoalCommandClear || cmd.Kind == GoalCommandPause) {
-		cmd.Err = "--model and --reasoning go with a new goal or /goal resume"
-	}
-	return cmd
+	return false
 }
 
 // misplacedGoalOption catches an option with its value at the end of the

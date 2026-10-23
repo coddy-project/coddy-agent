@@ -88,9 +88,23 @@ func TestParseGoalCommand(t *testing.T) {
 		"/goal --then-file a.md resume":                             {Kind: GoalCommandResume, ThenFile: "a.md", Err: "--then-file goes with a new goal"},
 		"/goal --then-file a.md clear":                              {Kind: GoalCommandClear, ThenFile: "a.md", Err: "--then-file goes with a new goal"},
 		`/goal --then-file "my next.md" ship it`:                    {Kind: GoalCommandSet, Objective: `next.md" ship it`, ThenFile: `"my`, Err: "--then-file takes a path without quotes or spaces"},
-		"/goals":                                                    {},
-		"/goal-x":                                                   {},
-		"set a goal":                                                {},
+		// The options of resume may follow it, as the usage writes them; a
+		// control word with a known option after it is the command, never an
+		// objective that replaces the goal.
+		"/goal resume -m mini":              {Kind: GoalCommandResume, Model: "mini"},
+		"/goal resume --model=mini -r high": {Kind: GoalCommandResume, Model: "mini", Reasoning: "high"},
+		"/goal -r high resume -m mini":      {Kind: GoalCommandResume, Model: "mini", Reasoning: "high"},
+		"/goal resume --model":              {Kind: GoalCommandResume, Err: "--model needs a value"},
+		"/goal resume -m mini now":          {Kind: GoalCommandResume, Model: "mini", Err: "resume takes no text after its options"},
+		"/goal pause --model mini":          {Kind: GoalCommandPause, Model: "mini", Err: "--model and --reasoning go with a new goal or /goal resume"},
+		"/goal pause --model":               {Kind: GoalCommandPause, Err: "--model needs a value"},
+		"/goal clear -m":                    {Kind: GoalCommandClear, Err: "--model needs a value"},
+		"/goal stop --then-file next.md":    {Kind: GoalCommandClear, ThenFile: "next.md", Err: "--then-file goes with a new goal"},
+		"/goal resume the old work":         {Kind: GoalCommandSet, Objective: "resume the old work"},
+		"/goal reset --hard the repo":       {Kind: GoalCommandSet, Objective: "reset --hard the repo"},
+		"/goals":                            {},
+		"/goal-x":                           {},
+		"set a goal":                        {},
 	} {
 		if got := ParseGoalCommand(text); got != want {
 			t.Errorf("%q: got %+v, want %+v", text, got, want)

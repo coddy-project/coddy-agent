@@ -34,6 +34,10 @@ test.each([
   ["/goal --unknown -m mini ship it", "ship it"],
   ["/goal -x stays text", "-x stays text"],
   ["/goal --model", ""],
+  ["/goal resume -m mini", null],
+  ["/goal pause --model=mini", null],
+  ["/goal resume the old work", "resume the old work"],
+  ["/goal reset --hard the repo", "reset --hard the repo"],
 ])("the objective of %s excludes only leading options", (text, want) => {
   expect(goalDraftObjective(text!)).toBe(want);
 });
