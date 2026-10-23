@@ -41,6 +41,10 @@ test.each([
   ["/goal pause --modle mini", null],
   ["/goal clear --all", null],
   ["/goal stop -x", "stop -x"],
+  ["/goal pause --modle mini -r high", null],
+  ["/goal resume --frob", null],
+  ["/goal stop --force -m x", null],
+  ["/goal reset --hard HEAD", null],
   ["/goal resume the old work", "resume the old work"],
   ["/goal reset --hard the repo", "reset --hard the repo"],
 ])("the objective of %s excludes only leading options", (text, want) => {

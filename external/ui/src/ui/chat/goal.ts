@@ -350,8 +350,19 @@ export function goalDraftObjective(text: string): string | null {
   const next = (more[0] ?? "").split("=")[0]!;
   if (control.test(first) && more.length > 0 && isOption(more[0]!)) {
     const known = ["--model", "--reasoning", "--then-file", "-m", "-r"];
-    if (known.includes(next) || more.filter((w) => !isOption(w)).length <= 1)
-      return null;
+    let plain = 0;
+    for (let i = 0; i < more.length; i++) {
+      const word = more[i]!;
+      if (!isOption(word)) plain++;
+      else if (
+        known.includes(word.split("=")[0]!) &&
+        !word.includes("=") &&
+        i + 1 < more.length &&
+        !isOption(more[i + 1]!)
+      )
+        i++; // the value of a known option is no stray word
+    }
+    if (known.includes(next) || plain <= 1) return null;
   }
   return rest;
 }

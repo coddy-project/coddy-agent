@@ -78,9 +78,13 @@ func ParseGoalCommand(text string) GoalCommand {
 	// that merely starts with a control word stays an objective
 	// (goalOptionTail).
 	if control, tail := cutGoalWord(arg); goalControlWord(control) && goalOptionTail(tail) {
+		before := cmd.Err
 		more, _ := readGoalOptions(&cmd, tail)
 		arg = control
-		if more != "" && cmd.Err == "" {
+		switch {
+		case cmd.Err != before && strings.HasPrefix(cmd.Err, "unknown option"):
+			cmd.Err += goalTailHint
+		case more != "" && cmd.Err == "":
 			cmd.Err = fmt.Sprintf("%s takes no text after its options", strings.ToLower(control))
 		}
 	}
@@ -174,14 +178,28 @@ func goalOptionTail(tail string) bool {
 	if !isGoalOption(tail) {
 		return false
 	}
+	words := strings.Fields(tail)
 	plain := 0
-	for _, word := range strings.Fields(tail) {
-		if !isGoalOption(word) {
+	for i := 0; i < len(words); i++ {
+		if !isGoalOption(words[i]) {
 			plain++
+			continue
+		}
+		// The value of a known option is no stray word.
+		name, _, inline := strings.Cut(words[i], "=")
+		switch goalOptionName(name) {
+		case "--model", "--reasoning", "--then-file":
+			if !inline && i+1 < len(words) && !isGoalOption(words[i+1]) {
+				i++
+			}
 		}
 	}
 	return plain <= 1
 }
+
+// goalTailHint follows the refusal of an unknown option after a subcommand
+// word, which may be an objective that only starts like a command.
+const goalTailHint = "; if this is an objective, start it with another word"
 
 // isKnownGoalOption reports whether text starts with one of the options /goal
 // takes (--model, --reasoning, --then-file, -m, -r, alone or with =value).
