@@ -3432,14 +3432,22 @@ a.rail-brand {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  /* Two row gaps above it - the column's and this padding - and the same two
-     between it and the composer (chat/composerReserve.ts). */
+  /* By default, two row gaps above it - the column's and this padding - and
+     the same two between it and the composer (chat/composerReserve.ts). */
   padding: var(--coddy-transcript-row-gap, 10px) 14px 0;
   /* Blockified as a flex item of the column .msg-assistant-stack; without this its
      min-content width follows the unbreakable phrase in the status label and pushes
      the row past .messages-inner. */
   min-width: 0;
   max-width: 100%;
+}
+
+/* Without a checklist, reduce the working line's top gap by 4px.
+   Keep its bottom padding at zero, as it is under a checklist. */
+.messages-inner:not(:has(> .message-row-todo))
+  > .msg-assistant-stack:not(.typing-dots-slot)
+  > .typing-dots {
+  padding-top: calc(var(--coddy-transcript-row-gap, 10px) - 4px);
 }
 
 /* Between turns the live line's room stays, transparent and still: the line
@@ -13028,6 +13036,7 @@ html:not([data-theme="light"]) .settings.drawer {
 .message-row-todo {
   display: grid;
   grid-template-rows: 1fr;
+  margin-top: 6px;
   align-self: flex-start;
   width: fit-content;
   min-width: min(320px, 100%);
@@ -13061,6 +13070,10 @@ html:not([data-theme="light"]) .settings.drawer {
   border-radius: 12px;
   background: color-mix(in srgb, var(--text) 2%, transparent);
   box-sizing: border-box;
+}
+
+.todo-checklist:has(> .todo-checklist-head[aria-expanded="false"]) {
+  padding-bottom: 6px;
 }
 
 .todo-checklist-head {
@@ -13155,6 +13168,14 @@ html:not([data-theme="light"]) .settings.drawer {
    every state is there at once and the item in progress keeps the still
    half-filled mark of the todo rows. */
 @media (prefers-reduced-motion: no-preference) {
+  .messages-inner > .msg-assistant-stack:not(.typing-dots-slot) > .typing-dots {
+    transition: padding-top 0.24s ease;
+  }
+
+  .todo-checklist {
+    transition: padding-bottom 0.22s ease;
+  }
+
   .message-row-todo {
     animation: todo-checklist-in 0.22s ease-out backwards;
     transition:

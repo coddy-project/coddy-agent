@@ -474,8 +474,7 @@ export function MessageList(props: {
           {...(props.onOpenTasks ? { onOpenTasks: props.onOpenTasks } : {})}
         />
       ) : null}
-      {/* Between turns the line keeps its room, empty, so nothing above it
-          moves when a turn ends or starts. */}
+      {/* Between turns keep an empty slot with the base line's padding. */}
       {props.generating !== true &&
       tailTasks === 0 &&
       renderEnd === props.items.length ? (
