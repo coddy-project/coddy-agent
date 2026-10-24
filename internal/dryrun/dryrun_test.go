@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"golang.org/x/net/http/httpproxy"
@@ -1081,6 +1082,47 @@ func TestOpenCodeProbeNamesTheGatewayOfTheRow(t *testing.T) {
 		p := find(t, rep, "providers[oc]")
 		if p.Status != StatusError || !strings.Contains(p.Message, "cannot reach "+tc.want+":") {
 			t.Errorf("row %q: provider check %+v, want it to name %s", tc.row, p, tc.want)
+		}
+	}
+}
+
+// The models catalog is probed when the file names it: a mirror that answers
+// is ok, one that does not is a warning (Settings works without it), and a
+// catalog turned off is skipped without a request. A file that leaves the
+// section out sends the run nowhere.
+func TestModelsCatalogProbe(t *testing.T) {
+	var status atomic.Int32
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(int(status.Load()))
+	}))
+	t.Cleanup(srv.Close)
+	body := "models_catalog:\n  url: " + srv.URL + "/api.json\n  proxy: none\n"
+
+	status.Store(http.StatusOK)
+	if c := find(t, run(t, body, nil), "models_catalog"); c.Status != StatusOK || !strings.Contains(c.Message, "answers") {
+		t.Errorf("a mirror that answers: %+v", c)
+	}
+	status.Store(http.StatusBadGateway)
+	if c := find(t, run(t, body, nil), "models_catalog"); c.Status != StatusWarning || !strings.Contains(c.Message, "502") || c.Line != 3 {
+		t.Errorf("a mirror that fails: %+v", c)
+	}
+
+	requests.Store(0)
+	off := find(t, run(t, "models_catalog:\n  enable: false\n  url: "+srv.URL+"\n", nil), "models_catalog")
+	if off.Status != StatusSkipped || requests.Load() != 0 {
+		t.Errorf("a catalog turned off: %+v after %d request(s)", off, requests.Load())
+	}
+	for _, c := range run(t, "agent:\n  max_turns: 5\n", nil).Checks {
+		if c.Path == "models_catalog" {
+			t.Errorf("a file without the section was probed: %+v", c)
+		}
+	}
+	// The console and acp runs serve no settings screen.
+	for _, c := range run(t, body, func(r *Request) { r.Surface = SurfaceConsole }).Checks {
+		if c.Path == "models_catalog" {
+			t.Errorf("a console run probed the catalog: %+v", c)
 		}
 	}
 }

@@ -124,6 +124,43 @@ func (r *runner) telegramProbes() []probe {
 	}}
 }
 
+// modelsCatalogProbes checks that the models catalog the settings screen
+// suggests model metadata from answers, when the file names the section and
+// the web UI that asks for it runs. A configuration that leaves the section
+// out sends the run nowhere it did not name. The catalog is optional, so a
+// catalog that does not answer is a warning; with models_catalog.enable false
+// nothing is asked.
+func (r *runner) modelsCatalogProbes() []probe {
+	const path = "models_catalog"
+	mc := &r.req.Cfg.ModelsCatalog
+	if !r.serveOnly() || !r.req.Cfg.HTTPServer.IsEnabled() || !r.explicit(path) {
+		return nil
+	}
+	if !mc.IsEnabled() {
+		r.rep.add(r.check(StatusSkipped, path, path+".enable", "turned off: Settings suggests no model metadata", ""))
+		return nil
+	}
+	return []probe{func(ctx context.Context) []Check {
+		target := mc.EffectiveURL()
+		hc, err := llm.HTTPClientForOptionalProxy(mc.Proxy)
+		if err != nil {
+			return []Check{r.check(StatusError, path, path+".proxy", "proxy: "+err.Error(), "fix models_catalog.proxy")}
+		}
+		if hc == nil {
+			hc = &http.Client{}
+		}
+		status, _, err := r.get(ctx, hc, target, nil, "")
+		fix := "check the network, models_catalog.url and models_catalog.proxy; Settings still works without suggestions"
+		switch {
+		case err != nil:
+			return []Check{r.check(StatusWarning, path, path+".url", fmt.Sprintf("cannot reach %s: %s", target, shortErr(err)), fix)}
+		case status != http.StatusOK:
+			return []Check{r.check(StatusWarning, path, path+".url", fmt.Sprintf("%s answered HTTP %d", target, status), fix)}
+		}
+		return []Check{r.check(StatusOK, path, path, target+" answers", "")}
+	}}
+}
+
 // pachcaRequiredScopes are the scopes the Pachca bot cannot work without;
 // pachcaRecommendedScopes the ones it works without, at a cost.
 var (

@@ -154,6 +154,7 @@ func Run(ctx context.Context, req Request) *Report {
 	probes = append(probes, r.mcpRemoteProbes()...)
 	probes = append(probes, r.remoteProbes()...)
 	probes = append(probes, r.swarmProbes()...)
+	probes = append(probes, r.modelsCatalogProbes()...)
 	for _, checks := range runConcurrently(ctx, probes) {
 		for _, c := range checks {
 			rep.add(c)
