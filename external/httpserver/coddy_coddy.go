@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"mime"
 	"net/http"
 	"net/url"
@@ -421,7 +422,7 @@ func (s *Server) coddySessionCancelGeneration(w http.ResponseWriter, r *http.Req
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	if err := session.ValidateFolderSessionID(id); err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}
 	hdr := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))
@@ -459,7 +460,7 @@ func (s *Server) coddySessionPermissionPost(w http.ResponseWriter, r *http.Reque
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	if err := session.ValidateFolderSessionID(id); err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}
 	hdr := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))
@@ -533,7 +534,7 @@ func (s *Server) coddySessionQuestionPost(w http.ResponseWriter, r *http.Request
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	if err := session.ValidateFolderSessionID(id); err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}
 	hdr := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))
@@ -1020,7 +1021,7 @@ func (s *Server) coddyRequireStore(w http.ResponseWriter) *session.FileStore {
 
 func coddyMustSession(w http.ResponseWriter, s *session.Manager, id string, loadFromDisk func() (*session.State, error)) *session.State {
 	if err := session.ValidateFolderSessionID(id); err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return nil
 	}
 	if st := s.SessionByID(id); st != nil {
@@ -1353,7 +1354,7 @@ func (s *Server) coddySessionActivityGet(w http.ResponseWriter, r *http.Request)
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	if err := session.ValidateFolderSessionID(id); err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}
 	fs := s.coddyRequireStore(w)
@@ -1613,6 +1614,40 @@ func (s *Server) coddySessionAsset(w http.ResponseWriter, r *http.Request) (sess
 	return sessionDir, name, true
 }
 
+// openBundleFile opens the regular file name in dir, a folder of the session
+// bundle at sessionDir, without leaving the bundle. The agent can write into
+// its bundle, so a link there - in place of the file or of a folder above it -
+// must not turn a route into a reader of whatever it points at: os.Root keeps
+// every step inside the bundle, the file itself has to be a regular one, and
+// anything else answers fs.ErrNotExist.
+func openBundleFile(sessionDir, dir, name string) (*os.File, fs.FileInfo, error) {
+	rel, err := filepath.Rel(sessionDir, filepath.Join(dir, name))
+	if err != nil || !filepath.IsLocal(rel) {
+		return nil, nil, fs.ErrNotExist
+	}
+	root, err := os.OpenRoot(sessionDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = root.Close() }()
+	if info, err := root.Lstat(rel); err != nil || !info.Mode().IsRegular() {
+		return nil, nil, fs.ErrNotExist
+	}
+	f, err := root.Open(rel)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, fs.ErrNotExist
+		}
+		return nil, nil, err
+	}
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		_ = f.Close()
+		return nil, nil, fs.ErrNotExist
+	}
+	return f, info, nil
+}
+
 // coddySessionAssetGet serves the original bytes of an uploaded asset, which is
 // what a preview card opens enlarged - the thumbnail beside it is bounded to a
 // 160px edge and has nothing to enlarge. Only images leave the bundle, and the
@@ -1623,17 +1658,9 @@ func (s *Server) coddySessionAssetGet(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	path := filepath.Join(session.AssetsPath(sessionDir), name)
-	// The name is already a bare one, so the only way out of the bundle left is a
-	// link inside it, and the agent can write there. Refuse anything that is not a
-	// regular file rather than follow it.
-	if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
-		http.NotFound(w, r)
-		return
-	}
-	f, err := os.Open(path)
+	f, info, err := openBundleFile(sessionDir, session.AssetsPath(sessionDir), name)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			http.NotFound(w, r)
 			return
 		}
@@ -1642,11 +1669,6 @@ func (s *Server) coddySessionAssetGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = f.Close() }()
-	info, err := f.Stat()
-	if err != nil || info.IsDir() {
-		http.NotFound(w, r)
-		return
-	}
 	head := make([]byte, 512)
 	n, err := io.ReadFull(f, head)
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
@@ -1675,16 +1697,10 @@ func (s *Server) coddySessionAssetThumbnailGet(w http.ResponseWriter, r *http.Re
 	if !ok {
 		return
 	}
-	path := session.AssetThumbnailPath(sessionDir, name)
-	// Same reason as the full-size route: a link planted in the bundle must not
-	// turn this into a reader of whatever it points at.
-	if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
-		http.NotFound(w, r)
-		return
-	}
-	f, err := os.Open(path)
+	thumb := session.AssetThumbnailPath(sessionDir, name)
+	f, info, err := openBundleFile(sessionDir, filepath.Dir(thumb), filepath.Base(thumb))
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			http.NotFound(w, r)
 			return
 		}
@@ -1693,11 +1709,6 @@ func (s *Server) coddySessionAssetThumbnailGet(w http.ResponseWriter, r *http.Re
 		return
 	}
 	defer func() { _ = f.Close() }()
-	info, err := f.Stat()
-	if err != nil || info.IsDir() {
-		http.NotFound(w, r)
-		return
-	}
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -1762,7 +1773,7 @@ func queryIndex(r *http.Request, name string) (n int, ok bool, err error) {
 }
 
 func writePageQueryError(w http.ResponseWriter, err error) {
-	http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+	http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 }
 
 // messageMCPActivationRequested recognizes the single transcript read the
@@ -1957,7 +1968,7 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 			// Clearing the selection goes back to the configured agent model.
 			clearModel = true
 		case s.activeCfg() == nil || s.activeCfg().FindModelEntry(mid) == nil:
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, ErrUnknownMetadataModel.Error()), http.StatusBadRequest)
+			http.Error(w, errorJSON(ErrUnknownMetadataModel.Error()), http.StatusBadRequest)
 			return
 		default:
 			change.Model = &mid
@@ -1967,7 +1978,7 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 		level := strings.TrimSpace(*body.SelectedReasoning)
 		if change.Model == nil {
 			if err := applySessionReasoning(s.activeCfg(), st, level); err != nil {
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+				http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 				return
 			}
 		}
@@ -1997,7 +2008,7 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 			if isSubagentReadOnly(err) {
 				code = http.StatusConflict
 			}
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), code)
+			http.Error(w, errorJSON(err.Error()), code)
 			return
 		}
 		did = true
@@ -2124,7 +2135,7 @@ func (s *Server) coddySessionDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	if err := session.ValidateFolderSessionID(id); err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}
 	fs := s.coddyRequireStore(w)
@@ -2137,7 +2148,7 @@ func (s *Server) coddySessionDelete(w http.ResponseWriter, r *http.Request) {
 			// A turn of the tree ignored its cancellation, or descendants
 			// kept appearing while the tree was being marked; nothing was
 			// removed, the client may retry once the tree is quiet.
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), status)
+			http.Error(w, errorJSON(err.Error()), status)
 			return
 		}
 		s.log.Error("coddy session delete", "error", err)
@@ -2202,7 +2213,7 @@ func (s *Server) coddySessionPinsReorder(w http.ResponseWriter, r *http.Request)
 	for _, raw := range body.IDs {
 		id := strings.TrimSpace(raw)
 		if err := session.ValidateFolderSessionID(id); err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+			http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 			return
 		}
 		if _, dup := seen[id]; dup {
@@ -2277,7 +2288,7 @@ func (s *Server) coddySessionsBulkDelete(w http.ResponseWriter, r *http.Request)
 		for _, raw := range req.IDs {
 			id := strings.TrimSpace(raw)
 			if err := session.ValidateFolderSessionID(id); err != nil {
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+				http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 				return
 			}
 			targets = append(targets, id)
@@ -2294,7 +2305,7 @@ func (s *Server) coddySessionsBulkDelete(w http.ResponseWriter, r *http.Request)
 		for _, raw := range req.Except {
 			id := strings.TrimSpace(raw)
 			if err := session.ValidateFolderSessionID(id); err != nil {
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+				http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 				return
 			}
 			if !fs.HasPersistedSnapshot(id) {
@@ -2489,7 +2500,7 @@ func (s *Server) coddyPlanArchivePost(w http.ResponseWriter, r *http.Request) {
 	if sd != "" {
 		dest, err := session.WritePlanArchivedMarkdown(sd, md)
 		if err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+			http.Error(w, errorJSON(err.Error()), http.StatusInternalServerError)
 			return
 		}
 		pathNote = dest

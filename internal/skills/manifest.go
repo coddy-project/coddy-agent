@@ -138,7 +138,7 @@ func findMarketplaceFile(root string) string {
 
 // parseMarketplace reads and decodes a marketplace manifest file.
 func parseMarketplace(path string) (*Marketplace, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // path derived from a controlled clone dir
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func parseMarketplace(path string) (*Marketplace, error) {
 
 // readPluginJSON reads .claude-plugin/plugin.json under dir, if present.
 func readPluginJSON(dir string) *pluginJSON {
-	data, err := os.ReadFile(filepath.Join(dir, ".claude-plugin", "plugin.json")) //nolint:gosec // controlled clone dir
+	data, err := os.ReadFile(filepath.Join(dir, ".claude-plugin", "plugin.json"))
 	if err != nil {
 		return nil
 	}

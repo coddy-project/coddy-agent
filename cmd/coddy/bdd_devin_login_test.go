@@ -165,7 +165,7 @@ func (s *devinLoginState) aBrowserThatSignsIn() {
 			var err error
 			for attempt := 0; attempt < 5; attempt++ {
 				var resp *http.Response
-				resp, err = http.Get(url) //nolint:gosec // the stand and this flow's own loopback listener
+				resp, err = http.Get(url)
 				if err == nil {
 					if resp.StatusCode != http.StatusOK {
 						err = fmt.Errorf("the callback answered %s", resp.Status)

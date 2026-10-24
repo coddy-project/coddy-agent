@@ -132,7 +132,7 @@ func (s *Server) coddyMemoryTree(w http.ResponseWriter, r *http.Request) {
 	}
 	rel, err := memoryRelPath(r.URL.Query().Get("path"))
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}
 	dirAbs, err := absUnder(base, rel)
@@ -224,10 +224,10 @@ func (s *Server) coddyMemoryFileGet(w http.ResponseWriter, r *http.Request) {
 	relPath := strings.TrimSpace(r.URL.Query().Get("path"))
 	abs, err := s.coddyResolveMemoryAbs(st, root, relPath)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}
-	stat, err := os.Stat(abs)
+	stat, err := os.Stat(abs) //nolint:gosec // G703: confined to the session's memory root by coddyResolveMemoryAbs (absUnder)
 	if err != nil || stat.IsDir() {
 		http.Error(w, `{"error":{"message":"not found"}}`, http.StatusNotFound)
 		return
@@ -237,7 +237,7 @@ func (s *Server) coddyMemoryFileGet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"unsupported extension"}}`, http.StatusBadRequest)
 		return
 	}
-	b, err := os.ReadFile(abs)
+	b, err := os.ReadFile(abs) //nolint:gosec // G703: confined to the session's memory root by coddyResolveMemoryAbs (absUnder)
 	if err != nil {
 		http.Error(w, `{"error":{"message":"read failed"}}`, http.StatusInternalServerError)
 		return
@@ -274,7 +274,7 @@ func (s *Server) coddyMemoryFilePut(w http.ResponseWriter, r *http.Request) {
 	p := strings.TrimSpace(body.Path)
 	abs, err := s.coddyResolveMemoryAbs(st, root, p)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}
 	ext := strings.ToLower(filepath.Ext(abs))
@@ -320,11 +320,11 @@ func (s *Server) coddyMemoryDirPost(w http.ResponseWriter, r *http.Request) {
 	}
 	abs, err := s.coddyResolveMemoryAbs(st, strings.TrimSpace(body.Root), strings.TrimSpace(body.Path))
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}
 	if err := os.MkdirAll(abs, 0o755); err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+		http.Error(w, errorJSON(err.Error()), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -345,7 +345,7 @@ func (s *Server) coddyMemoryFileDelete(w http.ResponseWriter, r *http.Request) {
 	relPath := strings.TrimSpace(r.URL.Query().Get("path"))
 	abs, err := s.coddyResolveMemoryAbs(st, root, relPath)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}
 	p := s.coddyPaths()
@@ -372,16 +372,16 @@ func (s *Server) coddyMemoryFileDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"cannot delete memory root"}}`, http.StatusBadRequest)
 		return
 	}
-	stat, err := os.Stat(abs)
+	stat, err := os.Stat(abs) //nolint:gosec // G703: confined to the session's memory root by coddyResolveMemoryAbs (absUnder)
 	if err != nil {
 		http.Error(w, `{"error":{"message":"not found"}}`, http.StatusNotFound)
 		return
 	}
 	var delErr error
 	if stat.IsDir() {
-		delErr = os.RemoveAll(abs)
+		delErr = os.RemoveAll(abs) //nolint:gosec // G703: confined to the session's memory root by coddyResolveMemoryAbs (absUnder)
 	} else {
-		delErr = os.Remove(abs)
+		delErr = os.Remove(abs) //nolint:gosec // G703: confined to the session's memory root by coddyResolveMemoryAbs (absUnder)
 	}
 	if delErr != nil {
 		http.Error(w, `{"error":{"message":"delete failed"}}`, http.StatusInternalServerError)

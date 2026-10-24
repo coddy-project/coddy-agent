@@ -299,7 +299,7 @@ func (r *Runtime) StartRun(_ context.Context, req schedservice.RunRequest) (sche
 		// is to stop.
 		go func() { _, _ = r.pool.Stop(runRef.JobSessionID, runRef.TaskID) }()
 	}
-	go r.watch(runRef, release)
+	go r.watch(runRef, release) //nolint:gosec // G118: the watch outlives the request that started the run, which goes on after it
 	return runRef, nil
 }
 

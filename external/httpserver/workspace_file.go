@@ -9,7 +9,6 @@ package httpserver
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -82,7 +81,7 @@ func (s *Server) coddyWorkspaceFileGet(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, session.ErrNotDecodableText):
 			http.Error(w, `{"error":{"message":"file is not decodable text"}}`, http.StatusBadRequest)
 		case strings.Contains(err.Error(), "file too large"), strings.Contains(err.Error(), "empty path"):
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+			http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		default:
 			// Anything else is the server's problem (an unreadable file, an I/O
 			// error), not a bad request.

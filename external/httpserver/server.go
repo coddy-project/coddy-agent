@@ -606,7 +606,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	msgs, err := openAIMessagesToLLM(req.Messages)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}
 	if len(msgs) == 0 {
@@ -631,14 +631,14 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if !httpModelIsCoddyProfile(model) {
 		clientTools, err = openAIToolsToLLM(req.Tools, req.ToolChoice)
 		if err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+			http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 			return
 		}
 		// Refused here for the same reason: an option the provider cannot
 		// send as asked must not cost a session, nor reach the provider.
 		genOpts, err = directRequestOptions(s.activeCfg(), model, req)
 		if err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+			http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 			return
 		}
 		if err := directACPRefusal(s.activeCfg(), model); err != nil {
@@ -659,7 +659,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, errInvalidOriginHeader) {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, errInvalidOriginHeader.Error()), http.StatusBadRequest)
+			http.Error(w, errorJSON(errInvalidOriginHeader.Error()), http.StatusBadRequest)
 			return
 		}
 		http.Error(w, `{"error":{"message":"session unavailable"}}`, http.StatusInternalServerError)
@@ -687,7 +687,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if httpModelIsCoddyProfile(model) {
 		if err := applyProfileSettings(ctx, s.mgr, st, sessionID, model, req.Metadata); err != nil {
 			if errors.Is(err, ErrInvalidMetadataModel) || errors.Is(err, ErrUnknownMetadataModel) {
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+				http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 				return
 			}
 			http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
@@ -910,7 +910,7 @@ func (s *Server) acquireComposerTurnLock(w http.ResponseWriter, sessionID string
 		return nil, false
 	}
 	s.log.Error("session turn lock", "error", err)
-	http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+	http.Error(w, errorJSON(err.Error()), http.StatusInternalServerError)
 	return nil, false
 }
 
@@ -1257,7 +1257,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, errInvalidOriginHeader) {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, errInvalidOriginHeader.Error()), http.StatusBadRequest)
+			http.Error(w, errorJSON(errInvalidOriginHeader.Error()), http.StatusBadRequest)
 			return
 		}
 		http.Error(w, `{"error":{"message":"session unavailable"}}`, http.StatusInternalServerError)
@@ -1280,7 +1280,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	if httpModelIsCoddyProfile(model) {
 		if err := applyProfileSettings(ctx, s.mgr, st, sid, model, body.Metadata); err != nil {
 			if errors.Is(err, ErrInvalidMetadataModel) || errors.Is(err, ErrUnknownMetadataModel) {
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+				http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 				return
 			}
 			http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
@@ -1331,9 +1331,9 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			}
 			if body.Stream {
 				writeSSEHeaders(w)
-				_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
+				_, _ = io.WriteString(w, "data: "+errorJSON(err.Error())+"\n\n")
 			} else {
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), code)
+				http.Error(w, errorJSON(err.Error()), code)
 			}
 			return
 		}

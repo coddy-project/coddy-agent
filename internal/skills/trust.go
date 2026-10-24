@@ -69,7 +69,7 @@ func (s *TrustStore) Path() string { return s.path }
 // error, so it never reads as "nothing approved" and the next approval never
 // writes over the receipts it held (the MCP store does the same).
 func (s *TrustStore) read() (trustFile, error) {
-	data, err := os.ReadFile(s.path) //nolint:gosec // path derives from the coddy home directory
+	data, err := os.ReadFile(s.path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return trustFile{Version: trustFileVersion, Workspaces: map[string][]TrustRecord{}}, nil

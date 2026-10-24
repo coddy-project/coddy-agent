@@ -83,7 +83,7 @@ const (
 // WebSearchBraveAPIKeyEnv is the environment variable the Brave engine reads
 // its API key from when tools.websearch.brave_api_key is empty, so the key can
 // live in the environment or ${CODDY_HOME}/.env rather than in config.yaml.
-const WebSearchBraveAPIKeyEnv = "BRAVE_API_KEY"
+const WebSearchBraveAPIKeyEnv = "BRAVE_API_KEY" //nolint:gosec // G101: the name of an environment variable, not a credential
 
 // WebSearchDefaultEngines is what the tool asks when the operator named no
 // engines: Brave first, Bing behind it. DuckDuckGo and Google are deliberately

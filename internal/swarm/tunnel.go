@@ -176,6 +176,11 @@ func serveTunnel(conn net.Conn, handler http.Handler) {
 		// One connection carries every request for this node, so the stream
 		// bound is what keeps a burst from starving a live turn.
 		HTTP2: &http.HTTP2Config{MaxConcurrentStreams: TunnelMaxConcurrentStreams},
+		// The relay sends its HTTP/2 preface right after the upgrade; one that
+		// does not is given up after the bound of the upgrade itself. net/http
+		// clears this deadline once the preface is in, so it never cuts a
+		// turn.
+		ReadHeaderTimeout: handshakeTimeout,
 		// IdleTimeout stays zero: liveness is watched on the connection
 		// itself (DialTunnel), because HTTP/2's idle timeout ignores pings and
 		// is suppressed by an open stream, so it would never fire on a tunnel

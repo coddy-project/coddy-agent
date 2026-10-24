@@ -29,7 +29,7 @@ func overridesPath(home string) string { return filepath.Join(home, overridesFil
 func readOverrides(home string) (overridesFile, error) {
 	var file overridesFile
 	path := overridesPath(home)
-	data, err := os.ReadFile(path) //nolint:gosec // operator-owned home path
+	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return overridesFile{Workspaces: make(map[string]map[string]projectSwitches)}, nil
 	}

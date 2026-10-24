@@ -10,6 +10,7 @@ package httpserver
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -59,7 +60,7 @@ type docsHitJSON struct {
 func writeDocsError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_, _ = fmt.Fprintf(w, `{"error":{"message":%q}}`, msg)
+	_, _ = io.WriteString(w, errorJSON(msg))
 }
 
 func writeDocsJSON(w http.ResponseWriter, v interface{}) {

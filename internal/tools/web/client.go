@@ -133,7 +133,7 @@ func transportFor(decompress bool, r route) http.RoundTripper {
 		if t.TLSClientConfig != nil {
 			cfg = t.TLSClientConfig.Clone()
 		}
-		cfg.InsecureSkipVerify = true // #nosec G402 -- the caller asked for it and the operator approved it
+		cfg.InsecureSkipVerify = true // the caller asked for it and the operator approved it
 		t.TLSClientConfig = cfg
 	}
 	transports[key] = t

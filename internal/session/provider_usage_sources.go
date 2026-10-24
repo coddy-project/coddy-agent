@@ -231,10 +231,7 @@ func mapDevinUsage(u *llm.DevinUsage, provider string, fetchedAt time.Time) acp.
 // devinQuotaWindow fills a quota window from the remaining percent the server
 // reported and the reset timestamp it is bound to.
 func devinQuotaWindow(w *acp.UsageWindow, remaining uint64, resetAt int64, now time.Time) {
-	used := 100 - int64(remaining)
-	if used < 0 {
-		used = 0
-	}
+	used := 100 - int64(min(remaining, 100))
 	w.UsedPercent = float64(used)
 	w.Exhausted = remaining == 0
 	at := time.Unix(resetAt, 0)

@@ -178,6 +178,46 @@ func TestSessionAssetRefusesALinkOutOfTheBundle(t *testing.T) {
 	}
 }
 
+// A link does not have to be the file: the assets folder, or the thumbnails
+// folder inside it, replaced by a link to a folder outside the bundle led both
+// routes out of it, since a check of the last element alone passed a regular
+// file there.
+func TestSessionAssetRefusesALinkedFolderOutOfTheBundle(t *testing.T) {
+	srv, sessionID, assets := assetTestServer(t)
+	sessionDir := filepath.Dir(assets)
+
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "private.png"), pngBytes(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(outside, "thumbnails"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "thumbnails", "private.png.png"), pngBytes(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(assets); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, assets); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if rec := getAsset(t, srv, sessionID, "private.png"); rec.Code != http.StatusNotFound {
+		t.Fatalf("a file behind a linked assets folder was served: status %d", rec.Code)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/coddy/sessions/"+sessionID+"/assets/private.png/thumbnail", nil)
+	req.SetPathValue("id", sessionID)
+	req.SetPathValue("name", "private.png")
+	rec := httptest.NewRecorder()
+	srv.coddySessionAssetThumbnailGet(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("a thumbnail behind a linked assets folder was served: status %d", rec.Code)
+	}
+	if !strings.HasPrefix(session.AssetThumbnailPath(sessionDir, "private.png"), assets) {
+		t.Fatal("the thumbnail is expected inside the assets folder")
+	}
+}
+
 // The address is a bare name under this session's assets directory, so a part
 // saved anywhere else must carry none: its base name would either answer 404 or
 // name a different file that happens to share it.

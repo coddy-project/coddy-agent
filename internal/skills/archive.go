@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -179,7 +180,7 @@ func downloadArchive(ctx context.Context, rawURL, wantSHA, dir string, lim archi
 	}
 
 	zipPath := filepath.Join(dir, "plugin.zip")
-	f, err := os.OpenFile(zipPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // a fixed name inside our own temp dir
+	f, err := os.OpenFile(zipPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return "", "", err
 	}
@@ -296,7 +297,7 @@ var zipHeaderSignature = []byte("PK\x01\x02")
 // (zipDirectoryScanStart), stopping once it reaches stopAt. The signature
 // cannot overlap itself, so a match never hides another.
 func countZipHeaderSignatures(path string, stopAt int) (int, error) {
-	f, err := os.Open(path) //nolint:gosec // the archive in our own temp dir
+	f, err := os.Open(path)
 	if err != nil {
 		return 0, err
 	}
@@ -396,11 +397,11 @@ func unpackArchiveFile(f *zip.File, target string, budget uint64) (uint64, error
 	}
 	defer func() { _ = rc.Close() }()
 	// O_EXCL: an archive that names one file twice is refused, not resolved.
-	out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm) //nolint:gosec // target was checked by archiveEntryPath
+	out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
 	if err != nil {
 		return 0, fmt.Errorf("archive entry %q: %w", f.Name, err)
 	}
-	n, err := io.CopyN(out, rc, int64(budget))
+	n, err := io.CopyN(out, rc, int64(min(budget, math.MaxInt64)))
 	switch {
 	case errors.Is(err, io.EOF):
 		// The entry ended within the budget: the usual case.
@@ -422,9 +423,9 @@ func unpackArchiveFile(f *zip.File, target string, budget uint64) (uint64, error
 		err = closeErr
 	}
 	if err != nil {
-		return uint64(n), fmt.Errorf("archive entry %q: %w", f.Name, err)
+		return uint64(max(n, 0)), fmt.Errorf("archive entry %q: %w", f.Name, err)
 	}
-	return uint64(n), nil
+	return uint64(max(n, 0)), nil
 }
 
 // archiveEntryPath turns a zip entry name into a path relative to the unpack
@@ -621,7 +622,7 @@ func rootSkillName(root, manifest string) string {
 	if name := skillNameForDir(root, root); name != "" {
 		return name
 	}
-	data, err := os.ReadFile(manifest) //nolint:gosec // a manifest inside our own unpack folder
+	data, err := os.ReadFile(manifest)
 	if err != nil {
 		return ""
 	}
@@ -638,7 +639,7 @@ func rootSkillName(root, manifest string) string {
 // is false when the field is absent, null or an empty string, and a value that
 // is neither a string nor a list of strings is an error.
 func manifestSkillPaths(manifest string) (paths []string, declared bool, err error) {
-	data, err := os.ReadFile(manifest) //nolint:gosec // a manifest inside our own unpack folder
+	data, err := os.ReadFile(manifest)
 	if err != nil {
 		return nil, false, err
 	}

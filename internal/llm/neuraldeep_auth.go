@@ -176,7 +176,7 @@ func SaveNeuralDeepAuth(path, apiKey, hub, client, keyName string) error {
 	if strings.TrimSpace(apiKey) == "" {
 		return errors.New("neuraldeep auth: refusing to store an empty key")
 	}
-	data, err := json.MarshalIndent(neuralDeepAuthFile{
+	data, err := json.MarshalIndent(neuralDeepAuthFile{ //nolint:gosec // G117: this writes the credential file itself, private (0600)
 		APIKey:     apiKey,
 		Hub:        strings.TrimRight(hub, "/"),
 		Client:     client,

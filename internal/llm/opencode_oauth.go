@@ -154,7 +154,7 @@ func (login *OpenCodeDeviceLogin) WaitWith(ctx context.Context, persist func(con
 		if err := discoverOpenCodeAccount(ctx, login.client, credential); err != nil {
 			return err
 		}
-		data, err := json.MarshalIndent(credential, "", "  ")
+		data, err := json.MarshalIndent(credential, "", "  ") //nolint:gosec // G117: the credential goes to persist, which its callers store with SaveOpenCodeAuthFile, private (0600)
 		if err != nil {
 			return err
 		}
@@ -214,7 +214,7 @@ func saveOpenCodeCredential(path string, credential *opencodeAuthFile) error {
 	if strings.TrimSpace(path) == "" {
 		return errors.New("opencode: credential path is empty")
 	}
-	data, err := json.MarshalIndent(credential, "", "  ")
+	data, err := json.MarshalIndent(credential, "", "  ") //nolint:gosec // G117: this writes the credential file itself, private (0600)
 	if err != nil {
 		return err
 	}

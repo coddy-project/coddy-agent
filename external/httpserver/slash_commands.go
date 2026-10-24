@@ -36,7 +36,7 @@ func (s *Server) skillDirsSignature(cwd string) string {
 			continue
 		}
 		exp := filepath.Clean(raw)
-		st, err := os.Stat(exp)
+		st, err := os.Stat(exp) //nolint:gosec // G703: a skills directory the configuration names for this workspace
 		if err != nil {
 			parts = append(parts, fmt.Sprintf("%s:missing", exp))
 			continue
@@ -164,9 +164,9 @@ func (s *Server) resolveListingCWD(w http.ResponseWriter, r *http.Request) (stri
 	// and what is behind it reads, or deletes a skill inside that folder's
 	// skill directories (see above).
 	abs := filepath.Clean(raw) // nosemgrep: go.lang.security.filepath-clean-misuse.filepath-clean-misuse
-	fi, err := os.Stat(abs)
+	fi, err := os.Stat(abs)    //nolint:gosec // G703: the cwd query names any folder on purpose, see the comment above
 	if err != nil || !fi.IsDir() {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, "folder not found: "+abs), http.StatusBadRequest)
+		http.Error(w, errorJSON("folder not found: "+abs), http.StatusBadRequest)
 		return "", false
 	}
 	return abs, true

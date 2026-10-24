@@ -811,7 +811,7 @@ func TestMountAcceptsAQueryTokenOnlyWhereAHeaderIsImpossible(t *testing.T) {
 	defer ts.Close()
 
 	stream := ts.URL + "/swarm/nodes/nas02/coddy/sessions/abc/composer-stream?access_token=client-secret"
-	res, err := http.Get(stream) //nolint:noctx // short-lived test request
+	res, err := http.Get(stream)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -824,7 +824,7 @@ func TestMountAcceptsAQueryTokenOnlyWhereAHeaderIsImpossible(t *testing.T) {
 	}
 
 	// The same token on an ordinary route is not a credential.
-	plain, err := http.Get(ts.URL + "/swarm/nodes/nas02/coddy/sessions?access_token=client-secret") //nolint:noctx // short-lived test request
+	plain, err := http.Get(ts.URL + "/swarm/nodes/nas02/coddy/sessions?access_token=client-secret")
 	if err != nil {
 		t.Fatal(err)
 	}

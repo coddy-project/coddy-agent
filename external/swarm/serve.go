@@ -14,7 +14,7 @@ import (
 
 // TokenEnvVar is where the relay looks for its client credential when no flag
 // carries one, so a token need not be written into config.yaml.
-const TokenEnvVar = "CODDY_SWARM_TOKEN"
+const TokenEnvVar = "CODDY_SWARM_TOKEN" //nolint:gosec // G101: the name of an environment variable, not a credential
 
 // PairingEnvVar is the registration credential's environment fallback.
 const PairingEnvVar = "CODDY_SWARM_PAIRING_TOKEN"

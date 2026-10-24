@@ -738,7 +738,7 @@ func (p *acpProcess) startPrompt(ctx context.Context, req acpsdk.PromptRequest) 
 	p.prompts[sid] = tr
 	p.mu.Unlock()
 	ch := make(chan acpMessage, 1)
-	go func() {
+	go func() { //nolint:gosec // G118: once its line is out the prompt belongs to the agent, see startPrompt; a cancellation goes as session/cancel
 		defer tr.markSent()
 		defer func() {
 			p.mu.Lock()

@@ -68,7 +68,7 @@ func startForeground(command string, env *tooling.Env, commandShell platform.She
 // bounded sink exists to prevent.
 func startForegroundInto(command string, env *tooling.Env, commandShell platform.Shell, sink io.Writer) (*startedCommand, error) {
 	executable, commandArgs := commandShell.Command(command)
-	cmd := exec.Command(executable, commandArgs...) // #nosec G204 -- the command is operator-approved shell input, same as the background runner
+	cmd := exec.Command(executable, commandArgs...) // the command is operator-approved shell input, same as the background runner
 	if env != nil {
 		cmd.Dir = env.CWD
 	}

@@ -20,12 +20,12 @@ import (
 // binary that cannot serve the API and quotes them in its own help.
 const (
 	// TokenEnvVar is the bearer token for API clients.
-	TokenEnvVar = "CODDY_HTTP_TOKEN"
+	TokenEnvVar = "CODDY_HTTP_TOKEN" //nolint:gosec // G101: the name of an environment variable, not a credential
 	// LoginUserEnvVar and LoginPasswordEnvVar are the web sign-in account. The
 	// password is plaintext, hashed as the server starts and never written to
 	// config.yaml, which is why $CODDY_HOME/.env is its natural home.
 	LoginUserEnvVar     = "CODDY_HTTP_USER"
-	LoginPasswordEnvVar = "CODDY_HTTP_PASSWORD"
+	LoginPasswordEnvVar = "CODDY_HTTP_PASSWORD" //nolint:gosec // G101: the name of an environment variable, not a credential
 )
 
 // Options are what one HTTP server instance is built from.

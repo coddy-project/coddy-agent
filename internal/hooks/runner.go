@@ -234,10 +234,10 @@ func (r *Runner) exec(ctx context.Context, event string, h Handler, payload []by
 	}
 	var cmd *exec.Cmd
 	if h.ExecForm {
-		cmd = exec.Command(command, h.Args...) // #nosec G204 -- the command is an operator-authored hook definition
+		cmd = exec.Command(command, h.Args...) // the command is an operator-authored hook definition
 	} else {
 		exe, args := platform.CurrentShell().Command(command)
-		cmd = exec.Command(exe, args...) // #nosec G204 -- the command is an operator-authored hook definition
+		cmd = exec.Command(exe, args...) // the command is an operator-authored hook definition
 	}
 	if dir := strings.TrimSpace(r.Session.CWD); dir != "" {
 		if st, err := os.Stat(dir); err == nil && st.IsDir() {

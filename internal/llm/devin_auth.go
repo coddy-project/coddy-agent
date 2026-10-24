@@ -59,7 +59,7 @@ const (
 	EnvDevinAPIURL = "CODDY_DEVIN_API_URL"
 	// EnvDevinCLICredentials points at the Devin CLI credentials.toml instead
 	// of its default location.
-	EnvDevinCLICredentials = "CODDY_DEVIN_CLI_CREDENTIALS"
+	EnvDevinCLICredentials = "CODDY_DEVIN_CLI_CREDENTIALS" //nolint:gosec // G101: the name of an environment variable, not a credential
 
 	devinSessionTokenPrefix = "devin-session-token$"
 	// devinJWTSkew mints a new user JWT this long before the current one
@@ -218,7 +218,7 @@ func saveDevinAuth(path string, f devinAuthFile) error {
 		return errors.New("devin auth: refusing to store an empty session token")
 	}
 	f.ObtainedAt = time.Now().UTC().Format(time.RFC3339)
-	data, err := json.MarshalIndent(f, "", "  ")
+	data, err := json.MarshalIndent(f, "", "  ") //nolint:gosec // G117: this writes the credential file itself, private (0600)
 	if err != nil {
 		return err
 	}

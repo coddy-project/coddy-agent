@@ -37,7 +37,7 @@ func collectWorkspaceListedItems(root string, includeDirs bool) ([]workspaceList
 		return nil, err
 	}
 	var entries []workspaceListedItem
-	errWalk := filepath.WalkDir(rootAbs, func(path string, de fs.DirEntry, walkErr error) error {
+	errWalk := filepath.WalkDir(rootAbs, func(path string, de fs.DirEntry, walkErr error) error { //nolint:gosec // G703: lists the session's workspace that resolveSessionCWD answered
 		if walkErr != nil {
 			return walkErr
 		}
@@ -162,7 +162,7 @@ func (s *Server) coddyWorkspaceFilesGet(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	st, err := os.Stat(cwdAbs)
+	st, err := os.Stat(cwdAbs) //nolint:gosec // G703: the session's workspace that resolveSessionCWD answered
 	if err != nil || !st.IsDir() {
 		http.Error(w, `{"error":{"message":"invalid session cwd"}}`, http.StatusInternalServerError)
 		return
