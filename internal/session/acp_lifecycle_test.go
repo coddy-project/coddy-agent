@@ -287,3 +287,94 @@ func TestAdditionalDirectoriesFollowTheRequestAndSurviveAnInternalRead(t *testin
 		t.Fatalf("a request that named no roots left %#v standing", got)
 	}
 }
+
+// The wire boundary refuses a relative additionalDirectory: ACP says each
+// path is absolute, and one stored as-is would be read back by the workspace
+// checks as a path against the turn's cwd - a different root than the client
+// meant, or none at all.
+func TestAdditionalDirectoriesMustBeAbsolute(t *testing.T) {
+	l := newLifecycleManager(t)
+	res, err := l.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: l.root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name string
+		call func() error
+	}{
+		{"session/new", func() error {
+			_, err := l.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{
+				CWD:                   l.root,
+				AdditionalDirectories: []string{"relative"},
+			})
+			return err
+		}},
+		{"session/load", func() error {
+			_, err := l.mgr.HandleSessionLoad(context.Background(), acp.SessionLoadParams{
+				SessionID:             res.SessionID,
+				CWD:                   l.root,
+				AdditionalDirectories: []string{"relative"},
+			})
+			return err
+		}},
+		{"session/resume", func() error {
+			_, err := l.mgr.HandleSessionResume(context.Background(), acp.SessionResumeParams{
+				SessionID:             res.SessionID,
+				CWD:                   l.root,
+				AdditionalDirectories: []string{"relative"},
+			})
+			return err
+		}},
+	}
+	for _, tc := range cases {
+		err := tc.call()
+		if err == nil || !strings.Contains(err.Error(), "must be absolute") {
+			t.Fatalf("%s accepted a relative additional directory: %v", tc.name, err)
+		}
+	}
+}
+
+// A --session-id carry reopens the stored bundle without restating its scope:
+// a session/new that omits additionalDirectories keeps the roots the bundle
+// recorded, while one that sends a list - empty included - replaces them.
+func TestPreferredSessionReopenKeepsRootsTheRequestDidNotRestate(t *testing.T) {
+	l := newLifecycleManager(t)
+	extra := filepath.Join(l.root, "carry-extra")
+	if err := os.MkdirAll(extra, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	res, err := l.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{
+		CWD:                   l.root,
+		AdditionalDirectories: []string{extra},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+		SessionID: res.SessionID,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "hello"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	l.mgr.ForgetLiveSession(res.SessionID)
+	l.mgr.SetPreferredSessionID(res.SessionID)
+	if _, err := l.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: l.root}); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.mgr.SessionByID(res.SessionID).GetAdditionalDirectories(); len(got) != 1 || got[0] != extra {
+		t.Fatalf("the carry wiped the stored roots: %#v", got)
+	}
+
+	l.mgr.ForgetLiveSession(res.SessionID)
+	l.mgr.SetPreferredSessionID(res.SessionID)
+	if _, err := l.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{
+		CWD:                   l.root,
+		AdditionalDirectories: []string{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.mgr.SessionByID(res.SessionID).GetAdditionalDirectories(); len(got) != 0 {
+		t.Fatalf("a request that sent an empty list left %#v standing", got)
+	}
+}

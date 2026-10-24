@@ -107,15 +107,22 @@ func (s *acpLifecycleState) start() error {
 	}
 	s.cmd = cmd
 	s.stdin = stdin
-	s.lines = make(chan []byte, 256)
-	s.readErrs = make(chan error, 1)
+	// The reader goroutine works on its own channel variables: close() clears
+	// the fields from the scenario goroutine, and a goroutine reading the
+	// fields to send would race with that (and block forever once they are
+	// nil). The channels are buffered, so the goroutine drains into them and
+	// exits even after nobody reads anymore.
+	lines := make(chan []byte, 256)
+	readErrs := make(chan error, 1)
+	s.lines = lines
+	s.readErrs = readErrs
 	go func() {
 		scanner := bufio.NewScanner(stdout)
 		scanner.Buffer(make([]byte, 4*1024*1024), 4*1024*1024)
 		for scanner.Scan() {
-			s.lines <- append([]byte(nil), scanner.Bytes()...)
+			lines <- append([]byte(nil), scanner.Bytes()...)
 		}
-		s.readErrs <- scanner.Err()
+		readErrs <- scanner.Err()
 	}()
 	return nil
 }

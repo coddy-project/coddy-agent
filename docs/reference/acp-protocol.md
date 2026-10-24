@@ -171,7 +171,7 @@ Create a new conversation session.
 }
 ```
 
-`additionalDirectories` names workspace roots the session works in beside `cwd`. Each path is absolute, and the list is the complete one: a request that omits it or sends an empty list starts the session with no extra roots. The roots are kept with the session, reported back on `session/list`, and treated as part of the workspace where Coddy decides whether a path is one the session may reach - the mention resolver and the checks that keep a confined turn inside its workspace.
+`additionalDirectories` names workspace roots the session works in beside `cwd`. Each path is absolute, and a request naming an entry that is not is refused; the list is the complete one: a request that omits it or sends an empty list starts the session with no extra roots. The roots are kept with the session, reported back on `session/list`, and treated as part of the workspace where Coddy decides whether a path is one the session may reach - the mention resolver and the checks that keep a confined turn inside its workspace.
 
 **Response result:**
 

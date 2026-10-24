@@ -201,9 +201,14 @@ type State struct {
 	// announces nothing. Neither moves until titleArmed is set - before the
 	// response naming the session to the client is on the wire, an
 	// announcement would be about a session the client has not registered.
-	titleNotify func(title string)
-	titleLast   string
-	titleArmed  bool
+	// titlePublishMu orders the announcements themselves, so a rename landing
+	// while the ready announcement is between its read and its send still
+	// publishes after it: out-of-order sends would leave the client on the
+	// older name until the next change.
+	titleNotify    func(title string)
+	titleLast      string
+	titleArmed     bool
+	titlePublishMu sync.Mutex
 
 	// Tags are the session's labels, kept normalized (see NormalizeTags) so
 	// every reader compares the same spelling.
@@ -1425,24 +1430,34 @@ func (s *State) SetTitleNotifier(fn func(title string)) {
 	s.mu.Unlock()
 }
 
-// ArmTitleNotify lets title changes reach the client and answers the title the
-// session carries right now, which the caller publishes once. Everything
-// before this was a change to a session the client had not registered yet, so
-// announcing it would have been an update for a session id the client did not
-// know. The answer is empty for a session nobody has named.
-func (s *State) ArmTitleNotify() string {
+// ArmTitleNotify lets title changes reach the client and announces the title
+// the session carries right now, once. Everything before this was a change to
+// a session the client had not registered yet, so announcing it would have
+// been an update for a session id the client did not know; a session nobody
+// has named announces nothing here and is named by its first message instead.
+func (s *State) ArmTitleNotify() {
+	s.titlePublishMu.Lock()
+	defer s.titlePublishMu.Unlock()
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.titleArmed = true
 	next := s.effectiveTitleLocked()
 	s.titleLast = next
-	return next
+	fn := s.titleNotify
+	s.mu.Unlock()
+	if next != "" && fn != nil {
+		fn(next)
+	}
 }
 
 // notifyTitleIfChanged publishes the title the session is listed under when it
 // has moved since the client last heard it. Callers run it after the write
 // that could have moved it, outside the lock that write took.
 func (s *State) notifyTitleIfChanged() {
+	// Held across the read and the send together, so a rename landing while
+	// the ready announcement of ArmTitleNotify is in flight cannot publish
+	// ahead of it and be overwritten by the older name.
+	s.titlePublishMu.Lock()
+	defer s.titlePublishMu.Unlock()
 	s.mu.Lock()
 	fn := s.titleNotify
 	if !s.titleArmed || fn == nil {

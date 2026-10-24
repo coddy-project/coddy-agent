@@ -756,7 +756,23 @@ func (m *Manager) HandleInitialize(_ context.Context, params acp.InitializeParam
 	}, nil
 }
 
+// validateAdditionalDirectories refuses a wire request whose extra workspace
+// roots are not absolute. ACP says each path is absolute, and a relative entry
+// stored as-is would be read back by the workspace checks as a path against
+// the turn's cwd - a different root than the client meant, or none at all.
+func validateAdditionalDirectories(dirs []string) error {
+	for _, d := range dirs {
+		if !filepath.IsAbs(strings.TrimSpace(d)) {
+			return fmt.Errorf("additionalDirectories entries must be absolute paths: %q", d)
+		}
+	}
+	return nil
+}
+
 func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewParams) (*acp.SessionNewResult, error) {
+	if err := validateAdditionalDirectories(params.AdditionalDirectories); err != nil {
+		return nil, fmt.Errorf("session/new: %w", err)
+	}
 	preferredConsumed := ""
 	if strings.TrimSpace(m.preferredNewSessionID) != "" {
 		preferredConsumed = strings.TrimSpace(m.preferredNewSessionID)
@@ -792,12 +808,17 @@ func (m *Manager) newSession(ctx context.Context, params acp.SessionNewParams, p
 	// CLI --session-id with an existing snapshot is treated as reopening disk state.
 	if m.store != nil && preferredConsumed != "" {
 		if _, err := m.store.ReadSnapshot(id); err == nil {
+			// The request replaces the stored roots only when it sends a
+			// list: this path is an operator's --session-id carry, not an
+			// editor restating the scope, so a request that omits the field
+			// keeps the roots the bundle recorded. A request that does send
+			// the list - empty included - is the complete one, as everywhere.
 			loadResult, err := m.loadSessionFromDisk(ctx, acp.SessionLoadParams{
 				SessionID:             id,
 				CWD:                   params.CWD,
 				AdditionalDirectories: params.AdditionalDirectories,
 				MCPServers:            params.MCPServers,
-			}, openOptions{replay: true, deferPublish: true, setExtraRoots: true})
+			}, openOptions{replay: true, deferPublish: true, setExtraRoots: params.AdditionalDirectories != nil})
 			if err != nil {
 				return nil, fmt.Errorf("session/new: reopen persisted session %s: %w", id, err)
 			}
@@ -1153,6 +1174,9 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 // HandleSessionLoad restores a session the client named itself, so the replayed
 // history is written before the response, as ACP requires.
 func (m *Manager) HandleSessionLoad(ctx context.Context, params acp.SessionLoadParams) (*acp.SessionLoadResult, error) {
+	if err := validateAdditionalDirectories(params.AdditionalDirectories); err != nil {
+		return nil, fmt.Errorf("session/load: %w", err)
+	}
 	return m.loadSessionFromDisk(ctx, params, openOptions{replay: true, setExtraRoots: true})
 }
 
@@ -1161,6 +1185,9 @@ func (m *Manager) HandleSessionLoad(ctx context.Context, params acp.SessionLoadP
 // the history wants: the session is live again, and the client is told how to
 // drive it, not what was said before.
 func (m *Manager) HandleSessionResume(ctx context.Context, params acp.SessionResumeParams) (*acp.SessionResumeResult, error) {
+	if err := validateAdditionalDirectories(params.AdditionalDirectories); err != nil {
+		return nil, fmt.Errorf("session/resume: %w", err)
+	}
 	// The two request shapes carry the same fields, so the resume is a load
 	// with the replay turned off rather than a second reader of a bundle.
 	load, err := m.loadSessionFromDisk(ctx, acp.SessionLoadParams(params),
@@ -1370,8 +1397,9 @@ type TurnRestriction struct {
 	// and leaves the session's "always allow" grants aside.
 	AskAlways bool
 	// ConfineToWorkspace keeps the paths the turn reads - by a tool or by an
-	// "@" mention - inside the session's working directory and out of the
-	// agent's home, and resolves no "@" web page.
+	// "@" mention - inside the session's workspace (its working directory
+	// plus the additionalDirectories it carries) and out of the agent's home,
+	// and resolves no "@" web page.
 	ConfineToWorkspace bool
 	// Note is what a refused tool call tells the model.
 	Note string
@@ -2175,9 +2203,7 @@ func (m *Manager) HandleSessionReady(sessionID string) {
 		}
 		// The client knows the session now, so it can be told what the session
 		// is called, and later renames may reach it as they happen.
-		if title := st.ArmTitleNotify(); title != "" {
-			m.publishSessionInfoUpdate(st, title)
-		}
+		st.ArmTitleNotify()
 	}
 	m.sendAvailableSlashCommands(sessionID, st)
 	// A goal the session carries is on screen from the start: a client that
