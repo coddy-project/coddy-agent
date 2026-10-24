@@ -192,32 +192,28 @@ func (e *streamTruncatedError) Unwrap() error { return e.cause }
 
 // streamDecodeTruncation classifies err, the failure of decoding one framed
 // SSE event, as a cut inside that event: a *json.SyntaxError whose diagnostic
-// is the decoder's end-of-input one. encoding/json spells it "unexpected end
-// of JSON input" when the input stops between tokens, and "invalid character
-// ' ' ..." when its end-of-input probe (a single space) lands inside an
-// unfinished literal or number. The SDK decoders append a newline to every
-// data line and never trim, so on their path the same cut reads "invalid
-// character '\n' ...", inside a string literal included. Every other syntax
-// error names a byte the server did send: a malformed event, not a cut, and
-// nil is returned so the caller keeps its own contract for it.
+// is the decoder's end-of-input one (endOfInputDiagnostic names its spellings
+// across Go releases). Every other syntax error names a byte the server did
+// send: a malformed event, not a cut, and nil is returned so the caller keeps
+// its own contract for it.
 //
 // payloadLen, when the caller has the decoded payload (the OpenAI-compatible
-// reader), is its length, and the error's Offset must then equal it - the
-// decoder consumed the whole payload before it ran out, which is what the
-// three diagnostics mean at the end of the input: that rules out a malformed
-// but complete event whose whitespace happens to fall inside a token, such
-// as `{"a":nu ll}` or a JSON string split across two data: lines, where the
-// same diagnostic fires short of the end. The SDK streams hand out no payload, so Codex and Anthropic pass 0
-// and take the diagnostic alone: a bounded heuristic that treats such an
-// event as a cut too - kept text, no tool call, a retry before output or a
-// continue after it, never a replay - which is the safe side of the
-// ambiguity, and no encoder writes a raw space or newline inside a literal,
-// a number or an SSE data string. The one SDK error with no syntax error in
-// its chain is the in-band error event, spelled "received error while
-// streaming: <payload>" by both SDKs; when that payload ends inside its JSON
-// it is re-parsed and classified here. The spelling is pinned by the stream
-// tests, which drive the real SDK decoders, so a renamed message fails the
-// suite instead of silently falling back to the transport branch.
+// reader), is its length, and the error must then lie inside it - at its very
+// end for a spelling that names a byte, since the decoder consumed the whole
+// payload before it ran out: that rules out a malformed but complete event
+// whose whitespace happens to fall inside a token, such as `{"a":nu ll}` or a
+// JSON string split across two data: lines, where the same diagnostic fires
+// short of the end. The SDK streams hand out no payload, so Codex and
+// Anthropic pass 0 and take the diagnostic alone: a bounded heuristic that
+// treats such an event as a cut too - kept text, no tool call, a retry before
+// output or a continue after it, never a replay - which is the safe side of
+// the ambiguity, and no encoder writes a raw space or newline inside a
+// literal, a number or an SSE data string. The one SDK error with no syntax
+// error in its chain is the in-band error event, spelled "received error
+// while streaming: <payload>" by both SDKs; when that payload ends inside its
+// JSON it is re-parsed and classified here. The spelling is pinned by the
+// stream tests, which drive the real SDK decoders, so a renamed message fails
+// the suite instead of silently falling back to the transport branch.
 func streamDecodeTruncation(err error, emitted bool, payloadLen int) *streamTruncatedError {
 	var syn *json.SyntaxError
 	if err == nil {
@@ -233,7 +229,7 @@ func streamDecodeTruncation(err error, emitted bool, payloadLen int) *streamTrun
 		// error and keeps the transport contract it had.
 		if payload, ok := sdkStreamErrorPayload(err); ok {
 			var v any
-			if syn, ok := json.Unmarshal([]byte(payload), &v).(*json.SyntaxError); ok && isEndOfInputDiagnostic(syn) {
+			if syn, ok := json.Unmarshal([]byte(payload), &v).(*json.SyntaxError); ok && endOfInputDiagnostic(syn.Error(), syn.Offset, 0) {
 				// The decoder error is derived here, so keep both the SDK's
 				// error and it reachable for logs.
 				return &streamTruncatedError{emitted: emitted, cause: errors.Join(err, syn)}
@@ -241,10 +237,7 @@ func streamDecodeTruncation(err error, emitted bool, payloadLen int) *streamTrun
 		}
 		return nil
 	}
-	if !isEndOfInputDiagnostic(syn) {
-		return nil
-	}
-	if payloadLen > 0 && syn.Offset != int64(payloadLen) {
+	if !endOfInputDiagnostic(syn.Error(), syn.Offset, payloadLen) {
 		return nil
 	}
 	return &streamTruncatedError{emitted: emitted, cause: err}
@@ -344,15 +337,37 @@ func numericCode(obj gjson.Result) int {
 	return int(code.Int())
 }
 
-// isEndOfInputDiagnostic reports whether the decoder's syntax error is its
-// end-of-input one: "unexpected end of JSON input" between tokens, "invalid
-// character ' '" or "'\n'" when the end-of-input probe lands inside an
-// unfinished literal, number or string.
-func isEndOfInputDiagnostic(syn *json.SyntaxError) bool {
-	msg := syn.Error()
-	return msg == "unexpected end of JSON input" ||
-		strings.HasPrefix(msg, "invalid character ' '") ||
-		strings.HasPrefix(msg, `invalid character '\n'`)
+// endOfInputDiagnostic reports whether msg, the text of the decoder's syntax
+// error at offset, is its end-of-input diagnostic for a payload of payloadLen
+// bytes (0 when the caller has none). encoding/json spells it three ways:
+//
+//   - "unexpected end of JSON input": the input stopped. Up to Go 1.26 only
+//     between tokens and at the end of the payload; from Go 1.27, which runs
+//     encoding/json on encoding/json/v2, inside a literal, a number, an escape
+//     sequence or a multi-byte character too, with the offset at the start of
+//     the unfinished token (issue #610). The decoder gives it only when the
+//     input has ended, so any offset inside the payload is a cut;
+//   - "invalid character ' ' ...": up to Go 1.26, the end-of-input probe (a
+//     single space) landing inside an unfinished literal, number or escape;
+//   - the newline the SDK decoders append to every data line, landing inside
+//     a token: "invalid character '\n' ..." on every release, and from Go
+//     1.27 `invalid escape sequence "...\n" in string` when the token is an
+//     escape sequence the newline cut short.
+//
+// The last two name a byte, which in a complete event is whitespace inside a
+// token rather than a cut, so with the payload at hand the error must stand
+// at its end.
+func endOfInputDiagnostic(msg string, offset int64, payloadLen int) bool {
+	if payloadLen > 0 && offset > int64(payloadLen) {
+		return false
+	}
+	if msg == "unexpected end of JSON input" {
+		return true
+	}
+	namesByte := strings.HasPrefix(msg, "invalid character ' '") ||
+		strings.HasPrefix(msg, `invalid character '\n'`) ||
+		strings.HasPrefix(msg, `invalid escape sequence "`) && strings.HasSuffix(msg, `\n" in string`)
+	return namesByte && (payloadLen == 0 || offset == int64(payloadLen))
 }
 
 // streamUndecodableError is a non-empty data frame of the OpenAI-compatible

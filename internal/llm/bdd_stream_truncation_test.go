@@ -25,6 +25,12 @@ import (
 	"github.com/cucumber/godog"
 )
 
+// openAIHelloFrFrames are the frames of an OpenAI-compatible stream that
+// deliver "Hello fr" before the body is cut.
+const openAIHelloFrFrames = "data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":null}}],\"id\":\"chatcmpl-j1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n" +
+	"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\"Hello\"}}],\"id\":\"chatcmpl-j1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n" +
+	"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" fr\"}}],\"id\":\"chatcmpl-j1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n"
+
 // streamTruncationScripts are SSE payloads the stub server replays verbatim
 // before closing the connection.
 var streamTruncationScripts = map[string]string{
@@ -42,10 +48,19 @@ var streamTruncationScripts = map[string]string{
 	// inside a string value on purpose, the commonest place for a cut mid
 	// delta; which end-of-input diagnostic the decoder reports depends on
 	// that position (streamDecodeTruncation names the spellings).
-	"cuts the last frame inside its JSON": "data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":null}}],\"id\":\"chatcmpl-j1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n" +
-		"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\"Hello\"}}],\"id\":\"chatcmpl-j1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n" +
-		"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" fr\"}}],\"id\":\"chatcmpl-j1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n" +
+	"cuts the last frame inside its JSON": openAIHelloFrFrames +
 		"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\"om",
+
+	// The same cut inside a token Go 1.27 reports at its start rather than
+	// at the end of the frame (issue #610): a number (logprobs are negative
+	// fractions), right after the backslash of an escape sequence, and
+	// between the bytes of a multi-byte character.
+	"cuts the last frame inside a number": openAIHelloFrFrames +
+		"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\"om\"},\"logprobs\":{\"content\":[{\"token\":\"om\",\"logprob\":-0.",
+	"cuts the last frame inside an escape sequence": openAIHelloFrFrames +
+		"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\"om\\",
+	"cuts the last frame inside a multi-byte character": openAIHelloFrFrames +
+		"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\"\xd0",
 }
 
 // codexStreamTruncationScripts are the Codex Responses counterparts, named the
@@ -259,7 +274,7 @@ func initializeStreamTruncationScenario(sc *godog.ScenarioContext) {
 		return ctx, nil
 	})
 
-	sc.Step(`^an "openai" provider pointed at a stub server that (cuts the stream after text deltas|ends the stream with a finish_reason but no \[DONE\] marker|cuts the last frame inside its JSON)$`, s.aProviderPointedAtTruncatingStub)
+	sc.Step(`^an "openai" provider pointed at a stub server that (cuts the stream after text deltas|ends the stream with a finish_reason but no \[DONE\] marker|cuts the last frame inside its JSON|cuts the last frame inside a number|cuts the last frame inside an escape sequence|cuts the last frame inside a multi-byte character)$`, s.aProviderPointedAtTruncatingStub)
 	sc.Step(`^a "codex" provider pointed at a stub server that (cuts the stream after text deltas|completes the response|stops the response at its output cap|cuts an event inside its JSON after text deltas|sends keep-alive comments while the model is silent)$`, s.aCodexProviderPointedAtStub)
 	sc.Step(`^a streaming completion is requested$`, s.aTruncationStreamingCompletionIsRequested)
 	sc.Step(`^the call fails with a truncation error$`, s.theCallFailsWithATruncationError)
