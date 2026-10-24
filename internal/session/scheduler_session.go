@@ -93,7 +93,9 @@ func (m *Manager) EnsureSchedulerJobSession(ctx context.Context, spec SchedulerJ
 		return existing, nil
 	}
 	if m.store.HasPersistedSnapshot(id) {
-		if _, err := m.loadSessionFromDisk(ctx, acp.SessionLoadParams{SessionID: id}, true); err != nil {
+		// A job session has no ACP client to replay to and no client restating
+		// its roots: the transcript is read for the run, not sent anywhere.
+		if _, err := m.loadSessionFromDisk(ctx, acp.SessionLoadParams{SessionID: id}, openOptions{deferPublish: true}); err != nil {
 			return nil, err
 		}
 		st := m.getSession(id)
@@ -142,6 +144,7 @@ func (m *Manager) EnsureSchedulerJobSession(ctx context.Context, spec SchedulerJ
 	m.sessions[id] = state
 	m.mu.Unlock()
 	m.attachGoalNotifier(state)
+	m.attachTitleNotifier(state)
 
 	if err := m.store.Save(state); err != nil {
 		m.ForgetLiveSession(id)

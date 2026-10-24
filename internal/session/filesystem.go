@@ -390,14 +390,17 @@ func (f *FileStore) ensureLayoutAt(sessionID, dir string) error {
 
 // SessionMeta is persisted in session.json.
 type SessionMeta struct {
-	Version           int    `json:"version"`
-	ID                string `json:"id"`
-	CWD               string `json:"cwd"`
-	Mode              string `json:"mode"`
-	SelectedModelID   string `json:"selectedModelId,omitempty"`
-	SelectedReasoning string `json:"selectedReasoning,omitempty"`
-	SelectedToolset   string `json:"selectedToolset,omitempty"`
-	AgentMemory       string `json:"agentMemory,omitempty"`
+	Version int    `json:"version"`
+	ID      string `json:"id"`
+	CWD     string `json:"cwd"`
+	Mode    string `json:"mode"`
+	// AdditionalDirectories are the extra workspace roots the session carries
+	// on top of CWD, in the order the client sent them.
+	AdditionalDirectories []string `json:"additionalDirectories,omitempty"`
+	SelectedModelID       string   `json:"selectedModelId,omitempty"`
+	SelectedReasoning     string   `json:"selectedReasoning,omitempty"`
+	SelectedToolset       string   `json:"selectedToolset,omitempty"`
+	AgentMemory           string   `json:"agentMemory,omitempty"`
 	// HookContext is what SessionStart hooks handed to the session.
 	HookContext string     `json:"hookContext,omitempty"`
 	Goal        *GoalState `json:"goal,omitempty"`
@@ -739,6 +742,9 @@ type SessionListEntry struct {
 	CWD       string
 	Title     string
 	UpdatedAt string
+	// AdditionalDirectories are the extra workspace roots the bundle records,
+	// in their stored order. Empty when it records none.
+	AdditionalDirectories []string
 	// CreatedAt is empty for a bundle stored before the field existed.
 	CreatedAt string
 	// Model is the session's own backend override (session.json
@@ -924,27 +930,28 @@ func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter s
 		return out, true
 	}
 	row := SessionListEntry{
-		SessionID:         meta.ID,
-		CWD:               meta.CWD,
-		Title:             meta.Title,
-		UpdatedAt:         meta.UpdatedAt,
-		CreatedAt:         meta.CreatedAt,
-		Model:             meta.SelectedModelID,
-		Tags:              NormalizeTags(meta.Tags),
-		Archived:          meta.Archived,
-		ArchivedAt:        meta.ArchivedAt,
-		Origin:            meta.Origin,
-		Pinned:            meta.Pinned,
-		PinnedAt:          meta.PinnedAt,
-		PinnedRank:        meta.PinnedRank,
-		MessageCount:      messageCount,
-		SubagentRun:       meta.SubagentRun,
-		ParentSessionID:   meta.ParentSessionID,
-		SubagentName:      meta.SubagentName,
-		SubagentTaskID:    meta.SubagentTaskID,
-		bundleDir:         dir,
-		messageCountKnown: known,
-		noMessage:         noMessage,
+		SessionID:             meta.ID,
+		CWD:                   meta.CWD,
+		Title:                 meta.Title,
+		UpdatedAt:             meta.UpdatedAt,
+		AdditionalDirectories: meta.AdditionalDirectories,
+		CreatedAt:             meta.CreatedAt,
+		Model:                 meta.SelectedModelID,
+		Tags:                  NormalizeTags(meta.Tags),
+		Archived:              meta.Archived,
+		ArchivedAt:            meta.ArchivedAt,
+		Origin:                meta.Origin,
+		Pinned:                meta.Pinned,
+		PinnedAt:              meta.PinnedAt,
+		PinnedRank:            meta.PinnedRank,
+		MessageCount:          messageCount,
+		SubagentRun:           meta.SubagentRun,
+		ParentSessionID:       meta.ParentSessionID,
+		SubagentName:          meta.SubagentName,
+		SubagentTaskID:        meta.SubagentTaskID,
+		bundleDir:             dir,
+		messageCountKnown:     known,
+		noMessage:             noMessage,
 	}
 	if !SessionMatchesAnyTag(row, opts.Tags) {
 		return out, true
@@ -1237,24 +1244,25 @@ func (f *FileStore) Save(state *State) error {
 	archived, archivedAt := state.ArchiveState()
 	pinned, pinnedAt, pinnedRank := state.PinPlacement()
 	meta := SessionMeta{
-		Version:           sessionFileLayout,
-		ID:                state.ID,
-		CWD:               state.CWDForPersist(),
-		Mode:              state.GetMode(),
-		SelectedModelID:   state.GetSelectedModelID(),
-		SelectedReasoning: state.GetSelectedReasoning(),
-		SelectedToolset:   state.GetSelectedToolset(),
-		HookContext:       state.GetHookContext(),
-		AgentMemory:       state.GetAgentMemory(),
-		Title:             title,
-		TitlePinned:       strings.TrimSpace(state.GetTitlePinned()),
-		Tags:              state.GetTags(),
-		Archived:          archived,
-		ArchivedAt:        strings.TrimSpace(archivedAt),
-		Origin:            strings.TrimSpace(state.GetOrigin()),
-		Pinned:            pinned,
-		PinnedAt:          strings.TrimSpace(pinnedAt),
-		PinnedRank:        pinnedRank,
+		Version:               sessionFileLayout,
+		ID:                    state.ID,
+		CWD:                   state.CWDForPersist(),
+		Mode:                  state.GetMode(),
+		AdditionalDirectories: state.AdditionalDirectoriesForPersist(),
+		SelectedModelID:       state.GetSelectedModelID(),
+		SelectedReasoning:     state.GetSelectedReasoning(),
+		SelectedToolset:       state.GetSelectedToolset(),
+		HookContext:           state.GetHookContext(),
+		AgentMemory:           state.GetAgentMemory(),
+		Title:                 title,
+		TitlePinned:           strings.TrimSpace(state.GetTitlePinned()),
+		Tags:                  state.GetTags(),
+		Archived:              archived,
+		ArchivedAt:            strings.TrimSpace(archivedAt),
+		Origin:                strings.TrimSpace(state.GetOrigin()),
+		Pinned:                pinned,
+		PinnedAt:              strings.TrimSpace(pinnedAt),
+		PinnedRank:            pinnedRank,
 	}
 	if goal := state.GetGoal(); goal.Set() {
 		meta.Goal = &goal

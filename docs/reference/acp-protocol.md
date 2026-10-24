@@ -105,7 +105,10 @@ Negotiate protocol version and exchange capabilities.
       "readTextFile": true,
       "writeTextFile": true
     },
-    "terminal": true
+    "terminal": true,
+    "elicitation": {
+      "form": {}
+    }
   },
   "clientInfo": {
     "name": "example-acp-client",
@@ -115,6 +118,8 @@ Negotiate protocol version and exchange capabilities.
 }
 ```
 
+A client that renders form elicitation says so in `clientCapabilities.elicitation.form`. Coddy then asks its questions as `elicitation/create` rather than as the Coddy-only `session/request_question`, so any editor that implements the standard shows them.
+
 **Response result:**
 ```json
 {
@@ -122,7 +127,10 @@ Negotiate protocol version and exchange capabilities.
   "agentCapabilities": {
     "loadSession": true,
     "sessionCapabilities": {
-      "list": {}
+      "list": {},
+      "delete": {},
+      "additionalDirectories": {},
+      "resume": {}
     },
     "promptCapabilities": {
       "image": false,
@@ -151,6 +159,7 @@ Create a new conversation session.
 ```json
 {
   "cwd": "/home/user/project",
+  "additionalDirectories": ["/home/user/other"],
   "mcpServers": [
     {
       "name": "my-mcp",
@@ -161,6 +170,8 @@ Create a new conversation session.
   ]
 }
 ```
+
+`additionalDirectories` names workspace roots the session works in beside `cwd`. Each path is absolute, and the list is the complete one: a request that omits it or sends an empty list starts the session with no extra roots. The roots are kept with the session, reported back on `session/list`, and treated as part of the workspace where Coddy decides whether a path is one the session may reach - the mention resolver and the checks that keep a confined turn inside its workspace.
 
 **Response result:**
 
@@ -281,11 +292,48 @@ The replay precedes the response here, as ACP requires, and that is safe because
 {
   "sessionId": "sess_abc123def456",
   "cwd": "/home/user/project",
+  "additionalDirectories": [],
   "mcpServers": []
 }
 ```
 
+`additionalDirectories` here is the complete extra-root list for the loaded session, as on `session/new`: an omitted or empty list loads the session with none.
+
 **Response result:** `modes` and `configOptions` like `session/new`.
+
+### `session/resume`
+
+Brings a stored session back **without** replaying its transcript. A client that keeps its own copy of the history - one that already listed the session and showed it - resumes it and gets how to drive it, not what was said before. `session/load` is the one that replays.
+
+**Request params** (per ACP, `cwd` and `sessionId` are required):
+
+```json
+{
+  "sessionId": "sess_abc123def456",
+  "cwd": "/home/user/project",
+  "additionalDirectories": ["/home/user/other"],
+  "mcpServers": []
+}
+```
+
+**Response result:** `modes` and `configOptions` like `session/new`. No `session/update` carrying the history precedes it.
+
+Advertised as `sessionCapabilities.resume`. A session that is already live is resumed in place rather than rebuilt, which is what keeps a running turn and its bundle from ending up with two writers.
+
+### `session/delete`
+
+Removes a session and every bundle nested under it - a subagent run recorded inside it goes with it. A turn running on the session is cancelled and awaited first, and a subagent task of the tree is stopped before its bundle is removed, so nothing recreates what was just deleted.
+
+**Request params:**
+```json
+{
+  "sessionId": "sess_abc123def456"
+}
+```
+
+**Response result:** `{}`
+
+Advertised as `sessionCapabilities.delete`. This is what an editor calls on a row of `session/list`.
 
 ### `session/list`
 
@@ -301,6 +349,8 @@ The optional `cwd` narrows the list to one workspace. It names a folder, not a s
   "params": { "cwd": "/home/user/project" }
 }
 ```
+
+Each row carries the `additionalDirectories` the session was given when the list is non-empty, so a client that shows a session knows the roots it works in without loading it. The list is the complete one and is omitted for a session that has none.
 
 ### Disk layout (Coddy)
 
@@ -651,6 +701,22 @@ An editor that renders only the standard updates would show an answer nobody ask
 
 `coddy acp --remote` replays a woken turn of the server the same way on `session/load`; it does not follow the server's woken turns live.
 
+### `session_info_update` - The session was renamed
+
+Sent whenever the title the session is listed under moves: the name its first message derived, a name the agent pinned with `session_describe`, a rename an operator made on another surface. A client that keeps a session list in step with the agent renames it along with them instead of showing the name it was created with.
+
+```json
+{
+  "sessionUpdate": "session_info_update",
+  "title": "Ship the release",
+  "updatedAt": "2026-10-24T09:12:33Z"
+}
+```
+
+`title` is always on the wire - a rename carries the new name, and a session nobody names any more carries `null`, which clears the name rather than leaving it standing. `updatedAt` is when the agent announced the change.
+
+The first announcement of a session goes out once the client has registered it, after the `session/new` or `session/load` response: a rename in that window is about a session the client has not seen yet, and is published with the rest rather than ahead of it.
+
 ### `current_mode_update` - Mode changed
 
 ```json
@@ -742,9 +808,64 @@ Under `ask`, a request that belongs to the session itself carries two more optio
 
 A dismissed request answers `{ "outcome": { "outcome": "cancelled" } }`. Coddy also accepts the flat form its own surfaces and some editor extensions send (`{"outcome": "selected", "optionId": "allow"}`), and reads both the same way: the call proceeds unless the outcome is `cancelled` or the chosen `optionId` is `reject`. Picking `allow_always` (or the program-wide `allow_always_<program>` option) also stores a session grant, so the same command does not ask again.
 
-## Question Requests (Agent -> Client, expects response)
+## Elicitation (Agent -> Client, expects response)
 
 Used by the **`question`** tool. Same inbound JSON-RPC pattern as permission requests (client must reply with the same **`id`**).
+
+A client that advertised `clientCapabilities.elicitation.form` is asked through **`elicitation/create`**, the standard way, which such a client renders as a form. A client that never said so keeps getting the Coddy-only **`session/request_question`** described below, so nothing that cannot render a form is sent one.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "method": "elicitation/create",
+  "params": {
+    "sessionId": "sess_abc123def456",
+    "toolCallId": "call_003",
+    "message": "Pick a stack",
+    "mode": "form",
+    "requestedSchema": {
+      "type": "object",
+      "properties": {
+        "q1": {
+          "type": "string",
+          "title": "Pick a stack",
+          "enum": ["Go", "Rust"]
+        }
+      },
+      "required": ["q1"]
+    }
+  }
+}
+```
+
+One form field per question, named `q1`, `q2` and so on in the order the tool asked them. How a question becomes a field:
+
+| Question | Field |
+| --- | --- |
+| options, and the answer must be one of them (`custom: false`) | a picker: `enum` when no option describes itself, `oneOf` when one does |
+| options, several may be chosen (`multiple: true`) | a multi-select `array` carrying the same choices as its `items` |
+| options, and the user may answer in their own words (`custom`, the default) | free text, with the option labels listed in the field's description as suggestions |
+
+A form cannot offer a picker and an escape from it on one field, so a question that allows the user's own answer becomes free text rather than a closed picker. That keeps the contract the model relies on: **an answer that matches no option label is the text the user typed**, and nothing the user writes is rejected for not being one of the offered labels.
+
+**Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "result": {
+    "action": "accept",
+    "content": { "q1": "Rust" }
+  }
+}
+```
+
+`action` is `accept`, `decline` or `cancel`. On `accept` the values of `content` become the answers - one entry for a single-valued field, one per selection for a multi-select. A declined or cancelled form answers with no picks at all, which the tool reports to the model as an unanswered question rather than as a failure.
+
+### `session/request_question` - the fallback
+
+Coddy's own question request, kept for a client that does not implement elicitation. The payload is the questions as the tool asked them and the answer is one array of choices per question, where an entry that matches no option label is the text the user typed.
 
 ```json
 {

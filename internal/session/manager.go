@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -736,7 +737,11 @@ func (m *Manager) HandleInitialize(_ context.Context, params acp.InitializeParam
 		},
 	}
 	if m.store != nil {
-		caps.SessionCapabilities = &acp.SessionCaps{}
+		// A store is what makes a session listable, deletable and resumable,
+		// so those capabilities are advertised with it. additionalDirectories
+		// rides with them because reporting the extra roots of a listed
+		// session is a read of the same bundle.
+		caps.SessionCapabilities = acp.FullSessionCaps()
 	}
 
 	return &acp.InitializeResult{
@@ -788,10 +793,11 @@ func (m *Manager) newSession(ctx context.Context, params acp.SessionNewParams, p
 	if m.store != nil && preferredConsumed != "" {
 		if _, err := m.store.ReadSnapshot(id); err == nil {
 			loadResult, err := m.loadSessionFromDisk(ctx, acp.SessionLoadParams{
-				SessionID:  id,
-				CWD:        params.CWD,
-				MCPServers: params.MCPServers,
-			}, true)
+				SessionID:             id,
+				CWD:                   params.CWD,
+				AdditionalDirectories: params.AdditionalDirectories,
+				MCPServers:            params.MCPServers,
+			}, openOptions{replay: true, deferPublish: true, setExtraRoots: true})
 			if err != nil {
 				return nil, fmt.Errorf("session/new: reopen persisted session %s: %w", id, err)
 			}
@@ -826,6 +832,9 @@ func (m *Manager) newSession(ctx context.Context, params acp.SessionNewParams, p
 	if err != nil {
 		return nil, err
 	}
+	// The extra workspace roots a client names on session/new are the
+	// session's from the start; a request that names none has none.
+	state.SetAdditionalDirectoriesWithoutPersist(params.AdditionalDirectories)
 	// Before anything can persist the bundle: the SessionStart hooks below
 	// and the initial save both write session.json.
 	state.SetOriginWithoutPersist(origin)
@@ -834,6 +843,7 @@ func (m *Manager) newSession(ctx context.Context, params acp.SessionNewParams, p
 	}
 
 	m.attachGoalNotifier(state)
+	m.attachTitleNotifier(state)
 	m.mu.Lock()
 	prev := m.sessions[id]
 	m.sessions[id] = state
@@ -933,12 +943,29 @@ func acpMCPServersToConfig(servers []acp.MCPServer) []config.MCPServerConfig {
 	return out
 }
 
-// loadSessionFromDisk restores a persisted bundle. deferPublish parks the
-// replayed transcript (and the plan and context usage that go with it) on the
-// state instead of writing it immediately: session/new reopening a bundle must
-// not emit updates for a session id the client only learns from the response it
-// has not received yet. HandleSessionReady publishes them afterwards.
-func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoadParams, deferPublish bool) (*acp.SessionLoadResult, error) {
+// openOptions is what the callers of a stored session's restoration differ in:
+// whether the transcript is replayed to the client, whether the updates wait
+// for the response that names the session, and whether the request replaces
+// the extra workspace roots the bundle stored.
+type openOptions struct {
+	// replay sends the stored transcript to the client. session/load does
+	// this, session/resume does not.
+	replay bool
+	// deferPublish parks the replayed transcript (and the plan and context
+	// usage that go with it) on the state instead of writing it immediately:
+	// session/new reopening a bundle must not emit updates for a session id
+	// the client only learns from the response it has not received yet.
+	// HandleSessionReady publishes them afterwards.
+	deferPublish bool
+	// setExtraRoots says the request's additionalDirectories replaces what the
+	// bundle stored. A caller that is not a wire client leaves it false and
+	// keeps the stored roots, so a surface that merely reads a session does
+	// not strip the roots an editor gave it.
+	setExtraRoots bool
+}
+
+// loadSessionFromDisk restores a persisted bundle.
+func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoadParams, opts openOptions) (*acp.SessionLoadResult, error) {
 	if m.store == nil {
 		return nil, fmt.Errorf("session/load: persistence is disabled")
 	}
@@ -951,8 +978,13 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	// the running turn's messages landed, so its saves overwrite the history
 	// the live state is still producing.
 	if live := m.getSession(params.SessionID); live != nil {
-		if err := m.replayConversation(params.SessionID, live.GetMessages(), live.GetPersistedSessionDir()); err != nil {
-			m.log.Warn("replay conversation", "error", err)
+		if opts.setExtraRoots {
+			live.SetAdditionalDirectories(params.AdditionalDirectories)
+		}
+		if opts.replay {
+			if err := m.replayConversation(params.SessionID, live.GetMessages(), live.GetPersistedSessionDir()); err != nil {
+				m.log.Warn("replay conversation", "error", err)
+			}
 		}
 		return &acp.SessionLoadResult{
 			Modes:         m.sessionResultModes(live),
@@ -1038,6 +1070,14 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	st.SetArchivedWithoutPersist(snap.Meta.Archived, snap.Meta.ArchivedAt)
 	st.SetOriginWithoutPersist(snap.Meta.Origin)
 	st.SetPinnedWithoutPersist(snap.Meta.Pinned, snap.Meta.PinnedAt, snap.Meta.PinnedRank)
+	if opts.setExtraRoots {
+		// The request is the complete list, and an omitted one means no extra
+		// roots at all - which is what a wire client that does not manage
+		// them gets.
+		st.SetAdditionalDirectoriesWithoutPersist(params.AdditionalDirectories)
+	} else {
+		st.SetAdditionalDirectoriesWithoutPersist(snap.Meta.AdditionalDirectories)
+	}
 	st.RestoreHookContextWithoutPersist(snap.Meta.HookContext)
 	st.ReplaceMessagesWithoutPersist(snap.Messages)
 	st.SetPlanWithoutPersist(snap.Plan)
@@ -1083,8 +1123,10 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	publish := func() {
 		m.sendContextUsageUpdate(params.SessionID, st)
 
-		if err := m.replayConversation(params.SessionID, snap.Messages, snap.Dir); err != nil {
-			m.log.Warn("replay conversation", "error", err)
+		if opts.replay {
+			if err := m.replayConversation(params.SessionID, snap.Messages, snap.Dir); err != nil {
+				m.log.Warn("replay conversation", "error", err)
+			}
 		}
 
 		if len(st.GetPlan()) > 0 && m.server != nil {
@@ -1094,7 +1136,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 			})
 		}
 	}
-	if deferPublish {
+	if opts.deferPublish {
 		st.setPendingReadyNotify(publish)
 	} else {
 		publish()
@@ -1111,7 +1153,40 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 // HandleSessionLoad restores a session the client named itself, so the replayed
 // history is written before the response, as ACP requires.
 func (m *Manager) HandleSessionLoad(ctx context.Context, params acp.SessionLoadParams) (*acp.SessionLoadResult, error) {
-	return m.loadSessionFromDisk(ctx, params, false)
+	return m.loadSessionFromDisk(ctx, params, openOptions{replay: true, setExtraRoots: true})
+}
+
+// HandleSessionResume restores a session the client named itself without
+// replaying its transcript, which is what a client that keeps its own copy of
+// the history wants: the session is live again, and the client is told how to
+// drive it, not what was said before.
+func (m *Manager) HandleSessionResume(ctx context.Context, params acp.SessionResumeParams) (*acp.SessionResumeResult, error) {
+	// The two request shapes carry the same fields, so the resume is a load
+	// with the replay turned off rather than a second reader of a bundle.
+	load, err := m.loadSessionFromDisk(ctx, acp.SessionLoadParams(params),
+		openOptions{replay: false, setExtraRoots: true})
+	if err != nil {
+		return nil, err
+	}
+	return &acp.SessionResumeResult{Modes: load.Modes, ConfigOptions: load.ConfigOptions}, nil
+}
+
+// HandleSessionDelete removes a session and every bundle nested under it. It
+// is what an editor's delete of a session/list row calls, so a running turn is
+// cancelled and awaited first and a subagent task of the tree is stopped
+// before its bundle goes.
+func (m *Manager) HandleSessionDelete(_ context.Context, params acp.SessionDeleteParams) (*acp.SessionDeleteResult, error) {
+	if m.store == nil {
+		return nil, fmt.Errorf("session/delete: persistence is disabled")
+	}
+	if err := ValidateFolderSessionID(params.SessionID); err != nil {
+		return nil, fmt.Errorf("session/delete: %w", err)
+	}
+	if err := m.DeleteSessionTree(params.SessionID, bgtask.Default()); err != nil {
+		return nil, err
+	}
+	m.log.Info("session deleted", "id", params.SessionID)
+	return &acp.SessionDeleteResult{}, nil
 }
 
 // EnsureHTTPSession returns an in-memory session for an already-valid folder id:
@@ -1142,10 +1217,12 @@ func (m *Manager) EnsureHTTPSessionAs(ctx context.Context, sessionID, defaultCWD
 		// is not a thing a caller asked for, and it rewrites the bundle, which
 		// moves the session in a listing ordered by when it last changed. The
 		// load falls back to defaultCWD by itself for a bundle that recorded
-		// none.
-		if _, err := m.HandleSessionLoad(ctx, acp.SessionLoadParams{
+		// none. The extra workspace roots stay what the bundle recorded for
+		// the same reason: this caller is reading the session, not restating
+		// how it is scoped.
+		if _, err := m.loadSessionFromDisk(ctx, acp.SessionLoadParams{
 			SessionID: sessionID,
-		}); err != nil {
+		}, openOptions{replay: true}); err != nil {
 			return nil, err
 		}
 		st := m.getSession(sessionID)
@@ -1261,6 +1338,9 @@ func (m *Manager) HandleSessionList(_ context.Context, params acp.SessionListPar
 		ent := acp.SessionListInfo{
 			SessionID: r.SessionID,
 			CWD:       r.CWD,
+		}
+		if len(r.AdditionalDirectories) > 0 {
+			ent.AdditionalDirectories = append([]string(nil), r.AdditionalDirectories...)
 		}
 		if strings.TrimSpace(r.Title) != "" {
 			t := r.Title
@@ -2054,6 +2134,7 @@ func (m *Manager) registerSession(id string, st *State) (winner *State, register
 	}
 	m.sessions[id] = st
 	m.attachGoalNotifier(st)
+	m.attachTitleNotifier(st)
 	// What a surface let go of is the live state's again (loadSessionFromDisk
 	// restored it). Taken under the lock ForgetLiveSession sets it aside under,
 	// so a let-go right after this registration keeps what it reads.
@@ -2092,6 +2173,11 @@ func (m *Manager) HandleSessionReady(sessionID string) {
 		if publish := st.takePendingReadyNotify(); publish != nil {
 			publish()
 		}
+		// The client knows the session now, so it can be told what the session
+		// is called, and later renames may reach it as they happen.
+		if title := st.ArmTitleNotify(); title != "" {
+			m.publishSessionInfoUpdate(st, title)
+		}
 	}
 	m.sendAvailableSlashCommands(sessionID, st)
 	// A goal the session carries is on screen from the start: a client that
@@ -2102,6 +2188,37 @@ func (m *Manager) HandleSessionReady(sessionID string) {
 	// The footer is populated before the first prompt: an automatic read,
 	// served from the cache when it is warm.
 	m.publishProviderUsageOnReady(sessionID, st)
+}
+
+// attachTitleNotifier makes every change of st's listed title publish itself,
+// whoever made it: the model naming the conversation, an operator renaming it,
+// a surface filing it.
+func (m *Manager) attachTitleNotifier(st *State) {
+	if st == nil {
+		return
+	}
+	st.SetTitleNotifier(func(title string) { m.publishSessionInfoUpdate(st, title) })
+}
+
+// publishSessionInfoUpdate tells the client what the session is called, so a
+// session list it keeps in step with the agent renames along with it. A session
+// nobody has named is announced with a null title, which clears the name a
+// client was showing rather than leaving it standing.
+func (m *Manager) publishSessionInfoUpdate(st *State, title string) {
+	if m == nil || m.server == nil || st == nil {
+		return
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	upd := acp.SessionInfoUpdate{
+		SessionUpdate: acp.UpdateTypeSessionInfoUpdate,
+		UpdatedAt:     &now,
+	}
+	// Title carries no omitempty on purpose: a nil pointer marshals as the
+	// null the schema reserves for clearing the name.
+	if t := strings.TrimSpace(title); t != "" {
+		upd.Title = &t
+	}
+	_ = m.server.SendSessionUpdate(st.GetID(), upd)
 }
 
 func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
