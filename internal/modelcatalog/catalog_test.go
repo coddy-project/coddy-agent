@@ -376,3 +376,31 @@ func TestReadCacheRefusesWhatIsNotACatalog(t *testing.T) {
 		t.Errorf("a directory read as a catalog: %v", err)
 	}
 }
+
+// A lookup of a new address does not wait on the download of the old one
+// (models_catalog.url changed while it ran): it is answered "not yet", and
+// the next lookup downloads the new address.
+func TestLookupDoesNotJoinADownloadOfAnotherURL(t *testing.T) {
+	old := newCatalogServer(t)
+	old.gate = make(chan struct{})
+	next := newCatalogServer(t)
+	c, _, _ := testCatalog(t, t.TempDir())
+
+	go func() { _, _ = c.Lookup(context.Background(), cfgFor(old.URL)) }()
+	for old.requests.Load() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	start := time.Now()
+	if _, err := c.Lookup(context.Background(), cfgFor(next.URL)); err == nil || !strings.Contains(err.Error(), "not answered yet") {
+		t.Fatalf("a lookup of the new address: %v", err)
+	}
+	if time.Since(start) > time.Second {
+		t.Errorf("the new address waited on the old one's download")
+	}
+	close(old.gate)
+	waitIdle(t, c)
+	snap, err := c.Lookup(context.Background(), cfgFor(next.URL))
+	if err != nil || snap.URL != next.URL || next.requests.Load() != 1 {
+		t.Fatalf("the next lookup: %+v, %v, %d request(s) to the new address", snap, err, next.requests.Load())
+	}
+}

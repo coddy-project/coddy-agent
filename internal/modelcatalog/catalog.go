@@ -56,7 +56,9 @@ type Catalog struct {
 	read  bool
 	cache *cacheFile
 	// inflight is closed when the running download ends; nil while idle.
-	inflight chan struct{}
+	// inflightURL is the address it reads.
+	inflight    chan struct{}
+	inflightURL string
 	// failedURL and failedAt name the last download that failed.
 	failedURL string
 	failedAt  time.Time
@@ -137,13 +139,17 @@ func (c *Catalog) Lookup(ctx context.Context, cfg config.ModelsCatalogConfig) (S
 	}
 	cached := c.current(url)
 	wait := c.refreshLocked(url, cfg.Proxy, cached)
+	failed := c.failedURL == url
 	c.mu.Unlock()
 
 	if cached != nil {
 		return snapshot(cached), nil
 	}
 	if wait == nil {
-		return Snapshot{}, fmt.Errorf("models catalog: %s could not be downloaded recently; it is tried again in a few minutes", url)
+		if failed {
+			return Snapshot{}, fmt.Errorf("models catalog: %s could not be downloaded recently; it is tried again in a few minutes", url)
+		}
+		return Snapshot{}, fmt.Errorf("models catalog: %s has not answered yet", url)
 	}
 	timer := time.NewTimer(FirstFetchWait)
 	defer timer.Stop()
@@ -180,7 +186,10 @@ func (c *Catalog) current(url string) *cacheFile {
 // wait on while there is no copy of url to answer with, nil otherwise.
 func (c *Catalog) refreshLocked(url, proxy string, cached *cacheFile) <-chan struct{} {
 	if c.inflight != nil {
-		if cached == nil {
+		// A download of another address (models_catalog.url changed while
+		// it ran) says nothing about this one: its lookup is answered
+		// "not yet" and the next lookup starts the download of url.
+		if cached == nil && c.inflightURL == url {
 			return c.inflight
 		}
 		return nil
@@ -193,7 +202,7 @@ func (c *Catalog) refreshLocked(url, proxy string, cached *cacheFile) <-chan str
 		return nil
 	}
 	done := make(chan struct{})
-	c.inflight = done
+	c.inflight, c.inflightURL = done, url
 	etag := ""
 	if cached != nil {
 		etag = cached.ETag
@@ -204,7 +213,7 @@ func (c *Catalog) refreshLocked(url, proxy string, cached *cacheFile) <-chan str
 		next, err := c.download(client, url, proxy, etag, cached)
 		c.mu.Lock()
 		defer c.mu.Unlock()
-		c.inflight = nil
+		c.inflight, c.inflightURL = nil, ""
 		if err != nil {
 			c.failedURL, c.failedAt = url, c.now()
 			c.log.Warn("models catalog: download failed; suggestions use the last copy, if any", "url", url, "error", err)
