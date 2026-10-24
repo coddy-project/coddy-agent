@@ -7,6 +7,7 @@ import {
   type LiveStatusKind,
 } from "../chat/liveStatus";
 import { formatTurnTokens } from "../chat/turnProgress";
+import { formatGenerationSpeed } from "../chat/generationSpeed";
 import { useT } from "../i18n/I18nProvider";
 
 /** States that are blocked on the user, where a climbing step counter would be a lie. */
@@ -43,6 +44,7 @@ function TypingDotsMessageImpl(props: {
   turnStartedAtMs?: number;
   /** Tokens the model has generated in this turn; the segment hides while there are none. */
   turnTokens?: number;
+  tokensPerSecond?: number;
   /** Background tasks running right now; the segment hides at zero. */
   runningTasks?: number;
   /** Opens the Tasks panel from the running-tasks segment. */
@@ -59,7 +61,7 @@ function TypingDotsMessageImpl(props: {
    */
   idle?: boolean;
 }) {
-  const { t, tp } = useT();
+  const { t, tp, locale } = useT();
   const tasksOnly = props.tasksOnly === true;
   const showStatus = props.statusKind !== undefined && !tasksOnly;
 
@@ -266,6 +268,9 @@ function TypingDotsMessageImpl(props: {
                   {tp("status.turnTokens", turnTokens, {
                     shown: formatTurnTokens(turnTokens),
                   })}
+                  {typeof props.tokensPerSecond === "number"
+                    ? ` · ${t("status.generationSpeed", { speed: formatGenerationSpeed(props.tokensPerSecond, locale) })}`
+                    : ""}
                 </span>
               ) : null}
               {runningTasks > 0 ? (

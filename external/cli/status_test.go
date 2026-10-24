@@ -57,6 +57,23 @@ func TestStatusVerbForTool(t *testing.T) {
 	}
 }
 
+func TestGenerationSpeedFormattingAndLiveLine(t *testing.T) {
+	for _, c := range []struct {
+		speed float64
+		want  string
+	}{
+		{0.125, "0.13"}, {1.99, "1.99"}, {2, "2.0"}, {9.8, "9.8"}, {10, "10"}, {10.6, "11"},
+	} {
+		if got := formatGenerationSpeed(c.speed); got != c.want {
+			t.Errorf("speed %g = %q, want %q", c.speed, got, c.want)
+		}
+	}
+	speed := 9.8
+	if got := turnLine(time.Second, 500, 0, &speed); got != "1s · 500 tokens · 9.8 tok/s" {
+		t.Fatal(got)
+	}
+}
+
 // The status line renders the phrase and nothing the step acts on, so a phrase that was
 // written to be completed by a target that follows it reads as a fragment. Two words is
 // the bar, which every phrase of this table clears.

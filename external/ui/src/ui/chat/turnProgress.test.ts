@@ -9,6 +9,39 @@ import {
 
 const NOW = Date.parse("2026-09-18T10:00:45Z");
 
+test("speed-only updates merge and activity restores a live window", () => {
+  const old = turnProgressFromFrame(
+    { elapsedMs: 5000, outputTokens: 500, tokensPerSecond: 9.8 },
+    undefined,
+    NOW,
+  )!;
+  const next = turnProgressFromFrame(
+    { elapsedMs: 10000, outputTokens: 500, tokensPerSecond: 7.5 },
+    undefined,
+    NOW + 5000,
+  )!;
+  expect(mergeTurnProgress(old, next, "stream").tokensPerSecond).toBe(7.5);
+  expect(
+    turnProgressFromActivity(
+      {
+        turnActive: true,
+        turnElapsedMs: 10000,
+        turnOutputTokens: 500,
+        turnTokensPerSecond: 7.5,
+      },
+      NOW,
+    )?.tokensPerSecond,
+  ).toBe(7.5);
+  const reset = turnProgressFromFrame(
+    { elapsedMs: 11000, outputTokens: 500 },
+    undefined,
+    NOW + 6000,
+  )!;
+  expect(
+    mergeTurnProgress(next, reset, "stream").tokensPerSecond,
+  ).toBeUndefined();
+});
+
 describe("turnProgressFromFrame", () => {
   test("counts the start back from the local clock, not from the server's", () => {
     // The server believes it is an hour later than this machine does.

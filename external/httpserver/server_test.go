@@ -1925,6 +1925,44 @@ func TestCoddyMessagesHideTheOperatorsSettingsNotices(t *testing.T) {
 	}
 }
 
+func TestCoddyMessagesKeepGenerationSummary(t *testing.T) {
+	mgr, srv, _ := testHTTPServerPersist(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	const sid = "sess_generation_caption"
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(`{"model":"agent","input":"hello","stream":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Coddy-Session-ID", sid)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := ioReadAllClose(res.Body); res.StatusCode != http.StatusOK {
+		t.Fatalf("turn: %d %s", res.StatusCode, b)
+	}
+	mgr.SessionByID(sid).AppendGenerationSummary(time.Now(), 1, 500, 9.8)
+	res, err = http.Get(ts.URL + "/coddy/sessions/" + sid + "/messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		UILog []session.UILogEntry `json:"uiLog"`
+	}
+	if err := json.Unmarshal(b, &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.UILog) != 1 || body.UILog[0].Generation == nil || body.UILog[0].Generation.OutputTokens != 500 || body.UILog[0].Generation.TokensPerSecond != 9.8 {
+		t.Fatalf("messages lost the saved generation summary: %s", b)
+	}
+}
+
 func TestResponsesMultiTurnHistory(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
 	ts := httptest.NewServer(srv.Handler())

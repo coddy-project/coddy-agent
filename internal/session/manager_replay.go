@@ -8,15 +8,33 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 )
 
-func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessionDir string) error {
+func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessionDir string, logs ...[]UILogEntry) error {
 	if m.server == nil {
 		return nil
 	}
 
+	var summaries []UILogEntry
+	if len(logs) > 0 {
+		for _, row := range logs[0] {
+			if row.Generation != nil {
+				summaries = append(summaries, row)
+			}
+		}
+	}
+	turn := 0
+	flush := func() {
+		for len(summaries) > 0 && summaries[0].UserTurnIndex <= turn {
+			row := summaries[0]
+			summaries = summaries[1:]
+			_ = m.server.SendSessionUpdate(sessionID, row.GenerationProgress())
+		}
+	}
 	for i := 0; i < len(msgs); i++ {
 		msg := msgs[i]
 		switch msg.Role {
 		case llm.RoleUser:
+			flush()
+			turn++
 			// A woken turn's first message was not typed by anybody: it is
 			// replayed as the wake it stands for, so a client shows what it
 			// showed live - nothing, or a one-line note - instead of a
@@ -124,6 +142,7 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 		}
 	}
 
+	flush()
 	return nil
 }
 

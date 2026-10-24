@@ -1327,6 +1327,13 @@ func (a *Agent) runReActLoop(
 		}
 		stopFirstTokenTimer()
 		streamCancel()
+		// Settle even an interrupted call before retries, tools or permission
+		// waits can add their time to the generation measurement.
+		outputTokens := 0
+		if response != nil {
+			outputTokens = response.OutputTokens
+		}
+		a.progress.finishCall(outputTokens)
 		attemptsAfter := retryAllowance.Snapshot()
 		a.logLLMCall(callStart, firstChunkAt, chunkCount, response, streamErr, callReason, llm.RetrySnapshot{
 			Attempts:         attemptsAfter.Attempts - attemptsBefore.Attempts,
@@ -1606,7 +1613,6 @@ func (a *Agent) runReActLoop(
 			CachedInputTokens: response.CachedInputTokens,
 			ReasoningTokens:   response.ReasoningTokens,
 		})
-		a.progress.finishCall(response.OutputTokens)
 
 		if sd != "" {
 			now := time.Now().UTC()

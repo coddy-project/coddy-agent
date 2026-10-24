@@ -3894,13 +3894,7 @@ export function App() {
       archived?: boolean;
       rewindUndo?: { userMessageIndex?: number } | null;
       messagesRev?: number;
-      uiLog?: Array<{
-        id?: string;
-        level?: string;
-        message?: string;
-        userTurnIndex?: number;
-        createdAt?: string;
-      }>;
+      uiLog?: RawUiLogRow[];
     }>(
       `/coddy/sessions/${encodeURIComponent(sid)}/messages${activationQuery}`,
       {

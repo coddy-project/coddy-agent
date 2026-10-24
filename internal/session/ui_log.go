@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
@@ -32,7 +33,37 @@ type UILogEntry struct {
 	// itself: who made it (SettingsChange.Source). It is empty on every other
 	// row, and on the settings notices of a session saved before only the
 	// agent's changes were noted (VisibleUILog).
-	Source string `json:"source,omitempty"`
+	Source     string             `json:"source,omitempty"`
+	Generation *GenerationSummary `json:"generation,omitempty"`
+}
+
+// GenerationSummary is UI-only metadata, kept out of the model's history.
+type GenerationSummary struct {
+	OutputTokens    int     `json:"outputTokens"`
+	TokensPerSecond float64 `json:"tokensPerSecond"`
+}
+
+// GenerationProgress replays a saved average through the same event as live
+// completion. Callers only use it for entries with a Generation summary.
+func (row UILogEntry) GenerationProgress() acp.TurnProgressUpdate {
+	return acp.TurnProgressUpdate{
+		SessionUpdate:   acp.UpdateTypeTurnProgress,
+		StartedAt:       strings.TrimPrefix(row.ID, "generation_"),
+		OutputTokens:    row.Generation.OutputTokens,
+		TokensPerSecond: &row.Generation.TokensPerSecond,
+		Completed:       true,
+	}
+}
+
+func (s *State) AppendGenerationSummary(startedAt time.Time, turn, tokens int, speed float64) {
+	s.mu.Lock()
+	s.UILog = append(s.UILog, UILogEntry{
+		ID: "generation_" + startedAt.UTC().Format(time.RFC3339Nano), Level: UILogLevelNotice, Message: "Generation complete",
+		UserTurnIndex: max(1, turn), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		Generation: &GenerationSummary{OutputTokens: tokens, TokensPerSecond: speed},
+	})
+	s.mu.Unlock()
+	s.touchPersist()
 }
 
 // CountUserTurns counts llm.RoleUser messages in order (matches memory copilot turn index).

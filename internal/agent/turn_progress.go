@@ -48,6 +48,8 @@ type turnProgress struct {
 	// inflightRunes is what the call in flight has streamed so far.
 	inflightRunes int
 	lastSent      time.Time
+	speed         generationSpeed
+	completed     bool
 }
 
 // beginTurnProgress opens the turn's progress and announces its clock. The
@@ -66,6 +68,7 @@ func (a *Agent) beginTurnProgress() {
 		if running, ok := st.TurnProgress(); ok && !running.StartedAt.IsZero() {
 			p.startedAt = running.StartedAt
 			p.settled, p.settledEstimated = running.OutputTokens, running.Estimated
+			p.speed.totalTokens, p.speed.totalTime = running.GenerationTokens, running.GenerationTime
 		} else {
 			st.BeginTurnProgress(p.startedAt)
 			p.owned = true
@@ -83,6 +86,19 @@ func (a *Agent) endTurnProgress() {
 		return
 	}
 	a.progress = nil
+	p.mu.Lock()
+	p.foldInflight()
+	p.speed.finish(0)
+	p.completed = true
+	average := p.speed.average()
+	tokens := p.settled
+	p.mu.Unlock()
+	if average != nil {
+		if st := sessionStatePtr(a.state); st != nil {
+			st.AppendGenerationSummary(p.startedAt, session.CountUserTurns(st.GetMessages()), tokens, *average)
+		}
+	}
+	p.publish(time.Now())
 	if p.owned && p.state != nil {
 		p.state.EndTurnProgress(p.startedAt)
 	}
@@ -96,8 +112,13 @@ func (p *turnProgress) beginCall() {
 		return
 	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	p.foldInflight()
+	p.speed.finish(0)
+	p.speed.begin()
+	p.mu.Unlock()
+	// Hide the previous call's window immediately, including while the new
+	// call is still waiting for its first token.
+	p.publish(time.Now())
 }
 
 // streamed counts text the call in flight produced: a text or reasoning
@@ -113,6 +134,7 @@ func (p *turnProgress) streamedRunes(count int) {
 	now := time.Now()
 	p.mu.Lock()
 	p.inflightRunes += count
+	p.speed.add(estimateTokensFromRunes(p.inflightRunes), now)
 	due := now.Sub(p.lastSent) >= turnProgressInterval
 	p.mu.Unlock()
 	if due {
@@ -127,6 +149,7 @@ func (p *turnProgress) finishCall(reportedOutputTokens int) {
 		return
 	}
 	p.mu.Lock()
+	p.speed.finish(reportedOutputTokens)
 	if reportedOutputTokens > 0 {
 		p.settled += reportedOutputTokens
 		p.inflightRunes = 0
@@ -152,11 +175,23 @@ func (p *turnProgress) publish(now time.Time) {
 	p.mu.Lock()
 	tokens := p.settled + estimateTokensFromRunes(p.inflightRunes)
 	estimated := p.settledEstimated || p.inflightRunes > 0
+	speed := p.speed.current
+	if p.completed {
+		speed = p.speed.average()
+	}
+	generationTokens, generationTime := p.speed.totalTokens, p.speed.totalTime
+	completed := p.completed
 	p.lastSent = now
 	p.mu.Unlock()
 
 	if p.state != nil {
-		p.state.SetTurnOutputTokens(tokens, estimated)
+		if st, ok := p.state.(interface {
+			SetTurnGeneration(int, bool, *float64, int, time.Duration)
+		}); ok {
+			st.SetTurnGeneration(tokens, estimated, speed, generationTokens, generationTime)
+		} else {
+			p.state.SetTurnOutputTokens(tokens, estimated)
+		}
 	}
 	// A client orders what it hears by the turn's age: this frame against the
 	// activity read, which takes the age first and the count second. Dating the
@@ -167,11 +202,13 @@ func (p *turnProgress) publish(now time.Time) {
 		elapsed = 0
 	}
 	p.send(acp.TurnProgressUpdate{
-		SessionUpdate: acp.UpdateTypeTurnProgress,
-		StartedAt:     p.startedAt.UTC().Format(time.RFC3339Nano),
-		ElapsedMs:     elapsed.Milliseconds(),
-		OutputTokens:  tokens,
-		Estimated:     estimated,
+		SessionUpdate:   acp.UpdateTypeTurnProgress,
+		StartedAt:       p.startedAt.UTC().Format(time.RFC3339Nano),
+		ElapsedMs:       elapsed.Milliseconds(),
+		OutputTokens:    tokens,
+		Estimated:       estimated,
+		TokensPerSecond: speed,
+		Completed:       completed,
 	})
 }
 

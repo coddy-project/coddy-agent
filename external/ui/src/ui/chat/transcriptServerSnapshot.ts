@@ -54,6 +54,7 @@ export function transcriptItemsLooselyEqual(
         a.toolCallId
       );
     case "system_notice":
+      if (a.generation) return a.id === b.id;
       return (
         (b as Extract<TranscriptItem, { type: "system_notice" }>).message ===
         a.message
@@ -154,15 +155,20 @@ export function mergeTranscriptPreferLocalSuffix(
   const localNotices = new Set(
     local
       .filter((it) => it.type === "system_notice")
-      .map(
-        (it) =>
-          (it as Extract<TranscriptItem, { type: "system_notice" }>).message,
+      .map((it) =>
+        it.type === "system_notice" && it.generation
+          ? it.id
+          : (it as Extract<TranscriptItem, { type: "system_notice" }>).message,
       ),
   );
   let cut = serverNext.length;
   while (cut > 0) {
     const row = serverNext[cut - 1]!;
-    if (row.type !== "system_notice" || localNotices.has(row.message)) break;
+    if (
+      row.type !== "system_notice" ||
+      localNotices.has(row.generation ? row.id : row.message)
+    )
+      break;
     cut--;
   }
   if (cut === serverNext.length) {

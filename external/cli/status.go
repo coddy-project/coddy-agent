@@ -5,6 +5,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -405,10 +406,13 @@ func (s liveStatus) statusText(elapsed time.Duration) string {
 // background tasks run right now. Tokens and tasks appear once there are any, so a turn
 // that has not heard from the model reads as its clock alone. The web UI renders the
 // same line (external/ui/src/ui/messages/TypingDotsMessage.tsx).
-func turnLine(elapsed time.Duration, tokens, runningTasks int) string {
+func turnLine(elapsed time.Duration, tokens, runningTasks int, speed ...*float64) string {
 	parts := []string{formatElapsed(elapsed)}
 	if tokens > 0 {
 		parts = append(parts, tui.FormatTokenCount(tokens)+" "+plural(tokens, "token", "tokens"))
+		if len(speed) > 0 && speed[0] != nil {
+			parts = append(parts, formatGenerationSpeed(*speed[0])+" tok/s")
+		}
 	}
 	if runningTasks > 0 {
 		parts = append(parts, itoa(runningTasks)+" "+plural(runningTasks, "running task", "running tasks"))
@@ -430,7 +434,7 @@ func (a *App) statusMessage() string {
 	if a.turnStartedAt.IsZero() {
 		return step
 	}
-	return turnLine(time.Since(a.turnStartedAt), a.turnTokens, a.runningTasks) + " · " + step
+	return turnLine(time.Since(a.turnStartedAt), a.turnTokens, a.runningTasks, a.turnSpeed) + " · " + step
 }
 
 // stepMessage is what the turn is doing right now, without the turn's own numbers.
@@ -453,10 +457,28 @@ func (a *App) stepMessage() string {
 // one in flight. The clock is the console's own for a turn it started - it knows when
 // the operator pressed enter - and the server's for a turn it only attached to.
 func (a *App) applyTurnProgress(u acp.TurnProgressUpdate) {
+	if u.Completed {
+		if u.TokensPerSecond != nil {
+			a.appendStatus(roleDim, tui.FormatTokenCount(u.OutputTokens)+" "+plural(u.OutputTokens, "token", "tokens")+" · "+formatGenerationSpeed(*u.TokensPerSecond)+" tok/s")
+		}
+		return
+	}
 	a.turnTokens = u.OutputTokens
+	a.turnSpeed = u.TokensPerSecond
 	if a.turnStartedAt.IsZero() && u.ElapsedMs >= 0 {
 		a.turnStartedAt = time.Now().Add(-time.Duration(u.ElapsedMs) * time.Millisecond)
 	}
+}
+
+func formatGenerationSpeed(speed float64) string {
+	digits := 0
+	if speed < 2 {
+		digits = 2
+	} else if speed < 10 {
+		digits = 1
+	}
+	scale := math.Pow10(digits)
+	return fmt.Sprintf("%.*f", digits, math.Round(speed*scale)/scale)
 }
 
 // setStatus replaces the current step. A repeat of the same phrase for the same step

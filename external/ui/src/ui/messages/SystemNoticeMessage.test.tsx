@@ -4,6 +4,20 @@ import { SystemNoticeMessage } from "./SystemNoticeMessage";
 
 afterEach(cleanup);
 
+test("shows a saved turn average as a compact token caption", () => {
+  render(
+    <SystemNoticeMessage
+      level="notice"
+      message="Generation complete"
+      generation={{ outputTokens: 1200, tokensPerSecond: 9.8 }}
+    />,
+  );
+  expect(screen.getByTestId("generation-summary")).toHaveTextContent(
+    "1.2k tokens · 9.8 tok/s",
+  );
+  expect(screen.queryByTestId("system-message-copy")).toBeNull();
+});
+
 test("renders a retry button next to copy that calls onRetry", () => {
   const onRetry = vi.fn();
   render(

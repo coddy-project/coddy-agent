@@ -658,6 +658,10 @@ type TurnProgressUpdate struct {
 	ElapsedMs    int64 `json:"elapsedMs"`
 	OutputTokens int   `json:"outputTokens"`
 	Estimated    bool  `json:"estimated"`
+	// TokensPerSecond is absent until a streaming window has filled. Completed
+	// reports the average across model calls, excluding time outside generation.
+	TokensPerSecond *float64 `json:"tokensPerSecond,omitempty"`
+	Completed       bool     `json:"completed,omitempty"`
 	// Phase is TurnPhasePreparing on the update a turn sends as soon as it is
 	// taken, while it still brings in its MCP servers and waits for its model's
 	// context window; empty once the loop runs (issue #357).

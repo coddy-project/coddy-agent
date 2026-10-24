@@ -951,7 +951,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	// the running turn's messages landed, so its saves overwrite the history
 	// the live state is still producing.
 	if live := m.getSession(params.SessionID); live != nil {
-		if err := m.replayConversation(params.SessionID, live.GetMessages(), live.GetPersistedSessionDir()); err != nil {
+		if err := m.replayConversation(params.SessionID, live.GetMessages(), live.GetPersistedSessionDir(), live.GetUILog()); err != nil {
 			m.log.Warn("replay conversation", "error", err)
 		}
 		return &acp.SessionLoadResult{
@@ -1083,7 +1083,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	publish := func() {
 		m.sendContextUsageUpdate(params.SessionID, st)
 
-		if err := m.replayConversation(params.SessionID, snap.Messages, snap.Dir); err != nil {
+		if err := m.replayConversation(params.SessionID, snap.Messages, snap.Dir, snap.UILog); err != nil {
 			m.log.Warn("replay conversation", "error", err)
 		}
 

@@ -201,6 +201,7 @@ Top to bottom:
   received, cut at the first of 10 written lines or 600 characters with
   `... (ctrl+o for the whole prompt)`. The child's report lands below it as
   the box body, so the task and the answer read as one block.
+- Generation speed follows the output token count, for example `1.2k tokens · 9.8 tok/s`. Each model call starts a fresh window: 200 tokens with a 50-token step, then 500 tokens with a 100-token step once output exceeds 200 tokens. While streaming, speed stays hidden until the current window fills. It refreshes every five seconds, including a partial step; a stalled stream keeps the last value. The measurement includes text, reasoning and tool arguments, from the first output delta to the last, and excludes tool execution, permission waits and time to the first token. Live token counts are estimates. When the turn finishes, is cancelled or fails, a caption keeps total output tokens and the average across its measured model calls; reopening the session restores it. A call delivered in a single chunk has no measurable generation interval and contributes no speed. Speeds below 2 use two decimal places, below 10 one, and 10 or more none.
 - **Status**: braille spinner `⠋⠙⠹...` at 80 ms with a live status line while a
   turn runs. The line leads with the turn's own numbers: how long the turn has
   been running, how many tokens the model has generated in it, how many
