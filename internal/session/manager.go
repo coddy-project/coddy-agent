@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -756,6 +757,22 @@ func (m *Manager) HandleInitialize(_ context.Context, params acp.InitializeParam
 	}, nil
 }
 
+// sameAdditionalDirectories reports whether two lists of extra workspace roots
+// name the same roots in the same order, blank entries aside, which is how a
+// state stores them.
+func sameAdditionalDirectories(a, b []string) bool {
+	clean := func(dirs []string) []string {
+		out := make([]string, 0, len(dirs))
+		for _, d := range dirs {
+			if t := strings.TrimSpace(d); t != "" {
+				out = append(out, t)
+			}
+		}
+		return out
+	}
+	return slices.Equal(clean(a), clean(b))
+}
+
 // validateAdditionalDirectories refuses a wire request whose extra workspace
 // roots are not absolute. ACP says each path is absolute, and a relative entry
 // stored as-is would be read back by the workspace checks as a path against
@@ -999,7 +1016,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	// the running turn's messages landed, so its saves overwrite the history
 	// the live state is still producing.
 	if live := m.getSession(params.SessionID); live != nil {
-		if opts.setExtraRoots {
+		if opts.setExtraRoots && !sameAdditionalDirectories(live.GetAdditionalDirectories(), params.AdditionalDirectories) {
 			live.SetAdditionalDirectories(params.AdditionalDirectories)
 		}
 		if opts.replay {
@@ -1091,11 +1108,13 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	st.SetArchivedWithoutPersist(snap.Meta.Archived, snap.Meta.ArchivedAt)
 	st.SetOriginWithoutPersist(snap.Meta.Origin)
 	st.SetPinnedWithoutPersist(snap.Meta.Pinned, snap.Meta.PinnedAt, snap.Meta.PinnedRank)
+	rootsMoved := false
 	if opts.setExtraRoots {
 		// The request is the complete list, and an omitted one means no extra
 		// roots at all - which is what a wire client that does not manage
 		// them gets.
 		st.SetAdditionalDirectoriesWithoutPersist(params.AdditionalDirectories)
+		rootsMoved = !sameAdditionalDirectories(snap.Meta.AdditionalDirectories, params.AdditionalDirectories)
 	} else {
 		st.SetAdditionalDirectoriesWithoutPersist(snap.Meta.AdditionalDirectories)
 	}
@@ -1139,6 +1158,13 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 			Modes:         m.sessionResultModes(winner),
 			ConfigOptions: BuildACPConfigOptions(m.activeCfg(), winner),
 		}, nil
+	}
+	// Roots the request moved are written now: the bundle is what session/list
+	// reads and what the next open restores, so a root the client took away
+	// would otherwise come back. A request that restates the stored list
+	// writes nothing, since a load is read as often as it is continued.
+	if rootsMoved {
+		st.touchPersist()
 	}
 
 	publish := func() {

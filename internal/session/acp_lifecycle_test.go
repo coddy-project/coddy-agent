@@ -165,6 +165,25 @@ func TestSessionDeleteTakesTheBundleAndTheLiveSession(t *testing.T) {
 	}
 }
 
+// ACP: deleting an already-deleted session, or one that never existed, should
+// succeed silently. An editor retries a delete whose answer it lost, and the
+// second one must not turn into an error dialog.
+func TestSessionDeleteOfAnUnknownOrDeletedSessionSucceeds(t *testing.T) {
+	l := newLifecycleManager(t)
+	if _, err := l.mgr.HandleSessionDelete(context.Background(), acp.SessionDeleteParams{SessionID: "sess_0123456789abcdef01234567"}); err != nil {
+		t.Fatalf("delete of a session that never existed: %v", err)
+	}
+	res, err := l.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: l.root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := l.mgr.HandleSessionDelete(context.Background(), acp.SessionDeleteParams{SessionID: res.SessionID}); err != nil {
+			t.Fatalf("delete %d of %s: %v", i+1, res.SessionID, err)
+		}
+	}
+}
+
 func TestSessionDeleteRefusesWithoutAStore(t *testing.T) {
 	cfg := testConfig()
 	cfg.Paths.Home = t.TempDir()
@@ -216,6 +235,87 @@ func TestSessionResumeDoesNotReplayTheTranscript(t *testing.T) {
 		if strings.Contains(string(raw), `"user_message_chunk"`) || strings.Contains(string(raw), `"agent_message_chunk"`) {
 			t.Fatalf("session/resume replayed the transcript: %s", raw)
 		}
+	}
+}
+
+// A cold load or resume that restates the extra roots writes them to the
+// bundle: a root the client took away stays away in session/list and when any
+// surface opens the session again, instead of coming back inside the boundary
+// of a confined turn. Restating the roots is bookkeeping about the session,
+// not a change to the conversation, so it leaves the session where it was in a
+// listing ordered by updatedAt; a request that restates the stored list does
+// not rewrite the bundle at all.
+func TestColdResumeWritesTheRootsItRestates(t *testing.T) {
+	l := newLifecycleManager(t)
+	extra := filepath.Join(l.root, "extra")
+	if err := os.MkdirAll(extra, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	res, err := l.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: l.root, AdditionalDirectories: []string{extra}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+		SessionID: res.SessionID,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "hello"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	row := func() acp.SessionListInfo {
+		t.Helper()
+		list, err := l.mgr.HandleSessionList(context.Background(), acp.SessionListParams{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range list.Sessions {
+			if r.SessionID == res.SessionID {
+				return r
+			}
+		}
+		t.Fatalf("session %s not listed", res.SessionID)
+		return acp.SessionListInfo{}
+	}
+	before := row()
+	if before.UpdatedAt == nil {
+		t.Fatal("listed session carries no updatedAt")
+	}
+
+	// The same list again: nothing to write.
+	l.mgr.ForgetLiveSession(res.SessionID)
+	metaPath := filepath.Join(l.root, "sessions", res.SessionID, "session.json")
+	statBefore, err := os.Stat(metaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.mgr.HandleSessionResume(context.Background(), acp.SessionResumeParams{
+		SessionID: res.SessionID, CWD: l.root, AdditionalDirectories: []string{extra},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if statAfter, err := os.Stat(metaPath); err != nil || !statAfter.ModTime().Equal(statBefore.ModTime()) {
+		t.Fatalf("a resume restating the stored roots rewrote the bundle (err %v)", err)
+	}
+
+	// An empty list takes the root away, on disk too.
+	l.mgr.ForgetLiveSession(res.SessionID)
+	if _, err := l.mgr.HandleSessionResume(context.Background(), acp.SessionResumeParams{
+		SessionID: res.SessionID, CWD: l.root, AdditionalDirectories: []string{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	after := row()
+	if len(after.AdditionalDirectories) != 0 {
+		t.Fatalf("session/list still reports the removed root: %#v", after.AdditionalDirectories)
+	}
+	if after.UpdatedAt == nil || *after.UpdatedAt != *before.UpdatedAt {
+		t.Fatalf("restating the roots moved updatedAt from %v to %v", *before.UpdatedAt, after.UpdatedAt)
+	}
+	l.mgr.ForgetLiveSession(res.SessionID)
+	if _, err := l.mgr.EnsureHTTPSession(context.Background(), res.SessionID, l.root); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.mgr.SessionByID(res.SessionID).GetAdditionalDirectories(); len(got) != 0 {
+		t.Fatalf("the removed root came back on an internal reopen: %#v", got)
 	}
 }
 

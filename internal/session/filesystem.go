@@ -1302,8 +1302,8 @@ func (f *FileStore) Save(state *State) error {
 	//
 	// Filing is the exception, and it is the same exception markActivityRead
 	// already makes: updatedAt means "when this conversation last changed" and
-	// the listing is ordered by it, so tagging a session, pinning it or putting
-	// it aside must leave it exactly where it was. Those are bookkeeping *about*
+	// the listing is ordered by it, so tagging a session, pinning it, putting
+	// it aside or restating its extra roots must leave it exactly where it was. Those are bookkeeping *about*
 	// a conversation, not a change to it - an archive that jumped the session to
 	// the top of the list would be the opposite of what archiving is for.
 	//
@@ -1317,6 +1317,9 @@ func (f *FileStore) Save(state *State) error {
 	sameMeta.Archived, sameMeta.ArchivedAt = prevMeta.Archived, prevMeta.ArchivedAt
 	sameMeta.Pinned, sameMeta.PinnedAt = prevMeta.Pinned, prevMeta.PinnedAt
 	sameMeta.PinnedRank = prevMeta.PinnedRank
+	// The extra workspace roots are the same kind of bookkeeping: an editor
+	// restating which roots a session works in has not changed what was said.
+	sameMeta.AdditionalDirectories = prevMeta.AdditionalDirectories
 	sameMeta.MessageCount = prevMeta.MessageCount
 	sameMeta.MessagesSize = prevMeta.MessagesSize
 	sameMeta.MessagesModTime = prevMeta.MessagesModTime
