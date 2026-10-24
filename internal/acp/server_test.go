@@ -42,6 +42,14 @@ func (m *mockHandler) HandleSessionList(_ context.Context, _ acp.SessionListPara
 	return &acp.SessionListResult{Sessions: nil}, nil
 }
 
+func (m *mockHandler) HandleSessionResume(_ context.Context, _ acp.SessionResumeParams) (*acp.SessionResumeResult, error) {
+	return &acp.SessionResumeResult{}, nil
+}
+
+func (m *mockHandler) HandleSessionDelete(_ context.Context, _ acp.SessionDeleteParams) (*acp.SessionDeleteResult, error) {
+	return &acp.SessionDeleteResult{}, nil
+}
+
 func (m *mockHandler) HandleSessionPrompt(_ context.Context, _ acp.SessionPromptParams) (*acp.SessionPromptResult, error) {
 	if m.promptResult != nil {
 		return m.promptResult, nil
