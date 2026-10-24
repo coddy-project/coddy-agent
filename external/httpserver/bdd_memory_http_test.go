@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
@@ -26,6 +27,9 @@ import (
 
 type memoryHTTPState struct {
 	*subagentsHTTPState
+	// outside is a folder outside the session's folder a scenario linked to,
+	// removed after the scenario; secret is what the file there holds.
+	outside, secret string
 }
 
 // startedMemoryRun registers the system task of a memory run under the
@@ -143,6 +147,40 @@ func (s *memoryHTTPState) sessionFolderHoldsNote(rel, text string) error {
 	return os.WriteFile(path, []byte(text), 0o644)
 }
 
+// sessionFolderLinksNote puts a link at rel, relative to the session's
+// folder, to a file outside that folder holding text: what a clone of a
+// repository that carries such a link leaves on disk.
+func (s *memoryHTTPState) sessionFolderLinksNote(rel, text string) error {
+	link := filepath.Join(s.root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		return err
+	}
+	outside, err := os.MkdirTemp("", "coddy-memory-outside-*")
+	if err != nil {
+		return err
+	}
+	s.outside = outside
+	target := filepath.Join(outside, "credentials")
+	if err := os.WriteFile(target, []byte(text), 0o600); err != nil {
+		return err
+	}
+	if err := os.Symlink(target, link); err != nil {
+		return godog.ErrSkip
+	}
+	s.secret = text
+	return nil
+}
+
+func (s *memoryHTTPState) noteIsNotServed() error {
+	if s.status == http.StatusOK {
+		return fmt.Errorf("the linked note was served: %v", s.body)
+	}
+	if content, _ := s.body["content"].(string); s.secret != "" && strings.Contains(content, s.secret) {
+		return fmt.Errorf("the answer carries the file behind the link: %v", s.body)
+	}
+	return nil
+}
+
 func (s *memoryHTTPState) getWorkspaceNote(rel string) error {
 	q := url.Values{"root": {"workspace"}, "path": {rel}}
 	return s.do(http.MethodGet, "/coddy/sessions/"+s.sessionID+"/memory/file?"+q.Encode(), "")
@@ -162,6 +200,10 @@ func initializeMemoryHTTPScenario(sc *godog.ScenarioContext) {
 	s := &memoryHTTPState{subagentsHTTPState: &subagentsHTTPState{}}
 	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
 		s.close()
+		if s.outside != "" {
+			_ = os.RemoveAll(s.outside)
+		}
+		s.outside, s.secret = "", ""
 		return ctx, nil
 	})
 
@@ -169,6 +211,7 @@ func initializeMemoryHTTPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^that session started a memory run backed by child session "([^"]*)"$`, s.startedMemoryRun)
 	sc.Step(`^a live memory child session "([^"]*)" of that session whose transcript says "([^"]*)"$`, s.liveMemoryChildSaying)
 	sc.Step(`^the session folder holds the memory note "([^"]*)" saying "([^"]*)"$`, s.sessionFolderHoldsNote)
+	sc.Step(`^the session folder holds the memory note "([^"]*)" as a link to a file outside it saying "([^"]*)"$`, s.sessionFolderLinksNote)
 
 	sc.Step(`^I GET the background tasks of that session$`, s.listTasks)
 	sc.Step(`^I GET the messages of "([^"]*)"$`, s.getMessages)
@@ -182,6 +225,7 @@ func initializeMemoryHTTPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the messages payload is read-only and links the parent session$`, s.messagesReadOnlyWithParent)
 	sc.Step(`^the messages payload carries no "([^"]*)" field$`, s.messagesPayloadLacks)
 	sc.Step(`^the memory note reads "([^"]*)"$`, s.noteReads)
+	sc.Step(`^the memory note is not served$`, s.noteIsNotServed)
 }
 
 func TestMemoryHTTPFeature(t *testing.T) {
