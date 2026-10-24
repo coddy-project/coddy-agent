@@ -49,7 +49,7 @@ let posted: Array<{
 let heldReads: Record<string, Promise<void>>;
 /** When set, the answer to a prompt stays open, so the turn keeps running. */
 let holdTurn: boolean;
-let openTurns: Map<string, ReadableStreamDefaultController<Uint8Array>>;
+let openTurns: Map<string, Set<ReadableStreamDefaultController<Uint8Array>>>;
 /** What the queue route was asked, and what it answers: no turn is running. */
 let queued: string[];
 /** How many of the next transcript reads of a session answer 500. */
@@ -122,10 +122,14 @@ function gate(): [Promise<void>, () => void] {
   return [p, release];
 }
 
-/** endTurn lets the running turns finish. */
-function endTurn() {
-  for (const c of openTurns.values()) c.close();
-  openTurns.clear();
+/** Closing the body starts reconciliation; wait for the composer to be released. */
+async function endTurn() {
+  await act(async () => {
+    for (const controllers of openTurns.values())
+      for (const c of controllers) c.close();
+    openTurns.clear();
+  });
+  await waitFor(() => expect(sendButton()).toBeInTheDocument());
 }
 
 /** hold makes the transcript read of a session wait; the result lets it go. */
@@ -207,11 +211,21 @@ const fetchMock = vi.fn(
         return json({ error: { message: "provider unavailable" } }, 500);
       }
       takePrompt(sid, init);
-      if (!holdTurn) return emptyStream();
       return new Response(
         new ReadableStream<Uint8Array>({
           start: (c) => {
-            openTurns.set(sid, c);
+            // An empty answer starts missing-assistant retries after EOF.
+            // These settings tests model an ordinary successful answer.
+            c.enqueue(
+              new TextEncoder().encode(
+                `data: ${JSON.stringify({ choices: [{ delta: { content: "Done" } }] })}\n\n`,
+              ),
+            );
+            if (holdTurn) {
+              const controllers = openTurns.get(sid) ?? new Set();
+              controllers.add(c);
+              openTurns.set(sid, controllers);
+            } else c.close();
           },
         }),
         { headers: { "Content-Type": "text/event-stream" } },
@@ -366,7 +380,8 @@ async function send(text: string) {
   type(text);
   fireEvent.click(sendButton());
   await waitFor(() => expect(posted.length).toBeGreaterThan(0));
-  await settle();
+  if (holdTurn) await settle();
+  else await waitFor(() => expect(sendButton()).toBeInTheDocument());
   return posted[0]!;
 }
 
@@ -496,7 +511,35 @@ test("coming back to a chat whose turn this tab runs shows that chat's own setti
   await waitFor(() => expect(modePill()).toHaveTextContent("Plan"));
   expect(modelChip()).toHaveTextContent("beta-model");
   expect(reasoningChip()).toHaveTextContent("High");
-  endTurn();
+  await endTurn();
+  expect(screen.queryByRole("button", { name: "Stop generation" })).toBeNull();
+});
+
+test("endTurn waits for Send when a draft has replaced Stop with Queue", async () => {
+  const { rerender } = render(<button aria-label="Queue this message" />);
+  let checked = false;
+  let finished = false;
+  const find = screen.getByRole;
+  const query = vi
+    .spyOn(screen, "getByRole")
+    .mockImplementation((role, options) => {
+      if (role === "button" && options?.name === "Send") checked = true;
+      return find(role, options);
+    });
+  const completion = endTurn().then(() => {
+    finished = true;
+  });
+  try {
+    await waitFor(() => expect(checked).toBe(true));
+    expect(finished).toBe(false);
+    rerender(<button aria-label="Send" />);
+    await completion;
+    expect(finished).toBe(true);
+  } finally {
+    rerender(<button aria-label="Send" />);
+    await completion;
+    query.mockRestore();
+  }
 });
 
 test("a follow-up the server refuses to queue is not lost while the settings are still being read", async () => {
@@ -525,7 +568,7 @@ test("a follow-up the server refuses to queue is not lost while the settings are
 
   await act(async () => release());
   await waitFor(() => expect(modePill()).toHaveTextContent("Plan"));
-  endTurn();
+  await endTurn();
 });
 
 // The settings read of the way back failed: the selectors still name the
@@ -555,7 +598,7 @@ test("a failed settings read of a chat whose turn this tab runs holds Send until
     timeout: 4000,
   });
   expect(modelChip()).toHaveTextContent("beta-model");
-  endTurn();
+  await endTurn();
 });
 
 // History lists its first page only, so a session missing from it may well
@@ -616,7 +659,7 @@ test("a chat whose turn this tab runs keeps its own model when the model list co
   await act(async () => releaseModels());
   await waitFor(() => expect(modelChip()).toHaveTextContent("beta-model"));
   expect(reasoningChip()).toHaveTextContent("High");
-  endTurn();
+  await endTurn();
 });
 
 // The queue's fallback runs after an await: it must see the settings as they
@@ -645,7 +688,7 @@ test("a follow-up the queue hands back after the settings arrived is sent with t
   expect(posted[1]!.sid).toBe(S_PLAN);
   expect(posted[1]!.model).toBe("plan");
   expect(posted[1]!.metadata.model).toBe(BETA);
-  endTurn();
+  await endTurn();
 });
 
 // A first message the server never took leaves a chat the server does not
@@ -703,7 +746,7 @@ test("a running chat whose settings reads fail is released by a snapshot from th
 
   await pushEvent("session_settings", settingsEvent(S_PLAN));
   await waitFor(() => expect(modePill()).toHaveTextContent("Plan"));
-  endTurn();
+  await endTurn();
   await waitFor(() => expect(openTurns.size).toBe(0));
   failReads[S_PLAN] = 10;
   // The turn is over and its read failed too: the snapshot is what lets Send go.

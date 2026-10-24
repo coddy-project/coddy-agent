@@ -6,7 +6,8 @@
  * A transcript parked at its end puts its newest row two row gaps above the
  * block's first visible edge (`TRANSCRIPT_END_GAP_ROWS`): one row gap read as
  * pressed against the composer's card. The live line stands the same two row
- * gaps under the row above it (its padding, styles.css). The
+ * gaps under the row above it by default (its padding, styles.css); without a
+ * checklist the active line reduces that top gap by 4px. The
  * block's padding over its card is empty and does not count, and where the
  * scroll content ends is not always where the block ends: on the stacked shell
  * the document's content stops above the shell's own bottom padding while the

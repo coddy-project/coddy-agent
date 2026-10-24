@@ -53,10 +53,9 @@ function TypingDotsMessageImpl(props: {
    */
   tasksOnly?: boolean;
   /**
-   * No turn runs and no task: the line's room, kept and empty. The line coming
-   * and going at every turn moved the transcript over it, which jumped as a step
-   * ended. The slot has the line's shape, the caption the phone puts under the
-   * phrase included, so it is as tall as the line it stands in for.
+   * No turn runs and no task: keep an empty slot with the base line's padding
+   * and the phone's caption row. Only the active line without a checklist
+   * reduces its top padding; the idle slot keeps its existing height.
    */
   idle?: boolean;
 }) {
