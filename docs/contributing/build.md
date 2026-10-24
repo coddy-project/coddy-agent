@@ -4,13 +4,13 @@ This page is the detailed reference for local builds. For a short version, see [
 
 ## Prerequisites
 
-- **Go** - **1.26** or newer, the `go` line of [`go.mod`](../../go.mod). The `toolchain` line next to it (currently **`go1.27.3`**) is the oldest release any build links: CI and the release archives build with exactly that one, and with the default `GOTOOLCHAIN=auto` an older local `go` downloads it on first use. A newer local Go, or a newer patch in the `golang:1.27` image the Dockerfile starts from, builds with itself, which only adds fixes. Raise it when a Go patch release fixes a vulnerability the code reaches: `go mod edit -toolchain=go1.27.N` (see [AppSec scanning](security-scanning.md#the-go-toolchain)).
+- **Go** - **1.26** or newer, the `go` line of [`go.mod`](../../go.mod). The `toolchain` line next to it (currently **`go1.27.3`**) is the oldest release a build links under the default `GOTOOLCHAIN=auto`: CI and the release archives build with exactly that one, and an older local `go` downloads it on first use. A newer local Go, or a newer patch in the `golang:1.27` image the Dockerfile starts from, builds with itself, which only adds fixes. Only a toolchain kept with `GOTOOLCHAIN=local` builds with an older release, down to the `go` line. Raise the `toolchain` line when a Go patch release fixes a vulnerability the code reaches: `go mod edit -toolchain=go1.27.N` (see [AppSec scanning](security-scanning.md#the-go-toolchain)).
 - **Git** - the Makefile embeds a version string from tags or `git describe` when available.
 - **Node.js and npm** - required when you build with both **`http`** and **`ui`**, because the Makefile runs **`ui-build`** (see [`Makefile`](../../Makefile)) to produce the assets that **`go:embed`** picks up, and by **`make test`** and **`make lint`**, which run the SPA's vitest suite and its TypeScript check.
 
 Optional:
 
-- **`golangci-lint` v2.x** (built with Go **1.26** or newer) - for **`make lint`**. CI uses **`golangci/golangci-lint-action@v9`** (v6 supports only golangci-lint v1, v8 and later need golangci-lint v2.1.0 or newer).
+- **`golangci-lint` v2.x** (built with Go **1.27** or newer) - for **`make lint`**. CI uses **`golangci/golangci-lint-action@v9`** (v6 supports only golangci-lint v1, v8 and later need golangci-lint v2.1.0 or newer).
 
 ## Recommended full binary (HTTP, UI, scheduler, memory, console)
 

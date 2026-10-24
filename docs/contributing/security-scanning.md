@@ -100,15 +100,17 @@ which has no fix) is reported at `module` level and stays informational.
 ## The Go toolchain
 
 `go.mod` carries two lines: `go 1.26.0`, the oldest Go that compiles the
-module, and `toolchain go1.27.3`, the oldest release any build links. CI
-installs Go from the `go` line (`actions/setup-go` with `go-version-file`)
-and the `go` command then switches to the `toolchain` release
-(`GOTOOLCHAIN=auto`, the default of an official Go), so the test jobs, the
-release archives and the packages link exactly that release's standard
-library. The switch only goes up: the Docker image (whose build stage sets
-`GOTOOLCHAIN=auto`, because the official image pins `local`) and a local
-build use the `golang:1.27` image's or the installed Go when it is newer,
-which only adds fixes.
+module, and `toolchain go1.27.3`, the oldest release a build links under
+the default `GOTOOLCHAIN=auto`. CI installs Go from the `go` line
+(`actions/setup-go` with `go-version-file`) and the `go` command then
+switches to the `toolchain` release (`GOTOOLCHAIN=auto`, the default of an
+official Go), so the test jobs, the release archives and the packages link
+exactly that release's standard library. The switch only goes up: the Docker
+image (whose build stage sets `GOTOOLCHAIN=auto`, because the official image
+pins `local`) and a local build use the `golang:1.27` image's or the
+installed Go when it is newer, which only adds fixes. A toolchain kept with
+`GOTOOLCHAIN=local` does not switch at all and links its own release, down
+to the `go` line.
 
 Without the `toolchain` line every build used exactly the `go` line's
 release: the archives of the 1.25 era were built with `go1.25.0`, missing
