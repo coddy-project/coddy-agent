@@ -67,13 +67,18 @@ type Catalog struct {
 	now    func() time.Time
 }
 
-// New returns the catalog kept in home.
+// New returns the catalog kept in home. With no home the catalog lives in
+// memory only: nothing is read from or written to the process's folder.
 func New(home string, log *slog.Logger) *Catalog {
 	if log == nil {
 		log = slog.Default()
 	}
+	path := ""
+	if home != "" {
+		path = filepath.Join(home, CacheFileName)
+	}
 	return &Catalog{
-		path:   filepath.Join(home, CacheFileName),
+		path:   path,
 		log:    logger.Component(log, logger.ComponentModelsCatalog),
 		client: downloadClient,
 		now:    time.Now,
@@ -120,7 +125,7 @@ func (c *Catalog) Lookup(ctx context.Context, cfg config.ModelsCatalogConfig) (S
 	}
 	url := cfg.EffectiveURL()
 	c.mu.Lock()
-	if !c.read {
+	if !c.read && c.path != "" {
 		c.read = true
 		cached, err := readCache(c.path)
 		switch {
@@ -207,6 +212,9 @@ func (c *Catalog) refreshLocked(url, proxy string, cached *cacheFile) <-chan str
 		}
 		c.failedURL, c.failedAt = "", time.Time{}
 		c.cache = next
+		if c.path == "" {
+			return
+		}
 		if werr := writeCache(c.path, next); werr != nil {
 			c.log.Warn("models catalog: the copy could not be kept in the agent home", "error", werr)
 		}

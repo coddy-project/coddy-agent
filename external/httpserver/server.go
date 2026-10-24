@@ -27,6 +27,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/configapi"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/modelcatalog"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/serve"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -65,6 +66,9 @@ type Server struct {
 	// for it (llm.NeuralDeepHubFor). Tests substitute stand-in hubs per
 	// deployment.
 	neuralDeepHubFor func(apiBase string) string
+	// modelsCatalog is the catalog the settings screen suggests model
+	// metadata from (POST /coddy/models/catalog).
+	modelsCatalog *modelcatalog.Catalog
 
 	// extraAuthTokens are bearer tokens supplied out-of-band (--auth-token / CODDY_HTTP_TOKEN).
 	// They are never written to config.yaml and survive PUT /coddy/config hot reloads.
@@ -221,6 +225,11 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		loginThrottle:        &webauth.Throttle{},
 	}
 	s.cfgAt.Store(cfg)
+	home := ""
+	if cfg != nil {
+		home = cfg.Paths.Home
+	}
+	s.modelsCatalog = modelcatalog.New(home, log)
 	// A board changes from a tool call of any surface's turn or from a route
 	// of this server; either way the web UI reads it again on the event.
 	s.removeCanvasObserver = canvas.OnChange(s.publishCanvasChanged)
@@ -260,6 +269,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	s.registerCoddyRoutes()
 	s.registerConfigRoutes()
 	s.registerProvidersRoutes()
+	s.registerModelsCatalogRoutes()
 	s.mux.HandleFunc("GET /openapi.yaml", s.handleOpenAPIYAML)
 	s.mux.HandleFunc("GET /openapi.json", s.handleOpenAPIJSON)
 	s.mux.HandleFunc("GET /docs", s.redirectDocsTrailingSlash)

@@ -2633,6 +2633,46 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/models/catalog": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Suggest model metadata from the models catalog",
+					"description": "Looks the models of a provider row up in the models catalog (**`models_catalog.url`**, models.dev's `api.json` by default) and suggests, per model the catalog knows, the values the settings screen offers a `models[]` row. The row is matched to the catalog provider that serves its models: by **`type`** (`openai` and `anthropic` without an `api_base`, `codex` as `openai`, `opencode` by its gateway), else by the endpoint its **`api_base`** names; a catalog endpoint on this machine, a private network or a templated address never matches, nor does one two catalog providers share, and an id matches exactly. **`context_window`** is the catalog's `limit.input` when it states one, else `limit.context`. **`max_tokens`** is `limit.output` for a model with separate input and output budgets, else at most the part of the window above **`compaction.threshold_percent`**, measured against the window the provider's own listing reports when the body names one (**`models[].context_window`**). Fields the body leaves empty are inherited from the saved provider of the same name; no credential travels. The catalog is downloaded on first use, kept in `<home>/models-catalog.json` and revalidated once a day. The answer is HTTP 200 either way: **`{ok:true, enabled:false, models:{}}`** while **`models_catalog.enable`** is false (no request is made), **`{ok:false, enabled:true, error}`** when there is neither a copy nor a download. The body must be **`application/json`** (**`415`** otherwise) and name at most 5000 models (**`400`** otherwise).",
+					"operationId": "suggestModelsFromCatalog",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"name":     map[string]string{"type": "string", "description": "Provider name; when it matches a saved provider, empty fields inherit the saved row."},
+										"type":     map[string]string{"type": "string", "description": "Provider type (openai, anthropic, codex, opencode, ...)."},
+										"api_base": map[string]string{"type": "string"},
+										"models": map[string]interface{}{
+											"type":     "array",
+											"maxItems": 5000,
+											"items": map[string]interface{}{
+												"type":     "object",
+												"required": []interface{}{"id"},
+												"properties": map[string]interface{}{
+													"id":             map[string]string{"type": "string", "description": "The API model id, as the provider lists it."},
+													"context_window": map[string]string{"type": "integer", "description": "The window the provider's own listing reports for the model; 0 or absent when it reports none."},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("The catalog's suggestions (ok:true), the catalog turned off (enabled:false), or ok:false with the error.", "#/components/schemas/ModelsCatalogSuggestions"),
+						"400": errorResponseRef(),
+						"415": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/providers/{name}/codex-auth": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get Codex OAuth status",
@@ -3727,6 +3767,30 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 					"required": []string{"ok", "levels", "detected"},
+				},
+				"ModelsCatalogSuggestions": map[string]interface{}{
+					"type":     "object",
+					"required": []interface{}{"ok", "enabled", "models"},
+					"properties": map[string]interface{}{
+						"ok":         map[string]string{"type": "boolean", "description": "False when the catalog could be neither read from the copy nor downloaded."},
+						"enabled":    map[string]string{"type": "boolean", "description": "models_catalog.enable."},
+						"error":      map[string]string{"type": "string"},
+						"provider":   map[string]string{"type": "string", "description": "The catalog provider the row matched; absent when none."},
+						"fetched_at": map[string]string{"type": "string", "format": "date-time", "description": "When the catalog answering was downloaded or last revalidated."},
+						"models": map[string]interface{}{
+							"type":        "object",
+							"description": "A suggestion per model id the catalog knows under the matched provider.",
+							"additionalProperties": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"context_window":    map[string]string{"type": "integer", "description": "limit.input when the catalog states one, else limit.context."},
+									"max_output_tokens": map[string]string{"type": "integer", "description": "limit.output as the catalog states it."},
+									"max_tokens":        map[string]string{"type": "integer", "description": "The suggested max_tokens; absent when none fits."},
+									"multimodal":        map[string]string{"type": "boolean", "description": "The model reads images."},
+								},
+							},
+						},
+					},
 				},
 				"CodexAuthStatus": map[string]interface{}{
 					"type": "object",
