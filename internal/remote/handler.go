@@ -355,6 +355,9 @@ func (h *Handler) HandleSessionResume(ctx context.Context, params acp.SessionRes
 	if err != nil {
 		return nil, fmt.Errorf("session/resume: %w", err)
 	}
+	// The transcript stays with the client, but a prompt a background subagent
+	// of this session is waiting on is not history: it is shown as on a load.
+	h.offerDetachedPromptsFor(params.SessionID)
 	return &acp.SessionResumeResult{
 		Modes:         h.modeState(st),
 		ConfigOptions: h.configOptions(st),
