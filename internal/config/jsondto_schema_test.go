@@ -65,11 +65,11 @@ func TestUISchemaRootPropertyOrder(t *testing.T) {
 	// name, the loop that runs them, what the agent can do, what runs it
 	// unattended, and the operation of the process last.
 	want := []interface{}{
-		"providers", "models", "toolsets",
+		"providers", "models", "toolsets", "models_catalog",
 		"agent", "supervisor", "compaction", "memory", "decisions",
 		"tools", "skills", "subagents", "hooks",
 		"scheduler", "gateways",
-		"logger", "metrics", "sessions", "prompts", "instructions", "models_catalog",
+		"logger", "metrics", "sessions", "prompts", "instructions",
 	}
 	if !reflect.DeepEqual(ord, want) {
 		t.Fatalf("root order:\n got %v\nwant %v", ord, want)

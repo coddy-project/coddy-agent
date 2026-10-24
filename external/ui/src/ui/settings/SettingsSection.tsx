@@ -404,7 +404,7 @@ export function overrideTexts(
       ? proxy(SETTINGS_TEXTS.gatewayProxyIgnoreSystem)
       : null;
   }
-  if (domain === "system.models_catalog") {
+  if (domain === "models_catalog") {
     return path === "proxy"
       ? proxy(SETTINGS_TEXTS.modelsCatalogProxyIgnoreSystem)
       : null;
@@ -435,9 +435,9 @@ function gatewaysFieldOverride(ctx: FieldOverrideContext) {
   );
 }
 
-// The models catalog's proxy reads like a provider's too (System tab).
+// The models catalog's proxy reads like a provider's too (Models catalog tab).
 function modelsCatalogFieldOverride(ctx: FieldOverrideContext) {
-  const box = boxFor("system.models_catalog", ctx);
+  const box = boxFor("models_catalog", ctx);
   return (
     box && (
       <ProxySettingField
@@ -978,9 +978,6 @@ export function SettingsSection(props: {
               onChange={(v) => setKey(ck, v)}
               i18nDomain={`system.${ck}`}
               groups={systemPartGroups(ck, sub)}
-              fieldOverride={
-                ck === "models_catalog" ? modelsCatalogFieldOverride : undefined
-              }
             />
           );
         })}
@@ -1000,32 +997,34 @@ export function SettingsSection(props: {
   const override: FieldOverride | undefined =
     key === "gateways"
       ? gatewaysFieldOverride
-      : key === "agent" ||
-          key === "memory" ||
-          key === "compaction" ||
-          key === "supervisor"
-        ? (ctx) =>
-            ctx.path === "model" ? (
-              <ModelPicker
-                value={
-                  ctx.value === undefined || ctx.value === null
-                    ? ""
-                    : String(ctx.value)
-                }
-                onChange={(v) => ctx.onChange(v)}
-                models={modelIds}
-                label={
-                  schemaFieldLabel(key, "model", ctx.schema.title, "model") ||
-                  t("settings.field.defaultModelFallback")
-                }
-                description={schemaFieldDesc(
-                  key,
-                  "model",
-                  ctx.schema.description,
-                )}
-              />
-            ) : null
-        : undefined;
+      : key === "models_catalog"
+        ? modelsCatalogFieldOverride
+        : key === "agent" ||
+            key === "memory" ||
+            key === "compaction" ||
+            key === "supervisor"
+          ? (ctx) =>
+              ctx.path === "model" ? (
+                <ModelPicker
+                  value={
+                    ctx.value === undefined || ctx.value === null
+                      ? ""
+                      : String(ctx.value)
+                  }
+                  onChange={(v) => ctx.onChange(v)}
+                  models={modelIds}
+                  label={
+                    schemaFieldLabel(key, "model", ctx.schema.title, "model") ||
+                    t("settings.field.defaultModelFallback")
+                  }
+                  description={schemaFieldDesc(
+                    key,
+                    "model",
+                    ctx.schema.description,
+                  )}
+                />
+              ) : null
+          : undefined;
   return (
     <SchemaForm
       schema={sub}

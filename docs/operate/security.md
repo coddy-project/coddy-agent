@@ -93,6 +93,8 @@ The sign-in form stores an argon2id hash, never a plaintext password, and `GET /
 
 The Docker image binds `0.0.0.0` inside the container, so the mapped port is reachable from wherever the host is; treat it like any admin API. Reference: [HTTP API](../reference/http-api.md#authentication-optional), [Web UI sign-in](../reference/http-api.md#web-ui-sign-in-optional), [Remote mode](remote.md).
 
+Settings suggests model metadata from the models catalog: the server downloads `models_catalog.url` (models.dev by default) through `models_catalog.proxy`, sending no credential and nothing of the configuration. `models_catalog.enable: false` stops the request.
+
 ## The Telegram gateway
 
 Access is checked on every incoming message and a denied message is dropped silently. `admins` lists the Telegram user ids with elevated rights; `default_access` is `all` (anyone who can write to the chat), `admins`, or `group:<name>` for a set defined under `user_groups`; `chats[]` overrides `access` and `isolation` (`individual`, `shared`, `admin`) per chat. The bot token belongs in the environment (`"${TELEGRAM_BOT_TOKEN}"`), never in version control. The gateway uses long polling, so no inbound port is opened. Because the gateway approves its agent's permission prompts itself, the permission mode does not bound the bot: bound it with a `PreToolUse` hook (below: `deny` refuses, `ask` asks in the chat), the [decisions check](../features/decisions.md), a container, or by restricting who may talk to it. See [Telegram gateway](../surfaces/gateway.md#security-notes).

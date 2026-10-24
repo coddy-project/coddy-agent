@@ -131,6 +131,8 @@ export const messagesEn: Record<string, string> = {
   "settings.section.providers.desc": "LLM API connections",
   "settings.section.models.desc": "Named model configs",
   "settings.section.toolsets.desc": "Tool presets for models",
+  "settings.section.models_catalog.label": "Models catalog",
+  "settings.section.models_catalog.desc": "Model metadata for Settings",
   "settings.section.agent.desc": "Model, retries, loop guard",
   "settings.section.supervisor.desc": "Goal checks, budgets, watchdog",
   "settings.section.tools.desc": "Tool permissions & limits",
@@ -846,17 +848,17 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.system.instructions.files.label": "Instruction files",
   "settings.schema.system.instructions.files.desc":
     "Extra files added to the prompt after the AGENTS.md and DESIGN.md documents, which are always read (the agent home's, the session folder's, the nested ones). Empty by default; a relative path is read from the session folder, and a file already in the prompt is not read twice.",
-  "settings.schema.system.models_catalog.label": "Models catalog",
-  "settings.schema.system.models_catalog.desc":
+  "settings.schema.models_catalog.label": "Models catalog",
+  "settings.schema.models_catalog.desc":
     "Where Settings looks up the context window, the output limit and the image support it suggests for a model you add: models.dev or a mirror of it. A suggestion is written into the model's row only when you add the model from a provider's list or press Apply; a session never reads the catalog.",
-  "settings.schema.system.models_catalog.enable.label": "Enabled",
-  "settings.schema.system.models_catalog.enable.desc":
+  "settings.schema.models_catalog.enable.label": "Enabled",
+  "settings.schema.models_catalog.enable.desc":
     "Download the catalog when Settings asks for a suggestion. Off: no request to it at all, and the fields work as before.",
-  "settings.schema.system.models_catalog.url.label": "Catalog URL",
-  "settings.schema.system.models_catalog.url.desc":
+  "settings.schema.models_catalog.url.label": "Catalog URL",
+  "settings.schema.models_catalog.url.desc":
     "Address of the catalog in the models.dev api.json shape. Empty uses https://models.dev/api.json; set a mirror for a network that cannot reach it.",
-  "settings.schema.system.models_catalog.proxy.label": "Proxy URL",
-  "settings.schema.system.models_catalog.proxy.desc":
+  "settings.schema.models_catalog.proxy.label": "Proxy URL",
+  "settings.schema.models_catalog.proxy.desc":
     "Optional proxy for the catalog download: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for the download. Left empty, the download follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
   "settings.schema.logger.label": "Logger",
   "settings.schema.logger.level.label": "Level",

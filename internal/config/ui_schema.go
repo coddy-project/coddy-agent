@@ -879,9 +879,9 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"enable", "host", "port", "token"},
 			nil),
-		// Folded into the System tab of the web UI next to prompts and
-		// instructions. The proxy is rendered as the "Ignore system proxy"
-		// switch above the URL, like a provider's proxy (ProxySettingField).
+		// A tab of its own after the models it suggests metadata for. The
+		// proxy is rendered as the "Ignore system proxy" switch above the URL,
+		// like a provider's proxy (ProxySettingField).
 		"models_catalog": objectSchema("Models catalog", "Where Settings looks up the context window, the output limit and the image support it suggests for a model you add: models.dev or a mirror of it. A suggestion is written into the model's row only when you add the model from a provider's list or press apply; a session never reads the catalog.",
 			map[string]interface{}{
 				"enable": boolPropDefault("Enabled", "Download the catalog when Settings asks for a suggestion. Off: no request to it at all, and the fields work as before.", true),
@@ -942,16 +942,16 @@ func UISchemaMap() map[string]interface{} {
 	// model), then what the agent can do (tools, MCP servers, skills,
 	// subagents, hooks), then what runs it without a person at the composer
 	// (the scheduler, the messenger gateways), and last the operation of the
-	// process (the logger and the metrics exporter, then prompts,
-	// instructions and the models catalog, which the web UI folds into one
-	// System tab). The sessions
+	// process (the logger and the metrics exporter, then prompts and
+	// instructions, which the web UI folds into one System tab). The models
+	// catalog follows the models it suggests metadata for. The sessions
 	// key belongs to the Sessions tab.
 	rootOrder := []string{
-		"providers", "models", "toolsets",
+		"providers", "models", "toolsets", "models_catalog",
 		"agent", "supervisor", "compaction", "memory", "decisions",
 		"tools", "skills", "subagents", "hooks",
 		"scheduler", "gateways",
-		"logger", "metrics", "sessions", "prompts", "instructions", "models_catalog",
+		"logger", "metrics", "sessions", "prompts", "instructions",
 	}
 
 	doc := map[string]interface{}{

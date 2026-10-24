@@ -766,6 +766,18 @@ logger:
 #         ca_file: "/etc/coddy/internal-ca.pem"
 
 # ----------------------------------------------------------------------------
+# models_catalog - where Settings looks up the context window, max_tokens and
+# image support it suggests for a model you add (models.dev or a mirror). A
+# suggestion is written into models[] only when you add the model from a
+# provider's list or press Apply; a session never reads the catalog.
+# Full reference: docs/getting-started/configuration.md (Models catalog)
+# ----------------------------------------------------------------------------
+# models_catalog:
+#   enable: true                        # false: no request to the catalog at all
+#   url: "https://models.dev/api.json"  # a mirror for a network that cannot reach it
+#   proxy: ""                           # inherit (default), none, or a proxy URL
+
+# ----------------------------------------------------------------------------
 # metrics - the Prometheus exporter: GET /metrics on a port of its own, run by
 # coddy serve. Needs a binary built with -tags metrics; others refuse enable.
 # Full reference: docs/reference/config.md

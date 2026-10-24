@@ -42,6 +42,7 @@ const SECTION_LABEL_KEYS = {
   providers: "settings.section.providers.label",
   models: "settings.section.models.label",
   toolsets: "settings.section.toolsets.label",
+  models_catalog: "settings.section.models_catalog.label",
   agent: "settings.section.agent.label",
   supervisor: "settings.section.supervisor.label",
   tools: "settings.section.tools.label",
@@ -74,6 +75,7 @@ const SECTION_DESC_KEYS = {
   providers: "settings.section.providers.desc",
   models: "settings.section.models.desc",
   toolsets: "settings.section.toolsets.desc",
+  models_catalog: "settings.section.models_catalog.desc",
   agent: "settings.section.agent.desc",
   supervisor: "settings.section.supervisor.desc",
   tools: "settings.section.tools.desc",
@@ -116,7 +118,7 @@ function lookupSectionKey(
  * are features of their own and have tabs; the `sessions` section belongs to
  * the Sessions tab.
  */
-export const SYSTEM_KEYS = ["prompts", "instructions", "models_catalog"];
+export const SYSTEM_KEYS = ["prompts", "instructions"];
 
 /** The config section the Sessions tab edits above its table. */
 export const SESSIONS_CONFIG_KEY = "sessions";

@@ -2952,9 +2952,9 @@ test("the Metrics tab names its fields and their hints in Russian", () => {
   }
 });
 
-// The models catalog is a part of the System tab, and its proxy is the
+// The models catalog is a tab of its own, and its proxy is the
 // switch-and-URL pair a provider's is.
-test("the System tab carries the models catalog with the proxy switch", () => {
+test("the Models catalog tab draws its proxy as the switch and URL pair", () => {
   const schema: JsonSchema = {
     type: "object",
     properties: {
@@ -2978,10 +2978,10 @@ test("the System tab carries the models catalog with the proxy switch", () => {
     return (
       <SettingsSection
         section={{
-          id: "system",
-          label: "System",
-          kind: "group",
-          childKeys: ["models_catalog"],
+          id: "models_catalog",
+          label: "Models catalog",
+          kind: "object",
+          schemaKey: "models_catalog",
         }}
         schema={schema}
         doc={doc}
@@ -2994,7 +2994,6 @@ test("the System tab carries the models catalog with the proxy switch", () => {
   }
   render(<System />);
 
-  expect(screen.getByText("Models catalog")).toBeTruthy();
   const direct = screen.getByRole("switch", { name: "Ignore system proxy" });
   fireEvent.click(direct);
   expect(latest.models_catalog).toEqual({ proxy: "none" });

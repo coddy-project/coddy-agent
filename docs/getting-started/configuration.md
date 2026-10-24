@@ -72,6 +72,7 @@ What an editor leaves in the file is not part of the configuration. A file writt
 - **MCP servers** of `~/.coddy/mcp.json` - the executable of a stdio server is resolved in `PATH` the way the spawn would, without spawning it; a remote server is asked for any HTTP answer, with its headers. Project-local `.coddy/mcp.json` declarations are not contacted: they sit behind the workspace trust gate;
 - **Telegram** - when `gateways.telegram.enable` is true the token is checked against the Bot API (`getMe`), through `gateways.telegram.proxy` when set; the report names the bot;
 - **remotes** - each `httpserver.remotes[]` URL is asked for an answer (a warning when down, since it is used only on request), and the `--remote` target of a console or `acp` run has to accept the token;
+- **models catalog** - when the file names `models_catalog` and `coddy serve` runs the web UI, its `url` is asked through its `proxy`; a catalog that does not answer is a warning, since Settings works without it, and `enable: false` is skipped with no request;
 - **`coddy serve` only** - the subsystems the configuration and the typed flags enable are resolved as a start would (a surface this binary was not built with is an error, not a silent skip), each listen address is bound once and released, so a port another process holds is named together with the line that set it, and the relays in `swarm.join` and the upstreams a relay mounts are reached through their dial settings.
 
 On its own the flag is quiet: it prints the problems - each `warning` and `error` with the place in the file and the fix - and one status line at the end, so a healthy setup answers with that line alone and a deploy script has one thing to read:
@@ -734,6 +735,25 @@ providers:
 ```
 
 The setting belongs to its row alone, so rows with different routes live side by side in one file. The Telegram gateway's **`gateways.telegram.proxy`** takes the same values for the bot's own requests ([Telegram gateway](../surfaces/gateway.md#proxy)). It covers the requests the Coddy process sends; the page a sign-in opens in your browser and whatever an **`api_key_command`** does are outside it. A changed value applies to the requests the row starts after it; a sign-in already waiting for the browser finishes on the route it started with. The environment variables are read once per process, so a change to them needs a restart. The keywords are accepted in any case and written back in lower case; anything else that is not a proxy URL is a configuration error that names the accepted values (the **`direct`** of an **`http_request`** call is not one of them). In the web UI the row shows the **Ignore system proxy** switch, which writes **`none`**, above the **Proxy URL** field ([Web UI](../surfaces/web-ui.md#settings-provider-proxy)). When a provider cannot be reached, **`coddy --dry-run`** names the route the request took in its hint - the row's proxy, a direct connection, or the proxy the environment named - with the credentials left out.
+
+### Models catalog
+
+The settings screen suggests a model's context window, `max_tokens` and image support from a catalog of model metadata: the `api.json` of [models.dev](https://models.dev), or a mirror in its shape. api.openai.com and Anthropic report no context window in their model lists, so a model of theirs added without one was measured against 128000 until someone typed the number. The catalog only suggests: a value reaches `config.yaml` when you add the model from a provider's list or press **Apply** next to a field. A session never reads the catalog: the window it measures against is still `max_context_tokens`, then the provider's listing, then 128000.
+
+```yaml
+models_catalog:
+  enable: true                        # false: no request to the catalog at all
+  url: "https://models.dev/api.json"  # a mirror, for a network that cannot reach models.dev
+  proxy: ""                           # inherit (the default), none or a proxy URL, read like providers[].proxy
+```
+
+- **Which entry.** A provider row is matched to the catalog provider that serves its models. `openai` and `anthropic` rows without an `api_base` match by their type, `codex` matches as `openai`, `opencode` by its gateway, and any other row by the endpoint its `api_base` names (OpenRouter, Groq, DeepSeek and the rest). A model matches by its exact API id. A catalog endpoint on this machine or on a private network never matches, because LM Studio's entry describes somebody's own server and not the one your row points at. Neither does an endpoint two catalog providers share. `neuraldeep`, `devin` and `acp` rows get no suggestions.
+- **The window.** The suggested context window is the catalog's input limit when it states one, else the model's whole window. GPT-5's window of 400000 holds 272000 of prompt and 128000 of answer, and a session measures the prompt, so GPT-5 is offered 272000. A window the provider's own listing reports wins over the catalog's.
+- **`max_tokens`.** The suggestion is as large as an answer can be while every request still fits. A model with separate input and output budgets gets its whole output limit. A model whose prompt and answer share one window gets at most the part of it above `compaction.threshold_percent`: before compaction folds the history, the prompt fills the window up to the threshold, and Anthropic refuses a request whose prompt and `max_tokens` together exceed the window. At the default 80 that is a fifth of the window. Claude Sonnet 4.5 (a window of 200000, an output limit of 64000) is offered 40000, Claude Opus 5.5 (1000000 and 128000) 128000, GPT-5 128000 and GPT-4o (128000 and 16384) 16384.
+- **Image support.** **Multimodal** is offered when the catalog says the model reads images.
+- **Where it lives.** The server downloads the catalog the first time Settings asks, keeps the part a suggestion needs in `<home>/models-catalog.json` and revalidates it once a day with its ETag. Offline the copy keeps serving; with no copy and no network the fields work as they do without a catalog. A download that fails is not tried again for five minutes, and an answer of more than 32 MiB is refused. The request goes through `models_catalog.proxy`, not through a provider's proxy, because the catalog is no provider.
+
+In the web UI the settings are **Settings → Models catalog**, and the suggestions show in the provider form's **Models** list and in a logical model's fields ([Web UI](../surfaces/web-ui.md#settings-provider-models)).
 
 ### `openai`
 Standard OpenAI API. Supports the current reasoning families (`gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`) as well as the older `o`-series and `gpt-4` ids.
