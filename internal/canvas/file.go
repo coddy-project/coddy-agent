@@ -443,7 +443,7 @@ func FileStamp(b Board) string {
 		return "missing"
 	}
 	var buf [16]byte
-	binary.LittleEndian.PutUint64(buf[:8], uint64(info.Size()))
+	binary.LittleEndian.PutUint64(buf[:8], uint64(max(info.Size(), 0)))
 	binary.LittleEndian.PutUint64(buf[8:], uint64(info.ModTime().UnixNano()))
 	sum := sha256.Sum256(buf[:])
 	return hex.EncodeToString(sum[:8])

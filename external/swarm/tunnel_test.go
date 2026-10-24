@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -390,7 +391,8 @@ func TestTunnelReconnectReplacesTheRouteAndEndsOldWork(t *testing.T) {
 
 	// The work that was in flight ends rather than hanging forever.
 	select {
-	case <-inFlight:
+	case err := <-inFlight:
+		t.Logf("the in-flight request ended with %v", err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("a request on the replaced connection hung instead of failing")
 	}
@@ -399,5 +401,32 @@ func TestTunnelReconnectReplacesTheRouteAndEndsOldWork(t *testing.T) {
 	status, body := stand.get(t, "/coddy/sessions")
 	if status != http.StatusOK || !strings.Contains(body, "reconnected") {
 		t.Fatalf("after a reconnect the node should answer on the new connection: %d %s", status, body)
+	}
+}
+
+// A node whose connection went quiet without a FIN is probed and dropped: the
+// relay's side of the tunnel sends a PING after the idle bound, and a peer that
+// never answers it closes the connection, which is what takes the node off the
+// map. The peer here reads everything and answers nothing.
+func TestTunnelProbesASilentNode(t *testing.T) {
+	relaySide, nodeSide := net.Pipe()
+	defer func() { _ = nodeSide.Close() }()
+	go func() { _, _ = io.Copy(io.Discard, nodeSide) }()
+
+	cc, err := newTunnelClientConn(relaySide, "inner.swarm.invalid", 50*time.Millisecond, 50*time.Millisecond)
+	if err != nil {
+		t.Fatalf("newTunnelClientConn: %v", err)
+	}
+	defer func() { _ = cc.Close() }()
+	transport := &tunnelTransport{cc: cc, conn: relaySide}
+	if !transport.Alive() {
+		t.Fatal("a fresh tunnel reads as dead")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for transport.Alive() {
+		if time.Now().After(deadline) {
+			t.Fatal("a node that answers no PING still reads as alive")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

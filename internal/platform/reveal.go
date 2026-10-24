@@ -28,7 +28,7 @@ func RevealFile(path string) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(argv[0], argv[1:]...) // #nosec G204 -- argv is fixed by platform and verified artifact path
+	cmd := exec.Command(argv[0], argv[1:]...) // argv is fixed by platform and verified artifact path
 	AdaptCommand(cmd)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start file reveal: %w", err)

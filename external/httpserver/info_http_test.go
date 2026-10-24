@@ -483,7 +483,7 @@ func TestCoddyStatusCarriesNoMarkedValue(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- sup.Run(ctx, cfg, make(chan *config.Config)) }()
-	t.Cleanup(func() { cancel(); <-done })
+	t.Cleanup(func() { cancel(); t.Logf("the supervisor stopped with %v", <-done) })
 	rt.SetMetricsSource(func() *serve.MetricsBlock {
 		return &serve.MetricsBlock{
 			Providers: []serve.ProviderStats{{Name: "local-mlx", Attempts: 3, Failures: 3, LastFailureAt: time.Now().Add(-time.Minute)}},

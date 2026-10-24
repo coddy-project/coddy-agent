@@ -53,7 +53,9 @@ func (s *exporterState) close() {
 	if s.cancel != nil {
 		s.cancel()
 		select {
-		case <-s.stopped:
+		case err := <-s.stopped:
+			// Stopped on purpose: how it returned is not what the scenario checks.
+			_ = err
 		case <-time.After(10 * time.Second):
 		}
 		s.cancel = nil

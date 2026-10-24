@@ -5,7 +5,6 @@ package httpserver
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -32,7 +31,7 @@ func (s *Server) registerRewindRoute() {
 func (s *Server) coddyRewind(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))
 	if err := session.ValidateFolderSessionID(id); err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}
 
@@ -80,14 +79,14 @@ func (s *Server) coddyRewind(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, session.ErrRewindOutOfRange):
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+			http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		case errors.Is(err, session.ErrSessionTurnActive),
 			errors.Is(err, session.ErrSubagentReadOnly),
 			errors.Is(err, session.ErrSchedulerSessionReadOnly):
 			writeSubagentsError(w, http.StatusConflict, err.Error())
 		default:
 			s.log.Error("rewind session", "session", id, "error", err)
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+			http.Error(w, errorJSON(err.Error()), http.StatusInternalServerError)
 		}
 		return
 	}
@@ -110,7 +109,7 @@ func (s *Server) coddyRewind(w http.ResponseWriter, r *http.Request) {
 func (s *Server) coddyRewindUndo(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))
 	if err := session.ValidateFolderSessionID(id); err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}
 
@@ -158,7 +157,7 @@ func (s *Server) coddyRewindUndo(w http.ResponseWriter, r *http.Request) {
 			writeSubagentsError(w, http.StatusConflict, err.Error())
 		default:
 			s.log.Error("rewind undo", "session", id, "error", err)
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+			http.Error(w, errorJSON(err.Error()), http.StatusInternalServerError)
 		}
 		return
 	}

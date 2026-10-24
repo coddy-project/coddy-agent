@@ -48,7 +48,7 @@ func (o Options) TLSConfig(serverName string) (*tls.Config, error) {
 	cfg := &tls.Config{
 		MinVersion:         tls.VersionTLS12,
 		ServerName:         serverName,
-		InsecureSkipVerify: o.InsecureSkipVerify, //nolint:gosec // opt-in, and the caller logs it
+		InsecureSkipVerify: o.InsecureSkipVerify, //nolint:gosec // G402: opt-in, and the caller logs it
 	}
 	if path := strings.TrimSpace(o.CAFile); path != "" {
 		pem, err := os.ReadFile(path)

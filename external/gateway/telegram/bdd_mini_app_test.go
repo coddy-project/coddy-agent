@@ -79,7 +79,9 @@ func (w *miniAppWorld) stop() error {
 	}
 	w.cancel()
 	select {
-	case <-w.done:
+	case err := <-w.done:
+		// The step is about Start returning at all, not about what it returned.
+		_ = err
 	case <-time.After(pollingStopFor):
 		return fmt.Errorf("Start did not return within %v of the stop", pollingStopFor)
 	}

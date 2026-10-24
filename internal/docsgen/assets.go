@@ -60,7 +60,7 @@ func AssetInventory(root string) ([]Asset, error) {
 		// SVG is text: Git's CRLF checkout conversion must not change the
 		// generated inventory. Symlink sizes remain the link target length.
 		if info.Mode().IsRegular() && strings.EqualFold(filepath.Ext(path), ".svg") {
-			data, err := os.ReadFile(path)
+			data, err := os.ReadFile(path) //nolint:gosec // G122: the generator reads the repository's own docs/assets at build time
 			if err != nil {
 				return err
 			}

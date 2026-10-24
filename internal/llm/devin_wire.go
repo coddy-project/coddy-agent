@@ -38,7 +38,7 @@ func (w *pbWriter) varint(v uint64) {
 }
 
 func (w *pbWriter) tag(field, wire int) {
-	w.varint(uint64(field)<<3 | uint64(wire))
+	w.varint(uint64(field)<<3 | uint64(wire)) //nolint:gosec // G115: field numbers and wire types are this file's own small positive constants
 }
 
 // str writes a string field; an empty string is omitted. Proto3 strings
@@ -63,6 +63,12 @@ func (w *pbWriter) uint(field int, v uint64) {
 	}
 	w.tag(field, pbVarint)
 	w.varint(v)
+}
+
+// int writes a signed varint field (int32, int64 or an enum); zero is
+// omitted.
+func (w *pbWriter) int(field int, v int64) {
+	w.uint(field, uint64(v)) //nolint:gosec // G115: protobuf writes a signed varint as the two's complement of its value, which is this conversion
 }
 
 // boolean writes a bool field; false is omitted.
@@ -138,17 +144,27 @@ func pbFields(buf []byte) ([]pbField, error) {
 			buf = buf[4:]
 		case pbBytes:
 			l, m := binary.Uvarint(buf)
-			if m <= 0 || l > uint64(len(buf)-m) {
+			if m <= 0 {
 				return nil, errPBTruncated
 			}
-			f.raw = buf[m : m+int(l)]
-			buf = buf[m+int(l):]
+			rest := buf[m:]
+			if l > uint64(len(rest)) {
+				return nil, errPBTruncated
+			}
+			f.raw = rest[:l]
+			buf = rest[l:]
 		default:
 			return nil, fmt.Errorf("devin: unsupported protobuf wire type %d", f.wire)
 		}
 		out = append(out, f)
 	}
 	return out, nil
+}
+
+// pbInt is a varint count the server sent (tokens, a context window) as an
+// int, held to the int range so a corrupt value cannot turn negative.
+func pbInt(v uint64) int {
+	return int(min(v, math.MaxInt))
 }
 
 // Connect envelope flags (https://connectrpc.com/docs/protocol#streaming-rpcs).
@@ -171,9 +187,13 @@ func connectEnvelope(payload []byte) ([]byte, error) {
 	if err := zw.Close(); err != nil {
 		return nil, err
 	}
+	size := uint64(max(gz.Len(), 0))
+	if size > math.MaxUint32 {
+		return nil, fmt.Errorf("devin: a compressed request of %d bytes does not fit a Connect envelope", size)
+	}
 	out := make([]byte, 5, 5+gz.Len())
 	out[0] = connectFlagCompressed
-	binary.BigEndian.PutUint32(out[1:5], uint32(gz.Len()))
+	binary.BigEndian.PutUint32(out[1:5], uint32(size))
 	return append(out, gz.Bytes()...), nil
 }
 
@@ -262,8 +282,8 @@ func (m devinMetadata) encode() []byte {
 	w.str(12, m.ide)
 	now := time.Now()
 	var ts pbWriter
-	ts.uint(1, uint64(now.Unix()))
-	ts.uint(2, uint64(now.Nanosecond()))
+	ts.int(1, now.Unix())
+	ts.int(2, int64(now.Nanosecond()))
 	w.msg(16, ts.buf)
 	w.str(21, m.userJWT)
 	w.str(25, m.triggerID)
@@ -306,7 +326,7 @@ type devinPrompt struct {
 
 func (p devinPrompt) encode() []byte {
 	var w pbWriter
-	w.uint(2, uint64(p.source))
+	w.int(2, int64(p.source))
 	w.str(3, p.text)
 	// A rough token count and the "safe for code telemetry" flag, both of
 	// which the Devin clients always send.
@@ -488,13 +508,13 @@ func decodeDevinUsage(raw []byte) (devinUsage, bool, error) {
 		}
 		switch f.field {
 		case 2:
-			u.input, ok = int(f.num), true
+			u.input, ok = pbInt(f.num), true
 		case 3:
-			u.output, ok = int(f.num), true
+			u.output, ok = pbInt(f.num), true
 		case 4:
-			u.cacheWrite, ok = int(f.num), true
+			u.cacheWrite, ok = pbInt(f.num), true
 		case 5:
-			u.cacheRead, ok = int(f.num), true
+			u.cacheRead, ok = pbInt(f.num), true
 		}
 	}
 	return u, ok, nil
@@ -553,7 +573,7 @@ func decodeDevinCatalogEntry(raw []byte) (devinCatalogEntry, error) {
 			e.supportsImages = f.num != 0
 		case f.field == 18 && f.wire == pbVarint:
 			if e.contextWindow == 0 {
-				e.contextWindow = int(f.num)
+				e.contextWindow = pbInt(f.num)
 			}
 		case f.field == 22 && f.wire == pbBytes:
 			e.uid = f.text()
@@ -588,9 +608,9 @@ func (e *devinCatalogEntry) decodeModelInfo(raw []byte) error {
 	for _, f := range fields {
 		switch {
 		case f.field == 4 && f.wire == pbVarint && f.num > 0:
-			e.contextWindow = int(f.num)
+			e.contextWindow = pbInt(f.num)
 		case f.field == 13 && f.wire == pbVarint && f.num > 0:
-			e.maxOutput = int(f.num)
+			e.maxOutput = pbInt(f.num)
 		case f.field == 23 && f.wire == pbBytes:
 			e.family = f.text()
 		}

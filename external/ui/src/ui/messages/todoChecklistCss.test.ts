@@ -103,6 +103,30 @@ test("an item in progress carries a still mark of its own", () => {
   expect(css).not.toMatch(/@keyframes todo-checklist-(spin|shimmer)/);
 });
 
+test("the checklist adds 6px above the transcript gap and gives it back on exit", () => {
+  expect(plain(".message-row-todo")).toMatch(/(?:^|; )margin-top: 6px;/);
+  const closedMargin =
+    "margin-top: calc(-1 * var(--coddy-transcript-row-gap, 10px))";
+  expect(plain(".message-row-todo.is-leaving")).toContain(closedMargin);
+  expect(keyframes("todo-checklist-in")).toContain(closedMargin);
+  expect(motion(".message-row-todo")).toContain("margin-top 0.24s ease");
+});
+
+test("a header-only collapsed checklist has equal top and bottom insets", () => {
+  const card = plain(".todo-checklist");
+  const head = plain(".todo-checklist-head");
+  const collapsed = plain(
+    '.todo-checklist:has(> .todo-checklist-head[aria-expanded="false"])',
+  );
+  // The open card and the heading-to-item gap keep their existing padding.
+  expect(card).toContain("padding: 4px 14px 8px;");
+  expect(head).toContain("padding: 6px 0 4px;");
+  expect(collapsed).toContain("padding-bottom: 6px;");
+  const bottom = Number(collapsed.match(/padding-bottom: (\d+)px;/)?.[1]);
+  expect(4 + 6).toBe(bottom + 4);
+  expect(motion(".todo-checklist")).toContain("padding-bottom 0.22s ease");
+});
+
 test("a status moves its mark, its text and its glyph instead of swapping them", () => {
   const mark = motion(".todo-checklist .todo-tool-preview-mark");
   for (const prop of ["background-color", "border-color", "border-radius"])

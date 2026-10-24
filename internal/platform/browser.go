@@ -63,7 +63,7 @@ func OpenBrowser(url string) error {
 	if len(argv) == 0 {
 		return errors.New("no browser opener found in PATH")
 	}
-	cmd := exec.Command(argv[0], argv[1:]...) //nolint:gosec // argv comes from a fixed list of openers
+	cmd := exec.Command(argv[0], argv[1:]...)
 	AdaptCommand(cmd)
 	if err := cmd.Start(); err != nil {
 		return err

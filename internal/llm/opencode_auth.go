@@ -51,7 +51,7 @@ func SaveOpenCodeAuth(path, apiKey string) error {
 	if strings.TrimSpace(apiKey) == "" {
 		return errors.New("opencode auth: refusing to store an empty key")
 	}
-	data, err := json.MarshalIndent(opencodeAuthFile{
+	data, err := json.MarshalIndent(opencodeAuthFile{ //nolint:gosec // G117: this writes the credential file itself, private (0600)
 		APIKey:     apiKey,
 		ObtainedAt: time.Now().UTC().Format(time.RFC3339),
 	}, "", "  ")

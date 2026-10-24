@@ -14,6 +14,12 @@ func TestTurnProgressWebUIFeature(t *testing.T) {
 	suite := godog.TestSuite{
 		Name: "turn_progress_web_ui",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
+			sc.Step(`^the active live line eases checklist spacing changes only without reduced motion$`, func() error {
+				return runVitestScenario("src/ui/tasks/backgroundTaskCss.test.ts", "the active live line eases checklist spacing changes only without reduced motion")
+			})
+			sc.Step(`^without todos the active live line removes 4px above it and adds no room below$`, func() error {
+				return runVitestScenario("src/ui/tasks/backgroundTaskCss.test.ts", "without todos the active live line removes 4px above it and adds no room below")
+			})
 			sc.Step(`^before the first token the live line shows the turn clock and the waiting phrase alone$`, func() error {
 				return runVitestScenario(dots, "before the first token the line is the turn clock and the waiting phrase")
 			})

@@ -111,7 +111,7 @@ func (l *Loader) Load(cwd, home string) []*Source {
 		if scope == ScopeProject && policy == config.ProjectTrustDeny {
 			continue
 		}
-		data, err := os.ReadFile(path) // #nosec G304 -- the path comes from hooks.files, an operator setting
+		data, err := os.ReadFile(path) // the path comes from hooks.files, an operator setting
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				continue

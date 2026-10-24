@@ -15,6 +15,61 @@ import { onOpenWorkspaceFile } from "../files/fileBus";
 
 afterEach(() => cleanup());
 
+test.each([undefined, 0, 1, 37])(
+  "follow-up spacing uses the global user index %s, not the visible row position",
+  (index) => {
+    const { container } = render(
+      <UserMessage
+        content="A prompt"
+        {...(index == null ? {} : { userMsgIndex: index })}
+        editing
+      />,
+    );
+    const stack = container.querySelector(".msg-user-stack");
+    expect(stack).toHaveClass("msg-user-stack--editing");
+    if (index != null && index > 0)
+      expect(stack).toHaveClass("msg-user-stack--followup");
+    else expect(stack).not.toHaveClass("msg-user-stack--followup");
+  },
+);
+
+test.each([false, true])(
+  "the user foot keeps Copy before circular Edit and time, with Undo %s",
+  (undo) => {
+    const onEdit = vi.fn();
+    const onUndoEdit = vi.fn();
+    const { container } = render(
+      <UserMessage
+        content="Return to this prompt"
+        userMsgIndex={37}
+        onEdit={onEdit}
+        {...(undo ? { onUndoEdit } : {})}
+        createdAtUtc="2026-10-24T12:00:00Z"
+      />,
+    );
+    const foot = container.querySelector(".msg-user-foot")!;
+    expect(
+      Array.from(
+        foot.children,
+        (el) => el.getAttribute("data-testid") ?? el.tagName,
+      ),
+    ).toEqual([
+      ...(undo ? ["user-message-undo-edit"] : []),
+      "user-message-copy",
+      "user-message-edit",
+      "TIME",
+    ]);
+    const edit = screen.getByTestId("user-message-edit");
+    expect(edit).toHaveAccessibleName("Edit message");
+    expect(
+      Array.from(edit.querySelectorAll("path"), (el) => el.getAttribute("d")),
+    ).toEqual(["M3 12a9 9 0 1 0 9-9c-2.5 0-4.9 1-6.7 2.8L3 8", "M3 3v5h5"]);
+    fireEvent.click(edit);
+    expect(onEdit).toHaveBeenCalledWith("Return to this prompt", 37);
+    expect(onUndoEdit).not.toHaveBeenCalled();
+  },
+);
+
 test("user bubble preserves multiline text without markdown pipeline", () => {
   const yaml = [
     "---",

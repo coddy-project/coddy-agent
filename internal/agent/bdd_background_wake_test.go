@@ -253,7 +253,7 @@ func (s *wakeFeatureState) refusedSubmoduleCheckout() error {
 
 	ssh := filepath.Join(root, "refuse-ssh")
 	script := "#!/bin/sh\necho \"git@github.com: Permission denied (publickey).\" >&2\nexit 255\n"
-	if err := os.WriteFile(ssh, []byte(script), 0o700); err != nil { //nolint:gosec // the stub must be executable
+	if err := os.WriteFile(ssh, []byte(script), 0o700); err != nil {
 		return err
 	}
 
@@ -267,7 +267,7 @@ func (s *wakeFeatureState) refusedSubmoduleCheckout() error {
 	modules := "[submodule \".performance-pipeline\"]\n" +
 		"\tpath = .performance-pipeline\n" +
 		"\turl = git@github.com:viktor-drobek/drobek-performance-pipeline.git\n"
-	if err := os.WriteFile(filepath.Join(repo, ".gitmodules"), []byte(modules), 0o644); err != nil { //nolint:gosec // fixture, not a secret
+	if err := os.WriteFile(filepath.Join(repo, ".gitmodules"), []byte(modules), 0o644); err != nil {
 		return err
 	}
 	// A gitlink entry is what makes `submodule update --init` attempt a clone;

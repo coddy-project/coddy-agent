@@ -3293,6 +3293,8 @@ a.rail-brand {
 }
 
 .msg-user-stack {
+  --user-foot-height: 28px;
+  --user-foot-gap: 6px;
   align-self: flex-end;
   max-width: min(680px, 86%);
   width: fit-content;
@@ -3300,6 +3302,10 @@ a.rail-brand {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+}
+
+.msg-user-stack--followup {
+  padding-top: calc(var(--user-foot-height) + var(--user-foot-gap));
 }
 
 .msg-user-files {
@@ -3388,8 +3394,8 @@ a.rail-brand {
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
-  margin-top: 6px;
-  min-height: 28px;
+  margin-top: var(--user-foot-gap);
+  min-height: var(--user-foot-height);
   width: 100%;
   align-self: stretch;
   /* Mirror of the inset under assistant and system rows: the copy control and
@@ -3432,14 +3438,22 @@ a.rail-brand {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  /* Two row gaps above it - the column's and this padding - and the same two
-     between it and the composer (chat/composerReserve.ts). */
+  /* By default, two row gaps above it - the column's and this padding - and
+     the same two between it and the composer (chat/composerReserve.ts). */
   padding: var(--coddy-transcript-row-gap, 10px) 14px 0;
   /* Blockified as a flex item of the column .msg-assistant-stack; without this its
      min-content width follows the unbreakable phrase in the status label and pushes
      the row past .messages-inner. */
   min-width: 0;
   max-width: 100%;
+}
+
+/* Without a checklist, reduce the working line's top gap by 4px.
+   Keep its bottom padding at zero, as it is under a checklist. */
+.messages-inner:not(:has(> .message-row-todo))
+  > .msg-assistant-stack:not(.typing-dots-slot)
+  > .typing-dots {
+  padding-top: calc(var(--coddy-transcript-row-gap, 10px) - 4px);
 }
 
 /* Between turns the live line's room stays, transparent and still: the line
@@ -6636,9 +6650,8 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 
 /* A finger needs a target of its own: on a phone and on any touch screen the
    picks and the worktree checkbox are 36px tall (they have no ground at rest,
-   so only the plate grows around them), and git's count and the way back from
-   a worktree keep their slim framed look with an invisible hit area 40px tall
-   laid over each. */
+   so only the plate grows around them), and git's count keeps its slim framed
+   look with an invisible hit area 40px tall laid over it. */
 @media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {
   .workspace-bar {
     font-size: 13px;
@@ -6666,19 +6679,8 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
     height: 16px;
   }
 
-  .workspace-bar-edits,
-  .workspace-bar-leave {
+  .workspace-bar-edits {
     position: relative;
-  }
-
-  .workspace-bar-leave::after {
-    content: "";
-    position: absolute;
-    left: -9px;
-    right: -9px;
-    top: 50%;
-    height: 40px;
-    transform: translateY(-50%);
   }
 
   /* The goal mark keeps its small look with a finger's 40px over it. */
@@ -6728,34 +6730,6 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 .workspace-bar-edits:focus-visible {
   border-color: color-mix(in srgb, var(--text) 34%, transparent);
   background: color-mix(in srgb, var(--text) 9%, transparent);
-  outline: none;
-}
-
-/* The way back from a linked worktree to its main checkout, right after the
-   branch it leaves: an arrow in the count's light frame, as tall as the
-   count, closer to the branch than the plate's gap. Never the accent. */
-.workspace-bar-leave {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 22px;
-  height: 17px;
-  margin-left: -6px;
-  padding: 0;
-  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
-  border-radius: 7px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
-.workspace-bar-leave:hover,
-.workspace-bar-leave:focus-visible {
-  border-color: color-mix(in srgb, var(--text) 34%, transparent);
-  background: color-mix(in srgb, var(--text) 9%, transparent);
-  color: var(--text);
   outline: none;
 }
 
@@ -13028,6 +13002,7 @@ html:not([data-theme="light"]) .settings.drawer {
 .message-row-todo {
   display: grid;
   grid-template-rows: 1fr;
+  margin-top: 6px;
   align-self: flex-start;
   width: fit-content;
   min-width: min(320px, 100%);
@@ -13061,6 +13036,10 @@ html:not([data-theme="light"]) .settings.drawer {
   border-radius: 12px;
   background: color-mix(in srgb, var(--text) 2%, transparent);
   box-sizing: border-box;
+}
+
+.todo-checklist:has(> .todo-checklist-head[aria-expanded="false"]) {
+  padding-bottom: 6px;
 }
 
 .todo-checklist-head {
@@ -13155,6 +13134,14 @@ html:not([data-theme="light"]) .settings.drawer {
    every state is there at once and the item in progress keeps the still
    half-filled mark of the todo rows. */
 @media (prefers-reduced-motion: no-preference) {
+  .messages-inner > .msg-assistant-stack:not(.typing-dots-slot) > .typing-dots {
+    transition: padding-top 0.24s ease;
+  }
+
+  .todo-checklist {
+    transition: padding-bottom 0.22s ease;
+  }
+
   .message-row-todo {
     animation: todo-checklist-in 0.22s ease-out backwards;
     transition:

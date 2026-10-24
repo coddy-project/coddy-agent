@@ -3,13 +3,13 @@
 package swarm
 
 import (
+	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
-
-	"golang.org/x/net/http2"
 
 	swarmdto "github.com/EvilFreelancer/coddy-agent/internal/swarm"
 )
@@ -23,7 +23,7 @@ const (
 
 // tunnelTransport reaches a node over the connection that node opened.
 type tunnelTransport struct {
-	cc     *http2.ClientConn //nolint:staticcheck // x/net v0.60.0 deprecates its HTTP/2 API for net/http's; the move is a change of its own
+	cc     *http.ClientConn
 	conn   net.Conn
 	target *url.URL
 
@@ -44,8 +44,13 @@ func (t *tunnelTransport) Alive() bool {
 	if closed {
 		return false
 	}
-	state := t.cc.State()
-	return !state.Closed && !state.Closing
+	// Err turns non-nil once the connection is closed: a lost ping, the
+	// node hanging up, or Close here. A connection that stops taking new
+	// requests while one is still open (a GOAWAY, a protocol error) reads
+	// as alive until that request ends and the connection closes itself;
+	// net/http's ClientConn does not tell that state from a full stream
+	// limit, and neither side of a tunnel sends GOAWAY before it hangs up.
+	return t.cc.Err() == nil
 }
 
 func (t *tunnelTransport) Close() error {
@@ -122,22 +127,14 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 	// established and then fails on its first frame.
 	served := swarmdto.SpliceBuffered(conn, brw.Reader)
 
-	tr := &http2.Transport{ //nolint:staticcheck // x/net v0.60.0 deprecates its HTTP/2 API for net/http's; the move is a change of its own
-		AllowHTTP: true,
-		// A dead peer that never sends a FIN is indistinguishable from an idle
-		// one until something writes, so the connection is probed.
-		ReadIdleTimeout:            tunnelReadIdleTimeout,
-		PingTimeout:                tunnelPingTimeout,
-		StrictMaxConcurrentStreams: true,
-	}
-	cc, err := tr.NewClientConn(served) //nolint:staticcheck // x/net v0.60.0 deprecates its HTTP/2 API for net/http's; the move is a change of its own
+	target, _ := url.Parse("http://" + node + ".swarm.invalid")
+	cc, err := newTunnelClientConn(served, target.Host, tunnelReadIdleTimeout, tunnelPingTimeout)
 	if err != nil {
 		s.log.Warn("swarm tunnel handshake failed", "node", node, "error", err)
 		_ = conn.Close()
 		return
 	}
 
-	target, _ := url.Parse("http://" + node + ".swarm.invalid")
 	transport := &tunnelTransport{cc: cc, conn: conn, target: target}
 
 	if err := s.registry.AttachTransport(node, secret, transport); err != nil {
@@ -150,6 +147,35 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 	// Nothing else to do here: the connection now belongs to the registry, and
 	// it lives until the node goes away or a newer connection replaces it.
 	go s.watchTunnel(node, transport)
+}
+
+// newTunnelClientConn speaks net/http's HTTP/2 over conn, by prior knowledge,
+// as a client of the node at the other end, and probes it with a PING after
+// readIdle of silence, closing it when the PING goes unanswered for ping.
+// NewClientConn dials through the transport, so the dial hands over conn, once.
+func newTunnelClientConn(conn net.Conn, host string, readIdle, ping time.Duration) (*http.ClientConn, error) {
+	var protocols http.Protocols
+	protocols.SetUnencryptedHTTP2(true)
+	var handed sync.Once
+	tr := &http.Transport{
+		Protocols: &protocols,
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			var c net.Conn
+			handed.Do(func() { c = conn })
+			if c == nil {
+				return nil, errors.New("swarm tunnel: the connection was already handed over")
+			}
+			return c, nil
+		},
+		HTTP2: &http.HTTP2Config{
+			// A dead peer that never sends a FIN is indistinguishable from an
+			// idle one until something writes, so the connection is probed.
+			SendPingTimeout:             readIdle,
+			PingTimeout:                 ping,
+			StrictMaxConcurrentRequests: true,
+		},
+	}
+	return tr.NewClientConn(context.Background(), "http", net.JoinHostPort(host, "80"))
 }
 
 // watchTunnel drops the lease's transport when its connection dies, so a node

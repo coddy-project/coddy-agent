@@ -1707,7 +1707,7 @@ func TestProjectSwitchesSurviveWritersInOtherProcesses(t *testing.T) {
 	cmds := make([]*exec.Cmd, writers)
 	outs := make([]*strings.Builder, writers)
 	for i := range cmds {
-		cmd := exec.Command(os.Args[0], "-test.run=^TestOverridesWriterHelperProcess$") //nolint:gosec // the test binary itself
+		cmd := exec.Command(os.Args[0], "-test.run=^TestOverridesWriterHelperProcess$")
 		cmd.Env = append(os.Environ(),
 			"GO_WANT_MCP_OVERRIDES_WRITER=1",
 			"MCP_OVERRIDES_HOME="+home,

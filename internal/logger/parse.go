@@ -36,7 +36,7 @@ type Filter struct {
 // It tolerates malformed lines (skipped silently) so mixing log formats does
 // not break the consumer.
 func ParseFile(path string, f Filter) ([]Record, error) {
-	fh, err := os.Open(path) //nolint:gosec
+	fh, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("logger: open %s: %w", path, err)
 	}

@@ -109,7 +109,7 @@ jobs:
         if: steps.gate.outputs.skip != 'true'
         uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "26"
           cache: npm
           cache-dependency-path: external/ui/package-lock.json
 

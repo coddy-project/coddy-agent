@@ -256,7 +256,7 @@ func getWithRetries(url string) (*http.Response, error) {
 	var resp *http.Response
 	var err error
 	for attempt := 0; attempt < 5; attempt++ {
-		resp, err = http.Get(url) //nolint:gosec // the stand-in hub and this flow's own loopback listener
+		resp, err = http.Get(url)
 		if err == nil {
 			return resp, nil
 		}

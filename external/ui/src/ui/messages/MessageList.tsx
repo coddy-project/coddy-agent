@@ -189,7 +189,7 @@ export function MessageList(props: {
         if (it.type === "user_message") {
           const myIdx = userMsgIndexById.get(it.id);
           // A missing index must not fall back to 0: a rewind names the first
-          // user message by it, so without one the pencil stays off.
+          // user message by it, so without one the edit control stays off.
           return (
             <UserMessage
               key={it.id}
@@ -199,8 +199,9 @@ export function MessageList(props: {
               {...(props.knownSkillNames
                 ? { knownSkillNames: props.knownSkillNames }
                 : {})}
+              {...(myIdx !== undefined ? { userMsgIndex: myIdx } : {})}
               {...(props.onEdit && myIdx !== undefined
-                ? { onEdit: props.onEdit, userMsgIndex: myIdx }
+                ? { onEdit: props.onEdit }
                 : {})}
               {...(it.files && it.files.length > 0 ? { files: it.files } : {})}
               {...(myIdx !== undefined && props.editingUserMsgIdx === myIdx
@@ -474,8 +475,7 @@ export function MessageList(props: {
           {...(props.onOpenTasks ? { onOpenTasks: props.onOpenTasks } : {})}
         />
       ) : null}
-      {/* Between turns the line keeps its room, empty, so nothing above it
-          moves when a turn ends or starts. */}
+      {/* Between turns keep an empty slot with the base line's padding. */}
       {props.generating !== true &&
       tailTasks === 0 &&
       renderEnd === props.items.length ? (

@@ -14,7 +14,7 @@ import (
 // TokenEnvVar is the environment variable a client checks for the remote
 // bearer token when --remote-token is not passed and the configured remote the
 // target belongs to carries no token of its own.
-const TokenEnvVar = "CODDY_REMOTE_TOKEN"
+const TokenEnvVar = "CODDY_REMOTE_TOKEN" //nolint:gosec // G101: the name of an environment variable, not a credential
 
 // Resolve turns --remote / --remote-token values into connection options.
 // remoteArg is either the name of a configured remote (httpserver.remotes)

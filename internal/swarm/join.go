@@ -392,8 +392,7 @@ func jitter(d time.Duration) time.Duration {
 		n = n<<8 | uint64(x)
 	}
 	half := d / 2
-	//nolint:gosec // spreading a retry, not deriving a secret
-	return half + time.Duration(n%uint64(half+1))
+	return half + time.Duration(n%uint64(half+1)) //nolint:gosec // G115: the remainder is below half+1, a positive Duration
 }
 
 func randomID() (string, error) {

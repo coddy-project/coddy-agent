@@ -5,7 +5,6 @@ package httpserver
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -25,7 +24,7 @@ func (s *Server) coddySessionComposerStream(w http.ResponseWriter, r *http.Reque
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	if err := session.ValidateFolderSessionID(id); err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}
 	hdr := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))

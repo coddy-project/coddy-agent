@@ -224,8 +224,8 @@ func TestCancelDuringWaitEndsTurn(t *testing.T) {
 		t.Fatal("the turn never became active")
 	}
 	select {
-	case <-entered:
-		t.Fatal("the runner started before the dial settled or the turn was stopped")
+	case got := <-entered:
+		t.Fatalf("the runner started before the dial settled or the turn was stopped (%v)", got)
 	case <-time.After(200 * time.Millisecond):
 	}
 	f.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: f.st.GetID()})
@@ -306,8 +306,8 @@ func TestCloseAllUnblocksWait(t *testing.T) {
 	waited := make(chan error, 1)
 	go func() { waited <- f.st.WaitMCPConnect(context.Background()) }()
 	select {
-	case <-waited:
-		t.Fatal("the wait ended before the dial settled")
+	case err := <-waited:
+		t.Fatalf("the wait ended before the dial settled (%v)", err)
 	case <-time.After(200 * time.Millisecond):
 	}
 	f.st.CloseAll()

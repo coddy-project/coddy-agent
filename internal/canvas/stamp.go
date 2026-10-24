@@ -64,7 +64,7 @@ func Stamp(workspace, root string) string {
 			return filepath.SkipAll
 		}
 		var buf [16]byte
-		binary.LittleEndian.PutUint64(buf[:8], uint64(info.Size()))
+		binary.LittleEndian.PutUint64(buf[:8], uint64(max(info.Size(), 0)))
 		binary.LittleEndian.PutUint64(buf[8:], uint64(info.ModTime().UnixNano()))
 		_, _ = h.Write([]byte(filepath.ToSlash(rel)))
 		_, _ = h.Write([]byte{0})

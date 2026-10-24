@@ -26,7 +26,7 @@ func startProbeHelper(t *testing.T) (*exec.Cmd, int, time.Time) {
 	}
 
 	executable, args := sh.Command(command)
-	cmd := exec.Command(executable, args...) // #nosec G204 -- fixed test command
+	cmd := exec.Command(executable, args...)
 	DetachProcessGroup(cmd)
 
 	if err := cmd.Start(); err != nil {

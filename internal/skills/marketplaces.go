@@ -474,7 +474,7 @@ func readMarketplaces(cfg *config.Config) ([]AddedMarketplace, error) {
 }
 
 func readMarketplacesDoc(managedDir string) (marketplacesDoc, error) {
-	data, err := os.ReadFile(filepath.Join(managedDir, marketplacesFile)) //nolint:gosec // a fixed name in the managed dir
+	data, err := os.ReadFile(filepath.Join(managedDir, marketplacesFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return marketplacesDoc{Version: marketplacesCacheVersion}, nil
 	}

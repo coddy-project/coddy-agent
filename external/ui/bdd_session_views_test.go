@@ -14,6 +14,9 @@ import (
 // discarding from the edits, the Files window.
 func TestWebUISessionViewsFeature(t *testing.T) {
 	steps := []struct{ step, file, name string }{
+		{`^a linked worktree's plate has no exit button and still opens the edits$`,
+			"src/ui/chat/ChatScreen.test.tsx",
+			"a linked worktree's plate has no exit button and still opens the edits"},
 		{`^the header shows files and background tasks as buttons in a row$`,
 			"src/ui/chat/ChatHeader.test.tsx",
 			"the header shows files and background tasks as buttons in a row"},

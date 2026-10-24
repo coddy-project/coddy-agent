@@ -337,8 +337,8 @@ func writeState(b *bytes.Buffer, snap serve.Snapshot, admitted func(provider str
 		flush(diskSize)
 	}
 
-	vm.WriteGaugeUint64(&rows, series(promptsPending.name, "kind", "permission"), uint64(snap.PermissionPrompts))
-	vm.WriteGaugeUint64(&rows, series(promptsPending.name, "kind", "question"), uint64(snap.Questions))
+	vm.WriteGaugeUint64(&rows, series(promptsPending.name, "kind", "permission"), uint64(max(snap.PermissionPrompts, 0)))
+	vm.WriteGaugeUint64(&rows, series(promptsPending.name, "kind", "question"), uint64(max(snap.Questions, 0)))
 	flush(promptsPending)
 
 	var resets bytes.Buffer
@@ -348,7 +348,7 @@ func writeState(b *bytes.Buffer, snap serve.Snapshot, admitted func(provider str
 		}
 		vm.WriteGaugeFloat64(&rows, series(quotaUsed.name, "provider", q.Provider, "window", q.Window), q.UsedRatio)
 		if !q.ResetsAt.IsZero() {
-			vm.WriteGaugeUint64(&resets, series(quotaReset.name, "provider", q.Provider, "window", q.Window), uint64(q.ResetsAt.Unix()))
+			vm.WriteGaugeUint64(&resets, series(quotaReset.name, "provider", q.Provider, "window", q.Window), uint64(max(q.ResetsAt.Unix(), 0)))
 		}
 	}
 	flush(quotaUsed)
@@ -357,7 +357,7 @@ func writeState(b *bytes.Buffer, snap serve.Snapshot, admitted func(provider str
 	writeJoins(&rows, snap.SwarmJoins)
 	flush(swarmJoins)
 	for _, n := range snap.RelayNodes {
-		vm.WriteGaugeUint64(&rows, series(swarmNodes.name, "kind", n.Kind, "transport", n.Transport, "state", n.State), uint64(n.Count))
+		vm.WriteGaugeUint64(&rows, series(swarmNodes.name, "kind", n.Kind, "transport", n.Transport, "state", n.State), uint64(max(n.Count, 0)))
 	}
 	flush(swarmNodes)
 }

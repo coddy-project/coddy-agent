@@ -85,9 +85,9 @@ func (s *Server) workspaceContextCWD(w http.ResponseWriter, r *http.Request) (st
 		http.Error(w, `{"error":{"message":"invalid path"}}`, http.StatusBadRequest)
 		return "", false
 	}
-	fi, err := os.Stat(abs)
+	fi, err := os.Stat(abs) //nolint:gosec // G703: the folder picker reaches the operator's whole disk on purpose, behind the server's credential
 	if err != nil || !fi.IsDir() {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, "folder not found: "+abs), http.StatusBadRequest)
+		http.Error(w, errorJSON("folder not found: "+abs), http.StatusBadRequest)
 		return "", false
 	}
 	return abs, true
@@ -216,9 +216,9 @@ func (s *Server) coddyWorkspaceFoldersGet(w http.ResponseWriter, r *http.Request
 		http.Error(w, `{"error":{"message":"invalid path"}}`, http.StatusBadRequest)
 		return
 	}
-	fi, err := os.Stat(abs)
+	fi, err := os.Stat(abs) //nolint:gosec // G703: the folder picker reaches the operator's whole disk on purpose, behind the server's credential
 	if err != nil || !fi.IsDir() {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, "folder not found: "+abs), http.StatusBadRequest)
+		http.Error(w, errorJSON("folder not found: "+abs), http.StatusBadRequest)
 		return
 	}
 	// Stat above follows a symlink only to verify that its final target is a
@@ -229,7 +229,7 @@ func (s *Server) coddyWorkspaceFoldersGet(w http.ResponseWriter, r *http.Request
 	}
 	entries, err := os.ReadDir(abs)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}
 	showHidden := r.URL.Query().Get("show_hidden") == "true"
@@ -251,7 +251,7 @@ func (s *Server) coddyWorkspaceFoldersGet(w http.ResponseWriter, r *http.Request
 			// Do not expose an arbitrary symlink as a navigable folder. os.Stat
 			// follows it only after detecting the link, and accepts it only when
 			// its final target is a directory.
-			targetInfo, err := os.Stat(path)
+			targetInfo, err := os.Stat(path) //nolint:gosec // G703: an entry of the folder the picker lists, followed only to see whether it is a folder
 			if err != nil || !targetInfo.IsDir() {
 				continue
 			}
@@ -325,18 +325,18 @@ func (s *Server) coddyWorkspaceFoldersPost(w http.ResponseWriter, r *http.Reques
 	}
 	// The parent has to exist already; a picker that silently builds a whole
 	// chain from a typo is worse than one that says no.
-	fi, err := os.Stat(parent)
+	fi, err := os.Stat(parent) //nolint:gosec // G703: the picker creates a folder where the operator stands, behind the server's credential
 	if err != nil || !fi.IsDir() {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, "folder not found: "+parent), http.StatusBadRequest)
+		http.Error(w, errorJSON("folder not found: "+parent), http.StatusBadRequest)
 		return
 	}
 	made := filepath.Join(parent, name)
-	if err := os.Mkdir(made, 0o755); err != nil {
+	if err := os.Mkdir(made, 0o755); err != nil { //nolint:gosec // G703: the picker creates a folder where the operator stands; validWorkspaceFolderName keeps name to one path element
 		if errors.Is(err, os.ErrExist) {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, "folder already exists: "+made), http.StatusConflict)
+			http.Error(w, errorJSON("folder already exists: "+made), http.StatusConflict)
 			return
 		}
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -358,7 +358,7 @@ func (s *Server) hostDrives() []string {
 func (s *Server) coddySessionWorkspacePost(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))
 	if err := session.ValidateFolderSessionID(id); err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}
 	var body struct {
@@ -386,7 +386,7 @@ func (s *Server) coddySessionWorkspacePost(w http.ResponseWriter, r *http.Reques
 	if p := strings.TrimSpace(body.Path); p != "" && !existing {
 		abs, verr := session.ValidateWorkspaceDir(p)
 		if verr != nil {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, verr.Error()), http.StatusBadRequest)
+			http.Error(w, errorJSON(verr.Error()), http.StatusBadRequest)
 			return
 		}
 		body.Path = abs
@@ -394,7 +394,7 @@ func (s *Server) coddySessionWorkspacePost(w http.ResponseWriter, r *http.Reques
 	}
 	st, err := s.mgr.EnsureHTTPSession(r.Context(), id, createCWD)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}
 	// A child session inherited its workspace from the parent's turn and is
@@ -419,12 +419,12 @@ func (s *Server) coddySessionWorkspacePost(w http.ResponseWriter, r *http.Reques
 	switch {
 	case strings.TrimSpace(body.Path) != "":
 		if err := s.mgr.SetSessionWorkspace(r.Context(), st, body.Path); err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+			http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 			return
 		}
 	case strings.TrimSpace(body.Branch) != "":
 		if status, err := s.applyBranchSwitch(r.Context(), st, body.Branch, body.Worktree); err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), status)
+			http.Error(w, errorJSON(err.Error()), status)
 			return
 		}
 	default:

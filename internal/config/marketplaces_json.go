@@ -53,7 +53,7 @@ func ProjectMarketplacesPath(cwd string) string {
 // nothing; a file that does not parse is an error, so nothing writes over
 // what it holds.
 func ReadMarketplacesFile(path string) (MarketplacesFile, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // the path derives from the home or the workspace
+	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return MarketplacesFile{}, nil
 	}

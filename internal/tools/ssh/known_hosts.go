@@ -21,7 +21,7 @@ func hostKeyCallback(mode, knownHostsPath string) (gossh.HostKeyCallback, error)
 	if mode == "insecure" {
 		// The operator's explicit choice (a session under bypass); every
 		// other mode verifies through known_hosts below.
-		return gossh.InsecureIgnoreHostKey(), nil //nolint:gosec // nosemgrep: go.lang.security.audit.crypto.insecure_ssh.avoid-ssh-insecure-ignore-host-key
+		return gossh.InsecureIgnoreHostKey(), nil //nolint:gosec // G106: the operator chose "insecure", see above // nosemgrep: go.lang.security.audit.crypto.insecure_ssh.avoid-ssh-insecure-ignore-host-key
 	}
 	return autoUpdateCallback(knownHostsPath)
 }

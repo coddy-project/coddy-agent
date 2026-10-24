@@ -22,7 +22,7 @@ import (
 func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))
 	if err := session.ValidateFolderSessionID(id); err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}
 
@@ -43,7 +43,7 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 	if model := strings.TrimSpace(body.Model); model != "" {
 		matched, err := s.activeCfg().MatchModelID(model)
 		if err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, fmt.Errorf("%w: %v", agent.ErrCompactionModel, err).Error()), http.StatusBadRequest)
+			http.Error(w, errorJSON(fmt.Errorf("%w: %v", agent.ErrCompactionModel, err).Error()), http.StatusBadRequest)
 			return
 		}
 		summarizer = matched
@@ -54,7 +54,7 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 	// writes the summary and the check waits for the session below.
 	checkLevel := func(st agent.SessionState) bool {
 		if _, err := agent.CompactionReasoning(s.activeCfg(), st, summarizer, body.Reasoning); err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, fmt.Errorf("%w: %v", agent.ErrCompactionModel, err).Error()), http.StatusBadRequest)
+			http.Error(w, errorJSON(fmt.Errorf("%w: %v", agent.ErrCompactionModel, err).Error()), http.StatusBadRequest)
 			return false
 		}
 		return true
@@ -112,7 +112,7 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 			writeSubagentsError(w, http.StatusConflict, subagentReadOnlyMessage(st))
 		default:
 			s.log.Error("compact: turn admission", "session", id, "error", err)
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+			http.Error(w, errorJSON(err.Error()), http.StatusInternalServerError)
 		}
 		return
 	}
@@ -144,10 +144,10 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 	case errors.Is(err, agent.ErrCompactionModel):
 		// The summarizer asked for by name matches no configured model, or
 		// several: the caller's mistake, and nothing was compacted.
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 	case err != nil:
 		s.log.Error("compact: session compaction", "session", id, "error", err)
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+		http.Error(w, errorJSON(err.Error()), http.StatusInternalServerError)
 	default:
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"compacted":          true,

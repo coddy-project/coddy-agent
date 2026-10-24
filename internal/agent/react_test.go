@@ -3221,7 +3221,7 @@ func TestWithTurnContextDoesNotWriteIntoTheCallersSlice(t *testing.T) {
 	if len(sent) != 3 || len(base) != 2 {
 		t.Fatalf("lengths: sent=%d base=%d", len(sent), len(base))
 	}
-	grown := append(base, llm.Message{Role: llm.RoleTool, Content: "result"}) //nolint:gocritic // the point of the test
+	grown := append(base, llm.Message{Role: llm.RoleTool, Content: "result"})
 	if sent[2].Content != "<turn_context>\nclock\n</turn_context>" {
 		t.Fatalf("appending to the caller's slice overwrote the sent block: %q", sent[2].Content)
 	}

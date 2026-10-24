@@ -1731,7 +1731,7 @@ func (s *cliTUIState) persistedSessionCarriesNoTrace(text string) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
-		body, readErr := os.ReadFile(path) // #nosec G304 -- test-owned temp path
+		body, readErr := os.ReadFile(path)
 		if readErr != nil {
 			return readErr
 		}

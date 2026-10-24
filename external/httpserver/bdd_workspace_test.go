@@ -77,7 +77,9 @@ func (s *wsFeatureState) close() {
 		default:
 		}
 		select {
-		case <-s.turnDone:
+		case err := <-s.turnDone:
+			// Stopped on purpose: how it returned is not what the scenario checks.
+			_ = err
 		case <-time.After(5 * time.Second):
 		}
 		s.turnGate, s.turnEntered, s.turnDone = nil, nil, nil

@@ -430,6 +430,27 @@ func (p *acpProcess) noteAnswer(id json.RawMessage, m acpMessage) {
 	}
 }
 
+// acpBeforePromptWait, when a test sets it, runs between handing a prompt to
+// its goroutine and waiting for its line to go out: it widens the window in
+// which the agent answers and exits first.
+var acpBeforePromptWait atomic.Pointer[func()]
+
+// promptAfterExit answers a prompt whose agent is gone before startPrompt
+// saw its line go out: an agent that took the line, answered and exited at
+// once leaves both ready, and select picks either. watch closes done only
+// after the connection ended, so after the router read every line the agent
+// wrote: an answer it wrote is on the track by now, and the prompt's
+// goroutine puts it on ch. Without one the prompt ends with the exit.
+func (p *acpProcess) promptAfterExit(tr *acpPromptTrack, ch <-chan acpMessage) (<-chan acpMessage, error) {
+	p.mu.Lock()
+	answered := tr.answer != nil
+	p.mu.Unlock()
+	if answered {
+		return ch, nil
+	}
+	return nil, p.exitError()
+}
+
 // keptAnswer returns the answer the router read for the prompt in flight on
 // a session, if it read one: the prompt's line is out and its track still
 // stands (once startPrompt's goroutine let go of it, the answer is on that
@@ -738,7 +759,7 @@ func (p *acpProcess) startPrompt(ctx context.Context, req acpsdk.PromptRequest) 
 	p.prompts[sid] = tr
 	p.mu.Unlock()
 	ch := make(chan acpMessage, 1)
-	go func() {
+	go func() { //nolint:gosec // G118: once its line is out the prompt belongs to the agent, see startPrompt; a cancellation goes as session/cancel
 		defer tr.markSent()
 		defer func() {
 			p.mu.Lock()
@@ -768,11 +789,14 @@ func (p *acpProcess) startPrompt(ctx context.Context, req acpsdk.PromptRequest) 
 		}
 		close(ch)
 	}()
+	if wait := acpBeforePromptWait.Load(); wait != nil {
+		(*wait)()
+	}
 	select {
 	case <-tr.sent:
 		return ch, nil
 	case <-p.done:
-		return nil, p.exitError()
+		return p.promptAfterExit(tr, ch)
 	case <-ctx.Done():
 	}
 	p.mu.Lock()
@@ -792,7 +816,7 @@ func (p *acpProcess) startPrompt(ctx context.Context, req acpsdk.PromptRequest) 
 	case <-tr.sent:
 		return ch, nil
 	case <-p.done:
-		return nil, p.exitError()
+		return p.promptAfterExit(tr, ch)
 	case <-grace.C:
 		p.log.Warn("acp agent does not read its input; stopping it", "agent", p.spec.label())
 		go p.stop()

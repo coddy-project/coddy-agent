@@ -423,7 +423,9 @@ func (w *pollingWorld) close() {
 	}
 	if w.done != nil {
 		select {
-		case <-w.done:
+		case err := <-w.done:
+			// Stopped on purpose: how it returned is not what the scenario checks.
+			_ = err
 		case <-time.After(pollingStopFor):
 		}
 	}
