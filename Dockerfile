@@ -8,7 +8,7 @@
 
 # The bundle is JavaScript, the same for every platform, so it is built once,
 # natively, whatever platforms the image is built for.
-FROM --platform=$BUILDPLATFORM node:22-bookworm AS ui-builder
+FROM --platform=$BUILDPLATFORM node:26-bookworm AS ui-builder
 
 WORKDIR /ui
 COPY external/ui/package.json external/ui/package-lock.json ./
@@ -23,10 +23,10 @@ RUN npm run build:go
 
 
 # The compiler runs natively too; GOOS and GOARCH below pick the target.
-FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-bookworm AS build
 
 # The official image sets GOTOOLCHAIN=local, which would build with whatever
-# 1.26 release a cached copy of this image holds. auto lets go switch to the
+# 1.27 release a cached copy of this image holds. auto lets go switch to the
 # `toolchain` line of go.mod when the image is older, so the image never links
 # an older standard library than CI and the release archives.
 ENV GOTOOLCHAIN=auto

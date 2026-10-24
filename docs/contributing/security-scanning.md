@@ -100,14 +100,14 @@ which has no fix) is reported at `module` level and stays informational.
 ## The Go toolchain
 
 `go.mod` carries two lines: `go 1.26.0`, the oldest Go that compiles the
-module, and `toolchain go1.26.10`, the oldest release any build links. CI
+module, and `toolchain go1.27.3`, the oldest release any build links. CI
 installs Go from the `go` line (`actions/setup-go` with `go-version-file`)
 and the `go` command then switches to the `toolchain` release
 (`GOTOOLCHAIN=auto`, the default of an official Go), so the test jobs, the
 release archives and the packages link exactly that release's standard
 library. The switch only goes up: the Docker image (whose build stage sets
 `GOTOOLCHAIN=auto`, because the official image pins `local`) and a local
-build use the `golang:1.26` image's or the installed Go when it is newer,
+build use the `golang:1.27` image's or the installed Go when it is newer,
 which only adds fixes.
 
 Without the `toolchain` line every build used exactly the `go` line's
@@ -121,7 +121,7 @@ weekly scan fails when a Go patch release fixes a vulnerability the code
 reaches. The fix is a one-line pull request:
 
 ```bash
-go mod edit -toolchain=go1.26.N   # the patch release that carries the fix
+go mod edit -toolchain=go1.27.N   # the patch release that carries the fix
 make sec-govulncheck              # green again
 ```
 

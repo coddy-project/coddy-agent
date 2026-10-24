@@ -310,7 +310,10 @@ func runWorkerProcess(ctx context.Context, opts DaemonOptions, onStart func(pid 
 		if err := platform.TerminateProcessGroup(cmd, workerDrain); err != nil {
 			opts.logger().Warn("stopping the worker", "error", err)
 		}
-		<-done
+		// The worker was stopped on purpose, so its exit status is expected.
+		if err := <-done; err != nil {
+			opts.logger().Debug("worker stopped", "error", err)
+		}
 		return 0, nil
 	}
 }

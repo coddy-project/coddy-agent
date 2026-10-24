@@ -30,7 +30,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "26"
           cache: npm
           cache-dependency-path: external/ui/package-lock.json
 
@@ -74,7 +74,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "26"
           cache: npm
           cache-dependency-path: external/ui/package-lock.json
 
@@ -250,7 +250,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "26"
 
       # The test suite runs with ripgrep installed; the same code paths run here.
       - name: Install ripgrep
@@ -304,7 +304,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "26"
           cache: npm
           cache-dependency-path: external/ui/package-lock.json
 
@@ -367,7 +367,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "26"
           cache: npm
           cache-dependency-path: external/ui/package-lock.json
 
@@ -562,7 +562,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "26"
 
       - name: Check the generated pages, the links and the assets
         run: make docs-check
@@ -599,7 +599,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "26"
           cache: npm
           cache-dependency-path: external/ui/package-lock.json
 
@@ -615,19 +615,19 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.12.2
+          version: v2.15.0
           args: ./...
 
       - name: Run golangci-lint with every tag but ui
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.12.2
+          version: v2.15.0
           args: --build-tags ${{ steps.tags.outputs.no_ui }} ./...
 
       - name: Run golangci-lint with the shipped tag set
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.12.2
+          version: v2.15.0
           args: --build-tags ${{ steps.tags.outputs.full }} ./...
 
       - name: Run golangci-lint against the Windows build
@@ -635,7 +635,7 @@ jobs:
         env:
           GOOS: windows
         with:
-          version: v2.12.2
+          version: v2.15.0
           args: ./...
 
       - name: Run golangci-lint with every tag but ui against the Windows build
@@ -643,7 +643,7 @@ jobs:
         env:
           GOOS: windows
         with:
-          version: v2.12.2
+          version: v2.15.0
           args: --build-tags ${{ steps.tags.outputs.no_ui }} ./...
 
       - name: Run golangci-lint with the shipped tag set against the Windows build
@@ -651,7 +651,7 @@ jobs:
         env:
           GOOS: windows
         with:
-          version: v2.12.2
+          version: v2.15.0
           args: --build-tags ${{ steps.tags.outputs.full }} ./...
 
       - name: Type-check the web UI

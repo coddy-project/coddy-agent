@@ -1,4 +1,4 @@
-# golangci-lint v2 configuration. CI pins v2.12.2 (.github/workflows/tests-on-pr.yaml);
+# golangci-lint v2 configuration. CI pins v2.15.0 (.github/workflows/tests-on-pr.yaml);
 # `make lint` and `make lint-windows` run it three times each (Makefile, "Lint").
 version: "2"
 

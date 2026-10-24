@@ -122,7 +122,8 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 	// established and then fails on its first frame.
 	served := swarmdto.SpliceBuffered(conn, brw.Reader)
 
-	tr := &http2.Transport{ //nolint:staticcheck // x/net v0.60.0 deprecates its HTTP/2 API for net/http's; the move is a change of its own
+	//nolint:staticcheck // x/net v0.60.0 deprecates its HTTP/2 API for net/http's; the move is a change of its own
+	tr := &http2.Transport{
 		AllowHTTP: true,
 		// A dead peer that never sends a FIN is indistinguishable from an idle
 		// one until something writes, so the connection is probed.
