@@ -241,9 +241,18 @@ func (h *Handler) HandleInitialize(_ context.Context, params acp.InitializeParam
 	return &acp.InitializeResult{
 		ProtocolVersion: acp.ProtocolVersion,
 		AgentCapabilities: acp.AgentCapabilities{
-			LoadSession:         true,
-			SessionCapabilities: &acp.SessionCaps{},
-			PromptCapabilities:  &acp.PromptCapabilities{EmbeddedContext: true},
+			LoadSession: true,
+			// The remote server lists, deletes and resumes sessions, and this
+			// handler proxies all three. additionalDirectories is left out:
+			// the remote dialect does not carry the extra roots yet, so
+			// advertising it would promise a scoping this connection cannot
+			// report back.
+			SessionCapabilities: &acp.SessionCaps{
+				List:   &acp.SessionListCapabilities{},
+				Delete: &acp.SessionDeleteCapabilities{},
+				Resume: &acp.SessionResumeCapabilities{},
+			},
+			PromptCapabilities: &acp.PromptCapabilities{EmbeddedContext: true},
 		},
 		AgentInfo: acp.ImplementationInfo{
 			Name:    acp.AgentName,
@@ -325,13 +334,63 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 
 // HandleSessionLoad replays a remote session transcript to the sender.
 func (h *Handler) HandleSessionLoad(ctx context.Context, params acp.SessionLoadParams) (*acp.SessionLoadResult, error) {
-	if err := h.ensureModels(ctx); err != nil {
-		return nil, err
-	}
-	id := strings.TrimSpace(params.SessionID)
-	msgs, err := h.sessionMessages(ctx, id)
+	msgs, st, err := h.openRemoteSession(ctx, params.SessionID)
 	if err != nil {
 		return nil, fmt.Errorf("session/load: %w", err)
+	}
+	h.replayMessages(params.SessionID, msgs.Messages)
+	// A background subagent of this session may have asked before the console
+	// opened it; the server announced that prompt then, and it is shown now.
+	h.offerDetachedPromptsFor(params.SessionID)
+	return &acp.SessionLoadResult{
+		Modes:         h.modeState(st),
+		ConfigOptions: h.configOptions(st),
+	}, nil
+}
+
+// HandleSessionResume brings a remote session back without replaying its
+// transcript, for a client that keeps its own copy of the history.
+func (h *Handler) HandleSessionResume(ctx context.Context, params acp.SessionResumeParams) (*acp.SessionResumeResult, error) {
+	_, st, err := h.openRemoteSession(ctx, params.SessionID)
+	if err != nil {
+		return nil, fmt.Errorf("session/resume: %w", err)
+	}
+	// The transcript stays with the client, but a prompt a background subagent
+	// of this session is waiting on is not history: it is shown as on a load.
+	h.offerDetachedPromptsFor(params.SessionID)
+	return &acp.SessionResumeResult{
+		Modes:         h.modeState(st),
+		ConfigOptions: h.configOptions(st),
+	}, nil
+}
+
+// HandleSessionDelete removes a session and everything it spawned on the
+// remote server, which is what an editor's delete of a session/list row means.
+func (h *Handler) HandleSessionDelete(ctx context.Context, params acp.SessionDeleteParams) (*acp.SessionDeleteResult, error) {
+	id := strings.TrimSpace(params.SessionID)
+	if id == "" {
+		return nil, fmt.Errorf("session/delete: empty session id")
+	}
+	if err := h.DeleteSession(ctx, id); err != nil {
+		return nil, fmt.Errorf("session/delete: %w", err)
+	}
+	h.mu.Lock()
+	delete(h.sessions, id)
+	h.mu.Unlock()
+	return &acp.SessionDeleteResult{}, nil
+}
+
+// openRemoteSession fetches a session's transcript and installs its settings on
+// the local mirror, which is everything a load and a resume share: the two
+// differ only in whether the transcript is then replayed to the client.
+func (h *Handler) openRemoteSession(ctx context.Context, sessionID string) (*messagesResponse, *sessionState, error) {
+	if err := h.ensureModels(ctx); err != nil {
+		return nil, nil, err
+	}
+	id := strings.TrimSpace(sessionID)
+	msgs, err := h.sessionMessages(ctx, id)
+	if err != nil {
+		return nil, nil, err
 	}
 	st := h.session(id)
 	h.mu.Lock()
@@ -357,14 +416,7 @@ func (h *Handler) HandleSessionLoad(ctx context.Context, params acp.SessionLoadP
 	if msgs.Goal != nil {
 		h.mirrorGoal(id, msgs.Goal.Goal, msgs.Goal.Version)
 	}
-	h.replayMessages(id, msgs.Messages)
-	// A background subagent of this session may have asked before the console
-	// opened it; the server announced that prompt then, and it is shown now.
-	h.offerDetachedPromptsFor(id)
-	return &acp.SessionLoadResult{
-		Modes:         h.modeState(st),
-		ConfigOptions: h.configOptions(st),
-	}, nil
+	return msgs, st, nil
 }
 
 // HandleSessionList lists the remote server's sessions (newest first). The
