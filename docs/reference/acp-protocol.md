@@ -715,7 +715,7 @@ Sent whenever the title the session is listed under moves: the name its first me
 
 `title` is always on the wire - a rename carries the new name, and a session nobody names any more carries `null`, which clears the name rather than leaving it standing. `updatedAt` is when the agent announced the change.
 
-The first announcement of a session goes out once the client has registered it, after the `session/new` or `session/load` response: a rename in that window is about a session the client has not seen yet, and is published with the rest rather than ahead of it.
+The first announcement of a session goes out once the client has registered it, after the `session/new`, `session/load` or `session/resume` response: a rename in that window is about a session the client has not seen yet, and is published with the rest rather than ahead of it.
 
 ### `current_mode_update` - Mode changed
 
