@@ -125,14 +125,14 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			ProjectTrust:   ProjectTrustAsk,
 		},
 		Gateways: GatewaysJSON{
-			Telegram: TelegramGatewayJSON{
+			Telegram: TelegramGatewayJSON{ //nolint:gosec // G101: the default token is a reference to ${TELEGRAM_BOT_TOKEN}, not a token
 				Enabled:          false,
 				Token:            "${TELEGRAM_BOT_TOKEN}",
 				RichMessages:     true,
 				DefaultAccess:    string(AccessAll),
 				DefaultIsolation: string(IsolationIndividual),
 			},
-			Pachca: PachcaGatewayJSON{
+			Pachca: PachcaGatewayJSON{ //nolint:gosec // G101: the default token is a reference to ${PACHCA_BOT_TOKEN}, not a token
 				Enabled:             false,
 				Token:               "${PACHCA_BOT_TOKEN}",
 				PollIntervalSeconds: PachcaPollIntervalDefault,

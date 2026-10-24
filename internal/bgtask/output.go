@@ -60,7 +60,7 @@ func (s *OutputSink) Write(p []byte) (int, error) {
 		// (where the memory report went) still belongs to its record on
 		// disk: reopen for this write so the log a later process reads says
 		// the same as the window this one serves.
-		if f, err := os.OpenFile(s.path, os.O_WRONLY|os.O_APPEND, 0o644); err == nil { // #nosec G304 -- the path the sink was attached with
+		if f, err := os.OpenFile(s.path, os.O_WRONLY|os.O_APPEND, 0o644); err == nil { // the path the sink was attached with
 			_, _ = f.Write(p)
 			_ = f.Close()
 		}

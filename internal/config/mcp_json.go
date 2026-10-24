@@ -44,7 +44,7 @@ func GlobalMCPJSONPath(home string) string {
 // ReadMCPJSONFile returns the raw named entries of an mcp.json file. A
 // missing file is not an error and yields an empty map.
 func ReadMCPJSONFile(path string) (map[string]MCPJSONServer, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // path derives from home/cwd
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return map[string]MCPJSONServer{}, nil

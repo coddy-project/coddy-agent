@@ -121,7 +121,7 @@ func runVitestFile(file string) (vitestReport, error) {
 	cmd := exec.CommandContext(ctx, "node", "node_modules/vitest/vitest.mjs", "run", file,
 		"--reporter=json", "--outputFile="+reportPath)
 	out, runErr := cmd.CombinedOutput()
-	data, err := os.ReadFile(reportPath) //nolint:gosec // a path this function made
+	data, err := os.ReadFile(reportPath)
 	if err != nil {
 		return vitestReport{}, fmt.Errorf("%s: vitest wrote no report (%v): %w\n%s", file, runErr, err, out)
 	}

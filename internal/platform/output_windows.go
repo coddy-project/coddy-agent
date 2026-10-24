@@ -4,6 +4,7 @@ package platform
 
 import (
 	"fmt"
+	"math"
 	"unicode/utf16"
 	"unicode/utf8"
 
@@ -57,7 +58,11 @@ func DecodeANSI(b []byte) (text string, codePage uint32, ok bool) {
 // dwFlags is 0 rather than MB_ERR_INVALID_CHARS so that a stray invalid byte
 // yields a replacement character instead of discarding the whole message.
 func decodeCodePage(codePage uint32, b []byte) (string, error) {
-	size, err := windows.MultiByteToWideChar(codePage, 0, &b[0], int32(len(b)), nil, 0)
+	if uint64(len(b)) > math.MaxInt32 {
+		return "", fmt.Errorf("MultiByteToWideChar(%d): %d bytes is more than one call takes", codePage, len(b))
+	}
+	n := int32(len(b)) //nolint:gosec // G115: at most MaxInt32, checked above
+	size, err := windows.MultiByteToWideChar(codePage, 0, &b[0], n, nil, 0)
 	if err != nil {
 		return "", err
 	}
@@ -65,7 +70,7 @@ func decodeCodePage(codePage uint32, b []byte) (string, error) {
 		return "", fmt.Errorf("MultiByteToWideChar(%d) reported size %d", codePage, size)
 	}
 	buf := make([]uint16, size)
-	if _, err := windows.MultiByteToWideChar(codePage, 0, &b[0], int32(len(b)), &buf[0], size); err != nil {
+	if _, err := windows.MultiByteToWideChar(codePage, 0, &b[0], n, &buf[0], size); err != nil {
 		return "", err
 	}
 	// utf16.Decode rather than windows.UTF16ToString: the latter stops at the

@@ -484,8 +484,8 @@ func TestConfigWritersSerializeFileAndRuntimeApplication(t *testing.T) {
 		})
 	}()
 	select {
-	case <-putDone:
-		t.Fatal("second writer entered while the commit transaction still held the lock")
+	case err := <-putDone:
+		t.Fatalf("second writer entered while the commit transaction still held the lock (it returned %v)", err)
 	case <-time.After(100 * time.Millisecond):
 	}
 

@@ -356,7 +356,7 @@ func (s *Server) coddyAuthLogoutPost(w http.ResponseWriter, r *http.Request) {
 	s.clearTelegramSession(w, r)
 	// Clear the cookie whatever happened, so a browser holding a session this
 	// server no longer knows about stops sending it.
-	clear := sessionCookie(r, "", 0)
+	clear := sessionCookie(r, "", 0) //nolint:gosec // G124: sessionCookie sets HttpOnly and SameSite=Strict, and Secure whenever the request came over TLS
 	clear.MaxAge = -1
 	clear.Expires = time.Unix(0, 0)
 	http.SetCookie(w, clear)
@@ -377,6 +377,7 @@ func (s *Server) coddyAuthLogoutPost(w http.ResponseWriter, r *http.Request) {
 // never sends the cookie back cannot sign in at all.
 func sessionCookie(r *http.Request, token string, ttl time.Duration) *http.Cookie {
 	// Secure follows the request's TLS on purpose (see above); HttpOnly is set.
+	//nolint:gosec // G124: Secure follows the request's TLS on purpose, see above; HttpOnly and SameSite=Strict are set
 	c := &http.Cookie{ // nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 		Name:     sessionCookieName(r),
 		Value:    token,

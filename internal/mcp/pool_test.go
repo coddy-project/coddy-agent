@@ -422,7 +422,7 @@ func TestPoolStopsAServerNobodyWaitsFor(t *testing.T) {
 		t.Fatal("the server did not start")
 	}
 	cancel()
-	<-done
+	t.Logf("the cancelled acquire returned %v", <-done)
 	_ = os.WriteFile(hold, []byte("1"), 0o644)
 	if !eventually(t, 5*time.Second, func() bool { return recorded(record, "exited") == 1 }) {
 		t.Fatal("a server nobody waited for any more kept running")

@@ -26,7 +26,7 @@ const (
 	// codexClientID is the public OAuth client id the Codex CLI registers with.
 	codexClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
 	// codexTokenURL is the OAuth token endpoint used to refresh the access token.
-	codexTokenURL = "https://auth.openai.com/oauth/token"
+	codexTokenURL = "https://auth.openai.com/oauth/token" //nolint:gosec // G101: the address of the OAuth token endpoint, not a credential
 	// codexDefaultBaseURL is the Codex backend that serves the Responses API for
 	// ChatGPT-authenticated sessions.
 	codexDefaultBaseURL = "https://chatgpt.com/backend-api/codex"
@@ -239,7 +239,7 @@ func (s *codexAuthSource) save(path string, auth *codexAuthFile) error {
 	if data, err := os.ReadFile(path); err == nil {
 		_ = json.Unmarshal(data, &raw)
 	}
-	tokensJSON, err := json.Marshal(auth.Tokens)
+	tokensJSON, err := json.Marshal(auth.Tokens) //nolint:gosec // G117: the tokens go back into the Codex auth.json they came from, written 0600
 	if err != nil {
 		return err
 	}

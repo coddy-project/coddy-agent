@@ -94,8 +94,8 @@ func (s *Server) describeWorkspace(r *http.Request) string {
 	if raw := strings.TrimSpace(r.URL.Query().Get("cwd")); raw != "" && filepath.IsAbs(raw) {
 		// Clean only normalises the spelling; the folder is read for its skill
 		// catalog, the same reach /coddy/slash-commands has.
-		abs := filepath.Clean(raw) // nosemgrep: go.lang.security.filepath-clean-misuse.filepath-clean-misuse
-		if fi, err := os.Stat(abs); err == nil && fi.IsDir() {
+		abs := filepath.Clean(raw)                             // nosemgrep: go.lang.security.filepath-clean-misuse.filepath-clean-misuse
+		if fi, err := os.Stat(abs); err == nil && fi.IsDir() { //nolint:gosec // G703: the cwd query names any folder on purpose, read for its skill catalog as /coddy/slash-commands reads it
 			return abs
 		}
 	}

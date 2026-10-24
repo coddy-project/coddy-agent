@@ -614,7 +614,8 @@ func TestDialTunnelStopsWhenItsContextIsCancelled(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	cancel()
 	select {
-	case <-done:
+	case err := <-done:
+		t.Logf("the cancelled dial returned %v", err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("a cancelled dial kept waiting on a blocking read")
 	}

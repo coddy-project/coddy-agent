@@ -131,7 +131,7 @@ func (a *Agent) runMemoryBeforeTurn(ctx context.Context, userText, mode string) 
 	a.memoryRun = mr
 	a.log.Info("memory run started", "session_id", parentID, "task", snap.ID, "child", childID, "model", model, "wait", wait)
 	a.sendMemoryRun(acp.MemoryRunUpdate{Status: "started", TaskID: snap.ID, ChildSessionID: childID})
-	go a.watchMemoryRun(mr, rt, cfg.Memory.EffectiveKeepRuns())
+	go a.watchMemoryRun(mr, rt, cfg.Memory.EffectiveKeepRuns()) //nolint:gosec // G118: the memory run outlives the turn that started it by design
 
 	if wait <= 0 {
 		return

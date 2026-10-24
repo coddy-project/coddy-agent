@@ -154,7 +154,11 @@ func (s *buildRevisionState) theMakefileBuildsTheBinary() error {
 	return nil
 }
 
-func (s *buildRevisionState) theToolchainStampedTheEnclosingCheckout() error {
+// theToolchainStampedACheckout reads the toolchain's own stamp, which the
+// revision the build names has to win over: up to Go 1.26 it is the enclosing
+// checkout's commit, from Go 1.27 the worktree's (issue #610). Either way it is
+// one of the two, so the toolchain did read git.
+func (s *buildRevisionState) theToolchainStampedACheckout() error {
 	info, err := buildinfo.ReadFile(s.binary)
 	if err != nil {
 		return err
@@ -165,8 +169,8 @@ func (s *buildRevisionState) theToolchainStampedTheEnclosingCheckout() error {
 			stamped = setting.Value
 		}
 	}
-	if stamped != s.outerHead {
-		return fmt.Errorf("the toolchain stamped vcs.revision %q, want the enclosing checkout's %s (worktree %s)",
+	if stamped != s.outerHead && stamped != s.worktreeHead {
+		return fmt.Errorf("the toolchain stamped vcs.revision %q, want the enclosing checkout's %s or the worktree's %s",
 			stamped, s.outerHead, s.worktreeHead)
 	}
 	s.stamped = info
@@ -220,7 +224,7 @@ func TestBuildRevisionFeature(t *testing.T) {
 			})
 			sc.Step(`^a checkout with a worktree nested in a folder of it, each on a commit of its own$`, s.aCheckoutWithANestedWorktree)
 			sc.Step(`^the Makefile of the repository builds the binary in the worktree$`, s.theMakefileBuildsTheBinary)
-			sc.Step(`^the Go toolchain has stamped the binary with the enclosing checkout's commit$`, s.theToolchainStampedTheEnclosingCheckout)
+			sc.Step(`^the Go toolchain has stamped the binary with the commit of one of the two checkouts$`, s.theToolchainStampedACheckout)
 			sc.Step(`^the build has named the worktree's commit as the binary's revision$`, s.theBuildNamedTheWorktreesCommit)
 			sc.Step(`^the binary describes itself by the worktree's commit$`, s.theBinaryDescribesItselfByTheWorktreesCommit)
 		},

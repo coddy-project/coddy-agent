@@ -548,7 +548,7 @@ func (s *Sender) SendError(msg string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := fmt.Fprintf(s.w, "data: {\"error\":{\"message\":%q}}\n\n", msg)
+	_, err := io.WriteString(s.w, "data: "+errorJSON(msg)+"\n\n")
 	s.flushLocked()
 	return err
 }

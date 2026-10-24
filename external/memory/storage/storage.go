@@ -4,9 +4,11 @@
 package memstorage
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -24,6 +26,10 @@ type Hit struct {
 	Score   int    `json:"score"`
 	Snippet string `json:"snippet"`
 }
+
+// ErrProjectRootLink refuses a project root that is a link, or sits in a
+// .coddy folder that is one.
+var ErrProjectRootLink = errors.New("project memory: .coddy/memory and the .coddy folder holding it must be real folders, not links")
 
 // Store reads and writes markdown-like memory files under global and project roots.
 type Store struct {
@@ -75,35 +81,6 @@ func (s *Store) ensureDir(dir string) error {
 func isMemoryFile(name string) bool {
 	ext := strings.ToLower(filepath.Ext(name))
 	return ext == ".md" || ext == ".txt"
-}
-
-func collectFiles(root string) ([]string, error) {
-	root = filepath.Clean(root)
-	fi, err := os.Stat(root)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	if !fi.IsDir() {
-		return nil, nil
-	}
-	var out []string
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !isMemoryFile(d.Name()) {
-			return nil
-		}
-		out = append(out, path)
-		return nil
-	})
-	return out, nil
 }
 
 func tokenize(s string) map[string]int {
@@ -168,30 +145,14 @@ func (s *Store) Search(query string, scope string, maxHits int) ([]Hit, error) {
 	if maxHits <= 0 {
 		maxHits = 8
 	}
-	var roots []struct {
-		root  string
-		label string
-	}
+	var labels []string
 	switch strings.ToLower(strings.TrimSpace(scope)) {
 	case "global":
-		roots = append(roots, struct {
-			root  string
-			label string
-		}{s.globalRoot, "global"})
+		labels = []string{"global"}
 	case "project":
-		roots = append(roots, struct {
-			root  string
-			label string
-		}{s.projectRoot, "project"})
+		labels = []string{"project"}
 	default:
-		roots = append(roots, struct {
-			root  string
-			label string
-		}{s.globalRoot, "global"})
-		roots = append(roots, struct {
-			root  string
-			label string
-		}{s.projectRoot, "project"})
+		labels = []string{"global", "project"}
 	}
 	type cand struct {
 		path  string
@@ -200,29 +161,32 @@ func (s *Store) Search(query string, scope string, maxHits int) ([]Hit, error) {
 		body  string
 	}
 	var all []cand
-	for _, r := range roots {
-		paths, err := collectFiles(r.root)
+	for _, label := range labels {
+		root, err := s.openRoot(label, false)
 		if err != nil {
+			// A root that does not exist yet holds no notes. A project root
+			// that cannot be opened (a link, a file, no access) is an error
+			// when it is the one root asked for; a search of both roots
+			// answers from the other.
+			if errors.Is(err, fs.ErrNotExist) || (len(labels) > 1 && label == "project") {
+				continue
+			}
 			return nil, err
 		}
-		for _, p := range paths {
-			b, err := os.ReadFile(p)
+		for _, rel := range collectFiles(root.FS()) {
+			b, err := root.ReadFile(rel)
 			if err != nil {
 				continue
 			}
 			body := string(b)
-			rel, err := filepath.Rel(r.root, p)
-			if err != nil {
-				rel = p
-			}
-			relSlash := filepath.ToSlash(rel)
-			pathContext := strings.ReplaceAll(relSlash, "/", " ") + " " + filepath.Base(p)
+			pathContext := strings.ReplaceAll(rel, "/", " ") + " " + path.Base(rel)
 			sc := scoreOverlap(query, pathContext+" "+body)
 			if sc <= 0 {
 				continue
 			}
-			all = append(all, cand{path: r.label + ":" + filepath.ToSlash(rel), scope: r.label, score: sc, body: body})
+			all = append(all, cand{path: label + ":" + rel, scope: label, score: sc, body: body})
 		}
+		_ = root.Close()
 	}
 	sort.Slice(all, func(i, j int) bool {
 		if all[i].score == all[j].score {
@@ -251,68 +215,40 @@ func scopeLabelFromPrefix(prefix string) (string, error) {
 	}
 }
 
-func (s *Store) resolveScopeRoot(scopeOrPrefix string) (label string, root string, err error) {
-	scopeOrPrefix = strings.TrimSpace(scopeOrPrefix)
-	if scopeOrPrefix == "" {
-		return "", "", fmt.Errorf("missing scope")
-	}
-	lab, err := scopeLabelFromPrefix(scopeOrPrefix)
-	if err != nil {
-		return "", "", err
-	}
-	switch lab {
-	case "global":
-		return lab, s.globalRoot, nil
-	case "project":
-		return lab, s.projectRoot, nil
-	default:
-		return "", "", fmt.Errorf("unknown scope %q", lab)
-	}
-}
-
-// joinUnderRoot validates rest stays under root (no ".." escapes) and returns absolute path.
-func joinUnderRoot(root, rest string) (abs string, err error) {
-	root = filepath.Clean(root)
-	restPath := filepath.Clean(filepath.FromSlash(strings.TrimSpace(rest)))
-	if strings.HasPrefix(restPath, "..") {
-		return "", fmt.Errorf("invalid relative path")
-	}
-	if restPath == "." {
-		return root, nil
-	}
-	abs = filepath.Join(root, restPath)
-	abs = filepath.Clean(abs)
-	relCheck, err := filepath.Rel(root, abs)
-	if err != nil || strings.HasPrefix(relCheck, "..") {
-		return "", fmt.Errorf("path escapes root")
-	}
-	return abs, nil
-}
-
-func (s *Store) resolveReadable(rel string) (abs string, err error) {
-	rel = strings.TrimSpace(rel)
-	rel = filepath.ToSlash(rel)
+// resolveReadable splits a scope:relative path into its scope label and its
+// name inside that root.
+func (s *Store) resolveReadable(rel string) (label, name string, err error) {
+	rel = filepath.ToSlash(strings.TrimSpace(rel))
 	if rel == "" || strings.Contains(rel, "..") {
-		return "", fmt.Errorf("invalid path")
+		return "", "", fmt.Errorf("invalid path")
 	}
 	parts := strings.SplitN(rel, ":", 2)
 	if len(parts) != 2 {
-		return "", fmt.Errorf("path must be scope:relative form, got %q", rel)
+		return "", "", fmt.Errorf("path must be scope:relative form, got %q", rel)
 	}
-	_, root, err := s.resolveScopeRoot(parts[0])
-	if err != nil {
-		return "", err
+	if label, err = scopeLabelFromPrefix(parts[0]); err != nil {
+		return "", "", err
 	}
-	return joinUnderRoot(root, parts[1])
+	name, err = cleanRel(parts[1])
+	return label, name, err
 }
 
-// resolveDirAbs returns absolute directory under a memory scope root. inner empty means scope root directory.
-func (s *Store) resolveDirAbs(scopeLabel, inner string) (abs string, err error) {
-	_, root, err := s.resolveScopeRoot(scopeLabel)
+// openScopeDir resolves a scope label and a folder inside it, and opens the
+// root.
+func (s *Store) openScopeDir(scopeLabel, inner string, create bool) (rootFS, string, error) {
+	label, err := scopeLabelFromPrefix(scopeLabel)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
-	return joinUnderRoot(root, inner)
+	name, err := cleanRel(inner)
+	if err != nil {
+		return nil, "", err
+	}
+	root, err := s.openRoot(label, create)
+	if err != nil {
+		return nil, "", err
+	}
+	return root, name, nil
 }
 
 // ListEntry is one row in a flat directory listing.
@@ -323,30 +259,47 @@ type ListEntry struct {
 	Modified string `json:"modified,omitempty"`
 }
 
-// ListOneLevel lists immediate children under scope-relative directory inner (empty string = scope root).
+// ListOneLevel lists immediate children under scope-relative directory inner
+// (empty string = scope root), creating that folder when it is missing.
 func (s *Store) ListOneLevel(scopeLabel, inner string) ([]ListEntry, error) {
-	dirAbs, err := s.resolveDirAbs(scopeLabel, inner)
+	root, name, err := s.openScopeDir(scopeLabel, inner, true)
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(dirAbs, 0o755); err != nil {
+	defer func() { _ = root.Close() }()
+	if err := root.MkdirAll(name, 0o755); err != nil {
 		return nil, err
 	}
-	fi, err := os.Stat(dirAbs)
+	return listDir(root, name)
+}
+
+// List lists the immediate children of an existing folder inner of a scope:
+// fs.ErrNotExist when it is missing, ErrNotDir when it is a file.
+func (s *Store) List(scopeLabel, inner string) ([]ListEntry, error) {
+	root, name, err := s.openScopeDir(scopeLabel, inner, false)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	return listDir(root, name)
+}
+
+func listDir(root rootFS, name string) ([]ListEntry, error) {
+	fi, err := root.Stat(name)
 	if err != nil {
 		return nil, err
 	}
 	if !fi.IsDir() {
-		return nil, fmt.Errorf("not a directory")
+		return nil, ErrNotDir
 	}
-	de, err := os.ReadDir(dirAbs)
+	de, err := fs.ReadDir(root.FS(), name)
 	if err != nil {
 		return nil, err
 	}
 	var nodes []ListEntry
 	for _, e := range de {
-		name := e.Name()
-		if strings.HasPrefix(name, ".") {
+		entry := e.Name()
+		if strings.HasPrefix(entry, ".") {
 			continue
 		}
 		info, err := e.Info()
@@ -354,25 +307,25 @@ func (s *Store) ListOneLevel(scopeLabel, inner string) ([]ListEntry, error) {
 			continue
 		}
 		if info.IsDir() {
-			nodes = append(nodes, ListEntry{Name: name, Kind: "dir", Modified: info.ModTime().UTC().Format(time.RFC3339)})
+			nodes = append(nodes, ListEntry{Name: entry, Kind: "dir", Modified: info.ModTime().UTC().Format(time.RFC3339)})
 			continue
 		}
-		ext := strings.ToLower(filepath.Ext(name))
-		if ext != ".md" && ext != ".txt" {
+		if !isMemoryFile(entry) {
 			continue
 		}
-		nodes = append(nodes, ListEntry{Name: name, Kind: "file", Size: info.Size(), Modified: info.ModTime().UTC().Format(time.RFC3339)})
+		nodes = append(nodes, ListEntry{Name: entry, Kind: "file", Size: info.Size(), Modified: info.ModTime().UTC().Format(time.RFC3339)})
 	}
 	return nodes, nil
 }
 
 // Mkdir creates directories under scope (idempotent via MkdirAll).
 func (s *Store) Mkdir(scopeLabel, innerDir string) error {
-	dirAbs, err := s.resolveDirAbs(scopeLabel, innerDir)
+	root, name, err := s.openScopeDir(scopeLabel, innerDir, true)
 	if err != nil {
 		return err
 	}
-	return s.ensureDir(dirAbs)
+	defer func() { _ = root.Close() }()
+	return root.MkdirAll(name, 0o755)
 }
 
 func validateMemoryLeafPath(innerFile string) error {
@@ -393,15 +346,78 @@ func validateMemoryLeafPath(innerFile string) error {
 
 // Read returns file contents for a scope:relative path.
 func (s *Store) Read(rel string) (string, error) {
-	abs, err := s.resolveReadable(rel)
+	label, name, err := s.resolveReadable(rel)
 	if err != nil {
 		return "", err
 	}
-	b, err := os.ReadFile(abs)
+	root, err := s.openRoot(label, false)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = root.Close() }()
+	b, err := root.ReadFile(name)
 	if err != nil {
 		return "", err
 	}
 	return string(b), nil
+}
+
+// ReadNote reads one note for the notes browser: a .md or .txt file, never a
+// folder. A note that cannot be reached, whatever the reason, is
+// fs.ErrNotExist.
+func (s *Store) ReadNote(scopeLabel, inner string) ([]byte, error) {
+	root, name, err := s.openScopeDir(scopeLabel, inner, false)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	if name == "." {
+		return nil, fs.ErrNotExist
+	}
+	if !isMemoryFile(name) {
+		return nil, ErrNotNote
+	}
+	info, err := root.Stat(name)
+	if err != nil {
+		if errors.Is(err, ErrOutsideRoot) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%w: %w", fs.ErrNotExist, err)
+	}
+	if info.IsDir() {
+		return nil, fs.ErrNotExist
+	}
+	return root.ReadFile(name)
+}
+
+// PutFile writes content as the note inner of a scope, as it is, replacing
+// what was there through a temporary file and a rename.
+func (s *Store) PutFile(scopeLabel, inner string, content []byte) error {
+	root, name, err := s.openScopeDir(scopeLabel, inner, true)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	if name == "." {
+		return ErrInvalidPath
+	}
+	if !isMemoryFile(name) {
+		return ErrNotNote
+	}
+	if dir := path.Dir(name); dir != "." {
+		if err := root.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	tmp := name + ".tmp"
+	if err := root.WriteFile(tmp, content, 0o644); err != nil {
+		return err
+	}
+	if err := root.Rename(tmp, name); err != nil {
+		_ = root.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // slugify turns a title into a file name stem. Letters and digits of any
@@ -440,12 +456,8 @@ func (s *Store) Write(scope, title, body string) (writtenPath string, err error)
 // WriteFlexible writes body under scope. When relativeInner is empty, filename is slugify(title)+".md" at scope root.
 // Otherwise relativeInner is path under scope root, e.g. design/auth-flow.md (.md or .txt only).
 func (s *Store) WriteFlexible(scope, title, relativeInner, body string) (writtenPath string, err error) {
-	scope = strings.ToLower(strings.TrimSpace(scope))
-	lab, root, err := s.resolveScopeRoot(scope)
+	lab, err := scopeLabelFromPrefix(scope)
 	if err != nil {
-		return "", err
-	}
-	if err := s.ensureDir(root); err != nil {
 		return "", err
 	}
 	body = strings.TrimSpace(body)
@@ -454,87 +466,75 @@ func (s *Store) WriteFlexible(scope, title, relativeInner, body string) (written
 	}
 	content := []byte(body + "\n")
 
-	relInner := strings.TrimSpace(filepath.ToSlash(relativeInner))
-	rootClean := filepath.Clean(root)
-
-	var abs string
-	if relInner == "" {
-		name := slugify(title) + ".md"
-		abs = filepath.Join(root, name)
-	} else {
+	name := slugify(title) + ".md"
+	if relInner := strings.TrimSpace(filepath.ToSlash(relativeInner)); relInner != "" {
 		if err := validateMemoryLeafPath(relInner); err != nil {
 			return "", err
 		}
-		relInnerClean := filepath.Clean(filepath.FromSlash(relInner))
-		if strings.HasPrefix(relInnerClean, "..") || strings.Contains(filepath.ToSlash(relInnerClean), "/../") {
-			return "", fmt.Errorf("invalid relative_path")
+		if name, err = cleanRel(relInner); err != nil {
+			return "", fmt.Errorf("invalid relative_path: %w", err)
 		}
-		parent := filepath.Dir(relInnerClean)
-		if parent != "." {
-			if err := s.ensureDir(filepath.Join(root, parent)); err != nil {
-				return "", err
-			}
-		}
-		candidate := filepath.Join(root, relInnerClean)
-		candidate = filepath.Clean(candidate)
-		relProbe, err := filepath.Rel(rootClean, candidate)
-		if err != nil || strings.HasPrefix(relProbe, "..") {
-			return "", fmt.Errorf("path escapes root")
-		}
-		abs = candidate
 	}
-	if err := os.WriteFile(abs, content, 0o644); err != nil {
+	root, err := s.openRoot(lab, true)
+	if err != nil {
 		return "", err
 	}
-	toShow, err := filepath.Rel(rootClean, abs)
-	if err != nil {
-		return lab + ":" + filepath.Base(abs), nil
+	defer func() { _ = root.Close() }()
+	if dir := path.Dir(name); dir != "." {
+		if err := root.MkdirAll(dir, 0o755); err != nil {
+			return "", err
+		}
 	}
-	return lab + ":" + filepath.ToSlash(toShow), nil
+	if err := root.WriteFile(name, content, 0o644); err != nil {
+		return "", err
+	}
+	return lab + ":" + name, nil
 }
 
 // Delete removes a memory file or an entire directory tree under the scope root by scope:relative path.
-// Deleting the scope root itself (for example global: or global:.) is not allowed.
+// Deleting the scope root itself (for example global: or global:.) is not allowed. A link is removed as
+// the link, never what it points at.
 func (s *Store) Delete(rel string) error {
-	rel = strings.TrimSpace(rel)
-	rel = filepath.ToSlash(rel)
-	if rel == "" || strings.Contains(rel, "..") {
-		return fmt.Errorf("invalid path")
+	if parts := strings.SplitN(filepath.ToSlash(strings.TrimSpace(rel)), ":", 2); len(parts) == 2 {
+		if inner := strings.TrimSpace(parts[1]); inner == "" || inner == "." {
+			return ErrScopeRoot
+		}
 	}
-	parts := strings.SplitN(rel, ":", 2)
-	if len(parts) != 2 {
-		return fmt.Errorf("path must be scope:relative form, got %q", rel)
-	}
-	inner := strings.TrimSpace(parts[1])
-	if inner == "" || inner == "." {
-		return fmt.Errorf("cannot delete scope root")
-	}
-	abs, err := s.resolveReadable(rel)
+	label, name, err := s.resolveReadable(rel)
 	if err != nil {
 		return err
 	}
-	_, root, err := s.resolveScopeRoot(parts[0])
+	if name == "." {
+		return ErrScopeRoot
+	}
+	root, err := s.openRoot(label, false)
 	if err != nil {
 		return err
 	}
-	if filepath.Clean(abs) == filepath.Clean(root) {
-		return fmt.Errorf("cannot delete scope root")
-	}
-	fi, err := os.Stat(abs)
+	defer func() { _ = root.Close() }()
+	info, err := root.Lstat(name)
 	if err != nil {
-		return err
+		if errors.Is(err, ErrOutsideRoot) {
+			return err
+		}
+		return fmt.Errorf("%w: %w", fs.ErrNotExist, err)
 	}
-	if fi.IsDir() {
-		return os.RemoveAll(abs)
+	if info.Mode()&fs.ModeSymlink == 0 && info.IsDir() {
+		return root.RemoveAll(name)
 	}
-	return os.Remove(abs)
+	return root.Remove(name)
 }
 
 // HasAnyFiles returns true if either root contains at least one memory file.
 func (s *Store) HasAnyFiles() bool {
-	for _, root := range []string{s.globalRoot, s.projectRoot} {
-		paths, _ := collectFiles(root)
-		if len(paths) > 0 {
+	for _, label := range []string{"global", "project"} {
+		root, err := s.openRoot(label, false)
+		if err != nil {
+			continue
+		}
+		n := len(collectFiles(root.FS()))
+		_ = root.Close()
+		if n > 0 {
 			return true
 		}
 	}

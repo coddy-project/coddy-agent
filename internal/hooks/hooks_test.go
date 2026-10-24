@@ -679,7 +679,7 @@ func TestTrustStoreSerialisesConcurrentProcesses(t *testing.T) {
 	const n = 8
 	procs := make([]*exec.Cmd, 0, n)
 	for i := 0; i < n; i++ {
-		cmd := exec.Command(os.Args[0], "-test.run=^TestHelperTrustApprove$", "trust-helper", home, workspace, ".coddy/hooks-"+strconv.Itoa(i)+".json") // #nosec G204 -- the test binary re-executes itself
+		cmd := exec.Command(os.Args[0], "-test.run=^TestHelperTrustApprove$", "trust-helper", home, workspace, ".coddy/hooks-"+strconv.Itoa(i)+".json")
 		cmd.Stderr = os.Stderr
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)

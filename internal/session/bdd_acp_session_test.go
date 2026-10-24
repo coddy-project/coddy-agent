@@ -104,12 +104,15 @@ func (s *acpSessionFeatureState) close() {
 	if s.cmd != nil && s.cmd.Process != nil {
 		done := make(chan error, 1)
 		go func() { done <- s.cmd.Wait() }()
+		var err error
 		select {
-		case <-done:
+		case err = <-done:
 		case <-time.After(2 * time.Second):
 			_ = s.cmd.Process.Kill()
-			<-done
+			err = <-done
 		}
+		// The process was told to stop: how it exited is not under test.
+		_ = err
 	}
 	s.cmd = nil
 	if s.root != "" {

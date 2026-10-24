@@ -130,7 +130,7 @@ func TestTheMetricsWiringServesTheRuntimeAndRebuildsOnANewAddress(t *testing.T) 
 	reloads := make(chan *config.Config, 1)
 	done := make(chan error, 1)
 	go func() { done <- sup.Run(ctx, cfg, reloads) }()
-	t.Cleanup(func() { cancel(); <-done })
+	t.Cleanup(func() { cancel(); t.Logf("the supervisor stopped with %v", <-done) })
 
 	first := cfg.Metrics.ListenAddr()
 	awaitMetricsListener(t, first)

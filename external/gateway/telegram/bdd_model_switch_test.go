@@ -167,7 +167,7 @@ func (w *modelSwitchWorld) logText() string {
 	if w.logPath == "" {
 		return ""
 	}
-	data, err := os.ReadFile(w.logPath) //nolint:gosec // path built by this test
+	data, err := os.ReadFile(w.logPath)
 	if err != nil {
 		return ""
 	}

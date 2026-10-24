@@ -67,7 +67,7 @@ func Open(display string) (*Conn, error) {
 
 // Atom interns name.
 func (c *Conn) Atom(name string) (xproto.Atom, error) {
-	r, err := xproto.InternAtom(c.Conn, false, uint16(len(name)), name).Reply()
+	r, err := xproto.InternAtom(c.Conn, false, uint16(len(name)), name).Reply() //nolint:gosec // G115: atom names are the short protocol names callers pass, far under 64 KiB
 	if err != nil {
 		return 0, err
 	}
@@ -79,7 +79,7 @@ func (c *Conn) Atom(name string) (xproto.Atom, error) {
 func (c *Conn) Atoms(names ...string) (map[string]xproto.Atom, error) {
 	cookies := make([]xproto.InternAtomCookie, len(names))
 	for i, n := range names {
-		cookies[i] = xproto.InternAtom(c.Conn, false, uint16(len(n)), n)
+		cookies[i] = xproto.InternAtom(c.Conn, false, uint16(len(n)), n) //nolint:gosec // G115: atom names are the short protocol names callers pass, far under 64 KiB
 	}
 	out := make(map[string]xproto.Atom, len(names))
 	for i, ck := range cookies {
@@ -130,14 +130,14 @@ func (c *Conn) ReadProperty(w xproto.Window, prop xproto.Atom, del bool, limit i
 		if r.BytesAfter == 0 {
 			break
 		}
-		offset += uint32(len(r.Value)) / 4
+		offset += uint32(len(r.Value)) / 4 //nolint:gosec // G115: a reply carries at most the length it was asked for, a 32-bit count
 	}
 	return value, typ, format, nil
 }
 
 // SetString sets a string property of w.
 func (c *Conn) SetString(w xproto.Window, prop, typ xproto.Atom, s string) {
-	xproto.ChangeProperty(c.Conn, xproto.PropModeReplace, w, prop, typ, 8, uint32(len(s)), []byte(s))
+	xproto.ChangeProperty(c.Conn, xproto.PropModeReplace, w, prop, typ, 8, uint32(len(s)), []byte(s)) //nolint:gosec // G115: an X11 request is far smaller than 4 GiB, so no longer string reaches the server
 }
 
 // SetAtoms sets a property of w to a list of atoms.
@@ -146,7 +146,7 @@ func (c *Conn) SetAtoms(w xproto.Window, prop xproto.Atom, atoms ...xproto.Atom)
 	for i, a := range atoms {
 		xgb.Put32(buf[4*i:], uint32(a))
 	}
-	xproto.ChangeProperty(c.Conn, xproto.PropModeReplace, w, prop, xproto.AtomAtom, 32, uint32(len(atoms)), buf)
+	xproto.ChangeProperty(c.Conn, xproto.PropModeReplace, w, prop, xproto.AtomAtom, 32, uint32(len(atoms)), buf) //nolint:gosec // G115: a handful of atoms
 }
 
 // DPIScale is the display scale the desktop asks for through the Xft.dpi

@@ -13,7 +13,7 @@ import (
 // TelegramBotTokenEnvVar is the environment variable consulted for the bot token
 // when gateways.telegram.token is left empty (so the token can live in .env instead
 // of config.yaml). Mirrors the provider api_key → NAME_API_KEY convention.
-const TelegramBotTokenEnvVar = "TELEGRAM_BOT_TOKEN"
+const TelegramBotTokenEnvVar = "TELEGRAM_BOT_TOKEN" //nolint:gosec // G101: the name of an environment variable, not a credential
 
 // TelegramAPIBaseEnv overrides the Bot API origin (default https://api.telegram.org)
 // for the Telegram gateway and for the --dry-run probe alike: a self-hosted Bot
@@ -25,7 +25,7 @@ const TelegramAPIBaseEnv = "CODDY_TELEGRAM_API_BASE"
 // PachcaBotTokenEnvVar is the environment variable consulted for the Pachca bot
 // token when gateways.pachca.token is left empty, the way TELEGRAM_BOT_TOKEN
 // stands in for the Telegram one.
-const PachcaBotTokenEnvVar = "PACHCA_BOT_TOKEN"
+const PachcaBotTokenEnvVar = "PACHCA_BOT_TOKEN" //nolint:gosec // G101: the name of an environment variable, not a credential
 
 // PachcaAPIBaseEnv overrides the Pachca API base URL (default
 // DefaultPachcaAPIBase) for the Pachca gateway and the --dry-run probe alike:

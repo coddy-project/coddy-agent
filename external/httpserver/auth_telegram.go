@@ -148,7 +148,7 @@ func (s *Server) coddyAuthTelegramPost(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "could not open a session"})
 		return
 	}
-	cookie := sessionCookie(r, tok, ttl)
+	cookie := sessionCookie(r, tok, ttl) //nolint:gosec // G124: sessionCookie sets HttpOnly and SameSite=Strict, and Secure whenever the request came over TLS
 	cookie.Name = tgSessionCookieName(r)
 	http.SetCookie(w, cookie)
 	s.log.Info("telegram sign-in", "user", launch.UserID, "username", launch.Username)
@@ -164,7 +164,7 @@ func (s *Server) clearTelegramSession(w http.ResponseWriter, r *http.Request) {
 	name := tgSessionCookieName(r)
 	if c, err := r.Cookie(name); err == nil && c != nil && c.Value != "" {
 		s.tgSessions.Revoke(c.Value)
-		clear := sessionCookie(r, "", 0)
+		clear := sessionCookie(r, "", 0) //nolint:gosec // G124: sessionCookie sets HttpOnly and SameSite=Strict, and Secure whenever the request came over TLS
 		clear.Name = name
 		clear.MaxAge = -1
 		clear.Expires = time.Unix(0, 0)

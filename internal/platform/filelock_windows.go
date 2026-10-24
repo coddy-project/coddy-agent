@@ -19,7 +19,7 @@ const FileLockingAvailable = true
 // in-process mutex alone cannot serialise a read-modify-write cycle across
 // them; LockFileEx does. It blocks until the lock is free.
 func LockFile(path string) (func(), error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) // #nosec G304 -- the lock sits next to a state file in the coddy home
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) // the lock sits next to a state file in the coddy home
 	if err != nil {
 		return nil, fmt.Errorf("lock %s: %w", path, err)
 	}
@@ -38,7 +38,7 @@ func LockFile(path string) (func(), error) {
 // TryLockFile takes an exclusive lock when it is immediately available. It
 // reports acquired=false when another process holds the lock.
 func TryLockFile(path string) (func(), bool, error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) // #nosec G304 -- the lock sits next to a state file in the coddy home
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) // the lock sits next to a state file in the coddy home
 	if err != nil {
 		return nil, false, fmt.Errorf("lock %s: %w", path, err)
 	}

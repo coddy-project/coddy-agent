@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"math"
 
 	"github.com/jezek/xgb"
 	"github.com/jezek/xgb/xproto"
@@ -87,8 +88,8 @@ func newWindow(c *xutil.Conn, img image.Image) (*window, error) {
 	mask := uint32(xproto.EventMaskExposure | xproto.EventMaskKeyPress | xproto.EventMaskButtonPress |
 		xproto.EventMaskButtonRelease | xproto.EventMaskPointerMotion | xproto.EventMaskStructureNotify)
 	x, y := (screen.X-size.X)/2, (screen.Y-size.Y)/2
-	if err := xproto.CreateWindowChecked(c.Conn, s.RootDepth, id, s.Root, int16(max(x, 0)), int16(max(y, 0)),
-		uint16(size.X), uint16(size.Y), 0, xproto.WindowClassInputOutput, s.RootVisual,
+	if err := xproto.CreateWindowChecked(c.Conn, s.RootDepth, id, s.Root, x16(x), x16(y),
+		xu16(size.X), xu16(size.Y), 0, xproto.WindowClassInputOutput, s.RootVisual,
 		xproto.CwBackPixel|xproto.CwEventMask, []uint32{0x1f1f22, mask}).Check(); err != nil {
 		return nil, fmt.Errorf("create the window: %w", err)
 	}
@@ -147,7 +148,10 @@ func (w *window) setSizeHints(at, size, minSize image.Point) {
 		pMinSize  = 1 << 4
 	)
 	hints := make([]byte, 18*4)
-	put := func(i int, v int) { xgb.Put32(hints[i*4:], uint32(int32(v))) }
+	put := func(i int, v int) {
+		// The hints are INT32 fields, sent as their 32-bit pattern.
+		xgb.Put32(hints[i*4:], uint32(int32(min(max(v, math.MinInt32), math.MaxInt32)))) //nolint:gosec // G115: the INT32 is sent as its unsigned 32-bit pattern
+	}
 	put(0, pPosition|pSize|pMinSize)
 	put(1, at.X)
 	put(2, at.Y)
@@ -291,6 +295,12 @@ func (w *window) paint() {
 	for y := 0; y < sz.Y; y += rows {
 		n := min(rows, sz.Y-y)
 		xproto.PutImage(w.c.Conn, xproto.ImageFormatZPixmap, xproto.Drawable(w.id), w.gc,
-			uint16(sz.X), uint16(n), 0, int16(y), 0, w.depth, buf[y*stride:(y+n)*stride])
+			xu16(sz.X), xu16(n), 0, x16(y), 0, w.depth, buf[y*stride:(y+n)*stride])
 	}
 }
+
+// x16 and xu16 hold a coordinate or a size to the 16 bits an X11 request
+// carries for it; a screen and a terminal stay far inside them.
+func x16(v int) int16 { return int16(min(max(v, 0), math.MaxInt16)) }
+
+func xu16(v int) uint16 { return uint16(min(max(v, 0), math.MaxUint16)) }

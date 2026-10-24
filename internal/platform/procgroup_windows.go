@@ -50,11 +50,11 @@ func KillTreeOnClose(cmd *exec.Cmd) (func(), error) {
 	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
 	info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
 	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
-		uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info))); err != nil {
+		uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info))); err != nil { //nolint:gosec // G103: SetInformationJobObject takes the address and size of the limits struct
 		_ = windows.CloseHandle(job)
 		return noop, fmt.Errorf("set job limits: %w", err)
 	}
-	proc, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(cmd.Process.Pid))
+	proc, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, windowsPID(cmd.Process.Pid))
 	if err != nil {
 		_ = windows.CloseHandle(job)
 		return noop, fmt.Errorf("open process: %w", err)
@@ -140,7 +140,7 @@ func ProcessGroupAlive(pid int, startedAt time.Time) bool {
 	// access is still the target's to refuse. Failing to open means the pid
 	// cannot be shown to be this task, and an unproven pid is not one to offer
 	// for killing.
-	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(pid))
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, windowsPID(pid))
 	if err != nil {
 		return false
 	}
@@ -163,7 +163,7 @@ func ProcessStartedAt(pid int) time.Time {
 	if pid <= 0 {
 		return time.Time{}
 	}
-	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, windowsPID(pid))
 	if err != nil {
 		return time.Time{}
 	}
@@ -216,7 +216,7 @@ func TerminateProcessGroupByPID(pid int, startedAt time.Time, grace time.Duratio
 
 	// Query rights only. SYNCHRONIZE buys nothing here - nothing waits on the
 	// object - and every right asked for is one more the target may refuse.
-	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, windowsPID(pid))
 	if err != nil {
 		// Nothing answers to this pid any more, so there is nothing to kill and
 		// nothing was left running. Same outcome as ESRCH on unix.
@@ -275,4 +275,10 @@ func DetachFromTerminal(cmd *exec.Cmd) {
 	}
 	cmd.SysProcAttr.CreationFlags |= syscall.CREATE_NEW_PROCESS_GROUP | windows.DETACHED_PROCESS
 	cmd.SysProcAttr.HideWindow = true
+}
+
+// windowsPID is a process id as the Windows API takes it, a DWORD:
+// os.Process.Pid and the ids Coddy records hold one.
+func windowsPID(pid int) uint32 {
+	return uint32(pid) //nolint:gosec // G115: a Windows process id is a DWORD, and these ints come from one
 }

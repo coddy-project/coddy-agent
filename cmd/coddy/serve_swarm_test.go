@@ -60,7 +60,8 @@ func TestARelayTurnedOnByAReloadListensWhereTheReloadSays(t *testing.T) {
 	defer func() {
 		cancel()
 		select {
-		case <-done:
+		case err := <-done:
+			t.Logf("the supervisor stopped with %v", err)
 		case <-time.After(15 * time.Second):
 			t.Error("the supervisor did not stop")
 		}

@@ -4,9 +4,9 @@ This page is for people: the environment, the build, the test runs, the flow of 
 
 ## Development environment
 
-- **Go** - 1.26 or newer, the `go` line of `go.mod`. Its `toolchain` line (`go1.26.10` today) is the oldest release any build links: CI and the release archives install the `go` line's release and switch to exactly that one, and with the default `GOTOOLCHAIN=auto` an older local `go` downloads it on first use. A newer local Go, or a newer patch in the `golang:1.26` image, builds with itself, which only adds fixes.
-- **Node.js and npm** (CI uses Node 22) - for a build with the `ui` tag, where `make ui-build` bundles the SPA that `go:embed` picks up; for `make test-agent-rules`, whose OpenCode half uses Node's test runner; for `make test`, which builds the SPA and runs vitest; and for `make lint`, whose shipped-tag pass embeds those assets and ends with `tsc`.
-- **golangci-lint v2.x** (CI pins v2.12.2), built with Go 1.26 or newer - for `make lint`.
+- **Go** - 1.26 or newer, the `go` line of `go.mod`. Its `toolchain` line (`go1.27.3` today) is the oldest release a build links under the default `GOTOOLCHAIN=auto`: CI and the release archives install the `go` line's release and switch to exactly that one, and an older local `go` downloads it on first use. A newer local Go, or a newer patch in the `golang:1.27` image, builds with itself, which only adds fixes. Only a toolchain kept with `GOTOOLCHAIN=local` builds with an older release, down to the `go` line.
+- **Node.js and npm** (CI uses Node 26) - for a build with the `ui` tag, where `make ui-build` bundles the SPA that `go:embed` picks up; for `make test-agent-rules`, whose OpenCode half uses Node's test runner; for `make test`, which builds the SPA and runs vitest; and for `make lint`, whose shipped-tag pass embeds those assets and ends with `tsc`.
+- **golangci-lint v2.x** (CI pins v2.15.0), built with Go 1.27 or newer - for `make lint`.
 - **ripgrep** - the CI test job installs it before `go test`; keep `rg` on `PATH` for the same run locally.
 - **Python 3** - for `make test-agent-rules` and the end-to-end harnesses in `examples/`; the console driver needs `pip install -r examples/cli/requirements.txt`.
 
@@ -91,7 +91,7 @@ Two rules from the code review section of [AGENTS.md](AGENTS.md) come up often e
 
 ## Code style
 
-- `gofmt` before committing; `make lint` is the gate: `make fmt-check` (`gofmt -s -l` over every Go file git tracks, whatever its build tags or platform), `golangci-lint` over the untagged tree, over every tag but `ui` and over the shipped tag set (three passes that compile every Go file of the host platform once, but the `http && !<tag>` stubs of `external/httpserver`), then `tsc --noEmit` over the SPA sources (`make ui-typecheck`). `.golangci.yml` enables the `gofmt` formatter (`gofmt -s`) next to the five linters it names (golangci-lint's `standard` set), so a file `gofmt -s` would change fails the run as well; `gofmt -s -w <file>` or `golangci-lint fmt` fixes it.
+- `gofmt` before committing; `make lint` is the gate: `make fmt-check` (`gofmt -s -l` over every Go file git tracks, whatever its build tags or platform), `golangci-lint` over the untagged tree, over every tag but `ui` and over the shipped tag set (three passes that compile every Go file of the host platform once, but the `http && !<tag>` stubs of `external/httpserver`), then `tsc --noEmit` over the SPA sources (`make ui-typecheck`). `.golangci.yml` enables the `gofmt` formatter (`gofmt -s`) next to the linters it names (golangci-lint's five `standard` ones, `gosec` and `nolintlint`), so a file `gofmt -s` would change fails the run as well; `gofmt -s -w <file>` or `golangci-lint fmt` fixes it. A `//nolint` names its linter and, for gosec, the rule, and says why; `nolintlint` reports one that silences nothing.
 - Comments in code, and every technical Markdown file in this repository, are in English.
 - Follow the neighbouring files: import grouping, naming, error handling, table-driven tests where they clarify the cases, no real network in a test unless it is documented as integration-style.
 - The SPA is formatted with Prettier (`npm run fmt` in `external/ui`); [DESIGN.md](DESIGN.md) is its contract for tokens, layout and component behaviour, and the localization rules (every dictionary changed in the same commit) are in [AGENTS.md](AGENTS.md).

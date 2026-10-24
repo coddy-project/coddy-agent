@@ -119,7 +119,7 @@ func VerifyPassword(encoded, plain string) (bool, error) {
 		return false, err
 	}
 	acquireHashSlot()
-	got := argon2.IDKey([]byte(plain), salt, params.Time, params.Memory, params.Threads, uint32(len(want)))
+	got := argon2.IDKey([]byte(plain), salt, params.Time, params.Memory, params.Threads, params.KeyLen)
 	releaseHashSlot()
 	return subtle.ConstantTimeCompare(got, want) == 1, nil
 }
@@ -166,7 +166,7 @@ func decodeHash(encoded string) (HashParams, []byte, []byte, error) {
 	if err != nil || len(key) == 0 || len(key) > maxHashKeyLen {
 		return p, nil, nil, ErrMalformedHash
 	}
-	p.SaltLen = uint32(len(salt))
-	p.KeyLen = uint32(len(key))
+	p.SaltLen = uint32(len(salt)) //nolint:gosec // G115: at most maxHashSaltLen, checked above
+	p.KeyLen = uint32(len(key))   //nolint:gosec // G115: at most maxHashKeyLen, checked above
 	return p, salt, key, nil
 }
