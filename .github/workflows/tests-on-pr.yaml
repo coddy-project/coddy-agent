@@ -398,8 +398,11 @@ jobs:
 
       # Exercise the same shipped modules as make test. Bounded package
       # concurrency leaves time for the child MCP and PowerShell processes.
+      # external/httpserver and internal/agent take 6 to 8 minutes here, so
+      # go test's default of 10 minutes per package failed both on a runner
+      # half again slower than usual; a hang still ends the run.
       - name: Run the complete Go suite
-        run: go test -p=4 -tags='http,ui,scheduler,memory,cli,gateway,swarm,metrics' ./...
+        run: go test -p=4 -timeout=30m -tags='http,ui,scheduler,memory,cli,gateway,swarm,metrics' ./...
 
   # The console is a raw-mode terminal program, and nothing above runs it on
   # macOS, where bare `coddy` opens on a Terminal.app pty. A hang there was
