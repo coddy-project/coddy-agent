@@ -378,29 +378,49 @@ func TestReadCacheRefusesWhatIsNotACatalog(t *testing.T) {
 }
 
 // A lookup of a new address does not wait on the download of the old one
-// (models_catalog.url changed while it ran): it is answered "not yet", and
-// the next lookup downloads the new address.
-func TestLookupDoesNotJoinADownloadOfAnotherURL(t *testing.T) {
+// (models_catalog.url changed while it ran): the old download is cancelled,
+// the new address is downloaded at once, and the cancelled download neither
+// replaces the new copy nor counts as a failure of its address.
+func TestLookupReplacesADownloadOfAnotherURL(t *testing.T) {
 	old := newCatalogServer(t)
 	old.gate = make(chan struct{})
+	defer close(old.gate)
 	next := newCatalogServer(t)
 	c, _, _ := testCatalog(t, t.TempDir())
 
-	go func() { _, _ = c.Lookup(context.Background(), cfgFor(old.URL)) }()
+	oldErr := make(chan error, 1)
+	go func() {
+		_, err := c.Lookup(context.Background(), cfgFor(old.URL))
+		oldErr <- err
+	}()
 	for old.requests.Load() == 0 {
 		time.Sleep(time.Millisecond)
 	}
+	c.mu.Lock()
+	oldDone := c.inflight
+	c.mu.Unlock()
+
 	start := time.Now()
-	if _, err := c.Lookup(context.Background(), cfgFor(next.URL)); err == nil || !strings.Contains(err.Error(), "not answered yet") {
-		t.Fatalf("a lookup of the new address: %v", err)
-	}
-	if time.Since(start) > time.Second {
-		t.Errorf("the new address waited on the old one's download")
-	}
-	close(old.gate)
-	waitIdle(t, c)
 	snap, err := c.Lookup(context.Background(), cfgFor(next.URL))
 	if err != nil || snap.URL != next.URL || next.requests.Load() != 1 {
-		t.Fatalf("the next lookup: %+v, %v, %d request(s) to the new address", snap, err, next.requests.Load())
+		t.Fatalf("a lookup of the new address: %+v, %v, %d request(s) to it", snap, err, next.requests.Load())
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Errorf("the new address waited on the old one's download")
+	}
+	select {
+	case <-oldDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the old download was not cancelled")
+	}
+	if err := <-oldErr; err == nil {
+		t.Error("the lookup of the old address was answered with a copy")
+	}
+	waitIdle(t, c)
+	c.mu.Lock()
+	cacheURL, failedURL := c.cache.URL, c.failedURL
+	c.mu.Unlock()
+	if cacheURL != next.URL || failedURL != "" {
+		t.Errorf("after the cancelled download: copy of %q, failed %q", cacheURL, failedURL)
 	}
 }

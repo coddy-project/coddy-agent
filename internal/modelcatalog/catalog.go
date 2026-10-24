@@ -56,9 +56,10 @@ type Catalog struct {
 	read  bool
 	cache *cacheFile
 	// inflight is closed when the running download ends; nil while idle.
-	// inflightURL is the address it reads.
-	inflight    chan struct{}
-	inflightURL string
+	// inflightURL is the address it reads, cancelInflight drops it.
+	inflight       chan struct{}
+	inflightURL    string
+	cancelInflight context.CancelFunc
 	// failedURL and failedAt name the last download that failed.
 	failedURL string
 	failedAt  time.Time
@@ -118,8 +119,9 @@ func (c *Catalog) SetTransport(client func(proxy string) (*http.Client, error), 
 // Lookup returns the catalog cfg names. A fresh copy answers at once; a stale
 // one answers at once and is revalidated in the background; with none, the
 // download is started (or joined) and waited for up to FirstFetchWait or
-// until ctx ends. A download that failed is not tried again for five
-// minutes. With models_catalog.enable false it returns ErrDisabled and makes
+// until ctx ends. A download of another address (models_catalog.url changed
+// while it ran) is dropped for the one of cfg. A download that failed is not
+// tried again for five minutes. With models_catalog.enable false it returns ErrDisabled and makes
 // no request.
 func (c *Catalog) Lookup(ctx context.Context, cfg config.ModelsCatalogConfig) (Snapshot, error) {
 	if !cfg.IsEnabled() {
@@ -181,18 +183,23 @@ func (c *Catalog) current(url string) *cacheFile {
 	return c.cache
 }
 
-// refreshLocked starts a download of url unless one is running, the copy is
-// fresh, or the last download of url failed recently. It returns a channel to
-// wait on while there is no copy of url to answer with, nil otherwise.
+// refreshLocked starts a download of url unless one of url is running, the
+// copy is fresh, or the last download of url failed recently. It returns a
+// channel to wait on while there is no copy of url to answer with, nil
+// otherwise.
 func (c *Catalog) refreshLocked(url, proxy string, cached *cacheFile) <-chan struct{} {
 	if c.inflight != nil {
-		// A download of another address (models_catalog.url changed while
-		// it ran) says nothing about this one: its lookup is answered
-		// "not yet" and the next lookup starts the download of url.
-		if cached == nil && c.inflightURL == url {
-			return c.inflight
+		if c.inflightURL == url {
+			if cached == nil {
+				return c.inflight
+			}
+			return nil
 		}
-		return nil
+		// models_catalog.url changed while the old address downloaded: no
+		// lookup asks for that copy any more, and waiting it out would
+		// leave this one unanswered. It is cancelled and url goes next.
+		c.cancelInflight()
+		c.inflight, c.inflightURL, c.cancelInflight = nil, "", nil
 	}
 	now := c.now()
 	if cached != nil && now.Sub(cached.FetchedAt) < freshFor {
@@ -202,7 +209,8 @@ func (c *Catalog) refreshLocked(url, proxy string, cached *cacheFile) <-chan str
 		return nil
 	}
 	done := make(chan struct{})
-	c.inflight, c.inflightURL = done, url
+	ctx, cancel := context.WithCancel(context.Background())
+	c.inflight, c.inflightURL, c.cancelInflight = done, url, cancel
 	etag := ""
 	if cached != nil {
 		etag = cached.ETag
@@ -210,10 +218,15 @@ func (c *Catalog) refreshLocked(url, proxy string, cached *cacheFile) <-chan str
 	client := c.client
 	go func() {
 		defer close(done)
-		next, err := c.download(client, url, proxy, etag, cached)
+		defer cancel()
+		next, err := c.download(ctx, client, url, proxy, etag, cached)
 		c.mu.Lock()
 		defer c.mu.Unlock()
-		c.inflight, c.inflightURL = nil, ""
+		if c.inflight != done {
+			// A download of the address configured now replaced this one.
+			return
+		}
+		c.inflight, c.inflightURL, c.cancelInflight = nil, "", nil
 		if err != nil {
 			c.failedURL, c.failedAt = url, c.now()
 			c.log.Warn("models catalog: download failed; suggestions use the last copy, if any", "url", url, "error", err)
@@ -237,12 +250,12 @@ func (c *Catalog) refreshLocked(url, proxy string, cached *cacheFile) <-chan str
 
 // download fetches url, asking only whether it changed when the copy of it
 // carries an ETag.
-func (c *Catalog) download(client func(string) (*http.Client, error), url, proxy, etag string, cached *cacheFile) (*cacheFile, error) {
+func (c *Catalog) download(ctx context.Context, client func(string) (*http.Client, error), url, proxy, etag string, cached *cacheFile) (*cacheFile, error) {
 	hc, err := client(proxy)
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
