@@ -11517,6 +11517,31 @@ html:not([data-theme="light"]) .settings.drawer {
   color: var(--muted);
 }
 
+/* A window the provider does not report, read from the models catalog:
+   the same number, a step quieter, so the two sources stay apart. */
+.provider-models-item-ctx.is-catalog {
+  opacity: 0.6;
+  font-style: italic;
+}
+
+/* What the models catalog suggests for a logical model's field, under it,
+   with the button that writes it in. A fetch result, so a line of state
+   rather than a description behind the (i) (DESIGN.md, Field descriptions). */
+.catalog-hint {
+  margin: 6px 0 0;
+}
+
+.catalog-hint-apply {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
 /* The toggle right after the id: a plus while the model is not in Logical
    models, an accent check once it is; the check takes it out again. */
 .provider-models-toggle {

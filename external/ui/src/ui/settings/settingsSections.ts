@@ -116,7 +116,7 @@ function lookupSectionKey(
  * are features of their own and have tabs; the `sessions` section belongs to
  * the Sessions tab.
  */
-export const SYSTEM_KEYS = ["prompts", "instructions"];
+export const SYSTEM_KEYS = ["prompts", "instructions", "models_catalog"];
 
 /** The config section the Sessions tab edits above its table. */
 export const SESSIONS_CONFIG_KEY = "sessions";
@@ -309,6 +309,10 @@ export const SETTINGS_TEXTS = {
   gatewayProxyIgnoreSystem: {
     label: "settings.providerProxy.ignoreSystem",
     desc: "settings.gatewayProxy.ignoreSystemDesc",
+  },
+  modelsCatalogProxyIgnoreSystem: {
+    label: "settings.providerProxy.ignoreSystem",
+    desc: "settings.modelsCatalogProxy.ignoreSystemDesc",
   },
   neuralDeepApiBase: { desc: "neuralDeepApiBase.description" },
   neuralDeepAccount: {

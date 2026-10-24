@@ -340,13 +340,15 @@ export const messagesRu: Record<string, string> = {
   "settings.field.modelPlaceholder": "идентификатор-модели",
   "settings.field.fetching": "Получение…",
   "settings.field.fetchModels": "Получить модели",
-  "settings.contextWindow.fetch": "Запросить окно контекста у провайдера",
+  "settings.contextWindow.fetch":
+    "Запросить окно контекста у провайдера или в каталоге моделей",
   "settings.contextWindow.reported": "{tokens}, по данным {provider}",
   "settings.contextWindow.default": "{tokens}, по умолчанию",
-  "settings.contextWindow.notReported":
-    "{provider} не сообщает окно контекста для {id}.",
   "settings.contextWindow.fetchError":
     "Не удалось получить окно контекста: {error}",
+  "settings.contextWindow.catalog": "{tokens}, по данным каталога моделей",
+  "settings.contextWindow.notKnown":
+    "{provider} не сообщает окно контекста для {id}, а в каталоге моделей этой модели нет.",
   "settings.providers.group.main": "Настройки провайдера",
   "settings.providers.group.advanced": "Расширенные настройки",
   "settings.models.group.model": "Модель",
@@ -373,6 +375,18 @@ export const messagesRu: Record<string, string> = {
     "Окно контекста {tokens} токенов",
   "settings.providerModels.contextWindow.other":
     "Окно контекста {tokens} токена",
+  "settings.providerModels.catalogContextWindow.one":
+    "Окно контекста {tokens} токен, по данным каталога моделей",
+  "settings.providerModels.catalogContextWindow.few":
+    "Окно контекста {tokens} токена, по данным каталога моделей",
+  "settings.providerModels.catalogContextWindow.many":
+    "Окно контекста {tokens} токенов, по данным каталога моделей",
+  "settings.providerModels.catalogContextWindow.other":
+    "Окно контекста {tokens} токена, по данным каталога моделей",
+  "settings.catalog.apply": "Применить",
+  "settings.catalog.maxTokens": "Каталог моделей предлагает {tokens}.",
+  "settings.catalog.readsImages":
+    "По данным каталога моделей, модель принимает изображения.",
   "settings.reasoning.levelsFallback": "Уровни рассуждений",
   "settings.reasoning.fetch": "Получить уровни ризонинга",
   "settings.reasoning.fetching": "Получение уровней ризонинга…",
@@ -856,6 +870,18 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.system.instructions.files.label": "Файлы инструкций",
   "settings.schema.system.instructions.files.desc":
     "Дополнительные файлы, которые попадают в промпт после документов AGENTS.md и DESIGN.md. Эти документы читаются всегда, из домашнего каталога агента, из папки сессии и из вложенных папок. По умолчанию список пуст, относительный путь читается от папки сессии, а файл, который уже есть в промпте, второй раз не читается.",
+  "settings.schema.system.models_catalog.label": "Каталог моделей",
+  "settings.schema.system.models_catalog.desc":
+    'Откуда настройки берут окно контекста, предел ответа и поддержку изображений, которые предлагают для добавляемой модели, - models.dev или его зеркало. Подсказка попадает в строку модели, только когда вы добавляете модель из списка провайдера или нажимаете "Применить"; сессия каталог не читает.',
+  "settings.schema.system.models_catalog.enable.label": "Включено",
+  "settings.schema.system.models_catalog.enable.desc":
+    "Скачивать каталог, когда настройки запрашивают подсказку. Если выключено, к каталогу не уходит ни одного запроса, и поля работают как раньше.",
+  "settings.schema.system.models_catalog.url.label": "URL каталога",
+  "settings.schema.system.models_catalog.url.desc":
+    "Адрес каталога в формате api.json от models.dev. Пусто - https://models.dev/api.json; укажите зеркало для сети, из которой models.dev недоступен.",
+  "settings.schema.system.models_catalog.proxy.label": "URL прокси",
+  "settings.schema.system.models_catalog.proxy.desc":
+    "Необязательный прокси для загрузки каталога. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://, в обоих случаях имена хостов разрешает сам прокси. Указанный URL заменяет системный прокси для загрузки. Пока поле пустое, загрузка идёт через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
   "settings.schema.logger.label": "Логирование",
   "settings.schema.logger.level.label": "Уровень",
   "settings.schema.logger.level.desc":
@@ -917,6 +943,8 @@ export const messagesRu: Record<string, string> = {
     "Необязательный прокси для запросов к Bot API. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://, в обоих случаях имена хостов разрешает сам прокси. Указанный URL заменяет системный прокси для бота. Пока поле пустое, бот ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
   "settings.gatewayProxy.ignoreSystemDesc":
     "Подключаться напрямую. Запросы бота не учитывают HTTPS_PROXY, HTTP_PROXY и NO_PROXY процесса Coddy. В конфиге сохраняется значение none вместо URL прокси.",
+  "settings.modelsCatalogProxy.ignoreSystemDesc":
+    "Подключаться напрямую. Загрузка каталога не учитывает HTTPS_PROXY, HTTP_PROXY и NO_PROXY процесса Coddy. В конфиге сохраняется значение none вместо URL прокси.",
   "settings.schema.gateways.telegram.admins.label": "Администраторы",
   "settings.schema.gateways.telegram.admins.desc":
     "Идентификаторы пользователей Telegram с расширенными правами; администраторы всегда проходят проверку доступа.",

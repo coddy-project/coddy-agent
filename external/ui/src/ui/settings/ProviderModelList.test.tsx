@@ -20,14 +20,37 @@ afterEach(() => {
 
 type StubModel = { id: string; name?: string; context_window?: number };
 
-/** Answers every POST /coddy/providers/models with the given list (or an error). */
-function stubModels(models: StubModel[], ok = true) {
+type StubSuggestion = {
+  context_window?: number;
+  max_tokens?: number;
+  multimodal: boolean;
+};
+
+/**
+ * Answers every POST /coddy/providers/models with the given list (or an
+ * error), and POST /coddy/models/catalog with the given suggestions. The mock
+ * returned counts the listing requests; its catalog property counts the
+ * catalog's.
+ */
+function stubModels(
+  models: StubModel[],
+  ok = true,
+  catalog: Record<string, StubSuggestion> = {},
+) {
   const fetchMock = vi.fn(async (_input: unknown, _init?: RequestInit) => ({
     ok: true,
     json: async () => ({ ok, models, error: ok ? undefined : "boom" }),
   }));
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
+  const catalogMock = vi.fn(async (_input: unknown, _init?: RequestInit) => ({
+    ok: true,
+    json: async () => ({ ok: true, enabled: true, models: catalog }),
+  }));
+  vi.stubGlobal("fetch", (input: unknown, init?: RequestInit) =>
+    String(input) === "/coddy/models/catalog"
+      ? catalogMock(input, init)
+      : fetchMock(input, init),
+  );
+  return Object.assign(fetchMock, { catalog: catalogMock });
 }
 
 function postedBody(fetchMock: ReturnType<typeof stubModels>, call = 0) {
@@ -143,8 +166,16 @@ test("a model is added to Logical models from its row", async () => {
   fireEvent.click(toggle("m2"));
 
   // The context window the provider reports travels with the id.
-  expect(onAddModel).toHaveBeenNthCalledWith(1, "demo/m1", 131072);
-  expect(onAddModel).toHaveBeenNthCalledWith(2, "demo/m2", undefined);
+  expect(onAddModel).toHaveBeenNthCalledWith(1, "demo/m1", {
+    contextWindow: 131072,
+    maxTokens: undefined,
+    multimodal: undefined,
+  });
+  expect(onAddModel).toHaveBeenNthCalledWith(2, "demo/m2", {
+    contextWindow: undefined,
+    maxTokens: undefined,
+    multimodal: undefined,
+  });
 });
 
 test("a model already in Logical models is checked and unchecking removes it", async () => {
@@ -451,4 +482,78 @@ test("the list is contained: the box may shrink, the id ellipsizes, the toggle n
   expect(item).toMatch(/align-self:\s*flex-start/);
   expect(item).toMatch(/max-width:\s*calc\(100% \+ 6px\)/);
   expect(item).toMatch(/margin-left:\s*-6px/);
+});
+
+// A model the provider reports no window for is shown, dimmed, with the one
+// the models catalog states, and the plus files it with the catalog's window,
+// max_tokens and image support. The provider's own window wins, and is what
+// the catalog measures max_tokens against.
+test("a model added from the list carries what the models catalog suggests", async () => {
+  const fetchMock = stubModels(
+    [{ id: "claude" }, { id: "big", context_window: 100000 }],
+    true,
+    {
+      claude: { context_window: 200000, max_tokens: 40000, multimodal: true },
+      big: { context_window: 200000, max_tokens: 20000, multimodal: false },
+    },
+  );
+  const onAddModel = vi.fn();
+  render(
+    <ProviderModelList
+      provider={{ name: "demo", type: "anthropic", api_key: "sk-secret" }}
+      existingModels={[]}
+      onAddModel={onAddModel}
+      onRemoveModel={noop}
+    />,
+  );
+
+  const ctx = await screen.findByTestId("provider-model-catalog-ctx-claude");
+  expect(ctx.classList.contains("is-catalog")).toBe(true);
+  expect(ctx.getAttribute("title")).toBe(
+    "Context window of 200,000 tokens, from the models catalog",
+  );
+  // The provider's own number is shown as it is, never the catalog's.
+  expect(screen.queryByTestId("provider-model-catalog-ctx-big")).toBeNull();
+
+  fireEvent.click(toggle("claude"));
+  fireEvent.click(toggle("big"));
+  expect(onAddModel).toHaveBeenNthCalledWith(1, "demo/claude", {
+    contextWindow: 200000,
+    maxTokens: 40000,
+    multimodal: true,
+  });
+  expect(onAddModel).toHaveBeenNthCalledWith(2, "demo/big", {
+    contextWindow: 100000,
+    maxTokens: 20000,
+    multimodal: false,
+  });
+
+  // One catalog request for the whole list, carrying the provider's windows
+  // and no credential.
+  expect(fetchMock.catalog).toHaveBeenCalledTimes(1);
+  const body = JSON.parse(
+    String((fetchMock.catalog.mock.calls[0]?.[1] as RequestInit).body),
+  ) as Record<string, unknown>;
+  expect(body).toEqual({
+    name: "demo",
+    type: "anthropic",
+    api_base: "",
+    models: [{ id: "claude" }, { id: "big", context_window: 100000 }],
+  });
+});
+
+// A listing that failed says nothing about the models: the catalog is not asked.
+test("a failed listing asks the catalog nothing", async () => {
+  const fetchMock = stubModels([], false);
+  render(
+    <ProviderModelList
+      provider={{ name: "demo", type: "openai" }}
+      existingModels={[]}
+      onAddModel={noop}
+      onRemoveModel={noop}
+    />,
+  );
+  await screen.findByTestId("provider-models-status");
+  await new Promise((r) => setTimeout(r, 20));
+  expect(fetchMock.catalog).not.toHaveBeenCalled();
 });

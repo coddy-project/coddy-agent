@@ -25,16 +25,39 @@ const DEMO: ProviderRow = {
 
 type StubModel = { id: string; context_window?: number };
 
-function stubModels(models: StubModel[] | { error: string }) {
-  const fetchMock = vi.fn(async (_input: unknown, _init?: RequestInit) => ({
+// The provider's listing answers POST /coddy/providers/models; the models
+// catalog answers POST /coddy/models/catalog with the windows given, if any.
+function stubModels(
+  models: StubModel[] | { error: string },
+  catalog: Record<string, number> = {},
+) {
+  const fetchMock = vi.fn(async (input: unknown, _init?: RequestInit) => ({
     ok: true,
     json: async () =>
-      Array.isArray(models)
-        ? { ok: true, models }
-        : { ok: false, error: models.error, models: [] },
+      String(input) === "/coddy/models/catalog"
+        ? {
+            ok: true,
+            enabled: true,
+            models: Object.fromEntries(
+              Object.entries(catalog).map(([id, w]) => [
+                id,
+                { context_window: w, multimodal: false },
+              ]),
+            ),
+          }
+        : Array.isArray(models)
+          ? { ok: true, models }
+          : { ok: false, error: models.error, models: [] },
   }));
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
+}
+
+/** The provider listing requests among every request made. */
+function listingCalls(fetchMock: ReturnType<typeof stubModels>) {
+  return fetchMock.mock.calls.filter(
+    (c) => String(c[0]) === "/coddy/providers/models",
+  );
 }
 
 function Harness(props: {
@@ -78,7 +101,7 @@ test("an unset window shows the one the provider reports for the model", async (
     expect.objectContaining({ method: "POST" }),
   );
   const body = JSON.parse(
-    String((fetchMock.mock.calls[0]?.[1] as RequestInit).body),
+    String((listingCalls(fetchMock)[0]?.[1] as RequestInit).body),
   ) as Record<string, unknown>;
   expect(body).toMatchObject({ name: "demo", api_key: "sk-unsaved" });
   // Showing the provider's number writes nothing.
@@ -120,9 +143,46 @@ test("fetching for a model the provider does not report says so and writes nothi
   fireEvent.click(screen.getByTestId("context-window-fetch"));
 
   expect((await screen.findByTestId("context-window-note")).textContent).toBe(
-    "demo does not report a context window for m1.",
+    "demo does not report a context window for m1, and the models catalog does not list it.",
   );
   expect(screen.getByTestId("val").textContent).toBe("0");
+});
+
+test("a window the provider does not report is read from the models catalog", async () => {
+  stubModels([{ id: "m1" }], { m1: 200000 });
+  render(<Harness initial={0} />);
+
+  await waitFor(() =>
+    expect(input().placeholder).toBe("200000, from the models catalog"),
+  );
+  // Showing the catalog's number writes nothing.
+  expect(screen.getByTestId("val").textContent).toBe("0");
+});
+
+test("fetching writes the catalog's window when the provider reports none", async () => {
+  stubModels([{ id: "m1" }], { m1: 200000 });
+  render(<Harness initial={0} />);
+
+  await waitFor(() =>
+    expect(input().placeholder).toBe("200000, from the models catalog"),
+  );
+  fireEvent.click(screen.getByTestId("context-window-fetch"));
+  await waitFor(() =>
+    expect(screen.getByTestId("val").textContent).toBe("200000"),
+  );
+});
+
+test("the provider's window wins over the catalog's", async () => {
+  stubModels([{ id: "m1", context_window: 131072 }], { m1: 200000 });
+  render(<Harness initial={0} />);
+
+  await waitFor(() =>
+    expect(input().placeholder).toBe("131072, reported by demo"),
+  );
+  fireEvent.click(screen.getByTestId("context-window-fetch"));
+  await waitFor(() =>
+    expect(screen.getByTestId("val").textContent).toBe("131072"),
+  );
 });
 
 test("a failed fetch reports the provider's error", async () => {
@@ -175,7 +235,13 @@ test("a context window that arrives after the model id changed is not written", 
   let calls = 0;
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => {
+    vi.fn(async (input: unknown) => {
+      if (String(input) === "/coddy/models/catalog") {
+        return {
+          ok: true,
+          json: async () => ({ ok: true, enabled: true, models: {} }),
+        };
+      }
       calls++;
       if (calls === 2) {
         await new Promise<void>((resolve) => {

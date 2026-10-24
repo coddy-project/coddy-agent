@@ -4,11 +4,12 @@ import { applyModelsChange, applyToolsetsChange } from "./applyModelsChange";
 import { CodexAuthField } from "./CodexAuthField";
 import { FieldLabel } from "./FieldHint";
 import { ContextWindowField } from "./ContextWindowField";
+import { MaxTokensField, MultimodalField } from "./ModelCatalogFields";
 import { NeuralDeepAuthField } from "./NeuralDeepAuthField";
 import { OpenCodeAuthField } from "./OpenCodeAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
-import { ProviderModelList } from "./ProviderModelList";
+import { ProviderModelList, type ModelSeed } from "./ProviderModelList";
 import type { ProviderRow } from "./useProviderModels";
 import { ProxySettingField } from "./ProxySettingField";
 import { ReasoningLevelsField } from "./ReasoningLevelsField";
@@ -105,26 +106,37 @@ const USAGE_PANEL_PROVIDER_TYPES = new Set(["neuraldeep", "codex", "devin"]);
 
 /**
  * seedLogicalModel builds a models[] row from the item schema's defaults,
- * carrying the given id and, when the provider reported one, its context
- * window. reasoning_levels is left out on purpose: an empty list would disable
- * the server-side detection, and a freshly added model has no such choice
- * yet. Both the Add button of Logical models and the provider form's model
- * list go through it, so a model added either way starts the same.
+ * carrying the given id and what the seed knows of the model: the context
+ * window (the provider's, else the models catalog's), the max_tokens and the
+ * image support the catalog suggests. reasoning_levels is left out on
+ * purpose: an empty list would disable the server-side detection, and a
+ * freshly added model has no such choice yet. Both the Add button of Logical
+ * models and the provider form's model list go through it, so a model added
+ * either way starts the same.
  */
 function seedLogicalModel(
   itemSchema: JsonSchema | undefined,
   id: string,
-  contextWindow?: number | undefined,
+  seed: ModelSeed = {},
 ): Record<string, unknown> {
-  const seed = defaultForSchema(itemSchema ?? {});
+  const defaults = defaultForSchema(itemSchema ?? {});
   const row: Record<string, unknown> =
-    seed !== null && typeof seed === "object" && !Array.isArray(seed)
-      ? { ...(seed as Record<string, unknown>) }
+    defaults !== null &&
+    typeof defaults === "object" &&
+    !Array.isArray(defaults)
+      ? { ...(defaults as Record<string, unknown>) }
       : {};
   delete row.reasoning_levels;
   row.model = id;
-  if (contextWindow && itemSchema?.properties?.max_context_tokens) {
-    row.max_context_tokens = contextWindow;
+  const props = itemSchema?.properties;
+  if (seed.contextWindow && props?.max_context_tokens) {
+    row.max_context_tokens = seed.contextWindow;
+  }
+  if (seed.maxTokens && props?.max_tokens) {
+    row.max_tokens = seed.maxTokens;
+  }
+  if (seed.multimodal && props?.multimodal) {
+    row.multimodal = true;
   }
   return row;
 }
@@ -392,6 +404,11 @@ export function overrideTexts(
       ? proxy(SETTINGS_TEXTS.gatewayProxyIgnoreSystem)
       : null;
   }
+  if (domain === "system.models_catalog") {
+    return path === "proxy"
+      ? proxy(SETTINGS_TEXTS.modelsCatalogProxyIgnoreSystem)
+      : null;
+  }
   if (domain === "skills") {
     return path === SKILLS_HAND_DRAWN_FIELD ? false : null;
   }
@@ -407,6 +424,20 @@ function boxFor(domain: string, ctx: FieldOverrideContext) {
 // field (Gateways tab, the Telegram and Pachca blocks).
 function gatewaysFieldOverride(ctx: FieldOverrideContext) {
   const box = boxFor("gateways", ctx);
+  return (
+    box && (
+      <ProxySettingField
+        value={ctx.value}
+        onChange={ctx.onChange}
+        texts={box}
+      />
+    )
+  );
+}
+
+// The models catalog's proxy reads like a provider's too (System tab).
+function modelsCatalogFieldOverride(ctx: FieldOverrideContext) {
+  const box = boxFor("system.models_catalog", ctx);
   return (
     box && (
       <ProxySettingField
@@ -781,6 +812,41 @@ export function SettingsSection(props: {
                 />
               );
             }
+            // The models catalog's word on max_tokens and image support: a
+            // line under the field offers it, the click writes it.
+            if (ctx.path === "max_tokens" || ctx.path === "multimodal") {
+              const modelId =
+                ctx.parentObj?.["model"] === undefined ||
+                ctx.parentObj?.["model"] === null
+                  ? ""
+                  : String(ctx.parentObj["model"]);
+              const providerName = modelId.includes("/")
+                ? modelId.slice(0, modelId.indexOf("/"))
+                : "";
+              const Field =
+                ctx.path === "max_tokens" ? MaxTokensField : MultimodalField;
+              return (
+                <Field
+                  value={ctx.value}
+                  onChange={(v) => ctx.onChange(v)}
+                  model={modelId}
+                  providerRow={providerRows.find(
+                    (p) => String(p.name ?? "").trim() === providerName,
+                  )}
+                  label={schemaFieldLabel(
+                    key,
+                    ctx.path,
+                    ctx.schema.title,
+                    ctx.path,
+                  )}
+                  description={schemaFieldDesc(
+                    key,
+                    ctx.path,
+                    ctx.schema.description,
+                  )}
+                />
+              );
+            }
             // The generic array editor cannot express "key absent" (auto-detect)
             // and cannot tell it apart from an explicit [] that hides the
             // reasoning selector, so this field owns all three states.
@@ -863,18 +929,14 @@ export function SettingsSection(props: {
                 <ProviderModelList
                   provider={item}
                   existingModels={modelIds}
-                  onAddModel={(id, contextWindow) => {
+                  onAddModel={(id, seed) => {
                     if (modelIds.includes(id)) {
                       return;
                     }
                     setDoc(
                       applyModelsChange(doc, [
                         ...asArray(doc.models),
-                        seedLogicalModel(
-                          props_["models"]?.items,
-                          id,
-                          contextWindow,
-                        ),
+                        seedLogicalModel(props_["models"]?.items, id, seed),
                       ]),
                     );
                   }}
@@ -916,6 +978,9 @@ export function SettingsSection(props: {
               onChange={(v) => setKey(ck, v)}
               i18nDomain={`system.${ck}`}
               groups={systemPartGroups(ck, sub)}
+              fieldOverride={
+                ck === "models_catalog" ? modelsCatalogFieldOverride : undefined
+              }
             />
           );
         })}

@@ -1898,6 +1898,96 @@ test("a model added from the provider list carries the context window the provid
   ]);
 });
 
+// Anthropic reports no window: the row arrives with the models catalog's
+// window, max_tokens and image support, the catalog's max_tokens in place of
+// the schema's seed of 4096.
+test("a model added from the provider list carries what the models catalog suggests", async () => {
+  vi.stubGlobal("fetch", async (input: unknown) => ({
+    ok: true,
+    json: async () =>
+      String(input) === "/coddy/models/catalog"
+        ? {
+            ok: true,
+            enabled: true,
+            models: {
+              "claude-sonnet-4-5": {
+                context_window: 200000,
+                max_output_tokens: 64000,
+                max_tokens: 40000,
+                multimodal: true,
+              },
+            },
+          }
+        : { ok: true, models: [{ id: "claude-sonnet-4-5" }] },
+  }));
+  const schema: JsonSchema = {
+    type: "object",
+    properties: {
+      providers: rootSchema.properties!.providers!,
+      models: {
+        type: "array",
+        title: "Logical models",
+        items: {
+          type: "object",
+          properties: {
+            model: { type: "string", title: "Model id" },
+            max_tokens: { type: "integer", title: "Max tokens", default: 4096 },
+            max_context_tokens: {
+              type: "integer",
+              title: "Context window (tokens)",
+            },
+            multimodal: {
+              type: "boolean",
+              title: "Multimodal",
+              default: false,
+            },
+          },
+          "x-coddy-property-order": [
+            "model",
+            "max_tokens",
+            "max_context_tokens",
+            "multimodal",
+          ],
+        },
+      },
+    },
+  };
+  let latest: Record<string, unknown> = {};
+  function Seeded() {
+    const [doc, setDoc] = React.useState<Record<string, unknown>>({
+      providers: [{ name: "claude", type: "anthropic" }],
+      models: [],
+    });
+    return (
+      <SettingsSection
+        section={providersSection}
+        schema={schema}
+        doc={doc}
+        setDoc={(next) => {
+          latest = next;
+          setDoc(next);
+        }}
+      />
+    );
+  }
+
+  render(<Seeded />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  await screen.findByTestId("provider-model-catalog-ctx-claude-sonnet-4-5");
+  fireEvent.click(
+    screen.getByTestId("provider-model-toggle-claude-sonnet-4-5"),
+  );
+
+  expect(latest.models).toEqual([
+    {
+      model: "claude/claude-sonnet-4-5",
+      max_tokens: 40000,
+      max_context_tokens: 200000,
+      multimodal: true,
+    },
+  ]);
+});
+
 // The provider form is three blocks: Provider settings, Advanced settings
 // (folded until its legend is clicked: the credential command, the proxy and
 // the timeout) and the Models list.
@@ -2860,4 +2950,52 @@ test("the Metrics tab names its fields and their hints in Russian", () => {
   for (const hint of hints) {
     expect(hint).toMatch(/[а-яё]/i);
   }
+});
+
+// The models catalog is a part of the System tab, and its proxy is the
+// switch-and-URL pair a provider's is.
+test("the System tab carries the models catalog with the proxy switch", () => {
+  const schema: JsonSchema = {
+    type: "object",
+    properties: {
+      models_catalog: {
+        type: "object",
+        title: "Models catalog",
+        properties: {
+          enable: { type: "boolean", title: "Enabled", default: true },
+          url: { type: "string", title: "Catalog URL" },
+          proxy: { type: "string", title: "Proxy URL" },
+        },
+        "x-coddy-property-order": ["enable", "url", "proxy"],
+      },
+    },
+  };
+  let latest: Record<string, unknown> = {};
+  function System() {
+    const [doc, setDoc] = React.useState<Record<string, unknown>>({
+      models_catalog: { proxy: "http://127.0.0.1:3128" },
+    });
+    return (
+      <SettingsSection
+        section={{
+          id: "system",
+          label: "System",
+          kind: "group",
+          childKeys: ["models_catalog"],
+        }}
+        schema={schema}
+        doc={doc}
+        setDoc={(next) => {
+          latest = next;
+          setDoc(next);
+        }}
+      />
+    );
+  }
+  render(<System />);
+
+  expect(screen.getByText("Models catalog")).toBeTruthy();
+  const direct = screen.getByRole("switch", { name: "Ignore system proxy" });
+  fireEvent.click(direct);
+  expect(latest.models_catalog).toEqual({ proxy: "none" });
 });

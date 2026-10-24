@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import { FieldLabel } from "./FieldHint";
 import { IconSync } from "./icons";
@@ -7,6 +7,7 @@ import {
   useAutoProviderModels,
   type ProviderRow,
 } from "./useProviderModels";
+import { lookupModelsCatalog, useModelsCatalog } from "./useModelsCatalog";
 import { useT } from "../i18n/I18nProvider";
 
 /** What the runtime measures against when neither the config nor the
@@ -20,9 +21,12 @@ export const DEFAULT_CONTEXT_WINDOW = 128000;
  * would say nothing: the field asks the provider (POST /coddy/providers/models
  * with the row as the settings document holds it) and shows the window it
  * reports for this model id as the placeholder - the number the runtime will
- * use. The refresh control asks again and writes that number into the field,
- * for an operator who wants it pinned; a model added from the provider form's
- * list arrives with it already written.
+ * use. When the provider reports none, the placeholder names the window the
+ * models catalog states (models_catalog), the number worth writing in, since
+ * the runtime would otherwise use 128000. The refresh control asks again and
+ * writes the provider's number into the field, else the catalog's, for an
+ * operator who wants it pinned; a model added from the provider form's list
+ * arrives with it already written.
  */
 export function ContextWindowField(props: {
   value: unknown;
@@ -47,6 +51,10 @@ export function ContextWindowField(props: {
       : undefined;
   const { loading, models, fetched, error, fetchModels } =
     useAutoProviderModels(row);
+  // The catalog's window does not depend on the provider's, so it is asked
+  // on its own, without a second read of the provider's listing.
+  const catalogModels = React.useMemo(() => (id ? [{ id }] : null), [id]);
+  const fromCatalog = useModelsCatalog(row, catalogModels)[id]?.context_window;
 
   // The note answers an explicit ask about one model id; another id (or
   // another provider) makes it stale.
@@ -79,6 +87,10 @@ export function ContextWindowField(props: {
     placeholder = t("settings.contextWindow.reported", {
       tokens: String(reported),
       provider,
+    });
+  } else if (fromCatalog) {
+    placeholder = t("settings.contextWindow.catalog", {
+      tokens: String(fromCatalog),
     });
   } else {
     placeholder = t("settings.contextWindow.default", {
@@ -126,9 +138,19 @@ export function ContextWindowField(props: {
               const window = list.find((m) => m.id === id)?.context_window;
               if (window) {
                 onChangeRef.current(window);
-              } else {
-                setNote("asked");
+                return;
               }
+              void lookupModelsCatalog(row, [{ id }]).then((got) => {
+                if (modelRef.current !== askedFor) {
+                  return;
+                }
+                const fromCatalog = got[id]?.context_window;
+                if (fromCatalog) {
+                  onChangeRef.current(fromCatalog);
+                } else {
+                  setNote("asked");
+                }
+              });
             });
           }}
         >
@@ -142,7 +164,7 @@ export function ContextWindowField(props: {
         >
           {error
             ? t("settings.contextWindow.fetchError", { error })
-            : t("settings.contextWindow.notReported", { provider, id })}
+            : t("settings.contextWindow.notKnown", { provider, id })}
         </p>
       ) : null}
     </div>

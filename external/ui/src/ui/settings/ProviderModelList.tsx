@@ -4,12 +4,24 @@ import { formatTurnTokens } from "../chat/turnProgress";
 import { useT } from "../i18n/I18nProvider";
 import { IconCheck, IconPlus, IconSync } from "./icons";
 import { SETTINGS_TEXTS, landmarkAnchor } from "./settingsSections";
+import { useModelsCatalog, type CatalogModel } from "./useModelsCatalog";
 import {
   modelDisplayName,
   providerRowFetchable,
   useAutoProviderModels,
   type ProviderRow,
 } from "./useProviderModels";
+
+/**
+ * What a model added from the list arrives with: the window the provider
+ * reports, else the catalog's, and the catalog's max_tokens and image
+ * support. Absent fields keep the row's defaults.
+ */
+export interface ModelSeed {
+  contextWindow?: number | undefined;
+  maxTokens?: number | undefined;
+  multimodal?: boolean | undefined;
+}
 
 /** Lists longer than this get a filter field above the rows. */
 export const PROVIDER_MODELS_FILTER_THRESHOLD = 8;
@@ -22,9 +34,11 @@ function str(v: unknown): string {
  * ProviderModelList closes a provider's edit form: the models the provider
  * advertises, fetched through POST /coddy/providers/models with the row as
  * the form holds it (unsaved edits included). Each row is the id, the context
- * window the listing reports, and a toggle right after them: a plus files
- * provider/id under Logical models, a check says it is there and takes it out
- * again. An id Logical models files under this provider that the provider no
+ * window the listing reports (or, dimmed, the one the models catalog states
+ * when the listing reports none), and a toggle right after them: a plus files
+ * provider/id under Logical models with the window, max_tokens and image
+ * support the provider and the catalog give, a check says it is there and
+ * takes it out again. An id Logical models files under this provider that the provider no
  * longer advertises stays in the list, amber, checked, its explanation in the
  * row's tooltip, so it can be taken out the same way.
  *
@@ -39,9 +53,9 @@ export function ProviderModelList(props: {
   provider: ProviderRow;
   /** Every models[].model of the document, so listed ids are told apart. */
   existingModels: string[];
-  /** Files provider/id under Logical models, with the context window the
-   * provider reported for it when it did. */
-  onAddModel: (id: string, contextWindow?: number | undefined) => void;
+  /** Files provider/id under Logical models with what the provider and the
+   * models catalog say of it. */
+  onAddModel: (id: string, seed: ModelSeed) => void;
   /** Takes provider/id out of Logical models. */
   onRemoveModel: (id: string) => void;
 }) {
@@ -50,6 +64,14 @@ export function ProviderModelList(props: {
   const { loading, models, error, fetched, fetchModels } =
     useAutoProviderModels(provider);
   const [filter, setFilter] = useState("");
+  const catalogModels = useMemo<CatalogModel[] | null>(
+    () =>
+      fetched && !error && models.length > 0
+        ? models.map((m) => ({ id: m.id, context_window: m.context_window }))
+        : null,
+    [fetched, error, models],
+  );
+  const catalog = useModelsCatalog(provider, catalogModels);
 
   const name = str(provider.name).trim();
   const fetchable = providerRowFetchable(provider);
@@ -96,10 +118,19 @@ export function ProviderModelList(props: {
     status = t("settings.providerModels.none");
   }
 
+  const seedFor = (id: string, reported?: number): ModelSeed => {
+    const s = catalog[id];
+    return {
+      contextWindow: reported ?? s?.context_window,
+      maxTokens: s?.max_tokens,
+      multimodal: s?.multimodal,
+    };
+  };
+
   const toggle = (
     full: string,
     isListed: boolean,
-    contextWindow?: number,
+    reported?: number,
     stale = false,
   ) => {
     const action = isListed
@@ -120,7 +151,9 @@ export function ProviderModelList(props: {
         title={action}
         aria-label={name}
         onClick={() =>
-          isListed ? onRemoveModel(full) : onAddModel(full, contextWindow)
+          isListed
+            ? onRemoveModel(full)
+            : onAddModel(full, seedFor(id, reported))
         }
       >
         {isListed ? <IconCheck /> : <IconPlus />}
@@ -196,6 +229,22 @@ export function ProviderModelList(props: {
                     )}
                   >
                     {formatTurnTokens(m.context_window)}
+                  </span>
+                ) : catalog[m.id]?.context_window ? (
+                  <span
+                    className="provider-models-item-ctx is-catalog"
+                    data-testid={`provider-model-catalog-ctx-${m.id}`}
+                    title={tp(
+                      "settings.providerModels.catalogContextWindow",
+                      catalog[m.id]!.context_window!,
+                      {
+                        tokens: new Intl.NumberFormat(locale).format(
+                          catalog[m.id]!.context_window!,
+                        ),
+                      },
+                    )}
+                  >
+                    {formatTurnTokens(catalog[m.id]!.context_window!)}
                   </span>
                 ) : null}
                 {toggle(full, isListed, m.context_window)}

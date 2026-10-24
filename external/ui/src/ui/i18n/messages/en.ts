@@ -334,13 +334,15 @@ export const messagesEn: Record<string, string> = {
   "settings.field.modelPlaceholder": "model-id",
   "settings.field.fetching": "Fetching…",
   "settings.field.fetchModels": "Fetch models",
-  "settings.contextWindow.fetch": "Fetch the context window from the provider",
+  "settings.contextWindow.fetch":
+    "Fetch the context window from the provider or the models catalog",
   "settings.contextWindow.reported": "{tokens}, reported by {provider}",
   "settings.contextWindow.default": "{tokens}, the default",
-  "settings.contextWindow.notReported":
-    "{provider} does not report a context window for {id}.",
   "settings.contextWindow.fetchError":
     "Couldn't fetch the context window: {error}",
+  "settings.contextWindow.catalog": "{tokens}, from the models catalog",
+  "settings.contextWindow.notKnown":
+    "{provider} does not report a context window for {id}, and the models catalog does not list it.",
   "settings.providers.group.main": "Provider settings",
   "settings.providers.group.advanced": "Advanced settings",
   "settings.models.group.model": "Model",
@@ -365,6 +367,14 @@ export const messagesEn: Record<string, string> = {
     "Context window of {tokens} token",
   "settings.providerModels.contextWindow.other":
     "Context window of {tokens} tokens",
+  "settings.providerModels.catalogContextWindow.one":
+    "Context window of {tokens} token, from the models catalog",
+  "settings.providerModels.catalogContextWindow.other":
+    "Context window of {tokens} tokens, from the models catalog",
+  "settings.catalog.apply": "Apply",
+  "settings.catalog.maxTokens": "The models catalog suggests {tokens}.",
+  "settings.catalog.readsImages":
+    "The models catalog says this model reads images.",
   "settings.reasoning.levelsFallback": "Reasoning levels",
   "settings.reasoning.fetch": "Fetch reasoning levels",
   "settings.reasoning.fetching": "Fetching…",
@@ -836,6 +846,18 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.system.instructions.files.label": "Instruction files",
   "settings.schema.system.instructions.files.desc":
     "Extra files added to the prompt after the AGENTS.md and DESIGN.md documents, which are always read (the agent home's, the session folder's, the nested ones). Empty by default; a relative path is read from the session folder, and a file already in the prompt is not read twice.",
+  "settings.schema.system.models_catalog.label": "Models catalog",
+  "settings.schema.system.models_catalog.desc":
+    "Where Settings looks up the context window, the output limit and the image support it suggests for a model you add: models.dev or a mirror of it. A suggestion is written into the model's row only when you add the model from a provider's list or press Apply; a session never reads the catalog.",
+  "settings.schema.system.models_catalog.enable.label": "Enabled",
+  "settings.schema.system.models_catalog.enable.desc":
+    "Download the catalog when Settings asks for a suggestion. Off: no request to it at all, and the fields work as before.",
+  "settings.schema.system.models_catalog.url.label": "Catalog URL",
+  "settings.schema.system.models_catalog.url.desc":
+    "Address of the catalog in the models.dev api.json shape. Empty uses https://models.dev/api.json; set a mirror for a network that cannot reach it.",
+  "settings.schema.system.models_catalog.proxy.label": "Proxy URL",
+  "settings.schema.system.models_catalog.proxy.desc":
+    "Optional proxy for the catalog download: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for the download. Left empty, the download follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
   "settings.schema.logger.label": "Logger",
   "settings.schema.logger.level.label": "Level",
   "settings.schema.logger.level.desc":
@@ -896,6 +918,8 @@ export const messagesEn: Record<string, string> = {
     "Optional proxy for the Bot API requests: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for the bot. Left empty, the bot follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
   "settings.gatewayProxy.ignoreSystemDesc":
     "Connect directly: the bot's requests ignore HTTPS_PROXY, HTTP_PROXY and NO_PROXY of the Coddy process. Saved as proxy: none, in place of a proxy URL.",
+  "settings.modelsCatalogProxy.ignoreSystemDesc":
+    "Connect directly: the catalog download ignores HTTPS_PROXY, HTTP_PROXY and NO_PROXY of the Coddy process. Saved as proxy: none, in place of a proxy URL.",
   "settings.schema.gateways.telegram.admins.label": "Admins",
   "settings.schema.gateways.telegram.admins.desc":
     "Telegram user IDs with elevated rights; admins always pass access checks.",
