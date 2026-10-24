@@ -1176,54 +1176,36 @@ function workspaceProps(locked: boolean) {
   };
 }
 
-// A chat in a linked worktree goes back to its project from the plate: the
-// button asks first, keep the worktree or remove it, and keeping sends
-// /worktree exit --keep, which the server runs without a model turn.
-test("the plate of a chat in a worktree asks, then sends /worktree exit --keep to go back", async () => {
-  const fetchMock = stubSessionChanges(0);
-  const changesFetch = fetchMock.getMockImplementation()!;
-  fetchMock.mockImplementation(async (input: unknown) => {
-    if (String(input).endsWith("/worktree")) {
-      return new Response(
-        JSON.stringify({
-          in_worktree: true,
-          branch: "feat/session-changes",
-          managed: true,
-          uncommitted: 0,
-          unpushed: 0,
-          locked: false,
-          submodules: false,
-          running_tasks: 0,
-          removable: true,
-          needs_discard: false,
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
-    }
-    return changesFetch(input);
-  });
+test("a linked worktree's plate has no exit button and still opens the edits", async () => {
+  stubSessionChanges(2);
+  const onOpenEdits = vi.fn();
   const onSend = vi.fn();
-  render(
-    turnLineScreen({
-      ...workspaceProps(true),
-      workspaceCtx: {
-        ...repoCtx,
-        path: "/home/me/src/coddy-agent/.coddy/worktrees/feat-session-changes",
-        name: "feat-session-changes",
-        is_worktree: true,
-      },
-      onSend,
-    }),
-  );
-  fireEvent.click(await screen.findByTestId("workspace-bar-leave"));
-  const dialog = await screen.findByTestId("leave-worktree-dialog");
-  expect(onSend).not.toHaveBeenCalled();
-  fireEvent.click(
-    within(dialog).getByRole("button", { name: "Keep worktree" }),
-  );
-  expect(onSend).toHaveBeenCalledWith("/worktree exit --keep");
-  expect(screen.queryByTestId("leave-worktree-dialog")).toBeNull();
-  vi.unstubAllGlobals();
+  try {
+    render(
+      turnLineScreen({
+        ...workspaceProps(true),
+        workspaceCtx: {
+          ...repoCtx,
+          path: "/home/me/src/coddy-agent/.coddy/worktrees/feat-session-changes",
+          name: "feat-session-changes",
+          is_worktree: true,
+        },
+        onOpenEdits,
+        onSend,
+      }),
+    );
+    const edits = await screen.findByTestId("workspace-bar-edits");
+    fireEvent.click(edits);
+    expect(onOpenEdits).toHaveBeenCalledTimes(1);
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("workspace-bar-leave")).toBeNull();
+    expect(screen.queryByTestId("leave-worktree-dialog")).toBeNull();
+    expect(
+      within(screen.getByTestId("workspace-bar")).getAllByRole("button"),
+    ).toEqual([edits]);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 // Once the chat runs, where it works is a fact: a plate joined to the top of

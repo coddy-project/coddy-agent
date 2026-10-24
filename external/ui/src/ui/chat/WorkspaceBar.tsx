@@ -8,7 +8,7 @@ import {
   type WorkspaceContext,
 } from "./workspaceContext";
 import { FitMiddleText } from "./FitMiddleText";
-import { BranchIcon, FolderIcon, LeaveWorktreeIcon } from "./workspaceIcons";
+import { BranchIcon, FolderIcon } from "./workspaceIcons";
 import { WorkspaceChips } from "./WorkspaceChips";
 
 export { middleTruncate } from "./workspaceContext";
@@ -34,15 +34,12 @@ export type WorkspacePick = {
  * the tooltip naming the worktree when the chat runs in a linked one - and, at
  * the right edge in a light frame, what git reports as changed there, which
  * opens the edits window. Git's count waits for a session. The goal mark of a
- * session with a goal (`goal`, the composer's) stands left of the count. A
- * chat in a linked worktree gets the way back to the main checkout right after
- * the branch (`onLeaveWorktree`, which ChatScreen turns into /worktree exit).
+ * session with a goal (`goal`, the composer's) stands left of the count.
  */
 export function WorkspaceBar(props: {
   context: WorkspaceContext;
   workingCopy?: WorkingCopy | undefined;
   onOpenEdits?: (() => void) | undefined;
-  onLeaveWorktree?: (() => void) | undefined;
   pick?: WorkspacePick | undefined;
   goal?: ReactNode;
 }) {
@@ -97,22 +94,6 @@ export function WorkspaceBar(props: {
               <BranchIcon worktree={ctx.is_worktree === true} />
               <FitMiddleText className="workspace-bar-text" text={branch} />
             </span>
-          ) : null}
-          {ctx.is_git_repo && ctx.is_worktree && props.onLeaveWorktree ? (
-            <button
-              type="button"
-              className="workspace-bar-leave"
-              aria-label={t("workspaceBar.leaveWorktree", {
-                name: folderChipLabel(ctx),
-              })}
-              title={t("workspaceBar.leaveWorktreeTitle", {
-                name: folderChipLabel(ctx),
-              })}
-              data-testid="workspace-bar-leave"
-              onClick={() => props.onLeaveWorktree?.()}
-            >
-              <LeaveWorktreeIcon />
-            </button>
           ) : null}
         </>
       )}

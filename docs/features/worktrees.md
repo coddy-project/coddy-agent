@@ -136,31 +136,13 @@ session still runs inside the worktree. The web workspace picks give way to that
 plate once the conversation starts; the agent tool can move its own session
 during a turn.
 
-A chat that runs in a linked worktree has the way back on the plate: the arrow
-right after the branch.
-
-![The plate over the composer of a chat in a worktree: the project, the worktree's branch and the arrow back to the main checkout](../assets/git-worktree/worktree-leave-plate-dark-1280.png)
-
-*The arrow after the branch brings the chat back to the main checkout.*
-
-The arrow asks first whether to keep the worktree or remove it, the way Claude
-Code asks when a worktree session ends, with what removing would touch in view:
-the branch, uncommitted changes, commits not pushed, and whatever stops a
-removal now (another chat in the worktree, a running background task, a lock,
-commits on no branch, submodules, a git repository of its own inside it, a
-worktree Coddy did not open). Keeping is the
-default answer and sends `/worktree exit --keep`. Removing sends `/worktree exit
---remove`, or `/worktree exit --remove --force` when there are uncommitted
-changes, which the button then says it discards and the dialog says it keeps as
-a snapshot. The dialog reads `GET /coddy/sessions/{id}/worktree` each time it
-opens, and again when the chat moves to another folder while it is open. The plate names the main checkout as soon as that turn ends. It
-reads where the chat works again as soon as a `worktree_open` or `worktree_exit`
-call has finished, while the turn still runs, and after every turn of the chat, so
-it follows `worktree_open`, `worktree_exit` and `/worktree` without a reload.
-
-![The dialog of the arrow: the branch, three uncommitted changes and a commit not pushed, with Cancel, Discard changes and remove, and Keep worktree](../assets/git-worktree/worktree-leave-dialog-dark-1280.png)
-
-*Removing a worktree with uncommitted work says that it discards it and keeps a snapshot.*
+The plate has no worktree-exit button or leave dialog at any width. Return to
+the main checkout with `/worktree exit --keep`, `/worktree exit --remove` or
+`/worktree exit --remove --force`, or ask the agent to use `worktree_exit`.
+The removal checks and snapshots described above still apply. The plate reads
+the working folder again when `worktree_open` or `worktree_exit` finishes,
+while the turn still runs, and after every turn of the chat, so it follows
+those tools and `/worktree` without a reload.
 
 ![History grouped under the main project, and the plate over the composer naming the project and the worktree's branch](../assets/git-worktree/worktree-project-group-dark-1920.png)
 

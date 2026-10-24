@@ -30,6 +30,7 @@ Feature: The views of a chat
   Scenario: The plate over the composer names where a running chat works
     Then a running chat names its repository, branch and changes over the composer
     And a linked worktree is named in the tooltip of its branch
+    And a linked worktree's plate has no exit button and still opens the edits
     And before the chat starts the folder, branch and worktree are picks on the plate
     And the start screen opens on the folder and the worktree choice remembered in this browser
     And the start screen shows the branch the folder is on now
