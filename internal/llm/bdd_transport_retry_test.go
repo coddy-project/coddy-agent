@@ -354,9 +354,7 @@ func (s *transportRetryState) aProviderWhoseUpstreamGoesSilentOnFirstConnection(
 	}
 	// The production values are 30 s and 15 s; the scenario only needs the
 	// mechanism, not the wait.
-	if err := enableHTTP2Liveness(transport, 100*time.Millisecond, 100*time.Millisecond); err != nil {
-		return err
-	}
+	enableHTTP2Liveness(transport, 100*time.Millisecond, 100*time.Millisecond)
 
 	inner := newOpenAIProvider("test-model", "test-key", srv.URL, client, 0, 0, "")
 	s.provider = WrapResilient(inner, ResilientOptions{

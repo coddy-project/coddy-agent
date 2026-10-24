@@ -14,8 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/net/http2"
-
 	"github.com/EvilFreelancer/coddy-agent/internal/netx"
 )
 
@@ -149,21 +147,10 @@ func DialTunnel(ctx context.Context, opts TunnelOptions) error {
 	stopWatch := watched.watch(TunnelIdleTimeout)
 	defer stopWatch()
 
-	served := watched
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		//nolint:staticcheck // x/net v0.60.0 deprecates its HTTP/2 API for net/http's; the move is a change of its own
-		(&http2.Server{
-			// One connection carries every request for this node, so the stream
-			// bound is what keeps a burst from starving a live turn.
-			MaxConcurrentStreams: TunnelMaxConcurrentStreams,
-			// Liveness is watched on the connection itself (see above), not
-			// here: HTTP/2's idle timeout ignores pings and is suppressed by an
-			// open stream, so it would never fire on a tunnel that is quietly
-			// dead while holding a long turn.
-			IdleTimeout: 0,
-		}).ServeConn(served, &http2.ServeConnOpts{Handler: opts.Handler})
+		serveTunnel(watched, opts.Handler)
 	}()
 
 	select {
@@ -174,6 +161,75 @@ func DialTunnel(ctx context.Context, opts TunnelOptions) error {
 	case <-done:
 		return nil
 	}
+}
+
+// serveTunnel answers the relay's requests over conn with net/http's HTTP/2,
+// spoken by prior knowledge, until the connection ends. net/http serves
+// listeners, not connections, so conn is the one connection of a listener
+// that then waits for it to close.
+func serveTunnel(conn net.Conn, handler http.Handler) {
+	var protocols http.Protocols
+	protocols.SetUnencryptedHTTP2(true)
+	srv := &http.Server{
+		Handler:   handler,
+		Protocols: &protocols,
+		// One connection carries every request for this node, so the stream
+		// bound is what keeps a burst from starving a live turn.
+		HTTP2: &http.HTTP2Config{MaxConcurrentStreams: TunnelMaxConcurrentStreams},
+		// IdleTimeout stays zero: liveness is watched on the connection
+		// itself (DialTunnel), because HTTP/2's idle timeout ignores pings and
+		// is suppressed by an open stream, so it would never fire on a tunnel
+		// that is quietly dead while holding a long turn.
+	}
+	_ = srv.Serve(newOneConnListener(conn))
+	_ = srv.Close()
+}
+
+// oneConnListener hands out one connection and then blocks until that
+// connection is closed, so http.Server.Serve returns when the connection it
+// served ends.
+type oneConnListener struct {
+	conn   *closeSignalConn
+	handed sync.Once
+	once   sync.Once
+	done   chan struct{}
+}
+
+func newOneConnListener(c net.Conn) *oneConnListener {
+	l := &oneConnListener{done: make(chan struct{})}
+	l.conn = &closeSignalConn{Conn: c, closed: l.close}
+	return l
+}
+
+func (l *oneConnListener) Accept() (net.Conn, error) {
+	var c net.Conn
+	l.handed.Do(func() { c = l.conn })
+	if c != nil {
+		return c, nil
+	}
+	<-l.done
+	return nil, net.ErrClosed
+}
+
+func (l *oneConnListener) close() { l.once.Do(func() { close(l.done) }) }
+
+func (l *oneConnListener) Close() error {
+	l.close()
+	return nil
+}
+
+func (l *oneConnListener) Addr() net.Addr { return l.conn.LocalAddr() }
+
+// closeSignalConn reports the first Close of the connection it wraps.
+type closeSignalConn struct {
+	net.Conn
+	closed func()
+}
+
+func (c *closeSignalConn) Close() error {
+	err := c.Conn.Close()
+	c.closed()
+	return err
 }
 
 // dialRelay opens the raw stream, through a proxy and under TLS when asked.
