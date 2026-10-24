@@ -111,10 +111,14 @@ func validateSubconfigs(cfg *Config) error {
 	}
 	cfg.Swarm.Normalize()
 	cfg.Metrics.Normalize()
+	cfg.ModelsCatalog.Normalize()
 	if err := cfg.Swarm.Validate(); err != nil {
 		return err
 	}
 	if err := cfg.Metrics.Validate(); err != nil {
+		return err
+	}
+	if err := cfg.ModelsCatalog.Validate(); err != nil {
 		return err
 	}
 	if err := cfg.MCP.Validate(); err != nil {

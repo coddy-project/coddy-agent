@@ -31,6 +31,9 @@ const (
 	// ComponentProviderACP is the acp provider: the local ACP agents it
 	// starts, their sessions and what they report on stderr.
 	ComponentProviderACP = "provider.acp"
+	// ComponentModelsCatalog is the models catalog the settings screen
+	// suggests model metadata from: its downloads and its cached copy.
+	ComponentModelsCatalog = "models_catalog"
 )
 
 // Component returns a logger tagged as belonging to name, so logger.levels can

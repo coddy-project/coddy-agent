@@ -8,30 +8,31 @@ import (
 
 // ConfigJSON is the JSON shape for GET/PUT /coddy/config (snake_case keys match YAML).
 type ConfigJSON struct {
-	Providers    []ProviderJSON   `json:"providers,omitempty"`
-	Models       []ModelJSON      `json:"models,omitempty"`
-	Toolsets     []ToolsetJSON    `json:"toolsets,omitempty"`
-	Agent        AgentJSON        `json:"agent,omitempty"`
-	Supervisor   Supervisor       `json:"supervisor,omitempty"`
-	Prompts      PromptsJSON      `json:"prompts,omitempty"`
-	Instructions InstructionsJSON `json:"instructions,omitempty"`
-	Skills       SkillsJSON       `json:"skills,omitempty"`
-	Rules        RulesJSON        `json:"rules,omitempty"`
-	MCP          MCPJSON          `json:"mcp,omitempty"`
-	Tools        ToolsJSON        `json:"tools,omitempty"`
-	Subagents    SubagentsJSON    `json:"subagents,omitempty"`
-	Hooks        HooksJSON        `json:"hooks,omitempty"`
-	Logger       LoggerJSON       `json:"logger,omitempty"`
-	Sessions     SessionsJSON     `json:"sessions,omitempty"`
-	Compaction   CompactionJSON   `json:"compaction,omitempty"`
-	Memory       MemoryJSON       `json:"memory,omitempty"`
-	Decisions    DecisionsJSON    `json:"decisions,omitempty"`
-	HTTPServer   HTTPServerJSON   `json:"httpserver,omitempty"`
-	Swarm        SwarmJSON        `json:"swarm,omitempty"`
-	Metrics      MetricsJSON      `json:"metrics,omitempty"`
-	UI           UIJSON           `json:"ui,omitempty"`
-	Scheduler    SchedulerJSON    `json:"scheduler,omitempty"`
-	Gateways     GatewaysJSON     `json:"gateways,omitempty"`
+	Providers     []ProviderJSON    `json:"providers,omitempty"`
+	Models        []ModelJSON       `json:"models,omitempty"`
+	Toolsets      []ToolsetJSON     `json:"toolsets,omitempty"`
+	Agent         AgentJSON         `json:"agent,omitempty"`
+	Supervisor    Supervisor        `json:"supervisor,omitempty"`
+	Prompts       PromptsJSON       `json:"prompts,omitempty"`
+	Instructions  InstructionsJSON  `json:"instructions,omitempty"`
+	Skills        SkillsJSON        `json:"skills,omitempty"`
+	Rules         RulesJSON         `json:"rules,omitempty"`
+	MCP           MCPJSON           `json:"mcp,omitempty"`
+	Tools         ToolsJSON         `json:"tools,omitempty"`
+	Subagents     SubagentsJSON     `json:"subagents,omitempty"`
+	Hooks         HooksJSON         `json:"hooks,omitempty"`
+	Logger        LoggerJSON        `json:"logger,omitempty"`
+	Sessions      SessionsJSON      `json:"sessions,omitempty"`
+	Compaction    CompactionJSON    `json:"compaction,omitempty"`
+	Memory        MemoryJSON        `json:"memory,omitempty"`
+	Decisions     DecisionsJSON     `json:"decisions,omitempty"`
+	HTTPServer    HTTPServerJSON    `json:"httpserver,omitempty"`
+	Swarm         SwarmJSON         `json:"swarm,omitempty"`
+	Metrics       MetricsJSON       `json:"metrics,omitempty"`
+	ModelsCatalog ModelsCatalogJSON `json:"models_catalog,omitempty"`
+	UI            UIJSON            `json:"ui,omitempty"`
+	Scheduler     SchedulerJSON     `json:"scheduler,omitempty"`
+	Gateways      GatewaysJSON      `json:"gateways,omitempty"`
 	// Revision names the configuration a GET /coddy/config document was read from.
 	// It is no setting: a client sends the document back with it unchanged, so a PUT
 	// can tell the values the client changed from the ones it only read, even when
@@ -429,6 +430,13 @@ type MetricsJSON struct {
 	TokenConfigured bool   `json:"token_configured,omitempty"`
 }
 
+// ModelsCatalogJSON mirrors ModelsCatalogConfig.
+type ModelsCatalogJSON struct {
+	Enabled *bool  `json:"enable,omitempty"`
+	URL     string `json:"url,omitempty"`
+	Proxy   string `json:"proxy,omitempty"`
+}
+
 // SwarmTLSJSON mirrors SwarmTLSConfig.
 type SwarmTLSJSON struct {
 	CertFile string `json:"cert_file,omitempty"`
@@ -693,6 +701,11 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Port:            c.Metrics.Port,
 		TokenConfigured: strings.TrimSpace(c.Metrics.Token) != "",
 	}
+	out.ModelsCatalog = ModelsCatalogJSON{
+		Enabled: cloneBoolPtr(c.ModelsCatalog.Enabled),
+		URL:     c.ModelsCatalog.URL,
+		Proxy:   c.ModelsCatalog.Proxy,
+	}
 	out.UI = UIJSON{Enabled: cloneBoolPtr(c.UI.Enabled)}
 	out.Scheduler = SchedulerJSON{
 		Enabled: c.Scheduler.Enabled, MaxQueue: c.Scheduler.MaxQueue,
@@ -941,6 +954,11 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Host:   j.Metrics.Host,
 		Port:   j.Metrics.Port,
 		Token:  j.Metrics.Token,
+	}
+	cfg.ModelsCatalog = ModelsCatalogConfig{
+		Enabled: cloneBoolPtr(j.ModelsCatalog.Enabled),
+		URL:     j.ModelsCatalog.URL,
+		Proxy:   j.ModelsCatalog.Proxy,
 	}
 	cfg.UI = UIConfig{Enabled: cloneBoolPtr(j.UI.Enabled)}
 	cfg.Scheduler = SchedulerConfig{

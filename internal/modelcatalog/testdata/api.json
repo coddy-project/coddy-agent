@@ -1,0 +1,108 @@
+{
+  "openai": {
+    "id": "openai",
+    "name": "OpenAI",
+    "models": {
+      "gpt-5": {"id": "gpt-5", "modalities": {"input": ["text", "image"], "output": ["text"]}, "limit": {"context": 400000, "input": 272000, "output": 128000}},
+      "gpt-4o": {"id": "gpt-4o", "modalities": {"input": ["text", "image", "pdf"], "output": ["text"]}, "limit": {"context": 128000, "output": 16384}},
+      "text-only": {"id": "text-only", "modalities": {"input": ["text"], "output": ["text"]}, "limit": {"context": 32000, "output": 4096}}
+    }
+  },
+  "anthropic": {
+    "id": "anthropic",
+    "models": {
+      "claude-sonnet-4-5": {"id": "claude-sonnet-4-5", "modalities": {"input": ["text", "image", "pdf"], "output": ["text"]}, "limit": {"context": 200000, "output": 64000}}
+    }
+  },
+  "openrouter": {
+    "id": "openrouter",
+    "api": "https://openrouter.ai/api/v1",
+    "models": {
+      "anthropic/claude-sonnet-4.5": {"id": "anthropic/claude-sonnet-4.5", "modalities": {"input": ["text", "image"]}, "limit": {"context": 1000000, "output": 64000}}
+    }
+  },
+  "groq": {
+    "id": "groq",
+    "models": {
+      "llama-4": {"id": "llama-4", "modalities": {"input": ["text"]}, "limit": {"context": 131072, "output": 8192}}
+    }
+  },
+  "minimax-coding-plan": {
+    "id": "minimax-coding-plan",
+    "api": "https://api.minimax.io/anthropic/v1",
+    "models": {
+      "MiniMax-M2": {"id": "MiniMax-M2", "modalities": {"input": ["text"]}, "limit": {"context": 204800, "output": 131072}}
+    }
+  },
+  "opencode": {
+    "id": "opencode",
+    "api": "https://opencode.ai/inference/openai/v1",
+    "models": {
+      "glm-5.3": {"id": "glm-5.3", "limit": {"context": 200000, "output": 32000}}
+    }
+  },
+  "opencode-go": {
+    "id": "opencode-go",
+    "api": "https://opencode.ai/inference/go/openai/v1",
+    "models": {
+      "glm-5.3": {"id": "glm-5.3", "limit": {"context": 128000, "output": 16000}}
+    }
+  },
+  "lmstudio": {
+    "id": "lmstudio",
+    "api": "http://127.0.0.1:1234/v1",
+    "models": {
+      "qwen3-8b": {"id": "qwen3-8b", "limit": {"context": 32768, "output": 8192}}
+    }
+  },
+  "privatemode-ai": {
+    "id": "privatemode-ai",
+    "api": "http://localhost:8080/v1",
+    "models": {
+      "qwen3-8b": {"id": "qwen3-8b", "limit": {"context": 65536, "output": 8192}}
+    }
+  },
+  "lan-box": {
+    "id": "lan-box",
+    "api": "http://192.168.1.20:8000/v1",
+    "models": {
+      "qwen3-8b": {"id": "qwen3-8b", "limit": {"context": 40960, "output": 8192}}
+    }
+  },
+  "templated": {
+    "id": "templated",
+    "api": "https://gateway.example/${ACCOUNT}/v1",
+    "models": {
+      "qwen3-8b": {"id": "qwen3-8b", "limit": {"context": 16384, "output": 4096}}
+    }
+  },
+  "twin-a": {
+    "id": "twin-a",
+    "api": "https://twins.example/v1",
+    "models": {
+      "shared": {"id": "shared", "limit": {"context": 100000, "output": 10000}}
+    }
+  },
+  "twin-b": {
+    "id": "twin-b",
+    "api": "https://twins.example/v1/",
+    "models": {
+      "shared": {"id": "shared", "limit": {"context": 50000, "output": 5000}}
+    }
+  },
+  "broken": {
+    "id": "broken",
+    "api": "https://broken.example/v1",
+    "models": {
+      "words": {"id": "words", "limit": {"context": "lots", "output": 100}},
+      "negative": {"id": "negative", "limit": {"context": -5, "output": 100}},
+      "absurd": {"id": "absurd", "limit": {"context": 99999999999, "output": 100}},
+      "fraction": {"id": "fraction", "limit": {"context": 1.5, "output": 100}},
+      "no-limit": {"id": "no-limit"},
+      "input-too-big": {"id": "input-too-big", "limit": {"context": 1000, "input": 5000, "output": 100}},
+      "fine": {"id": "fine", "limit": {"context": 8192, "output": "many"}}
+    }
+  },
+  "not-a-provider": "a string where a provider belongs",
+  "empty": {"id": "empty", "models": {}}
+}

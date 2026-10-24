@@ -378,8 +378,8 @@ logger.level:
   en: "Minimum severity written to the configured outputs (\"warning\" is accepted as an alias of \"warn\")."
   ru: "Минимальный уровень важности записей, которые попадают в настроенные места вывода (\"warning\" принимается как синоним \"warn\")."
 logger.levels:
-  en: "Per-component minimum severity. A component is the dotted name a record carries in its \"component\" attribute (gateway, gateway.telegram, gateway.pachca, session, agent, scheduler, provider.acp); a parent name covers everything nested under it and the longest configured prefix wins. Records with no component follow \"level\"."
-  ru: "Минимальный уровень важности для отдельных компонентов. Компонент - имя через точку, которое запись несёт в атрибуте \"component\" (gateway, gateway.telegram, gateway.pachca, session, agent, scheduler, provider.acp); родительское имя покрывает всё, что вложено в него, и побеждает самый длинный настроенный префикс. Записи без компонента следуют \"level\"."
+  en: "Per-component minimum severity. A component is the dotted name a record carries in its \"component\" attribute (gateway, gateway.telegram, gateway.pachca, session, agent, scheduler, provider.acp, models_catalog); a parent name covers everything nested under it and the longest configured prefix wins. Records with no component follow \"level\"."
+  ru: "Минимальный уровень важности для отдельных компонентов. Компонент - имя через точку, которое запись несёт в атрибуте \"component\" (gateway, gateway.telegram, gateway.pachca, session, agent, scheduler, provider.acp, models_catalog); родительское имя покрывает всё, что вложено в него, и побеждает самый длинный настроенный префикс. Записи без компонента следуют \"level\"."
 logger.levels[].component:
   en: "Dotted component name, for example \"gateway.telegram\"."
   ru: "Имя компонента через точку, например \"gateway.telegram\"."
@@ -698,6 +698,18 @@ metrics.port:
 metrics.token:
   en: "Bearer credential a scrape must present in its Authorization header. ${ENV} references are expanded at load. Empty means no authentication, so set one before binding off loopback. Never echoed back."
   ru: "Bearer-токен, который сборщик метрик должен передать в заголовке Authorization. Ссылки ${ENV} разворачиваются при загрузке. Пусто - без аутентификации, поэтому задайте токен, прежде чем привязывать экспортёр не к loopback. Никогда не возвращается обратно."
+models_catalog:
+  en: "Where the settings screen looks up the context window, the output limit and the image support it suggests for a models[] row: models.dev or a mirror in its api.json shape. A suggestion reaches config.yaml only when the operator adds the model from a provider's list or applies it to a field; a session never reads the catalog. The server keeps a copy in <home>/models-catalog.json and revalidates it once a day."
+  ru: "Источник окна контекста, предела ответа и поддержки картинок, которые экран настроек предлагает для строки models[], - models.dev или зеркало в формате его api.json. Подсказка попадает в config.yaml, только когда оператор добавляет модель из списка провайдера или применяет её к полю; сессия каталог не читает. Сервер хранит копию в <home>/models-catalog.json и раз в сутки проверяет, не изменилась ли она."
+models_catalog.enable:
+  en: "Download the catalog when the settings screen asks for a suggestion. Defaults to true; false makes no request to it at all, and the model fields work as without it."
+  ru: "Скачивать каталог, когда экран настроек запрашивает подсказку. По умолчанию true; false не отправляет к нему ни одного запроса, и поля модели работают так же, как без него."
+models_catalog.url:
+  en: "Address of the catalog: an http or https URL serving the models.dev api.json shape. Empty uses https://models.dev/api.json."
+  ru: "Адрес каталога - URL http или https, который отдаёт данные в формате api.json от models.dev. Пусто - https://models.dev/api.json."
+models_catalog.proxy:
+  en: "inherit (the default, the same as leaving the key out), none, or a proxy URL: http://, https://, socks5:// or socks5h://, read like providers[].proxy. inherit follows the proxy the environment of the Coddy process names - HTTPS_PROXY, HTTP_PROXY and NO_PROXY, never for a loopback address; ALL_PROXY is not read. none connects directly and ignores those variables. A proxy URL sends the catalog download through that proxy; with SOCKS the proxy resolves host names."
+  ru: "inherit (по умолчанию, то же, что отсутствие ключа), none или URL прокси со схемой http://, https://, socks5:// или socks5h://; читается так же, как providers[].proxy. inherit следует прокси, который задаёт окружение процесса Coddy, - HTTPS_PROXY, HTTP_PROXY и NO_PROXY, но никогда для loopback-адреса; ALL_PROXY не читается. none подключается напрямую и игнорирует эти переменные. URL прокси направляет через этот прокси загрузку каталога; с SOCKS имена хостов разрешает прокси."
 ui:
   en: "Controls the bundled single-page UI (only meaningful in binaries built with -tags http,ui)."
   ru: "Управляет встроенным одностраничным интерфейсом (имеет смысл только в бинарниках, собранных с -tags http,ui)."

@@ -29,7 +29,10 @@ type Config struct {
 	HTTPServer HTTPServerConfig `yaml:"httpserver"`
 	Swarm      SwarmConfig      `yaml:"swarm"`
 	Metrics    MetricsConfig    `yaml:"metrics"`
-	UI         UIConfig         `yaml:"ui"`
-	Scheduler  SchedulerConfig  `yaml:"scheduler"`
-	Gateways   GatewayConfig    `yaml:"gateways"`
+	// ModelsCatalog is where the settings screen reads the metadata it
+	// suggests for models[] rows (models_catalog.go).
+	ModelsCatalog ModelsCatalogConfig `yaml:"models_catalog"`
+	UI            UIConfig            `yaml:"ui"`
+	Scheduler     SchedulerConfig     `yaml:"scheduler"`
+	Gateways      GatewayConfig       `yaml:"gateways"`
 }

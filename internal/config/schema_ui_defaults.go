@@ -95,6 +95,11 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			MaxSearchHits:    8,
 			MaxNoteChars:     intPtr(MemoryDefaultMaxNoteChars),
 		},
+		ModelsCatalog: ModelsCatalogJSON{
+			Enabled: boolPtr(true),
+			URL:     ModelsCatalogDefaultURL,
+			Proxy:   "",
+		},
 		Decisions: DecisionsJSON{
 			Enabled:   false,
 			Model:     DecisionsModelFRIDA,

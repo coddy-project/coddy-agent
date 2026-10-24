@@ -237,7 +237,7 @@ Process log level, outputs, format, and file rotation.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `logger.level` | string, one of `debug`, `info`, `warn`, `warning`, `error` | info | Minimum severity written to the configured outputs ("warning" is accepted as an alias of "warn"). |
-| `logger.levels` | list of objects |  | Per-component minimum severity. A component is the dotted name a record carries in its "component" attribute (gateway, gateway.telegram, gateway.pachca, session, agent, scheduler, provider.acp); a parent name covers everything nested under it and the longest configured prefix wins. Records with no component follow "level". |
+| `logger.levels` | list of objects |  | Per-component minimum severity. A component is the dotted name a record carries in its "component" attribute (gateway, gateway.telegram, gateway.pachca, session, agent, scheduler, provider.acp, models_catalog); a parent name covers everything nested under it and the longest configured prefix wins. Records with no component follow "level". |
 | `logger.levels[].component` | string |  | Dotted component name, for example "gateway.telegram". |
 | `logger.levels[].level` | string, one of `debug`, `info`, `warn`, `warning`, `error` |  | Minimum severity for this component. |
 | `logger.outputs` | list of strings | ["stderr"] | Where log records go; any combination of stdout, stderr, file. Empty means stderr only. |
@@ -446,6 +446,16 @@ Prometheus exporter: GET /metrics on a port of its own, run by coddy serve. It t
 | `metrics.host` | string | "" | Bind address of the exporter. Empty falls back to 127.0.0.1, which only this machine can reach. |
 | `metrics.port` | integer | 0 | Listen port of the exporter. 0 falls back to 12347. |
 | `metrics.token` | string | "" | Bearer credential a scrape must present in its Authorization header. ${ENV} references are expanded at load. Empty means no authentication, so set one before binding off loopback. Never echoed back. |
+
+### `models_catalog`
+
+Where the settings screen looks up the context window, the output limit and the image support it suggests for a models[] row: models.dev or a mirror in its api.json shape. A suggestion reaches config.yaml only when the operator adds the model from a provider's list or applies it to a field; a session never reads the catalog. The server keeps a copy in <home>/models-catalog.json and revalidates it once a day.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `models_catalog.enable` | boolean or null | true | Download the catalog when the settings screen asks for a suggestion. Defaults to true; false makes no request to it at all, and the model fields work as without it. |
+| `models_catalog.url` | string | "" | Address of the catalog: an http or https URL serving the models.dev api.json shape. Empty uses https://models.dev/api.json. |
+| `models_catalog.proxy` | string | inherit | inherit (the default, the same as leaving the key out), none, or a proxy URL: http://, https://, socks5:// or socks5h://, read like providers[].proxy. inherit follows the proxy the environment of the Coddy process names - HTTPS_PROXY, HTTP_PROXY and NO_PROXY, never for a loopback address; ALL_PROXY is not read. none connects directly and ignores those variables. A proxy URL sends the catalog download through that proxy; with SOCKS the proxy resolves host names. |
 
 ### `supervisor`
 

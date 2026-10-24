@@ -986,6 +986,36 @@
       "title": "Logical models",
       "type": "array"
     },
+    "models_catalog": {
+      "additionalProperties": false,
+      "description": "Where Settings looks up the context window, the output limit and the image support it suggests for a model you add: models.dev or a mirror of it. A suggestion is written into the model's row only when you add the model from a provider's list or press apply; a session never reads the catalog.",
+      "properties": {
+        "enable": {
+          "default": true,
+          "description": "Download the catalog when Settings asks for a suggestion. Off: no request to it at all, and the fields work as before.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "proxy": {
+          "description": "Optional proxy for the catalog download: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for the download. Left empty, the download follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none connects directly.",
+          "title": "Proxy URL",
+          "type": "string"
+        },
+        "url": {
+          "default": "https://models.dev/api.json",
+          "description": "Address of the catalog in the models.dev api.json shape. Empty uses https://models.dev/api.json; set a mirror for a network that cannot reach it.",
+          "title": "Catalog URL",
+          "type": "string"
+        }
+      },
+      "title": "Models catalog",
+      "type": "object",
+      "x-coddy-property-order": [
+        "enable",
+        "url",
+        "proxy"
+      ]
+    },
     "prompts": {
       "additionalProperties": false,
       "description": "Built-in system prompt files relative to dir.",
@@ -1806,6 +1836,7 @@
     "metrics",
     "sessions",
     "prompts",
-    "instructions"
+    "instructions",
+    "models_catalog"
   ]
 }

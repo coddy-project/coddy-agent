@@ -332,3 +332,27 @@ func TestProviderACPComponentFollowsItsParent(t *testing.T) {
 		t.Fatalf("provider.acp's own level did not win; got: %s", buf.String())
 	}
 }
+
+// The models catalog is a component of its own: its level raises or lowers it
+// alone, and a level for another subsystem leaves it at the global one.
+func TestModelsCatalogComponentHasItsOwnLevel(t *testing.T) {
+	var buf bytes.Buffer
+	raised := slog.New(newHandler(&buf, config.Logger{
+		Level:  config.LogLevelError,
+		Levels: []config.LoggerComponentLevel{{Component: ComponentModelsCatalog, Level: config.LogLevelDebug}},
+	}))
+	Component(raised, ComponentModelsCatalog).Debug("catalog revalidated")
+	Component(raised, ComponentSession).Debug("session noise")
+	if out := buf.String(); !strings.Contains(out, "catalog revalidated") || strings.Contains(out, "session noise") {
+		t.Fatalf("models_catalog level did not apply to it alone; got: %s", out)
+	}
+	buf.Reset()
+	other := slog.New(newHandler(&buf, config.Logger{
+		Level:  config.LogLevelError,
+		Levels: []config.LoggerComponentLevel{{Component: ComponentSession, Level: config.LogLevelDebug}},
+	}))
+	Component(other, ComponentModelsCatalog).Warn("quiet")
+	if buf.Len() != 0 {
+		t.Fatalf("a session level reached models_catalog; got: %s", buf.String())
+	}
+}
