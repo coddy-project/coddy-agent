@@ -1,7 +1,8 @@
 Feature: ACP session lifecycle
   Editors that speak ACP see what a session is called change under their feet,
-  can delete a session and resume one without a full load, and are told which
-  workspace roots a session carries.
+  can delete a session and resume one without a full load, are told which
+  workspace roots a session carries, and answer the agent's questions in a form
+  they render themselves.
 
   Scenario: A session tells the client the title its first message gave it
     Given an ACP client has an active session
@@ -28,3 +29,9 @@ Feature: ACP session lifecycle
     When the client resumes the created session
     Then the resume response is not preceded by a replayed transcript
     And the resume response names a mode
+
+  Scenario: A question reaches a client that renders forms as an elicitation
+    Given an ACP client that renders form elicitation has an active session
+    When the agent asks "Pick a stack" offering "Go" and "Rust" and the client picks "Rust"
+    Then the client was asked "Pick a stack" through elicitation/create with a picker of "Go" and "Rust"
+    And the turn hears the answer "Rust"

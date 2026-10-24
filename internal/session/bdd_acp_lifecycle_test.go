@@ -45,6 +45,9 @@ type acpLifecycleState struct {
 	sessionID   string
 	extraDir    string
 	renameTo    string
+	// elicitation is the params of the elicitation/create request the last
+	// question went out as.
+	elicitation map[string]interface{}
 	// wire holds the messages one request produced, in arrival order.
 	wire []map[string]interface{}
 	// lastResult is the result object of the response that closed that request.
@@ -62,6 +65,7 @@ func (s *acpLifecycleState) reset() error {
 	s.sessionID = ""
 	s.extraDir = ""
 	s.renameTo = ""
+	s.elicitation = nil
 	s.wire = nil
 	s.lastResult = nil
 	return nil
@@ -152,6 +156,33 @@ func (s *acpLifecycleState) request(id int, method string, params map[string]int
 	s.wire = wire
 	s.lastResult = result
 	return nil
+}
+
+// readUntilRequest collects messages until the agent sends a request of the
+// given method, which is returned apart from what came before it.
+func (s *acpLifecycleState) readUntilRequest(method string) ([]map[string]interface{}, map[string]interface{}, error) {
+	collected := make([]map[string]interface{}, 0, 8)
+	deadline := time.NewTimer(4 * time.Second)
+	defer deadline.Stop()
+	for {
+		select {
+		case line := <-s.lines:
+			var msg map[string]interface{}
+			if err := json.Unmarshal(line, &msg); err != nil {
+				return collected, nil, err
+			}
+			if got, _ := msg["method"].(string); got == method {
+				if _, hasID := msg["id"]; hasID {
+					return collected, msg, nil
+				}
+			}
+			collected = append(collected, msg)
+		case err := <-s.readErrs:
+			return collected, nil, fmt.Errorf("helper stdout closed: %v", err)
+		case <-deadline.C:
+			return collected, nil, fmt.Errorf("no %s request in %#v", method, collected)
+		}
+	}
 }
 
 func (s *acpLifecycleState) readUntilResponse(id int) ([]map[string]interface{}, map[string]interface{}, error) {
@@ -356,6 +387,97 @@ func (s *acpLifecycleState) resumeNamesAMode() error {
 	return fmt.Errorf("session/resume response names no mode: %#v", s.lastResult)
 }
 
+func (s *acpLifecycleState) formClientHasActiveSession() error {
+	if err := s.start(); err != nil {
+		return err
+	}
+	if err := s.request(0, "initialize", map[string]interface{}{
+		"protocolVersion": acp.ProtocolVersion,
+		"clientCapabilities": map[string]interface{}{
+			"elicitation": map[string]interface{}{"form": map[string]interface{}{}},
+		},
+	}); err != nil {
+		return err
+	}
+	return s.createSession(nil)
+}
+
+// agentAsksAndClientPicks drives a turn whose agent asks one closed question
+// and answers the form the way an editor's user would: by picking a choice.
+func (s *acpLifecycleState) agentAsksAndClientPicks(question, first, second, pick string) error {
+	if err := writeJSONLine(s.stdin, map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      60,
+		"method":  "session/prompt",
+		"params": map[string]interface{}{
+			"sessionId": s.sessionID,
+			"prompt": []map[string]interface{}{{
+				"type": "text",
+				"text": lifecycleAskPrefix + strings.Join([]string{question, first, second}, "|"),
+			}},
+		},
+	}); err != nil {
+		return err
+	}
+	before, req, err := s.readUntilRequest("elicitation/create")
+	if err != nil {
+		return err
+	}
+	s.elicitation, _ = req["params"].(map[string]interface{})
+	if err := writeJSONLine(s.stdin, map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      req["id"],
+		"result": map[string]interface{}{
+			"action":  "accept",
+			"content": map[string]interface{}{"q1": pick},
+		},
+	}); err != nil {
+		return err
+	}
+	after, result, err := s.readUntilResponse(60)
+	if err != nil {
+		return err
+	}
+	s.wire = append(before, after...)
+	s.lastResult = result
+	return nil
+}
+
+func (s *acpLifecycleState) clientWasAskedThroughElicitation(question, first, second string) error {
+	if s.elicitation == nil {
+		return fmt.Errorf("no elicitation/create request reached the client")
+	}
+	if s.elicitation["mode"] != acp.ElicitationModeForm {
+		return fmt.Errorf("elicitation mode = %v, want form", s.elicitation["mode"])
+	}
+	if s.elicitation["message"] != question {
+		return fmt.Errorf("elicitation message = %v, want %q", s.elicitation["message"], question)
+	}
+	schema, _ := s.elicitation["requestedSchema"].(map[string]interface{})
+	props, _ := schema["properties"].(map[string]interface{})
+	field, _ := props["q1"].(map[string]interface{})
+	choices, _ := field["enum"].([]interface{})
+	if field["type"] != "string" || len(choices) != 2 || choices[0] != first || choices[1] != second {
+		return fmt.Errorf("form field q1 = %#v, want a string picker of %q and %q", field, first, second)
+	}
+	return nil
+}
+
+func (s *acpLifecycleState) turnHearsTheAnswer(want string) error {
+	for _, msg := range s.wire {
+		params, _ := msg["params"].(map[string]interface{})
+		update, _ := params["update"].(map[string]interface{})
+		if update["sessionUpdate"] != acp.UpdateTypeAgentMessageChunk {
+			continue
+		}
+		content, _ := update["content"].(map[string]interface{})
+		if content["text"] == lifecycleAnswerPrefix+want {
+			return nil
+		}
+	}
+	return fmt.Errorf("the turn never heard %q: %#v", want, s.wire)
+}
+
 // listedSessions is every session/list row of the last listing.
 func (s *acpLifecycleState) listedSessions() []map[string]interface{} {
 	if s.lastResult == nil {
@@ -394,7 +516,20 @@ func initializeACPLifecycleScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the client resumes the created session$`, s.clientResumesTheCreatedSession)
 	sc.Step(`^the resume response is not preceded by a replayed transcript$`, s.resumeIsNotPrecededByAReplayedTranscript)
 	sc.Step(`^the resume response names a mode$`, s.resumeNamesAMode)
+	sc.Step(`^an ACP client that renders form elicitation has an active session$`, s.formClientHasActiveSession)
+	sc.Step(`^the agent asks "([^"]+)" offering "([^"]+)" and "([^"]+)" and the client picks "([^"]+)"$`, s.agentAsksAndClientPicks)
+	sc.Step(`^the client was asked "([^"]+)" through elicitation/create with a picker of "([^"]+)" and "([^"]+)"$`, s.clientWasAskedThroughElicitation)
+	sc.Step(`^the turn hears the answer "([^"]+)"$`, s.turnHearsTheAnswer)
 }
+
+// The helper reads a prompt that starts with lifecycleAskPrefix as a question
+// to put to the client: the question and its two options, separated by "|".
+// It reports what the client answered as an agent message that starts with
+// lifecycleAnswerPrefix.
+const (
+	lifecycleAskPrefix    = "ask:"
+	lifecycleAnswerPrefix = "answer:"
+)
 
 func TestACPSessionLifecycleFeature(t *testing.T) {
 	suite := godog.TestSuite{
@@ -426,7 +561,7 @@ func TestACPLifecycleHelperProcess(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	store := &session.FileStore{Root: os.Getenv(testLifecycleRootEnv)}
 
-	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, sender acp.UpdateSender) (string, error) {
 		// The pin comes first so the title the turn announces is the one the
 		// rename asked for, not the one the message below would derive first.
 		if raw, err := os.ReadFile(os.Getenv(testLifecycleRenameEnv)); err == nil {
@@ -440,6 +575,36 @@ func TestACPLifecycleHelperProcess(t *testing.T) {
 		}
 		text := strings.TrimSpace(b.String())
 		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: text})
+		if spec, ok := strings.CutPrefix(text, lifecycleAskPrefix); ok {
+			// The question tool's own request, as the agent hands it to the
+			// ACP adapter: a closed question with two options.
+			parts := strings.Split(spec, "|")
+			if len(parts) != 3 {
+				return "", fmt.Errorf("ask prompt %q: want question|option|option", text)
+			}
+			res, err := sender.RequestQuestion(ctx, acp.QuestionRequestParams{
+				SessionID:  st.GetID(),
+				ToolCallID: "call_question",
+				Questions: []acp.QuestionPrompt{{
+					Question: parts[0],
+					Options:  []acp.QuestionOption{{Label: parts[1]}, {Label: parts[2]}},
+					Custom:   false,
+				}},
+			})
+			if err != nil {
+				return "", err
+			}
+			answer := ""
+			if res != nil && len(res.Answers) > 0 {
+				answer = strings.Join(res.Answers[0], ",")
+			}
+			if err := sender.SendSessionUpdate(st.GetID(), acp.MessageChunkUpdate{
+				SessionUpdate: acp.UpdateTypeAgentMessageChunk,
+				Content:       acp.ContentBlock{Type: "text", Text: lifecycleAnswerPrefix + answer},
+			}); err != nil {
+				return "", err
+			}
+		}
 		return string(acp.StopReasonEndTurn), nil
 	}
 
