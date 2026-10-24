@@ -9,6 +9,15 @@ import {
   CODDY_WORKTREE_COOKIE,
 } from "./ui/chat/workspaceCookies";
 import { TODO_CHECKLIST_COLLAPSED_COOKIE } from "./ui/chat/todoChecklistPrefs";
+import { installJsdomStorage } from "./jsdomStorage";
+
+// Node 25 and later keep a Web Storage of their own on the global object, and
+// the jsdom environment leaves it there: tests read jsdom's (issue #609).
+const jsdomWindow = (globalThis as { jsdom?: { window: Window } }).jsdom
+  ?.window;
+if (jsdomWindow) {
+  installJsdomStorage(globalThis, jsdomWindow);
+}
 
 // What a page keeps while it is open starts empty for every test, as it does
 // for every page; so does what the browser remembers for the start screen (a
