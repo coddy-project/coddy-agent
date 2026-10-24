@@ -23,7 +23,6 @@ export function installJsdomStorage(
     let replacement: unknown;
     Object.defineProperty(target, key, {
       configurable: true,
-      enumerable: true,
       get: () => (replaced ? replacement : win[key]),
       set: (value: unknown) => {
         replaced = true;

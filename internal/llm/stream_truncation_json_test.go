@@ -78,15 +78,17 @@ func TestStreamDecodeTruncation(t *testing.T) {
 	}
 	var typeErr struct{ A int }
 	for name, err := range map[string]error{
-		"a byte the server sent":       decode(`[DO`),
-		"an HTML page":                 decode(`<html>`),
-		"a stray comma":                decode(`{"a":,}`),
-		"a second top-level value":     decode(`{"a":1}}`),
-		"a bad last byte":              decode(`{"a":1x`),
-		"valid JSON of another shape":  json.Unmarshal([]byte(`{"A":"x"}`), &typeErr),
-		"the message without the type": errors.New("unexpected end of JSON input"),
-		"a transport error":            io.ErrUnexpectedEOF,
-		"nil":                          nil,
+		"a byte the server sent":              decode(`[DO`),
+		"an HTML page":                        decode(`<html>`),
+		"a stray comma":                       decode(`{"a":,}`),
+		"a second top-level value":            decode(`{"a":1}}`),
+		"a bad last byte":                     decode(`{"a":1x`),
+		"valid JSON of another shape":         json.Unmarshal([]byte(`{"A":"x"}`), &typeErr),
+		"the message without the type":        errors.New("unexpected end of JSON input"),
+		"a transport error":                   io.ErrUnexpectedEOF,
+		"an escape broken before the newline": decode("{\"a\":\"\\uzz\n"),
+		"a backslash inside a unicode escape": decode("{\"a\":\"\\u12\\\n"),
+		"nil":                                 nil,
 	} {
 		for _, payloadLen := range []int{0, 8} {
 			if trunc := streamDecodeTruncation(err, false, payloadLen); trunc != nil {
@@ -130,12 +132,13 @@ func TestStreamDecodeTruncation(t *testing.T) {
 
 // TestEndOfInputDiagnosticSpellings holds the diagnostics each Go release gives
 // for a cut, whichever toolchain runs the suite. Up to Go 1.26 encoding/json
-// reports a cut inside a token through its end-of-input probe, a space, at the
-// end of the payload; from Go 1.27, with encoding/json/v2 underneath, a cut
-// inside a number, an escape sequence or a multi-byte character is the plain
-// end of input at the start of that token, and the newline the SDK decoders
-// append reads "in string" or "invalid escape sequence" (issue #610). The
-// messages and offsets are the ones each release gives for the input named.
+// reports the end of input at the end of the payload, and a cut inside a
+// literal, a number or an escape sequence through its end-of-input probe, a
+// space; from Go 1.27, with encoding/json/v2 underneath, a cut inside a
+// number, an escape sequence or a multi-byte character is the plain end of
+// input at the start of that token, and the newline the SDK decoders append
+// reads "in string" or "invalid escape sequence" (issue #610). The messages
+// and offsets are the ones each release gives for the input named.
 func TestEndOfInputDiagnosticSpellings(t *testing.T) {
 	cases := []struct {
 		release, input string
@@ -158,6 +161,7 @@ func TestEndOfInputDiagnosticSpellings(t *testing.T) {
 		{"1.26", "{\"a\":\"hello\nworld\"}", `invalid character '\n' in string literal`, 12, 19, false},
 		{"1.26", `{"a":-x}`, "invalid character 'x' in numeric literal", 7, 0, false},
 		{"1.26", `{"a":,}`, "invalid character ',' looking for beginning of value", 6, 0, false},
+		{"1.26", "{\"a\":\"\\u12\\\n", `invalid character '\\' in \u hexadecimal character escape`, 11, 0, false},
 
 		{"1.27", `{"a":"x`, "unexpected end of JSON input", 7, 7, true},
 		{"1.27", `{"a":nu`, "unexpected end of JSON input", 7, 7, true},
@@ -171,12 +175,16 @@ func TestEndOfInputDiagnosticSpellings(t *testing.T) {
 		{"1.27", "{\"a\":1e\n", `invalid character '\n' in numeric literal`, 8, 0, true},
 		{"1.27", "{\"a\":\"x\\\n", `invalid escape sequence "\\\n" in string`, 9, 0, true},
 		{"1.27", "{\"a\":\"\\u12\n", `invalid escape sequence "\\u12\n" in string`, 11, 0, true},
+		{"1.27", "{\"a\":\"\\ud83d\\\n", `invalid escape sequence "\\\n" in string`, 14, 0, true},
 		{"1.27", `{"a":nu ll}`, "invalid character ' ' in literal null (expecting 'l')", 8, 11, false},
 		{"1.27", `{"a":1. 5}`, "invalid character ' ' in numeric literal", 8, 10, false},
 		{"1.27", "{\"a\":\"hello\nworld\"}", `invalid character '\n' in string`, 12, 19, false},
 		{"1.27", "{\"a\":\"x\\\nn\"}", `invalid escape sequence "\\\n" in string`, 9, 12, false},
 		{"1.27", `{"a":"x\q"}`, "invalid escape sequence `\\q` in string", 9, 0, false},
 		{"1.27", `{"a":1.x}`, "invalid character 'x' in numeric literal", 8, 0, false},
+		// An escape broken before the SDK's newline names bytes the server sent.
+		{"1.27", "{\"a\":\"\\uzz\n", `invalid escape sequence "\\uzz\n" in string`, 11, 0, false},
+		{"1.27", "{\"a\":\"\\u12\\\n", `invalid escape sequence "\\u12\\\n" in string`, 12, 0, false},
 
 		// An end of input past the payload is not this payload's.
 		{"any", `{"a":`, "unexpected end of JSON input", 9, 5, false},

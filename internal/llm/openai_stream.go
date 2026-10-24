@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -339,20 +340,20 @@ func numericCode(obj gjson.Result) int {
 
 // endOfInputDiagnostic reports whether msg, the text of the decoder's syntax
 // error at offset, is its end-of-input diagnostic for a payload of payloadLen
-// bytes (0 when the caller has none). encoding/json spells it three ways:
+// bytes (0 when the caller has none). encoding/json gives it as:
 //
-//   - "unexpected end of JSON input": the input stopped. Up to Go 1.26 only
-//     between tokens and at the end of the payload; from Go 1.27, which runs
-//     encoding/json on encoding/json/v2, inside a literal, a number, an escape
-//     sequence or a multi-byte character too, with the offset at the start of
-//     the unfinished token (issue #610). The decoder gives it only when the
+//   - "unexpected end of JSON input": the input stopped. Up to Go 1.26 the
+//     offset is the end of the payload, between tokens or inside a string.
+//     From Go 1.27, which runs encoding/json on encoding/json/v2, a cut inside
+//     a number, an escape sequence or a multi-byte character reads the same,
+//     with the offset at the start of that token, while a cut literal still
+//     stands at the end (issue #610). The decoder gives it only when the
 //     input has ended, so any offset inside the payload is a cut;
 //   - "invalid character ' ' ...": up to Go 1.26, the end-of-input probe (a
 //     single space) landing inside an unfinished literal, number or escape;
 //   - the newline the SDK decoders append to every data line, landing inside
 //     a token: "invalid character '\n' ..." on every release, and from Go
-//     1.27 `invalid escape sequence "...\n" in string` when the token is an
-//     escape sequence the newline cut short.
+//     1.27 an escape sequence the newline cut short (sdkEscapeCut).
 //
 // The last two name a byte, which in a complete event is whitespace inside a
 // token rather than a cut, so with the payload at hand the error must stand
@@ -366,9 +367,17 @@ func endOfInputDiagnostic(msg string, offset int64, payloadLen int) bool {
 	}
 	namesByte := strings.HasPrefix(msg, "invalid character ' '") ||
 		strings.HasPrefix(msg, `invalid character '\n'`) ||
-		strings.HasPrefix(msg, `invalid escape sequence "`) && strings.HasSuffix(msg, `\n" in string`)
+		sdkEscapeCut.MatchString(msg)
 	return namesByte && (payloadLen == 0 || offset == int64(payloadLen))
 }
+
+// sdkEscapeCut is how Go 1.27 names an escape sequence the SDK's newline cut
+// short: the sequence quoted, a backslash and at most a "u" with three hex
+// digits, then the newline - `invalid escape sequence "\\\n" in string`,
+// `invalid escape sequence "\\u12\n" in string`. An escape that was broken
+// before the newline (`\uzz`, `\u12\`) quotes bytes the server sent and is
+// not a cut.
+var sdkEscapeCut = regexp.MustCompile(`^invalid escape sequence "\\\\(?:u[0-9A-Fa-f]{0,3})?\\n" in string$`)
 
 // streamUndecodableError is a non-empty data frame of the OpenAI-compatible
 // stream that is not JSON: the stream is corrupt (a server or a proxy wrote

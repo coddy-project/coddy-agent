@@ -12,7 +12,8 @@ import { TODO_CHECKLIST_COLLAPSED_COOKIE } from "./ui/chat/todoChecklistPrefs";
 import { installJsdomStorage } from "./jsdomStorage";
 
 // Node 25 and later keep a Web Storage of their own on the global object, and
-// the jsdom environment leaves it there: tests read jsdom's (issue #609).
+// the jsdom environment leaves it there, so tests would read Node's: put
+// jsdom's back (issue #609).
 const jsdomWindow = (globalThis as { jsdom?: { window: Window } }).jsdom
   ?.window;
 if (jsdomWindow) {
