@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 )
 
 // Protocol version supported by this agent.
@@ -1166,9 +1167,12 @@ type EnumOption struct {
 }
 
 // MultiSelectItems describes the choices of a multi-select array field. Enum
-// offers untitled labels, AnyOf titled ones; exactly one is written.
+// offers untitled labels under Type "string"; AnyOf offers titled ones and
+// leaves Type empty, since the titled variant is MCP's {"anyOf": [...]} and a
+// "type":"string" beside it would name the untitled one. Exactly one of Enum
+// and AnyOf is written.
 type MultiSelectItems struct {
-	Type  string       `json:"type"` // "string"
+	Type  string       `json:"type,omitempty"` // "string" with Enum, empty with AnyOf
 	Enum  []string     `json:"enum,omitempty"`
 	AnyOf []EnumOption `json:"anyOf,omitempty"`
 }
@@ -1200,47 +1204,75 @@ type ElicitationContentValue struct {
 }
 
 // UnmarshalJSON reads a field answer as strings. A string becomes one entry,
-// an array of strings becomes its entries, and a number or boolean becomes its
-// one textual form - a client that renders a control Coddy never asked for
-// still gets its answer through to the model.
+// an array becomes one entry per value it holds, a number keeps the digits the
+// client wrote and a boolean becomes "true" or "false". Every value is decoded
+// into a concrete type, never into interface{}: anything else a client sends -
+// an object, a nested array - is kept as its compact JSON text, so a client
+// that renders a control Coddy never asked for still gets its answer through
+// to the model without the decoder building whatever structure it was sent.
 func (v *ElicitationContentValue) UnmarshalJSON(data []byte) error {
 	trimmed := bytes.TrimSpace(data)
-	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		v.Values = nil
-		return nil
-	}
-	switch trimmed[0] {
-	case '"':
-		var s string
-		if err := json.Unmarshal(trimmed, &s); err != nil {
+	if len(trimmed) > 0 && trimmed[0] == '[' {
+		var items []json.RawMessage
+		if err := json.Unmarshal(trimmed, &items); err != nil {
 			return err
 		}
-		v.Values = []string{s}
-		return nil
-	case '[':
-		var list []string
-		if err := json.Unmarshal(trimmed, &list); err == nil {
-			v.Values = list
-			return nil
-		}
-		// Not an array of strings: keep each entry's own text.
-		var anyList []interface{}
-		if err := json.Unmarshal(trimmed, &anyList); err != nil {
-			return err
-		}
-		out := make([]string, 0, len(anyList))
-		for _, item := range anyList {
-			out = append(out, fmt.Sprint(item))
+		out := make([]string, 0, len(items))
+		for _, item := range items {
+			text, ok, err := elicitationValueText(item)
+			if err != nil {
+				return err
+			}
+			if ok {
+				out = append(out, text)
+			}
 		}
 		v.Values = out
 		return nil
-	default:
-		var one interface{}
-		if err := json.Unmarshal(trimmed, &one); err != nil {
-			return err
+	}
+	text, ok, err := elicitationValueText(trimmed)
+	if err != nil {
+		return err
+	}
+	v.Values = nil
+	if ok {
+		v.Values = []string{text}
+	}
+	return nil
+}
+
+// elicitationValueText is the text of one answered value. ok is false for a
+// null, which answers nothing.
+func elicitationValueText(raw []byte) (text string, ok bool, err error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return "", false, nil
+	}
+	switch raw[0] {
+	case '"':
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return "", false, err
 		}
-		v.Values = []string{fmt.Sprint(one)}
-		return nil
+		return s, true, nil
+	case 't', 'f':
+		var b bool
+		if err := json.Unmarshal(raw, &b); err != nil {
+			return "", false, err
+		}
+		return strconv.FormatBool(b), true, nil
+	case '{', '[':
+		var buf bytes.Buffer
+		if err := json.Compact(&buf, raw); err != nil {
+			return "", false, err
+		}
+		return buf.String(), true, nil
+	default:
+		var n json.Number
+		if err := json.Unmarshal(raw, &n); err != nil {
+			return "", false, fmt.Errorf("elicitation answer %s: %w", raw, err)
+		}
+		return n.String(), true, nil
 	}
 }
 

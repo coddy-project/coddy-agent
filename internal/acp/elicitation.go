@@ -2,14 +2,17 @@ package acp
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
 // QuestionElicitation turns the question tool's payload into the elicitation
 // form that asks it: one form field per question, in the order the questions
-// were asked, under the names q1, q2 and so on. The form is what a client that
-// implements elicitation renders instead of the Coddy-only
-// session/request_question.
+// were asked, under the names q1, q2 and so on (zero-padded, q01, once there
+// are ten or more, so the names sort in the order asked: a JSON object's keys
+// are written sorted, and a client renders the fields in that order). The form
+// is what a client that implements elicitation renders instead of the
+// Coddy-only session/request_question.
 //
 // How a question becomes a field:
 //
@@ -21,13 +24,20 @@ import (
 //     single-select string, `enum` when no option carries a description and
 //     `oneOf` when one does, so the client can show the descriptions.
 //   - a question that allows several answers (Multiple) is a multi-select
-//     array carrying the same choice set as its items.
+//     array carrying the same choice set as its items. When it also allows
+//     the user's own words, an optional text field named after it with an
+//     "_other" suffix sits beside it, and neither is required: the user may
+//     pick, type, or both.
 func QuestionElicitation(params QuestionRequestParams) CreateElicitationRequest {
 	props := make(map[string]ElicitationPropertySchema, len(params.Questions))
 	required := make([]string, 0, len(params.Questions))
 	for i, q := range params.Questions {
-		name := elicitationFieldName(i)
+		name := elicitationFieldName(i, len(params.Questions))
 		props[name] = elicitationProperty(q)
+		if elicitationOffersOwnWords(q) {
+			props[name+elicitationOtherSuffix] = elicitationOtherProperty(q)
+			continue
+		}
 		required = append(required, name)
 	}
 	req := CreateElicitationRequest{
@@ -48,7 +58,9 @@ func QuestionElicitation(params QuestionRequestParams) CreateElicitationRequest 
 // ElicitationAnswers reads the client's form answer back into the shape the
 // question tool returns to the model: one entry per question, each the labels
 // the user picked or typed. A declined or cancelled form answers with no
-// entries at all.
+// entries at all. The values are checked again, as ACP asks of the agent: a
+// question that must be answered with its options keeps only the picks it
+// offered, whatever a client let through.
 func ElicitationAnswers(questions []QuestionPrompt, res *CreateElicitationResult) *QuestionResult {
 	out := &QuestionResult{}
 	if res == nil {
@@ -58,25 +70,76 @@ func ElicitationAnswers(questions []QuestionPrompt, res *CreateElicitationResult
 		return out
 	}
 	out.Answers = make([][]string, len(questions))
-	for i := range questions {
-		value, ok := res.Content[elicitationFieldName(i)]
-		if !ok {
-			out.Answers[i] = []string{}
-			continue
+	for i, q := range questions {
+		name := elicitationFieldName(i, len(questions))
+		answer := []string{}
+		for _, v := range res.Content[name].Values {
+			if elicitationAnswerOffered(q, v) {
+				answer = append(answer, v)
+			}
 		}
-		if len(value.Values) == 0 {
-			out.Answers[i] = []string{}
-			continue
+		if elicitationOffersOwnWords(q) {
+			for _, v := range res.Content[name+elicitationOtherSuffix].Values {
+				if t := strings.TrimSpace(v); t != "" {
+					answer = append(answer, t)
+				}
+			}
 		}
-		out.Answers[i] = append([]string(nil), value.Values...)
+		out.Answers[i] = answer
 	}
 	return out
 }
 
+// elicitationOtherSuffix names the optional text field beside a multi-select
+// that allows the user's own words.
+const elicitationOtherSuffix = "_other"
+
 // elicitationFieldName is the form property a question is asked under. The
-// names are positional and stable, so the answer maps back without guessing.
-func elicitationFieldName(index int) string {
-	return fmt.Sprintf("q%d", index+1)
+// names are positional and stable, so the answer maps back without guessing,
+// and padded to the width of the largest one, so they sort in the order asked.
+func elicitationFieldName(index, count int) string {
+	width := len(strconv.Itoa(count))
+	return fmt.Sprintf("q%0*d", width, index+1)
+}
+
+// elicitationOffersOwnWords reports whether a question becomes a multi-select
+// with a text field beside it: several answers allowed, the user's own words
+// too, and options to pick from. A question without options is free text alone.
+func elicitationOffersOwnWords(q QuestionPrompt) bool {
+	if !q.Multiple || !q.Custom {
+		return false
+	}
+	labels, _ := elicitationChoices(q.Options)
+	return len(labels) > 0
+}
+
+// elicitationAnswerOffered reports whether v may stand as an answer to q. A
+// question that allows the user's own words takes anything; one that must be
+// answered with its options takes only their labels.
+func elicitationAnswerOffered(q QuestionPrompt, v string) bool {
+	if q.Custom {
+		return true
+	}
+	labels, _ := elicitationChoices(q.Options)
+	if len(labels) == 0 {
+		return true
+	}
+	for _, l := range labels {
+		if l.Const == v {
+			return true
+		}
+	}
+	return false
+}
+
+// elicitationOtherProperty is the text field beside a multi-select that allows
+// the user's own words.
+func elicitationOtherProperty(q QuestionPrompt) ElicitationPropertySchema {
+	return ElicitationPropertySchema{
+		Type:        "string",
+		Title:       elicitationFieldTitle(q) + " (other)",
+		Description: "Your own answer, if none of the options fits.",
+	}
 }
 
 // elicitationProperty builds one form field out of a question.
@@ -95,13 +158,11 @@ func elicitationProperty(q QuestionPrompt) ElicitationPropertySchema {
 	switch {
 	case q.Multiple:
 		prop.Type = "array"
-		items := &MultiSelectItems{Type: "string"}
 		if titled {
-			items.AnyOf = labels
+			prop.Items = &MultiSelectItems{AnyOf: labels}
 		} else {
-			items.Enum = elicitationConsts(labels)
+			prop.Items = &MultiSelectItems{Type: "string", Enum: elicitationConsts(labels)}
 		}
-		prop.Items = items
 	case len(q.Options) > 0 && !q.Custom:
 		prop.Type = "string"
 		if titled {

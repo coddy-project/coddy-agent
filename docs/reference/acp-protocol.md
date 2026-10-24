@@ -67,7 +67,7 @@ stderr -> agent logs (not protocol messages)
 Hand-written scripts that drive **`coddy acp`** over a pipe should implement the following behaviors. Reference harness: **`examples/acp/acp_e2e_todo.py`**.
 
 1. **Nil `result` and `omitempty`** - JSON-RPC success payloads are produced with `result` omitted when the Go handler returns a **`nil`** pointer (for example **`session/set_mode`**). A response line may contain only **`jsonrpc`**, **`id`**, and neither **`result`** nor **`error`**. Treat any object with a matching **`id`** and no **`method`** as the completion of your outstanding request.
-2. **Interleaved `session/update`** - After **`session/prompt`**, the agent streams many notifications before the final response. Read stdout line by line until the line for your request **`id`** arrives; handle **`session/request_permission`** or **`session/request_question`** in between by writing a client response with the same **`id`**.
+2. **Interleaved `session/update`** - After **`session/prompt`**, the agent streams many notifications before the final response. Read stdout line by line until the line for your request **`id`** arrives; handle **`session/request_permission`** or **`elicitation/create`** (**`session/request_question`** for a client without elicitation) in between by writing a client response with the same **`id`**.
 3. **Stdout buffering** - When stdout is not a TTY, output can be block-buffered. Wrap the binary with **`stdbuf -oL -eL`** (or equivalent) so lines appear as they are written.
 4. **Concurrent request handlers** - Outstanding requests are dispatched asynchronously. Do not send a second RPC until you have consumed the response for the previous one if your client assumes strict ordering.
 
@@ -839,12 +839,12 @@ A client that advertised `clientCapabilities.elicitation.form` is asked through 
 }
 ```
 
-One form field per question, named `q1`, `q2` and so on in the order the tool asked them. How a question becomes a field:
+One form field per question, named `q1`, `q2` and so on in the order the tool asked them. With ten questions or more the numbers are zero-padded (`q01`, `q02`), so that a client, which renders the fields in the order of the JSON object, still shows them in the order asked. How a question becomes a field:
 
 | Question | Field |
 | --- | --- |
 | options, and the answer must be one of them (`custom: false`) | a picker: `enum` when no option describes itself, `oneOf` when one does |
-| options, several may be chosen (`multiple: true`) | a multi-select `array` carrying the same choices as its `items` |
+| options, several may be chosen (`multiple: true`) | a multi-select `array` carrying the same choices as its `items`; when the user may also answer in their own words (`custom`, the default), an optional text field named after it with `_other` added (`q1_other`) sits beside it, and neither field is required |
 | options, and the user may answer in their own words (`custom`, the default) | free text, with the option labels listed in the field's description as suggestions |
 
 A form cannot offer a picker and an escape from it on one field, so a question that allows the user's own answer becomes free text rather than a closed picker. That keeps the contract the model relies on: **an answer that matches no option label is the text the user typed**, and nothing the user writes is rejected for not being one of the offered labels.
@@ -861,7 +861,7 @@ A form cannot offer a picker and an escape from it on one field, so a question t
 }
 ```
 
-`action` is `accept`, `decline` or `cancel`. On `accept` the values of `content` become the answers - one entry for a single-valued field, one per selection for a multi-select. A declined or cancelled form answers with no picks at all, which the tool reports to the model as an unanswered question rather than as a failure.
+`action` is `accept`, `decline` or `cancel`. On `accept` the values of `content` become the answers - one entry for a single-valued field, one per selection for a multi-select, followed by the text of its `_other` field when the user typed one. Coddy checks the values again, as ACP asks of an agent. A question that must be answered with one of its options keeps only the labels it offered, whatever the client let through. A declined or cancelled form answers with no picks at all, which the tool reports to the model as an unanswered question rather than as a failure.
 
 ### `session/request_question` - the fallback
 
