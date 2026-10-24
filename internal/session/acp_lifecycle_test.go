@@ -123,6 +123,36 @@ func TestSessionInfoUpdateAnnouncesADerivedTitleOnce(t *testing.T) {
 	}
 }
 
+// A rewind before the first user message takes away the title that message
+// derived, and its undo brings it back; the client hears both, since the
+// listing it keeps follows the same title session/list reports.
+func TestSessionInfoUpdateFollowsARewindAndItsUndo(t *testing.T) {
+	l := newLifecycleManager(t)
+	res, err := l.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: l.root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.mgr.HandleSessionReady(res.SessionID)
+	if _, err := l.mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+		SessionID: res.SessionID,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "Refactor the auth module"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.mgr.RewindSession(res.SessionID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.infoTitles(); len(got) != 2 || got[1] != "" {
+		t.Fatalf("titles after rewinding the first message = %#v, want it cleared", got)
+	}
+	if _, err := l.mgr.UndoRewind(res.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.infoTitles(); len(got) != 3 || got[2] != "Refactor the auth module" {
+		t.Fatalf("titles after undoing the rewind = %#v, want the title back", got)
+	}
+}
+
 // A title that is taken away again is announced as cleared rather than left
 // standing on the client.
 func TestSessionInfoUpdateClearsATitleThatIsRemoved(t *testing.T) {

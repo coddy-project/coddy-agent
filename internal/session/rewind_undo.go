@@ -283,6 +283,8 @@ func (s *State) restoreRewoundTail(baseLen int, tail []llm.Message, tailLog []UI
 	s.markMessagesEdited()
 	s.mu.Unlock()
 	s.touchPersist()
+	// The restored tail may hold the first user message, and with it the title.
+	s.notifyTitleIfChanged()
 	return nil
 }
 

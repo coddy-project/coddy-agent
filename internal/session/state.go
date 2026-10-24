@@ -2083,6 +2083,8 @@ func (s *State) replaceMessages(msgs []llm.Message, keepGoalStamps bool) {
 	s.Messages = owned
 	s.markMessagesEdited()
 	s.mu.Unlock()
+	// A history replaced from its start may begin with another user message.
+	s.notifyTitleIfChanged()
 }
 
 // carryGoalStamps copies Goal from the stored rows to the rows of next that
