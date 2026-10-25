@@ -4,6 +4,8 @@
  * any size, CORS open, no key). Nothing is fetched until the gallery is
  * opened; a picked photo is downloaded once at the screen's size and kept in
  * this browser like an uploaded one (backdropPrefs.ts), with its author.
+ * Shuffle swaps the whole batch for twelve others of a larger hand-picked
+ * pool (shuffleGallery, wallpaperPool.ts).
  */
 import {
   setWallpaper,
@@ -118,4 +120,55 @@ export async function pickGalleryPhoto(
     return { refusal: "offline" };
   }
   return setWallpaper(blob, { author: photo.author, url: photo.url });
+}
+
+/** The size of every batch the gallery shows. */
+export const GALLERY_SIZE = 12;
+
+// Pool photos shown since the page loaded, so a shuffle brings photos not
+// seen yet until the pool runs out.
+const seen = new Set<string>();
+
+export interface ShuffleOptions {
+  random?: () => number;
+}
+
+/**
+ * shuffleGallery draws a new batch of GALLERY_SIZE photos from the pool
+ * (wallpaperPool.ts, loaded on the first shuffle), none of `current` and none
+ * shown before on this page while the pool has enough of them left; then it
+ * starts over. Nothing goes to the network but the pool's chunk, from the
+ * server the page came from. Returns null when that chunk does not load.
+ */
+export async function shuffleGallery(
+  current: readonly GalleryPhoto[],
+  options: ShuffleOptions = {},
+): Promise<GalleryPhoto[] | null> {
+  const random = options.random ?? Math.random;
+  let pool: readonly (readonly [string, string, string])[];
+  try {
+    pool = (await import("./wallpaperPool")).WALLPAPER_POOL;
+  } catch {
+    return null;
+  }
+  for (const photo of current) seen.add(photo.id);
+  let left = pool.filter(([id]) => !seen.has(id));
+  if (left.length < GALLERY_SIZE) {
+    seen.clear();
+    for (const photo of current) seen.add(photo.id);
+    left = pool.filter(([id]) => !seen.has(id));
+  }
+  // Fisher-Yates over what is left, then the first GALLERY_SIZE
+  const order = [...left];
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [order[i], order[j]] = [order[j]!, order[i]!];
+  }
+  const batch = order.slice(0, GALLERY_SIZE).map(([id, author, unsplash]) => ({
+    id,
+    author,
+    url: `https://unsplash.com/photos/${unsplash}`,
+  }));
+  for (const photo of batch) seen.add(photo.id);
+  return batch.length > 0 ? batch : null;
 }

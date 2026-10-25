@@ -36,8 +36,12 @@ export const messagesRu: Record<string, string> = {
   "appearance.wallpaper.hint":
     "Картинка с этого компьютера, не меньше 1280x720, или фото из галереи под интерфейсом вместо свечения. Хранится в этом браузере и не отправляется на сервер.",
   "appearance.wallpaper.galleryHint":
-    "Фотографии с Unsplash через сервис Lorem Picsum (picsum.photos). Галерея и выбранное фото загружаются оттуда через интернет, затем фото хранится в этом браузере.",
+    "Фотографии с Unsplash через сервис Lorem Picsum (picsum.photos). Галерея, перемешивание и выбранное фото загружаются оттуда через интернет, затем фото хранится в этом браузере.",
   "appearance.wallpaper.photoLabel": "Фото {n}, автор {author}",
+  "appearance.wallpaper.shuffle": "Перемешать",
+  "appearance.wallpaper.shuffling": "Загрузка…",
+  "appearance.wallpaper.shuffleFailed":
+    "Новые фото не загрузились. Проверьте подключение к интернету и попробуйте ещё раз.",
   "appearance.wallpaper.creditPrefix": "Фото:",
   "appearance.wallpaper.creditSuffix": ", Unsplash",
   "appearance.wallpaper.notImage": "Этот файл не картинка.",

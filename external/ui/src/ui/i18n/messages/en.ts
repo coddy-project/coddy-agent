@@ -38,8 +38,12 @@ export const messagesEn: Record<string, string> = {
   "appearance.wallpaper.hint":
     "A picture from this computer, at least 1280x720, or a photo from the gallery, under the app instead of the glows. It is kept in this browser and never sent to the server.",
   "appearance.wallpaper.galleryHint":
-    "Photos from Unsplash, served by Lorem Picsum (picsum.photos). The gallery and a picked photo load from there over the internet; the photo is then kept in this browser.",
+    "Photos from Unsplash, served by Lorem Picsum (picsum.photos). The gallery, Shuffle and a picked photo load from there over the internet; the photo is then kept in this browser.",
   "appearance.wallpaper.photoLabel": "Photo {n} by {author}",
+  "appearance.wallpaper.shuffle": "Shuffle",
+  "appearance.wallpaper.shuffling": "Loading…",
+  "appearance.wallpaper.shuffleFailed":
+    "New photos did not load. Check the internet connection and try again.",
   "appearance.wallpaper.creditPrefix": "Photo by",
   "appearance.wallpaper.creditSuffix": " on Unsplash",
   "appearance.wallpaper.notImage": "This file is not a picture.",

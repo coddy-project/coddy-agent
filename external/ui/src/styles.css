@@ -14942,6 +14942,10 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   outline: 2px solid var(--accent);
 }
 
+.appearance-wallpaper-shuffle {
+  margin-top: 8px;
+}
+
 .appearance-wallpaper-dim {
   display: flex;
   flex-direction: column;

@@ -18,6 +18,7 @@ import {
   GALLERY,
   galleryThumbUrl,
   pickGalleryPhoto,
+  shuffleGallery,
   type GalleryPhoto,
   type GalleryResult,
 } from "./wallpaperGallery";
@@ -57,6 +58,9 @@ export function BackdropSettings() {
   const [result, setResult] = useState<GalleryResult | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<readonly GalleryPhoto[]>(GALLERY);
+  const [shuffling, setShuffling] = useState(false);
+  const [shuffleFailed, setShuffleFailed] = useState(false);
 
   const pickFile = useCallback(async (file: File | undefined) => {
     if (file) {
@@ -72,6 +76,21 @@ export function BackdropSettings() {
       setLoadingId(null);
     }
   }, []);
+
+  const shuffle = useCallback(async () => {
+    setShuffling(true);
+    setShuffleFailed(false);
+    try {
+      const next = await shuffleGallery(photos);
+      if (next) {
+        setPhotos(next);
+      } else {
+        setShuffleFailed(true);
+      }
+    } finally {
+      setShuffling(false);
+    }
+  }, [photos]);
 
   const refusal = result?.refusal ?? null;
   const size = result && "width" in result ? result : null;
@@ -185,7 +204,7 @@ export function BackdropSettings() {
               className="appearance-wallpaper-gallery"
               data-testid="appearance-wallpaper-grid"
             >
-              {GALLERY.map((photo, index) => (
+              {photos.map((photo, index) => (
                 <button
                   key={photo.id}
                   type="button"
@@ -203,6 +222,31 @@ export function BackdropSettings() {
                 </button>
               ))}
             </div>
+            <div className="appearance-wallpaper-row appearance-wallpaper-shuffle">
+              <button
+                type="button"
+                className="settings-btn"
+                disabled={shuffling}
+                aria-busy={shuffling}
+                data-testid="appearance-wallpaper-shuffle"
+                onClick={() => void shuffle()}
+              >
+                {t(
+                  shuffling
+                    ? "appearance.wallpaper.shuffling"
+                    : "appearance.wallpaper.shuffle",
+                )}
+              </button>
+            </div>
+            {shuffleFailed ? (
+              <p
+                className="settings-field-desc appearance-backdrop-status"
+                role="status"
+                data-testid="appearance-wallpaper-shuffle-status"
+              >
+                {t("appearance.wallpaper.shuffleFailed")}
+              </p>
+            ) : null}
             <p className="settings-field-desc appearance-backdrop-status">
               {t("appearance.wallpaper.galleryHint")}
             </p>

@@ -14,7 +14,13 @@ import {
   SMOOTH_BACKDROP_COOKIE,
 } from "./backdropPrefs";
 import { initLocale } from "../i18n/i18n";
-import { GALLERY } from "./wallpaperGallery";
+import { GALLERY, shuffleGallery, type GalleryPhoto } from "./wallpaperGallery";
+
+// Shuffle reads a catalog over the network; the component tests hand it a batch.
+vi.mock("./wallpaperGallery", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./wallpaperGallery")>()),
+  shuffleGallery: vi.fn(),
+}));
 
 beforeEach(() => {
   initLocale("en");
@@ -184,5 +190,44 @@ describe("Settings → Appearance → Wallpaper → Gallery", () => {
       ).toHaveTextContent("The photo did not load."),
     );
     expect(backdropSnapshot().wallpaper).toBeNull();
+  });
+
+  test("Shuffle swaps the whole batch for new photos", async () => {
+    const fresh: GalleryPhoto[] = Array.from({ length: 12 }, (_, i) => ({
+      id: String(900 + i),
+      author: `New author ${i}`,
+      url: `https://unsplash.com/photos/n${i}`,
+    }));
+    vi.mocked(shuffleGallery).mockResolvedValueOnce(fresh);
+    render(<AppearanceThemePicker />);
+    fireEvent.click(screen.getByTestId("appearance-wallpaper-gallery"));
+    fireEvent.click(screen.getByTestId("appearance-wallpaper-shuffle"));
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("appearance-wallpaper-thumb-900"),
+      ).toBeInTheDocument(),
+    );
+    for (const photo of GALLERY) {
+      expect(
+        screen.queryByTestId(`appearance-wallpaper-thumb-${photo.id}`),
+      ).toBeNull();
+    }
+    expect(picsum()).toHaveLength(12);
+    expect(vi.mocked(shuffleGallery)).toHaveBeenCalledWith(GALLERY);
+  });
+
+  test("a shuffle that fails says so and keeps the batch on screen", async () => {
+    vi.mocked(shuffleGallery).mockResolvedValueOnce(null);
+    render(<AppearanceThemePicker />);
+    fireEvent.click(screen.getByTestId("appearance-wallpaper-gallery"));
+    fireEvent.click(screen.getByTestId("appearance-wallpaper-shuffle"));
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("appearance-wallpaper-shuffle-status"),
+      ).toHaveTextContent("New photos did not load."),
+    );
+    expect(
+      screen.getByTestId(`appearance-wallpaper-thumb-${GALLERY[0]!.id}`),
+    ).toBeInTheDocument();
   });
 });
