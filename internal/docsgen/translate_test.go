@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/llm/models"
 )
 
 // translatedTree writes a small documentation tree with its Russian twin:
@@ -368,6 +370,9 @@ func TestSiteLayerFollowsTheRunsTree(t *testing.T) {
 	}
 	if anchors := res.SiteFiles["docs-anchors-ru.json"]; !strings.Contains(anchors, `"install":"установка"`) {
 		t.Errorf("docs-anchors-ru.json:\n%s", anchors)
+	}
+	if res.SiteFiles["models.json"] != string(models.Snapshot()) {
+		t.Error("the site layer does not publish the models catalog the binary embeds as models.json")
 	}
 }
 

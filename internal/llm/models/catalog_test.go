@@ -1,0 +1,110 @@
+package models
+
+import (
+	"bytes"
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+// A trimmed api.json of models.dev: the shapes Compact has to tell apart.
+const sampleCatalog = `{
+  "anthropic": {"models": {
+    "claude-sonnet-4-5": {"limit": {"context": 200000, "output": 64000}, "modalities": {"input": ["text", "image"]}}
+  }},
+  "openai": {"models": {
+    "gpt-5": {"limit": {"context": 400000, "input": 272000, "output": 128000}}
+  }},
+  "reseller": {"models": {
+    "claude-sonnet-4-5": {"limit": {"context": 1000000, "output": 64000}},
+    "kimi-k2": {"limit": {"context": 262144, "output": 262144}},
+    "embedding-model": {"limit": {"context": 0, "output": 0}}
+  }},
+  "gateway": {"models": {
+    "kimi-k2": {"limit": {"context": 128000, "output": 16384}},
+    "no-output": {"limit": {"context": 32000}}
+  }}
+}`
+
+func TestCompact(t *testing.T) {
+	got, err := Compact([]byte(sampleCatalog))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Join([]string{
+		"{",
+		// The vendor's numbers win over a reseller's; the answer keeps to the
+		// fifth of a shared window above the compaction threshold.
+		`"claude-sonnet-4-5":[200000,40000],`,
+		// A model with an input budget: the window is that budget and the
+		// answer has its whole output limit.
+		`"gpt-5":[272000,128000],`,
+		// No vendor: the smallest of every number.
+		`"kimi-k2":[128000,16384],`,
+		// No output limit: no max_tokens to offer.
+		`"no-output":[32000,0]`,
+		"}",
+		"",
+	}, "\n")
+	if string(got) != want {
+		t.Fatalf("Compact =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestCompactRefusesAnEmptyCatalog(t *testing.T) {
+	for _, api := range []string{`{}`, `{"x": {"models": {}}}`, `not json`} {
+		if _, err := Compact([]byte(api)); err == nil {
+			t.Errorf("Compact(%s) succeeded", api)
+		}
+	}
+}
+
+// The embedded table is what Compact writes: a hand edit or a merge that
+// breaks its order or format shows here, not in a settings form.
+func TestSnapshotIsCanonical(t *testing.T) {
+	var table map[string][2]int
+	if err := json.Unmarshal(Snapshot(), &table); err != nil {
+		t.Fatalf("models.json: %v", err)
+	}
+	if len(table) < 100 {
+		t.Fatalf("models.json holds %d models", len(table))
+	}
+	if !bytes.Equal(render(table), Snapshot()) {
+		t.Fatal("models.json is not in the format make models-catalog writes; run it again")
+	}
+	for id, v := range table {
+		if v[0] <= 0 || v[1] < 0 {
+			t.Errorf("%s: [%d,%d] is not a window and a max_tokens", id, v[0], v[1])
+		}
+	}
+}
+
+func TestLookup(t *testing.T) {
+	var table map[string][2]int
+	if err := json.Unmarshal(Snapshot(), &table); err != nil {
+		t.Fatal(err)
+	}
+	for id, v := range table {
+		got, ok := Lookup(id)
+		if !ok || got.ContextWindow != v[0] || got.MaxTokens != v[1] {
+			t.Fatalf("Lookup(%q) = %+v, %v; want %v", id, got, ok, v)
+		}
+		break
+	}
+	if _, ok := Lookup("no-such-model-in-any-catalog"); ok {
+		t.Error("Lookup found a model the table does not list")
+	}
+}
+
+func TestChanges(t *testing.T) {
+	prev := []byte(`{"a":[1,1],"b":[2,2],"c":[3,3]}`)
+	next := []byte(`{"a":[1,1],"b":[2,9],"d":[4,4]}`)
+	got, err := Changes(prev, next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "3 models: 1 added, 1 removed, 1 changed\n  added: d\n  removed: c\n  changed: b\n"
+	if got != want {
+		t.Fatalf("Changes =\n%s\nwant\n%s", got, want)
+	}
+}

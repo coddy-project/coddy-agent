@@ -1,4 +1,4 @@
-.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version print-revision hooks deb rpm brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check docs docs-check docs-stamp docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
+.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version print-revision hooks deb rpm brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check models-catalog models-catalog-check docs docs-check docs-stamp docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -218,6 +218,19 @@ site-schema:
 
 site-schema-check:
 	CHECK=1 scripts/sync-site-schema.sh
+
+# The models catalog the settings screen fills a model's window and max_tokens
+# from: internal/llm/models/models.json, one line per model id, built from
+# models.dev and embedded into the binary, so neither a build nor a running
+# Coddy asks models.dev anything. models-catalog downloads the catalog and
+# rewrites the file only when a model's numbers moved, naming the models;
+# models-catalog-check only reports it (exit 1 when the file is behind).
+# make site-docs publishes the file as coddy.dev/models.json.
+models-catalog:
+	go run ./cmd/modelsgen
+
+models-catalog-check:
+	go run ./cmd/modelsgen -check
 
 # Documentation. docs/README.md (the hub), docs/llms.txt, docs/llms-full.txt, the
 # field tables of docs/reference/config.md, the help screens of docs/reference/cli.md
