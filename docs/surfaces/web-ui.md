@@ -29,6 +29,7 @@ https://github.com/user-attachments/assets/604d01bb-b730-4ca5-9955-a7a593891054
 - **Theme picker:** **Settings** (**`#/settings`**) → **Appearance** → theme swatch grid (**`data-testid="theme-swatch-<id>"`** inside **`appearance-theme-picker`**). Selection applies immediately and is client-side only (no config save).
 - **Language picker:** one native select **directly under the theme grid** (**`data-testid="appearance-language-select"`**) with **Auto** (resolves from **`navigator.language`**, stores no cookie) followed by every locale registered in **`locales.ts`**. The current registry renders **English** and **Русский**; changing the select applies the locale immediately.
 - **Notifications switch:** under the language picker (**`data-testid="appearance-notifications-switch"`**): system notifications while Coddy is in the background, kept in the cookie **`coddy_ui_notify`** ([Notifications](#notifications)).
+- **Smooth gradients switch:** under the notifications (**`data-testid="appearance-smooth-backdrop-switch"`**): paints the canvas, its glows and the glass of the title bar, the rail and the composer with random dither, for screens that show the gradients as rings; off by default, kept in the cookie **`coddy_ui_smooth_backdrop`** ([Smooth gradients](#smooth-gradients)).
 - **Language cookie:** **`coddy_ui_lang`** stores a registered locale id (currently **`en`** or **`ru`**), with the same flags as the theme cookie. Choosing **Auto** clears it. Resolution order on load: **`?lang=<registered-id>`** in the URL (also persisted to the cookie) > cookie > **`navigator.language`**. Switching sets **`document.documentElement.lang`** and re-renders without a reload. The documentation follows it: the reader asks for its pages in that language (**`lang=`** on **`/coddy/docs*`**) and every turn names it (**`metadata.lang`**), so the agent reads and attaches Coddy's documentation in it too ([Built-in documentation](../features/built-in-docs.md#languages)). Nothing is written to the config.
 - **i18n engine:** **`external/ui/src/ui/i18n/`** (**`translate`/`t`**, locale store, **`I18nProvider`** + **`useT()`**). **`locales.ts`** is the single registry for supported ids, picker labels, and dictionaries; picker generation, locale validation, bootstrap, and parity tests derive from it. **`main.tsx`** wraps the app plus shared confirmation provider in **`I18nProvider`**. **`useT()` falls back to `translate` outside a provider**, so components render in tests without wrapping; default-English values match the former hardcoded literals exactly.
 - **Locale maintenance:** adding a locale requires its dictionary plus one **`locales.ts`** entry. Every registered dictionary must add or change the same key and interpolation tokens in one patch; **`messagesParity.test.ts`** enforces both.
@@ -267,6 +268,24 @@ Limits:
 - Inside the [Telegram Mini App](gateway.md#mini-app) there is no switch: Telegram shows a Mini App's page no notifications.
 
 The code is `external/ui/src/ui/pwa/` (`notifications.ts` shows a notice, `attentionTracker.ts` decides which events are worth one, `serviceWorker.ts` registers the worker) and `external/ui/public/sw.js`; the scenarios are `features/web_ui_installable_app.feature`.
+
+## Smooth gradients
+
+![Settings, Appearance tab: the smooth gradients switch under the notifications](../assets/web-ui/smooth-gradients-setting-dark-1280.png)
+
+*The smooth gradients switch in Settings → Appearance, under the notifications.*
+
+The dark canvas and its two glows span only a few dozen of a channel's 256 levels, so each level is a band tens of pixels wide. Browsers hide the bands with an ordered dither, a fixed pattern of pixels per level, and on a high-contrast screen (a VA panel, a deep black) the place where one pattern meets the next shows as a ring. The glass of the panels blurs that dither away, and a blurred shadow ends in a one-level edge where the browser cuts its tail off. Most screens show none of it; on those that do, turn on **Settings → Appearance → Gradients → Smooth gradients**. The choice is kept in this browser only (cookie `coddy_ui_smooth_backdrop`), like the theme, and applies at once.
+
+With the switch on:
+
+- the canvas, its glows included, is painted on a fixed `<canvas>` under the app with random dither of about one level, from the applied theme's colours and with the geometry of the stylesheet's own background, so the picture stays the same; it is painted again after a resize, a page zoom and a theme switch;
+- the title bar, the rail and the composer show that picture with their own tint mixed in before the dither, instead of blurring what is behind them;
+- those three panels have no soft shadow, and the docked composer has no vignette above it.
+
+What it costs: the transcript scrolled under the title bar or the composer is hidden by the panel instead of showing through frosted glass. Menus, drawers and other glass surfaces keep the browser's blur. With the switch off nothing of this runs.
+
+The code is `external/ui/src/ui/theme/canvasBackdrop.ts` (the painter), `backdropPrefs.ts` (the choice) and `BackdropSettings.tsx` (the switch); the scenarios are `features/web_ui_smooth_gradients.feature`.
 
 ## Environment (local / remote server)
 

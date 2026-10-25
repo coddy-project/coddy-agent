@@ -323,6 +323,7 @@ export const SETTINGS_TEXTS = {
   appearanceTheme: { label: "appearance.themeLabel" },
   appearanceLanguage: { label: "appearance.languageLabel" },
   appearanceNotifications: { label: "appearance.notificationsLabel" },
+  appearanceSmoothBackdrop: { label: "appearance.smoothBackdropLabel" },
   sessionsManage: {
     label: "sessions.manage.legend",
     desc: "sessions.manage.lead",

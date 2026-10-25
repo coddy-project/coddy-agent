@@ -1047,6 +1047,7 @@ test("the Notifications landmark is left out where the tab draws none", () => {
     null,
     "landmark:appearance:theme",
     "landmark:appearance:language",
+    "landmark:appearance:smooth-backdrop",
   ]);
 });
 

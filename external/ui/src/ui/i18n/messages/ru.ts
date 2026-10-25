@@ -24,6 +24,10 @@ export const messagesRu: Record<string, string> = {
     "Уведомлениям нужно защищённое соединение. Откройте Coddy по https или на localhost.",
   "appearance.notifications.unsupported":
     "Этот браузер не показывает уведомления веб-страниц.",
+  "appearance.smoothBackdropLabel": "Градиенты",
+  "appearance.smoothBackdrop.toggle": "Плавные градиенты",
+  "appearance.smoothBackdrop.hint":
+    "Рисует свечение фона и стекло заголовка, боковой панели и поля ввода без колец и ступенек, которые видны на некоторых контрастных мониторах. Панели перестают размывать то, что под ними, и теряют мягкие тени. Настройка хранится в этом браузере.",
 
   "notify.untitled": "Coddy",
   "notify.turnFinished": "Агент закончил ход.",

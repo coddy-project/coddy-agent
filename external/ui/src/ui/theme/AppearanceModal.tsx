@@ -13,6 +13,7 @@ import { isUiLocale, UI_LOCALES, UI_LOCALE_IDS } from "../i18n/locales";
 import { UI_THEME_IDS, LIGHT_THEMES, type UiThemeMode } from "./themeCookie";
 import { readAppliedUiTheme, setUiTheme } from "./uiTheme";
 import { NotificationsSetting } from "../pwa/NotificationsSetting";
+import { BackdropSettings } from "./BackdropSettings";
 import { SETTINGS_TEXTS, landmarkAnchor } from "../settings/settingsSections";
 
 function subscribeTheme(onStoreChange: () => void): () => void {
@@ -170,7 +171,7 @@ export function AppearanceLanguagePicker() {
 /** AppearanceThemePicker renders just the theme swatch grid (no panel chrome) so it
  * can be embedded as a Settings tab. Theme selection applies immediately and is
  * client-side only (no config save). The language picker sits right under it,
- * and the switch of system notifications under that. */
+ * the switch of system notifications under that, and smooth gradients last. */
 export function AppearanceThemePicker() {
   const { t } = useT();
   const current = useSyncExternalStore(
@@ -209,6 +210,7 @@ export function AppearanceThemePicker() {
       </div>
       <AppearanceLanguagePicker />
       <NotificationsSetting />
+      <BackdropSettings />
     </div>
   );
 }

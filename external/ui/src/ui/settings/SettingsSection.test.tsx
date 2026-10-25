@@ -2597,7 +2597,7 @@ describe("settings search index matches the drawing", () => {
     expect(labels).toContain(
       `${messagesEn["appearance.themeLabel"]} | ${landmarkAnchor("appearance", "theme")}`,
     );
-    expect(labels).toHaveLength(3);
+    expect(labels).toHaveLength(4);
   }, 240_000);
 
   test("the legend check fails a heading whose box lost its anchor and a box whose entry is gone", async () => {
@@ -2727,10 +2727,11 @@ describe("settings search index matches the drawing", () => {
     const inside = await appearance(AGENT_TELEGRAM);
     expect(inside.drawn.map((d) => d.anchor)).not.toContain(anchor);
     expect(inside.expected.map((e) => e.anchor)).not.toContain(anchor);
-    // Theme and language are still there.
+    // Theme, language and smooth gradients are still there.
     expect(inside.drawn.map((d) => d.anchor)).toEqual([
       landmarkAnchor("appearance", "theme"),
       landmarkAnchor("appearance", "language"),
+      landmarkAnchor("appearance", "smooth-backdrop"),
     ]);
     expect(drawingDifferences(inside.expected, inside.drawn)).toEqual({
       anchors: [],

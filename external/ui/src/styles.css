@@ -742,6 +742,49 @@ html[data-theme="light"] {
   color-scheme: light;
 }
 
+/* Smooth gradients (Settings → Appearance, ui/theme/backdropPrefs.ts): the
+   same backdrop painted with random dither (ui/theme/canvasBackdrop.ts); the
+   html background above shows until it is painted. A browser blur would wipe
+   the dither out, so the title bar, the rail and the composer show the
+   backdrop with their tint baked in instead of blurring it: an image of their
+   own box, fixed to the viewport where they stand (its place and size come
+   with it in the custom property), over their plain tint. Their soft shadows go too: a blurred shadow
+   ends in a hard one-level edge where the browser cuts its tail off. */
+.canvas-backdrop {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: -1;
+  pointer-events: none;
+}
+
+html[data-smooth-backdrop="true"] .chat-header {
+  background: var(--coddy-smooth-header, none) no-repeat fixed
+    var(--coddy-chat-header-bg);
+}
+
+html[data-smooth-backdrop="true"] .rail-pill {
+  background: var(--coddy-smooth-nav, none) no-repeat fixed var(--nav);
+}
+
+html[data-smooth-backdrop="true"] .composer-card {
+  background: var(--coddy-smooth-glass, none) no-repeat fixed
+    var(--coddy-glass-panel-bg);
+}
+
+html[data-smooth-backdrop="true"] :is(.chat-header, .rail-pill, .composer-card),
+html[data-smooth-backdrop="true"] .composer-wrap-docked .composer-card {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+html[data-smooth-backdrop="true"]
+  .chat-bottom:has(.composer-wrap-docked)::before {
+  display: none;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -14812,6 +14855,12 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .appearance-notify-status {
   margin: 8px 0 0;
+}
+
+/* Smooth gradients (ui/theme/BackdropSettings.tsx): the switch under the
+   notifications. */
+.appearance-backdrop-block {
+  margin-top: 22px;
 }
 
 .appearance-language-select-wrap {
