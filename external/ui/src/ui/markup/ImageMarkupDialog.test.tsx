@@ -24,7 +24,20 @@ afterEach(() => {
 // jsdom has no PointerEvent: a MouseEvent under the pointer event's name
 // carries the coordinates the editor reads. The canvas has no layout either,
 // so a client pixel is a picture pixel.
-function pointer(type: string, el: Element, x: number, y: number) {
+type PointerOpts = {
+  id?: number;
+  pointerType?: string;
+  pressure?: number;
+  coalesced?: { x: number; y: number; pressure?: number }[];
+};
+
+function pointer(
+  type: string,
+  el: Element,
+  x: number,
+  y: number,
+  opts: PointerOpts = {},
+) {
   const e = new MouseEvent(type, {
     bubbles: true,
     cancelable: true,
@@ -32,7 +45,22 @@ function pointer(type: string, el: Element, x: number, y: number) {
     clientX: x,
     clientY: y,
   });
-  Object.defineProperty(e, "pointerId", { value: 1 });
+  Object.defineProperty(e, "pointerId", { value: opts.id ?? 1 });
+  if (opts.pointerType) {
+    Object.defineProperty(e, "pointerType", { value: opts.pointerType });
+  }
+  if (opts.pressure !== undefined) {
+    Object.defineProperty(e, "pressure", { value: opts.pressure });
+  }
+  if (opts.coalesced) {
+    const samples = opts.coalesced.map((c) => ({
+      clientX: c.x,
+      clientY: c.y,
+      pointerType: opts.pointerType,
+      pressure: c.pressure ?? opts.pressure,
+    }));
+    Object.defineProperty(e, "getCoalescedEvents", { value: () => samples });
+  }
   fireEvent(el, e);
 }
 
@@ -285,5 +313,80 @@ describe("ImageMarkupDialog", () => {
     expect(markedUpName("shot.jpeg")).toBe("shot.png");
     expect(markedUpName("pasted-3.png")).toBe("pasted-3.png");
     expect(markedUpName("")).toBe("picture.png");
+  });
+
+  describe("pen input", () => {
+    // The strokes drawn when Done renders the picture.
+    async function finish(onDone: ReturnType<typeof vi.fn>) {
+      fakes.calls.length = 0;
+      fireEvent.click(screen.getByTestId("markup-done"));
+      await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+      return fakes.calls;
+    }
+
+    it("keeps the samples a move coalesced, so a fast stroke stays round", async () => {
+      const { canvas, onDone } = await open();
+      pointer("pointerdown", canvas, 10, 10);
+      pointer("pointermove", canvas, 50, 10, {
+        coalesced: [
+          { x: 20, y: 14 },
+          { x: 30, y: 16 },
+          { x: 40, y: 14 },
+          { x: 50, y: 10 },
+        ],
+      });
+      pointer("pointerup", canvas, 50, 10);
+      const calls = await finish(onDone);
+      expect(calls.filter((c) => c.op === "quadraticCurveTo")).toHaveLength(3);
+    });
+
+    it("draws a pen stroke wider where it was pressed harder", async () => {
+      const { canvas, onDone } = await open();
+      const pen = { pointerType: "pen" };
+      pointer("pointerdown", canvas, 10, 10, { ...pen, pressure: 0.2 });
+      pointer("pointermove", canvas, 30, 20, { ...pen, pressure: 0.6 });
+      pointer("pointermove", canvas, 60, 20, { ...pen, pressure: 0.9 });
+      pointer("pointerup", canvas, 60, 20, { ...pen, pressure: 0.9 });
+      const calls = await finish(onDone);
+      // One path per piece, each at the width of its pressure.
+      expect(calls.filter((c) => c.op === "stroke")).toHaveLength(3);
+    });
+
+    it("draws nothing with a palm resting beside the pen", async () => {
+      const { canvas } = await open();
+      const pen = { pointerType: "pen", pressure: 0.5, id: 2 };
+      pointer("pointermove", canvas, 5, 5, { ...pen });
+      pointer("pointerdown", canvas, 100, 100, { pointerType: "touch", id: 3 });
+      pointer("pointermove", canvas, 200, 150, { pointerType: "touch", id: 3 });
+      pointer("pointerup", canvas, 200, 150, { pointerType: "touch", id: 3 });
+      expect(screen.getByTestId("markup-undo")).toBeDisabled();
+    });
+
+    it("keeps a second pointer out of a stroke in progress", async () => {
+      const { canvas, onDone } = await open();
+      pointer("pointerdown", canvas, 10, 10, {
+        pointerType: "pen",
+        pressure: 0.5,
+        id: 2,
+      });
+      pointer("pointermove", canvas, 300, 250, { pointerType: "touch", id: 3 });
+      pointer("pointerup", canvas, 300, 250, { pointerType: "touch", id: 3 });
+      pointer("pointermove", canvas, 40, 10, {
+        pointerType: "pen",
+        pressure: 0.5,
+        id: 2,
+      });
+      pointer("pointerup", canvas, 40, 10, {
+        pointerType: "pen",
+        pressure: 0.5,
+        id: 2,
+      });
+      const calls = await finish(onDone);
+      const reached = calls
+        .filter((c) => c.op === "lineTo" || c.op === "quadraticCurveTo")
+        .flatMap((c) => c.args as number[]);
+      expect(reached).not.toContain(300);
+      expect(screen.getByTestId("markup-undo")).toBeEnabled();
+    });
   });
 });
