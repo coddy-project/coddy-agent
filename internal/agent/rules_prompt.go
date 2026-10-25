@@ -145,24 +145,32 @@ func computeContextBreakdown(
 	return b
 }
 
-// conversationText is the conversation as the provider reads it, the rules a
-// tool call brought in joined to its result, for the token estimates.
-func conversationText(msgs []llm.Message) string {
-	var b strings.Builder
+// conversationCounts counts the runes of the conversation as the provider
+// reads it - each message's role and content, the rules a tool call brought
+// in joined to its result - for the token estimates. It counts piece by
+// piece instead of joining the text: the estimates run several times per
+// model call over the whole history, and the joined copy was most of their
+// cost. The counts are those of the joined text exactly.
+func conversationCounts(msgs []llm.Message) (ascii, other int) {
+	add := func(s string) {
+		a, o := session.TextCounts(s)
+		ascii += a
+		other += o
+	}
 	for _, m := range msgs {
 		if strings.TrimSpace(m.Content) == "" && m.Rules == "" {
 			continue
 		}
-		b.WriteString(string(m.Role))
-		b.WriteString(":\n")
+		add(string(m.Role))
+		ascii += 2 // ":\n"
 		if m.Rules != "" {
-			b.WriteString(joinToolRules(m.Content, m.Rules))
+			add(joinToolRules(m.Content, m.Rules))
 		} else {
-			b.WriteString(m.Content)
+			add(m.Content)
 		}
-		b.WriteString("\n\n")
+		ascii += 2 // "\n\n"
 	}
-	return b.String()
+	return ascii, other
 }
 
 // FilterSkillsForContext wraps skills filter (unchanged semantics for skills only).

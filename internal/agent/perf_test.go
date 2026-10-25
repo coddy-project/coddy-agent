@@ -230,3 +230,21 @@ func copyTree(src, dst string) error {
 		return os.WriteFile(target, data, 0o644)
 	})
 }
+
+// The token estimate a long session runs before every model call: counted
+// message by message, never over the conversation joined into one string.
+func BenchmarkConversationTokensLongSession(b *testing.B) {
+	msgs := make([]llm.Message, 0, 3000)
+	for i := 0; i < 750; i++ {
+		msgs = append(msgs,
+			llm.Message{Role: llm.RoleUser, Content: strings.Repeat("Please look at the session manager and explain. ", 6)},
+			llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{Name: "read", InputJSON: `{"path":"internal/session/manager.go"}`}}},
+			llm.Message{Role: llm.RoleTool, Content: strings.Repeat("func x() {}\n", 120)},
+			llm.Message{Role: llm.RoleAssistant, Content: "Here is the explanation.\n\n```go\nfunc main() {}\n```\n" + strings.Repeat("Lorem ipsum dolor sit amet. ", 10)},
+		)
+	}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = conversationTokens(msgs, false)
+	}
+}

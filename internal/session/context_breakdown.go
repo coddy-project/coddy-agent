@@ -36,15 +36,34 @@ func EstimateContextTokens(s string) int {
 	if s == "" {
 		return 0
 	}
-	// ASCII prose is near four bytes per token; code is denser and non-ASCII
-	// text (especially Cyrillic) is often around one token per rune.
-	var ascii, other int
-	for _, r := range s {
-		if r < utf8.RuneSelf {
+	return EstimateFromCounts(TextCounts(s))
+}
+
+// TextCounts counts the ASCII runes of s and the others, an invalid byte
+// counting as one other rune, as ranging over s does. The counts of pieces
+// add up to the counts of the pieces joined, which lets a caller estimate a
+// long text without building it.
+func TextCounts(s string) (ascii, other int) {
+	for i := 0; i < len(s); {
+		if s[i] < utf8.RuneSelf {
 			ascii++
-		} else {
-			other++
+			i++
+			continue
 		}
+		_, size := utf8.DecodeRuneInString(s[i:])
+		other++
+		i += size
+	}
+	return ascii, other
+}
+
+// EstimateFromCounts is EstimateContextTokens for a text whose runes were
+// counted with TextCounts. ASCII prose is near four bytes per token; code is
+// denser and non-ASCII text (especially Cyrillic) is often around one token
+// per rune.
+func EstimateFromCounts(ascii, other int) int {
+	if ascii == 0 && other == 0 {
+		return 0
 	}
 	return (ascii+2)/3 + other
 }
