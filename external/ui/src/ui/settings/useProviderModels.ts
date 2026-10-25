@@ -7,8 +7,7 @@ export interface FetchedModel {
   /** Context window the listing reports, absent when it reports none. */
   context_window?: number;
   /** What the server's models catalog knows of an id the provider reports no
-   * window for, or the catalog's window: a model added from the list is
-   * filled from it. */
+   * window for: a model added from the list is filled from it. */
   catalog?: { context_window: number; max_tokens?: number };
 }
 

@@ -8,7 +8,7 @@ import (
 )
 
 // A trimmed api.json of models.dev: the shapes Compact has to tell apart.
-const sampleModelsDev = `{
+const sampleCatalog = `{
   "anthropic": {"models": {
     "claude-sonnet-4-5": {"limit": {"context": 200000, "output": 64000}}
   }},
@@ -33,16 +33,8 @@ const sampleModelsDev = `{
   }}
 }`
 
-// NeuralDeep's GET /v1/models: chat models among embeddings and the rest.
-const sampleNeuralDeep = `{"data": [
-  {"id": "qwen3.8-27b", "type": "chat", "limit": {"context": 262144, "output": 235929}},
-  {"id": "kimi-k2", "type": "chat", "limit": {"context": 262144, "output": 235929}},
-  {"id": "bge-m3", "type": "embedding", "limit": {"context": 8192}},
-  {"id": "whisper-1", "type": "transcription"}
-]}`
-
 func TestCompact(t *testing.T) {
-	got, err := Compact([]byte(sampleModelsDev), []byte(sampleNeuralDeep))
+	got, err := Compact([]byte(sampleCatalog))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,13 +49,10 @@ func TestCompact(t *testing.T) {
 		// An input limit as large as the window is no budget of its own: the
 		// answer shares the window and keeps to its fifth.
 		`"input-is-window":[8192,1638],`,
-		// NeuralDeep is no vendor: on an id a gateway lists too, the smaller
-		// window wins with its own max_tokens.
+		// Only gateways: the pair with the smallest window.
 		`"kimi-k2":[128000,16384],`,
 		// No output limit: no max_tokens to offer.
 		`"no-output":[32000,0],`,
-		// A NeuralDeep chat model; its embeddings and the rest stay out.
-		`"qwen3.8-27b":[262144,52428],`,
 		// The smaller window wins with its own max_tokens: never the window
 		// of one provider and the max_tokens of another.
 		`"split":[8192,0],`,
@@ -78,19 +67,10 @@ func TestCompact(t *testing.T) {
 	}
 }
 
-// A source that answers with nothing usable is an outage or a format change:
-// the refresh stops instead of dropping that source's models.
-func TestCompactRefusesAnEmptySource(t *testing.T) {
-	for _, tc := range []struct{ modelsDev, neuralDeep string }{
-		{`{}`, sampleNeuralDeep},
-		{`{"google": {"models": {"g": {"limit": {"context": 1000}}}}}`, sampleNeuralDeep},
-		{sampleModelsDev, `{"data": []}`},
-		{sampleModelsDev, `{"data": [{"id": "e", "type": "embedding", "limit": {"context": 8192}}]}`},
-		{`not json`, sampleNeuralDeep},
-		{sampleModelsDev, `not json`},
-	} {
-		if _, err := Compact([]byte(tc.modelsDev), []byte(tc.neuralDeep)); err == nil {
-			t.Errorf("Compact(%.30s, %.30s) succeeded", tc.modelsDev, tc.neuralDeep)
+func TestCompactRefusesAnEmptyCatalog(t *testing.T) {
+	for _, api := range []string{`{}`, `{"openai": {"models": {}}}`, `{"google": {"models": {"g": {"limit": {"context": 1000}}}}}`, `not json`} {
+		if _, err := Compact([]byte(api)); err == nil {
+			t.Errorf("Compact(%s) succeeded", api)
 		}
 	}
 }

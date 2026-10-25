@@ -70,8 +70,7 @@ const codexSourceBuildVersion = "0.154.0"
 // upstreamServing starts a stand-in provider endpoint that answers the model
 // list with the given ids and records the credential it was called with. An
 // entry may carry a context window as "id:131072" - the stand-in reports it
-// under the OpenRouter spelling, context_length - or as "id:catalog", the
-// window the embedded models catalog has for the id.
+// under the OpenRouter spelling, context_length.
 func (w *providerModelsWorld) upstreamServing(t *testing.T, csv string) error {
 	ids := strings.Split(csv, ",")
 	var data []map[string]interface{}
@@ -80,15 +79,7 @@ func (w *providerModelsWorld) upstreamServing(t *testing.T, csv string) error {
 		id, ctx := part, 0
 		if i := strings.LastIndex(part, ":"); i > 0 {
 			id = part[:i]
-			if part[i+1:] == "catalog" {
-				limits, ok := models.Lookup(id)
-				if !ok {
-					return fmt.Errorf("the models catalog does not list %q any more: pick another model for this scenario", id)
-				}
-				ctx = limits.ContextWindow
-			} else {
-				ctx, _ = strconv.Atoi(part[i+1:])
-			}
+			ctx, _ = strconv.Atoi(part[i+1:])
 		}
 		entry := map[string]interface{}{"id": id}
 		if ctx > 0 {

@@ -221,12 +221,11 @@ site-schema-check:
 
 # The models catalog the settings screen fills a model's window and max_tokens
 # from: internal/llm/models/models.json, one line per model id of Coddy's
-# providers, built from models.dev (OpenAI, Anthropic, OpenCode) and from
-# NeuralDeep's model list, and embedded into the binary, so neither a build
-# nor a running Coddy asks either of them anything. models-catalog downloads
-# both (NeuralDeep with the key of the neuraldeep row of your Coddy config)
-# and rewrites the file only when a model's numbers moved, naming the models;
-# models-catalog-check only reports it (exit 1 when the file is behind).
+# providers (OpenAI, Anthropic, OpenCode), built from models.dev and embedded
+# into the binary, so neither a build nor a running Coddy asks models.dev
+# anything. models-catalog downloads the catalog and rewrites the file only
+# when a model's numbers moved, naming the models; models-catalog-check only
+# reports it (exit 1 when the file is behind).
 models-catalog:
 	go run ./cmd/modelsgen
 
