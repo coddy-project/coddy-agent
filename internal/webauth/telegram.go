@@ -12,6 +12,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -105,10 +107,23 @@ func hmacSHA256(key, msg []byte) []byte {
 }
 
 // ReplayGuard remembers launches already used, until they would have
-// expired anyway, so one launch data signs a browser in once.
+// expired anyway, so one launch data signs a browser in once. With a file
+// (SetFile) the record outlives the process: a restart within a launch's
+// hour does not make an already used launch new again.
 type ReplayGuard struct {
-	mu   sync.Mutex
-	seen map[string]time.Time
+	mu     sync.Mutex
+	seen   map[string]time.Time
+	path   string
+	loaded bool
+}
+
+// SetFile names the file the guard keeps its record in. The file holds a
+// digest of each key, never the key itself.
+func (g *ReplayGuard) SetFile(path string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.path = path
+	g.loaded = false
 }
 
 // Use records key until until and reports whether it was new.
@@ -118,14 +133,63 @@ func (g *ReplayGuard) Use(key string, until, now time.Time) bool {
 	if g.seen == nil {
 		g.seen = make(map[string]time.Time)
 	}
+	g.loadLocked()
 	for k, exp := range g.seen {
 		if now.After(exp) {
 			delete(g.seen, k)
 		}
 	}
-	if _, ok := g.seen[key]; ok {
+	sum := sha256.Sum256([]byte(key))
+	digest := hex.EncodeToString(sum[:])
+	if _, ok := g.seen[digest]; ok {
 		return false
 	}
-	g.seen[key] = until
+	g.seen[digest] = until
+	g.saveLocked()
 	return true
+}
+
+// loadLocked merges the file's record into memory once. A missing or
+// unreadable file is an empty record: the guard then works as it did
+// without one.
+func (g *ReplayGuard) loadLocked() {
+	if g.loaded || g.path == "" {
+		return
+	}
+	g.loaded = true
+	data, err := os.ReadFile(g.path)
+	if err != nil {
+		return
+	}
+	var stored map[string]time.Time
+	if json.Unmarshal(data, &stored) != nil {
+		return
+	}
+	for k, exp := range stored {
+		if cur, ok := g.seen[k]; !ok || exp.After(cur) {
+			g.seen[k] = exp
+		}
+	}
+}
+
+// saveLocked writes the record next to where it will be read, through a
+// temporary file, readable by the owner only. A failed write keeps the
+// record in memory.
+func (g *ReplayGuard) saveLocked() {
+	if g.path == "" {
+		return
+	}
+	data, err := json.Marshal(g.seen)
+	if err != nil {
+		return
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(g.path), filepath.Base(g.path)+".*")
+	if err != nil {
+		return
+	}
+	_, werr := tmp.Write(data)
+	cerr := tmp.Close()
+	if werr != nil || cerr != nil || os.Chmod(tmp.Name(), 0o600) != nil || os.Rename(tmp.Name(), g.path) != nil {
+		_ = os.Remove(tmp.Name())
+	}
 }

@@ -221,6 +221,10 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		loginThrottle:        &webauth.Throttle{},
 	}
 	s.cfgAt.Store(cfg)
+	// A Mini App launch signs one browser in once, across restarts too.
+	if cfg != nil && strings.TrimSpace(cfg.Paths.Home) != "" {
+		s.tgReplay.SetFile(filepath.Join(cfg.Paths.Home, "telegram-launches.json"))
+	}
 	// A board changes from a tool call of any surface's turn or from a route
 	// of this server; either way the web UI reads it again on the event.
 	s.removeCanvasObserver = canvas.OnChange(s.publishCanvasChanged)
