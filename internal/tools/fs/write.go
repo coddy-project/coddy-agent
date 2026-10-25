@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
@@ -53,9 +54,10 @@ func executeWrite(_ context.Context, argsJSON string, env *tooling.Env) (string,
 		return "", fmt.Errorf("write mkdir: %w", err)
 	}
 
-	if err := os.WriteFile(path, []byte(args.Content), 0o644); err != nil {
+	report, err := platform.WriteFileReplacing(path, []byte(args.Content), 0o644)
+	if err != nil {
 		return "", fmt.Errorf("write: %w", err)
 	}
 
-	return fmt.Sprintf("wrote %d bytes to %s", len(args.Content), path), nil
+	return withNote(fmt.Sprintf("wrote %d bytes to %s", len(args.Content), path), report), nil
 }

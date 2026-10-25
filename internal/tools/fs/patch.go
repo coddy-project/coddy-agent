@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
@@ -67,11 +68,12 @@ func executeApplyPatch(_ context.Context, argsJSON string, env *tooling.Env) (st
 		return "", fmt.Errorf("apply_patch: %w", err)
 	}
 
-	if err := os.WriteFile(path, []byte(patched), 0o644); err != nil {
+	report, err := platform.WriteFileReplacing(path, []byte(patched), 0o644)
+	if err != nil {
 		return "", fmt.Errorf("apply_patch write: %w", err)
 	}
 
-	return fmt.Sprintf("patch applied successfully to %s", path), nil
+	return withNote(fmt.Sprintf("patch applied successfully to %s", path), report), nil
 }
 
 func applyPatch(original, diff string) (string, error) {
