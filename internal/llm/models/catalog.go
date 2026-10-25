@@ -69,15 +69,18 @@ var vendors = map[string]bool{
 // Compact turns models.dev's api.json into models.json: one line per model id,
 // sorted, with its window and max_tokens.
 //
-// The window is limit.input when the catalog states one (GPT-5: 272000 of a
-// 400000 window that also holds the answer), else limit.context. max_tokens is
-// the whole limit.output for a model with an input budget of its own; a model
-// whose prompt and answer share the window gets at most the part above the
+// The window is limit.input when the catalog states one below limit.context
+// (GPT-5: 272000 of a 400000 window that also holds the answer), else
+// limit.context. max_tokens is the whole limit.output for such a model with an
+// input budget of its own; a model whose prompt and answer share the window
+// (limit.input absent, or as large as the window) gets at most the part above the
 // default compaction threshold, a fifth of it at 80%, since a prompt grows to
 // the threshold before a compaction and a provider refuses a request whose
 // prompt and max_tokens do not fit the window together. An id listed by
 // several providers takes the vendor's numbers when a vendor lists it, else
-// the smallest of all: a window larger than the real one is worse than none.
+// the pair with the smallest window: a window larger than the real one is
+// worse than none, and a pair is never split, since its max_tokens was worked
+// out for its own window.
 func Compact(api []byte) ([]byte, error) {
 	var catalog map[string]struct {
 		Models map[string]struct {
@@ -99,8 +102,8 @@ func Compact(api []byte) ([]byte, error) {
 	for provider, p := range catalog {
 		for id, m := range p.Models {
 			window, out := m.Limit.Context, m.Limit.Output
-			if m.Limit.Input > 0 {
-				window = m.Limit.Input
+			if in := m.Limit.Input; in > 0 && in < window {
+				window = in
 			} else {
 				out = min(out, window*(100-config.CompactionDefaultThresholdPercent)/100)
 			}
@@ -109,11 +112,8 @@ func Compact(api []byte) ([]byte, error) {
 			}
 			cur := pick{limits: [2]int{window, max(out, 0)}, vendor: vendors[provider]}
 			prev, seen := picked[id]
-			switch {
-			case !seen || cur.vendor && !prev.vendor:
+			if !seen || cur.vendor && !prev.vendor || cur.vendor == prev.vendor && smaller(cur.limits, prev.limits) {
 				picked[id] = cur
-			case cur.vendor == prev.vendor:
-				picked[id] = pick{limits: [2]int{min(prev.limits[0], window), minKnown(prev.limits[1], cur.limits[1])}, vendor: cur.vendor}
 			}
 		}
 	}
@@ -144,12 +144,19 @@ func render(table map[string][2]int) []byte {
 	return b.Bytes()
 }
 
-// minKnown is the smaller of two max_tokens, where 0 means unknown.
-func minKnown(a, b int) int {
-	if a == 0 || b == 0 {
-		return max(a, b)
+// smaller orders two [window, max_tokens] pairs: the smaller window first, then
+// the smaller max_tokens, where 0 (unknown) counts as the largest.
+func smaller(a, b [2]int) bool {
+	if a[0] != b[0] {
+		return a[0] < b[0]
 	}
-	return min(a, b)
+	known := func(n int) int {
+		if n == 0 {
+			return int(^uint(0) >> 1)
+		}
+		return n
+	}
+	return known(a[1]) < known(b[1])
 }
 
 // Changes says how next differs from prev, both in the models.json format:

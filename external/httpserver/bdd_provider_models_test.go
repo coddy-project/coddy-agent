@@ -385,9 +385,6 @@ func (w *providerModelsWorld) wantCtx(want int, id string) error {
 	return nil
 }
 
-// modelListReportsWindow checks the window GET /v1/models reports for a model
-// row, the number the web UI draws its context ring against and automatic
-// compaction measures against.
 // wantCatalog holds the answer to the embedded models catalog, whatever its
 // numbers are after the next refresh.
 func (w *providerModelsWorld) wantCatalog(id string) error {
@@ -408,6 +405,9 @@ func (w *providerModelsWorld) wantNoCatalog(id string) error {
 	return nil
 }
 
+// modelListReportsWindow checks the window GET /v1/models reports for a model
+// row, the number the web UI draws its context ring against and automatic
+// compaction measures against.
 func (w *providerModelsWorld) modelListReportsWindow(want int, ref string) error {
 	if w.ts == nil {
 		return fmt.Errorf("gateway not started")

@@ -132,7 +132,8 @@ test("a model is added to Logical models from its row", async () => {
     {
       id: "m1",
       context_window: 131072,
-      catalog: { context_window: 200000, max_tokens: 26214 },
+      // Never sent beside a reported window; held to it all the same.
+      catalog: { context_window: 200000, max_tokens: 40000 },
     },
     { id: "m2", catalog: { context_window: 128000, max_tokens: 16384 } },
     { id: "m3" },
@@ -157,8 +158,8 @@ test("a model is added to Logical models from its row", async () => {
   fireEvent.click(toggle("m3"));
 
   // The window the provider reports travels with the id, else the models
-  // catalog's, and the catalog's max_tokens with it.
-  expect(onAddModel).toHaveBeenNthCalledWith(1, "demo/m1", 131072, 26214);
+  // catalog's window with its max_tokens.
+  expect(onAddModel).toHaveBeenNthCalledWith(1, "demo/m1", 131072);
   expect(onAddModel).toHaveBeenNthCalledWith(2, "demo/m2", 128000, 16384);
   expect(onAddModel).toHaveBeenNthCalledWith(
     3,

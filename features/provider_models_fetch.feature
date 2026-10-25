@@ -24,20 +24,20 @@ Feature: The settings form fetches the model list a provider advertises
     And the gateway answers with context window 131072 for "m1"
     And the gateway answers with context window 8192 for "m2"
 
-  Scenario: The listing carries what the models catalog knows of a model
+  Scenario: The models catalog fills in a model the provider reports no window for
     Coddy carries a table of model ids with a context window and a
     max_tokens to start from, built from models.dev and embedded into the
-    binary (issue #554). The settings form fills a model it adds from it
-    where the provider says nothing; the window the provider reports stays
-    apart, since that is the one a session measures against.
-    Given an upstream model endpoint serving "gpt-4o,claude-sonnet-4-5:1000000,m2:8192"
+    binary (issue #554). The settings form fills a model it adds from it when
+    the provider reports no window for the id. A window the provider reports
+    stands alone: the catalog's max_tokens was worked out for the catalog's
+    window and fits no other.
+    Given an upstream model endpoint serving "gpt-4o,claude-sonnet-4-5:1000000,m2"
     And a coddy server holding only a provider named "other"
     When the settings form posts the provider row "fresh" of type "openai" at that upstream with key "sk-fresh"
     Then the gateway answers with the window and max_tokens the models catalog has for "gpt-4o"
     And the gateway answers with context window 0 for "gpt-4o"
     And the gateway answers with context window 1000000 for "claude-sonnet-4-5"
-    And the gateway answers with the window and max_tokens the models catalog has for "claude-sonnet-4-5"
-    And the gateway answers with context window 8192 for "m2"
+    And the gateway answers with nothing from the models catalog for "claude-sonnet-4-5"
     And the gateway answers with nothing from the models catalog for "m2"
 
   Scenario: A codex provider lists the models only recent Codex releases are offered

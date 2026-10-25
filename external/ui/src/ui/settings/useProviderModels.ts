@@ -6,9 +6,8 @@ export interface FetchedModel {
   name?: string;
   /** Context window the listing reports, absent when it reports none. */
   context_window?: number;
-  /** What the server's models catalog knows of the id, which a model added
-   * from the list is filled from where the provider says nothing. A session
-   * never measures against it, so it stays apart from context_window. */
+  /** What the server's models catalog knows of an id the provider reports no
+   * window for: a model added from the list is filled from it. */
   catalog?: { context_window: number; max_tokens?: number };
 }
 

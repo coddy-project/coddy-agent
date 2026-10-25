@@ -46,7 +46,8 @@ func main() {
 	}
 	changes, err := models.Changes(current, fresh)
 	if err != nil {
-		fail(err)
+		// A file a merge left conflict markers in is what a refresh repairs.
+		changes = fmt.Sprintf("%v; a refresh writes it anew\n", err)
 	}
 	fmt.Print("modelsgen: ", changes)
 	if *check {
@@ -72,7 +73,11 @@ func read(source string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s: %s", source, resp.Status)
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, maxCatalogBytes))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxCatalogBytes+1))
+	if err == nil && len(body) > maxCatalogBytes {
+		return nil, fmt.Errorf("%s: larger than %d MiB", source, maxCatalogBytes>>20)
+	}
+	return body, err
 }
 
 func fail(err error) {

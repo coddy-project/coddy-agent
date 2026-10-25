@@ -41,8 +41,7 @@ export function ProviderModelList(props: {
   /** Every models[].model of the document, so listed ids are told apart. */
   existingModels: string[];
   /** Files provider/id under Logical models, with the context window the
-   * provider reports (else the models catalog's) and the catalog's max_tokens
-   * when the listing has them. */
+   * provider reports, else the models catalog's window and max_tokens. */
   onAddModel: (
     id: string,
     contextWindow?: number | undefined,
@@ -128,11 +127,15 @@ export function ProviderModelList(props: {
         onClick={() =>
           isListed
             ? onRemoveModel(full)
-            : onAddModel(
-                full,
-                model?.context_window ?? model?.catalog?.context_window,
-                model?.catalog?.max_tokens,
-              )
+            : model?.context_window
+              ? onAddModel(full, model.context_window)
+              : // The catalog's numbers go together: its max_tokens was
+                // worked out for its own window.
+                onAddModel(
+                  full,
+                  model?.catalog?.context_window,
+                  model?.catalog?.max_tokens,
+                )
         }
       >
         {isListed ? <IconCheck /> : <IconPlus />}

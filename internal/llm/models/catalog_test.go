@@ -22,7 +22,16 @@ const sampleCatalog = `{
   }},
   "gateway": {"models": {
     "kimi-k2": {"limit": {"context": 128000, "output": 16384}},
-    "no-output": {"limit": {"context": 32000}}
+    "no-output": {"limit": {"context": 32000}},
+    "input-is-window": {"limit": {"context": 8192, "input": 8192, "output": 26214}},
+    "split": {"limit": {"context": 131072, "output": 131072}}
+  }},
+  "mirror": {"models": {
+    "split": {"limit": {"context": 8192}},
+    "tie": {"limit": {"context": 64000, "output": 8000}}
+  }},
+  "other-mirror": {"models": {
+    "tie": {"limit": {"context": 64000, "output": 4000}}
   }}
 }`
 
@@ -39,10 +48,18 @@ func TestCompact(t *testing.T) {
 		// A model with an input budget: the window is that budget and the
 		// answer has its whole output limit.
 		`"gpt-5":[272000,128000],`,
-		// No vendor: the smallest of every number.
+		// An input limit as large as the window is no budget of its own: the
+		// answer shares the window and keeps to its fifth.
+		`"input-is-window":[8192,1638],`,
+		// No vendor: the pair with the smallest window.
 		`"kimi-k2":[128000,16384],`,
 		// No output limit: no max_tokens to offer.
-		`"no-output":[32000,0]`,
+		`"no-output":[32000,0],`,
+		// The smaller window wins with its own max_tokens: never the window
+		// of one provider and the max_tokens of another.
+		`"split":[8192,0],`,
+		// One window: the smaller max_tokens.
+		`"tie":[64000,4000]`,
 		"}",
 		"",
 	}, "\n")

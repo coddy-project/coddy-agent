@@ -1827,10 +1827,10 @@ test("a row form open under LLM providers does not survive switching to Logical 
   );
 });
 
-// A model added from the provider's list arrives with the context window and
-// the max_tokens its listing carries, written into max_context_tokens and
-// max_tokens.
-test("a model added from the provider list carries the window and max_tokens of its listing", async () => {
+// A model added from the provider's list arrives with the window its listing
+// carries, written into max_context_tokens; for a model the provider reports
+// no window for, the models catalog's window and max_tokens.
+test("a model added from the provider list carries the catalog's window and max_tokens", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({
@@ -1838,11 +1838,7 @@ test("a model added from the provider list carries the window and max_tokens of 
       json: async () => ({
         ok: true,
         models: [
-          {
-            id: "m1",
-            context_window: 131072,
-            catalog: { context_window: 200000, max_tokens: 26214 },
-          },
+          { id: "m1", catalog: { context_window: 200000, max_tokens: 40000 } },
         ],
       }),
     })),
@@ -1903,7 +1899,7 @@ test("a model added from the provider list carries the window and max_tokens of 
   fireEvent.click(await screen.findByTestId("provider-model-toggle-m1"));
 
   expect(latest.models).toEqual([
-    { model: "demo/m1", max_context_tokens: 131072, max_tokens: 26214 },
+    { model: "demo/m1", max_context_tokens: 200000, max_tokens: 40000 },
   ]);
 });
 
