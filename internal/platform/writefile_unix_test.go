@@ -97,6 +97,48 @@ func TestWriteFileReplacingRelativeLinkThroughALinkedFolder(t *testing.T) {
 	}
 }
 
+// A ".." inside the link's own text climbs from where the components before it
+// lead: link -> alias/../victim with alias -> data/sub lands in data/victim,
+// for an existing target and for a dangling one.
+func TestWriteFileReplacingDotDotAfterALinkInsideTheLinkText(t *testing.T) {
+	for _, existing := range []bool{true, false} {
+		root := t.TempDir()
+		sub := filepath.Join(root, "data", "sub")
+		work := filepath.Join(root, "work")
+		for _, d := range []string{sub, work} {
+			if err := os.MkdirAll(d, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.Symlink(sub, filepath.Join(work, "alias")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("alias/../victim", filepath.Join(work, "link")); err != nil {
+			t.Fatal(err)
+		}
+		decoy := filepath.Join(work, "victim")
+		if err := os.WriteFile(decoy, []byte("decoy"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		real := filepath.Join(root, "data", "victim")
+		if existing {
+			if err := os.WriteFile(real, []byte("old"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		if _, err := WriteFileReplacing(filepath.Join(work, "link"), []byte("x"), 0o644); err != nil {
+			t.Fatalf("existing=%v: %v", existing, err)
+		}
+		if got := readFile(t, real); got != "x" {
+			t.Fatalf("existing=%v: data/victim = %q, want x", existing, got)
+		}
+		if got := readFile(t, decoy); got != "decoy" {
+			t.Fatalf("existing=%v: work/victim = %q, a file the link never named was written", existing, got)
+		}
+	}
+}
+
 // A pipe is written through, as os.WriteFile does; replacing it would destroy it.
 func TestWriteFileReplacingWritesAPipeInPlace(t *testing.T) {
 	dir := t.TempDir()

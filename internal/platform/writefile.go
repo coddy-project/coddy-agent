@@ -121,7 +121,7 @@ func ReplaceFileFrom(path string, src io.Reader, perm fs.FileMode) (WriteReport,
 	if err := tmp.Close(); err != nil {
 		return report, err
 	}
-	if err := renameReplacing(tmpPath, target); err != nil {
+	if err := commitReplace(tmpPath, target, existing); err != nil {
 		return report, err
 	}
 	committed = true
@@ -147,9 +147,9 @@ const maxSymlinkHops = 40
 
 // resolveWriteTarget follows links at path so the write lands on the target.
 // A missing path, or a link whose target is missing, resolves to the path a
-// plain write would create. A relative link is read from the folder the link
-// really sits in, so a ".." in it climbs from there and not from a folder the
-// link was reached through.
+// plain write would create. A link is resolved component by component, as the
+// kernel does, so a ".." in its text climbs from wherever the components before
+// it lead, never lexically.
 func resolveWriteTarget(path string) (string, error) {
 	current := path
 	for hop := 0; hop <= maxSymlinkHops; hop++ {
@@ -163,20 +163,66 @@ func resolveWriteTarget(path string) (string, error) {
 		if info.Mode()&fs.ModeSymlink == 0 {
 			return current, nil
 		}
+		// A link whose target exists: the walk of EvalSymlinks is the kernel's.
+		if real, evalErr := filepath.EvalSymlinks(current); evalErr == nil {
+			return real, nil
+		}
 		link, err := os.Readlink(current)
 		if err != nil {
 			return "", err
 		}
+		// A dangling link: its last component is missing, so resolve the folder
+		// part of the raw, uncleaned text and keep the missing name.
+		raw := link
 		if !filepath.IsAbs(link) {
-			parent := filepath.Dir(current)
-			if real, evalErr := filepath.EvalSymlinks(parent); evalErr == nil {
-				parent = real
-			}
-			link = filepath.Join(parent, link)
+			raw = filepath.Dir(current) + string(os.PathSeparator) + link
 		}
-		current = link
+		dirPart, name := splitLast(raw)
+		if name == "" || name == "." || name == ".." {
+			return "", &fs.PathError{Op: "open", Path: path, Err: errors.New("link target names no file")}
+		}
+		dirReal, err := filepath.EvalSymlinks(dirPart)
+		if err != nil {
+			return "", err
+		}
+		current = filepath.Join(dirReal, name)
 	}
 	return "", &fs.PathError{Op: "open", Path: path, Err: errors.New("too many levels of symbolic links")}
+}
+
+// splitLast splits p at its last separator without cleaning it, so the ".."
+// elements before the last one are left for EvalSymlinks to walk.
+func splitLast(p string) (dir, name string) {
+	i := len(p) - 1
+	for i >= 0 && !os.IsPathSeparator(p[i]) {
+		i--
+	}
+	if i < 0 {
+		return ".", p
+	}
+	if i == 0 {
+		return p[:1], p[1:]
+	}
+	return p[:i], p[i+1:]
+}
+
+// maxTempStem bounds how much of the target's name the temporary file keeps, so
+// a long but valid name does not overflow the 255-byte limit of a component.
+const maxTempStem = 64
+
+// tempStem is the start of base cut at a rune boundary within maxTempStem bytes.
+func tempStem(base string) string {
+	if len(base) <= maxTempStem {
+		return base
+	}
+	cut := 0
+	for i := range base {
+		if i > maxTempStem {
+			break
+		}
+		cut = i
+	}
+	return base[:cut]
 }
 
 // createSibling creates an exclusive, dot-named file in dir.
@@ -187,7 +233,7 @@ func createSibling(dir, base string, perm fs.FileMode) (*os.File, error) {
 		if _, err := rand.Read(suffix[:]); err != nil {
 			return nil, err
 		}
-		name := filepath.Join(dir, "."+base+".tmp."+hex.EncodeToString(suffix[:]))
+		name := filepath.Join(dir, "."+tempStem(base)+".tmp."+hex.EncodeToString(suffix[:]))
 		f, err := os.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
 		if err == nil {
 			return f, nil
@@ -200,13 +246,13 @@ func createSibling(dir, base string, perm fs.FileMode) (*os.File, error) {
 	return nil, lastErr
 }
 
-// renameReplacing renames tmpPath over path, retrying briefly where the
-// platform reports a transient sharing error (Windows, another handle open).
-func renameReplacing(tmpPath, path string) error {
+// retryReplace runs op, retrying briefly where the platform reports a transient
+// sharing error (Windows, another handle open).
+func retryReplace(op func() error) error {
 	const maxAttempts = 20
 	var err error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if err = os.Rename(tmpPath, path); err == nil || !isRetryableRenameError(err) {
+		if err = op(); err == nil || !isRetryableRenameError(err) {
 			return err
 		}
 		time.Sleep(time.Duration(attempt+1) * time.Millisecond)

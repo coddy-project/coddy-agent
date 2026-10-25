@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // The fault seam is process-wide, so the tests that arm it are not parallel.
@@ -217,6 +218,25 @@ func TestWriteFileReplacingReportsAHardLinkedFile(t *testing.T) {
 	}
 	if report.Links != 2 || !strings.Contains(report.Note(), "2 names") {
 		t.Fatalf("report = %+v, note = %q", report, report.Note())
+	}
+}
+
+// A name close to the 255-byte limit of a component stays writable: the
+// temporary file keeps only the start of it.
+func TestWriteFileReplacingLongName(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), strings.Repeat("n", 240)+".txt")
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Skipf("this file system refuses the name itself: %v", err)
+	}
+	if _, err := WriteFileReplacing(path, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, path); got != "new" {
+		t.Fatalf("file = %q", got)
+	}
+	if stem := tempStem(strings.Repeat("ж", 100)); len(stem) > maxTempStem || !utf8.ValidString(stem) {
+		t.Fatalf("tempStem cut a rune or kept too much: %d bytes", len(stem))
 	}
 }
 

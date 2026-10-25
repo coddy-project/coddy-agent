@@ -31,3 +31,9 @@ func syncDir(dir string) error {
 }
 
 func isRetryableRenameError(error) bool { return false }
+
+// commitReplace renames tmpPath over target: on Unix the rename is atomic and
+// the replacement keeps the mode WriteFileReplacing gave it.
+func commitReplace(tmpPath, target string, _ bool) error {
+	return retryReplace(func() error { return os.Rename(tmpPath, target) })
+}
