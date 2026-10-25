@@ -58,6 +58,16 @@ func indexAssets() map[string]*asset {
 	return assetIndex
 }
 
+// warmAssets indexes the embedded files and makes the gzip copy of every
+// text file ahead of the first request for it.
+func warmAssets() {
+	for name, a := range indexAssets() {
+		if compressible(name) {
+			a.gzipped()
+		}
+	}
+}
+
 func (a *asset) gzipped() []byte {
 	a.gzOnce.Do(func() {
 		var buf bytes.Buffer
@@ -102,6 +112,9 @@ func acceptsGzip(r *http.Request) bool {
 // mount this same handler.
 func Handler() http.Handler {
 	next := http.FileServer(http.FS(Assets))
+	// Compressing app.js takes about 100 ms; done in the background now, the
+	// first page load after a start does not wait for it.
+	go warmAssets()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/", "/index.html", "/app.js", "/events-worker.js", "/styles.css",

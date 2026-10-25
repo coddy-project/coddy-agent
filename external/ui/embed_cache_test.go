@@ -101,3 +101,13 @@ func TestRangesPicturesAndHeadStayPlain(t *testing.T) {
 		t.Fatalf("manifest Content-Type %q", mf.Header().Get("Content-Type"))
 	}
 }
+
+// Warming makes the gzip copy of every text file ahead of its first request.
+func TestWarmAssetsCompressesTextFilesAhead(t *testing.T) {
+	warmAssets()
+	for name, a := range indexAssets() {
+		if compressible(name) && len(a.gz) == 0 {
+			t.Fatalf("%s has no gzip copy after warming", name)
+		}
+	}
+}
