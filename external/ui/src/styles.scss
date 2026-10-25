@@ -1,3 +1,17 @@
+// The monospace stack every code-ish surface and the theme fonts share. An SCSS
+// variable, not a custom property: it compiles back to the literal stack.
+$coddy-mono:
+  ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+  "Courier New", monospace;
+
+// The opacity ladder of the surfaces: text mixed into the panel blend base. It
+// must stay a runtime color-mix() (Sass cannot fold CSS variables), and this
+// function is the one place that names the blend base for every strength used
+// below. stylesCompile.test.ts holds the expansion to the color-mix() form.
+@function mix-text($pct) {
+  @return color-mix(in srgb, var(--text) $pct, var(--coddy-blend-base));
+}
+
 :root,
 [data-theme="dark"] {
   /* Syntax palette: shared by all explicitly labelled Markdown code blocks. */
@@ -136,7 +150,7 @@
   --text: #18181b;
   --muted: #52525b;
   --bubble-user: #e4e4e7;
-  --radius: 14px;
+
   --shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
   --coddy-canvas-glow-purple: rgba(147, 51, 234, 0.07);
   --coddy-canvas-glow-indigo: rgba(99, 102, 241, 0.05);
@@ -160,9 +174,7 @@
   --coddy-link: #7c3aed;
   --coddy-md-inline-code-fg: #3f3f46;
   --coddy-md-inline-code-bg: rgba(0, 0, 0, 0.06);
-  --coddy-md-inline-code-font:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    "Courier New", monospace;
+
   --coddy-link-action: #6d28d9;
   --coddy-link-action-hover: #5b21b6;
   --coddy-hero-muted-mid: #3f3f46;
@@ -212,13 +224,11 @@
   --coddy-skill-chip-bg: rgba(88, 101, 242, 0.14);
   --coddy-skill-chip-bd: rgba(88, 101, 242, 0.52);
   --coddy-skill-chip-text: rgba(199, 204, 255, 0.96);
-  --coddy-skill-chip-font:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    monospace;
+
   --text: #e6edf3;
   --muted: #8b949e;
   --bubble-user: #161b27;
-  --radius: 14px;
+
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.65);
   --coddy-canvas-glow-purple: rgba(88, 101, 242, 0.1);
   --coddy-canvas-glow-indigo: rgba(48, 58, 200, 0.08);
@@ -232,7 +242,7 @@
     var(--coddy-blend-base)
   );
   --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.6);
-  --coddy-glass-panel-radius: 18px;
+
   --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.65);
   --coddy-surface-subtle: rgba(10, 14, 24, 0.25);
   --coddy-surface-muted: rgba(10, 14, 24, 0.3);
@@ -247,9 +257,7 @@
   --coddy-link: rgba(120, 135, 255, 0.95);
   --coddy-md-inline-code-fg: rgba(220, 225, 240, 0.92);
   --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.09);
-  --coddy-md-inline-code-font:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    "Courier New", monospace;
+
   --coddy-link-action: rgba(130, 150, 255, 0.95);
   --coddy-link-action-hover: rgba(170, 185, 255, 1);
   --coddy-hero-muted-mid: rgba(220, 230, 244, 0.82);
@@ -280,11 +288,6 @@
   --coddy-context-ring-inner: rgba(120, 135, 255, 0.5);
   --coddy-context-ring-fg: #c7ccff;
   --coddy-ghost-btn-fg: var(--muted);
-  --coddy-z-slash-command: 38;
-  --rail-column-pad-end: 8px;
-  --nav-floating-gutter: 2px;
-  --rail-pill-track: 74px;
-  --rail-pill-pad-inline: 10px;
 }
 
 /* ── Solarized Dark ─────────────────────────────────────────────────────────── */
@@ -312,13 +315,11 @@
   --coddy-skill-chip-bg: rgba(38, 139, 210, 0.14);
   --coddy-skill-chip-bd: rgba(38, 139, 210, 0.5);
   --coddy-skill-chip-text: rgba(147, 161, 161, 0.96);
-  --coddy-skill-chip-font:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    monospace;
+
   --text: #839496;
   --muted: #657b83;
   --bubble-user: #003847;
-  --radius: 14px;
+
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.6);
   --coddy-canvas-glow-purple: rgba(38, 139, 210, 0.09);
   --coddy-canvas-glow-indigo: rgba(108, 113, 196, 0.07);
@@ -332,7 +333,7 @@
     var(--coddy-blend-base)
   );
   --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.55);
-  --coddy-glass-panel-radius: 18px;
+
   --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.6);
   --coddy-surface-subtle: rgba(0, 36, 46, 0.22);
   --coddy-surface-muted: rgba(0, 36, 46, 0.28);
@@ -347,9 +348,7 @@
   --coddy-link: rgba(38, 139, 210, 0.95);
   --coddy-md-inline-code-fg: rgba(147, 161, 161, 0.92);
   --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.07);
-  --coddy-md-inline-code-font:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    "Courier New", monospace;
+
   --coddy-link-action: rgba(38, 139, 210, 0.95);
   --coddy-link-action-hover: rgba(100, 175, 230, 1);
   --coddy-hero-muted-mid: rgba(131, 148, 150, 0.82);
@@ -380,11 +379,6 @@
   --coddy-context-ring-inner: rgba(38, 139, 210, 0.5);
   --coddy-context-ring-fg: #93a1a1;
   --coddy-ghost-btn-fg: var(--muted);
-  --coddy-z-slash-command: 38;
-  --rail-column-pad-end: 8px;
-  --nav-floating-gutter: 2px;
-  --rail-pill-track: 74px;
-  --rail-pill-pad-inline: 10px;
 }
 
 /* ── Monokai ── warm charcoal with orange/green ─────────────────────────────── */
@@ -412,13 +406,11 @@
   --coddy-skill-chip-bg: rgba(253, 151, 31, 0.13);
   --coddy-skill-chip-bd: rgba(253, 151, 31, 0.5);
   --coddy-skill-chip-text: rgba(255, 220, 170, 0.96);
-  --coddy-skill-chip-font:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    monospace;
+
   --text: #f8f8f2;
   --muted: #75715e;
   --bubble-user: #3e3d32;
-  --radius: 14px;
+
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
   --coddy-canvas-glow-purple: rgba(253, 151, 31, 0.08);
   --coddy-canvas-glow-indigo: rgba(166, 226, 46, 0.06);
@@ -432,7 +424,7 @@
     var(--coddy-blend-base)
   );
   --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.52);
-  --coddy-glass-panel-radius: 18px;
+
   --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.58);
   --coddy-surface-subtle: rgba(20, 20, 16, 0.22);
   --coddy-surface-muted: rgba(20, 20, 16, 0.28);
@@ -447,9 +439,7 @@
   --coddy-link: rgba(253, 151, 31, 0.95);
   --coddy-md-inline-code-fg: rgba(248, 248, 242, 0.9);
   --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.08);
-  --coddy-md-inline-code-font:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    "Courier New", monospace;
+
   --coddy-link-action: rgba(253, 151, 31, 0.95);
   --coddy-link-action-hover: rgba(255, 190, 100, 1);
   --coddy-hero-muted-mid: rgba(248, 248, 242, 0.82);
@@ -480,11 +470,6 @@
   --coddy-context-ring-inner: rgba(253, 151, 31, 0.5);
   --coddy-context-ring-fg: #ffe699;
   --coddy-ghost-btn-fg: var(--muted);
-  --coddy-z-slash-command: 38;
-  --rail-column-pad-end: 8px;
-  --nav-floating-gutter: 2px;
-  --rail-pill-track: 74px;
-  --rail-pill-pad-inline: 10px;
 }
 
 /* ── Nord ── polar night cool blue-grey ─────────────────────────────────────── */
@@ -512,13 +497,11 @@
   --coddy-skill-chip-bg: rgba(136, 192, 208, 0.13);
   --coddy-skill-chip-bd: rgba(136, 192, 208, 0.48);
   --coddy-skill-chip-text: rgba(216, 222, 233, 0.96);
-  --coddy-skill-chip-font:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    monospace;
+
   --text: #eceff4;
   --muted: #4c566a;
   --bubble-user: #3b4252;
-  --radius: 14px;
+
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
   --coddy-canvas-glow-purple: rgba(136, 192, 208, 0.08);
   --coddy-canvas-glow-indigo: rgba(129, 161, 193, 0.07);
@@ -532,7 +515,7 @@
     var(--coddy-blend-base)
   );
   --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.5);
-  --coddy-glass-panel-radius: 18px;
+
   --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.6);
   --coddy-surface-subtle: rgba(36, 41, 51, 0.22);
   --coddy-surface-muted: rgba(36, 41, 51, 0.28);
@@ -547,9 +530,7 @@
   --coddy-link: rgba(136, 192, 208, 0.95);
   --coddy-md-inline-code-fg: rgba(216, 222, 233, 0.92);
   --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.08);
-  --coddy-md-inline-code-font:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    "Courier New", monospace;
+
   --coddy-link-action: rgba(136, 192, 208, 0.95);
   --coddy-link-action-hover: rgba(180, 215, 230, 1);
   --coddy-hero-muted-mid: rgba(236, 239, 244, 0.82);
@@ -580,11 +561,6 @@
   --coddy-context-ring-inner: rgba(136, 192, 208, 0.5);
   --coddy-context-ring-fg: #d8dee9;
   --coddy-ghost-btn-fg: var(--muted);
-  --coddy-z-slash-command: 38;
-  --rail-column-pad-end: 8px;
-  --nav-floating-gutter: 2px;
-  --rail-pill-track: 74px;
-  --rail-pill-pad-inline: 10px;
 }
 
 /* ── Rosé Pine ── warm plum dark ────────────────────────────────────────────── */
@@ -612,13 +588,11 @@
   --coddy-skill-chip-bg: rgba(196, 167, 231, 0.13);
   --coddy-skill-chip-bd: rgba(196, 167, 231, 0.48);
   --coddy-skill-chip-text: rgba(224, 222, 244, 0.96);
-  --coddy-skill-chip-font:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    monospace;
+
   --text: #e0def4;
   --muted: #6e6a86;
   --bubble-user: #26233a;
-  --radius: 14px;
+
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.58);
   --coddy-canvas-glow-purple: rgba(196, 167, 231, 0.1);
   --coddy-canvas-glow-indigo: rgba(235, 111, 146, 0.07);
@@ -632,7 +606,7 @@
     var(--coddy-blend-base)
   );
   --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.56);
-  --coddy-glass-panel-radius: 18px;
+
   --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.62);
   --coddy-surface-subtle: rgba(18, 16, 28, 0.24);
   --coddy-surface-muted: rgba(18, 16, 28, 0.3);
@@ -647,9 +621,7 @@
   --coddy-link: rgba(196, 167, 231, 0.95);
   --coddy-md-inline-code-fg: rgba(224, 222, 244, 0.92);
   --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.08);
-  --coddy-md-inline-code-font:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    "Courier New", monospace;
+
   --coddy-link-action: rgba(196, 167, 231, 0.95);
   --coddy-link-action-hover: rgba(220, 200, 255, 1);
   --coddy-hero-muted-mid: rgba(224, 222, 244, 0.82);
@@ -680,11 +652,6 @@
   --coddy-context-ring-inner: rgba(196, 167, 231, 0.5);
   --coddy-context-ring-fg: #f5f3ff;
   --coddy-ghost-btn-fg: var(--muted);
-  --coddy-z-slash-command: 38;
-  --rail-column-pad-end: 8px;
-  --nav-floating-gutter: 2px;
-  --rail-pill-track: 74px;
-  --rail-pill-pad-inline: 10px;
 }
 
 :root {
@@ -857,7 +824,7 @@ body {
   border-radius: 999px;
   padding: 12px 10px;
   background: var(--nav);
-  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border: 1px solid mix-text(8%);
   box-shadow: var(--shadow);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -918,7 +885,7 @@ body {
   border-radius: 12px;
   border: 1px solid transparent;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  color: mix-text(78%);
   cursor: pointer;
   display: grid;
   place-items: center;
@@ -926,8 +893,8 @@ body {
 
 .rail-toggle-width:hover {
   color: var(--accent);
-  border-color: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  border-color: mix-text(6%);
+  background: mix-text(4%);
 }
 
 .rail-tip-host {
@@ -1032,7 +999,7 @@ body {
 .rail-hit {
   border: 1px solid transparent;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
+  color: mix-text(82%);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1123,7 +1090,7 @@ body {
 .rail-nav-label {
   font-size: 13px;
   font-weight: 600;
-  color: color-mix(in srgb, var(--text) 86%, var(--coddy-blend-base));
+  color: mix-text(86%);
   line-height: 1.25;
   white-space: nowrap;
   justify-self: start;
@@ -1172,8 +1139,8 @@ body {
   }
 
   .rail-nav-hit-wide:hover {
-    border-color: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
-    background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+    border-color: mix-text(6%);
+    background: mix-text(4%);
   }
 
   .rail-nav-hit-wide:hover .rail-nav-label {
@@ -1202,7 +1169,7 @@ body {
   }
 
   .rail-hit:active {
-    background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+    background: mix-text(6%);
   }
 }
 
@@ -1226,7 +1193,7 @@ body {
   cursor: pointer;
   border: 0;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: mix-text(90%);
 }
 
 a.rail-brand {
@@ -1253,7 +1220,7 @@ a.rail-brand {
   white-space: nowrap;
   font-size: 13px;
   font-weight: 600;
-  color: color-mix(in srgb, var(--text) 92%, var(--coddy-blend-base));
+  color: mix-text(92%);
   vertical-align: middle;
 }
 
@@ -1261,7 +1228,7 @@ a.rail-brand {
   font-weight: 500;
   font-size: 12px;
   opacity: 0.68;
-  color: color-mix(in srgb, var(--text) 75%, var(--coddy-blend-base));
+  color: mix-text(75%);
 }
 
 @media (min-width: 761px) {
@@ -1282,13 +1249,13 @@ a.rail-brand {
 .rail-brand-title {
   font-size: 13px;
   opacity: 0.92;
-  color: color-mix(in srgb, var(--text) 92%, var(--coddy-blend-base));
+  color: mix-text(92%);
 }
 
 .rail-brand-sub {
   font-size: 12px;
   opacity: 0.62;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: mix-text(62%);
 }
 
 .nav-toggle {
@@ -1359,8 +1326,7 @@ a.rail-brand {
   align-items: center;
   gap: 8px;
   padding: 8px 12px 10px;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid mix-text(6%);
 }
 
 .sessions-search-input {
@@ -1368,9 +1334,9 @@ a.rail-brand {
   min-width: 0;
   font: inherit;
   font-size: 13px;
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: mix-text(90%);
   background: var(--coddy-surface-muted);
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border: 1px solid mix-text(10%);
   border-radius: 12px;
   padding: 8px 10px;
   outline: none;
@@ -1385,9 +1351,9 @@ a.rail-brand {
   width: 32px;
   height: 32px;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border: 1px solid mix-text(10%);
   background: rgba(20, 20, 22, 0.35);
-  color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
+  color: mix-text(85%);
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
@@ -1402,12 +1368,12 @@ a.rail-brand {
 .sessions-loading-more {
   padding: 8px 12px 12px;
   font-size: 12px;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: mix-text(55%);
   text-align: center;
 }
 
 .sessions-head {
-  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  color: mix-text(72%);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   padding: 14px 14px 10px;
@@ -1416,8 +1382,7 @@ a.rail-brand {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid mix-text(6%);
 }
 
 /* The app's one close control: a framed square with the × in it, used by every
@@ -1427,9 +1392,9 @@ a.rail-brand {
   width: 34px;
   height: 30px;
   border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border: 1px solid mix-text(10%);
   background: rgba(20, 20, 22, 0.35);
-  color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
+  color: mix-text(85%);
   cursor: pointer;
   font-size: 18px;
   line-height: 1;
@@ -1442,7 +1407,7 @@ a.rail-brand {
 .sessions-close:hover,
 .sessions-close:focus-visible {
   background: color-mix(in srgb, var(--text) 12%, rgba(20, 20, 22, 0.35));
-  border-color: color-mix(in srgb, var(--text) 18%, var(--coddy-blend-base));
+  border-color: mix-text(18%);
   color: var(--text);
 }
 
@@ -1493,7 +1458,7 @@ a.rail-brand {
 }
 
 .session-item:hover {
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
 }
 
 .session-item.active {
@@ -1568,8 +1533,7 @@ a.rail-brand {
   border-radius: 50%;
   flex-shrink: 0;
   background: transparent;
-  box-shadow: inset 0 0 0 1.5px
-    color-mix(in srgb, var(--text) 30%, var(--coddy-blend-base));
+  box-shadow: inset 0 0 0 1.5px mix-text(30%);
 }
 
 .session-error-dot {
@@ -1602,7 +1566,7 @@ a.rail-brand {
 
 .sessions-empty {
   padding: 12px 12px;
-  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
+  color: mix-text(60%);
   font-size: 13px;
 }
 
@@ -1611,7 +1575,7 @@ a.rail-brand {
   text-align: left;
   border: 0;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: mix-text(90%);
   font: inherit;
   padding: 0;
   cursor: text;
@@ -1625,9 +1589,9 @@ a.rail-brand {
 .session-title-input {
   flex: 1;
   font: inherit;
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: mix-text(90%);
   background: var(--coddy-surface-subtle);
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  border: 1px solid mix-text(12%);
   border-radius: 12px;
   padding: 6px 8px;
   outline: none;
@@ -1644,7 +1608,7 @@ a.rail-brand {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: mix-text(90%);
 }
 
 /* The filter control sits in the search row - both narrow the list below. Its
@@ -1662,9 +1626,9 @@ a.rail-brand {
   display: grid;
   place-items: center;
   border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border: 1px solid mix-text(10%);
   background: rgba(20, 20, 22, 0.35);
-  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  color: mix-text(72%);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -1717,8 +1681,7 @@ a.rail-brand {
 .sessions-filter-parent.starts-group {
   margin-top: 5px;
   padding-top: 5px;
-  border-top: 1px solid
-    color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-top: 1px solid mix-text(10%);
 }
 
 /* One row: the question, the answer in force, and the way in. */
@@ -1731,7 +1694,7 @@ a.rail-brand {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: mix-text(90%);
   font: inherit;
   font-size: 13px;
   text-align: left;
@@ -1740,7 +1703,7 @@ a.rail-brand {
 
 .sessions-filter-row:hover,
 .sessions-filter-row.is-open {
-  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+  background: mix-text(9%);
 }
 
 .sessions-filter-label {
@@ -1755,7 +1718,7 @@ a.rail-brand {
    coloured only when the operator moved it off the default. A menu where every
    row is accented says nothing about what has been narrowed. */
 .sessions-filter-value.is-default {
-  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+  color: mix-text(42%);
 }
 
 .sessions-filter-value {
@@ -1834,7 +1797,7 @@ a.rail-brand {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: mix-text(88%);
   font: inherit;
   font-size: 13px;
   text-align: left;
@@ -1843,14 +1806,13 @@ a.rail-brand {
 }
 
 .sessions-filter-item:hover {
-  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+  background: mix-text(9%);
 }
 
 .sessions-filter-item.starts-group {
   margin-top: 5px;
   padding-top: 11px;
-  border-top: 1px solid
-    color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-top: 1px solid mix-text(10%);
 }
 
 .sessions-filter-check {
@@ -1879,7 +1841,7 @@ a.rail-brand {
   place-items: center;
   border: 0;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
@@ -1911,7 +1873,7 @@ a.rail-brand {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: mix-text(62%);
   font: inherit;
   font-size: 12.5px;
   font-weight: 600;
@@ -1947,7 +1909,7 @@ a.rail-brand {
   margin-top: -2px;
   font-size: 10.5px;
   line-height: 1.3;
-  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  color: mix-text(40%);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1961,7 +1923,7 @@ a.rail-brand {
   display: grid;
   place-items: center;
   line-height: 1;
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
 }
 
 .session-row-tags {
@@ -1993,8 +1955,8 @@ a.rail-brand {
   border-radius: 999px;
   font-size: 10px;
   line-height: 1.6;
-  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  color: mix-text(70%);
+  background: mix-text(6%);
 }
 
 /* One control per row, not a strip of them: the actions have room for their
@@ -2009,7 +1971,7 @@ a.rail-brand {
   border-radius: 8px;
   border: 0;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
+  color: mix-text(85%);
   cursor: pointer;
   display: grid;
   place-items: center;
@@ -2024,7 +1986,7 @@ a.rail-brand {
 
 .session-row-menu-trigger:hover,
 .session-row-menu-trigger[aria-expanded="true"] {
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  background: mix-text(8%);
 }
 
 /* Portaled out of the drawer, which clips what overflows it. */
@@ -2046,7 +2008,7 @@ a.rail-brand {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: mix-text(90%);
   font: inherit;
   font-size: 13px;
   text-align: left;
@@ -2055,7 +2017,7 @@ a.rail-brand {
 }
 
 .session-row-menu-item:hover {
-  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+  background: mix-text(9%);
 }
 
 /* A rule opens the group of actions that take the conversation out of the list,
@@ -2063,8 +2025,7 @@ a.rail-brand {
 .session-row-menu-item.starts-group {
   margin-top: 5px;
   padding-top: 8px;
-  border-top: 1px solid
-    color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-top: 1px solid mix-text(10%);
   border-radius: 0 0 8px 8px;
 }
 
@@ -2108,9 +2069,9 @@ a.rail-brand {
   border-radius: 999px;
   font-size: 11px;
   line-height: 1.55;
-  color: color-mix(in srgb, var(--text) 80%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  color: mix-text(80%);
+  background: mix-text(8%);
+  border: 1px solid mix-text(12%);
 }
 
 .session-tag-chip-remove,
@@ -2126,7 +2087,7 @@ a.rail-brand {
   border-radius: 50%;
   font-size: 11px;
   line-height: 1;
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
   transition:
     color 140ms ease,
     background 140ms ease;
@@ -2136,7 +2097,7 @@ a.rail-brand {
 .session-tag-chip-remove:focus-visible,
 .sessions-manager-tag-remove:hover {
   color: var(--text);
-  background: color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  background: mix-text(14%);
 }
 
 .session-tag-input {
@@ -2147,8 +2108,8 @@ a.rail-brand {
   padding: 5px 8px;
   border-radius: 9px;
   color: var(--text);
-  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  background: mix-text(5%);
+  border: 1px solid mix-text(12%);
   outline: none;
 }
 
@@ -2178,13 +2139,13 @@ a.rail-brand {
   font-size: 12px;
   padding: 5px 7px;
   border-radius: 7px;
-  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  color: mix-text(72%);
   transition: color 140ms ease;
 }
 
 .session-tag-suggest-item.is-active,
 .session-tag-suggest-item:hover {
-  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+  background: mix-text(9%);
   color: var(--text);
 }
 
@@ -2200,7 +2161,7 @@ a.rail-brand {
 .session-tag-hint {
   margin: 6px 2px 1px;
   font-size: 10.5px;
-  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  color: mix-text(40%);
 }
 
 /* The pins are one list the operator keeps by hand, so they stand a little
@@ -2208,8 +2169,7 @@ a.rail-brand {
 .session-group.is-pinned {
   padding-bottom: 6px;
   margin-bottom: 6px;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-bottom: 1px solid mix-text(8%);
 }
 
 /* A pin is dragged by its row, so the row must not also start a text
@@ -2238,7 +2198,7 @@ a.rail-brand {
 /* An archived conversation reads as put aside: the row is quieter than the ones
    still in play, which is the whole difference between the two. */
 .session-item.is-archived .session-title {
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
 }
 
 .session-item.is-archived .session-row-tags {
@@ -2263,7 +2223,7 @@ a.rail-brand {
   backdrop-filter: var(--coddy-glass-panel-backdrop);
   -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
   box-shadow: var(--coddy-glass-panel-shadow);
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  color: mix-text(78%);
   font-size: 13px;
   line-height: 1.45;
 }
@@ -2276,7 +2236,7 @@ a.rail-brand {
   flex: 0 0 auto;
   padding: 6px 12px;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+  border: 1px solid mix-text(22%);
   background: rgba(20, 20, 22, 0.35);
   color: var(--text);
   font: inherit;
@@ -2294,7 +2254,7 @@ a.rail-brand {
 }
 
 .session-menu {
-  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
+  color: mix-text(60%);
   cursor: pointer;
   background: transparent;
   border: 0;
@@ -2302,8 +2262,7 @@ a.rail-brand {
 }
 
 .sessions-foot {
-  border-top: 1px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-top: 1px solid mix-text(6%);
   padding: 10px 12px;
 }
 
@@ -2523,9 +2482,9 @@ a.rail-brand {
   font-size: 13px;
   white-space: nowrap;
   border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
-  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
+  border: 1px solid mix-text(8%);
+  background: mix-text(4%);
+  color: mix-text(82%);
   cursor: pointer;
   transition:
     color 140ms ease,
@@ -2539,8 +2498,8 @@ a.rail-brand {
 .chat-view-btn:hover,
 .chat-view-btn.is-active {
   color: var(--text);
-  border-color: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+  border-color: mix-text(22%);
+  background: mix-text(9%);
 }
 
 /* Work in flight in the chat's background: the accent border and tint the
@@ -2553,7 +2512,7 @@ a.rail-brand {
 .chat-view-btn.is-running {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--coddy-blend-base));
   background: color-mix(in srgb, var(--accent) 12%, var(--coddy-blend-base));
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: mix-text(88%);
 }
 
 .chat-view-btn:focus-visible {
@@ -2601,7 +2560,7 @@ a.rail-brand {
 .chat-view-count {
   font-variant-numeric: tabular-nums;
   line-height: 1;
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: mix-text(88%);
 }
 
 /* The name of a button, in the rail's tooltip, under the row and kept to its
@@ -2659,7 +2618,7 @@ a.rail-brand {
 .chat-title-btn {
   border: 0;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: mix-text(90%);
   font: inherit;
   padding: 6px 8px;
   border-radius: 12px;
@@ -2671,7 +2630,7 @@ a.rail-brand {
 }
 
 .chat-title-btn.is-editable:hover {
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
 }
 
 /* Match .chat-title-btn padding so view/edit heights stay aligned; full width of .chat-title */
@@ -2683,7 +2642,7 @@ a.rail-brand {
   font: inherit;
   font-weight: 600;
   line-height: 1.35;
-  color: color-mix(in srgb, var(--text) 92%, var(--coddy-blend-base));
+  color: mix-text(92%);
   background: transparent;
   border: 0;
   border-radius: 12px;
@@ -2696,7 +2655,7 @@ a.rail-brand {
 .chat-title-input:focus-visible {
   outline: none;
   box-shadow: none;
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
 }
 
 .header-links {
@@ -2705,13 +2664,13 @@ a.rail-brand {
 }
 
 .repo-link {
-  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
+  color: mix-text(60%);
   font-size: 13px;
   text-decoration: none;
 }
 
 .repo-link:hover {
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: mix-text(90%);
 }
 
 .hero {
@@ -2740,7 +2699,7 @@ a.rail-brand {
   align-items: center;
   gap: 8px;
   font-size: 0.78rem;
-  color: color-mix(in srgb, var(--text) 35%, var(--coddy-blend-base));
+  color: mix-text(35%);
   pointer-events: none;
 }
 
@@ -2751,7 +2710,7 @@ a.rail-brand {
 }
 
 .hero-footer a:hover {
-  color: color-mix(in srgb, var(--text) 65%, var(--coddy-blend-base));
+  color: mix-text(65%);
   text-decoration: underline;
 }
 
@@ -2773,7 +2732,7 @@ a.rail-brand {
 .hero-title-muted {
   background: linear-gradient(
     118deg,
-    color-mix(in srgb, var(--text) 98%, var(--coddy-blend-base)) 0%,
+    mix-text(98%) 0%,
     var(--coddy-hero-muted-mid) 42%,
     var(--coddy-hero-muted-end) 100%
   );
@@ -2919,11 +2878,11 @@ a.rail-brand {
   min-height: 32px;
   font-size: 12px;
   line-height: 1.3;
-  color: color-mix(in srgb, var(--text) 48%, var(--coddy-blend-base));
+  color: mix-text(48%);
 }
 
 .transcript-earlier-button {
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border: 1px solid mix-text(10%);
   border-radius: 999px;
   background: color-mix(in srgb, var(--text) 4%, var(--coddy-glass-panel-bg));
   padding: 5px 14px;
@@ -2933,7 +2892,7 @@ a.rail-brand {
 }
 
 .transcript-earlier-button:hover {
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  color: mix-text(78%);
   background: color-mix(in srgb, var(--text) 7%, var(--coddy-glass-panel-bg));
 }
 
@@ -3044,7 +3003,7 @@ a.rail-brand {
   box-shadow:
     0 3px 10px rgba(0, 0, 0, 0.32),
     0 1px 2px rgba(0, 0, 0, 0.24);
-  color: color-mix(in srgb, var(--text) 76%, var(--coddy-blend-base));
+  color: mix-text(76%);
   cursor: pointer;
   transition:
     color 0.15s ease,
@@ -3058,7 +3017,7 @@ a.rail-brand {
 
 .chat-expand-composer:hover {
   color: var(--text);
-  border-color: color-mix(in srgb, var(--text) 24%, var(--coddy-blend-base));
+  border-color: mix-text(24%);
 }
 
 .chat-expand-composer:focus-visible {
@@ -3115,7 +3074,7 @@ a.rail-brand {
 }
 
 .transcript-quote-btn:hover {
-  border-color: color-mix(in srgb, var(--text) 24%, var(--coddy-blend-base));
+  border-color: mix-text(24%);
 }
 
 .transcript-quote-btn:focus-visible {
@@ -3157,7 +3116,7 @@ a.rail-brand {
   box-shadow:
     0 3px 10px rgba(0, 0, 0, 0.32),
     0 1px 2px rgba(0, 0, 0, 0.24);
-  color: color-mix(in srgb, var(--text) 76%, var(--coddy-blend-base));
+  color: mix-text(76%);
   cursor: pointer;
   opacity: 0;
   transform: translateY(6px) scale(0.9);
@@ -3182,7 +3141,7 @@ a.rail-brand {
 
 .chat-scroll-bottom:hover {
   color: var(--text);
-  border-color: color-mix(in srgb, var(--text) 24%, var(--coddy-blend-base));
+  border-color: mix-text(24%);
 }
 
 [data-theme="light"] .chat-scroll-bottom {
@@ -3245,7 +3204,7 @@ a.rail-brand {
   box-shadow: var(--coddy-glass-panel-shadow);
   font-size: 13px;
   line-height: 1.45;
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  color: mix-text(78%);
 }
 
 .subagent-readonly-text {
@@ -3322,12 +3281,12 @@ a.rail-brand {
   gap: 5px;
   width: 130px;
   min-height: 36px;
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  background: mix-text(6%);
+  border: 1px solid mix-text(14%);
   border-radius: 10px;
   padding: 5px 10px;
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 75%, var(--coddy-blend-base));
+  color: mix-text(75%);
   cursor: default;
   box-sizing: border-box;
 }
@@ -3336,7 +3295,7 @@ a.rail-brand {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  color: mix-text(50%);
 }
 
 .msg-user-file-chip-name {
@@ -3365,8 +3324,8 @@ a.rail-brand {
 
 .msg-user-file-card:hover,
 .msg-user-file-card:focus-within {
-  border-color: color-mix(in srgb, var(--text) 28%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  border-color: mix-text(28%);
+  background: mix-text(12%);
 }
 
 .msg-user-file-card-open {
@@ -3407,7 +3366,7 @@ a.rail-brand {
 .msg-user-time {
   font-size: 12px;
   line-height: 1.3;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  color: mix-text(50%);
   user-select: none;
   white-space: nowrap;
   cursor: help;
@@ -3471,7 +3430,7 @@ a.rail-brand {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  background: mix-text(45%);
   animation: typing-dot-bounce 1.1s ease-in-out infinite;
   flex-shrink: 0;
 }
@@ -3501,7 +3460,7 @@ a.rail-brand {
   margin-left: 3px;
   font-size: 13px;
   line-height: 1.3;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: mix-text(55%);
   user-select: none;
 }
 
@@ -3520,11 +3479,11 @@ a.rail-brand {
 .typing-dots-turn-item::after {
   content: "\00b7";
   margin: 0 5px;
-  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+  color: mix-text(42%);
 }
 
 .typing-dots-turn-time {
-  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  color: mix-text(72%);
 }
 
 /* The running-tasks segment opens the Tasks panel. It is text in a line of text, so
@@ -3580,14 +3539,14 @@ a.rail-brand {
 /* A drawn-out wait reads as more prominent, not as an error: there is no per-theme
    warning token, and a slow model is not a failure. */
 .typing-dots-status--slow .typing-dots-status-verb {
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  color: mix-text(78%);
 }
 
 .typing-dots-status-time {
   flex: none;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
-  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+  color: mix-text(42%);
 }
 
 .typing-dots-status-time::before {
@@ -3648,7 +3607,7 @@ a.rail-brand {
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
   cursor: pointer;
   line-height: 0;
 }
@@ -3681,7 +3640,7 @@ a.rail-brand {
 .msg-user {
   background: var(--coddy-bubble-user-bg);
   color: var(--coddy-bubble-user-fg);
-  border: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border: 1px solid mix-text(6%);
   align-self: flex-end;
   width: fit-content;
   max-width: 100%;
@@ -3721,9 +3680,8 @@ a.rail-brand {
 .msg-user-quote {
   margin: 0;
   padding: 1px 0 1px 10px;
-  border-left: 2px solid
-    color-mix(in srgb, var(--text) 26%, var(--coddy-blend-base));
-  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  border-left: 2px solid mix-text(26%);
+  color: mix-text(72%);
 }
 
 .msg-user-quote + .msg-user-quote,
@@ -3822,7 +3780,7 @@ a.rail-brand {
   white-space: pre-wrap;
   word-break: break-word;
   background: var(--coddy-surface-inset);
-  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border: 1px solid mix-text(8%);
   border-radius: 12px;
   margin: 8px 0 0;
   padding: 10px 12px;
@@ -3874,7 +3832,7 @@ a.rail-brand {
   align-items: center;
   justify-content: center;
   margin: -1px 0 0 8px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border: 1px solid mix-text(10%);
   border-top: 0;
   border-radius: 0 0 9px 9px;
   background: color-mix(in srgb, var(--text) 4%, var(--coddy-glass-panel-bg));
@@ -3882,14 +3840,14 @@ a.rail-brand {
   font: inherit;
   font-size: 10.5px;
   line-height: 1.2;
-  color: color-mix(in srgb, var(--text) 48%, var(--coddy-blend-base));
+  color: mix-text(48%);
   cursor: pointer;
   text-align: left;
   vertical-align: baseline;
 }
 
 .tool-overflow-toggle:hover:not(:disabled) {
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  color: mix-text(78%);
   background: color-mix(in srgb, var(--text) 7%, var(--coddy-glass-panel-bg));
 }
 
@@ -3906,7 +3864,7 @@ a.rail-brand {
   padding: 2px 10px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
   background: var(--diff-hunk-bg);
   white-space: pre;
   overflow: hidden;
@@ -3936,8 +3894,7 @@ a.rail-brand {
   flex-shrink: 0;
   align-items: baseline;
   gap: 0;
-  border-right: 1px solid
-    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-right: 1px solid mix-text(8%);
   user-select: none;
 }
 
@@ -3947,7 +3904,7 @@ a.rail-brand {
   padding: 0 5px;
   text-align: right;
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 28%, var(--coddy-blend-base));
+  color: mix-text(28%);
   box-sizing: border-box;
 }
 
@@ -3964,7 +3921,7 @@ a.rail-brand {
   width: 14px;
   text-align: center;
   font-size: 11.5px;
-  color: color-mix(in srgb, var(--text) 38%, var(--coddy-blend-base));
+  color: mix-text(38%);
   user-select: none;
   padding: 0 1px;
 }
@@ -3983,7 +3940,7 @@ a.rail-brand {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-all;
-  color: color-mix(in srgb, var(--text) 86%, var(--coddy-blend-base));
+  color: mix-text(86%);
   min-width: 0;
 }
 
@@ -4026,7 +3983,7 @@ a.rail-brand {
   width: 100%;
   box-sizing: border-box;
   cursor: pointer;
-  color: color-mix(in srgb, var(--text) 48%, var(--coddy-blend-base));
+  color: mix-text(48%);
   font-size: 14px;
   line-height: 1.5;
   padding: 2px 0;
@@ -4113,7 +4070,7 @@ a.rail-brand {
   display: inline-flex;
   align-items: center;
   min-height: 20px;
-  color: color-mix(in srgb, var(--text) 56%, var(--coddy-blend-base));
+  color: mix-text(56%);
   letter-spacing: 0.02em;
   line-height: 20px;
 }
@@ -4124,7 +4081,7 @@ a.rail-brand {
   min-height: 20px;
   font-size: 12px;
   line-height: 20px;
-  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  color: mix-text(40%);
   user-select: none;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -4139,7 +4096,7 @@ a.rail-brand {
   min-height: 20px;
   font-size: 12px;
   line-height: 20px;
-  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  color: mix-text(40%);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -4147,25 +4104,25 @@ a.rail-brand {
 /* Reasoning the provider kept to itself: the body says so instead of a text. */
 .thinking-body--hidden {
   font-size: 13px;
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  color: mix-text(52%);
 }
 
 .thinking-body {
   margin: 8px 0 0 12px;
   padding: 6px 12px;
   border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border: 1px solid mix-text(8%);
   background: var(--coddy-surface-muted);
   font-size: 14px;
   line-height: 1.5;
-  color: color-mix(in srgb, var(--text) 68%, var(--coddy-blend-base));
+  color: mix-text(68%);
 }
 
 /* Match assistant message prose size (.msg); quieter than primary answer */
 .thinking-body .md {
   font-size: 14px;
   line-height: 1.55;
-  color: color-mix(in srgb, var(--text) 68%, var(--coddy-blend-base));
+  color: mix-text(68%);
 }
 
 .thinking-body .md :where(a) {
@@ -4173,11 +4130,11 @@ a.rail-brand {
 }
 
 .thinking-body .md :where(blockquote) {
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: mix-text(62%);
 }
 
 .thinking-body .md :where(th) {
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  color: mix-text(78%);
 }
 
 .thinking-body .md-inline-code {
@@ -4205,8 +4162,8 @@ a.rail-brand {
   padding: 0;
   overflow: hidden;
   border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border: 1px solid mix-text(14%);
+  background: mix-text(6%);
   cursor: zoom-in;
   transition:
     border-color 0.15s,
@@ -4215,8 +4172,8 @@ a.rail-brand {
 
 .tool-image-card:hover,
 .tool-image-card:focus-visible {
-  border-color: color-mix(in srgb, var(--text) 28%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  border-color: mix-text(28%);
+  background: mix-text(12%);
 }
 
 .tool-image-thumb {
@@ -4253,15 +4210,15 @@ a.rail-brand {
      the card for that reason. */
   overflow: hidden;
   padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  border: 1px solid mix-text(14%);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
+  background: mix-text(5%);
 }
 
 .tool-artifact-icon {
   display: grid;
   place-items: center;
-  color: color-mix(in srgb, var(--text) 68%, var(--coddy-blend-base));
+  color: mix-text(68%);
 }
 
 .tool-artifact-info {
@@ -4287,7 +4244,7 @@ a.rail-brand {
 
 .tool-artifact-meta {
   align-self: end;
-  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  color: mix-text(58%);
   font-size: 11px;
   line-height: 1.35;
 }
@@ -4322,8 +4279,8 @@ a.rail-brand {
 }
 
 .tool-artifact-card:hover {
-  border-color: color-mix(in srgb, var(--text) 30%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-color: mix-text(30%);
+  background: mix-text(8%);
   transform: translateY(-1px);
 }
 
@@ -4454,7 +4411,7 @@ a.rail-brand {
 }
 .inline-artifact-menu button:hover:not(:disabled),
 .inline-artifact-menu button:focus-visible {
-  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+  background: mix-text(9%);
 }
 .inline-artifact-menu button:disabled {
   opacity: 0.45;
@@ -4470,24 +4427,24 @@ a.rail-brand {
   gap: 16px;
 }
 .inline-artifact-menu .inline-artifact-menu-sub[aria-expanded="true"] {
-  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+  background: mix-text(9%);
 }
 .inline-artifact-menu-chevron {
-  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  color: mix-text(58%);
 }
 /* A phone's one list: the ways to copy under a Copy heading, set apart by
    rules from the items around them. */
 .inline-artifact-menu-sep {
   height: 1px;
   margin: 4px 6px;
-  background: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  background: mix-text(12%);
 }
 .inline-artifact-menu-group {
   display: grid;
 }
 .inline-artifact-menu-label {
   padding: 4px 9px 2px;
-  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  color: mix-text(58%);
   font-size: 11px;
   font-weight: 600;
 }
@@ -4515,11 +4472,11 @@ a.rail-brand {
    name is struck through, and the line under it says so. The copy can still
    be downloaded from the menu. */
 .tool-artifact-card--deleted .inline-artifact-extension {
-  border-color: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  border-color: mix-text(22%);
+  color: mix-text(52%);
 }
 .tool-artifact-card--deleted .tool-artifact-name {
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: mix-text(62%);
   text-decoration: line-through;
   text-decoration-color: color-mix(in srgb, var(--text) 45%, transparent);
 }
@@ -4528,7 +4485,7 @@ a.rail-brand {
   filter: grayscale(1);
 }
 .tool-artifact-meta--deleted {
-  color: color-mix(in srgb, var(--text) 74%, var(--coddy-blend-base));
+  color: mix-text(74%);
   font-weight: 600;
 }
 
@@ -4561,7 +4518,7 @@ a.rail-brand {
 .coddy-tool-call-body--question {
   display: block;
   padding: 6px 12px;
-  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border: 1px solid mix-text(8%);
   border-radius: 12px;
   background: var(--coddy-surface-muted);
 }
@@ -4583,8 +4540,7 @@ a.rail-brand {
 .coddy-tool-call-body .tool-block + .tool-block {
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px solid
-    color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-top: 1px solid mix-text(10%);
 }
 
 .coddy-tool-call-body .tool-block.tool-result-raw {
@@ -4594,7 +4550,7 @@ a.rail-brand {
 .tool-call-result-card {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border: 1px solid mix-text(10%);
   border-radius: 12px;
   background: var(--coddy-surface-inset);
 }
@@ -4662,7 +4618,7 @@ a.rail-brand {
 /* A long link, path or identifier breaks where it has to rather than widening the
    transcript. Tables keep their width (max-content) and scroll in their own box. */
 .md {
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: mix-text(90%);
   line-height: 1.55;
   overflow-wrap: anywhere;
 }
@@ -4714,13 +4670,13 @@ a.rail-brand {
   border-left: 3px solid rgba(167, 139, 250, 0.55);
   background: var(--coddy-surface-subtle);
   border-radius: 12px;
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: mix-text(88%);
 }
 
 .md :where(hr) {
   border: 0;
   height: 1px;
-  background: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  background: mix-text(12%);
   margin: 14px 0;
 }
 
@@ -4736,7 +4692,7 @@ a.rail-brand {
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border: 1px solid mix-text(10%);
   background: var(--coddy-surface-muted);
 }
 
@@ -4754,10 +4710,8 @@ a.rail-brand {
 .md-table-scroll :where(th, td),
 .md :where(th, td) {
   padding: 10px 12px;
-  border-right: 1px solid
-    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-right: 1px solid mix-text(8%);
+  border-bottom: 1px solid mix-text(8%);
   vertical-align: top;
 }
 
@@ -4765,8 +4719,8 @@ a.rail-brand {
 .md :where(th) {
   text-align: left;
   font-weight: 650;
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  color: mix-text(90%);
+  background: mix-text(4%);
 }
 
 .md-table-scroll :where(tr:last-child td),
@@ -4781,7 +4735,7 @@ a.rail-brand {
 
 .md-table-scroll :where(tbody tr:hover td),
 .md :where(tbody tr:hover td) {
-  background: color-mix(in srgb, var(--text) 3%, var(--coddy-blend-base));
+  background: mix-text(3%);
 }
 
 .md :where(code:not(.md-inline-code)) {
@@ -4789,7 +4743,7 @@ a.rail-brand {
   font-size: 12px;
   padding: 2px 6px;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border: 1px solid mix-text(8%);
   background: var(--coddy-surface-raised);
 }
 
@@ -4878,7 +4832,7 @@ a.rail-brand {
   white-space: pre;
   overflow: auto;
   border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border: 1px solid mix-text(8%);
   background: var(--coddy-surface-inset);
   padding: 6px 12px 6px;
   font-size: 12px;
@@ -4981,11 +4935,11 @@ a.rail-brand {
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  border: 1px solid mix-text(14%);
   /* Theme-aware glass: dark frosted on dark themes, frosted white on light
      (was hardcoded dark rgba, which read as a dark blob on the light theme). */
   background: var(--coddy-glass-panel-bg);
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: mix-text(62%);
   cursor: pointer;
   font-size: 12px;
   line-height: 0;
@@ -4994,7 +4948,7 @@ a.rail-brand {
 
 .md-copy:hover {
   background: color-mix(in srgb, var(--text) 8%, var(--coddy-glass-panel-bg));
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: mix-text(90%);
 }
 
 .md-copy:focus-visible {
@@ -5023,7 +4977,7 @@ a.rail-brand {
   min-width: 0;
   max-width: 100%;
   border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border: 1px solid mix-text(8%);
   background: var(--coddy-surface-inset);
   overflow: hidden;
 }
@@ -5034,21 +4988,20 @@ a.rail-brand {
   align-items: center;
   gap: 6px 8px;
   padding: 5px 5px 5px 12px;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid mix-text(6%);
   font-size: 12px;
   line-height: 18px;
 }
 
 .md-figure-label {
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: mix-text(62%);
   font-weight: 500;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .md-figure-status {
-  color: color-mix(in srgb, var(--text) 48%, var(--coddy-blend-base));
+  color: mix-text(48%);
 }
 
 .md-figure-actions {
@@ -5146,8 +5099,7 @@ a.rail-brand {
   font-size: 12px;
   line-height: 18px;
   color: var(--coddy-danger);
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid mix-text(6%);
   overflow-wrap: anywhere;
 }
 
@@ -5189,7 +5141,7 @@ code.md-math-pending {
 }
 
 .token-bar {
-  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
+  color: mix-text(60%);
   font-size: 12px;
   margin-top: 8px;
   padding: 0 2px;
@@ -5264,7 +5216,7 @@ code.md-math-pending {
   -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
   border: 1px solid var(--coddy-glass-panel-border);
   box-shadow: var(--coddy-glass-panel-shadow);
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  color: mix-text(78%);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -5357,7 +5309,7 @@ code.md-math-pending {
   border: 1px solid
     color-mix(in srgb, var(--accent) 55%, var(--coddy-glass-panel-border));
   box-shadow: var(--coddy-glass-panel-shadow);
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  color: mix-text(78%);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -5572,7 +5524,7 @@ code.md-math-pending {
 }
 
 .slash-row-btn:hover {
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  background: mix-text(6%);
 }
 
 /* Keyboard-highlighted row (arrow-key selection); accent-tinted so it reads as
@@ -5602,7 +5554,7 @@ code.md-math-pending {
 .slash-row-hint {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: mix-text(55%);
 }
 
 .slash-row-desc {
@@ -5734,7 +5686,7 @@ button.at-range-line {
 }
 
 button.at-range-line:hover {
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  background: mix-text(6%);
 }
 
 .at-range-line--sel,
@@ -5866,9 +5818,8 @@ textarea#composer.composer-ta-masked::selection {
 
 .composer-code-editing {
   border-radius: 8px;
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
-  box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  background: mix-text(4%);
+  box-shadow: inset 0 0 0 1px mix-text(12%);
 }
 
 .composer-code-editing .composer-mirror-inner,
@@ -5927,9 +5878,9 @@ textarea#composer {
   width: 24px;
   height: 24px;
   padding: 0;
-  color: color-mix(in srgb, var(--text) 68%, var(--coddy-blend-base));
+  color: mix-text(68%);
   background: var(--coddy-surface-muted);
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  border: 1px solid mix-text(12%);
   border-radius: 7px;
   cursor: pointer;
 }
@@ -5937,7 +5888,7 @@ textarea#composer {
 .composer-enhance-btn:hover:not(:disabled) {
   color: var(--text);
   background: color-mix(in srgb, var(--text) 9%, var(--coddy-surface-muted));
-  border-color: color-mix(in srgb, var(--text) 30%, var(--coddy-blend-base));
+  border-color: mix-text(30%);
 }
 
 .composer-enhance-btn:disabled {
@@ -5988,8 +5939,7 @@ textarea#composer {
   justify-content: space-between;
   gap: 10px;
   padding: 10px 12px 12px;
-  border-top: 1px solid
-    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-top: 1px solid mix-text(8%);
 }
 
 .composer-tabs {
@@ -6009,9 +5959,9 @@ textarea#composer {
 }
 
 .composer-tab {
-  color: color-mix(in srgb, var(--text) 75%, var(--coddy-blend-base));
+  color: mix-text(75%);
   background: var(--coddy-surface-muted);
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  border: 1px solid mix-text(12%);
   border-radius: 12px;
   padding: 8px 12px;
   font-size: 12px;
@@ -6023,7 +5973,7 @@ textarea#composer {
 }
 
 .composer-tab.mode-agent {
-  border-color: color-mix(in srgb, var(--text) 18%, var(--coddy-blend-base));
+  border-color: mix-text(18%);
 }
 
 .composer-tab.mode-plan {
@@ -6069,7 +6019,7 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   max-width: 240px;
   overflow: hidden;
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: mix-text(62%);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -6222,14 +6172,14 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   border-radius: 12px;
   border: 0;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 86%, var(--coddy-blend-base));
+  color: mix-text(86%);
   cursor: pointer;
   padding: 10px 10px;
   font-size: 13px;
 }
 
 .mode-item:hover {
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  background: mix-text(6%);
 }
 
 .mode-item.is-selected {
@@ -6258,14 +6208,14 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   padding: 8px 10px;
   border-radius: 10px;
   border: 1px solid var(--coddy-glass-panel-border);
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
   color: var(--text);
   font-size: 13px;
   outline: none;
 }
 
 .mode-menu-filter::placeholder {
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
 }
 
 .mode-menu-filter:focus {
@@ -6287,7 +6237,7 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  color: mix-text(50%);
 }
 
 .mode-menu-group + .mode-menu-group {
@@ -6346,14 +6296,14 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   line-height: 1.4;
   white-space: normal;
   overflow-wrap: anywhere;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: mix-text(62%);
 }
 
 .mode-env-hint-action {
   flex: none;
   padding: 2px 10px;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+  border: 1px solid mix-text(22%);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -6361,7 +6311,7 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 }
 
 .mode-env-hint-action:hover {
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  background: mix-text(8%);
 }
 
 .mode-env-nodes {
@@ -6459,7 +6409,7 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 .mode-menu-empty {
   padding: 12px 10px;
   font-size: 13px;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: mix-text(55%);
 }
 
 /* Long ids never blow out the menu width; full id stays in the row title. */
@@ -6539,7 +6489,7 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
   font-size: 12px;
   line-height: 1.45;
-  color: color-mix(in srgb, var(--text) 66%, var(--coddy-blend-base));
+  color: mix-text(66%);
   white-space: nowrap;
 }
 
@@ -6562,7 +6512,7 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 
 .workspace-bar-repo {
   flex: 0 1 auto;
-  color: color-mix(in srgb, var(--text) 80%, var(--coddy-blend-base));
+  color: mix-text(80%);
 }
 
 .workspace-bar-branch {
@@ -6832,7 +6782,7 @@ html:not([data-theme="light"]) .workspace-branch-warning {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
+  color: mix-text(60%);
 }
 
 /* A row of the branch list: for a branch that is only on a remote a cloud
@@ -6943,7 +6893,7 @@ html:not([data-theme="light"]) .workspace-branch-warning {
   padding: 6px 9px;
   border-radius: 9px;
   border: 1px solid var(--coddy-glass-panel-border);
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
   color: var(--text);
   /* Inputs and buttons do not inherit the page font: without font: inherit
      the field, the rows and the buttons of the dialog were drawn in the
@@ -6967,7 +6917,7 @@ html:not([data-theme="light"]) .workspace-branch-warning {
 }
 
 .workspace-modal-path::placeholder {
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
 }
 
 .workspace-modal-path:focus {
@@ -7096,7 +7046,7 @@ html:not([data-theme="light"]) .workspace-branch-warning {
   padding: 4px 8px;
   border-radius: 7px;
   border: 1px solid var(--coddy-glass-panel-border);
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
   color: var(--text);
   font: inherit;
   font-size: 13px;
@@ -7104,7 +7054,7 @@ html:not([data-theme="light"]) .workspace-branch-warning {
 }
 
 .workspace-modal-new-name::placeholder {
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
 }
 
 .workspace-modal-new-name:focus {
@@ -7152,7 +7102,7 @@ html:not([data-theme="light"]) .workspace-branch-warning {
   height: 32px;
   padding: 0;
   border-radius: 9px;
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: mix-text(88%);
 }
 
 .workspace-modal-btn--add svg {
@@ -7345,13 +7295,13 @@ html:not([data-theme="light"]) .workspace-branch-warning {
 }
 
 .confirm-dialog-btn--cancel {
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  background: mix-text(8%);
   border-color: color-mix(in srgb, var(--text) 16%, transparent);
   color: color-mix(in srgb, var(--text) 62%, transparent);
 }
 
 .confirm-dialog-btn--cancel:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  background: mix-text(14%);
 }
 
 .confirm-dialog-btn--primary {
@@ -7459,12 +7409,12 @@ html:not([data-theme="light"]) .workspace-branch-warning {
   gap: 6px;
   width: 140px;
   min-height: 40px;
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  background: mix-text(6%);
+  border: 1px solid mix-text(14%);
   border-radius: 10px;
   padding: 6px 8px 6px 10px;
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 80%, var(--coddy-blend-base));
+  color: mix-text(80%);
   cursor: default;
   box-sizing: border-box;
   transition: border-color 0.15s;
@@ -7472,7 +7422,7 @@ html:not([data-theme="light"]) .workspace-branch-warning {
 }
 
 .composer-attachment-chip:hover {
-  border-color: color-mix(in srgb, var(--text) 28%, var(--coddy-blend-base));
+  border-color: mix-text(28%);
 }
 
 .composer-attachment-chip-icon {
@@ -7480,7 +7430,7 @@ html:not([data-theme="light"]) .workspace-branch-warning {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: mix-text(55%);
 }
 
 .composer-attachment-chip-name {
@@ -7497,7 +7447,7 @@ html:not([data-theme="light"]) .workspace-branch-warning {
   border: none;
   padding: 0 2px;
   cursor: pointer;
-  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  color: mix-text(40%);
   font-size: 15px;
   line-height: 1;
   flex-shrink: 0;
@@ -7513,9 +7463,9 @@ html:not([data-theme="light"]) .workspace-branch-warning {
 }
 
 .composer-attachment-chip--disabled {
-  color: color-mix(in srgb, var(--text) 46%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 3%, var(--coddy-blend-base));
-  border-color: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  color: mix-text(46%);
+  background: mix-text(3%);
+  border-color: mix-text(10%);
   border-style: dashed;
 }
 
@@ -7525,7 +7475,7 @@ html:not([data-theme="light"]) .workspace-branch-warning {
 }
 
 .composer-attachment-chip--disabled:hover {
-  border-color: color-mix(in srgb, var(--text) 18%, var(--coddy-blend-base));
+  border-color: mix-text(18%);
 }
 
 /* An image attachment is a preview card, not a chip: the picture fills it, so
@@ -7548,8 +7498,8 @@ html:not([data-theme="light"]) .workspace-branch-warning {
 
 .composer-attachment-card:hover,
 .composer-attachment-card:focus-within {
-  border-color: color-mix(in srgb, var(--text) 28%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  border-color: mix-text(28%);
+  background: mix-text(12%);
 }
 
 .composer-attachment-card-open {
@@ -7583,7 +7533,7 @@ html:not([data-theme="light"]) .workspace-branch-warning {
   padding: 0;
   border-radius: 999px;
   background: color-mix(in srgb, var(--coddy-blend-base) 62%, transparent);
-  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
+  color: mix-text(82%);
   /* Hidden, never removed: display:none would take it off the tab order. */
   opacity: 0;
   transition:
@@ -7625,7 +7575,7 @@ html:not([data-theme="light"]) .workspace-branch-warning {
   border: 0;
   border-radius: 999px;
   background: color-mix(in srgb, var(--coddy-blend-base) 62%, transparent);
-  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
+  color: mix-text(82%);
   cursor: pointer;
   opacity: 0;
   transition:
@@ -7651,12 +7601,12 @@ html:not([data-theme="light"]) .workspace-branch-warning {
   padding: 6px 12px 0;
   font-size: 11px;
   line-height: 1.4;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: mix-text(62%);
 }
 
 /* Drop-target affordance while files are dragged over the composer card. */
 .composer-card--dragover {
-  border-color: color-mix(in srgb, var(--text) 34%, var(--coddy-blend-base));
+  border-color: mix-text(34%);
   box-shadow:
     var(--coddy-glass-panel-shadow),
     inset 0 0 0 1px color-mix(in srgb, var(--text) 30%, transparent);
@@ -7763,7 +7713,7 @@ html:not([data-theme="light"]) .workspace-branch-warning {
 }
 
 .usage-banner-dismiss:hover {
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  background: mix-text(6%);
   color: var(--text);
 }
 
@@ -8169,7 +8119,7 @@ html:not([data-theme="light"]) .context-breakdown-error {
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: mix-text(55%);
 }
 
 /* The objective whole, however long (up to 4000 characters): its own scroll
@@ -8182,9 +8132,9 @@ html:not([data-theme="light"]) .context-breakdown-error {
   overflow-wrap: anywhere;
   padding: 8px 10px;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border: 1px solid mix-text(10%);
   background: var(--coddy-surface-muted);
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: mix-text(88%);
 }
 
 .goal-reason,
@@ -8193,7 +8143,7 @@ html:not([data-theme="light"]) .context-breakdown-error {
 .goal-note {
   margin: 0;
   overflow-wrap: anywhere;
-  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+  color: mix-text(70%);
 }
 
 .goal-reason {
@@ -8202,7 +8152,7 @@ html:not([data-theme="light"]) .context-breakdown-error {
 
 .goal-note {
   font-size: 12px;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: mix-text(55%);
 }
 
 .goal-error {
@@ -8232,7 +8182,7 @@ html:not([data-theme="light"]) .context-breakdown-error {
 }
 
 .goal-verdict--open {
-  color: color-mix(in srgb, var(--text) 80%, var(--coddy-blend-base));
+  color: mix-text(80%);
 }
 
 .goal-verified {
@@ -8308,7 +8258,7 @@ html:not([data-theme="light"]) .context-breakdown-error {
   font-size: 12px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: mix-text(62%);
 }
 
 /* The numbers of a goal, the checker and its level included: three cells
@@ -8323,7 +8273,7 @@ html:not([data-theme="light"]) .context-breakdown-error {
 
 .goal-numbers dt {
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: mix-text(55%);
 }
 
 .goal-numbers dd {
@@ -8346,8 +8296,7 @@ html:not([data-theme="light"]) .context-breakdown-error {
   flex-wrap: wrap;
   gap: 8px;
   padding: 10px 12px max(12px, env(safe-area-inset-bottom, 0px));
-  border-top: 1px solid
-    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-top: 1px solid mix-text(8%);
 }
 
 /* The goal's buttons: the composer tab's recipe, at least 36px tall so a
@@ -8356,7 +8305,7 @@ html:not([data-theme="light"]) .context-breakdown-error {
   min-height: 36px;
   padding: 6px 14px;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
+  border: 1px solid mix-text(16%);
   background: var(--coddy-surface-muted);
   color: var(--text);
   font: inherit;
@@ -8399,7 +8348,7 @@ html:not([data-theme="light"]) .context-breakdown-error {
   height: 36px;
   padding: 0;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
+  border: 1px solid mix-text(16%);
   background: var(--coddy-surface-muted);
   color: var(--text);
   cursor: pointer;
@@ -8442,7 +8391,7 @@ html:not([data-theme="light"]) .context-breakdown-error {
 
 .goal-form-label {
   font-size: 12px;
-  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+  color: mix-text(70%);
 }
 
 .goal-form-input {
@@ -8453,7 +8402,7 @@ html:not([data-theme="light"]) .context-breakdown-error {
   resize: vertical;
   padding: 8px 10px;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
+  border: 1px solid mix-text(16%);
   background: var(--coddy-surface-field);
   color: var(--text);
   font: inherit;
@@ -8481,7 +8430,7 @@ html:not([data-theme="light"]) .context-breakdown-error {
 .goal-form-count {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  color: mix-text(50%);
 }
 
 .composer-goal-validation {
@@ -8533,14 +8482,14 @@ html:not([data-theme="light"]) .context-breakdown-error {
   overflow: hidden;
   min-width: 0;
   overflow-wrap: anywhere;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: mix-text(62%);
 }
 
 .goal-turn-count {
   flex: none;
   font-size: 12px;
   white-space: nowrap;
-  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+  color: mix-text(42%);
 }
 
 .goal-turn-body {
@@ -8673,9 +8622,9 @@ html:not([data-theme="light"]) .context-usage-note--error {
   padding: 0;
   margin: 0;
   border-radius: 50%;
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  border: 1px solid mix-text(12%);
   background: var(--coddy-surface-subtle);
-  color: color-mix(in srgb, var(--text) 80%, var(--coddy-blend-base));
+  color: mix-text(80%);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -8690,7 +8639,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
 .composer-send-play {
   background: rgba(147, 51, 234, 0.25);
   border-color: rgba(147, 51, 234, 0.35);
-  color: color-mix(in srgb, var(--text) 95%, var(--coddy-blend-base));
+  color: mix-text(95%);
 }
 
 .composer-send-play:disabled {
@@ -8887,8 +8836,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
     width: 42px;
     height: 42px;
     border-radius: 12px;
-    border: 1px solid
-      color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+    border: 1px solid mix-text(8%);
     background: rgba(20, 20, 22, 0.35);
   }
   .rail-brand {
@@ -9020,8 +8968,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 .scheduler-search-row {
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid mix-text(6%);
 }
 
 .scheduler-drawer-footer {
@@ -9031,8 +8978,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
   justify-content: flex-end;
   gap: 8px;
   padding: 10px 12px 12px;
-  border-top: 1px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-top: 1px solid mix-text(6%);
 }
 
 .scheduler-drawer-meta {
@@ -9042,11 +8988,11 @@ html:not([data-theme="light"]) .context-usage-note--error {
   gap: 8px;
   padding: 6px 12px 8px;
   font-size: 12px;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: mix-text(55%);
 }
 
 .scheduler-meta-muted {
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
 }
 
 .scheduler-pill-on,
@@ -9074,9 +9020,9 @@ html:not([data-theme="light"]) .context-usage-note--error {
   font-size: 12px;
   padding: 6px 10px;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  border: 1px solid mix-text(12%);
   background: rgba(20, 20, 22, 0.45);
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: mix-text(88%);
   cursor: pointer;
   min-height: 36px;
 }
@@ -9224,7 +9170,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
   min-width: 0;
   font-size: 11px;
   font-weight: 500;
-  color: color-mix(in srgb, var(--text) 48%, var(--coddy-blend-base));
+  color: mix-text(48%);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -9233,7 +9179,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
 .scheduler-job-row-id {
   font-size: 13px;
   font-weight: 600;
-  color: color-mix(in srgb, var(--text) 95%, var(--coddy-blend-base));
+  color: mix-text(95%);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -9242,7 +9188,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
 .scheduler-job-row-desc {
   font-size: 12px;
   font-weight: 400;
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  color: mix-text(52%);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -9254,7 +9200,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
   letter-spacing: 0.05em;
   padding: 1px 6px;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  background: mix-text(8%);
 }
 
 /* Project jobs: the drawer's sections, the trust badge of a row that does
@@ -9269,7 +9215,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: color-mix(in srgb, var(--text) 48%, var(--coddy-blend-base));
+  color: mix-text(48%);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -9278,7 +9224,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
 .scheduler-job-group-empty {
   padding: 2px 10px 6px;
   font-size: 12px;
-  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+  color: mix-text(42%);
 }
 
 .scheduler-job-trust {
@@ -9289,7 +9235,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
   padding: 1px 6px;
   border-radius: 6px;
   border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
-  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+  color: mix-text(70%);
 }
 
 .scheduler-job-trust--needs_approval {
@@ -9305,7 +9251,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 .scheduler-job-row-untrusted .scheduler-job-row-id {
-  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+  color: mix-text(70%);
 }
 
 .scheduler-job-approve-icon {
@@ -9320,7 +9266,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
   padding: 10px 12px;
   border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
 }
 
 .scheduler-trust-block--needs_approval {
@@ -9358,7 +9304,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
   margin: 0;
   font-size: 12px;
   line-height: 1.4;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: mix-text(62%);
   overflow-wrap: anywhere;
 }
 
@@ -9373,7 +9319,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
   line-height: 1.45;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  background: mix-text(6%);
 }
 
 .scheduler-scope-field {
@@ -9430,7 +9376,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
   gap: 6px;
   margin-top: 2px;
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  color: mix-text(52%);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -9575,13 +9521,13 @@ html:not([data-theme="light"]) .context-usage-note--error {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: mix-text(55%);
 }
 
 .scheduler-field-help {
   font-size: 11px;
   line-height: 1.35;
-  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+  color: mix-text(42%);
 }
 
 .scheduler-field-input {
@@ -9589,9 +9535,9 @@ html:not([data-theme="light"]) .context-usage-note--error {
   font-size: 13px;
   padding: 8px 10px;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  border: 1px solid mix-text(12%);
   background: var(--coddy-surface-raised);
-  color: color-mix(in srgb, var(--text) 92%, var(--coddy-blend-base));
+  color: mix-text(92%);
   outline: none;
   min-width: 0;
   width: 100%;
@@ -9621,10 +9567,10 @@ html:not([data-theme="light"]) .context-usage-note--error {
 .scheduler-cron-hint {
   font-size: 12px;
   line-height: 1.35;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: mix-text(62%);
   padding: 6px 10px;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -9663,8 +9609,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
   justify-content: flex-start;
   gap: 8px;
   padding: 10px 12px 12px;
-  border-top: 1px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-top: 1px solid mix-text(6%);
 }
 
 .md-line-editor {
@@ -9677,7 +9622,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
   max-height: none;
   width: 100%;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  border: 1px solid mix-text(12%);
   background: var(--coddy-surface-inset);
   overflow: hidden;
   min-width: 0;
@@ -9712,8 +9657,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
   margin: 0;
   padding: 8px 6px 8px 8px;
   overflow: hidden;
-  border-right: 1px solid
-    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-right: 1px solid mix-text(8%);
   box-sizing: border-box;
   text-align: right;
   user-select: none;
@@ -9733,11 +9677,9 @@ html:not([data-theme="light"]) .context-usage-note--error {
   /* flex-shrink:0 prevents flex from squeezing gutter rows when container px rounds
      differently from gutter content sum, which would shift all line numbers. */
   flex-shrink: 0;
-  font-family:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    "Courier New", monospace;
+  font-family: $coddy-mono;
   font-size: var(--md-editor-fs);
-  color: color-mix(in srgb, var(--text) 32%, var(--coddy-blend-base));
+  color: mix-text(32%);
   padding: 0 2px;
   border-radius: 3px;
   box-sizing: border-box;
@@ -9745,8 +9687,8 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 .md-line-editor-gutter-line.is-active {
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  color: mix-text(62%);
+  background: mix-text(6%);
 }
 
 .md-line-editor-stack {
@@ -9768,9 +9710,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 .md-line-editor-hl-line {
-  font-family:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    "Courier New", monospace;
+  font-family: $coddy-mono;
   font-size: var(--md-editor-fs);
   line-height: var(--md-editor-lh);
   white-space: pre-wrap;
@@ -9792,11 +9732,11 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 .md-line-editor-hl-band.is-current {
-  background: color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+  background: mix-text(7%);
 }
 
 .md-line-editor-hl-line.is-current {
-  background: color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+  background: mix-text(7%);
 }
 
 .md-line-editor-measure {
@@ -9820,18 +9760,16 @@ html:not([data-theme="light"]) .context-usage-note--error {
   border: none;
   margin: 0;
   padding: 8px 10px;
-  font-family:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    "Courier New", monospace;
+  font-family: $coddy-mono;
   font-size: var(--md-editor-fs);
   line-height: var(--md-editor-lh);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: mix-text(90%);
   background: transparent;
   outline: none;
-  caret-color: color-mix(in srgb, var(--text) 95%, var(--coddy-blend-base));
+  caret-color: mix-text(95%);
   box-sizing: border-box;
   vertical-align: top;
   overflow-x: hidden;
@@ -9979,8 +9917,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
 .settings.drawer .settings-lead-pane {
   flex-shrink: 0;
   padding: 8px 14px 10px;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid mix-text(6%);
 }
 
 .settings.drawer .settings-stack {
@@ -10116,7 +10053,7 @@ html:not([data-theme="light"]) .settings.drawer {
     color-mix(in srgb, var(--accent) 55%, var(--coddy-glass-panel-border));
   border-radius: 12px;
   background: var(--coddy-surface-fieldset);
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  color: mix-text(78%);
   overflow-wrap: anywhere;
 }
 
@@ -10403,8 +10340,7 @@ html:not([data-theme="light"]) .settings.drawer {
   justify-content: space-between;
   gap: 4px 12px;
   padding-top: 10px;
-  border-top: 1px solid
-    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-top: 1px solid mix-text(8%);
   color: var(--system-quiet);
 }
 
@@ -10532,7 +10468,7 @@ html:not([data-theme="light"]) .settings.drawer {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: mix-text(62%);
   font: inherit;
   font-size: 0.88rem;
   line-height: 1.2;
@@ -10545,7 +10481,7 @@ html:not([data-theme="light"]) .settings.drawer {
 .settings-back-link:hover,
 .settings-back-link:focus-visible {
   color: var(--text);
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  background: mix-text(6%);
 }
 
 .settings-back-link:focus-visible {
@@ -10837,7 +10773,7 @@ html:not([data-theme="light"]) .settings.drawer {
   border: 0;
   border-radius: 50%;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+  color: mix-text(42%);
   cursor: help;
   transition: color 120ms ease;
 }
@@ -10953,8 +10889,7 @@ html:not([data-theme="light"]) .settings.drawer {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-right: 1px solid mix-text(6%);
 }
 
 .settings-nav {
@@ -10980,7 +10915,7 @@ html:not([data-theme="light"]) .settings.drawer {
   text-align: left;
   border: 1px solid transparent;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 80%, var(--coddy-blend-base));
+  color: mix-text(80%);
   border-radius: 10px;
   padding: 8px 12px;
   font: inherit;
@@ -11008,7 +10943,7 @@ html:not([data-theme="light"]) .settings.drawer {
 }
 
 .settings-nav-item:hover:not(.is-active) {
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  background: mix-text(6%);
   color: var(--text);
 }
 
@@ -11176,7 +11111,7 @@ html:not([data-theme="light"]) .settings.drawer {
   flex-direction: column;
   gap: 14px;
   padding: 14px 12px 16px;
-  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border: 1px solid mix-text(8%);
   border-radius: 12px;
 }
 
@@ -11421,7 +11356,7 @@ html:not([data-theme="light"]) .settings.drawer {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  color: mix-text(50%);
   cursor: pointer;
   transition: color 120ms ease;
 }
@@ -11497,7 +11432,7 @@ html:not([data-theme="light"]) .settings.drawer {
 }
 
 .provider-models-item:hover {
-  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
+  background: mix-text(5%);
 }
 
 .provider-models-item-id {
@@ -11508,7 +11443,7 @@ html:not([data-theme="light"]) .settings.drawer {
   white-space: nowrap;
   font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 12.5px;
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: mix-text(88%);
 }
 
 .provider-models-item-ctx {
@@ -11530,7 +11465,7 @@ html:not([data-theme="light"]) .settings.drawer {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
   cursor: pointer;
   transition:
     color 120ms ease,
@@ -11546,7 +11481,7 @@ html:not([data-theme="light"]) .settings.drawer {
 .provider-models-toggle:hover,
 .provider-models-toggle:focus-visible {
   color: var(--text);
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  background: mix-text(8%);
 }
 
 .provider-models-toggle.is-listed {
@@ -11643,7 +11578,7 @@ html:not([data-theme="light"]) .settings.drawer {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: mix-text(88%);
 }
 
 .settings-combobox-option.is-current {
@@ -11770,7 +11705,7 @@ html:not([data-theme="light"]) .settings.drawer {
   letter-spacing: 0.02em;
   vertical-align: middle;
   color: var(--muted);
-  background: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  background: mix-text(10%);
 }
 
 /* Version tag next to a skill name (monospace so semver reads cleanly). */
@@ -11990,7 +11925,7 @@ html:not([data-theme="light"]) .settings.drawer {
 }
 
 .skills-install-result:hover {
-  background: color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+  background: mix-text(7%);
 }
 
 .skills-install-result-text {
@@ -12081,7 +12016,7 @@ html:not([data-theme="light"]) .settings.drawer {
 }
 
 .mcp-expand-btn:hover {
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  background: mix-text(8%);
   color: var(--text);
 }
 
@@ -12343,8 +12278,7 @@ html:not([data-theme="light"]) .settings.drawer {
   align-items: center;
   gap: 8px;
   padding: 5px 0;
-  border-top: 1px dashed
-    color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+  border-top: 1px dashed mix-text(7%);
 }
 
 .mcp-tool-row > .skill-switch {
@@ -12378,9 +12312,9 @@ html:not([data-theme="light"]) .settings.drawer {
   gap: 8px;
   margin: 4px 0 10px;
   padding: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border: 1px solid mix-text(10%);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--text) 3%, var(--coddy-blend-base));
+  background: mix-text(3%);
 }
 
 .mcp-editor-json {
@@ -12423,8 +12357,7 @@ html:not([data-theme="light"]) .settings.drawer {
     flex-direction: row;
     align-items: stretch;
     border-right: none;
-    border-bottom: 1px solid
-      color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+    border-bottom: 1px solid mix-text(6%);
   }
   .settings-nav {
     flex: 1 1 auto;
@@ -12457,19 +12390,17 @@ html:not([data-theme="light"]) .settings.drawer {
       opacity 120ms ease;
   }
   .settings-nav-arrow:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+    background: mix-text(8%);
   }
   .settings-nav-arrow:disabled {
     opacity: 0.3;
     cursor: default;
   }
   .settings-nav-arrow-left {
-    border-right: 1px solid
-      color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+    border-right: 1px solid mix-text(6%);
   }
   .settings-nav-arrow-right {
-    border-left: 1px solid
-      color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+    border-left: 1px solid mix-text(6%);
   }
 
   /* Mobile section picker: 2-wide tile grid (title + short description),
@@ -12497,9 +12428,8 @@ html:not([data-theme="light"]) .settings.drawer {
     text-align: left;
     padding: 10px 12px;
     border-radius: 14px;
-    border: 1px solid
-      color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-    background: color-mix(in srgb, var(--text) 3%, var(--coddy-blend-base));
+    border: 1px solid mix-text(8%);
+    background: mix-text(3%);
     color: inherit;
     font: inherit;
     cursor: pointer;
@@ -12510,13 +12440,13 @@ html:not([data-theme="light"]) .settings.drawer {
   }
   .settings-tile:hover,
   .settings-tile:focus-visible {
-    background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-    border-color: color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
+    background: mix-text(8%);
+    border-color: mix-text(16%);
   }
   .settings-tile-title {
     font-size: 13px;
     font-weight: 600;
-    color: color-mix(in srgb, var(--text) 95%, var(--coddy-blend-base));
+    color: mix-text(95%);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -12534,7 +12464,7 @@ html:not([data-theme="light"]) .settings.drawer {
     font-size: 11px;
     font-weight: 400;
     line-height: 1.3;
-    color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+    color: mix-text(52%);
     /* Up to two lines, then ellipsis; full text lives in the title tooltip. */
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -12584,9 +12514,9 @@ html:not([data-theme="light"]) .settings.drawer {
   height: 30px;
   padding: 0;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border: 1px solid mix-text(10%);
   background: rgba(20, 20, 22, 0.35);
-  color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
+  color: mix-text(85%);
   cursor: pointer;
   transition:
     background 120ms ease,
@@ -12594,7 +12524,7 @@ html:not([data-theme="light"]) .settings.drawer {
 }
 
 .settings.drawer .settings-head-back:hover {
-  background: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  background: mix-text(10%);
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
@@ -12654,15 +12584,15 @@ html:not([data-theme="light"]) .settings.drawer {
   width: 22px;
   height: 22px;
   border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border: 1px solid mix-text(12%);
+  background: mix-text(6%);
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
   font-size: 13px;
   font-weight: 700;
   line-height: 1;
-  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+  color: mix-text(70%);
 }
 
 .permission-prompt-title {
@@ -12674,7 +12604,7 @@ html:not([data-theme="light"]) .settings.drawer {
   line-height: 1.35;
   letter-spacing: 0;
   text-transform: none;
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: mix-text(88%);
 }
 
 .permission-prompt-tool-badge {
@@ -12687,7 +12617,7 @@ html:not([data-theme="light"]) .settings.drawer {
   border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent) 9%, var(--coddy-blend-base));
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: mix-text(62%);
   padding: 3px 8px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10.5px;
@@ -12703,7 +12633,7 @@ html:not([data-theme="light"]) .settings.drawer {
 
 .permission-preview-bar {
   position: relative;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border: 1px solid mix-text(10%);
   border-radius: 12px 12px 0 0;
   background: color-mix(in srgb, var(--text) 5%, var(--coddy-surface-inset));
   min-height: 34px;
@@ -12725,7 +12655,7 @@ html:not([data-theme="light"]) .settings.drawer {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+  color: mix-text(70%);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
   font-weight: 550;
@@ -12736,7 +12666,7 @@ html:not([data-theme="light"]) .settings.drawer {
   align-items: center;
   gap: 6px;
   flex: 0 0 auto;
-  color: color-mix(in srgb, var(--text) 38%, var(--coddy-blend-base));
+  color: mix-text(38%);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10px;
   white-space: nowrap;
@@ -12745,7 +12675,7 @@ html:not([data-theme="light"]) .settings.drawer {
 .permission-preview-meta span + span::before {
   content: "·";
   margin-right: 6px;
-  color: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+  color: mix-text(22%);
 }
 
 .permission-preview-bar .md-copy {
@@ -12754,7 +12684,7 @@ html:not([data-theme="light"]) .settings.drawer {
   border-radius: 8px;
   padding: 4px;
   font-size: 10px;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: mix-text(55%);
   background: transparent;
 }
 
@@ -12767,9 +12697,9 @@ html:not([data-theme="light"]) .settings.drawer {
   gap: 8px;
   margin: 10px 12px;
   padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 11%, var(--coddy-blend-base));
+  border: 1px solid mix-text(11%);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
 }
 
 /* The copy control belongs to the command line itself, so it sits in the block's
@@ -12785,7 +12715,7 @@ html:not([data-theme="light"]) .settings.drawer {
 }
 
 .permission-preview-shell .md-copy:hover {
-  border-color: color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  border-color: mix-text(14%);
   background: color-mix(in srgb, var(--text) 8%, var(--coddy-glass-panel-bg));
 }
 
@@ -12807,7 +12737,7 @@ html:not([data-theme="light"]) .settings.drawer {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   line-height: 1.5;
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: mix-text(88%);
 }
 
 .permission-preview-viewport {
@@ -12815,7 +12745,7 @@ html:not([data-theme="light"]) .settings.drawer {
   min-width: 0;
   max-height: 190px;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border: 1px solid mix-text(10%);
   border-top: 0;
   border-radius: 0 0 12px 12px;
   background: var(--coddy-surface-inset);
@@ -12828,8 +12758,7 @@ html:not([data-theme="light"]) .settings.drawer {
 /* No header bar above it (the call's arguments name nothing), so the body is the
    whole card and closes its own top edge. */
 .permission-preview-viewport--headless {
-  border-top: 1px solid
-    color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-top: 1px solid mix-text(10%);
   border-radius: 12px;
 }
 
@@ -12847,7 +12776,7 @@ html:not([data-theme="light"]) .settings.drawer {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   line-height: 1.5;
-  color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
+  color: mix-text(85%);
 }
 
 .permission-preview-diff {
@@ -12865,7 +12794,7 @@ html:not([data-theme="light"]) .settings.drawer {
 
 .permission-preview-diff .diff-no {
   min-width: 4ch;
-  color: color-mix(in srgb, var(--text) 44%, var(--coddy-blend-base));
+  color: mix-text(44%);
   font-variant-numeric: tabular-nums;
 }
 
@@ -12888,13 +12817,13 @@ html:not([data-theme="light"]) .settings.drawer {
   align-items: center;
   gap: 9px;
   padding: 11px 12px;
-  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+  color: mix-text(42%);
 }
 
 .permission-preview-move code {
   min-width: 0;
   overflow-wrap: anywhere;
-  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
+  color: mix-text(82%);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11.5px;
 }
@@ -12916,14 +12845,13 @@ html:not([data-theme="light"]) .settings.drawer {
   gap: 9px;
   min-width: 0;
   padding: 9px 12px;
-  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
+  color: mix-text(82%);
   font-size: 12px;
   line-height: 1.45;
 }
 
 .todo-tool-preview-row + .todo-tool-preview-row {
-  border-top: 1px solid
-    color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+  border-top: 1px solid mix-text(7%);
 }
 
 .todo-tool-preview-mark {
@@ -12934,7 +12862,7 @@ html:not([data-theme="light"]) .settings.drawer {
   width: 17px;
   height: 17px;
   margin-top: 1px;
-  border: 2px solid color-mix(in srgb, var(--text) 25%, var(--coddy-blend-base));
+  border: 2px solid mix-text(25%);
   border-radius: 5px;
   box-sizing: border-box;
   color: var(--coddy-on-accent-fg);
@@ -12972,7 +12900,7 @@ html:not([data-theme="light"]) .settings.drawer {
 }
 
 .todo-tool-preview-row--completed .todo-tool-preview-content {
-  color: color-mix(in srgb, var(--text) 57%, var(--coddy-blend-base));
+  color: mix-text(57%);
 }
 
 .todo-tool-preview-row--failed .todo-tool-preview-mark,
@@ -12984,7 +12912,7 @@ html:not([data-theme="light"]) .settings.drawer {
 
 .todo-tool-preview-row--cancelled .todo-tool-preview-mark,
 .todo-tool-preview-mark--cancelled {
-  color: color-mix(in srgb, var(--text) 46%, var(--coddy-blend-base));
+  color: mix-text(46%);
 }
 
 .todo-tool-preview-status {
@@ -13033,7 +12961,7 @@ html:not([data-theme="light"]) .settings.drawer {
 
 .todo-checklist {
   padding: 4px 14px 8px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border: 1px solid mix-text(10%);
   border-radius: 12px;
   background: color-mix(in srgb, var(--text) 2%, transparent);
   box-sizing: border-box;
@@ -13053,7 +12981,7 @@ html:not([data-theme="light"]) .settings.drawer {
   border: 0;
   border-radius: 6px;
   background: none;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: mix-text(62%);
   font: inherit;
   font-size: 12px;
   line-height: 18px;
@@ -13125,7 +13053,7 @@ html:not([data-theme="light"]) .settings.drawer {
 
 .todo-checklist-row--completed .todo-checklist-content,
 .todo-checklist-row--cancelled .todo-checklist-content {
-  color: color-mix(in srgb, var(--text) 57%, var(--coddy-blend-base));
+  color: mix-text(57%);
 }
 
 /* The motion of the list, drawn only for a reader who did not ask for less:
@@ -13247,7 +13175,7 @@ html:not([data-theme="light"]) .settings.drawer {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  color: mix-text(58%);
   font-size: 11px;
   line-height: 1.2;
 }
@@ -13259,7 +13187,7 @@ html:not([data-theme="light"]) .settings.drawer {
 }
 
 .plan-exit-preview-arrow {
-  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+  color: mix-text(42%);
 }
 
 .plan-exit-preview-mode--agent {
@@ -13342,7 +13270,7 @@ html:not([data-theme="light"]) .settings.drawer {
   min-width: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  color: mix-text(40%);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   /* The same line box as the label beside it, so the row's height never depends
@@ -13388,7 +13316,7 @@ html:not([data-theme="light"]) .settings.drawer {
   flex-wrap: wrap;
   gap: 2px 6px;
   margin: 0 0 8px;
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
   line-height: 1.5;
@@ -13397,7 +13325,7 @@ html:not([data-theme="light"]) .settings.drawer {
 .web-search-engine + .web-search-engine::before {
   content: "·";
   margin-right: 6px;
-  color: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+  color: mix-text(22%);
 }
 
 .web-search-engine--blocked,
@@ -13413,7 +13341,7 @@ html:not([data-theme="light"]) .settings.drawer {
   flex-direction: column;
   gap: 10px;
   padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border: 1px solid mix-text(10%);
   border-top: 0;
   border-radius: 0 0 12px 12px;
   background: var(--coddy-surface-inset);
@@ -13435,7 +13363,7 @@ html:not([data-theme="light"]) .settings.drawer {
 }
 
 .scheduler-tool-field dt {
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
 }
 
 .scheduler-tool-field dd {
@@ -13451,13 +13379,13 @@ html:not([data-theme="light"]) .settings.drawer {
 }
 
 .scheduler-tool-muted {
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
 }
 
 .scheduler-tool-instruction {
   padding: 8px 12px;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
   font-size: 13px;
 }
 
@@ -13521,7 +13449,7 @@ html:not([data-theme="light"]) .settings.drawer {
 
 .structured-tool-chip {
   padding: 0 6px;
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  border: 1px solid mix-text(14%);
   border-radius: 6px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11.5px;
@@ -13534,7 +13462,7 @@ html:not([data-theme="light"]) .settings.drawer {
   min-width: 0;
   padding: 8px 12px;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
   font-size: 13px;
 }
 
@@ -13562,8 +13490,7 @@ html:not([data-theme="light"]) .settings.drawer {
 .structured-tool-answer:not(:first-child) {
   padding-top: 10px;
   /* 16%: on the light theme's grey inset a lighter mix vanishes into the body. */
-  border-top: 1px solid
-    color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
+  border-top: 1px solid mix-text(16%);
 }
 
 /* A request that skips the certificate check says so in the failure colour. */
@@ -13581,15 +13508,15 @@ html:not([data-theme="light"]) .settings.drawer {
 
 /* An MCP call's bar: the server muted, then the tool as its server spells it. */
 .structured-tool-mcp-server {
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
 }
 
 .structured-tool-mcp-separator {
-  color: color-mix(in srgb, var(--text) 30%, var(--coddy-blend-base));
+  color: mix-text(30%);
 }
 
 .tool-result-loading {
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
   font-size: 12.5px;
 }
 
@@ -13610,7 +13537,7 @@ html:not([data-theme="light"]) .settings.drawer {
 }
 
 .tool-call-result-content--markdown :where(li)::marker {
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
 }
 
 .tool-call-result-content--markdown :where(h1, h2, h3, h4) {
@@ -13622,7 +13549,7 @@ html:not([data-theme="light"]) .settings.drawer {
 }
 
 .plan-exit-preview-message {
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: mix-text(88%);
   font-size: 12px;
   font-weight: 650;
   line-height: 1.35;
@@ -13696,13 +13623,13 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
 }
 
 .permission-prompt-btn--reject {
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-  border-color: color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  background: mix-text(8%);
+  border-color: mix-text(16%);
+  color: mix-text(62%);
 }
 
 .permission-prompt-btn--reject:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  background: mix-text(12%);
 }
 
 @media (max-width: 599px) {
@@ -13777,8 +13704,7 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px 10px;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-bottom: 1px solid mix-text(8%);
 }
 
 .question-prompt-head-left {
@@ -13793,7 +13719,7 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  border: 1px solid mix-text(14%);
   background: var(--coddy-surface-muted);
   flex-shrink: 0;
   position: relative;
@@ -13842,7 +13768,7 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
 }
 
 .question-prompt-pager-btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  background: mix-text(6%);
 }
 
 .question-prompt-pager-btn:disabled {
@@ -13883,7 +13809,7 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   margin: 0;
   font-size: 14px;
   line-height: 1.52;
-  color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
+  color: mix-text(85%);
 }
 
 .question-prompt-rows {
@@ -13909,9 +13835,9 @@ label.question-prompt-row {
   padding: 9px 10px;
   margin: 0;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+  border: 1px solid mix-text(9%);
   background: var(--coddy-surface-subtle);
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: mix-text(88%);
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -13921,13 +13847,13 @@ label.question-prompt-row {
 }
 
 button.question-prompt-row:not(.question-prompt-row--active):hover {
-  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
-  border-color: color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
+  background: mix-text(5%);
+  border-color: mix-text(16%);
 }
 
 label.question-prompt-row:not(.question-prompt-row--active):hover {
-  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
-  border-color: color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
+  background: mix-text(5%);
+  border-color: mix-text(16%);
 }
 
 label.question-prompt-row.question-prompt-row--active,
@@ -13956,7 +13882,7 @@ button.question-prompt-row.question-prompt-row--active:hover {
   width: 28px;
   height: 26px;
   border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  border: 1px solid mix-text(14%);
   background: var(--coddy-chip-badge-bg);
   font-size: 12px;
   font-weight: 700;
@@ -13986,7 +13912,7 @@ label.question-prompt-row.question-prompt-row--active .question-prompt-row-text,
 button.question-prompt-row.question-prompt-row--active
   .question-prompt-row-text,
 .question-prompt-row:focus-within .question-prompt-row-text {
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: mix-text(90%);
 }
 
 .question-prompt-row--other {
@@ -14035,8 +13961,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   align-items: center;
   gap: 12px;
   padding: 12px 14px 14px;
-  border-top: 1px solid
-    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-top: 1px solid mix-text(8%);
 }
 
 .question-prompt-skip {
@@ -14056,7 +13981,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .question-prompt-skip:hover {
   color: var(--text);
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
 }
 
 .question-prompt-kbd {
@@ -14066,10 +13991,10 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   min-width: 1.9em;
   padding: 2px 6px;
   border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  border: 1px solid mix-text(14%);
   background: var(--coddy-surface-raised);
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
 }
 
 .question-prompt-continue {
@@ -14128,7 +14053,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   gap: 8px;
   font-size: 13px;
   line-height: 1.5;
-  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  color: mix-text(58%);
 }
 
 .question-tool-offer-row .question-prompt-bubble {
@@ -14136,7 +14061,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 .question-tool-offer-row--taken {
-  color: color-mix(in srgb, var(--text) 86%, var(--coddy-blend-base));
+  color: mix-text(86%);
 }
 
 .question-tool-offer-row--taken .question-prompt-bubble {
@@ -14157,13 +14082,12 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .question-prompt-skipped-note {
   margin: 0;
   font-size: 13px;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  color: mix-text(50%);
 }
 
 .question-prompt-resolved-block {
   padding-top: 8px;
-  border-top: 1px solid
-    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-top: 1px solid mix-text(8%);
 }
 
 .question-prompt-resolved-block:first-child {
@@ -14187,14 +14111,14 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   margin: 0 0 6px;
   font-size: 14px;
   line-height: 1.52;
-  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  color: mix-text(72%);
 }
 
 .question-prompt-resolved-pair .question-prompt-resolved-a {
   margin: 0;
   font-size: 14px;
   line-height: 1.52;
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: mix-text(88%);
 }
 
 .question-prompt-resolved-pair .question-prompt-resolved-a.muted {
@@ -14203,7 +14127,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .question-prompt-resolved-header {
   font-size: 12px;
-  color: color-mix(in srgb, var(--text) 46%, var(--coddy-blend-base));
+  color: mix-text(46%);
   margin-bottom: 4px;
 }
 
@@ -14253,7 +14177,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 .plan-document-card--discarded.plan-document-card--expanded {
-  border-color: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-color: mix-text(10%);
   box-shadow: var(--coddy-glass-panel-shadow);
 }
 
@@ -14265,8 +14189,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   gap: 10px;
   min-width: 0;
   padding: 14px 14px 12px;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid mix-text(6%);
 }
 
 .plan-document-card:not(.plan-document-card--expanded) .plan-document-head {
@@ -14301,7 +14224,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   font-size: 15px;
   font-weight: 600;
   line-height: 1.3;
-  color: color-mix(in srgb, var(--text) 94%, var(--coddy-blend-base));
+  color: mix-text(94%);
   transition: color 120ms ease;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -14339,7 +14262,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .plan-document-pane {
   position: relative;
   border-radius: 0px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border: 1px solid mix-text(10%);
   background: var(--coddy-surface-raised);
   overflow: visible;
   box-sizing: border-box;
@@ -14373,8 +14296,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 .plan-document-eye:hover {
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
-  border-color: color-mix(in srgb, var(--text) 20%, var(--coddy-blend-base));
+  color: mix-text(78%);
+  border-color: mix-text(20%);
 }
 
 .plan-document-eye.is-on {
@@ -14413,7 +14336,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   margin: 0;
   font-size: 13px;
   line-height: 1.5;
-  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+  color: mix-text(42%);
   font-style: italic;
 }
 
@@ -14500,7 +14423,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .plan-document-discard:hover {
   color: var(--text);
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
 }
 
 .plan-document-run {
@@ -14520,8 +14443,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     rgba(249, 115, 22, 0.95) 0%,
     rgba(234, 88, 12, 0.95) 100%
   );
-  box-shadow: 0 1px 0
-    color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base)) inset;
+  box-shadow: 0 1px 0 mix-text(12%) inset;
 }
 
 .plan-document-run:hover:not(:disabled) {
@@ -14601,7 +14523,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   [data-theme="light"] .rail-hit-icon,
   [data-theme="light"] .rail-hit-link {
     background: var(--coddy-surface-muted);
-    border-color: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+    border-color: mix-text(10%);
   }
 }
 
@@ -14731,7 +14653,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .appearance-swatch {
   display: flex;
   flex-direction: column;
-  border: 2px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border: 2px solid mix-text(8%);
   border-radius: 10px;
   overflow: hidden;
   cursor: pointer;
@@ -14944,7 +14866,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   height: 3px;
   border-radius: 999px;
   overflow: hidden;
-  background: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  background: mix-text(12%);
 }
 
 .bgtask-progress-fill {
@@ -15075,7 +14997,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   background: transparent;
   font: inherit;
   font-size: 12px;
-  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  color: mix-text(58%);
   cursor: pointer;
   padding: 4px 0;
   min-height: 28px;
@@ -15119,11 +15041,11 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 .bgtask-card-summary:hover {
-  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
+  background: mix-text(5%);
 }
 
 .bgtask-card.is-open .bgtask-card-summary {
-  background: color-mix(in srgb, var(--text) 3%, var(--coddy-blend-base));
+  background: mix-text(3%);
 }
 
 .bgtask-card-head {
@@ -15196,14 +15118,14 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   min-width: 0;
   font-size: 13px;
   font-weight: 600;
-  color: color-mix(in srgb, var(--text) 95%, var(--coddy-blend-base));
+  color: mix-text(95%);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .bgtask-card.is-finished .bgtask-card-label {
-  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
+  color: mix-text(82%);
 }
 
 /* Under the title, indented to it: past the dot (9px) and the gap (8px). */
@@ -15220,7 +15142,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   min-width: 0;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  color: mix-text(52%);
   padding: 3px 0 0 17px;
 }
 
@@ -15236,7 +15158,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   max-width: 100%;
   margin-left: auto;
   white-space: nowrap;
-  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+  color: mix-text(42%);
 }
 
 .bgtask-card-model {
@@ -15306,8 +15228,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   flex-direction: column;
   gap: 8px;
   padding: 10px 12px 12px;
-  border-top: 0.5px solid
-    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-top: 0.5px solid mix-text(8%);
 }
 
 .bgtask-card-command {
@@ -15319,7 +15240,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   margin: 0;
   border-radius: 10px;
   border: 1px solid var(--coddy-glass-panel-border);
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
   font-family: var(--mono, ui-monospace, monospace);
   font-size: 12px;
   line-height: 1.45;
@@ -15353,7 +15274,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  color: mix-text(50%);
 }
 
 .bgtask-card-truncated {
@@ -15380,7 +15301,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   border: 1px solid var(--coddy-glass-panel-border);
   border-top: 0;
   border-radius: 0 0 8px 8px;
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
   color: var(--accent);
   font: inherit;
   font-size: 12px;
@@ -15404,7 +15325,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .bgtask-card-foot {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  color: mix-text(58%);
 }
 
 /* Finished history: the same cards, behind the counter. */
@@ -15420,7 +15341,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .bgtask-finished-more {
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
   padding: 10px 2px 2px;
 }
 
@@ -15540,8 +15461,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   align-items: center;
   padding: 14px var(--docs-inline) 12px;
   background: color-mix(in srgb, var(--bg) 82%, transparent);
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid mix-text(6%);
 }
 
 .docs-title-block {
@@ -15553,7 +15473,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
    Scheduler, Tasks): small capitals in a 72% text tint. */
 .docs-title {
   margin: 0;
-  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  color: mix-text(72%);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-size: 12px;
@@ -15563,7 +15483,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .docs-subtitle {
   margin: 2px 0 0;
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  color: mix-text(52%);
   font-size: 11px;
   line-height: 1.35;
 }
@@ -15730,8 +15650,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   padding: 1px 5px;
   box-sizing: border-box;
   border-radius: 5px;
-  border: 1px solid color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  border: 1px solid mix-text(16%);
+  color: mix-text(52%);
   font:
     11px/1.4 ui-monospace,
     SFMono-Regular,
@@ -15785,7 +15705,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  color: mix-text(52%);
 }
 
 .docs-toc ul,
@@ -15814,13 +15734,13 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   padding: 5px 10px;
   border: 1px solid transparent;
   border-radius: 10px;
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  color: mix-text(78%);
   text-decoration: none;
   line-height: 1.35;
 }
 
 .docs-toc-page:hover:not(.is-active) {
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  background: mix-text(6%);
   color: var(--text);
 }
 
@@ -15848,8 +15768,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 /* On this page: a thin rule on the left, the section being read on it. */
 .docs-outline ul {
   gap: 0;
-  border-left: 1px solid
-    color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-left: 1px solid mix-text(10%);
 }
 
 .docs-outline a {
@@ -15857,7 +15776,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   margin-left: -1px;
   padding: 4px 10px;
   border-left: 2px solid transparent;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: mix-text(62%);
   text-decoration: none;
   line-height: 1.35;
 }
@@ -15890,7 +15809,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .docs-hit:hover,
 .settings-hit:hover {
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  background: mix-text(6%);
 }
 
 .docs-hit.is-selected,
@@ -15907,7 +15826,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .docs-hit-heading {
   font-weight: 400;
-  color: color-mix(in srgb, var(--text) 68%, var(--coddy-blend-base));
+  color: mix-text(68%);
 }
 
 .docs-hit-snippet,
@@ -15915,7 +15834,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .settings-hit-desc {
   font-size: 12px;
   line-height: 1.45;
-  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  color: mix-text(58%);
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
@@ -15934,7 +15853,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .settings-search-empty {
   margin: 0 0 0 10px;
   font-size: 13px;
-  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  color: mix-text(58%);
 }
 
 /* The settings search reuses the documentation search's field and result rows. */
@@ -15987,7 +15906,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .settings-search-more {
   margin: 6px 10px 0;
   font-size: 12px;
-  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  color: mix-text(58%);
 }
 
 /* A result row is at least 44px tall under a finger. */
@@ -16021,7 +15940,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   gap: 12px;
   margin: 0 0 6px;
   font-size: 12px;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: mix-text(55%);
 }
 
 .docs-site-link {
@@ -16062,8 +15981,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   padding-bottom: 8px;
   font-size: 20px;
   font-weight: 600;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+  border-bottom: 1px solid mix-text(9%);
 }
 
 .docs-article .md :where(h3) {
@@ -16167,7 +16085,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   padding-top: 40px;
   text-align: center;
   font-size: 13px;
-  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  color: mix-text(72%);
 }
 
 .markup-bar {
@@ -16211,7 +16129,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 .markup-tool:disabled {
-  color: color-mix(in srgb, var(--text) 38%, var(--coddy-blend-base));
+  color: mix-text(38%);
   cursor: default;
 }
 
@@ -16331,7 +16249,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  color: mix-text(78%);
 }
 
 /* The stage handles the gestures itself - one pointer drags the picture, two
@@ -16435,7 +16353,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .docs-heading-anchor {
   margin-left: 8px;
   font-weight: 400;
-  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  color: mix-text(40%);
   text-decoration: none;
   opacity: 0;
   user-select: none;
@@ -16457,8 +16375,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   gap: 12px;
   margin-top: 40px;
   padding-top: 18px;
-  border-top: 1px solid
-    color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+  border-top: 1px solid mix-text(9%);
 }
 
 .docs-pager-link {
@@ -16488,7 +16405,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .docs-pager-dir {
   font-size: 12px;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: mix-text(55%);
 }
 
 .docs-pager-title {
@@ -16727,8 +16644,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   margin: -14px calc(-1 * var(--swarm-inline, 24px)) 0;
   padding: 14px var(--swarm-inline, 24px) 12px;
   background: color-mix(in srgb, var(--bg) 82%, transparent);
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid mix-text(6%);
 }
 
 .swarm-title-block {
@@ -16740,7 +16656,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
    small capitals in a muted tint, the screen's name rather than the relay's. */
 .swarm-title {
   margin: 0;
-  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  color: mix-text(72%);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-size: 12px;
@@ -16750,7 +16666,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .swarm-subtitle {
   margin: 2px 0 0;
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  color: mix-text(52%);
   font-size: 11px;
   line-height: 1.35;
 }
@@ -16889,7 +16805,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   place-items: center;
   border: 0;
   border-radius: 7px;
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  color: mix-text(78%);
   background: transparent;
   cursor: pointer;
   transition:
@@ -16957,7 +16873,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   place-items: center;
   border: 0;
   border-radius: 7px;
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  color: mix-text(78%);
   background: transparent;
   font: inherit;
   cursor: pointer;
@@ -17011,13 +16927,13 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 /* The spine: a light upright with one tick per hop, so distance is counted
    rather than inferred from how far down the page a row happens to sit. */
 .swarm-spine-rule {
-  stroke: color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
+  stroke: mix-text(16%);
   stroke-width: 1;
   stroke-dasharray: 3 5;
 }
 
 .swarm-tier-tick {
-  stroke: color-mix(in srgb, var(--text) 34%, var(--coddy-blend-base));
+  stroke: mix-text(34%);
   stroke-width: 1.4;
   stroke-linecap: round;
 }
@@ -17025,13 +16941,13 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 /* Text-derived rather than --muted: on nord and monokai --muted sits almost on
    the canvas, and a caption drawn in it is gone. */
 .swarm-tier-label {
-  fill: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  fill: mix-text(72%);
   font-size: 11px;
   font-weight: 500;
 }
 
 .swarm-tier-count {
-  fill: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  fill: mix-text(45%);
   font-size: 10px;
 }
 
@@ -17063,7 +16979,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 /* A way round a ring the relay would not take: drawn, but lighter and
    dashed. */
 .swarm-edge.is-alternate {
-  stroke: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  stroke: mix-text(52%);
   stroke-width: 1.6;
   stroke-dasharray: 6 5;
   opacity: 0.85;
@@ -17072,7 +16988,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 /* The far end is down, so the wire is too. Last, because when a link is both
    optional and dead, dead is the half of the answer that matters. */
 .swarm-edge.is-down {
-  stroke: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  stroke: mix-text(40%);
   stroke-width: 1.5;
   stroke-dasharray: 10 9;
   opacity: 0.75;
@@ -17128,7 +17044,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
    than through it. */
 .swarm-edge-chip rect {
   fill: var(--swarm-ground);
-  stroke: color-mix(in srgb, var(--text) 13%, var(--coddy-blend-base));
+  stroke: mix-text(13%);
   stroke-width: 1;
 }
 
@@ -17137,7 +17053,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 }
 
 .swarm-edge-label {
-  fill: color-mix(in srgb, var(--text) 64%, var(--coddy-blend-base));
+  fill: mix-text(64%);
   font-size: 10px;
 }
 
@@ -17175,7 +17091,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 }
 
 .swarm-node-agent .swarm-node-glyph {
-  stroke: color-mix(in srgb, var(--text) 68%, var(--coddy-blend-base));
+  stroke: mix-text(68%);
 }
 
 /* The relay you are attached to: the only node whose tile is filled solid. */
@@ -17195,13 +17111,13 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 }
 
 .swarm-node-meta {
-  fill: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  fill: mix-text(52%);
   font-size: 10px;
 }
 
 .swarm-node-chip rect {
   fill: var(--swarm-plate);
-  stroke: color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  stroke: mix-text(14%);
   stroke-width: 1;
 }
 
@@ -17219,26 +17135,26 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 
 .swarm-node-dot-off circle {
   fill: var(--swarm-plate);
-  stroke: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  stroke: mix-text(50%);
   stroke-width: 1.6;
 }
 
 .swarm-node-dot-off path {
   fill: none;
-  stroke: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  stroke: mix-text(50%);
   stroke-width: 1.6;
   stroke-linecap: round;
 }
 
 .swarm-node-badge circle {
   fill: var(--swarm-plate);
-  stroke: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+  stroke: mix-text(22%);
   stroke-width: 1.2;
 }
 
 .swarm-node-badge path {
   fill: none;
-  stroke: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+  stroke: mix-text(70%);
   stroke-width: 1.5;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -17363,7 +17279,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 
 /* What the node is working on, under everything else it says. */
 .swarm-node-work text {
-  fill: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  fill: mix-text(58%);
   font-size: 10px;
 }
 
@@ -17432,7 +17348,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   align-items: center;
   gap: 7px;
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: mix-text(62%);
 }
 
 .swarm-legend-mark {
@@ -17503,8 +17419,8 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   padding: 1px 5px;
   box-sizing: border-box;
   border-radius: 5px;
-  border: 1px solid color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  border: 1px solid mix-text(16%);
+  color: mix-text(52%);
   font:
     11px/1.4 ui-monospace,
     SFMono-Regular,
@@ -17545,7 +17461,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   border-radius: 10px;
   background: var(--coddy-surface-muted);
   border: 1px solid var(--coddy-glass-panel-border);
-  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+  color: mix-text(70%);
   font-size: 12px;
 }
 
@@ -17577,7 +17493,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  color: mix-text(52%);
 }
 
 .swarm-result-here {
@@ -17585,7 +17501,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 }
 
 .swarm-result-offline {
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
 }
 
 .swarm-result-hit {
@@ -17622,7 +17538,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  color: mix-text(58%);
   font-size: 11px;
   min-width: 0;
 }
@@ -17648,15 +17564,15 @@ html:not([data-theme="light"]) .swarm-graph-panel {
    the translucent surfaces all but vanish against the panel on the darker
    themes, and this is the half of the row that answers "where". */
 .swarm-badge {
-  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  background: mix-text(9%);
+  border: 1px solid mix-text(14%);
   border-radius: 5px;
   padding: 1px 6px;
   flex: none;
 }
 
 .swarm-empty {
-  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
+  color: mix-text(60%);
   font-size: 13px;
   padding: 12px 2px;
 }
@@ -17897,8 +17813,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 
 .sessions-manager-table td {
   padding: 6px 5px;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid mix-text(6%);
   color: var(--text);
   vertical-align: middle;
 }
@@ -17908,7 +17823,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 }
 
 .sessions-manager-table tbody tr:hover {
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
 }
 
 /* The conversation currently on screen behind the panel. */
@@ -18031,7 +17946,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   place-items: center;
   margin-right: 5px;
   vertical-align: -3px;
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
 }
 
 .sessions-manager-archived-mark svg,
@@ -18049,9 +17964,9 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   font-size: 0.68rem;
   line-height: 1.5;
   cursor: pointer;
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  color: mix-text(78%);
+  background: mix-text(6%);
+  border: 1px solid mix-text(14%);
 }
 
 .sessions-manager-tag:hover {
@@ -18070,9 +17985,8 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   line-height: 1.5;
   cursor: pointer;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
-  border: 1px dashed
-    color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+  color: mix-text(40%);
+  border: 1px dashed mix-text(22%);
   transition:
     color 140ms ease,
     border-color 140ms ease;
@@ -18321,7 +18235,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   gap: 2px;
   border-radius: 16px;
   background: var(--coddy-canvas-gradient-top);
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  border: 1px solid mix-text(12%);
   box-shadow: var(--shadow);
 }
 
@@ -18334,7 +18248,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   border: 0;
   border-radius: 10px;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: mix-text(88%);
   font: inherit;
   font-size: 14px;
   text-align: left;
@@ -18344,7 +18258,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 
 .rail-more-item:hover,
 .rail-more-item:focus-visible {
-  background: color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+  background: mix-text(7%);
   outline: none;
 }
 
@@ -18355,7 +18269,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 .rail-more-sep {
   height: 1px;
   margin: 4px 8px;
-  background: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  background: mix-text(10%);
 }
 /* ── Edits: what git reports for the chat's folder ─────────────────────────
    Their one view is the edits window further down (.dv-*); these are the
@@ -18376,7 +18290,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   border-radius: 999px;
   border: 0.5px solid var(--coddy-glass-panel-border);
   background: transparent;
-  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+  color: mix-text(70%);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
@@ -18384,7 +18298,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 
 .changes-action:hover:not(:disabled) {
   color: var(--text);
-  border-color: color-mix(in srgb, var(--text) 24%, var(--coddy-blend-base));
+  border-color: mix-text(24%);
 }
 
 .changes-action:disabled {
@@ -18442,8 +18356,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   gap: 12px;
   padding: 12px 14px 12px 12px;
   background: color-mix(in srgb, var(--bg) 82%, transparent);
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid mix-text(6%);
 }
 
 .files-title-block {
@@ -18460,7 +18373,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 /* Spelled like the documentation's title: small capitals in a 72% text tint. */
 .files-title {
   margin: 0;
-  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  color: mix-text(72%);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-size: 12px;
@@ -18473,7 +18386,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  color: mix-text(52%);
   font-size: 11px;
   line-height: 1.35;
 }
@@ -18496,7 +18409,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   border-radius: 10px;
   border: 1px solid transparent;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+  color: mix-text(70%);
   cursor: pointer;
   transition:
     background 0.15s,
@@ -18506,15 +18419,15 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 
 .files-icon-btn:hover,
 .files-icon-btn:focus-visible {
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  background: mix-text(8%);
   color: var(--text);
 }
 
 /* A pressed toggle brightens - text, border and ground - like the view
    buttons of the chat header; the accent is the mark of work in flight. */
 .files-icon-btn.is-active {
-  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
-  border-color: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+  background: mix-text(9%);
+  border-color: mix-text(22%);
   color: var(--text);
 }
 
@@ -18557,7 +18470,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 .files-menu-sep {
   height: 1px;
   margin: 4px 6px;
-  background: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  background: mix-text(10%);
 }
 
 /* Tree and open files, side by side; the tree folds away for the width. */
@@ -18576,8 +18489,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-right: 1px solid mix-text(6%);
 }
 
 .files-filter {
@@ -18592,7 +18504,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   top: 50%;
   transform: translateY(-50%);
   margin-top: 1px;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  color: mix-text(50%);
   pointer-events: none;
 }
 
@@ -18603,7 +18515,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   padding: 0 10px 0 32px;
   border-radius: 10px;
   border: 1px solid var(--coddy-glass-panel-border);
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
   color: var(--text);
   font: inherit;
   font-size: 13px;
@@ -18654,7 +18566,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 86%, var(--coddy-blend-base));
+  color: mix-text(86%);
   font: inherit;
   font-size: 13px;
   text-align: left;
@@ -18663,20 +18575,19 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 
 .files-tree-row:hover:not(:disabled),
 .files-tree-more:hover {
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  background: mix-text(6%);
 }
 
 /* The file on show: a brighter row with a light outline, not the accent. */
 .files-tree-row.is-active {
-  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
-  box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--text) 18%, var(--coddy-blend-base));
+  background: mix-text(9%);
+  box-shadow: inset 0 0 0 1px mix-text(18%);
   color: var(--text);
 }
 
 .files-tree-row:disabled {
   cursor: default;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: mix-text(55%);
 }
 
 .files-tree-row:focus-visible,
@@ -18690,7 +18601,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: mix-text(55%);
 }
 
 .files-tree-name {
@@ -18708,7 +18619,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 .files-tree-link {
   flex: none;
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  color: mix-text(50%);
 }
 
 .files-tree-more {
@@ -18731,8 +18642,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   position: relative;
   flex: none;
   padding: 10px 0 0;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid mix-text(6%);
 }
 
 .files-tabs {
@@ -18790,16 +18700,16 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   border: 1px solid transparent;
   border-bottom: 0;
   border-radius: 9px 9px 0 0;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: mix-text(62%);
 }
 
 .files-tab:hover {
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
 }
 
 .files-tab.is-active {
-  background: color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
-  border-color: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+  background: mix-text(7%);
+  border-color: mix-text(9%);
   color: var(--text);
 }
 
@@ -18819,7 +18729,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 }
 
 .files-tab-dir {
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
   font-size: 11px;
 }
 
@@ -18846,7 +18756,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 }
 
 .files-tab-close:hover {
-  background: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  background: mix-text(10%);
 }
 
 /* No file open: a quiet note in the middle of the space the files will take. */
@@ -18862,14 +18772,14 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 }
 
 .files-empty-icon {
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: mix-text(45%);
   margin-bottom: 6px;
 }
 
 .files-empty-title {
   margin: 0;
   font-size: 15px;
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: mix-text(88%);
 }
 
 .files-empty-hint {
@@ -18877,7 +18787,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   max-width: 360px;
   font-size: 13px;
   line-height: 1.45;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: mix-text(55%);
 }
 
 /* One open file: its body alone, the tab above names it. */
@@ -18902,7 +18812,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 .files-note {
   margin: 12px 14px;
   font-size: 13px;
-  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
+  color: mix-text(60%);
 }
 
 .files-changed {
@@ -18948,7 +18858,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 
 .files-line-no {
   flex: 0 0 52px;
-  color: color-mix(in srgb, var(--text) 38%, var(--coddy-blend-base));
+  color: mix-text(38%);
   text-align: right;
   padding-right: 14px;
   user-select: none;
@@ -19035,7 +18945,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 .files-action {
   border: 1px solid var(--coddy-glass-panel-border);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
   color: inherit;
   font: inherit;
   font-size: 12px;
@@ -19429,8 +19339,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   flex-direction: column;
   gap: 8px;
   padding: 10px 12px 12px;
-  border-top: 1px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-top: 1px solid mix-text(6%);
   background: color-mix(in srgb, var(--bg) 82%, transparent);
 }
 
@@ -19902,7 +19811,7 @@ a.canvas-node-url {
   font-size: 11px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: mix-text(55%);
 }
 
 .edits-tree-status--added {
@@ -19928,7 +19837,7 @@ a.canvas-node-url {
   padding: 0;
   font-size: 14px;
   line-height: 1;
-  color: color-mix(in srgb, var(--text) 66%, var(--coddy-blend-base));
+  color: mix-text(66%);
   background: transparent;
   border: 1px solid transparent;
   border-radius: 8px;
@@ -19936,7 +19845,7 @@ a.canvas-node-url {
 }
 
 .dv-icon-btn:hover {
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  background: mix-text(8%);
   color: var(--text);
 }
 
@@ -19973,7 +19882,7 @@ a.canvas-node-url {
 .dv-note {
   padding: 10px 12px;
   font-size: 12.5px;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: mix-text(62%);
 }
 
 .dv-note--error {
@@ -19987,17 +19896,17 @@ a.canvas-node-url {
   margin-bottom: 10px;
   padding: 9px 12px;
   font-size: 12px;
-  color: color-mix(in srgb, var(--text) 74%, var(--coddy-blend-base));
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  color: mix-text(74%);
+  border: 1px solid mix-text(12%);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
 }
 
 /* One file ------------------------------------------------------------------ */
 
 .dv-file {
   margin-bottom: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 11%, var(--coddy-blend-base));
+  border: 1px solid mix-text(11%);
   border-radius: 10px;
   overflow: hidden;
 }
@@ -20014,9 +19923,8 @@ a.canvas-node-url {
   align-items: center;
   gap: 8px;
   padding: 0 12px 0 4px;
-  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  background: mix-text(5%);
+  border-bottom: 1px solid mix-text(10%);
 }
 
 .dv-file-title {
@@ -20039,7 +19947,7 @@ a.canvas-node-url {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--text) 34%, var(--coddy-blend-base));
+  background: mix-text(34%);
 }
 
 .dv-file-badge--added {
@@ -20062,7 +19970,7 @@ a.canvas-node-url {
 .dv-file-dir {
   flex: 0 1 auto;
   min-width: 0;
-  color: color-mix(in srgb, var(--text) 46%, var(--coddy-blend-base));
+  color: mix-text(46%);
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -20081,7 +19989,7 @@ a.canvas-node-url {
 }
 
 .dv-file-stat--binary {
-  color: color-mix(in srgb, var(--text) 46%, var(--coddy-blend-base));
+  color: mix-text(46%);
 }
 
 /* Copy and discard, always in sight, between the name and git's counts,
@@ -20131,7 +20039,7 @@ a.canvas-node-url {
   padding: 0 6px;
   text-align: right;
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 28%, var(--coddy-blend-base));
+  color: mix-text(28%);
   user-select: none;
   box-sizing: content-box;
 }
@@ -20154,11 +20062,9 @@ a.canvas-node-url {
    "N unmodified lines" here, which is a number the reader cannot act on. */
 .dv-gap {
   height: 10px;
-  border-top: 1px dashed
-    color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
-  border-bottom: 1px dashed
-    color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 3%, var(--coddy-blend-base));
+  border-top: 1px dashed mix-text(16%);
+  border-bottom: 1px dashed mix-text(16%);
+  background: mix-text(3%);
 }
 
 /* Unified scrolls sideways the way a terminal diff does. Split cannot: a long
@@ -20184,8 +20090,7 @@ a.canvas-node-url {
   flex: 1 1 50%;
   min-width: 0;
   overflow: hidden;
-  border-right: 1px solid
-    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-right: 1px solid mix-text(8%);
 }
 
 .dv-side--add {
@@ -20197,7 +20102,7 @@ a.canvas-node-url {
 }
 
 .dv-side--empty {
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: mix-text(4%);
 }
 
 .dv-side--add .dv-num {

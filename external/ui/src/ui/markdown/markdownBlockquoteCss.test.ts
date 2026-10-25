@@ -24,5 +24,5 @@ test("markdown blockquote text color is theme-aware (readable on light)", () => 
   // Must not hardcode the near-white color that vanishes on the light canvas.
   expect(block![0]).not.toMatch(/color:\s*rgba\(\s*229,\s*231,\s*235/);
   // Must derive from the theme --text token so it flips with the theme.
-  expect(block![0]).toMatch(/color:\s*color-mix\(in srgb,\s*var\(--text\)/);
+  expect(block![0]).toMatch(/color:\s*mix-text\(/);
 });

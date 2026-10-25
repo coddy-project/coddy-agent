@@ -19,7 +19,8 @@ test("the read-only notice reuses the composer's glass card tokens", () => {
   expect(body).toContain("var(--coddy-glass-panel-radius)");
   expect(body).toContain("var(--coddy-glass-panel-border)");
   expect(body).toContain("var(--coddy-glass-panel-bg)");
-  expect(body).toContain("var(--text)");
+  // The text colour mixes the theme's --text token (mix-text() names it).
+  expect(body).toMatch(/mix-text\(|var\(--text\)/);
 });
 
 test("the parent link is accent-tinted from theme tokens", () => {
