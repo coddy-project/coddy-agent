@@ -24,6 +24,21 @@ export const messagesRu: Record<string, string> = {
     "Уведомлениям нужно защищённое соединение. Откройте Coddy по https или на localhost.",
   "appearance.notifications.unsupported":
     "Этот браузер не показывает уведомления веб-страниц.",
+  "appearance.smoothBackdropLabel": "Градиенты",
+  "appearance.smoothBackdrop.toggle": "Плавные градиенты",
+  "appearance.smoothBackdrop.hint":
+    "Рисует свечение фона и стекло заголовка, боковой панели и поля ввода без колец и ступенек, которые видны на некоторых контрастных мониторах. Панели перестают размывать то, что под ними, и теряют мягкие тени. Настройка хранится в этом браузере.",
+  "appearance.wallpaperLabel": "Обои",
+  "appearance.wallpaper.choose": "Выбрать картинку",
+  "appearance.wallpaper.remove": "Убрать",
+  "appearance.wallpaper.dim": "Затемнение: {value}%",
+  "appearance.wallpaper.hint":
+    "Картинка с этого компьютера, не меньше 1280x720, под интерфейсом вместо свечения. Хранится в этом браузере и не отправляется на сервер.",
+  "appearance.wallpaper.notImage": "Этот файл не картинка.",
+  "appearance.wallpaper.tooLarge": "Картинка больше 20 МБ.",
+  "appearance.wallpaper.tooSmall":
+    "Картинка {width}x{height}, а для обоев нужно не меньше {minWidth}x{minHeight}.",
+  "appearance.wallpaper.unreadable": "Браузер не может прочитать эту картинку.",
 
   "notify.untitled": "Coddy",
   "notify.turnFinished": "Агент закончил ход.",

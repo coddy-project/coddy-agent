@@ -26,6 +26,21 @@ export const messagesEn: Record<string, string> = {
     "Notifications need a secure connection. Open Coddy over https or on localhost.",
   "appearance.notifications.unsupported":
     "This browser shows no notifications from web pages.",
+  "appearance.smoothBackdropLabel": "Gradients",
+  "appearance.smoothBackdrop.toggle": "Smooth gradients",
+  "appearance.smoothBackdrop.hint":
+    "Draws the background glows and the glass of the title bar, the rail and the composer without the rings and steps some high-contrast screens show. The panels stop blurring what is behind them and lose their soft shadows. The choice is kept in this browser.",
+  "appearance.wallpaperLabel": "Wallpaper",
+  "appearance.wallpaper.choose": "Choose picture",
+  "appearance.wallpaper.remove": "Remove",
+  "appearance.wallpaper.dim": "Dimming: {value}%",
+  "appearance.wallpaper.hint":
+    "A picture from this computer, at least 1280x720, under the app instead of the glows. It is kept in this browser and never sent to the server.",
+  "appearance.wallpaper.notImage": "This file is not a picture.",
+  "appearance.wallpaper.tooLarge": "The picture is larger than 20 MB.",
+  "appearance.wallpaper.tooSmall":
+    "The picture is {width}x{height}: a wallpaper needs at least {minWidth}x{minHeight}.",
+  "appearance.wallpaper.unreadable": "The browser cannot read this picture.",
 
   "notify.untitled": "Coddy",
   "notify.turnFinished": "The agent finished its turn.",
