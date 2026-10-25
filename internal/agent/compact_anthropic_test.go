@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -33,26 +32,8 @@ func TestCompactSessionOnAnthropicModelWithLargeMaxTokens(t *testing.T) {
 		mu.Lock()
 		bodies = append(bodies, body)
 		mu.Unlock()
-		if body["stream"] != true {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = fmt.Fprintf(w, `{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":%q}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":5}}`, summary)
-			return
-		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		for _, e := range []string{
-			`{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":3,"output_tokens":0}}}`,
-			`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
-			fmt.Sprintf(`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":%q}}`, summary),
-			`{"type":"content_block_stop","index":0}`,
-			`{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":5}}`,
-			`{"type":"message_stop"}`,
-		} {
-			var head struct {
-				Type string `json:"type"`
-			}
-			_ = json.Unmarshal([]byte(e), &head)
-			_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", head.Type, e)
-		}
+		_, _ = io.WriteString(w, anthropicAnswerSSE(summary))
 	}))
 	defer srv.Close()
 
@@ -80,5 +61,8 @@ func TestCompactSessionOnAnthropicModelWithLargeMaxTokens(t *testing.T) {
 	}
 	if got, _ := bodies[0]["max_tokens"].(float64); int(got) != 40000 {
 		t.Errorf("max_tokens = %v, want the model's 40000", bodies[0]["max_tokens"])
+	}
+	if bodies[0]["stream"] != true {
+		t.Errorf("stream = %v, want the summary of a streaming model read from a stream", bodies[0]["stream"])
 	}
 }

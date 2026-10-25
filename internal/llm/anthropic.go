@@ -35,8 +35,8 @@ type anthropicProvider struct {
 // (an hour per 128000 tokens), between the ten minutes it gives any request
 // and an hour. Passing it keeps the client from refusing the request.
 func anthropicBlockingTimeout(maxTokens int64) time.Duration {
-	d := time.Duration(float64(time.Hour) * float64(maxTokens) / 128000)
-	return min(max(d, 10*time.Minute), time.Hour)
+	tokens := time.Duration(min(max(maxTokens, 0), 128000))
+	return max(time.Hour*tokens/128000, 10*time.Minute)
 }
 
 func newAnthropicProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *anthropicProvider {
