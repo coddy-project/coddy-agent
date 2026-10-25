@@ -31,6 +31,8 @@ The Permission column uses the classes the gate in `internal/agent/react.go` app
 | `rm` | Remove a file, or a whole tree with `recursive` | `path`, `recursive` | write | agent |
 | `mv` | Move or rename; destination parents are created | `src`, `dst` | write | agent |
 
+`write`, `edit`, `apply_patch` and the copy `mv` makes across disks replace a file atomically: the new content goes into a temporary file in the same folder, which takes the place of the target once it is written and flushed. A write that fails half way (a full disk) leaves the file as it was, and the error the model reads says so; a killed process leaves the file as it was too, with a dot-named temporary file beside it. A symlink is written through: the link stays and the file it points to changes. A file with several hard links becomes a new file under the name that was written, the other names keep the old content, and the result line says so. A pipe or a device is written in place.
+
 ## Shell and background tasks
 
 The `background_*` tools are registered only while `tools.background` is enabled (the default), and `preview_server` while `tools.preview_server` is enabled as well. `canvas_show` and `canvas_inspect` are registered while `tools.canvas` is enabled (the default). The guide is [Background tasks](../features/background-tasks.md#model-facing-surface).

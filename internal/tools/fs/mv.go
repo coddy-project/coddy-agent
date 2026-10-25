@@ -3,11 +3,11 @@ package fs
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
@@ -50,47 +50,48 @@ func executeMove(_ context.Context, argsJSON string, env *tooling.Env) (string, 
 	src := ResolvePath(args.Src, env.CWD)
 	dst := ResolvePath(args.Dst, env.CWD)
 
-	if err := movePath(src, dst); err != nil {
+	report, err := movePath(src, dst)
+	if err != nil {
 		return "", fmt.Errorf("mv: %w", err)
 	}
-	return fmt.Sprintf("moved %s -> %s", src, dst), nil
+	return withNote(fmt.Sprintf("moved %s -> %s", src, dst), report), nil
 }
 
-func movePath(src, dst string) error {
+func movePath(src, dst string) (platform.WriteReport, error) {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
+		return platform.WriteReport{}, err
 	}
 	if err := os.Rename(src, dst); err == nil {
-		return nil
+		return platform.WriteReport{}, nil
 	}
 	return copyThenRemove(src, dst)
 }
 
-func copyThenRemove(src, dst string) error {
+// copyThenRemove is the move across disks: the copy replaces dst atomically, and
+// the source goes only once the copy is known to be on disk.
+func copyThenRemove(src, dst string) (platform.WriteReport, error) {
 	in, err := os.Open(src)
 	if err != nil {
-		return err
+		return platform.WriteReport{}, err
 	}
 	defer func() { _ = in.Close() }()
 
 	fi, err := in.Stat()
 	if err != nil {
-		return err
+		return platform.WriteReport{}, err
 	}
 	if fi.IsDir() {
-		return fmt.Errorf("cross-device move of directories is not supported; use a copy tool or same filesystem")
+		return platform.WriteReport{}, fmt.Errorf("cross-device move of directories is not supported; use a copy tool or same filesystem")
 	}
 
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fi.Mode()&0777)
+	report, err := platform.ReplaceFileFrom(dst, in, fi.Mode()&0777)
 	if err != nil {
-		return err
+		return report, fmt.Errorf("%w%s", err, leftAsItWas)
 	}
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		return err
+	if report.DirSyncErr != nil {
+		return report, fmt.Errorf("copied to %s but not yet known to be on disk (%w); the source was kept", dst, report.DirSyncErr)
 	}
-	if err := out.Close(); err != nil {
-		return err
-	}
-	return os.Remove(src)
+	// Windows refuses to remove a file that is still open.
+	_ = in.Close()
+	return report, os.Remove(src)
 }

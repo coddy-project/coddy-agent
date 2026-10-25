@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
@@ -101,9 +102,10 @@ func executeEdit(_ context.Context, argsJSON string, env *tooling.Env) (string, 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", fmt.Errorf("edit mkdir: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(out), 0o644); err != nil {
-		return "", fmt.Errorf("edit: write: %w", err)
+	report, err := platform.WriteFileReplacing(path, []byte(out), 0o644)
+	if err != nil {
+		return "", fmt.Errorf("edit: write: %w%s", err, leftAsItWas)
 	}
 
-	return fmt.Sprintf("edited %s (%d bytes written)", path, len(out)), nil
+	return withNote(fmt.Sprintf("edited %s (%d bytes written)", path, len(out)), report), nil
 }
