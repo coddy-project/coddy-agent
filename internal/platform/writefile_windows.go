@@ -71,8 +71,8 @@ func matchAccess(tmp, target *os.File, info fs.FileInfo) error {
 		CreationTime:   int64(data.CreationTime.HighDateTime)<<32 | int64(data.CreationTime.LowDateTime),
 		FileAttributes: data.FileAttributes&keptAttributes | windows.FILE_ATTRIBUTE_ARCHIVE,
 	}
-	return windows.SetFileInformationByHandle(to, windows.FileBasicInfo,
-		(*byte)(unsafe.Pointer(&basic)), uint32(unsafe.Sizeof(basic))) //nolint:gosec // G103: FILE_BASIC_INFO is passed by address
+	return os.NewSyscallError("SetFileInformationByHandle", windows.SetFileInformationByHandle(to, windows.FileBasicInfo,
+		(*byte)(unsafe.Pointer(&basic)), uint32(unsafe.Sizeof(basic)))) //nolint:gosec // G103: FILE_BASIC_INFO is passed by address
 }
 
 // persistentACLs reports whether the volume of h keeps ACLs (NTFS, ReFS); FAT
@@ -88,13 +88,14 @@ func persistentACLs(h windows.Handle) bool {
 var procReOpenFile = windows.NewLazySystemDLL("kernel32.dll").NewProc("ReOpenFile")
 
 // copyDACL puts the DACL of from on to, protected when it is protected there. A
-// handle opened for writing carries READ_CONTROL, which reads it; WRITE_DAC to
-// set it comes from a second handle on to, which no sharing rule refuses since
-// it asks for no access to the data.
+// handle opened for writing carries READ_CONTROL, which reads it. Setting it
+// takes a second handle on to with WRITE_DAC and READ_CONTROL, since
+// SetSecurityInfo reads the descriptor it changes; no sharing rule refuses that
+// handle, as it asks for no access to the data.
 func copyDACL(from, to windows.Handle) error {
 	sd, err := windows.GetSecurityInfo(from, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
-		return err
+		return os.NewSyscallError("GetSecurityInfo", err)
 	}
 	dacl, _, err := sd.DACL()
 	if errors.Is(err, windows.ERROR_OBJECT_NOT_FOUND) {
@@ -111,14 +112,14 @@ func copyDACL(from, to windows.Handle) error {
 	if control&windows.SE_DACL_PROTECTED != 0 {
 		info |= windows.PROTECTED_DACL_SECURITY_INFORMATION
 	}
-	r, _, callErr := procReOpenFile.Call(uintptr(to), windows.WRITE_DAC,
+	r, _, callErr := procReOpenFile.Call(uintptr(to), windows.WRITE_DAC|windows.READ_CONTROL,
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, 0)
 	h := windows.Handle(r)
 	if h == windows.InvalidHandle {
-		return callErr
+		return os.NewSyscallError("ReOpenFile", callErr)
 	}
 	defer func() { _ = windows.CloseHandle(h) }()
-	return windows.SetSecurityInfo(h, windows.SE_FILE_OBJECT, info, nil, nil, dacl, nil)
+	return os.NewSyscallError("SetSecurityInfo", windows.SetSecurityInfo(h, windows.SE_FILE_OBJECT, info, nil, nil, dacl, nil))
 }
 
 // linkCount is the number of names the file at path has, 0 when unknown.
