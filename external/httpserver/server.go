@@ -431,11 +431,13 @@ func (s *Server) redirectDocsTrailingSlash(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, "/docs/", http.StatusFound)
 }
 
-// Handler returns the root HTTP handler: CORS wraps the open-server guard wraps the auth gate
-// wraps the route mux. CORS and the auth gate are no-ops unless configured; the guard applies only
-// while no credential is configured (open_server_guard.go).
+// Handler returns the root HTTP handler: the gzip of JSON answers wraps the OpenAI error
+// normalizer wraps CORS wraps the open-server guard wraps the auth gate wraps the route mux.
+// CORS and the auth gate are no-ops unless configured; the guard applies only while no
+// credential is configured (open_server_guard.go). The gzip stays outermost because the
+// normalizer reads an error body as JSON and rewrites it.
 func (s *Server) Handler() http.Handler {
-	return s.openAIErrors(s.corsMiddleware(s.openServerGuard(s.authGate(s.mux))))
+	return gzipJSON(s.openAIErrors(s.corsMiddleware(s.openServerGuard(s.authGate(s.mux)))))
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
