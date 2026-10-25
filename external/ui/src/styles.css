@@ -15477,6 +15477,39 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   border-radius: 6px;
 }
 
+/* A picture or a video from another site, held until a click
+   (RemoteMediaGate in ui/markdown/Markdown.tsx). */
+.md-remote-media {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px dashed color-mix(in srgb, var(--muted) 55%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.md-remote-media:hover,
+.md-remote-media:focus-visible {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.md-remote-media-alt {
+  color: var(--text);
+}
+
+.md-remote-media-action {
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+
 /* ---- Documentation reader (ui/docs/DocsView.tsx) ---- */
 
 /* The same glass dock the swarm screen sits in, but a sheet rather than a

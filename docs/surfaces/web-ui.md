@@ -1652,6 +1652,7 @@ Automated checks:
 - Code colors follow all seven appearance themes immediately when switching themes. Each theme defines the shared `--syntax-*` palette in `external/ui/src/styles.css`; no separate syntax-theme setting is needed.
 - Each code block has a copy button that copies only that block content.
 - Mermaid and SVG fences are drawn as pictures and LaTeX as formulas: see [Diagrams and formulas](#diagrams-and-formulas).
+- A picture or a video from another site (`![](https://...)`) is not fetched when the message renders: it shows as a button with its alt text and the host, **Load the picture from <host>**, and a click loads it. Rendering it at once would make the browser send the address, with whatever its path or query carries, as soon as the answer appears, and an answer can follow instructions from a README, a web page or a tool result. A picture of this server, a relative one and a `data:` picture load at once. The same holds for canvas cards; the documentation reader, which ships with Coddy, loads its screenshots and videos at once.
 
 ## Diagrams and formulas
 

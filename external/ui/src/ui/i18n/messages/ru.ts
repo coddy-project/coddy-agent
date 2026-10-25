@@ -2636,6 +2636,8 @@ export const messagesRu: Record<string, string> = {
   "markdown.figure.downloadSource": "Скачать исходник (.mmd)",
   "markdown.figure.downloadSvg": "Скачать как SVG (.svg)",
   "markdown.figure.open": "Открыть картинку",
+  "markdown.remoteMedia.loadImage": "Загрузить картинку с {host}",
+  "markdown.remoteMedia.loadVideo": "Загрузить видео с {host}",
   "markdown.figure.rendering": "Рисую…",
   "markdown.figure.error": "Не удалось нарисовать картинку: {message}",
   "markdown.figure.loadError":
