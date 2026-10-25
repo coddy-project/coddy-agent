@@ -70,8 +70,19 @@ const codexSourceBuildVersion = "0.154.0"
 // upstreamServing starts a stand-in provider endpoint that answers the model
 // list with the given ids and records the credential it was called with. An
 // entry may carry a context window as "id:131072" - the stand-in reports it
-// under the OpenRouter spelling, context_length.
+// under the OpenRouter spelling, context_length - or as "id:catalog", the
+// window the embedded models catalog has for the id.
 func (w *providerModelsWorld) upstreamServing(t *testing.T, csv string) error {
+	return w.serveListing(t, csv, "context_length")
+}
+
+// anthropicServing is upstreamServing in Anthropic's shape: the window is
+// max_input_tokens.
+func (w *providerModelsWorld) anthropicServing(t *testing.T, csv string) error {
+	return w.serveListing(t, csv, "max_input_tokens")
+}
+
+func (w *providerModelsWorld) serveListing(t *testing.T, csv, windowField string) error {
 	ids := strings.Split(csv, ",")
 	var data []map[string]interface{}
 	for _, part := range ids {
@@ -79,11 +90,19 @@ func (w *providerModelsWorld) upstreamServing(t *testing.T, csv string) error {
 		id, ctx := part, 0
 		if i := strings.LastIndex(part, ":"); i > 0 {
 			id = part[:i]
-			ctx, _ = strconv.Atoi(part[i+1:])
+			if part[i+1:] == "catalog" {
+				limits, ok := models.Lookup(id)
+				if !ok {
+					return fmt.Errorf("the models catalog does not list %q any more: pick another model for this scenario", id)
+				}
+				ctx = limits.ContextWindow
+			} else {
+				ctx, _ = strconv.Atoi(part[i+1:])
+			}
 		}
 		entry := map[string]interface{}{"id": id}
 		if ctx > 0 {
-			entry["context_length"] = ctx
+			entry[windowField] = ctx
 		}
 		data = append(data, entry)
 	}
@@ -443,6 +462,9 @@ func TestProviderModelsFetchFeature(t *testing.T) {
 		Name: "provider_models_fetch",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			w := &providerModelsWorld{}
+			sc.Step(`^an Anthropic model endpoint serving "([^"]*)"$`, func(csv string) error {
+				return w.anthropicServing(t, csv)
+			})
 			sc.Step(`^an upstream model endpoint serving "([^"]*)"$`, func(csv string) error {
 				return w.upstreamServing(t, csv)
 			})

@@ -144,6 +144,12 @@ test("a model is added to Logical models from its row", async () => {
       catalog: { context_window: 128000, max_tokens: 16384, multimodal: true },
     },
     { id: "m3" },
+    // The provider reports the catalog's window, as Anthropic's listing does.
+    {
+      id: "m4",
+      context_window: 200000,
+      catalog: { context_window: 200000, max_tokens: 40000, multimodal: true },
+    },
   ]);
   const onAddModel = vi.fn();
   render(
@@ -163,10 +169,17 @@ test("a model is added to Logical models from its row", async () => {
   fireEvent.click(toggle("m1"));
   fireEvent.click(toggle("m2"));
   fireEvent.click(toggle("m3"));
+  fireEvent.click(toggle("m4"));
 
   // The window the provider reports travels with the id, else the models
   // catalog's window with its max_tokens and image support.
-  expect(onAddModel).toHaveBeenNthCalledWith(1, "demo/m1", 131072);
+  expect(onAddModel).toHaveBeenNthCalledWith(
+    1,
+    "demo/m1",
+    131072,
+    undefined,
+    undefined,
+  );
   expect(onAddModel).toHaveBeenNthCalledWith(2, "demo/m2", 128000, 16384, true);
   expect(onAddModel).toHaveBeenNthCalledWith(
     3,
@@ -175,6 +188,7 @@ test("a model is added to Logical models from its row", async () => {
     undefined,
     undefined,
   );
+  expect(onAddModel).toHaveBeenNthCalledWith(4, "demo/m4", 200000, 40000, true);
   // The row shows the window the model is added with.
   expect(screen.getByTestId("provider-model-m2").textContent).toContain("128k");
 });

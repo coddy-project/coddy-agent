@@ -99,7 +99,7 @@ func TestListModelsAnthropic(t *testing.T) {
 			t.Errorf("missing anthropic-version header")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":[{"id":"claude-3-5-sonnet","display_name":"Claude 3.5 Sonnet"}]}`))
+		_, _ = w.Write([]byte(`{"data":[{"id":"claude-3-5-sonnet","display_name":"Claude 3.5 Sonnet","max_input_tokens":200000,"max_tokens":8192}]}`))
 	}))
 	defer srv.Close()
 
@@ -112,6 +112,9 @@ func TestListModelsAnthropic(t *testing.T) {
 	}
 	if got[0].Name != "Claude 3.5 Sonnet" {
 		t.Errorf("display_name not used as name: %q", got[0].Name)
+	}
+	if got[0].ContextWindow != 200000 {
+		t.Errorf("context window = %d, want max_input_tokens 200000", got[0].ContextWindow)
 	}
 }
 

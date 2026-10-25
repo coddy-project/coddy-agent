@@ -81,8 +81,8 @@ models[].temperature:
   en: "Sampling temperature (0 = deterministic; higher = more random)."
   ru: "Температура сэмплирования (0 = детерминированно; выше = случайнее)."
 models[].max_context_tokens:
-  en: "Context window of the model in tokens: what the web UI context ring, the console context percentage and the automatic compaction trigger measure against. 0 reads it from the provider's model listing when the provider reports one (the NeuralDeep hub, vLLM, OpenRouter, LM Studio), else 128000."
-  ru: "Окно контекста модели в токенах, относительно которого считают кольцо контекста в веб-интерфейсе, процент контекста в консоли и порог автоматического сжатия контекста. 0 берёт его из списка моделей провайдера, если провайдер его сообщает (хаб NeuralDeep, vLLM, OpenRouter, LM Studio), иначе 128000."
+  en: "Context window of the model in tokens: what the web UI context ring, the console context percentage and the automatic compaction trigger measure against. 0 reads it from the provider's model listing when the provider reports one (the NeuralDeep hub, Anthropic, the Codex and Devin catalogs, vLLM, OpenRouter, LM Studio), else 128000."
+  ru: "Окно контекста модели в токенах, относительно которого считают кольцо контекста в веб-интерфейсе, процент контекста в консоли и порог автоматического сжатия контекста. 0 берёт его из списка моделей провайдера, если провайдер его сообщает (хаб NeuralDeep, Anthropic, каталоги Codex и Devin, vLLM, OpenRouter, LM Studio), иначе 128000."
 models[].multimodal:
   en: "Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file instead of refusing it as binary."
   ru: "Модель принимает на вход изображения и файлы в дополнение к тексту; интерфейс показывает для этой модели кнопку прикрепления файла, и read показывает ей картинку из файла PNG, JPEG, GIF или WebP вместо отказа читать его как двоичный."
