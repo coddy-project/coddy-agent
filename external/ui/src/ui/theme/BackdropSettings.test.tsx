@@ -14,6 +14,7 @@ import {
   SMOOTH_BACKDROP_COOKIE,
 } from "./backdropPrefs";
 import { initLocale } from "../i18n/i18n";
+import { GALLERY } from "./wallpaperGallery";
 
 beforeEach(() => {
   initLocale("en");
@@ -105,6 +106,82 @@ describe("Settings → Appearance → Wallpaper", () => {
       ).toHaveTextContent(
         "The picture is 800x600: a wallpaper needs at least 1280x720.",
       ),
+    );
+    expect(backdropSnapshot().wallpaper).toBeNull();
+  });
+});
+
+describe("Settings → Appearance → Wallpaper → Gallery", () => {
+  function pictures() {
+    vi.stubGlobal("createImageBitmap", async () => ({
+      width: 1920,
+      height: 1080,
+      close() {},
+    }));
+    Object.assign(URL, {
+      createObjectURL: vi.fn(() => "blob:photo"),
+      revokeObjectURL: vi.fn(),
+    });
+  }
+  const picsum = () =>
+    [...document.querySelectorAll("img")].filter((img) =>
+      img.getAttribute("src")?.startsWith("https://picsum.photos/"),
+    );
+
+  test("nothing is requested from the gallery until it is opened", () => {
+    render(<AppearanceThemePicker />);
+    expect(picsum()).toHaveLength(0);
+    fireEvent.click(screen.getByTestId("appearance-wallpaper-gallery"));
+    expect(screen.getByTestId("appearance-wallpaper-grid")).toBeInTheDocument();
+    expect(picsum()).toHaveLength(GALLERY.length);
+    // two photos of one author are still told apart
+    expect(
+      screen.getByRole("button", { name: `Photo 1 by ${GALLERY[0]!.author}` }),
+    ).toBeInTheDocument();
+  });
+
+  test("a picked photo becomes the wallpaper with its author's credit", async () => {
+    pictures();
+    const fetch = vi.fn(async (_url: string) => ({
+      ok: true,
+      blob: async () => new Blob(["x"], { type: "image/jpeg" }),
+    }));
+    vi.stubGlobal("fetch", fetch);
+    render(<AppearanceThemePicker />);
+    fireEvent.click(screen.getByTestId("appearance-wallpaper-gallery"));
+    fireEvent.click(
+      screen.getByTestId(`appearance-wallpaper-thumb-${GALLERY[0]!.id}`),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("appearance-wallpaper-credit"),
+      ).toHaveTextContent(`Photo by ${GALLERY[0]!.author} on Unsplash`),
+    );
+    expect(String(fetch.mock.calls[0]?.[0])).toMatch(
+      new RegExp(`^https://picsum\\.photos/id/${GALLERY[0]!.id}/\\d+/\\d+$`),
+    );
+    expect(
+      screen.getByRole("link", { name: GALLERY[0]!.author }),
+    ).toHaveAttribute("href", GALLERY[0]!.url);
+    expect(backdropSnapshot().wallpaper).toBe("blob:photo");
+  });
+
+  test("a photo that does not load says so", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("offline");
+      }),
+    );
+    render(<AppearanceThemePicker />);
+    fireEvent.click(screen.getByTestId("appearance-wallpaper-gallery"));
+    fireEvent.click(
+      screen.getByTestId(`appearance-wallpaper-thumb-${GALLERY[1]!.id}`),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("appearance-wallpaper-status"),
+      ).toHaveTextContent("The photo did not load."),
     );
     expect(backdropSnapshot().wallpaper).toBeNull();
   });

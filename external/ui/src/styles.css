@@ -14880,7 +14880,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 /* The page backdrop (ui/theme/BackdropSettings.tsx): smooth gradients, then
-   the wallpaper with its preview, buttons and dimming. */
+   the wallpaper with its preview, buttons, gallery and dimming. */
 .appearance-backdrop-block {
   margin-top: 22px;
 }
@@ -14902,6 +14902,44 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   object-fit: cover;
   border-radius: 6px;
   border: 1px solid var(--coddy-glass-panel-border);
+}
+
+.appearance-wallpaper-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.appearance-wallpaper-thumb {
+  padding: 0;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 6px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  background: var(--coddy-surface-muted);
+  cursor: pointer;
+}
+
+.appearance-wallpaper-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.appearance-wallpaper-thumb:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--text) 45%, transparent);
+}
+
+.appearance-wallpaper-thumb:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.appearance-wallpaper-thumb.is-loading {
+  opacity: 1;
+  outline: 2px solid var(--accent);
 }
 
 .appearance-wallpaper-dim {

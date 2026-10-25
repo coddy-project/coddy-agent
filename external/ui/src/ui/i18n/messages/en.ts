@@ -32,15 +32,23 @@ export const messagesEn: Record<string, string> = {
     "Draws the background glows and the glass of the title bar, the rail and the composer without the rings and steps some high-contrast screens show. The panels stop blurring what is behind them and lose their soft shadows. The choice is kept in this browser.",
   "appearance.wallpaperLabel": "Wallpaper",
   "appearance.wallpaper.choose": "Choose picture",
+  "appearance.wallpaper.gallery": "Gallery",
   "appearance.wallpaper.remove": "Remove",
   "appearance.wallpaper.dim": "Dimming: {value}%",
   "appearance.wallpaper.hint":
-    "A picture from this computer, at least 1280x720, under the app instead of the glows. It is kept in this browser and never sent to the server.",
+    "A picture from this computer, at least 1280x720, or a photo from the gallery, under the app instead of the glows. It is kept in this browser and never sent to the server.",
+  "appearance.wallpaper.galleryHint":
+    "Photos from Unsplash, served by Lorem Picsum (picsum.photos). The gallery and a picked photo load from there over the internet; the photo is then kept in this browser.",
+  "appearance.wallpaper.photoLabel": "Photo {n} by {author}",
+  "appearance.wallpaper.creditPrefix": "Photo by",
+  "appearance.wallpaper.creditSuffix": " on Unsplash",
   "appearance.wallpaper.notImage": "This file is not a picture.",
   "appearance.wallpaper.tooLarge": "The picture is larger than 20 MB.",
   "appearance.wallpaper.tooSmall":
     "The picture is {width}x{height}: a wallpaper needs at least {minWidth}x{minHeight}.",
   "appearance.wallpaper.unreadable": "The browser cannot read this picture.",
+  "appearance.wallpaper.offline":
+    "The photo did not load. Check the internet connection and try again.",
 
   "notify.untitled": "Coddy",
   "notify.turnFinished": "The agent finished its turn.",

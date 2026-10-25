@@ -13,28 +13,38 @@ import {
   WALLPAPER_MIN_HEIGHT,
   WALLPAPER_MIN_WIDTH,
   type BackdropState,
-  type WallpaperRefusal,
-  type WallpaperResult,
 } from "./backdropPrefs";
+import {
+  GALLERY,
+  galleryThumbUrl,
+  pickGalleryPhoto,
+  type GalleryPhoto,
+  type GalleryResult,
+} from "./wallpaperGallery";
 
 const SERVER_SNAPSHOT: BackdropState = {
   smooth: false,
   wallpaper: null,
+  credit: null,
   dim: 0,
 };
 
-const REFUSAL_KEY: Record<WallpaperRefusal, string> = {
+type Refusal = NonNullable<GalleryResult["refusal"]>;
+
+const REFUSAL_KEY: Record<Refusal, string> = {
   "not-image": "appearance.wallpaper.notImage",
   "too-large": "appearance.wallpaper.tooLarge",
   "too-small": "appearance.wallpaper.tooSmall",
   unreadable: "appearance.wallpaper.unreadable",
+  offline: "appearance.wallpaper.offline",
 };
 
 /**
  * BackdropSettings is the page backdrop under the notifications in Settings →
  * Appearance: the smooth gradients switch and the wallpaper (a picture from
- * this computer, its dimming, its removal). Both are kept in this browser only
- * (ui/theme/backdropPrefs.ts).
+ * this computer or a photo of the gallery, its dimming, its removal). Both are
+ * kept in this browser only (ui/theme/backdropPrefs.ts). The gallery's
+ * thumbnails are requested only once it is opened.
  */
 export function BackdropSettings() {
   const { t } = useT();
@@ -44,7 +54,9 @@ export function BackdropSettings() {
     () => SERVER_SNAPSHOT,
   );
   const input = useRef<HTMLInputElement>(null);
-  const [result, setResult] = useState<WallpaperResult | null>(null);
+  const [result, setResult] = useState<GalleryResult | null>(null);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [loadingId, setLoadingId] = useState<string | null>(null);
 
   const pickFile = useCallback(async (file: File | undefined) => {
     if (file) {
@@ -52,11 +64,21 @@ export function BackdropSettings() {
     }
   }, []);
 
+  const pickPhoto = useCallback(async (photo: GalleryPhoto) => {
+    setLoadingId(photo.id);
+    try {
+      setResult(await pickGalleryPhoto(photo));
+    } finally {
+      setLoadingId(null);
+    }
+  }, []);
+
   const refusal = result?.refusal ?? null;
+  const size = result && "width" in result ? result : null;
   const status = refusal
     ? t(REFUSAL_KEY[refusal], {
-        width: String(result?.width ?? ""),
-        height: String(result?.height ?? ""),
+        width: String(size?.width ?? ""),
+        height: String(size?.height ?? ""),
         minWidth: String(WALLPAPER_MIN_WIDTH),
         minHeight: String(WALLPAPER_MIN_HEIGHT),
       })
@@ -111,6 +133,15 @@ export function BackdropSettings() {
           >
             {t("appearance.wallpaper.choose")}
           </button>
+          <button
+            type="button"
+            className="settings-btn"
+            aria-expanded={galleryOpen}
+            data-testid="appearance-wallpaper-gallery"
+            onClick={() => setGalleryOpen((open) => !open)}
+          >
+            {t("appearance.wallpaper.gallery")}
+          </button>
           {state.wallpaper ? (
             <button
               type="button"
@@ -136,6 +167,47 @@ export function BackdropSettings() {
             }}
           />
         </div>
+        {state.credit ? (
+          <p
+            className="settings-field-desc appearance-backdrop-status"
+            data-testid="appearance-wallpaper-credit"
+          >
+            {t("appearance.wallpaper.creditPrefix")}{" "}
+            <a href={state.credit.url} target="_blank" rel="noreferrer">
+              {state.credit.author}
+            </a>
+            {t("appearance.wallpaper.creditSuffix")}
+          </p>
+        ) : null}
+        {galleryOpen ? (
+          <>
+            <div
+              className="appearance-wallpaper-gallery"
+              data-testid="appearance-wallpaper-grid"
+            >
+              {GALLERY.map((photo, index) => (
+                <button
+                  key={photo.id}
+                  type="button"
+                  className={`appearance-wallpaper-thumb${loadingId === photo.id ? " is-loading" : ""}`}
+                  title={photo.author}
+                  aria-label={t("appearance.wallpaper.photoLabel", {
+                    n: String(index + 1),
+                    author: photo.author,
+                  })}
+                  data-testid={`appearance-wallpaper-thumb-${photo.id}`}
+                  disabled={loadingId !== null}
+                  onClick={() => void pickPhoto(photo)}
+                >
+                  <img src={galleryThumbUrl(photo)} alt="" loading="lazy" />
+                </button>
+              ))}
+            </div>
+            <p className="settings-field-desc appearance-backdrop-status">
+              {t("appearance.wallpaper.galleryHint")}
+            </p>
+          </>
+        ) : null}
         {state.wallpaper ? (
           <label className="appearance-wallpaper-dim">
             <span>
