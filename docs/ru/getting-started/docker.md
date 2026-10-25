@@ -45,7 +45,7 @@ Compose V2 подмешивает необязательный **`docker-compose
 |---------|-----------------|-------------|
 | **Образ** | **`${CODDY_IMAGE:-ghcr.io/coddy-project/coddy-agent:latest}`** | **`coddy-agent:${CODDY_VERSION:-dev}`** (собирается локально) |
 | **Команда** | **`CMD`** образа - **`serve -H 0.0.0.0 -P 12345`**, переопределяется через **`CODDY_COMMAND`** | То же |
-| **Опубликованный порт** | **`${CODDY_HTTP_PORT:-12345}:12345`** | То же |
+| **Опубликованный порт** | **`${CODDY_HTTP_BIND:-127.0.0.1}:${CODDY_HTTP_PORT:-12345}:12345`**: только loopback хоста | То же |
 | **Рабочая папка** | **`/workspace`** (**`CODDY_CWD`**) | То же |
 
 **Проверка состояния** - **`coddy --version`** каждые 5 с (контейнер становится "healthy", как только бинарник отвечает; готовность HTTP проверяется отдельно - выполните **`curl /v1/models`** после **`up`**).
@@ -120,6 +120,13 @@ docker compose up -d
 export CODDY_HTTP_PORT=8080
 docker compose up -d
 # UI: http://127.0.0.1:8080/
+```
+
+Оба файла публикуют порт только на loopback хоста, поэтому API доступен с этой машины и больше ниоткуда. Без учётных данных любой, кто дотянется до порта, получает весь API - ключи провайдеров, рабочую папку, агента, - поэтому задайте **`httpserver.auth_token`** или вход по паролю ([Аутентификация](../reference/http-api.md#аутентификация-необязательно)), прежде чем открывать его в сеть через **`CODDY_HTTP_BIND`**.
+
+```bash
+export CODDY_HTTP_BIND=0.0.0.0
+docker compose up -d
 ```
 
 **Сборка из исходников** (dev-файл compose).
@@ -297,4 +304,4 @@ make check-image IMAGE_PLATFORMS=linux/arm64
 
 Скрипт создаёт временный **`config.yaml`**, поднимает **`coddy`** через **`docker-compose.dev.yml`**, ждёт **`/v1/models`** и запускает **`examples/httpserver/http_smoke_gateway.py`**.
 
-<!-- docsgen:source sha256=7e13d13a3b043711 -->
+<!-- docsgen:source sha256=33a167ef9a9c2a69 -->

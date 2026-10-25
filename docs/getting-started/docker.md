@@ -45,7 +45,7 @@ Compose V2 merges an optional **`docker-compose.override.yml`** in the same dire
 |---------|-----------------|-------------|
 | **Image** | **`${CODDY_IMAGE:-ghcr.io/coddy-project/coddy-agent:latest}`** | **`coddy-agent:${CODDY_VERSION:-dev}`** (built locally) |
 | **Command** | Image **`CMD`**: **`serve -H 0.0.0.0 -P 12345`**, overridable with **`CODDY_COMMAND`** | Same |
-| **Published port** | **`${CODDY_HTTP_PORT:-12345}:12345`** | Same |
+| **Published port** | **`${CODDY_HTTP_BIND:-127.0.0.1}:${CODDY_HTTP_PORT:-12345}:12345`**: the host's loopback only | Same |
 | **Working dir** | **`/workspace`** (**`CODDY_CWD`**) | Same |
 
 **Healthcheck** - **`coddy --version`** every 5s (container "healthy" once the binary responds; HTTP readiness is separate - use **`curl /v1/models`** after **`up`**).
@@ -120,6 +120,13 @@ Change only the host port:
 export CODDY_HTTP_PORT=8080
 docker compose up -d
 # UI: http://127.0.0.1:8080/
+```
+
+Both files publish the port on the host's loopback only, so the API is reachable from that machine and nowhere else. Without a credential anyone who reaches the port has the whole API - provider keys, the workspace, the agent - so set **`httpserver.auth_token`** or the sign-in ([Authentication](../reference/http-api.md#authentication-optional)) before you open it to the network with **`CODDY_HTTP_BIND`**:
+
+```bash
+export CODDY_HTTP_BIND=0.0.0.0
+docker compose up -d
 ```
 
 **Build from source** (dev compose file):
