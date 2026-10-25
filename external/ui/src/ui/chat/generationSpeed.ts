@@ -3,14 +3,14 @@ export type GenerationSummary = {
   tokensPerSecond: number;
 };
 
-/** Precision is chosen before rounding, so 1.999 still reads as 2.00. */
-export function formatGenerationSpeed(speed: number, locale: string): string {
+/**
+ * Precision is chosen before rounding, so 1.999 still reads as 2.00. The
+ * decimal point stays a point in every locale: the token count beside it
+ * never localizes either, and the Go console prints the same number.
+ */
+export function formatGenerationSpeed(speed: number): string {
   const digits = speed < 2 ? 2 : speed < 10 ? 1 : 0;
-  return speed.toLocaleString(locale, {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-    useGrouping: false,
-  });
+  return speed.toFixed(digits);
 }
 
 export function generationSummaryFromFrame(

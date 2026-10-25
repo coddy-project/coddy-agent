@@ -853,18 +853,16 @@ func hasReasoningLevel(levels []string, value string) bool {
 }
 
 // replayMessages mirrors Manager.replayConversation over REST message rows.
-func (h *Handler) replayMessages(sessionID string, rows []messageRow, logs ...[]session.UILogEntry) {
+func (h *Handler) replayMessages(sessionID string, rows []messageRow, logs []session.UILogEntry) {
 	sender := h.currentSender()
 	if sender == nil {
 		return
 	}
 	toolNames := map[string]string{}
 	var summaries []session.UILogEntry
-	if len(logs) > 0 {
-		for _, row := range logs[0] {
-			if row.Generation != nil {
-				summaries = append(summaries, row)
-			}
+	for _, row := range logs {
+		if row.Generation != nil {
+			summaries = append(summaries, row)
 		}
 	}
 	turn := 0

@@ -25,7 +25,7 @@ export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
   /** When provided, a refresh button re-runs the last turn (e.g. after a no-response error). */
   onRetry?: () => void;
 }) {
-  const { t, tp, locale } = useT();
+  const { t, tp } = useT();
   if (props.generation) {
     return (
       <div
@@ -38,10 +38,7 @@ export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
         })}
         {" · "}
         {t("status.generationSpeed", {
-          speed: formatGenerationSpeed(
-            props.generation.tokensPerSecond,
-            locale,
-          ),
+          speed: formatGenerationSpeed(props.generation.tokensPerSecond),
         })}
       </div>
     );

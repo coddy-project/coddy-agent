@@ -8,17 +8,15 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 )
 
-func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessionDir string, logs ...[]UILogEntry) error {
+func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessionDir string, logs []UILogEntry) error {
 	if m.server == nil {
 		return nil
 	}
 
 	var summaries []UILogEntry
-	if len(logs) > 0 {
-		for _, row := range logs[0] {
-			if row.Generation != nil {
-				summaries = append(summaries, row)
-			}
+	for _, row := range logs {
+		if row.Generation != nil {
+			summaries = append(summaries, row)
 		}
 	}
 	turn := 0

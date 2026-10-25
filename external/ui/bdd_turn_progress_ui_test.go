@@ -26,6 +26,13 @@ func TestTurnProgressWebUIFeature(t *testing.T) {
 			sc.Step(`^the live line shows the generated tokens once there are any, shortened past a thousand$`, func() error {
 				return runVitestScenario(dots, "generated tokens appear once there are any, shortened past a thousand")
 			})
+			sc.Step(`^the live line shows generation speed immediately after the running token count$`, func() error {
+				return runVitestScenario(dots, "shows generation speed immediately after the running token count")
+			})
+			sc.Step(`^a completed generation caption follows the answer and is not duplicated by replay$`, func() error {
+				return runVitestScenario("src/ui/chat/consumeComposerSse.order.test.ts",
+					"a completed generation caption follows the answer and is not duplicated by replay")
+			})
 			sc.Step(`^the live line of a running turn carries the server's clock and token count$`, func() error {
 				return runVitestScenario(screen, "the live line of a running turn carries the server's clock and token count")
 			})

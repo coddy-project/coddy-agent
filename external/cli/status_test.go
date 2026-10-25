@@ -251,8 +251,8 @@ func TestTurnLine(t *testing.T) {
 		{30 * time.Second, 0, 3, "30s · 3 running tasks"},
 	}
 	for _, c := range cases {
-		if got := turnLine(c.elapsed, c.tokens, c.tasks); got != c.want {
-			t.Errorf("turnLine(%v, %d, %d) = %q, want %q", c.elapsed, c.tokens, c.tasks, got, c.want)
+		if got := turnLine(c.elapsed, c.tokens, c.tasks, nil); got != c.want {
+			t.Errorf("turnLine(%v, %d, %d, nil) = %q, want %q", c.elapsed, c.tokens, c.tasks, got, c.want)
 		}
 	}
 }

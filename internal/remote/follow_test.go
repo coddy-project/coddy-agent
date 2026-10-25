@@ -208,7 +208,7 @@ func TestReplayShowsAWakeInsteadOfAUserMessage(t *testing.T) {
 			Tasks: []llm.BackgroundWakeTask{{ID: "bg_3", Kind: "command", Label: "make test", Status: "failed", ExitCode: &two, DurationMs: 90_000}},
 		}},
 		{Role: "assistant", Content: "The tests failed."},
-	})
+	}, nil)
 	sender.mu.Lock()
 	defer sender.mu.Unlock()
 	var users []string
@@ -249,7 +249,7 @@ func TestReplayShowsAnInTurnSummaryFromItsPreambleOn(t *testing.T) {
 		{Role: "user", CompactionSummary: true, Content: session.NewInTurnCompactionSummaryMessage(prompt, "the worker read two files", "m").Content},
 		{Role: "assistant", Content: "continuing"},
 		{Role: "user", CompactionSummary: true, Content: session.NewCompactionSummaryMessage("an older turn", "m").Content},
-	})
+	}, nil)
 	sender.mu.Lock()
 	defer sender.mu.Unlock()
 	var users []string
@@ -526,7 +526,7 @@ func TestReplayDrawsTheAgentsToolRows(t *testing.T) {
 	]`), &rows); err != nil {
 		t.Fatal(err)
 	}
-	h.replayMessages("sess_1", rows)
+	h.replayMessages("sess_1", rows, nil)
 	sender.mu.Lock()
 	defer sender.mu.Unlock()
 	var seq []string

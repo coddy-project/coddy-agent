@@ -403,15 +403,16 @@ func (s liveStatus) statusText(elapsed time.Duration) string {
 
 // turnLine renders the turn's own numbers, which lead the status line: how long the
 // turn has been running, how many tokens the model has generated in it, how many
-// background tasks run right now. Tokens and tasks appear once there are any, so a turn
-// that has not heard from the model reads as its clock alone. The web UI renders the
-// same line (external/ui/src/ui/messages/TypingDotsMessage.tsx).
-func turnLine(elapsed time.Duration, tokens, runningTasks int, speed ...*float64) string {
+// background tasks run right now, and the generation speed once a window has filled.
+// Tokens and tasks appear once there are any, so a turn that has not heard from the
+// model reads as its clock alone. The web UI renders the same line
+// (external/ui/src/ui/messages/TypingDotsMessage.tsx).
+func turnLine(elapsed time.Duration, tokens, runningTasks int, speed *float64) string {
 	parts := []string{formatElapsed(elapsed)}
 	if tokens > 0 {
 		parts = append(parts, tui.FormatTokenCount(tokens)+" "+plural(tokens, "token", "tokens"))
-		if len(speed) > 0 && speed[0] != nil {
-			parts = append(parts, formatGenerationSpeed(*speed[0])+" tok/s")
+		if speed != nil {
+			parts = append(parts, formatGenerationSpeed(*speed)+" tok/s")
 		}
 	}
 	if runningTasks > 0 {

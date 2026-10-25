@@ -61,7 +61,7 @@ function TypingDotsMessageImpl(props: {
    */
   idle?: boolean;
 }) {
-  const { t, tp, locale } = useT();
+  const { t, tp } = useT();
   const tasksOnly = props.tasksOnly === true;
   const showStatus = props.statusKind !== undefined && !tasksOnly;
 
@@ -269,7 +269,7 @@ function TypingDotsMessageImpl(props: {
                     shown: formatTurnTokens(turnTokens),
                   })}
                   {typeof props.tokensPerSecond === "number"
-                    ? ` · ${t("status.generationSpeed", { speed: formatGenerationSpeed(props.tokensPerSecond, locale) })}`
+                    ? ` · ${t("status.generationSpeed", { speed: formatGenerationSpeed(props.tokensPerSecond) })}`
                     : ""}
                 </span>
               ) : null}
