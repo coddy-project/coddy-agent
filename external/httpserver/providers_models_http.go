@@ -30,8 +30,8 @@ func (s *Server) registerProvidersRoutes() {
 // {"ok":false,"error":...,"models":[]} with HTTP 200 so the UI can fall back to
 // manual model entry. A model the provider reports no window for and the
 // built-in models catalog knows also carries
-// {"catalog":{"context_window","max_tokens"}}. An unknown provider name returns
-// 404.
+// {"catalog":{"context_window","max_tokens","multimodal"}}. An unknown provider
+// name returns 404.
 func (s *Server) coddyProviderModelsGet(w http.ResponseWriter, r *http.Request) {
 	c := s.activeCfg()
 	if c == nil {
@@ -197,8 +197,9 @@ type providerModel struct {
 }
 
 type catalogLimits struct {
-	ContextWindow int `json:"context_window"`
-	MaxTokens     int `json:"max_tokens,omitempty"`
+	ContextWindow int  `json:"context_window"`
+	MaxTokens     int  `json:"max_tokens,omitempty"`
+	Multimodal    bool `json:"multimodal,omitempty"`
 }
 
 func withCatalogLimits(listed []llm.ModelEntry) []providerModel {
@@ -209,7 +210,7 @@ func withCatalogLimits(listed []llm.ModelEntry) []providerModel {
 			continue
 		}
 		if limits, ok := models.Lookup(m.ID); ok {
-			out[i].Catalog = &catalogLimits{ContextWindow: limits.ContextWindow, MaxTokens: limits.MaxTokens}
+			out[i].Catalog = &catalogLimits{ContextWindow: limits.ContextWindow, MaxTokens: limits.MaxTokens, Multimodal: limits.Multimodal}
 		}
 	}
 	return out

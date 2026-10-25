@@ -219,8 +219,8 @@ site-schema:
 site-schema-check:
 	CHECK=1 scripts/sync-site-schema.sh
 
-# The models catalog the settings screen fills a model's window and max_tokens
-# from: internal/llm/models/models.json, one line per model id of Coddy's
+# The models catalog the settings screen fills a model's window, max_tokens
+# and multimodal from: internal/llm/models/models.json, one line per model id of Coddy's
 # providers (OpenAI, Anthropic, OpenCode), built from models.dev and embedded
 # into the binary, so neither a build nor a running Coddy asks models.dev
 # anything. models-catalog downloads the catalog and rewrites the file only

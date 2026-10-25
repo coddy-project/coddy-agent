@@ -332,8 +332,9 @@ func (w *providerModelsWorld) readModels(res *http.Response) error {
 			ID            string `json:"id"`
 			ContextWindow int    `json:"context_window"`
 			Catalog       *struct {
-				ContextWindow int `json:"context_window"`
-				MaxTokens     int `json:"max_tokens"`
+				ContextWindow int  `json:"context_window"`
+				MaxTokens     int  `json:"max_tokens"`
+				Multimodal    bool `json:"multimodal"`
 			} `json:"catalog"`
 		} `json:"models"`
 	}
@@ -348,7 +349,7 @@ func (w *providerModelsWorld) readModels(res *http.Response) error {
 		w.models = append(w.models, m.ID)
 		w.ctx[m.ID] = m.ContextWindow
 		if m.Catalog != nil {
-			w.catalog[m.ID] = &models.Limits{ContextWindow: m.Catalog.ContextWindow, MaxTokens: m.Catalog.MaxTokens}
+			w.catalog[m.ID] = &models.Limits{ContextWindow: m.Catalog.ContextWindow, MaxTokens: m.Catalog.MaxTokens, Multimodal: m.Catalog.Multimodal}
 		}
 	}
 	return nil
@@ -466,7 +467,7 @@ func TestProviderModelsFetchFeature(t *testing.T) {
 			sc.Step(`^the settings form reads the models of the saved provider "([^"]*)"$`, w.getSaved)
 			sc.Step(`^the gateway answers with the models "([^"]*)"$`, w.wantModels)
 			sc.Step(`^the gateway answers with context window (\d+) for "([^"]*)"$`, w.wantCtx)
-			sc.Step(`^the gateway answers with the window and max_tokens the models catalog has for "([^"]*)"$`, w.wantCatalog)
+			sc.Step(`^the gateway answers with the window, max_tokens and image support the models catalog has for "([^"]*)"$`, w.wantCatalog)
 			sc.Step(`^the gateway answers with nothing from the models catalog for "([^"]*)"$`, w.wantNoCatalog)
 			sc.Step(`^the upstream saw the key "([^"]*)"$`, w.upstreamSawKey)
 			sc.Step(`^the model list reports the context window (\d+) for "([^"]*)"$`, w.modelListReportsWindow)

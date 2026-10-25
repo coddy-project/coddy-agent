@@ -8,7 +8,7 @@ export interface FetchedModel {
   context_window?: number;
   /** What the server's models catalog knows of an id the provider reports no
    * window for: a model added from the list is filled from it. */
-  catalog?: { context_window: number; max_tokens?: number };
+  catalog?: { context_window: number; max_tokens?: number; multimodal?: true };
 }
 
 /** A providers[] row as the settings form holds it. */
@@ -86,7 +86,11 @@ type ModelsResponse = {
     id?: string;
     name?: string;
     context_window?: number;
-    catalog?: { context_window?: number; max_tokens?: number };
+    catalog?: {
+      context_window?: number;
+      max_tokens?: number;
+      multimodal?: boolean;
+    };
   }[];
 };
 
@@ -115,10 +119,14 @@ function normalize(rows: ModelsResponse["models"]): FetchedModel[] {
     }
     const catalogWindow = tokens(m.catalog?.context_window);
     if (catalogWindow) {
+      item.catalog = { context_window: catalogWindow };
       const maxTokens = tokens(m.catalog?.max_tokens);
-      item.catalog = maxTokens
-        ? { context_window: catalogWindow, max_tokens: maxTokens }
-        : { context_window: catalogWindow };
+      if (maxTokens) {
+        item.catalog.max_tokens = maxTokens;
+      }
+      if (m.catalog?.multimodal === true) {
+        item.catalog.multimodal = true;
+      }
     }
     list.push(item);
   }

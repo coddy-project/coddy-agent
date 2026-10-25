@@ -1,6 +1,6 @@
 // Package models is what the settings screen knows about a model the
-// provider does not describe: its context window and a max_tokens to start
-// from, by model id, for the providers of models.dev a provider type of Coddy
+// provider does not describe: its context window, a max_tokens to start from
+// and whether it reads images, by model id, for the providers of models.dev a provider type of Coddy
 // talks to. The table is models.json, built from models.dev
 // (https://models.dev, MIT licence) by `make models-catalog` and embedded into
 // the binary, so nothing is downloaded or read from disk at run time and no
@@ -29,17 +29,23 @@ const Path = "internal/llm/models/models.json"
 //go:embed models.json
 var snapshot []byte
 
-// Limits are the numbers the settings screen offers a models[] row.
+// Limits are what the settings screen offers a models[] row.
 type Limits struct {
 	// ContextWindow is the part of the window a prompt may take.
 	ContextWindow int
 	// MaxTokens is the answer's room; 0 when the catalog states none.
 	MaxTokens int
+	// Multimodal reports that the model reads images.
+	Multimodal bool
 }
+
+// entry is one line of models.json: the window, max_tokens, and 1 when the
+// model reads images, else 0.
+type entry [3]int
 
 var (
 	loadOnce sync.Once
-	table    map[string][2]int
+	table    map[string]entry
 )
 
 // Lookup returns the limits of the model with exactly this id.
@@ -52,7 +58,7 @@ func Lookup(id string) (Limits, bool) {
 		}
 	})
 	v, ok := table[id]
-	return Limits{ContextWindow: v[0], MaxTokens: v[1]}, ok
+	return Limits{ContextWindow: v[0], MaxTokens: v[1], Multimodal: v[2] == 1}, ok
 }
 
 // providers are the providers of models.dev a provider type of Coddy talks to
@@ -66,7 +72,8 @@ var providers = map[string]bool{
 }
 
 // Compact turns models.dev's api.json into models.json: one line per model id
-// of the providers above, sorted, with its window and max_tokens.
+// of the providers above, sorted, with its window, its max_tokens and whether
+// it reads images (modalities.input names "image").
 //
 // The window is limit.input when the catalog states one below limit.context
 // (GPT-5: 272000 of a 400000 window that also holds the answer), else
@@ -79,7 +86,8 @@ var providers = map[string]bool{
 // several providers takes the vendor's numbers when a vendor lists it, else
 // the pair with the smallest window: a window larger than the real one is
 // worse than none, and a pair is never split, since its max_tokens was worked
-// out for its own window.
+// out for its own window. Whether the model reads images comes with the entry
+// that gave the numbers.
 func Compact(api []byte) ([]byte, error) {
 	var catalog map[string]struct {
 		Models map[string]struct {
@@ -88,13 +96,16 @@ func Compact(api []byte) ([]byte, error) {
 				Input   int `json:"input"`
 				Output  int `json:"output"`
 			} `json:"limit"`
+			Modalities struct {
+				Input []string `json:"input"`
+			} `json:"modalities"`
 		} `json:"models"`
 	}
 	if err := json.Unmarshal(api, &catalog); err != nil {
 		return nil, fmt.Errorf("read models.dev catalog: %w", err)
 	}
 	type pick struct {
-		limits [2]int
+		limits entry
 		vendor bool
 	}
 	picked := map[string]pick{}
@@ -113,7 +124,11 @@ func Compact(api []byte) ([]byte, error) {
 			if window <= 0 || strings.TrimSpace(id) == "" {
 				continue
 			}
-			cur := pick{limits: [2]int{window, max(out, 0)}, vendor: vendor}
+			image := 0
+			if slices.Contains(m.Modalities.Input, "image") {
+				image = 1
+			}
+			cur := pick{limits: entry{window, max(out, 0), image}, vendor: vendor}
 			prev, seen := picked[id]
 			if !seen || cur.vendor && !prev.vendor || cur.vendor == prev.vendor && smaller(cur.limits, prev.limits) {
 				picked[id] = cur
@@ -123,7 +138,7 @@ func Compact(api []byte) ([]byte, error) {
 	if len(picked) == 0 {
 		return nil, fmt.Errorf("models.dev lists no model of OpenAI, Anthropic or OpenCode with a context window")
 	}
-	out := make(map[string][2]int, len(picked))
+	out := make(map[string]entry, len(picked))
 	for id, p := range picked {
 		out[id] = p.limits
 	}
@@ -132,12 +147,12 @@ func Compact(api []byte) ([]byte, error) {
 
 // render writes the table as models.json: one model per line, sorted by id, so
 // a refresh reads as a diff of the models that moved.
-func render(table map[string][2]int) []byte {
+func render(table map[string]entry) []byte {
 	var b bytes.Buffer
 	b.WriteString("{\n")
 	for i, id := range slices.Sorted(maps.Keys(table)) {
 		key, _ := json.Marshal(id)
-		fmt.Fprintf(&b, "%s:[%d,%d]", key, table[id][0], table[id][1])
+		fmt.Fprintf(&b, "%s:[%d,%d,%d]", key, table[id][0], table[id][1], table[id][2])
 		if i < len(table)-1 {
 			b.WriteByte(',')
 		}
@@ -149,7 +164,7 @@ func render(table map[string][2]int) []byte {
 
 // smaller orders two [window, max_tokens] pairs: the smaller window first, then
 // the smaller max_tokens, where 0 (unknown) counts as the largest.
-func smaller(a, b [2]int) bool {
+func smaller(a, b entry) bool {
 	if a[0] != b[0] {
 		return a[0] < b[0]
 	}
@@ -165,7 +180,7 @@ func smaller(a, b [2]int) bool {
 // Changes says how next differs from prev, both in the models.json format:
 // the counts and the first ids of each kind.
 func Changes(prev, next []byte) (string, error) {
-	var a, b map[string][2]int
+	var a, b map[string]entry
 	if len(prev) > 0 {
 		if err := json.Unmarshal(prev, &a); err != nil {
 			return "", fmt.Errorf("read the current models.json: %w", err)

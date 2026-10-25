@@ -41,11 +41,13 @@ export function ProviderModelList(props: {
   /** Every models[].model of the document, so listed ids are told apart. */
   existingModels: string[];
   /** Files provider/id under Logical models, with the context window the
-   * provider reports, else the models catalog's window and max_tokens. */
+   * provider reports, else the models catalog's window, max_tokens and image
+   * support. */
   onAddModel: (
     id: string,
     contextWindow?: number | undefined,
     maxTokens?: number | undefined,
+    multimodal?: boolean | undefined,
   ) => void;
   /** Takes provider/id out of Logical models. */
   onRemoveModel: (id: string) => void;
@@ -135,6 +137,7 @@ export function ProviderModelList(props: {
                   full,
                   model?.catalog?.context_window,
                   model?.catalog?.max_tokens,
+                  model?.catalog?.multimodal,
                 )
         }
       >

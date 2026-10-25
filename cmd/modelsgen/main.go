@@ -1,7 +1,7 @@
 // Command modelsgen refreshes internal/llm/models/models.json from
-// models.dev: the id, window and max_tokens of every model of the providers
-// Coddy has (OpenAI, Anthropic, OpenCode), nothing else. It
-// writes the file only when those numbers changed and says which models moved.
+// models.dev: the id, window, max_tokens and image support of every model of
+// the providers Coddy has (OpenAI, Anthropic, OpenCode), nothing else. It
+// writes the file only when those values changed and says which models moved.
 //
 //	go run ./cmd/modelsgen          # refresh (make models-catalog)
 //	go run ./cmd/modelsgen -check   # exit 1 when the copy is behind (make models-catalog-check)

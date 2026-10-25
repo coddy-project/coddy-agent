@@ -1898,10 +1898,10 @@ test("a model added from the provider list carries the context window the provid
   ]);
 });
 
-// For a model the provider reports no window for, the models catalog's window
-// and max_tokens arrive together, written into max_context_tokens and
-// max_tokens.
-test("a model added from the provider list carries the catalog's window and max_tokens", async () => {
+// For a model the provider reports no window for, the models catalog's window,
+// max_tokens and image support arrive together, written into
+// max_context_tokens, max_tokens and multimodal.
+test("a model added from the provider list carries the catalog's window, max_tokens and image support", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({
@@ -1909,7 +1909,14 @@ test("a model added from the provider list carries the catalog's window and max_
       json: async () => ({
         ok: true,
         models: [
-          { id: "m1", catalog: { context_window: 200000, max_tokens: 40000 } },
+          {
+            id: "m1",
+            catalog: {
+              context_window: 200000,
+              max_tokens: 40000,
+              multimodal: true,
+            },
+          },
         ],
       }),
     })),
@@ -1930,6 +1937,7 @@ test("a model added from the provider list carries the catalog's window and max_
               title: "Context window (tokens)",
             },
             max_tokens: { type: "integer", title: "Max tokens" },
+            multimodal: { type: "boolean", title: "Multimodal" },
             reasoning_levels: {
               type: "array",
               title: "Reasoning levels",
@@ -1940,6 +1948,7 @@ test("a model added from the provider list carries the catalog's window and max_
             "model",
             "max_context_tokens",
             "max_tokens",
+            "multimodal",
             "reasoning_levels",
           ],
         },
@@ -1970,7 +1979,12 @@ test("a model added from the provider list carries the catalog's window and max_
   fireEvent.click(await screen.findByTestId("provider-model-toggle-m1"));
 
   expect(latest.models).toEqual([
-    { model: "demo/m1", max_context_tokens: 200000, max_tokens: 40000 },
+    {
+      model: "demo/m1",
+      max_context_tokens: 200000,
+      max_tokens: 40000,
+      multimodal: true,
+    },
   ]);
 });
 
