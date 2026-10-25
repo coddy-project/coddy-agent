@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
 const css = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
+  join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
   "utf8",
 );
 

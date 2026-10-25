@@ -352,7 +352,7 @@ describe("diagram colours follow the theme and stay readable", () => {
     const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m);
     return (x! + 0.05) / (y! + 0.05);
   };
-  // The dark and light themes' own tokens (styles.css), as the browser resolves them.
+  // The dark and light themes' own tokens (styles.scss), as the browser resolves them.
   const dark: DiagramPalette = {
     dark: true,
     background: [24, 24, 27],

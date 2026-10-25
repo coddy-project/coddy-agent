@@ -112,7 +112,7 @@ function usePatches(
   return patches;
 }
 
-/** A phone shows the tree or the diffs, one at a time (styles.css, Files window). */
+/** A phone shows the tree or the diffs, one at a time (styles.scss, Files window). */
 function onPhone(): boolean {
   return (
     typeof window !== "undefined" &&

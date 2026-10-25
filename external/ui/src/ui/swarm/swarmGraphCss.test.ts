@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 // height, and .swarm-graph-viewport is sized by flex-grow - the SVG would
 // collapse to its intrinsic 150px and the map would render as an empty box.
 const dir = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(dir, "../../styles.css"), "utf8");
+const css = readFileSync(join(dir, "../../styles.scss"), "utf8");
 
 const rule = (selector: string): string => {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

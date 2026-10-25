@@ -3,7 +3,7 @@
 package cli
 
 // lightColors maps theme roles to the coddy light palette
-// (external/ui/src/styles.css [data-theme="light"]).
+// (external/ui/src/styles.scss [data-theme="light"]).
 var lightColors = map[string]string{
 	roleAccent:       "#7c3aed",
 	roleBorder:       "#7c3aed",

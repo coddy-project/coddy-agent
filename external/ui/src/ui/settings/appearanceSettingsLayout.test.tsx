@@ -97,7 +97,7 @@ test("the settings drawer holds three theme cards a row", async () => {
   const { dirname, join } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
   const css = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
+    join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
     "utf8",
   );
   const drawer = /^\.settings\.drawer\s*\{\s*width:\s*min\(\s*(\d+)px/m.exec(

@@ -6,7 +6,7 @@ import { expect, test } from "vitest";
 const dir = dirname(fileURLToPath(import.meta.url));
 
 function cssText(): string {
-  return readFileSync(join(dir, "../../styles.css"), "utf8");
+  return readFileSync(join(dir, "../../styles.scss"), "utf8");
 }
 
 // The wand sits in the field's top right corner instead of a row of its own,

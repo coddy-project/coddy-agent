@@ -8084,8 +8084,11 @@ html:not([data-theme="light"]) .context-breakdown-error {
   max-height: min(
     80vh,
     calc(
-      100dvh - var(--coddy-keyboard-inset, 0px) -
-        var(--coddy-mobile-top-inset, 0px) - 6px
+      100dvh - var(--coddy-keyboard-inset, 0px) - var(
+          --coddy-mobile-top-inset,
+          0px
+        ) -
+        6px
     )
   );
   border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius)
@@ -9494,8 +9497,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
     480px,
     calc(
       100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) -
-        16px -
-        min(
+        16px - min(
           320px,
           calc(
             100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) -
@@ -9516,8 +9518,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
     480px,
     calc(
       100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) -
-        16px -
-        min(
+        16px - min(
           320px,
           calc(
             100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) -

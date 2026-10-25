@@ -7,7 +7,7 @@ import { phoneMaxWidthMediaQuery } from "../shellBreakpoint";
 
 const cssPath = join(
   dirname(fileURLToPath(import.meta.url)),
-  "../../styles.css",
+  "../../styles.scss",
 );
 
 function cssText(): string {

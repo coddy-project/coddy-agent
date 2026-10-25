@@ -554,7 +554,7 @@ test("a structured card's bar wraps instead of clipping", async () => {
   const { dirname, join } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
   const css = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
+    join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
     "utf8",
   );
   const rule = css.match(

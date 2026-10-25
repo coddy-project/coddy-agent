@@ -10,7 +10,7 @@ import { expect, test } from "vitest";
  * (DESIGN.md, Session goal in the composer).
  */
 
-const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf8");
+const css = readFileSync(join(__dirname, "..", "..", "styles.scss"), "utf8");
 
 function squash(body: string): string {
   return body

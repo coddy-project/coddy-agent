@@ -503,7 +503,7 @@ describe("SwarmView", () => {
 
     expect(viewport).toHaveClass("is-panning");
     const css = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
+      join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
       "utf8",
     );
     expect(css).toContain(
@@ -660,7 +660,7 @@ describe("SwarmView", () => {
     expect(mapNode("other")).not.toHaveClass("is-route-relay");
 
     const css = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
+      join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
       "utf8",
     );
     expect(css).toContain(
@@ -684,7 +684,7 @@ describe("SwarmView", () => {
 
   it("drops camera transition while panning and sizes controls for touch", () => {
     const css = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
+      join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
       "utf8",
     );
     expect(css).toContain(
@@ -1102,7 +1102,7 @@ describe("SwarmView", () => {
   // have to name the same state classes that switched it on.
   it("switches every animation off under reduced motion", () => {
     const css = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
+      join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
       "utf8",
     );
     const block = css.slice(
@@ -1118,7 +1118,7 @@ describe("SwarmView", () => {
   // dock under it hands every tap to the backdrop, which closes the screen.
   it("takes taps on a phone: the dock sits above the backdrop and below the top bar", () => {
     const css = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
+      join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
       "utf8",
     );
     const mobileBackdrop =
@@ -1144,7 +1144,7 @@ describe("SwarmView", () => {
   // left bare strips on both sides of a wide screen (issue #401).
   it("opens in a dock as wide as the documentation reader's, and the map fills it", () => {
     const css = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
+      join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
       "utf8",
     );
     const top = (selector: string) =>

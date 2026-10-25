@@ -426,7 +426,7 @@ test("connection edits wait for the refresh icon; a new id fetches once it settl
 // the toggle never squeezes.
 test("the list is contained: the box may shrink, the id ellipsizes, the toggle never squeezes", () => {
   const css = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
+    join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
     "utf8",
   );
   const rule = (selector: string) => {

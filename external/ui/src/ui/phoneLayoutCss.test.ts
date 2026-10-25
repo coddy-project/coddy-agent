@@ -12,7 +12,7 @@ import {
 // live check at 360-430px (docs/surfaces/web-ui.md, Phone layout) measures it.
 
 const dir = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(dir, "../styles.css"), "utf8");
+const css = readFileSync(join(dir, "../styles.scss"), "utf8");
 const indexHtml = readFileSync(join(dir, "../index.html"), "utf8");
 
 type Block = { prelude: string; body: string; children: Block[] };

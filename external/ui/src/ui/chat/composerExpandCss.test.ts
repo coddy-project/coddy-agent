@@ -4,14 +4,14 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
 const dir = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(dir, "../../styles.css"), "utf8");
+const css = readFileSync(join(dir, "../../styles.scss"), "utf8");
 
 /** Whitespace squashed, so a declaration Prettier broke over lines still matches. */
 const squash = (s: string) => s.replace(/\s+/g, " ");
 
 function ruleBody(selector: string, from = 0): string {
   const idx = css.indexOf(selector, from);
-  expect(idx, `${selector} is missing from styles.css`).toBeGreaterThan(-1);
+  expect(idx, `${selector} is missing from styles.scss`).toBeGreaterThan(-1);
   const open = css.indexOf("{", idx);
   const close = css.indexOf("}", open);
   return squash(css.slice(open + 1, close));

@@ -423,7 +423,7 @@ test("the subagent settings sit in their own fieldset above the definitions", as
   const { dirname, join } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
   const css = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
+    join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
     "utf8",
   );
   const rule = /^\.settings-subagents-section\s*\{([^}]*)\}/m.exec(css);

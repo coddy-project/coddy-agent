@@ -253,7 +253,7 @@ export function isNewerGoal(
   return next.version > heldVersion;
 }
 
-/** The colour family a status is drawn in (styles.css, `.goal-tone-*`). */
+/** The colour family a status is drawn in (styles.scss, `.goal-tone-*`). */
 export type GoalTone = "active" | "muted" | "alert" | "done";
 
 export function goalTone(status: GoalStatus): GoalTone {

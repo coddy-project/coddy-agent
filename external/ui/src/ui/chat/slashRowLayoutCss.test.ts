@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
 const dir = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(dir, "../../styles.css"), "utf8");
+const css = readFileSync(join(dir, "../../styles.scss"), "utf8");
 const composer = readFileSync(join(dir, "Composer.tsx"), "utf8");
 
 test("slash row button is a single block, not a 2-column grid", () => {

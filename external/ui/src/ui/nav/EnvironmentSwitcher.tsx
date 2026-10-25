@@ -143,7 +143,7 @@ export function EnvironmentSwitcher(props: {
   // the rail with its foot level with the item's and grows upward; an item in
   // the upper half of a short window hangs the menu from its top instead.
   const opensUp = !!anchor && anchor.top > window.innerHeight / 2;
-  // Beside the rail, kept inside the window. The width is the one styles.css
+  // Beside the rail, kept inside the window. The width is the one styles.scss
   // gives .mode-menu--portal.mode-menu--env.
   const menuLeft = anchor
     ? Math.max(

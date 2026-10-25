@@ -53,7 +53,7 @@ export type ConfirmDialogProps = {
 // destructive action (delete session, delete scheduler job, ...). It mirrors the
 // WorkspaceFolderModal shell: a portal to document.body, role="dialog"
 // aria-modal="true", backdrop + click-outside + Escape to cancel, and a
-// Cancel / action pair. Visual styling lives in styles.css under .confirm-dialog*.
+// Cancel / action pair. Visual styling lives in styles.scss under .confirm-dialog*.
 export function ConfirmDialog(props: ConfirmDialogProps) {
   const { t } = useT();
   const {

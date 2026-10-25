@@ -7,7 +7,7 @@ import { PHONE_MAX_WIDTH_PX } from "../shellBreakpoint";
 
 const cssPath = join(
   dirname(fileURLToPath(import.meta.url)),
-  "../../styles.css",
+  "../../styles.scss",
 );
 
 function cssText(): string {

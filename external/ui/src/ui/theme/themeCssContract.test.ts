@@ -5,7 +5,7 @@ import { expect, test } from "vitest";
 
 const cssPath = join(
   dirname(fileURLToPath(import.meta.url)),
-  "../../styles.css",
+  "../../styles.scss",
 );
 
 function cssText(): string {
@@ -45,7 +45,7 @@ test("index.html bootstraps theme before paint", () => {
   expect(html).toContain("dataset.theme");
 });
 
-test("styles.css defines variable blocks for all 7 themes", () => {
+test("styles.scss defines variable blocks for all 7 themes", () => {
   const css = cssText();
   const themeSelectors = [
     '[data-theme="dark"]',

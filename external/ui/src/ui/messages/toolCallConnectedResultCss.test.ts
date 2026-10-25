@@ -5,7 +5,7 @@ import { expect, test } from "vitest";
 
 const cssPath = join(
   dirname(fileURLToPath(import.meta.url)),
-  "../../styles.css",
+  "../../styles.scss",
 );
 
 test("a structured tool preview and its result form one continuous card", () => {

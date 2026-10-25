@@ -8,7 +8,7 @@ import { expect, test } from "vitest";
 // held on the stylesheet itself.
 
 const css = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
+  join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
   "utf8",
 );
 

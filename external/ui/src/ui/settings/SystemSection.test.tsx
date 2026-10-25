@@ -1206,7 +1206,7 @@ describe("formatting", () => {
  */
 describe("the stylesheet", () => {
   const dir = dirname(fileURLToPath(import.meta.url));
-  const css = readFileSync(join(dir, "../../styles.css"), "utf8").replace(
+  const css = readFileSync(join(dir, "../../styles.scss"), "utf8").replace(
     /\/\*[\s\S]*?\*\//g,
     "",
   );

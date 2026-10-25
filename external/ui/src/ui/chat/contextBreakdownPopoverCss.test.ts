@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const css = readFileSync(
-  resolve(import.meta.dirname, "../../styles.css"),
+  resolve(import.meta.dirname, "../../styles.scss"),
   "utf8",
 );
 

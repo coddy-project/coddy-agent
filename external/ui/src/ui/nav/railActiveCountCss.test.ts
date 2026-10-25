@@ -10,11 +10,11 @@ import { expect, test } from "vitest";
  * the label and the More menu's stood after the text.
  */
 
-const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf8");
+const css = readFileSync(join(__dirname, "..", "..", "styles.scss"), "utf8");
 
 function ruleBody(selector: string): string {
   const idx = css.indexOf(`\n${selector} {`);
-  expect(idx, `${selector} is missing from styles.css`).toBeGreaterThan(-1);
+  expect(idx, `${selector} is missing from styles.scss`).toBeGreaterThan(-1);
   const open = css.indexOf("{", idx);
   return css.slice(open + 1, css.indexOf("}", open)).replace(/\s+/g, " ");
 }

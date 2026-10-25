@@ -15,7 +15,7 @@ import (
 // Rendering and clipboard behavior are covered by Markdown.test.tsx. This
 // contract keeps every appearance wired to the shared syntax token styles.
 func TestSyntaxThemesFeature(t *testing.T) {
-	css, err := os.ReadFile("src/styles.css")
+	css, err := os.ReadFile("src/styles.scss")
 	if err != nil {
 		t.Fatal(err)
 	}

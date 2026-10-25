@@ -10,7 +10,7 @@ import { expect, test } from "vitest";
  * who did not ask for less motion. Folding itself holds for every reader.
  */
 
-const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf8");
+const css = readFileSync(join(__dirname, "..", "..", "styles.scss"), "utf8");
 
 function squash(body: string): string {
   return body

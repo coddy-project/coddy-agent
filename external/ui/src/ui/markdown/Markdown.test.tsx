@@ -17,7 +17,7 @@ const stylesPath = join(
   dirname(fileURLToPath(import.meta.url)),
   "..",
   "..",
-  "styles.css",
+  "styles.scss",
 );
 
 afterEach(() => cleanup());

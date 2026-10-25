@@ -22,7 +22,7 @@ afterEach(() => cleanup());
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const uiRoot = join(dir, "..");
-const css = readFileSync(join(uiRoot, "../styles.css"), "utf8");
+const css = readFileSync(join(uiRoot, "../styles.scss"), "utf8");
 const chevronModule = join("components", "Chevron.tsx");
 
 function sources(root: string): string[] {

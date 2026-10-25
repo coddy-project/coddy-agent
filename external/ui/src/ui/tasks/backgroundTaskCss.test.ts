@@ -4,11 +4,11 @@ import { expect, test } from "vitest";
 
 import { phoneMaxWidthMediaQuery } from "../shellBreakpoint";
 
-const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf8");
+const css = readFileSync(join(__dirname, "..", "..", "styles.scss"), "utf8");
 
 function ruleBody(selector: string): string {
   const idx = css.indexOf(selector);
-  expect(idx, `${selector} is missing from styles.css`).toBeGreaterThan(-1);
+  expect(idx, `${selector} is missing from styles.scss`).toBeGreaterThan(-1);
   const open = css.indexOf("{", idx);
   const close = css.indexOf("}", open);
   return css.slice(open + 1, close);

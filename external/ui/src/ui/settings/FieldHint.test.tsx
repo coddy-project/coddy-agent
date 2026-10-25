@@ -145,7 +145,7 @@ test("a fieldset legend carries its description the same way", () => {
 // the tip over every panel and fixed to the viewport.
 test("the tip is fixed, layered over every panel and never takes the pointer", () => {
   const css = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
+    join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
     "utf8",
   );
   const rule = css.match(/^\.field-hint-tip\s*\{([^}]*)\}/m);

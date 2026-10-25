@@ -19,14 +19,14 @@ import {
 import type { TodoPlanEntry } from "../chat/todoToolPreview";
 import { useT } from "../i18n/I18nProvider";
 
-/** How long a card that stops showing stays for its exit (styles.css). */
+/** How long a card that stops showing stays for its exit (styles.scss). */
 export const TODO_CHECKLIST_EXIT_MS = 240;
 
 /**
  * The session's todo checklist at the newest end of the transcript (DESIGN.md
  * "Todo checklist under the transcript"): every item with the status mark the
  * todo tool rows use, the item in progress as the current step. The mark of
- * every item in progress spins and its text shimmers (styles.css), so the list
+ * every item in progress spins and its text shimmers (styles.scss), so the list
  * says which item the agent is on now.
  *
  * The head folds the list down to the items in progress, a choice this

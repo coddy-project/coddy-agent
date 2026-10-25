@@ -31,7 +31,7 @@ function schedulerSrc(): string {
   );
 }
 function cssText(): string {
-  return readFileSync(join(dir, "../../styles.css"), "utf8");
+  return readFileSync(join(dir, "../../styles.scss"), "utf8");
 }
 
 // ── JSX: icon glyph type ───────────────────────────────────────────────────

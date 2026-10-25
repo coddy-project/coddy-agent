@@ -163,7 +163,7 @@ export function DocsView(props: {
 
   // The header is laid on the columns of the page, but only the body scrolls:
   // a classic scrollbar takes its width out of the body alone. The body gives
-  // that width out of its right padding (--docs-scrollbar in styles.css), so
+  // that width out of its right padding (--docs-scrollbar in styles.scss), so
   // the text ends where the search does and the header keeps the same inset
   // on both sides. The scrollbar comes and goes with the page's height, which
   // the layout's width follows.

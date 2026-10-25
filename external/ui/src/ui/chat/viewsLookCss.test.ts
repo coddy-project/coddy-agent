@@ -10,7 +10,7 @@ import { expect, test } from "vitest";
  * takes it, in any theme.
  */
 
-const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf8");
+const css = readFileSync(join(__dirname, "..", "..", "styles.scss"), "utf8");
 
 /**
  * A declaration block on one line: Prettier breaks a long value over several,
@@ -27,7 +27,7 @@ function squash(body: string): string {
 /** The body of the last rule whose selector list ends with `selector {`. */
 function ruleBody(selector: string): string {
   const idx = css.lastIndexOf(`${selector} {`);
-  expect(idx, `${selector} is missing from styles.css`).toBeGreaterThan(-1);
+  expect(idx, `${selector} is missing from styles.scss`).toBeGreaterThan(-1);
   const open = css.indexOf("{", idx);
   return squash(css.slice(open + 1, css.indexOf("}", open)));
 }
