@@ -97,6 +97,11 @@ type Registry struct {
 	// instead of sleeping and hoping.
 	now       func() time.Time
 	newSecret func() (string, error)
+
+	// bindings maps a name to the digest of its lease secret, kept past the
+	// lease (name_bindings.go); nil until SetBindingsFile turns them on.
+	bindings     map[string]string
+	bindingsFile string
 }
 
 // NewRegistry returns an empty registry whose leases live for ttl without a
@@ -261,9 +266,20 @@ func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Opti
 		}, nil
 	}
 
-	secret, err := r.newSecret()
-	if err != nil {
-		return swarmdto.RegisterResponse{}, err
+	// No live lease: a name still bound to a secret goes back to its owner
+	// only, with the secret it was given.
+	var secret string
+	if bound, matches := r.boundSecretLocked(req.Name, req.LeaseSecret); bound {
+		if !matches {
+			return swarmdto.RegisterResponse{}, ErrNameTaken
+		}
+		secret = req.LeaseSecret
+	} else {
+		fresh, err := r.newSecret()
+		if err != nil {
+			return swarmdto.RegisterResponse{}, err
+		}
+		secret = fresh
 	}
 	l := &lease{
 		info: swarmdto.NodeInfo{
@@ -291,6 +307,7 @@ func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Opti
 		l.transport = t
 	}
 	r.nodes[req.Name] = l
+	r.bindLocked(req.Name, secret)
 	return swarmdto.RegisterResponse{
 		NodeID:      req.Name,
 		LeaseSecret: secret,
@@ -420,6 +437,9 @@ func (r *Registry) Pin(name string) {
 	if l, ok := r.nodes[name]; ok {
 		l.pinned = true
 	}
+	// A pinned lease is the operator's and lives as long as the process: its
+	// name needs no binding to outlive it.
+	r.unbindLocked(name)
 }
 
 // Delete removes a lease outright. This is the administrative takeover path for
@@ -433,6 +453,7 @@ func (r *Registry) Delete(name string) bool {
 	}
 	l.closeTransportLocked()
 	delete(r.nodes, name)
+	r.unbindLocked(name)
 	return true
 }
 

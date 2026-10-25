@@ -386,7 +386,11 @@ relay lends its authority to every local process.
 A node's name is proven by a **per-lease secret** the relay mints, not by the shared pairing
 token: a fleet credential must not let one node claim another's name, redirect its traffic, or
 read the prompts meant for it. The secret is stored under the coddy home so a restart reclaims
-the same name at once. `DELETE /swarm/nodes/{node}` is the administrative takeover path.
+the same name at once. The relay keeps a digest of each name's secret in
+`${CODDY_HOME}/swarm-names.json`, so the name stays bound when the lease is gone - after a restart
+or a settings save rebuilds the relay, or after the node was offline past the grace period - and
+only the node with the secret takes it back. `DELETE /swarm/nodes/{node}` is the administrative
+takeover path and frees the name; an entry of `swarm.upstreams` with the same name takes it over.
 
 An advertised URL is an **SSRF boundary**. Only `http(s)`, with no credentials, query or
 fragment; the host is then resolved and every address checked. Link-local, multicast,
