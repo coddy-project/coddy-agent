@@ -4,9 +4,11 @@ package platform
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -41,46 +43,56 @@ func commitReplace(tmpPath, target string) error {
 const keptAttributes = windows.FILE_ATTRIBUTE_HIDDEN | windows.FILE_ATTRIBUTE_SYSTEM |
 	windows.FILE_ATTRIBUTE_NOT_CONTENT_INDEXED
 
-// matchAccess gives the replacement of target the target's DACL and attributes.
-// A file created in the folder takes the folder's inherited permissions, so a
-// file with a DACL of its own would otherwise be open to whoever the folder lets
-// in, while it is written and after the rename.
-func matchAccess(tmp *os.File, target string) error {
-	if persistentACLs(tmp) {
-		if err := copyDACL(target, tmp.Name()); err != nil {
+// fileBasicInfo is FILE_BASIC_INFO; a zero time leaves that time as it is.
+type fileBasicInfo struct {
+	CreationTime, LastAccessTime, LastWriteTime, ChangeTime int64
+	FileAttributes                                          uint32
+	_                                                       uint32
+}
+
+// matchAccess gives the replacement of target the target's DACL, attributes and
+// creation time. A file created in the folder takes the folder's inherited
+// permissions, so a file with a DACL of its own would otherwise be open to
+// whoever the folder lets in, while it is written and after the rename. It works
+// on the open handles only: a call by name would need the \\?\ prefix that
+// package os adds to a long path and x/sys does not.
+func matchAccess(tmp, target *os.File, info fs.FileInfo) error {
+	to := windows.Handle(tmp.Fd())
+	if persistentACLs(to) {
+		if err := copyDACL(windows.Handle(target.Fd()), to); err != nil {
 			return err
 		}
 	}
-	from, err := windows.UTF16PtrFromString(target)
-	if err != nil {
-		return err
+	data, ok := info.Sys().(*syscall.Win32FileAttributeData)
+	if !ok {
+		return nil
 	}
-	attrs, err := windows.GetFileAttributes(from)
-	if err != nil {
-		return err
+	basic := fileBasicInfo{
+		CreationTime:   int64(data.CreationTime.HighDateTime)<<32 | int64(data.CreationTime.LowDateTime),
+		FileAttributes: data.FileAttributes&keptAttributes | windows.FILE_ATTRIBUTE_ARCHIVE,
 	}
-	to, err := windows.UTF16PtrFromString(tmp.Name())
-	if err != nil {
-		return err
-	}
-	return windows.SetFileAttributes(to, attrs&keptAttributes|windows.FILE_ATTRIBUTE_ARCHIVE)
+	return windows.SetFileInformationByHandle(to, windows.FileBasicInfo,
+		(*byte)(unsafe.Pointer(&basic)), uint32(unsafe.Sizeof(basic))) //nolint:gosec // G103: FILE_BASIC_INFO is passed by address
 }
 
-// persistentACLs reports whether the volume of f keeps ACLs (NTFS, ReFS); FAT
+// persistentACLs reports whether the volume of h keeps ACLs (NTFS, ReFS); FAT
 // and exFAT do not, and there is nothing to copy.
-func persistentACLs(f *os.File) bool {
+func persistentACLs(h windows.Handle) bool {
 	var flags uint32
-	if err := windows.GetVolumeInformationByHandle(windows.Handle(f.Fd()), nil, 0, nil, nil, &flags, nil, 0); err != nil {
+	if err := windows.GetVolumeInformationByHandle(h, nil, 0, nil, nil, &flags, nil, 0); err != nil {
 		return true
 	}
 	return flags&windows.FILE_PERSISTENT_ACLS != 0
 }
 
-// copyDACL puts the DACL of from on to, protected when it is protected there:
-// an unprotected one gets its inherited entries from the folder, which is the
-// same folder.
-func copyDACL(from, to string) error {
-	sd, err := windows.GetNamedSecurityInfo(from, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
+var procReOpenFile = windows.NewLazySystemDLL("kernel32.dll").NewProc("ReOpenFile")
+
+// copyDACL puts the DACL of from on to, protected when it is protected there. A
+// handle opened for writing carries READ_CONTROL, which reads it; WRITE_DAC to
+// set it comes from a second handle on to, which no sharing rule refuses since
+// it asks for no access to the data.
+func copyDACL(from, to windows.Handle) error {
+	sd, err := windows.GetSecurityInfo(from, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
 		return err
 	}
@@ -95,11 +107,18 @@ func copyDACL(from, to string) error {
 	if err != nil {
 		return err
 	}
-	info := windows.SECURITY_INFORMATION(windows.DACL_SECURITY_INFORMATION | windows.UNPROTECTED_DACL_SECURITY_INFORMATION)
+	info := windows.SECURITY_INFORMATION(windows.DACL_SECURITY_INFORMATION)
 	if control&windows.SE_DACL_PROTECTED != 0 {
-		info = windows.DACL_SECURITY_INFORMATION | windows.PROTECTED_DACL_SECURITY_INFORMATION
+		info |= windows.PROTECTED_DACL_SECURITY_INFORMATION
 	}
-	return windows.SetNamedSecurityInfo(to, windows.SE_FILE_OBJECT, info, nil, nil, dacl, nil)
+	r, _, callErr := procReOpenFile.Call(uintptr(to), windows.WRITE_DAC,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, 0)
+	h := windows.Handle(r)
+	if h == windows.InvalidHandle {
+		return callErr
+	}
+	defer func() { _ = windows.CloseHandle(h) }()
+	return windows.SetSecurityInfo(h, windows.SE_FILE_OBJECT, info, nil, nil, dacl, nil)
 }
 
 // linkCount is the number of names the file at path has, 0 when unknown.

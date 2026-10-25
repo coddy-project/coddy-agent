@@ -95,6 +95,25 @@ func TestMoveCopyReportsADestinationWithTwoNames(t *testing.T) {
 	}
 }
 
+// A move whose destination is the source under another name leaves it alone:
+// the copy would replace the file by itself, and the remove would then take
+// the only copy.
+func TestMoveCopyRefusesADestinationThatIsTheSource(t *testing.T) {
+	dir, src, _ := failingWriteFixture(t)
+	dst := filepath.Join(dir, "link.txt")
+	if err := os.Symlink(src, dst); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	if _, err := copyThenRemove(src, dst); err == nil || !strings.Contains(err.Error(), "same file") {
+		t.Fatalf("err = %v, want a refusal naming the same file", err)
+	}
+	got, err := os.ReadFile(src)
+	if err != nil || string(got) != keptContent {
+		t.Fatalf("source = %q (%v), want it untouched", got, err)
+	}
+}
+
 func TestWriteToolReportsAFileWithTwoNames(t *testing.T) {
 	dir, path, env := failingWriteFixture(t)
 	other := filepath.Join(dir, "other.txt")

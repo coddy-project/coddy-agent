@@ -52,8 +52,8 @@ func WriteFileReplacing(path string, data []byte, perm fs.FileMode) (WriteReport
 // target as it was and says so (a process killed before it leaves the target as
 // it was too, and the temporary file behind). perm is the mode of a new file
 // (under the umask); an existing file keeps its permissions (its mode, and its
-// POSIX ACL on Linux or its DACL and attributes on Windows), which its
-// replacement takes before it has any content.
+// POSIX ACL on Linux or its DACL, attributes and creation time on Windows),
+// which its replacement takes before it has any content.
 //
 // A target the process cannot write is refused with the error os.WriteFile
 // gives, because a rename needs write access to the folder, not to the file. A
@@ -77,8 +77,10 @@ func ReplaceFileFrom(path string, src io.Reader, perm fs.FileMode) (WriteReport,
 	}
 
 	createMode := perm
-	var existingMode fs.FileMode
-	existing := false
+	// existing is the target opened for writing, nil for a new file; it stays
+	// open until the replacement has taken its permissions.
+	var existing *os.File
+	var existingInfo fs.FileInfo
 	switch info, statErr := os.Stat(target); {
 	case statErr == nil:
 		// A pipe or a device is written as it is: opening it just to probe would
@@ -88,13 +90,12 @@ func ReplaceFileFrom(path string, src io.Reader, perm fs.FileMode) (WriteReport,
 		}
 		// Open without truncating: the same refusal os.WriteFile would give for
 		// a directory, a read-only file or a file another handle denies.
-		probe, openErr := os.OpenFile(target, os.O_WRONLY, 0)
+		f, openErr := os.OpenFile(target, os.O_WRONLY, 0)
 		if openErr != nil {
 			return leftAsItWas(openErr)
 		}
-		_ = probe.Close()
-		existing = true
-		existingMode = info.Mode().Perm()
+		defer func() { _ = f.Close() }()
+		existing, existingInfo = f, info
 		createMode = 0o600
 		report.Links = linkCount(target)
 	case !errors.Is(statErr, fs.ErrNotExist):
@@ -102,9 +103,6 @@ func ReplaceFileFrom(path string, src io.Reader, perm fs.FileMode) (WriteReport,
 	}
 
 	dir, base := filepath.Split(target)
-	if dir == "" {
-		dir = "."
-	}
 	tmp, err := createSibling(dir, base, createMode)
 	if err != nil {
 		return leftAsItWas(fmt.Errorf("no temporary file can be made beside %s: %w", target, err))
@@ -118,13 +116,17 @@ func ReplaceFileFrom(path string, src io.Reader, perm fs.FileMode) (WriteReport,
 		}
 	}()
 
-	// The replacement of an existing file takes its permissions before it has
-	// any content, so the content is never open to more than the file was.
-	if existing {
-		if err := tmp.Chmod(existingMode); err != nil {
+	// The replacement of an existing file takes its permissions while it is
+	// still private and empty, the ACL first and the mode after it, so the
+	// content is never open to more than the file was.
+	if existing != nil {
+		err := matchAccess(tmp, existing, existingInfo)
+		// Windows refuses to rename over a file this process holds open.
+		_ = existing.Close()
+		if err != nil {
 			return leftAsItWas(err)
 		}
-		if err := matchAccess(tmp, target); err != nil {
+		if err := tmp.Chmod(existingInfo.Mode().Perm()); err != nil {
 			return leftAsItWas(err)
 		}
 	}
@@ -141,6 +143,9 @@ func ReplaceFileFrom(path string, src io.Reader, perm fs.FileMode) (WriteReport,
 		return leftAsItWas(err)
 	}
 	committed = true
+	if dir == "" {
+		dir = "."
+	}
 	report.DirSyncErr = syncDir(dir)
 	return report, nil
 }
@@ -199,9 +204,12 @@ func tempStem(base string) string {
 	return base[:cut]
 }
 
-// createSibling creates an exclusive "<name>.<random>~" file in dir. The
-// trailing tilde is the mark editors give their backup files, so a leftover
-// reads as one and the usual "*~" ignore rule keeps it out of git.
+// createSibling creates an exclusive "<name>.<random>~" file in dir, the folder
+// part of the target as filepath.Split leaves it: with its separator and not
+// cleaned, so a ".." in it climbs from where the links before it lead, as the
+// rename's will. The trailing tilde is the mark editors give their backup
+// files, so a leftover reads as one and the usual "*~" ignore rule keeps it out
+// of git.
 func createSibling(dir, base string, perm fs.FileMode) (*os.File, error) {
 	var lastErr error
 	for attempt := 0; attempt < 16; attempt++ {
@@ -209,7 +217,7 @@ func createSibling(dir, base string, perm fs.FileMode) (*os.File, error) {
 		if _, err := rand.Read(suffix[:]); err != nil {
 			return nil, err
 		}
-		name := filepath.Join(dir, tempStem(base)+"."+hex.EncodeToString(suffix[:])+"~")
+		name := dir + tempStem(base) + "." + hex.EncodeToString(suffix[:]) + "~"
 		f, err := os.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
 		if err == nil {
 			return f, nil

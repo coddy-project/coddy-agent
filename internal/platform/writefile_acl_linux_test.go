@@ -3,6 +3,7 @@ package platform
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -56,6 +57,41 @@ func TestWriteFileReplacingKeepsAPOSIXACL(t *testing.T) {
 	}
 	if got := modeOf(t, path); got != mode {
 		t.Fatalf("mode = %o, want %o", got, mode)
+	}
+}
+
+// A file with no ACL in a folder with a default ACL stays without one: its
+// replacement is created under the default ACL, and the file's mode would then
+// open it to the named users of the folder's default.
+func TestWriteFileReplacingDropsTheFolderDefaultACL(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "private.txt")
+	if err := os.WriteFile(path, []byte("old"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	const none = 0xffffffff
+	def := aclXattr(
+		[3]uint32{0x01, 7, none},  // owner rwx
+		[3]uint32{0x02, 7, 65534}, // user nobody rwx
+		[3]uint32{0x04, 5, none},  // owning group r-x
+		[3]uint32{0x10, 7, none},  // mask rwx
+		[3]uint32{0x20, 0, none},  // others nothing
+	)
+	if err := unix.Setxattr(dir, "system.posix_acl_default", def, 0); err != nil {
+		t.Skipf("no POSIX ACLs here: %v", err)
+	}
+
+	if _, err := WriteFileReplacing(path, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := unix.Getxattr(path, posixACL, make([]byte, 256)); !errors.Is(err, unix.ENODATA) {
+		t.Fatalf("the replacement carries an ACL the file did not have (err = %v)", err)
+	}
+	if mode := modeOf(t, path); mode != 0o640 {
+		t.Fatalf("mode = %o, want 640", mode)
 	}
 }
 

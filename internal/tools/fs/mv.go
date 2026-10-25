@@ -83,6 +83,11 @@ func copyThenRemove(src, dst string) (platform.WriteReport, error) {
 	if fi.IsDir() {
 		return platform.WriteReport{}, fmt.Errorf("cross-device move of directories is not supported; use a copy tool or same filesystem")
 	}
+	// A dst that is src under another name (a link to it, the same folder
+	// through two mounts) would be replaced by itself and then removed with it.
+	if di, err := os.Stat(dst); err == nil && os.SameFile(fi, di) {
+		return platform.WriteReport{}, fmt.Errorf("%s and %s are the same file", src, dst)
+	}
 
 	report, err := platform.ReplaceFileFrom(dst, in, fi.Mode()&0777)
 	if err != nil {

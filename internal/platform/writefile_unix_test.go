@@ -51,9 +51,8 @@ func TestWriteFileReplacingModes(t *testing.T) {
 	}
 }
 
-// The replacement of a private file is private from the moment it exists: its
-// content must never be readable through a wider mode, even before the old mode
-// is applied.
+// The replacement of a private file stays private while it is written: the
+// caller's wider perm never reaches it.
 func TestWriteFileReplacingTemporaryFileIsPrivateForAnExistingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "secret.txt")
 	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
@@ -68,8 +67,10 @@ func TestWriteFileReplacingTemporaryFileIsPrivateForAnExistingFile(t *testing.T)
 
 // A ".." on the way to a file climbs from where the components before it lead,
 // as the kernel walks it, never lexically: in a link's text, in a relative link
-// reached through a linked folder, and in the raw path itself. work/alias links
-// to data/sub, and a decoy in work/ holds the name a lexical walk would hit.
+// reached through a linked folder, and in the raw path itself, where the
+// temporary file must be made in the folder the kernel reaches too (another
+// mount would refuse the rename). work/alias links to data/sub, and a decoy in
+// work/ holds the name a lexical walk would hit.
 func TestWriteFileReplacingDotDotFollowsTheLinks(t *testing.T) {
 	for _, c := range []struct {
 		name     string
@@ -78,11 +79,14 @@ func TestWriteFileReplacingDotDotFollowsTheLinks(t *testing.T) {
 		path     string // what is written, relative to the root and uncleaned
 		want     string // the file that must change, relative to the root
 		existing bool
+		viaTemp  bool // replaced through a temporary file, not written in place
 	}{
-		{"link text, existing target", "work/link", "alias/../victim", "work/link", "data/victim", true},
-		{"link text, dangling", "work/link", "alias/../victim", "work/link", "data/victim", false},
-		{"relative link through a linked folder", "data/sub/link", "../victim", "work/alias/link", "data/victim", false},
-		{"raw path to a dangling link", "data/link", "victim", "work/alias/../link", "data/victim", false},
+		{"link text, existing target", "work/link", "alias/../victim", "work/link", "data/victim", true, true},
+		{"link text, dangling", "work/link", "alias/../victim", "work/link", "data/victim", false, false},
+		{"relative link through a linked folder", "data/sub/link", "../victim", "work/alias/link", "data/victim", false, false},
+		{"raw path to a dangling link", "data/link", "victim", "work/alias/../link", "data/victim", false, false},
+		{"raw path to an existing file", "data/link", "victim", "work/alias/../victim", "data/victim", true, true},
+		{"raw path to a new file", "data/link", "victim", "work/alias/../victim", "data/victim", false, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -108,8 +112,24 @@ func TestWriteFileReplacingDotDotFollowsTheLinks(t *testing.T) {
 				}
 			}
 
-			if _, err := WriteFileReplacing(root+"/"+c.path, []byte("x"), 0o644); err != nil {
+			// The temporary file is looked for in the folder of the file that
+			// changes, from inside the copy.
+			tempThere := false
+			src := readerFunc(func(p []byte) (int, error) {
+				entries, err := os.ReadDir(filepath.Dir(want))
+				if err != nil {
+					return 0, err
+				}
+				for _, e := range entries {
+					tempThere = tempThere || strings.HasSuffix(e.Name(), "~")
+				}
+				return copy(p, "x"), io.EOF
+			})
+			if _, err := ReplaceFileFrom(root+"/"+c.path, src, 0o644); err != nil {
 				t.Fatal(err)
+			}
+			if c.viaTemp && !tempThere {
+				t.Fatalf("the temporary file was not made in %s", filepath.Dir(c.want))
 			}
 			if got := readFile(t, want); got != "x" {
 				t.Fatalf("%s = %q, want x", c.want, got)

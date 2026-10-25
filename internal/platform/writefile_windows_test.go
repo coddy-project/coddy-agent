@@ -5,7 +5,9 @@ package platform
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/windows"
 )
@@ -59,9 +61,9 @@ func TestWriteFileReplacingKeepsAnExplicitDACL(t *testing.T) {
 	}
 }
 
-// The replacement has the file's DACL before it has any content, so the new
-// content is never open to whoever the folder lets in, not even while it is
-// written or after a crash leaves the temporary file behind.
+// The replacement has the file's DACL while it is written, so the new content
+// is not open to whoever the folder lets in, nor after a crash leaves the
+// temporary file behind.
 func TestWriteFileReplacingTemporaryFileHasTheDACLWhileWritten(t *testing.T) {
 	path := ownerOnlyFile(t)
 	want := daclString(t, path)
@@ -72,10 +74,49 @@ func TestWriteFileReplacingTemporaryFileHasTheDACLWhileWritten(t *testing.T) {
 	})
 }
 
-// The replaced file's attributes survive.
-func TestWriteFileReplacingKeepsTheHiddenAttribute(t *testing.T) {
+// A DACL that inherits from the folder and adds an entry of its own keeps both,
+// each once: the replacement is in the same folder.
+func TestWriteFileReplacingKeepsAnInheritingDACLWithItsOwnEntry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "shared.txt")
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sd, err := windows.SecurityDescriptorFromString("D:(A;;FR;;;BU)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dacl, _, err := sd.DACL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION|windows.UNPROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil); err != nil {
+		t.Skipf("cannot set a DACL here: %v", err)
+	}
+	before := daclString(t, path)
+
+	if _, err := WriteFileReplacing(path, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if after := daclString(t, path); after != before {
+		t.Fatalf("DACL changed:\nbefore %s\nafter  %s", before, after)
+	}
+}
+
+// The replaced file's hidden attribute and creation time survive.
+func TestWriteFileReplacingKeepsTheAttributesAndTheCreationTime(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "hidden.txt")
 	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := windows.NsecToFiletime(time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC).UnixNano())
+	err = windows.SetFileTime(windows.Handle(f.Fd()), &created, nil, nil)
+	_ = f.Close()
+	if err != nil {
 		t.Fatal(err)
 	}
 	name, err := windows.UTF16PtrFromString(path)
@@ -95,5 +136,12 @@ func TestWriteFileReplacingKeepsTheHiddenAttribute(t *testing.T) {
 	}
 	if attrs&windows.FILE_ATTRIBUTE_HIDDEN == 0 {
 		t.Fatalf("attributes = %#x, the hidden bit was lost", attrs)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Sys().(*syscall.Win32FileAttributeData).CreationTime; got != syscall.Filetime(created) {
+		t.Fatalf("creation time = %v, want %v", got, created)
 	}
 }
