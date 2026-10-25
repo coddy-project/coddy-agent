@@ -104,7 +104,7 @@ func executeEdit(_ context.Context, argsJSON string, env *tooling.Env) (string, 
 	}
 	report, err := platform.WriteFileReplacing(path, []byte(out), 0o644)
 	if err != nil {
-		return "", fmt.Errorf("edit: write: %w%s", err, leftAsItWas)
+		return "", fmt.Errorf("edit: write: %w", err)
 	}
 
 	return withNote(fmt.Sprintf("edited %s (%d bytes written)", path, len(out)), report), nil

@@ -8,8 +8,4 @@ func linkCount(string) uint64 { return 0 }
 
 func syncDir(string) error { return nil }
 
-func isRetryableRenameError(error) bool { return false }
-
-func commitReplace(tmpPath, target string, _ bool) error {
-	return retryReplace(func() error { return os.Rename(tmpPath, target) })
-}
+func commitReplace(tmpPath, target string) error { return os.Rename(tmpPath, target) }

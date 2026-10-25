@@ -86,7 +86,7 @@ func copyThenRemove(src, dst string) (platform.WriteReport, error) {
 
 	report, err := platform.ReplaceFileFrom(dst, in, fi.Mode()&0777)
 	if err != nil {
-		return report, fmt.Errorf("%w%s", err, leftAsItWas)
+		return report, err
 	}
 	if report.DirSyncErr != nil {
 		return report, fmt.Errorf("copied to %s but not yet known to be on disk (%w); the source was kept", dst, report.DirSyncErr)

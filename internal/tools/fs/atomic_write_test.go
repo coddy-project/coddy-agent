@@ -2,7 +2,6 @@ package fs
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -13,9 +12,12 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
-// These tests arm the process-wide write fault of internal/platform, so none
-// of them is parallel: Go runs the serial tests of a package before it releases
-// the parallel ones.
+// The failures of write, edit and apply_patch are the scenarios of
+// features/atomic_file_writes.feature; these tests cover what the feature does
+// not: the copy of a move across disks and the note on a file with two names.
+// They arm the process-wide write fault of internal/platform, so none of them is
+// parallel: Go runs the serial tests of a package before it releases the
+// parallel ones.
 
 const keptContent = "line one\nline two\nline three\n"
 
@@ -27,15 +29,6 @@ func failingWriteFixture(t *testing.T) (dir, path string, env *tooling.Env) {
 		t.Fatal(err)
 	}
 	return dir, path, &tooling.Env{CWD: dir}
-}
-
-func marshalArgs(t *testing.T, v any) string {
-	t.Helper()
-	b, err := json.Marshal(v)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
 }
 
 func assertKept(t *testing.T, dir, path string, err error) {
@@ -56,37 +49,9 @@ func assertKept(t *testing.T, dir, path string, err error) {
 	if string(got) != keptContent {
 		t.Fatalf("file = %q, want the old content", got)
 	}
-	entries, _ := os.ReadDir(dir)
-	for _, e := range entries {
-		if strings.Contains(e.Name(), ".tmp.") {
-			t.Fatalf("temporary file left behind: %s", e.Name())
-		}
+	if leftover, err := temporaryFileIn(dir); err != nil || leftover != "" {
+		t.Fatalf("temporary file left behind: %q (%v)", leftover, err)
 	}
-}
-
-func TestWriteToolLeavesTheFileWhenTheWriteFails(t *testing.T) {
-	dir, path, env := failingWriteFixture(t)
-	defer platform.InjectWriteFault(5)()
-
-	_, err := executeWrite(context.Background(), marshalArgs(t, writeArgs{Path: path, Content: "replacement content that is long"}), env)
-	assertKept(t, dir, path, err)
-}
-
-func TestEditToolLeavesTheFileWhenTheWriteFails(t *testing.T) {
-	dir, path, env := failingWriteFixture(t)
-	defer platform.InjectWriteFault(5)()
-
-	_, err := executeEdit(context.Background(), marshalArgs(t, editArgs{Path: path, OldString: "line two", NewString: "line 2 rewritten"}), env)
-	assertKept(t, dir, path, err)
-}
-
-func TestApplyPatchToolLeavesTheFileWhenTheWriteFails(t *testing.T) {
-	dir, path, env := failingWriteFixture(t)
-	defer platform.InjectWriteFault(5)()
-
-	patch := "--- a/file.txt\n+++ b/file.txt\n@@ -1,3 +1,3 @@\n line one\n-line two\n+line 2\n line three\n"
-	_, err := executeApplyPatch(context.Background(), marshalArgs(t, map[string]string{"path": path, "patch": patch}), env)
-	assertKept(t, dir, path, err)
 }
 
 // A cross-device move copies the file over its destination; a failed copy keeps
@@ -137,7 +102,11 @@ func TestWriteToolReportsAFileWithTwoNames(t *testing.T) {
 		t.Skipf("hard links unavailable: %v", err)
 	}
 
-	out, err := executeWrite(context.Background(), marshalArgs(t, writeArgs{Path: path, Content: "new"}), env)
+	args, err := jsonArgs(writeArgs{Path: path, Content: "new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := executeWrite(context.Background(), args, env)
 	if err != nil {
 		t.Fatal(err)
 	}

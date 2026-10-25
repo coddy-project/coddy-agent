@@ -10,8 +10,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
-	"time"
 )
 
 // WriteReport tells a caller of WriteFileReplacing what happened beyond the
@@ -29,13 +29,14 @@ type WriteReport struct {
 // Note is a short sentence for the result line a model reads, "" when the write
 // needs no remark.
 func (r WriteReport) Note() string {
-	switch {
-	case r.Links > 1:
-		return fmt.Sprintf("the file had %d names; the other names keep the old content", r.Links)
-	case r.DirSyncErr != nil:
-		return fmt.Sprintf("written, not yet known to be on disk: %v", r.DirSyncErr)
+	var notes []string
+	if r.Links > 1 {
+		notes = append(notes, fmt.Sprintf("the file had %d names; the other names keep the old content", r.Links))
 	}
-	return ""
+	if r.DirSyncErr != nil {
+		notes = append(notes, fmt.Sprintf("written, not yet known to be on disk: %v", r.DirSyncErr))
+	}
+	return strings.Join(notes, "; ")
 }
 
 // WriteFileReplacing writes data to path so that a failure leaves the old
@@ -45,24 +46,34 @@ func WriteFileReplacing(path string, data []byte, perm fs.FileMode) (WriteReport
 }
 
 // ReplaceFileFrom copies src to path so that a failure leaves the old content in
-// place. It writes a dot-named temporary file beside the target, flushes it, and
-// renames it over the target; the rename is the commit point. An error before it
-// removes the temporary file and leaves the target as it was (a process killed
-// before it leaves the target as it was too, and the temporary file behind).
-// perm is the mode of a new file (under the umask); an existing file keeps its
-// own mode, and its replacement is private until it has the content.
+// place. It writes a temporary file named "<name>.<random>~" beside the
+// target, flushes it, and renames it over the target; the rename is
+// the commit point. An error before it removes the temporary file, leaves the
+// target as it was and says so (a process killed before it leaves the target as
+// it was too, and the temporary file behind). perm is the mode of a new file
+// (under the umask); an existing file keeps its permissions (its mode, and its
+// POSIX ACL on Linux or its DACL and attributes on Windows), which its
+// replacement takes before it has any content.
 //
 // A target the process cannot write is refused with the error os.WriteFile
 // gives, because a rename needs write access to the folder, not to the file. A
-// symlink is resolved first, so the link survives and its target changes, and
-// a link whose target does not exist yet creates it. A target that is not a
-// regular file (a pipe, a device) is written in place, as os.WriteFile does:
-// replacing it would destroy it. The parent folder must exist.
+// symlink is resolved first, so the link survives and its target changes. A
+// link whose target does not exist yet, a pipe and a device are written in
+// place, as os.WriteFile does: there is no old content to keep, and replacing a
+// pipe or a device would destroy it. The parent folder must exist.
 func ReplaceFileFrom(path string, src io.Reader, perm fs.FileMode) (WriteReport, error) {
 	var report WriteReport
-	target, err := resolveWriteTarget(path)
+	leftAsItWas := func(err error) (WriteReport, error) {
+		return report, fmt.Errorf("%w (the file was left as it was)", err)
+	}
+
+	target, dangling, err := resolveWriteTarget(path)
 	if err != nil {
-		return report, err
+		return leftAsItWas(err)
+	}
+	if dangling {
+		// The kernel follows the link and creates its target, ".." and all.
+		return report, writeInPlace(path, src, perm)
 	}
 
 	createMode := perm
@@ -79,7 +90,7 @@ func ReplaceFileFrom(path string, src io.Reader, perm fs.FileMode) (WriteReport,
 		// a directory, a read-only file or a file another handle denies.
 		probe, openErr := os.OpenFile(target, os.O_WRONLY, 0)
 		if openErr != nil {
-			return report, openErr
+			return leftAsItWas(openErr)
 		}
 		_ = probe.Close()
 		existing = true
@@ -87,7 +98,7 @@ func ReplaceFileFrom(path string, src io.Reader, perm fs.FileMode) (WriteReport,
 		createMode = 0o600
 		report.Links = linkCount(target)
 	case !errors.Is(statErr, fs.ErrNotExist):
-		return report, statErr
+		return leftAsItWas(statErr)
 	}
 
 	dir, base := filepath.Split(target)
@@ -96,7 +107,7 @@ func ReplaceFileFrom(path string, src io.Reader, perm fs.FileMode) (WriteReport,
 	}
 	tmp, err := createSibling(dir, base, createMode)
 	if err != nil {
-		return report, fmt.Errorf("no temporary file can be made beside %s: %w", target, err)
+		return leftAsItWas(fmt.Errorf("no temporary file can be made beside %s: %w", target, err))
 	}
 	tmpPath := tmp.Name()
 	committed := false
@@ -107,22 +118,27 @@ func ReplaceFileFrom(path string, src io.Reader, perm fs.FileMode) (WriteReport,
 		}
 	}()
 
-	if _, err := io.Copy(faultableWriter(tmp), src); err != nil {
-		return report, err
-	}
+	// The replacement of an existing file takes its permissions before it has
+	// any content, so the content is never open to more than the file was.
 	if existing {
 		if err := tmp.Chmod(existingMode); err != nil {
-			return report, err
+			return leftAsItWas(err)
+		}
+		if err := matchAccess(tmp, target); err != nil {
+			return leftAsItWas(err)
 		}
 	}
+	if _, err := io.Copy(faultableWriter(tmp), src); err != nil {
+		return leftAsItWas(err)
+	}
 	if err := tmp.Sync(); err != nil {
-		return report, err
+		return leftAsItWas(err)
 	}
 	if err := tmp.Close(); err != nil {
-		return report, err
+		return leftAsItWas(err)
 	}
-	if err := commitReplace(tmpPath, target, existing); err != nil {
-		return report, err
+	if err := commitReplace(tmpPath, target); err != nil {
+		return leftAsItWas(err)
 	}
 	committed = true
 	report.DirSyncErr = syncDir(dir)
@@ -142,68 +158,26 @@ func writeInPlace(target string, src io.Reader, perm fs.FileMode) error {
 	return f.Close()
 }
 
-// maxSymlinkHops bounds the walk of a chain of links, as the kernel does.
-const maxSymlinkHops = 40
-
-// resolveWriteTarget follows links at path so the write lands on the target.
-// A missing path, or a link whose target is missing, resolves to the path a
-// plain write would create. A link is resolved component by component, as the
-// kernel does, so a ".." in its text climbs from wherever the components before
-// it lead, never lexically.
-func resolveWriteTarget(path string) (string, error) {
-	current := path
-	for hop := 0; hop <= maxSymlinkHops; hop++ {
-		info, err := os.Lstat(current)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				return current, nil
-			}
-			return "", err
-		}
-		if info.Mode()&fs.ModeSymlink == 0 {
-			return current, nil
-		}
-		// A link whose target exists: the walk of EvalSymlinks is the kernel's.
-		if real, evalErr := filepath.EvalSymlinks(current); evalErr == nil {
-			return real, nil
-		}
-		link, err := os.Readlink(current)
-		if err != nil {
-			return "", err
-		}
-		// A dangling link: its last component is missing, so resolve the folder
-		// part of the raw, uncleaned text and keep the missing name.
-		raw := link
-		if !filepath.IsAbs(link) {
-			raw = filepath.Dir(current) + string(os.PathSeparator) + link
-		}
-		dirPart, name := splitLast(raw)
-		if name == "" || name == "." || name == ".." {
-			return "", &fs.PathError{Op: "open", Path: path, Err: errors.New("link target names no file")}
-		}
-		dirReal, err := filepath.EvalSymlinks(dirPart)
-		if err != nil {
-			return "", err
-		}
-		current = filepath.Join(dirReal, name)
+// resolveWriteTarget follows the links at path so the write lands on the file
+// they name; EvalSymlinks walks them component by component as the kernel
+// does, so a ".." in a link's text climbs from wherever the components before
+// it lead. dangling reports a link whose target does not exist yet.
+func resolveWriteTarget(path string) (target string, dangling bool, err error) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return path, false, nil
 	}
-	return "", &fs.PathError{Op: "open", Path: path, Err: errors.New("too many levels of symbolic links")}
-}
-
-// splitLast splits p at its last separator without cleaning it, so the ".."
-// elements before the last one are left for EvalSymlinks to walk.
-func splitLast(p string) (dir, name string) {
-	i := len(p) - 1
-	for i >= 0 && !os.IsPathSeparator(p[i]) {
-		i--
+	if err != nil {
+		return "", false, err
 	}
-	if i < 0 {
-		return ".", p
+	if info.Mode()&fs.ModeSymlink == 0 {
+		return path, false, nil
 	}
-	if i == 0 {
-		return p[:1], p[1:]
+	real, err := filepath.EvalSymlinks(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return path, true, nil
 	}
-	return p[:i], p[i+1:]
+	return real, false, err
 }
 
 // maxTempStem bounds how much of the target's name the temporary file keeps, so
@@ -225,7 +199,9 @@ func tempStem(base string) string {
 	return base[:cut]
 }
 
-// createSibling creates an exclusive, dot-named file in dir.
+// createSibling creates an exclusive "<name>.<random>~" file in dir. The
+// trailing tilde is the mark editors give their backup files, so a leftover
+// reads as one and the usual "*~" ignore rule keeps it out of git.
 func createSibling(dir, base string, perm fs.FileMode) (*os.File, error) {
 	var lastErr error
 	for attempt := 0; attempt < 16; attempt++ {
@@ -233,7 +209,7 @@ func createSibling(dir, base string, perm fs.FileMode) (*os.File, error) {
 		if _, err := rand.Read(suffix[:]); err != nil {
 			return nil, err
 		}
-		name := filepath.Join(dir, "."+tempStem(base)+".tmp."+hex.EncodeToString(suffix[:]))
+		name := filepath.Join(dir, tempStem(base)+"."+hex.EncodeToString(suffix[:])+"~")
 		f, err := os.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
 		if err == nil {
 			return f, nil
@@ -244,20 +220,6 @@ func createSibling(dir, base string, perm fs.FileMode) (*os.File, error) {
 		}
 	}
 	return nil, lastErr
-}
-
-// retryReplace runs op, retrying briefly where the platform reports a transient
-// sharing error (Windows, another handle open).
-func retryReplace(op func() error) error {
-	const maxAttempts = 20
-	var err error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if err = op(); err == nil || !isRetryableRenameError(err) {
-			return err
-		}
-		time.Sleep(time.Duration(attempt+1) * time.Millisecond)
-	}
-	return err
 }
 
 // ErrInjectedWriteFault is what a write fault from InjectWriteFault returns.

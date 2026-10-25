@@ -19,9 +19,10 @@ func daclString(t *testing.T, path string) string {
 	return sd.String()
 }
 
-// Replacing a file that carries its own protected DACL keeps that DACL: a rename
-// of a sibling would hand the file the folder's inherited permissions.
-func TestWriteFileReplacingKeepsAnExplicitDACL(t *testing.T) {
+// ownerOnlyFile is a file whose protected DACL lets in only its owner and the
+// system, in a folder that lets in more.
+func ownerOnlyFile(t *testing.T) string {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "secret.txt")
 	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
 		t.Fatal(err)
@@ -38,6 +39,13 @@ func TestWriteFileReplacingKeepsAnExplicitDACL(t *testing.T) {
 		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil); err != nil {
 		t.Skipf("cannot set a DACL here: %v", err)
 	}
+	return path
+}
+
+// Replacing a file that carries its own protected DACL keeps that DACL: a rename
+// of a sibling would hand the file the folder's inherited permissions.
+func TestWriteFileReplacingKeepsAnExplicitDACL(t *testing.T) {
+	path := ownerOnlyFile(t)
 	before := daclString(t, path)
 
 	if _, err := WriteFileReplacing(path, []byte("new"), 0o644); err != nil {
@@ -51,7 +59,20 @@ func TestWriteFileReplacingKeepsAnExplicitDACL(t *testing.T) {
 	}
 }
 
-// The replaced file's attributes survive, as ReplaceFileW promises.
+// The replacement has the file's DACL before it has any content, so the new
+// content is never open to whoever the folder lets in, not even while it is
+// written or after a crash leaves the temporary file behind.
+func TestWriteFileReplacingTemporaryFileHasTheDACLWhileWritten(t *testing.T) {
+	path := ownerOnlyFile(t)
+	want := daclString(t, path)
+	whileWriting(t, path, func(tmp string) {
+		if got := daclString(t, tmp); got != want {
+			t.Fatalf("temporary file DACL while writing:\ngot  %s\nwant %s", got, want)
+		}
+	})
+}
+
+// The replaced file's attributes survive.
 func TestWriteFileReplacingKeepsTheHiddenAttribute(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "hidden.txt")
 	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {

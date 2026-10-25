@@ -2,6 +2,7 @@ package platform
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -28,9 +29,56 @@ func noTemporaryFiles(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if strings.Contains(e.Name(), ".tmp.") {
+		if strings.HasSuffix(e.Name(), "~") {
 			t.Fatalf("temporary file left behind: %s", e.Name())
 		}
+	}
+}
+
+type readerFunc func([]byte) (int, error)
+
+func (f readerFunc) Read(p []byte) (int, error) { return f(p) }
+
+// whileWriting replaces path with nothing, calling inspect with the path of the
+// temporary file from inside the copy, when the replacement exists and has no
+// content yet.
+func whileWriting(t *testing.T, path string, inspect func(tmp string)) {
+	t.Helper()
+	found := false
+	src := readerFunc(func([]byte) (int, error) {
+		entries, err := os.ReadDir(filepath.Dir(path))
+		if err != nil {
+			return 0, err
+		}
+		for _, e := range entries {
+			if e.Name() != filepath.Base(path) {
+				found = true
+				inspect(filepath.Join(filepath.Dir(path), e.Name()))
+			}
+		}
+		return 0, io.EOF
+	})
+	if _, err := ReplaceFileFrom(path, src, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatal("no temporary file beside the target while writing")
+	}
+}
+
+// The temporary file ends with a tilde, as editors' backup files do,
+// "<name>.<random>~": a leftover of a killed process is easy to tell from the
+// file, and the usual "*~" ignore rule keeps it out of git.
+func TestWriteFileReplacingNamesTheTemporaryFileWithATrailingTilde(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var name string
+	whileWriting(t, path, func(tmp string) { name = filepath.Base(tmp) })
+	if !strings.HasPrefix(name, "notes.txt.") || !strings.HasSuffix(name, "~") {
+		t.Fatalf("temporary file = %q, want notes.txt.<random>~", name)
 	}
 }
 
@@ -90,48 +138,6 @@ func TestWriteFileReplacingReplacesContent(t *testing.T) {
 	if note := report.Note(); note != "" {
 		t.Fatalf("note = %q for a single-name file", note)
 	}
-}
-
-// A new file gets perm under the umask; an existing one keeps its own mode.
-func TestWriteFileReplacingModes(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX modes")
-	}
-	dir := t.TempDir()
-
-	previous := setUmask(0o077)
-	created := filepath.Join(dir, "created.txt")
-	_, err := WriteFileReplacing(created, []byte("x"), 0o666)
-	setUmask(previous)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if mode := modeOf(t, created); mode != 0o600 {
-		t.Fatalf("new file mode = %o, want 600 under umask 077", mode)
-	}
-
-	existing := filepath.Join(dir, "existing.txt")
-	if err := os.WriteFile(existing, []byte("old"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(existing, 0o640); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := WriteFileReplacing(existing, []byte("new"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if mode := modeOf(t, existing); mode != 0o640 {
-		t.Fatalf("existing file mode = %o, want 640", mode)
-	}
-}
-
-func modeOf(t *testing.T, path string) os.FileMode {
-	t.Helper()
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return info.Mode().Perm()
 }
 
 // A read-only file in a writable folder is refused and unchanged: a rename
@@ -237,6 +243,15 @@ func TestWriteFileReplacingLongName(t *testing.T) {
 	}
 	if stem := tempStem(strings.Repeat("ж", 100)); len(stem) > maxTempStem || !utf8.ValidString(stem) {
 		t.Fatalf("tempStem cut a rune or kept too much: %d bytes", len(stem))
+	}
+}
+
+// The report names both remarks when both apply.
+func TestWriteReportNoteJoinsItsRemarks(t *testing.T) {
+	t.Parallel()
+	note := WriteReport{Links: 2, DirSyncErr: errors.New("input/output error")}.Note()
+	if !strings.Contains(note, "2 names") || !strings.Contains(note, "not yet known to be on disk") {
+		t.Fatalf("note = %q, want both remarks", note)
 	}
 }
 

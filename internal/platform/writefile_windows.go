@@ -6,52 +6,100 @@ import (
 	"errors"
 	"os"
 	"syscall"
-	"unsafe"
+	"time"
 
 	"golang.org/x/sys/windows"
 )
 
 // Windows rejects renaming over a file another handle holds open with
-// ERROR_ACCESS_DENIED (5) or ERROR_SHARING_VIOLATION (32), and ReplaceFileW
-// reports the same case as ERROR_UNABLE_TO_REMOVE_REPLACED (1175); all are
-// transient under concurrent access and worth a brief retry.
+// ERROR_ACCESS_DENIED (5) or ERROR_SHARING_VIOLATION (32); both are transient
+// under concurrent access and worth a brief retry.
 func isRetryableRenameError(err error) bool {
 	var errno syscall.Errno
 	if errors.As(err, &errno) {
-		return errno == syscall.Errno(5) || errno == syscall.Errno(32) || errno == syscall.Errno(1175)
+		return errno == syscall.Errno(5) || errno == syscall.Errno(32)
 	}
 	return false
 }
 
-var procReplaceFileW = windows.NewLazySystemDLL("kernel32.dll").NewProc("ReplaceFileW")
-
-// commitReplace puts tmpPath in the place of target. An existing target is
-// replaced with ReplaceFileW, which keeps the replaced file's security
-// descriptor (an explicit DACL included), attributes and creation time: a plain
-// rename would give the file the folder's inherited permissions instead. A new
-// target is a plain rename.
-func commitReplace(tmpPath, target string, existing bool) error {
-	if !existing {
-		return retryReplace(func() error { return os.Rename(tmpPath, target) })
-	}
-	replaced, err := windows.UTF16PtrFromString(target)
-	if err != nil {
-		return err
-	}
-	replacement, err := windows.UTF16PtrFromString(tmpPath)
-	if err != nil {
-		return err
-	}
-	return retryReplace(func() error {
-		r, _, callErr := procReplaceFileW.Call(
-			uintptr(unsafe.Pointer(replaced)),    //nolint:gosec // G103: ReplaceFileW takes the UTF-16 path of the replaced file
-			uintptr(unsafe.Pointer(replacement)), //nolint:gosec // G103: ReplaceFileW takes the UTF-16 path of the replacement
-			0, 0, 0, 0)
-		if r != 0 {
-			return nil
+// commitReplace renames tmpPath over target in one MoveFileEx, retrying briefly
+// while another handle holds the target, as the session writer does.
+func commitReplace(tmpPath, target string) error {
+	const maxAttempts = 20
+	var err error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if err = os.Rename(tmpPath, target); err == nil || !isRetryableRenameError(err) {
+			return err
 		}
-		return &os.LinkError{Op: "replace", Old: tmpPath, New: target, Err: callErr}
-	})
+		time.Sleep(time.Duration(attempt+1) * time.Millisecond)
+	}
+	return err
+}
+
+// keptAttributes are the attributes of a replaced file its replacement takes;
+// the archive bit is set on it whatever the old file had, since it is new.
+const keptAttributes = windows.FILE_ATTRIBUTE_HIDDEN | windows.FILE_ATTRIBUTE_SYSTEM |
+	windows.FILE_ATTRIBUTE_NOT_CONTENT_INDEXED
+
+// matchAccess gives the replacement of target the target's DACL and attributes.
+// A file created in the folder takes the folder's inherited permissions, so a
+// file with a DACL of its own would otherwise be open to whoever the folder lets
+// in, while it is written and after the rename.
+func matchAccess(tmp *os.File, target string) error {
+	if persistentACLs(tmp) {
+		if err := copyDACL(target, tmp.Name()); err != nil {
+			return err
+		}
+	}
+	from, err := windows.UTF16PtrFromString(target)
+	if err != nil {
+		return err
+	}
+	attrs, err := windows.GetFileAttributes(from)
+	if err != nil {
+		return err
+	}
+	to, err := windows.UTF16PtrFromString(tmp.Name())
+	if err != nil {
+		return err
+	}
+	return windows.SetFileAttributes(to, attrs&keptAttributes|windows.FILE_ATTRIBUTE_ARCHIVE)
+}
+
+// persistentACLs reports whether the volume of f keeps ACLs (NTFS, ReFS); FAT
+// and exFAT do not, and there is nothing to copy.
+func persistentACLs(f *os.File) bool {
+	var flags uint32
+	if err := windows.GetVolumeInformationByHandle(windows.Handle(f.Fd()), nil, 0, nil, nil, &flags, nil, 0); err != nil {
+		return true
+	}
+	return flags&windows.FILE_PERSISTENT_ACLS != 0
+}
+
+// copyDACL puts the DACL of from on to, protected when it is protected there:
+// an unprotected one gets its inherited entries from the folder, which is the
+// same folder.
+func copyDACL(from, to string) error {
+	sd, err := windows.GetNamedSecurityInfo(from, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		return err
+	}
+	dacl, _, err := sd.DACL()
+	if errors.Is(err, windows.ERROR_OBJECT_NOT_FOUND) {
+		return nil // no DACL to copy
+	}
+	if err != nil {
+		return err
+	}
+	control, _, err := sd.Control()
+	if err != nil {
+		return err
+	}
+	info := windows.SECURITY_INFORMATION(windows.DACL_SECURITY_INFORMATION | windows.UNPROTECTED_DACL_SECURITY_INFORMATION)
+	if control&windows.SE_DACL_PROTECTED != 0 {
+		info = windows.DACL_SECURITY_INFORMATION | windows.PROTECTED_DACL_SECURITY_INFORMATION
+	}
+	return windows.SetNamedSecurityInfo(to, windows.SE_FILE_OBJECT, info, nil, nil, dacl, nil)
 }
 
 // linkCount is the number of names the file at path has, 0 when unknown.

@@ -135,16 +135,26 @@ func (s *atomicWriteState) holds(name, want string) error {
 }
 
 func (s *atomicWriteState) noTemporaryFile() error {
-	entries, err := os.ReadDir(s.dir)
+	leftover, err := temporaryFileIn(s.dir)
+	if err == nil && leftover != "" {
+		err = fmt.Errorf("temporary file left behind: %s", leftover)
+	}
+	return err
+}
+
+// temporaryFileIn names a temporary file of the write helper left in dir, ""
+// when there is none: it ends with a tilde.
+func temporaryFileIn(dir string) (string, error) {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return err
+		return "", err
 	}
 	for _, e := range entries {
-		if strings.Contains(e.Name(), ".tmp.") {
-			return fmt.Errorf("temporary file left behind: %s", e.Name())
+		if strings.HasSuffix(e.Name(), "~") {
+			return e.Name(), nil
 		}
 	}
-	return nil
+	return "", nil
 }
 
 func initializeAtomicWriteScenario(sc *godog.ScenarioContext) {

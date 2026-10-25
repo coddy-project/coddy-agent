@@ -12,20 +12,42 @@ import (
 	"time"
 )
 
-// A new file takes its mode from perm under the umask; the replacement must not
-// widen it afterwards.
-func TestWriteFileReplacingNewFileKeepsTheUmask(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "created.txt")
+func modeOf(t *testing.T, path string) os.FileMode {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.Mode().Perm()
+}
 
+// A new file takes its mode from perm under the umask, which the replacement
+// must not widen afterwards; an existing file keeps its own mode.
+func TestWriteFileReplacingModes(t *testing.T) {
+	dir := t.TempDir()
+	created := filepath.Join(dir, "created.txt")
 	previous := syscall.Umask(0o077)
-	_, err := WriteFileReplacing(path, []byte("x"), 0o666)
+	_, err := WriteFileReplacing(created, []byte("x"), 0o666)
 	syscall.Umask(previous)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mode := modeOf(t, path); mode != 0o600 {
-		t.Fatalf("mode = %o, want 600 under umask 077", mode)
+	if mode := modeOf(t, created); mode != 0o600 {
+		t.Fatalf("new file mode = %o, want 600 under umask 077", mode)
+	}
+
+	existing := filepath.Join(dir, "existing.txt")
+	if err := os.WriteFile(existing, []byte("old"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(existing, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteFileReplacing(existing, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if mode := modeOf(t, existing); mode != 0o640 {
+		t.Fatalf("existing file mode = %o, want 640", mode)
 	}
 }
 
@@ -33,109 +55,84 @@ func TestWriteFileReplacingNewFileKeepsTheUmask(t *testing.T) {
 // content must never be readable through a wider mode, even before the old mode
 // is applied.
 func TestWriteFileReplacingTemporaryFileIsPrivateForAnExistingFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "secret.txt")
+	path := filepath.Join(t.TempDir(), "secret.txt")
 	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-
-	var seen os.FileMode
-	src := readerFunc(func(p []byte) (int, error) {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			return 0, err
+	whileWriting(t, path, func(tmp string) {
+		if mode := modeOf(t, tmp); mode != 0o600 {
+			t.Fatalf("temporary file mode while writing = %o, want 600", mode)
 		}
-		for _, e := range entries {
-			if strings.Contains(e.Name(), ".tmp.") {
-				info, err := e.Info()
-				if err != nil {
-					return 0, err
-				}
-				seen = info.Mode().Perm()
-			}
-		}
-		return 0, io.EOF
 	})
-	if _, err := ReplaceFileFrom(path, src, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if seen != 0o600 {
-		t.Fatalf("temporary file mode while writing = %o, want 600", seen)
+}
+
+// A ".." on the way to a file climbs from where the components before it lead,
+// as the kernel walks it, never lexically: in a link's text, in a relative link
+// reached through a linked folder, and in the raw path itself. work/alias links
+// to data/sub, and a decoy in work/ holds the name a lexical walk would hit.
+func TestWriteFileReplacingDotDotFollowsTheLinks(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		link     string // the link, relative to the root
+		linkText string
+		path     string // what is written, relative to the root and uncleaned
+		want     string // the file that must change, relative to the root
+		existing bool
+	}{
+		{"link text, existing target", "work/link", "alias/../victim", "work/link", "data/victim", true},
+		{"link text, dangling", "work/link", "alias/../victim", "work/link", "data/victim", false},
+		{"relative link through a linked folder", "data/sub/link", "../victim", "work/alias/link", "data/victim", false},
+		{"raw path to a dangling link", "data/link", "victim", "work/alias/../link", "data/victim", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			root := t.TempDir()
+			for _, d := range []string{"data/sub", "work"} {
+				if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.Symlink(filepath.Join(root, "data", "sub"), filepath.Join(root, "work", "alias")); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(c.linkText, filepath.Join(root, c.link)); err != nil {
+				t.Fatal(err)
+			}
+			decoy := filepath.Join(root, "work", "victim")
+			if err := os.WriteFile(decoy, []byte("decoy"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			want := filepath.Join(root, c.want)
+			if c.existing {
+				if err := os.WriteFile(want, []byte("old"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			if _, err := WriteFileReplacing(root+"/"+c.path, []byte("x"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if got := readFile(t, want); got != "x" {
+				t.Fatalf("%s = %q, want x", c.want, got)
+			}
+			if got := readFile(t, decoy); got != "decoy" {
+				t.Fatalf("work/victim = %q: the write landed where no link points", got)
+			}
+		})
 	}
 }
 
-type readerFunc func([]byte) (int, error)
-
-func (f readerFunc) Read(p []byte) (int, error) { return f(p) }
-
-// A ".." in a relative link climbs from the folder the link really sits in, not
-// from the folder it was reached through.
-func TestWriteFileReplacingRelativeLinkThroughALinkedFolder(t *testing.T) {
-	root := t.TempDir()
-	sub := filepath.Join(root, "data", "sub")
-	work := filepath.Join(root, "work")
-	for _, d := range []string{sub, work} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			t.Fatal(err)
-		}
+// A failed write in place leaves no promise that the file was kept: the file
+// behind a device or a pipe is written as it is.
+func TestWriteFileReplacingInPlaceErrorMakesNoPromise(t *testing.T) {
+	if _, err := os.Stat("/dev/full"); err != nil {
+		t.Skip("no /dev/full here")
 	}
-	if err := os.Symlink(sub, filepath.Join(work, "alias")); err != nil {
-		t.Fatal(err)
+	_, err := WriteFileReplacing("/dev/full", []byte("x"), 0o644)
+	if err == nil {
+		t.Fatal("want the error of a full device")
 	}
-	if err := os.Symlink("../victim", filepath.Join(sub, "link")); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := WriteFileReplacing(filepath.Join(work, "alias", "link"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if got := readFile(t, filepath.Join(root, "data", "victim")); got != "x" {
-		t.Fatalf("data/victim = %q, want x", got)
-	}
-	if _, err := os.Stat(filepath.Join(work, "victim")); err == nil {
-		t.Fatal("the write landed in work/victim, a folder the link never pointed at")
-	}
-}
-
-// A ".." inside the link's own text climbs from where the components before it
-// lead: link -> alias/../victim with alias -> data/sub lands in data/victim,
-// for an existing target and for a dangling one.
-func TestWriteFileReplacingDotDotAfterALinkInsideTheLinkText(t *testing.T) {
-	for _, existing := range []bool{true, false} {
-		root := t.TempDir()
-		sub := filepath.Join(root, "data", "sub")
-		work := filepath.Join(root, "work")
-		for _, d := range []string{sub, work} {
-			if err := os.MkdirAll(d, 0o755); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if err := os.Symlink(sub, filepath.Join(work, "alias")); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Symlink("alias/../victim", filepath.Join(work, "link")); err != nil {
-			t.Fatal(err)
-		}
-		decoy := filepath.Join(work, "victim")
-		if err := os.WriteFile(decoy, []byte("decoy"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		real := filepath.Join(root, "data", "victim")
-		if existing {
-			if err := os.WriteFile(real, []byte("old"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-		}
-
-		if _, err := WriteFileReplacing(filepath.Join(work, "link"), []byte("x"), 0o644); err != nil {
-			t.Fatalf("existing=%v: %v", existing, err)
-		}
-		if got := readFile(t, real); got != "x" {
-			t.Fatalf("existing=%v: data/victim = %q, want x", existing, got)
-		}
-		if got := readFile(t, decoy); got != "decoy" {
-			t.Fatalf("existing=%v: work/victim = %q, a file the link never named was written", existing, got)
-		}
+	if strings.Contains(err.Error(), "left as it was") {
+		t.Fatalf("err = %q, an in-place write cannot promise that", err)
 	}
 }
 

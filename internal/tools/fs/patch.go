@@ -70,7 +70,7 @@ func executeApplyPatch(_ context.Context, argsJSON string, env *tooling.Env) (st
 
 	report, err := platform.WriteFileReplacing(path, []byte(patched), 0o644)
 	if err != nil {
-		return "", fmt.Errorf("apply_patch write: %w%s", err, leftAsItWas)
+		return "", fmt.Errorf("apply_patch write: %w", err)
 	}
 
 	return withNote(fmt.Sprintf("patch applied successfully to %s", path), report), nil

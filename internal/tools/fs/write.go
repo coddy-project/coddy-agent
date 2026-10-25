@@ -56,7 +56,7 @@ func executeWrite(_ context.Context, argsJSON string, env *tooling.Env) (string,
 
 	report, err := platform.WriteFileReplacing(path, []byte(args.Content), 0o644)
 	if err != nil {
-		return "", fmt.Errorf("write: %w%s", err, leftAsItWas)
+		return "", fmt.Errorf("write: %w", err)
 	}
 
 	return withNote(fmt.Sprintf("wrote %d bytes to %s", len(args.Content), path), report), nil
