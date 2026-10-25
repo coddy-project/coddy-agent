@@ -110,11 +110,10 @@ func anthropicThinkingBudget(level string, maxTokens int) int64 {
 }
 
 func (p *anthropicProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
-	system, msgs, err := p.splitMessages(messages)
+	params, err := p.requestParams(messages, tools)
 	if err != nil {
 		return nil, err
 	}
-	params := p.buildParams(system, msgs, tools)
 	resp, err := p.client.Messages.New(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("anthropic complete: %w", err)
@@ -123,11 +122,10 @@ func (p *anthropicProvider) Complete(ctx context.Context, messages []Message, to
 }
 
 func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
-	system, msgs, err := p.splitMessages(messages)
+	params, err := p.requestParams(messages, tools)
 	if err != nil {
 		return nil, err
 	}
-	params := p.buildParams(system, msgs, tools)
 
 	stream := p.client.Messages.NewStreaming(ctx, params)
 	defer func() { _ = stream.Close() }()
@@ -447,7 +445,11 @@ func (p *anthropicProvider) buildParams(system string, messages []anthropic.Mess
 	}
 
 	if system != "" {
-		params.System = []anthropic.TextBlockParam{{Type: "text", Text: system}}
+		// The Messages API caches only what a request marks. The mark on the
+		// system prompt covers the tool definitions too, which render before
+		// it: the whole standing prefix is read back from the cache by every
+		// later request of the session.
+		params.System = []anthropic.TextBlockParam{{Type: "text", Text: system, CacheControl: anthropic.NewCacheControlEphemeralParam()}}
 	}
 
 	budget := anthropicThinkingBudget(p.reasoningEffort, p.maxTokens)
@@ -517,6 +519,87 @@ func (p *anthropicProvider) buildParams(system string, messages []anthropic.Mess
 	}
 
 	return params
+}
+
+// requestParams is the Messages API request for a conversation: the system
+// prompt and the turns in Anthropic's shape, with the cache marks.
+func (p *anthropicProvider) requestParams(messages []Message, tools []ToolDefinition) (anthropic.MessageNewParams, error) {
+	system, msgs, err := p.splitMessages(messages)
+	if err != nil {
+		return anthropic.MessageNewParams{}, err
+	}
+	params := p.buildParams(system, msgs, tools)
+	params.Messages = withCacheTail(params.Messages, trailingEphemeral(messages))
+	return params, nil
+}
+
+// trailingEphemeral counts the messages at the end of a conversation built
+// for this request only - the turn context, a nudge - which the next request
+// will not carry: each is a user message and becomes one message of the
+// request.
+func trailingEphemeral(messages []Message) int {
+	n := 0
+	for i := len(messages) - 1; i >= 0 && messages[i].Ephemeral; i-- {
+		n++
+	}
+	return n
+}
+
+// withCacheTail marks the last block of the conversation before its skip
+// trailing request-only messages that takes a cache mark: the next request,
+// the next step of the turn or the next turn, starts with everything up to
+// there, so it reads it back from the cache and pays the write price only for
+// what it adds. A mark on the turn context would name a prefix no later
+// request holds. The marked message and block are copies: the history the
+// caller holds is never written to. Block marks only, never the request-level
+// field, which Anthropic-compatible endpoints may not know.
+func withCacheTail(messages []anthropic.MessageParam, skip int) []anthropic.MessageParam {
+	at := len(messages) - 1 - skip
+	if at < 0 {
+		return messages
+	}
+	out := append([]anthropic.MessageParam(nil), messages...)
+	last := &out[at]
+	content := append([]anthropic.ContentBlockParamUnion(nil), last.Content...)
+	for i := len(content) - 1; i >= 0; i-- {
+		block, copied := copyBlock(content[i])
+		if !copied {
+			continue
+		}
+		if cc := block.GetCacheControl(); cc != nil {
+			*cc = anthropic.NewCacheControlEphemeralParam()
+			content[i] = block
+			last.Content = content
+			return out
+		}
+	}
+	return messages
+}
+
+// copyBlock copies the variant a content block points to, for the variants a
+// request built here carries and that take a cache mark; copied is false for
+// any other, which is then left unmarked rather than marked in place.
+func copyBlock(b anthropic.ContentBlockParamUnion) (_ anthropic.ContentBlockParamUnion, copied bool) {
+	switch {
+	case b.OfText != nil:
+		v := *b.OfText
+		b.OfText = &v
+	case b.OfImage != nil:
+		v := *b.OfImage
+		b.OfImage = &v
+	case b.OfDocument != nil:
+		v := *b.OfDocument
+		b.OfDocument = &v
+	case b.OfToolResult != nil:
+		v := *b.OfToolResult
+		b.OfToolResult = &v
+	case b.OfToolUse != nil:
+		v := *b.OfToolUse
+		b.OfToolUse = &v
+	default:
+		return b, false
+	}
+	return b, true
 }
 
 func (p *anthropicProvider) parseResponse(resp anthropic.Message) (*Response, error) {
