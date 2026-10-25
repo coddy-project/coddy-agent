@@ -50,6 +50,8 @@ $coddy-mono:
   --coddy-canvas-glow-indigo: rgba(99, 102, 241, 0.1);
   --coddy-canvas-gradient-top: #0f0f10;
   --coddy-canvas-gradient-bottom: #0b0b0c;
+  /* 64 px of triangular noise: white or black pixels at alpha 0 to 3/255. */
+  --coddy-grain: url("data:image/png;base64,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");
   /* Shared frosted panels (composer, History drawer, skills slash picker) */
   /* Tint stays fairly transparent so backdrop blur reads as frosted glass, not a solid bar */
   --coddy-glass-panel-bg: rgba(14, 14, 18, 0.62);
@@ -156,6 +158,7 @@ $coddy-mono:
   --coddy-canvas-glow-indigo: rgba(99, 102, 241, 0.05);
   --coddy-canvas-gradient-top: #ffffff;
   --coddy-canvas-gradient-bottom: #f4f4f5;
+  --coddy-grain: none;
   --coddy-glass-panel-bg: rgba(255, 255, 255, 0.9);
   --coddy-glass-panel-backdrop: blur(52px) saturate(160%);
   --coddy-glass-panel-border: rgba(0, 0, 0, 0.08);
@@ -683,9 +686,12 @@ body,
   min-height: 100%;
 }
 
+/* The grain masks the rings the browser's ordered dither draws in the glows
+   on a high-contrast screen (issue #622). */
 html {
   color-scheme: dark;
   background:
+    var(--coddy-grain),
     radial-gradient(
       1200px 600px at 30% 10%,
       var(--coddy-canvas-glow-purple),
@@ -707,6 +713,11 @@ html {
 
 html[data-theme="light"] {
   color-scheme: light;
+}
+
+/* The glass panels blur the grain away and leave one-level steps. */
+html :is(.chat-header, .rail-pill, .composer-card) {
+  background-image: var(--coddy-grain);
 }
 
 body {

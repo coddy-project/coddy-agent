@@ -2172,7 +2172,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		env.Lang = st.GetTurnLang()
 		if r := st.GetTurnRestriction(); r != nil {
 			env.Confined = r.ConfineToWorkspace
-			if err := checkRestrictedCall(r, tc, env.CWD, a.cfg); err != nil {
+			if err := checkRestrictedCall(r, tc, env.CWD, st.GetAdditionalDirectories(), a.cfg); err != nil {
 				return "", err
 			}
 		}
@@ -3386,9 +3386,10 @@ func effectivePermMode(state SessionState, cfg *config.Config) string {
 }
 
 // checkRestrictedCall refuses a call the turn's restriction does not allow:
-// a tool outside its list, or a read outside the session's working directory
-// or inside the agent's home.
-func checkRestrictedCall(r *session.TurnRestriction, tc llm.ToolCall, cwd string, cfg *config.Config) error {
+// a tool outside its list, or a read outside the session's workspace (its
+// working directory plus the additionalDirectories it carries) or inside the
+// agent's home.
+func checkRestrictedCall(r *session.TurnRestriction, tc llm.ToolCall, cwd string, additionalDirs []string, cfg *config.Config) error {
 	note := strings.TrimSpace(r.Note)
 	if note == "" {
 		note = session.ToolResultTurnNoteDefault
@@ -3413,7 +3414,7 @@ func checkRestrictedCall(r *session.TurnRestriction, tc llm.ToolCall, cwd string
 		home = cfg.Paths.Home
 	}
 	for _, p := range paths {
-		if !session.PathInWorkspace(p, cwd, home) {
+		if !session.PathInWorkspace(p, cwd, home, additionalDirs) {
 			return fmt.Errorf(session.ToolResultOutsideWorkspaceFormat, tc.Name, note, p)
 		}
 	}

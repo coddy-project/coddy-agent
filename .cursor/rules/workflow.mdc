@@ -217,6 +217,13 @@ Add a light/dark theme variant only when the change modifies theme colors or tok
 
 ## Merging the pull request
 
+A pull request lands in `main` as one squash commit, **`gh pr merge <PR> --squash`**, and the
+repository allows nothing else: merge commits and rebase merges are off in its settings. A branch's
+commits are working history - an agent's fixups, review rounds, attempts it reverted - and none of
+it belongs in `main`, so nobody squashes a branch by hand or rewrites a contributor's history before
+the merge. The squash commit takes the pull request's title as its subject and its description as
+its body: both describe the final diff by then (*Pull request description and evidence* above).
+
 When the operator says the pull request can be merged and it is set to close an issue on merge (a
 closing keyword such as `Closes #N` or `Fixes #N` in the description or a commit message, or an
 issue linked to the pull request by hand), the issue gets a comment saying what came of it. GitHub
@@ -225,9 +232,9 @@ follows it has to open the pull request and work that out; issues #265 and #305 
 
 1. Before the merge, list the issues it is set to close:
    **`gh pr view <PR> --json closingIssuesReferences --jq '.closingIssuesReferences[].number'`**.
-2. Merge, and make sure the merge went through before writing about it: **`gh pr merge`** has
-   reported an error after the merge had already landed (pull request #369), so read
-   **`git log origin/main`** before retrying.
+2. Merge with **`gh pr merge <PR> --squash`**, and make sure the merge went through before
+   writing about it: **`gh pr merge`** has reported an error after the merge had already landed
+   (pull request #369), so read **`git log origin/main`** before retrying.
 3. Comment on each of those issues, one comment per issue
    (**`gh issue comment <N> --body-file <file>`**), in the language the issue is written in,
    whatever the language of the session: an English issue gets an English comment even when the
