@@ -90,7 +90,7 @@ When adding or changing behavior (including words like feature, add, implement, 
    make models-catalog        # rewrite models.json; it changes only when those numbers do
    ```
 
-   Both ask NeuralDeep with the key and the proxy of the `neuraldeep` row of your Coddy configuration (`coddy providers login neuraldeep` writes one). A refresh is a change of its own (`chore(models): refresh the models catalog`), never folded into an unrelated pull request: its diff is the list of models that moved. The publication of the documentation does not wait for it.
+   Both ask NeuralDeep with the key and the proxy of the `neuraldeep` row of your Coddy configuration (`coddy providers login neuraldeep` writes one). NeuralDeep lists the models of that key's tier, so read the diff before committing it: an id it adds or drops may be the key's, not the catalog's. A refresh is a change of its own (`chore(models): refresh the models catalog`), never folded into an unrelated pull request: its diff is the list of models that moved. The publication of the documentation does not wait for it.
 
 9. **Documentation, examples, comments and bundled instructions** - a rename or a behavior
    change is not finished when `docs/` reads correctly. Nothing in the build catches the old

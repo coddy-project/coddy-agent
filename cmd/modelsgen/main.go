@@ -103,14 +103,18 @@ func neuralDeepModels() ([]byte, error) {
 		}
 		key := prov.EffectiveAPIKey()
 		if strings.TrimSpace(key) == "" {
-			if key, err = llm.LoadNeuralDeepKey(config.NeuralDeepAuthPath(cfg.Paths.Home, prov.Name)); err != nil {
-				return nil, fmt.Errorf("provider %s has no NeuralDeep key: %w", prov.Name, err)
-			}
+			// No login file reads as an empty key, not an error.
+			key, _ = llm.LoadNeuralDeepKey(config.NeuralDeepAuthPath(cfg.Paths.Home, prov.Name))
+		}
+		if strings.TrimSpace(key) == "" {
+			return nil, fmt.Errorf("provider %s has no NeuralDeep key: sign in with coddy providers login neuraldeep, or pass -neuraldeep with NeuralDeep's model list", prov.Name)
 		}
 		client, err := llm.HTTPClientForProviderProxy(prov.Proxy)
 		if err != nil {
 			return nil, err
 		}
+		// A provider client carries no deadline of its own: it streams.
+		client.Timeout = 2 * time.Minute
 		base, ok := llm.NormalizeNeuralDeepAPIBase(prov.APIBase)
 		if !ok {
 			base = llm.NeuralDeepDefaultAPIBase()

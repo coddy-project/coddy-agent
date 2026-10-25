@@ -55,18 +55,17 @@ func Lookup(id string) (Limits, bool) {
 	return Limits{ContextWindow: v[0], MaxTokens: v[1]}, ok
 }
 
-// Snapshot is models.json as embedded.
-func Snapshot() []byte { return snapshot }
-
 // providers are the providers of models.dev a provider type of Coddy talks to
 // (openai and codex: OpenAI's ids; opencode: the Zen and Go gateways), each
-// marked when it serves its own models: an id a vendor lists takes its
+// marked when it is the vendor of its models: an id a vendor lists takes its
 // numbers over a gateway's, which rounds or cuts them. NeuralDeep, which
-// models.dev does not carry, is read from its own model list.
+// models.dev does not carry, is read from its own model list and is no
+// vendor: it serves other makers' models, and its listing reports its windows
+// itself, so on an id it shares with a gateway the smaller window wins.
 var providers = map[string]bool{
 	"openai": true, "anthropic": true,
 	"opencode": false, "opencode-go": false,
-	neuralDeep: true,
+	neuralDeep: false,
 }
 
 const neuralDeep = "neuraldeep"

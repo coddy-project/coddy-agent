@@ -70,9 +70,8 @@ const codexSourceBuildVersion = "0.154.0"
 // upstreamServing starts a stand-in provider endpoint that answers the model
 // list with the given ids and records the credential it was called with. An
 // entry may carry a context window as "id:131072" - the stand-in reports it
-// under the OpenRouter spelling, context_length.
-// upstreamServing stands up a model listing of "id" or "id:window" entries;
-// "id:catalog" reports the window the embedded models catalog has for the id.
+// under the OpenRouter spelling, context_length - or as "id:catalog", the
+// window the embedded models catalog has for the id.
 func (w *providerModelsWorld) upstreamServing(t *testing.T, csv string) error {
 	ids := strings.Split(csv, ",")
 	var data []map[string]interface{}

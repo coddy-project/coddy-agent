@@ -57,8 +57,9 @@ func TestCompact(t *testing.T) {
 		// An input limit as large as the window is no budget of its own: the
 		// answer shares the window and keeps to its fifth.
 		`"input-is-window":[8192,1638],`,
-		// NeuralDeep serves its own models: its numbers win over gateways.
-		`"kimi-k2":[262144,52428],`,
+		// NeuralDeep is no vendor: on an id a gateway lists too, the smaller
+		// window wins with its own max_tokens.
+		`"kimi-k2":[128000,16384],`,
 		// No output limit: no max_tokens to offer.
 		`"no-output":[32000,0],`,
 		// A NeuralDeep chat model; its embeddings and the rest stay out.
@@ -98,13 +99,13 @@ func TestCompactRefusesAnEmptySource(t *testing.T) {
 // breaks its order or format shows here, not in a settings form.
 func TestSnapshotIsCanonical(t *testing.T) {
 	var table map[string][2]int
-	if err := json.Unmarshal(Snapshot(), &table); err != nil {
+	if err := json.Unmarshal(snapshot, &table); err != nil {
 		t.Fatalf("models.json: %v", err)
 	}
 	if len(table) < 100 {
 		t.Fatalf("models.json holds %d models", len(table))
 	}
-	if !bytes.Equal(render(table), Snapshot()) {
+	if !bytes.Equal(render(table), snapshot) {
 		t.Fatal("models.json is not in the format make models-catalog writes; run it again")
 	}
 	for id, v := range table {
@@ -116,7 +117,7 @@ func TestSnapshotIsCanonical(t *testing.T) {
 
 func TestLookup(t *testing.T) {
 	var table map[string][2]int
-	if err := json.Unmarshal(Snapshot(), &table); err != nil {
+	if err := json.Unmarshal(snapshot, &table); err != nil {
 		t.Fatal(err)
 	}
 	for id, v := range table {
