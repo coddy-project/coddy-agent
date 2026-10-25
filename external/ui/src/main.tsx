@@ -32,8 +32,8 @@ initTelegramMiniApp();
 initLocale(bootstrapUiLocaleFromUrlOrCookie());
 // The installed app's title bar takes the theme's colour (ui/pwa/themeColor.ts).
 followThemeColor();
-// Smooth gradients, when chosen in Settings → Appearance
-// (ui/theme/backdropPrefs.ts).
+// The page backdrop chosen in Settings → Appearance: smooth gradients, a
+// wallpaper (ui/theme/backdropPrefs.ts).
 followBackdrop();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

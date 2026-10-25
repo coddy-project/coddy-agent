@@ -785,6 +785,28 @@ html[data-smooth-backdrop="true"]
   display: none;
 }
 
+/* A wallpaper the person chose (Settings → Appearance), dimmed toward the
+   theme's canvas colour so text on the glass stays readable. With smooth
+   gradients on, the canvas paints it too (ui/theme/canvasBackdrop.ts). */
+html[data-wallpaper="true"] {
+  background:
+    linear-gradient(
+      color-mix(
+        in srgb,
+        var(--coddy-canvas-gradient-bottom) var(--coddy-wallpaper-dim, 40%),
+        transparent
+      ),
+      color-mix(
+        in srgb,
+        var(--coddy-canvas-gradient-bottom) var(--coddy-wallpaper-dim, 40%),
+        transparent
+      )
+    ),
+    var(--coddy-wallpaper) center / cover no-repeat;
+  background-color: var(--coddy-canvas-gradient-bottom);
+  background-attachment: fixed;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -14857,10 +14879,41 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   margin: 8px 0 0;
 }
 
-/* Smooth gradients (ui/theme/BackdropSettings.tsx): the switch under the
-   notifications. */
+/* The page backdrop (ui/theme/BackdropSettings.tsx): smooth gradients, then
+   the wallpaper with its preview, buttons and dimming. */
 .appearance-backdrop-block {
   margin-top: 22px;
+}
+
+.appearance-backdrop-status {
+  margin: 8px 0 0;
+}
+
+.appearance-wallpaper-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.appearance-wallpaper-preview {
+  width: 64px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--coddy-glass-panel-border);
+}
+
+.appearance-wallpaper-dim {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.appearance-wallpaper-dim input[type="range"] {
+  accent-color: var(--accent);
 }
 
 .appearance-language-select-wrap {

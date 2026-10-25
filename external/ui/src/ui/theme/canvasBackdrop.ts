@@ -266,6 +266,203 @@ export function paintBackdrop(
   );
 }
 
+/** Planes of a picture in float, one value per device pixel and channel. */
+export interface Field {
+  width: number;
+  height: number;
+  r: Float32Array;
+  g: Float32Array;
+  b: Float32Array;
+}
+
+/**
+ * wallpaperField lays the picture over the viewport the way the `html` rule
+ * does (`center / cover`) and dims it toward `dimColor` by `dim` (0..1).
+ */
+export function wallpaperField(
+  doc: Document,
+  picture: CanvasImageSource & { width: number; height: number },
+  width: number,
+  height: number,
+  dimColor: Rgba,
+  dim: number,
+): Field | null {
+  const off = doc.createElement("canvas");
+  off.width = width;
+  off.height = height;
+  const ctx = off.getContext("2d");
+  if (!ctx || !picture.width || !picture.height) {
+    return null;
+  }
+  const cover = Math.max(width / picture.width, height / picture.height);
+  const w = picture.width * cover;
+  const h = picture.height * cover;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(picture, (width - w) / 2, (height - h) / 2, w, h);
+  const data = ctx.getImageData(0, 0, width, height).data;
+  const n = width * height;
+  const field: Field = {
+    width,
+    height,
+    r: new Float32Array(n),
+    g: new Float32Array(n),
+    b: new Float32Array(n),
+  };
+  const [dr, dg, db] = dimColor;
+  for (let i = 0, p = 0; i < n; i++, p += 4) {
+    field.r[i] = data[p]! + (dr - data[p]!) * dim;
+    field.g[i] = data[p + 1]! + (dg - data[p + 1]!) * dim;
+    field.b[i] = data[p + 2]! + (db - data[p + 2]!) * dim;
+  }
+  return field;
+}
+
+function cloneField(field: Field): Field {
+  return {
+    width: field.width,
+    height: field.height,
+    r: new Float32Array(field.r),
+    g: new Float32Array(field.g),
+    b: new Float32Array(field.b),
+  };
+}
+
+/** boxBlur approximates a Gaussian of standard deviation `sigma` with three box passes per axis. */
+export function boxBlur(field: Field, sigma: number): Field {
+  const { width, height } = field;
+  const radius = Math.max(0, Math.round(sigma));
+  if (radius === 0) {
+    return field;
+  }
+  const out = cloneField(field);
+  const tmp = new Float32Array(Math.max(width, height));
+  const pass = (
+    plane: Float32Array,
+    len: number,
+    count: number,
+    step: number,
+    stride: number,
+  ) => {
+    const k = 2 * radius + 1;
+    for (let line = 0; line < count; line++) {
+      const base = line * stride;
+      // running sum with the edge pixel repeated beyond the ends
+      let sum = 0;
+      for (let j = -radius; j <= radius; j++) {
+        sum += plane[base + Math.min(len - 1, Math.max(0, j)) * step]!;
+      }
+      for (let j = 0; j < len; j++) {
+        tmp[j] = sum / k;
+        const add = Math.min(len - 1, j + radius + 1);
+        const sub = Math.max(0, j - radius);
+        sum += plane[base + add * step]! - plane[base + sub * step]!;
+      }
+      for (let j = 0; j < len; j++) {
+        plane[base + j * step] = tmp[j]!;
+      }
+    }
+  };
+  for (const plane of [out.r, out.g, out.b]) {
+    for (let i = 0; i < 3; i++) {
+      pass(plane, width, height, 1, width);
+      pass(plane, height, width, width, 1);
+    }
+  }
+  return out;
+}
+
+/** saturateField applies CSS `saturate(amount)` (the filter spec's matrix). */
+export function saturateField(field: Field, amount: number): void {
+  if (amount === 1) {
+    return;
+  }
+  const s = amount;
+  const m = [
+    0.213 + 0.787 * s,
+    0.715 - 0.715 * s,
+    0.072 - 0.072 * s,
+    0.213 - 0.213 * s,
+    0.715 + 0.285 * s,
+    0.072 - 0.072 * s,
+    0.213 - 0.213 * s,
+    0.715 - 0.715 * s,
+    0.072 + 0.928 * s,
+  ] as const;
+  const { r, g, b } = field;
+  for (let i = 0; i < r.length; i++) {
+    const R = r[i]!;
+    const G = g[i]!;
+    const B = b[i]!;
+    r[i] = m[0] * R + m[1] * G + m[2] * B;
+    g[i] = m[3] * R + m[4] * G + m[5] * B;
+    b[i] = m[6] * R + m[7] * G + m[8] * B;
+  }
+}
+
+/** cropField takes the part of a field that `box` covers. */
+export function cropField(field: Field, box: BackdropRegion): Field {
+  const out: Field = {
+    width: box.width,
+    height: box.height,
+    r: new Float32Array(box.width * box.height),
+    g: new Float32Array(box.width * box.height),
+    b: new Float32Array(box.width * box.height),
+  };
+  for (let y = 0; y < box.height; y++) {
+    const from = (box.y + y) * field.width + box.x;
+    const to = y * box.width;
+    out.r.set(field.r.subarray(from, from + box.width), to);
+    out.g.set(field.g.subarray(from, from + box.width), to);
+    out.b.set(field.b.subarray(from, from + box.width), to);
+  }
+  return out;
+}
+
+/**
+ * ditherField writes the field into `data` (RGBA, the field's size) under
+ * `tint`, with the same dither as paintBackdropLayers.
+ */
+export function ditherField(
+  data: Uint8ClampedArray,
+  field: Field,
+  tint?: Rgba,
+): void {
+  const [kr, kg, kb, ka] = tint ?? [0, 0, 0, 0];
+  const ia = 1 - ka;
+  const or = kr * ka + 0.5;
+  const og = kg * ka + 0.5;
+  const ob = kb * ka + 0.5;
+  const { r: rs, g: gs, b: bs } = field;
+  const words = new Uint32Array(data.buffer, data.byteOffset, data.length >> 2);
+  let seed = (Math.random() * 0x100000000) >>> 0 || 1;
+  for (let i = 0; i < rs.length; i++) {
+    seed ^= seed << 13;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;
+    const n = ((seed & 0xffff) - (seed >>> 16)) / 65536;
+    let r = (rs[i]! * ia + or + n) | 0;
+    let g = (gs[i]! * ia + og + n) | 0;
+    let b = (bs[i]! * ia + ob + n) | 0;
+    r = r < 0 ? 0 : r > 255 ? 255 : r;
+    g = g < 0 ? 0 : g > 255 ? 255 : g;
+    b = b < 0 ? 0 : b > 255 ? 255 : b;
+    words[i] = (0xff000000 | (b << 16) | (g << 8) | r) >>> 0;
+  }
+}
+
+/** parseBackdropFilter reads the blur (px) and saturate of a `backdrop-filter` value. */
+export function parseBackdropFilter(value: string): {
+  blur: number;
+  saturate: number;
+} {
+  const blur = /blur\(\s*([\d.]+)px\s*\)/.exec(value);
+  const sat = /saturate\(\s*([\d.]+)(%?)\s*\)/.exec(value);
+  return {
+    blur: blur ? Number(blur[1]) : 0,
+    saturate: sat ? Number(sat[1]) / (sat[2] ? 100 : 1) : 1,
+  };
+}
+
 const RESIZE_DELAY_MS = 150;
 const PANEL_DELAY_MS = 100;
 
@@ -275,27 +472,43 @@ const PANEL_DELAY_MS = 100;
  * painted image goes to. A browser blur would wipe the dither out and band
  * again, so in this mode a panel shows the backdrop with its tint baked in
  * instead (styles.css, `html[data-smooth-backdrop]`). Each image covers only
- * its panel's box, fixed to the viewport where the panel stands. The blur
- * itself is left out: the glows are far wider than any of these blurs, so it
- * would change nothing visible.
+ * its panel's box, fixed to the viewport where the panel stands. Over a
+ * wallpaper the panel's own `backdrop-filter` (a literal here, or the token
+ * it names) is applied to the picture first; over the glows it is left out,
+ * since they are far wider than any of these blurs.
  */
 export const BACKDROP_PANELS = [
   {
     selector: ".chat-header",
     tint: "--coddy-chat-header-bg",
+    filter: "blur(14px)",
     image: "--coddy-smooth-header",
   },
-  { selector: ".rail-pill", tint: "--nav", image: "--coddy-smooth-nav" },
+  {
+    selector: ".rail-pill",
+    tint: "--nav",
+    filter: "blur(16px)",
+    image: "--coddy-smooth-nav",
+  },
   {
     selector: ".composer-card",
     tint: "--coddy-glass-panel-bg",
+    filter: "var(--coddy-glass-panel-backdrop)",
     image: "--coddy-smooth-glass",
   },
 ] as const;
 
+/** A wallpaper to paint instead of the glows. */
+export interface BackdropWallpaper {
+  picture: CanvasImageSource & { width: number; height: number };
+  /** 0..1, how far the picture is dimmed toward the theme's canvas colour. */
+  dim: number;
+}
+
 /**
- * followCanvasBackdrop mounts the canvas and paints it now, on every theme
- * change and after a resize (a page zoom included), and keeps an image for
+ * followCanvasBackdrop mounts the canvas and paints it, with the glows or with
+ * `wallpaper` when one is given, now, on every theme change and after a
+ * resize (a page zoom included), and keeps an image for
  * every panel in BACKDROP_PANELS over the box the panel stands in, painted
  * again when a panel appears, goes or changes size. Returns the teardown,
  * which removes the canvas and the images, or null where a 2D context is not
@@ -303,6 +516,7 @@ export const BACKDROP_PANELS = [
  */
 export function followCanvasBackdrop(
   doc: Document = document,
+  wallpaper?: BackdropWallpaper,
 ): (() => void) | null {
   const win = doc.defaultView;
   if (!win) {
@@ -321,6 +535,8 @@ export function followCanvasBackdrop(
   const painted = new Map<string, string>(); // image property -> box it was painted for
   // A paint that a newer one overtook drops its images when they arrive.
   let generation = 0;
+  // The dimmed wallpaper over the whole viewport, for the panels to blur.
+  let field: Field | null = null;
 
   const dropPanel = (name: string) => {
     root.style.removeProperty(name);
@@ -398,14 +614,41 @@ export function followCanvasBackdrop(
         continue;
       }
       const image = offCtx.createImageData(box.width, box.height);
-      paintBackdropLayers(
-        [{ data: image.data, tint }],
-        box,
-        width,
-        height,
-        scale,
-        colors,
-      );
+      if (field) {
+        const value = panel.filter.startsWith("var(")
+          ? style.getPropertyValue(panel.filter.slice(4, -1))
+          : panel.filter;
+        const { blur, saturate } = parseBackdropFilter(value);
+        // blur a margin of three radii around the box, so its edges see what
+        // the browser's blur would, then keep the box
+        const m = Math.ceil(3 * blur * scale);
+        const x0 = Math.max(0, box.x - m);
+        const y0 = Math.max(0, box.y - m);
+        const around = {
+          x: x0,
+          y: y0,
+          width: Math.min(width, box.x + box.width + m) - x0,
+          height: Math.min(height, box.y + box.height + m) - y0,
+        };
+        const blurred = boxBlur(cropField(field, around), blur * scale);
+        const part = cropField(blurred, {
+          x: box.x - x0,
+          y: box.y - y0,
+          width: box.width,
+          height: box.height,
+        });
+        saturateField(part, saturate);
+        ditherField(image.data, part, tint);
+      } else {
+        paintBackdropLayers(
+          [{ data: image.data, tint }],
+          box,
+          width,
+          height,
+          scale,
+          colors,
+        );
+      }
       offCtx.putImageData(image, 0, 0);
       painted.set(panel.image, key);
       off.toBlob((blob) => {
@@ -437,8 +680,26 @@ export function followCanvasBackdrop(
     const { scale, width, height } = view();
     canvas.width = width;
     canvas.height = height;
+    field = wallpaper
+      ? wallpaperField(
+          doc,
+          wallpaper.picture,
+          width,
+          height,
+          colors.bottom,
+          wallpaper.dim,
+        )
+      : null;
+    if (wallpaper && !field) {
+      canvas.hidden = true;
+      return;
+    }
     const image = ctx.createImageData(width, height);
-    paintBackdrop(image.data, width, height, scale, colors);
+    if (field) {
+      ditherField(image.data, field);
+    } else {
+      paintBackdrop(image.data, width, height, scale, colors);
+    }
     ctx.putImageData(image, 0, 0);
     canvas.hidden = false;
     paintPanels(true);

@@ -171,7 +171,8 @@ export function AppearanceLanguagePicker() {
 /** AppearanceThemePicker renders just the theme swatch grid (no panel chrome) so it
  * can be embedded as a Settings tab. Theme selection applies immediately and is
  * client-side only (no config save). The language picker sits right under it,
- * the switch of system notifications under that, and smooth gradients last. */
+ * the switch of system notifications under that, then smooth gradients and the
+ * wallpaper. */
 export function AppearanceThemePicker() {
   const { t } = useT();
   const current = useSyncExternalStore(

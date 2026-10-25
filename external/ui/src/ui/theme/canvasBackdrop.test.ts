@@ -4,8 +4,13 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import {
   type BackdropColors,
+  boxBlur,
+  cropField,
+  ditherField,
   paintBackdrop,
   paintBackdropLayers,
+  parseBackdropFilter,
+  saturateField,
   parseCssColor,
 } from "./canvasBackdrop";
 
@@ -177,5 +182,72 @@ describe("paintBackdrop", () => {
     // base 20 with noise -1..+1 (rounded by the clamped array)
     for (const v of values) expect(Math.abs(v - 20)).toBeLessThanOrEqual(2);
     expect(values.size).toBeGreaterThan(1);
+  });
+});
+
+describe("wallpaper filters", () => {
+  const field = (w: number, h: number, f: (x: number, y: number) => number) => {
+    const plane = new Float32Array(w * h);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) plane[y * w + x] = f(x, y);
+    return {
+      width: w,
+      height: h,
+      r: plane,
+      g: new Float32Array(plane),
+      b: new Float32Array(plane),
+    };
+  };
+  const mean = (a: Float32Array) => a.reduce((s, v) => s + v, 0) / a.length;
+
+  test("boxBlur keeps the mean, smooths a step and leaves its input alone", () => {
+    const step = field(64, 8, (x) => (x < 32 ? 0 : 100));
+    const out = boxBlur(step, 4);
+    expect(mean(out.r)).toBeCloseTo(mean(step.r), 3);
+    expect(out.r[31]!).toBeGreaterThan(20);
+    expect(out.r[31]!).toBeLessThan(80);
+    expect(step.r[31]).toBe(0);
+    expect(boxBlur(step, 0)).toBe(step);
+  });
+
+  test("saturateField leaves grey alone and pushes a colour away from it", () => {
+    const f = field(2, 1, () => 50);
+    f.r[1] = 80;
+    saturateField(f, 1.75);
+    expect(f.r[0]).toBeCloseTo(50, 4);
+    expect(f.g[0]).toBeCloseTo(50, 4);
+    expect(f.r[1]!).toBeGreaterThan(80);
+  });
+
+  test("cropField takes the box it is given", () => {
+    const f = field(10, 10, (x, y) => y * 10 + x);
+    const c = cropField(f, { x: 3, y: 4, width: 2, height: 2 });
+    expect([...c.r]).toEqual([43, 44, 53, 54]);
+  });
+
+  test("ditherField keeps the tone under a tint and dithers by about one level", () => {
+    const f = field(200, 50, () => 40.4);
+    const data = new Uint8ClampedArray(200 * 50 * 4);
+    ditherField(data, f, [0, 0, 0, 0.5]);
+    let sum = 0;
+    let worst = 0;
+    for (let p = 0; p < data.length; p += 4) {
+      sum += data[p]!;
+      worst = Math.max(worst, Math.abs(data[p]! - 20.2));
+    }
+    expect(sum / (200 * 50)).toBeCloseTo(20.2, 1);
+    expect(worst).toBeLessThanOrEqual(1.5);
+  });
+
+  test("parseBackdropFilter reads blur and saturate", () => {
+    expect(parseBackdropFilter("blur(52px) saturate(175%)")).toEqual({
+      blur: 52,
+      saturate: 1.75,
+    });
+    expect(parseBackdropFilter("blur(14px)")).toEqual({
+      blur: 14,
+      saturate: 1,
+    });
+    expect(parseBackdropFilter("none")).toEqual({ blur: 0, saturate: 1 });
   });
 });

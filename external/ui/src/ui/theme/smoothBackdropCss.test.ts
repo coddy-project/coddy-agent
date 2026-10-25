@@ -13,8 +13,9 @@ const css = readFileSync(
 const squash = (s: string) => s.replace(/\s+/g, " ").trim();
 
 function rule(selector: string): string {
-  const at = css.indexOf(`${selector} {`);
-  expect(at, selector).toBeGreaterThanOrEqual(0);
+  // a rule of its own, at the start of a line
+  const at = css.indexOf(`\n${selector} {`) + 1;
+  expect(at, selector).toBeGreaterThan(0);
   return squash(css.slice(at, css.indexOf("}", at)));
 }
 
@@ -28,7 +29,9 @@ test("in smooth mode each panel shows its painted image over its plain tint", ()
     expect(rule(`html[data-smooth-backdrop="true"] ${sel}`)).toContain(
       `background: var(${image}, none) no-repeat fixed var(${tint});`,
     );
-    expect(BACKDROP_PANELS).toContainEqual({ selector: sel, tint, image });
+    expect(BACKDROP_PANELS).toContainEqual(
+      expect.objectContaining({ selector: sel, tint, image }),
+    );
   }
 });
 
@@ -59,4 +62,26 @@ test("the canvas sits under the app and takes no pointer", () => {
   expect(body).toContain("position: fixed;");
   expect(body).toContain("z-index: -1;");
   expect(body).toContain("pointer-events: none;");
+});
+
+test("over a wallpaper each panel's image is blurred the way its own glass is", () => {
+  const filters = Object.fromEntries(
+    BACKDROP_PANELS.map((p) => [p.selector, p.filter]),
+  );
+  expect(rule(".chat-header")).toContain(
+    `backdrop-filter: ${filters[".chat-header"]};`,
+  );
+  expect(rule(".rail-pill")).toContain(
+    `backdrop-filter: ${filters[".rail-pill"]};`,
+  );
+  expect(filters[".composer-card"]).toBe("var(--coddy-glass-panel-backdrop)");
+});
+
+test("a wallpaper covers the viewport, dimmed toward the theme's canvas colour", () => {
+  const body = rule('html[data-wallpaper="true"]');
+  expect(body).toContain("var(--coddy-wallpaper) center / cover no-repeat");
+  expect(body).toContain(
+    "color-mix( in srgb, var(--coddy-canvas-gradient-bottom) var(--coddy-wallpaper-dim, 40%), transparent )",
+  );
+  expect(body).toContain("background-attachment: fixed;");
 });
