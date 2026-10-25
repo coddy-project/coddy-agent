@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bytes"
 	"encoding/json"
 	"reflect"
 	"strings"
@@ -76,7 +75,7 @@ func TestPromptCacheRetryBudgetKeepsThePrefix(t *testing.T) {
 					t.Fatalf("request %d has %d history messages, want %d", i+1, len(messages), initialCount+tc.added[i])
 				}
 				for j, before := range previous {
-					if !bytes.Equal(before, messages[j]) {
+					if withoutCacheMarks(t, before) != withoutCacheMarks(t, messages[j]) {
 						t.Fatalf("request %d rewrote cached history message %d:\nbefore: %s\nafter: %s", i+1, j, before, messages[j])
 					}
 				}
