@@ -354,10 +354,16 @@ func runGitRawContext(ctx context.Context, dir string, args ...string) ([]byte, 
 // error, so the viewer can offer the view everywhere and simply show nothing.
 // In a repository with no commit yet, every file of the index is an addition.
 func UncommittedChanges(dir string) ([]WorkChange, int, error) {
+	return uncommittedChanges(dir, true)
+}
+
+// uncommittedChanges is UncommittedChanges; withCount false skips counting the
+// untracked files, for a caller that lists them itself.
+func uncommittedChanges(dir string, withCount bool) ([]WorkChange, int, error) {
 	if !GitAvailable() {
 		return builtinUncommittedChanges(dir)
 	}
-	if !Describe(dir).IsGitRepo {
+	if !IsRepo(dir) {
 		return nil, 0, nil
 	}
 
@@ -366,7 +372,11 @@ func UncommittedChanges(dir string) ([]WorkChange, int, error) {
 		return nil, 0, err
 	}
 	sort.Slice(changes, func(i, j int) bool { return changes[i].Path < changes[j].Path })
-	return changes, countUntracked(dir), nil
+	untracked := 0
+	if withCount {
+		untracked = countUntracked(dir)
+	}
+	return changes, untracked, nil
 }
 
 const (
@@ -388,7 +398,9 @@ const (
 // or because one was too large to be worth reading. Files git ignores are never
 // considered, so a build directory or a virtualenv stays out on its own.
 func WorktreeChanges(dir string) (changes []WorkChange, skipped int, err error) {
-	tracked, _, err := UncommittedChanges(dir)
+	// The untracked files are listed below; counting them here as well would
+	// run the same git command twice.
+	tracked, _, err := uncommittedChanges(dir, false)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -424,7 +436,7 @@ func WorktreeChangeFor(dir, path string) (*WorkChange, error) {
 	if err != nil || tracked != nil {
 		return tracked, err
 	}
-	if !Describe(dir).IsGitRepo {
+	if !IsRepo(dir) {
 		return nil, nil
 	}
 	want := filepath.FromSlash(path)
@@ -493,7 +505,7 @@ func UncommittedChangeFor(dir, path string) (*WorkChange, error) {
 	if !GitAvailable() {
 		return builtinUncommittedChangeFor(dir, path)
 	}
-	if !Describe(dir).IsGitRepo {
+	if !IsRepo(dir) {
 		return nil, nil
 	}
 	records, err := listedRecords(dir)
@@ -534,7 +546,7 @@ func trackedChanges(dir string) ([]WorkChange, error) {
 	if err != nil {
 		return nil, err
 	}
-	return assembleChanges(dir, records, gitShowHEAD(dir))
+	return assembleChanges(dir, records, gitBatchHEAD(dir, records))
 }
 
 // hasHead reports whether the repository holding dir has a commit to compare
