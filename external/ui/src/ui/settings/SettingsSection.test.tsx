@@ -1827,9 +1827,80 @@ test("a row form open under LLM providers does not survive switching to Logical 
   );
 });
 
-// A model added from the provider's list arrives with the window its listing
-// carries, written into max_context_tokens; for a model the provider reports
-// no window for, the models catalog's window and max_tokens.
+// A model added from the provider's list arrives with the context window the
+// provider reported for it, written into max_context_tokens.
+test("a model added from the provider list carries the context window the provider reports", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        models: [{ id: "m1", context_window: 131072 }],
+      }),
+    })),
+  );
+  const schema: JsonSchema = {
+    type: "object",
+    properties: {
+      providers: rootSchema.properties!.providers!,
+      models: {
+        type: "array",
+        title: "Logical models",
+        items: {
+          type: "object",
+          properties: {
+            model: { type: "string", title: "Model id" },
+            max_context_tokens: {
+              type: "integer",
+              title: "Context window (tokens)",
+            },
+            reasoning_levels: {
+              type: "array",
+              title: "Reasoning levels",
+              items: { type: "string" },
+            },
+          },
+          "x-coddy-property-order": [
+            "model",
+            "max_context_tokens",
+            "reasoning_levels",
+          ],
+        },
+      },
+    },
+  };
+  let latest: Record<string, unknown> = {};
+  function Seeded() {
+    const [doc, setDoc] = React.useState<Record<string, unknown>>({
+      providers: [{ name: "demo", type: "openai" }],
+      models: [],
+    });
+    return (
+      <SettingsSection
+        section={providersSection}
+        schema={schema}
+        doc={doc}
+        setDoc={(next) => {
+          latest = next;
+          setDoc(next);
+        }}
+      />
+    );
+  }
+
+  render(<Seeded />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByTestId("provider-model-toggle-m1"));
+
+  expect(latest.models).toEqual([
+    { model: "demo/m1", max_context_tokens: 131072 },
+  ]);
+});
+
+// For a model the provider reports no window for, the models catalog's window
+// and max_tokens arrive together, written into max_context_tokens and
+// max_tokens.
 test("a model added from the provider list carries the catalog's window and max_tokens", async () => {
   vi.stubGlobal(
     "fetch",
