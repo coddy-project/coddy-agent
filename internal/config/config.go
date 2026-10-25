@@ -82,11 +82,13 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 	if err != nil {
 		rec, rerr := tryRecoverFromBackup(paths)
 		if rerr == nil && rec != nil {
+			dropWorkspaceLoosening(rec)
 			return rec, nil
 		}
 		return nil, fmt.Errorf("config %s: %w", paths.ConfigPath, err)
 	}
 	_ = WriteBackup(paths.ConfigPath, originalData)
+	dropWorkspaceLoosening(cfg)
 	return cfg, nil
 }
 
