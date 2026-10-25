@@ -24,6 +24,33 @@ export const messagesRu: Record<string, string> = {
     "Уведомлениям нужно защищённое соединение. Откройте Coddy по https или на localhost.",
   "appearance.notifications.unsupported":
     "Этот браузер не показывает уведомления веб-страниц.",
+  "appearance.smoothBackdropLabel": "Градиенты",
+  "appearance.smoothBackdrop.toggle": "Плавные градиенты",
+  "appearance.smoothBackdrop.hint":
+    "Рисует свечение фона и стекло заголовка, боковой панели и поля ввода без колец и ступенек, которые видны на некоторых контрастных мониторах. Панели перестают размывать то, что под ними, и теряют мягкие тени. Настройка хранится в этом браузере.",
+  "appearance.wallpaperLabel": "Обои",
+  "appearance.wallpaper.choose": "Выбрать картинку",
+  "appearance.wallpaper.gallery": "Галерея",
+  "appearance.wallpaper.remove": "Убрать",
+  "appearance.wallpaper.dim": "Затемнение: {value}%",
+  "appearance.wallpaper.hint":
+    "Картинка с этого компьютера, не меньше 1280x720, или фото из галереи под интерфейсом вместо свечения. Хранится в этом браузере и не отправляется на сервер.",
+  "appearance.wallpaper.galleryHint":
+    "Фотографии с Unsplash через сервис Lorem Picsum (picsum.photos). Галерея, перемешивание и выбранное фото загружаются оттуда через интернет, затем фото хранится в этом браузере.",
+  "appearance.wallpaper.photoLabel": "Фото {n}, автор {author}",
+  "appearance.wallpaper.shuffle": "Перемешать",
+  "appearance.wallpaper.shuffling": "Загрузка…",
+  "appearance.wallpaper.shuffleFailed":
+    "Новые фото не загрузились. Проверьте подключение к интернету и попробуйте ещё раз.",
+  "appearance.wallpaper.creditPrefix": "Фото:",
+  "appearance.wallpaper.creditSuffix": ", Unsplash",
+  "appearance.wallpaper.notImage": "Этот файл не картинка.",
+  "appearance.wallpaper.tooLarge": "Картинка больше 20 МБ.",
+  "appearance.wallpaper.tooSmall":
+    "Картинка {width}x{height}, а для обоев нужно не меньше {minWidth}x{minHeight}.",
+  "appearance.wallpaper.unreadable": "Браузер не может прочитать эту картинку.",
+  "appearance.wallpaper.offline":
+    "Фото не загрузилось. Проверьте подключение к интернету и попробуйте ещё раз.",
 
   "notify.untitled": "Coddy",
   "notify.turnFinished": "Агент закончил ход.",
