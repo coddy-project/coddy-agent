@@ -18,7 +18,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-type StubModel = { id: string; name?: string; context_window?: number };
+type StubModel = {
+  id: string;
+  name?: string;
+  context_window?: number;
+  catalog?: { context_window?: number; max_tokens?: number };
+};
 
 /** Answers every POST /coddy/providers/models with the given list (or an error). */
 function stubModels(models: StubModel[], ok = true) {
@@ -123,7 +128,15 @@ test("a row without a name or a type fetches nothing and says why", () => {
 });
 
 test("a model is added to Logical models from its row", async () => {
-  stubModels([{ id: "m1", context_window: 131072 }, { id: "m2" }]);
+  stubModels([
+    {
+      id: "m1",
+      context_window: 131072,
+      catalog: { context_window: 200000, max_tokens: 26214 },
+    },
+    { id: "m2", catalog: { context_window: 128000, max_tokens: 16384 } },
+    { id: "m3" },
+  ]);
   const onAddModel = vi.fn();
   render(
     <ProviderModelList
@@ -141,10 +154,20 @@ test("a model is added to Logical models from its row", async () => {
   );
   fireEvent.click(toggle("m1"));
   fireEvent.click(toggle("m2"));
+  fireEvent.click(toggle("m3"));
 
-  // The context window the provider reports travels with the id.
-  expect(onAddModel).toHaveBeenNthCalledWith(1, "demo/m1", 131072);
-  expect(onAddModel).toHaveBeenNthCalledWith(2, "demo/m2", undefined);
+  // The window the provider reports travels with the id, else the models
+  // catalog's, and the catalog's max_tokens with it.
+  expect(onAddModel).toHaveBeenNthCalledWith(1, "demo/m1", 131072, 26214);
+  expect(onAddModel).toHaveBeenNthCalledWith(2, "demo/m2", 128000, 16384);
+  expect(onAddModel).toHaveBeenNthCalledWith(
+    3,
+    "demo/m3",
+    undefined,
+    undefined,
+  );
+  // The row shows the window the model is added with.
+  expect(screen.getByTestId("provider-model-m2").textContent).toContain("128k");
 });
 
 test("a model already in Logical models is checked and unchecking removes it", async () => {

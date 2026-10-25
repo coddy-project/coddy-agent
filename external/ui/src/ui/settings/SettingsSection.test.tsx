@@ -1827,16 +1827,23 @@ test("a row form open under LLM providers does not survive switching to Logical 
   );
 });
 
-// A model added from the provider's list arrives with the context window the
-// provider reported for it, written into max_context_tokens.
-test("a model added from the provider list carries the context window the provider reports", async () => {
+// A model added from the provider's list arrives with the context window and
+// the max_tokens its listing carries, written into max_context_tokens and
+// max_tokens.
+test("a model added from the provider list carries the window and max_tokens of its listing", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({
       ok: true,
       json: async () => ({
         ok: true,
-        models: [{ id: "m1", context_window: 131072 }],
+        models: [
+          {
+            id: "m1",
+            context_window: 131072,
+            catalog: { context_window: 200000, max_tokens: 26214 },
+          },
+        ],
       }),
     })),
   );
@@ -1855,6 +1862,7 @@ test("a model added from the provider list carries the context window the provid
               type: "integer",
               title: "Context window (tokens)",
             },
+            max_tokens: { type: "integer", title: "Max tokens" },
             reasoning_levels: {
               type: "array",
               title: "Reasoning levels",
@@ -1864,6 +1872,7 @@ test("a model added from the provider list carries the context window the provid
           "x-coddy-property-order": [
             "model",
             "max_context_tokens",
+            "max_tokens",
             "reasoning_levels",
           ],
         },
@@ -1894,7 +1903,7 @@ test("a model added from the provider list carries the context window the provid
   fireEvent.click(await screen.findByTestId("provider-model-toggle-m1"));
 
   expect(latest.models).toEqual([
-    { model: "demo/m1", max_context_tokens: 131072 },
+    { model: "demo/m1", max_context_tokens: 131072, max_tokens: 26214 },
   ]);
 });
 

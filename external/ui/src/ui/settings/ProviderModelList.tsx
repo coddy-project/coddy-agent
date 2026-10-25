@@ -8,6 +8,7 @@ import {
   modelDisplayName,
   providerRowFetchable,
   useAutoProviderModels,
+  type FetchedModel,
   type ProviderRow,
 } from "./useProviderModels";
 
@@ -40,8 +41,13 @@ export function ProviderModelList(props: {
   /** Every models[].model of the document, so listed ids are told apart. */
   existingModels: string[];
   /** Files provider/id under Logical models, with the context window the
-   * provider reported for it when it did. */
-  onAddModel: (id: string, contextWindow?: number | undefined) => void;
+   * provider reports (else the models catalog's) and the catalog's max_tokens
+   * when the listing has them. */
+  onAddModel: (
+    id: string,
+    contextWindow?: number | undefined,
+    maxTokens?: number | undefined,
+  ) => void;
   /** Takes provider/id out of Logical models. */
   onRemoveModel: (id: string) => void;
 }) {
@@ -99,7 +105,7 @@ export function ProviderModelList(props: {
   const toggle = (
     full: string,
     isListed: boolean,
-    contextWindow?: number,
+    model?: FetchedModel,
     stale = false,
   ) => {
     const action = isListed
@@ -120,7 +126,13 @@ export function ProviderModelList(props: {
         title={action}
         aria-label={name}
         onClick={() =>
-          isListed ? onRemoveModel(full) : onAddModel(full, contextWindow)
+          isListed
+            ? onRemoveModel(full)
+            : onAddModel(
+                full,
+                model?.context_window ?? model?.catalog?.context_window,
+                model?.catalog?.max_tokens,
+              )
         }
       >
         {isListed ? <IconCheck /> : <IconPlus />}
@@ -174,6 +186,7 @@ export function ProviderModelList(props: {
           {visible.map((m) => {
             const full = prefix + m.id;
             const isListed = listed.has(full);
+            const contextWindow = m.context_window ?? m.catalog?.context_window;
             return (
               <li
                 key={m.id}
@@ -182,23 +195,23 @@ export function ProviderModelList(props: {
                 title={modelDisplayName(m)}
               >
                 <span className="provider-models-item-id">{m.id}</span>
-                {m.context_window ? (
+                {contextWindow ? (
                   <span
                     className="provider-models-item-ctx"
                     title={tp(
                       "settings.providerModels.contextWindow",
-                      m.context_window,
+                      contextWindow,
                       {
                         tokens: new Intl.NumberFormat(locale).format(
-                          m.context_window,
+                          contextWindow,
                         ),
                       },
                     )}
                   >
-                    {formatTurnTokens(m.context_window)}
+                    {formatTurnTokens(contextWindow)}
                   </span>
                 ) : null}
-                {toggle(full, isListed, m.context_window)}
+                {toggle(full, isListed, m)}
               </li>
             );
           })}

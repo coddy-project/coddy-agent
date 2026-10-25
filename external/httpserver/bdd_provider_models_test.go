@@ -29,6 +29,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm/models"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -47,9 +48,10 @@ type providerModelsWorld struct {
 	codexRows     []codexCatalogRow
 	codexVersions []string
 
-	ok     bool
-	models []string
-	ctx    map[string]int
+	ok      bool
+	models  []string
+	ctx     map[string]int
+	catalog map[string]*models.Limits
 }
 
 // codexCatalogRow is one model of the stand-in Codex catalog: its slug and
@@ -329,6 +331,10 @@ func (w *providerModelsWorld) readModels(res *http.Response) error {
 		Models []struct {
 			ID            string `json:"id"`
 			ContextWindow int    `json:"context_window"`
+			Catalog       *struct {
+				ContextWindow int `json:"context_window"`
+				MaxTokens     int `json:"max_tokens"`
+			} `json:"catalog"`
 		} `json:"models"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
@@ -337,9 +343,13 @@ func (w *providerModelsWorld) readModels(res *http.Response) error {
 	w.ok = payload.OK
 	w.models = nil
 	w.ctx = map[string]int{}
+	w.catalog = map[string]*models.Limits{}
 	for _, m := range payload.Models {
 		w.models = append(w.models, m.ID)
 		w.ctx[m.ID] = m.ContextWindow
+		if m.Catalog != nil {
+			w.catalog[m.ID] = &models.Limits{ContextWindow: m.Catalog.ContextWindow, MaxTokens: m.Catalog.MaxTokens}
+		}
 	}
 	return nil
 }
@@ -378,6 +388,26 @@ func (w *providerModelsWorld) wantCtx(want int, id string) error {
 // modelListReportsWindow checks the window GET /v1/models reports for a model
 // row, the number the web UI draws its context ring against and automatic
 // compaction measures against.
+// wantCatalog holds the answer to the embedded models catalog, whatever its
+// numbers are after the next refresh.
+func (w *providerModelsWorld) wantCatalog(id string) error {
+	want, ok := models.Lookup(id)
+	if !ok {
+		return fmt.Errorf("the models catalog does not list %q any more: pick another model for this scenario", id)
+	}
+	if got := w.catalog[id]; got == nil || *got != want {
+		return fmt.Errorf("catalog for %q = %+v, want %+v", id, got, want)
+	}
+	return nil
+}
+
+func (w *providerModelsWorld) wantNoCatalog(id string) error {
+	if got := w.catalog[id]; got != nil {
+		return fmt.Errorf("catalog for %q = %+v, want none", id, *got)
+	}
+	return nil
+}
+
 func (w *providerModelsWorld) modelListReportsWindow(want int, ref string) error {
 	if w.ts == nil {
 		return fmt.Errorf("gateway not started")
@@ -436,6 +466,8 @@ func TestProviderModelsFetchFeature(t *testing.T) {
 			sc.Step(`^the settings form reads the models of the saved provider "([^"]*)"$`, w.getSaved)
 			sc.Step(`^the gateway answers with the models "([^"]*)"$`, w.wantModels)
 			sc.Step(`^the gateway answers with context window (\d+) for "([^"]*)"$`, w.wantCtx)
+			sc.Step(`^the gateway answers with the window and max_tokens the models catalog has for "([^"]*)"$`, w.wantCatalog)
+			sc.Step(`^the gateway answers with nothing from the models catalog for "([^"]*)"$`, w.wantNoCatalog)
 			sc.Step(`^the upstream saw the key "([^"]*)"$`, w.upstreamSawKey)
 			sc.Step(`^the model list reports the context window (\d+) for "([^"]*)"$`, w.modelListReportsWindow)
 		},

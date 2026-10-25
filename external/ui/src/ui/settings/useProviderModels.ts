@@ -6,6 +6,10 @@ export interface FetchedModel {
   name?: string;
   /** Context window the listing reports, absent when it reports none. */
   context_window?: number;
+  /** What the server's models catalog knows of the id, which a model added
+   * from the list is filled from where the provider says nothing. A session
+   * never measures against it, so it stays apart from context_window. */
+  catalog?: { context_window: number; max_tokens?: number };
 }
 
 /** A providers[] row as the settings form holds it. */
@@ -79,8 +83,20 @@ export function modelDisplayName(m: FetchedModel): string | undefined {
 type ModelsResponse = {
   ok?: boolean;
   error?: string;
-  models?: { id?: string; name?: string; context_window?: number }[];
+  models?: {
+    id?: string;
+    name?: string;
+    context_window?: number;
+    catalog?: { context_window?: number; max_tokens?: number };
+  }[];
 };
+
+/** A count of tokens from the answer, undefined unless it is one. */
+function tokens(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) && v > 0
+    ? Math.floor(v)
+    : undefined;
+}
 
 function normalize(rows: ModelsResponse["models"]): FetchedModel[] {
   const seen = new Set<string>();
@@ -94,12 +110,16 @@ function normalize(rows: ModelsResponse["models"]): FetchedModel[] {
     if (m.name) {
       item.name = m.name;
     }
-    if (
-      typeof m.context_window === "number" &&
-      Number.isFinite(m.context_window) &&
-      m.context_window > 0
-    ) {
-      item.context_window = Math.floor(m.context_window);
+    const contextWindow = tokens(m.context_window);
+    if (contextWindow) {
+      item.context_window = contextWindow;
+    }
+    const catalogWindow = tokens(m.catalog?.context_window);
+    if (catalogWindow) {
+      const maxTokens = tokens(m.catalog?.max_tokens);
+      item.catalog = maxTokens
+        ? { context_window: catalogWindow, max_tokens: maxTokens }
+        : { context_window: catalogWindow };
     }
     list.push(item);
   }
