@@ -1712,3 +1712,19 @@ func ArchiveActiveTodo(sessionDir string) error {
 	}
 	return os.Remove(ap)
 }
+
+// WithoutSubagentRuns keeps the rows of a listing made with IncludeSubagents
+// that the same options without it would have listed, in the same order. A
+// child bundle always reads as a subagent run (readListMetaAt marks it), and a
+// top-level bundle marked as one is left out by appendBundleRow, so dropping
+// the subagent rows is that listing exactly. It lets one scan serve both the
+// History page and the badge that counts active child sessions too.
+func WithoutSubagentRuns(rows []SessionListEntry) []SessionListEntry {
+	out := make([]SessionListEntry, 0, len(rows))
+	for _, row := range rows {
+		if !row.SubagentRun {
+			out = append(out, row)
+		}
+	}
+	return out
+}
