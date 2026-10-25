@@ -24,6 +24,19 @@ Feature: The settings form fetches the model list a provider advertises
     And the gateway answers with context window 131072 for "m1"
     And the gateway answers with context window 8192 for "m2"
 
+  Scenario: A provider pointed at another Coddy reads the windows that Coddy serves
+    GET /v1/models of a coddy serve reports each model's window as
+    max_context_tokens, and as context_length, the spelling OpenAI-compatible
+    clients read. A Coddy whose provider is that API measures its models
+    against those windows, not against the 128000-token fallback (issue #575).
+    Given a source coddy server serving "big:32768,small:8192"
+    And a coddy server whose provider "src" at that source lists the models "local/big,local/small"
+    Then the model list reports the context window 32768 for "src/local/big"
+    And the model list reports the context window 8192 for "src/local/small"
+    When the settings form posts only the provider name "src"
+    Then the gateway answers with context window 32768 for "local/big"
+    And the gateway answers with context window 8192 for "local/small"
+
   Scenario: A codex provider lists the models only recent Codex releases are offered
     The Codex backend leaves a model out of its catalog for every Codex
     release older than the model's minimal_client_version, and it answers a

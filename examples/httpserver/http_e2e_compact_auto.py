@@ -12,7 +12,8 @@ Checks:
 
 1. ``GET /v1/models`` reports, for the model, the context window the provider's
    own model listing reports (``limit.context``, ``context_length``,
-   ``max_model_len``, ``max_context_length`` or ``context_window``), or 128000
+   ``max_model_len``, ``max_context_length``, ``context_window`` or
+   ``max_context_tokens``), or 128000
    when it reports none. That is the number the web UI ring is drawn against.
 2. Every ``usage_update`` frame on the turn streams carries that same window as
    ``size``: what the ring shows is what the trigger measures.
@@ -133,7 +134,7 @@ def provider_window(api_base: str, key: str, api_model: str) -> int:
         limit = row.get("limit")
         if isinstance(limit, dict) and positive(limit.get("context")):
             return positive(limit.get("context"))
-        for field in ("context_length", "max_model_len", "max_context_length", "context_window"):
+        for field in ("context_length", "max_model_len", "max_context_length", "context_window", "max_context_tokens"):
             if positive(row.get(field)):
                 return positive(row.get(field))
         return 0

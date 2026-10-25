@@ -3898,6 +3898,10 @@ func openAPISpec() map[string]interface{} {
 										"type":        "integer",
 										"description": "Context window a session on this model measures its context usage and its automatic compaction threshold against: `models[].max_context_tokens`, else the window the provider's model listing reports, else 128000. The `agent`, `plan` and `ask` rows carry the window of `agent.model`.",
 									},
+									"context_length": map[string]string{
+										"type":        "integer",
+										"description": "The same window as `max_context_tokens`, under the name OpenAI-compatible clients read (OpenRouter's spelling).",
+									},
 									"multimodal": map[string]string{"type": "boolean"},
 									"reasoning_levels": map[string]interface{}{
 										"type":        "array",
