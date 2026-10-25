@@ -18,7 +18,6 @@ import { startActiveHealthMonitor } from "./ui/env/activeHealth";
 import { initTelegramMiniApp } from "./ui/telegram/miniApp";
 import { registerServiceWorker } from "./ui/pwa/serviceWorker";
 import { followThemeColor } from "./ui/pwa/themeColor";
-import { followBackdrop } from "./ui/theme/backdropPrefs";
 
 // Route API calls to the selected remote environment (no-op in local mode). Must run before the
 // app issues any fetch so remote sessions/config/streaming all target the chosen backend.
@@ -32,9 +31,6 @@ initTelegramMiniApp();
 initLocale(bootstrapUiLocaleFromUrlOrCookie());
 // The installed app's title bar takes the theme's colour (ui/pwa/themeColor.ts).
 followThemeColor();
-// Smooth gradients, when chosen in Settings → Appearance
-// (ui/theme/backdropPrefs.ts).
-followBackdrop();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

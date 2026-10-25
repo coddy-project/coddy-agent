@@ -26,10 +26,6 @@ export const messagesEn: Record<string, string> = {
     "Notifications need a secure connection. Open Coddy over https or on localhost.",
   "appearance.notifications.unsupported":
     "This browser shows no notifications from web pages.",
-  "appearance.smoothBackdropLabel": "Gradients",
-  "appearance.smoothBackdrop.toggle": "Smooth gradients",
-  "appearance.smoothBackdrop.hint":
-    "Draws the background glows and the glass of the title bar, the rail and the composer without the rings and steps some high-contrast screens show. The panels stop blurring what is behind them and lose their soft shadows. The choice is kept in this browser.",
 
   "notify.untitled": "Coddy",
   "notify.turnFinished": "The agent finished its turn.",

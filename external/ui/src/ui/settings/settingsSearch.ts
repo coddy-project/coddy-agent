@@ -317,12 +317,6 @@ export const SETTINGS_LANDMARKS: readonly SettingsLandmark[] = [
   landmark("appearance", "notifications", "appearanceNotifications", "before", {
     shown: notificationsShown,
   }),
-  landmark(
-    "appearance",
-    "smooth-backdrop",
-    "appearanceSmoothBackdrop",
-    "before",
-  ),
   landmark("sessions_manager", "manage", "sessionsManage", "after"),
   // The four blocks the System tab always draws; the charts and the provider
   // rows depend on the build and have no anchor, and no value of the status
