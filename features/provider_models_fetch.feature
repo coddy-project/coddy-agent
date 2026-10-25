@@ -37,6 +37,22 @@ Feature: The settings form fetches the model list a provider advertises
     Then the gateway answers with context window 32768 for "local/big"
     And the gateway answers with context window 8192 for "local/small"
 
+  Scenario: The models catalog fills in a model the provider reports no window for
+    Coddy carries a table of model ids with a context window, a max_tokens
+    to start from and whether the model reads images, built from models.dev
+    and embedded into the binary (issue #554). The settings form fills a model it adds from it when
+    the provider reports no window for the id. A window the provider reports
+    stands alone: the catalog's max_tokens was worked out for the catalog's
+    window and fits no other.
+    Given an upstream model endpoint serving "gpt-4o,claude-sonnet-4-5:1000000,m2"
+    And a coddy server holding only a provider named "other"
+    When the settings form posts the provider row "fresh" of type "openai" at that upstream with key "sk-fresh"
+    Then the gateway answers with the window, max_tokens and image support the models catalog has for "gpt-4o"
+    And the gateway answers with context window 0 for "gpt-4o"
+    And the gateway answers with context window 1000000 for "claude-sonnet-4-5"
+    And the gateway answers with nothing from the models catalog for "claude-sonnet-4-5"
+    And the gateway answers with nothing from the models catalog for "m2"
+
   Scenario: A codex provider lists the models only recent Codex releases are offered
     The Codex backend leaves a model out of its catalog for every Codex
     release older than the model's minimal_client_version, and it answers a
@@ -62,3 +78,17 @@ Feature: The settings form fetches the model list a provider advertises
     When the settings form posts only the provider name "codex"
     Then the gateway answers with context window 272000 for "gpt-6-astra"
     And the model list reports the context window 272000 for "codex/gpt-6-astra"
+
+  Scenario: A Claude model measures its context against the window Anthropic's listing reports
+    Anthropic's GET /v1/models reports each model's input window as
+    max_input_tokens. A Claude model without max_context_tokens measures its
+    context ring and its automatic compaction against that window, not
+    against the 128000-token fallback. The settings form still fills a model
+    it adds with the catalog's max_tokens and image support when Anthropic's
+    window is the catalog's.
+    Given an Anthropic model endpoint serving "claude-sonnet-4-5:catalog,seed-model:150000"
+    And a coddy server holding a provider "claude" of type "anthropic" at that upstream with key "sk-ant"
+    When the settings form posts only the provider name "claude"
+    Then the gateway answers with context window 150000 for "seed-model"
+    And the gateway answers with the window, max_tokens and image support the models catalog has for "claude-sonnet-4-5"
+    And the model list reports the context window 150000 for "claude/seed-model"

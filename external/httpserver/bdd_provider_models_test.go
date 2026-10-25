@@ -29,6 +29,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm/models"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -47,9 +48,10 @@ type providerModelsWorld struct {
 	codexRows     []codexCatalogRow
 	codexVersions []string
 
-	ok     bool
-	models []string
-	ctx    map[string]int
+	ok      bool
+	models  []string
+	ctx     map[string]int
+	catalog map[string]*models.Limits
 }
 
 // codexCatalogRow is one model of the stand-in Codex catalog: its slug and
@@ -68,8 +70,19 @@ const codexSourceBuildVersion = "0.154.0"
 // upstreamServing starts a stand-in provider endpoint that answers the model
 // list with the given ids and records the credential it was called with. An
 // entry may carry a context window as "id:131072" - the stand-in reports it
-// under the OpenRouter spelling, context_length.
+// under the OpenRouter spelling, context_length - or as "id:catalog", the
+// window the embedded models catalog has for the id.
 func (w *providerModelsWorld) upstreamServing(t *testing.T, csv string) error {
+	return w.serveListing(t, csv, "context_length")
+}
+
+// anthropicServing is upstreamServing in Anthropic's shape: the window is
+// max_input_tokens.
+func (w *providerModelsWorld) anthropicServing(t *testing.T, csv string) error {
+	return w.serveListing(t, csv, "max_input_tokens")
+}
+
+func (w *providerModelsWorld) serveListing(t *testing.T, csv, windowField string) error {
 	ids := strings.Split(csv, ",")
 	var data []map[string]interface{}
 	for _, part := range ids {
@@ -77,11 +90,19 @@ func (w *providerModelsWorld) upstreamServing(t *testing.T, csv string) error {
 		id, ctx := part, 0
 		if i := strings.LastIndex(part, ":"); i > 0 {
 			id = part[:i]
-			ctx, _ = strconv.Atoi(part[i+1:])
+			if part[i+1:] == "catalog" {
+				limits, ok := models.Lookup(id)
+				if !ok {
+					return fmt.Errorf("the models catalog does not list %q any more: pick another model for this scenario", id)
+				}
+				ctx = limits.ContextWindow
+			} else {
+				ctx, _ = strconv.Atoi(part[i+1:])
+			}
 		}
 		entry := map[string]interface{}{"id": id}
 		if ctx > 0 {
-			entry["context_length"] = ctx
+			entry[windowField] = ctx
 		}
 		data = append(data, entry)
 	}
@@ -388,6 +409,11 @@ func (w *providerModelsWorld) readModels(res *http.Response) error {
 		Models []struct {
 			ID            string `json:"id"`
 			ContextWindow int    `json:"context_window"`
+			Catalog       *struct {
+				ContextWindow int  `json:"context_window"`
+				MaxTokens     int  `json:"max_tokens"`
+				Multimodal    bool `json:"multimodal"`
+			} `json:"catalog"`
 		} `json:"models"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
@@ -396,9 +422,13 @@ func (w *providerModelsWorld) readModels(res *http.Response) error {
 	w.ok = payload.OK
 	w.models = nil
 	w.ctx = map[string]int{}
+	w.catalog = map[string]*models.Limits{}
 	for _, m := range payload.Models {
 		w.models = append(w.models, m.ID)
 		w.ctx[m.ID] = m.ContextWindow
+		if m.Catalog != nil {
+			w.catalog[m.ID] = &models.Limits{ContextWindow: m.Catalog.ContextWindow, MaxTokens: m.Catalog.MaxTokens, Multimodal: m.Catalog.Multimodal}
+		}
 	}
 	return nil
 }
@@ -430,6 +460,26 @@ func (w *providerModelsWorld) upstreamSawKey(key string) error {
 func (w *providerModelsWorld) wantCtx(want int, id string) error {
 	if w.ctx[id] != want {
 		return fmt.Errorf("context_window for %q = %d, want %d", id, w.ctx[id], want)
+	}
+	return nil
+}
+
+// wantCatalog holds the answer to the embedded models catalog, whatever its
+// numbers are after the next refresh.
+func (w *providerModelsWorld) wantCatalog(id string) error {
+	want, ok := models.Lookup(id)
+	if !ok {
+		return fmt.Errorf("the models catalog does not list %q any more: pick another model for this scenario", id)
+	}
+	if got := w.catalog[id]; got == nil || *got != want {
+		return fmt.Errorf("catalog for %q = %+v, want %+v", id, got, want)
+	}
+	return nil
+}
+
+func (w *providerModelsWorld) wantNoCatalog(id string) error {
+	if got := w.catalog[id]; got != nil {
+		return fmt.Errorf("catalog for %q = %+v, want none", id, *got)
 	}
 	return nil
 }
@@ -471,6 +521,9 @@ func TestProviderModelsFetchFeature(t *testing.T) {
 		Name: "provider_models_fetch",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			w := &providerModelsWorld{}
+			sc.Step(`^an Anthropic model endpoint serving "([^"]*)"$`, func(csv string) error {
+				return w.anthropicServing(t, csv)
+			})
 			sc.Step(`^an upstream model endpoint serving "([^"]*)"$`, func(csv string) error {
 				return w.upstreamServing(t, csv)
 			})
@@ -501,6 +554,8 @@ func TestProviderModelsFetchFeature(t *testing.T) {
 			sc.Step(`^the settings form reads the models of the saved provider "([^"]*)"$`, w.getSaved)
 			sc.Step(`^the gateway answers with the models "([^"]*)"$`, w.wantModels)
 			sc.Step(`^the gateway answers with context window (\d+) for "([^"]*)"$`, w.wantCtx)
+			sc.Step(`^the gateway answers with the window, max_tokens and image support the models catalog has for "([^"]*)"$`, w.wantCatalog)
+			sc.Step(`^the gateway answers with nothing from the models catalog for "([^"]*)"$`, w.wantNoCatalog)
 			sc.Step(`^the upstream saw the key "([^"]*)"$`, w.upstreamSawKey)
 			sc.Step(`^the model list reports the context window (\d+) for "([^"]*)"$`, w.modelListReportsWindow)
 		},
