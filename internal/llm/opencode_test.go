@@ -147,8 +147,8 @@ func newOpenCodeStand(t *testing.T) *opencodeStand {
 			_, _ = w.Write([]byte("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"pong\"}\n\n"))
 			_, _ = w.Write([]byte("event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":3,\"output_tokens\":1}}}\n\n"))
 		case strings.HasSuffix(r.URL.Path, "/messages"):
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"m","type":"message","role":"assistant","model":"claude-haiku-5-5","content":[{"type":"text","text":"pong"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":1}}`))
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, anthropicTextAnswerSSE("pong"))
 		default:
 			http.Error(w, "unexpected path "+r.URL.Path, http.StatusNotFound)
 		}
@@ -268,6 +268,19 @@ func TestOpenCodeMessagesRoute(t *testing.T) {
 	}
 	if seen[0].Session != "sess_msg" {
 		t.Errorf("x-opencode-session = %q, want sess_msg", seen[0].Session)
+	}
+}
+
+// A Messages model of the gateway configured with stream: false sends its one
+// blocking request, as a model of an anthropic row does, instead of reading
+// Complete from a stream.
+func TestOpenCodeMessagesHonorsDisableStream(t *testing.T) {
+	p, err := newOpenCodeProvider(ProviderInput{Model: "claude-haiku-5-5", APIKey: "oc-key", DisableStream: true}, &http.Client{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ap, ok := p.(*anthropicProvider); !ok || !ap.blocking {
+		t.Fatalf("provider = %T, want a blocking *anthropicProvider", p)
 	}
 }
 

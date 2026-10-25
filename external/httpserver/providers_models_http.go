@@ -10,6 +10,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm/models"
 )
 
 func (s *Server) registerProvidersRoutes() {
@@ -27,7 +28,10 @@ func (s *Server) registerProvidersRoutes() {
 // without sending secrets over the wire. On a successful upstream call it returns
 // {"ok":true,"models":[{"id","name","context_window"}]}; on failure it returns
 // {"ok":false,"error":...,"models":[]} with HTTP 200 so the UI can fall back to
-// manual model entry. An unknown provider name returns 404.
+// manual model entry. A model the built-in models catalog knows also carries
+// {"catalog":{"context_window","max_tokens","multimodal"}} when the provider
+// reports no window for it or the catalog's window. An unknown provider name
+// returns 404.
 func (s *Server) coddyProviderModelsGet(w http.ResponseWriter, r *http.Request) {
 	c := s.activeCfg()
 	if c == nil {
@@ -176,11 +180,36 @@ func (s *Server) writeProviderModels(w http.ResponseWriter, ctx context.Context,
 		})
 		return
 	}
-	if models == nil {
-		models = []llm.ModelEntry{}
-	}
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":     true,
-		"models": models,
+		"models": withCatalogLimits(models),
 	})
+}
+
+// providerModel is a listed model as the settings form gets it: what the
+// provider reports and, for a model it reports no window for or the catalog's
+// window (as Anthropic's listing does), what the built-in models catalog knows
+// of the id, which the form fills a model it adds from. The catalog's numbers
+// come as a pair or not at all: its max_tokens was worked out for its own
+// window and fits no other.
+type providerModel struct {
+	llm.ModelEntry
+	Catalog *catalogLimits `json:"catalog,omitempty"`
+}
+
+type catalogLimits struct {
+	ContextWindow int  `json:"context_window"`
+	MaxTokens     int  `json:"max_tokens,omitempty"`
+	Multimodal    bool `json:"multimodal,omitempty"`
+}
+
+func withCatalogLimits(listed []llm.ModelEntry) []providerModel {
+	out := make([]providerModel, len(listed))
+	for i, m := range listed {
+		out[i].ModelEntry = m
+		if limits, ok := models.Lookup(m.ID); ok && (m.ContextWindow == 0 || m.ContextWindow == limits.ContextWindow) {
+			out[i].Catalog = &catalogLimits{ContextWindow: limits.ContextWindow, MaxTokens: limits.MaxTokens, Multimodal: limits.Multimodal}
+		}
+	}
+	return out
 }

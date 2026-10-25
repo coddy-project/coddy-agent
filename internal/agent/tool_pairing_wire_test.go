@@ -274,11 +274,13 @@ func newWireCapture(t *testing.T, kind string) (*httptest.Server, func() [][]byt
 			_, _ = io.WriteString(w, "data: [DONE]\n\n")
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
 		if kind == "anthropic" {
-			_, _ = io.WriteString(w, `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"done"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
+			// Complete reads the Messages API from a stream.
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, anthropicAnswerSSE("done"))
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"done"}}]}`)
 	}))
 	t.Cleanup(srv.Close)

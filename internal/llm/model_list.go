@@ -171,6 +171,7 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 			MaxModelLen      json.RawMessage `json:"max_model_len"`
 			MaxContextLength json.RawMessage `json:"max_context_length"`
 			ContextWindow    json.RawMessage `json:"context_window"`
+			MaxInputTokens   json.RawMessage `json:"max_input_tokens"`
 			// Raw for the same reason as the windows.
 			SupportedParameters json.RawMessage `json:"supported_parameters"`
 		} `json:"data"`
@@ -197,7 +198,7 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 		out = append(out, ModelEntry{
 			ID:                  id,
 			Name:                name,
-			ContextWindow:       reportedContextWindow(m.Limit, m.ContextLength, m.MaxModelLen, m.MaxContextLength, m.ContextWindow),
+			ContextWindow:       reportedContextWindow(m.Limit, m.ContextLength, m.MaxModelLen, m.MaxContextLength, m.ContextWindow, m.MaxInputTokens),
 			SupportedParameters: listedParameters(m.SupportedParameters),
 		})
 	}
@@ -208,8 +209,8 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 // reportedContextWindow reads the context window a listing row reports:
 // limit.context (the NeuralDeep hub, the models.dev shape), then
 // context_length (OpenRouter), max_model_len (vLLM), max_context_length
-// (LM Studio) and context_window. The first positive value wins; 0 means the
-// row reports none.
+// (LM Studio), context_window and max_input_tokens (Anthropic). The first
+// positive value wins; 0 means the row reports none.
 func reportedContextWindow(limit json.RawMessage, fields ...json.RawMessage) int {
 	var lim struct {
 		Context json.RawMessage `json:"context"`
