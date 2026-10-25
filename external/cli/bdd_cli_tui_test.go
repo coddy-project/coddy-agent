@@ -975,6 +975,12 @@ func (s *cliTUIState) operatorSubmitsPrompt(text string) error {
 	return s.waitScreen(text, 2*time.Second)
 }
 
+// stubTurnReach bounds the wait for the first frame a stub directive draws.
+// The deadline is generous: the first turn of a console that has just started
+// can take seconds to reach the stub on a loaded Windows runner, and a wait
+// that succeeds returns as soon as the frame is drawn.
+const stubTurnReach = 15 * time.Second
+
 func (s *cliTUIState) stubStreamsText(text string) error {
 	s.directives <- stubDirective{kind: "stream", text: text}
 	s.directives <- stubDirective{kind: "end"}
@@ -983,10 +989,7 @@ func (s *cliTUIState) stubStreamsText(text string) error {
 		// by the dedicated step.
 		return s.waitTurnEnd(2 * time.Second)
 	}
-	// The deadlines are generous: the first turn of a console that has just
-	// started can take seconds to reach the stub on a loaded Windows runner,
-	// and a wait that succeeds returns as soon as the text is drawn.
-	if err := s.waitScreen(text, 15*time.Second); err != nil {
+	if err := s.waitScreen(text, stubTurnReach); err != nil {
 		return err
 	}
 	return s.waitTurnEnd(5 * time.Second)
@@ -1123,7 +1126,7 @@ func (s *cliTUIState) statusLineShowsNoTokenCount() error {
 
 func (s *cliTUIState) stubStartsToolCall(tool, argKey, argVal string) error {
 	s.directives <- stubDirective{kind: "tool_start", tool: tool, argsKey: argKey, argsVal: argVal}
-	return s.waitScreen(tool, 3*time.Second)
+	return s.waitScreen(tool, stubTurnReach)
 }
 
 // stubStartsSpawnAgent starts a delegation with the three arguments the box
@@ -1136,7 +1139,7 @@ func (s *cliTUIState) stubStartsSpawnAgent(agent, description, prompt string) er
 		return err
 	}
 	s.directives <- stubDirective{kind: "tool_start", tool: "spawn_agent", argsJSON: string(args)}
-	return s.waitScreen("spawn_agent "+agent, 3*time.Second)
+	return s.waitScreen("spawn_agent "+agent, stubTurnReach)
 }
 
 func (s *cliTUIState) transcriptShowsPendingToolBox(tool string) error {
@@ -1198,7 +1201,7 @@ func (s *cliTUIState) permissionModeIs(mode string) error {
 
 func (s *cliTUIState) stubRequestsPermission(tool string) error {
 	s.directives <- stubDirective{kind: "permission", tool: tool}
-	return s.waitScreen("Permission required", 3*time.Second)
+	return s.waitScreen("Permission required", stubTurnReach)
 }
 
 func (s *cliTUIState) screenShowsPermissionModalWithAllow() error {
@@ -1474,7 +1477,7 @@ func (s *cliTUIState) stubAsksQuestion(title string) error {
 			Custom:   true,
 		}},
 	}}
-	return s.waitScreen(title, 3*time.Second)
+	return s.waitScreen(title, stubTurnReach)
 }
 
 func (s *cliTUIState) operatorChoosesCustomAndTypes(answer string) error {
@@ -1523,7 +1526,7 @@ func (s *cliTUIState) stubAsksQuestionWithLongDescriptions() error {
 			},
 		}},
 	}}
-	return s.waitScreen("Where should the relay live?", 3*time.Second)
+	return s.waitScreen("Where should the relay live?", stubTurnReach)
 }
 
 func (s *cliTUIState) questionModalShowsWholeFirstLabel() error {
@@ -1982,7 +1985,7 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 		// A run_command box titles itself "$ <command>", not with the tool name,
 		// so readiness is the command string appearing on screen.
 		s.directives <- stubDirective{kind: "tool_start", tool: tool, argsKey: "command", argsVal: command}
-		return s.waitScreen(command, 3*time.Second)
+		return s.waitScreen(command, stubTurnReach)
 	})
 	sc.Step(`^the operator allows the pending permission without ending the turn$`, s.operatorAllowsPermissionKeepingTurn)
 	sc.Step(`^the transcript shows a pending tool box titled "([^"]*)"$`, s.transcriptShowsPendingToolBox)
