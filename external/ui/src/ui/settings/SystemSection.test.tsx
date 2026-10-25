@@ -1222,7 +1222,9 @@ describe("the stylesheet", () => {
 
   /** The declarations of every rule whose selector list names `selector` exactly. */
   function bodyOf(selector: string, source: string = css): string {
-    return [...source.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    // A value may carry a Sass interpolation (`#{mix-text(80%)}`), whose braces
+    // a bare `[^{}]*` would stop at, so the body admits an interpolated fragment.
+    return [...source.matchAll(/([^{}]+)\{((?:[^{}]|#\{[^}]*\})*)\}/g)]
       .filter((m) =>
         m[1]!
           .split(",")
@@ -1422,12 +1424,14 @@ describe("the stylesheet", () => {
   test("labels, headings, legends and notes are quiet text mixed from the theme's text, not --muted", () => {
     // --muted is too dim on several presets (nord's reads 2.1:1 on its canvas);
     // the settings rail and tiles mix --text instead.
+    // The mix is the stylesheet's mix-text() ladder, interpolated into the
+    // custom property (Sass evaluates no function there on its own).
     expect(bodyOf(".settings.drawer")).toMatch(
-      /--system-quiet:\s*color-mix\(in srgb, var\(--text\) \d+%, var\(--coddy-blend-base\)\)/,
+      /--system-quiet:\s*#\{mix-text\(\d+%\)\}/,
     );
-    const systemRules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) =>
-      /\.system-/.test(m[1]!),
-    );
+    const systemRules = [
+      ...css.matchAll(/([^{}]+)\{((?:[^{}]|#\{[^}]*\})*)\}/g),
+    ].filter((m) => /\.system-/.test(m[1]!));
     const muted = systemRules
       .filter((m) => /var\(--muted\)/.test(m[2]!))
       .map((m) => squash(m[1]!));

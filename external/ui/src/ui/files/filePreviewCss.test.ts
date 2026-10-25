@@ -17,7 +17,10 @@ function rule(selector: string): string {
 // height differ, so the numbers never drift from the text they number.
 test("a line's number and its text share one font and one line height", () => {
   const block = rule(".files-code");
-  expect(block).toMatch(/font-family:\s*ui-monospace,[^;]*monospace;/);
+  // One monospaced font for both: the stack is named once at the top of the
+  // stylesheet, the way the longer $coddy-mono already is.
+  expect(block).toMatch(/font-family:\s*\$coddy-mono-ui;/);
+  expect(css).toMatch(/\$coddy-mono-ui:\s*ui-monospace,[^;]*monospace;/);
   expect(block).toMatch(/font-size:\s*12px/);
   expect(block).toMatch(/line-height:\s*1\.6/);
   expect(rule(".files-code code")).toMatch(/font:\s*inherit/);

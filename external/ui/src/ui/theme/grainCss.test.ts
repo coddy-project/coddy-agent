@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
 const css = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
+  join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
   "utf8",
 );
 
@@ -37,8 +37,13 @@ test("the glass panels keep their blur and carry the grain over their tint", () 
 });
 
 test("the dark themes share one grain tile and the light theme has none", () => {
-  // the default block, which every dark theme inherits, and the light one
-  expect(squash(css.slice(0, css.indexOf("}")))).toMatch(
+  // The default block, which every dark theme inherits. The stylesheet opens
+  // with the SCSS names, so the block is looked for rather than taken as the
+  // head of the file, and its body ends at the `}` on its own line.
+  const at = css.indexOf(':root,\n[data-theme="dark"] {');
+  expect(at).toBeGreaterThanOrEqual(0);
+  const dark = squash(css.slice(at, css.indexOf("\n}", at)));
+  expect(dark).toMatch(
     /^:root, \[data-theme="dark"\] \{.*--coddy-grain: url\("data:image\/png;base64,[A-Za-z0-9+/=]+"\);/,
   );
   expect(rule('[data-theme="light"]')).toContain("--coddy-grain: none;");

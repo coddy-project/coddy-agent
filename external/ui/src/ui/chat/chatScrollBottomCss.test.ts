@@ -34,10 +34,12 @@ test("the button is a circle on the shared glass tokens, so every theme carries 
 // panel token (0 14px 44px) draws under a composer-sized card.
 test("the circle lifts off the transcript on a small shadow, tuned per theme", () => {
   const body = ruleBody(".chat-scroll-bottom {");
-  expect(body).toMatch(/box-shadow:\s*[^;]*0 3px 10px/);
+  // The lift is one value named at the top of the stylesheet, one per canvas.
+  expect(body).toMatch(/box-shadow:\s*\$float-lift;/);
+  expect(css).toMatch(/\$float-lift:\s*0 3px 10px/);
   expect(body).not.toContain("var(--coddy-glass-panel-shadow)");
   expect(ruleBody('[data-theme="light"] .chat-scroll-bottom {')).toMatch(
-    /box-shadow:/,
+    /box-shadow:\s*\$float-lift-light;/,
   );
 });
 

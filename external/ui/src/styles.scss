@@ -12,6 +12,59 @@ $coddy-mono:
   @return color-mix(in srgb, var(--text) $pct, var(--coddy-blend-base));
 }
 
+// The interface sans stack: the body and the form fields share it.
+$coddy-sans:
+  system-ui,
+  -apple-system,
+  Segoe UI,
+  sans-serif;
+
+// The shorter monospace stack of the UI chrome (status footers, file bodies).
+// The desktop-only families of $coddy-mono stay out of it.
+$coddy-mono-ui: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+// The lift a 34px float control gets: enough to stand off the transcript
+// without the diffuse cast the full panel token carries. One per canvas.
+$float-lift:
+  0 3px 10px rgba(0, 0, 0, 0.32),
+  0 1px 2px rgba(0, 0, 0, 0.24);
+$float-lift-light:
+  0 3px 10px rgba(15, 23, 42, 0.14),
+  0 1px 2px rgba(15, 23, 42, 0.08);
+
+// A bottom sheet: the glass panel's corners at the top, square where it meets
+// the edge of the screen.
+$sheet-corners: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius)
+  0 0;
+
+// The three-column page of the documentation reader and the settings lists.
+$docs-columns: minmax(210px, 240px) minmax(0, 1fr) minmax(170px, 210px);
+
+// The wide slot of a dock cluster: the drawer beside it, then 8px of air.
+$dock-wide-width: min(
+  480px,
+  calc(
+    100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) -
+      16px - min(
+        320px,
+        calc(
+          100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) -
+            16px
+        )
+      ) -
+      8px
+  )
+);
+
+// The tab strip fades at both edges: 28px of ramp at each end.
+$tab-fade-both: linear-gradient(
+  to right,
+  transparent,
+  #000 28px,
+  #000 calc(100% - 28px),
+  transparent
+);
+
 :root,
 [data-theme="dark"] {
   /* Syntax palette: shared by all explicitly labelled Markdown code blocks. */
@@ -56,11 +109,7 @@ $coddy-mono:
   /* Tint stays fairly transparent so backdrop blur reads as frosted glass, not a solid bar */
   --coddy-glass-panel-bg: rgba(14, 14, 18, 0.62);
   --coddy-glass-panel-backdrop: blur(52px) saturate(175%);
-  --coddy-glass-panel-border: color-mix(
-    in srgb,
-    var(--text) 12%,
-    var(--coddy-blend-base)
-  );
+  --coddy-glass-panel-border: #{mix-text(12%)};
   --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.52);
   /* Match composer-card and History drawer corners */
   --coddy-glass-panel-radius: 18px;
@@ -98,17 +147,9 @@ $coddy-mono:
   --coddy-bubble-user-bg: rgba(45, 45, 45, 0.85);
   --coddy-bubble-user-fg: #f4f4f5;
   --coddy-chip-badge-bg: rgba(15, 15, 18, 0.9);
-  --coddy-chip-badge-fg: color-mix(
-    in srgb,
-    var(--text) 72%,
-    var(--coddy-blend-base)
-  );
+  --coddy-chip-badge-fg: #{mix-text(72%)};
   --coddy-plan-eye-bg: rgba(14, 14, 16, 0.92);
-  --coddy-plan-eye-fg: color-mix(
-    in srgb,
-    var(--text) 45%,
-    var(--coddy-blend-base)
-  );
+  --coddy-plan-eye-fg: #{mix-text(45%)};
   --coddy-on-accent-fg: #ffffff;
   --coddy-context-ring-inner: rgba(196, 181, 253, 0.5);
   /* Logo outer arc (cmf-stroke light end); flat, no gradient */
@@ -152,7 +193,6 @@ $coddy-mono:
   --text: #18181b;
   --muted: #52525b;
   --bubble-user: #e4e4e7;
-
   --shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
   --coddy-canvas-glow-purple: rgba(147, 51, 234, 0.07);
   --coddy-canvas-glow-indigo: rgba(99, 102, 241, 0.05);
@@ -177,7 +217,6 @@ $coddy-mono:
   --coddy-link: #7c3aed;
   --coddy-md-inline-code-fg: #3f3f46;
   --coddy-md-inline-code-bg: rgba(0, 0, 0, 0.06);
-
   --coddy-link-action: #6d28d9;
   --coddy-link-action-hover: #5b21b6;
   --coddy-hero-muted-mid: #3f3f46;
@@ -227,11 +266,9 @@ $coddy-mono:
   --coddy-skill-chip-bg: rgba(88, 101, 242, 0.14);
   --coddy-skill-chip-bd: rgba(88, 101, 242, 0.52);
   --coddy-skill-chip-text: rgba(199, 204, 255, 0.96);
-
   --text: #e6edf3;
   --muted: #8b949e;
   --bubble-user: #161b27;
-
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.65);
   --coddy-canvas-glow-purple: rgba(88, 101, 242, 0.1);
   --coddy-canvas-glow-indigo: rgba(48, 58, 200, 0.08);
@@ -239,13 +276,8 @@ $coddy-mono:
   --coddy-canvas-gradient-bottom: #070a11;
   --coddy-glass-panel-bg: rgba(10, 14, 24, 0.72);
   --coddy-glass-panel-backdrop: blur(52px) saturate(175%);
-  --coddy-glass-panel-border: color-mix(
-    in srgb,
-    var(--text) 10%,
-    var(--coddy-blend-base)
-  );
+  --coddy-glass-panel-border: #{mix-text(10%)};
   --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.6);
-
   --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.65);
   --coddy-surface-subtle: rgba(10, 14, 24, 0.25);
   --coddy-surface-muted: rgba(10, 14, 24, 0.3);
@@ -260,7 +292,6 @@ $coddy-mono:
   --coddy-link: rgba(120, 135, 255, 0.95);
   --coddy-md-inline-code-fg: rgba(220, 225, 240, 0.92);
   --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.09);
-
   --coddy-link-action: rgba(130, 150, 255, 0.95);
   --coddy-link-action-hover: rgba(170, 185, 255, 1);
   --coddy-hero-muted-mid: rgba(220, 230, 244, 0.82);
@@ -276,17 +307,9 @@ $coddy-mono:
   --coddy-bubble-user-bg: rgba(22, 27, 39, 0.9);
   --coddy-bubble-user-fg: #e6edf3;
   --coddy-chip-badge-bg: rgba(13, 17, 28, 0.92);
-  --coddy-chip-badge-fg: color-mix(
-    in srgb,
-    var(--text) 72%,
-    var(--coddy-blend-base)
-  );
+  --coddy-chip-badge-fg: #{mix-text(72%)};
   --coddy-plan-eye-bg: rgba(10, 14, 24, 0.94);
-  --coddy-plan-eye-fg: color-mix(
-    in srgb,
-    var(--text) 45%,
-    var(--coddy-blend-base)
-  );
+  --coddy-plan-eye-fg: #{mix-text(45%)};
   --coddy-on-accent-fg: #ffffff;
   --coddy-context-ring-inner: rgba(120, 135, 255, 0.5);
   --coddy-context-ring-fg: #c7ccff;
@@ -318,11 +341,9 @@ $coddy-mono:
   --coddy-skill-chip-bg: rgba(38, 139, 210, 0.14);
   --coddy-skill-chip-bd: rgba(38, 139, 210, 0.5);
   --coddy-skill-chip-text: rgba(147, 161, 161, 0.96);
-
   --text: #839496;
   --muted: #657b83;
   --bubble-user: #003847;
-
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.6);
   --coddy-canvas-glow-purple: rgba(38, 139, 210, 0.09);
   --coddy-canvas-glow-indigo: rgba(108, 113, 196, 0.07);
@@ -330,13 +351,8 @@ $coddy-mono:
   --coddy-canvas-gradient-bottom: #001a22;
   --coddy-glass-panel-bg: rgba(0, 36, 46, 0.75);
   --coddy-glass-panel-backdrop: blur(52px) saturate(175%);
-  --coddy-glass-panel-border: color-mix(
-    in srgb,
-    var(--text) 12%,
-    var(--coddy-blend-base)
-  );
+  --coddy-glass-panel-border: #{mix-text(12%)};
   --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.55);
-
   --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.6);
   --coddy-surface-subtle: rgba(0, 36, 46, 0.22);
   --coddy-surface-muted: rgba(0, 36, 46, 0.28);
@@ -351,7 +367,6 @@ $coddy-mono:
   --coddy-link: rgba(38, 139, 210, 0.95);
   --coddy-md-inline-code-fg: rgba(147, 161, 161, 0.92);
   --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.07);
-
   --coddy-link-action: rgba(38, 139, 210, 0.95);
   --coddy-link-action-hover: rgba(100, 175, 230, 1);
   --coddy-hero-muted-mid: rgba(131, 148, 150, 0.82);
@@ -367,17 +382,9 @@ $coddy-mono:
   --coddy-bubble-user-bg: rgba(0, 48, 62, 0.9);
   --coddy-bubble-user-fg: #93a1a1;
   --coddy-chip-badge-bg: rgba(0, 36, 46, 0.92);
-  --coddy-chip-badge-fg: color-mix(
-    in srgb,
-    var(--text) 72%,
-    var(--coddy-blend-base)
-  );
+  --coddy-chip-badge-fg: #{mix-text(72%)};
   --coddy-plan-eye-bg: rgba(0, 32, 42, 0.94);
-  --coddy-plan-eye-fg: color-mix(
-    in srgb,
-    var(--text) 45%,
-    var(--coddy-blend-base)
-  );
+  --coddy-plan-eye-fg: #{mix-text(45%)};
   --coddy-on-accent-fg: #fdf6e3;
   --coddy-context-ring-inner: rgba(38, 139, 210, 0.5);
   --coddy-context-ring-fg: #93a1a1;
@@ -409,11 +416,9 @@ $coddy-mono:
   --coddy-skill-chip-bg: rgba(253, 151, 31, 0.13);
   --coddy-skill-chip-bd: rgba(253, 151, 31, 0.5);
   --coddy-skill-chip-text: rgba(255, 220, 170, 0.96);
-
   --text: #f8f8f2;
   --muted: #75715e;
   --bubble-user: #3e3d32;
-
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
   --coddy-canvas-glow-purple: rgba(253, 151, 31, 0.08);
   --coddy-canvas-glow-indigo: rgba(166, 226, 46, 0.06);
@@ -421,13 +426,8 @@ $coddy-mono:
   --coddy-canvas-gradient-bottom: #1c1d18;
   --coddy-glass-panel-bg: rgba(28, 29, 24, 0.72);
   --coddy-glass-panel-backdrop: blur(52px) saturate(170%);
-  --coddy-glass-panel-border: color-mix(
-    in srgb,
-    var(--text) 11%,
-    var(--coddy-blend-base)
-  );
+  --coddy-glass-panel-border: #{mix-text(11%)};
   --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.52);
-
   --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.58);
   --coddy-surface-subtle: rgba(20, 20, 16, 0.22);
   --coddy-surface-muted: rgba(20, 20, 16, 0.28);
@@ -442,7 +442,6 @@ $coddy-mono:
   --coddy-link: rgba(253, 151, 31, 0.95);
   --coddy-md-inline-code-fg: rgba(248, 248, 242, 0.9);
   --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.08);
-
   --coddy-link-action: rgba(253, 151, 31, 0.95);
   --coddy-link-action-hover: rgba(255, 190, 100, 1);
   --coddy-hero-muted-mid: rgba(248, 248, 242, 0.82);
@@ -458,17 +457,9 @@ $coddy-mono:
   --coddy-bubble-user-bg: rgba(62, 61, 50, 0.9);
   --coddy-bubble-user-fg: #f8f8f2;
   --coddy-chip-badge-bg: rgba(28, 29, 24, 0.92);
-  --coddy-chip-badge-fg: color-mix(
-    in srgb,
-    var(--text) 72%,
-    var(--coddy-blend-base)
-  );
+  --coddy-chip-badge-fg: #{mix-text(72%)};
   --coddy-plan-eye-bg: rgba(24, 25, 20, 0.94);
-  --coddy-plan-eye-fg: color-mix(
-    in srgb,
-    var(--text) 45%,
-    var(--coddy-blend-base)
-  );
+  --coddy-plan-eye-fg: #{mix-text(45%)};
   --coddy-on-accent-fg: #272822;
   --coddy-context-ring-inner: rgba(253, 151, 31, 0.5);
   --coddy-context-ring-fg: #ffe699;
@@ -500,11 +491,9 @@ $coddy-mono:
   --coddy-skill-chip-bg: rgba(136, 192, 208, 0.13);
   --coddy-skill-chip-bd: rgba(136, 192, 208, 0.48);
   --coddy-skill-chip-text: rgba(216, 222, 233, 0.96);
-
   --text: #eceff4;
   --muted: #4c566a;
   --bubble-user: #3b4252;
-
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
   --coddy-canvas-glow-purple: rgba(136, 192, 208, 0.08);
   --coddy-canvas-glow-indigo: rgba(129, 161, 193, 0.07);
@@ -512,13 +501,8 @@ $coddy-mono:
   --coddy-canvas-gradient-bottom: #21262f;
   --coddy-glass-panel-bg: rgba(30, 34, 44, 0.72);
   --coddy-glass-panel-backdrop: blur(52px) saturate(170%);
-  --coddy-glass-panel-border: color-mix(
-    in srgb,
-    var(--text) 10%,
-    var(--coddy-blend-base)
-  );
+  --coddy-glass-panel-border: #{mix-text(10%)};
   --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.5);
-
   --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.6);
   --coddy-surface-subtle: rgba(36, 41, 51, 0.22);
   --coddy-surface-muted: rgba(36, 41, 51, 0.28);
@@ -533,7 +517,6 @@ $coddy-mono:
   --coddy-link: rgba(136, 192, 208, 0.95);
   --coddy-md-inline-code-fg: rgba(216, 222, 233, 0.92);
   --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.08);
-
   --coddy-link-action: rgba(136, 192, 208, 0.95);
   --coddy-link-action-hover: rgba(180, 215, 230, 1);
   --coddy-hero-muted-mid: rgba(236, 239, 244, 0.82);
@@ -549,17 +532,9 @@ $coddy-mono:
   --coddy-bubble-user-bg: rgba(59, 66, 82, 0.9);
   --coddy-bubble-user-fg: #eceff4;
   --coddy-chip-badge-bg: rgba(36, 41, 51, 0.92);
-  --coddy-chip-badge-fg: color-mix(
-    in srgb,
-    var(--text) 72%,
-    var(--coddy-blend-base)
-  );
+  --coddy-chip-badge-fg: #{mix-text(72%)};
   --coddy-plan-eye-bg: rgba(32, 37, 47, 0.94);
-  --coddy-plan-eye-fg: color-mix(
-    in srgb,
-    var(--text) 45%,
-    var(--coddy-blend-base)
-  );
+  --coddy-plan-eye-fg: #{mix-text(45%)};
   --coddy-on-accent-fg: #2e3440;
   --coddy-context-ring-inner: rgba(136, 192, 208, 0.5);
   --coddy-context-ring-fg: #d8dee9;
@@ -591,11 +566,9 @@ $coddy-mono:
   --coddy-skill-chip-bg: rgba(196, 167, 231, 0.13);
   --coddy-skill-chip-bd: rgba(196, 167, 231, 0.48);
   --coddy-skill-chip-text: rgba(224, 222, 244, 0.96);
-
   --text: #e0def4;
   --muted: #6e6a86;
   --bubble-user: #26233a;
-
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.58);
   --coddy-canvas-glow-purple: rgba(196, 167, 231, 0.1);
   --coddy-canvas-glow-indigo: rgba(235, 111, 146, 0.07);
@@ -603,13 +576,8 @@ $coddy-mono:
   --coddy-canvas-gradient-bottom: #0f0d1a;
   --coddy-glass-panel-bg: rgba(16, 14, 26, 0.72);
   --coddy-glass-panel-backdrop: blur(52px) saturate(175%);
-  --coddy-glass-panel-border: color-mix(
-    in srgb,
-    var(--text) 11%,
-    var(--coddy-blend-base)
-  );
+  --coddy-glass-panel-border: #{mix-text(11%)};
   --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.56);
-
   --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.62);
   --coddy-surface-subtle: rgba(18, 16, 28, 0.24);
   --coddy-surface-muted: rgba(18, 16, 28, 0.3);
@@ -624,7 +592,6 @@ $coddy-mono:
   --coddy-link: rgba(196, 167, 231, 0.95);
   --coddy-md-inline-code-fg: rgba(224, 222, 244, 0.92);
   --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.08);
-
   --coddy-link-action: rgba(196, 167, 231, 0.95);
   --coddy-link-action-hover: rgba(220, 200, 255, 1);
   --coddy-hero-muted-mid: rgba(224, 222, 244, 0.82);
@@ -640,17 +607,9 @@ $coddy-mono:
   --coddy-bubble-user-bg: rgba(38, 35, 58, 0.9);
   --coddy-bubble-user-fg: #e0def4;
   --coddy-chip-badge-bg: rgba(20, 18, 32, 0.92);
-  --coddy-chip-badge-fg: color-mix(
-    in srgb,
-    var(--text) 72%,
-    var(--coddy-blend-base)
-  );
+  --coddy-chip-badge-fg: #{mix-text(72%)};
   --coddy-plan-eye-bg: rgba(16, 14, 26, 0.94);
-  --coddy-plan-eye-fg: color-mix(
-    in srgb,
-    var(--text) 45%,
-    var(--coddy-blend-base)
-  );
+  --coddy-plan-eye-fg: #{mix-text(45%)};
   --coddy-on-accent-fg: #191724;
   --coddy-context-ring-inner: rgba(196, 167, 231, 0.5);
   --coddy-context-ring-fg: #f5f3ff;
@@ -725,11 +684,7 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
   color: var(--text);
-  font-family:
-    system-ui,
-    -apple-system,
-    Segoe UI,
-    sans-serif;
+  font-family: $coddy-sans;
   background: transparent;
 }
 
@@ -3011,9 +2966,7 @@ a.rail-brand {
   border: 1px solid var(--coddy-glass-panel-border);
   background: var(--coddy-glass-panel-bg);
   backdrop-filter: var(--coddy-glass-panel-backdrop);
-  box-shadow:
-    0 3px 10px rgba(0, 0, 0, 0.32),
-    0 1px 2px rgba(0, 0, 0, 0.24);
+  box-shadow: $float-lift;
   color: mix-text(76%);
   cursor: pointer;
   transition:
@@ -3037,9 +2990,7 @@ a.rail-brand {
 }
 
 [data-theme="light"] .chat-expand-composer {
-  box-shadow:
-    0 3px 10px rgba(15, 23, 42, 0.14),
-    0 1px 2px rgba(15, 23, 42, 0.08);
+  box-shadow: $float-lift-light;
 }
 
 /* Expanded, the card is the top of the docked block: the strip over it holds
@@ -3067,9 +3018,7 @@ a.rail-brand {
   border: 1px solid var(--coddy-glass-panel-border);
   background: var(--coddy-glass-panel-bg);
   backdrop-filter: var(--coddy-glass-panel-backdrop);
-  box-shadow:
-    0 3px 10px rgba(0, 0, 0, 0.32),
-    0 1px 2px rgba(0, 0, 0, 0.24);
+  box-shadow: $float-lift;
   color: var(--text);
   font: inherit;
   font-size: 13px;
@@ -3094,9 +3043,7 @@ a.rail-brand {
 }
 
 [data-theme="light"] .transcript-quote-btn {
-  box-shadow:
-    0 3px 10px rgba(15, 23, 42, 0.14),
-    0 1px 2px rgba(15, 23, 42, 0.08);
+  box-shadow: $float-lift-light;
 }
 
 /* Scroll-to-bottom: hangs off the top edge of the docked block, against the
@@ -3124,9 +3071,7 @@ a.rail-brand {
   backdrop-filter: var(--coddy-glass-panel-backdrop);
   /* A small shadow, sized to a 34px circle: enough to lift it off the
      transcript without the diffuse cast the full panel token carries. */
-  box-shadow:
-    0 3px 10px rgba(0, 0, 0, 0.32),
-    0 1px 2px rgba(0, 0, 0, 0.24);
+  box-shadow: $float-lift;
   color: mix-text(76%);
   cursor: pointer;
   opacity: 0;
@@ -3156,9 +3101,7 @@ a.rail-brand {
 }
 
 [data-theme="light"] .chat-scroll-bottom {
-  box-shadow:
-    0 3px 10px rgba(15, 23, 42, 0.14),
-    0 1px 2px rgba(15, 23, 42, 0.08);
+  box-shadow: $float-lift-light;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3737,7 +3680,7 @@ a.rail-brand {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 12px;
   line-height: 1.45;
   color: rgba(248, 220, 220, 0.92);
@@ -3795,7 +3738,7 @@ a.rail-brand {
   border-radius: 12px;
   margin: 8px 0 0;
   padding: 10px 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 12px;
   line-height: 1.45;
 }
@@ -3873,7 +3816,7 @@ a.rail-brand {
   display: block;
   width: 100%;
   padding: 2px 10px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 11px;
   color: mix-text(45%);
   background: var(--diff-hunk-bg);
@@ -3886,7 +3829,7 @@ a.rail-brand {
 .diff-line {
   display: flex;
   align-items: baseline;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 11.5px;
   line-height: 1.55;
   min-height: 0;
@@ -4612,7 +4555,7 @@ a.rail-brand {
   padding: 10px 12px;
   box-sizing: border-box;
   color: var(--coddy-surface-code-fg);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 12px;
   line-height: 1.5;
 }
@@ -4750,7 +4693,7 @@ a.rail-brand {
 }
 
 .md :where(code:not(.md-inline-code)) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 12px;
   padding: 2px 6px;
   border-radius: 10px;
@@ -5474,14 +5417,12 @@ code.md-math-pending {
   bottom: 0;
   margin: 0 auto;
   max-width: min(560px, 100vw);
-  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius)
-    0 0;
+  border-radius: $sheet-corners;
   z-index: 41;
 }
 
 .slash-menu--sheet .slash-menu-surface {
-  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius)
-    0 0;
+  border-radius: $sheet-corners;
 }
 
 .slash-menu--sheet .slash-menu-scroll {
@@ -5563,7 +5504,7 @@ code.md-math-pending {
 
 /* The argument a settings command takes, between its name and description. */
 .slash-row-hint {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 11px;
   color: mix-text(55%);
 }
@@ -5670,7 +5611,7 @@ code.md-math-pending {
 
 .at-range-lines {
   overflow-x: auto;
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--mono, $coddy-mono-ui);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -5835,7 +5776,7 @@ textarea#composer.composer-ta-masked::selection {
 
 .composer-code-editing .composer-mirror-inner,
 .composer-code-editing textarea#composer {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
 }
 
 .msg-user-token {
@@ -6442,8 +6383,7 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   width: auto;
   min-width: 0;
   max-width: min(560px, 100vw);
-  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius)
-    0 0;
+  border-radius: $sheet-corners;
   z-index: 101;
 }
 
@@ -7809,14 +7749,12 @@ html:not([data-theme="light"]) .workspace-branch-warning {
   bottom: 0;
   margin: 0 auto;
   max-width: min(520px, calc(100vw - 28px));
-  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius)
-    0 0;
+  border-radius: $sheet-corners;
   z-index: 41;
 }
 
 .context-breakdown-menu--sheet .slash-menu-surface {
-  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius)
-    0 0;
+  border-radius: $sheet-corners;
 }
 
 .context-breakdown-menu--sheet .context-breakdown-menu-scroll {
@@ -8052,14 +7990,12 @@ html:not([data-theme="light"]) .context-breakdown-error {
         6px
     )
   );
-  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius)
-    0 0;
+  border-radius: $sheet-corners;
   z-index: 41;
 }
 
 .goal-popover--sheet .slash-menu-surface {
-  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius)
-    0 0;
+  border-radius: $sheet-corners;
 }
 
 .goal-popover-head {
@@ -9450,20 +9386,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
   flex: 1 1 auto;
   height: 100%;
   min-width: 0;
-  width: min(
-    480px,
-    calc(
-      100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) -
-        16px - min(
-          320px,
-          calc(
-            100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) -
-              16px
-          )
-        ) -
-        8px
-    )
-  );
+  width: $dock-wide-width;
   max-width: min(560px, 46vw);
   z-index: auto;
 }
@@ -9471,20 +9394,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
 .scheduler-job-editor-dock {
   flex: 1 1 auto;
   min-width: 0;
-  width: min(
-    480px,
-    calc(
-      100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) -
-        16px - min(
-          320px,
-          calc(
-            100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) -
-              16px
-          )
-        ) -
-        8px
-    )
-  );
+  width: $dock-wide-width;
   max-width: min(560px, 46vw);
   display: flex;
   flex-direction: column;
@@ -9991,7 +9901,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
     var(--system-lift)
   );
   --system-error-bg: color-mix(in srgb, var(--coddy-danger) 16%, transparent);
-  --system-quiet: color-mix(in srgb, var(--text) 80%, var(--coddy-blend-base));
+  --system-quiet: #{mix-text(80%)};
 }
 
 html:not([data-theme="light"]) .settings.drawer {
@@ -10227,10 +10137,7 @@ html:not([data-theme="light"]) .settings.drawer {
 .system-chart {
   display: grid;
   grid-template-columns: minmax(min-content, 1fr) minmax(0, max-content);
-  grid-template-areas:
-    "title value"
-    "plot plot"
-    "legend legend";
+  grid-template-areas: "title value" "plot plot" "legend legend";
   gap: 4px 8px;
   min-width: 0;
   padding: 8px 10px 6px;
@@ -11452,7 +11359,7 @@ html:not([data-theme="light"]) .settings.drawer {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--mono, $coddy-mono-ui);
   font-size: 12.5px;
   color: mix-text(88%);
 }
@@ -12630,7 +12537,7 @@ html:not([data-theme="light"]) .settings.drawer {
   background: color-mix(in srgb, var(--accent) 9%, var(--coddy-blend-base));
   color: mix-text(62%);
   padding: 3px 8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 10.5px;
   font-weight: 500;
   line-height: 1.2;
@@ -12667,7 +12574,7 @@ html:not([data-theme="light"]) .settings.drawer {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: mix-text(70%);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 11px;
   font-weight: 550;
 }
@@ -12678,7 +12585,7 @@ html:not([data-theme="light"]) .settings.drawer {
   gap: 6px;
   flex: 0 0 auto;
   color: mix-text(38%);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 10px;
   white-space: nowrap;
 }
@@ -12732,7 +12639,7 @@ html:not([data-theme="light"]) .settings.drawer {
 
 .permission-preview-shell-prompt {
   color: var(--accent);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 12px;
   font-weight: 700;
   line-height: 1.5;
@@ -12745,7 +12652,7 @@ html:not([data-theme="light"]) .settings.drawer {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 12px;
   line-height: 1.5;
   color: mix-text(88%);
@@ -12784,7 +12691,7 @@ html:not([data-theme="light"]) .settings.drawer {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 12px;
   line-height: 1.5;
   color: mix-text(85%);
@@ -12835,7 +12742,7 @@ html:not([data-theme="light"]) .settings.drawer {
   min-width: 0;
   overflow-wrap: anywhere;
   color: mix-text(82%);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 11.5px;
 }
 
@@ -13282,7 +13189,7 @@ html:not([data-theme="light"]) .settings.drawer {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: mix-text(40%);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 12px;
   /* The same line box as the label beside it, so the row's height never depends
      on which of the two happens to be taller. */
@@ -13310,11 +13217,7 @@ html:not([data-theme="light"]) .settings.drawer {
    own mono stack would keep the markdown looking like raw tool output. */
 .tool-call-result-content--markdown {
   padding: 10px 14px;
-  font-family:
-    system-ui,
-    -apple-system,
-    Segoe UI,
-    sans-serif;
+  font-family: $coddy-sans;
   font-size: 13.5px;
   line-height: 1.55;
 }
@@ -13328,7 +13231,7 @@ html:not([data-theme="light"]) .settings.drawer {
   gap: 2px 6px;
   margin: 0 0 8px;
   color: mix-text(45%);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 11px;
   line-height: 1.5;
 }
@@ -13385,7 +13288,7 @@ html:not([data-theme="light"]) .settings.drawer {
 
 .scheduler-tool-cron,
 .scheduler-tool-row-id {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 11.5px;
 }
 
@@ -13433,7 +13336,7 @@ html:not([data-theme="light"]) .settings.drawer {
   border-radius: 8px;
   background: var(--coddy-surface-sunken);
   color: var(--coddy-surface-code-fg);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 12px;
   line-height: 1.45;
   white-space: pre-wrap;
@@ -13442,7 +13345,7 @@ html:not([data-theme="light"]) .settings.drawer {
 }
 
 .structured-tool-mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 11.5px;
   overflow-wrap: anywhere;
 }
@@ -13462,7 +13365,7 @@ html:not([data-theme="light"]) .settings.drawer {
   padding: 0 6px;
   border: 1px solid mix-text(14%);
   border-radius: 6px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 11.5px;
   line-height: 1.6;
 }
@@ -14157,10 +14060,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .plan-document-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-areas:
-    "head"
-    "body"
-    "actions";
+  grid-template-areas: "head" "body" "actions";
   column-gap: 12px;
   row-gap: 0;
   border-radius: var(--coddy-glass-panel-radius);
@@ -14173,9 +14073,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 .plan-document-card:not(.plan-document-card--expanded) {
-  grid-template-areas:
-    "head"
-    "actions";
+  grid-template-areas: "head" "actions";
 }
 
 .plan-document-card--expanded {
@@ -14376,9 +14274,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 @media (min-width: 640px) {
   .plan-document-card {
     grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "head actions"
-      "body body";
+    grid-template-areas: "head actions" "body body";
   }
 
   .plan-document-card:not(.plan-document-card--expanded) {
@@ -15463,10 +15359,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   position: relative;
   z-index: 3;
   display: grid;
-  grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) minmax(
-      170px,
-      210px
-    );
+  grid-template-columns: $docs-columns;
   grid-template-areas: "title search actions";
   column-gap: 32px;
   align-items: center;
@@ -15590,10 +15483,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   box-sizing: border-box;
   padding: var(--docs-top) 0 var(--docs-bottom);
   display: grid;
-  grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) minmax(
-      170px,
-      210px
-    );
+  grid-template-columns: $docs-columns;
   gap: 32px;
   align-items: start;
 }
@@ -15663,11 +15553,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   border-radius: 5px;
   border: 1px solid mix-text(16%);
   color: mix-text(52%);
-  font:
-    11px/1.4 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
+  font: 11px/1.4 $coddy-mono-ui;
   text-align: center;
   pointer-events: none;
 }
@@ -15902,11 +15788,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .settings-hit-key {
   display: block;
-  font:
-    11.5px/1.4 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
+  font: 11.5px/1.4 $coddy-mono-ui;
 }
 
 .settings-hit-desc {
@@ -16210,9 +16092,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 @media (max-width: 599px) {
   .markup-bar {
     grid-template-columns: 1fr 1fr;
-    grid-template-areas:
-      "cancel done"
-      "tools tools";
+    grid-template-areas: "cancel done" "tools tools";
   }
 
   .markup-action--cancel {
@@ -16468,9 +16348,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
      the sheet like the page below it. */
   .docs-header {
     grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "title actions"
-      "search search";
+    grid-template-areas: "title actions" "search search";
     row-gap: 10px;
     padding: 12px var(--docs-inline) 10px;
   }
@@ -16488,10 +16366,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
      above stretches with it, so nothing leaves an empty strip beside it. */
   .docs-layout {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      "toc"
-      "outline"
-      "page";
+    grid-template-areas: "toc" "outline" "page";
     gap: 12px;
   }
   .docs-sidebar {
@@ -16570,9 +16445,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 @media (min-width: 900px) and (max-width: 1199px) {
   .docs-layout {
     grid-template-columns: minmax(0, 1fr) minmax(190px, 210px);
-    grid-template-areas:
-      "toc outline"
-      "page outline";
+    grid-template-areas: "toc outline" "page outline";
     column-gap: 32px;
   }
   .docs-outline {
@@ -16645,10 +16518,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   position: relative;
   z-index: 3;
   display: grid;
-  grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) minmax(
-      170px,
-      210px
-    );
+  grid-template-columns: $docs-columns;
   grid-template-areas: "title search actions";
   column-gap: 32px;
   align-items: center;
@@ -17432,11 +17302,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   border-radius: 5px;
   border: 1px solid mix-text(16%);
   color: mix-text(52%);
-  font:
-    11px/1.4 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
+  font: 11px/1.4 $coddy-mono-ui;
   text-align: center;
   pointer-events: none;
 }
@@ -18683,20 +18549,8 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 }
 
 .files-tabs.has-more-left.has-more-right {
-  -webkit-mask-image: linear-gradient(
-    to right,
-    transparent,
-    #000 28px,
-    #000 calc(100% - 28px),
-    transparent
-  );
-  mask-image: linear-gradient(
-    to right,
-    transparent,
-    #000 28px,
-    #000 calc(100% - 28px),
-    transparent
-  );
+  -webkit-mask-image: $tab-fade-both;
+  mask-image: $tab-fade-both;
 }
 
 /* 33px and the strip's 1px line under it: as tall as the filter beside it, so
@@ -18839,7 +18693,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
    number. */
 .files-code {
   padding-top: 8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 12px;
   line-height: 1.6;
   min-width: 100%;
@@ -20021,7 +19875,7 @@ a.canvas-node-url {
   display: flex;
   flex-direction: column;
   min-width: max-content;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: $coddy-mono-ui;
   font-size: 11.5px;
   line-height: 1.6;
 }

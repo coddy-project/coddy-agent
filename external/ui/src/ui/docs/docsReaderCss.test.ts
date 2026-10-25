@@ -49,9 +49,12 @@ test("the reader sheet is no wider than its three columns", () => {
   const view = rule(".docs-view");
   expect(dock).toMatch(/width:\s*var\(--coddy-dock-width\)/);
   const sheet = Number(/--coddy-dock-width:\s*min\(\s*(\d+)px/.exec(css)?.[1]);
+  // The three columns are one value, named at the top of the stylesheet, so
+  // the layout and the sheet width cannot drift apart.
+  expect(layout).toMatch(/grid-template-columns:\s*\$docs-columns;/);
   const cols =
-    /grid-template-columns:\s*minmax\(\d+px,\s*(\d+)px\)\s*minmax\(0,\s*1fr\)\s*minmax\(\d+px,\s*(\d+)px\)/.exec(
-      layout,
+    /\$docs-columns:\s*minmax\(\d+px,\s*(\d+)px\)\s*minmax\(0,\s*1fr\)\s*minmax\(\d+px,\s*(\d+)px\)/.exec(
+      css,
     );
   const article = px(rule(".docs-article"), "max-width");
   const gap = px(layout, "gap");
