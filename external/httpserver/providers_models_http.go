@@ -28,10 +28,9 @@ func (s *Server) registerProvidersRoutes() {
 // without sending secrets over the wire. On a successful upstream call it returns
 // {"ok":true,"models":[{"id","name","context_window"}]}; on failure it returns
 // {"ok":false,"error":...,"models":[]} with HTTP 200 so the UI can fall back to
-// manual model entry. A model the provider reports no window for and the
-// built-in models catalog knows also carries
-// {"catalog":{"context_window","max_tokens"}}. An unknown provider name returns
-// 404.
+// manual model entry. A model the built-in models catalog knows also carries
+// {"catalog":{"context_window","max_tokens"}} when the provider reports no
+// window for it or the same window. An unknown provider name returns 404.
 func (s *Server) coddyProviderModelsGet(w http.ResponseWriter, r *http.Request) {
 	c := s.activeCfg()
 	if c == nil {
@@ -187,10 +186,10 @@ func (s *Server) writeProviderModels(w http.ResponseWriter, ctx context.Context,
 }
 
 // providerModel is a listed model as the settings form gets it: what the
-// provider reports and, for a model it reports no window for, what the
-// built-in models catalog knows of the id, which the form fills a model it adds
-// from. The catalog's numbers come as a pair or not at all: its max_tokens was
-// worked out for its own window and fits no other.
+// provider reports and, for a model it reports no window for or the catalog's
+// window, what the built-in models catalog knows of the id, which the form
+// fills a model it adds from. The catalog's numbers come as a pair or not at
+// all: its max_tokens was worked out for its own window and fits no other.
 type providerModel struct {
 	llm.ModelEntry
 	Catalog *catalogLimits `json:"catalog,omitempty"`
@@ -205,10 +204,7 @@ func withCatalogLimits(listed []llm.ModelEntry) []providerModel {
 	out := make([]providerModel, len(listed))
 	for i, m := range listed {
 		out[i].ModelEntry = m
-		if m.ContextWindow > 0 {
-			continue
-		}
-		if limits, ok := models.Lookup(m.ID); ok {
+		if limits, ok := models.Lookup(m.ID); ok && (m.ContextWindow == 0 || m.ContextWindow == limits.ContextWindow) {
 			out[i].Catalog = &catalogLimits{ContextWindow: limits.ContextWindow, MaxTokens: limits.MaxTokens}
 		}
 	}

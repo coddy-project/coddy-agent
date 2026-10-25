@@ -1,9 +1,10 @@
-// Package models is what the settings screen knows about a model the
-// provider does not describe: its context window and a max_tokens to start
-// from, by model id. The table is models.json, built from models.dev
-// (https://models.dev, MIT licence) by `make models-catalog` and embedded into
-// the binary, so nothing is downloaded or read from disk at run time and no
-// session ever reads it: it only fills the forms of the settings screen.
+// Package models is what the settings screen knows about the models of the
+// providers Coddy has: a context window and a max_tokens to start from, by
+// model id. The table is models.json, built by `make models-catalog` from
+// models.dev (https://models.dev, MIT licence) for OpenAI, Anthropic and
+// OpenCode and from NeuralDeep's own model list, and embedded into the binary,
+// so nothing is downloaded or read from disk at run time and no session ever
+// reads it: it only fills the forms of the settings screen.
 package models
 
 import (
@@ -19,7 +20,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
-// SourceURL is where `make models-catalog` reads the catalog from.
+// SourceURL is where `make models-catalog` reads models.dev's catalog from.
 const SourceURL = "https://models.dev/api.json"
 
 // Path is models.json relative to the repository root.
@@ -54,20 +55,32 @@ func Lookup(id string) (Limits, bool) {
 	return Limits{ContextWindow: v[0], MaxTokens: v[1]}, ok
 }
 
-// Snapshot is models.json as embedded, which the site publishes as
-// coddy.dev/models.json.
+// Snapshot is models.json as embedded.
 func Snapshot() []byte { return snapshot }
 
-// vendors are the providers of models.dev that serve their own models. When
-// one of them lists an id, its numbers win over those of resellers and
-// gateways, which round or cut them.
-var vendors = map[string]bool{
-	"openai": true, "anthropic": true, "google": true, "mistral": true,
-	"deepseek": true, "xai": true, "moonshotai": true, "zai": true, "alibaba": true,
+// providers are the providers of models.dev a provider type of Coddy talks to
+// (openai and codex: OpenAI's ids; opencode: the Zen and Go gateways), each
+// marked when it serves its own models: an id a vendor lists takes its
+// numbers over a gateway's, which rounds or cuts them. NeuralDeep, which
+// models.dev does not carry, is read from its own model list.
+var providers = map[string]bool{
+	"openai": true, "anthropic": true,
+	"opencode": false, "opencode-go": false,
+	neuralDeep: true,
 }
 
-// Compact turns models.dev's api.json into models.json: one line per model id,
-// sorted, with its window and max_tokens.
+const neuralDeep = "neuraldeep"
+
+type limit struct {
+	Context int `json:"context"`
+	Input   int `json:"input"`
+	Output  int `json:"output"`
+}
+
+// Compact turns models.dev's api.json and the answer of NeuralDeep's GET
+// /v1/models into models.json: one line per model id, sorted, with its window
+// and max_tokens. Of models.dev it keeps the providers above; of NeuralDeep the
+// chat models, whose limits come in models.dev's shape.
 //
 // The window is limit.input when the catalog states one below limit.context
 // (GPT-5: 272000 of a 400000 window that also holds the answer), else
@@ -81,28 +94,51 @@ var vendors = map[string]bool{
 // the pair with the smallest window: a window larger than the real one is
 // worse than none, and a pair is never split, since its max_tokens was worked
 // out for its own window.
-func Compact(api []byte) ([]byte, error) {
+func Compact(modelsDev, neuralDeepModels []byte) ([]byte, error) {
 	var catalog map[string]struct {
 		Models map[string]struct {
-			Limit struct {
-				Context int `json:"context"`
-				Input   int `json:"input"`
-				Output  int `json:"output"`
-			} `json:"limit"`
+			Limit limit `json:"limit"`
 		} `json:"models"`
 	}
-	if err := json.Unmarshal(api, &catalog); err != nil {
+	if err := json.Unmarshal(modelsDev, &catalog); err != nil {
 		return nil, fmt.Errorf("read models.dev catalog: %w", err)
+	}
+	var nd struct {
+		Data []struct {
+			ID    string `json:"id"`
+			Type  string `json:"type"`
+			Limit limit  `json:"limit"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(neuralDeepModels, &nd); err != nil {
+		return nil, fmt.Errorf("read NeuralDeep model list: %w", err)
+	}
+	limits := map[string]map[string]limit{}
+	for provider, p := range catalog {
+		if _, ok := providers[provider]; !ok {
+			continue
+		}
+		limits[provider] = map[string]limit{}
+		for id, m := range p.Models {
+			limits[provider][id] = m.Limit
+		}
+	}
+	limits[neuralDeep] = map[string]limit{}
+	for _, m := range nd.Data {
+		if m.Type == "chat" {
+			limits[neuralDeep][m.ID] = m.Limit
+		}
 	}
 	type pick struct {
 		limits [2]int
 		vendor bool
 	}
 	picked := map[string]pick{}
-	for provider, p := range catalog {
-		for id, m := range p.Models {
-			window, out := m.Limit.Context, m.Limit.Output
-			if in := m.Limit.Input; in > 0 && in < window {
+	kept := map[bool]int{} // models kept, by whether NeuralDeep listed them
+	for provider, models := range limits {
+		for id, l := range models {
+			window, out := l.Context, l.Output
+			if in := l.Input; in > 0 && in < window {
 				window = in
 			} else {
 				out = min(out, window*(100-config.CompactionDefaultThresholdPercent)/100)
@@ -110,15 +146,21 @@ func Compact(api []byte) ([]byte, error) {
 			if window <= 0 || strings.TrimSpace(id) == "" {
 				continue
 			}
-			cur := pick{limits: [2]int{window, max(out, 0)}, vendor: vendors[provider]}
+			kept[provider == neuralDeep]++
+			cur := pick{limits: [2]int{window, max(out, 0)}, vendor: providers[provider]}
 			prev, seen := picked[id]
 			if !seen || cur.vendor && !prev.vendor || cur.vendor == prev.vendor && smaller(cur.limits, prev.limits) {
 				picked[id] = cur
 			}
 		}
 	}
-	if len(picked) == 0 {
-		return nil, fmt.Errorf("models.dev catalog lists no model with a context window")
+	// Either source answering with nothing usable is an outage or a format
+	// change, never a reason to drop its models from the table.
+	if kept[false] == 0 {
+		return nil, fmt.Errorf("models.dev lists no model of OpenAI, Anthropic or OpenCode with a context window")
+	}
+	if kept[true] == 0 {
+		return nil, fmt.Errorf("NeuralDeep lists no chat model with a context window")
 	}
 	out := make(map[string][2]int, len(picked))
 	for id, p := range picked {

@@ -9,9 +9,7 @@
 # and llms-full.txt at the site root point straight at the raw Markdown on
 # main. The binary, the config schema and the bundled skill print those
 # addresses. internal/docsgen renders the three files; this script points
-# it at the site checkout. The same run publishes the models catalog the
-# binary embeds (internal/llm/models/models.json, make models-catalog) as
-# coddy.dev/models.json.
+# it at the site checkout.
 #
 #   SITE_REPO   path to the coddy-project.github.io checkout (default:
 #               coddy-project.github.io beside the main checkout - resolved
@@ -51,7 +49,7 @@ fi
 go run ./cmd/docsgen -skip-cli -site "$site_repo" -site-only -write || exit 2
 echo
 echo "Next, in $site_repo:"
-echo "  git add docs-redirect.js llms.txt llms-full.txt docs-anchors-*.json */llms.txt */llms-full.txt models.json && git commit"
+echo "  git add docs-redirect.js llms.txt llms-full.txt docs-anchors-*.json */llms.txt */llms-full.txt && git commit"
 echo
 echo "Push it together with the coddy-agent change it belongs to: llms.txt"
 echo "names pages by their path on main, so the site follows the merge."

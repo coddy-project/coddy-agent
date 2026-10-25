@@ -12,6 +12,22 @@ import {
   type ProviderRow,
 } from "./useProviderModels";
 
+/**
+ * The catalog's max_tokens for a model added with the catalog's window: the
+ * provider reports none, or the same one. Its max_tokens was worked out for
+ * that window and fits no other.
+ */
+function catalogMaxTokens(model?: FetchedModel): number | undefined {
+  const catalog = model?.catalog;
+  if (
+    !catalog ||
+    (model.context_window && model.context_window !== catalog.context_window)
+  ) {
+    return undefined;
+  }
+  return catalog.max_tokens;
+}
+
 /** Lists longer than this get a filter field above the rows. */
 export const PROVIDER_MODELS_FILTER_THRESHOLD = 8;
 
@@ -127,15 +143,11 @@ export function ProviderModelList(props: {
         onClick={() =>
           isListed
             ? onRemoveModel(full)
-            : model?.context_window
-              ? onAddModel(full, model.context_window)
-              : // The catalog's numbers go together: its max_tokens was
-                // worked out for its own window.
-                onAddModel(
-                  full,
-                  model?.catalog?.context_window,
-                  model?.catalog?.max_tokens,
-                )
+            : onAddModel(
+                full,
+                model?.context_window ?? model?.catalog?.context_window,
+                catalogMaxTokens(model),
+              )
         }
       >
         {isListed ? <IconCheck /> : <IconPlus />}

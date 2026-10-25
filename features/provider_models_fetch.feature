@@ -24,18 +24,20 @@ Feature: The settings form fetches the model list a provider advertises
     And the gateway answers with context window 131072 for "m1"
     And the gateway answers with context window 8192 for "m2"
 
-  Scenario: The models catalog fills in a model the provider reports no window for
-    Coddy carries a table of model ids with a context window and a
-    max_tokens to start from, built from models.dev and embedded into the
-    binary (issue #554). The settings form fills a model it adds from it when
-    the provider reports no window for the id. A window the provider reports
-    stands alone: the catalog's max_tokens was worked out for the catalog's
-    window and fits no other.
-    Given an upstream model endpoint serving "gpt-4o,claude-sonnet-4-5:1000000,m2"
+  Scenario: The models catalog fills in what the provider leaves out
+    Coddy carries a table of the models of its providers - OpenAI, Anthropic,
+    OpenCode and NeuralDeep - each with a context window and a max_tokens to
+    start from, embedded into the binary (issue #554). The settings form fills
+    a model it adds from it when the provider reports no window for the id or
+    the same window, as NeuralDeep's listing does. A different window stands
+    alone: the catalog's max_tokens was worked out for the catalog's window and
+    fits no other.
+    Given an upstream model endpoint serving "gpt-5,qwen3.8-27b:catalog,claude-sonnet-4-5:1000000,m2"
     And a coddy server holding only a provider named "other"
     When the settings form posts the provider row "fresh" of type "openai" at that upstream with key "sk-fresh"
-    Then the gateway answers with the window and max_tokens the models catalog has for "gpt-4o"
-    And the gateway answers with context window 0 for "gpt-4o"
+    Then the gateway answers with the window and max_tokens the models catalog has for "gpt-5"
+    And the gateway answers with context window 0 for "gpt-5"
+    And the gateway answers with the window and max_tokens the models catalog has for "qwen3.8-27b"
     And the gateway answers with context window 1000000 for "claude-sonnet-4-5"
     And the gateway answers with nothing from the models catalog for "claude-sonnet-4-5"
     And the gateway answers with nothing from the models catalog for "m2"

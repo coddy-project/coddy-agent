@@ -138,7 +138,6 @@ make docs-stamp PAGES="docs/ru/features/mcp.md"  # record that a translation fol
 | `https://coddy.dev/ru/docs/<slug>`, `.md`, `https://coddy.dev/ru/docs/` | То же для русской страницы в `docs/ru/`; английский якорь в адресе превращается в русский через `docs-anchors-ru.json` |
 | `https://coddy.dev/ru/llms.txt`, `https://coddy.dev/ru/llms-full.txt` | Индекс и склейка русских страниц |
 | `https://coddy.dev/config.schema.json` | Схема конфигурации, которую публикует `make site-schema` |
-| `https://coddy.dev/models.json` | Каталог моделей, встроенный в бинарник (`internal/llm/models/models.json`); его публикует `make site-docs`, а `make models-catalog` обновляет из models.dev |
 
 Слаг - путь страницы в `docs/` без `.md` (`getting-started/install`, `reference/config`); страница вне `docs/` называется по имени файла (`CONTRIBUTING`). В GitHub Pages нет серверных перенаправлений, но для каждого адреса, за которым нет файла, он отдаёт `404.html`, поэтому `404.html` сайта загружает `docs-redirect.js` - один сгенерированный скрипт, который читает путь и перенаправляет браузер (`window.coddyDocsTarget` - чистое отображение, которое можно тестировать без перехода). Ответ приходит со статусом 404, что не мешает людям и не важно для агентов, которые берут сырые адреса из `llms.txt`; правило перенаправления в зоне Cloudflare перед сайтом превращает то же отображение в настоящий 301 (Rules, Redirect Rules, dynamic - когда путь начинается с `/docs/`, перенаправлять на `concat("https://github.com/coddy-project/coddy-agent/blob/main/docs/", substring(http.request.uri.path, 6), ".md")` со статусом 301, плюс второе правило для суффикса `.md`, которое ведёт на raw.githubusercontent.com). `internal/docsgen` отрисовывает этот слой из `nav.yaml`.
 
@@ -161,4 +160,4 @@ make site-docs-check  # report drift without writing
 
 [`DESIGN.md`](../../../DESIGN.md) в корне репозитория задаёт визуальный и поведенческий контракт встроенного SPA. В нём токены, раскладка, поведение компонентов, локализация и порядок разработки. Изменение в `external/ui/src/`, которое меняет внешний вид компонента или его поведение, обновляет `DESIGN.md` в том же изменении, а страницу интерфейса [Веб-интерфейс](../surfaces/web-ui.md) - когда разницу видит пользователь. Файлы бренда (логотипы, фавиконки, превью для соцсетей) описаны в указателе ассетов.
 
-<!-- docsgen:source sha256=b65c098b8bfd6c30 -->
+<!-- docsgen:source sha256=490c23f700b7714c -->

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/llm/models"
 )
 
 // Options configures one generation run.
@@ -213,8 +212,6 @@ func Generate(o Options) (*Result, error) {
 		}
 		site["llms.txt"] = res.Files[LLMSFile]
 		site["llms-full.txt"] = res.Files[LLMSFullFile]
-		// The models catalog the binary embeds, published as it is.
-		site["models.json"] = string(models.Snapshot())
 		res.SiteFiles = site
 	}
 
