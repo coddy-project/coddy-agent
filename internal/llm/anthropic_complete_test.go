@@ -72,3 +72,24 @@ func TestAnthropicCompleteRetriesACutStream(t *testing.T) {
 		t.Fatalf("content %q after %d request(s), want the whole answer after 2", resp.Content, calls.Load())
 	}
 }
+
+// A tool called with no arguments streams no input, or one empty fragment.
+// Its call still reads "{}", as the blocking reader's did, so a caller of
+// Complete that hands the call on (a non-streaming /v1/chat/completions
+// request with tools) does not get empty arguments where JSON belongs.
+func TestAnthropicCompleteToolCallWithoutInput(t *testing.T) {
+	for name, fragments := range map[string][]string{"no fragment": nil, "one empty fragment": {""}} {
+		t.Run(name, func(t *testing.T) {
+			sse := anthropicSSE(t, append(anthropicEvents(anthropicToolUseBlock(0, "toolu_1", "list_files", fragments...)), anthropicMessageEnd("tool_use")...)...)
+			p, done := anthropicStreamStub(t, sse)
+			defer done()
+			resp, err := p.Complete(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil)
+			if err != nil {
+				t.Fatalf("Complete: %v", err)
+			}
+			if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].InputJSON != "{}" {
+				t.Fatalf("tool calls = %+v, want one call with input {}", resp.ToolCalls)
+			}
+		})
+	}
+}

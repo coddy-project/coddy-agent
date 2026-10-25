@@ -271,6 +271,19 @@ func TestOpenCodeMessagesRoute(t *testing.T) {
 	}
 }
 
+// A Messages model of the gateway configured with stream: false sends its one
+// blocking request, as a model of an anthropic row does, instead of reading
+// Complete from a stream.
+func TestOpenCodeMessagesHonorsDisableStream(t *testing.T) {
+	p, err := newOpenCodeProvider(ProviderInput{Model: "claude-haiku-5-5", APIKey: "oc-key", DisableStream: true}, &http.Client{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ap, ok := p.(*anthropicProvider); !ok || !ap.blocking {
+		t.Fatalf("provider = %T, want a blocking *anthropicProvider", p)
+	}
+}
+
 func TestOpenCodeSessionIDFallsBackToRandom(t *testing.T) {
 	stand := newOpenCodeStand(t)
 	// No SessionID: the provider still sends a stable-per-provider id rather

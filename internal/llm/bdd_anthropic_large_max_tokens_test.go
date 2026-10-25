@@ -64,7 +64,9 @@ func (s *anthropicLargeState) reset() {
 	s.stub, s.server, s.provider, s.resp = nil, nil, nil, nil
 }
 
-func (s *anthropicLargeState) model(maxTokens int, disableStream bool) error {
+// model builds the provider; streamingDisabled is the optional clause of the
+// step, empty for a model that streams.
+func (s *anthropicLargeState) model(maxTokens int, streamingDisabled string) error {
 	s.stub = &anthropicLargeStub{}
 	s.server = httptest.NewServer(s.stub)
 	provider, err := NewProvider(ProviderInput{
@@ -74,7 +76,7 @@ func (s *anthropicLargeState) model(maxTokens int, disableStream bool) error {
 		APIKey:        "key",
 		BaseURL:       s.server.URL,
 		MaxTokens:     maxTokens,
-		DisableStream: disableStream,
+		DisableStream: streamingDisabled != "",
 		RetryMax:      1,
 		RetryBase:     time.Millisecond,
 		RetryMaxDelay: time.Millisecond,
@@ -85,10 +87,6 @@ func (s *anthropicLargeState) model(maxTokens int, disableStream bool) error {
 	s.provider = provider
 	return nil
 }
-
-func (s *anthropicLargeState) streamingModel(maxTokens int) error { return s.model(maxTokens, false) }
-
-func (s *anthropicLargeState) blockingModel(maxTokens int) error { return s.model(maxTokens, true) }
 
 func (s *anthropicLargeState) askComplete() error {
 	resp, err := s.provider.Complete(context.Background(), []Message{{Role: RoleUser, Content: "Summarize."}}, nil)
@@ -115,7 +113,8 @@ func (s *anthropicLargeState) answerIs(text string) error {
 	return nil
 }
 
-func (s *anthropicLargeState) receivedRequest(n int, wantStream bool, maxTokens int) error {
+func (s *anthropicLargeState) receivedRequest(n int, streamField string, maxTokens int) error {
+	wantStream := streamField == "set to true"
 	seen := s.stub.seen()
 	if len(seen) != n {
 		return fmt.Errorf("stub received %d request(s), want %d", len(seen), n)
@@ -136,14 +135,6 @@ func (s *anthropicLargeState) receivedRequest(n int, wantStream bool, maxTokens 
 	return nil
 }
 
-func (s *anthropicLargeState) receivedStreaming(n, maxTokens int) error {
-	return s.receivedRequest(n, true, maxTokens)
-}
-
-func (s *anthropicLargeState) receivedBlocking(n, maxTokens int) error {
-	return s.receivedRequest(n, false, maxTokens)
-}
-
 func TestAnthropicLargeMaxTokensFeature(t *testing.T) {
 	s := &anthropicLargeState{}
 	suite := godog.TestSuite{
@@ -157,13 +148,11 @@ func TestAnthropicLargeMaxTokensFeature(t *testing.T) {
 				s.reset()
 				return ctx, nil
 			})
-			sc.Step(`^an Anthropic model with max_tokens (\d+) pointed at a stub server$`, s.streamingModel)
-			sc.Step(`^an Anthropic model with max_tokens (\d+) and streaming disabled pointed at a stub server$`, s.blockingModel)
+			sc.Step(`^an Anthropic model with max_tokens (\d+)( and streaming disabled)? pointed at a stub server$`, s.model)
 			sc.Step(`^Coddy asks the model for one complete answer$`, s.askComplete)
 			sc.Step(`^Coddy streams the model's answer$`, s.askStream)
 			sc.Step(`^the answer is "([^"]*)"$`, s.answerIs)
-			sc.Step(`^the stub server received (\d+) request with "stream" set to true and max_tokens (\d+)$`, s.receivedStreaming)
-			sc.Step(`^the stub server received (\d+) request with "stream" unset and max_tokens (\d+)$`, s.receivedBlocking)
+			sc.Step(`^the stub server received (\d+) request with "stream" (set to true|unset) and max_tokens (\d+)$`, s.receivedRequest)
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/anthropic_large_max_tokens.feature"}, TestingT: t, Strict: true},
 	}
