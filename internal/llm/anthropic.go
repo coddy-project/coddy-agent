@@ -179,7 +179,8 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 	toolUseMap := make(map[int64]*toolUseAccum)
 
 	// finalizeAnthropicToolUses returns every tool_use block started so far, in
-	// the order the model wrote them.
+	// the order the model wrote them. A call with no arguments streams no
+	// input at all and reads "{}", the object the non-streaming reader gets.
 	finalizeAnthropicToolUses := func() []ToolCall {
 		indexes := make([]int64, 0, len(toolUseMap))
 		for i := range toolUseMap {
@@ -189,7 +190,11 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		var out []ToolCall
 		for _, i := range indexes {
 			acc := toolUseMap[i]
-			out = append(out, ToolCall{ID: acc.id, Name: acc.name, InputJSON: acc.input})
+			input := acc.input
+			if strings.TrimSpace(input) == "" {
+				input = "{}"
+			}
+			out = append(out, ToolCall{ID: acc.id, Name: acc.name, InputJSON: input})
 		}
 		return out
 	}
