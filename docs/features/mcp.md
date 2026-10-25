@@ -155,7 +155,10 @@ the operator approves that exact declaration for that workspace.
   and the variables its values read, never their values;
 - rewriting an approved entry changes the digest and withdraws the approval, so the next
   session asks again. Enable/disable and `disabledTools` do not: they are operational
-  switches, not a trust boundary;
+  switches, not a trust boundary. The digest covers the declaration, not the files it runs:
+  a server whose command is a script of the checkout (`./tools/mcp.sh`, `node server.js`)
+  keeps its approval when that script changes, so read such a script the way you read the
+  declaration (project hooks files bind their scripts, [Hooks](hooks.md#project-files-and-trust));
 - the gate is re-checked immediately before the process is spawned or the URL is contacted,
   on both the session path and the management probe, so listing servers never starts a
   command that has not been approved;

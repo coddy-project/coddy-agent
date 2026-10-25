@@ -136,6 +136,9 @@ func (l *Loader) Load(cwd, home string) []*Source {
 			for _, w := range def.Warnings {
 				log.Warn("hooks file warning", "path", path, "warning", w)
 			}
+			if scope == ScopeProject {
+				src.Digest = digestWithScripts(data, def, cwd)
+			}
 		}
 		src.Trust = l.trustFor(src, workspace, policy)
 		out = append(out, src)
