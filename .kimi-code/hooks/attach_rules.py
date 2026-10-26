@@ -8,21 +8,30 @@ field in `.cursor/rules/*.mdc`. Asking the model to "read the relevant rule
 file" is advisory and gets skipped.
 
 This hook restores Cursor's behaviour by reading the frontmatter of the rule
-files directly:
+files directly. Kimi Code (checked against 2.3.2) lets a hook reach the model in
+two ways only: the `message` a UserPromptSubmit hook prints is appended to the
+prompt, and the reason a PreToolUse hook gives for refusing a call becomes that
+call's result. Whatever a SessionStart hook prints, and whatever a PreToolUse
+hook prints while letting the call run, is discarded. So:
 
-  SessionStart -> inject every rule with `alwaysApply: true`
-  PreToolUse   -> inject rules whose `globs` match the file paths a tool is
-                  about to touch, at most once per rule per session
+  UserPromptSubmit -> append every rule with `alwaysApply: true`, once per session
+  PreToolUse       -> refuse the first Edit/Write of files that unsent scoped
+                      rules cover, with those rules as the reason; the repeated
+                      call runs
+  PostCompact      -> forget what was sent, so the rules come again
 
 The hook reads `.cursor/rules/` directly and creates no Kimi Code copy of a rule body.
 It fails open: any unexpected input exits 0 with no output, so a broken rule file
-can never block an edit.
+can never block an edit, and a refusal is only issued once it is recorded, so a
+retry is never refused for the same rules.
 
-Kimi Code reads hook declarations from the user-level config.toml. Merge the
-versioned `.kimi-code/hooks.toml` fragment into that file to enable both events.
-Kimi Code delivers edited paths as JSON fields of the tool payload
-(`tool_input.file_path`, `.path`, ...), so this variant reads those structured
-fields. The Codex sibling accepts the same fields and also parses patch headers.
+Kimi Code reads hook declarations only from the user-level config.toml and runs
+them in every project. Merge the versioned `.kimi-code/hooks.toml` fragment into
+that file with the absolute path of this checkout; the hook answers only sessions
+working inside this checkout. Kimi Code delivers edited paths as JSON fields of
+the tool payload (`tool_input.path` for Edit and Write), so this variant reads
+those structured fields. The Codex sibling accepts the same fields and also parses
+patch headers.
 """
 
 from __future__ import annotations
@@ -56,6 +65,10 @@ def default_state_dir(repo_root: Path) -> Path:
 
 
 STATE_DIR = Path(os.environ.get("KIMI_CODE_RULES_STATE_DIR") or default_state_dir(REPO_ROOT))
+
+# Kimi Code moves a tool result longer than 50,000 characters into a file and
+# shows the model only its beginning, so a refusal carries at most this much.
+REFUSAL_BUDGET = 45_000
 
 # Field names inside a Kimi Code tool payload that carry a file path. The matcher is
 # intentionally permissive: it also walks nested structures, so a path nested
@@ -467,37 +480,115 @@ def deliver_rule_context(session_id: str, candidates: list[Rule], deliver) -> bo
         lock.__exit__(*sys.exc_info())
 
 
-def deliver_session_start(session_id: str, source: str, always: list[Rule], deliver) -> bool:
+def forget_sent(session_id: str) -> None:
     lock = session_lock(session_id)
     try:
         lock.__enter__()
     except Exception:
-        if source != "resume":
-            clear_sent(session_id)
-        if not always:
-            return False
-        deliver(always)
-        return True
+        clear_sent(session_id)
+        return
 
     try:
-        sent = load_sent(session_id) if source == "resume" else set()
-        if source != "resume":
-            clear_sent(session_id)
-        if always:
-            deliver(always)
-        save_sent(session_id, sent | {rule.rel for rule in always})
-        return bool(always)
+        clear_sent(session_id)
     finally:
         lock.__exit__(*sys.exc_info())
 
 
-def collect_target_paths(tool_input: object) -> list[str]:
+def refusal_preamble(touched: str, more: bool) -> str:
+    text = (
+        f"Project rules cover the files of this call ({touched})."
+        " The Kimi Code project hook refused the call once so that you read them first:"
+        " apply them to the change, then repeat the same call, which is not refused"
+        " for these rules again."
+    )
+    if more:
+        text += " More rules for these files come with the next attempt."
+    return text
+
+
+def take_batch(rules: list[Rule], reserve: int) -> list[Rule]:
+    """The leading rules whose refusal fits REFUSAL_BUDGET, and at least one."""
+    batch: list[Rule] = []
+    size = reserve
+    for rule in rules:
+        size += len("\n\n") + len(rule_chunk(rule))
+        if batch and size > REFUSAL_BUDGET:
+            break
+        batch.append(rule)
+    return batch
+
+
+def refuse_once(session_id: str, candidates: list[Rule], touched: str) -> bool:
+    """Claim the next batch of unsent rules and refuse the call with them.
+
+    A refusal blocks the edit, so it is issued only once the claim is on disk:
+    a state that cannot be locked, written or read back lets the edit through
+    without the rules rather than refusing every retry.
+    """
+    lock = session_lock(session_id)
+    try:
+        lock.__enter__()
+    except Exception:
+        return False
+
+    try:
+        sent = load_sent(session_id)
+        pending = [rule for rule in candidates if rule.rel not in sent]
+        batch = take_batch(pending, len(refusal_preamble(touched, True)))
+        if not batch:
+            return False
+        claimed = sent | {rule.rel for rule in batch}
+        if not save_sent(session_id, claimed) or not claimed <= load_sent(session_id):
+            return False
+        reason = render(batch, refusal_preamble(touched, len(batch) < len(pending)))
+        try:
+            emit(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": reason,
+                    }
+                }
+            )
+        except BaseException:
+            save_sent(session_id, sent)
+            raise
+        return True
+    finally:
+        lock.__exit__(*sys.exc_info())
+
+
+def session_folder(payload: dict) -> Path | None:
+    """The folder a session works in when this checkout serves it, else None.
+
+    Kimi Code runs the hooks of the user-level config in every project, so the
+    hook answers only sessions inside the checkout it belongs to, and not those
+    inside another checkout nested in it (a linked worktree, a submodule).
+    """
+    raw = payload.get("cwd")
+    try:
+        root = REPO_ROOT.resolve()
+        folder = Path(raw if isinstance(raw, str) and raw else os.getcwd()).resolve()
+        folder.relative_to(root)
+        current = folder
+        while current != root:
+            if (current / ".git").exists():
+                return None
+            current = current.parent
+    except (OSError, RuntimeError, ValueError):
+        return None
+    return folder
+
+
+def collect_target_paths(tool_input: object, base: Path | None = None) -> list[str]:
     """Collect repo-relative file paths from a Kimi Code tool payload.
 
     Kimi Code hands the hook a JSON object whose fields depend on the tool
-    (`file_path` for Edit/Write, `path`/`notebook_path`/... for others). We walk
-    the structure and keep the string values found under known path-carrying
-    keys, so an absolute or nested path is still matched once normalised.
+    (`path` for Edit and Write). We walk the structure and keep the string values
+    found under known path-carrying keys, so an absolute or nested path is still
+    matched once normalised. A relative path is read from `base`, the folder of
+    the session, which defaults to the repository root.
     """
     found: list[str] = []
 
@@ -515,13 +606,14 @@ def collect_target_paths(tool_input: object) -> list[str]:
     walk(tool_input)
 
     root = REPO_ROOT.resolve()
+    folder = base or root
     rel: list[str] = []
     for raw in found:
         raw = raw.strip()
         if not raw or "\x00" in raw:
             continue
         path = Path(raw)
-        candidate = path if path.is_absolute() else root / path
+        candidate = path if path.is_absolute() else folder / path
         try:
             relative = candidate.resolve(strict=False).relative_to(root)
         except (OSError, RuntimeError, ValueError):
@@ -532,18 +624,24 @@ def collect_target_paths(tool_input: object) -> list[str]:
     return rel
 
 
+def rule_chunk(rule: Rule) -> str:
+    return f"<!-- from {rule.rel} -->\n\n{rule.body}"
+
+
 def render(rules: list[Rule], preamble: str) -> str:
-    chunks = [preamble]
-    for rule in rules:
-        chunks.append(f"<!-- from {rule.rel} -->\n\n{rule.body}")
-    return "\n\n".join(chunks)
+    return "\n\n".join([preamble, *(rule_chunk(rule) for rule in rules)])
 
 
-def emit(event: str, context: str) -> None:
-    json.dump(
-        {"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}},
-        sys.stdout,
-    )
+def emit(output: dict) -> None:
+    json.dump(output, sys.stdout)
+
+
+PROMPT_PREAMBLE = (
+    "Project rules for this repository, always in force."
+    " The Kimi Code project hook attached them from `.cursor/rules/`;"
+    " no separate Kimi Code copy is maintained. Rules scoped to particular files"
+    " arrive the first time you edit those files."
+)
 
 
 def main() -> int:
@@ -551,43 +649,39 @@ def main() -> int:
         payload = json.load(sys.stdin)
     except Exception:
         return 0
+    if not isinstance(payload, dict):
+        return 0
+
+    folder = session_folder(payload)
+    if folder is None:
+        return 0
 
     event = payload.get("hook_event_name") or os.environ.get("KIMI_CODE_HOOK_EVENT", "")
     session_id = payload.get("session_id", "")
 
+    if event == "PostCompact":
+        forget_sent(session_id)
+        return 0
+
+    if event not in ("UserPromptSubmit", "PreToolUse"):
+        return 0
+
     try:
         rules = load_rules()
     except Exception:
-        if event == "SessionStart" and payload.get("source", "") != "resume":
-            clear_sent(session_id)
         return 0
 
-    if event == "SessionStart":
-        source = payload.get("source", "")
+    if event == "UserPromptSubmit":
         always = [r for r in rules if r.always]
-
-        def deliver(selected: list[Rule]) -> None:
-            emit(
-                event,
-                render(
-                    selected,
-                    "Project rules for this repository, always in force."
-                    " The Kimi Code project hook attached them from `.cursor/rules/`;"
-                    " no separate Kimi Code copy is maintained. More rules are attached"
-                    " automatically when you edit files they cover.",
-                ),
+        if always:
+            deliver_rule_context(
+                session_id,
+                always,
+                lambda selected: emit({"message": render(selected, PROMPT_PREAMBLE)}),
             )
-
-        deliver_session_start(session_id, source, always, deliver)
         return 0
 
-    if not rules:
-        return 0
-
-    if event != "PreToolUse":
-        return 0
-
-    paths = collect_target_paths(payload.get("tool_input"))
+    paths = collect_target_paths(payload.get("tool_input"), folder)
     if not paths:
         return 0
 
@@ -599,22 +693,8 @@ def main() -> int:
         if any(p.match(path) for path in paths for p in patterns):
             candidates.append(rule)
 
-    if not candidates:
-        return 0
-
-    touched = ", ".join(sorted(set(paths))[:8])
-
-    def deliver(matched: list[Rule]) -> None:
-        emit(
-            event,
-            render(
-                matched,
-                f"Project rules that cover the files you are editing ({touched})."
-                " Apply them to this change before continuing.",
-            ),
-        )
-
-    deliver_rule_context(session_id, candidates, deliver)
+    if candidates:
+        refuse_once(session_id, candidates, ", ".join(sorted(set(paths))[:8]))
     return 0
 
 

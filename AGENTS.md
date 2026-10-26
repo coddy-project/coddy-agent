@@ -128,7 +128,7 @@ The project plugin **`.opencode/plugins/project-rules.js`** injects always-on an
 
 ### Kimi Code
 
-**`.kimi-code/hooks/attach_rules.py`** follows the ZCode adapter for `SessionStart` and `PreToolUse` on `Edit` / `Write`, including YAML-list `globs`, repository-scoped state and interprocess locking. Kimi Code reads hook declarations only from the user-level **`~/.kimi-code/config.toml`**, so contributors must merge the versioned **`.kimi-code/hooks.toml`** fragment into that file and start a new session; the fragment is not loaded automatically. See **`docs/contributing/kimi-code-hooks.md`**.
+Kimi Code reads hook declarations only from the user-level **`~/.kimi-code/config.toml`** and runs them in every project, so each contributor merges the versioned **`.kimi-code/hooks.toml`** fragment into that file with the absolute path of their checkout and starts a new session. It runs **`.kimi-code/hooks/attach_rules.py`** on `UserPromptSubmit`, which appends the always-on rules to the first prompt of a session, on `PreToolUse` for `Edit` / `Write`, which refuses the first call that touches files under scoped rules not sent yet and gives those rules as the reason, and on `PostCompact`, which forgets what was sent. Kimi Code (checked against 2.3.2) discards the output of a `SessionStart` hook and of a `PreToolUse` hook that lets the call run, so the script shares the ZCode adapter's parsing, matching, locking and state but not its delivery. It answers only sessions inside its own checkout, issues a refusal only once it is recorded, and every command ends in `|| exit 0`, because Kimi Code reads exit code 2, which Python returns for a missing script, as a refusal. See **`docs/contributing/kimi-code-hooks.md`**.
 
 ## Code review invariants
 

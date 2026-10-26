@@ -6,53 +6,65 @@ This page is for contributors running Kimi Code against this repository. It is t
 
 Kimi Code reads the repository's `AGENTS.md`, but it does not interpret the `globs` and `alwaysApply` fields in `.cursor/rules/*.mdc`. Asking the model to open the relevant rule before every edit is advisory and can be skipped.
 
-`.kimi-code/hooks/attach_rules.py` reads that frontmatter directly and injects the rule bodies as hook context. The Cursor tree is the adapter input, not a universal policy format, and the adapter maintains no separate Kimi Code copy of a rule body.
+`.kimi-code/hooks/attach_rules.py` reads that frontmatter directly and hands the rule bodies to the model. The Cursor tree is the adapter input, not a universal policy format, and the adapter maintains no separate Kimi Code copy of a rule body.
 
 ## What fires when
 
-| Event | Matcher | What is injected |
-|---|---|---|
-| `SessionStart` | `startup\|resume` | every rule whose frontmatter has `alwaysApply: true` |
-| `PreToolUse` | `^(Edit\|Write)$` | rules whose `globs` cover a file in the pending tool call |
+Kimi Code, checked against version 2.3.2, gives a hook two ways to reach the model. It appends the `message` a `UserPromptSubmit` hook prints to the user's prompt, and it returns the reason a `PreToolUse` hook gives for refusing a call as the result of that call. Kimi Code discards what a `SessionStart` hook prints and what a `PreToolUse` hook prints while letting the call run, so the adapter uses neither.
 
-Both handlers run the same script and branch on `hook_event_name` from the JSON payload. Kimi Code passes `Edit` and `Write` paths in `tool_input.path`; the script also recognizes common nested path fields.
+| Event | Matcher | What the hook does |
+|---|---|---|
+| `UserPromptSubmit` | none | appends every rule whose frontmatter has `alwaysApply: true` to the first prompt of a session |
+| `PreToolUse` | `^(Edit\|Write)$` | refuses the first call that touches files covered by scoped rules not sent yet, with those rules as the reason; the model repeats the call, and the repeated call runs |
+| `PostCompact` | none | forgets which rules were sent, so they arrive again after a compaction |
+
+All three entries run the same script, which branches on `hook_event_name` from the JSON payload. Kimi Code passes the path of an `Edit` or `Write` call in `tool_input.path`. The script also recognizes other common path fields, nested ones included, and reads a relative path from the folder the session works in.
+
+A refusal carries at most 45,000 characters, because Kimi Code moves a longer tool result into a file and shows the model only its beginning. When the rules for a call are longer, each attempt carries the next part, and the call runs once every part has arrived. For a Go file of this repository that usually takes two refusals.
 
 ## Enabling
 
-Kimi Code currently reads hook declarations from the **user-level** `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`). It does not automatically load a project-local hook configuration. The repository therefore ships `.kimi-code/hooks.toml` as a fragment to merge, not as an automatically active config file.
+Kimi Code reads hook declarations only from the **user-level** `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`) and runs them in every project, from the folder the session works in. The repository therefore ships `.kimi-code/hooks.toml` as a fragment to merge, not as a config file Kimi Code loads by itself.
 
-Append the two `[[hooks]]` entries from `.kimi-code/hooks.toml` to the user-level `config.toml`, preserving the hooks already there, and start a new Kimi Code session. Do not replace the whole config with the fragment. The declarations are global, while their command uses a path relative to the current project directory; in a checkout without `.kimi-code/hooks/attach_rules.py`, the command cannot attach rules and Kimi Code's fail-open behaviour keeps the session usable.
+1. Append the three `[[hooks]]` entries from `.kimi-code/hooks.toml` to the user-level `config.toml`, keeping the hooks already there. Do not replace the whole config with the fragment.
+2. In each command, replace `/path/to/coddy-agent` with the absolute path of your checkout. Quote the path if it contains spaces.
+3. Run `kimi doctor` to check the file, then start a new Kimi Code session.
 
-The command invokes `python`, not `python3`, because Windows may resolve `python3` to the Microsoft Store stub instead of the installed interpreter. Python 3 must be on `PATH`; on a Unix-like system that only provides `python3`, change the command in the user-level config accordingly.
+Each command names the script by its absolute path, so a project you open in Kimi Code never gets to run a script of its own through these entries. The script answers only sessions working inside the checkout it belongs to. It stays silent in other projects and in another checkout nested in this one, such as a linked worktree. To cover another checkout of the repository, add one more set of entries with that checkout's path.
+
+Each command ends in `|| exit 0`. When the path goes stale, for example after the checkout moves, Python exits with code 2, and Kimi Code reads exit code 2 as a refusal of the prompt or the edit. `|| exit 0` turns that into a hook that does nothing. Update the path when you move the checkout.
+
+The fragment calls `python3`. On Windows, write `python` instead, because `python3` may resolve to the Microsoft Store stub rather than the installed interpreter.
 
 ## How it works
 
 - **The frontmatter parser matches the other Python adapters.** It accepts scalar and YAML-list `globs`, quoted commas, escapes, comments, and multiline flow lists without a third-party YAML dependency.
-- **Glob matching is hand-rolled.** `**/` means zero or more directories, `*` stays inside one path segment, and a bare `**` spans anything. Absolute paths inside the checkout become repo-relative; paths outside it, including relative paths that escape it, are ignored.
-- **Each scoped rule is injected at most once per active session context.** State lives under `<tempdir>/kimi-code-attach-rules-<repository-hash>/<session_id>.json`, so clones cannot suppress one another. `resume` preserves scoped deduplication; `startup` resets it. Concurrent processes serialize delivery with a per-session lock, and state updates use atomic replacement. If locking or persistence is unavailable, context is still emitted and deduplication may temporarily degrade to duplicate delivery.
-- **It fails open.** Malformed JSON, an unreadable rule, or an unwritable state directory produces no blocking response. The hook is an instruction-delivery mechanism, not a security boundary.
+- **Glob matching is hand-rolled.** `**/` means zero or more directories, `*` stays inside one path segment, and a bare `**` spans anything. Absolute paths inside the checkout become repo-relative and relative paths are read from the session's folder; paths that end up outside the checkout are ignored.
+- **Each rule reaches a session at most once until the next compaction.** State lives under `<tempdir>/kimi-code-attach-rules-<repository-hash>/<session_id>.json`, so clones cannot suppress one another. A resumed session keeps its state, and `/new` or `/clear` starts a session with a new id. Concurrent processes serialize delivery with a per-session lock, and state updates use atomic replacement.
+- **A refusal is issued only once it is recorded.** If the state cannot be locked, written or read back, the edit runs without the scoped rules, so a retry is never refused again for the same rules. The always-on rules are still appended to the prompt in that case and may repeat.
+- **It fails open.** Malformed JSON, an unreadable rule or an unwritable state directory refuses nothing. The hook delivers instructions and enforces nothing.
 
 ## Verifying and debugging
 
-Run the repository adapter contract, which covers Kimi Code together with the other hosts:
+Run the repository adapter contract, which covers Kimi Code together with the other hosts and reads the hook's output the way Kimi Code 2.3.2 does:
 
 ```bash
 make test-agent-rules
 ```
 
-Drive the real script with a synthetic Kimi Code payload:
+Drive the real script with synthetic Kimi Code payloads from the root of the checkout. Without `cwd` in the payload, the script takes its own working folder for the session's folder.
 
 ```bash
-echo '{"hook_event_name":"SessionStart","session_id":"kimi-probe","source":"startup"}' | python .kimi-code/hooks/attach_rules.py
-echo '{"hook_event_name":"PreToolUse","session_id":"kimi-edit-probe","tool_name":"Edit","tool_input":{"path":"external/httpserver/server.go"}}' | python .kimi-code/hooks/attach_rules.py
+echo '{"hook_event_name":"UserPromptSubmit","session_id":"kimi-probe","prompt":"hello"}' | python3 .kimi-code/hooks/attach_rules.py
+echo '{"hook_event_name":"PreToolUse","session_id":"kimi-edit-probe","tool_name":"Edit","tool_input":{"path":"cmd/coddy/providers.go"}}' | python3 .kimi-code/hooks/attach_rules.py
 ```
 
-A successful match prints a JSON object containing `hookSpecificOutput.additionalContext`. Empty output with exit code 0 means no glob matched, the rule was already sent in that session, or the input was not understood. Use a fresh session id for another probe, set `KIMI_CODE_RULES_STATE_DIR` to a throwaway directory, or remove `<tempdir>/kimi-code-attach-rules-*` to clear dedup state. `KIMI_CODE_RULES_DIR` can point at a fixture rule tree for isolated tests.
+The first command prints a JSON object whose `message` holds the always-on rules. The second prints a refusal: `hookSpecificOutput.permissionDecision` is `deny` and `permissionDecisionReason` holds the rules. Repeat it to get the next part, until it prints nothing. Empty output with exit code 0 means that no glob matched, the rule was already sent in that session, the folder is outside the checkout, or the input was not understood. Use a fresh session id for another probe, set `KIMI_CODE_RULES_STATE_DIR` to a throwaway directory, or remove `<tempdir>/kimi-code-attach-rules-*` to clear the state. `KIMI_CODE_RULES_DIR` can point at a fixture rule tree inside the checkout for isolated tests.
 
-After changing the user-level config, verify in a **new** Kimi Code session rather than assuming an existing session has reloaded its hooks.
+After changing the user-level config, verify in a **new** Kimi Code session rather than assuming an existing session has reloaded its hooks. The first prompt shows a `UserPromptSubmit hook` block with the always-on rules, and the first edit of a Go file is refused with the scoped rules before it runs.
 
 ## Relationship to the other adapters
 
-This script follows `.zcode/hooks/attach_rules.py`: both receive edited paths as JSON fields rather than requiring Codex `apply_patch` headers. Keep shared parsing, matching, locking, and state behaviour aligned when changing the adapters, and cover every changed adapter through `make test-agent-rules`. OpenCode uses a plugin instead; see [OpenCode hooks](opencode-hooks.md).
+This script shares its frontmatter parser, glob matching, locking and state files with `.zcode/hooks/attach_rules.py`: both receive edited paths as JSON fields rather than requiring Codex `apply_patch` headers. The delivery differs, because Kimi Code reads neither `additionalContext` nor the output of `SessionStart`. Like the [OpenCode plugin](opencode-hooks.md), this adapter refuses a write once to bring the scoped rules in. Keep the shared parts aligned when changing the adapters, and cover every changed adapter through `make test-agent-rules`.
 
 Upstream references: [Kimi Code hooks](https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html) and [configuration files](https://www.kimi.com/code/docs/en/kimi-code-cli/configuration/config-files.html).
