@@ -12,8 +12,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/net/http2"
-
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
@@ -41,18 +39,19 @@ const (
 	http2PingTimeout = 15 * time.Second
 )
 
-// enableHTTP2Liveness moves t to the x/net HTTP/2 transport, which is the
-// same code net/http bundles, with ping health checks on: the standard
-// library exposes no knob for them (net/http.Transport.HTTP2 has no effect
-// yet, go.dev/issue/67813).
-func enableHTTP2Liveness(t *http.Transport, readIdle, ping time.Duration) error {
-	h2, err := http2.ConfigureTransports(t) //nolint:staticcheck // x/net v0.60.0 deprecates its HTTP/2 API for net/http's; the move is a change of its own
-	if err != nil {
-		return fmt.Errorf("http2 liveness: %w", err)
+// enableHTTP2Liveness turns on the ping health checks of t's HTTP/2
+// connections through net/http's own HTTP/2 configuration, which every new
+// connection of t reads: a PING after readIdle of silence, and the connection
+// closed when the PING goes unanswered for ping. Any other setting t.HTTP2
+// already carries is kept.
+func enableHTTP2Liveness(t *http.Transport, readIdle, ping time.Duration) {
+	conf := http.HTTP2Config{}
+	if t.HTTP2 != nil {
+		conf = *t.HTTP2
 	}
-	h2.ReadIdleTimeout = readIdle //nolint:staticcheck // x/net v0.60.0 deprecates its HTTP/2 API for net/http's; the move is a change of its own
-	h2.PingTimeout = ping         //nolint:staticcheck // x/net v0.60.0 deprecates its HTTP/2 API for net/http's; the move is a change of its own
-	return nil
+	conf.SendPingTimeout = readIdle
+	conf.PingTimeout = ping
+	t.HTTP2 = &conf
 }
 
 // streamStalledError reports a streamed response whose server sent nothing
@@ -291,9 +290,7 @@ func newProviderTransport(mode config.ProxyMode, proxyURL *url.URL) (*http.Trans
 			return nil, err
 		}
 	}
-	if err := enableHTTP2Liveness(t, http2ReadIdleTimeout, http2PingTimeout); err != nil {
-		return nil, err
-	}
+	enableHTTP2Liveness(t, http2ReadIdleTimeout, http2PingTimeout)
 	return t, nil
 }
 

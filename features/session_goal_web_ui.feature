@@ -17,6 +17,10 @@ Feature: The web UI shows the session goal and lets the operator steer it
   Scenario: A bare /goal opens the popover
     Then a bare /goal opens the goal popover and sends nothing
 
+  Scenario: The operator can correct a refused goal
+    Then a goal that is too long keeps its text in the composer
+    And a refused goal restores the typed draft
+
   Scenario: Goal turns are rows, live and after a reload
     Then on the stream the kickoff row replaces the prompt and each continuation opens a turn of its own
     And after a reload a goal turn is a goal row that opens a turn of its own

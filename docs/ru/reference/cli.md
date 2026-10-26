@@ -74,6 +74,8 @@ Usage:
         web UI; without --lang it speaks the terminal's language: CODDY_LANG,
         then LC_ALL, LC_MESSAGES, LANG)
   coddy update [flags]
+  coddy help [command] (the command list, or the usage of that command:
+        the same answers as coddy --help and as that command's own --help)
 ```
 
 ### coddy cli
@@ -309,7 +311,6 @@ Usage of providers:
     	login: do not add the provider and its models to config.yaml after login
   -type string
     	login: type of a provider config.yaml does not list yet (neuraldeep, opencode, codex or devin), so another profile of a type is created by signing it in
-flag: help requested
 ```
 
 ### coddy plugin

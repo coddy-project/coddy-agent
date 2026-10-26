@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -189,4 +190,147 @@ func TestPermissionResumeAsksAgainWhenTheDefaultHeadersMoved(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("the request did not go out after the second answer; the service received %q", sent())
+}
+
+// resumeGoalFixture is a session that was restarted under an active goal while
+// a run_command prompt waited: the bundle holds the goal, the assistant row
+// that made the call (stamped with the goal, as it was stored then) and the
+// persisted gate, and the server has never seen the session. A docker on PATH
+// that only prints keeps the approved command harmless.
+type resumeGoalFixture struct {
+	srv  *Server
+	mgr  *session.Manager
+	ts   *httptest.Server
+	sid  string
+	call string
+}
+
+func newResumeGoalFixture(t *testing.T, command string) *resumeGoalFixture {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the approved call runs through a POSIX shell")
+	}
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	sessRoot := filepath.Join(root, "sessions")
+	bin := filepath.Join(root, "bin")
+	for _, dir := range []string{home, sessRoot, bin} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(bin, "docker"), []byte("#!/bin/sh\necho \"docker $*\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: home, CWD: root},
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}
+	cfg.Tools.PermissionMode = config.PermModeAsk
+
+	store := &session.FileStore{Root: sessRoot}
+	const sid, callID = "sess_resume_goal", "call_resume_goal"
+	sd, err := store.EnsureLayout(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	goal, err := session.NewGoal("remove the old containers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := `{"command":"` + command + `"}`
+	st := &session.State{ID: sid, CWD: root, Mode: session.ModeAgent, SessionDir: sd}
+	st.SetGoal(goal)
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "remove the old containers"})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: callID, Name: "run_command", InputJSON: args}}})
+	if err := store.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.WriteToolCallArgs(sd, callID, args); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.WritePendingPermission(sd, acp.PermissionRequestParams{
+		SessionID: sid,
+		ToolCall: acp.PermissionToolCall{
+			ToolCallID: callID, Title: "Run: " + command, Kind: "tool", Status: "pending",
+			Content: []acp.ToolCallResultItem{{Type: "content", Content: acp.ContentBlock{Type: "text", Text: command}}},
+		},
+		Options: permission.Options("run_command", args),
+	}, "run_command", args); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr := session.NewManager(cfg, noopSender{}, func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}, slog.Default(), root, store)
+	srv := New(cfg, mgr, slog.Default(), root)
+	t.Cleanup(func() { srv.waitPermissionResumeDrained() })
+	srv.agentProviderFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return &capturingHTTPProvider{reply: "the containers are gone"}, nil
+	}
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	return &resumeGoalFixture{srv: srv, mgr: mgr, ts: ts, sid: sid, call: callID}
+}
+
+// answer posts the operator's answer to the persisted prompt and waits for the
+// resumed turn to end.
+func (f *resumeGoalFixture) answer(t *testing.T, optionID string) *session.State {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, f.ts.URL+"/coddy/sessions/"+url.PathEscape(f.sid)+"/permission",
+		strings.NewReader(`{"toolCallId":"`+f.call+`","optionId":"`+optionID+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := f.ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("permission answer: status %d", res.StatusCode)
+	}
+	f.srv.waitPermissionResumeDrained()
+	st := f.mgr.SessionByID(f.sid)
+	if st == nil {
+		t.Fatal("the session is not loaded after the resume")
+	}
+	return st
+}
+
+// A turn finished through a permission answer after a restart is a goal turn
+// like any other: the risk gate reads it when it ends. The approved docker
+// call ran, so the goal blocks on it with the line naming the command and the
+// notice the operator sees, instead of staying active until the next
+// supervised turn.
+func TestPermissionResumeBlocksTheGoalOnAnApprovedDockerCall(t *testing.T) {
+	f := newResumeGoalFixture(t, "docker compose down")
+	st := f.answer(t, "allow")
+
+	const flag = "run_command changed docker containers or volumes: `docker compose down`"
+	g := st.GetGoal()
+	if g.Status != session.GoalBlocked || g.StatusReason != flag {
+		t.Fatalf("goal = %+v, want blocked on %q", g, flag)
+	}
+	notice := false
+	for _, e := range st.GetUILog() {
+		notice = notice || e.Level == session.UILogLevelNotice && e.Message == "Goal blocked: "+flag
+	}
+	if !notice {
+		t.Fatalf("no \"Goal blocked\" notice in the transcript: %+v", st.GetUILog())
+	}
+}
+
+// A refused call never ran, so the gate has nothing to block on.
+func TestPermissionResumeLeavesTheGoalAloneWhenTheDockerCallWasRefused(t *testing.T) {
+	f := newResumeGoalFixture(t, "docker compose down")
+	st := f.answer(t, "reject")
+
+	if g := st.GetGoal(); g.Status != session.GoalActive || g.StatusReason != "" {
+		t.Fatalf("goal = %+v, want it still active after a refused call", g)
+	}
 }

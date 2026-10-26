@@ -21,6 +21,12 @@ func mcpUsage() string {
 }
 
 func runMCP(args []string) error {
+	// A -h or --help anywhere is a question about the command, never a server
+	// name (`coddy help mcp trust` is `coddy mcp trust --help`).
+	if wantsHelp(args) {
+		fmt.Println(mcpUsage())
+		return nil
+	}
 	if len(args) < 1 {
 		return fmt.Errorf("%s", mcpUsage())
 	}

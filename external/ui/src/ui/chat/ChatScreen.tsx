@@ -29,6 +29,8 @@ import { finishedToolCalls } from "../changes/toolActivity";
 import { useWorkingCopy } from "../changes/workingCopy";
 import { WorkspaceBar } from "./WorkspaceBar";
 import type { TurnProgress } from "./turnProgress";
+import type { TodoPlanEntry } from "./todoToolPreview";
+import { blockEdgePaddingTop, composerReserveFor } from "./composerReserve";
 import { SubagentPermissionCards } from "./SubagentPermissionCard";
 import { SubagentReadOnlyNotice } from "./SubagentReadOnlyNotice";
 import { ArchivedSessionNotice } from "./ArchivedSessionNotice";
@@ -59,14 +61,13 @@ import { ScrollToBottomButton } from "./ScrollToBottomButton";
 import { openWorkspaceFile } from "../files/fileBus";
 import { WorkspaceFilesContext } from "../files/workspaceEntries";
 import { TranscriptList, type TranscriptListHandle } from "./TranscriptList";
-import {
-  LeaveWorktreeDialog,
-  leaveWorktreeCommand,
-} from "./LeaveWorktreeDialog";
-import { folderChipLabel } from "./workspaceContext";
 
 /** The composer's expand control: the scroll-to-bottom circle's size. */
 const COMPOSER_EXPAND_BUTTON_PX = 34;
+
+/** How long after the reader's own click or key a resize of the transcript
+ *  counts as theirs (a row they opened), not as the transcript growing. */
+const READER_RESIZE_WINDOW_MS = 500;
 
 export function ChatScreen(props: {
   title: string;
@@ -214,6 +215,8 @@ export function ChatScreen(props: {
   pathRoots?: readonly string[];
   /** The running turn's clock and generated tokens as the server reports them. */
   turnProgress?: TurnProgress | null;
+  /** The session's todo checklist, shown under the newest message. */
+  todoPlan?: readonly TodoPlanEntry[];
   /** Workspace context chips (folder / branch / worktree) above the composer field. */
   workspaceCtx?: import("./workspaceContext").WorkspaceContext | null;
   /** The folder the chat runs in (the picked one before a session exists). */
@@ -266,7 +269,6 @@ export function ChatScreen(props: {
   // stands under the jump to the newest message, which an expanded composer
   // hides.
   const [composerExpanded, setComposerExpanded] = useState(false);
-  const [leaveWorktreeOpen, setLeaveWorktreeOpen] = useState(false);
   // Shared by hero and docked composers so disabled files survive the first text turn.
   const [localAttachedFiles, setLocalAttachedFiles] = useState<File[]>([]);
   const attachedFiles = props.attachedFiles ?? localAttachedFiles;
@@ -337,17 +339,43 @@ export function ChatScreen(props: {
     if (isEmpty) return;
     const host = composerHostRef.current;
     if (!host) return;
-    const extra = 10;
+    const px = (el: Element | null | undefined, prop: string): number => {
+      if (!el) return 0;
+      const v = parseFloat(getComputedStyle(el).getPropertyValue(prop));
+      return Number.isFinite(v) ? v : 0;
+    };
     const apply = () => {
-      const h = host.getBoundingClientRect().height;
-      setComposerReserve(Math.max(140, Math.ceil(h) + extra));
+      const scroller = messagesRef.current;
+      // What stands under the transcript's spacer down to where the scroll
+      // content ends: the scroller's own padding, and on the stacked shell,
+      // where the document scrolls, every block around it.
+      let underContent = px(scroller, "padding-bottom");
+      if (mobileDocScroll) {
+        for (
+          let el = scroller?.parentElement;
+          el && el !== document.documentElement;
+          el = el.parentElement
+        ) {
+          underContent += px(el, "padding-bottom");
+        }
+      }
+      const column = scroller?.querySelector(".messages-inner");
+      setComposerReserve(
+        composerReserveFor({
+          blockHeight: host.getBoundingClientRect().height,
+          blockPaddingTop: blockEdgePaddingTop(host),
+          rowGap: px(column, "row-gap") || 10,
+          contentEndAboveBlockEnd:
+            underContent - px(host.parentElement, "padding-bottom"),
+        }),
+      );
     };
     apply();
     const ro =
       typeof ResizeObserver !== "undefined" ? new ResizeObserver(apply) : null;
     ro?.observe(host);
     return () => ro?.disconnect();
-  }, [isEmpty, props.tokenUsage]);
+  }, [isEmpty, mobileDocScroll, props.tokenUsage]);
 
   // Whichever surface scrolls, it is read and written through these three, so
   // the follow, the button and the jump never disagree about where the end is.
@@ -374,6 +402,21 @@ export function ChatScreen(props: {
     [mobileDocScroll],
   );
 
+  // Where the last follow put the transcript: its end. The follow's own
+  // scroll event is read a frame later, and the transcript may have grown
+  // again by then; a position still here is content growing under a parked
+  // reader, not the reader leaving the end (syncTranscriptPosition). A jump's
+  // frames in between are not a follow.
+  const followedTopRef = useRef<number | null>(null);
+  const followTranscriptEnd = useCallback(() => {
+    writeTranscriptScrollTop(transcriptScrollBottom());
+    followedTopRef.current = readTranscriptScrollTop();
+  }, [
+    readTranscriptScrollTop,
+    transcriptScrollBottom,
+    writeTranscriptScrollTop,
+  ]);
+
   const cancelTranscriptJump = useCallback((): boolean => {
     if (jumpFrameRef.current === null) return false;
     cancelAnimationFrame(jumpFrameRef.current);
@@ -396,13 +439,24 @@ export function ChatScreen(props: {
         : null;
     if (!metrics) return;
     const atBottom = isTranscriptAtBottom(metrics);
+    // Still where the last follow put it: the end moved away from the reader,
+    // the reader did not move, and the next follow (the items, the size of
+    // the column) takes it there.
+    const followed = followedTopRef.current;
+    const unmoved =
+      followed !== null && Math.abs(readTranscriptScrollTop() - followed) <= 1;
+    // Once the position is somewhere else, the reader moved it: the follow's
+    // mark says nothing more until the next follow.
+    if (!unmoved) followedTopRef.current = null;
     // A window cut short of the newest rows is not at the newest message,
     // wherever its own end is.
-    const atNewest = atBottom && transcriptAttached();
+    const atNewest =
+      (atBottom || (stickToBottomRef.current && unmoved)) &&
+      transcriptAttached();
     stickToBottomRef.current = atNewest;
     setShowScrollToBottom(!atNewest);
     reportReaderAtTail(atBottom);
-  }, [mobileDocScroll, reportReaderAtTail]);
+  }, [mobileDocScroll, readTranscriptScrollTop, reportReaderAtTail]);
 
   const jumpToNewestMessage = useCallback(() => {
     cancelTranscriptJump();
@@ -541,7 +595,7 @@ export function ChatScreen(props: {
     const follow = () => {
       openingRef.current = false;
       stickToBottomRef.current = true;
-      writeTranscriptScrollTop(transcriptScrollBottom());
+      followTranscriptEnd();
       syncTranscriptPosition();
     };
     if (mobileDocScroll) {
@@ -556,8 +610,7 @@ export function ChatScreen(props: {
     isEmpty,
     mobileDocScroll,
     syncTranscriptPosition,
-    transcriptScrollBottom,
-    writeTranscriptScrollTop,
+    followTranscriptEnd,
   ]);
 
   // The reserve under the transcript is the height of the block over it, and a
@@ -575,7 +628,7 @@ export function ChatScreen(props: {
     const follow = () => {
       // The reader may have taken the scrollbar in the frames this waited.
       if (!stickToBottomRef.current || jumpFrameRef.current !== null) return;
-      writeTranscriptScrollTop(transcriptScrollBottom());
+      followTranscriptEnd();
     };
     if (mobileDocScroll) {
       // The document takes its new height after layout, not on this tick.
@@ -583,13 +636,58 @@ export function ChatScreen(props: {
       return;
     }
     follow();
-  }, [
-    composerReserve,
-    isEmpty,
-    mobileDocScroll,
-    transcriptScrollBottom,
-    writeTranscriptScrollTop,
-  ]);
+  }, [composerReserve, isEmpty, mobileDocScroll, followTranscriptEnd]);
+
+  // The transcript also changes its height with no new item - the todo
+  // checklist comes in, folds and leaves by its height, the live line comes
+  // and goes - while the follow above runs on new items only. A transcript parked at its newest
+  // message stays there through every such change, or its last lines slide
+  // under the composer and the next reading of the position decides the
+  // reader left the end; a reader who scrolled away keeps their place.
+  useLayoutEffect(() => {
+    if (isEmpty || typeof ResizeObserver === "undefined") return;
+    const column = messagesRef.current?.querySelector(".messages-inner");
+    if (!column) return;
+    // A row the reader opens or folds grows the column too, and that is the
+    // reader's doing: following it would take the row's head off the screen.
+    // The checklist's head is the exception, since its list belongs at the end.
+    let readerActedAt = -Infinity;
+    const noteReader = (e: Event) => {
+      const target = e.target as Element | null;
+      if (target?.closest?.("[data-testid=todo-checklist]")) return;
+      readerActedAt = performance.now();
+    };
+    // A click comes without a pointerdown from assistive technology and from
+    // code; it still lands before the row it opens grows.
+    const readerEvents = ["pointerdown", "keydown", "click"] as const;
+    for (const type of readerEvents) {
+      column.addEventListener(type, noteReader, true);
+    }
+    const ro = new ResizeObserver(() => {
+      if (
+        !stickToBottomRef.current ||
+        jumpFrameRef.current !== null ||
+        openingRef.current
+      ) {
+        return;
+      }
+      if (performance.now() - readerActedAt < READER_RESIZE_WINDOW_MS) {
+        // Not a follow: the end moved away because the reader opened
+        // something, and the position says so.
+        followedTopRef.current = null;
+        syncTranscriptPosition();
+        return;
+      }
+      followTranscriptEnd();
+    });
+    ro.observe(column);
+    return () => {
+      ro.disconnect();
+      for (const type of readerEvents) {
+        column.removeEventListener(type, noteReader, true);
+      }
+    };
+  }, [isEmpty, followTranscriptEnd, syncTranscriptPosition]);
 
   useEffect(() => {
     if (isEmpty) return;
@@ -671,30 +769,12 @@ export function ChatScreen(props: {
     workspaceCtx &&
     (workspaceCtx.is_git_repo || hasGoal)
       ? (goalMark: ReactNode) => (
-          <>
-            <WorkspaceBar
-              context={workspaceCtx}
-              workingCopy={workingCopy}
-              onOpenEdits={props.onOpenEdits}
-              // The way back from a linked worktree asks first, keep it or
-              // remove it, with what removing would touch in view.
-              onLeaveWorktree={() => setLeaveWorktreeOpen(true)}
-              goal={goalMark}
-            />
-            <LeaveWorktreeDialog
-              open={leaveWorktreeOpen}
-              sessionId={props.sessionId ?? ""}
-              project={folderChipLabel(workspaceCtx)}
-              worktreePath={workspaceCtx.path}
-              onClose={() => setLeaveWorktreeOpen(false)}
-              // The answer is the command the console and an editor type too;
-              // the server runs it without a model turn.
-              onChoose={(choice) => {
-                setLeaveWorktreeOpen(false);
-                props.onSend(leaveWorktreeCommand(choice));
-              }}
-            />
-          </>
+          <WorkspaceBar
+            context={workspaceCtx}
+            workingCopy={workingCopy}
+            onOpenEdits={props.onOpenEdits}
+            goal={goalMark}
+          />
         )
       : undefined;
   // The Files window belongs to a chat, so it opens only once one exists.
@@ -723,6 +803,7 @@ export function ChatScreen(props: {
     generating: props.generating === true,
     ...(props.pathRoots !== undefined ? { pathRoots: props.pathRoots } : {}),
     ...(props.turnProgress ? { turnProgress: props.turnProgress } : {}),
+    ...(props.todoPlan ? { todoPlan: props.todoPlan } : {}),
     ...(runningTasks > 0 ? { runningTasks } : {}),
     ...(props.onOpenBackgroundTasks
       ? { onOpenTasks: props.onOpenBackgroundTasks }

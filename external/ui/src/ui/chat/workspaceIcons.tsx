@@ -74,27 +74,3 @@ export function RemoteBranchIcon(props: { label: string }) {
     </svg>
   );
 }
-
-/**
- * An arrow bending back: the way from a linked worktree to its main checkout,
- * on the plate's button right after the branch.
- */
-export function LeaveWorktreeIcon() {
-  return (
-    <svg
-      className="workspace-bar-leave-icon"
-      viewBox="0 0 16 16"
-      width="13"
-      height="13"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M6 4 2.75 7.25 6 10.5" />
-      <path d="M3 7.25h6.5a3.75 3.75 0 0 1 0 7.5H8" />
-    </svg>
-  );
-}

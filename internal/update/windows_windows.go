@@ -233,7 +233,7 @@ func processCreationTime(handle windows.Handle) (int64, error) {
 }
 
 func waitForParentExit(parentPID int, parentStarted int64, out io.Writer) error {
-	handle, err := windows.OpenProcess(windows.SYNCHRONIZE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(parentPID))
+	handle, err := windows.OpenProcess(windows.SYNCHRONIZE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(parentPID)) //nolint:gosec // G115: a Windows process id is a DWORD, and parentPID is the id of the process that started this one
 	if err != nil {
 		if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
 			return nil

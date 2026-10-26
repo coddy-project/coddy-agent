@@ -28,6 +28,12 @@ func hooksUsage() string {
 }
 
 func runHooks(args []string) error {
+	// A -h or --help anywhere is a question about the command, never a hook
+	// file (`coddy help hooks trust` is `coddy hooks trust --help`).
+	if wantsHelp(args) {
+		fmt.Println(hooksUsage())
+		return nil
+	}
 	if len(args) < 1 {
 		return fmt.Errorf("%s", hooksUsage())
 	}

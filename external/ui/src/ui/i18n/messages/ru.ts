@@ -2344,6 +2344,8 @@ export const messagesRu: Record<string, string> = {
   "messages.webSearchEngineError": "ошибка",
   "messages.toolLoading": "Загрузка…",
   "messages.toolMore": "Ещё…",
+  "todo.checklist.label": "Список задач, выполнено {done} из {total}",
+  "todo.checklist.title": "Список задач",
   "todo.preview.updatedItem": "Обновлённый пункт",
   "todo.preview.plan": "План задач",
   "todo.preview.position": "{index} из {total}",

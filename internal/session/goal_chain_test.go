@@ -332,15 +332,21 @@ func TestGoalChainRetriesABusySession(t *testing.T) {
 	h.writesInFirstTurn(nextTask, "write the release notes")
 	h.prompt(h.sid, "/goal --then-file .coddy/next-task.md ship the fix")
 	var next string
+	returned := map[string]int{}
 	deadline := time.After(10 * time.Second)
 	for {
 		select {
 		case id := <-h.started:
 			next = id
+			returned[id]++
 		case <-deadline:
 			t.Fatal("the chained turn never ran")
 		}
-		if runs := h.runsIn(next); len(runs) > 0 {
+		// Done once the kickoff ran and every start of the chained session
+		// has returned: the run that succeeded writes the end of its own
+		// chain into the session folder before its starter returns, and a
+		// test that stopped earlier would race that write with its cleanup.
+		if runs := h.runsIn(next); len(runs) > 0 && returned[next] == h.startsOf(next) {
 			if runs[0].marker == nil || runs[0].marker.Kind != acp.GoalTurnKickoff {
 				t.Fatalf("first run = %+v", runs[0])
 			}
@@ -460,5 +466,56 @@ func TestGoalChainTellsTheWorkerWhereTheNextTaskGoes(t *testing.T) {
 	plain.prompt(plain.sid, "/goal ship the fix")
 	if r := plain.runsIn(plain.sid); strings.Contains(r[0].prompt, "chain") {
 		t.Fatalf("a goal without a follow-up file mentions a chain:\n%s", r[0].prompt)
+	}
+}
+
+// The goal a chain opens starts clean: a new id, its own start record taken
+// from the workspace as it is then - the commit, and the migration the
+// finished goal rewrote counted as changed already, so the chained goal is not
+// blocked on it - and nothing accepted carried over. The rows of the earlier
+// session are in another transcript and are none of its evidence.
+func TestGoalChainStartsTheNextGoalClean(t *testing.T) {
+	h := newChainHarness(t)
+	const migration = "migrations/0001_init.sql"
+	head := gitRepo(t, h.cwd, map[string]string{migration: "A\n"})
+	h.mu.Lock()
+	h.onRun = func(st *session.State, run int) {
+		switch run {
+		case 0: // a shell rewrites the migration and removes a stack's volumes
+			h.writeAt(migration, "B\n")
+			_, _ = commandStep(dockerDown)(context.Background(), st, noopSender{}, run)
+		case 1:
+			h.writeAt(nextTask, "write the release notes")
+		}
+	}
+	h.mu.Unlock()
+
+	h.prompt(h.sid, "/goal --then-file .coddy/next-task.md ship the fix")
+	first := h.st(h.sid)
+	done := first.GetGoal()
+	if done.Status != session.GoalBlocked || done.Start == nil || done.Start.Head != head || h.startCount() != 0 ||
+		!strings.Contains(done.StatusReason, migration) || !strings.Contains(done.StatusReason, "docker compose down -v") {
+		t.Fatalf("the rewritten migration and the docker step did not block the goal: starts=%d goal=%+v", h.startCount(), done)
+	}
+	h.prompt(h.sid, "/goal resume")
+	next := h.st(h.waitStarted())
+
+	g := next.GetGoal()
+	if g.ID == done.ID || g.Status != session.GoalComplete || g.ChainIndex != 1 {
+		t.Fatalf("chained goal = %+v, want a new goal, met without a block", g)
+	}
+	if g.Start == nil || g.Start.Head != head || g.Start.Dir != next.GetCWD() || g.Start.Dirty[migration] == "" {
+		t.Fatalf("chained start = %+v, want %s with %s counted as changed already", g.Start, head, migration)
+	}
+	if len(g.AcceptedFiles) != 0 {
+		t.Fatalf("the chained goal inherited accepted files %+v", g.AcceptedFiles)
+	}
+	for _, m := range next.GetMessages() {
+		if m.Goal != g.ID || m.RiskAcknowledged {
+			t.Fatalf("row %+v of the chained session: want it stamped with the new goal %s and not accepted", m, g.ID)
+		}
+	}
+	if finished := first.GetGoal(); finished.ContinuedIn != next.ID || len(finished.AcceptedFiles) != 1 || len(acceptedRows(first)) != 1 {
+		t.Fatalf("finished goal = %+v accepted rows = %v, want its own acceptance kept", finished, acceptedRows(first))
 	}
 }

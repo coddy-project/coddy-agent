@@ -104,6 +104,31 @@ func TestACPProcessCancelledCallReturnsAtItsContext(t *testing.T) {
 	}
 }
 
+// The agent took the prompt, answered and exited before the caller looked:
+// the exit and the line going out are both ready, and the answer the router
+// read still reaches the caller, a result or an error alike. Without the
+// widened window this ordering comes up about once in a few hundred runs.
+func TestACPProviderKeepsAnAnswerItsExitRacedThePrompt(t *testing.T) {
+	wait := func() { time.Sleep(50 * time.Millisecond) }
+	acpBeforePromptWait.Store(&wait)
+	t.Cleanup(func() { acpBeforePromptWait.Store(nil) })
+	for i := 0; i < 3; i++ {
+		in, _ := acpRow(t, acptest.Script{Turns: []acptest.Turn{{Text: []string{"done"}, ExitAfterReply: true}}})
+		resp, err := newACPTestProvider(t, in).Stream(conversation(t, "s1"), sys(u("one")), nil, nil)
+		if err != nil || !strings.HasPrefix(resp.Content, "done") {
+			t.Fatalf("run %d: err = %v, resp = %+v", i, err, resp)
+		}
+		StopACPAgents()
+		in, _ = acpRow(t, acptest.Script{Turns: []acptest.Turn{{Error: "upstream failed", ExitAfterReply: true}}})
+		_, err = newACPTestProvider(t, in).Stream(conversation(t, "s1"), sys(u("one")), nil, nil)
+		var acpErr *ACPError
+		if !errors.As(err, &acpErr) || acpErr.Kind != ACPErrorRPC {
+			t.Fatalf("run %d: err = %v, want the agent's rpc error", i, err)
+		}
+		StopACPAgents()
+	}
+}
+
 // The agent answers and exits at once: the answer stands, an error answer
 // stays the agent's error, and an authentication error keeps its methods.
 func TestACPProviderKeepsAnAnswerTheAgentExitedAfter(t *testing.T) {

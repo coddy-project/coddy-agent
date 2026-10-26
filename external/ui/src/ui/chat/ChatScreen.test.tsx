@@ -448,6 +448,9 @@ test("the jump travels over several frames and settles on the newest message", a
     scrollHeight: 4000,
     clientHeight: 400,
   });
+  // The reader was at the end and went up to the top.
+  viewport.scrollTop = 3600;
+  fireEvent.scroll(viewport);
   viewport.scrollTop = 0;
   fireEvent.scroll(viewport);
   await waitFor(() => expect(scrollButtonShown()).toBe(true));
@@ -479,6 +482,9 @@ test("the reader reaching for the wheel cancels a jump still in the air", async 
     scrollHeight: 8000,
     clientHeight: 400,
   });
+  // The reader was at the end and went up to the top.
+  viewport.scrollTop = 7600;
+  fireEvent.scroll(viewport);
   viewport.scrollTop = 0;
   fireEvent.scroll(viewport);
   await waitFor(() => expect(scrollButtonShown()).toBe(true));
@@ -748,6 +754,130 @@ test("a banner rising over the composer leaves a reader who scrolled up where th
       configurable: true,
     });
     composerBlock(container).grow(250);
+
+    expect(viewport.scrollTop).toBe(200);
+  } finally {
+    resizeCallbacks.length = 0;
+    vi.unstubAllGlobals();
+  }
+});
+
+// The tail of the transcript changes its height with no new item: the todo
+// checklist comes in, folds and leaves by its height, the live line comes and
+// goes.
+// A transcript parked at its newest message stays there through all of it;
+// the follow used to run on new items only, so the checklist growing after
+// it left the last line under the composer and the reader no longer at the
+// end, and nothing followed after that.
+test("the transcript growing by itself keeps a transcript at the newest message there", () => {
+  vi.stubGlobal("ResizeObserver", ResizeObserverStandIn);
+  try {
+    const { container } = render(
+      <ChatScreen {...scrollBase} items={firstTurn} />,
+    );
+    const viewport = transcriptViewport(container, {
+      scrollHeight: 1200,
+      clientHeight: 400,
+    });
+    viewport.scrollTop = 800;
+    fireEvent.scroll(viewport);
+
+    Object.defineProperty(viewport, "scrollHeight", {
+      value: 1350,
+      configurable: true,
+    });
+    act(() => resizeCallbacks.forEach((cb) => cb()));
+
+    expect(viewport.scrollTop).toBe(950);
+  } finally {
+    resizeCallbacks.length = 0;
+    vi.unstubAllGlobals();
+  }
+});
+
+// The follow's own scroll event is read a frame later, when the transcript
+// may have grown again (the next rows of an opening conversation, the
+// checklist coming in): the position is where the follow put it, below the
+// new end. That is content growing under a parked reader, not the reader
+// leaving, and the next follow takes it to the end.
+test("a scroll event the follow caused, read after the transcript grew again, keeps it at the newest message", async () => {
+  vi.stubGlobal("ResizeObserver", ResizeObserverStandIn);
+  try {
+    const { container } = render(
+      <ChatScreen {...scrollBase} items={firstTurn} />,
+    );
+    const viewport = transcriptViewport(container, {
+      scrollHeight: 1200,
+      clientHeight: 400,
+    });
+    act(() => resizeCallbacks.forEach((cb) => cb()));
+    expect(viewport.scrollTop).toBe(800);
+
+    Object.defineProperty(viewport, "scrollHeight", {
+      value: 1350,
+      configurable: true,
+    });
+    fireEvent.scroll(viewport);
+    act(() => resizeCallbacks.forEach((cb) => cb()));
+
+    expect(viewport.scrollTop).toBe(950);
+    await waitFor(() => expect(scrollButtonShown()).toBe(false));
+  } finally {
+    resizeCallbacks.length = 0;
+    vi.unstubAllGlobals();
+  }
+});
+
+// A row the reader opens near the end grows the transcript too, but that is
+// the reader's own doing: following it took the row's head off the screen.
+// The transcript stays where it is and says it is no longer at the end.
+test("a row the reader opens does not pull the transcript to its end", async () => {
+  vi.stubGlobal("ResizeObserver", ResizeObserverStandIn);
+  try {
+    const { container } = render(
+      <ChatScreen {...scrollBase} items={firstTurn} />,
+    );
+    const viewport = transcriptViewport(container, {
+      scrollHeight: 1200,
+      clientHeight: 400,
+    });
+    act(() => resizeCallbacks.forEach((cb) => cb()));
+    expect(viewport.scrollTop).toBe(800);
+
+    const row = container.querySelector(".messages-inner [data-row-id]")!;
+    fireEvent.pointerDown(row);
+    Object.defineProperty(viewport, "scrollHeight", {
+      value: 1350,
+      configurable: true,
+    });
+    act(() => resizeCallbacks.forEach((cb) => cb()));
+
+    expect(viewport.scrollTop).toBe(800);
+    await waitFor(() => expect(scrollButtonShown()).toBe(true));
+  } finally {
+    resizeCallbacks.length = 0;
+    vi.unstubAllGlobals();
+  }
+});
+
+test("the transcript growing by itself leaves a reader who scrolled up where they are", () => {
+  vi.stubGlobal("ResizeObserver", ResizeObserverStandIn);
+  try {
+    const { container } = render(
+      <ChatScreen {...scrollBase} items={firstTurn} />,
+    );
+    const viewport = transcriptViewport(container, {
+      scrollHeight: 1200,
+      clientHeight: 400,
+    });
+    viewport.scrollTop = 200;
+    fireEvent.scroll(viewport);
+
+    Object.defineProperty(viewport, "scrollHeight", {
+      value: 1350,
+      configurable: true,
+    });
+    act(() => resizeCallbacks.forEach((cb) => cb()));
 
     expect(viewport.scrollTop).toBe(200);
   } finally {
@@ -1046,54 +1176,36 @@ function workspaceProps(locked: boolean) {
   };
 }
 
-// A chat in a linked worktree goes back to its project from the plate: the
-// button asks first, keep the worktree or remove it, and keeping sends
-// /worktree exit --keep, which the server runs without a model turn.
-test("the plate of a chat in a worktree asks, then sends /worktree exit --keep to go back", async () => {
-  const fetchMock = stubSessionChanges(0);
-  const changesFetch = fetchMock.getMockImplementation()!;
-  fetchMock.mockImplementation(async (input: unknown) => {
-    if (String(input).endsWith("/worktree")) {
-      return new Response(
-        JSON.stringify({
-          in_worktree: true,
-          branch: "feat/session-changes",
-          managed: true,
-          uncommitted: 0,
-          unpushed: 0,
-          locked: false,
-          submodules: false,
-          running_tasks: 0,
-          removable: true,
-          needs_discard: false,
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
-    }
-    return changesFetch(input);
-  });
+test("a linked worktree's plate has no exit button and still opens the edits", async () => {
+  stubSessionChanges(2);
+  const onOpenEdits = vi.fn();
   const onSend = vi.fn();
-  render(
-    turnLineScreen({
-      ...workspaceProps(true),
-      workspaceCtx: {
-        ...repoCtx,
-        path: "/home/me/src/coddy-agent/.coddy/worktrees/feat-session-changes",
-        name: "feat-session-changes",
-        is_worktree: true,
-      },
-      onSend,
-    }),
-  );
-  fireEvent.click(await screen.findByTestId("workspace-bar-leave"));
-  const dialog = await screen.findByTestId("leave-worktree-dialog");
-  expect(onSend).not.toHaveBeenCalled();
-  fireEvent.click(
-    within(dialog).getByRole("button", { name: "Keep worktree" }),
-  );
-  expect(onSend).toHaveBeenCalledWith("/worktree exit --keep");
-  expect(screen.queryByTestId("leave-worktree-dialog")).toBeNull();
-  vi.unstubAllGlobals();
+  try {
+    render(
+      turnLineScreen({
+        ...workspaceProps(true),
+        workspaceCtx: {
+          ...repoCtx,
+          path: "/home/me/src/coddy-agent/.coddy/worktrees/feat-session-changes",
+          name: "feat-session-changes",
+          is_worktree: true,
+        },
+        onOpenEdits,
+        onSend,
+      }),
+    );
+    const edits = await screen.findByTestId("workspace-bar-edits");
+    fireEvent.click(edits);
+    expect(onOpenEdits).toHaveBeenCalledTimes(1);
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("workspace-bar-leave")).toBeNull();
+    expect(screen.queryByTestId("leave-worktree-dialog")).toBeNull();
+    expect(
+      within(screen.getByTestId("workspace-bar")).getAllByRole("button"),
+    ).toEqual([edits]);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 // Once the chat runs, where it works is a fact: a plate joined to the top of

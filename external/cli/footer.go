@@ -16,11 +16,13 @@ import (
 )
 
 // footer renders the status lines under the editor (pi FooterComponent):
-// line 1: dim cwd (git branch) • session title [• plan]
-// line 2: token stats + context percent left, (provider) model • reasoning
-// [• tools <toolset>] right;
-// line 3, only while the active model's provider reports account usage:
-// plan • window percentages with reset times • wallet (usage.go).
+// line 1: dim cwd (git branch) • session title [• plan] and its notes left,
+// (provider) model • reasoning [• tools <toolset>] right;
+// line 2: token stats + context occupancy left and, while the active model's
+// provider reports account usage, plan • window percentages • wallet right,
+// under the model (usage.go);
+// line 3, only while a setting is changed for a number of turns: the turn
+// overrides.
 type footer struct {
 	theme *tui.Theme
 
@@ -171,6 +173,19 @@ func (f *footer) goalNote(avail int) (note, role string) {
 	return "", ""
 }
 
+// goalNoteMinWidth is the width of the goal note's shortest form, the status
+// alone, or 0 without a goal.
+func (f *footer) goalNoteMinWidth() int {
+	if f.goal == nil {
+		return 0
+	}
+	status := strings.TrimSpace(f.goal.Status)
+	if status == "" {
+		status = acp.GoalStatusActive
+	}
+	return tui.VisibleWidth(" • ◎ goal " + tui.SanitizeText(status))
+}
+
 // goalStatusRole is the colour of a goal status: the accent while the
 // supervisor works on it, the warning when it waits for the operator, success
 // once it is met, muted while it is held.
@@ -242,7 +257,8 @@ func (f *footer) Usage() *acp.ProviderUsageUpdate {
 	return f.usages[f.provider]
 }
 
-// usageLine renders the third line, or "" when nothing applies.
+// usageLine renders the account usage for the right of the second line in at
+// most width cells, or "" when nothing applies.
 func (f *footer) usageLine(width int) string {
 	u := f.Usage()
 	if u == nil {
@@ -263,20 +279,54 @@ func splitModelID(id string) (provider, model string) {
 	return "", id
 }
 
-// Render draws both footer lines padded to width.
-func (f *footer) Render(width int) []string {
-	th := f.theme
+// footerGap is the least space between the left and the right side of a
+// footer line.
+const footerGap = 2
 
-	line1 := tui.SanitizeText(f.cwd)
-	if f.gitBranch != "" {
-		line1 += " (" + tui.SanitizeText(f.gitBranch) + ")"
+// footerMinModel is the narrowest the model segment is cut to before the
+// first line gives it up.
+const footerMinModel = 12
+
+// Render draws the footer: where the session works and what it runs on, then
+// the context and the account's usage under the model, then the turn
+// overrides while there are any. A line with a right side reaches width.
+func (f *footer) Render(width int) []string {
+	lines := []string{f.firstLine(width)}
+	second := f.secondLine(width)
+	ov := f.overridesText()
+	// An empty second line keeps the footer's height until the first turn
+	// fills it, but it never leaves a blank row above the overrides.
+	if ov == "" || tui.VisibleWidth(second) > 0 {
+		lines = append(lines, second)
 	}
-	if f.title != "" {
-		line1 += " • " + tui.SanitizeText(f.title)
+	if ov != "" {
+		lines = append(lines, f.theme.Fg(roleAccent, tui.TruncateToWidth(ov, width, "...")))
 	}
-	if f.modeID == "plan" || f.modeID == "ask" {
-		line1 += " • " + f.modeID
+	return lines
+}
+
+// modelSegment is the right side of the first line: the model, its reasoning
+// level when it has one, and the toolset preset.
+func (f *footer) modelSegment() string {
+	if f.model == "" {
+		return ""
 	}
+	right := tui.SanitizeText(f.model)
+	if f.provider != "" {
+		right = "(" + tui.SanitizeText(f.provider) + ") " + right
+	}
+	if f.reasoning != "" {
+		right += " • " + tui.SanitizeText(f.reasoning)
+	}
+	if f.toolset != "" {
+		right += " • tools " + tui.SanitizeText(f.toolset)
+	}
+	return right
+}
+
+// firstNotes are the parts of the first line that are kept whole: the MCP
+// count and the running tasks, and the permission mode that closes the line.
+func (f *footer) firstNotes() (notes, perm string) {
 	// Background tasks outlive the turn that started them, and the status line that
 	// counts them goes away with the turn. The footer keeps saying what still runs,
 	// and names the command that lists it. The segment closes the line and is the part
@@ -287,70 +337,94 @@ func (f *footer) Render(width int) []string {
 	// after the first frame - and, like the tasks segment, it is what the
 	// operator reads. Both notes, and the permission mode after them, are
 	// kept whole together: only the path and the title give way.
-	notes := ""
 	if f.mcpPending {
 		notes += " • MCP " + itoa(f.mcpConnected) + "/" + itoa(f.mcpTotal)
 	}
 	if f.runningTasks > 0 {
 		notes += " • " + itoa(f.runningTasks) + " " + plural(f.runningTasks, "task", "tasks") + " running (/tasks)"
 	}
-	perm := ""
 	if f.permission != "" && f.permission != "ask" {
 		perm = " • " + strings.ReplaceAll(f.permission, "_", " ")
 	}
+	return notes, perm
+}
+
+// firstLine is the folder and its notes on the left and the model on the
+// right. The notes stay whole; the path gives way first, then the model is
+// cut, and a line too narrow for even a cut model gives the model up.
+func (f *footer) firstLine(width int) string {
+	notes, perm := f.firstNotes()
+	// The goal note shortens down to its status before it goes; the model is
+	// cut first, so the status keeps its room.
+	kept := tui.VisibleWidth(notes) + tui.VisibleWidth(perm) + f.goalNoteMinWidth()
+	right := f.modelSegment()
+	if right != "" {
+		maxRight := width - footerGap - kept - 8
+		if maxRight < footerMinModel {
+			// No room for a short path beside the model: the path goes.
+			maxRight = width - footerGap - kept
+		}
+		switch {
+		case maxRight < footerMinModel:
+			right = ""
+		case tui.VisibleWidth(right) > maxRight:
+			right = tui.TruncateToWidth(right, maxRight, "…")
+		}
+	}
+	if right == "" {
+		return f.firstLeft(width)
+	}
+	left := f.firstLeft(width - footerGap - tui.VisibleWidth(right))
+	gap := width - tui.VisibleWidth(left) - tui.VisibleWidth(right)
+	if gap < 1 {
+		gap = 1
+	}
+	return left + strings.Repeat(" ", gap) + f.theme.Fg(roleDim, right)
+}
+
+// firstLeft renders the left side of the first line in at most avail cells:
+// the folder, its branch, the title and the mode, then the notes, the goal
+// and the permission mode.
+func (f *footer) firstLeft(avail int) string {
+	th := f.theme
+	if avail < 0 {
+		avail = 0
+	}
+	line1 := tui.SanitizeText(f.cwd)
+	if f.gitBranch != "" {
+		line1 += " (" + tui.SanitizeText(f.gitBranch) + ")"
+	}
+	if f.title != "" {
+		line1 += " • " + tui.SanitizeText(f.title)
+	}
+	if f.modeID == "plan" || f.modeID == "ask" {
+		line1 += " • " + f.modeID
+	}
+	notes, perm := f.firstNotes()
 	// The session goal sits between the notes and the permission mode, in the
 	// colour of its status. It is what the supervisor does with the next turn
 	// end, so it stays with the notes, shortened before the path is cut to
 	// nothing and dropped only where not even its status fits.
-	goal, goalRole := f.goalNote(width - tui.VisibleWidth(notes) - tui.VisibleWidth(perm))
+	goal, goalRole := f.goalNote(avail - tui.VisibleWidth(notes) - tui.VisibleWidth(perm))
 	tail := tui.VisibleWidth(notes) + tui.VisibleWidth(goal) + tui.VisibleWidth(perm)
-	if room := width - tail; tui.VisibleWidth(line1) > room {
+	if room := avail - tail; tui.VisibleWidth(line1) > room {
 		// On a line too narrow for even a shortened path, the path goes and
 		// the notes stay.
 		if room >= 8 {
 			line1 = tui.TruncateToWidth(line1, room, "...")
-		} else if tail <= width {
+		} else if tail <= avail {
 			line1 = ""
 		}
 	}
 	line1 += notes
 
-	left := ""
-	if f.tokensIn > 0 || f.tokensOut > 0 {
-		left = "↑" + tui.FormatTokenCount(f.tokensIn) + " ↓" + tui.FormatTokenCount(f.tokensOut) + " "
-	}
-	if f.ctxMax > 0 {
-		left += fmt.Sprintf("%.1f%%/%s (auto)", f.ctxPercent, tui.FormatTokenCount(f.ctxMax))
-	}
-
-	right := ""
-	if f.model != "" {
-		if f.provider != "" {
-			right = "(" + tui.SanitizeText(f.provider) + ") " + tui.SanitizeText(f.model)
-		} else {
-			right = tui.SanitizeText(f.model)
-		}
-		if f.reasoning != "" {
-			right += " • " + tui.SanitizeText(f.reasoning)
-		}
-		if f.toolset != "" {
-			right += " • tools " + tui.SanitizeText(f.toolset)
-		}
-	}
-
-	gap := width - tui.VisibleWidth(left) - tui.VisibleWidth(right)
-	if gap < 1 {
-		gap = 1
-	}
-	line2 := left + strings.Repeat(" ", gap) + right
-
-	// The permission mode closes the first line when it is not the asking
-	// one: bypass in the warning colour, so a session that approves
-	// everything never looks like one that asks. The goal note comes before
-	// it, coloured by its status.
-	first := th.Fg(roleDim, tui.TruncateToWidth(line1, width, "..."))
+	// The permission mode closes the side when it is not the asking one:
+	// bypass in the warning colour, so a session that approves everything
+	// never looks like one that asks. The goal note comes before it,
+	// coloured by its status.
+	first := th.Fg(roleDim, tui.TruncateToWidth(line1, avail, "..."))
 	if suffix := tui.VisibleWidth(goal) + tui.VisibleWidth(perm); suffix > 0 {
-		if room := width - suffix; room >= 8 || (room >= 0 && tui.VisibleWidth(line1) <= room) {
+		if room := avail - suffix; room >= 8 || (room >= 0 && tui.VisibleWidth(line1) <= room) {
 			colored := ""
 			if goal != "" {
 				colored += th.Fg(goalRole, goal)
@@ -365,17 +439,39 @@ func (f *footer) Render(width int) []string {
 			first = th.Fg(roleDim, tui.TruncateToWidth(line1, room, "...")) + colored
 		}
 	}
-	lines := []string{
-		first,
-		th.Fg(roleDim, tui.TruncateToWidth(line2, width, "")),
+	return first
+}
+
+// secondLine is the token counters and the context the window holds on the
+// left and, while the active model's provider reports usage, the account's
+// plan and quota on the right, under the model; on a narrow line the usage
+// drops its segments first (renderUsageLine).
+func (f *footer) secondLine(width int) string {
+	th := f.theme
+	left := ""
+	if f.tokensIn > 0 || f.tokensOut > 0 {
+		left = "↑" + tui.FormatTokenCount(f.tokensIn) + " ↓" + tui.FormatTokenCount(f.tokensOut) + " "
 	}
-	if ov := f.overridesText(); ov != "" {
-		lines = append(lines, th.Fg(roleAccent, tui.TruncateToWidth(ov, width, "...")))
+	if f.ctxMax > 0 {
+		left += fmt.Sprintf("%.1f%%/%s", f.ctxPercent, tui.FormatTokenCount(f.ctxMax))
 	}
-	if usage := f.usageLine(width); usage != "" {
-		lines = append(lines, usage)
+	left = strings.TrimRight(left, " ")
+	avail := width
+	if left != "" {
+		avail = width - tui.VisibleWidth(left) - footerGap
 	}
-	return lines
+	usage := f.usageLine(avail)
+	if usage == "" {
+		return th.Fg(roleDim, tui.TruncateToWidth(left, width, ""))
+	}
+	gap := width - tui.VisibleWidth(left) - tui.VisibleWidth(usage)
+	if gap < 1 && left != "" {
+		gap = 1
+	}
+	if gap < 0 {
+		gap = 0
+	}
+	return th.Fg(roleDim, left) + strings.Repeat(" ", gap) + usage
 }
 
 // gitBranchTimeout bounds the git call behind the footer's branch label. The

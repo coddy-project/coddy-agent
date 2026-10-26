@@ -1,4 +1,4 @@
-.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version print-revision hooks deb rpm brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check docs docs-check docs-stamp docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
+.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version print-revision hooks deb rpm brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check models-catalog models-catalog-check docs docs-check docs-stamp docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -31,12 +31,12 @@ VERSION := $(shell \
 	elif desc=$$(git describe --tags --dirty 2>/dev/null); then echo $$desc; \
 	elif desc=$$(git describe --tags --always --dirty 2>/dev/null); then echo $$desc; \
 	else echo dev; fi)
-# The commit HEAD points at, passed to the binary the way the version is: the Go
-# toolchain stamps its own vcs.revision from the nearest .git *directory*, so a
-# worktree (whose .git is a file) nested in another checkout would report the
-# enclosing checkout's commit. Empty outside git and before the first commit
-# (--verify: a bare rev-parse prints the word HEAD there); the binary then keeps
-# vcs.revision.
+# The commit HEAD points at, passed to the binary the way the version is: Go 1.26
+# and earlier stamp their own vcs.revision from the nearest .git *directory*, so
+# with such a toolchain a worktree (whose .git is a file) nested in another
+# checkout would report the enclosing checkout's commit. Empty outside git and
+# before the first commit (--verify: a bare rev-parse prints the word HEAD
+# there); the binary then keeps vcs.revision.
 REVISION := $(shell git rev-parse --verify -q HEAD 2>/dev/null)
 LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(VERSION) -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=$(REVISION)
 
@@ -218,6 +218,19 @@ site-schema:
 
 site-schema-check:
 	CHECK=1 scripts/sync-site-schema.sh
+
+# The models catalog the settings screen fills a model's window, max_tokens
+# and multimodal from: internal/llm/models/models.json, one line per model id of Coddy's
+# providers (OpenAI, Anthropic, OpenCode), built from models.dev and embedded
+# into the binary, so neither a build nor a running Coddy asks models.dev
+# anything. models-catalog downloads the catalog and rewrites the file only
+# when a model's numbers moved, naming the models; models-catalog-check only
+# reports it (exit 1 when the file is behind).
+models-catalog:
+	go run ./cmd/modelsgen
+
+models-catalog-check:
+	go run ./cmd/modelsgen -check
 
 # Documentation. docs/README.md (the hub), docs/llms.txt, docs/llms-full.txt, the
 # field tables of docs/reference/config.md, the help screens of docs/reference/cli.md

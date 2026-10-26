@@ -541,3 +541,20 @@ func TestGoalCommandsFromHereAreAnsweredOnce(t *testing.T) {
 		t.Fatalf("a change made elsewhere was not printed:\n%s", text)
 	}
 }
+
+// A pause or a clear the parser already refuses makes no change, so it
+// expects no answer: the next pause notice, the supervisor's own, is printed.
+func TestARefusedGoalCommandExpectsNoAnswer(t *testing.T) {
+	g := newGoalStand(t)
+	for _, text := range []string{"/goal pause --model mini", "/goal --model mini pause", "/goal clear -m"} {
+		g.app.expectGoalEcho(text)
+	}
+	g.app.applyGoalUpdate(acp.SessionGoalUpdate{SessionUpdate: acp.UpdateTypeSessionGoal, Version: 911, Notice: "Goal paused: usage limit reached"})
+	g.app.applyGoalUpdate(acp.SessionGoalUpdate{SessionUpdate: acp.UpdateTypeSessionGoal, Version: 912, Notice: "Goal cleared: from the browser"})
+	text := transcriptText(g.app)
+	for _, want := range []string{"Goal paused: usage limit reached", "Goal cleared: from the browser"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("%q was swallowed:\n%s", want, text)
+		}
+	}
+}

@@ -514,7 +514,8 @@ func TestDeleteSessionTreeCancelsAnActiveParentTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case <-turnDone:
+	case err := <-turnDone:
+		t.Logf("the cancelled turn returned %v", err)
 	case <-time.After(10 * time.Second):
 		t.Fatal("the cancelled turn did not return")
 	}

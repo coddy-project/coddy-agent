@@ -178,6 +178,19 @@ func (h *chainHarness) startCount() int {
 	return len(h.starts)
 }
 
+// startsOf counts the chain starts of one session, retries included.
+func (h *chainHarness) startsOf(id string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := 0
+	for _, s := range h.starts {
+		if s == id {
+			n++
+		}
+	}
+	return n
+}
+
 // notices are the notice rows of a session's transcript.
 func notices(st *session.State) []string {
 	var out []string

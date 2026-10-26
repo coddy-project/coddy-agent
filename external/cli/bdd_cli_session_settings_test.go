@@ -14,10 +14,14 @@ import (
 
 // footerPermission is the permission mode the footer names: the segment after
 // the folder, empty while the session asks (the footer names only a mode that
-// asks less).
+// asks less). The model closes the same line on the right, after a gap of two
+// spaces or more, and is cut off first.
 func (s *cliTUIState) footerPermission() string {
 	for _, line := range strings.Split(s.screenText(), "\n") {
 		line = strings.TrimSpace(line)
+		if i := strings.Index(line, "  "); i >= 0 {
+			line = line[:i]
+		}
 		folder, mode := line, ""
 		if i := strings.LastIndex(line, " • "); i >= 0 {
 			folder, mode = strings.TrimSpace(line[:i]), strings.TrimSpace(line[i+len(" • "):])
@@ -42,7 +46,7 @@ func footerNamesFolder(folder, cwd string) bool {
 }
 
 func (s *cliTUIState) waitFooterPermission(want string) error {
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(within(3 * time.Second))
 	// The footer spells a mode for people ("accept edits"); a step names it
 	// the way the command takes it ("accept_edits").
 	want = strings.ReplaceAll(want, "_", " ")
@@ -75,7 +79,7 @@ func (s *cliTUIState) operatorArmsModel(model string, turns int) error {
 // footerShowsNoOverrides waits for the line of turn overrides to leave the
 // frame.
 func (s *cliTUIState) footerShowsNoOverrides() error {
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(within(3 * time.Second))
 	for {
 		frame := s.screenText()
 		if !strings.Contains(frame, "turns: ") && !strings.Contains(frame, "turn: ") {
@@ -98,7 +102,7 @@ func (s *cliTUIState) operatorResumesSessionBefore() error {
 	if err := s.onLoop(2*time.Second, func() { s.app.resumeInto(id) }); err != nil {
 		return err
 	}
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(within(3 * time.Second))
 	for {
 		var now string
 		if err := s.onLoop(2*time.Second, func() { now = s.app.sessionID }); err != nil {

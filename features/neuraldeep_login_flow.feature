@@ -42,3 +42,17 @@ Feature: Terminal sign-in to NeuralDeep works on a machine with no browser
     When I run the terminal sign-in to NeuralDeep
     Then the stored key is the one the device flow issued
     And every call the sign-in made to the hub went through that proxy
+
+  @cli
+  Scenario: The terminal sign-in moves agent.model off a provider that cannot answer
+    install.sh writes config.yaml from the example, whose agent.model runs on an
+    openai row reading an unset OPENAI_API_KEY. After the sign-in a new session
+    would still start there, so the sign-in moves agent.model to NeuralDeep and
+    says so.
+
+    Given a stand-in NeuralDeep hub that serves both sign-in flows
+    And config.yaml is the example config with OPENAI_API_KEY unset
+    And this machine has no local browser
+    When I run the terminal sign-in to NeuralDeep
+    Then the sign-in says agent.model moved to "neuraldeep/qwen3.6-35b-a3b"
+    And config.yaml names "neuraldeep/qwen3.6-35b-a3b" as agent.model

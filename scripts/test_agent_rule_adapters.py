@@ -4,6 +4,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -14,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CODEX = ROOT / ".codex/hooks/attach_rules.py"
 ZCODE = ROOT / ".zcode/hooks/attach_rules.py"
+KIMI_CODE = ROOT / ".kimi-code/hooks/attach_rules.py"
 
 
 def load_module(name: str, path: Path):
@@ -126,7 +128,7 @@ def run_pretool(module, rules_dir: Path, state_dir: Path, tool_input: dict) -> s
     )
 
 
-def run_concurrent_deliveries(source: Path, host_dir: str) -> list[str]:
+def run_concurrent_deliveries(source: Path, host_dir: str, tool_input: dict | None = None) -> list[str]:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         script = root / host_dir / "hooks" / "attach_rules.py"
@@ -139,7 +141,7 @@ def run_concurrent_deliveries(source: Path, host_dir: str) -> list[str]:
             {
                 "hook_event_name": "PreToolUse",
                 "session_id": "shared-session",
-                "tool_input": {"file_path": "internal/llm/openai.go"},
+                "tool_input": tool_input or {"file_path": "internal/llm/openai.go"},
             }
         )
         processes = [
@@ -172,6 +174,70 @@ def run_concurrent_deliveries(source: Path, host_dir: str) -> list[str]:
         if errors:
             raise AssertionError("\n".join(errors))
         return outputs
+
+
+# Kimi Code CLI 2.3.2 reads a hook's answer in runHook.ts: from a JSON stdout it
+# takes `message` (what UserPromptSubmit appends to the prompt) and, for
+# PreToolUse, `permissionDecision: deny` with `permissionDecisionReason` (what
+# the refused tool call returns to the model). Nothing else it prints reaches
+# the model, so the helpers read exactly those fields.
+KIMI_EDIT = {"path": "internal/llm/openai.go", "old_string": "a", "new_string": "b"}
+
+
+def run_kimi(module, rules_dir: Path, state_dir: Path, payload: dict) -> dict | None:
+    module.RULES_DIR = rules_dir
+    module.STATE_DIR = state_dir
+    payload.setdefault("session_id", "kimi-case")
+    payload.setdefault("cwd", str(ROOT))
+    old_stdin = sys.stdin
+    output = io.StringIO()
+    try:
+        sys.stdin = io.StringIO(json.dumps(payload))
+        with contextlib.redirect_stdout(output):
+            assert module.main() == 0
+    finally:
+        sys.stdin = old_stdin
+    raw = output.getvalue()
+    return json.loads(raw) if raw else None
+
+
+def kimi_prompt(module, rules_dir: Path, state_dir: Path, **payload) -> str | None:
+    """The text Kimi Code appends to the user's prompt, or None."""
+    output = run_kimi(
+        module,
+        rules_dir,
+        state_dir,
+        {"hook_event_name": "UserPromptSubmit", "prompt": "next task", **payload},
+    )
+    return None if output is None else output["message"]
+
+
+def kimi_edit(module, rules_dir: Path, state_dir: Path, tool_input: dict, **payload) -> str | None:
+    """The refusal Kimi Code returns to the model, or None when the edit runs."""
+    output = run_kimi(
+        module,
+        rules_dir,
+        state_dir,
+        {"hook_event_name": "PreToolUse", "tool_name": "Edit", "tool_input": tool_input, **payload},
+    )
+    if output is None:
+        return None
+    decision = output["hookSpecificOutput"]
+    assert decision["permissionDecision"] == "deny", decision
+    return decision["permissionDecisionReason"]
+
+
+def large_rule(directory: Path, name: str, marker: str) -> Path:
+    path = directory / f"{name}.mdc"
+    path.write_text(
+        "---\n"
+        f"description: {name}\n"
+        "globs: internal/llm/**/*.go\n"
+        "alwaysApply: false\n"
+        "---\n\n" + marker + "\n" + ("x" * 79 + "\n") * 375,
+        encoding="utf-8",
+    )
+    return path
 
 
 class AdapterContractTest(unittest.TestCase):
@@ -500,7 +566,7 @@ class AdapterContractTest(unittest.TestCase):
             self.assertEqual(["always.mdc"], delivered)
 
     def test_adapters_do_not_claim_vendor_policy_ownership(self):
-        for path in (CODEX, ZCODE):
+        for path in (CODEX, ZCODE, KIMI_CODE):
             self.assertNotIn("single source of truth", path.read_text())
 
     def test_no_codex_manual_index(self):
@@ -522,6 +588,201 @@ class AdapterContractTest(unittest.TestCase):
         for name in sorted(cursor):
             with self.subTest(rule=name):
                 self.assertEqual(body(cursor[name]), body(claude[name]))
+
+
+class KimiCodeAdapterTest(unittest.TestCase):
+    def setUp(self):
+        self.kimi = load_module(f"kimi_{self._testMethodName}", KIMI_CODE)
+        self.tmp = tempfile.TemporaryDirectory(dir=ROOT)
+        self.root = Path(self.tmp.name)
+        self.rules_dir = self.root / "rules"
+        self.rules_dir.mkdir()
+        self.state_dir = self.root / "state"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def prompt(self, **payload) -> str | None:
+        return kimi_prompt(self.kimi, self.rules_dir, self.state_dir, **payload)
+
+    def edit(self, tool_input: dict | None = None, **payload) -> str | None:
+        return kimi_edit(self.kimi, self.rules_dir, self.state_dir, tool_input or dict(KIMI_EDIT), **payload)
+
+    def event(self, name: str, **payload) -> dict | None:
+        return run_kimi(self.kimi, self.rules_dir, self.state_dir, {"hook_event_name": name, **payload})
+
+    def test_parses_rules_like_the_zcode_adapter(self):
+        zcode = load_module("zcode_kimi_parity", ZCODE)
+        for rule in (list_rule(self.rules_dir), flow_rule(self.rules_dir)):
+            self.assertEqual(zcode.parse_rule(rule).globs, self.kimi.parse_rule(rule).globs)
+        first = self.kimi.default_state_dir(self.root / "first")
+        self.assertNotEqual(first, self.kimi.default_state_dir(self.root / "second"))
+        self.assertTrue(first.name.startswith("kimi-code-attach-rules-"))
+        inside = str(ROOT / "internal" / "llm" / "openai.go")
+        escaped = str(ROOT / ".." / "outside.go")
+        self.assertEqual(
+            ["internal/llm/openai.go"],
+            self.kimi.collect_target_paths({"path": inside, "destination": escaped}),
+        )
+
+    def test_the_first_prompt_carries_the_always_on_rules_once(self):
+        always_rule(self.rules_dir)
+        list_rule(self.rules_dir)
+        # Kimi Code discards whatever a SessionStart hook prints.
+        self.assertIsNone(self.event("SessionStart", source="startup"))
+        message = self.prompt()
+        self.assertIn("Always follow the repository workflow.", message)
+        self.assertIn("The Kimi Code project hook attached them", message)
+        self.assertNotIn("Every provider request", message)
+        self.assertIsNone(self.prompt())
+
+    def test_the_first_edit_is_refused_once_with_the_scoped_rules(self):
+        list_rule(self.rules_dir)
+        reason = self.edit()
+        self.assertIn("Every provider request follows its proxy.", reason)
+        self.assertIn("internal/llm/openai.go", reason)
+        self.assertIn("repeat the same call", reason)
+        self.assertIsNone(self.edit())
+        self.assertIsNone(self.edit({"path": "README.md", "content": "notes"}))
+
+    def test_a_compaction_delivers_the_rules_again(self):
+        always_rule(self.rules_dir)
+        list_rule(self.rules_dir)
+        self.assertIsNotNone(self.prompt())
+        self.assertIsNotNone(self.edit())
+        self.assertIsNone(self.event("SessionStart", source="resume"))
+        self.assertIsNone(self.prompt())
+        self.assertIsNone(self.edit())
+        self.assertIsNone(self.event("PostCompact", trigger="auto"))
+        self.assertIn("Always follow the repository workflow.", self.prompt())
+        self.assertIn("Every provider request follows its proxy.", self.edit())
+
+    def test_relative_paths_resolve_from_the_session_folder(self):
+        list_rule(self.rules_dir)
+        reason = self.edit({"path": "llm/openai.go"}, cwd=str(ROOT / "internal"))
+        self.assertIn("Every provider request follows its proxy.", reason)
+        self.assertIn("internal/llm/openai.go", reason)
+
+    def test_an_edit_is_never_refused_when_the_refusal_cannot_be_recorded(self):
+        always_rule(self.rules_dir)
+        list_rule(self.rules_dir)
+        self.kimi.save_sent = lambda _session_id, _sent: False
+        self.assertIsNone(self.edit())
+
+        @contextlib.contextmanager
+        def broken_lock(_session_id):
+            raise OSError("state directory unavailable")
+            yield
+
+        lock_failure = load_module("kimi_lock_failure", KIMI_CODE)
+        lock_failure.session_lock = broken_lock
+        self.assertIsNone(kimi_edit(lock_failure, self.rules_dir, self.state_dir, dict(KIMI_EDIT)))
+        # A prompt only appends text, so it still carries the rules.
+        self.assertIn(
+            "Always follow the repository workflow.",
+            kimi_prompt(lock_failure, self.rules_dir, self.state_dir),
+        )
+
+    def test_a_failed_refusal_leaves_the_rules_unclaimed(self):
+        list_rule(self.rules_dir)
+
+        def broken_emit(_output):
+            raise BrokenPipeError("host closed stdout")
+
+        original_emit = self.kimi.emit
+        self.kimi.emit = broken_emit
+        with self.assertRaises(BrokenPipeError):
+            self.edit()
+        self.kimi.emit = original_emit
+        self.assertIn("Every provider request follows its proxy.", self.edit())
+
+    def test_large_rule_sets_arrive_over_several_refusals(self):
+        large_rule(self.rules_dir, "first-large", "FIRST LARGE RULE")
+        large_rule(self.rules_dir, "second-large", "SECOND LARGE RULE")
+        first = self.edit()
+        second = self.edit()
+        # Kimi Code moves a tool result over 50,000 characters into a file.
+        for reason in (first, second):
+            self.assertLessEqual(len(reason), 50_000)
+        self.assertIn("FIRST LARGE RULE", first)
+        self.assertNotIn("SECOND LARGE RULE", first)
+        self.assertIn("More rules for these files", first)
+        self.assertIn("SECOND LARGE RULE", second)
+        self.assertIsNone(self.edit())
+
+    def test_concurrent_edits_are_refused_once(self):
+        outputs = run_concurrent_deliveries(KIMI_CODE, ".kimi-code", dict(KIMI_EDIT))
+        self.assertEqual(1, len(outputs))
+        decision = json.loads(outputs[0])["hookSpecificOutput"]
+        self.assertEqual("deny", decision["permissionDecision"])
+        self.assertIn("Every provider request follows its proxy.", decision["permissionDecisionReason"])
+
+
+class KimiCodeFragmentTest(unittest.TestCase):
+    FRAGMENT = ROOT / ".kimi-code" / "hooks.toml"
+    COMMAND = 'python3 "$(git rev-parse --show-toplevel)/.kimi-code/hooks/attach_rules.py" || exit 0'
+
+    def hooks(self) -> list[dict]:
+        try:
+            import tomllib
+        except ImportError:
+            self.skipTest("tomllib needs Python 3.11")
+        return tomllib.loads(self.FRAGMENT.read_text(encoding="utf-8"))["hooks"]
+
+    def test_declares_the_events_kimi_code_reads(self):
+        hooks = self.hooks()
+        for hook in hooks:
+            # Kimi Code refuses a config whose [[hooks]] entry has other keys.
+            self.assertLessEqual(set(hook), {"event", "matcher", "command", "timeout"})
+        self.assertEqual(
+            ["PostCompact", "PreToolUse", "UserPromptSubmit"],
+            sorted(hook["event"] for hook in hooks),
+        )
+        matcher = next(hook["matcher"] for hook in hooks if hook["event"] == "PreToolUse")
+        for tool in ("Edit", "Write"):
+            self.assertRegex(tool, matcher)
+        for tool in ("Bash", "Read", "MultiEdit"):
+            self.assertNotRegex(tool, matcher)
+
+    def test_commands_run_the_script_of_the_session_repository(self):
+        for hook in self.hooks():
+            self.assertEqual(self.COMMAND, hook["command"])
+
+    @unittest.skipIf(os.name == "nt" or shutil.which("git") is None, "the commands are run here through sh and git")
+    def test_commands_never_block_an_edit_outside_the_repository(self):
+        payload = {
+            "hook_event_name": "PreToolUse",
+            "session_id": "fragment-case",
+            "tool_name": "Edit",
+            "tool_input": dict(KIMI_EDIT),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ, KIMI_CODE_RULES_STATE_DIR=str(Path(tmp) / "state"))
+
+            def run(cwd: Path) -> subprocess.CompletedProcess:
+                return subprocess.run(
+                    ["sh", "-c", self.COMMAND],
+                    cwd=cwd,
+                    input=json.dumps({**payload, "cwd": str(cwd)}),
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    timeout=30,
+                )
+
+            # Outside a repository, or in one without the script, Python exits
+            # 2, which Kimi Code reads as a refusal.
+            plain = Path(tmp) / "plain"
+            plain.mkdir()
+            other = Path(tmp) / "other-repository"
+            other.mkdir()
+            subprocess.run(["git", "init", "-q", str(other)], check=True)
+            for cwd in (plain, other):
+                result = run(cwd)
+                self.assertEqual((0, ""), (result.returncode, result.stdout), result.stderr)
+            inside = run(ROOT)
+            self.assertEqual(0, inside.returncode, inside.stderr)
+            self.assertEqual("deny", json.loads(inside.stdout)["hookSpecificOutput"]["permissionDecision"])
 
 
 if __name__ == "__main__":

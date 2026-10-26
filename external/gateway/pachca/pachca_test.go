@@ -445,10 +445,10 @@ func TestBot_AStartAfterAStopAnswersAgain(t *testing.T) {
 	e.dm(t, 1, "first")
 	waitFor(t, func() bool { return e.runner.promptCount() == 1 }, "the first turn")
 	cancel()
-	<-done
+	t.Logf("the first run stopped with %v", <-done)
 	// The hub starts the same Bot again after an error.
 	cancel, done = run()
-	defer func() { cancel(); <-done }()
+	defer func() { cancel(); t.Logf("the second run stopped with %v", <-done) }()
 	e.dm(t, 1, "second")
 	waitFor(t, func() bool { return e.runner.promptCount() == 2 }, "a turn after the restart")
 }
@@ -618,7 +618,8 @@ func TestBot_AStopFinishesTheQueuedMessages(t *testing.T) {
 	gate <- struct{}{}
 	gate <- struct{}{}
 	select {
-	case <-done:
+	case err := <-done:
+		t.Logf("Start returned %v", err)
 	case <-time.After(10 * time.Second):
 		t.Fatal("Start did not return")
 	}

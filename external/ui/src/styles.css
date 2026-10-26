@@ -36,6 +36,8 @@
   --coddy-canvas-glow-indigo: rgba(99, 102, 241, 0.1);
   --coddy-canvas-gradient-top: #0f0f10;
   --coddy-canvas-gradient-bottom: #0b0b0c;
+  /* 64 px of triangular noise: white or black pixels at alpha 0 to 3/255. */
+  --coddy-grain: url("data:image/png;base64,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");
   /* Shared frosted panels (composer, History drawer, skills slash picker) */
   /* Tint stays fairly transparent so backdrop blur reads as frosted glass, not a solid bar */
   --coddy-glass-panel-bg: rgba(14, 14, 18, 0.62);
@@ -142,6 +144,7 @@
   --coddy-canvas-glow-indigo: rgba(99, 102, 241, 0.05);
   --coddy-canvas-gradient-top: #ffffff;
   --coddy-canvas-gradient-bottom: #f4f4f5;
+  --coddy-grain: none;
   --coddy-glass-panel-bg: rgba(255, 255, 255, 0.9);
   --coddy-glass-panel-backdrop: blur(52px) saturate(160%);
   --coddy-glass-panel-border: rgba(0, 0, 0, 0.08);
@@ -716,9 +719,12 @@ body,
   min-height: 100%;
 }
 
+/* The grain masks the rings the browser's ordered dither draws in the glows
+   on a high-contrast screen (issue #622). */
 html {
   color-scheme: dark;
   background:
+    var(--coddy-grain),
     radial-gradient(
       1200px 600px at 30% 10%,
       var(--coddy-canvas-glow-purple),
@@ -740,6 +746,11 @@ html {
 
 html[data-theme="light"] {
   color-scheme: light;
+}
+
+/* The glass panels blur the grain away and leave one-level steps. */
+html :is(.chat-header, .rail-pill, .composer-card) {
+  background-image: var(--coddy-grain);
 }
 
 body {
@@ -3293,6 +3304,8 @@ a.rail-brand {
 }
 
 .msg-user-stack {
+  --user-foot-height: 28px;
+  --user-foot-gap: 6px;
   align-self: flex-end;
   max-width: min(680px, 86%);
   width: fit-content;
@@ -3300,6 +3313,10 @@ a.rail-brand {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+}
+
+.msg-user-stack--followup {
+  padding-top: calc(var(--user-foot-height) + var(--user-foot-gap));
 }
 
 .msg-user-files {
@@ -3388,8 +3405,8 @@ a.rail-brand {
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
-  margin-top: 6px;
-  min-height: 28px;
+  margin-top: var(--user-foot-gap);
+  min-height: var(--user-foot-height);
   width: 100%;
   align-self: stretch;
   /* Mirror of the inset under assistant and system rows: the copy control and
@@ -3432,12 +3449,33 @@ a.rail-brand {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 10px 14px;
+  /* By default, two row gaps above it - the column's and this padding - and
+     the same two between it and the composer (chat/composerReserve.ts). */
+  padding: var(--coddy-transcript-row-gap, 10px) 14px 0;
   /* Blockified as a flex item of the column .msg-assistant-stack; without this its
      min-content width follows the unbreakable phrase in the status label and pushes
      the row past .messages-inner. */
   min-width: 0;
   max-width: 100%;
+}
+
+/* Without a checklist, reduce the working line's top gap by 4px.
+   Keep its bottom padding at zero, as it is under a checklist. */
+.messages-inner:not(:has(> .message-row-todo))
+  > .msg-assistant-stack:not(.typing-dots-slot)
+  > .typing-dots {
+  padding-top: calc(var(--coddy-transcript-row-gap, 10px) - 4px);
+}
+
+/* Between turns the live line's room stays, transparent and still: the line
+   coming and going moved the transcript over it as each step ended. */
+.typing-dots-slot {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.typing-dots-slot .typing-dots-dot {
+  animation: none;
 }
 
 .typing-dots-dot {
@@ -3605,27 +3643,6 @@ a.rail-brand {
   .typing-dots-turn-item:last-child::after {
     content: none;
   }
-}
-
-.msg-assistant-foot {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 6px;
-  margin-top: 8px;
-  min-height: 28px;
-  box-sizing: border-box;
-}
-
-/* Whole control sits on the same inset as prose; small nudge fixes subpixel vs icon box */
-.msg-assistant-time {
-  font-size: 12px;
-  line-height: 1.3;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
-  user-select: none;
-  white-space: nowrap;
-  cursor: help;
 }
 
 .msg-copy-icon-btn {
@@ -4298,11 +4315,9 @@ a.rail-brand {
   margin: 12px 0 16px;
 }
 
-/* The 16px are for the paragraph after the cards. The answer's foot keeps its
-   own margin, and both together stood it twice as far from the cards as from
-   a paragraph. */
-.inline-artifacts:last-child,
-.inline-artifacts:has(+ .msg-assistant-foot) {
+/* The 16px are for the paragraph after the cards; cards that end the answer
+   keep none. */
+.inline-artifacts:last-child {
   margin-bottom: 0;
 }
 
@@ -6646,9 +6661,8 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 
 /* A finger needs a target of its own: on a phone and on any touch screen the
    picks and the worktree checkbox are 36px tall (they have no ground at rest,
-   so only the plate grows around them), and git's count and the way back from
-   a worktree keep their slim framed look with an invisible hit area 40px tall
-   laid over each. */
+   so only the plate grows around them), and git's count keeps its slim framed
+   look with an invisible hit area 40px tall laid over it. */
 @media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {
   .workspace-bar {
     font-size: 13px;
@@ -6676,19 +6690,8 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
     height: 16px;
   }
 
-  .workspace-bar-edits,
-  .workspace-bar-leave {
+  .workspace-bar-edits {
     position: relative;
-  }
-
-  .workspace-bar-leave::after {
-    content: "";
-    position: absolute;
-    left: -9px;
-    right: -9px;
-    top: 50%;
-    height: 40px;
-    transform: translateY(-50%);
   }
 
   /* The goal mark keeps its small look with a finger's 40px over it. */
@@ -6738,34 +6741,6 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 .workspace-bar-edits:focus-visible {
   border-color: color-mix(in srgb, var(--text) 34%, transparent);
   background: color-mix(in srgb, var(--text) 9%, transparent);
-  outline: none;
-}
-
-/* The way back from a linked worktree to its main checkout, right after the
-   branch it leaves: an arrow in the count's light frame, as tall as the
-   count, closer to the branch than the plate's gap. Never the accent. */
-.workspace-bar-leave {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 22px;
-  height: 17px;
-  margin-left: -6px;
-  padding: 0;
-  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
-  border-radius: 7px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
-.workspace-bar-leave:hover,
-.workspace-bar-leave:focus-visible {
-  border-color: color-mix(in srgb, var(--text) 34%, transparent);
-  background: color-mix(in srgb, var(--text) 9%, transparent);
-  color: var(--text);
   outline: none;
 }
 
@@ -8515,6 +8490,10 @@ html:not([data-theme="light"]) .context-breakdown-error {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+}
+
+.composer-goal-validation {
+  padding: 0 12px 6px;
 }
 
 .goal-form-count--over {
@@ -12979,7 +12958,8 @@ html:not([data-theme="light"]) .settings.drawer {
   overflow-wrap: anywhere;
 }
 
-.todo-tool-preview-row--pending .todo-tool-preview-mark {
+.todo-tool-preview-row--pending .todo-tool-preview-mark,
+.todo-tool-preview-mark--pending {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
@@ -13023,6 +13003,211 @@ html:not([data-theme="light"]) .settings.drawer {
   color: var(--accent);
   font-size: 11px;
   white-space: nowrap;
+}
+
+/* The todo checklist under the transcript (DESIGN.md "Todo checklist under
+   the transcript"): a quiet card at the newest end of the conversation, a head
+   that folds it, one line per item with the mark the todo tool rows use. A
+   folded row and a leaving card close by their grid row, so the height they
+   give back can move; every movement is in the motion block below. */
+.message-row-todo {
+  display: grid;
+  grid-template-rows: 1fr;
+  margin-top: 6px;
+  align-self: flex-start;
+  width: fit-content;
+  min-width: min(320px, 100%);
+  max-width: 720px;
+  box-sizing: border-box;
+}
+
+/* A phone gives the card its whole column, as it does every card. */
+@media (max-width: 599px) {
+  .message-row-todo {
+    align-self: stretch;
+    width: 100%;
+  }
+}
+
+.message-row-todo.is-leaving {
+  grid-template-rows: 0fr;
+  margin-top: calc(-1 * var(--coddy-transcript-row-gap, 10px));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.todo-checklist-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.todo-checklist {
+  padding: 4px 14px 8px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--text) 2%, transparent);
+  box-sizing: border-box;
+}
+
+.todo-checklist:has(> .todo-checklist-head[aria-expanded="false"]) {
+  padding-bottom: 6px;
+}
+
+.todo-checklist-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 6px 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.todo-checklist-head:hover {
+  color: var(--text);
+}
+
+.todo-checklist-head:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+
+.todo-checklist-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.todo-checklist-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.todo-checklist-row {
+  display: grid;
+  grid-template-rows: 1fr;
+  min-width: 0;
+  padding: 4px 0;
+}
+
+.todo-checklist-row.is-folded {
+  grid-template-rows: 0fr;
+  padding-block: 0;
+  opacity: 0;
+}
+
+.todo-checklist-row-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+/* An item in progress: the accent ring with a dot in it, still. A spinning
+   ring and a band running through the text drew the eye from the answer. */
+.todo-checklist .todo-tool-preview-mark--in_progress {
+  border-color: var(--accent);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent) 0 3px, transparent 3.5px);
+}
+
+.todo-checklist-glyph {
+  display: inline-block;
+}
+
+.todo-checklist-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.todo-checklist-row--completed .todo-checklist-content,
+.todo-checklist-row--cancelled .todo-checklist-content {
+  color: color-mix(in srgb, var(--text) 57%, var(--coddy-blend-base));
+}
+
+/* The motion of the list, drawn only for a reader who did not ask for less:
+   the card comes in and leaves by its height, a folded row closes the same
+   way, a status changes its mark in place and pops the new glyph in, and the
+   item in progress spins and shimmers while a turn runs. With reduced motion
+   every state is there at once and the item in progress keeps the still
+   half-filled mark of the todo rows. */
+@media (prefers-reduced-motion: no-preference) {
+  .messages-inner > .msg-assistant-stack:not(.typing-dots-slot) > .typing-dots {
+    transition: padding-top 0.24s ease;
+  }
+
+  .todo-checklist {
+    transition: padding-bottom 0.22s ease;
+  }
+
+  .message-row-todo {
+    animation: todo-checklist-in 0.22s ease-out backwards;
+    transition:
+      grid-template-rows 0.24s ease,
+      margin-top 0.24s ease,
+      opacity 0.2s ease;
+  }
+
+  .todo-checklist-row {
+    animation: todo-checklist-row-in 0.22s ease-out backwards;
+    transition:
+      grid-template-rows 0.22s ease,
+      padding 0.22s ease,
+      opacity 0.18s ease;
+  }
+
+  .todo-checklist .todo-tool-preview-mark {
+    transition:
+      background-color 0.25s ease,
+      border-color 0.25s ease,
+      border-radius 0.25s ease,
+      color 0.25s ease;
+  }
+
+  .todo-checklist-glyph {
+    animation: todo-checklist-glyph-in 0.24s cubic-bezier(0.2, 0.8, 0.3, 1.4)
+      both;
+  }
+
+  .todo-checklist-content {
+    transition: color 0.25s ease;
+  }
+}
+
+@keyframes todo-checklist-in {
+  from {
+    grid-template-rows: 0fr;
+    margin-top: calc(-1 * var(--coddy-transcript-row-gap, 10px));
+    opacity: 0;
+  }
+}
+
+@keyframes todo-checklist-row-in {
+  from {
+    grid-template-rows: 0fr;
+    padding-block: 0;
+    opacity: 0;
+  }
+}
+
+@keyframes todo-checklist-glyph-in {
+  from {
+    opacity: 0;
+    transform: scale(0.3);
+  }
 }
 
 /* plan_exit makes a mode transition legible without relying on the raw tool

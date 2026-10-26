@@ -63,7 +63,7 @@ func (c hookCatalog) entry(src *hooks.Source, cwd, home string, cfgFiles []strin
 }
 
 func writeHooksError(w http.ResponseWriter, code int, msg string) {
-	http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, msg), code)
+	http.Error(w, errorJSON(msg), code)
 }
 
 // coddyHooksList answers GET /coddy/hooks: every definition file visible from

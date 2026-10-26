@@ -78,7 +78,7 @@ func LoadPersisted(sessionDir string) []Snapshot {
 			continue
 		}
 		path := filepath.Join(root, entry.Name(), metaFileName)
-		data, err := os.ReadFile(path) // #nosec G304 -- path is derived from the session bundle we own
+		data, err := os.ReadFile(path) // path is derived from the session bundle we own
 		if err != nil {
 			continue
 		}
@@ -168,7 +168,7 @@ func PersistedOutput(sessionDir, taskID string) (text string, truncated bool, ok
 		return "", false, false
 	}
 	path := filepath.Join(sessionDir, backgroundDirName, taskID, outputFileName)
-	f, err := os.Open(path) // #nosec G304 -- path is derived from the session bundle we own
+	f, err := os.Open(path) // path is derived from the session bundle we own
 	if err != nil {
 		return "", false, false
 	}

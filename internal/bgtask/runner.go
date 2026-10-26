@@ -58,7 +58,7 @@ func (r *CommandRunner) Start(spec Spec, out io.Writer) (Handle, error) {
 	}
 
 	executable, args := sh.Command(command)
-	cmd := exec.Command(executable, args...) // #nosec G204 -- the command is operator-approved shell input, same as run_command
+	cmd := exec.Command(executable, args...) // the command is operator-approved shell input, same as run_command
 	cmd.Dir = spec.CWD
 	cmd.Stdout = out
 	cmd.Stderr = out

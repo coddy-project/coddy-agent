@@ -451,6 +451,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		Created          int64    `json:"created"`
 		OwnedBy          string   `json:"owned_by"`
 		MaxContextTokens int      `json:"max_context_tokens,omitempty"`
+		ContextLength    int      `json:"context_length,omitempty"`
 		Multimodal       bool     `json:"multimodal,omitempty"`
 		ReasoningLevels  []string `json:"reasoning_levels,omitempty"`
 		ReasoningDefault string   `json:"reasoning_default,omitempty"`
@@ -472,7 +473,9 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	if cfg != nil {
 		// max_context_tokens is the window the composer ring draws against,
 		// so it is the one the session's compaction trigger measures against
-		// (session.Manager.ContextWindow). A model without the key reads its
+		// (session.Manager.ContextWindow). context_length repeats it under
+		// OpenRouter's spelling, the one OpenAI-compatible clients read,
+		// another Coddy's provider included (issue #575). A model without the key reads its
 		// provider's listing: wait a bounded moment for one never read.
 		refs := make([]string, 0, len(cfg.Models))
 		for i := range cfg.Models {
@@ -493,6 +496,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 			Created:          0,
 			OwnedBy:          ownedByCoddySession,
 			MaxContextTokens: profileWindow,
+			ContextLength:    profileWindow,
 		})
 	}
 	if cfg != nil {
@@ -506,12 +510,14 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 			if mid == "" {
 				continue
 			}
+			window := s.contextWindowFor(cfg, mid)
 			out.Data = append(out.Data, modelObj{
 				ID:               mid,
 				Object:           "model",
 				Created:          0,
 				OwnedBy:          ent.ProviderName(),
-				MaxContextTokens: s.contextWindowFor(cfg, mid),
+				MaxContextTokens: window,
+				ContextLength:    window,
 				Multimodal:       ent.Multimodal,
 				ReasoningLevels:  cfg.ReasoningChoicesFor(ent),
 				ReasoningDefault: cfg.DefaultReasoningLevelFor(ent),
@@ -647,7 +653,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	msgs, err := openAIMessagesToLLM(req.Messages)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}
 	if len(msgs) == 0 {
@@ -672,14 +678,14 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if !httpModelIsCoddyProfile(model) {
 		clientTools, err = openAIToolsToLLM(req.Tools, req.ToolChoice)
 		if err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+			http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 			return
 		}
 		// Refused here for the same reason: an option the provider cannot
 		// send as asked must not cost a session, nor reach the provider.
 		genOpts, err = directRequestOptions(s.activeCfg(), model, req)
 		if err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+			http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 			return
 		}
 		if err := directACPRefusal(s.activeCfg(), model); err != nil {
@@ -700,7 +706,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, errInvalidOriginHeader) {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, errInvalidOriginHeader.Error()), http.StatusBadRequest)
+			http.Error(w, errorJSON(errInvalidOriginHeader.Error()), http.StatusBadRequest)
 			return
 		}
 		http.Error(w, `{"error":{"message":"session unavailable"}}`, http.StatusInternalServerError)
@@ -728,7 +734,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if httpModelIsCoddyProfile(model) {
 		if err := applyProfileSettings(ctx, s.mgr, st, sessionID, model, req.Metadata); err != nil {
 			if errors.Is(err, ErrInvalidMetadataModel) || errors.Is(err, ErrUnknownMetadataModel) {
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+				http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 				return
 			}
 			http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
@@ -757,13 +763,16 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		} else {
 			dropImageParts(prefix)
 		}
-		st.ReplaceMessagesWithoutPersist(prefix)
 		prompt := []acp.ContentBlock{{Type: "text", Text: last.Content}}
 		// Every profile turn publishes to a relay, whatever shape the caller asked its own
 		// answer to take: a script POSTing stream:false is exactly the turn someone wants to
 		// watch from a browser. The turn lock taken above comes first - beginComposerRelay
 		// evicts any relay already registered for the session, so an unlocked second POST
 		// could cut the watchers off the first turn.
+		// The client's history replaces the stored one only under the turn lock taken above: a
+		// request refused as busy leaves the history of the running turn, and the goal ids
+		// stamped on its rows, as they were.
+		st.ReplaceMessagesFromClient(prefix)
 		profileCtx, cancelProfile := profileTurnContext(ctx, st, req.Stream)
 		defer cancelProfile()
 		rel := s.beginComposerRelay(sessionID)
@@ -863,7 +872,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	st.ReplaceMessagesWithoutPersist(prefix)
+	st.ReplaceMessagesFromClient(prefix)
 	st.AddMessage(llm.Message{
 		Role:       last.Role,
 		Content:    last.Content,
@@ -948,7 +957,7 @@ func (s *Server) acquireComposerTurnLock(w http.ResponseWriter, sessionID string
 		return nil, false
 	}
 	s.log.Error("session turn lock", "error", err)
-	http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+	http.Error(w, errorJSON(err.Error()), http.StatusInternalServerError)
 	return nil, false
 }
 
@@ -1295,7 +1304,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, errInvalidOriginHeader) {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, errInvalidOriginHeader.Error()), http.StatusBadRequest)
+			http.Error(w, errorJSON(errInvalidOriginHeader.Error()), http.StatusBadRequest)
 			return
 		}
 		http.Error(w, `{"error":{"message":"session unavailable"}}`, http.StatusInternalServerError)
@@ -1318,7 +1327,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	if httpModelIsCoddyProfile(model) {
 		if err := applyProfileSettings(ctx, s.mgr, st, sid, model, body.Metadata); err != nil {
 			if errors.Is(err, ErrInvalidMetadataModel) || errors.Is(err, ErrUnknownMetadataModel) {
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+				http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 				return
 			}
 			http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
@@ -1369,9 +1378,9 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			}
 			if body.Stream {
 				writeSSEHeaders(w)
-				_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
+				_, _ = io.WriteString(w, "data: "+errorJSON(err.Error())+"\n\n")
 			} else {
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), code)
+				http.Error(w, errorJSON(err.Error()), code)
 			}
 			return
 		}

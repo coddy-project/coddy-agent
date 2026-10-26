@@ -83,6 +83,15 @@ When adding or changing behavior (including words like feature, add, implement, 
 
    `llms.txt` and `llms-full.txt` are **not kept in this repository** - a concatenation of every page conflicts in every branch that touches one - so `make site-docs` is the only thing that writes them, straight into the site checkout. `llms.txt` names pages by their path on `main`, so the site commit follows the merge of the coddy-agent change, not the other way round. Links that leave the repository - the binary, the schema, the skill, the site, posts - use the **`coddy.dev/docs/<slug>`** form, never a GitHub path.
 
+   **The models catalog.** **`internal/llm/models/models.json`** is what the settings screen fills a model's window, `max_tokens` and `multimodal` from: one line per model id of Coddy's providers (OpenAI, Anthropic, OpenCode), built from [models.dev](https://models.dev) and embedded into the binary, so neither a build nor a running Coddy asks models.dev anything. It is published nowhere. When you publish the site after a merge, also look whether its sources moved:
+
+   ```bash
+   make models-catalog-check  # exit 1 when a model's numbers or image flag moved; names the models
+   make models-catalog        # rewrite models.json; it changes only when those values do
+   ```
+
+   A refresh is a change of its own (`chore(models): refresh the models catalog`), never folded into an unrelated pull request: its diff is the list of models that moved. The publication of the documentation does not wait for it.
+
 9. **Documentation, examples, comments and bundled instructions** - a rename or a behavior
    change is not finished when `docs/` reads correctly. Nothing in the build catches the old
    spelling anywhere else: `config.yaml` is decoded non-strictly, so an `enabled:` left over
@@ -240,6 +249,13 @@ Add a light/dark theme variant only when the change modifies theme colors or tok
 
 ## Merging the pull request
 
+A pull request lands in `main` as one squash commit, **`gh pr merge <PR> --squash`**, and the
+repository allows nothing else: merge commits and rebase merges are off in its settings. A branch's
+commits are working history - an agent's fixups, review rounds, attempts it reverted - and none of
+it belongs in `main`, so nobody squashes a branch by hand or rewrites a contributor's history before
+the merge. The squash commit takes the pull request's title as its subject and its description as
+its body: both describe the final diff by then (*Pull request description and evidence* above).
+
 When the operator says the pull request can be merged and it is set to close an issue on merge (a
 closing keyword such as `Closes #N` or `Fixes #N` in the description or a commit message, or an
 issue linked to the pull request by hand), the issue gets a comment saying what came of it. GitHub
@@ -248,9 +264,9 @@ follows it has to open the pull request and work that out; issues #265 and #305 
 
 1. Before the merge, list the issues it is set to close:
    **`gh pr view <PR> --json closingIssuesReferences --jq '.closingIssuesReferences[].number'`**.
-2. Merge, and make sure the merge went through before writing about it: **`gh pr merge`** has
-   reported an error after the merge had already landed (pull request #369), so read
-   **`git log origin/main`** before retrying.
+2. Merge with **`gh pr merge <PR> --squash`**, and make sure the merge went through before
+   writing about it: **`gh pr merge`** has reported an error after the merge had already landed
+   (pull request #369), so read **`git log origin/main`** before retrying.
 3. Comment on each of those issues, one comment per issue
    (**`gh issue comment <N> --body-file <file>`**), in the language the issue is written in,
    whatever the language of the session: an English issue gets an English comment even when the

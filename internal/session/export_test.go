@@ -64,3 +64,10 @@ func (m *Manager) SetMCPStopDelayForTest(d time.Duration) { m.mcpPool.SetStopDel
 func (m *Manager) SetGoalChainRetryForTest(first, most, giveUp time.Duration) {
 	m.goalChainRetry = goalChainRetry{first: first, most: most, giveUp: giveUp}
 }
+
+// SetGoalFilesHookForTest runs fn once the risk gate has read the workspace
+// for a goal's turn, the part that runs without the state lock, and before it
+// looks at the result.
+func (m *Manager) SetGoalFilesHookForTest(fn func(sessionID string)) {
+	m.testHooks.afterGoalFiles = fn
+}

@@ -115,6 +115,14 @@ type Message struct {
 	// never takes it for the prompt being answered (session.OpeningPromptIndex).
 	// Persisted with the transcript, so the distinction survives a restart.
 	FollowUp bool `json:"follow_up,omitempty"`
+	// Goal is the id of the session goal that was active when the row was
+	// stored: the supervisor reads a goal's rows as its evidence. Neither it
+	// nor RiskAcknowledged is ever sent to a provider.
+	Goal string `json:"goal,omitempty"`
+	// RiskAcknowledged marks an assistant row of a goal whose run_command
+	// calls the supervisor's risk gate blocked the goal on and /goal resume
+	// accepted, so they do not block it again.
+	RiskAcknowledged bool `json:"risk_acknowledged,omitempty"`
 	// Ephemeral marks a message built for one request and never stored: the
 	// turn-context block the agent appends after the history. A provider
 	// that keeps the conversation on its side (acp) sends it with the prompt
@@ -395,6 +403,7 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	case "anthropic":
 		ap := newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 		ap.tempSet = p.TemperatureSet
+		ap.blocking = p.DisableStream
 		inner = ap
 	case "neuraldeep":
 		op := newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)

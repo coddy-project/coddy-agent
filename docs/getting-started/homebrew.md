@@ -59,6 +59,25 @@ and not notarised, and with the attribute in place Gatekeeper stops its first ru
 an Apple Developer ID, which the project does not have. The cask asks for macOS 12 or later, because
 binaries built by Go 1.25 and later do not run on older releases.
 
+The zsh completion lands in **`$(brew --prefix)/share/zsh/site-functions/_coddy`**. **`brew shellenv`**,
+which the Homebrew installer adds to **`~/.zprofile`**, puts that folder on zsh's **`fpath`**, but zsh
+reads a completion only once **`compinit`** runs, and the zsh macOS ships runs none. So after the
+install Tab does not complete **`coddy`** until **`~/.zshrc`** has these two lines, which the caveats
+print as well:
+
+```zsh
+fpath=(/opt/homebrew/share/zsh/site-functions $fpath)   # /usr/local on an Intel Mac
+autoload -Uz compinit && compinit
+```
+
+Oh My Zsh and the other frameworks run **`compinit`** themselves; there it is enough that
+**`brew shellenv`** runs first. If zsh warns about insecure directories, **`compaudit | xargs chmod g-w`**
+fixes their permissions, and a setup that calls **`compinit -C`** skips the check for new completions:
+remove **`~/.zcompdump*`** and open a new terminal. The install script writes the same block into
+**`~/.zshrc`** for its own folders; a cask must not touch your dotfiles, so it prints the lines instead.
+The **Homebrew tap** workflow checks that zsh registers **`_coddy`** from that folder once
+**`compinit`** runs.
+
 The cask installs Coddy alone and recommends **`tmux`** in its caveats (**`brew install tmux`**).
 A cask's **`depends_on`** has no optional form, so declaring tmux there would install it for
 everyone, and Coddy runs without it; the deb and the rpm suggest it the same way.

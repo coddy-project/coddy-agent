@@ -6,6 +6,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/subagents"
 )
 
@@ -107,11 +108,11 @@ var modePolicies = map[string]modePolicy{
 	"plan": {
 		tools:   planToolNames,
 		mcp:     true,
-		refusal: "error: tool %q is not available in Plan mode because it is outside the plan tool set; the user can switch to Agent mode to use it",
+		refusal: session.ToolResultPlanModeFormat,
 	},
 	"ask": {
 		tools:   askToolNames,
-		refusal: "error: tool %q is not available in Ask mode because it is not read-only",
+		refusal: session.ToolResultAskModeFormat,
 	},
 }
 
@@ -373,8 +374,7 @@ func (a *Agent) toolCallRefusedByToolset(name string) (string, bool) {
 	if toolsetAllows(ts, name) {
 		return "", false
 	}
-	return fmt.Sprintf("error: tool %q is not offered: this session runs with the toolset %q. Use one of the tools you were given.",
-		name, ts.Name), true
+	return fmt.Sprintf(session.ToolResultToolsetFormat, name, ts.Name), true
 }
 
 // toolCallRefused is the execution-time gate every call passes before a

@@ -4,7 +4,9 @@ Feature: The HTTP surface shows memory runs as system agent tasks
   the child session that holds its transcript, serves that transcript read-only like any
   child's, and carries nothing else about memory in the messages payload. The notes themselves
   are read from the session's two roots: the global memory.dir and the project's own
-  .coddy/memory, beside the rest of the project's Coddy files.
+  .coddy/memory, beside the rest of the project's Coddy files. The project root comes with the
+  checkout, so a link in it never leads out of it: a clone that carries a note linked to a file
+  elsewhere on the disk does not get that file served.
 
   Scenario: A memory run is an agent task row flagged as a system task
     Given a running coddy serve server with a session
@@ -28,3 +30,9 @@ Feature: The HTTP surface shows memory runs as system agent tasks
     And the session folder holds the memory note ".coddy/memory/decisions.md" saying "We ship on Fridays"
     When I GET the workspace memory note "decisions.md" of that session
     Then the memory note reads "We ship on Fridays"
+
+  Scenario: A note linked out of the workspace notes is not served
+    Given a running coddy serve server with a session
+    And the session folder holds the memory note ".coddy/memory/setup.md" as a link to a file outside it saying "OUTSIDE-SECRET"
+    When I GET the workspace memory note "setup.md" of that session
+    Then the memory note is not served

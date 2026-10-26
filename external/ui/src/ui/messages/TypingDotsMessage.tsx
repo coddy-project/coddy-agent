@@ -52,6 +52,12 @@ function TypingDotsMessageImpl(props: {
    * the count and nothing else. There is no turn left to time or to count tokens for.
    */
   tasksOnly?: boolean;
+  /**
+   * No turn runs and no task: keep an empty slot with the base line's padding
+   * and the phone's caption row. Only the active line without a checklist
+   * reduces its top padding; the idle slot keeps its existing height.
+   */
+  idle?: boolean;
 }) {
   const { t, tp } = useT();
   const tasksOnly = props.tasksOnly === true;
@@ -120,6 +126,30 @@ function TypingDotsMessageImpl(props: {
     typeof props.runningTasks === "number" && props.runningTasks > 0
       ? Math.floor(props.runningTasks)
       : 0;
+
+  if (props.idle) {
+    return (
+      <div
+        className="msg-assistant-stack typing-dots-slot"
+        data-testid="live-line-slot"
+        aria-hidden="true"
+      >
+        <div className="typing-dots">
+          <span className="typing-dots-dot" />
+          <span className="typing-dots-dot" />
+          <span className="typing-dots-dot" />
+          <span className="typing-dots-status">
+            <span className="typing-dots-turn">
+              <span className="typing-dots-turn-item">{"\u00a0"}</span>
+            </span>
+            <span className="typing-dots-status-text">
+              <span className="typing-dots-status-verb">{"\u00a0"}</span>
+            </span>
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   if (tasksOnly) {
     // Nothing is running, so there is nothing for the line to say.

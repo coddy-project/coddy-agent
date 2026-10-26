@@ -387,3 +387,49 @@ test("a card keeps its height when an open neighbour needs the room", () => {
   // first thing the flex column squeezes.
   expect(ruleBody(".bgtask-card {")).toContain("flex: none");
 });
+
+// The base padding keeps two row gaps above the live line and the composer
+// reserve keeps two below it. Only the active line without todos drops 4px
+// above it; the idle slot and the line under a checklist keep their padding.
+test("the live line keeps its base padding for the idle slot and the checklist", () => {
+  expect(ruleBody(".typing-dots {")).toMatch(
+    /padding: var\(--coddy-transcript-row-gap, 10px\) 14px 0;/,
+  );
+});
+
+test("without todos the active live line removes 4px above it and adds no room below", () => {
+  const rule = capture(
+    /\.messages-inner:not\(:has\(> \.message-row-todo\)\)\s*>\s*\.msg-assistant-stack:not\(\.typing-dots-slot\)\s*>\s*\.typing-dots\s*\{([^}]+)\}/,
+    css,
+    "the active live line needs its own spacing when no checklist is present",
+  );
+  expect(rule).toContain(
+    "padding-top: calc(var(--coddy-transcript-row-gap, 10px) - 4px);",
+  );
+  expect(rule).not.toMatch(/padding-bottom\s*:|padding\s*:/);
+});
+
+test("the active live line eases checklist spacing changes only without reduced motion", () => {
+  const motion = [
+    ...css.matchAll(
+      /@media \(prefers-reduced-motion: no-preference\) \{([\s\S]*?)\n\}/g,
+    ),
+  ]
+    .map((match) => match[1])
+    .join("\n");
+  const rule = capture(
+    /\.messages-inner\s*>\s*\.msg-assistant-stack:not\(\.typing-dots-slot\)\s*>\s*\.typing-dots\s*\{([^}]+)\}/,
+    motion,
+    "only the active line should ease its checklist spacing change",
+  );
+  expect(rule).toContain("transition: padding-top 0.24s ease;");
+  expect(ruleBody(".typing-dots {")).not.toMatch(/transition\s*:/);
+});
+
+// The empty slot the live line leaves between turns is transparent and still.
+test("the live line's slot shows nothing and does not move", () => {
+  expect(ruleBody(".typing-dots-slot {")).toMatch(/opacity: 0;/);
+  expect(ruleBody(".typing-dots-slot .typing-dots-dot {")).toMatch(
+    /animation: none;/,
+  );
+});

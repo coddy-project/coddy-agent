@@ -5,16 +5,19 @@ package httpserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
@@ -256,6 +259,135 @@ func TestNonStreamProfileTurnOnBusySessionConflicts(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "session busy: another agent turn is in progress") {
 		t.Fatalf("409 body changed: %s", body)
+	}
+}
+
+// seedGoalHistory stores what a goal's turn leaves in a session - a prompt, a
+// run_command that stopped a container with its result, the answer - each row
+// stamped with the goal's id, then pauses the goal so no supervisor follows the
+// requests the tests send. It returns the state and the goal.
+func seedGoalHistory(t *testing.T, mgr *session.Manager) (*session.State, session.GoalState) {
+	t.Helper()
+	sn, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.SessionByID(sn.SessionID)
+	goal, _ := session.NewGoal("stop the database")
+	st.SetGoal(goal)
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "stop the database"})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "c1", Name: "run_command", InputJSON: `{"command":"docker compose down"}`}}})
+	st.AddMessage(llm.Message{Role: llm.RoleTool, ToolCallID: "c1", Content: "stopped db"})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "done"})
+	st.UpdateGoal("", func(g *session.GoalState) bool { g.Status = session.GoalPaused; return true })
+	for i, m := range st.GetMessages() {
+		if m.Goal != goal.ID {
+			t.Fatalf("seed row %d is not stamped with the goal", i)
+		}
+	}
+	return st, goal
+}
+
+func describeRows(rows []llm.Message) string {
+	parts := make([]string, len(rows))
+	for i, m := range rows {
+		parts[i] = fmt.Sprintf("%s %q goal=%q acked=%v", m.Role, m.Content, m.Goal, m.RiskAcknowledged)
+	}
+	return strings.Join(parts, "; ")
+}
+
+// The history a client sends replaces the stored one, but only for a request
+// that is let in: one that finds the session busy is refused before it touches
+// anything, so it cannot drop the rows of the running turn nor the goal ids
+// stamped on them, whichever shape it asked its answer in.
+func TestChatCompletionsBusyRequestLeavesTheStoredHistoryAlone(t *testing.T) {
+	for _, stream := range []string{"false", "true"} {
+		t.Run("stream_"+stream, func(t *testing.T) {
+			mgr, srv, _ := testHTTPServerPersist(t)
+			st, _ := seedGoalHistory(t, mgr)
+			before := st.GetMessages()
+			ts := httptest.NewServer(srv.Handler())
+			defer ts.Close()
+
+			unlock, err := mgr.AcquireComposerTurnLock(st.GetID(), st)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer unlock()
+
+			req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/chat/completions", strings.NewReader(
+				`{"model":"agent","stream":`+stream+`,"messages":[{"role":"user","content":"a history of the client's own"},{"role":"assistant","content":"so it says"},{"role":"user","content":"hi"}]}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Coddy-Session-ID", st.GetID())
+			res, err := ts.Client().Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = res.Body.Close() }()
+			body, _ := io.ReadAll(res.Body)
+			if res.StatusCode != http.StatusConflict {
+				t.Fatalf("status %d, want 409: %s", res.StatusCode, body)
+			}
+			if after := st.GetMessages(); !reflect.DeepEqual(after, before) {
+				t.Fatalf("a refused request changed the stored history:\nbefore %s\nafter  %s", describeRows(before), describeRows(after))
+			}
+		})
+	}
+}
+
+// A client that sends back the history it holds - the prompt, the call with its
+// result, the answer - and one more prompt keeps the goal ids on the rows that
+// are the stored ones, whichever kind of model answers: the risk gate reads a
+// goal's docker steps off those ids. A row the client wrote carries none.
+func TestChatCompletionsReplayedHistoryKeepsTheGoalStamps(t *testing.T) {
+	const replay = `[{"role":"user","content":"stop the database"},` +
+		`{"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"run_command","arguments":"{\"command\":\"docker compose down\"}"}}]},` +
+		`{"role":"tool","tool_call_id":"c1","content":"stopped db"},` +
+		`{"role":"assistant","content":"done"},` +
+		`{"role":"user","content":"and now?"}]`
+	for _, model := range []string{"agent", "openai/gpt-4o"} {
+		t.Run(model, func(t *testing.T) {
+			mgr, srv, _ := testHTTPServerPersist(t)
+			srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) {
+				return fakeProvider{reply: "ok"}, nil
+			}
+			st, goal := seedGoalHistory(t, mgr)
+			ts := httptest.NewServer(srv.Handler())
+			defer ts.Close()
+
+			req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/chat/completions", strings.NewReader(
+				`{"model":"`+model+`","stream":false,"messages":`+replay+`}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Coddy-Session-ID", st.GetID())
+			res, err := ts.Client().Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, _ := io.ReadAll(res.Body)
+			_ = res.Body.Close()
+			if res.StatusCode != http.StatusOK {
+				t.Fatalf("status %d: %s", res.StatusCode, body)
+			}
+
+			rows := st.GetMessages()
+			if len(rows) < 5 {
+				t.Fatalf("history has %d rows: %+v", len(rows), rows)
+			}
+			for i := 0; i < 4; i++ {
+				if rows[i].Goal != goal.ID {
+					t.Errorf("replayed row %d (%s %q) lost its goal id: %q", i, rows[i].Role, rows[i].Content, rows[i].Goal)
+				}
+			}
+			if rows[4].Role != llm.RoleUser || rows[4].Goal != "" {
+				t.Errorf("the prompt of the request, row 4 = %+v, want a user row of no goal (the goal is paused)", rows[4])
+			}
+		})
 	}
 }
 

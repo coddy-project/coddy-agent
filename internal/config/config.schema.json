@@ -179,7 +179,7 @@
           },
           "max_context_tokens": {
             "type": "integer",
-            "description": "Context window of the model in tokens: what the web UI context ring, the console context percentage and the automatic compaction trigger measure against. 0 reads it from the provider's model listing when the provider reports one (the NeuralDeep hub, vLLM, OpenRouter, LM Studio), else 128000.",
+            "description": "Context window of the model in tokens: what the web UI context ring, the console context percentage and the automatic compaction trigger measure against. 0 reads it from the provider's model listing when the provider reports one (the NeuralDeep hub, Anthropic, the Codex and Devin catalogs, vLLM, OpenRouter, LM Studio), else 128000.",
             "default": 0
           },
           "multimodal": {

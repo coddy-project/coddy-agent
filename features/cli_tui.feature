@@ -289,9 +289,8 @@ Feature: Interactive console TUI
   Scenario: The footer shows the NeuralDeep session and weekly usage
     Given a coddy console app over a stub agent runner with a neuraldeep provider
     When the console app starts
-    Then the footer shows the neuraldeep usage "Pro • 3h 3% (resets"
-    And the footer shows the neuraldeep usage "week 7% (resets"
-    And the footer shows the neuraldeep usage "wallet -1 229 ₽"
+    Then the footer shows the neuraldeep usage "Pro • 3h 3% • week 7% • wallet -1 229 ₽"
+    And the footer does not show "resets"
 
   Scenario: The footer warns when the session window is nearly spent
     Given a coddy console app over a stub agent runner with a neuraldeep provider

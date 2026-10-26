@@ -3221,7 +3221,7 @@ func TestWithTurnContextDoesNotWriteIntoTheCallersSlice(t *testing.T) {
 	if len(sent) != 3 || len(base) != 2 {
 		t.Fatalf("lengths: sent=%d base=%d", len(sent), len(base))
 	}
-	grown := append(base, llm.Message{Role: llm.RoleTool, Content: "result"}) //nolint:gocritic // the point of the test
+	grown := append(base, llm.Message{Role: llm.RoleTool, Content: "result"})
 	if sent[2].Content != "<turn_context>\nclock\n</turn_context>" {
 		t.Fatalf("appending to the caller's slice overwrote the sent block: %q", sent[2].Content)
 	}
@@ -4257,9 +4257,10 @@ func TestRestrictedTurnRefusesNamedToolsAndAsksForTheRest(t *testing.T) {
 	}
 }
 
-// A confined turn reads inside the session's working directory only, calls
-// nothing outside its list (an MCP tool included), and does not ride on the
-// session's "always allow" grants.
+// A confined turn reads inside the session's workspace - the working
+// directory plus the additionalDirectories it carries - calls nothing outside
+// its list (an MCP tool included), and does not ride on the session's "always
+// allow" grants.
 func TestRestrictedTurnIsConfinedAndIgnoresGrants(t *testing.T) {
 	h := newSettingsHarness(t, "fake/a")
 	st := h.mgr.SessionByID(h.sessionID)
@@ -4271,12 +4272,25 @@ func TestRestrictedTurnIsConfinedAndIgnoresGrants(t *testing.T) {
 	if err := os.WriteFile(inside, []byte("plain note"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// An extra workspace root the editor activated: the confined turn reaches
+	// it the same as the working directory.
+	extra := filepath.Join(t.TempDir(), "extra")
+	if err := os.MkdirAll(extra, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	shared := filepath.Join(extra, "shared.txt")
+	if err := os.WriteFile(shared, []byte("shared root note"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st.SetAdditionalDirectories([]string{extra})
+	defer st.SetAdditionalDirectories(nil)
 	marker := filepath.Join(t.TempDir(), "ran")
 	cmd := "touch " + marker
 	st.AddCommandGrantIfNew(cmd)
 	h.provider("a").steps = []scriptStep{
 		toolStep(llm.ToolCall{ID: "r1", Name: "read", InputJSON: fmt.Sprintf(`{"path":%q}`, outside)}),
 		toolStep(llm.ToolCall{ID: "r2", Name: "read", InputJSON: `{"path":"note.txt"}`}),
+		toolStep(llm.ToolCall{ID: "r3", Name: "read", InputJSON: fmt.Sprintf(`{"path":%q}`, shared)}),
 		toolStep(llm.ToolCall{ID: "m1", Name: "github__create_issue", InputJSON: `{}`}),
 		toolStep(llm.ToolCall{ID: "c1", Name: "run_command", InputJSON: fmt.Sprintf(`{"command":%q}`, cmd)}),
 		answerStep("done"),
@@ -4305,6 +4319,9 @@ func TestRestrictedTurnIsConfinedAndIgnoresGrants(t *testing.T) {
 	}
 	if !strings.Contains(joined, "plain note") {
 		t.Fatalf("a confined turn could not read inside its working directory:\n%s", joined)
+	}
+	if !strings.Contains(joined, "shared root note") {
+		t.Fatalf("a confined turn could not read inside an additional directory of its session:\n%s", joined)
 	}
 	if !strings.Contains(joined, "github__create_issue: admins only") {
 		t.Fatalf("an MCP tool outside the list was not refused:\n%s", joined)

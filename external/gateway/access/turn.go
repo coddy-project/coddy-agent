@@ -12,7 +12,7 @@ import (
 
 // AdminOnlyNote is what a bot says, and what the agent is told, when somebody
 // who is not its admin asks for what only an admin may do.
-const AdminOnlyNote = "only the bot's admins can do this"
+const AdminOnlyNote = session.ToolResultTurnNoteAdminOnly
 
 // nonAdminTools are the only tools a turn of a messenger user who is not the
 // bot's admin may call: reading inside the session's working directory, the

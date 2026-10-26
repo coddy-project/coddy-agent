@@ -13,12 +13,16 @@ Feature: Truncated LLM streams surface as errors
   decoders of Codex and Anthropic report it as a JSON syntax error at the end
   of the input, and the OpenAI-compatible reader, which also dispatches a last
   frame the server closed without a blank line, meets the same error on a
-  body cut inside a data: line. In every case the text already delivered is
-  kept, no tool call of the unfinished answer runs, and the request is not
-  sent again once deltas reached the caller. A frame that carries no data is
-  not an event at all: the Codex backend sends a ": keep-alive" comment while
-  the model is silent, and the stream reads on past it to its terminal event
-  instead of reporting it as an event cut inside its JSON.
+  body cut inside a data: line. Where inside the JSON the cut lands does not
+  change that, whichever way the Go release reports it: from Go 1.27 a cut
+  inside a number, an escape sequence or a multi-byte character is the end of
+  the input at the start of that token rather than at the end of the frame
+  (issue #610). In every case the text already delivered is kept, no tool
+  call of the unfinished answer runs, and the request is not sent again once
+  deltas reached the caller. A frame that carries no data is not an event at
+  all: the Codex backend sends a ": keep-alive" comment while the model is
+  silent, and the stream reads on past it to its terminal event instead of
+  reporting it as an event cut inside its JSON.
 
   Scenario: A stream cut after text deltas fails and keeps the partial text
     Given an "openai" provider pointed at a stub server that cuts the stream after text deltas
@@ -53,6 +57,19 @@ Feature: Truncated LLM streams surface as errors
     Then the call fails with a truncation error
     And the partial response preserves text "Hello fr"
     And the stub server received 1 request
+
+  Scenario Outline: An OpenAI-compatible stream whose last frame ends inside <token> fails and keeps the partial text
+    Given an "openai" provider pointed at a stub server that cuts the last frame inside <token>
+    When a streaming completion is requested
+    Then the call fails with a truncation error
+    And the partial response preserves text "Hello fr"
+    And the stub server received 1 request
+
+    Examples:
+      | token                  |
+      | a number               |
+      | an escape sequence     |
+      | a multi-byte character |
 
   Scenario: A Codex stream that completes the response succeeds
     Given a "codex" provider pointed at a stub server that completes the response

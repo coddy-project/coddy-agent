@@ -390,14 +390,17 @@ func (f *FileStore) ensureLayoutAt(sessionID, dir string) error {
 
 // SessionMeta is persisted in session.json.
 type SessionMeta struct {
-	Version           int    `json:"version"`
-	ID                string `json:"id"`
-	CWD               string `json:"cwd"`
-	Mode              string `json:"mode"`
-	SelectedModelID   string `json:"selectedModelId,omitempty"`
-	SelectedReasoning string `json:"selectedReasoning,omitempty"`
-	SelectedToolset   string `json:"selectedToolset,omitempty"`
-	AgentMemory       string `json:"agentMemory,omitempty"`
+	Version int    `json:"version"`
+	ID      string `json:"id"`
+	CWD     string `json:"cwd"`
+	Mode    string `json:"mode"`
+	// AdditionalDirectories are the extra workspace roots the session carries
+	// on top of CWD, in the order the client sent them.
+	AdditionalDirectories []string `json:"additionalDirectories,omitempty"`
+	SelectedModelID       string   `json:"selectedModelId,omitempty"`
+	SelectedReasoning     string   `json:"selectedReasoning,omitempty"`
+	SelectedToolset       string   `json:"selectedToolset,omitempty"`
+	AgentMemory           string   `json:"agentMemory,omitempty"`
 	// HookContext is what SessionStart hooks handed to the session.
 	HookContext string     `json:"hookContext,omitempty"`
 	Goal        *GoalState `json:"goal,omitempty"`
@@ -739,6 +742,9 @@ type SessionListEntry struct {
 	CWD       string
 	Title     string
 	UpdatedAt string
+	// AdditionalDirectories are the extra workspace roots the bundle records,
+	// in their stored order. Empty when it records none.
+	AdditionalDirectories []string
 	// CreatedAt is empty for a bundle stored before the field existed.
 	CreatedAt string
 	// Model is the session's own backend override (session.json
@@ -924,27 +930,28 @@ func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter s
 		return out, true
 	}
 	row := SessionListEntry{
-		SessionID:         meta.ID,
-		CWD:               meta.CWD,
-		Title:             meta.Title,
-		UpdatedAt:         meta.UpdatedAt,
-		CreatedAt:         meta.CreatedAt,
-		Model:             meta.SelectedModelID,
-		Tags:              NormalizeTags(meta.Tags),
-		Archived:          meta.Archived,
-		ArchivedAt:        meta.ArchivedAt,
-		Origin:            meta.Origin,
-		Pinned:            meta.Pinned,
-		PinnedAt:          meta.PinnedAt,
-		PinnedRank:        meta.PinnedRank,
-		MessageCount:      messageCount,
-		SubagentRun:       meta.SubagentRun,
-		ParentSessionID:   meta.ParentSessionID,
-		SubagentName:      meta.SubagentName,
-		SubagentTaskID:    meta.SubagentTaskID,
-		bundleDir:         dir,
-		messageCountKnown: known,
-		noMessage:         noMessage,
+		SessionID:             meta.ID,
+		CWD:                   meta.CWD,
+		Title:                 meta.Title,
+		UpdatedAt:             meta.UpdatedAt,
+		AdditionalDirectories: meta.AdditionalDirectories,
+		CreatedAt:             meta.CreatedAt,
+		Model:                 meta.SelectedModelID,
+		Tags:                  NormalizeTags(meta.Tags),
+		Archived:              meta.Archived,
+		ArchivedAt:            meta.ArchivedAt,
+		Origin:                meta.Origin,
+		Pinned:                meta.Pinned,
+		PinnedAt:              meta.PinnedAt,
+		PinnedRank:            meta.PinnedRank,
+		MessageCount:          messageCount,
+		SubagentRun:           meta.SubagentRun,
+		ParentSessionID:       meta.ParentSessionID,
+		SubagentName:          meta.SubagentName,
+		SubagentTaskID:        meta.SubagentTaskID,
+		bundleDir:             dir,
+		messageCountKnown:     known,
+		noMessage:             noMessage,
 	}
 	if !SessionMatchesAnyTag(row, opts.Tags) {
 		return out, true
@@ -1237,24 +1244,25 @@ func (f *FileStore) Save(state *State) error {
 	archived, archivedAt := state.ArchiveState()
 	pinned, pinnedAt, pinnedRank := state.PinPlacement()
 	meta := SessionMeta{
-		Version:           sessionFileLayout,
-		ID:                state.ID,
-		CWD:               state.CWDForPersist(),
-		Mode:              state.GetMode(),
-		SelectedModelID:   state.GetSelectedModelID(),
-		SelectedReasoning: state.GetSelectedReasoning(),
-		SelectedToolset:   state.GetSelectedToolset(),
-		HookContext:       state.GetHookContext(),
-		AgentMemory:       state.GetAgentMemory(),
-		Title:             title,
-		TitlePinned:       strings.TrimSpace(state.GetTitlePinned()),
-		Tags:              state.GetTags(),
-		Archived:          archived,
-		ArchivedAt:        strings.TrimSpace(archivedAt),
-		Origin:            strings.TrimSpace(state.GetOrigin()),
-		Pinned:            pinned,
-		PinnedAt:          strings.TrimSpace(pinnedAt),
-		PinnedRank:        pinnedRank,
+		Version:               sessionFileLayout,
+		ID:                    state.ID,
+		CWD:                   state.CWDForPersist(),
+		Mode:                  state.GetMode(),
+		AdditionalDirectories: state.AdditionalDirectoriesForPersist(),
+		SelectedModelID:       state.GetSelectedModelID(),
+		SelectedReasoning:     state.GetSelectedReasoning(),
+		SelectedToolset:       state.GetSelectedToolset(),
+		HookContext:           state.GetHookContext(),
+		AgentMemory:           state.GetAgentMemory(),
+		Title:                 title,
+		TitlePinned:           strings.TrimSpace(state.GetTitlePinned()),
+		Tags:                  state.GetTags(),
+		Archived:              archived,
+		ArchivedAt:            strings.TrimSpace(archivedAt),
+		Origin:                strings.TrimSpace(state.GetOrigin()),
+		Pinned:                pinned,
+		PinnedAt:              strings.TrimSpace(pinnedAt),
+		PinnedRank:            pinnedRank,
 	}
 	if goal := state.GetGoal(); goal.Set() {
 		meta.Goal = &goal
@@ -1294,8 +1302,8 @@ func (f *FileStore) Save(state *State) error {
 	//
 	// Filing is the exception, and it is the same exception markActivityRead
 	// already makes: updatedAt means "when this conversation last changed" and
-	// the listing is ordered by it, so tagging a session, pinning it or putting
-	// it aside must leave it exactly where it was. Those are bookkeeping *about*
+	// the listing is ordered by it, so tagging a session, pinning it, putting
+	// it aside or restating its extra roots must leave it exactly where it was. Those are bookkeeping *about*
 	// a conversation, not a change to it - an archive that jumped the session to
 	// the top of the list would be the opposite of what archiving is for.
 	//
@@ -1309,6 +1317,9 @@ func (f *FileStore) Save(state *State) error {
 	sameMeta.Archived, sameMeta.ArchivedAt = prevMeta.Archived, prevMeta.ArchivedAt
 	sameMeta.Pinned, sameMeta.PinnedAt = prevMeta.Pinned, prevMeta.PinnedAt
 	sameMeta.PinnedRank = prevMeta.PinnedRank
+	// The extra workspace roots are the same kind of bookkeeping: an editor
+	// restating which roots a session works in has not changed what was said.
+	sameMeta.AdditionalDirectories = prevMeta.AdditionalDirectories
 	sameMeta.MessageCount = prevMeta.MessageCount
 	sameMeta.MessagesSize = prevMeta.MessagesSize
 	sameMeta.MessagesModTime = prevMeta.MessagesModTime

@@ -233,7 +233,7 @@ func loadDir(dir string, scope Scope, log *slog.Logger) []*Definition {
 			log.Warn("subagents: definition file too large, skipped", "path", path, "bytes", fi.Size())
 			continue
 		}
-		data, err := os.ReadFile(path) // #nosec G304 -- path comes from a configured definition directory
+		data, err := os.ReadFile(path) // path comes from a configured definition directory
 		if err != nil {
 			continue
 		}

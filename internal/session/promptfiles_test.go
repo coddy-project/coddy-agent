@@ -845,8 +845,10 @@ func TestDocMentionIsBoundedWithTheWayToReadTheRest(t *testing.T) {
 }
 
 // A restricted turn (a messenger user who is not the bot's admin) attaches
-// files of its working directory only: a mention of anything outside it, or
-// of the agent's home, stays plain text.
+// files of its workspace only: a mention of anything outside it, or of the
+// agent's home, stays plain text. The workspace is the working directory plus
+// the additionalDirectories the session carries, so a file under one of those
+// roots attaches too.
 func TestConfinedTurnMentionsStayInsideTheWorkspace(t *testing.T) {
 	root := t.TempDir()
 	m, sid := mentionTestManager(t, root)
@@ -858,10 +860,19 @@ func TestConfinedTurnMentionsStayInsideTheWorkspace(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(st.GetCWD(), "note.txt"), []byte("plain note"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	extra := filepath.Join(t.TempDir(), "extra")
+	if err := os.MkdirAll(extra, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(extra, "shared.txt"), []byte("shared root note"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	st.SetTurnRestriction(&session.TurnRestriction{ConfineToWorkspace: true})
 	defer st.SetTurnRestriction(nil)
-	scope := session.MentionScope{Confined: true, ConfineHome: m.Cfg().Paths.Home}
-	blocks := m.ResolvePromptMentions(context.Background(), st, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "@" + outside + " and @note.txt"}}, scope)
+	st.SetAdditionalDirectories([]string{extra})
+	defer st.SetAdditionalDirectories(nil)
+	scope := session.MentionScope{Confined: true, ConfineHome: m.Cfg().Paths.Home, WorkspaceRoots: st.GetAdditionalDirectories()}
+	blocks := m.ResolvePromptMentions(context.Background(), st, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "@" + outside + " and @note.txt and @" + filepath.Join(extra, "shared.txt")}}, scope)
 	var texts []string
 	for _, b := range blocks {
 		if b.Resource != nil {
@@ -872,8 +883,34 @@ func TestConfinedTurnMentionsStayInsideTheWorkspace(t *testing.T) {
 	if strings.Contains(joined, "top secret") || !strings.Contains(joined, "plain note") {
 		t.Fatalf("attachments of a confined turn: %q", texts)
 	}
-	if !session.PathInWorkspace("note.txt", st.GetCWD(), "") || session.PathInWorkspace("../x", st.GetCWD(), "") {
+	if !strings.Contains(joined, "shared root note") {
+		t.Fatalf("a confined turn did not attach a file of its additional directory: %q", texts)
+	}
+	if !session.PathInWorkspace("note.txt", st.GetCWD(), "", nil) || session.PathInWorkspace("../x", st.GetCWD(), "", nil) {
 		t.Fatal("PathInWorkspace misread a relative path")
+	}
+}
+
+// PathInWorkspace treats the additionalDirectories as part of the workspace:
+// a path under one of them is inside, a path outside every root is not, and
+// the agent's home stays out even when a root is named under it.
+func TestPathInWorkspaceCountsAdditionalDirectories(t *testing.T) {
+	cwd := t.TempDir()
+	extra := filepath.Join(t.TempDir(), "extra")
+	home := t.TempDir()
+	if err := os.MkdirAll(extra, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	roots := []string{extra}
+	in := filepath.Join(extra, "nested", "file.txt")
+	if !session.PathInWorkspace(in, cwd, "", roots) {
+		t.Fatalf("%s must count as inside through its additional directory", in)
+	}
+	if session.PathInWorkspace(filepath.Join(t.TempDir(), "elsewhere.txt"), cwd, "", roots) {
+		t.Fatal("a path outside cwd and every additional directory counted as inside")
+	}
+	if session.PathInWorkspace(filepath.Join(home, "state.json"), cwd, home, []string{filepath.Join(home, "opened")}) {
+		t.Fatal("the agent's home must stay outside the workspace even under an additional directory named in it")
 	}
 }
 

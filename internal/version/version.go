@@ -12,9 +12,9 @@ var Version = "dev"
 // Revision is the full commit the binary was built from, set at build time the
 // same way as Version (see the Makefile). It is empty when the build did not
 // pass it; the build info the Go toolchain stamps (vcs.revision) is the
-// fallback then. The build names it because the toolchain only recognises a
-// checkout by a .git directory, so a worktree nested in another checkout would
-// be stamped with the enclosing checkout's commit.
+// fallback then. The build names it because Go 1.26 and earlier recognise a
+// checkout only by a .git directory, so with such a toolchain a worktree nested
+// in another checkout would be stamped with the enclosing checkout's commit.
 var Revision string
 
 // Get returns the current version string.

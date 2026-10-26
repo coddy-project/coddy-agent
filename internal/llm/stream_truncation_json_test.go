@@ -29,24 +29,28 @@ func sseRaw(w io.Writer, eventType, data string) {
 }
 
 // TestStreamDecodeTruncation pins the rule that tells a cut from a malformed
-// event: the typed syntax error first, then the three spellings of the
-// decoder's end-of-input diagnostic - between tokens, inside a literal or a
-// number (the space of the end-of-input probe), and the newline the SDK
-// decoders append to every data line, inside a string literal included - and,
-// where the payload is at hand, the error sitting at its end. A diagnostic
-// naming a byte the server sent, a type error over valid JSON, a message
-// without the type and a transport error are never cuts. A malformed event
-// whose whitespace falls inside a token is told apart by the position when
-// the payload is known, and taken as a cut by the SDK paths, which have only
-// the diagnostic: the documented heuristic.
+// event: the typed syntax error first, then the spellings of the decoder's
+// end-of-input diagnostic - the input ending, the space of the end-of-input
+// probe inside a literal or a number, and the newline the SDK decoders append
+// to every data line, inside a string or an escape sequence included - and,
+// where the payload is at hand, the error sitting inside it: at its end for a
+// spelling that names a byte. The cuts go through whatever toolchain runs the
+// test; TestEndOfInputDiagnosticSpellings holds the spellings of each Go
+// release. A diagnostic naming a byte the server sent, a type error over valid
+// JSON, a message without the type and a transport error are never cuts. A
+// malformed event whose whitespace falls inside a token is told apart by the
+// position when the payload is known, and taken as a cut by the SDK paths,
+// which have only the diagnostic: the documented heuristic.
 func TestStreamDecodeTruncation(t *testing.T) {
 	decode := func(in string) error {
 		var v any
 		return json.Unmarshal([]byte(in), &v)
 	}
 	cuts := []string{
-		`{"a":"x`, `{"a":nu`, `{"a":tr`, `{"a":-`, `{"a":1.`, `{"a":1e`, `{"a":`,
-		"{\"a\":\"x\n", "{\"a\":nu\n", "{\"a\":-\n", "{\"a\":1e\n", "{\"a\":1\n",
+		`{"a":"x`, `{"a":nu`, `{"a":tr`, `{"a":f`, `{"a":-`, `{"a":1.`, `{"a":1e`, `{"a":1e+`, `{"a":`,
+		`{"a":"x\`, `{"a":"x\u`, `{"a":"\u12`, "{\"a\":\"\xd0",
+		"{\"a\":\"x\n", "{\"a\":nu\n", "{\"a\":-\n", "{\"a\":1.\n", "{\"a\":1e\n", "{\"a\":1\n",
+		"{\"a\":\"x\\\n", "{\"a\":\"\\u12\n", "{\"a\":\"\xd0\n",
 	}
 	for _, in := range cuts {
 		err := decode(in)
@@ -74,15 +78,17 @@ func TestStreamDecodeTruncation(t *testing.T) {
 	}
 	var typeErr struct{ A int }
 	for name, err := range map[string]error{
-		"a byte the server sent":       decode(`[DO`),
-		"an HTML page":                 decode(`<html>`),
-		"a stray comma":                decode(`{"a":,}`),
-		"a second top-level value":     decode(`{"a":1}}`),
-		"a bad last byte":              decode(`{"a":1x`),
-		"valid JSON of another shape":  json.Unmarshal([]byte(`{"A":"x"}`), &typeErr),
-		"the message without the type": errors.New("unexpected end of JSON input"),
-		"a transport error":            io.ErrUnexpectedEOF,
-		"nil":                          nil,
+		"a byte the server sent":              decode(`[DO`),
+		"an HTML page":                        decode(`<html>`),
+		"a stray comma":                       decode(`{"a":,}`),
+		"a second top-level value":            decode(`{"a":1}}`),
+		"a bad last byte":                     decode(`{"a":1x`),
+		"valid JSON of another shape":         json.Unmarshal([]byte(`{"A":"x"}`), &typeErr),
+		"the message without the type":        errors.New("unexpected end of JSON input"),
+		"a transport error":                   io.ErrUnexpectedEOF,
+		"an escape broken before the newline": decode("{\"a\":\"\\uzz\n"),
+		"a backslash inside a unicode escape": decode("{\"a\":\"\\u12\\\n"),
+		"nil":                                 nil,
 	} {
 		for _, payloadLen := range []int{0, 8} {
 			if trunc := streamDecodeTruncation(err, false, payloadLen); trunc != nil {
@@ -110,7 +116,9 @@ func TestStreamDecodeTruncation(t *testing.T) {
 	// cannot tell it from a cut, the position can.
 	for name, in := range map[string]string{
 		"a space inside a literal":                  `{"a":nu ll}`,
+		"a space inside a number":                   `{"a":1. 5}`,
 		"a JSON string split across two data lines": "{\"a\":\"hello\nworld\"}",
+		"an escape sequence split across two lines": "{\"a\":\"x\\\nn\"}",
 	} {
 		err := decode(in)
 		if trunc := streamDecodeTruncation(err, false, len(in)); trunc != nil {
@@ -118,6 +126,73 @@ func TestStreamDecodeTruncation(t *testing.T) {
 		}
 		if trunc := streamDecodeTruncation(err, false, 0); trunc == nil {
 			t.Errorf("%s (%v): without the payload the diagnostic alone must take it for a cut", name, err)
+		}
+	}
+}
+
+// TestEndOfInputDiagnosticSpellings holds the diagnostics each Go release gives
+// for a cut, whichever toolchain runs the suite. Up to Go 1.26 encoding/json
+// reports the end of input at the end of the payload, and a cut inside a
+// literal, a number or an escape sequence through its end-of-input probe, a
+// space; from Go 1.27, with encoding/json/v2 underneath, a cut inside a
+// number, an escape sequence or a multi-byte character is the plain end of
+// input at the start of that token, and the newline the SDK decoders append
+// reads "in string" or "invalid escape sequence" (issue #610). The messages
+// and offsets are the ones each release gives for the input named.
+func TestEndOfInputDiagnosticSpellings(t *testing.T) {
+	cases := []struct {
+		release, input string
+		msg            string
+		offset         int64
+		payloadLen     int // 0 on the SDK paths, which have no payload
+		want           bool
+	}{
+		{"1.26", `{"a":"x`, "unexpected end of JSON input", 7, 7, true},
+		{"1.26", `{"a":nu`, "invalid character ' ' in literal null (expecting 'l')", 7, 7, true},
+		{"1.26", `{"a":-`, "invalid character ' ' in numeric literal", 6, 6, true},
+		{"1.26", `{"a":1.`, "invalid character ' ' after decimal point in numeric literal", 7, 7, true},
+		{"1.26", `{"a":1e`, "invalid character ' ' in exponent of numeric literal", 7, 7, true},
+		{"1.26", `{"a":"x\`, "invalid character ' ' in string escape code", 8, 8, true},
+		{"1.26", `{"a":"\u12`, `invalid character ' ' in \u hexadecimal character escape`, 10, 10, true},
+		{"1.26", "{\"a\":\"x\n", `invalid character '\n' in string literal`, 8, 0, true},
+		{"1.26", "{\"a\":1e\n", `invalid character '\n' in exponent of numeric literal`, 8, 0, true},
+		{"1.26", "{\"a\":\"x\\\n", `invalid character '\n' in string escape code`, 9, 0, true},
+		{"1.26", `{"a":nu ll}`, "invalid character ' ' in literal null (expecting 'l')", 8, 11, false},
+		{"1.26", "{\"a\":\"hello\nworld\"}", `invalid character '\n' in string literal`, 12, 19, false},
+		{"1.26", `{"a":-x}`, "invalid character 'x' in numeric literal", 7, 0, false},
+		{"1.26", `{"a":,}`, "invalid character ',' looking for beginning of value", 6, 0, false},
+		{"1.26", "{\"a\":\"\\u12\\\n", `invalid character '\\' in \u hexadecimal character escape`, 11, 0, false},
+
+		{"1.27", `{"a":"x`, "unexpected end of JSON input", 7, 7, true},
+		{"1.27", `{"a":nu`, "unexpected end of JSON input", 7, 7, true},
+		{"1.27", `{"a":-`, "unexpected end of JSON input", 5, 6, true},
+		{"1.27", `{"a":1.`, "unexpected end of JSON input", 5, 7, true},
+		{"1.27", `{"a":1e`, "unexpected end of JSON input", 5, 7, true},
+		{"1.27", `{"a":"x\`, "unexpected end of JSON input", 7, 8, true},
+		{"1.27", `{"a":"\u12`, "unexpected end of JSON input", 6, 10, true},
+		{"1.27", "{\"a\":\"\xd0", "unexpected end of JSON input", 6, 7, true},
+		{"1.27", "{\"a\":\"x\n", `invalid character '\n' in string`, 8, 0, true},
+		{"1.27", "{\"a\":1e\n", `invalid character '\n' in numeric literal`, 8, 0, true},
+		{"1.27", "{\"a\":\"x\\\n", `invalid escape sequence "\\\n" in string`, 9, 0, true},
+		{"1.27", "{\"a\":\"\\u12\n", `invalid escape sequence "\\u12\n" in string`, 11, 0, true},
+		{"1.27", "{\"a\":\"\\ud83d\\\n", `invalid escape sequence "\\\n" in string`, 14, 0, true},
+		{"1.27", `{"a":nu ll}`, "invalid character ' ' in literal null (expecting 'l')", 8, 11, false},
+		{"1.27", `{"a":1. 5}`, "invalid character ' ' in numeric literal", 8, 10, false},
+		{"1.27", "{\"a\":\"hello\nworld\"}", `invalid character '\n' in string`, 12, 19, false},
+		{"1.27", "{\"a\":\"x\\\nn\"}", `invalid escape sequence "\\\n" in string`, 9, 12, false},
+		{"1.27", `{"a":"x\q"}`, "invalid escape sequence `\\q` in string", 9, 0, false},
+		{"1.27", `{"a":1.x}`, "invalid character 'x' in numeric literal", 8, 0, false},
+		// An escape broken before the SDK's newline names bytes the server sent.
+		{"1.27", "{\"a\":\"\\uzz\n", `invalid escape sequence "\\uzz\n" in string`, 11, 0, false},
+		{"1.27", "{\"a\":\"\\u12\\\n", `invalid escape sequence "\\u12\\\n" in string`, 12, 0, false},
+
+		// An end of input past the payload is not this payload's.
+		{"any", `{"a":`, "unexpected end of JSON input", 9, 5, false},
+	}
+	for _, tc := range cases {
+		if got := endOfInputDiagnostic(tc.msg, tc.offset, tc.payloadLen); got != tc.want {
+			t.Errorf("Go %s, %q: %q at offset %d of a payload of %d = %v, want %v",
+				tc.release, tc.input, tc.msg, tc.offset, tc.payloadLen, got, tc.want)
 		}
 	}
 }
@@ -162,10 +237,12 @@ func TestCodexStreamCutInsideJSONEvent(t *testing.T) {
 		wantMsg       string // a fragment of the error text
 	}{
 		// The SDK decoder appends a newline to the data line, so the cut
-		// inside the string literal is what the message names, verbatim.
+		// inside the string is what the message names, verbatim up to the
+		// wording of the Go release: "in string literal" up to 1.26, "in
+		// string" from 1.27.
 		{name: "cut before any event", scripts: []script{func(w io.Writer) { sseRaw(w, "response.output_text.delta", cutText) }},
 			wantErr: true, wantTruncated: true, wantRequests: 2,
-			wantMsg: `codex stream: stream truncated: an event arrived with incomplete JSON (invalid character '\n' in string literal)`},
+			wantMsg: `codex stream: stream truncated: an event arrived with incomplete JSON (invalid character '\n' in string`},
 		{name: "cut after text and reasoning", scripts: []script{func(w io.Writer) {
 			reasoning(w, "Thinking")
 			text(w, "Hello")
@@ -190,7 +267,13 @@ func TestCodexStreamCutInsideJSONEvent(t *testing.T) {
 		{name: "terminal event cut inside a number", scripts: []script{func(w io.Writer) {
 			text(w, "Let me look")
 			sseRaw(w, "response.completed", `{"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":1e`)
-		}}, wantErr: true, wantTruncated: true, wantRequests: 1, wantResp: true, wantContent: "Let me look", wantMsg: "in exponent of numeric literal"},
+		}}, wantErr: true, wantTruncated: true, wantRequests: 1, wantResp: true, wantContent: "Let me look", wantMsg: "numeric literal)"},
+		// A newline right after the backslash of an escape sequence: Go 1.27
+		// names the sequence rather than the character (issue #610).
+		{name: "cut inside an escape sequence", scripts: []script{func(w io.Writer) {
+			text(w, "Let me look")
+			sseRaw(w, "response.output_text.delta", `{"type":"response.output_text.delta","delta":"line\`)
+		}}, wantErr: true, wantTruncated: true, wantRequests: 1, wantResp: true, wantContent: "Let me look"},
 		{name: "Complete retried after a cut before output", scripts: []script{
 			func(w io.Writer) { text(w, "Hello"); sseRaw(w, "response.output_text.delta", cutText) },
 			func(w io.Writer) { text(w, "Hello"); text(w, " world"); sseCompleted(w) },
@@ -325,7 +408,12 @@ const (
 	oaiHTML    = "data: <html><title>502 Bad Gateway</title></html>\n\n"
 	oaiNeedle  = "data: garbage unexpected EOF here\n\n"
 	oaiNullCut = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":nu"
-	oaiDone    = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+	// Cuts that Go 1.27 reports as the end of input at the start of the
+	// unfinished token rather than at the end of the frame (issue #610).
+	oaiNumberCut = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"logprobs\":{\"content\":[{\"token\":\"lo\",\"logprob\":-0."
+	oaiEscapeCut = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\\"
+	oaiRuneCut   = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\xd0"
+	oaiDone      = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
 	// A complete frame whose JSON string is split across two data: lines:
 	// the reader joins them with a newline, which is not a cut.
 	oaiSplit = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\ndata: rem\"}}]}\n\n"
@@ -358,6 +446,10 @@ func TestOpenAIStreamFrameCutOrMalformed(t *testing.T) {
 		// behind Unwrap; the message carries the frame, which shows the cut.
 		{name: "cut inside a null literal", body: oaiHel + oaiNullCut, wantTruncated: true, wantResp: true, wantContent: "Hel", wantTextChunks: 1,
 			wantMsg: `incomplete JSON (undecodable SSE frame: {"choices":[{"index":0,"delta":{"content":"lo"},"finish_reason":nu)`},
+		{name: "cut inside a number", body: oaiHel + oaiNumberCut, wantTruncated: true, wantResp: true, wantContent: "Hel", wantTextChunks: 1,
+			wantMsg: `"logprob":-0.)`},
+		{name: "cut inside an escape sequence", body: oaiHel + oaiEscapeCut, wantTruncated: true, wantResp: true, wantContent: "Hel", wantTextChunks: 1},
+		{name: "cut inside a multi-byte character", body: oaiHel + oaiRuneCut, wantTruncated: true, wantResp: true, wantContent: "Hel", wantTextChunks: 1},
 		{name: "HTML page after output", body: oaiHel + oaiHTML, wantTextChunks: 1,
 			wantMsg: "openai stream: undecodable SSE frame: <html><title>502 Bad Gateway</title></html>"},
 		{name: "HTML page before output", body: oaiHTML,

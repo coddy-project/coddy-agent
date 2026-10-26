@@ -11,6 +11,8 @@ type UpdateSender interface {
 	// RequestPermission sends a permission request and waits for the user's response.
 	RequestPermission(ctx context.Context, params PermissionRequestParams) (*PermissionResult, error)
 
-	// RequestQuestion sends session/request_question and waits for structured answers.
+	// RequestQuestion asks the question tool's questions and waits for
+	// structured answers: through elicitation/create when the client renders
+	// form elicitation, else through session/request_question.
 	RequestQuestion(ctx context.Context, params QuestionRequestParams) (*QuestionResult, error)
 }

@@ -42,7 +42,7 @@ On macOS, Homebrew installs it from Coddy's own tap and `brew upgrade` follows t
 brew install coddy-project/coddy-agent/coddy
 ```
 
-Then give it a model. Put a provider key into `~/.coddy/config.yaml`, or export `OPENAI_API_KEY` and let the defaults pick it up:
+Then give it a model. The quickest way is the console itself: run `coddy` and type `/login`, which signs in to NeuralDeep (`/login codex`, `/login devin` or `/login opencode` for the others) and writes the provider and every model it serves into `~/.coddy/config.yaml` ([Console](docs/surfaces/console.md#signing-in-to-a-provider-login)). Or put a provider key into `~/.coddy/config.yaml`, or export `OPENAI_API_KEY` and let the defaults pick it up:
 
 ```yaml
 providers:

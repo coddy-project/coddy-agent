@@ -55,6 +55,8 @@ type loginFlowState struct {
 	hadHub      bool
 	restoreWait func()
 	browserErr  error
+	// restoreOpenAIKey puts back the OPENAI_API_KEY a scenario unset.
+	restoreOpenAIKey func()
 }
 
 // loginHubPage is the hub page the stand serves; html/template escapes the link.
@@ -105,6 +107,10 @@ func (s *loginFlowState) close() {
 	if s.restoreWait != nil {
 		s.restoreWait()
 		s.restoreWait = nil
+	}
+	if s.restoreOpenAIKey != nil {
+		s.restoreOpenAIKey()
+		s.restoreOpenAIKey = nil
 	}
 	if s.prevOpen != nil {
 		openBrowserFn, localBrowserAvailableFn = s.prevOpen, s.prevBrow
@@ -250,7 +256,7 @@ func getWithRetries(url string) (*http.Response, error) {
 	var resp *http.Response
 	var err error
 	for attempt := 0; attempt < 5; attempt++ {
-		resp, err = http.Get(url) //nolint:gosec // the stand-in hub and this flow's own loopback listener
+		resp, err = http.Get(url)
 		if err == nil {
 			return resp, nil
 		}
@@ -266,6 +272,47 @@ func (s *loginFlowState) runLogin(extra ...string) error {
 		return err
 	}
 	s.stdout = out
+	return nil
+}
+
+// exampleConfig writes the part of config.example.yaml that decides a fresh
+// install.sh setup: an openai row reading OPENAI_API_KEY, its model, and
+// agent.model on it; the variable is unset for the scenario.
+func (s *loginFlowState) exampleConfig() error {
+	prev, had := os.LookupEnv("OPENAI_API_KEY")
+	s.restoreOpenAIKey = func() {
+		if had {
+			_ = os.Setenv("OPENAI_API_KEY", prev)
+		} else {
+			_ = os.Unsetenv("OPENAI_API_KEY")
+		}
+	}
+	if err := os.Setenv("OPENAI_API_KEY", ""); err != nil {
+		return err
+	}
+	body := "providers:\n  - name: openai\n    type: openai\n    api_key: \"${OPENAI_API_KEY}\"\nmodels:\n  - model: openai/gpt-5.6-terra\nagent:\n  model: openai/gpt-5.6-terra\n"
+	return os.WriteFile(filepath.Join(s.home, "config.yaml"), []byte(body), 0o644)
+}
+
+func (s *loginFlowState) saysAgentModelMoved(model string) error {
+	if s.runErr != nil {
+		return fmt.Errorf("sign-in failed: %w", s.runErr)
+	}
+	want := "agent.model was openai/gpt-5.6-terra, whose provider cannot answer; it is " + model + " now."
+	if !strings.Contains(s.stdout, want) {
+		return fmt.Errorf("the sign-in did not say %q:\n%s", want, s.stdout)
+	}
+	return nil
+}
+
+func (s *loginFlowState) configNamesAgentModel(model string) error {
+	cfg, err := config.LoadFromCLI(config.CLIPaths{Home: s.home})
+	if err != nil {
+		return err
+	}
+	if cfg.Agent.Model != model {
+		return fmt.Errorf("config.yaml names %q as agent.model, want %q", cfg.Agent.Model, model)
+	}
 	return nil
 }
 
@@ -401,6 +448,9 @@ func initializeLoginFlowScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the stored key is the one the device flow issued$`, s.storedDeviceKey)
 	sc.Step(`^the stored key is the one the browser callback issued$`, s.storedBrowserKey)
 	sc.Step(`^the config gains the neuraldeep provider and its tier models$`, s.configGainedProviderAndModels)
+	sc.Step(`^config\.yaml is the example config with OPENAI_API_KEY unset$`, s.exampleConfig)
+	sc.Step(`^the sign-in says agent\.model moved to "([^"]*)"$`, s.saysAgentModelMoved)
+	sc.Step(`^config\.yaml names "([^"]*)" as agent\.model$`, s.configNamesAgentModel)
 }
 
 func TestNeuralDeepLoginFlowFeature(t *testing.T) {

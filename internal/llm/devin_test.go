@@ -559,6 +559,42 @@ func TestDevinPromptsCarryImagesAndFiles(t *testing.T) {
 	}
 }
 
+// TestPromptCacheDevinIgnoresGoalRowFields: Goal and RiskAcknowledged are
+// bookkeeping of a stored row and stay out of what Devin is sent. The request
+// has no byte comparison (it regenerates its identifiers and a timestamp on
+// every call), so the parts that come from the history are compared: the system
+// prompt and every encoded prompt.
+func TestPromptCacheDevinIgnoresGoalRowFields(t *testing.T) {
+	const goalID = "goal_0f3a9c71d2e4"
+	plain := []Message{
+		{Role: RoleSystem, Content: "system"},
+		{Role: RoleUser, Content: "continue"},
+		{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "call-1", Name: "read", InputJSON: `{"path":"one"}`}}},
+		{Role: RoleTool, ToolCallID: "call-1", Content: "one"},
+		{Role: RoleAssistant, Content: "done"},
+	}
+	stamped := make([]Message, len(plain))
+	copy(stamped, plain)
+	for i := range stamped {
+		stamped[i].Goal = goalID
+		stamped[i].RiskAcknowledged = true
+	}
+	plainSystem, plainPrompts := devinPrompts(plain, "m")
+	stampedSystem, stampedPrompts := devinPrompts(stamped, "m")
+	if plainSystem != stampedSystem || len(plainPrompts) != len(stampedPrompts) {
+		t.Fatalf("the goal fields changed the system prompt or the prompt count: %q/%d vs %q/%d",
+			plainSystem, len(plainPrompts), stampedSystem, len(stampedPrompts))
+	}
+	for i := range plainPrompts {
+		if got, want := stampedPrompts[i].encode(), plainPrompts[i].encode(); !bytes.Equal(got, want) {
+			t.Fatalf("prompt %d changed with the goal fields:\n%q\n---\n%q", i, want, got)
+		}
+		if bytes.Contains(stampedPrompts[i].encode(), []byte(goalID)) {
+			t.Fatalf("prompt %d carries the goal id", i)
+		}
+	}
+}
+
 // TestDevinStringFieldsAreValidUTF8: every string field reaches the wire as
 // valid UTF-8, whatever bytes the history holds - a tool result read from a
 // binary or legacy-encoded file, or a non-image attachment with such bytes -

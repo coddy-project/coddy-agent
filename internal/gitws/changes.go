@@ -2,14 +2,310 @@ package gitws
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"syscall"
+	"time"
+
+	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
+
+// maxCompareBytes caps what the comparison reads of one file, on the disk side
+// and on the commit side alike: a file over it is an error, never "unchanged".
+// 16 MiB is far above any migration script.
+const maxCompareBytes = 16 << 20
+
+// FileBaseline is the state of the tracked files under some folders of a
+// workspace at one moment: the commit HEAD named, and the files the working
+// copy already held changed from it.
+type FileBaseline struct {
+	Head string `json:"head"`
+	// Dirty maps each such file, by slash path relative to the workspace, to the
+	// hash of its content then, "" for one that was gone. A hash is the git blob
+	// id of the text with CRLF levelled to LF, so line endings alone never move it.
+	Dirty map[string]string `json:"dirty,omitempty"`
+}
+
+// Baseline records HEAD of dir and the files under folders that the working
+// copy already holds changed from it.
+//
+// A folder is a slash path such as "db/migrate": a file counts when a folder of
+// that name lies on its path from the repository root, at any depth, so a
+// workspace that is itself such a folder still finds its files. Paths are
+// relative to dir and nothing outside dir is looked at. Only files HEAD has are
+// compared, by text: CRLF against LF and a mode change are no difference, and a
+// file whose index entry is assume-unchanged or skip-worktree is compared like
+// the rest. A question that cannot be answered is an error, never an empty
+// answer: no repository (ErrNotRepository), no commit, a cancelled ctx, a file
+// over maxCompareBytes, and no git binary (ErrNeedsGitBinary, with no built-in
+// fallback: see the package documentation).
+func Baseline(ctx context.Context, dir string, folders []string) (FileBaseline, error) {
+	head, dirty, err := changedFromCommit(ctx, dir, "HEAD", folders)
+	if err != nil {
+		return FileBaseline{}, err
+	}
+	return FileBaseline{Head: head, Dirty: dirty}, nil
+}
+
+// ChangedSince maps each file under folders that base.Head had and whose text
+// now differs from what base saw to the hash of its content now, "" when it is
+// gone. What base saw is the file in base.Head or, for one in base.Dirty, the
+// hash kept there: a file already dirty at the start is reported only once it
+// changes again, going back to the commit's text included.
+//
+// The working copy is compared with base.Head, not with the current HEAD, so
+// committing a change does not hide it. Files added since are never reported.
+// Folders, paths and errors are as for Baseline.
+func ChangedSince(ctx context.Context, dir string, base FileBaseline, folders []string) (map[string]string, error) {
+	if !isCommitID(base.Head) {
+		return nil, fmt.Errorf("the baseline names no full start commit id: %q", base.Head)
+	}
+	_, changed, err := changedFromCommit(ctx, dir, base.Head, folders)
+	if err != nil {
+		return nil, err
+	}
+	for rel, was := range base.Dirty {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		now, err := fileHash(dir, rel)
+		if err != nil {
+			return nil, err
+		}
+		if now == was {
+			delete(changed, rel)
+		} else {
+			changed[rel] = now
+		}
+	}
+	return changed, nil
+}
+
+// changedFromCommit resolves rev to a commit and maps the files under folders
+// that it holds and the working copy now holds with other text to their hash
+// now ("" for one that is gone). Paths are slash-separated and relative to dir.
+//
+// `git diff` finds what differs, but it never stats a file whose index entry is
+// assume-unchanged or skip-worktree; `git ls-files -v` tags those (lower case, or
+// S), and the two lists are compared with the commit by content alike.
+func changedFromCommit(ctx context.Context, dir, rev string, folders []string) (head string, changed map[string]string, err error) {
+	if err := ctx.Err(); err != nil {
+		return "", nil, err
+	}
+	if _, _, ok := gitDirs(dir); !ok {
+		return "", nil, fmt.Errorf("%w: %s", ErrNotRepository, dir)
+	}
+	if !GitAvailable() {
+		return "", nil, fmt.Errorf("compare %s with a commit: %w", dir, ErrNeedsGitBinary)
+	}
+	out, err := runGitRawContext(ctx, dir, "rev-parse", "--verify", "--quiet", rev+"^{commit}")
+	if err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && exit.ExitCode() == 1 && len(exit.Stderr) == 0 {
+			return "", nil, fmt.Errorf("git: %s names no commit in %s", rev, dir)
+		}
+		return "", nil, gitError(ctx, err)
+	}
+	head = strings.TrimSpace(string(out))
+	// Where dir sits in the repository: "" or a slash path ending in "/". The
+	// folders are matched on the repository's paths, which are printed in full
+	// below whatever diff.relative says.
+	out, err = runGitRawContext(ctx, dir, "rev-parse", "--show-prefix")
+	if err != nil {
+		return "", nil, gitError(ctx, err)
+	}
+	prefix := strings.TrimSuffix(string(out), "\n")
+	diff, err := runGitRawContext(ctx, dir, "diff",
+		"--no-relative", "--name-only", "--no-renames", "-z", "--diff-filter=DMT", head, "--", ".")
+	if err != nil {
+		return "", nil, gitError(ctx, err)
+	}
+	flagged, err := runGitRawContext(ctx, dir, "ls-files", "-v", "-z", "--full-name", "--", ".")
+	if err != nil {
+		return "", nil, gitError(ctx, err)
+	}
+
+	candidates := map[string]bool{}
+	add := func(full string) {
+		if rel, ok := strings.CutPrefix(full, prefix); ok && underFolders(full, folders) {
+			candidates[rel] = true
+		}
+	}
+	for _, full := range splitNUL(diff) {
+		add(full)
+	}
+	for _, record := range splitNUL(flagged) { // "<tag> <path>"
+		if len(record) > 2 && (record[0] == 'S' || record[0] >= 'a' && record[0] <= 'z') {
+			add(record[2:])
+		}
+	}
+	changed = map[string]string{}
+	for rel := range candidates {
+		if err := ctx.Err(); err != nil {
+			return "", nil, err
+		}
+		was, found, err := commitHash(ctx, dir, head, rel)
+		if err != nil {
+			return "", nil, err
+		}
+		if !found {
+			continue // added since, or no file in the commit
+		}
+		now, err := fileHash(dir, rel)
+		if err != nil {
+			return "", nil, err
+		}
+		if now != was {
+			changed[rel] = now
+		}
+	}
+	return head, changed, nil
+}
+
+// commitHash is the hash of the file head holds at the dir-relative slash path,
+// found false when head has no file there (a folder or a submodule is none).
+func commitHash(ctx context.Context, dir, head, rel string) (hash string, found bool, err error) {
+	out, err := runGitRawContext(ctx, dir, "ls-tree", "-l", "-z", head, "--", "./"+rel)
+	if err != nil {
+		return "", false, gitError(ctx, err)
+	}
+	meta, _, _ := strings.Cut(string(out), "\t")
+	fields := strings.Fields(meta) // mode, type, id, size
+	if len(fields) == 0 {
+		return "", false, nil
+	}
+	if len(fields) != 4 {
+		return "", false, fmt.Errorf("git: cannot read the ls-tree entry %q", meta)
+	}
+	if fields[1] != "blob" {
+		return "", false, nil
+	}
+	size, err := strconv.ParseInt(fields[3], 10, 64)
+	if err != nil {
+		return "", false, fmt.Errorf("git: the size of %s: %w", rel, err)
+	}
+	if size > maxCompareBytes {
+		return "", false, tooLarge(rel)
+	}
+	blob, err := runGitRawContext(ctx, dir, "cat-file", "blob", fields[2])
+	if err != nil {
+		return "", false, gitError(ctx, err)
+	}
+	return contentHash(blob), true, nil
+}
+
+// afterInspect, set only by tests, runs with the full path in fileHash between
+// the look at a regular file and the open of it: the window a swap can use.
+var afterInspect func(path string)
+
+// lookedFile is a path inside a root as a look at it found it. info is what
+// Lstat said; an open held to it must reach that same file, and nil holds the
+// open to nothing but being a regular file.
+type lookedFile struct {
+	name string
+	info fs.FileInfo
+}
+
+// fileHash is the hash of what the working copy holds at the dir-relative slash
+// path: the bytes of a regular file, the link text of a symlink, "" for a path
+// with nothing of either kind.
+func fileHash(dir, rel string) (string, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = root.Close() }()
+	name := filepath.FromSlash(rel)
+	info, err := root.Lstat(name)
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var data []byte
+	switch {
+	case info.Mode()&os.ModeSymlink != 0:
+		target, err := root.Readlink(name)
+		if err != nil {
+			return "", err
+		}
+		data = []byte(target)
+	case info.Mode().IsRegular():
+		if afterInspect != nil {
+			afterInspect(filepath.Join(dir, name))
+		}
+		f, err := openRegularIn(root, lookedFile{name: name, info: info})
+		if err != nil {
+			return "", err
+		}
+		defer func() { _ = f.Close() }()
+		if data, err = io.ReadAll(io.LimitReader(f, maxCompareBytes+1)); err != nil {
+			return "", err
+		}
+		if len(data) > maxCompareBytes {
+			return "", tooLarge(rel)
+		}
+	default:
+		return "", nil
+	}
+	return contentHash(data), nil
+}
+
+// contentHash is the git blob id of data with CRLF levelled to LF.
+func contentHash(data []byte) string {
+	return plumbing.ComputeHash(plumbing.BlobObject, normalizeEOL(data)).String()
+}
+
+func tooLarge(rel string) error {
+	return fmt.Errorf("%s is larger than %d bytes, not compared", rel, maxCompareBytes)
+}
+
+// gitError is a failed git command as an error: the ctx's own when it ended the
+// command, else git's message.
+func gitError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return fmt.Errorf("git: %w: %s", err, bytes.TrimSpace(exit.Stderr))
+	}
+	return fmt.Errorf("git: %w", err)
+}
+
+// isCommitID reports a full object id, the only form a baseline stores: anything
+// else (a branch name, an option) is refused before it reaches git.
+func isCommitID(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	return strings.Trim(s, "0123456789abcdef") == ""
+}
+
+// underFolders reports whether the slash path p, relative to the repository
+// root, lies below one of folders at any depth: it starts with "folder/" or
+// contains "/folder/".
+func underFolders(p string, folders []string) bool {
+	for _, f := range folders {
+		f = strings.Trim(f, "/")
+		if f != "" && (strings.HasPrefix(p, f+"/") || strings.Contains(p, "/"+f+"/")) {
+			return true
+		}
+	}
+	return false
+}
 
 // WorkChange is one tracked file that differs between HEAD and the working
 // copy. It deliberately mirrors the shape the session change set uses, so the
@@ -28,12 +324,21 @@ type WorkChange struct {
 // parsing porcelain but destroys file content: a source file that begins or ends
 // with a blank line would come back altered. Anything reading blobs uses this.
 func runGitRaw(dir string, args ...string) ([]byte, error) {
-	cmd := exec.Command("git", args...)
+	return runGitRawContext(context.Background(), dir, args...)
+}
+
+// runGitRawContext is runGitRaw bounded by ctx: git is killed when it ends.
+func runGitRawContext(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	// Same contract as runGit: these calls run inside request handlers and
 	// agent turns, so a credential prompt must fail instead of hanging them.
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	platform.AdaptCommand(cmd)
+	// A child git leaves behind (a credential helper, a hook) can hold the
+	// stdout pipe after git itself is killed: stop reading it a second after
+	// ctx ends instead of when that child does.
+	cmd.WaitDelay = time.Second
 	return cmd.Output()
 }
 

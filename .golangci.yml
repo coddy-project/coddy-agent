@@ -1,18 +1,69 @@
-# golangci-lint v2 configuration. CI pins v2.12.2 (.github/workflows/tests-on-pr.yaml);
+# golangci-lint v2 configuration. CI pins v2.15.0 (.github/workflows/tests-on-pr.yaml);
 # `make lint` and `make lint-windows` run it three times each (Makefile, "Lint").
 version: "2"
 
 # Until this file existed the linters were golangci-lint's `standard` default:
-# these five. They are listed by name, so a golangci-lint release that widens
-# `standard` cannot fail the build unannounced; adding one is an edit here.
+# errcheck, govet, ineffassign, staticcheck and unused; gosec and nolintlint
+# joined them later. They are listed by name, so a golangci-lint release that
+# widens `standard` cannot fail the build unannounced; adding one is an edit
+# here.
 linters:
   default: none
   enable:
     - errcheck
+    - gosec
     - govet
     - ineffassign
+    - nolintlint
     - staticcheck
     - unused
+  settings:
+    gosec:
+      excludes:
+        # Running the commands the user, the model or the operator configured
+        # (the shell tools, MCP stdio servers, hooks, git, an editor) and
+        # reading the files they name is what Coddy does. The gate is the
+        # permission and trust check before it, not the exec or the open, so
+        # a report on every such call says nothing. G702 and G703 still trace
+        # a request value to an exec or an open in the handler's own package
+        # (see the exclusions below); a value handed on to another package is
+        # held by that package's own checks, which gosec does not follow.
+        - G204
+        - G304
+      config:
+        # Files Coddy writes into a workspace, its documentation and its own
+        # state take the ordinary 0644 and 0755 the user's tools expect;
+        # credentials and the folders that hold them are written 0600 and
+        # 0700 explicitly. Anything wider than that is still reported.
+        G301: "0755"
+        G302: "0644"
+        G306: "0644"
+    nolintlint:
+      # A //nolint names the linter it silences and says why, and one that
+      # silences nothing is reported, so none outlives its reason.
+      require-explanation: true
+      require-specific: true
+  exclusions:
+    rules:
+      # Tests and the test doubles only they import write fixtures into
+      # t.TempDir with ordinary permissions, carry fake credentials, run
+      # their own binary and talk to stubs on loopback: gosec has nothing to
+      # find there that a review would act on.
+      - path: _test\.go$
+        linters:
+          - gosec
+      - path: (^|/)(acptest|devinfake|gitwstest|hooktest|mcptest|pachcafake|proxytest|xvfbtest)/
+        linters:
+          - gosec
+      # The taint rules count the operator's environment, the command line
+      # and the files Coddy keeps for itself as sources too, which is the
+      # input G204 and G304 above stand for. They are kept where the input
+      # comes from someone else: the HTTP API, the swarm relay and the
+      # messenger bots.
+      - path-except: ^external/(httpserver|swarm|gateway)/
+        text: "^G70[234]:"
+        linters:
+          - gosec
 
 # Formatters run inside `golangci-lint run` and report a file whose bytes differ
 # from what the formatter writes; `simplify` holds the tree to `gofmt -s`. Fix a

@@ -105,8 +105,9 @@ const USAGE_PANEL_PROVIDER_TYPES = new Set(["neuraldeep", "codex", "devin"]);
 
 /**
  * seedLogicalModel builds a models[] row from the item schema's defaults,
- * carrying the given id and, when the provider reported one, its context
- * window. reasoning_levels is left out on purpose: an empty list would disable
+ * carrying the given id and, when the provider's listing has them, its context
+ * window, max_tokens and image support (the server fills in what the provider
+ * leaves out from its models catalog). reasoning_levels is left out on purpose: an empty list would disable
  * the server-side detection, and a freshly added model has no such choice
  * yet. Both the Add button of Logical models and the provider form's model
  * list go through it, so a model added either way starts the same.
@@ -115,6 +116,8 @@ function seedLogicalModel(
   itemSchema: JsonSchema | undefined,
   id: string,
   contextWindow?: number | undefined,
+  maxTokens?: number | undefined,
+  multimodal?: boolean | undefined,
 ): Record<string, unknown> {
   const seed = defaultForSchema(itemSchema ?? {});
   const row: Record<string, unknown> =
@@ -125,6 +128,12 @@ function seedLogicalModel(
   row.model = id;
   if (contextWindow && itemSchema?.properties?.max_context_tokens) {
     row.max_context_tokens = contextWindow;
+  }
+  if (maxTokens && itemSchema?.properties?.max_tokens) {
+    row.max_tokens = maxTokens;
+  }
+  if (multimodal && itemSchema?.properties?.multimodal) {
+    row.multimodal = true;
   }
   return row;
 }
@@ -863,7 +872,7 @@ export function SettingsSection(props: {
                 <ProviderModelList
                   provider={item}
                   existingModels={modelIds}
-                  onAddModel={(id, contextWindow) => {
+                  onAddModel={(id, contextWindow, maxTokens, multimodal) => {
                     if (modelIds.includes(id)) {
                       return;
                     }
@@ -874,6 +883,8 @@ export function SettingsSection(props: {
                           props_["models"]?.items,
                           id,
                           contextWindow,
+                          maxTokens,
+                          multimodal,
                         ),
                       ]),
                     );

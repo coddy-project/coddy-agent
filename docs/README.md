@@ -47,7 +47,7 @@ What the agent can do and how each capability is configured.
 - [Browser extension](features/browser-extension.md) - Connect selected Chrome, Firefox and Yandex Browser tabs directly to your own Coddy server.
 - [Operating modes](features/modes.md) - agent, plan and ask, which tools each mode allows and how to switch on every surface.
 - [Session settings](features/session-settings.md) - Switching the model, reasoning level, mode and permission mode from the conversation with /model, /reasoning, /think, /nothink, /agent, /plan, /ask and /permissions, for the session or the next turns, the permission dialog's session switch, and the model switching itself.
-- [Session goal and supervisor](features/session-supervisor.md) - /goal keeps the agent working until a second model, judging the evidence, finds the objective met and a read-only verifier confirms it; continuations, budgets, the watchdog for stalls and loops.
+- [Session goal and supervisor](features/session-supervisor.md) - /goal keeps the agent working until a second model, judging the evidence, finds the objective met and a read-only verifier confirms it; continuations, budgets, the watchdog for stalls and loops, the risk gate that blocks docker and migration changes.
 - [Sessions](features/sessions.md) - Session bundles on disk, resuming, history rewind on message edit, todo lists, the sessions CLI.
 - [Git worktrees](features/worktrees.md) - Fresh feature branches from origin, session moves, the web composer and project grouping.
 - [Rules and instructions](features/rules.md) - Rules from the .coddy, .agents, .cursor, .claude and .codex folders, AGENTS.md and DESIGN.md of a folder the agent enters, your own pair and rules in the agent home, instruction files, dialects by extension, activation.
@@ -118,6 +118,7 @@ How Coddy is built, tested, documented and released.
 - [Codex hooks](contributing/codex-hooks.md) - How the Cursor rules reach a Codex CLI session working on this repository.
 - [OpenCode hooks](contributing/opencode-hooks.md) - Deterministic delivery of the Cursor rules to OpenCode sessions working on this repository.
 - [ZCode hooks](contributing/zcode-hooks.md) - Deterministic delivery of the Cursor rules to ZCode sessions working on this repository.
+- [Kimi Code hooks](contributing/kimi-code-hooks.md) - Deterministic delivery of the Cursor rules to Kimi Code sessions working on this repository.
 - [Syntax highlighting audit](contributing/syntax-highlighting-audit.md) - The NeuralDeep audit of code highlighting across the seven themes, its fixtures and how to re-run it.
 - [Agent notes](../AGENTS.md) - The repository map and contributor notes for coding agents.
 <!-- docsgen:nav:end -->

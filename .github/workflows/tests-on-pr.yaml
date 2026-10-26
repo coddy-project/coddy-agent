@@ -30,7 +30,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "26"
           cache: npm
           cache-dependency-path: external/ui/package-lock.json
 
@@ -77,7 +77,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "26"
           cache: npm
           cache-dependency-path: external/ui/package-lock.json
 
@@ -253,7 +253,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "26"
 
       # The test suite runs with ripgrep installed; the same code paths run here.
       - name: Install ripgrep
@@ -307,7 +307,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "26"
           cache: npm
           cache-dependency-path: external/ui/package-lock.json
 
@@ -370,7 +370,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "26"
           cache: npm
           cache-dependency-path: external/ui/package-lock.json
 
@@ -401,8 +401,11 @@ jobs:
 
       # Exercise the same shipped modules as make test. Bounded package
       # concurrency leaves time for the child MCP and PowerShell processes.
+      # external/httpserver and internal/agent take 6 to 8 minutes here, so
+      # go test's default of 10 minutes per package failed both on a runner
+      # half again slower than usual; a hang still ends the run.
       - name: Run the complete Go suite
-        run: go test -p=4 -tags='http,ui,scheduler,memory,cli,gateway,swarm,metrics' ./...
+        run: go test -p=4 -timeout=30m -tags='http,ui,scheduler,memory,cli,gateway,swarm,metrics' ./...
 
   # The console is a raw-mode terminal program, and nothing above runs it on
   # macOS, where bare `coddy` opens on a Terminal.app pty. A hang there was
@@ -565,7 +568,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "26"
 
       - name: Check the generated pages, the links and the assets
         run: make docs-check
@@ -602,7 +605,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "26"
           cache: npm
           cache-dependency-path: external/ui/package-lock.json
 
@@ -618,19 +621,19 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.12.2
+          version: v2.15.0
           args: ./...
 
       - name: Run golangci-lint with every tag but ui
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.12.2
+          version: v2.15.0
           args: --build-tags ${{ steps.tags.outputs.no_ui }} ./...
 
       - name: Run golangci-lint with the shipped tag set
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.12.2
+          version: v2.15.0
           args: --build-tags ${{ steps.tags.outputs.full }} ./...
 
       - name: Run golangci-lint against the Windows build
@@ -638,7 +641,7 @@ jobs:
         env:
           GOOS: windows
         with:
-          version: v2.12.2
+          version: v2.15.0
           args: ./...
 
       - name: Run golangci-lint with every tag but ui against the Windows build
@@ -646,7 +649,7 @@ jobs:
         env:
           GOOS: windows
         with:
-          version: v2.12.2
+          version: v2.15.0
           args: --build-tags ${{ steps.tags.outputs.no_ui }} ./...
 
       - name: Run golangci-lint with the shipped tag set against the Windows build
@@ -654,7 +657,7 @@ jobs:
         env:
           GOOS: windows
         with:
-          version: v2.12.2
+          version: v2.15.0
           args: --build-tags ${{ steps.tags.outputs.full }} ./...
 
       - name: Type-check the web UI

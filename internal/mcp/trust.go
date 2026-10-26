@@ -239,7 +239,7 @@ func NewTrustRecord(srv config.MCPServerConfig, source string, approvedAt time.T
 // one is, so a damaged store never silently reads as "nothing approved" in a
 // context where that would look like a fresh install.
 func (s *TrustStore) read() (trustFile, error) {
-	data, err := os.ReadFile(s.path) //nolint:gosec // path derives from the coddy home directory
+	data, err := os.ReadFile(s.path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return trustFile{Version: trustFileVersion, Workspaces: map[string][]TrustRecord{}}, nil

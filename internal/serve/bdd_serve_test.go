@@ -619,7 +619,9 @@ func (s *dispatcherFeatureState) stop() {
 	if s.cancel != nil {
 		s.cancel()
 		select {
-		case <-s.done:
+		case err := <-s.done:
+			// Stopped on purpose: how it returned is not what the scenario checks.
+			_ = err
 		case <-time.After(5 * time.Second):
 		}
 		s.cancel = nil

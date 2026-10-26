@@ -120,6 +120,7 @@ Glossary (English - Russian):
 - gateway - шлюз (Telegram gateway - Telegram-шлюз); bot - бот;
 - trust - доверие; trust receipt - расписка; sandbox - песочница; loop guard - защита от зацикливания;
 - endpoint - эндпоинт; route - маршрут; request - запрос; response - ответ; streaming - потоковая передача;
+- elicitation (ACP's request for structured input from the user) - элиситация, with "(elicitation)" after it where a page first names it; never "запрос данных", which the glossary's "запрос" (request) would blur;
 - configuration, config - конфигурация; config file - файл конфигурации; key (of the config) - ключ;
 - release - релиз; build - сборка; binary - бинарник; build tag - тег сборки;
 - pull request - пул-реквест; issue - issue; worktree - worktree; daemon - демон; service - сервис;

@@ -2,10 +2,12 @@ package session_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
@@ -22,6 +24,8 @@ type supervisorWorld struct {
 	model   *goalStubModel
 	updates []interface{}
 	mu      sync.Mutex
+	// judged and verified count the checks and the verifications that ran.
+	judged, verified int
 }
 
 // goalStubModel answers each model call in turn: answers[i] for call i, the
@@ -85,6 +89,38 @@ func (w *supervisorWorld) secondTurnShips() error {
 func (w *supervisorWorld) asksForDatabase() error {
 	w.session([]string{"Which database should the store move to?"}, func(context.Context, *config.Config, *session.State, session.GoalCheckRequest) (session.GoalCheckResult, error) {
 		return session.GoalCheckResult{Verdict: session.GoalVerdictNeedsUser, Reason: "which database should the store move to?"}, nil
+	})
+	return nil
+}
+
+// workerRuns: the worker is a scripted runner rather than the real agent, so
+// the command is recorded and never executed. Its first turn calls run_command
+// with the command, stores an executed result and answers; every judge verdict
+// is met, and the judge and the verifier count their calls.
+func (w *supervisorWorld) workerRuns(command string) error {
+	turn := 0
+	w.mgr, w.sid = newQueueManagerWith(w.t, func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		turn++
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: prompt[0].Text, GoalTurn: st.TakeTurnGoal(), CreatedAt: time.Now().UTC().Format(time.RFC3339)})
+		if turn == 1 {
+			args, _ := json.Marshal(map[string]string{"command": command})
+			st.AddMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "run_command", InputJSON: string(args)}}})
+			st.AddMessage(llm.Message{Role: llm.RoleTool, ToolCallID: "call_1", Content: "Container db  Removed\nVolume db-data  Removed"})
+		}
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "The old containers are gone."})
+		return string(acp.StopReasonEndTurn), nil
+	})
+	w.mgr.SetGoalJudge(func(context.Context, *config.Config, *session.State, session.GoalCheckRequest) (session.GoalCheckResult, error) {
+		w.mu.Lock()
+		w.judged++
+		w.mu.Unlock()
+		return session.GoalCheckResult{Verdict: session.GoalVerdictMet, Reason: "the containers are gone"}, nil
+	})
+	w.mgr.SetGoalVerifier(func(context.Context, *session.State, session.GoalCheckRequest) (session.GoalCheckResult, error) {
+		w.mu.Lock()
+		w.verified++
+		w.mu.Unlock()
+		return session.GoalCheckResult{Verdict: session.GoalVerdictMet}, nil
 	})
 	return nil
 }
@@ -166,6 +202,49 @@ func (w *supervisorWorld) noContinuation() error {
 	return nil
 }
 
+func (w *supervisorWorld) blockedNaming(command string) error {
+	goal := w.mgr.SessionByID(w.sid).GetGoal()
+	if goal.Status != session.GoalBlocked || !strings.Contains(goal.StatusReason, command) {
+		return fmt.Errorf("goal = %+v, want blocked naming %q", goal, command)
+	}
+	return nil
+}
+
+func (w *supervisorWorld) noCheckRan() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.judged != 0 || w.verified != 0 {
+		return fmt.Errorf("the judge was asked %d times and the verifier ran %d times, want neither", w.judged, w.verified)
+	}
+	return nil
+}
+
+func (w *supervisorWorld) completeWithoutBlockingAgain() error {
+	st := w.mgr.SessionByID(w.sid)
+	goal := st.GetGoal()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if goal.Status != session.GoalComplete || w.judged != 1 || w.verified != 1 {
+		return fmt.Errorf("goal = %+v after %d checks and %d verifications, want complete after one of each", goal, w.judged, w.verified)
+	}
+	blocks := 0
+	for _, n := range st.GetUILog() {
+		if n.Level == session.UILogLevelNotice && strings.HasPrefix(n.Message, "Goal blocked") {
+			blocks++
+		}
+	}
+	accepted := 0
+	for _, m := range st.GetMessages() {
+		if m.RiskAcknowledged && len(m.ToolCalls) == 1 && m.ToolCalls[0].Name == "run_command" {
+			accepted++
+		}
+	}
+	if blocks != 1 || accepted != 1 {
+		return fmt.Errorf("blocked %d times and accepted %d calls, want one block and the one call accepted", blocks, accepted)
+	}
+	return nil
+}
+
 func TestSessionSupervisorFeature(t *testing.T) {
 	suite := godog.TestSuite{
 		Name: "session-supervisor",
@@ -180,6 +259,10 @@ func TestSessionSupervisorFeature(t *testing.T) {
 			sc.Step(`^no supervisor turn reads as a message the operator typed$`, w.noOperatorEcho)
 			sc.Step(`^the goal is blocked with the question for the operator$`, w.blockedWithQuestion)
 			sc.Step(`^no continuation was started$`, w.noContinuation)
+			sc.Step(`^an agent session whose worker runs "([^"]*)" and whose checker would answer met$`, w.workerRuns)
+			sc.Step(`^the goal is blocked naming "([^"]*)"$`, w.blockedNaming)
+			sc.Step(`^neither the judge nor the verifier ran$`, w.noCheckRan)
+			sc.Step(`^the goal is complete and the command did not block it again$`, w.completeWithoutBlockingAgain)
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/session_supervisor.feature"}, TestingT: t, Strict: true},
 	}

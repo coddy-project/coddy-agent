@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"runtime"
@@ -51,6 +52,24 @@ func LocalBrowserAvailable() bool {
 // that promises a browser is not followed by a command that cannot deliver one.
 func BrowserOpenArgv(url string) []string {
 	return browserOpenArgv(runtime.GOOS, os.Getenv, exec.LookPath, url)
+}
+
+// OpenBrowser opens url in this machine's browser, best effort: the caller
+// prints the URL as well, and that printed URL is the contract. The opener is
+// started and reaped in the background, so a sign-in that waits for minutes
+// leaves no zombie behind it.
+func OpenBrowser(url string) error {
+	argv := BrowserOpenArgv(url)
+	if len(argv) == 0 {
+		return errors.New("no browser opener found in PATH")
+	}
+	cmd := exec.Command(argv[0], argv[1:]...)
+	AdaptCommand(cmd)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
 }
 
 func browserOpenArgv(goos string, getenv func(string) string, lookPath func(string) (string, error), url string) []string {

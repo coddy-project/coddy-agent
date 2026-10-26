@@ -89,7 +89,7 @@ func queueInlineFiles(files []acp.ImagePartRef) ([]acp.ImagePartRef, error) {
 func (s *Server) queueSession(w http.ResponseWriter, r *http.Request) (string, *session.State) {
 	id := strings.TrimSpace(r.PathValue("id"))
 	if err := session.ValidateFolderSessionID(id); err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return "", nil
 	}
 	st := s.coddyEnsureLoaded(w, r, id)

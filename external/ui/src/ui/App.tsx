@@ -68,6 +68,7 @@ import {
 } from "./chat/sessionSettings";
 import {
   GOAL_RESUME_PROMPT,
+  goalDraftObjective,
   isNewerGoal,
   parseSessionGoalUpdate,
   type SessionGoal,
@@ -76,6 +77,7 @@ import {
 import type { GoalActions } from "./chat/GoalPopover";
 import { useSessionTurnActivity } from "./chat/useSessionTurnActivity";
 import { mergeTurnProgress, type TurnProgress } from "./chat/turnProgress";
+import { TodoPlanOrder, sameTodoPlan } from "./chat/todoChecklist";
 import type { QueuedMessageEvent } from "./chat/serverEvents";
 import { QueueDeliveryOrder } from "./chat/messageQueueState";
 import { useProviderUsage } from "./chat/useProviderUsage";
@@ -114,13 +116,12 @@ import {
   upsertPermissionPromptRecord,
   clearPermissionPromptRecords,
 } from "./chat/permissionPromptSessionStore";
-import {
-  parseToolsPermissionPolicy,
-  type ToolsPermissionPolicy,
-} from "./chat/toolsPermissionPolicy";
 import { reattachLocalQuestionPrompts } from "./chat/transcriptQuestionReattach";
 import { retireRelayedPermissionPrompts } from "./chat/relayedPermissionPrompts";
-import { normalizeTodoPlanSnapshot } from "./chat/todoToolPreview";
+import {
+  normalizeTodoPlanSnapshot,
+  type TodoPlanEntry,
+} from "./chat/todoToolPreview";
 import {
   clearQuestionPromptRecords,
   hasUnresolvedQuestionPrompt,
@@ -598,9 +599,6 @@ export function App() {
   const [permissionPendingSids, setPermissionPendingSids] = useState<
     Set<string>
   >(() => new Set(permissionPendingSessionIdsFromStorage()));
-  const [toolsPermissionPolicy, setToolsPermissionPolicy] =
-    useState<ToolsPermissionPolicy | null>(null);
-  const toolsPermissionPolicyRef = useRef<ToolsPermissionPolicy | null>(null);
   const [questionPendingSids, setQuestionPendingSids] = useState<Set<string>>(
     () => new Set(),
   );
@@ -1012,6 +1010,30 @@ export function App() {
       return rest;
     });
   });
+
+  // The todo checklist per session (DESIGN.md "Todo checklist under the
+  // transcript"), from the transcript read and from the plan frames of a
+  // running turn. A read issued before a frame this tab applied is older than
+  // that frame and moves nothing back.
+  const [todoPlanBySid, setTodoPlanBySid] = useState<
+    Record<string, TodoPlanEntry[]>
+  >({});
+  const todoPlanOrderRef = useRef(new TodoPlanOrder());
+  const applyTodoPlan = useStableHandler(
+    (sid: string, entries: TodoPlanEntry[], readIssuedAt?: number) => {
+      const key = sid.trim();
+      if (!key) return;
+      const order = todoPlanOrderRef.current;
+      if (readIssuedAt === undefined) {
+        order.noteFrame(key, Date.now());
+      } else if (!order.acceptsRead(key, readIssuedAt)) {
+        return;
+      }
+      setTodoPlanBySid((prev) =>
+        sameTodoPlan(prev[key], entries) ? prev : { ...prev, [key]: entries },
+      );
+    },
+  );
 
   const turnActivity = useSessionTurnActivity({
     sessionId,
@@ -1846,8 +1868,8 @@ export function App() {
           (x) => x.type === "permission_prompt" && x.id === itemId,
         );
         if (hit?.type === "permission_prompt") {
-          // Keep the record marked as resolved so restorePermissionPromptsForPendingTools
-          // won't re-synthesize a prompt for the same tool call on subsequent loadMessages.
+          // Keep the record marked as resolved so the next loadMessages does not
+          // bring the answered prompt back from localStorage.
           upsertPermissionPromptRecord(key, {
             toolCallId: hit.payload.toolCall.toolCallId.trim(),
             payload: hit.payload,
@@ -3343,9 +3365,6 @@ export function App() {
         headers,
       });
       if (res.ok && res.data) {
-        const policy = parseToolsPermissionPolicy(res.data);
-        toolsPermissionPolicyRef.current = policy;
-        setToolsPermissionPolicy(policy);
         const agent = res.data.agent as { queue_mode?: QueueMode } | undefined;
         const preferred = agent?.queue_mode;
         setQueueMode(
@@ -3395,34 +3414,6 @@ export function App() {
       ),
     );
   }, [sessions, items, sessionId]);
-
-  // /coddy/config may resolve after the first loadMessages; re-synthesize permission_prompt rows then.
-  useEffect(() => {
-    const sid = sessionId.trim();
-    if (!sid || !toolsPermissionPolicy) {
-      return;
-    }
-    setItems((prev) => {
-      if (prev.length === 0) {
-        return prev;
-      }
-      const merged = mergePermissionPromptsIntoTranscript(
-        prev,
-        sid,
-        toolsPermissionPolicy,
-      );
-      const hadPending = prev.some(
-        (x) => x.type === "permission_prompt" && !x.resolved,
-      );
-      const hasPending = merged.some(
-        (x) => x.type === "permission_prompt" && !x.resolved,
-      );
-      if (hadPending === hasPending && merged.length === prev.length) {
-        return prev;
-      }
-      return merged;
-    });
-  }, [toolsPermissionPolicy, sessionId]);
 
   useEffect(() => {
     const hasBackgroundTurn = sessions.some(
@@ -3855,6 +3846,7 @@ export function App() {
       selectedReasoning?: string;
       settings?: unknown;
       goal?: unknown;
+      todoPlan?: unknown;
       subagent?: {
         parentSessionId?: string;
         name?: string;
@@ -3892,6 +3884,12 @@ export function App() {
       }
       return null;
     }
+    // Every read brings the checklist as it is now; no key, no list.
+    const readTodoPlan =
+      res.data.todoPlan === undefined
+        ? []
+        : normalizeTodoPlanSnapshot(res.data.todoPlan);
+    if (readTodoPlan) applyTodoPlan(sid, readTodoPlan, issuedAt);
     if (viewingNow === sid) {
       mirrorSettingsRead(sid, res.data);
       // The session goal, versioned like the settings: the chip and the
@@ -3991,11 +3989,7 @@ export function App() {
     );
     revokeSupersededUserMessagePreviews(mergedBase, localForMerge);
     let merged = reattachLocalQuestionPrompts(mergedBase, localForMerge);
-    merged = mergePermissionPromptsIntoTranscript(
-      merged,
-      sid,
-      toolsPermissionPolicyRef.current,
-    );
+    merged = mergePermissionPromptsIntoTranscript(merged, sid);
     merged = mergeStoredQuestionPromptsIntoTranscript(merged, sid);
     merged = patchQuestionToolArgsFromPromptRecords(merged, sid);
     const appliedRaw = localAligned
@@ -4172,11 +4166,7 @@ export function App() {
       if (tcRes.ok && tcRes.data?.toolCalls) {
         applyToolCallRows(mapped.items, mapped.toolIndex, tcRes.data.toolCalls);
       }
-      let page = mergePermissionPromptsIntoTranscript(
-        mapped.items,
-        sid,
-        toolsPermissionPolicyRef.current,
-      );
+      let page = mergePermissionPromptsIntoTranscript(mapped.items, sid);
       page = mergeStoredQuestionPromptsIntoTranscript(page, sid);
       page = patchQuestionToolArgsFromPromptRecords(page, sid);
       page = dedupeAdjacentDuplicateThinkingCompleted(page);
@@ -5183,6 +5173,11 @@ export function App() {
             applyTurnProgress(key, progress, "stream");
           }
         },
+        onTodoPlan: (entries) => {
+          if (ownsRelay() && !fetchCtl.signal.aborted) {
+            applyTodoPlan(key, entries);
+          }
+        },
       });
       if (!ownsRelay() || fetchCtl.signal.aborted) return;
 
@@ -5950,6 +5945,11 @@ export function App() {
             applyTurnProgress(streamKey, progress, "stream");
           }
         },
+        onTodoPlan: (entries) => {
+          if (ownsPost() && !abortCtl.signal.aborted) {
+            applyTodoPlan(streamKey, entries);
+          }
+        },
         onSettingsOnly: () => {
           settingsOnly = true;
         },
@@ -5960,6 +5960,9 @@ export function App() {
       // conversation, and the change is on the selectors. The reload below
       // shows the transcript as the server holds it.
       if (settingsOnly) {
+        // Setting a goal starts a turn on success. A settings-only answer
+        // means it was refused; preserve the draft for correction.
+        if (goalDraftObjective(text) !== null) giveBack();
         applyStreamItems((prev) =>
           prev.filter(
             (it) =>
@@ -8136,6 +8139,9 @@ export function App() {
             onOpenSession={openSessionInPlace}
             pathRoots={transcriptPathRoots}
             turnProgress={turnProgressBySid[sessionId.trim()] ?? null}
+            {...(todoPlanBySid[sessionId.trim()]
+              ? { todoPlan: todoPlanBySid[sessionId.trim()] }
+              : {})}
             backgroundTasksOpen={tasksPanelOpen}
             onCloseBackgroundTasks={closeTasksDrawer}
             workspaceCtx={workspaceCtx}

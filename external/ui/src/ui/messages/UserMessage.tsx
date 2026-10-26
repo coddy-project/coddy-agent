@@ -177,11 +177,7 @@ export const UserMessage = memo(function UserMessage(props: {
 
   return (
     <div
-      className={
-        props.editing
-          ? "msg-user-stack msg-user-stack--editing"
-          : "msg-user-stack"
-      }
+      className={`msg-user-stack${(props.userMsgIndex ?? 0) > 0 ? " msg-user-stack--followup" : ""}${props.editing ? " msg-user-stack--editing" : ""}`}
       data-row-id={props.rowId}
     >
       {props.files && props.files.length > 0 ? (
@@ -286,6 +282,12 @@ export const UserMessage = memo(function UserMessage(props: {
             </svg>
           </button>
         ) : null}
+        <MessageCopyIconButton
+          textToCopy={display}
+          tooltip={t("messages.copyMessage")}
+          ariaLabel={t("messages.copyMessage")}
+          dataTestId="user-message-copy"
+        />
         {props.onEdit ? (
           <button
             type="button"
@@ -310,16 +312,11 @@ export const UserMessage = memo(function UserMessage(props: {
               strokeLinejoin="round"
               aria-hidden
             >
-              <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+              <path d="M3 12a9 9 0 1 0 9-9c-2.5 0-4.9 1-6.7 2.8L3 8" />
+              <path d="M3 3v5h5" />
             </svg>
           </button>
         ) : null}
-        <MessageCopyIconButton
-          textToCopy={display}
-          tooltip={t("messages.copyMessage")}
-          ariaLabel={t("messages.copyMessage")}
-          dataTestId="user-message-copy"
-        />
         {timeHM ? (
           <time
             className="msg-user-time"

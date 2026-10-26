@@ -133,6 +133,7 @@ func (m *Manager) continueGoalChain(st *State, done GoalState, verifyRan bool, u
 	ns.SetSelectedReasoning(st.GetSelectedReasoning())
 	ns.SetSelectedToolset(st.GetSelectedToolset())
 	ns.SetPermissionMode(st.GetPermissionMode())
+	next.Start = goalStartFor(ns.GetCWD())
 	ns.SetGoal(next)
 	ns.AppendUILogNotice(0, fmt.Sprintf("Goal chain: continued from session %s (link %d of %d)", st.ID, next.ChainIndex, cfg.Supervisor.ChainSessionLimit()))
 

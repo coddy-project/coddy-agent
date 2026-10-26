@@ -6,6 +6,10 @@ Feature: The progress of a running turn in the web UI
   doing. The numbers come from the server's turn_progress, so a reloaded tab
   shows the same clock instead of starting a new one.
 
+  Scenario: The working line stays closer to the transcript when no checklist is present
+    Then without todos the active live line removes 4px above it and adds no room below
+    And the active live line eases checklist spacing changes only without reduced motion
+
   Scenario: Before the first token the line is the clock and the waiting phrase
     Then before the first token the live line shows the turn clock and the waiting phrase alone
 

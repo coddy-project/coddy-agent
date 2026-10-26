@@ -52,6 +52,12 @@ type State struct {
 	// recovered to its parent checkout for this process.
 	persistedCWD string
 
+	// additionalDirectories are the extra workspace roots the session works
+	// in, on top of CWD (ACP additionalDirectories). They are absolute, in the
+	// order the client sent them, and they are what a confined turn and a
+	// mention treat as inside the workspace beside CWD.
+	additionalDirectories []string
+
 	// Mode is the current operating mode.
 	Mode Mode
 
@@ -187,6 +193,22 @@ type State struct {
 
 	// TitlePinned, when set, is written to session.json and overrides derived titles from the first user message.
 	TitlePinned string
+
+	// titleNotify publishes a change of the title the session is listed under,
+	// whoever moved it: the model naming the conversation, an operator
+	// renaming it, a surface filing it. titleLast is the title the client last
+	// heard, so one change is announced once and a save that moves nothing
+	// announces nothing. Neither moves until titleArmed is set - before the
+	// response naming the session to the client is on the wire, an
+	// announcement would be about a session the client has not registered.
+	// titlePublishMu orders the announcements themselves, so a rename landing
+	// while the ready announcement is between its read and its send still
+	// publishes after it: out-of-order sends would leave the client on the
+	// older name until the next change.
+	titleNotify    func(title string)
+	titleLast      string
+	titleArmed     bool
+	titlePublishMu sync.Mutex
 
 	// Tags are the session's labels, kept normalized (see NormalizeTags) so
 	// every reader compares the same spelling.
@@ -386,6 +408,54 @@ func (s *State) SetCWD(dir string) {
 	s.persistedCWD = ""
 	s.mu.Unlock()
 	s.touchPersist()
+}
+
+// GetAdditionalDirectories returns a copy of the extra workspace roots the
+// session works in, on top of CWD. The copy keeps a caller from reaching back
+// into the state through the slice it was handed.
+func (s *State) GetAdditionalDirectories() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.additionalDirectories) == 0 {
+		return nil
+	}
+	return append([]string(nil), s.additionalDirectories...)
+}
+
+// SetAdditionalDirectories replaces the extra workspace roots and persists
+// session metadata when a store is attached.
+func (s *State) SetAdditionalDirectories(dirs []string) {
+	s.SetAdditionalDirectoriesWithoutPersist(dirs)
+	s.touchPersist()
+}
+
+// SetAdditionalDirectoriesWithoutPersist restores the extra workspace roots
+// from a snapshot without writing.
+func (s *State) SetAdditionalDirectoriesWithoutPersist(dirs []string) {
+	cleaned := make([]string, 0, len(dirs))
+	for _, d := range dirs {
+		if t := strings.TrimSpace(d); t != "" {
+			cleaned = append(cleaned, t)
+		}
+	}
+	s.mu.Lock()
+	if len(cleaned) == 0 {
+		s.additionalDirectories = nil
+	} else {
+		s.additionalDirectories = cleaned
+	}
+	s.mu.Unlock()
+}
+
+// AdditionalDirectoriesForPersist is the stored form of the extra roots: nil
+// for a session that carries none, so session.json keeps the key out.
+func (s *State) AdditionalDirectoriesForPersist() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.additionalDirectories) == 0 {
+		return nil
+	}
+	return append([]string(nil), s.additionalDirectories...)
 }
 
 // setSessionDir records the bundle directory once it exists (child sessions
@@ -1188,14 +1258,19 @@ func normalizeModelID(cfg *config.Config, id string) string {
 	return id
 }
 
-// AddMessage appends a message to the conversation history.
+// AddMessage appends a message to the conversation history. A row stored
+// while the session's goal is active carries the goal's id (llm.Message.Goal).
 func (s *State) AddMessage(msg llm.Message) {
 	s.mu.Lock()
 	placePendingArtifacts(s.Messages, &msg)
+	s.stampGoalLocked(&msg)
 	s.Messages = append(s.Messages, msg)
 	s.markMessagesAppended()
 	s.mu.Unlock()
 	s.touchPersist()
+	// The title derived from the first user message appears with it: this is
+	// the moment a conversation nobody named gets its name.
+	s.notifyTitleIfChanged()
 }
 
 // markMessagesAppended records that messages were added at the end and nothing
@@ -1312,6 +1387,7 @@ func (s *State) ReplaceTitlePinned(text string) bool {
 	s.TitlePinned = next
 	s.mu.Unlock()
 	s.touchPersist()
+	s.notifyTitleIfChanged()
 	return true
 }
 
@@ -1335,6 +1411,7 @@ func (s *State) SetTitlePinnedIfUnset(text string) (title string, written bool) 
 	s.TitlePinned = next
 	s.mu.Unlock()
 	s.touchPersist()
+	s.notifyTitleIfChanged()
 	return next, true
 }
 
@@ -1343,6 +1420,68 @@ func (s *State) SetTitlePinnedWithoutPersist(text string) {
 	s.mu.Lock()
 	s.TitlePinned = strings.TrimSpace(text)
 	s.mu.Unlock()
+}
+
+// SetTitleNotifier installs what a change of the listed title calls once the
+// state lock is released: the manager publishes it (manager.go).
+func (s *State) SetTitleNotifier(fn func(title string)) {
+	s.mu.Lock()
+	s.titleNotify = fn
+	s.mu.Unlock()
+}
+
+// ArmTitleNotify lets title changes reach the client and announces the title
+// the session carries right now, once. Everything before this was a change to
+// a session the client had not registered yet, so announcing it would have
+// been an update for a session id the client did not know; a session nobody
+// has named announces nothing here and is named by its first message instead.
+func (s *State) ArmTitleNotify() {
+	s.titlePublishMu.Lock()
+	defer s.titlePublishMu.Unlock()
+	s.mu.Lock()
+	s.titleArmed = true
+	next := s.effectiveTitleLocked()
+	s.titleLast = next
+	fn := s.titleNotify
+	s.mu.Unlock()
+	if next != "" && fn != nil {
+		fn(next)
+	}
+}
+
+// notifyTitleIfChanged publishes the title the session is listed under when it
+// has moved since the client last heard it. Callers run it after the write
+// that could have moved it, outside the lock that write took.
+func (s *State) notifyTitleIfChanged() {
+	// Held across the read and the send together, so a rename landing while
+	// the ready announcement of ArmTitleNotify is in flight cannot publish
+	// ahead of it and be overwritten by the older name.
+	s.titlePublishMu.Lock()
+	defer s.titlePublishMu.Unlock()
+	s.mu.Lock()
+	fn := s.titleNotify
+	if !s.titleArmed || fn == nil {
+		s.mu.Unlock()
+		return
+	}
+	next := s.effectiveTitleLocked()
+	if next == s.titleLast {
+		s.mu.Unlock()
+		return
+	}
+	s.titleLast = next
+	s.mu.Unlock()
+	fn(next)
+}
+
+// effectiveTitleLocked is the title the session is listed under: the pinned
+// one when there is one, else the one derived from the first user message.
+// Callers hold s.mu.
+func (s *State) effectiveTitleLocked() string {
+	if p := strings.TrimSpace(s.TitlePinned); p != "" {
+		return p
+	}
+	return titleFromMessages(s.Messages)
 }
 
 // GetTags returns a copy of the session tags, so a caller cannot reach back
@@ -1739,7 +1878,8 @@ func (s *State) TakePendingImageParts() []llm.ImagePart {
 	return out
 }
 
-// AppendPlanDocument adds a UI transcript row for a design plan file.
+// AppendPlanDocument adds a UI transcript row for a design plan file. Like any
+// stored row it carries the id of the session's goal while that goal is active.
 func (s *State) AppendPlanDocument(doc plans.Document) {
 	s.mu.Lock()
 	updated := ""
@@ -1752,7 +1892,7 @@ func (s *State) AppendPlanDocument(doc plans.Document) {
 			path = p
 		}
 	}
-	s.Messages = append(s.Messages, llm.Message{
+	row := llm.Message{
 		Role: llm.RoleAssistant,
 		PlanDocument: &llm.PlanDocumentSnapshot{
 			Slug:      doc.Slug,
@@ -1764,7 +1904,9 @@ func (s *State) AppendPlanDocument(doc plans.Document) {
 			UpdatedAt: updated,
 		},
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-	})
+	}
+	s.stampGoalLocked(&row)
+	s.Messages = append(s.Messages, row)
 	s.markMessagesAppended()
 	s.mu.Unlock()
 	s.touchPersist()
@@ -1900,6 +2042,32 @@ func (s *State) SetPlanWithoutPersist(entries []acp.PlanEntry) {
 // there would change this history without touching its revisions - which
 // persistence reads as "nothing moved".
 func (s *State) ReplaceMessagesWithoutPersist(msgs []llm.Message) {
+	s.replaceMessages(msgs, false)
+}
+
+// ReplaceMessagesFromClient replaces the history with the one a client sent
+// along with a request (POST /v1/chat/completions), without persisting.
+//
+// A client cannot send what the server stamped on a row - the goal's id and
+// the risk acknowledgement are never on the wire - so a replacement taken as
+// it comes would erase the evidence the goal's risk gate reads. The rows of
+// msgs that are the stored rows, matched in the stored order (the same role,
+// text, tool call id and tool calls, each stored row once), keep their Goal; a
+// row the client wrote, changed or moved ahead of the stored one carries none,
+// since nothing says the goal stored it. Losing the stamp is the dangerous
+// direction, so it is carried greedily. The acknowledgement is carried only
+// when the match is unambiguous - the matched row is the only stored row equal
+// to the client's - since a client that trims or reorders the history can make
+// the first of several identical rows stand for a later one nobody accepted;
+// a dropped acknowledgement blocks the goal again. Rows only the UI shows,
+// which a client has no way to send, are skipped over.
+func (s *State) ReplaceMessagesFromClient(msgs []llm.Message) {
+	s.replaceMessages(msgs, true)
+}
+
+// replaceMessages is the one replacement both entry points share: it owns a copy
+// of msgs, plan documents included, and swaps it in under the lock.
+func (s *State) replaceMessages(msgs []llm.Message, keepGoalStamps bool) {
 	owned := make([]llm.Message, len(msgs))
 	copy(owned, msgs)
 	for i := range owned {
@@ -1909,9 +2077,91 @@ func (s *State) ReplaceMessagesWithoutPersist(msgs []llm.Message) {
 		}
 	}
 	s.mu.Lock()
+	if keepGoalStamps {
+		carryGoalStamps(owned, s.Messages)
+	}
 	s.Messages = owned
 	s.markMessagesEdited()
 	s.mu.Unlock()
+	// A history replaced from its start may begin with another user message.
+	s.notifyTitleIfChanged()
+}
+
+// carryGoalStamps copies Goal from the stored rows to the rows of next that
+// repeat them, walking both in order: a stored row is matched at most once and
+// only by a row after the one matched before it. RiskAcknowledged goes along
+// only when no other stored row is equal to the matched one. A tool result
+// keeps its Goal only when the assistant row that owned the stored result is
+// the stored row the replayed assistant row before it was matched to: a
+// provider may reuse a call id, and a stamped refusal moved next to an earlier
+// call of the same id would otherwise prove that call never ran.
+func carryGoalStamps(next, stored []llm.Message) {
+	matched := make([]int, len(next))
+	j := 0
+	for i := range next {
+		matched[i] = -1
+		for k := j; k < len(stored); k++ {
+			if !sameWireRow(next[i], stored[k]) {
+				continue
+			}
+			j, matched[i] = k+1, k
+			if next[i].Role == llm.RoleTool {
+				owner := resultOwner(stored, k)
+				if owner < 0 || owner != matchedOwner(next, matched, i) {
+					break
+				}
+			}
+			next[i].Goal = stored[k].Goal
+			next[i].RiskAcknowledged = stored[k].RiskAcknowledged && soleWireRow(stored, k)
+			break
+		}
+	}
+}
+
+// resultOwner is the index of the assistant row whose tool call the tool
+// result at msgs[k] answers: the row that heads the run of results the row
+// sits in (rows only the UI shows may sit between them), when it made a call
+// with the result's id. It is -1 when there is no such row.
+func resultOwner(msgs []llm.Message, k int) int {
+	o := k - 1
+	for o >= 0 && (msgs[o].Role == llm.RoleTool || isUIOnlyRow(msgs[o])) {
+		o--
+	}
+	if o < 0 || msgs[o].Role != llm.RoleAssistant {
+		return -1
+	}
+	for _, call := range msgs[o].ToolCalls {
+		if call.ID == msgs[k].ToolCallID {
+			return o
+		}
+	}
+	return -1
+}
+
+// matchedOwner is the stored row the owner of the replayed result next[i] was
+// matched to, or -1 when it has no owner or the client wrote or changed it.
+func matchedOwner(next []llm.Message, matched []int, i int) int {
+	if o := resultOwner(next, i); o >= 0 {
+		return matched[o]
+	}
+	return -1
+}
+
+// soleWireRow says no stored row other than stored[k] is equal to it on what a
+// client can send back.
+func soleWireRow(stored []llm.Message, k int) bool {
+	for l := range stored {
+		if l != k && sameWireRow(stored[k], stored[l]) {
+			return false
+		}
+	}
+	return true
+}
+
+// sameWireRow says two rows agree on everything a client can send back of a
+// message: its role, text, tool call id and tool calls.
+func sameWireRow(a, b llm.Message) bool {
+	return a.Role == b.Role && a.Content == b.Content && a.ToolCallID == b.ToolCallID && slices.Equal(a.ToolCalls, b.ToolCalls)
 }
 
 // RestoreMetaWithoutPersist restores mode, model/reasoning and memory from disk

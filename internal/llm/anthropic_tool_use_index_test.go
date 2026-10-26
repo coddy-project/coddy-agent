@@ -22,17 +22,35 @@ import (
 // anthropicSSE frames events the way the Messages API streams them.
 func anthropicSSE(t *testing.T, events ...string) string {
 	t.Helper()
+	sse, err := frameAnthropicEvents(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sse
+}
+
+func frameAnthropicEvents(events []string) (string, error) {
 	var b strings.Builder
 	for _, e := range events {
 		var head struct {
 			Type string `json:"type"`
 		}
 		if err := json.Unmarshal([]byte(e), &head); err != nil {
-			t.Fatalf("event %s: %v", e, err)
+			return "", fmt.Errorf("event %s: %w", e, err)
 		}
 		fmt.Fprintf(&b, "event: %s\ndata: %s\n\n", head.Type, e)
 	}
-	return b.String()
+	return b.String(), nil
+}
+
+// anthropicTextAnswerSSE is the stream of a whole answer that says text: what
+// a stub of the Messages API serves a streaming request, Complete's included.
+func anthropicTextAnswerSSE(text string) string {
+	sse, err := frameAnthropicEvents(append(anthropicEvents(anthropicTextBlock(0, text)), anthropicMessageEnd("end_turn")...))
+	if err != nil {
+		panic(err)
+	}
+	return sse
 }
 
 func anthropicMessageStart() string {
@@ -287,8 +305,8 @@ func TestAnthropicStreamCancelKeepsToolUseBehindText(t *testing.T) {
 	}
 }
 
-// The non-streaming reader walks the content blocks in order and has no index
-// to get wrong; this holds it to that.
+// The non-streaming reader (a model with stream: false) walks the content
+// blocks in order and has no index to get wrong; this holds it to that.
 func TestAnthropicCompleteToolUseBehindOtherBlocks(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -301,6 +319,7 @@ func TestAnthropicCompleteToolUseBehindOtherBlocks(t *testing.T) {
 	}))
 	defer srv.Close()
 	p := newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, "")
+	p.blocking = true
 
 	resp, err := p.Complete(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil)
 	if err != nil {

@@ -19,6 +19,11 @@ import { ToolCallMessage } from "./ToolCallMessage";
 import type { BackgroundTask } from "../tasks/types";
 import type { TurnProgress } from "../chat/turnProgress";
 import { TypingDotsMessage } from "./TypingDotsMessage";
+import {
+  TodoChecklistMessage,
+  useTodoChecklistShown,
+} from "./TodoChecklistMessage";
+import type { TodoPlanEntry } from "../chat/todoToolPreview";
 import { UserMessage } from "./UserMessage";
 import {
   artifactMarkerIds,
@@ -100,6 +105,9 @@ export function MessageList(props: {
   onOpenTasks?: () => void;
   /** Inserts an artifact source mention into the active composer. */
   onMentionArtifact?: (path: string) => void;
+  /** The session's todo checklist, shown at the tail while it has work left
+   *  or the turn that closed it runs. */
+  todoPlan?: readonly TodoPlanEntry[];
 }) {
   // Tasks the tail has to speak for itself: while the turn runs, its own line counts them.
   const tailTasks =
@@ -128,32 +136,19 @@ export function MessageList(props: {
     [props.items, props.userMsgIndexBase],
   );
 
-  // The answer that closes each turn is the only one with an action row: the answers a
-  // turn leaves behind between tool calls would otherwise stack the same copy button and
-  // the same minute down the transcript. Every finished turn keeps its own, so an older
-  // answer stays copyable; the turn still running does not, because its last answer is
-  // not yet the answer.
-  const turnClosingAssistantIds = useMemo(() => {
-    const ids = new Set<string>();
-    let seenInTurn = false;
-    // Walking back, everything after the last user message belongs to the turn in
-    // flight; its answers are not final yet, however many of them have arrived.
-    let inRunningTurn = props.generating === true;
-    for (let i = props.items.length - 1; i >= 0; i--) {
-      const item = props.items[i];
-      if (!item) continue;
-      if (opensTurn(item)) {
-        seenInTurn = false;
-        inRunningTurn = false;
-        continue;
-      }
-      if (item.type !== "assistant_message") continue;
-      if (seenInTurn) continue;
-      seenInTurn = true;
-      if (!inRunningTurn) ids.add(item.id);
-    }
-    return ids;
-  }, [props.generating, props.items]);
+  // Which turn the newest prompt opened: the server's count of prompts before
+  // the window plus the ones in it, so a page loaded above changes nothing and
+  // a queued follow-up the same admitted turn runs is a new turn here.
+  const turnKey = useMemo(
+    () => (props.userMsgIndexBase ?? 0) + props.items.filter(opensTurn).length,
+    [props.items, props.userMsgIndexBase],
+  );
+  const todoChecklistOnScreen = useTodoChecklistShown(
+    props.todoPlan,
+    props.generating === true,
+    (props.sessionId ?? "").trim(),
+    turnKey,
+  );
 
   // What the running turn is doing right now, for the label next to the typing dots.
   const liveStatus = useMemo(
@@ -194,7 +189,7 @@ export function MessageList(props: {
         if (it.type === "user_message") {
           const myIdx = userMsgIndexById.get(it.id);
           // A missing index must not fall back to 0: a rewind names the first
-          // user message by it, so without one the pencil stays off.
+          // user message by it, so without one the edit control stays off.
           return (
             <UserMessage
               key={it.id}
@@ -204,8 +199,9 @@ export function MessageList(props: {
               {...(props.knownSkillNames
                 ? { knownSkillNames: props.knownSkillNames }
                 : {})}
+              {...(myIdx !== undefined ? { userMsgIndex: myIdx } : {})}
               {...(props.onEdit && myIdx !== undefined
-                ? { onEdit: props.onEdit, userMsgIndex: myIdx }
+                ? { onEdit: props.onEdit }
                 : {})}
               {...(it.files && it.files.length > 0 ? { files: it.files } : {})}
               {...(myIdx !== undefined && props.editingUserMsgIdx === myIdx
@@ -279,7 +275,6 @@ export function MessageList(props: {
               {...(props.onMentionArtifact
                 ? { onMentionArtifact: props.onMentionArtifact }
                 : {})}
-              showFoot={turnClosingAssistantIds.has(it.id)}
               {...(typeof it.streaming === "boolean"
                 ? { streaming: it.streaming }
                 : {})}
@@ -437,6 +432,15 @@ export function MessageList(props: {
       })}
       {/* The tail rows below belong under the newest message: a window cut short
           of it (the reader deep in history) leaves them out. */}
+      {/* The todo checklist sits right above the live line, so the item the
+          agent is on reads next to what it is doing now. */}
+      {renderEnd === props.items.length ? (
+        <TodoChecklistMessage
+          sessionId={(props.sessionId ?? "").trim()}
+          entries={props.todoPlan}
+          shown={todoChecklistOnScreen}
+        />
+      ) : null}
       {/* The live line stands under the transcript for the whole turn and always
           says what is happening, in general words at least. It used to vanish once
           the turn had written any text and to fall silent under a reasoning row,
@@ -470,6 +474,12 @@ export function MessageList(props: {
           runningTasks={tailTasks}
           {...(props.onOpenTasks ? { onOpenTasks: props.onOpenTasks } : {})}
         />
+      ) : null}
+      {/* Between turns keep an empty slot with the base line's padding. */}
+      {props.generating !== true &&
+      tailTasks === 0 &&
+      renderEnd === props.items.length ? (
+        <TypingDotsMessage idle={true} />
       ) : null}
     </>
   );

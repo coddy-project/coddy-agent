@@ -26,7 +26,7 @@ const (
 	// codexClientID is the public OAuth client id the Codex CLI registers with.
 	codexClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
 	// codexTokenURL is the OAuth token endpoint used to refresh the access token.
-	codexTokenURL = "https://auth.openai.com/oauth/token"
+	codexTokenURL = "https://auth.openai.com/oauth/token" //nolint:gosec // G101: the address of the OAuth token endpoint, not a credential
 	// codexDefaultBaseURL is the Codex backend that serves the Responses API for
 	// ChatGPT-authenticated sessions.
 	codexDefaultBaseURL = "https://chatgpt.com/backend-api/codex"
@@ -239,7 +239,7 @@ func (s *codexAuthSource) save(path string, auth *codexAuthFile) error {
 	if data, err := os.ReadFile(path); err == nil {
 		_ = json.Unmarshal(data, &raw)
 	}
-	tokensJSON, err := json.Marshal(auth.Tokens)
+	tokensJSON, err := json.Marshal(auth.Tokens) //nolint:gosec // G117: the tokens go back into the Codex auth.json they came from, written 0600
 	if err != nil {
 		return err
 	}
@@ -301,6 +301,38 @@ func InspectCodexAuth(path string, cliLogin bool) (CodexAuthStatus, error) {
 		return CodexAuthStatus{Connected: connected, Source: candidate.source, AccountID: auth.Tokens.AccountID}, nil
 	}
 	return CodexAuthStatus{}, nil
+}
+
+// CodexLoginStored reports whether path, or the Codex CLI login when cliLogin
+// allows it, holds a ChatGPT sign-in, the way InspectCodexAuth decides it but
+// without the lock a token refresh holds through its request: a surface asks
+// this while it draws. Only a regular file counts, and one that cannot be read
+// or parsed counts as signed in, since a refresh rewrites it in place.
+func CodexLoginStored(path string, cliLogin bool) bool {
+	candidates := []string{strings.TrimSpace(path)}
+	if cliPath := codexAuthPath(); cliLogin && cliPath != "" {
+		candidates = append(candidates, cliPath)
+	}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		fi, err := os.Stat(candidate)
+		if err != nil || !fi.Mode().IsRegular() {
+			continue
+		}
+		data, err := os.ReadFile(candidate)
+		if err != nil {
+			return true
+		}
+		var auth codexAuthFile
+		if err := json.Unmarshal(data, &auth); err != nil {
+			return true
+		}
+		return (auth.AuthMode == "" || auth.AuthMode == codexAuthModeChatGPT) &&
+			(strings.TrimSpace(auth.Tokens.AccessToken) != "" || strings.TrimSpace(auth.Tokens.RefreshToken) != "")
+	}
+	return false
 }
 
 // CodexAuthNotice is one startup observation about a codex provider credential.

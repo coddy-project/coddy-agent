@@ -683,7 +683,7 @@ func swarmFingerprint(c *config.Config) string {
 	}
 	s := c.Swarm
 	s.Host, s.Port = "", 0
-	raw, err := json.Marshal(s)
+	raw, err := json.Marshal(s) //nolint:gosec // G117: a fingerprint compared in memory to decide a rebuild, never written out
 	if err != nil {
 		return ""
 	}

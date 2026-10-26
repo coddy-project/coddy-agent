@@ -156,6 +156,8 @@ func (s *State) TruncateMessagesBeforeUserN(n int, turnActive func() bool) (cutM
 	s.markMessagesEdited()
 	s.mu.Unlock()
 	s.touchPersist()
+	// A cut before the first user message takes away the title it derived.
+	s.notifyTitleIfChanged()
 	return cutMsgs, cutUILog, nil
 }
 

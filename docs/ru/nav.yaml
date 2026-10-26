@@ -186,10 +186,10 @@ pages:
       summary: "Switching the model, reasoning level, mode and permission mode from the conversation with /model, /reasoning, /think, /nothink, /agent, /plan, /ask and /permissions, for the session or the next turns, the permission dialog's session switch, and the model switching itself."
   features/session-supervisor.md:
     title: "Цель сессии и супервизор"
-    summary: "/goal держит агента за работой, пока вторая модель, оценив факты, не признает цель достигнутой, а проверяющий с правами только на чтение не подтвердит это; продолжения, бюджеты, сторож от зависаний и циклов."
+    summary: "/goal держит агента за работой, пока вторая модель, оценив факты, не признает цель достигнутой, а проверяющий с правами только на чтение не подтвердит это; продолжения, бюджеты, сторож от зависаний и циклов, шлюз рисков, который блокирует цель при изменениях docker и миграций."
     en:
       title: "Session goal and supervisor"
-      summary: "/goal keeps the agent working until a second model, judging the evidence, finds the objective met and a read-only verifier confirms it; continuations, budgets, the watchdog for stalls and loops."
+      summary: "/goal keeps the agent working until a second model, judging the evidence, finds the objective met and a read-only verifier confirms it; continuations, budgets, the watchdog for stalls and loops, the risk gate that blocks docker and migration changes."
   features/sessions.md:
     title: "Сессии"
     summary: "Бандлы сессий на диске, возобновление, откат истории при правке сообщения, чек-листы задач, команда sessions."
@@ -520,6 +520,12 @@ pages:
     en:
       title: "ZCode hooks"
       summary: "Deterministic delivery of the Cursor rules to ZCode sessions working on this repository."
+  contributing/kimi-code-hooks.md:
+    title: "Хуки Kimi Code"
+    summary: "Детерминированная доставка правил Cursor в сессии Kimi Code, которые работают с этим репозиторием."
+    en:
+      title: "Kimi Code hooks"
+      summary: "Deterministic delivery of the Cursor rules to Kimi Code sessions working on this repository."
   contributing/syntax-highlighting-audit.md:
     title: "Аудит подсветки синтаксиса"
     summary: "Аудит подсветки кода в семи темах от NeuralDeep, его фикстуры и как запустить его повторно."
