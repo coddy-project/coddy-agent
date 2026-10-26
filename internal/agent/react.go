@@ -1197,10 +1197,18 @@ func (a *Agent) runReActLoop(
 		announced := make(map[string]bool)
 		agentTools := a.newAgentToolRows(sessionID)
 		a.stepAgentTools = agentTools
+		// The calls of this response get ids no other call of the session
+		// carries, before the stream announces any of them (tool_call_ids.go).
+		callSessionDir := ""
+		if st := sessionStatePtr(a.state); st != nil {
+			callSessionDir = st.GetPersistedSessionDir()
+		}
+		callIDs := newToolCallIDs(messages, callSessionDir)
 		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
 			}
+			chunk = callIDs.chunk(chunk)
 			now := time.Now()
 			chunkCount++
 			if firstChunkAt.IsZero() {
@@ -1301,6 +1309,9 @@ func (a *Agent) runReActLoop(
 				})
 			}
 		})
+		if response != nil {
+			response.ToolCalls = callIDs.calls(response.ToolCalls)
+		}
 		// The agent's calls the stream left open end with it.
 		switch {
 		case streamErr == nil:

@@ -388,6 +388,10 @@ type subagentsFeatureState struct {
 	childStepsByName     map[string]func() []scriptStep
 	childSteps           func() []scriptStep
 	release              chan struct{}
+	// parentCalls numbers the calls the parent model makes, so every call of
+	// the session has an id of its own, as a provider gives it: an id an
+	// earlier call carries would be suffixed by the agent (tool_call_ids.go).
+	parentCalls int
 	// childFail is handed to every child provider: which of its calls lose
 	// the connection. childOutage is the switch of a provider that is down.
 	childFail   func(call int) (partial string, err error)
@@ -431,6 +435,7 @@ func (s *subagentsFeatureState) reset() error {
 	s.childFail = nil
 	s.childOutage.Store(false)
 	s.release = make(chan struct{})
+	s.parentCalls = 0
 	s.spawnResults = nil
 	s.waitResults = nil
 	s.lastChildID = ""
@@ -646,6 +651,12 @@ func (s *subagentsFeatureState) runParentTurn(steps ...scriptStep) (map[string]s
 	return results, nil
 }
 
+// parentCallID returns the next id of a parent call: base and its number.
+func (s *subagentsFeatureState) parentCallID(base string) string {
+	s.parentCalls++
+	return fmt.Sprintf("%s_%d", base, s.parentCalls)
+}
+
 func (s *subagentsFeatureState) noteLastAgentTask() {
 	tasks := bgtask.Default().List(s.parent.ID)
 	for i := len(tasks) - 1; i >= 0; i-- {
@@ -733,11 +744,12 @@ func (s *subagentsFeatureState) spawnBackground(agent, answer string) error {
 
 func (s *subagentsFeatureState) spawnWith(agent string, background bool) error {
 	s.lastAgentName = agent
-	results, err := s.runParentTurn(toolStep(spawnCall("call_spawn", agent, background)), answerStep("parent done"))
+	id := s.parentCallID("call_spawn")
+	results, err := s.runParentTurn(toolStep(spawnCall(id, agent, background)), answerStep("parent done"))
 	if err != nil {
 		return err
 	}
-	res, ok := results["call_spawn"]
+	res, ok := results[id]
 	if !ok {
 		return fmt.Errorf("spawn_agent produced no tool result")
 	}
@@ -857,11 +869,12 @@ func (s *subagentsFeatureState) resumeLastRun(prompt string) error {
 	if m == nil {
 		return fmt.Errorf("the last spawn_agent result %q names no spawn_agent resume call", res)
 	}
-	results, err := s.runParentTurn(toolStep(resumeCall("call_resume", s.lastAgentName, m[1], prompt)), answerStep("parent done"))
+	id := s.parentCallID("call_resume")
+	results, err := s.runParentTurn(toolStep(resumeCall(id, s.lastAgentName, m[1], prompt)), answerStep("parent done"))
 	if err != nil {
 		return err
 	}
-	out, ok := results["call_resume"]
+	out, ok := results[id]
 	if !ok {
 		return fmt.Errorf("the resuming spawn_agent produced no tool result")
 	}
@@ -928,11 +941,12 @@ func (s *subagentsFeatureState) spawnBackgroundAskingDuringTurn(agent, answer st
 		}
 		return answerStep("parent done")(messages, defs, onChunk)
 	}
-	results, err := s.runParentTurn(toolStep(spawnCall("call_spawn", agent, true)), untilChildAsks)
+	id := s.parentCallID("call_spawn")
+	results, err := s.runParentTurn(toolStep(spawnCall(id, agent, true)), untilChildAsks)
 	if err != nil {
 		return err
 	}
-	res, ok := results["call_spawn"]
+	res, ok := results[id]
 	if !ok {
 		return fmt.Errorf("spawn_agent produced no tool result")
 	}

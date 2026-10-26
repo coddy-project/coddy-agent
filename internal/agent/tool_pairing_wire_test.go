@@ -148,6 +148,12 @@ func TestPromptCacheCallObserverLeavesRequestsAlone(t *testing.T) {
 			f := newRetryBudgetFixture(t, nil, 10, "tool", "answer")
 			// One workspace for both runs: the system prompt names it.
 			f.st.CWD, f.st.SessionDir = cwd, sessionDir
+			// Each run is a new session on the same bundle path. The record the
+			// first run left under tool_calls/ would hold its call id, and the
+			// second run's call would be renamed (tool_call_ids.go).
+			if err := os.RemoveAll(filepath.Join(sessionDir, "tool_calls")); err != nil {
+				t.Fatal(err)
+			}
 			f.st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "Earlier question."})
 			f.st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "Earlier answer."})
 			var ticks atomic.Int64
