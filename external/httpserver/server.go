@@ -410,6 +410,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		Created          int64    `json:"created"`
 		OwnedBy          string   `json:"owned_by"`
 		MaxContextTokens int      `json:"max_context_tokens,omitempty"`
+		ContextLength    int      `json:"context_length,omitempty"`
 		Multimodal       bool     `json:"multimodal,omitempty"`
 		ReasoningLevels  []string `json:"reasoning_levels,omitempty"`
 		ReasoningDefault string   `json:"reasoning_default,omitempty"`
@@ -431,7 +432,9 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	if cfg != nil {
 		// max_context_tokens is the window the composer ring draws against,
 		// so it is the one the session's compaction trigger measures against
-		// (session.Manager.ContextWindow). A model without the key reads its
+		// (session.Manager.ContextWindow). context_length repeats it under
+		// OpenRouter's spelling, the one OpenAI-compatible clients read,
+		// another Coddy's provider included (issue #575). A model without the key reads its
 		// provider's listing: wait a bounded moment for one never read.
 		refs := make([]string, 0, len(cfg.Models))
 		for i := range cfg.Models {
@@ -452,6 +455,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 			Created:          0,
 			OwnedBy:          ownedByCoddySession,
 			MaxContextTokens: profileWindow,
+			ContextLength:    profileWindow,
 		})
 	}
 	if cfg != nil {
@@ -465,12 +469,14 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 			if mid == "" {
 				continue
 			}
+			window := s.contextWindowFor(cfg, mid)
 			out.Data = append(out.Data, modelObj{
 				ID:               mid,
 				Object:           "model",
 				Created:          0,
 				OwnedBy:          ent.ProviderName(),
-				MaxContextTokens: s.contextWindowFor(cfg, mid),
+				MaxContextTokens: window,
+				ContextLength:    window,
 				Multimodal:       ent.Multimodal,
 				ReasoningLevels:  cfg.ReasoningChoicesFor(ent),
 				ReasoningDefault: cfg.DefaultReasoningLevelFor(ent),

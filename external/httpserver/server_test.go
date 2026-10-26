@@ -89,6 +89,7 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 			Object           string `json:"object"`
 			OwnedBy          string `json:"owned_by"`
 			MaxContextTokens int    `json:"max_context_tokens"`
+			ContextLength    int    `json:"context_length"`
 			Default          bool   `json:"default"`
 		} `json:"data"`
 	}
@@ -117,6 +118,11 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 		}
 		if item.MaxContextTokens <= 0 {
 			t.Fatalf("row %d: expected max_context_tokens, got %+v", i, item)
+		}
+		// context_length is OpenRouter's spelling of the same window, the one
+		// OpenAI-compatible clients read (issue #575).
+		if item.ContextLength != item.MaxContextTokens {
+			t.Fatalf("row %d: context_length = %d, want max_context_tokens %d", i, item.ContextLength, item.MaxContextTokens)
 		}
 	}
 }

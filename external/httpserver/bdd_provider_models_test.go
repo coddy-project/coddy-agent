@@ -278,6 +278,65 @@ func (w *providerModelsWorld) serve(t *testing.T, cfg *config.Config, home strin
 	t.Cleanup(w.ts.Close)
 }
 
+// sourceCoddyServing starts another Coddy API as the upstream: its models
+// sit on a provider named "local" and carry their windows as
+// max_context_tokens, given as "id:32768", so that Coddy reports them from
+// its own configuration and never asks its provider.
+func (w *providerModelsWorld) sourceCoddyServing(t *testing.T, csv string) error {
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "local", Type: "openai", APIKey: "k"}},
+	}
+	for _, entry := range strings.Split(csv, ",") {
+		id, window, ok := strings.Cut(strings.TrimSpace(entry), ":")
+		n, err := strconv.Atoi(window)
+		if !ok || err != nil {
+			return fmt.Errorf("source model %q: want id:window", entry)
+		}
+		cfg.Models = append(cfg.Models, config.ModelEntry{Model: "local/" + id, MaxContextTokens: n})
+	}
+	cfg.Agent.Model = cfg.Models[0].Model
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	home := t.TempDir()
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	w.upstream = httptest.NewServer(New(cfg, mgr, slog.Default(), home).Handler())
+	t.Cleanup(w.upstream.Close)
+	return nil
+}
+
+// gatewayWithModelsAtSource boots the client Coddy: a provider of type openai
+// at the source Coddy's /v1, and models on it that set no max_context_tokens,
+// so their windows come from the source's listing.
+func (w *providerModelsWorld) gatewayWithModelsAtSource(t *testing.T, name, csv string) error {
+	if w.upstream == nil {
+		return fmt.Errorf("source not started")
+	}
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.yaml")
+	yml := fmt.Sprintf(`providers:
+  - name: %s
+    type: openai
+    api_base: %s/v1
+    api_key: sk-src
+models:
+`, name, w.upstream.URL)
+	ids := strings.Split(csv, ",")
+	for _, id := range ids {
+		yml += fmt.Sprintf("  - model: %s/%s\n    max_tokens: 4096\n", name, strings.TrimSpace(id))
+	}
+	yml += fmt.Sprintf("agent:\n  model: %s/%s\n", name, strings.TrimSpace(ids[0]))
+	if err := os.WriteFile(cfgPath, []byte(yml), 0o644); err != nil {
+		return err
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return err
+	}
+	w.serve(t, cfg, home)
+	return nil
+}
+
 func (w *providerModelsWorld) gatewayWithUnrelatedProvider(t *testing.T, name string) error {
 	return w.startGateway(t, fmt.Sprintf(`providers:
   - name: %s
@@ -473,6 +532,12 @@ func TestProviderModelsFetchFeature(t *testing.T) {
 			})
 			sc.Step(`^a coddy server holding a provider "([^"]*)" of type "([^"]*)" at that upstream with key "([^"]*)"$`, func(name, providerType, key string) error {
 				return w.gatewayWithProviderAtUpstream(t, name, providerType, key)
+			})
+			sc.Step(`^a source coddy server serving "([^"]*)"$`, func(csv string) error {
+				return w.sourceCoddyServing(t, csv)
+			})
+			sc.Step(`^a coddy server whose provider "([^"]*)" at that source lists the models "([^"]*)"$`, func(name, csv string) error {
+				return w.gatewayWithModelsAtSource(t, name, csv)
 			})
 			sc.Step(`^a stand-in Codex backend whose catalog offers "([^"]*)" from Codex (\d+\.\d+\.\d+)$`, func(csv, minVersion string) error {
 				return w.codexCatalogStandIn(t, csv, minVersion)
