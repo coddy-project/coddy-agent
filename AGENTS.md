@@ -103,7 +103,7 @@ How they apply here:
 
 **`AGENTS.md`** is the repository-wide baseline, and **`CLAUDE.md`** remains its compatibility symlink. Cursor and Claude Code use paired native rule trees under **`.cursor/rules/`** and **`.claude/rules/`**. Their bodies and activation intent stay equivalent, but neither vendor tree is a universal policy format.
 
-Codex, OpenCode and ZCode use repository adapters that read **`.cursor/rules/*.mdc`**. The Cursor tree is the adapters' input as well as Cursor's native representation; it is not the conceptual owner of project policy. Run **`make test-agent-rules`** after changing an adapter or rule frontmatter.
+Codex, OpenCode, ZCode and Kimi Code use repository adapters that read **`.cursor/rules/*.mdc`**. The Cursor tree is the adapters' input as well as Cursor's native representation; it is not the conceptual owner of project policy. Run **`make test-agent-rules`** after changing an adapter or rule frontmatter.
 
 A scoped model rule is context, not an enforcement boundary. Hooks and plugins can be untrusted, disabled, fail open or miss an opaque write, so critical trust, security and destructive-operation constraints stay in root policy, code, permissions, tests or CI.
 
@@ -125,6 +125,10 @@ The project plugin **`.opencode/plugins/project-rules.js`** injects always-on an
 ### ZCode
 
 **`.zcode/config.json`** wires **`.zcode/hooks/attach_rules.py`** to `SessionStart` and `PreToolUse` on `Edit` / `Write` / `MultiEdit` / `ApplyPatch`. The behavior matches the Codex adapter, but ZCode supplies edited paths as structured JSON fields. Configuration-file hooks run because the committed config sets `hooks.enabled: true`; there is no per-hook trust prompt. The command uses `python` rather than the Microsoft Store `python3` stub on Windows. See **`docs/contributing/zcode-hooks.md`**.
+
+### Kimi Code
+
+Kimi Code reads hook declarations only from the user-level **`~/.kimi-code/config.toml`** and runs them in every project, so each contributor merges the versioned **`.kimi-code/hooks.toml`** fragment into that file and starts a new session; like the Codex hook, its commands run the script of the checkout the session works in, found with `git rev-parse --show-toplevel`. It runs **`.kimi-code/hooks/attach_rules.py`** on `UserPromptSubmit`, which appends the always-on rules to the first prompt of a session, on `PreToolUse` for `Edit` / `Write`, which refuses the first call that touches files under scoped rules not sent yet and gives those rules as the reason, and on `PostCompact`, which forgets what was sent. Kimi Code (checked against 2.3.2) discards the output of a `SessionStart` hook and of a `PreToolUse` hook that lets the call run, so the script shares the ZCode adapter's parsing, matching, locking and state but not its delivery. The script issues a refusal only once it is recorded, and every command ends in `|| exit 0`, because Kimi Code reads exit code 2, which Python returns for a missing script, as a refusal. See **`docs/contributing/kimi-code-hooks.md`**.
 
 ## Code review invariants
 

@@ -117,6 +117,7 @@ How Coddy is built, tested, documented and released.
 - [Codex hooks](contributing/codex-hooks.md) - How the Cursor rules reach a Codex CLI session working on this repository.
 - [OpenCode hooks](contributing/opencode-hooks.md) - Deterministic delivery of the Cursor rules to OpenCode sessions working on this repository.
 - [ZCode hooks](contributing/zcode-hooks.md) - Deterministic delivery of the Cursor rules to ZCode sessions working on this repository.
+- [Kimi Code hooks](contributing/kimi-code-hooks.md) - Deterministic delivery of the Cursor rules to Kimi Code sessions working on this repository.
 - [Syntax highlighting audit](contributing/syntax-highlighting-audit.md) - The NeuralDeep audit of code highlighting across the seven themes, its fixtures and how to re-run it.
 - [Agent notes](../AGENTS.md) - The repository map and contributor notes for coding agents.
 <!-- docsgen:nav:end -->

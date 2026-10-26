@@ -101,26 +101,27 @@ func (s *cliTUIState) buildExampleConfigApp() error {
 	if err := s.loginStand.setenv("OPENAI_API_KEY", ""); err != nil {
 		return err
 	}
-	if err := s.buildFreshApp(); err != nil {
-		return err
-	}
-	if err := os.WriteFile(s.cfg.Paths.ConfigPath, []byte(exampleConfig), 0o644); err != nil {
-		return err
-	}
-	loaded, err := config.LoadWithPaths(s.cfg.Paths)
+	bare, err := s.freshConfig()
 	if err != nil {
 		return err
 	}
-	loaded.Tools.PermissionMode = s.cfg.Tools.PermissionMode
-	loaded.Rules.AutoDiscover = s.cfg.Rules.AutoDiscover
-	// The app and the manager were built over the bare configuration; both
-	// take the loaded one the way a start of coddy would have read it.
-	*s.cfg = *loaded
-	return nil
+	if err := os.WriteFile(bare.Paths.ConfigPath, []byte(exampleConfig), 0o644); err != nil {
+		return err
+	}
+	loaded, err := config.LoadWithPaths(bare.Paths)
+	if err != nil {
+		return err
+	}
+	loaded.Tools.PermissionMode = bare.Tools.PermissionMode
+	loaded.Rules.AutoDiscover = bare.Rules.AutoDiscover
+	// The app and the manager start over the loaded configuration, the way a
+	// start of coddy reads it. Replacing it afterwards raced with the
+	// manager's watchers, which read it from the moment they start.
+	return s.buildAppOver(loaded)
 }
 
 func (s *cliTUIState) configNamesAgentModel(model string) error {
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(within(3 * time.Second))
 	for {
 		cfg, err := config.LoadWithPaths(s.cfg.Paths)
 		if err == nil && cfg.Agent.Model == model {
@@ -140,12 +141,22 @@ func (s *cliTUIState) configNamesAgentModel(model string) error {
 // buildFreshApp assembles the console over a home with no config.yaml: no
 // provider, no model, the paths a sign-in writes config.yaml to.
 func (s *cliTUIState) buildFreshApp() error {
+	cfg, err := s.freshConfig()
+	if err != nil {
+		return err
+	}
+	return s.buildAppOver(cfg)
+}
+
+// freshConfig makes the scenario's home, with no config.yaml in it, and the
+// bare configuration over it.
+func (s *cliTUIState) freshConfig() (*config.Config, error) {
 	s.home = filepath.Join(os.TempDir(), fmt.Sprintf("coddy-cli-login-%d", time.Now().UnixNano()))
 	s.homes = append(s.homes, s.home)
 	s.cwd = filepath.Join(s.home, "work")
 	for _, d := range []string{s.home, s.cwd, filepath.Join(s.home, "sessions")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	noAuto := false
@@ -156,6 +167,11 @@ func (s *cliTUIState) buildFreshApp() error {
 	}}
 	cfg.Tools.PermissionMode = "ask"
 	cfg.Rules.AutoDiscover = &noAuto
+	return cfg, nil
+}
+
+// buildAppOver assembles the console and its manager over cfg.
+func (s *cliTUIState) buildAppOver(cfg *config.Config) error {
 	s.cfg = cfg
 	s.store = &session.FileStore{Root: filepath.Join(s.home, "sessions")}
 
@@ -263,7 +279,7 @@ func (s *cliTUIState) modelSelectorOffers(model string) error {
 // with its description. The header's /login line names the command too, so
 // a word anywhere on the screen proves nothing.
 func (s *cliTUIState) slashMenuOffers(name string) error {
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(within(3 * time.Second))
 	for time.Now().Before(deadline) {
 		for _, line := range strings.Split(s.screenText(), "\n") {
 			fields := strings.Fields(line)

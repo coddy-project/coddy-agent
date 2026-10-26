@@ -126,7 +126,7 @@ func (s *cliImageState) markupWasShown(w, h int) error {
 // receivedPictures waits for the first stub turn and checks the pictures its
 // prompt carried.
 func (s *cliImageState) receivedPictures(n int) error {
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(within(5 * time.Second))
 	for time.Now().Before(deadline) {
 		s.cliTUIState.mu.Lock()
 		got := len(s.pictures)
@@ -175,7 +175,7 @@ func decodeDataURL(u string) ([]byte, error) {
 }
 
 func (s *cliImageState) queuedCarries(text string, n int) error {
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(within(5 * time.Second))
 	for time.Now().Before(deadline) {
 		rows, err := s.app.mgr.QueuedTurnMessages(s.app.sessionID)
 		if err != nil {
@@ -286,7 +286,7 @@ func (s *cliImageState) sessionKeepsThePicture() error {
 	if err := s.onLoop(2*time.Second, func() { id = s.app.sessionID }); err != nil {
 		return err
 	}
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(within(5 * time.Second))
 	for {
 		snap, err := s.store.ReadSnapshot(id)
 		if err == nil {
