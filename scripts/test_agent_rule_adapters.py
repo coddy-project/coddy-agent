@@ -657,20 +657,6 @@ class KimiCodeAdapterTest(unittest.TestCase):
         self.assertIn("Always follow the repository workflow.", self.prompt())
         self.assertIn("Every provider request follows its proxy.", self.edit())
 
-    def test_sessions_outside_the_checkout_get_nothing(self):
-        always_rule(self.rules_dir)
-        list_rule(self.rules_dir)
-        with tempfile.TemporaryDirectory() as outside:
-            self.assertIsNone(self.prompt(cwd=outside))
-            self.assertIsNone(self.edit({"path": str(ROOT / "internal" / "llm" / "openai.go")}, cwd=outside))
-        nested = self.root / "nested-worktree"
-        nested.mkdir()
-        (nested / ".git").write_text("gitdir: /elsewhere/.git/worktrees/nested\n", encoding="utf-8")
-        self.assertIsNone(self.prompt(cwd=str(nested)))
-        self.assertIsNone(self.edit(cwd=str(nested)))
-        self.assertFalse(self.state_dir.exists())
-        self.assertIn("Always follow the repository workflow.", self.prompt(cwd=str(ROOT / "internal")))
-
     def test_relative_paths_resolve_from_the_session_folder(self):
         list_rule(self.rules_dir)
         reason = self.edit({"path": "llm/openai.go"}, cwd=str(ROOT / "internal"))
@@ -734,7 +720,7 @@ class KimiCodeAdapterTest(unittest.TestCase):
 
 class KimiCodeFragmentTest(unittest.TestCase):
     FRAGMENT = ROOT / ".kimi-code" / "hooks.toml"
-    PLACEHOLDER = "/path/to/coddy-agent"
+    COMMAND = 'python3 "$(git rev-parse --show-toplevel)/.kimi-code/hooks/attach_rules.py" || exit 0'
 
     def hooks(self) -> list[dict]:
         try:
@@ -758,26 +744,24 @@ class KimiCodeFragmentTest(unittest.TestCase):
         for tool in ("Bash", "Read", "MultiEdit"):
             self.assertNotRegex(tool, matcher)
 
-    def test_commands_run_the_checkout_script_by_absolute_path(self):
-        script = self.PLACEHOLDER + "/.kimi-code/hooks/attach_rules.py"
+    def test_commands_run_the_script_of_the_session_repository(self):
         for hook in self.hooks():
-            self.assertEqual(f"python3 {script} || exit 0", hook["command"])
+            self.assertEqual(self.COMMAND, hook["command"])
 
-    @unittest.skipIf(os.name == "nt", "the commands are run here through sh")
-    def test_commands_never_block_an_edit_outside_the_checkout(self):
-        command = next(hook["command"] for hook in self.hooks() if hook["event"] == "PreToolUse")
+    @unittest.skipIf(os.name == "nt" or shutil.which("git") is None, "the commands are run here through sh and git")
+    def test_commands_never_block_an_edit_outside_the_repository(self):
         payload = {
             "hook_event_name": "PreToolUse",
             "session_id": "fragment-case",
             "tool_name": "Edit",
             "tool_input": dict(KIMI_EDIT),
         }
-        with tempfile.TemporaryDirectory() as outside:
-            env = dict(os.environ, KIMI_CODE_RULES_STATE_DIR=str(Path(outside) / "state"))
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ, KIMI_CODE_RULES_STATE_DIR=str(Path(tmp) / "state"))
 
-            def run(checkout: Path, cwd: Path) -> subprocess.CompletedProcess:
+            def run(cwd: Path) -> subprocess.CompletedProcess:
                 return subprocess.run(
-                    ["sh", "-c", command.replace(self.PLACEHOLDER, str(checkout))],
+                    ["sh", "-c", self.COMMAND],
                     cwd=cwd,
                     input=json.dumps({**payload, "cwd": str(cwd)}),
                     capture_output=True,
@@ -786,12 +770,17 @@ class KimiCodeFragmentTest(unittest.TestCase):
                     timeout=30,
                 )
 
-            # A path that went stale: Python exits 2, which Kimi Code reads as a refusal.
-            stale = run(Path(outside) / "moved-checkout", Path(outside))
-            self.assertEqual(0, stale.returncode, stale.stderr)
-            elsewhere = run(ROOT, Path(outside))
-            self.assertEqual((0, ""), (elsewhere.returncode, elsewhere.stdout))
-            inside = run(ROOT, ROOT)
+            # Outside a repository, or in one without the script, Python exits
+            # 2, which Kimi Code reads as a refusal.
+            plain = Path(tmp) / "plain"
+            plain.mkdir()
+            other = Path(tmp) / "other-repository"
+            other.mkdir()
+            subprocess.run(["git", "init", "-q", str(other)], check=True)
+            for cwd in (plain, other):
+                result = run(cwd)
+                self.assertEqual((0, ""), (result.returncode, result.stdout), result.stderr)
+            inside = run(ROOT)
             self.assertEqual(0, inside.returncode, inside.stderr)
             self.assertEqual("deny", json.loads(inside.stdout)["hookSpecificOutput"]["permissionDecision"])
 

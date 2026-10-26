@@ -27,14 +27,13 @@ A refusal carries at most 45,000 characters, because Kimi Code moves a longer to
 Kimi Code reads hook declarations only from the **user-level** `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`) and runs them in every project, from the folder the session works in. The repository therefore ships `.kimi-code/hooks.toml` as a fragment to merge, not as a config file Kimi Code loads by itself.
 
 1. Append the three `[[hooks]]` entries from `.kimi-code/hooks.toml` to the user-level `config.toml`, keeping the hooks already there. Do not replace the whole config with the fragment.
-2. In each command, replace `/path/to/coddy-agent` with the absolute path of your checkout. Quote the path if it contains spaces.
-3. Run `kimi doctor` to check the file, then start a new Kimi Code session.
+2. Run `kimi doctor` to check the file, then start a new Kimi Code session.
 
-Each command names the script by its absolute path, so a project you open in Kimi Code never gets to run a script of its own through these entries. The script answers only sessions working inside the checkout it belongs to. It stays silent in other projects and in another checkout nested in this one, such as a linked worktree. To cover another checkout of the repository, add one more set of entries with that checkout's path.
+Like the Codex hook, each command runs `"$(git rev-parse --show-toplevel)/.kimi-code/hooks/attach_rules.py"`, the script of the checkout the session works in. One set of entries therefore covers every checkout and worktree of this repository, and a session started in a subfolder too.
 
-Each command ends in `|| exit 0`. When the path goes stale, for example after the checkout moves, Python exits with code 2, and Kimi Code reads exit code 2 as a refusal of the prompt or the edit. `|| exit 0` turns that into a hook that does nothing. Update the path when you move the checkout.
+Each command ends in `|| exit 0`. In another project, or outside a git repository, Python cannot open the script and exits with code 2, and Kimi Code reads exit code 2 as a refusal of the prompt or the edit. `|| exit 0` turns that into a hook that does nothing.
 
-The fragment calls `python3`. On Windows, write `python` instead, because `python3` may resolve to the Microsoft Store stub rather than the installed interpreter.
+Kimi Code runs the commands through `sh`, and through `cmd.exe` on Windows. `cmd.exe` does not expand `$(...)`, so on Windows the hook does nothing.
 
 ## How it works
 
@@ -59,7 +58,7 @@ echo '{"hook_event_name":"UserPromptSubmit","session_id":"kimi-probe","prompt":"
 echo '{"hook_event_name":"PreToolUse","session_id":"kimi-edit-probe","tool_name":"Edit","tool_input":{"path":"cmd/coddy/providers.go"}}' | python3 .kimi-code/hooks/attach_rules.py
 ```
 
-The first command prints a JSON object whose `message` holds the always-on rules. The second prints a refusal: `hookSpecificOutput.permissionDecision` is `deny` and `permissionDecisionReason` holds the rules. Repeat it to get the next part, until it prints nothing. Empty output with exit code 0 means that no glob matched, the rule was already sent in that session, the folder is outside the checkout, or the input was not understood. Use a fresh session id for another probe, set `KIMI_CODE_RULES_STATE_DIR` to a throwaway directory, or remove `<tempdir>/kimi-code-attach-rules-*` to clear the state. `KIMI_CODE_RULES_DIR` can point at a fixture rule tree inside the checkout for isolated tests.
+The first command prints a JSON object whose `message` holds the always-on rules. The second prints a refusal: `hookSpecificOutput.permissionDecision` is `deny` and `permissionDecisionReason` holds the rules. Repeat it to get the next part, until it prints nothing. Empty output with exit code 0 means that no glob matched, the rule was already sent in that session, or the input was not understood. Use a fresh session id for another probe, set `KIMI_CODE_RULES_STATE_DIR` to a throwaway directory, or remove `<tempdir>/kimi-code-attach-rules-*` to clear the state. `KIMI_CODE_RULES_DIR` can point at a fixture rule tree inside the checkout for isolated tests.
 
 After changing the user-level config, verify in a **new** Kimi Code session rather than assuming an existing session has reloaded its hooks. The first prompt shows a `UserPromptSubmit hook` block with the always-on rules, and the first edit of a Go file is refused with the scoped rules before it runs.
 

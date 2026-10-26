@@ -25,13 +25,13 @@ It fails open: any unexpected input exits 0 with no output, so a broken rule fil
 can never block an edit, and a refusal is only issued once it is recorded, so a
 retry is never refused for the same rules.
 
-Kimi Code reads hook declarations only from the user-level config.toml and runs
-them in every project. Merge the versioned `.kimi-code/hooks.toml` fragment into
-that file with the absolute path of this checkout; the hook answers only sessions
-working inside this checkout. Kimi Code delivers edited paths as JSON fields of
-the tool payload (`tool_input.path` for Edit and Write), so this variant reads
-those structured fields. The Codex sibling accepts the same fields and also parses
-patch headers.
+Kimi Code reads hook declarations only from the user-level config.toml. Merge
+the versioned `.kimi-code/hooks.toml` fragment into that file; like the Codex
+hook, its commands run the script of the checkout the session works in.
+Kimi Code delivers edited paths as JSON fields of the tool payload
+(`tool_input.path` for Edit and Write), so this variant reads those structured
+fields, a relative one from the session's folder. The Codex sibling accepts the
+same fields and also parses patch headers.
 """
 
 from __future__ import annotations
@@ -559,28 +559,6 @@ def refuse_once(session_id: str, candidates: list[Rule], touched: str) -> bool:
         lock.__exit__(*sys.exc_info())
 
 
-def session_folder(payload: dict) -> Path | None:
-    """The folder a session works in when this checkout serves it, else None.
-
-    Kimi Code runs the hooks of the user-level config in every project, so the
-    hook answers only sessions inside the checkout it belongs to, and not those
-    inside another checkout nested in it (a linked worktree, a submodule).
-    """
-    raw = payload.get("cwd")
-    try:
-        root = REPO_ROOT.resolve()
-        folder = Path(raw if isinstance(raw, str) and raw else os.getcwd()).resolve()
-        folder.relative_to(root)
-        current = folder
-        while current != root:
-            if (current / ".git").exists():
-                return None
-            current = current.parent
-    except (OSError, RuntimeError, ValueError):
-        return None
-    return folder
-
-
 def collect_target_paths(tool_input: object, base: Path | None = None) -> list[str]:
     """Collect repo-relative file paths from a Kimi Code tool payload.
 
@@ -652,10 +630,6 @@ def main() -> int:
     if not isinstance(payload, dict):
         return 0
 
-    folder = session_folder(payload)
-    if folder is None:
-        return 0
-
     event = payload.get("hook_event_name") or os.environ.get("KIMI_CODE_HOOK_EVENT", "")
     session_id = payload.get("session_id", "")
 
@@ -681,6 +655,11 @@ def main() -> int:
             )
         return 0
 
+    cwd = payload.get("cwd")
+    try:
+        folder = Path(cwd if isinstance(cwd, str) and cwd else os.getcwd()).resolve()
+    except (OSError, RuntimeError):
+        folder = None
     paths = collect_target_paths(payload.get("tool_input"), folder)
     if not paths:
         return 0

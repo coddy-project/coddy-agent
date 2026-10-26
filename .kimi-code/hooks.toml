@@ -1,24 +1,22 @@
-# Merge these declarations into ~/.kimi-code/config.toml and replace
-# /path/to/coddy-agent with the absolute path of your checkout (quote it if it
-# has spaces; on Windows write `python` instead of `python3`).
+# Merge these declarations into ~/.kimi-code/config.toml.
 #
-# Kimi Code runs these hooks in every project, from the session's folder. The
-# script answers only sessions inside the checkout it belongs to, and
-# `|| exit 0` turns a stale path into a no-op: Python exits 2 when it cannot
-# open the script, and Kimi Code reads exit 2 as a refusal of the tool call.
+# Kimi Code runs them in every project, from the session's folder. Like the
+# Codex hook, each command runs the script of the checkout the session works
+# in. `|| exit 0` keeps a folder without the script from blocking: Python exits
+# 2 when it cannot open the script, and Kimi Code reads exit 2 as a refusal.
 
 [[hooks]]
 event = "UserPromptSubmit"
-command = "python3 /path/to/coddy-agent/.kimi-code/hooks/attach_rules.py || exit 0"
+command = "python3 \"$(git rev-parse --show-toplevel)/.kimi-code/hooks/attach_rules.py\" || exit 0"
 timeout = 10
 
 [[hooks]]
 event = "PreToolUse"
 matcher = "^(Edit|Write)$"
-command = "python3 /path/to/coddy-agent/.kimi-code/hooks/attach_rules.py || exit 0"
+command = "python3 \"$(git rev-parse --show-toplevel)/.kimi-code/hooks/attach_rules.py\" || exit 0"
 timeout = 10
 
 [[hooks]]
 event = "PostCompact"
-command = "python3 /path/to/coddy-agent/.kimi-code/hooks/attach_rules.py || exit 0"
+command = "python3 \"$(git rev-parse --show-toplevel)/.kimi-code/hooks/attach_rules.py\" || exit 0"
 timeout = 10
