@@ -71,7 +71,9 @@ func serveFile(w http.ResponseWriter, r *http.Request, id string) {
 	case r.Method == http.MethodGet && !t.upload:
 		t.used = true
 		w.Header().Set("Content-Type", "application/octet-stream")
-		_, _ = w.Write(t.data)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Disposition", "attachment")
+		_, _ = w.Write(t.data) //nolint:gosec // G705: a workspace file handed to the extension as bytes, typed octet-stream with nosniff, never rendered as a page
 	case r.Method == http.MethodPost && t.upload:
 		data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxFileBytes))
 		if err != nil {

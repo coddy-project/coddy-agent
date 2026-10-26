@@ -11,7 +11,7 @@ live view of what the nodes told it.
 
 Built with `-tags swarm`, which is part of the shipped set (`FULL_TAGS` in the **Makefile**), so
 the release binaries, the Docker image, the Linux packages and the Homebrew formula all carry the
-relay. Build it yourself with `make build TAGS="http ui scheduler memory cli gateway swarm metrics"`.
+relay. Build it yourself with `make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"`.
 
 The relay is not a command of its own: `coddy serve` runs it when `swarm.enable` is true, next to
 whatever else the configuration enables. A binary built without the tag refuses `swarm.enable` at

@@ -34,6 +34,9 @@ func Serve(ctx context.Context, opts Options) error {
 	}
 	b := opts.Cfg.Browser
 	srv := NewServer(Default(), b.Token, log)
+	if opts.Mgr != nil {
+		srv.Chat = &Chat{Mgr: opts.Mgr, Mirror: opts.Mirror, CWD: opts.DefaultCWD, Log: log}
+	}
 	log.Info("browser listener", "addr", b.ListenAddr(), "tls", b.CertFile != "")
 	return srv.Serve(ctx, b.ListenAddr(), b.CertFile, b.KeyFile)
 }

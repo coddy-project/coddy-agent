@@ -55,9 +55,17 @@ type Extension struct {
 	// Handle answers a command. It runs on the reading goroutine; the default
 	// answers {"ok":true}.
 	Handle func(Command) Answer
-	// Notes receives every notification the server sent ($/cancelRequest).
+	// Ask answers a request of Coddy's other than browser/command - the side
+	// panel's chat/permission and chat/question - with a result, or an error
+	// message. Nil answers every one with an error.
+	Ask func(method string, params json.RawMessage) Answer
+	// Notes receives every notification the server sent ($/cancelRequest,
+	// browser/turnEnded, chat/update), as the method and its parameters.
 	Notes chan string
 	done  chan struct{}
+
+	nextID  int
+	pending map[string]chan frame
 }
 
 type frame struct {
@@ -89,6 +97,9 @@ var AllActions = []string{
 	"open_tab", "close_tab", "release", "snapshot", "screenshot", "navigate",
 	"click", "type", "press", "hover", "scroll", "drag", "upload_file", "download_file",
 }
+
+// initialGrant is the grant initialize announces, before any Share.
+const initialGrant = "grant-initial"
 
 // RPCError is the error answer of initialize.
 type RPCError struct {
@@ -123,6 +134,7 @@ func Connect(baseURL string, opts Options) (*Extension, error) {
 		"protocolVersion": opts.Version, "key": opts.Key,
 		"browser": map[string]string{"id": opts.ID, "name": opts.Name, "version": "0.1.0-test"},
 		"actions": opts.Actions,
+		"grant":   initialGrant,
 	})
 	if err := websocket.JSON.Send(ws, frame{JSONRPC: "2.0", ID: json.RawMessage("1"), Method: "initialize", Params: params}); err != nil {
 		_ = ws.Close()
@@ -139,7 +151,7 @@ func Connect(baseURL string, opts Options) (*Extension, error) {
 		_ = ws.Close()
 		return nil, &RPCError{Code: answer.Error.Code, Message: answer.Error.Message}
 	}
-	e := &Extension{ws: ws, Commands: make(chan Command, 64), Notes: make(chan string, 64), done: make(chan struct{})}
+	e := &Extension{ws: ws, grant: initialGrant, Commands: make(chan Command, 64), Notes: make(chan string, 1024), done: make(chan struct{}), nextID: 1, pending: make(map[string]chan frame)}
 	go e.read()
 	return e, nil
 }
@@ -177,9 +189,70 @@ func (e *Extension) read() {
 				return
 			}
 			e.Commands <- cmd
+		case f.Method != "" && len(f.ID) > 0:
+			// Answered on a goroutine of its own, as the real extension
+			// does: a question may wait for the person.
+			go e.answer(f)
 		case f.Method != "" && len(f.ID) == 0:
 			e.Notes <- f.Method + " " + string(f.Params)
+		case f.Method == "" && len(f.ID) > 0:
+			e.mu.Lock()
+			ch := e.pending[string(f.ID)]
+			delete(e.pending, string(f.ID))
+			e.mu.Unlock()
+			if ch != nil {
+				ch <- f
+			}
 		}
+	}
+}
+
+func (e *Extension) answer(f frame) {
+	a := Answer{Error: "method not found: " + f.Method}
+	if e.Ask != nil {
+		a = e.Ask(f.Method, f.Params)
+	}
+	reply := frame{JSONRPC: "2.0", ID: f.ID}
+	if a.Error != "" {
+		reply.Error = &struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		}{Code: -32000, Message: a.Error}
+	} else {
+		reply.Result, _ = json.Marshal(a.Result)
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	_ = websocket.JSON.Send(e.ws, reply)
+}
+
+// Request sends a request of the extension's own - the side panel's chat -
+// and waits for Coddy's answer.
+func (e *Extension) Request(method string, params any, timeout time.Duration) (json.RawMessage, error) {
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return nil, err
+	}
+	answer := make(chan frame, 1)
+	e.mu.Lock()
+	e.nextID++
+	id := json.RawMessage(fmt.Sprint(e.nextID))
+	e.pending[string(id)] = answer
+	err = websocket.JSON.Send(e.ws, frame{JSONRPC: "2.0", ID: id, Method: method, Params: raw})
+	e.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	select {
+	case f := <-answer:
+		if f.Error != nil {
+			return nil, &RPCError{Code: f.Error.Code, Message: f.Error.Message}
+		}
+		return f.Result, nil
+	case <-e.done:
+		return nil, errors.New("the server closed the socket")
+	case <-time.After(timeout):
+		return nil, errors.New("no answer arrived")
 	}
 }
 

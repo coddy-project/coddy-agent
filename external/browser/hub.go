@@ -325,6 +325,14 @@ type commandSession struct {
 func (h *Hub) Call(ctx context.Context, req Request) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, actionTimeout(req.Action))
 	defer cancel()
+	// The title is looked up before the hub's lock is taken: the lookup asks
+	// the session manager, which must never wait on the hub.
+	h.mu.Lock()
+	title := h.title
+	h.mu.Unlock()
+	if req.SessionTitle == "" && title != nil {
+		req.SessionTitle = title(req.SessionID)
+	}
 	h.mu.Lock()
 	c := h.connections[req.BrowserID]
 	if c == nil {
@@ -348,19 +356,44 @@ func (h *Hub) Call(ctx context.Context, req Request) (json.RawMessage, error) {
 	} else {
 		req.TabID = 0
 	}
-	if req.SessionTitle == "" && h.title != nil {
-		req.SessionTitle = h.title(req.SessionID)
-	}
-	id := randomID()
-	frame, err := request(id, methodCommand, commandParams{
+	params := commandParams{
 		Action: req.Action, TabID: req.TabID, Params: req.Params, Grant: c.grant,
 		Session: commandSession{ID: req.SessionID, Title: req.SessionTitle},
-	})
+	}
+	h.mu.Unlock()
+	out, err := h.request(ctx, c, methodCommand, params)
+	if errors.Is(err, errNotStarted) {
+		return nil, errors.New("the browser disconnected; the action did not start")
+	}
+	if errors.Is(err, errUnknownOutcome) {
+		return nil, errors.New("the browser disconnected; the outcome of the action is unknown, inspect the page before trying again")
+	}
+	if err != nil && ctx.Err() != nil {
+		return nil, fmt.Errorf("the browser action was cancelled or timed out; inspect the page before trying again: %w", ctx.Err())
+	}
+	return out, err
+}
+
+var (
+	errNotStarted     = errors.New("the request was not sent")
+	errUnknownOutcome = errors.New("the browser disconnected before it answered")
+)
+
+// request sends one request of Coddy's to the extension of c and waits for
+// its answer: a browser/command, or a question of the side panel's chat.
+// When ctx ends first, the extension hears $/cancelRequest.
+func (h *Hub) request(ctx context.Context, c *Connection, method string, params any) (json.RawMessage, error) {
+	id := randomID()
+	frame, err := request(id, method, params)
 	if err != nil {
-		h.mu.Unlock()
 		return nil, err
 	}
 	answer := make(chan reply, 1)
+	h.mu.Lock()
+	if h.connections[c.info.ID] != c {
+		h.mu.Unlock()
+		return nil, errNotStarted
+	}
 	c.pending[id] = answer
 	h.mu.Unlock()
 	defer func() { h.mu.Lock(); delete(c.pending, id); h.mu.Unlock() }()
@@ -368,18 +401,15 @@ func (h *Hub) Call(ctx context.Context, req Request) (json.RawMessage, error) {
 	select {
 	case c.out <- frame:
 	case <-c.done:
-		return nil, errors.New("the browser disconnected; the action did not start")
+		return nil, errNotStarted
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 	select {
 	case r := <-answer:
-		if r.err != nil {
-			return nil, r.err
-		}
-		return r.result, nil
+		return r.result, r.err
 	case <-c.done:
-		return nil, errors.New("the browser disconnected; the outcome of the action is unknown, inspect the page before trying again")
+		return nil, errUnknownOutcome
 	case <-ctx.Done():
 		if frame, err := notification(methodCancel, map[string]string{"id": id}); err == nil {
 			select {
@@ -387,6 +417,19 @@ func (h *Hub) Call(ctx context.Context, req Request) (json.RawMessage, error) {
 			default:
 			}
 		}
-		return nil, fmt.Errorf("the browser action was cancelled or timed out; inspect the page before trying again: %w", ctx.Err())
+		return nil, ctx.Err()
+	}
+}
+
+// notify sends a notification to the extension of c without waiting for the
+// socket longer than the connection lives.
+func (h *Hub) notify(c *Connection, method string, params any) {
+	frame, err := notification(method, params)
+	if err != nil {
+		return
+	}
+	select {
+	case c.out <- frame:
+	case <-c.done:
 	}
 }

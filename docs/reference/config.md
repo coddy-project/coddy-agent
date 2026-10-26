@@ -428,16 +428,16 @@ Messenger bot adapters (used only by binaries built with -tags gateway, or -tags
 
 ### `browser`
 
-Connect browser extensions directly to Coddy on a separate port. Off by default.
+The listener of the Coddy for Browser extension, which lets chats work in the user's Chrome. Needs a binary built with the browser tag; off by default. See https://coddy.dev/docs/features/browser.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `browser.enable` | boolean | false | Accept browser extension connections in coddy serve. |
-| `browser.host` | string | "" | Browser listener bind address. Empty uses 127.0.0.1. |
-| `browser.port` | integer | 0 | Browser listener port. 0 uses 12348. |
-| `browser.token` | string | "" | Separate browser extension key, at least 32 characters when enabled. Write-only. Use an environment reference to keep it out of YAML. |
-| `browser.cert_file` | string | "" | TLS certificate PEM for the browser listener. Set together with key_file; remote extensions require HTTPS. |
-| `browser.key_file` | string | "" | TLS private key PEM for the browser listener. |
+| `browser.enable` | boolean | false | Run the listener in coddy serve and offer the browser tool to the chats. |
+| `browser.host` | string | "" | Address the listener binds. Empty uses 127.0.0.1. |
+| `browser.port` | integer | 0 | Port of the listener. 0 uses 12348. |
+| `browser.token` | string | "" | The extension key, at least 32 characters when enabled, independent of the HTTP API's credentials. Write-only. Use an environment reference to keep it out of YAML. |
+| `browser.cert_file` | string | "" | TLS certificate PEM of the listener. Set together with key_file; an extension uses plain HTTP only for a listener on this machine. |
+| `browser.key_file` | string | "" | TLS private key PEM of the listener. |
 
 ### `decisions`
 

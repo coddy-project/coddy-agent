@@ -251,6 +251,11 @@ func ParseRequestedOrigin(s string) (string, bool) {
 	return "", false
 }
 
+// BrowserOrigin is the origin the side panel of Coddy for Browser stamps on
+// the chats it starts. Such a chat is the operator's own, so the local filter
+// keeps it; the panel lists only these.
+const BrowserOrigin = "browser"
+
 // gatewayOriginPrefix marks a session a messenger gateway started. The
 // messenger's own name follows it, so "which gateway" survives into the
 // listing without a second field, and a gateway added later needs no migration.

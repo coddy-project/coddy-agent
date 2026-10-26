@@ -114,15 +114,15 @@
     },
     "browser": {
       "additionalProperties": false,
-      "description": "Connect browser extensions directly to this server on a separate port.",
+      "description": "The listener of the Coddy for Browser extension, through which chats work in your Chrome. It takes effect only in a binary built with the browser tag.",
       "properties": {
         "cert_file": {
-          "description": "Certificate PEM for HTTPS; use together with key_file.",
+          "description": "Certificate PEM for a listener a browser on another machine reaches; use together with key_file.",
           "title": "TLS certificate",
           "type": "string"
         },
         "enable": {
-          "description": "Accept browser extension connections.",
+          "description": "Run the listener and offer the browser tool to the chats.",
           "title": "Enabled",
           "type": "boolean"
         },
@@ -132,7 +132,7 @@
           "type": "string"
         },
         "key_file": {
-          "description": "Private key PEM for HTTPS.",
+          "description": "Private key PEM for the listener.",
           "title": "TLS private key",
           "type": "string"
         },
@@ -142,7 +142,7 @@
           "type": "integer"
         },
         "token": {
-          "description": "At least 32 characters. Write-only: leave empty to keep the current key.",
+          "description": "At least 32 characters, entered in the extension. Write-only: leave empty to keep the current key.",
           "title": "Extension key",
           "type": "string",
           "writeOnly": true,

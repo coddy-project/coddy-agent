@@ -7,7 +7,7 @@ afterEach(() => {
   initLocale("en");
 });
 
-test("browser connections are named in the active locale", () => {
+test("the browser listener is named in the active locale", () => {
   initLocale("ru");
   expect(knownSectionLabel("browser")).toBe("Браузер");
   const sections = deriveSettingsSections({
@@ -17,7 +17,7 @@ test("browser connections are named in the active locale", () => {
     },
   });
   expect(sections.find((s) => s.id === "browser")?.description).toBe(
-    "Расширения браузера, отдельный порт и ключ",
+    "Coddy for Browser, слушатель и ключ",
   );
 });
 

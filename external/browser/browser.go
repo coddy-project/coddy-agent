@@ -28,11 +28,17 @@ import (
 type Options struct {
 	// Cfg is the configuration the listener starts with.
 	Cfg *config.Config
-	// Mgr owns the sessions whose turns use the browser; the listener follows
-	// its turns to give a chat's tabs back when its turn ends.
+	// Mgr owns the sessions whose turns use the browser and runs the turns of
+	// the side panel's chat; the listener follows its turns to tell a browser
+	// when a chat holding its tabs stops working.
 	Mgr *session.Manager
 	// Log is the process logger.
 	Log *slog.Logger
+	// Mirror publishes a turn of the side panel's chat where the other
+	// surfaces of the process can watch it. Nil means nothing is watching.
+	Mirror session.TurnMirror
+	// DefaultCWD is the workspace a chat of the side panel gets.
+	DefaultCWD string
 }
 
 // Fingerprint is everything a rebuilt listener would read differently: the

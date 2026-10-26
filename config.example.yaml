@@ -765,14 +765,19 @@ logger:
 #         proxy: "socks5://127.0.0.1:1080"
 #         ca_file: "/etc/coddy/internal-ca.pem"
 
-# Browser extension listener (independent port and credential).
+# ----------------------------------------------------------------------------
+# browser - the listener of the Coddy for Browser extension, which lets chats
+# work in your Chrome through the browser tool. Run by coddy serve; needs a
+# binary built with -tags browser; others refuse enable.
+# Guide: docs/features/browser.md
+# ----------------------------------------------------------------------------
 # browser:
-#   enable: true
-#   host: 127.0.0.1
-#   port: 12348
-#   token: ${CODDY_BROWSER_KEY}
-#   cert_file: ""
-#   key_file: ""
+#   enable: false                    # off by default
+#   host: "127.0.0.1"                # empty: 127.0.0.1
+#   port: 12348                      # 0: 12348
+#   token: "${CODDY_BROWSER_KEY}"    # the key entered in the extension, 32+ characters
+#   cert_file: ""                    # TLS for a browser on another machine,
+#   key_file: ""                     # set together
 
 # ----------------------------------------------------------------------------
 # metrics - the Prometheus exporter: GET /metrics on a port of its own, run by

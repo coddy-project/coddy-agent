@@ -3,26 +3,26 @@
 # the English description the entry translates; make docs-check reports an
 # entry whose English text has changed since, and a key without an entry.
 browser:
-  en: "Connect browser extensions directly to Coddy on a separate port. Off by default."
-  ru: "Расширения браузеров подключаются прямо к Coddy на отдельном порту. По умолчанию выключено."
+  en: "The listener of the Coddy for Browser extension, which lets chats work in the user's Chrome. Needs a binary built with the browser tag; off by default. See https://coddy.dev/docs/features/browser."
+  ru: "Слушатель расширения Coddy for Browser, через которое чаты работают в Chrome пользователя. Нужен бинарник, собранный с тегом browser. По умолчанию выключен. См. https://coddy.dev/docs/features/browser."
 browser.enable:
-  en: "Accept browser extension connections in coddy serve."
-  ru: "Принимать подключения расширений браузеров в coddy serve."
+  en: "Run the listener in coddy serve and offer the browser tool to the chats."
+  ru: "Запускать слушатель в coddy serve и давать чатам инструмент browser."
 browser.host:
-  en: "Browser listener bind address. Empty uses 127.0.0.1."
-  ru: "Адрес, на котором сервер принимает подключения расширений. Пустое значение означает 127.0.0.1."
+  en: "Address the listener binds. Empty uses 127.0.0.1."
+  ru: "Адрес, на котором слушатель принимает подключения. Пустое значение означает 127.0.0.1."
 browser.port:
-  en: "Browser listener port. 0 uses 12348."
-  ru: "Браузерный порт. При 0 используется 12348."
+  en: "Port of the listener. 0 uses 12348."
+  ru: "Порт слушателя. При 0 используется 12348."
 browser.token:
-  en: "Separate browser extension key, at least 32 characters when enabled. Write-only. Use an environment reference to keep it out of YAML."
-  ru: "Отдельный ключ расширения браузера, не меньше 32 символов при включении. Доступен только для записи. Чтобы не хранить ключ в YAML, укажите ссылку на переменную окружения."
+  en: "The extension key, at least 32 characters when enabled, independent of the HTTP API's credentials. Write-only. Use an environment reference to keep it out of YAML."
+  ru: "Ключ расширения, не короче 32 символов при включении, независимый от учётных данных HTTP API. Доступен только для записи. Чтобы не хранить ключ в YAML, укажите ссылку на переменную окружения."
 browser.cert_file:
-  en: "TLS certificate PEM for the browser listener. Set together with key_file; remote extensions require HTTPS."
-  ru: "TLS-сертификат браузерного порта в PEM. Укажите вместе с key_file; удалённым расширениям нужен HTTPS."
+  en: "TLS certificate PEM of the listener. Set together with key_file; an extension uses plain HTTP only for a listener on this machine."
+  ru: "TLS-сертификат слушателя в PEM. Укажите вместе с key_file, потому что простой HTTP расширение принимает только для слушателя на этой же машине."
 browser.key_file:
-  en: "TLS private key PEM for the browser listener."
-  ru: "Закрытый TLS-ключ браузерного порта в PEM."
+  en: "TLS private key PEM of the listener."
+  ru: "Закрытый TLS-ключ слушателя в PEM."
 providers:
   en: "API credentials and transport selection for upstream LLM vendors. When api_key is empty, the runtime reads the NAME_API_KEY environment variable (NAME is the provider name in uppercase with hyphens mapped to underscores); a row of type \"codex\" signs in with ChatGPT and reads no key."
   ru: "Учётные данные API и выбор транспорта для внешних LLM-провайдеров. Если api_key пуст, Coddy читает переменную окружения NAME_API_KEY (NAME - имя провайдера в верхнем регистре, дефисы заменены подчёркиваниями); строка типа \"codex\" входит через ChatGPT и ключ не читает."

@@ -26,7 +26,7 @@ type SettingsChange struct {
 	// instead of for the session (--once is 1, --count=N is N).
 	Turns int
 	// Source names who asked, for the log line: console, web, acp, telegram,
-	// remote, command, permission_dialog, or for a change the agent made
+	// browser, remote, command, permission_dialog, or for a change the agent made
 	// itself SettingsSourceModel or SettingsSourceSkill followed by the
 	// skill's name.
 	Source string

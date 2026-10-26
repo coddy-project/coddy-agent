@@ -40,6 +40,9 @@ type Server struct {
 	Hub *Hub
 	Key string
 	Log *slog.Logger
+	// Chat runs the side panel's conversations; nil answers its methods
+	// with method not found.
+	Chat *Chat
 
 	mu      sync.Mutex
 	sockets map[*websocket.Conn]struct{}
@@ -107,6 +110,9 @@ type initializeParams struct {
 	Key             string      `json:"key"`
 	Browser         BrowserInfo `json:"browser"`
 	Actions         []string    `json:"actions"`
+	// Grant is the extension's current selection, so a command sent before
+	// its first browser/tabs already carries the right one.
+	Grant string `json:"grant"`
 }
 
 type initializeResult struct {
@@ -183,6 +189,7 @@ func (s *Server) handshake(ws *websocket.Conn) (*Connection, bool) {
 		_ = send(ws, failure(msg.ID, codeInvalidParams, err.Error(), nil))
 		return nil, false
 	}
+	_ = s.Hub.UpdateTabs(c, nil, p.Grant)
 	frame, err := result(msg.ID, initializeResult{
 		ProtocolVersion: ProtocolVersion,
 		Server:          serverInfo{Name: "coddy", Version: version.Version},
@@ -253,15 +260,30 @@ func (s *Server) socket(ws *websocket.Conn) {
 				return
 			}
 		case msg.isRequest():
-			// The extension asks Coddy nothing after initialize yet; a
-			// newer extension that does hears so and goes on.
-			select {
-			case c.out <- failure(msg.ID, codeMethodNotFound, "method not found: "+msg.Method, nil):
-			default:
-			}
+			go s.answer(ws.Request().Context(), c, msg)
 		default:
 			return
 		}
+	}
+}
+
+// answer runs one request of the extension - a chat request of the side
+// panel - and writes its answer. A method this server does not know is a
+// newer extension's, which hears so and goes on.
+func (s *Server) answer(ctx context.Context, c *Connection, msg message) {
+	var frame []byte
+	if s.Chat == nil || !strings.HasPrefix(msg.Method, "chat/") {
+		frame = failure(msg.ID, codeMethodNotFound, "method not found: "+msg.Method, nil)
+	} else if value, rerr := s.Chat.handle(ctx, s.Hub, c, msg.Method, msg.Params); rerr != nil {
+		frame = failure(msg.ID, rerr.Code, rerr.Message, rerr.Data)
+	} else if out, err := result(msg.ID, value); err != nil {
+		frame = failure(msg.ID, codeFailed, err.Error(), nil)
+	} else {
+		frame = out
+	}
+	select {
+	case c.out <- frame:
+	case <-c.done:
 	}
 }
 
@@ -281,6 +303,11 @@ func (s *Server) notice(c *Connection, msg message) bool {
 	case methodStop:
 		s.Hub.Stop(c)
 		s.Log.Info("browser stopped by the user", "browser", c.info.ID)
+	case methodChatCancel:
+		var p chatSessionParams
+		if s.Chat != nil && json.Unmarshal(msg.Params, &p) == nil {
+			s.Chat.cancel(p.SessionID)
+		}
 	case methodPing:
 	default:
 		// A notification this server does not know is a newer extension's
@@ -319,7 +346,9 @@ func (s *Server) Serve(ctx context.Context, address, certFile, keyFile string) e
 			_ = ws.Close()
 		}
 		s.mu.Unlock()
-		stop, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// ctx is done by now; the grace for the open requests keeps its
+		// values and drops its cancellation.
+		stop, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(stop)
 	}()

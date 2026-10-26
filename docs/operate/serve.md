@@ -1,11 +1,11 @@
 # Running Coddy as a daemon
 
 `coddy serve` runs every subsystem the configuration enables - the HTTP API and the
-embedded web UI, the messenger gateway, the swarm relay, the cron scheduler - in one
-process over one session manager. Which of them start is decided by `config.yaml`; see
-the [configuration reference](../reference/config.md) and the per-surface guides
-([HTTP API](../reference/http-api.md), [gateway](../surfaces/gateway.md), [swarm](swarm.md),
-[scheduler](scheduler.md)).
+embedded web UI, the messenger gateway, the swarm relay, the cron scheduler, the listener of
+the browser extension - in one process over one session manager. Which of them start is
+decided by `config.yaml`; see the [configuration reference](../reference/config.md) and the
+per-surface guides ([HTTP API](../reference/http-api.md), [gateway](../surfaces/gateway.md),
+[swarm](swarm.md), [scheduler](scheduler.md), [Coddy for Browser](../features/browser.md)).
 
 One more subsystem serves beside them: the Prometheus exporter, under `metrics.enable`
 ([Monitoring](monitoring.md)). It is auxiliary. It never counts as the surface that keeps the

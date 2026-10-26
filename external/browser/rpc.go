@@ -24,8 +24,9 @@ const (
 )
 
 // Error codes Coddy answers with. The -32xxx range below -32000 is JSON-RPC's
-// own; -32001 and -32002 are this protocol's.
+// own; -32000, -32001 and -32002 are this protocol's.
 const (
+	codeFailed          = -32000
 	codeInvalidRequest  = -32600
 	codeMethodNotFound  = -32601
 	codeInvalidParams   = -32602

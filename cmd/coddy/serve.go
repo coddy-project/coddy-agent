@@ -662,7 +662,7 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			Address:       func(c *config.Config) string { return c.Browser.ListenAddr() },
 			Fingerprint:   browser.Fingerprint,
 			Run: func(ctx context.Context, cfg *config.Config) error {
-				return browser.Serve(ctx, browser.Options{Cfg: cfg, Mgr: rt.Mgr, Log: rt.Log})
+				return browser.Serve(ctx, browser.Options{Cfg: cfg, Mgr: rt.Mgr, Log: rt.Log, Mirror: rt, DefaultCWD: rt.Paths.CWD})
 			},
 		},
 		metrics,

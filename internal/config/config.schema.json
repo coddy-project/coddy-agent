@@ -1606,40 +1606,40 @@
     "browser": {
       "type": "object",
       "title": "Browser",
-      "description": "Connect browser extensions directly to Coddy on a separate port. Off by default.",
+      "description": "The listener of the Coddy for Browser extension, which lets chats work in the user's Chrome. Needs a binary built with the browser tag; off by default. See https://coddy.dev/docs/features/browser.",
       "additionalProperties": false,
       "properties": {
         "enable": {
           "type": "boolean",
           "default": false,
-          "description": "Accept browser extension connections in coddy serve."
+          "description": "Run the listener in coddy serve and offer the browser tool to the chats."
         },
         "host": {
           "type": "string",
           "default": "",
-          "description": "Browser listener bind address. Empty uses 127.0.0.1."
+          "description": "Address the listener binds. Empty uses 127.0.0.1."
         },
         "port": {
           "type": "integer",
           "default": 0,
           "minimum": 0,
           "maximum": 65535,
-          "description": "Browser listener port. 0 uses 12348."
+          "description": "Port of the listener. 0 uses 12348."
         },
         "token": {
           "type": "string",
           "default": "",
-          "description": "Separate browser extension key, at least 32 characters when enabled. Write-only. Use an environment reference to keep it out of YAML."
+          "description": "The extension key, at least 32 characters when enabled, independent of the HTTP API's credentials. Write-only. Use an environment reference to keep it out of YAML."
         },
         "cert_file": {
           "type": "string",
           "default": "",
-          "description": "TLS certificate PEM for the browser listener. Set together with key_file; remote extensions require HTTPS."
+          "description": "TLS certificate PEM of the listener. Set together with key_file; an extension uses plain HTTP only for a listener on this machine."
         },
         "key_file": {
           "type": "string",
           "default": "",
-          "description": "TLS private key PEM for the browser listener."
+          "description": "TLS private key PEM of the listener."
         }
       }
     },

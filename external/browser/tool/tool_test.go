@@ -228,3 +228,22 @@ func TestUnknownActionsAndMissingSessionsAreRefused(t *testing.T) {
 		t.Fatal("ran an unknown action")
 	}
 }
+
+func TestACallWithoutATabInAPanelChatActsOnThePanelsTab(t *testing.T) {
+	ext := connected(t, "browser-panel-0001")
+	env := chat(t)
+	if err := os.WriteFile(filepath.Join(env.SessionDir, browser.PanelTabFile), []byte("1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, env, map[string]any{"action": "snapshot"}); err != nil {
+		t.Fatal(err)
+	}
+	cmd, err := ext.Next(time.Second)
+	if err != nil || cmd.TabID != 1 {
+		t.Fatalf("the call went to tab %d: %v", cmd.TabID, err)
+	}
+	// A chat outside the panel names its tab, or the call reaches none.
+	if _, err := run(t, chat(t), map[string]any{"action": "snapshot"}); err == nil || !strings.Contains(err.Error(), "not shared") {
+		t.Fatalf("a call with no tab: %v", err)
+	}
+}

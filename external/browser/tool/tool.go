@@ -53,7 +53,7 @@ const description = `Control the user's own browser through the Coddy for Browse
 
 Start with list: the connected browsers and the tabs you may reach. Every such tab is in a Chrome tab group: the shared "Coddy" group the user drags tabs into, or the group of one chat. A shared tab moves into this chat's group with your first action there; a tab in another chat's group (busy) is out of reach. open_tab (params.url) opens a new tab in this chat's group, close_tab closes a tab of this chat, release hands this chat's tabs back to the shared group. With one browser connected it is used as is; with several, select one by browser_id, and the choice is remembered for this chat.
 
-Read a page with snapshot (text plus element refs) before acting on it; refs expire when the page changes, so take a new snapshot after navigate or a click that loads a page. screenshot attaches an image of the visible part of the tab. Coordinates are CSS pixels of the viewport.
+A call without tab_id in a chat of the side panel acts on the tab the user writes from. Read a page with snapshot (text plus element refs) before acting on it; refs expire when the page changes, so take a new snapshot after navigate or a click that loads a page. screenshot attaches an image of the visible part of the tab. Coordinates are CSS pixels of the viewport.
 
 params by action: navigate - url, or "back" / "forward"; click - ref, or x and y, optional button (left, right, middle) and count (2 for a double click); type - text, optional ref and clear; press - key (Enter, Tab, Escape, Backspace, ArrowDown, Ctrl+A, Shift+Enter ...); hover - ref, or x and y; scroll - dx, dy, optional x and y; drag - x, y, to_x, to_y; upload_file - ref of a file input, with path naming a file in the workspace; download_file - url, with path naming a NEW file in the workspace (32 MiB at most).
 
@@ -87,7 +87,20 @@ func selectionPath(env *tooling.Env) string {
 	if env.SessionDir == "" {
 		return ""
 	}
-	return filepath.Join(env.SessionDir, "browser-selection.json")
+	return filepath.Join(env.SessionDir, browser.SelectionFile)
+}
+
+// panelTab is the tab the person wrote from in the side panel, for a call of
+// that chat that names none; 0 when the chat is not the panel's.
+func panelTab(env *tooling.Env) int {
+	if env.SessionDir == "" {
+		return 0
+	}
+	var id int
+	if raw, err := os.ReadFile(filepath.Join(env.SessionDir, browser.PanelTabFile)); err == nil && json.Unmarshal(raw, &id) == nil {
+		return id
+	}
+	return 0
 }
 
 func execute(ctx context.Context, input string, env *tooling.Env) (string, error) {
@@ -115,6 +128,9 @@ func execute(ctx context.Context, input string, env *tooling.Env) (string, error
 	}
 	if a.Params == nil {
 		a.Params = make(map[string]any)
+	}
+	if a.TabID == 0 {
+		a.TabID = panelTab(env)
 	}
 	if a.Action == "upload_file" || a.Action == "download_file" {
 		return transfer(ctx, hub, env, a)

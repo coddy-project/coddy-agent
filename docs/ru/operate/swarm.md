@@ -11,7 +11,7 @@ https://github.com/user-attachments/assets/2a26f40a-97dd-46ef-b554-80e53602ed44
 
 Релей собирается с `-tags swarm`, а этот тег входит в поставляемый набор (`FULL_TAGS` в **Makefile**),
 поэтому релей есть в бинарниках релиза, образе Docker, пакетах Linux и формуле Homebrew. Собрать
-его самостоятельно можно командой `make build TAGS="http ui scheduler memory cli gateway swarm metrics"`.
+его самостоятельно можно командой `make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"`.
 
 Отдельной команды у релея нет. Его запускает `coddy serve`, когда `swarm.enable` равен true, рядом
 со всем остальным, что включено в конфигурации. Бинарник, собранный без этого тега, при запуске
@@ -483,4 +483,4 @@ swarm:
 - `examples/swarm/` - живой стенд: релеи, агенты, кольцо и узел, который только сам подключается наружу;
 - руководства: [релей и его узлы в Docker](../tutorials/swarm-relay-and-nodes.md), [цепочка релеев](../tutorials/swarm-multi-hop.md), [работа с удалёнными узлами](../tutorials/swarm-remote-nodes.md).
 
-<!-- docsgen:source sha256=43b07ac335cf43ce -->
+<!-- docsgen:source sha256=35a4f7ca6c4ac05f -->
