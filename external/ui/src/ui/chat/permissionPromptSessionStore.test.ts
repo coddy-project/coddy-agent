@@ -47,12 +47,7 @@ test("mergePermissionPromptsIntoTranscript restores from localStorage", () => {
       title: "run_command",
     },
   ];
-  const out = mergePermissionPromptsIntoTranscript(merged, SID, {
-    requirePermissionForCommands: true,
-    requirePermissionForWrites: false,
-    permissionMasterKey: false,
-    commandAllowlist: [],
-  });
+  const out = mergePermissionPromptsIntoTranscript(merged, SID);
   expect(out.some((x) => x.type === "permission_prompt")).toBe(true);
   expect(loadPermissionPromptRecords(SID)).toHaveLength(1);
 });
@@ -151,12 +146,6 @@ test("a stored prompt of a settled call no longer marks the session after a relo
       },
     ],
     SID,
-    {
-      requirePermissionForCommands: true,
-      requirePermissionForWrites: false,
-      permissionMasterKey: false,
-      commandAllowlist: [],
-    },
   );
   expect(out.some((x) => x.type === "permission_prompt")).toBe(false);
   expect(permissionPendingSessionIdsFromStorage().has(SID)).toBe(false);
