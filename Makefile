@@ -2,7 +2,7 @@
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
-#     Recommended full binary: make build TAGS="http ui scheduler memory cli gateway swarm metrics"
+#     Recommended full binary: make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
 #     http     OpenAI-compatible gateway and web UI (coddy serve)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler       cron scheduler daemon and tools (see external/scheduler/)
@@ -19,7 +19,7 @@
 #             make build TAGS="http ui scheduler memory"
 #             make build TAGS="gateway.telegram"
 #             make build TAGS="gateway metrics"
-#             make build TAGS="http ui scheduler memory cli gateway swarm metrics"
+#             make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
 #   Omit memory (or other tags) for a slimmer binary; runtime memory.enable only applies when built with memory.
 #   VERSION / REVISION / LDFLAGS   embedded version string and commit (see print-version, print-revision).
 
@@ -46,7 +46,7 @@ GOEXE := $(shell go env GOEXE)
 BINARY := $(BUILD_DIR)/coddy$(GOEXE)
 
 # Default tag set for `make install` when build/coddy is missing (matches Docker BUILD_TAGS).
-FULL_TAGS := http ui scheduler memory cli gateway swarm metrics
+FULL_TAGS := http ui scheduler memory cli gateway swarm metrics browser
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
 .DEFAULT_GOAL := build
@@ -297,11 +297,6 @@ test-agent-rules:
 test-opencode-rules:
 	node --test .opencode/tests/project-rules.test.js
 
-# Test the browser extension's own Node suite: its access policy and the SSE
-# framing the chat panel reads. Node alone, no npm install.
-browser-extension-test:
-	node --test external/browser-extension/tests/*.test.mjs
-
 # ---- Tests ----
 #
 # Two speeds. `make test` is the express run: the SPA's vitest suite, then one
@@ -348,17 +343,19 @@ TEST_TAG_SETS := \
 	http,scheduler,ui,memory,cli,swarm \
 	metrics \
 	gateway,metrics \
+	browser \
+	http,browser \
 	$(FULL_TAGS_CSV)
 
 # Express run: the SPA suite, then the whole Go tree once with every optional
 # module compiled in.
-test: test-agent-rules browser-extension-test ui-build ui-test
+test: test-agent-rules ui-build ui-test
 	go test -tags=$(FULL_TAGS_CSV) ./...
 
 # Full matrix: every combination in TEST_TAG_SETS, in sequence. CI's job; run
 # it locally only when a build-tag boundary moved and one combination is not
 # enough.
-test-matrix: test-agent-rules browser-extension-test ui-build ui-test
+test-matrix: test-agent-rules ui-build ui-test
 	go test ./...
 	@set -e; for tags in $(TEST_TAG_SETS); do \
 		echo "go test -tags=$$tags ./..."; \
@@ -472,7 +469,8 @@ check-windows:
 	GOOS=windows go vet -tags=gateway ./...
 	GOOS=windows go vet -tags=http,scheduler,memory,cli,gateway ./...
 	GOOS=windows go vet -tags=metrics ./...
-	GOOS=windows go vet -tags=http,scheduler,memory,cli,gateway,swarm,metrics ./...
+	GOOS=windows go vet -tags=browser ./...
+	GOOS=windows go vet -tags=http,scheduler,memory,cli,gateway,swarm,metrics,browser ./...
 
 # Type-check the Android build without a device, test files included.
 #

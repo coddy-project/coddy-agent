@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -16,18 +15,17 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/EvilFreelancer/coddy-agent/external/browser"
 	"github.com/EvilFreelancer/coddy-agent/external/gateway"
 	"github.com/EvilFreelancer/coddy-agent/external/httpserver"
 	"github.com/EvilFreelancer/coddy-agent/external/scheduler"
 	"github.com/EvilFreelancer/coddy-agent/external/swarm"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
-	"github.com/EvilFreelancer/coddy-agent/internal/browser"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/dryrun"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/serve"
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
 
@@ -520,7 +518,10 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 	metrics := deps.metrics.Subsystem()
 	var unbuilt []string
 	if !metrics.Available {
-		unbuilt = []string{"metrics"}
+		unbuilt = append(unbuilt, "metrics")
+	}
+	if !browser.Available {
+		unbuilt = append(unbuilt, "browser")
 	}
 	return []serve.Subsystem{
 		{
@@ -649,25 +650,19 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			},
 		},
 		{
-			Kind: serve.KindBrowser, ConfigKey: "browser.enable", Available: true, NeedsSessions: true,
-			Enabled: func(c *config.Config) bool { return c.Browser.Enable },
-			Address: func(c *config.Config) string { return c.Browser.ListenAddr() },
-			Fingerprint: func(c *config.Config) string {
-				raw, _ := json.Marshal(c.Browser)
-				return fmt.Sprintf("%x", sha256.Sum256(raw))
-			},
-			Run: func(ctx context.Context, c *config.Config) error {
-				remove := rt.Mgr.AddTurnObserver(func(event session.TurnEvent) {
-					if event.Phase == session.TurnPhaseEnded {
-						browser.Default().Release(event.SessionID)
-					}
-				})
-				defer remove()
-				srv := browser.NewServer(browser.Default(), c.Browser.Token)
-				chat, cleanup := browserChatHandler(rt)
-				defer cleanup()
-				srv.Chat = chat
-				return srv.Serve(ctx, c.Browser.ListenAddr(), c.Browser.CertFile, c.Browser.KeyFile)
+			// The extension dials this listener, so it is rebuilt in place: a
+			// new key or address disconnects the extensions that used the old
+			// one, and they reconnect to the new listener on their own.
+			Kind:          serve.KindBrowser,
+			ConfigKey:     "browser.enable",
+			BuildTag:      "browser",
+			Available:     browser.Available,
+			NeedsSessions: true,
+			Enabled:       func(c *config.Config) bool { return c.Browser.Enable },
+			Address:       func(c *config.Config) string { return c.Browser.ListenAddr() },
+			Fingerprint:   browser.Fingerprint,
+			Run: func(ctx context.Context, cfg *config.Config) error {
+				return browser.Serve(ctx, browser.Options{Cfg: cfg, Mgr: rt.Mgr, Log: rt.Log})
 			},
 		},
 		metrics,

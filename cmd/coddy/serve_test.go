@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/EvilFreelancer/coddy-agent/external/browser"
 	"github.com/EvilFreelancer/coddy-agent/external/gateway"
 	"github.com/EvilFreelancer/coddy-agent/external/httpserver"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -281,6 +282,46 @@ func TestServeBannerListsBrowserWithoutKey(t *testing.T) {
 		printServeBanner(&out, cfg, []serve.Subsystem{{Kind: serve.KindBrowser}}, "", "", false, false)
 		if !strings.Contains(out.String(), "browser     "+scheme+"://127.0.0.1:12348  (extension key)") || strings.Contains(out.String(), cfg.Browser.Token) {
 			t.Fatalf("browser listener address or key handling: %s", out.String())
+		}
+	}
+}
+
+// The browser listener is a subsystem in every build: a binary without the
+// browser tag refuses browser.enable naming the tag, and one with it rebuilds
+// the listener in place when the block moves.
+func TestServeRunsTheBrowserListenerAsASubsystemOfItsOwn(t *testing.T) {
+	all := subsystems(&serve.Runtime{}, subsystemDeps{metrics: newMetricsWiring(&serve.Runtime{})})
+	var sub serve.Subsystem
+	for _, s := range all {
+		if s.Kind == serve.KindBrowser {
+			sub = s
+		}
+	}
+	if sub.ConfigKey != "browser.enable" || sub.BuildTag != "browser" || !sub.NeedsSessions || sub.Available != browser.Available || sub.Fingerprint == nil || sub.RestartKey != nil {
+		t.Fatalf("browser descriptor: %+v", sub)
+	}
+	c := &config.Config{}
+	if sub.Enabled(c) {
+		t.Fatal("the browser listener enabled by an empty config")
+	}
+	c.Browser = config.BrowserConfig{Enable: true, Token: strings.Repeat("k", 32)}
+	if !sub.Enabled(c) {
+		t.Fatal("browser.enable does not enable the listener")
+	}
+	before := sub.Fingerprint(c)
+	if strings.Contains(before, c.Browser.Token) {
+		t.Fatal("the fingerprint carries the key")
+	}
+	c.Browser.Token = strings.Repeat("n", 32)
+	if sub.Fingerprint(c) == before {
+		t.Fatal("a new key leaves the listener as it was")
+	}
+	if !browser.Available {
+		off := false
+		c.HTTPServer.Enabled = &off
+		var notBuilt *serve.ErrNotBuilt
+		if _, err := serve.Resolve(c, all); !errors.As(err, &notBuilt) || notBuilt.BuildTag != "browser" || notBuilt.ConfigKey != "browser.enable" {
+			t.Fatalf("browser in a binary without the tag: %v, want ErrNotBuilt naming the tag", err)
 		}
 	}
 }
