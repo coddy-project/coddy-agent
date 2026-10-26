@@ -749,7 +749,7 @@ func (s *cliTUIState) transcriptShowsNothingOfTheWake() error {
 // that its prompt names the task and how it ended.
 func (s *cliTUIState) wokenTurnWasHandedOutcome() error {
 	taskID := s.bgTaskID
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(within(10 * time.Second))
 	for {
 		s.mu.Lock()
 		prompts := append([]string(nil), s.prompts...)
@@ -799,7 +799,7 @@ func (s *cliTUIState) operatorStopsTaskFromOverlay() error {
 }
 
 func (s *cliTUIState) backgroundCommandIsStopped() error {
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(within(10 * time.Second))
 	for time.Now().Before(deadline) {
 		snap, err := bgtask.Default().Get(s.app.sessionID, s.bgTaskID)
 		if err != nil {
@@ -841,7 +841,7 @@ func (s *cliTUIState) footerNamesModel(text string) error {
 // switch renders asynchronously, so the absence is polled rather than read
 // once.
 func (s *cliTUIState) footerHidesUsage() error {
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(within(2 * time.Second))
 	for time.Now().Before(deadline) {
 		if !strings.Contains(s.screenText(), "3h 3%") {
 			return nil
@@ -893,6 +893,7 @@ func closeConsole(app *App, ran bool) {
 // the rest of the component tree belong to that goroutine while Run is live, so
 // a step reads them there rather than from the test goroutine.
 func (s *cliTUIState) onLoop(timeout time.Duration, fn func()) error {
+	timeout = within(timeout)
 	done := make(chan struct{})
 	select {
 	case s.app.updatesCh <- updateMsg{update: uiCall(func() { fn(); close(done) })}:
@@ -919,7 +920,7 @@ func (s *cliTUIState) screenText() string {
 }
 
 func (s *cliTUIState) waitScreen(needle string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
+	deadline := time.Now().Add(within(timeout))
 	for time.Now().Before(deadline) {
 		if strings.Contains(s.screenText(), needle) {
 			return nil
@@ -941,6 +942,7 @@ func (s *cliTUIState) press(seq string) {
 }
 
 func (s *cliTUIState) waitTurnEnd(timeout time.Duration) error {
+	timeout = within(timeout)
 	select {
 	case <-s.turnEnds:
 		return nil
@@ -980,6 +982,17 @@ func (s *cliTUIState) operatorSubmitsPrompt(text string) error {
 // can take seconds to reach the stub on a loaded Windows runner, and a wait
 // that succeeds returns as soon as the frame is drawn.
 const stubTurnReach = 15 * time.Second
+
+// stepFloor is the shortest a step waits for the console. A wait that
+// succeeds returns as soon as its frame or signal is there, so the floor
+// costs a passing run nothing; it keeps a loaded runner, where a frame can
+// trail the turn by seconds (the Windows job of CI), from failing a step
+// whose own bound was written for a fast machine. A bound the scenario itself
+// asserts ("stops within two seconds") does not go through it.
+const stepFloor = stubTurnReach
+
+// within is how long a step waits: the bound it names, never less than stepFloor.
+func within(bound time.Duration) time.Duration { return max(bound, stepFloor) }
 
 func (s *cliTUIState) stubStreamsText(text string) error {
 	s.directives <- stubDirective{kind: "stream", text: text}
@@ -1035,7 +1048,7 @@ func (s *cliTUIState) screenAsksForQueueMode() error {
 
 // savedQueueModeIs reads the answer back from the config file on disk.
 func (s *cliTUIState) savedQueueModeIs(mode string) error {
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(within(2 * time.Second))
 	var raw []byte
 	for time.Now().Before(deadline) {
 		raw, _ = os.ReadFile(s.cfg.Paths.ConfigPath)
@@ -1049,7 +1062,7 @@ func (s *cliTUIState) savedQueueModeIs(mode string) error {
 
 // screenShowsNothingQueued asserts the widget is gone once the turn is over.
 func (s *cliTUIState) screenShowsNothingQueued() error {
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(within(2 * time.Second))
 	for time.Now().Before(deadline) {
 		if !strings.Contains(s.screenText(), "queued messages") {
 			return nil
@@ -1082,7 +1095,7 @@ func (s *cliTUIState) agentReportsTurnTokens(tokens int) error {
 	// The agent reports from inside its loop, after the turn announced itself
 	// (the preparing frame of beginTurn): a frame sent before the turn reached
 	// the runner could be overtaken by that one.
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(within(2 * time.Second))
 	for {
 		s.mu.Lock()
 		entered := len(s.prompts) > 0
@@ -1107,7 +1120,7 @@ func (s *cliTUIState) agentReportsTurnTokens(tokens int) error {
 // not spelled out: a slow runner may draw its first frame a second into the turn.
 func (s *cliTUIState) statusLineLeadsWithTurnClock(phrase string) error {
 	pattern := regexp.MustCompile(`\d+s · ` + regexp.QuoteMeta(phrase))
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(within(3 * time.Second))
 	for time.Now().Before(deadline) {
 		if pattern.MatchString(s.screenText()) {
 			return nil
@@ -1210,7 +1223,7 @@ func (s *cliTUIState) screenShowsPermissionModalWithAllow() error {
 
 func (s *cliTUIState) operatorConfirmsPermissionOption() error {
 	s.press("\r")
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(within(2 * time.Second))
 	for time.Now().Before(deadline) {
 		s.mu.Lock()
 		got := s.permOutcome
@@ -1229,7 +1242,7 @@ func (s *cliTUIState) operatorConfirmsPermissionOption() error {
 // again rather than claim the model is being waited on.
 func (s *cliTUIState) operatorAllowsPermissionKeepingTurn() error {
 	s.press("\r")
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(within(2 * time.Second))
 	for time.Now().Before(deadline) {
 		s.mu.Lock()
 		got := s.permOutcome
@@ -1304,7 +1317,7 @@ func (s *cliTUIState) backgroundSubagentAnswered(name, option string) error {
 			return fmt.Errorf("the subagent %q was answered %+v, want %q", name, res, option)
 		}
 		return nil
-	case <-time.After(3 * time.Second):
+	case <-time.After(within(3 * time.Second)):
 		return fmt.Errorf("the subagent %q was never answered; last frame:\n%s", name, s.screenText())
 	}
 }
@@ -1490,7 +1503,7 @@ func (s *cliTUIState) operatorChoosesCustomAndTypes(answer string) error {
 	}
 	s.typeText(answer)
 	s.press("\r")
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(within(2 * time.Second))
 	for time.Now().Before(deadline) {
 		s.mu.Lock()
 		n := len(s.questionAns)
@@ -1544,7 +1557,7 @@ func (s *cliTUIState) questionModalWrapsSelectedDescription() error {
 
 func (s *cliTUIState) operatorChoosesHighlightedOption() error {
 	s.press("\r")
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(within(2 * time.Second))
 	for time.Now().Before(deadline) {
 		s.mu.Lock()
 		n := len(s.questionAns)
@@ -1605,7 +1618,7 @@ func (s *cliTUIState) operatorResumesPreviousSession() error {
 	if err := s.onLoop(3*time.Second, func() { s.app.resumeInto(s.prevSessionID) }); err != nil {
 		return err
 	}
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(within(3 * time.Second))
 	for time.Now().Before(deadline) {
 		var resumed bool
 		if err := s.onLoop(time.Second, func() {
@@ -1656,7 +1669,7 @@ func (s *cliTUIState) transcriptShowsLocalShellBlock(command string) error {
 // frame: the block title repeats the command, so `echo hidden` would "find"
 // its own output even with rendering completely broken.
 func (s *cliTUIState) localShellBlockShowsOutput(text string) error {
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(within(5 * time.Second))
 	for time.Now().Before(deadline) {
 		for _, line := range s.app.screen.Snapshot() {
 			if strings.TrimSpace(tui.StripTerminalSequences(line)) == text {
@@ -1751,6 +1764,7 @@ func (s *cliTUIState) persistedSessionCarriesNoTrace(text string) error {
 // wait holds the UI loop: the loop is what starts workers (the task list read
 // among them), and a WaitGroup must not see an Add from zero during a Wait.
 func (s *cliTUIState) waitWorkersIdle(timeout time.Duration) error {
+	timeout = within(timeout)
 	idle := false
 	err := s.onLoop(timeout, func() {
 		done := make(chan struct{})
@@ -1782,7 +1796,7 @@ func (s *cliTUIState) operatorTypesWithoutSending(text string) error {
 // bashMode role, which is what tells the operator enter runs a command.
 func (s *cliTUIState) editorBordersUseLocalShellColor() error {
 	want := s.app.theme.Fg(roleBashMode, "─")
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(within(2 * time.Second))
 	for time.Now().Before(deadline) {
 		for _, line := range s.app.screen.Snapshot() {
 			if strings.Contains(line, want) {
@@ -1837,7 +1851,7 @@ func (s *cliTUIState) fileAppearsInWorkspace(name string) error {
 // "@" list to open.
 func (s *cliTUIState) operatorTypesMention(text string) error {
 	s.typeText(s.withOutside(text))
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(within(2 * time.Second))
 	for time.Now().Before(deadline) {
 		open := false
 		if err := s.onLoop(2*time.Second, func() { open = s.app.editor.AutocompleteOpen() }); err != nil {
@@ -1863,7 +1877,7 @@ func (s *cliTUIState) operatorTakesHighlightedMention() error {
 func (s *cliTUIState) editorHolds(text string) error {
 	want := s.withOutside(text)
 	got := ""
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(within(2 * time.Second))
 	for time.Now().Before(deadline) {
 		if err := s.onLoop(2*time.Second, func() { got = s.app.editor.Text() }); err != nil {
 			return err
@@ -2182,7 +2196,7 @@ func (s *cliTUIState) sessionsFolderHoldsNoSession() error {
 
 func (s *cliTUIState) sessionsFolderHoldsConsoleSession() error {
 	want := s.app.sessionID
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(within(2 * time.Second))
 	for {
 		got, err := s.sessionBundles()
 		if err != nil {
@@ -2256,7 +2270,7 @@ func (s *cliTUIState) operatorRunsOneShot(prompt string) error {
 }
 
 func (s *cliTUIState) oneShotOutputContains(text string) error {
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(within(3 * time.Second))
 	for time.Now().Before(deadline) {
 		if strings.Contains(s.printOut.String(), text) {
 			return nil
@@ -2270,7 +2284,7 @@ func (s *cliTUIState) oneShotEndsCleanly() error {
 	select {
 	case err := <-s.printDone:
 		return err
-	case <-time.After(3 * time.Second):
+	case <-time.After(within(3 * time.Second)):
 		return fmt.Errorf("one-shot run did not finish")
 	}
 }
@@ -2300,7 +2314,7 @@ func (s *cliTUIState) mcpServerReleased(string) error {
 func (s *cliTUIState) footerShows(text string) error { return s.waitScreen(text, 5*time.Second) }
 
 func (s *cliTUIState) footerNoLongerShows(text string) error {
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(within(10 * time.Second))
 	for time.Now().Before(deadline) {
 		if !strings.Contains(s.screenText(), text) {
 			return nil
@@ -2311,7 +2325,7 @@ func (s *cliTUIState) footerNoLongerShows(text string) error {
 }
 
 func (s *cliTUIState) stubTurnWasOfferedMCP(name string) error {
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(within(10 * time.Second))
 	for time.Now().Before(deadline) {
 		s.mu.Lock()
 		var last []string
@@ -2333,7 +2347,7 @@ func (s *cliTUIState) stubTurnWasOfferedMCP(name string) error {
 // the previous turn had, so the tools prefix the provider caches does not
 // move between turns once the servers have answered.
 func (s *cliTUIState) stubTurnOfferedSameAsBefore() error {
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(within(10 * time.Second))
 	for time.Now().Before(deadline) {
 		s.mu.Lock()
 		n := len(s.mcpOffered)
@@ -2363,7 +2377,7 @@ func (s *cliTUIState) stubTurnEnds() error {
 	if err := s.waitTurnEnd(10 * time.Second); err != nil {
 		return err
 	}
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(within(5 * time.Second))
 	for {
 		idle := false
 		if err := s.onLoop(time.Second, func() { idle = !s.app.turnActive && !s.app.remoteTurnActive }); err != nil {
@@ -2420,7 +2434,7 @@ func (s *cliTUIState) projectMCPNotStarted(string) error {
 }
 
 func (s *cliTUIState) projectMCPStarted(string) error {
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(within(10 * time.Second))
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(s.mcpStarted); err == nil {
 			return nil
@@ -2469,7 +2483,7 @@ func (s *cliTUIState) consoleWithProjectMCPServer(name string) error {
 // mcpListShows waits for the server list to name the server with that
 // summary; the list opens once the probes of its servers are in.
 func (s *cliTUIState) mcpListShows(name, summary string) error {
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(within(20 * time.Second))
 	for time.Now().Before(deadline) {
 		if _, title, err := s.selectedLabel(); err == nil && title == "MCP servers" {
 			text := s.screenText()
@@ -2485,7 +2499,7 @@ func (s *cliTUIState) mcpListShows(name, summary string) error {
 // sessionMCPConnection waits for the console's session to hold, or not to
 // hold, a live client of the server: the tools of the next turn come from it.
 func (s *cliTUIState) sessionMCPConnection(name string, want bool) error {
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(within(5 * time.Second))
 	for {
 		connected := false
 		if st := s.app.mgr.SessionByID(s.app.sessionID); st != nil {
@@ -2527,7 +2541,7 @@ func (s *cliTUIState) operatorOpensHighlightedMCPServer() error {
 		return err
 	}
 	s.press("\r")
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(within(5 * time.Second))
 	for time.Now().Before(deadline) {
 		if _, title, err := s.selectedLabel(); err == nil && strings.HasPrefix(title, name+" · ") {
 			return nil
@@ -2541,7 +2555,7 @@ func (s *cliTUIState) operatorOpensHighlightedMCPServer() error {
 // label, the selector filtering as it is typed, and waits for the cursor.
 func (s *cliTUIState) operatorHighlights(label string) error {
 	s.typeText(label)
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(within(5 * time.Second))
 	for time.Now().Before(deadline) {
 		if current, _, err := s.selectedLabel(); err == nil && current == label {
 			return nil
