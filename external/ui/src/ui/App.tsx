@@ -116,10 +116,6 @@ import {
   upsertPermissionPromptRecord,
   clearPermissionPromptRecords,
 } from "./chat/permissionPromptSessionStore";
-import {
-  parseToolsPermissionPolicy,
-  type ToolsPermissionPolicy,
-} from "./chat/toolsPermissionPolicy";
 import { reattachLocalQuestionPrompts } from "./chat/transcriptQuestionReattach";
 import { retireRelayedPermissionPrompts } from "./chat/relayedPermissionPrompts";
 import {
@@ -603,9 +599,6 @@ export function App() {
   const [permissionPendingSids, setPermissionPendingSids] = useState<
     Set<string>
   >(() => new Set(permissionPendingSessionIdsFromStorage()));
-  const [toolsPermissionPolicy, setToolsPermissionPolicy] =
-    useState<ToolsPermissionPolicy | null>(null);
-  const toolsPermissionPolicyRef = useRef<ToolsPermissionPolicy | null>(null);
   const [questionPendingSids, setQuestionPendingSids] = useState<Set<string>>(
     () => new Set(),
   );
@@ -1875,8 +1868,8 @@ export function App() {
           (x) => x.type === "permission_prompt" && x.id === itemId,
         );
         if (hit?.type === "permission_prompt") {
-          // Keep the record marked as resolved so restorePermissionPromptsForPendingTools
-          // won't re-synthesize a prompt for the same tool call on subsequent loadMessages.
+          // Keep the record marked as resolved so the next loadMessages does not
+          // bring the answered prompt back from localStorage.
           upsertPermissionPromptRecord(key, {
             toolCallId: hit.payload.toolCall.toolCallId.trim(),
             payload: hit.payload,
@@ -3372,9 +3365,6 @@ export function App() {
         headers,
       });
       if (res.ok && res.data) {
-        const policy = parseToolsPermissionPolicy(res.data);
-        toolsPermissionPolicyRef.current = policy;
-        setToolsPermissionPolicy(policy);
         const agent = res.data.agent as { queue_mode?: QueueMode } | undefined;
         const preferred = agent?.queue_mode;
         setQueueMode(
@@ -3424,34 +3414,6 @@ export function App() {
       ),
     );
   }, [sessions, items, sessionId]);
-
-  // /coddy/config may resolve after the first loadMessages; re-synthesize permission_prompt rows then.
-  useEffect(() => {
-    const sid = sessionId.trim();
-    if (!sid || !toolsPermissionPolicy) {
-      return;
-    }
-    setItems((prev) => {
-      if (prev.length === 0) {
-        return prev;
-      }
-      const merged = mergePermissionPromptsIntoTranscript(
-        prev,
-        sid,
-        toolsPermissionPolicy,
-      );
-      const hadPending = prev.some(
-        (x) => x.type === "permission_prompt" && !x.resolved,
-      );
-      const hasPending = merged.some(
-        (x) => x.type === "permission_prompt" && !x.resolved,
-      );
-      if (hadPending === hasPending && merged.length === prev.length) {
-        return prev;
-      }
-      return merged;
-    });
-  }, [toolsPermissionPolicy, sessionId]);
 
   useEffect(() => {
     const hasBackgroundTurn = sessions.some(
@@ -4027,11 +3989,7 @@ export function App() {
     );
     revokeSupersededUserMessagePreviews(mergedBase, localForMerge);
     let merged = reattachLocalQuestionPrompts(mergedBase, localForMerge);
-    merged = mergePermissionPromptsIntoTranscript(
-      merged,
-      sid,
-      toolsPermissionPolicyRef.current,
-    );
+    merged = mergePermissionPromptsIntoTranscript(merged, sid);
     merged = mergeStoredQuestionPromptsIntoTranscript(merged, sid);
     merged = patchQuestionToolArgsFromPromptRecords(merged, sid);
     const appliedRaw = localAligned
@@ -4208,11 +4166,7 @@ export function App() {
       if (tcRes.ok && tcRes.data?.toolCalls) {
         applyToolCallRows(mapped.items, mapped.toolIndex, tcRes.data.toolCalls);
       }
-      let page = mergePermissionPromptsIntoTranscript(
-        mapped.items,
-        sid,
-        toolsPermissionPolicyRef.current,
-      );
+      let page = mergePermissionPromptsIntoTranscript(mapped.items, sid);
       page = mergeStoredQuestionPromptsIntoTranscript(page, sid);
       page = patchQuestionToolArgsFromPromptRecords(page, sid);
       page = dedupeAdjacentDuplicateThinkingCompleted(page);
