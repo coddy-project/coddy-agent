@@ -987,7 +987,7 @@ func (s *cliTUIState) stubStreamsText(text string) error {
 	if s.printDone != nil {
 		// One-shot print mode has no screen; the output buffer is asserted
 		// by the dedicated step.
-		return s.waitTurnEnd(2 * time.Second)
+		return s.waitTurnEnd(stubTurnReach)
 	}
 	if err := s.waitScreen(text, stubTurnReach); err != nil {
 		return err
