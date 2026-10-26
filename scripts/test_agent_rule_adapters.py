@@ -14,6 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CODEX = ROOT / ".codex/hooks/attach_rules.py"
 ZCODE = ROOT / ".zcode/hooks/attach_rules.py"
+KIMI_CODE = ROOT / ".kimi-code/hooks/attach_rules.py"
 
 
 def load_module(name: str, path: Path):
@@ -499,8 +500,65 @@ class AdapterContractTest(unittest.TestCase):
             )
             self.assertEqual(["always.mdc"], delivered)
 
+    def test_kimi_code_matches_structured_adapter_contract(self):
+        kimi = load_module("kimi_code_contract", KIMI_CODE)
+        zcode = load_module("zcode_kimi_contract", ZCODE)
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            root = Path(tmp)
+            rules_dir = root / "rules"
+            rules_dir.mkdir()
+            path = list_rule(rules_dir)
+            self.assertEqual(zcode.parse_rule(path).globs, kimi.parse_rule(path).globs)
+            self.assertEqual(
+                zcode.parse_rule(flow_rule(rules_dir)).globs,
+                kimi.parse_rule(flow_rule(rules_dir)).globs,
+            )
+
+            first = kimi.default_state_dir(root / "first")
+            second = kimi.default_state_dir(root / "second")
+            self.assertNotEqual(first, second)
+            self.assertTrue(first.name.startswith("kimi-code-attach-rules-"))
+
+            inside = str(ROOT / "internal" / "llm" / "openai.go")
+            escaped = str(ROOT / ".." / "outside.go")
+            self.assertEqual(
+                ["internal/llm/openai.go"],
+                kimi.collect_target_paths({"file_path": inside, "destination": escaped}),
+            )
+
+            always_rule(rules_dir)
+            tool_input = {"file_path": "internal/llm/openai.go"}
+            state_dir = root / "state"
+            self.assertIn("Every provider request", run_pretool(kimi, rules_dir, state_dir, tool_input))
+            context = run_hook(
+                kimi,
+                rules_dir,
+                state_dir,
+                {"hook_event_name": "SessionStart", "source": "resume"},
+            )
+            self.assertIn("The Kimi Code project hook attached them", context)
+            self.assertIsNone(
+                run_hook_optional(
+                    kimi,
+                    rules_dir,
+                    state_dir,
+                    {"hook_event_name": "PreToolUse", "tool_input": tool_input},
+                )
+            )
+            run_hook(
+                kimi,
+                rules_dir,
+                state_dir,
+                {"hook_event_name": "SessionStart", "source": "startup"},
+            )
+            self.assertIn("Every provider request", run_pretool(kimi, rules_dir, state_dir, tool_input))
+
+        outputs = run_concurrent_deliveries(KIMI_CODE, ".kimi-code")
+        self.assertEqual(1, len(outputs))
+        self.assertIn("Every provider request follows its proxy.", outputs[0])
+
     def test_adapters_do_not_claim_vendor_policy_ownership(self):
-        for path in (CODEX, ZCODE):
+        for path in (CODEX, ZCODE, KIMI_CODE):
             self.assertNotIn("single source of truth", path.read_text())
 
     def test_no_codex_manual_index(self):

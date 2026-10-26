@@ -103,7 +103,7 @@ How they apply here:
 
 **`AGENTS.md`** is the repository-wide baseline, and **`CLAUDE.md`** remains its compatibility symlink. Cursor and Claude Code use paired native rule trees under **`.cursor/rules/`** and **`.claude/rules/`**. Their bodies and activation intent stay equivalent, but neither vendor tree is a universal policy format.
 
-Codex, OpenCode and ZCode use repository adapters that read **`.cursor/rules/*.mdc`**. The Cursor tree is the adapters' input as well as Cursor's native representation; it is not the conceptual owner of project policy. Run **`make test-agent-rules`** after changing an adapter or rule frontmatter.
+Codex, OpenCode, ZCode and Kimi Code use repository adapters that read **`.cursor/rules/*.mdc`**. The Cursor tree is the adapters' input as well as Cursor's native representation; it is not the conceptual owner of project policy. Run **`make test-agent-rules`** after changing an adapter or rule frontmatter.
 
 A scoped model rule is context, not an enforcement boundary. Hooks and plugins can be untrusted, disabled, fail open or miss an opaque write, so critical trust, security and destructive-operation constraints stay in root policy, code, permissions, tests or CI.
 
@@ -125,6 +125,10 @@ The project plugin **`.opencode/plugins/project-rules.js`** injects always-on an
 ### ZCode
 
 **`.zcode/config.json`** wires **`.zcode/hooks/attach_rules.py`** to `SessionStart` and `PreToolUse` on `Edit` / `Write` / `MultiEdit` / `ApplyPatch`. The behavior matches the Codex adapter, but ZCode supplies edited paths as structured JSON fields. Configuration-file hooks run because the committed config sets `hooks.enabled: true`; there is no per-hook trust prompt. The command uses `python` rather than the Microsoft Store `python3` stub on Windows. See **`docs/contributing/zcode-hooks.md`**.
+
+### Kimi Code
+
+**`.kimi-code/hooks/attach_rules.py`** follows the ZCode adapter for `SessionStart` and `PreToolUse` on `Edit` / `Write`, including YAML-list `globs`, repository-scoped state and interprocess locking. Kimi Code reads hook declarations only from the user-level **`~/.kimi-code/config.toml`**, so contributors must merge the versioned **`.kimi-code/hooks.toml`** fragment into that file and start a new session; the fragment is not loaded automatically. See **`docs/contributing/kimi-code-hooks.md`**.
 
 ## Code review invariants
 

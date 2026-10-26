@@ -514,6 +514,12 @@ pages:
     en:
       title: "ZCode hooks"
       summary: "Deterministic delivery of the Cursor rules to ZCode sessions working on this repository."
+  contributing/kimi-code-hooks.md:
+    title: "Хуки Kimi Code"
+    summary: "Детерминированная доставка правил Cursor в сессии Kimi Code, которые работают с этим репозиторием."
+    en:
+      title: "Kimi Code hooks"
+      summary: "Deterministic delivery of the Cursor rules to Kimi Code sessions working on this repository."
   contributing/syntax-highlighting-audit.md:
     title: "Аудит подсветки синтаксиса"
     summary: "Аудит подсветки кода в семи темах от NeuralDeep, его фикстуры и как запустить его повторно."

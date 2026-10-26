@@ -117,6 +117,7 @@ Coddy - агент общего назначения в одном статич�
 - [Хуки Codex](contributing/codex-hooks.md) - Как правила Cursor попадают в сессию Codex CLI, которая работает с этим репозиторием.
 - [Хуки OpenCode](contributing/opencode-hooks.md) - Детерминированная доставка правил Cursor в сессии OpenCode, которые работают с этим репозиторием.
 - [Хуки ZCode](contributing/zcode-hooks.md) - Детерминированная доставка правил Cursor в сессии ZCode, которые работают с этим репозиторием.
+- [Хуки Kimi Code](contributing/kimi-code-hooks.md) - Детерминированная доставка правил Cursor в сессии Kimi Code, которые работают с этим репозиторием.
 - [Аудит подсветки синтаксиса](contributing/syntax-highlighting-audit.md) - Аудит подсветки кода в семи темах от NeuralDeep, его фикстуры и как запустить его повторно.
 - [Заметки для агентов](../../AGENTS.md) - Карта репозитория и заметки для агентов, которые пишут код.
 <!-- docsgen:nav:end -->

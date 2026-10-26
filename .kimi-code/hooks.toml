@@ -1,0 +1,14 @@
+# Merge these declarations into ~/.kimi-code/config.toml.
+# Kimi Code runs hook commands from the current project directory.
+
+[[hooks]]
+event = "SessionStart"
+matcher = "startup|resume"
+command = "python .kimi-code/hooks/attach_rules.py"
+timeout = 10
+
+[[hooks]]
+event = "PreToolUse"
+matcher = "^(Edit|Write)$"
+command = "python .kimi-code/hooks/attach_rules.py"
+timeout = 10

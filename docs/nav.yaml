@@ -271,6 +271,9 @@ groups:
       - path: contributing/zcode-hooks.md
         title: ZCode hooks
         summary: Deterministic delivery of the Cursor rules to ZCode sessions working on this repository.
+      - path: contributing/kimi-code-hooks.md
+        title: Kimi Code hooks
+        summary: Deterministic delivery of the Cursor rules to Kimi Code sessions working on this repository.
       - path: contributing/syntax-highlighting-audit.md
         title: Syntax highlighting audit
         summary: The NeuralDeep audit of code highlighting across the seven themes, its fixtures and how to re-run it.
