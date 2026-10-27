@@ -10,7 +10,9 @@
 // an arrowhead at the middle of a side of its second. Sides default to right
 // and left. route is "straight" or "elbow" (the default when the sides do not
 // face each other on one line): an elbow runs along the first side's axis to
-// halfway, turns, and finishes along the second side's axis. fromShift and
+// halfway, turns, and finishes along the second side's axis; bend (0..1,
+// default 0.5) moves that turn nearer the start or the end, so two elbows
+// between the same columns do not run on one line. fromShift and
 // toShift move an end along its side by a fraction of the side's length
 // (-0.5..0.5). dash draws a dashed line. label is drawn on the longest
 // segment, labelShift moves it by [dx, dy] pixels.
@@ -53,16 +55,17 @@
     }
   }
 
-  function points(a, b, route) {
+  function points(a, b, route, bend) {
+    const t = bend === undefined ? 0.5 : bend;
     if (route === "straight") return [a, b];
     if (a.axis === "h" && b.axis === "h") {
       if (Math.abs(a.y - b.y) < 1) return [a, b];
-      const mx = (a.x + b.x) / 2;
+      const mx = a.x + (b.x - a.x) * t;
       return [a, { x: mx, y: a.y }, { x: mx, y: b.y }, b];
     }
     if (a.axis === "v" && b.axis === "v") {
       if (Math.abs(a.x - b.x) < 1) return [a, b];
-      const my = (a.y + b.y) / 2;
+      const my = a.y + (b.y - a.y) * t;
       return [a, { x: a.x, y: my }, { x: b.x, y: my }, b];
     }
     if (a.axis === "h") return [a, { x: b.x, y: a.y }, b];
@@ -104,7 +107,7 @@
       const gap = 3;
       if (b.axis === "h") b.x -= gap * -b.dir;
       else b.y -= gap * -b.dir;
-      const pts = points(a, b, w.route);
+      const pts = points(a, b, w.route, w.bend);
       const d = pts.map((p, i) => (i ? "L" : "M") + p.x.toFixed(1) + "," + p.y.toFixed(1)).join(" ");
       const attrs = {
         d,

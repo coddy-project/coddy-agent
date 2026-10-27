@@ -269,6 +269,22 @@ export const messagesRu: Record<string, string> = {
   "settings.section.logger.label": "Логирование",
   "settings.section.logger.desc": "Уровень, приёмники, ротация",
   "settings.section.metrics.label": "Метрики",
+  "settings.section.browser.label": "Браузер",
+  "settings.section.browser.desc":
+    "Coddy for Browser, ключ и кто им пользуется",
+  "settings.schema.browser.enable.label": "Включено",
+  "settings.schema.browser.enable.desc":
+    "Давать чатам инструмент browser и принимать расширение, когда задан ключ.",
+  "settings.schema.browser.token.label": "Ключ расширения",
+  "settings.schema.browser.token.desc":
+    "Не короче 32 символов, вводится в расширении. Оставьте поле пустым, чтобы сохранить текущий ключ.",
+  "settings.schema.browser.serve_remote.label":
+    "Отдавать другим процессам Coddy",
+  "settings.schema.browser.serve_remote.desc":
+    "Разрешить консоли или редактору на этой машине и узлам роя управлять подключёнными сюда браузерами через /coddy/browser/v1 с учётными данными API этого сервера. Перед первым действием каждого такого чата расширение спросит вас.",
+  "settings.schema.browser.remotes.label": "Браузеры других серверов",
+  "settings.schema.browser.remotes.desc":
+    "Серверы Coddy, браузерами которых могут пользоваться чаты этого сервера: имя из httpserver.remotes или адрес, например монтирование узла в релее роя. На том сервере нужен browser.serve_remote.",
   "settings.section.metrics.desc": "Экспортёр Prometheus, свой порт",
   "settings.section.status.label": "Система",
   "settings.section.status.desc": "Версия, диск, нагрузка",

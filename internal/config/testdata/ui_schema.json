@@ -112,6 +112,46 @@
         "wait_for_limit_reset_max_ms"
       ]
     },
+    "browser": {
+      "additionalProperties": false,
+      "description": "Coddy for Browser: the extension connects to this server, lets the chats work in your browser through the browser tool, and shows the web UI in its side panel. It takes effect only in a binary built with the browser tag.",
+      "properties": {
+        "enable": {
+          "description": "Offer the browser tool to the chats, and accept the extension when a key is set.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "remotes": {
+          "default": [],
+          "description": "Coddy servers whose browsers the chats of this one may use: a name of httpserver.remotes, or an address such as a node mount of a swarm relay. That server needs browser.serve_remote.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Browsers of other servers",
+          "type": "array"
+        },
+        "serve_remote": {
+          "description": "Let a console or an editor on this machine and the nodes of the swarm drive the browsers connected here, through /coddy/browser/v1 with this server's API credential. The extension asks you before the first action of each such chat.",
+          "title": "Serve to other Coddy processes",
+          "type": "boolean"
+        },
+        "token": {
+          "description": "At least 32 characters, entered in the extension. Write-only: leave empty to keep the current key.",
+          "title": "Extension key",
+          "type": "string",
+          "writeOnly": true,
+          "x-coddy-configured": "token_configured"
+        }
+      },
+      "title": "Browser",
+      "type": "object",
+      "x-coddy-property-order": [
+        "enable",
+        "token",
+        "serve_remote",
+        "remotes"
+      ]
+    },
     "compaction": {
       "additionalProperties": false,
       "description": "Summarize older conversation history so long sessions keep fitting the model context window.",
@@ -1804,6 +1844,7 @@
     "gateways",
     "logger",
     "metrics",
+    "browser",
     "sessions",
     "prompts",
     "instructions"

@@ -426,6 +426,17 @@ Messenger bot adapters (used only by binaries built with -tags gateway, or -tags
 | `gateways.pachca.chats[].isolation` | string, one of `individual`, `shared`, `admin` |  | Per-chat session isolation override. |
 | `gateways.pachca.chats[].access` | string |  | Per-chat access override: "all", "admins", or "group:<name>". |
 
+### `browser`
+
+Coddy for Browser: the extension connects to the HTTP server, lets chats work in the user's browser through the browser tool and shows the web UI in its side panel; chats of other Coddy processes and of the swarm reach the browser through this server. Needs a binary built with the browser tag; off by default. See https://coddy.dev/docs/features/browser.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `browser.enable` | boolean | false | Offer the browser tool to the chats of this process. Needs browser.token, browser.remotes or both. |
+| `browser.token` | string | "" | The extension key, at least 32 characters, independent of the HTTP API's credentials. With it the HTTP server accepts the extension (/browser/v1/connect), and it also signs the extension's side panel into the web UI, so keep it as secret as the API's token. Write-only. Use an environment reference to keep it out of YAML. |
+| `browser.serve_remote` | boolean | false | Let other Coddy processes drive the browsers connected here: a console or an editor on this machine, a node of the swarm. They call /coddy/browser/v1 with this server's API credential, and the extension asks the person before the first action of each such chat. Needs browser.token. |
+| `browser.remotes` | list of strings | [] | Coddy servers whose browsers the chats of this process may use, besides its own: a name of httpserver.remotes, or a server address such as a node mount of a swarm relay (https://relay:8443/swarm/nodes/home), whose token is found like --remote's. That server needs browser.serve_remote. |
+
 ### `decisions`
 
 Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer. See https://coddy.dev/docs/features/decisions.

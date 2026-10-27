@@ -15,6 +15,12 @@ The Permission column uses the classes the gate in `internal/agent/react.go` app
 
 ## Files
 
+The browser tool is offered in Agent mode when `browser.enable` is true, in a binary built with the `browser` tag. It reaches the browsers connected to this server, to the server of this machine (under its `browser.serve_remote`) and to the servers of `browser.remotes`.
+
+| Tool | Purpose | Arguments (short) | Permission | Modes |
+|---|---|---|---|---|
+| `browser` | Work in the user's browser through the Coddy for Browser extension: list the connected browsers and the tabs in reach, open, read and act on a tab, move files between a page and the workspace ([Coddy for Browser](../features/browser.md)) | `action`, `browser_id`, `tab_id`, `params`, `path` | always, plus the website approval in the extension | agent |
+
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
 | `read` | Read a file as text with an optional 1-based line range, or list a directory; text in another encoding (UTF-16, a legacy code page) is converted to UTF-8. A PNG, JPEG, GIF or WebP file (told by its content) is shown to a model with `models[].multimodal: true` as a picture, up to 3.75 MB and 8000 pixels a side and only a file whole to its end, a GIF as its first frame, and the web UI and a Telegram chat show it too ([Images](../features/images.md)); any other binary file (a PDF, an archive), and a picture for a model without `multimodal`, is refused with its type and size | `path`, `offset`, `limit`, `recursive`, `show_hidden`, `keep` | none | agent, plan, ask |

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/EvilFreelancer/coddy-agent/external/browser"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -91,6 +92,11 @@ type Server struct {
 	// App (auth_telegram.go), and tgReplay the launches already used.
 	tgSessions *webauth.SessionStore
 	tgReplay   webauth.ReplayGuard
+	// browserSessions holds the side panels of Coddy for Browser signed in
+	// by a ticket of the extension's endpoint (auth_browser.go), and
+	// browserEndpoint is that endpoint on this server's mux.
+	browserSessions *webauth.SessionStore
+	browserEndpoint browser.Mounted
 	// loginThrottle slows repeated wrong passwords per source address.
 	loginThrottle *webauth.Throttle
 	// served remembers the configurations GET /coddy/config handed out, so a
@@ -174,6 +180,11 @@ func (s *Server) Drain() {
 	if s.removeConfigObserver != nil {
 		s.removeConfigObserver()
 	}
+	// The endpoint's sockets outlive the HTTP server's shutdown, which does
+	// not reach a connection a WebSocket took over.
+	if s.browserEndpoint.Close != nil {
+		s.browserEndpoint.Close()
+	}
 	s.cancelCodexAuthLogins()
 	s.cancelNeuralDeepAuthLogins()
 	s.cancelOpenCodeAuthLogins("")
@@ -218,6 +229,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		served:               configapi.NewRevisions(),
 		sessions:             webauth.NewSessionStore(),
 		tgSessions:           webauth.NewSessionStore(),
+		browserSessions:      webauth.NewSessionStore(),
 		loginThrottle:        &webauth.Throttle{},
 	}
 	s.cfgAt.Store(cfg)
@@ -252,6 +264,19 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	// is the process's decision: `coddy serve` offers this server to its
 	// runtime (Serve), a test attaches the server's own waker.
 	bgtask.Default().SetDraining(false)
+	// Coddy for Browser: the extension's socket and file transfers, with
+	// the extension key of the live configuration (auth_browser.go), and the
+	// API the chats of other Coddy processes reach the browsers through,
+	// behind this server's own gate.
+	s.browserEndpoint = browser.Mount(s.mux, browser.MountOptions{
+		Key: func() string { return browserEndpointKey(s.activeCfg()) },
+		ServeRemote: func() bool {
+			cfg := s.activeCfg()
+			return browserEndpointKey(cfg) != "" && cfg.Browser.ServeRemote
+		},
+		Mgr: mgr,
+		Log: log,
+	})
 	s.mux.HandleFunc("GET /v1/models", s.handleModels)
 	s.mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
 	s.mux.HandleFunc("POST /v1/responses", s.handleResponsesCreate)
@@ -289,7 +314,12 @@ func (s *Server) ReplaceConfig(c *config.Config) {
 	if c == nil {
 		return
 	}
-	s.cfgAt.Store(c)
+	prev := s.cfgAt.Swap(c)
+	// An extension connected with a key the configuration no longer holds
+	// is disconnected; it comes back with the new one, or not at all.
+	if prev != nil && browserEndpointKey(prev) != browserEndpointKey(c) && s.browserEndpoint.Disconnect != nil {
+		s.browserEndpoint.Disconnect()
+	}
 	s.invalidateSlashCache()
 	s.publishConfigReloaded()
 }
@@ -1359,6 +1389,17 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		wireBridgeSession(bridge, st)
 		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, SurfaceSystemPrompt: surfacePromptFromHTTP(body.Metadata), Lang: langFromHTTP(body.Metadata)}
+		// A turn from the side panel of Coddy for Browser names the tab it
+		// is written from: the chat's browser tool acts there by default,
+		// for this turn alone.
+		sessionDir := strings.TrimSpace(st.GetPersistedSessionDir())
+		if panel, err := s.browserPanelTurn(body.Metadata, sessionDir); err != nil {
+			s.log.Warn("browser panel turn not recorded", "session", sid, "err", err)
+		} else if panel.SystemPrompt != "" {
+			promptOpts.SurfaceSystemPrompt = strings.TrimSpace(promptOpts.SurfaceSystemPrompt + "\n\n" + panel.SystemPrompt)
+			promptOpts.SurfaceTurnContext = panel.TurnContext
+			defer func() { _ = browser.ClearPanelTurn(sessionDir) }()
+		}
 		promptParams := acp.SessionPromptParams{
 			SessionID: sid,
 			Prompt:    promptBlocks,

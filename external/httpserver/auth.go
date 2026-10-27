@@ -4,6 +4,7 @@ package httpserver
 
 import (
 	"crypto/subtle"
+	"github.com/EvilFreelancer/coddy-agent/external/browser"
 	"net/http"
 	"strings"
 )
@@ -118,12 +119,16 @@ func isOpaqueOrigin(r *http.Request) bool {
 }
 
 // hasCookieSession reports whether the request carries a live browser
-// session: the sign-in form's, or a Telegram admin's Mini App session.
+// session: the sign-in form's, a Telegram admin's Mini App session, or the
+// side panel of Coddy for Browser.
 func (s *Server) hasCookieSession(r *http.Request, login loginPolicy) bool {
 	if _, ok := s.sessionFromRequest(r, login); ok {
 		return true
 	}
-	_, ok := s.telegramSessionFromRequest(r)
+	if _, ok := s.telegramSessionFromRequest(r); ok {
+		return true
+	}
+	_, ok := s.browserSessionFromRequest(r)
 	return ok
 }
 
@@ -144,6 +149,11 @@ func isProtectedPattern(pattern string, publicDocs bool) bool {
 	// it: a browser with no credential yet has to be able to ask whether one is
 	// needed and to present one.
 	if isAuthRoutePattern(pattern) {
+		return false
+	}
+	// Coddy for Browser's endpoint checks the extension key itself; the
+	// HTTP API's credentials are not what an extension holds.
+	if pattern == browser.ConnectPattern || pattern == browser.FilesPattern {
 		return false
 	}
 	if publicDocs && isDocsPattern(pattern) {
