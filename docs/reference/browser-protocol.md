@@ -188,7 +188,10 @@ a chat of another process, and Stop takes back what such chats were allowed.
 
 The list of sites allowed always starts with host entries for `localhost`, `127.0.0.1` and `[::1]` (`*://<host>:*`,
 any scheme and port), which the user revokes like any other. A host entry leaves out the home server's own port under
-every local name, and a chat that carries `session.node` asks about local origins like any other.
+every local name, and a chat that carries `session.node` asks about local origins like any other. The user adds
+entries beforehand - an origin, `*://<host>:<port>`, a range `*://<host>:<lo>-<hi>`, or one scheme on every port
+(`http://<host>:*`) - and may allow every website at once. Only an entry naming one port covers the home server's
+own port.
 
 ## Files
 

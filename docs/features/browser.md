@@ -159,6 +159,11 @@ These entries leave out the Coddy server itself under every local name of its po
 requests are approved, so a chat acts there only after you allow that address. A chat of another machine asks about
 local pages like any other site.
 
+The settings page also takes addresses before the extension asks about them: an origin (`https://example.com`), one
+port of a host (`localhost:3000`), a range of ports (`10.0.0.5:8000-8100`) or every port (`example.com:*`). A switch
+there allows every website for the chats of the home server. Neither the switch nor an entry for every port or a
+range covers the Coddy server; an entry with its one port does.
+
 ![The extension asks whether Coddy may act on a website](../assets/browser/browser-approval-dark-420.png)
 
 *The question the extension asks before Coddy acts on a new website.*
