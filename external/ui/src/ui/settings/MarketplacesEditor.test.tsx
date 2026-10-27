@@ -174,7 +174,7 @@ test("the built-in marketplace is always trusted and cannot be removed", async (
     "title",
     "Built into Coddy: always in effect, always trusted, not removable",
   );
-  // It is checked for updates like any other, and installs nothing whole.
+  // It is checked for updates like any other row; no row installs anything.
   expect(screen.getByTestId(`skills-marketplace-sync-${key}`)).toBeEnabled();
   expect(screen.queryByTestId(`skills-marketplace-install-${key}`)).toBeNull();
 });
@@ -193,12 +193,6 @@ test("a project entry waits for its approval: a note, no sync, and the shield", 
   const sync = screen.getByTestId(`skills-marketplace-sync-${key}`);
   expect(sync).toBeDisabled();
   expect(sync).toHaveAttribute("title", "Approve it for this workspace first");
-  const install = screen.getByTestId(`skills-marketplace-install-${key}`);
-  expect(install).toBeDisabled();
-  expect(install).toHaveAttribute(
-    "title",
-    "Approve it for this workspace first",
-  );
   const shield = screen.getByTestId(`skills-marketplace-trust-${key}`);
   expect(shield).toBeEnabled();
   expect(shield).toHaveClass("settings-btn-approve");
@@ -365,8 +359,13 @@ test("checking one entry and checking all refresh the installed list", async () 
     ),
   );
 
+  // The check of every row is the refresh icon of the heading.
   const all = screen.getByTestId("skills-sync-all");
-  expect(all).toHaveTextContent("Check for updates");
+  expect(all.closest("legend")).not.toBeNull();
+  expect(all).toHaveAttribute(
+    "aria-label",
+    "Check every marketplace for updates",
+  );
   fireEvent.click(all);
   await waitFor(() => expect(onSynced).toHaveBeenCalledTimes(2));
   expect(calls.filter((c) => c.method === "POST")[1]?.url).toBe(
@@ -376,41 +375,6 @@ test("checking one entry and checking all refresh the installed list", async () 
     expect(screen.getByTestId("skills-check-status")).toHaveTextContent(
       "2 updates available: install them in the list below.",
     ),
-  );
-});
-
-// A source is installed whole only by its install button (or as it is
-// added); a catalog has no such button, its plugins are installed one by one.
-test("the install button of a source installs every plugin it publishes", async () => {
-  const HOME_SOURCE: MarketplaceEntry = {
-    kind: "source",
-    source: "acme/all-skills",
-    origin: "home",
-    source_path: "/home/me/.coddy/marketplaces.json",
-    gated: false,
-    trusted: true,
-    status: "ready",
-  };
-  const calls = stubApi(listing([SYSTEM, HOME_CATALOG, HOME_SOURCE]));
-  const onSynced = renderEditor();
-  const install = await screen.findByTestId(
-    "skills-marketplace-install-acme/all-skills",
-  );
-  expect(install).toHaveAttribute(
-    "title",
-    "Install every plugin of acme/all-skills",
-  );
-  expect(screen.queryByTestId("skills-marketplace-install-shop")).toBeNull();
-  fireEvent.click(install);
-  await waitFor(() => expect(onSynced).toHaveBeenCalledTimes(1));
-  const post = calls.find((c) => c.method === "POST");
-  expect(post?.url).toBe("/coddy/skills/install");
-  expect(post?.body).toEqual({ source: "acme/all-skills" });
-  expect(post?.headers["X-Coddy-Session-ID"]).toBe("sess_view");
-  await waitFor(() =>
-    expect(
-      screen.getByTestId("skills-marketplace-install-acme/all-skills"),
-    ).toHaveClass("is-synced"),
   );
 });
 

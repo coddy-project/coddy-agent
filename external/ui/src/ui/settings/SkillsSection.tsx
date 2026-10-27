@@ -93,15 +93,25 @@ type AvailablePlugin = {
   installed: boolean;
 };
 
+// The plugins the marketplaces in effect offer, and the marketplaces and
+// sources that could not be read, so the search can say why it finds nothing.
 async function fetchAvailable(
   sessionId: string | undefined,
-): Promise<AvailablePlugin[]> {
+): Promise<{ items: AvailablePlugin[]; unread: string[] }> {
   const res = await fetch("/coddy/skills/available", {
     headers: sessionHeaders(sessionId),
   });
-  if (!res.ok) return [];
-  const data = (await res.json()) as { items?: AvailablePlugin[] };
-  return data.items ?? [];
+  if (!res.ok) return { items: [], unread: [] };
+  const data = (await res.json()) as {
+    items?: AvailablePlugin[];
+    failed?: Array<{ source?: string }>;
+  };
+  return {
+    items: data.items ?? [],
+    unread: (data.failed ?? [])
+      .map((f) => f.source ?? "")
+      .filter((s) => s !== ""),
+  };
 }
 
 async function apiSend(
@@ -161,6 +171,10 @@ export function SkillsSection(props: {
   const [loading, setLoading] = useState(false);
   // Marketplace browse/install control.
   const [available, setAvailable] = useState<AvailablePlugin[] | null>(null);
+  const [availableUnread, setAvailableUnread] = useState<string[]>([]);
+  // The results float under the search, which sits low in the scrolled panel:
+  // they are brought into view when they open, or they open out of sight.
+  const installResultsRef = useRef<HTMLUListElement | null>(null);
   const [availableLoading, setAvailableLoading] = useState(false);
   const [installQuery, setInstallQuery] = useState("");
   const [installBusy, setInstallBusy] = useState<Record<string, boolean>>({});
@@ -354,7 +368,9 @@ export function SkillsSection(props: {
   const loadAvailable = async (force = false) => {
     if (available !== null && !force) return;
     setAvailableLoading(true);
-    setAvailable(await fetchAvailable(sessionId));
+    const got = await fetchAvailable(sessionId);
+    setAvailable(got.items);
+    setAvailableUnread(got.unread);
     setAvailableLoading(false);
   };
 
@@ -399,6 +415,12 @@ export function SkillsSection(props: {
   // The results hang under the box while a search is typed: Escape takes them
   // away, clearing the search, before the drawer hears the key.
   useEscapeCloses(installQ !== "", () => setInstallQuery(""));
+  const installOpen = installQ !== "";
+  useEffect(() => {
+    if (!installOpen) return;
+    // "nearest" moves nothing when the results are in view already.
+    installResultsRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [installOpen, availableLoading, installMatches.length]);
 
   const fieldOverride: FieldOverride = ({ path }) => {
     // Auto-discovery is rendered as its own fieldset at the top of the section
@@ -486,9 +508,20 @@ export function SkillsSection(props: {
           />
           {installQ ? (
             <ul
+              ref={installResultsRef}
               className="skills-install-results"
               data-testid="skills-install-results"
             >
+              {availableUnread.length > 0 && !availableLoading ? (
+                <li
+                  className="skills-install-empty settings-error"
+                  data-testid="skills-install-unread"
+                >
+                  {t("skills.sources.check.unread", {
+                    sources: availableUnread.join(", "),
+                  })}
+                </li>
+              ) : null}
               {availableLoading && available === null ? (
                 <li className="skills-install-empty settings-muted">
                   {t("skills.install.loadingMarketplaces")}

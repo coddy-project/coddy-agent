@@ -96,7 +96,7 @@ control.
 ![Settings, Skills: the marketplaces list with the built-in source, one of yours and a project source awaiting approval](../assets/skills/skills-marketplaces-dark-1280.png)
 
 *Settings → Skills → Marketplaces: the built-in catalogue `rpa-skills` with its always-trusted
-shield, a source with its install button and a catalogue from your own file, and a source the
+shield, a source and a catalogue from your own file, and a source the
 project declares, held until the shield approves it for this workspace.*
 
 ## Where to get skills
@@ -185,7 +185,7 @@ What it may fetch is declared in two files of one shape, never in `config.yaml`:
   `plugin install <plugin>@<name>`, and an update touches only those.
 
 Declaring either downloads nothing, and nothing installs on its own afterwards:
-`coddy plugin marketplace update` (also `coddy skills sync`, **Check for updates** in Settings and
+`coddy plugin marketplace update` (also `coddy skills sync`, the refresh icon of the **Marketplaces** heading in Settings and
 `POST /coddy/skills/sync`) reads the lists again and reports the installed skills that have a newer
 version, `coddy plugin update` installs those versions, and `coddy plugin install` installs a plugin
 or a source. Nothing is fetched automatically. Whatever an entry installs
@@ -200,7 +200,7 @@ your file. **Settings → Skills → Marketplaces** lists every entry of the ses
 what it is (**all plugins** or **catalog**) and where it is declared (**built in**, **yours**, **from
 the project**); its add field declares a source and installs it at once, in your file or, with
 **This project** (once the chat has a session), in the project's. Every row is checked for updates
-and removed on its own, and the install button of a source row installs every plugin it publishes. Removing a row edits the file of that row
+and removed on its own, and the refresh icon of the **Marketplaces** heading checks them all. Removing a row edits the file of that row
 only; `coddy plugin marketplace remove` takes the entry out of both files.
 
 ### Project marketplaces and trust
@@ -214,7 +214,7 @@ only as **`skills.project_trust`** allows:
   `coddy plugin marketplace trust <name | source>` in a terminal in the workspace, or with the shield
   of its row in Settings → Skills. `coddy plugin marketplace list` and `plugin marketplace update`
   name the entries they held back and the command that approves them. Approving installs nothing:
-  `coddy plugin install <source>` (or the install button of its row) installs a source it declares,
+  `coddy plugin install <source>` installs a source it declares,
   and `plugin install <plugin>@<name>` a plugin of a marketplace. The approval is bound to the workspace (a linked
   git worktree shares its main checkout's: [Git worktrees](worktrees.md#what-a-worktree-shares-with-its-main-checkout)) and to
   the entry (its kind, name and source) and kept in `${CODDY_HOME}/skills-trust.json`; an entry the
@@ -343,8 +343,8 @@ Three surfaces stay in parity — pick whichever fits:
 - **CLI** — `coddy plugin ...` (and `coddy skills ...`).
 - **Chat** — the `/plugin ...` command.
 - **Web UI** — **Settings → Skills → Marketplaces** (add a source to your file or the project's,
-  which installs it, approve a project entry with its shield, install a source with the install
-  button of its row, check one row or all of them with **Check for updates**, remove); the newer
+  which installs it, approve a project entry with its shield, check one row with its check button
+  or all of them with the refresh icon of the **Marketplaces** heading, remove); the newer
   versions a check finds appear as a per-skill download button (*Download update* in its tooltip)
   and as one **Update N skills** button over all of them. The install search there also offers the
   plugins of the marketplaces in effect.
@@ -366,8 +366,8 @@ description: ...
 A top-level `version:` key, the form older skills used, is still read; `metadata.version` wins when a
 file has both. Coddy records the installed version in the
 `${CODDY_HOME}/skills/.remote.json` lockfile and shows it in `coddy skills list`, `coddy plugin list`,
-the HTTP skill rows, and the Settings UI. `coddy plugin marketplace update` (or **Check for
-updates** in Settings, backed by `POST /coddy/skills/sync` and `GET /coddy/skills/updates`) re-reads
+the HTTP skill rows, and the Settings UI. `coddy plugin marketplace update` (or the refresh
+icon of the **Marketplaces** heading in Settings, backed by `POST /coddy/skills/sync` and `GET /coddy/skills/updates`) re-reads
 each source's manifest and reports which skills have a newer version upstream. `coddy plugin update`
 (the **Update N skills** button, `POST /coddy/skills/update`) installs them all, and
 `coddy plugin update <name>` (the per-skill download button, *Download update* in its tooltip,
@@ -589,7 +589,7 @@ is read over the network for that.
   `marketplaces.json` files. A source's manifest or
   repository is fetched only when someone asks for it - `coddy plugin marketplace update`,
   `coddy plugin update`, `coddy skills sync` and `/plugin`, Settings → Skills
-  (**Check for updates**, the install search, a skill's download button, **Update N skills**),
+  (the checks of the Marketplaces list, the install search, a skill's download button, **Update N skills**),
   `GET /coddy/skills/updates` - so a large
   marketplace, or a source that does not answer, never delays a session.
 

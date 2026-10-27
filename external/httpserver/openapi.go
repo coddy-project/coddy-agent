@@ -3327,11 +3327,11 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/skills/available": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List installable marketplace plugins",
-					"description": "Fetches the manifest of every source and marketplace in effect for the workspace (network / git) and returns the plugins they advertise, each flagged with `installed`; a project entry the trust gate holds back offers nothing. Backs the browse/filter install control.",
+					"description": "Fetches the manifest of every source and marketplace in effect for the workspace (network / git) and returns the plugins they advertise, each flagged with `installed`; a project entry the trust gate holds back offers nothing. `failed` names the marketplaces and sources that could not be read (a marketplace by name, a source by address), so the search can say why it finds nothing there; a source with no marketplace.json is no catalogue and is not listed in it. Backs the browse/filter install control.",
 					"operationId": "listAvailablePlugins",
 					"parameters":  []interface{}{listingCWDParam()},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Available plugins (name, description, version, source, installed)."},
+						"200": map[string]interface{}{"description": "Available plugins (items: name, description, version, source, installed) and the lists that could not be read (failed: source, error)."},
 						"500": errorResponseRef(),
 					},
 				},

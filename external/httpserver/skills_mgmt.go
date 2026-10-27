@@ -326,7 +326,7 @@ func (s *Server) coddySkillsAvailableGet(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	items, err := skills.AvailablePlugins(r.Context(), s.activeCfg(), cwd)
+	items, failed, err := skills.AvailablePluginsReport(r.Context(), s.activeCfg(), cwd)
 	if err != nil {
 		body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": err.Error()}})
 		http.Error(w, string(body), http.StatusInternalServerError)
@@ -336,6 +336,7 @@ func (s *Server) coddySkillsAvailableGet(w http.ResponseWriter, r *http.Request)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"object": "coddy.skills_available",
 		"items":  items,
+		"failed": nonNil(failed),
 	})
 }
 

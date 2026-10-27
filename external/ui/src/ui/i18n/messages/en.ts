@@ -1257,10 +1257,9 @@ export const messagesEn: Record<string, string> = {
   "skills.sources.scopeAria": "Where to declare it",
   "skills.sources.scope.global": "Yours (~/.coddy)",
   "skills.sources.scope.local": "This project",
-  "skills.sources.syncAll": "Check for updates",
+  "skills.sources.syncAll": "Check every marketplace for updates",
   "skills.sources.syncAllTitle":
     "Read the list of every marketplace and source in effect and find newer versions; installs nothing",
-  "skills.sources.completed": "Completed",
   "skills.sources.syncedTitle": "Checked",
   "skills.sources.syncTitle": "Check {source} for updates",
   "skills.sources.check.updates.one":
@@ -1273,9 +1272,6 @@ export const messagesEn: Record<string, string> = {
   "skills.sources.check.unread": "Could not read {sources}.",
   "skills.sources.addedAlready":
     "{source} is in the list already, so nothing was installed.",
-  "skills.sources.installTitle": "Install every plugin of {source}",
-  "skills.sources.installedTitle": "Installed",
-  "skills.sources.installAria": "Install {source}",
   "skills.sources.heldSyncTitle": "Approve it for this workspace first",
   "skills.sources.deniedSyncTitle":
     "Project marketplaces are switched off by skills.project_trust: deny",
@@ -1306,7 +1302,6 @@ export const messagesEn: Record<string, string> = {
   "skills.sources.error.add": "Could not add {source}.",
   "skills.sources.error.remove": "Could not remove {source}.",
   "skills.sources.error.trust": "Could not change the approval of {source}.",
-  "skills.sources.error.install": "Could not install {source}.",
   "skills.sources.description":
     'Where remote skills come from. A source is installed whole: adding it, or its install button, installs every plugin it publishes; a catalog (coddy plugin marketplace add) installs its plugins one by one. Yours are kept in ~/.coddy/marketplaces.json, the project\'s in its .coddy/marketplaces.json, which travels with the checkout: under "ask" a project entry is used only once you approve it with the shield. Everything installs into ~/.coddy/skills. Checking for updates reads the lists and installs nothing, and no check or update installs back a skill you delete. The built-in rpa-skills catalog is always in effect and always trusted.',
   "skills.sources.placeholder": "owner/repo  ·  https://…/marketplace.json",

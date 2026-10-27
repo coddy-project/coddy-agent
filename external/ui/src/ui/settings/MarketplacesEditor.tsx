@@ -8,7 +8,7 @@ import {
 import { IconTrash } from "./SchemaForm";
 import { LegendWithHint } from "./FieldHint";
 import { SETTINGS_TEXTS, landmarkAnchor } from "./settingsSections";
-import { IconCheck, IconDownload, IconShield, IconSync } from "./icons";
+import { IconCheck, IconShield, IconSync } from "./icons";
 import { useT } from "../i18n/I18nProvider";
 import { translate } from "../i18n/i18n";
 import {
@@ -110,8 +110,9 @@ function checkFound(body: unknown): CheckFound {
  * API-driven like the MCP tab (/coddy/skills/sources*): what it shows is
  * declared in ~/.coddy/marketplaces.json and the viewed workspace's
  * .coddy/marketplaces.json, never in the settings document, and every action
- * applies at once. A row is a source (installed whole by its install button,
- * or as it is added) or a marketplace (a catalog), with where it is declared;
+ * applies at once. A row is a source (installed whole as it is added, or by
+ * `coddy plugin install <source>`) or a marketplace (a catalog), with where
+ * it is declared;
  * a project row under ask carries the MCP shield that approves it for the
  * workspace, and the built-in catalog a shield that says it is always
  * trusted. The check of a row, or of every row, reads the lists and installs
@@ -120,7 +121,7 @@ function checkFound(body: unknown): CheckFound {
  */
 export function MarketplacesEditor(props: {
   activeSessionId?: string | undefined;
-  /** Called after a check or an install, so the installed list can follow. */
+  /** Called after a check or an add, so the installed list can follow. */
   onSynced: () => Promise<void> | void;
   /**
    * How many installed skills have a newer version, as the installed list
@@ -137,9 +138,11 @@ export function MarketplacesEditor(props: {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [syncing, setSyncing] = useState(false);
+  // The check of every row runs: the legend's icon spins.
+  const [checkingAll, setCheckingAll] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
   // What the last check found, or null before one and after a change that
-  // makes it stale (an add, an install, a failed check).
+  // makes it stale (an add, a failed check).
   const [found, setFound] = useState<CheckFound | null>(null);
   const updateCount = found ? (props.updateCount ?? found.count) : 0;
   const [draft, setDraft] = useState("");
@@ -197,6 +200,7 @@ export function MarketplacesEditor(props: {
   // the update buttons of the installed list.
   const onSync = (key?: string) => {
     setSyncing(true);
+    setCheckingAll(!key);
     setError(null);
     // A check of one row keeps what an earlier check could not read of the
     // other rows: that one row read well says nothing about them.
@@ -232,29 +236,9 @@ export function MarketplacesEditor(props: {
         setError(translate("skills.error.sync"));
       } finally {
         setSyncing(false);
+        setCheckingAll(false);
       }
     })();
-  };
-
-  // Installs every plugin a source publishes: the explicit install the list
-  // offers, since nothing installs a source on its own.
-  const onInstall = (e: MarketplaceEntry) => {
-    const key = entryKey(e);
-    setFound(null);
-    withBusy(key, async () => {
-      const res = await send(sessionId, "/coddy/skills/install", "POST", {
-        source: e.source,
-      });
-      if (!res.ok) {
-        setError(
-          res.error ||
-            translate("skills.sources.error.install", { source: key }),
-        );
-        return;
-      }
-      await onSynced();
-      flashDone(`${key} install`);
-    });
   };
 
   const onRemove = (e: MarketplaceEntry) => {
@@ -342,6 +326,27 @@ export function MarketplacesEditor(props: {
       <LegendWithHint
         label={t(SETTINGS_TEXTS.skillsMarketplaces.label)}
         description={t(SETTINGS_TEXTS.skillsMarketplaces.desc)}
+        action={
+          // The check of every marketplace and source: the refresh icon of
+          // the heading, the way the provider's Models list refreshes.
+          <button
+            type="button"
+            className={`settings-legend-action${flash === SYNC_ALL_KEY ? " is-synced" : ""}`}
+            disabled={syncing}
+            onClick={() => onSync()}
+            title={t("skills.sources.syncAllTitle")}
+            aria-label={t("skills.sources.syncAll")}
+            data-testid="skills-sync-all"
+          >
+            {flash === SYNC_ALL_KEY ? (
+              <IconCheck />
+            ) : (
+              <IconSync
+                className={checkingAll ? "settings-icon-spin" : undefined}
+              />
+            )}
+          </button>
+        }
       />
       {loadError ? (
         <p
@@ -448,31 +453,6 @@ export function MarketplacesEditor(props: {
                     <IconShield />
                   </button>
                 ) : null}
-                {e.kind === "source" ? (
-                  <button
-                    type="button"
-                    className={`settings-btn settings-btn-icon${flash === `${key} install` ? " is-synced" : ""}`}
-                    disabled={syncing || held || !!busy[key]}
-                    onClick={() => onInstall(e)}
-                    title={
-                      held
-                        ? t("skills.sources.heldSyncTitle")
-                        : flash === `${key} install`
-                          ? t("skills.sources.installedTitle")
-                          : t("skills.sources.installTitle", { source: key })
-                    }
-                    aria-label={t("skills.sources.installAria", {
-                      source: key,
-                    })}
-                    data-testid={`skills-marketplace-install-${key}`}
-                  >
-                    {flash === `${key} install` ? (
-                      <IconCheck />
-                    ) : (
-                      <IconDownload />
-                    )}
-                  </button>
-                ) : null}
                 <button
                   type="button"
                   className={`settings-btn settings-btn-icon${flash === key ? " is-synced" : ""}`}
@@ -574,26 +554,6 @@ export function MarketplacesEditor(props: {
             {t("skills.sources.add")}
           </button>
         </div>
-        <button
-          type="button"
-          className={`settings-btn skills-sync-all-btn${flash === SYNC_ALL_KEY ? " is-synced" : ""}`}
-          disabled={syncing}
-          onClick={() => onSync()}
-          title={t("skills.sources.syncAllTitle")}
-          data-testid="skills-sync-all"
-        >
-          {flash === SYNC_ALL_KEY ? (
-            <>
-              <IconCheck />
-              <span>{t("skills.sources.completed")}</span>
-            </>
-          ) : (
-            <>
-              <IconSync />
-              <span>{t("skills.sources.syncAll")}</span>
-            </>
-          )}
-        </button>
       </div>
     </fieldset>
   );

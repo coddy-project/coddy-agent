@@ -1000,8 +1000,16 @@ type AvailablePlugin struct {
 // effect for cwd (network / git) and returns the plugins they advertise,
 // flagged with whether each is already installed in cwd. A project entry the
 // trust gate holds back offers nothing. Sources that cannot be reached are
-// skipped best-effort.
+// skipped best-effort; AvailablePluginsReport names them.
 func AvailablePlugins(ctx context.Context, cfg *config.Config, cwd string) ([]AvailablePlugin, error) {
+	out, _, err := AvailablePluginsReport(ctx, cfg, cwd)
+	return out, err
+}
+
+// AvailablePluginsReport is AvailablePlugins with the marketplaces and
+// sources it could not read, each by its key (a marketplace by name, a
+// source by address), so a client can say why a search finds nothing there.
+func AvailablePluginsReport(ctx context.Context, cfg *config.Config, cwd string) ([]AvailablePlugin, []SyncFailure, error) {
 	if strings.TrimSpace(cwd) == "" {
 		cwd = "."
 	}
@@ -1016,13 +1024,23 @@ func AvailablePlugins(ctx context.Context, cfg *config.Config, cwd string) ([]Av
 	out := []AvailablePlugin{}
 	decls, _ := Declarations(cfg, cwd)
 	srcs := wholeSources(decls)
+	keys := map[string]string{}
 	for _, d := range inEffect(decls) {
 		if d.Kind == KindMarketplace && !containsSource(srcs, d.Source) {
 			srcs = append(srcs, d.Source)
 		}
+		if _, ok := keys[d.Source]; !ok || d.Kind == KindMarketplace {
+			keys[d.Source] = d.Key()
+		}
 	}
+	var failed []SyncFailure
 	for _, src := range srcs {
 		mf, err := fetchSourceManifest(ctx, src, cfg.Skills.ManagedDir(cfg.Paths.Home))
+		if err != nil && !errors.Is(err, errNoMarketplace) {
+			// A source without a marketplace.json is no catalogue; one that
+			// could not be read is a failure the search names.
+			failed = append(failed, SyncFailure{Source: keys[src], Error: err.Error()})
+		}
 		if err != nil || mf == nil {
 			continue
 		}
@@ -1046,7 +1064,7 @@ func AvailablePlugins(ctx context.Context, cfg *config.Config, cwd string) ([]Av
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out, nil
+	return out, failed, nil
 }
 
 // InstallPlugin installs a single plugin from a marketplace source (rather than

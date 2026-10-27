@@ -1873,19 +1873,18 @@ on screen (`X-Coddy-Session-ID`), and every action applies at once.
   the row's `fingerprint` (an entry the checkout rewrote since is refused with 409 and the message is
   shown above the list), or `untrust` for an approved one; the list is read again after either. A
   row still waiting is dimmed, says which file declares it and that it is neither read nor installed
-  until approved, and its check and install buttons are disabled. Under `deny` its note says the policy switched it off and
+  until approved, and its check button is disabled. Under `deny` its note says the policy switched it off and
   there is no shield; under `allow` project rows are in effect and have none either.
-- The check of a row is `POST /coddy/skills/sync?source=<key>`, **Check for updates**
-  `POST /coddy/skills/sync`; neither installs anything. Both refresh the installed list and flash a
+- A row's check button checks that row, `POST /coddy/skills/sync?source=<key>`; the refresh icon
+  beside the **Marketplaces** heading checks every row, the way the provider's **Models** list
+  refreshes, `POST /coddy/skills/sync`; neither installs anything. Both refresh the installed list and flash a
   check mark, a line above the list says how many updates the check found or that every installed
   skill is up to date (after the check of one row, every skill installed from it), a list the check
   could not read is named in an error line instead of being called up to date, and a refresh that
   fails says so and leaves the buttons usable. The check of a
   held row is disabled, its title asks for the approval first, or under `deny` names the policy.
-- A source row (**all plugins**) has an install button, `POST /coddy/skills/install` with the row's
-  `source` and no plugin: it installs every plugin the source publishes, the only way a source is
-  installed whole after it was added. A catalog row has none; its plugins are installed from the
-  install search.
+- A row installs nothing: a source is installed whole as it is added (or with
+  `coddy plugin install <source>`), and the plugins of a catalog from the install search.
 - Delete is `DELETE /coddy/skills/sources?source=<key>&origin=<row origin>`: it edits the file of
   that row only, so removing your entry never touches the project's checked-in copy.
 - The add field declares a source with `POST /coddy/skills/sources` and `sync: true`, so it is
@@ -1901,6 +1900,11 @@ on screen (`X-Coddy-Session-ID`), and every action applies at once.
   (`POST /coddy/skills/{name}/update`), and the list has one **Update N skills** button over all of
   them (`POST /coddy/skills/update`), shown only while there is something to update. Neither
   installs a skill that is not installed.
+- The install search of **Installed skills** reads the marketplaces in effect when the field is
+  focused and lists the plugins that match what is typed and are not installed, under the field;
+  the list is scrolled into view when it opens, since the field sits low in the Settings panel. A
+  marketplace or a source it could not read is named in the list instead of being left out
+  silently.
 - The install search (`GET /coddy/skills/available`), the update check (`GET /coddy/skills/updates`)
   and both updates go to the same session, so a project marketplace approved there is offered and
   one held there is neither checked nor updated from.
@@ -1910,7 +1914,7 @@ on screen (`X-Coddy-Session-ID`), and every action applies at once.
 
 Automated checks:
 
-- **external/ui/src/ui/settings/MarketplacesEditor.test.tsx** (rows with kind, origin and file, the built-in row's disabled shield and delete, a held project row with its note, disabled check, install and shield, approval with the fingerprint and its withdrawal, a refused approval, a denied row, add with the scope and the install, remove by key, the check of one and of all with what it found, the install button of a source, Russian copy); **external/ui/src/ui/settings/SkillsSection.workspace.test.tsx** (a check that finds newer versions offers **Update N skills**, which updates them for the viewed session)
+- **external/ui/src/ui/settings/MarketplacesEditor.test.tsx** (rows with kind, origin and file, the built-in row's disabled shield and delete, a held project row with its note, disabled check and shield, approval with the fingerprint and its withdrawal, a refused approval, a denied row, add with the scope and the install, remove by key, the check of one and of all (the refresh icon of the heading) with what it found, Russian copy); **external/ui/src/ui/settings/SkillsSection.workspace.test.tsx** (a check that finds newer versions offers **Update N skills**, which updates them for the viewed session)
 - **external/httpserver/server_test.go** (`TestCoddySkillsSourcesSyncDelete`, `TestCoddySkillsNewRoutesEdgeCases`: the routes, the scopes, 409 on a rewritten entry, 400 on syncing a held one)
 - **features/skills_marketplace.feature**, **features/skills_marketplace_trust.feature** (a project marketplace waits for its approval, then installs into the Coddy home; a check reports a newer version and installs nothing; an update installs it)
 

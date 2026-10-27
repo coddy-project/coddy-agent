@@ -395,3 +395,41 @@ func TestEveryUnreadSourceIsReportedOnce(t *testing.T) {
 		t.Fatalf("failures = %+v, want three's own and one per unread marketplace", got)
 	}
 }
+
+// The install search names a marketplace it could not read, by its name,
+// instead of finding nothing in it silently; a source without a
+// marketplace.json is no catalogue and is not named.
+func TestTheInstallSearchNamesWhatItCouldNotRead(t *testing.T) {
+	good := newCatalogue(t, "shop", "demo")
+	gone := newCatalogue(t, "gone", "x")
+	reachRemote(t, good.srv, gone.srv)
+	goneURL := gone.url()
+	gone.srv.Close()
+	plain := newGitCatalogue(t)
+	if err := os.MkdirAll(filepath.Join(plain.repo, "skills", "lone"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(plain.repo, "skills", "lone", "SKILL.md"), []byte("---\nname: lone\ndescription: d\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCommitAllRepo(t, plain.repo, true, "lone")
+	cfg := marketHome(t, plain.url())
+	file, err := config.ReadMarketplacesFile(config.GlobalMarketplacesPath(cfg.Paths.Home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	file.Marketplaces = []config.DeclaredMarketplace{{Name: "shop", Source: good.url()}, {Name: "gone", Source: goneURL}}
+	if err := config.WriteMarketplacesFile(config.GlobalMarketplacesPath(cfg.Paths.Home), file); err != nil {
+		t.Fatal(err)
+	}
+	items, failed, err := AvailablePluginsReport(context.Background(), cfg, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Name != "demo" {
+		t.Fatalf("items = %+v, want shop's demo", items)
+	}
+	if len(failed) != 1 || failed[0].Source != "gone" {
+		t.Fatalf("failed = %+v, want the unreadable marketplace by its name", failed)
+	}
+}

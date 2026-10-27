@@ -276,3 +276,57 @@ test("a check that finds newer versions offers Update all", async () => {
     expect(screen.queryByTestId("skills-update-all")).toBeNull(),
   );
 });
+
+// The install search sits low in the scrolled Settings panel, so its results
+// are brought into view when they open; a marketplace that could not be read
+// is named there instead of the search silently finding nothing in it.
+test("the install search brings its results into view and names unread lists", async () => {
+  const scrolled = vi.fn();
+  const prev = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = scrolled;
+  try {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string) => {
+        if (String(input) === "/coddy/skills/available") {
+          return {
+            ok: true,
+            json: async () => ({
+              items: [
+                {
+                  name: "changelog-check",
+                  description: "Checks the changelog",
+                  source: "file:///mnt/catalogs/acme-skills",
+                  installed: false,
+                },
+              ],
+              failed: [{ source: "rpa-skills", error: "clone failed" }],
+            }),
+          };
+        }
+        return { ok: true, json: async () => ({ items: [], entries: [] }) };
+      }),
+    );
+    render(
+      <SkillsSection
+        schema={schema}
+        value={{}}
+        onChange={() => {}}
+        workspacePath="/projects/data"
+        activeSessionId="sess_data"
+      />,
+    );
+    const input = await screen.findByTestId("skills-install-input");
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "change" } });
+    await screen.findByTestId("skills-install-changelog-check");
+    expect(screen.getByTestId("skills-install-unread")).toHaveTextContent(
+      "Could not read rpa-skills.",
+    );
+    await waitFor(() =>
+      expect(scrolled).toHaveBeenCalledWith({ block: "nearest" }),
+    );
+  } finally {
+    Element.prototype.scrollIntoView = prev;
+  }
+});

@@ -149,7 +149,7 @@ Both `trust` commands print what they are about to approve and record the receip
 
 ## A project marketplace is not synced
 
-**Symptom.** A source or marketplace the project declares in `.coddy/marketplaces.json` is not used: `coddy plugin marketplace update` ends with a line like `? team/skills: declared by <workspace>/.coddy/marketplaces.json, not approved for this workspace`, `plugin install <plugin>@<name>` says the marketplace is not approved, and Settings > Skills shows the row with a note and its check and install buttons disabled.
+**Symptom.** A source or marketplace the project declares in `.coddy/marketplaces.json` is not used: `coddy plugin marketplace update` ends with a line like `? team/skills: declared by <workspace>/.coddy/marketplaces.json, not approved for this workspace`, `plugin install <plugin>@<name>` says the marketplace is not approved, and Settings > Skills shows the row with a note and its check button disabled.
 
 **Cause.** That file arrives with the checkout and decides what is installed into `${CODDY_HOME}/skills`, so its entries follow `skills.project_trust`: under the default `ask` an entry takes effect only once you approve it for that workspace, and an approval is bound to the entry, so a checkout that rewrites it asks again. Under `deny` the entries are listed as switched off and never used.
 
