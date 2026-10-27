@@ -2,6 +2,9 @@
 
 A model reads a bounded context window, and a working session outgrows it: every exchange, every tool result and every file page stays in the transcript. Compaction keeps long sessions inside the window without losing the record. Older history is folded into a generated summary that the model reads in place of the original rows, the most recent turns stay verbatim, and a second, cheaper mechanism collapses the file pages and search results the model has moved past. Both are projections built when a request goes to the model: the transcript on disk keeps every original message and every full result.
 
+![How one compaction runs: what starts it, the steps of CompactSession, where the cut goes, what the summarizer reads, the summarizer chain and its passes, and what follows](../assets/diagrams/compaction-flow.png)
+*Every trigger ends in `CompactSession`: it cuts at a boundary, lets the `PreCompact` hooks veto, folds the history before the boundary through the chain of summarizers in passes and inserts one summary row there. The chain of rows and its merge are drawn in [Summaries form a chain](#summaries-form-a-chain).*
+
 ## The /compact command
 
 ```text
@@ -104,7 +107,7 @@ compaction LLM call: 400 Bad Request: this model's maximum context length is exc
 
 That left the session stuck: too large to send, and the only thing that could shrink it was the call that would not go out.
 
-A summariser that refuses is not the end of it either. `compaction.fallback_models` lists the models tried, in order, when the one before them fails, and the session's own model is the last resort whether or not it is listed - so a `compaction.model` pointing at a deployment that is down, overloaded or gone no longer leaves a full session with no way out (issue #247).
+A summariser that refuses is not the end of it either. `compaction.fallback_models` lists the models tried, in order, when the one before them fails, and the session's own model is always in the chain, once: last, unless `compaction.model` or the list already gives it an earlier place - so a `compaction.model` pointing at a deployment that is down, overloaded or gone no longer leaves a full session with no way out (issue #247).
 
 Such a history is now folded in passes. Each pass carries the summary of everything folded so far plus the next run of transcript, both sized against the summariser's own context window (`compaction.model`'s, when it names another model), and answers with one summary covering both. The last pass's answer is what goes into the transcript, so a compaction that took seven calls leaves the session looking exactly like one that took a single call. A pass the provider refuses as too large is retried with half of its transcript, at most three times per summariser. A single entry too large even on its own is sent with its middle elided, head and tail kept - the fold makes progress rather than stopping on the one message it exists to fold away. A 400 or a 413 that no phrase recognises is cut once before the pass moves on, because a server worded in a way Coddy has not seen must not leave a full session with no way out. Any other refusal - a rejected key, an outage, a limit - is not about size and fails the same way at half the size, so the pass goes to the next summariser of the chain at once. Passes are sized with the estimate the automatic trigger uses (three ASCII characters to a token, one token for every other character), and each retry is logged at warn level as `compaction pass refused as too large` (`compaction pass refused with a status that can mean too large` for the single cut of an unrecognised refusal) with the tokens the fold estimated and the tokens the provider reported, which tells a window set too high from an estimate that fell short. `POST /coddy/sessions/{id}/compact` reports the passes as `steps`.
 
@@ -127,7 +130,10 @@ The project rules a tool result or a message carried are not summarised: a rule 
 
 ### Summaries form a chain
 
-A compaction folds only what came after the last summary row and adds its row after it; the rows written before stay exactly as they were. The model reads them all, oldest first, then the turns kept verbatim. The summariser reads the earlier rows too, in a section of their own ahead of the transcript, as context it must not repeat, and their size comes off what one summarization request may carry. They take at most half of it: when they do not fit, the oldest of them are left out of that request, and the chain itself stays as it is.
+A compaction folds only what came after the last summary row and adds its row after it; the rows written before stay exactly as they were. The model reads them all after the system prompt ([System prompt structure](../contributing/react-agent.md#system-prompt-structure)), oldest first, then the turns kept verbatim. The summariser reads the earlier rows too, in a section of their own ahead of the transcript, as context it must not repeat, and their size comes off what one summarization request may carry. They take at most half of it: when they do not fit, the oldest of them are left out of that request, and the chain itself stays as it is.
+
+![The compaction summary chain: the transcript on disk, what the model reads, how the next block is written and how the earliest blocks are merged](../assets/diagrams/compaction-chain.png)
+*Each compaction appends one summary block and never rewrites the earlier ones: the model reads the system prompt, the blocks oldest first, then the verbatim tail, and a chain that outgrows a third of the window has its earliest blocks merged into one row.*
 
 Retelling the previous summary at every compaction, as Coddy did before, wore away the details of the earliest turns, one retelling after another, and changed the opening of every request, so the provider's prompt cache was lost from the first message on. With the chain, the requests between two compactions open with the same bytes up to the end of the last summary row, and a compaction only adds after it.
 
@@ -190,6 +196,7 @@ compaction:
   threshold_percent: 80    # auto-compact at this percent of the model's context window (1..100)
   keep_recent_turns: 2     # user turns kept verbatim; 0 summarises everything
   model: ""                # models[].model for the summariser; empty = the session's model
+  fallback_models: []      # summarisers tried in order when the one before fails; the session's model is always in the chain
   result_eviction:
     enable: true           # read, grep and the listings of glob, print_tree, websearch and webfetch
     keep_recent: 2         # most recent read/grep results kept intact
@@ -204,6 +211,7 @@ compaction:
 | `threshold_percent` | `80` | the automatic trigger, as a percent of the model's [context window](#the-context-window) |
 | `keep_recent_turns` | `2` | user turns (with the activity after each) that stay verbatim |
 | `model` | `""` | a `models[].model` for the summariser when the session's model should not summarise its own history |
+| `fallback_models` | `[]` | the summarisers tried, in order, when the one before them fails; the session's model is always in the chain, last unless it already has an earlier place in it ([A history larger than one summarization request](#a-history-larger-than-one-summarization-request)) |
 | `result_eviction.enable` | `true` | collapse superseded `read`, `grep` and listing results |
 | `result_eviction.keep_recent` | `2` | most recent `read` and `grep` results kept as the working window |
 | `result_eviction.min_result_bytes` | `2000` | results at or below this size are left alone |
