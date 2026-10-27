@@ -93,7 +93,7 @@ npx skills add talkstream/ru-text
 npx skills add EvilFreelancer/logika
 ```
 
-Without it, clone each repository into your agent's skill folder under the skill's name: `~/.claude/skills/<name>` (Claude Code), `~/.codex/skills/<name>` (Codex), `~/.cursor/skills/<name>` (Cursor), `~/.agents/skills/<name>` or `${CODDY_HOME:-~/.coddy}/skills/<name>` (Coddy). Coddy also installs logika by itself with **`coddy skills sync`**, from the rpa-skills catalog it ships as a built-in source.
+Without it, clone each repository into your agent's skill folder under the skill's name: `~/.claude/skills/<name>` (Claude Code), `~/.codex/skills/<name>` (Codex), `~/.cursor/skills/<name>` (Cursor), `~/.agents/skills/<name>` or `${CODDY_HOME:-~/.coddy}/skills/<name>` (Coddy). Coddy also installs logika by itself with **`coddy plugin install logika@rpa-skills`**, from the rpa-skills catalog it ships as a built-in marketplace.
 
 How they apply here:
 - write the draft first, then run it through the skills; humanize only what the agent wrote, never a quotation, the operator's own wording or literal text (code, keys, commands, the labels a page takes from the dictionaries);

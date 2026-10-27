@@ -186,3 +186,147 @@ test("the install search and the update check go to the viewed session", async (
     ),
   );
 });
+
+// A check installs nothing: the newer versions it finds are offered on the
+// rows and by one Update all, which installs them for the viewed session and
+// goes away once nothing is left to update.
+test("a check that finds newer versions offers Update all", async () => {
+  let updated = false;
+  const seen: Array<{ url: string; method: string; session: string | null }> =
+    [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      seen.push({
+        url,
+        method,
+        session: new Headers(init?.headers).get("X-Coddy-Session-ID"),
+      });
+      if (url.startsWith("/coddy/skills?") || url === "/coddy/skills") {
+        return {
+          ok: true,
+          json: async () => ({
+            items: [
+              {
+                name: "rpa-feat",
+                description: "feature work",
+                file_path: "/home/me/.coddy/skills/rpa-feat/SKILL.md",
+                enabled: true,
+                version: updated ? "1.0.2" : "1.0.1",
+              },
+            ],
+          }),
+        };
+      }
+      if (url === "/coddy/skills/updates") {
+        return {
+          ok: true,
+          json: async () => ({
+            items: [
+              {
+                name: "rpa-feat",
+                source: "EvilFreelancer/rpa-skills",
+                version: updated ? "1.0.2" : "1.0.1",
+                latest: "1.0.2",
+                update_available: !updated,
+              },
+            ],
+          }),
+        };
+      }
+      if (url === "/coddy/skills/update" && method === "POST") {
+        updated = true;
+        return {
+          ok: true,
+          json: async () => ({ ok: true, updated: ["rpa-feat"], failed: [] }),
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({ items: [], entries: [], updates: [] }),
+      };
+    }),
+  );
+  render(
+    <SkillsSection
+      schema={schema}
+      value={{}}
+      onChange={() => {}}
+      workspacePath="/projects/data"
+      activeSessionId="sess_data"
+    />,
+  );
+  await screen.findByText("rpa-feat");
+  expect(screen.queryByTestId("skills-update-all")).toBeNull();
+
+  fireEvent.click(screen.getByTestId("skills-sync-all"));
+  const all = await screen.findByTestId("skills-update-all");
+  expect(all).toHaveTextContent("Update 1 skill");
+  expect(screen.getByTestId("skills-update-rpa-feat")).toBeTruthy();
+
+  fireEvent.click(all);
+  await screen.findByText("Updated 1 skill.");
+  const post = seen.find(
+    (c) => c.url === "/coddy/skills/update" && c.method === "POST",
+  );
+  expect(post?.session).toBe("sess_data");
+  await waitFor(() =>
+    expect(screen.queryByTestId("skills-update-all")).toBeNull(),
+  );
+});
+
+// The install search sits low in the scrolled Settings panel, so its results
+// are brought into view when they open; a marketplace that could not be read
+// is named there instead of the search silently finding nothing in it.
+test("the install search brings its results into view and names unread lists", async () => {
+  const scrolled = vi.fn();
+  const prev = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = scrolled;
+  try {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string) => {
+        if (String(input) === "/coddy/skills/available") {
+          return {
+            ok: true,
+            json: async () => ({
+              items: [
+                {
+                  name: "changelog-check",
+                  description: "Checks the changelog",
+                  source: "file:///mnt/catalogs/acme-skills",
+                  installed: false,
+                },
+              ],
+              failed: [{ source: "rpa-skills", error: "clone failed" }],
+            }),
+          };
+        }
+        return { ok: true, json: async () => ({ items: [], entries: [] }) };
+      }),
+    );
+    render(
+      <SkillsSection
+        schema={schema}
+        value={{}}
+        onChange={() => {}}
+        workspacePath="/projects/data"
+        activeSessionId="sess_data"
+      />,
+    );
+    const input = await screen.findByTestId("skills-install-input");
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "change" } });
+    await screen.findByTestId("skills-install-changelog-check");
+    expect(screen.getByTestId("skills-install-unread")).toHaveTextContent(
+      "Could not read rpa-skills.",
+    );
+    await waitFor(() =>
+      expect(scrolled).toHaveBeenCalledWith({ block: "nearest" }),
+    );
+  } finally {
+    Element.prototype.scrollIntoView = prev;
+  }
+});

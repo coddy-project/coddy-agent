@@ -149,7 +149,7 @@ coddy agents trust <name>
 
 ## Маркетплейс проекта не синхронизируется
 
-**Симптом.** Источник или маркетплейс, который проект объявляет в `.coddy/marketplaces.json`, ничего не устанавливает: `coddy skills sync` заканчивается строкой вроде `? team/skills: declared by <workspace>/.coddy/marketplaces.json, not approved for this workspace`, `plugin install <plugin>@<name>` сообщает, что маркетплейс не одобрен, а в разделе "Настройки > Навыки" строка показана с примечанием и неактивной кнопкой **Синхронизировать**.
+**Симптом.** Источник или маркетплейс, который проект объявляет в `.coddy/marketplaces.json`, не используется. `coddy plugin marketplace update` заканчивается строкой вроде `? team/skills: declared by <workspace>/.coddy/marketplaces.json, not approved for this workspace`, `plugin install <plugin>@<name>` сообщает, что маркетплейс не одобрен, а в разделе "Настройки > Навыки" строка показана с примечанием и неактивной кнопкой проверки.
 
 **Причина.** Этот файл приходит вместе с чекаутом и решает, что установить в `${CODDY_HOME}/skills`, поэтому его записи подчиняются `skills.project_trust`. При значении по умолчанию `ask` запись действует только после того, как вы одобрите её для этой рабочей папки, а одобрение привязано к записи, поэтому чекаут, который её переписывает, запрашивает одобрение снова. При `deny` записи показываются выключенными и никогда не используются.
 
@@ -158,8 +158,10 @@ coddy agents trust <name>
 ```bash
 coddy plugin marketplace list            # what is declared, and what waits for approval
 coddy plugin marketplace trust <name>    # a marketplace by name, a source by its address
-coddy skills sync
+coddy plugin install <source>            # a source; a plugin of a marketplace: coddy plugin install <plugin>@<name>
 ```
+
+Само одобрение ничего не ставит, установку делает последняя команда.
 
 `/plugin` в чате одобрить запись не может. Чекаут, которому вы уже доверяете, может работать с `skills.project_trust: allow`. Руководство - [Скилы](../features/skills.md#маркетплейсы-проекта-и-доверие).
 
@@ -404,4 +406,4 @@ coddy acp --log-level debug
 
 Те же настройки можно сохранить в разделе `logger` файла `config.yaml` (`level`, `levels`, `outputs`, `file`, `format`). Справка - [Конфигурация](configuration.md), [`logger`](../reference/config.md#logger).
 
-<!-- docsgen:source sha256=8f6c9b042be070b9 -->
+<!-- docsgen:source sha256=3db6aab4021ac590 -->

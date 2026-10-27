@@ -54,9 +54,9 @@ _coddy() {
                 skills)   _values 'subcommand' list enable disable add sync remove ;;
                 plugin)
                     if (( CURRENT == 3 )) && [[ $words[2] == marketplace ]]; then
-                        _values 'marketplace subcommand' add list update remove sync trust untrust
+                        _values 'marketplace subcommand' add list update remove trust untrust
                     elif (( CURRENT == 2 )); then
-                        _values 'subcommand' marketplace install remove enable disable list
+                        _values 'subcommand' marketplace install update remove enable disable list
                     fi
                     ;;
                 mcp|agents|hooks) _values 'subcommand' list trust untrust ;;
