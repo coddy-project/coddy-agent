@@ -597,6 +597,7 @@ The bot sees who wrote every message, and its admins (`gateways.telegram.admins`
 
 - the turn may call only reading tools (`read`, `grep`, `glob`, `print_tree`) kept inside the session's working directory and out of the agent's home, the built-in documentation, a web search, the session's plan and to-do list and a question back; anything else - the configuration, `switch_model`, subagents, worktrees, the scheduler, background tasks, servers, shell commands, writes, fetching a page, every MCP tool - is refused, and the model is told why;
 - an `@` mention attaches files of the working directory only, and no web page;
+- `/plugin` answers only its usage screen and `/plugin list`: installing, updating or removing a skill changes what every session of the agent's home runs;
 - every call that needs approval asks the bot, whatever the session's permission mode, and the bot refuses it; the "always allow" grants an admin gave in a shared session do not apply;
 - a permission button is answered by an admin only, also in a group whose session is shared;
 - a woken turn and a background subagent's request take the rights of whoever the conversation belongs to: a private chat's or an individual group session's person, never a shared group's.

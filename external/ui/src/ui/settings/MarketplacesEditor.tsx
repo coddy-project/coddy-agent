@@ -79,10 +79,21 @@ function originBadgeKey(e: MarketplaceEntry): string {
   }
 }
 
-// updatesFound reads how many newer versions a check answered with.
-function updatesFound(body: unknown): number {
-  const updates = (body as { updates?: unknown } | undefined)?.updates;
-  return Array.isArray(updates) ? updates.length : 0;
+// What a check answered with: how many newer versions it found, and the
+// marketplaces and sources it could not read.
+type CheckFound = { count: number; unread: string[] };
+
+function checkFound(body: unknown): CheckFound {
+  const b = body as { updates?: unknown; failed?: unknown } | undefined;
+  const unread = Array.isArray(b?.failed)
+    ? (b.failed as Array<{ source?: unknown }>)
+        .map((f) => (typeof f?.source === "string" ? f.source : ""))
+        .filter((s) => s !== "")
+    : [];
+  return {
+    count: Array.isArray(b?.updates) ? b.updates.length : 0,
+    unread,
+  };
 }
 
 /**
@@ -102,6 +113,12 @@ export function MarketplacesEditor(props: {
   activeSessionId?: string | undefined;
   /** Called after a check or an install, so the installed list can follow. */
   onSynced: () => Promise<void> | void;
+  /**
+   * How many installed skills have a newer version, as the installed list
+   * knows it now: after a check, the line under the legend follows it, so it
+   * stays true once those updates are installed.
+   */
+  updateCount?: number;
 }) {
   const { t, tp } = useT();
   const sessionId = props.activeSessionId || undefined;
@@ -112,8 +129,10 @@ export function MarketplacesEditor(props: {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [syncing, setSyncing] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
-  // What the last check found: how many newer versions, or null before one.
-  const [found, setFound] = useState<number | null>(null);
+  // What the last check found, or null before one and after a change that
+  // makes it stale (an add, an install, a failed check).
+  const [found, setFound] = useState<CheckFound | null>(null);
+  const updateCount = found ? (props.updateCount ?? found.count) : 0;
   const [draft, setDraft] = useState("");
   const [scope, setScope] = useState<"global" | "local">("global");
   // A project entry is written into the session's workspace; before the chat
@@ -170,6 +189,7 @@ export function MarketplacesEditor(props: {
   const onSync = (key?: string) => {
     setSyncing(true);
     setError(null);
+    setFound(null);
     void (async () => {
       const path = key
         ? `/coddy/skills/sync?source=${encodeURIComponent(key)}`
@@ -178,8 +198,8 @@ export function MarketplacesEditor(props: {
         const res = await send(sessionId, path, "POST");
         if (!res.ok) setError(res.error || translate("skills.error.sync"));
         else {
-          setFound(updatesFound(res.body));
           await onSynced();
+          setFound(checkFound(res.body));
           flashDone(key ?? SYNC_ALL_KEY);
         }
       } catch {
@@ -196,6 +216,7 @@ export function MarketplacesEditor(props: {
   // offers, since nothing installs a source on its own.
   const onInstall = (e: MarketplaceEntry) => {
     const key = entryKey(e);
+    setFound(null);
     withBusy(key, async () => {
       const res = await send(sessionId, "/coddy/skills/install", "POST", {
         source: e.source,
@@ -253,8 +274,10 @@ export function MarketplacesEditor(props: {
   const onAdd = () => {
     const source = draft.trim();
     if (!source) return;
+    setFound(null);
     withBusy(ADD_KEY, async () => {
-      // A source is installed as it is added: nothing installs it later.
+      // A source is installed as it is added: nothing installs it later. One
+      // in the list already, and the built-in catalog, install nothing.
       const res = await send(sessionId, "/coddy/skills/sources", "POST", {
         source,
         scope: effectiveScope,
@@ -268,6 +291,9 @@ export function MarketplacesEditor(props: {
         return;
       }
       setDraft("");
+      if ((res.body as { added?: unknown } | undefined)?.added === false) {
+        setError(translate("skills.sources.addedAlready", { source }));
+      }
       await load();
       await onSynced();
     });
@@ -300,10 +326,17 @@ export function MarketplacesEditor(props: {
         </p>
       ))}
       {error ? <p className="settings-error">{error}</p> : null}
-      {found !== null ? (
+      {found !== null && found.unread.length > 0 ? (
+        <p className="settings-error" data-testid="skills-check-unread">
+          {t("skills.sources.check.unread", {
+            sources: found.unread.join(", "),
+          })}
+        </p>
+      ) : null}
+      {found !== null && (updateCount > 0 || found.unread.length === 0) ? (
         <p className="settings-muted" data-testid="skills-check-status">
-          {found > 0
-            ? tp("skills.sources.check.updates", found)
+          {updateCount > 0
+            ? tp("skills.sources.check.updates", updateCount)
             : t("skills.sources.check.current")}
         </p>
       ) : null}

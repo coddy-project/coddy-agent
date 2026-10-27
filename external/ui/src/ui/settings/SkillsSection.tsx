@@ -280,7 +280,11 @@ export function SkillsSection(props: {
           method: "POST",
           headers: sessionHeaders(sessionId),
         });
-        let body: { updated?: string[]; error?: { message?: string } } = {};
+        let body: {
+          updated?: string[];
+          failed?: Array<{ source?: string; error?: string }>;
+          error?: { message?: string };
+        } = {};
         try {
           body = (await res.json()) as typeof body;
         } catch {
@@ -290,11 +294,18 @@ export function SkillsSection(props: {
           setError(body.error?.message || translate("skills.error.update"));
         } else {
           const n = body.updated?.length ?? 0;
-          setStatus(
-            n > 0
-              ? tp("skills.status.updatedAll", n)
-              : t("skills.status.upToDate"),
-          );
+          const failed = body.failed ?? [];
+          // Up to date only when nothing failed either: a source that could
+          // not be read is no proof of the newest version.
+          if (failed.length > 0) {
+            setError(
+              failed
+                .map((f) => `${f.source ?? ""}: ${f.error ?? ""}`)
+                .join("; "),
+            );
+          }
+          if (n > 0) setStatus(tp("skills.status.updatedAll", n));
+          else if (failed.length === 0) setStatus(t("skills.status.upToDate"));
         }
         await loadInstalled();
         await refreshUpdates();
@@ -427,6 +438,7 @@ export function SkillsSection(props: {
       <MarketplacesEditor
         activeSessionId={props.activeSessionId}
         onSynced={onSynced}
+        updateCount={updateCount}
       />
 
       <fieldset

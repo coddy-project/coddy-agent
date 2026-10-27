@@ -241,9 +241,11 @@ func (s *Server) coddySkillsSourcesPost(w http.ResponseWriter, r *http.Request) 
 	}
 
 	resp := map[string]interface{}{"ok": true, "added": added}
-	if req.Sync {
-		// The source just added, as documented; the others are refreshed by
-		// POST /coddy/skills/sync.
+	if req.Sync && added {
+		// The source just added, as documented. One declared already, and the
+		// built-in catalogue, install nothing here: an add is not the explicit
+		// install that would bring back the skills the operator removed
+		// (POST /coddy/skills/install is).
 		res, err := skills.SyncSource(r.Context(), s.activeCfg(), req.Source)
 		if err != nil {
 			body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": err.Error()}})

@@ -143,6 +143,12 @@ func AddMarketplace(ctx context.Context, cfg *config.Config, cwd, source, scope 
 	if !marketplaceNamePattern.MatchString(name) {
 		return AddedMarketplace{}, false, fmt.Errorf("the marketplace.json of %s names it %q, which `plugin install <plugin>@<marketplace>` cannot use; install every plugin it lists with `plugin install %s`", source, name, source)
 	}
+	for _, sys := range SystemSources {
+		if strings.EqualFold(sys.Name, name) && !sameSource(sys.Source, source) {
+			// <plugin>@<name> would always reach the built-in one.
+			return AddedMarketplace{}, false, fmt.Errorf("the marketplace.json of %s names it %q, the name of the marketplace built into Coddy (%s), so it cannot be added under that name; install every plugin it lists with `plugin install %s`", source, name, sys.Source, source)
+		}
+	}
 	declared := false
 	if _, ok := systemMarketplace(source); !ok {
 		// The system catalogue is in effect already; writing it into a file

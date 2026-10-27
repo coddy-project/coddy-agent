@@ -161,7 +161,7 @@ coddy plugin marketplace trust <name>    # a marketplace by name, a source by it
 coddy plugin install <source>            # a source; a plugin of a marketplace: coddy plugin install <plugin>@<name>
 ```
 
-Approving installs nothing on its own: the install is the second command.
+Approving installs nothing on its own: the install is the last command.
 
 `/plugin` in a chat cannot approve one. A checkout you already trust can run under `skills.project_trust: allow`. Guide: [Skills](../features/skills.md#project-marketplaces-and-trust).
 

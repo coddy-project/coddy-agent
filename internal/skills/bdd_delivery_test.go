@@ -210,6 +210,10 @@ func (s *deliveryState) deleteSkill(name string) error {
 	return os.RemoveAll(filepath.Join(s.managedDir(), name))
 }
 
+func (s *deliveryState) deleteSkillsDir() error {
+	return os.RemoveAll(s.managedDir())
+}
+
 func (s *deliveryState) removeMarketplaceRefused(source string) error {
 	removed, err := skills.RemoveSource(s.cfg, "", source, "")
 	if err == nil {
@@ -360,6 +364,7 @@ func initializeDeliveryScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the home already carries skill "([^"]*)" at version "([^"]*)"$`, s.writeSkill)
 	sc.Step(`^the home skill "([^"]*)" is at the delivered version$`, s.atDeliveredVersion)
 	sc.Step(`^the operator deletes the skill "([^"]*)"$`, s.deleteSkill)
+	sc.Step(`^the operator deletes the home skills directory$`, s.deleteSkillsDir)
 }
 
 func TestSkillsDeliveryFeature(t *testing.T) {

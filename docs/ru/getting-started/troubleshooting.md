@@ -161,7 +161,7 @@ coddy plugin marketplace trust <name>    # a marketplace by name, a source by it
 coddy plugin install <source>            # a source; a plugin of a marketplace: coddy plugin install <plugin>@<name>
 ```
 
-Само одобрение ничего не ставит, установку делает вторая команда.
+Само одобрение ничего не ставит, установку делает последняя команда.
 
 `/plugin` в чате одобрить запись не может. Чекаут, которому вы уже доверяете, может работать с `skills.project_trust: allow`. Руководство - [Скилы](../features/skills.md#маркетплейсы-проекта-и-доверие).
 

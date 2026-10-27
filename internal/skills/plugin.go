@@ -273,6 +273,8 @@ func pluginMarketplaceUpdate(ctx context.Context, cfg *config.Config, cwd, key s
 		fmt.Fprintf(&b, "Read %d marketplace(s) and source(s).", len(res.Read))
 	}
 	switch n := len(res.Updates); {
+	case n == 0 && len(res.Failed) > 0:
+		b.WriteString(" No newer version was found in what could be read.")
 	case n > 0:
 		noun := "updates"
 		if n == 1 {
@@ -309,6 +311,8 @@ func pluginUpdate(ctx context.Context, cfg *config.Config, cwd, name string) (st
 	switch {
 	case changed == 0 && len(res.Failed) > 0 && name != "":
 		return "", fmt.Errorf("update %s: %s", name, res.Failed[0].Error)
+	case changed == 0 && len(res.Failed) > 0:
+		return "", fmt.Errorf("update failed: %s%s", res.Failed[0].Error, moreFailures(res.Failed))
 	case changed == 0 && len(res.Failed) == 0 && name != "":
 		return fmt.Sprintf("%s is up to date.", name), nil
 	case changed == 0 && len(res.Failed) == 0:
@@ -588,6 +592,14 @@ func writeProblems(b *strings.Builder, failed []SyncFailure, heldBack []Declarat
 		}
 		fmt.Fprintf(b, "\n  ? %s: declared by %s, not approved for this workspace (`coddy plugin marketplace trust %s`)", d.Key(), d.Path, d.Key())
 	}
+}
+
+// moreFailures names how many failures follow the first one.
+func moreFailures(failed []SyncFailure) string {
+	if len(failed) < 2 {
+		return ""
+	}
+	return fmt.Sprintf(" (and %d more)", len(failed)-1)
 }
 
 func trimTokens(args []string) []string {

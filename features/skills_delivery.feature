@@ -1,8 +1,10 @@
 Feature: The standard skill delivery
   Coddy carries a set of skills inside its binary and hands them to the
-  operator's home directory the first time it sees that they are not there, so
-  a fresh install has them without a network round trip. A release that carries
-  a newer skill replaces the copy on disk. The catalogue those skills are
+  operator's home directory on the first install, so a fresh install has them
+  without a network round trip. It keeps a record of what it handed over in
+  the coddy home, outside the skills folder, so a skill the operator deleted -
+  or the whole skills folder - is not written again. A release that carries a
+  newer skill replaces the copy on disk. The catalogue those skills are
   published from, rpa-skills, is built into Coddy rather than written into
   anybody's config file - which is also why nothing can remove it - and it
   installs nothing on its own: reading it reports the newer versions of the
@@ -30,6 +32,14 @@ Feature: The standard skill delivery
     And the operator deletes the skill "rpa-feat"
     When coddy hands over the standard delivery
     Then the home skills directory does not carry "rpa-feat"
+    And the skill catalogue does not offer "rpa-feat"
+
+  Scenario: Deleting the whole skills folder does not bring the delivery back
+    Given coddy has handed over the standard delivery
+    And the operator deletes the home skills directory
+    When coddy hands over the standard delivery
+    Then the home skills directory does not carry "rpa-feat"
+    And the home skills directory does not carry "crossreview"
     And the skill catalogue does not offer "rpa-feat"
 
   Scenario: The catalogue of the delivery is built in and cannot be removed

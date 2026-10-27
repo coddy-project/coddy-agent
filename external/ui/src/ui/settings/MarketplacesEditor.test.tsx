@@ -522,3 +522,89 @@ test("removing a row names its file", async () => {
     ),
   );
 });
+
+// A check that could not read a list names it and claims no "up to date",
+// and the line it leaves follows the installed list's count afterwards, so it
+// stays true once the updates are installed.
+test("a check that could not read a list says so, and the line follows the count", async () => {
+  stubApi(listing([SYSTEM, HOME_CATALOG]), (call) =>
+    call.url === "/coddy/skills/sync"
+      ? {
+          ok: true,
+          status: 200,
+          body: {
+            ok: true,
+            read: ["shop"],
+            updates: [],
+            failed: [{ source: "rpa-skills", error: "clone failed" }],
+          },
+        }
+      : {
+          ok: true,
+          status: 200,
+          body: {
+            ok: true,
+            read: ["shop"],
+            updates: [{ name: "demo", update_available: true }],
+          },
+        },
+  );
+  const onSynced = vi.fn();
+  const { rerender } = render(
+    <MarketplacesEditor
+      activeSessionId="sess_view"
+      onSynced={onSynced}
+      updateCount={0}
+    />,
+  );
+  fireEvent.click(await screen.findByTestId("skills-sync-all"));
+  expect(await screen.findByTestId("skills-check-unread")).toHaveTextContent(
+    "Could not read rpa-skills.",
+  );
+  expect(screen.queryByTestId("skills-check-status")).toBeNull();
+
+  fireEvent.click(screen.getByTestId("skills-marketplace-sync-shop"));
+  await waitFor(() => expect(onSynced).toHaveBeenCalledTimes(2));
+  rerender(
+    <MarketplacesEditor
+      activeSessionId="sess_view"
+      onSynced={onSynced}
+      updateCount={1}
+    />,
+  );
+  expect(await screen.findByTestId("skills-check-status")).toHaveTextContent(
+    "1 update available",
+  );
+  expect(screen.queryByTestId("skills-check-unread")).toBeNull();
+  // The installed list updated it: the line says so.
+  rerender(
+    <MarketplacesEditor
+      activeSessionId="sess_view"
+      onSynced={onSynced}
+      updateCount={0}
+    />,
+  );
+  expect(screen.getByTestId("skills-check-status")).toHaveTextContent(
+    "Every installed skill is up to date.",
+  );
+});
+
+// Adding what the list has already installs nothing, and the list says so.
+test("adding a source the list has already says nothing was installed", async () => {
+  stubApi(listing([SYSTEM]), (call) =>
+    call.url === "/coddy/skills/sources"
+      ? { ok: true, status: 200, body: { ok: true, added: false } }
+      : undefined,
+  );
+  const onSynced = renderEditor();
+  fireEvent.change(await screen.findByTestId("skills-marketplace-input"), {
+    target: { value: "EvilFreelancer/rpa-skills" },
+  });
+  fireEvent.click(screen.getByTestId("skills-marketplace-add"));
+  expect(
+    await screen.findByText(
+      "EvilFreelancer/rpa-skills is in the list already, so nothing was installed.",
+    ),
+  ).toBeTruthy();
+  await waitFor(() => expect(onSynced).toHaveBeenCalled());
+});

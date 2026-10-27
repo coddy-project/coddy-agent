@@ -1268,6 +1268,9 @@ export const messagesEn: Record<string, string> = {
   "skills.sources.check.updates.other":
     "{count} updates available: install them in the list below.",
   "skills.sources.check.current": "Every installed skill is up to date.",
+  "skills.sources.check.unread": "Could not read {sources}.",
+  "skills.sources.addedAlready":
+    "{source} is in the list already, so nothing was installed.",
   "skills.sources.installTitle": "Install every plugin of {source}",
   "skills.sources.installedTitle": "Installed",
   "skills.sources.installAria": "Install {source}",
@@ -1303,7 +1306,7 @@ export const messagesEn: Record<string, string> = {
   "skills.sources.error.trust": "Could not change the approval of {source}.",
   "skills.sources.error.install": "Could not install {source}.",
   "skills.sources.description":
-    'Where remote skills come from. A source is installed whole: adding it, or its install button, installs every plugin it publishes; a catalog (coddy plugin marketplace add) installs its plugins one by one. Yours are kept in ~/.coddy/marketplaces.json, the project\'s in its .coddy/marketplaces.json, which travels with the checkout: under "ask" a project entry is used only once you approve it with the shield. Everything installs into ~/.coddy/skills. Checking for updates reads the lists and installs nothing, and a skill you delete is never installed back. The built-in rpa-skills catalog is always in effect and always trusted.',
+    'Where remote skills come from. A source is installed whole: adding it, or its install button, installs every plugin it publishes; a catalog (coddy plugin marketplace add) installs its plugins one by one. Yours are kept in ~/.coddy/marketplaces.json, the project\'s in its .coddy/marketplaces.json, which travels with the checkout: under "ask" a project entry is used only once you approve it with the shield. Everything installs into ~/.coddy/skills. Checking for updates reads the lists and installs nothing, and no check or update installs back a skill you delete. The built-in rpa-skills catalog is always in effect and always trusted.',
   "skills.sources.placeholder": "owner/repo  ·  https://…/marketplace.json",
   "skills.install.cliHint":
     "You can also install skills via npx skills or npx skillsbd - they land in ~/.agents/skills/ and are picked up automatically.",

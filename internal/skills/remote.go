@@ -184,6 +184,9 @@ type RemoteEntry struct {
 	Archive string `json:"archive,omitempty"` // zip archive URL the skill was unpacked from
 	Plugin  string `json:"plugin,omitempty"`  // marketplace plugin entry name (for update lookup)
 	Version string `json:"version,omitempty"` // installed version, as declared at sync time
+	// SkillVersion is the version the installed SKILL.md declared, so a copy
+	// the operator raised above it later reads as an edit to keep.
+	SkillVersion string `json:"skill_version,omitempty"`
 }
 
 // SyncResult summarizes a Sync run.
@@ -548,8 +551,9 @@ func installSkillDirs(hits []skillHit, entry RemoteEntry, managedDir string, loc
 			continue
 		}
 		ent := entry
+		ent.SkillVersion = skillDirVersion(h.dir)
 		if ent.Version == "" {
-			ent.Version = skillDirVersion(h.dir)
+			ent.Version = ent.SkillVersion
 		}
 		lock[name] = ent
 		if existed == nil {

@@ -8,10 +8,10 @@ Skills are reusable instruction packs that extend the agent with slash commands,
 
 ## The standard delivery
 
-Coddy carries a set of skills inside the binary and writes them into **`${CODDY_HOME}/skills`** the
-first time it sees they are not there. Nothing is downloaded for this: a fresh install has them on
-the first run, offline, and a skill that reads files beside its `SKILL.md` finds them on disk rather
-than pointing at a directory that does not exist.
+Coddy carries a set of skills inside the binary and writes them into **`${CODDY_HOME}/skills`** on
+the first install. Nothing is downloaded for this: a fresh install has them on the first run,
+offline, and a skill that reads files beside its `SKILL.md` finds them on disk rather than pointing
+at a directory that does not exist.
 
 | Skill | What it does |
 |-------|--------------|
@@ -24,10 +24,13 @@ than pointing at a directory that does not exist.
 
 Once written they are ordinary skills in your home: edit them, `coddy skills disable <name>` them,
 delete them, or update them from the marketplace. What the delivery will and will not do is
-recorded in **`${CODDY_HOME}/skills/.bundled.json`** beside the skills it wrote:
+recorded in **`${CODDY_HOME}/skills-delivery.json`**, beside the skills folder rather than in it, so
+deleting the folder does not make the next start a first install:
 
-- a skill it has never handed over is written;
-- a skill you deleted stays deleted - it is not written again by the next start;
+- a skill it has never handed over is written: every skill on the first install, and later a skill a
+  release adds to the delivery;
+- a skill you deleted stays deleted - it is not written again by the next start, and neither is a
+  skill of the whole skills folder you deleted;
 - a copy older than the one in the release is **replaced**, so `coddy update` brings the newer skill
   with it. A copy that declares no version at all counts as older - it predates these skills
   carrying one - and is replaced too;
@@ -40,11 +43,12 @@ recorded in **`${CODDY_HOME}/skills/.bundled.json`** beside the skills it wrote:
 While a delivered skill is on disk it counts as installed from the catalogue it is published in
 ([below](#the-marketplace-that-comes-with-it)): `coddy plugin marketplace update` reports a newer
 version published there, and `coddy plugin update` installs it. A delivered skill you deleted is
-installed from nowhere: no start, check or update writes it again. Only deleting `.bundled.json`
-itself does - without the receipt the next start cannot tell a skill you deleted from one it never
-handed over, so it writes every skill of the delivery that is missing.
+installed from nowhere: no start, check or update writes it again. Only deleting
+`skills-delivery.json` itself does - without the receipt the next start takes the home for a first
+install and writes every skill of the delivery that is missing. Earlier versions kept the receipt
+inside the skills folder as `.bundled.json`; the next start moves it out, with what it says.
 
-If `.bundled.json` is there but unreadable, the delivery stops for that run and says so rather than
+If `skills-delivery.json` is there but unreadable, the delivery stops for that run and says so rather than
 guessing: read as an empty record it would claim nothing had ever been handed over, and write back
 every skill you had deleted. Replacing a skill renames the old copy aside and the new one into
 place; a process killed between the two leaves a backup and no skill, and the next run puts it back.

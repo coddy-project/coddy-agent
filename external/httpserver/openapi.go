@@ -3227,7 +3227,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"post": map[string]interface{}{
 					"summary":     "Declare a skill source or marketplace",
-					"description": "Declares a source (installed whole when it is installed: every plugin it publishes at that moment) or, with **`kind: marketplace`**, a catalog whose plugins are installed one by one (its **`marketplace.json`** is read for its name). **`scope: global`** (default) writes **`<home>/marketplaces.json`**; **`scope: local`** writes the session workspace's **`.coddy/marketplaces.json`** and approves the entry for that workspace, the operator having typed it. Set **`sync:true`** to also install every plugin of a source immediately; with **`kind: marketplace`** it is a 400, because declaring a marketplace installs nothing. Declaring alone installs nothing, and nothing installs the source later but **`POST /coddy/skills/install`**. config.yaml is not touched.",
+					"description": "Declares a source (installed whole when it is installed: every plugin it publishes at that moment) or, with **`kind: marketplace`**, a catalog whose plugins are installed one by one (its **`marketplace.json`** is read for its name). **`scope: global`** (default) writes **`<home>/marketplaces.json`**; **`scope: local`** writes the session workspace's **`.coddy/marketplaces.json`** and approves the entry for that workspace, the operator having typed it. Set **`sync:true`** to also install every plugin of a source this call declares; a source declared already and the built-in catalogue install nothing (the answer says **`added:false`** and carries no **`sync`**), and with **`kind: marketplace`** it is a 400, because declaring a marketplace installs nothing. Declaring alone installs nothing, and nothing installs the source later but **`POST /coddy/skills/install`**. config.yaml is not touched.",
 					"operationId": "addSkillSource",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -3237,7 +3237,7 @@ func openAPISpec() map[string]interface{} {
 									"type": "object",
 									"properties": map[string]interface{}{
 										"source": map[string]string{"type": "string", "description": "owner/repo[@ref], a git URL, or a marketplace.json URL."},
-										"sync":   map[string]interface{}{"type": "boolean", "description": "Install every plugin of the source immediately after adding (kind source only)."},
+										"sync":   map[string]interface{}{"type": "boolean", "description": "Install every plugin of the source when this call declares it (kind source only); nothing for a source declared already or the built-in catalogue."},
 										"scope":  map[string]interface{}{"type": "string", "enum": []string{"global", "local"}, "description": "global: <home>/marketplaces.json (default); local: the workspace's .coddy/marketplaces.json."},
 										"kind":   map[string]interface{}{"type": "string", "enum": []string{"source", "marketplace"}, "description": "source (default): installed whole; marketplace: a catalog."},
 									},

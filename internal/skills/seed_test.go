@@ -292,7 +292,7 @@ func TestDeliveryStopsOnAnUnreadableReceipt(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(managed, "rpa-feat")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(managed, ".bundled.json"), []byte("{not json"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(cfg.Paths.Home, "skills-delivery.json"), []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -354,5 +354,63 @@ func TestRemovingARedundantConfigEntryClearsTheFile(t *testing.T) {
 	// The marketplace is in effect all the same, and the other source survived.
 	if keys := inEffectKeys(t, cfg); !reflect.DeepEqual(keys, []string{config.SystemSkillsMarketplace, "someone/else"}) {
 		t.Fatalf("in effect after the removal: %v", keys)
+	}
+}
+
+// The record of what was handed over lives in the coddy home, beside the
+// skills folder rather than in it: deleting the folder is not a first install.
+// A record an older Coddy kept inside the folder moves out on the next run,
+// with what it said.
+func TestTheDeliveryRecordLivesBesideTheSkillsFolder(t *testing.T) {
+	cfg := deliveryHome(t, true)
+	if _, err := skills.SeedDelivery(cfg); err != nil {
+		t.Fatal(err)
+	}
+	managed := cfg.Skills.ManagedDir(cfg.Paths.Home)
+	record := filepath.Join(cfg.Paths.Home, "skills-delivery.json")
+	if _, err := os.Stat(record); err != nil {
+		t.Fatalf("no delivery record in the home: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(managed, ".bundled.json")); !os.IsNotExist(err) {
+		t.Fatalf("a record inside the skills folder: %v", err)
+	}
+
+	// An older Coddy's record inside the folder: rpa-feat handed over and
+	// deleted since.
+	if err := os.Remove(record); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(managed, "rpa-feat")); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"version":1,"skills":{"rpa-feat":"1.0.0"}}`
+	if err := os.WriteFile(filepath.Join(managed, ".bundled.json"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := skills.SeedDelivery(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(managed, "rpa-feat")); !os.IsNotExist(err) {
+		t.Fatalf("the deleted skill came back on the move: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(managed, ".bundled.json")); !os.IsNotExist(err) {
+		t.Fatalf("the old record stayed in the skills folder: %v", err)
+	}
+	data, err := os.ReadFile(record)
+	if err != nil || !strings.Contains(string(data), `"rpa-feat"`) {
+		t.Fatalf("the moved record = %s, %v", data, err)
+	}
+
+	// The whole folder deleted: nothing comes back.
+	if err := os.RemoveAll(managed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := skills.SeedDelivery(cfg); err != nil {
+		t.Fatal(err)
+	}
+	for _, sk := range skills.Bundled() {
+		if _, err := os.Stat(filepath.Join(managed, skills.CanonicalCommandName(sk))); !os.IsNotExist(err) {
+			t.Fatalf("%s came back after the skills folder was deleted: %v", skills.CanonicalCommandName(sk), err)
+		}
 	}
 }

@@ -12,7 +12,7 @@ package skills
 // The skills of the standard delivery count as installed from the system
 // catalogue they are published in, under their own names, for as long as no
 // install has replaced them: the delivery writes them out of the binary and
-// records them in .bundled.json, not in .remote.json.
+// records them in <home>/skills-delivery.json, not in .remote.json.
 
 import (
 	"context"
@@ -136,6 +136,7 @@ func RefreshIndex(ctx context.Context, cfg *config.Config, cwd, key string) (*In
 			res.Updates = append(res.Updates, st)
 		}
 	}
+	res.Failed = indexes.failures(res.Failed)
 	return res, nil
 }
 
@@ -189,6 +190,8 @@ func UpdateSkills(ctx context.Context, cfg *config.Config, cwd, name string) (*S
 	defer indexes.close()
 	res := &SyncResult{}
 	due := map[string]RemoteEntry{}
+	// A source that could not be read is a failure, never "up to date".
+	defer func() { res.Failed = indexes.failures(res.Failed) }()
 	for _, st := range checkEntries(ctx, decls, entries, indexes) {
 		switch {
 		case st.UpdateAvailable:
@@ -240,12 +243,18 @@ func InstallSource(ctx context.Context, cfg *config.Config, cwd, source string) 
 }
 
 // installedEntries lists by name the installed skills an update may touch:
-// every skill the lock records as installed from a marketplace or a source,
-// and every skill of the standard delivery still on disk that no install has
-// replaced, as installed from the system catalogue under its own name, at the
-// version its SKILL.md declares.
+// every skill on disk the lock records as installed from a marketplace or a
+// source, and every skill of the standard delivery still on disk that no
+// install has replaced, as installed from the system catalogue under its own
+// name, at the version its SKILL.md declares. A skill deleted by hand is not
+// installed, whatever the lock still says.
 func installedEntries(managedDir string) map[string]RemoteEntry {
 	out := readRemoteLock(managedDir)
+	for name := range out {
+		if !inspectInstalledSkill(filepath.Join(managedDir, name)).present {
+			delete(out, name)
+		}
+	}
 	if len(SystemSources) == 0 {
 		return out
 	}
@@ -304,11 +313,31 @@ func checkEntries(ctx context.Context, decls []Declaration, entries map[string]R
 			if latest := strings.TrimSpace(idx.versions[key]); latest != "" {
 				st.Latest, st.known = latest, true
 				st.UpdateAvailable = isUpdate(latest, ent.Version)
+				if edited := editedVersion(indexes.managedDir, name, ent); edited != "" && !isArchiveVersion(latest) && compareVersions(edited, latest) >= 0 {
+					// The operator raised the copy to keep an edit: it is
+					// the newest version there is.
+					st.Version, st.UpdateAvailable = edited, false
+				}
 			}
 		}
 		out = append(out, st)
 	}
 	return out
+}
+
+// editedVersion is the version the SKILL.md of an installed skill declares
+// when it differs from the one it declared as installed: the operator edited
+// the copy and raised its version. "" when nothing says so, an entry
+// installed before the lock recorded that version included.
+func editedVersion(managedDir, name string, ent RemoteEntry) string {
+	if strings.TrimSpace(ent.SkillVersion) == "" {
+		return ""
+	}
+	on := inspectInstalledSkill(filepath.Join(managedDir, name))
+	if !on.readable || on.version == "" || on.version == strings.TrimSpace(ent.SkillVersion) {
+		return ""
+	}
+	return on.version
 }
 
 // sourceIndex is what one source published when it was read.
@@ -344,6 +373,27 @@ func (x *sourceIndexes) read(ctx context.Context, source string) (*sourceIndex, 
 	}
 	x.reads = append(x.reads, sourceIndexRead{source: source, idx: idx, err: err})
 	return idx, err
+}
+
+// failures adds to reported every source that could not be read and that it
+// does not report already.
+func (x *sourceIndexes) failures(reported []SyncFailure) []SyncFailure {
+	for _, r := range x.reads {
+		if r.err == nil {
+			continue
+		}
+		known := false
+		for _, f := range reported {
+			if strings.Contains(f.Error, r.err.Error()) {
+				known = true
+				break
+			}
+		}
+		if !known {
+			reported = append(reported, SyncFailure{Source: r.source, Error: r.err.Error()})
+		}
+	}
+	return reported
 }
 
 func (x *sourceIndexes) close() {

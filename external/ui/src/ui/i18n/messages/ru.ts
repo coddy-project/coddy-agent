@@ -1307,6 +1307,9 @@ export const messagesRu: Record<string, string> = {
     "Доступно {count} обновления, установите их в списке ниже.",
   "skills.sources.check.current":
     "У всех установленных скилов последние версии.",
+  "skills.sources.check.unread": "Не удалось прочитать {sources}.",
+  "skills.sources.addedAlready":
+    "{source} уже есть в списке, поэтому ничего не установлено.",
   "skills.sources.installTitle": "Установить все плагины {source}",
   "skills.sources.installedTitle": "Установлено",
   "skills.sources.installAria": "Установить {source}",
@@ -1345,7 +1348,7 @@ export const messagesRu: Record<string, string> = {
   "skills.sources.error.trust": "Не удалось изменить одобрение {source}.",
   "skills.sources.error.install": "Не удалось установить {source}.",
   "skills.sources.description":
-    'Откуда берутся удалённые скилы. Источник ставится целиком: при добавлении или кнопкой установки ставятся все плагины, которые он публикует. Каталог (coddy plugin marketplace add) ставит плагины по одному. Ваши записи хранятся в ~/.coddy/marketplaces.json, записи проекта в его .coddy/marketplaces.json, который приходит вместе с чекаутом, и при значении "ask" запись проекта используется только после одобрения щитом. Всё ставится в ~/.coddy/skills. Проверка обновлений читает списки и ничего не устанавливает, а удалённый вами скил обратно не ставится. Встроенный каталог rpa-skills действует всегда и всегда доверенный.',
+    'Откуда берутся удалённые скилы. Источник ставится целиком: при добавлении или кнопкой установки ставятся все плагины, которые он публикует. Каталог (coddy plugin marketplace add) ставит плагины по одному. Ваши записи хранятся в ~/.coddy/marketplaces.json, записи проекта в его .coddy/marketplaces.json, который приходит вместе с чекаутом, и при значении "ask" запись проекта используется только после одобрения щитом. Всё ставится в ~/.coddy/skills. Проверка обновлений читает списки и ничего не устанавливает, а удалённый вами скил обратно не ставит ни проверка, ни обновление. Встроенный каталог rpa-skills действует всегда и всегда доверенный.',
   "skills.sources.placeholder": "owner/repo  ·  https://…/marketplace.json",
   "skills.install.cliHint":
     "Скилы можно также установить через npx skills или npx skillsbd — они попадают в ~/.agents/skills/ и подхватываются автоматически.",

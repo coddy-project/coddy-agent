@@ -139,24 +139,115 @@ func TestAnUpdateByNameKeepsWhatIsCurrentOrNewer(t *testing.T) {
 		t.Fatalf("update of the newest version answered %q", out)
 	}
 
+	// The operator edits the copy and raises its own version, the way the
+	// documentation says to keep an edit; the lock still says 1.0.0.
 	path := filepath.Join(cfg.Skills.ManagedDir(cfg.Paths.Home), "a", "SKILL.md")
 	edited := "---\nname: a\nmetadata:\n  version: 1.5.0\ndescription: mine\n---\n\nmy edit\n"
 	if err := os.WriteFile(path, []byte(edited), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	lock := readRemoteLock(cfg.Skills.ManagedDir(cfg.Paths.Home))
-	ent := lock["a"]
-	ent.Version = "1.5.0"
-	lock["a"] = ent
-	if err := writeRemoteLock(cfg.Skills.ManagedDir(cfg.Paths.Home), lock); err != nil {
-		t.Fatal(err)
-	}
 	c.publish("a", "1.2.0")
+	ups, err := CheckUpdates(context.Background(), cfg, "")
+	if err != nil || len(ups) != 1 || ups[0].UpdateAvailable || ups[0].Version != "1.5.0" {
+		t.Fatalf("update check = %+v, %v; want the raised copy current", ups, err)
+	}
 	for _, words := range [][]string{{"update"}, {"update", "a"}} {
 		mustRun(t, cfg, words...)
 		if body := managedSkillBody(t, cfg, "a"); body != edited {
 			t.Fatalf("plugin %s rewrote a newer copy:\n%s", strings.Join(words, " "), body)
 		}
+	}
+
+	// A release above the edit is an update again.
+	c.publish("a", "2.0.0")
+	if out := mustRun(t, cfg, "update"); !strings.Contains(out, "0 added, 1 updated, 0 failed.") {
+		t.Fatalf("update over 2.0.0 answered %q", out)
+	}
+	if body := managedSkillBody(t, cfg, "a"); !strings.Contains(body, "a at 2.0.0") {
+		t.Fatalf("2.0.0 was not installed: %s", body)
+	}
+}
+
+// A skill deleted by hand, out of the lock's sight, is not installed: no
+// check offers it and no update writes it back, the skill of the delivery
+// that an update recorded in the lock included.
+func TestAnUpdateDoesNotBringBackASkillDeletedByHand(t *testing.T) {
+	c := newGitCatalogue(t)
+	c.publish("a", "1.0.0")
+	sys := newGitCatalogue(t)
+	sys.publish("rpa-feat", "9.0.0")
+	cfg := catalogueHome(t, c)
+	SystemSources = []config.DeclaredMarketplace{{Name: "rpa-skills", Source: sys.url()}}
+	if _, err := SeedDelivery(cfg); err != nil {
+		t.Fatal(err)
+	}
+	managed := cfg.Skills.ManagedDir(cfg.Paths.Home)
+	mustRun(t, cfg, "install", "a@cat")
+	if out := mustRun(t, cfg, "update", "rpa-feat"); !strings.Contains(out, "1 updated") {
+		t.Fatalf("update rpa-feat answered %q", out)
+	}
+	for _, name := range []string{"a", "rpa-feat"} {
+		if err := os.RemoveAll(filepath.Join(managed, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c.publish("a", "2.0.0")
+	sys.publish("rpa-feat", "10.0.0")
+
+	ups, err := CheckUpdates(context.Background(), cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range ups {
+		if u.Name == "a" || u.Name == "rpa-feat" {
+			t.Fatalf("the update check offers %q, deleted by hand: %+v", u.Name, u)
+		}
+	}
+	mustRun(t, cfg, "update")
+	for _, name := range []string{"a", "rpa-feat"} {
+		if _, err := os.Stat(filepath.Join(managed, name)); !os.IsNotExist(err) {
+			t.Fatalf("%s came back: %v", name, err)
+		}
+	}
+	if _, err := run(t, cfg, "update", "a"); err == nil || !strings.Contains(err.Error(), "is not a skill installed") {
+		t.Fatalf("update a by name: %v, want it refused as not installed", err)
+	}
+}
+
+// A source that cannot be read is a failure on every surface, never "up to
+// date": the update errors, the read names it and claims nothing.
+func TestAnUnreadableSourceIsNotUpToDate(t *testing.T) {
+	c := newGitCatalogue(t)
+	c.publish("a", "1.0.0")
+	cfg := catalogueHome(t, c)
+	mustRun(t, cfg, "install", "a@cat")
+	if err := os.RemoveAll(c.repo); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run(t, cfg, "update"); err == nil || !strings.Contains(err.Error(), "update failed") {
+		t.Fatalf("update over an unreadable source = %q, %v; want an error", out, err)
+	}
+	out := mustRun(t, cfg, "marketplace", "update")
+	if strings.Contains(out, "up to date") || !strings.Contains(out, "No newer version was found in what could be read.") || !strings.Contains(out, "! cat") {
+		t.Fatalf("marketplace update answered %q", out)
+	}
+}
+
+// A marketplace whose marketplace.json takes the name of the built-in one
+// cannot be added under it: <plugin>@rpa-skills would always reach the
+// built-in catalogue.
+func TestAMarketplaceNamedLikeTheBuiltInOneIsRefused(t *testing.T) {
+	fork := newCatalogue(t, config.SystemSkillsMarketplace, "forked")
+	reachRemote(t, fork.srv)
+	cfg := marketHome(t)
+	SystemSources = []config.DeclaredMarketplace{{Name: config.SystemSkillsMarketplace, Source: config.SystemSkillsSource}}
+	_, err := run(t, cfg, "marketplace", "add", fork.url())
+	if err == nil || !strings.Contains(err.Error(), "the name of the marketplace built into Coddy") || !strings.Contains(err.Error(), "plugin install "+fork.url()) {
+		t.Fatalf("adding a fork named rpa-skills: %v", err)
+	}
+	file, ferr := config.ReadMarketplacesFile(config.GlobalMarketplacesPath(cfg.Paths.Home))
+	if ferr != nil || len(file.Marketplaces) != 0 {
+		t.Fatalf("the fork was declared: %+v, %v", file, ferr)
 	}
 }
 
