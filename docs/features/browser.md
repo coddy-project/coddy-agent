@@ -61,22 +61,23 @@ of the server. Keep it as secret as the HTTP API's token.
 
 ## Install the extension
 
-Every [release](https://github.com/coddy-project/coddy-for-browser/releases) of the extension carries its packages,
-and every run of its CI keeps them as artifacts:
+Every [release](https://github.com/coddy-project/coddy-for-browser/releases) of the extension carries its packages
+and goes to the Chrome Web Store and addons.mozilla.org, which publish it once their review passes; the release notes
+link the listings. Every run of the extension's CI keeps the packages as artifacts:
 
 | Package | Browsers |
 | --- | --- |
 | `coddy-for-browser-chrome-<version>.zip` | Chrome 116 and later, Yandex Browser and other Chromium browsers |
-| `coddy-for-browser-firefox-<version>.xpi` | Firefox 139 and later, signed by Mozilla (in a release that was signed) |
 | `coddy-for-browser-firefox-<version>.zip` | Firefox 139 and later, unsigned |
 
-- **Chrome**: unpack the archive into a folder you keep, open `chrome://extensions`, turn on **Developer mode**, press
-  **Load unpacked** and choose the folder.
-- **Yandex Browser**: the same archive and the same steps, on `browser://extensions`.
-- **Firefox**: open the signed `.xpi` in Firefox and confirm the installation. Release Firefox installs only add-ons
-  Mozilla signed, so the unsigned archive is loaded as a temporary add-on from `about:debugging#/runtime/this-firefox`
-  (**Load Temporary Add-on**), which Firefox removes when it closes; Firefox Developer Edition and Nightly keep it
-  installed once `xpinstall.signatures.required` is `false` in `about:config`.
+- **Chrome**: install it from the Chrome Web Store once the version is published there, or unpack the archive into a
+  folder you keep, open `chrome://extensions`, turn on **Developer mode**, press **Load unpacked** and choose the
+  folder.
+- **Yandex Browser**: the Chrome Web Store as well, or the same archive and the same steps on `browser://extensions`.
+- **Firefox**: install it from addons.mozilla.org once the version is published there. Release Firefox installs only
+  add-ons Mozilla signed, so the unsigned archive is loaded as a temporary add-on from
+  `about:debugging#/runtime/this-firefox` (**Load Temporary Add-on**), which Firefox removes when it closes; Firefox
+  Developer Edition and Nightly keep it installed once `xpinstall.signatures.required` is `false` in `about:config`.
 
 To build it from source instead, run `npm run build` in a checkout of the extension and load `dist/chrome` or
 `dist/firefox`. The README of the extension has the details for each browser.

@@ -63,22 +63,24 @@ browser:
 ## Установка расширения
 
 Пакеты прикреплены к каждому [релизу](https://github.com/coddy-project/coddy-for-browser/releases) расширения, а
-каждый прогон его CI сохраняет их в артефактах.
+сам релиз уходит в Chrome Web Store и на addons.mozilla.org. Магазины публикуют его, как только он пройдёт их
+проверку. Ссылки на страницы в магазинах есть в заметках к релизу. Каждый прогон CI расширения сохраняет пакеты в артефактах.
 
 | Пакет | Браузеры |
 | --- | --- |
 | `coddy-for-browser-chrome-<version>.zip` | Chrome 116 и новее, Яндекс Браузер и другие браузеры на Chromium |
-| `coddy-for-browser-firefox-<version>.xpi` | Firefox 139 и новее, с подписью Mozilla (в релизе, который был подписан) |
 | `coddy-for-browser-firefox-<version>.zip` | Firefox 139 и новее, без подписи |
 
-- **Chrome**: распакуйте архив в папку, которую не удалите, откройте `chrome://extensions`, включите
-  **Режим разработчика**, нажмите **Загрузить распакованное расширение** и выберите эту папку;
-- **Яндекс Браузер**: тот же архив и те же шаги, только на странице `browser://extensions`;
-- **Firefox**: откройте подписанный `.xpi` в Firefox и подтвердите установку. Обычный Firefox ставит только
-  дополнения, подписанные Mozilla, поэтому архив без подписи загружается как временное дополнение со страницы
-  `about:debugging#/runtime/this-firefox` (**Загрузить временное дополнение**), и при закрытии Firefox его удаляет.
-  Firefox Developer Edition и Nightly оставляют его установленным, если в `about:config` параметр
-  `xpinstall.signatures.required` выставлен в `false`.
+- **Chrome**: установите расширение из Chrome Web Store, когда версия там опубликована, или распакуйте архив в
+  папку, которую не удалите, откройте `chrome://extensions`, включите **Режим разработчика**, нажмите
+  **Загрузить распакованное расширение** и выберите эту папку;
+- **Яндекс Браузер**: тоже из Chrome Web Store или из того же архива теми же шагами, только на странице
+  `browser://extensions`;
+- **Firefox**: установите расширение с addons.mozilla.org, когда версия там опубликована. Обычный Firefox ставит
+  только дополнения, подписанные Mozilla, поэтому архив без подписи загрузите как временное дополнение на странице
+  `about:debugging#/runtime/this-firefox` (**Загрузить временное дополнение**). Firefox удаляет такое
+  дополнение, когда закрывается. Firefox Developer Edition и Nightly оставляют его установленным, если в `about:config` параметр
+  `xpinstall.signatures.required` равен `false`.
 
 Чтобы собрать расширение из исходников, запустите `npm run build` в его клоне и загрузите папку `dist/chrome` или
 `dist/firefox`. Подробности для каждого браузера есть в README расширения.
@@ -281,4 +283,4 @@ Chrome в Chromium, а пакет для Firefox в Firefox, в обоих сл�
 CODDY_FOR_BROWSER_DIR=../coddy-for-browser go test -tags=browser ./external/browser/... -run TestLiveExtension -v
 ```
 
-<!-- docsgen:source sha256=462c1bbb0e9ee7fb -->
+<!-- docsgen:source sha256=a14dad2e657d2ad1 -->
