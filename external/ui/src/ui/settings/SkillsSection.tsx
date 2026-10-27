@@ -109,7 +109,7 @@ async function apiSend(
   method: "POST" | "DELETE",
   body?: unknown,
   sessionId?: string | undefined,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; body?: unknown }> {
   const init: RequestInit = {
     method,
     headers: sessionHeaders(sessionId, body !== undefined),
@@ -124,7 +124,11 @@ async function apiSend(
       return { ok: false, error: `HTTP ${res.status}` };
     }
   }
-  return { ok: true };
+  try {
+    return { ok: true, body: await res.json() };
+  } catch {
+    return { ok: true };
+  }
 }
 
 /**
@@ -258,7 +262,24 @@ export function SkillsSection(props: {
       if (!res.ok) {
         setError(res.error || translate("skills.error.update"));
       } else {
-        setStatus(translate("skills.status.updated", { name: skill.name }));
+        // "Updated" only for what was written; a source that could not be
+        // read is the error, and a copy already the newest is up to date.
+        const answer = (res.body ?? {}) as {
+          updated?: string[];
+          current?: string[];
+          failed?: Array<{ source?: string; error?: string }>;
+        };
+        const failed = answer.failed ?? [];
+        if (failed.length > 0) {
+          setError(
+            failed.map((f) => `${f.source ?? ""}: ${f.error ?? ""}`).join("; "),
+          );
+        }
+        if ((answer.updated?.length ?? 0) > 0) {
+          setStatus(translate("skills.status.updated", { name: skill.name }));
+        } else if (failed.length === 0) {
+          setStatus(t("skills.status.upToDate"));
+        }
         await loadInstalled();
         await refreshUpdates();
       }

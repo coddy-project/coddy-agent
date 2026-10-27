@@ -1307,6 +1307,8 @@ export const messagesRu: Record<string, string> = {
     "Доступно {count} обновления, установите их в списке ниже.",
   "skills.sources.check.current":
     "У всех установленных скилов последние версии.",
+  "skills.sources.check.currentFrom":
+    "У всех скилов, установленных из {source}, последние версии.",
   "skills.sources.check.unread": "Не удалось прочитать {sources}.",
   "skills.sources.addedAlready":
     "{source} уже есть в списке, поэтому ничего не установлено.",

@@ -44,4 +44,4 @@
 
 6. **Поделитесь им.** Опубликуйте каталог в репозитории GitHub. Другие устанавливают его командой `coddy plugin install owner/repo`, `coddy plugin update` приносит им версию, которую вы поднимете позже, а с карточкой на [skills.sh](https://skills.sh) его находит `npx skills find`.
 
-<!-- docsgen:source sha256=fa2296da2ace6387 -->
+<!-- docsgen:source sha256=a879a05ca7ac1bbd -->

@@ -1268,6 +1268,8 @@ export const messagesEn: Record<string, string> = {
   "skills.sources.check.updates.other":
     "{count} updates available: install them in the list below.",
   "skills.sources.check.current": "Every installed skill is up to date.",
+  "skills.sources.check.currentFrom":
+    "Every skill installed from {source} is up to date.",
   "skills.sources.check.unread": "Could not read {sources}.",
   "skills.sources.addedAlready":
     "{source} is in the list already, so nothing was installed.",

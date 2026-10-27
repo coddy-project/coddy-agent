@@ -1878,7 +1878,9 @@ on screen (`X-Coddy-Session-ID`), and every action applies at once.
 - The check of a row is `POST /coddy/skills/sync?source=<key>`, **Check for updates**
   `POST /coddy/skills/sync`; neither installs anything. Both refresh the installed list and flash a
   check mark, a line above the list says how many updates the check found or that every installed
-  skill is up to date, and a refresh that fails says so and leaves the buttons usable. The check of a
+  skill is up to date (after the check of one row, every skill installed from it), a list the check
+  could not read is named in an error line instead of being called up to date, and a refresh that
+  fails says so and leaves the buttons usable. The check of a
   held row is disabled, its title asks for the approval first, or under `deny` names the policy.
 - A source row (**all plugins**) has an install button, `POST /coddy/skills/install` with the row's
   `source` and no plugin: it installs every plugin the source publishes, the only way a source is

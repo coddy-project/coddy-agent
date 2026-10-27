@@ -106,6 +106,7 @@ func RefreshIndex(ctx context.Context, cfg *config.Config, cwd, key string) (*In
 		idx, err := indexes.read(ctx, d.Source)
 		if err != nil {
 			res.Failed = append(res.Failed, SyncFailure{Source: d.Key(), Error: err.Error()})
+			indexes.report(d.Source)
 			continue
 		}
 		res.Read = append(res.Read, d.Key())
@@ -214,6 +215,7 @@ func UpdateSkills(ctx context.Context, cfg *config.Config, cwd, name string) (*S
 	for _, g := range groupForUpdate(due) {
 		if err := updatePluginGroup(ctx, g, indexes, managedDir, lock, res); err != nil {
 			res.Failed = append(res.Failed, SyncFailure{Source: g.label(), Error: err.Error()})
+			indexes.report(g.source)
 		}
 	}
 	if err := writeRemoteLock(managedDir, lock); err != nil {
@@ -326,15 +328,20 @@ func checkEntries(ctx context.Context, decls []Declaration, entries map[string]R
 }
 
 // editedVersion is the version the SKILL.md of an installed skill declares
-// when it differs from the one it declared as installed: the operator edited
-// the copy and raised its version. "" when nothing says so, an entry
-// installed before the lock recorded that version included.
+// when it is above the one it declared as installed: the operator edited the
+// copy and raised its version. An entry an older Coddy wrote records no
+// SKILL.md version, and its installed version stands in for it. "" when
+// nothing says the copy was raised.
 func editedVersion(managedDir, name string, ent RemoteEntry) string {
-	if strings.TrimSpace(ent.SkillVersion) == "" {
+	base := strings.TrimSpace(ent.SkillVersion)
+	if base == "" {
+		base = strings.TrimSpace(ent.Version)
+	}
+	if base == "" || isArchiveVersion(base) {
 		return ""
 	}
 	on := inspectInstalledSkill(filepath.Join(managedDir, name))
-	if !on.readable || on.version == "" || on.version == strings.TrimSpace(ent.SkillVersion) {
+	if !on.readable || on.version == "" || compareVersions(on.version, base) <= 0 {
 		return ""
 	}
 	return on.version
@@ -358,6 +365,8 @@ type sourceIndexRead struct {
 	source string
 	idx    *sourceIndex
 	err    error
+	// reported says a caller reported the failure under a name of its own.
+	reported bool
 }
 
 func (x *sourceIndexes) read(ctx context.Context, source string) (*sourceIndex, error) {
@@ -375,25 +384,24 @@ func (x *sourceIndexes) read(ctx context.Context, source string) (*sourceIndex, 
 	return idx, err
 }
 
-// failures adds to reported every source that could not be read and that it
-// does not report already.
-func (x *sourceIndexes) failures(reported []SyncFailure) []SyncFailure {
-	for _, r := range x.reads {
-		if r.err == nil {
-			continue
-		}
-		known := false
-		for _, f := range reported {
-			if strings.Contains(f.Error, r.err.Error()) {
-				known = true
-				break
-			}
-		}
-		if !known {
-			reported = append(reported, SyncFailure{Source: r.source, Error: r.err.Error()})
+// report marks the read of source as reported by its caller.
+func (x *sourceIndexes) report(source string) {
+	for i := range x.reads {
+		if sameSource(x.reads[i].source, source) {
+			x.reads[i].reported = true
 		}
 	}
-	return reported
+}
+
+// failures adds to failed every source that could not be read and that no
+// caller reported already.
+func (x *sourceIndexes) failures(failed []SyncFailure) []SyncFailure {
+	for _, r := range x.reads {
+		if r.err != nil && !r.reported {
+			failed = append(failed, SyncFailure{Source: r.source, Error: r.err.Error()})
+		}
+	}
+	return failed
 }
 
 func (x *sourceIndexes) close() {

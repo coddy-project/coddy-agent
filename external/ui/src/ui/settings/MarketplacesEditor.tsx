@@ -79,9 +79,18 @@ function originBadgeKey(e: MarketplaceEntry): string {
   }
 }
 
-// What a check answered with: how many newer versions it found, and the
-// marketplaces and sources it could not read.
-type CheckFound = { count: number; unread: string[] };
+// What a check answered with: how many newer versions it found, the
+// marketplaces and sources it could not read, and the entry a check of one
+// row read.
+type CheckFound = { count: number; unread: string[]; key?: string };
+
+// failuresOf lists the failures an answer carries, as "source: error".
+function failuresOf(failed: unknown): string[] {
+  if (!Array.isArray(failed)) return [];
+  return (failed as Array<{ source?: unknown; error?: unknown }>).map(
+    (f) => `${String(f?.source ?? "")}: ${String(f?.error ?? "")}`,
+  );
+}
 
 function checkFound(body: unknown): CheckFound {
   const b = body as { updates?: unknown; failed?: unknown } | undefined;
@@ -189,22 +198,37 @@ export function MarketplacesEditor(props: {
   const onSync = (key?: string) => {
     setSyncing(true);
     setError(null);
-    setFound(null);
+    // A check of one row keeps what an earlier check could not read of the
+    // other rows: that one row read well says nothing about them.
+    const before = found;
     void (async () => {
       const path = key
         ? `/coddy/skills/sync?source=${encodeURIComponent(key)}`
         : "/coddy/skills/sync";
       try {
         const res = await send(sessionId, path, "POST");
-        if (!res.ok) setError(res.error || translate("skills.error.sync"));
-        else {
+        if (!res.ok) {
+          setFound(null);
+          setError(res.error || translate("skills.error.sync"));
+        } else {
           await onSynced();
-          setFound(checkFound(res.body));
+          const now = checkFound(res.body);
+          if (key) {
+            const kept = (before?.unread ?? []).filter((u) => u !== key);
+            setFound({
+              ...now,
+              key,
+              unread: [...kept, ...now.unread.filter((u) => !kept.includes(u))],
+            });
+          } else {
+            setFound(now);
+          }
           flashDone(key ?? SYNC_ALL_KEY);
         }
       } catch {
         // The refresh after the sync failed (the connection dropped): say
         // so, and never leave every Sync button disabled.
+        setFound(null);
         setError(translate("skills.error.sync"));
       } finally {
         setSyncing(false);
@@ -291,8 +315,15 @@ export function MarketplacesEditor(props: {
         return;
       }
       setDraft("");
-      if ((res.body as { added?: unknown } | undefined)?.added === false) {
+      const answer = res.body as
+        | { added?: unknown; sync?: { failed?: unknown } }
+        | undefined;
+      if (answer?.added === false) {
         setError(translate("skills.sources.addedAlready", { source }));
+      } else {
+        // Declared, and its install failed: say why.
+        const failed = failuresOf(answer?.sync?.failed);
+        if (failed.length > 0) setError(failed.join("; "));
       }
       await load();
       await onSynced();
@@ -333,11 +364,17 @@ export function MarketplacesEditor(props: {
           })}
         </p>
       ) : null}
-      {found !== null && (updateCount > 0 || found.unread.length === 0) ? (
+      {found !== null &&
+      (updateCount > 0 ||
+        (found.key
+          ? !found.unread.includes(found.key)
+          : found.unread.length === 0)) ? (
         <p className="settings-muted" data-testid="skills-check-status">
           {updateCount > 0
             ? tp("skills.sources.check.updates", updateCount)
-            : t("skills.sources.check.current")}
+            : found.key
+              ? t("skills.sources.check.currentFrom", { source: found.key })
+              : t("skills.sources.check.current")}
         </p>
       ) : null}
       <ul

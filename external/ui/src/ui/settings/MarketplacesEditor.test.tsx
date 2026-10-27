@@ -357,7 +357,7 @@ test("checking one entry and checking all refresh the installed list", async () 
     "/coddy/skills/sync?source=shop",
   );
   expect(await screen.findByTestId("skills-check-status")).toHaveTextContent(
-    "Every installed skill is up to date.",
+    "Every skill installed from shop is up to date.",
   );
   await waitFor(() =>
     expect(screen.getByTestId("skills-marketplace-sync-shop")).toHaveClass(
@@ -575,8 +575,11 @@ test("a check that could not read a list says so, and the line follows the count
   expect(await screen.findByTestId("skills-check-status")).toHaveTextContent(
     "1 update available",
   );
-  expect(screen.queryByTestId("skills-check-unread")).toBeNull();
-  // The installed list updated it: the line says so.
+  // shop read well says nothing about rpa-skills, which stays unread.
+  expect(screen.getByTestId("skills-check-unread")).toHaveTextContent(
+    "Could not read rpa-skills.",
+  );
+  // The installed list updated it: the line says so, for shop only.
   rerender(
     <MarketplacesEditor
       activeSessionId="sess_view"
@@ -585,7 +588,7 @@ test("a check that could not read a list says so, and the line follows the count
     />,
   );
   expect(screen.getByTestId("skills-check-status")).toHaveTextContent(
-    "Every installed skill is up to date.",
+    "Every skill installed from shop is up to date.",
   );
 });
 

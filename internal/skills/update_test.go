@@ -354,3 +354,44 @@ func TestRefusalsOfTheReadAndTheUpdate(t *testing.T) {
 		t.Fatalf("the system catalogue was written into the operator's file: %+v, %v", file, err)
 	}
 }
+
+// A lock entry an older Coddy wrote records no SKILL.md version; its installed
+// version stands in, so a copy the operator raised above it is kept too.
+func TestARaisedCopyUnderAnOlderLockIsKept(t *testing.T) {
+	c := newGitCatalogue(t)
+	c.publish("a", "1.0.0")
+	cfg := catalogueHome(t, c)
+	mustRun(t, cfg, "install", "a@cat")
+	managed := cfg.Skills.ManagedDir(cfg.Paths.Home)
+	lock := readRemoteLock(managed)
+	ent := lock["a"]
+	ent.SkillVersion = ""
+	lock["a"] = ent
+	if err := writeRemoteLock(managed, lock); err != nil {
+		t.Fatal(err)
+	}
+	edited := "---\nname: a\nmetadata:\n  version: 1.5.0\ndescription: mine\n---\n\nmy edit\n"
+	if err := os.WriteFile(filepath.Join(managed, "a", "SKILL.md"), []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c.publish("a", "1.2.0")
+	mustRun(t, cfg, "update")
+	if body := managedSkillBody(t, cfg, "a"); body != edited {
+		t.Fatalf("the update rewrote a raised copy under an older lock:\n%s", body)
+	}
+}
+
+// Two sources that fail with the same text are two failures, and one a
+// caller reported under its own name is not reported twice.
+func TestEveryUnreadSourceIsReportedOnce(t *testing.T) {
+	x := &sourceIndexes{reads: []sourceIndexRead{
+		{source: "https://one.example/marketplace.json", err: errors.New("marketplace fetch 404 Not Found")},
+		{source: "https://two.example/marketplace.json", err: errors.New("marketplace fetch 404 Not Found")},
+		{source: "owner/three", err: errors.New("clone failed")},
+	}}
+	x.report("owner/three")
+	got := x.failures([]SyncFailure{{Source: "three", Error: "clone failed"}})
+	if len(got) != 3 || got[1].Source != "https://one.example/marketplace.json" || got[2].Source != "https://two.example/marketplace.json" {
+		t.Fatalf("failures = %+v, want three's own and one per unread marketplace", got)
+	}
+}
