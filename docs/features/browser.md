@@ -22,9 +22,12 @@ server's HTTP API. The wire is described in [Browser protocol](../reference/brow
 Coddy reaches only the tabs in its tab groups of the browser:
 
 - the shared **Coddy** group holds the tabs you share; any chat may take one;
-- every chat that works in the browser has a group of its own, titled after the chat. A chat moves a shared tab into
-  its group with its first action there, and a tab it opens starts there. Another chat cannot act in that group;
+- every chat that works in the browser has a group of its own. A chat moves a shared tab into its group with its first
+  action there, and a tab it opens starts there. Another chat cannot act in that group;
 - you take a tab back by dragging it out of a group.
+
+Every one of these groups is titled **Coddy** and coloured purple, so the tabs Coddy reaches stand out in the tab strip.
+The side panel names the chat that holds the tab in front of you.
 
 Page contents travel to the model provider your Coddy uses, like any tool result.
 
@@ -99,13 +102,15 @@ Yandex Browser has no side panel for extensions, so there the button opens the s
 the right edge of the browser's window. The panel signs it in with a
 one-time ticket it gets over its socket, so no password is typed there.
 
+*A recording of the side panel in Chrome: asked to search, a chat types into DuckDuckGo, opens the Go release history on go.dev and answers, and the extension asks before each new website. The file is in the repository as [browser-panel.mp4](../assets/video/browser-panel.mp4).*
+
 Before a message is sent, the web UI asks the panel for the tab you look at, and the panel moves that tab into the
 chat's tab group. A request about "this page" works on the page in front of you, and a `browser` call of the chat
 that names no tab acts on it.
 
-![The web UI of Coddy in the side panel, next to the page](../assets/browser/browser-panel-webui-dark-420.png)
+![Chrome with a chat of Coddy in the side panel, next to the page it worked on](../assets/browser/browser-panel-chrome-dark-1280.png)
 
-*The side panel: the extension's strip with the current tab, and the web UI under it.*
+*The side panel in Chrome: the extension's strip shows the current tab and the chat that holds it, the web UI is under it. The tab sits in the purple Coddy group, and the extension's icon in the toolbar opens the panel.*
 
 The strip over the web UI is the extension's own. It names the current tab and whose it is, with **Share** and
 **Take back** and a button that opens the extension's settings, and it takes the theme of the web UI. The connection
@@ -175,6 +180,8 @@ hourglass. Both go away when the chat's turn ends.
 
 *A tab while Coddy works in it.*
 
+*A recording of a chat of the web UI, in a window of its own, working in Chrome next to it: the extension asks about the website in a window of its own, the tab opens in the purple Coddy group, and the side panel opened on that tab follows the same chat. The file is in the repository as [browser-remote.mp4](../assets/video/browser-remote.mp4).*
+
 ## Chats of other Coddy processes
 
 A browser has one home server, the one its extension connects to. A chat that runs anywhere else reaches it through
@@ -213,8 +220,8 @@ only uses the browsers of other servers needs no key of its own.
 
 The person at the browser decides. The first action of a chat that came through the API asks in the extension, naming
 the chat and the machine it runs on: allow this chat, or decline. "Always allow" of a website covers the chats of the
-home server only, so a chat from another machine asks about every new website, and the title of its tab group names
-the machine. Stop and Disconnect take back everything the chats from other machines were allowed.
+home server only, so a chat from another machine asks about every new website, and the side panel names the machine
+next to the chat. Stop and Disconnect take back everything the chats from other machines were allowed.
 
 ![The extension asks whether a chat of another Coddy may use the browser](../assets/browser/browser-panel-remote-dark-420.png)
 
