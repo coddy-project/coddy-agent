@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>How rules and AGENTS.md reach the model</title>
+    <link rel="stylesheet" href="diagram.css" />
+    <style>
+      .chain {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr) 14px 1.75fr;
+        column-gap: 26px;
+        align-items: stretch;
+      }
+      .chain .box {
+        padding: 7px 11px;
+      }
+      .ondemand {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 26px;
+        margin-top: 14px;
+      }
+      .mid {
+        grid-template-columns: 330px 520px 1fr;
+        gap: 44px;
+      }
+      .dialect {
+        display: grid;
+        grid-template-columns: 58px 1fr;
+        column-gap: 10px;
+        row-gap: 5px;
+        font-size: 13.5px;
+        margin-bottom: 14px;
+      }
+      .kind .box {
+        padding: 7px 12px;
+      }
+      .req .box {
+        margin: 5px 0;
+        padding: 6px 11px;
+      }
+      .req .inner {
+        margin: 6px 0 0;
+        padding: 5px 10px;
+      }
+      .once li {
+        margin-bottom: 7px;
+      }
+      .once {
+        margin: 0;
+        padding-left: 18px;
+        font-size: 13.5px;
+        color: var(--ink-2);
+      }
+      .gen {
+        display: grid;
+        grid-template-columns: 170px 1fr 1fr 1fr 210px 170px 1fr;
+        column-gap: 22px;
+        row-gap: 8px;
+        align-items: center;
+      }
+      .plus {
+        align-self: center;
+        text-align: center;
+        font-size: 26px;
+        font-weight: 700;
+        color: var(--muted);
+      }
+      .gen .box {
+        padding: 7px 11px;
+      }
+    </style>
+  </head>
+  <body style="--width: 1400px">
+    <h1>How rules and AGENTS.md reach the model</h1>
+    <p class="lead">
+      What always applies sits in a system message that stays the same for a whole rules generation; what a path or a
+      mention brings in rides in the conversation, once.
+    </p>
+
+    <h2>1. Discovery: one project folder, plus yours</h2>
+    <div class="chain">
+      <div class="box gray" id="c1"><code>.coddy/rules</code><span class="sub">no rule file: passed</span></div>
+      <div class="box gray" id="c2"><code>.agents/rules</code><span class="sub">no rule file: passed</span></div>
+      <div class="box green b" id="c3"><code>.cursor/rules</code><span class="sub">read: the first with a .md or .mdc
+          file</span></div>
+      <div class="box gray" id="c4"><code>.claude/rules</code><span class="sub">not read: its mirror</span></div>
+      <div class="box gray" id="c5"><code>.codex/rules</code><span class="sub">not read</span></div>
+      <div class="plus">+</div>
+      <div class="box amber" id="c-user">
+        <b><code>${CODDY_HOME}/rules</code></b>
+        <span class="sub">system <code>user</code>: yours, in every workspace; the project's file at the same path
+          wins</span>
+      </div>
+    </div>
+    <p class="note" style="margin: 8px 0 0">
+      Here a project keeps Cursor rules and their Claude Code mirror: reading both would hand the model each rule twice.
+      <code>rules.systems</code> narrows the chain.
+    </p>
+    <div class="ondemand">
+      <div class="box blue">
+        <b>Rule folders of subfolders</b>, <code>Factory.Nested</code>
+        <span class="sub">the same chain under every folder on the way down to a file a tool or a mention reaches, read
+          then and never walked; each rule anchored at its own folder (<code>ScopeDir</code>), never in the system
+          message</span>
+      </div>
+      <div class="box blue">
+        <b>Nested AGENTS.md and DESIGN.md</b>, <code>AgentsForPaths</code>
+        <span class="sub">the pair of every folder on that way down, whatever <code>rules.*</code> or the template say; a
+          hidden folder, <code>node_modules</code> or <code>vendor</code> ends the chain</span>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <div class="cols mid">
+      <div>
+        <h2>2. The header decides when</h2>
+        <div class="dialect">
+          <code><b>.mdc</b></code><span>Cursor: <code>description</code>, <code>globs</code>, <code>alwaysApply</code>;
+            with neither of the last two: mention only</span>
+          <code><b>.md</b></code><span>Claude Code: <code>paths</code>; with neither <code>paths</code> nor
+            <code>alwaysApply</code>: always on</span>
+        </div>
+        <p class="note italic" style="margin: -4px 0 0">
+          A Cursor header such as <code>globs: **/*.go</code> is not valid YAML; a lenient line reader keeps its keys.
+        </p>
+        <div class="stack kind">
+          <div class="box green b" id="k-always" style="margin-top: 26px">
+            always on
+            <span class="sub">no frontmatter; <code>alwaysApply: true</code> without patterns; a <code>.md</code> with
+              neither <code>paths</code> nor <code>alwaysApply</code></span>
+          </div>
+          <div class="box amber b" id="k-manual" style="margin-top: 52px">
+            mention only
+            <span class="sub"><code>alwaysApply: false</code> without patterns; an <code>.mdc</code> with neither
+              <code>alwaysApply</code> nor <code>globs</code></span>
+          </div>
+          <div class="box blue b" id="k-path" style="margin-top: 30px">
+            waits for a path
+            <span class="sub"><code>globs</code> or <code>paths</code>, any <code>alwaysApply</code>; a subfolder's
+              always-on rule waits for a file under its folder</span>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h2>3. Where each part lands in a request</h2>
+        <div class="panel req" id="req">
+          <div class="box core b">system message <span class="sub">tools, skills, plan context, then:</span></div>
+          <div class="box amber" id="r-home"><b>1</b> <code>~/.coddy/AGENTS.md</code>, <code>DESIGN.md</code>: yours</div>
+          <div class="box amber" id="r-ws"><b>2</b> <code>AGENTS.md</code>, <code>DESIGN.md</code> of the session folder</div>
+          <div class="box green" id="r-rules">the rules that always apply (<code>AlwaysOnRules</code>)</div>
+          <div class="box amber" id="r-instr">
+            <code>instructions.files</code>, each under <code>### &lt;path&gt;</code>
+            <span class="sub">empty by default; only adds files after the documents</span>
+          </div>
+          <div class="box gray">session memory</div>
+        </div>
+        <div class="box amber" id="r-user" style="margin-top: 14px">
+          <b>user message</b>: <code>@rule:frontend/style</code>, <code>@src/app.go</code>
+          <div class="box blue inner">
+            attached as <code>kind="rule"</code>: the rule it names, and the path rules, subfolder rules and nested
+            documents a mentioned file or folder activates
+          </div>
+        </div>
+        <div class="box core" style="margin-top: 10px">assistant: <code>read internal/api/handler.go</code></div>
+        <div class="box" id="r-tool" style="margin-top: 10px">
+          <b>tool result</b>: the output, then <code>Message.Rules</code>
+          <div class="box blue inner">
+            a glob rule the file matches (<code>MatchScoped</code>), a rule of a subfolder on the way, the nested
+            AGENTS.md and DESIGN.md of <code>internal/</code> and <code>internal/api/</code>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h2>4. Delivered once</h2>
+        <ul class="once">
+          <li>
+            A document reaches the model once per rules generation, known by <code>DocKey</code>: its real path, links
+            resolved, case folded on Windows and macOS. A session opened in <code>~/.coddy</code> reads its pair once.
+          </li>
+          <li>
+            A nested document the system message carries already (through <code>instructions.files</code>, or a link)
+            is not attached again, and an <code>instructions.files</code> entry naming a document of the layers adds
+            nothing.
+          </li>
+          <li>
+            A rule still in the window the provider is sent, with the same text, is not attached again. After a
+            compaction folds it away, or once its file changed, the next match brings it back, current.
+          </li>
+          <li>A call that reads or writes a rule document itself does not get it back as a rule.</li>
+          <li>
+            <code>run_command</code> activates nothing, and a folder a call lists or searches brings no glob rule.
+          </li>
+          <li>
+            A template without <code>{{.Rules}}</code> gets no path rules; the documents come whatever it prints.
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <h2>5. A rules generation keeps the system message fixed</h2>
+    <div class="gen">
+      <div class="box core b" id="g-start">session starts<span class="sub">the standing parts rendered once
+          (<code>standingParts</code>)</span></div>
+      <div class="box green" id="g-t1">turn 1: system message S1</div>
+      <div class="box amber" id="g-edit">AGENTS.md edited<span class="sub">S1 still sent; <code>@AGENTS.md</code> hands
+          over the new text now</span></div>
+      <div class="box green" id="g-t3">turn n: still S1</div>
+      <div class="box purple b" id="g-new">
+        <code>ReplaceRulesCatalog</code>
+        <span class="sub">a compaction, a config reload, a workspace switch, the session opened in a new process</span>
+      </div>
+      <div class="box blue b" id="g-s2">S2 read from disk<span class="sub">documents, always-on rules, instruction
+          files</span></div>
+      <div class="box green" id="g-t4">next turns: S2</div>
+    </div>
+    <div class="footer">
+      <p>
+        A provider caches a request by its prefix, and the system message opens every request: one changed byte there
+        throws away the cached conversation behind it. A compaction rewrites that history anyway, so it is the moment to
+        read the files again.
+      </p>
+    </div>
+
+    <script src="diagram.js"></script>
+    <script>
+      wires([
+        { from: "#c1", to: "#c2", color: "gray" },
+        { from: "#c2", to: "#c3", color: "gray" },
+        { from: "#c3", to: "#c4", color: "gray", dash: true },
+        { from: "#c4", to: "#c5", color: "gray", dash: true },
+        { from: "#k-always", to: "#r-rules", color: "green" },
+        { from: "#k-manual", to: "#r-user", color: "amber", toShift: -0.2 },
+        { from: "#k-path", to: "#r-user", color: "blue", fromShift: -0.2, toShift: 0.25 },
+        { from: "#k-path", to: "#r-tool", color: "blue", fromShift: 0.2 },
+        { from: "#g-start", to: "#g-t1", color: "ink" },
+        { from: "#g-t1", to: "#g-edit", color: "ink" },
+        { from: "#g-edit", to: "#g-t3", color: "ink" },
+        { from: "#g-t3", to: "#g-new", color: "ink" },
+        { from: "#g-new", to: "#g-s2", color: "purple" },
+        { from: "#g-s2", to: "#g-t4", color: "ink" },
+      ]);
+    </script>
+  </body>
+</html>

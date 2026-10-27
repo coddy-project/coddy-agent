@@ -24,6 +24,9 @@ project's servers run once per workspace, shared with its git worktrees
 
 This page is about keeping that process running and keeping it current.
 
+![How coddy serve runs: the dispatcher, systemd or a terminal keeps one process up, its runtime and supervisor run every enabled subsystem, and a configuration change is applied in place or answered with a fresh process](../assets/diagrams/serve-runtime.png)
+*One process, one session manager, a goroutine per subsystem: a change the supervisor can apply in place is applied there, and a moved listen address ends the worker with status 75 so that a fresh process binds it.*
+
 ## In the foreground
 
 ```bash
