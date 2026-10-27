@@ -92,8 +92,8 @@ control.
 ![Settings, Skills: the marketplaces list with the built-in source, one of yours and a project source awaiting approval](../assets/skills/skills-marketplaces-dark-1280.png)
 
 *Settings → Skills → Marketplaces: the built-in catalogue `rpa-skills` with its always-trusted
-shield, a catalogue from your own file, and a source the project declares, held until the shield
-approves it for this workspace.*
+shield, a source with its install button and a catalogue from your own file, and a source the
+project declares, held until the shield approves it for this workspace.*
 
 ## Where to get skills
 
