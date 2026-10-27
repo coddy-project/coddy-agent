@@ -7,6 +7,7 @@ import {
   type SchemaFormGroup,
 } from "./SchemaForm";
 import { LegendWithHint } from "./FieldHint";
+import { IconDownload } from "./icons";
 import { MarketplacesEditor } from "./MarketplacesEditor";
 import { sessionHeaders } from "./marketplaces";
 import { Switch } from "./Switch";
@@ -126,35 +127,16 @@ async function apiSend(
   return { ok: true };
 }
 
-// Download-to-tray glyph for the "download update" action.
-function IconDownload() {
-  return (
-    <svg
-      width="15"
-      height="15"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.9"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M12 3v12" />
-      <polyline points="7 10 12 15 17 10" />
-      <path d="M5 21h14" />
-    </svg>
-  );
-}
-
 /**
  * SkillsSection is the combined Skills tab: the schema-driven `skills` editor
  * (extra directories, the project marketplace trust policy), the marketplaces
  * list (MarketplacesEditor, API-driven: ~/.coddy/marketplaces.json and the
- * workspace's .coddy/marketplaces.json, with a per-entry and a Sync-all
- * button and the trust shield), and the installed-skills list with versions,
+ * workspace's .coddy/marketplaces.json, with a per-entry and a check-all
+ * button that read the lists and install nothing, the install button of a
+ * source and the trust shield), and the installed-skills list with versions,
  * an iOS-style enable switch, a Download-update action when a newer version
- * exists, and a Delete action (disabled for bundled read-only skills).
+ * exists, an Update-all action over every such skill, and a Delete action
+ * (disabled for bundled read-only skills).
  */
 export function SkillsSection(props: {
   schema: JsonSchema;
@@ -166,7 +148,7 @@ export function SkillsSection(props: {
 }) {
   const { schema, value, onChange } = props;
   const workspacePath = props.workspacePath;
-  const { t } = useT();
+  const { t, tp } = useT();
   const [installed, setInstalled] = useState<InstalledSkill[]>([]);
   const [updates, setUpdates] = useState<Record<string, SkillUpdate>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -283,6 +265,49 @@ export function SkillsSection(props: {
       setBusy((p) => ({ ...p, [skill.name]: false }));
     })();
   };
+
+  // Installs the newer version of every skill that has one: the skills
+  // installed from a marketplace or a source, and those of the standard
+  // delivery. Nothing that is not installed is installed.
+  const [updatingAll, setUpdatingAll] = useState(false);
+  const onUpdateAll = () => {
+    setUpdatingAll(true);
+    setError(null);
+    setStatus(null);
+    void (async () => {
+      try {
+        const res = await fetch("/coddy/skills/update", {
+          method: "POST",
+          headers: sessionHeaders(sessionId),
+        });
+        let body: { updated?: string[]; error?: { message?: string } } = {};
+        try {
+          body = (await res.json()) as typeof body;
+        } catch {
+          // An answer without a body reports through the status alone.
+        }
+        if (!res.ok) {
+          setError(body.error?.message || translate("skills.error.update"));
+        } else {
+          const n = body.updated?.length ?? 0;
+          setStatus(
+            n > 0
+              ? tp("skills.status.updatedAll", n)
+              : t("skills.status.upToDate"),
+          );
+        }
+        await loadInstalled();
+        await refreshUpdates();
+      } catch {
+        setError(translate("skills.error.update"));
+      } finally {
+        setUpdatingAll(false);
+      }
+    })();
+  };
+  const updateCount = Object.values(updates).filter(
+    (u) => u.update_available,
+  ).length;
 
   // After a sync of the marketplaces: refresh the list and re-check versions.
   const onSynced = useCallback(async () => {
@@ -489,6 +514,22 @@ export function SkillsSection(props: {
             </ul>
           ) : null}
         </div>
+
+        {updateCount > 0 ? (
+          <div className="skills-update-all">
+            <button
+              type="button"
+              className="settings-btn settings-btn-primary skills-update-all-btn"
+              disabled={updatingAll}
+              onClick={onUpdateAll}
+              title={t("skills.updateAll.title")}
+              data-testid="skills-update-all"
+            >
+              <IconDownload />
+              <span>{tp("skills.updateAll", updateCount)}</span>
+            </button>
+          </div>
+        ) : null}
 
         {error ? <p className="settings-error">{error}</p> : null}
         {status ? <p className="settings-muted">{status}</p> : null}

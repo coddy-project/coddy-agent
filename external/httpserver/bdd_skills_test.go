@@ -411,6 +411,48 @@ func (s *skFeatureState) syncSources() error {
 	return nil
 }
 
+// checkReportsUpdate reads the updates the last check (POST /coddy/skills/sync)
+// answered with.
+func (s *skFeatureState) checkReportsUpdate(name, version string) error {
+	items, _ := s.body["updates"].([]interface{})
+	for _, it := range items {
+		m, _ := it.(map[string]interface{})
+		if m["name"] == name {
+			if m["latest"] != version || m["update_available"] != true {
+				return fmt.Errorf("the check reports %v for %q, want an update to %s", m, name, version)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("the check reports no update of %q: %v", name, s.body)
+}
+
+func (s *skFeatureState) updateEverySkill() error {
+	if err := s.do(http.MethodPost, "/coddy/skills/update", nil); err != nil {
+		return err
+	}
+	if s.status != http.StatusOK {
+		return fmt.Errorf("update every skill status %d body %v", s.status, s.body)
+	}
+	if failed, _ := s.body["failed"].([]interface{}); len(failed) != 0 {
+		return fmt.Errorf("update failed: %v", failed)
+	}
+	return nil
+}
+
+// installSource installs every plugin of a source the workspace declares.
+func (s *skFeatureState) installSource(market string) error {
+	if err := s.do(http.MethodPost, "/coddy/skills/install", map[string]interface{}{
+		"source": s.marketplaceURL(market),
+	}); err != nil {
+		return err
+	}
+	if s.status != http.StatusOK {
+		return fmt.Errorf("install source status %d body %v", s.status, s.body)
+	}
+	return nil
+}
+
 func (s *skFeatureState) skillRow(name string) (map[string]interface{}, error) {
 	if err := s.do(http.MethodGet, "/coddy/skills", nil); err != nil {
 		return nil, err
@@ -513,6 +555,9 @@ func initializeSkillsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the source list shows the marketplace "([^"]*)" from the project awaiting approval$`, s.listedAwaitingApproval)
 	sc.Step(`^I approve the project marketplace "([^"]*)" as it was listed$`, s.approveListed)
 	sc.Step(`^I sync the skill sources$`, s.syncSources)
+	sc.Step(`^the check reports an update of "([^"]*)" to version "([^"]*)"$`, s.checkReportsUpdate)
+	sc.Step(`^I update every skill$`, s.updateEverySkill)
+	sc.Step(`^I install the source "([^"]*)"$`, s.installSource)
 
 	sc.Step(`^the skills list shows "([^"]*)" at version "([^"]*)"$`, s.listShowsVersion)
 	sc.Step(`^the skills list still shows "([^"]*)" at version "([^"]*)"$`, s.listShowsVersion)

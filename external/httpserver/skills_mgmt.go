@@ -22,6 +22,7 @@ func (s *Server) registerSkillsManagementRoutes() {
 	s.mux.HandleFunc("POST /coddy/skills/{name}/enable", s.coddySkillsEnablePost)
 	s.mux.HandleFunc("POST /coddy/skills/{name}/disable", s.coddySkillsDisablePost)
 	s.mux.HandleFunc("POST /coddy/skills/{name}/update", s.coddySkillsUpdatePost)
+	s.mux.HandleFunc("POST /coddy/skills/update", s.coddySkillsUpdatePost)
 	s.mux.HandleFunc("POST /coddy/skills/sync", s.coddySkillsSyncPost)
 	s.mux.HandleFunc("POST /coddy/skills/sources", s.coddySkillsSourcesPost)
 	s.mux.HandleFunc("DELETE /coddy/skills/sources", s.coddySkillsSourcesDelete)
@@ -141,10 +142,11 @@ func (s *Server) coddySkillsDisablePost(w http.ResponseWriter, r *http.Request) 
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
 }
 
-// coddySkillsSyncPost fetches the skill sources in effect for the session
-// workspace (the server default workspace without a session) and
-// materializes them; a project entry the trust gate holds back is reported in
-// held, not fetched.
+// coddySkillsSyncPost reads again the lists of the marketplaces and sources
+// in effect for the session workspace (the server default workspace without a
+// session), or of the one ?source= names, and answers with the installed
+// skills a newer version is published for. It installs and updates nothing;
+// a project entry the trust gate holds back is reported in held, not read.
 func (s *Server) coddySkillsSyncPost(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
@@ -154,15 +156,7 @@ func (s *Server) coddySkillsSyncPost(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// Optional ?source=<src>: only that source, or only what is installed from
-	// it when it is a marketplace; otherwise sync all.
-	var res *skills.SyncResult
-	var err error
-	if src := strings.TrimSpace(r.URL.Query().Get("source")); src != "" {
-		res, _, err = skills.UpdateSource(r.Context(), s.activeCfg(), cwd, src)
-	} else {
-		res, err = skills.Sync(r.Context(), s.activeCfg(), cwd)
-	}
+	res, err := skills.RefreshIndex(r.Context(), s.activeCfg(), cwd, r.URL.Query().Get("source"))
 	if err != nil {
 		// An entry the trust gate holds back is the caller's to approve, not
 		// a failure of the server.
@@ -174,20 +168,23 @@ func (s *Server) coddySkillsSyncPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, string(body), status)
 		return
 	}
-	s.invalidateSlashCache()
-	slog.Info("skills synced", "added", len(res.Added), "updated", len(res.Updated), "failed", len(res.Failed))
+	slog.Info("skill lists read", "read", len(res.Read), "updates", len(res.Updates), "failed", len(res.Failed))
 	w.Header().Set("Content-Type", "application/json")
-	held := res.Held
-	if held == nil {
-		held = []skills.Declaration{}
-	}
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":      true,
-		"added":   res.Added,
-		"updated": res.Updated,
-		"failed":  res.Failed,
-		"held":    held,
+		"read":    nonNil(res.Read),
+		"updates": nonNil(res.Updates),
+		"failed":  nonNil(res.Failed),
+		"held":    nonNil(res.Held),
 	})
+}
+
+// nonNil keeps an empty list a JSON array rather than null.
+func nonNil[T any](items []T) []T {
+	if items == nil {
+		return []T{}
+	}
+	return items
 }
 
 type skillSourceRequest struct {
@@ -345,10 +342,17 @@ type skillInstallRequest struct {
 	Plugin string `json:"plugin"`
 }
 
-// coddySkillsInstallPost installs a single plugin from a marketplace source.
+// coddySkillsInstallPost installs a single plugin from a marketplace source,
+// or, without a plugin, every plugin the source publishes: the source of the
+// session workspace's files as it is declared, or declared in the operator's
+// file first when no file of the workspace declares it.
 func (s *Server) coddySkillsInstallPost(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
+		return
+	}
+	cwd, ok := s.resolveSessionCWD(w, r)
+	if !ok {
 		return
 	}
 	var req skillInstallRequest
@@ -356,11 +360,19 @@ func (s *Server) coddySkillsInstallPost(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, `{"error":{"message":"invalid request body"}}`, http.StatusBadRequest)
 		return
 	}
-	res, err := skills.InstallPlugin(r.Context(), s.activeCfg(), req.Source, req.Plugin)
+	var res *skills.SyncResult
+	var err error
+	what := strings.TrimSpace(req.Plugin)
+	if what == "" {
+		what = strings.TrimSpace(req.Source)
+		res, _, err = skills.InstallSource(r.Context(), s.activeCfg(), cwd, req.Source)
+	} else {
+		res, err = skills.InstallPlugin(r.Context(), s.activeCfg(), req.Source, req.Plugin)
+	}
 	if err == nil && len(res.Added)+len(res.Updated) == 0 && len(res.Failed) > 0 {
 		// Nothing installed: an archive refused, a plugin without skills. The
 		// client reports the reason instead of a success.
-		err = errors.New("install " + req.Plugin + ": " + res.Failed[0].Error)
+		err = errors.New("install " + what + ": " + res.Failed[0].Error)
 	}
 	if err != nil {
 		body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": err.Error()}})
@@ -402,7 +414,9 @@ func (s *Server) coddySkillsSourcesGet(w http.ResponseWriter, r *http.Request) {
 		messages = append(messages, err.Error())
 	}
 	system := make([]string, 0, len(skills.SystemSources))
-	system = append(system, skills.SystemSources...)
+	for _, m := range skills.SystemSources {
+		system = append(system, m.Source)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"object":        "coddy.skills_sources",
@@ -469,8 +483,10 @@ func (s *Server) coddySkillsSourceUntrust(w http.ResponseWriter, r *http.Request
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "removed": removed})
 }
 
-// coddySkillsUpdatePost re-syncs the source that provides {name}, installing the
-// version that source currently declares.
+// coddySkillsUpdatePost installs the newer versions of installed skills:
+// POST /coddy/skills/update of every one a newer version is published for,
+// POST /coddy/skills/{name}/update of that skill or plugin. A skill that is
+// not installed is never installed.
 func (s *Server) coddySkillsUpdatePost(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
@@ -481,20 +497,21 @@ func (s *Server) coddySkillsUpdatePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := r.PathValue("name")
-	res, err := skills.UpdateSkill(r.Context(), s.activeCfg(), cwd, name)
+	res, err := skills.UpdateSkills(r.Context(), s.activeCfg(), cwd, name)
 	if err != nil {
 		body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": err.Error()}})
 		http.Error(w, string(body), http.StatusBadRequest)
 		return
 	}
 	s.invalidateSlashCache()
-	slog.Info("skill updated", "name", name, "added", len(res.Added), "updated", len(res.Updated), "failed", len(res.Failed))
+	slog.Info("skills updated", "name", name, "added", len(res.Added), "updated", len(res.Updated), "failed", len(res.Failed))
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":      true,
-		"added":   res.Added,
-		"updated": res.Updated,
-		"failed":  res.Failed,
+		"added":   nonNil(res.Added),
+		"updated": nonNil(res.Updated),
+		"current": nonNil(res.Current),
+		"failed":  nonNil(res.Failed),
 	})
 }
 

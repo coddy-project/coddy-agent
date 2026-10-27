@@ -194,6 +194,9 @@ type SyncResult struct {
 	// Held are the project entries the workspace trust gate kept out of the
 	// sync: approve one, then sync again.
 	Held []Declaration `json:"held,omitempty"`
+	// Current are the skills an update by name left as they are: what is
+	// installed is the newest version published, or newer.
+	Current []string `json:"current,omitempty"`
 }
 
 // SyncFailure is one source that could not be processed.
@@ -269,45 +272,11 @@ func isGitCloneURL(lowerURL string) bool {
 	return false
 }
 
-// Sync fetches every source in effect for cwd (the system one, the
-// operator's, the project's the trust gate admits) and materializes their
-// skills into the managed dir, then refreshes the marketplaces in effect and
-// the plugins installed from them. A project entry the gate holds back is
-// reported in Held and not fetched. It never runs automatically; callers
-// invoke it explicitly.
-func Sync(ctx context.Context, cfg *config.Config, cwd string) (*SyncResult, error) {
-	syncMu.Lock()
-	defer syncMu.Unlock()
-	managedDir := cfg.Skills.ManagedDir(cfg.Paths.Home)
-	if err := os.MkdirAll(managedDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create managed dir: %w", err)
-	}
-	lock := readRemoteLock(managedDir)
-	res := &SyncResult{}
-
-	decls, errs := Declarations(cfg, cwd)
-	for _, err := range errs {
-		res.Failed = append(res.Failed, SyncFailure{Source: "marketplaces.json", Error: err.Error()})
-	}
-	res.Held = append(res.Held, held(decls)...)
-	for _, src := range wholeSources(decls) {
-		if err := syncOne(ctx, src, managedDir, lock, res); err != nil {
-			res.Failed = append(res.Failed, SyncFailure{Source: src, Error: err.Error()})
-		}
-	}
-	// Marketplaces: their lists and the plugins installed from them, not
-	// every plugin they list.
-	syncAddedLocked(ctx, cfg, decls, managedDir, lock, res)
-
-	if err := writeRemoteLock(managedDir, lock); err != nil {
-		return res, fmt.Errorf("write lock: %w", err)
-	}
-	return res, nil
-}
-
-// SyncSource fetches a single source (a GitHub owner/repo, git URL, or
-// marketplace.json URL) and materializes its skills, independent of whether a
-// marketplaces.json declares the source. Backs `plugin marketplace sync <src>`.
+// SyncSource installs every plugin a single source publishes (a GitHub
+// owner/repo, git URL, or marketplace.json URL), every skill of a repository
+// without a marketplace.json, independent of whether a marketplaces.json
+// declares the source. Backs InstallSource and POST /coddy/skills/sources
+// with sync; nothing else installs a source whole.
 func SyncSource(ctx context.Context, cfg *config.Config, source string) (*SyncResult, error) {
 	source = strings.TrimSpace(source)
 	if source == "" {
@@ -441,15 +410,15 @@ func syncOne(ctx context.Context, src, managedDir string, lock map[string]Remote
 			return fmt.Errorf("clone %s: %w", spec.url, err)
 		}
 		base := RemoteEntry{Source: src, Repo: spec.url, Ref: spec.ref}
-		if mfPath := findMarketplaceFile(clone); mfPath != "" {
-			mf, err := parseMarketplace(mfPath)
-			if err != nil {
-				return fmt.Errorf("parse manifest: %w", err)
-			}
+		mf, _, err := loadMarketplace(clone)
+		if err != nil {
+			return fmt.Errorf("parse manifest: %w", err)
+		}
+		if mf != nil {
 			return installMarketplace(ctx, mf, clone, src, base, managedDir, lock, res)
 		}
 		// No manifest: treat the whole clone as a skill container.
-		return installFromDir(clone, base, managedDir, lock, res)
+		return installFromDir(clone, base, managedDir, lock, res, nil)
 
 	default:
 		return fmt.Errorf("unsupported source kind %q", spec.kind)
@@ -461,14 +430,17 @@ func syncOne(ctx context.Context, src, managedDir string, lock map[string]Remote
 func installMarketplace(ctx context.Context, mf *Marketplace, repoRoot, src string, base RemoteEntry, managedDir string, lock map[string]RemoteEntry, res *SyncResult) error {
 	var firstErr error
 	for _, p := range mf.Plugins {
-		if err := installPlugin(ctx, p, repoRoot, src, base, managedDir, lock, res); err != nil && firstErr == nil {
+		if err := installPlugin(ctx, p, repoRoot, src, base, managedDir, lock, res, nil); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
 	return firstErr
 }
 
-func installPlugin(ctx context.Context, p MarketplacePlugin, repoRoot, src string, base RemoteEntry, managedDir string, lock map[string]RemoteEntry, res *SyncResult) error {
+// installPlugin installs the skills of one marketplace plugin. only, when not
+// nil, names the skills to write: an update rewrites the skills of a plugin
+// that are installed and never one the operator removed.
+func installPlugin(ctx context.Context, p MarketplacePlugin, repoRoot, src string, base RemoteEntry, managedDir string, lock map[string]RemoteEntry, res *SyncResult, only map[string]bool) error {
 	entry := base
 	entry.Plugin = strings.TrimSpace(p.Name)
 	entry.Version = strings.TrimSpace(p.Version)
@@ -493,35 +465,55 @@ func installPlugin(ctx context.Context, p MarketplacePlugin, repoRoot, src strin
 		}
 		entry.Repo = cloneURL
 		entry.Ref = p.Source.Ref
-		return installFromDir(dst, entry, managedDir, lock, res)
+		return installFromDir(dst, entry, managedDir, lock, res, only)
 
 	case "path":
 		if repoRoot == "" {
 			return fmt.Errorf("plugin %q: relative path source requires a repository (not supported for API sources)", p.Name)
 		}
 		dir := filepath.Join(repoRoot, filepath.Clean("/"+p.Source.Path))
-		return installFromDir(dir, entry, managedDir, lock, res)
+		return installFromDir(dir, entry, managedDir, lock, res, only)
 
 	case "archive":
-		return installArchivePlugin(ctx, p, entry, managedDir, lock, res)
+		return installArchivePlugin(ctx, p, entry, managedDir, lock, res, only)
 
 	default:
 		return fmt.Errorf("plugin %q: unsupported source kind %q", p.Name, p.Source.Kind)
 	}
 }
 
-// installFromDir finds every skill dir under root and copies each into managedDir.
-func installFromDir(root string, entry RemoteEntry, managedDir string, lock map[string]RemoteEntry, res *SyncResult) error {
+// installFromDir finds every skill dir under root and copies each into
+// managedDir, or only the ones only names when it is not nil.
+func installFromDir(root string, entry RemoteEntry, managedDir string, lock map[string]RemoteEntry, res *SyncResult, only map[string]bool) error {
 	hits := locateSkillDirs(root)
 	if len(hits) == 0 {
 		return fmt.Errorf("no SKILL.md found under %s", filepath.Base(root))
 	}
-	return installSkillDirs(hits, entry, managedDir, lock, res)
+	return installSkillDirs(hits, entry, managedDir, lock, res, only)
 }
 
 // installSkillDirs copies each skill dir in hits into managedDir and records it
-// in the lock.
-func installSkillDirs(hits []skillHit, entry RemoteEntry, managedDir string, lock map[string]RemoteEntry, res *SyncResult) error {
+// in the lock. only, when not nil, keeps the skills it names and drops the
+// rest; none of them among hits is an error, since the update that asked for
+// them would otherwise report success and write nothing.
+func installSkillDirs(hits []skillHit, entry RemoteEntry, managedDir string, lock map[string]RemoteEntry, res *SyncResult, only map[string]bool) error {
+	if only != nil {
+		kept := hits[:0:0]
+		for _, h := range hits {
+			if only[strings.ToLower(h.name)] {
+				kept = append(kept, h)
+			}
+		}
+		if len(kept) == 0 {
+			names := make([]string, 0, len(only))
+			for n := range only {
+				names = append(names, n)
+			}
+			sort.Strings(names)
+			return fmt.Errorf("it no longer carries the skill %s", strings.Join(names, ", "))
+		}
+		hits = kept
+	}
 	var firstErr error
 	for _, h := range hits {
 		name, err := sanitizeSkillName(h.name)
@@ -856,12 +848,13 @@ func RemoteSources(cfg *config.Config) map[string]RemoteEntry {
 
 // ---- config mutation ----
 
-// AddSource declares a source, installed whole from then on: in the
+// AddSource declares a source, installed whole when it is installed: in the
 // operator's <home>/marketplaces.json for ScopeGlobal (or an empty scope), in
 // the project's .coddy/marketplaces.json for ScopeLocal, which also approves
 // it for that workspace - the operator typed it. It reports whether the
-// source was newly declared. The system source is in effect already and is
-// not written anywhere. Nothing is fetched; Sync or SyncSource does that.
+// source was newly declared. The system marketplace is in effect already and
+// is not written anywhere. Nothing is fetched; InstallSource or SyncSource
+// installs it.
 func AddSource(cfg *config.Config, cwd, source, scope string) (bool, error) {
 	source = strings.TrimSpace(source)
 	if source == "" {
@@ -989,105 +982,6 @@ func InstalledVersion(remote map[string]RemoteEntry, name string, sk *Skill) str
 	return ""
 }
 
-// ---- update detection ----
-
-// UpdateStatus reports whether a newer version of an installed remote skill is
-// available in its marketplace source.
-type UpdateStatus struct {
-	Name            string `json:"name"`
-	Source          string `json:"source"`
-	Version         string `json:"version"` // installed
-	Latest          string `json:"latest"`  // latest declared upstream
-	UpdateAvailable bool   `json:"update_available"`
-}
-
-// CheckUpdates fetches the manifest for every remote source and reports, per
-// installed remote skill, whether a newer version is available. It performs
-// network / git access but never modifies installed skills. Sources that cannot
-// be reached are treated as "no update" rather than failing the whole check,
-// and a source a project of cwd declares and the trust gate holds back is not
-// contacted at all: it reports no update.
-func CheckUpdates(ctx context.Context, cfg *config.Config, cwd string) ([]UpdateStatus, error) {
-	managedDir := cfg.Skills.ManagedDir(cfg.Paths.Home)
-	lock := readRemoteLock(managedDir)
-	if len(lock) == 0 {
-		return nil, nil
-	}
-	decls, _ := Declarations(cfg, cwd)
-	names := make([]string, 0, len(lock))
-	for n := range lock {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-
-	cache := map[string]map[string]string{} // source -> (plugin/skill name -> version)
-	out := make([]UpdateStatus, 0, len(names))
-	for _, name := range names {
-		ent := lock[name]
-		st := UpdateStatus{Name: name, Source: ent.Source, Version: ent.Version, Latest: ent.Version}
-		if _, isHeld := heldSource(decls, ent.Source); isHeld {
-			out = append(out, st)
-			continue
-		}
-		versions, ok := cache[ent.Source]
-		if !ok {
-			versions, _ = sourceManifestVersions(ctx, ent.Source, managedDir) // best-effort
-			cache[ent.Source] = versions
-		}
-		key := ent.Plugin
-		if key == "" {
-			key = name
-		}
-		if latest := strings.TrimSpace(versions[key]); latest != "" {
-			st.Latest = latest
-			st.UpdateAvailable = isUpdate(latest, ent.Version)
-		}
-		out = append(out, st)
-	}
-	return out, nil
-}
-
-// UpdateSkill re-syncs the source that provides skillName, installing whatever
-// version that source currently declares: the whole source when it is one in
-// effect for cwd, else the one plugin. Fails if the skill was not installed
-// from a remote source, and refuses a source a project of cwd declares that
-// the trust gate holds back (approval withdrawn, or skills.project_trust:
-// deny) with how to approve it: an update fetches from the source like a sync.
-// A source no file of cwd declares any more stays updatable, as the operator's
-// explicit request.
-func UpdateSkill(ctx context.Context, cfg *config.Config, cwd, skillName string) (*SyncResult, error) {
-	name, err := sanitizeSkillName(skillName)
-	if err != nil {
-		return nil, err
-	}
-	syncMu.Lock()
-	defer syncMu.Unlock()
-	managedDir := cfg.Skills.ManagedDir(cfg.Paths.Home)
-	lock := readRemoteLock(managedDir)
-	ent, ok := lock[name]
-	if !ok {
-		return nil, fmt.Errorf("skill %q is not a remote (synced) skill", name)
-	}
-	decls, _ := Declarations(cfg, cwd)
-	if d, isHeld := heldSource(decls, ent.Source); isHeld {
-		return nil, heldError(d)
-	}
-	res := &SyncResult{}
-	if strings.TrimSpace(ent.Plugin) != "" && !isWholeSource(cfg, cwd, ent.Source) {
-		// From an added marketplace (or a source no longer configured): update
-		// that plugin, never every plugin its marketplace lists.
-		if err := updatePluginLocked(ctx, ent, managedDir, lock, res); err != nil {
-			res.Failed = append(res.Failed, SyncFailure{Source: ent.Source, Error: err.Error()})
-		}
-	} else if err := syncOne(ctx, ent.Source, managedDir, lock, res); err != nil {
-		res.Failed = append(res.Failed, SyncFailure{Source: ent.Source, Error: err.Error()})
-	}
-	if err := writeRemoteLock(managedDir, lock); err != nil {
-		return res, fmt.Errorf("write lock: %w", err)
-	}
-	return res, nil
-}
-
 // AvailablePlugin is one installable plugin advertised by a configured
 // marketplace, for the "install skills" browse/filter UI.
 type AvailablePlugin struct {
@@ -1188,7 +1082,7 @@ func InstallPlugin(ctx context.Context, cfg *config.Config, source, pluginName s
 func installOne(ctx context.Context, om *openedMarketplace, p MarketplacePlugin, managedDir string) (*SyncResult, error) {
 	lock := readRemoteLock(managedDir)
 	res := &SyncResult{}
-	if err := installPlugin(ctx, p, om.repoRoot, om.base.Source, om.base, managedDir, lock, res); err != nil {
+	if err := installPlugin(ctx, p, om.repoRoot, om.base.Source, om.base, managedDir, lock, res, nil); err != nil {
 		res.Failed = append(res.Failed, SyncFailure{Source: om.base.Source, Error: err.Error()})
 	}
 	if err := writeRemoteLock(managedDir, lock); err != nil {
@@ -1200,9 +1094,11 @@ func installOne(ctx context.Context, om *openedMarketplace, p MarketplacePlugin,
 // errNoMarketplace is a source that publishes no marketplace.json.
 var errNoMarketplace = errors.New("no marketplace.json")
 
-// openedMarketplace is a marketplace read from its source: the manifest, the
-// lock entry its plugins start from, and for a git source the clone that
-// relative plugin paths resolve against, which close removes.
+// openedMarketplace is a source as read just now: its marketplace manifest
+// (nil for a repository without a marketplace.json, which only openSource
+// returns), the lock entry its plugins start from, and for a git source the
+// clone that relative plugin paths and the skills of a repository resolve
+// against, which close removes.
 type openedMarketplace struct {
 	mf       *Marketplace
 	repoRoot string
@@ -1214,6 +1110,21 @@ type openedMarketplace struct {
 // marketplace.json URL, from a shallow clone for a git source. A source with no
 // marketplace.json is errNoMarketplace.
 func openMarketplace(ctx context.Context, source, managedDir string) (*openedMarketplace, error) {
+	om, err := openSource(ctx, source, managedDir)
+	if err != nil {
+		return nil, err
+	}
+	if om.mf == nil {
+		om.close()
+		return nil, fmt.Errorf("%w in %s", errNoMarketplace, source)
+	}
+	return om, nil
+}
+
+// openSource reads what a source publishes: its marketplace.json over http
+// for a marketplace.json URL, a shallow clone for a git source, which may
+// have no marketplace.json and only skills.
+func openSource(ctx context.Context, source, managedDir string) (*openedMarketplace, error) {
 	spec, err := parseSource(source)
 	if err != nil {
 		return nil, err
@@ -1238,12 +1149,7 @@ func openMarketplace(ctx context.Context, source, managedDir string) (*openedMar
 			cleanup()
 			return nil, fmt.Errorf("clone %s: %w", spec.url, err)
 		}
-		mfPath := findMarketplaceFile(clone)
-		if mfPath == "" {
-			cleanup()
-			return nil, fmt.Errorf("%w in %s", errNoMarketplace, source)
-		}
-		mf, err := parseMarketplace(mfPath)
+		mf, _, err := loadMarketplace(clone)
 		if err != nil {
 			cleanup()
 			return nil, fmt.Errorf("parse manifest: %w", err)
@@ -1254,6 +1160,26 @@ func openMarketplace(ctx context.Context, source, managedDir string) (*openedMar
 	default:
 		return nil, fmt.Errorf("unsupported source kind %q", spec.kind)
 	}
+}
+
+// versions maps each plugin the source publishes to the version it
+// advertises, or for a repository without a marketplace.json each skill to
+// the version its SKILL.md declares. Plugins and skills without one are left
+// out, so update detection has no false positives.
+func (om *openedMarketplace) versions() map[string]string {
+	if om.mf != nil {
+		return marketplaceVersions(om.mf)
+	}
+	out := map[string]string{}
+	if om.repoRoot == "" {
+		return out
+	}
+	for _, h := range locateSkillDirs(om.repoRoot) {
+		if v := skillDirVersion(h.dir); v != "" {
+			out[h.name] = v
+		}
+	}
+	return out
 }
 
 // plugin returns the entry named name, compared without case, or nil.
@@ -1277,52 +1203,6 @@ func fetchSourceManifest(ctx context.Context, source, managedDir string) (*Marke
 	}
 	om.close()
 	return om.mf, nil
-}
-
-// sourceManifestVersions fetches a source's marketplace manifest and returns a
-// pluginName -> version map. For a plain repo with no manifest it maps each
-// discovered skill's frontmatter version by skill name instead.
-func sourceManifestVersions(ctx context.Context, source, managedDir string) (map[string]string, error) {
-	spec, err := parseSource(source)
-	if err != nil {
-		return nil, err
-	}
-	switch spec.kind {
-	case "api":
-		mf, err := fetchManifestHTTP(ctx, spec.url)
-		if err != nil {
-			return nil, err
-		}
-		return marketplaceVersions(mf), nil
-
-	case "git":
-		tmp, cleanup, err := remoteStagingDir(managedDir, "coddy-skillcheck-")
-		if err != nil {
-			return nil, err
-		}
-		defer cleanup()
-		clone := filepath.Join(tmp, "repo")
-		if err := safeClone(spec.url, spec.ref, clone); err != nil {
-			return nil, err
-		}
-		if mfPath := findMarketplaceFile(clone); mfPath != "" {
-			mf, err := parseMarketplace(mfPath)
-			if err != nil {
-				return nil, err
-			}
-			return marketplaceVersions(mf), nil
-		}
-		out := map[string]string{}
-		for _, h := range locateSkillDirs(clone) {
-			if v := skillDirVersion(h.dir); v != "" {
-				out[h.name] = v
-			}
-		}
-		return out, nil
-
-	default:
-		return map[string]string{}, nil
-	}
 }
 
 // marketplaceVersions maps each plugin name to the version it advertises (see
@@ -1477,22 +1357,31 @@ func comparePrerelease(a, b string) int {
 
 // ---- source management ----
 
-// SystemSources are the marketplaces Coddy is born with. They are listed and
-// synced exactly like declared ones, but they live here rather than in a
+// SystemSources are the marketplaces Coddy is born with: catalogues, whose
+// plugins are installed one by one and updated only while installed, listed
+// and read exactly like declared ones. They live here rather than in a
 // marketplaces.json, so no surface can remove one and no file has to be
 // written to have it. Tests replace this to keep their assertions off the
 // network; nothing else writes to it.
-var SystemSources = []string{config.SystemSkillsSource}
+var SystemSources = []config.DeclaredMarketplace{{Name: config.SystemSkillsMarketplace, Source: config.SystemSkillsSource}}
 
-// IsSystemSource reports whether source is one Coddy brings itself, which is
-// what makes it undeletable. Any spelling of the same source counts.
-func IsSystemSource(source string) bool {
+// IsSystemSource reports whether key names a marketplace Coddy brings itself,
+// which is what makes it undeletable: its name, or any spelling of its source.
+func IsSystemSource(key string) bool {
+	_, ok := systemMarketplace(key)
+	return ok
+}
+
+// systemMarketplace finds the system marketplace key names, by name or by
+// source.
+func systemMarketplace(key string) (config.DeclaredMarketplace, bool) {
+	key = strings.TrimSpace(key)
 	for _, sys := range SystemSources {
-		if sameSource(sys, source) {
-			return true
+		if strings.EqualFold(sys.Name, key) || sameSource(sys.Source, key) {
+			return sys, true
 		}
 	}
-	return false
+	return config.DeclaredMarketplace{}, false
 }
 
 // ListSources returns the sources installed whole for cwd: the system ones

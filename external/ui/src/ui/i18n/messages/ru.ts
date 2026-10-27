@@ -1267,32 +1267,56 @@ export const messagesRu: Record<string, string> = {
   "skills.error.toggle": "Не удалось {action}",
   "skills.error.delete": "Не удалось удалить",
   "skills.error.update": "Не удалось обновить",
-  "skills.error.sync": "Не удалось синхронизировать",
+  "skills.error.sync": "Не удалось проверить обновления",
   "skills.error.install": "Не удалось установить {name}",
   "skills.status.updated": "Обновлено: {name}.",
   "skills.status.installed": "Установлено: {name}.",
+  "skills.status.updatedAll.one": "Обновлён {count} скил.",
+  "skills.status.updatedAll.few": "Обновлено {count} скила.",
+  "skills.status.updatedAll.many": "Обновлено {count} скилов.",
+  "skills.status.updatedAll.other": "Обновлено {count} скила.",
+  "skills.status.upToDate": "У всех установленных скилов последние версии.",
+  "skills.updateAll.one": "Обновить {count} скил",
+  "skills.updateAll.few": "Обновить {count} скила",
+  "skills.updateAll.many": "Обновить {count} скилов",
+  "skills.updateAll.other": "Обновить {count} скила",
+  "skills.updateAll.title":
+    "Установить новые версии всех скилов, у которых они вышли; больше ничего не ставится",
   "skills.trust.legend": "Обнаружение маркетплейсов",
   "skills.trust.description":
-    "Проектный .coddy/marketplaces.json приходит вместе с чекаутом, поэтому то, что синхронизация установит в ~/.coddy/skills, выбирает репозиторий, а не вы. При значении ask его записи не синхронизируются и не предлагаются к установке, пока вы не одобрите каждую для этого рабочего пространства (щит в списке ниже); изменение одобренной записи снова потребует одобрения. Записи, которые вы добавляете в проект здесь, одобряются самим фактом записи, а ~/.coddy/marketplaces.json ваш и никогда не блокируется. Сохраняется вместе с остальными настройками.",
+    "Проектный .coddy/marketplaces.json приходит вместе с чекаутом, поэтому то, что можно из него установить в ~/.coddy/skills, выбирает репозиторий, а не вы. При значении ask его записи не читаются и не предлагаются к установке, пока вы не одобрите каждую для этого рабочего пространства (щит в списке ниже); изменение одобренной записи снова потребует одобрения. Записи, которые вы добавляете в проект здесь, одобряются самим фактом записи, а ~/.coddy/marketplaces.json ваш и никогда не блокируется. Сохраняется вместе с остальными настройками.",
   "skills.sources.legend": "Маркетплейсы",
   "skills.sources.add": "Добавить",
   "skills.sources.addAria": "Источник для добавления",
   "skills.sources.scopeAria": "Где объявить",
   "skills.sources.scope.global": "Ваш (~/.coddy)",
   "skills.sources.scope.local": "Этот проект",
-  "skills.sources.syncAll": "Синхронизировать все",
+  "skills.sources.syncAll": "Проверить обновления",
   "skills.sources.syncAllTitle":
-    "Получить все действующие источники и маркетплейсы",
+    "Прочитать списки всех действующих маркетплейсов и источников и найти новые версии, ничего не устанавливая",
   "skills.sources.completed": "Готово",
-  "skills.sources.syncedTitle": "Синхронизировано",
-  "skills.sources.syncTitle": "Синхронизировать {source}",
+  "skills.sources.syncedTitle": "Проверено",
+  "skills.sources.syncTitle": "Проверить обновления {source}",
+  "skills.sources.check.updates.one":
+    "Доступно {count} обновление, установите его в списке ниже.",
+  "skills.sources.check.updates.few":
+    "Доступно {count} обновления, установите их в списке ниже.",
+  "skills.sources.check.updates.many":
+    "Доступно {count} обновлений, установите их в списке ниже.",
+  "skills.sources.check.updates.other":
+    "Доступно {count} обновления, установите их в списке ниже.",
+  "skills.sources.check.current":
+    "У всех установленных скилов последние версии.",
+  "skills.sources.installTitle": "Установить все плагины {source}",
+  "skills.sources.installedTitle": "Установлено",
+  "skills.sources.installAria": "Установить {source}",
   "skills.sources.heldSyncTitle":
     "Сначала одобрите его для этого рабочего пространства",
   "skills.sources.deniedSyncTitle":
     "Маркетплейсы проектов выключены настройкой skills.project_trust: deny",
   "skills.sources.scope.noSessionTitle":
     "Чтобы объявить маркетплейс для проекта, отправьте первое сообщение чата в этом проекте; до этого запись добавляется к вашим",
-  "skills.sources.syncAria": "Синхронизировать этот маркетплейс",
+  "skills.sources.syncAria": "Проверить обновления этого маркетплейса",
   "skills.sources.removeTitle": "Удалить из {path}",
   "skills.sources.systemTitle":
     "Встроен в Coddy, всегда действует, всегда доверенный и не удаляется",
@@ -1305,22 +1329,23 @@ export const messagesRu: Record<string, string> = {
   "skills.sources.trust.systemAria":
     "{source} встроен в Coddy и всегда доверенный",
   "skills.sources.trust.approveTitle":
-    "Разрешить синхронизацию {source} в этом рабочем пространстве",
+    "Одобрить {source} для этого рабочего пространства",
   "skills.sources.trust.approvedTitle":
     "Одобрено для этого рабочего пространства, нажмите, чтобы отозвать",
   "skills.sources.trust.approveAria":
     "Одобрить {source} для этого рабочего пространства",
   "skills.sources.trust.withdrawAria": "Отозвать одобрение {source}",
   "skills.sources.note.held":
-    "Объявлено в {path}; этот файл приходит вместе с чекаутом, поэтому запись не синхронизируется, пока вы не одобрите её щитом для этого рабочего пространства.",
+    "Объявлено в {path}; этот файл приходит вместе с чекаутом, поэтому запись не читается и не устанавливается, пока вы не одобрите её щитом для этого рабочего пространства.",
   "skills.sources.note.denied":
     "Маркетплейсы проекта отключены настройкой skills.project_trust со значением deny.",
   "skills.sources.error.load": "Не удалось загрузить маркетплейсы.",
   "skills.sources.error.add": "Не удалось добавить {source}.",
   "skills.sources.error.remove": "Не удалось удалить {source}.",
   "skills.sources.error.trust": "Не удалось изменить одобрение {source}.",
+  "skills.sources.error.install": "Не удалось установить {source}.",
   "skills.sources.description":
-    'Откуда берутся удалённые скилы. Источник ставит все плагины, которые публикует, и держит их в актуальном виде, каталог (coddy plugin marketplace add) ставит плагины по одному. Ваши записи хранятся в ~/.coddy/marketplaces.json, записи проекта в его .coddy/marketplaces.json, который приходит вместе с чекаутом, и при значении "ask" запись проекта синхронизируется только после одобрения щитом. Всё ставится в ~/.coddy/skills, и ничего не запрашивается до синхронизации. Встроенный маркетплейс rpa-skills действует всегда и всегда доверенный.',
+    'Откуда берутся удалённые скилы. Источник ставится целиком: при добавлении или кнопкой установки ставятся все плагины, которые он публикует. Каталог (coddy plugin marketplace add) ставит плагины по одному. Ваши записи хранятся в ~/.coddy/marketplaces.json, записи проекта в его .coddy/marketplaces.json, который приходит вместе с чекаутом, и при значении "ask" запись проекта используется только после одобрения щитом. Всё ставится в ~/.coddy/skills. Проверка обновлений читает списки и ничего не устанавливает, а удалённый вами скил обратно не ставится. Встроенный каталог rpa-skills действует всегда и всегда доверенный.',
   "skills.sources.placeholder": "owner/repo  ·  https://…/marketplace.json",
   "skills.install.cliHint":
     "Скилы можно также установить через npx skills или npx skillsbd — они попадают в ~/.agents/skills/ и подхватываются автоматически.",
@@ -1335,7 +1360,7 @@ export const messagesRu: Record<string, string> = {
   "skills.delete.aria": "Удалить {name}",
   "skills.update.title": "Скачать обновление: {name} v{from} → v{to}",
   "skills.update.aria": "Скачать обновление для {name} до версии {version}",
-  "skills.badge.syncedFrom": "Синхронизировано из {source}",
+  "skills.badge.syncedFrom": "Установлено из {source}",
   "app.chatBusy":
     "Этот чат занят в другом клиенте. Попробуйте снова через момент.",
   "app.stopFailed": "Не удалось остановить генерацию. Попробуйте ещё раз.",

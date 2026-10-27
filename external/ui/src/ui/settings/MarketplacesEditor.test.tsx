@@ -31,7 +31,8 @@ afterEach(() => {
 });
 
 const SYSTEM: MarketplaceEntry = {
-  kind: "source",
+  kind: "marketplace",
+  name: "rpa-skills",
   source: "EvilFreelancer/rpa-skills",
   origin: "system",
   gated: false,
@@ -132,12 +133,12 @@ test("lists every declaration with its kind and the file it comes from", async (
   expect(calls[0]?.url).toBe("/coddy/skills/sources");
   expect(calls[0]?.headers["X-Coddy-Session-ID"]).toBe("sess_view");
 
-  const system = screen.getByTestId(
-    "skills-marketplace-EvilFreelancer/rpa-skills",
-  );
-  expect(system).toHaveTextContent("all plugins");
+  // The built-in catalog is named by its name, its address under it.
+  const system = screen.getByTestId("skills-marketplace-rpa-skills");
+  expect(system).toHaveTextContent("catalog");
+  expect(system).toHaveTextContent("EvilFreelancer/rpa-skills");
   expect(
-    screen.getByTestId("skills-marketplace-origin-EvilFreelancer/rpa-skills"),
+    screen.getByTestId("skills-marketplace-origin-rpa-skills"),
   ).toHaveTextContent("built in");
 
   // A marketplace is named by its name and shows the address under it.
@@ -159,13 +160,13 @@ test("lists every declaration with its kind and the file it comes from", async (
 test("the built-in marketplace is always trusted and cannot be removed", async () => {
   stubApi(listing([SYSTEM]));
   renderEditor();
-  const key = "EvilFreelancer/rpa-skills";
+  const key = "rpa-skills";
   const shield = await screen.findByTestId(`skills-marketplace-trust-${key}`);
   expect(shield).toBeDisabled();
   expect(shield).toHaveClass("is-trusted");
   expect(shield).toHaveAttribute(
     "aria-label",
-    "EvilFreelancer/rpa-skills is built into Coddy and always trusted",
+    "rpa-skills is built into Coddy and always trusted",
   );
   const remove = screen.getByTestId(`skills-marketplace-remove-${key}`);
   expect(remove).toBeDisabled();
@@ -173,8 +174,9 @@ test("the built-in marketplace is always trusted and cannot be removed", async (
     "title",
     "Built into Coddy: always in effect, always trusted, not removable",
   );
-  // It syncs like any other.
+  // It is checked for updates like any other, and installs nothing whole.
   expect(screen.getByTestId(`skills-marketplace-sync-${key}`)).toBeEnabled();
+  expect(screen.queryByTestId(`skills-marketplace-install-${key}`)).toBeNull();
 });
 
 test("a project entry waits for its approval: a note, no sync, and the shield", async () => {
@@ -191,12 +193,18 @@ test("a project entry waits for its approval: a note, no sync, and the shield", 
   const sync = screen.getByTestId(`skills-marketplace-sync-${key}`);
   expect(sync).toBeDisabled();
   expect(sync).toHaveAttribute("title", "Approve it for this workspace first");
+  const install = screen.getByTestId(`skills-marketplace-install-${key}`);
+  expect(install).toBeDisabled();
+  expect(install).toHaveAttribute(
+    "title",
+    "Approve it for this workspace first",
+  );
   const shield = screen.getByTestId(`skills-marketplace-trust-${key}`);
   expect(shield).toBeEnabled();
   expect(shield).toHaveClass("settings-btn-approve");
   expect(shield).toHaveAttribute(
     "title",
-    "Approve syncing team/data-skills in this workspace",
+    "Approve team/data-skills for this workspace",
   );
 });
 
@@ -290,7 +298,12 @@ test("adding declares the entry where the operator chose", async () => {
   await screen.findByTestId("skills-marketplace-team/new-skills");
   const post = calls.find((c) => c.method === "POST");
   expect(post?.url).toBe("/coddy/skills/sources");
-  expect(post?.body).toEqual({ source: "team/new-skills", scope: "local" });
+  // A source is installed as it is added: nothing installs it later.
+  expect(post?.body).toEqual({
+    source: "team/new-skills",
+    scope: "local",
+    sync: true,
+  });
   expect(post?.headers["X-Coddy-Session-ID"]).toBe("sess_view");
   expect(input).toHaveValue("");
 });
@@ -314,13 +327,37 @@ test("removing names the entry by its key", async () => {
   expect(del?.url).toBe("/coddy/skills/sources?source=shop&origin=home");
 });
 
-test("sync of one entry and sync of all refresh the installed list", async () => {
-  const calls = stubApi(listing([SYSTEM, HOME_CATALOG]));
+test("checking one entry and checking all refresh the installed list", async () => {
+  const calls = stubApi(listing([SYSTEM, HOME_CATALOG]), (call) =>
+    call.url === "/coddy/skills/sync"
+      ? {
+          ok: true,
+          status: 200,
+          body: {
+            ok: true,
+            read: ["rpa-skills", "shop"],
+            updates: [
+              { name: "rpa-feat", latest: "1.0.2", update_available: true },
+              { name: "demo", latest: "2.0.0", update_available: true },
+            ],
+          },
+        }
+      : {
+          ok: true,
+          status: 200,
+          body: { ok: true, read: ["shop"], updates: [] },
+        },
+  );
   const onSynced = renderEditor();
-  fireEvent.click(await screen.findByTestId("skills-marketplace-sync-shop"));
+  const check = await screen.findByTestId("skills-marketplace-sync-shop");
+  expect(check).toHaveAttribute("title", "Check shop for updates");
+  fireEvent.click(check);
   await waitFor(() => expect(onSynced).toHaveBeenCalledTimes(1));
   expect(calls.find((c) => c.method === "POST")?.url).toBe(
     "/coddy/skills/sync?source=shop",
+  );
+  expect(await screen.findByTestId("skills-check-status")).toHaveTextContent(
+    "Every installed skill is up to date.",
   );
   await waitFor(() =>
     expect(screen.getByTestId("skills-marketplace-sync-shop")).toHaveClass(
@@ -328,10 +365,52 @@ test("sync of one entry and sync of all refresh the installed list", async () =>
     ),
   );
 
-  fireEvent.click(screen.getByTestId("skills-sync-all"));
+  const all = screen.getByTestId("skills-sync-all");
+  expect(all).toHaveTextContent("Check for updates");
+  fireEvent.click(all);
   await waitFor(() => expect(onSynced).toHaveBeenCalledTimes(2));
   expect(calls.filter((c) => c.method === "POST")[1]?.url).toBe(
     "/coddy/skills/sync",
+  );
+  await waitFor(() =>
+    expect(screen.getByTestId("skills-check-status")).toHaveTextContent(
+      "2 updates available: install them in the list below.",
+    ),
+  );
+});
+
+// A source is installed whole only by its install button (or as it is
+// added); a catalog has no such button, its plugins are installed one by one.
+test("the install button of a source installs every plugin it publishes", async () => {
+  const HOME_SOURCE: MarketplaceEntry = {
+    kind: "source",
+    source: "acme/all-skills",
+    origin: "home",
+    source_path: "/home/me/.coddy/marketplaces.json",
+    gated: false,
+    trusted: true,
+    status: "ready",
+  };
+  const calls = stubApi(listing([SYSTEM, HOME_CATALOG, HOME_SOURCE]));
+  const onSynced = renderEditor();
+  const install = await screen.findByTestId(
+    "skills-marketplace-install-acme/all-skills",
+  );
+  expect(install).toHaveAttribute(
+    "title",
+    "Install every plugin of acme/all-skills",
+  );
+  expect(screen.queryByTestId("skills-marketplace-install-shop")).toBeNull();
+  fireEvent.click(install);
+  await waitFor(() => expect(onSynced).toHaveBeenCalledTimes(1));
+  const post = calls.find((c) => c.method === "POST");
+  expect(post?.url).toBe("/coddy/skills/install");
+  expect(post?.body).toEqual({ source: "acme/all-skills" });
+  expect(post?.headers["X-Coddy-Session-ID"]).toBe("sess_view");
+  await waitFor(() =>
+    expect(
+      screen.getByTestId("skills-marketplace-install-acme/all-skills"),
+    ).toHaveClass("is-synced"),
   );
 });
 
@@ -381,6 +460,7 @@ test("a draft chat is no session: no header, and only your file can be written",
     expect(calls.find((c) => c.method === "POST")?.body).toEqual({
       source: "team/new-skills",
       scope: "global",
+      sync: true,
     }),
   );
 });
@@ -392,7 +472,7 @@ test("a failed refresh after a sync never leaves Sync disabled", async () => {
   const onSynced = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
   renderEditor("sess_view", onSynced);
   fireEvent.click(await screen.findByTestId("skills-sync-all"));
-  await screen.findByText("Sync failed");
+  await screen.findByText("Check failed");
   expect(screen.getByTestId("skills-sync-all")).toBeEnabled();
   expect(screen.getByTestId("skills-marketplace-sync-shop")).toBeEnabled();
 });

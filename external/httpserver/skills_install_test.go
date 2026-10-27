@@ -83,8 +83,8 @@ func TestCoddySkillsInstallThatInstallsNothingIsAnError(t *testing.T) {
 
 // TestCoddySkillsSyncOfAnAddedMarketplaceInstallsNothingNew: POST
 // /coddy/skills/sync?source= naming a marketplace added with
-// `plugin marketplace add` refreshes the plugins installed from it and leaves
-// the rest of the marketplace alone.
+// `plugin marketplace add` reads its list and installs nothing, and the update
+// of the plugin installed from it leaves the rest of the marketplace alone.
 func TestCoddySkillsSyncOfAnAddedMarketplaceInstallsNothingNew(t *testing.T) {
 	offlineSystemSources(t)
 	if !gitws.GitAvailable() {
@@ -145,6 +145,29 @@ func TestCoddySkillsSyncOfAnAddedMarketplaceInstallsNothingNew(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("sync status %d %s", res.StatusCode, out)
 	}
+	var check struct {
+		Read    []string `json:"read"`
+		Updates []any    `json:"updates"`
+	}
+	if err := json.Unmarshal(out, &check); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(check.Read, ",") != "shop" || check.Updates == nil || len(check.Updates) != 0 {
+		t.Fatalf("sync of the added marketplace = %s, want shop read and no update", out)
+	}
+	managed := cfg.Skills.ManagedDir(cfg.Paths.Home)
+	if _, err := os.Stat(filepath.Join(managed, "two")); !os.IsNotExist(err) {
+		t.Fatalf("the read installed two: %v", err)
+	}
+
+	res, err = http.Post(ts.URL+"/coddy/skills/one/update", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ = ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("update status %d %s", res.StatusCode, out)
+	}
 	var body struct {
 		Added   []string `json:"added"`
 		Updated []string `json:"updated"`
@@ -153,6 +176,9 @@ func TestCoddySkillsSyncOfAnAddedMarketplaceInstallsNothingNew(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(body.Added) != 0 || strings.Join(body.Updated, ",") != "one" {
-		t.Fatalf("sync of the added marketplace = %s, want one updated and nothing added", out)
+		t.Fatalf("update of one = %s, want one updated and nothing added", out)
+	}
+	if _, err := os.Stat(filepath.Join(managed, "two")); !os.IsNotExist(err) {
+		t.Fatalf("the update installed two: %v", err)
 	}
 }

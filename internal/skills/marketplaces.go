@@ -6,12 +6,16 @@ package skills
 // marketplace add` writes it into the operator's file - installs nothing.
 // `plugin install <plugin>@<marketplace>` installs one of its plugins and
 // reads the marketplace again first, so a plugin it published after it was
-// added is found without an update. Updating it refreshes what it lists and
-// the plugins installed from it, and never installs the others.
+// added is found without an update. `plugin marketplace update` reads its
+// list again and reports the installed plugins that have a newer version
+// (update.go); `plugin update` installs those, and nothing ever installs a
+// plugin that is not installed. The system catalogue, rpa-skills, is one of
+// them.
 //
-// A source - the system one, one written by `plugin install <owner/repo |
-// url>`, one an operator or a project put in a file - keeps the older
-// contract: every plugin it publishes is installed and kept in sync.
+// A source - one written by `plugin install <owner/repo | url>`, one an
+// operator or a project put in a file - is installed whole when it is
+// installed: every plugin it publishes at that moment. After that its skills
+// are updated like any other.
 //
 // What each marketplace listed when it was last read is state, not
 // configuration: a cache next to the lockfile in the managed skills dir.
@@ -58,9 +62,6 @@ type ListedPlugin struct {
 	Description string `json:"description,omitempty"`
 	Version     string `json:"version,omitempty"`
 }
-
-// errMarketplaceNotAdded is a name no added marketplace carries.
-var errMarketplaceNotAdded = errors.New("marketplace is not added")
 
 // marketplaceNamePattern is what a marketplace name, and the plugin name in
 // <plugin>@<marketplace>, may look like. With no "/", ":" or "@" in it the form
@@ -142,12 +143,18 @@ func AddMarketplace(ctx context.Context, cfg *config.Config, cwd, source, scope 
 	if !marketplaceNamePattern.MatchString(name) {
 		return AddedMarketplace{}, false, fmt.Errorf("the marketplace.json of %s names it %q, which `plugin install <plugin>@<marketplace>` cannot use; install every plugin it lists with `plugin install %s`", source, name, source)
 	}
-	declared, err := declareMarketplace(path, name, source)
-	if err != nil {
-		return AddedMarketplace{}, false, err
+	declared := false
+	if _, ok := systemMarketplace(source); !ok {
+		// The system catalogue is in effect already; writing it into a file
+		// would only make a copy the operator could then remove half of.
+		if declared, err = declareMarketplace(path, name, source); err != nil {
+			return AddedMarketplace{}, false, err
+		}
 	}
 	origin := OriginHome
-	if scope == ScopeLocal {
+	if _, ok := systemMarketplace(source); ok {
+		origin = OriginSystem
+	} else if scope == ScopeLocal {
 		origin = OriginProject
 		if err := approveOwn(cfg, cwd, projectEntry(path, Declaration{Kind: KindMarketplace, Name: name, Source: source, Path: path})); err != nil {
 			return AddedMarketplace{}, false, err
@@ -233,111 +240,9 @@ func heldError(d Declaration) error {
 	return heldDeclarationError{fmt.Sprintf("%q is declared by %s, which travels with the checkout, and is not approved for this workspace yet: review it, then approve it with `coddy plugin marketplace trust %s` or the shield in Settings -> Skills", d.Key(), d.Path, d.Key())}
 }
 
-// UpdateMarketplace reads the marketplace key names (by name or source), one
-// in effect for cwd, again, refreshes its list and reinstalls the plugins
-// installed from it. The plugins it lists that are not installed stay so. A
-// key no marketplace in effect answers to is errMarketplaceNotAdded.
-func UpdateMarketplace(ctx context.Context, cfg *config.Config, cwd, key string) (AddedMarketplace, *SyncResult, error) {
-	syncMu.Lock()
-	defer syncMu.Unlock()
-	managedDir := cfg.Skills.ManagedDir(cfg.Paths.Home)
-	decls, _ := Declarations(cfg, cwd)
-	cache, err := readMarketplaces(cfg)
-	if err != nil {
-		return AddedMarketplace{}, nil, err
-	}
-	ms := marketplacesInEffect(decls, cache)
-	i := indexAdded(ms, key, false)
-	if i < 0 {
-		i = indexAdded(ms, key, true)
-	}
-	if i < 0 {
-		if d, ok := heldMarketplace(decls, key); ok {
-			return AddedMarketplace{}, nil, heldError(d)
-		}
-		return AddedMarketplace{}, nil, fmt.Errorf("%w: %q", errMarketplaceNotAdded, key)
-	}
-	lock := readRemoteLock(managedDir)
-	res := &SyncResult{}
-	if err := updateAddedLocked(ctx, &ms[i], managedDir, lock, res); err != nil {
-		return ms[i], res, err
-	}
-	if err := writeRemoteLock(managedDir, lock); err != nil {
-		return ms[i], res, fmt.Errorf("write lock: %w", err)
-	}
-	if err := cacheListing(cfg, ms[i]); err != nil {
-		return ms[i], res, err
-	}
-	return ms[i], res, nil
-}
-
-// updateAddedLocked reads m again, refreshes its list and reinstalls the
-// plugins the lock records as installed from it. Callers hold syncMu, and write
-// the lock and the list afterwards.
-func updateAddedLocked(ctx context.Context, m *AddedMarketplace, managedDir string, lock map[string]RemoteEntry, res *SyncResult) error {
-	om, err := openMarketplace(ctx, m.Source, managedDir)
-	if err != nil {
-		return fmt.Errorf("read marketplace %q from %s: %w", m.Name, m.Source, err)
-	}
-	defer om.close()
-	m.Plugins, m.UpdatedAt = listingOf(om.mf), nowStamp()
-	for _, name := range installedPlugins(lock, m.Source) {
-		p := om.mf.plugin(name)
-		if p == nil {
-			res.Failed = append(res.Failed, SyncFailure{Source: m.Name, Error: fmt.Sprintf("plugin %q is no longer in the marketplace; its skills stay installed", name)})
-			continue
-		}
-		if err := installPlugin(ctx, *p, om.repoRoot, m.Source, om.base, managedDir, lock, res); err != nil {
-			res.Failed = append(res.Failed, SyncFailure{Source: m.Name, Error: err.Error()})
-		}
-	}
-	return nil
-}
-
-// updatePluginLocked reinstalls the one plugin ent was installed from, reading
-// its marketplace again. Callers hold syncMu and write the lock afterwards.
-func updatePluginLocked(ctx context.Context, ent RemoteEntry, managedDir string, lock map[string]RemoteEntry, res *SyncResult) error {
-	om, err := openMarketplace(ctx, ent.Source, managedDir)
-	if err != nil {
-		return err
-	}
-	defer om.close()
-	p := om.mf.plugin(ent.Plugin)
-	if p == nil {
-		return fmt.Errorf("plugin %q is no longer in %s; its skills stay installed", ent.Plugin, ent.Source)
-	}
-	return installPlugin(ctx, *p, om.repoRoot, ent.Source, om.base, managedDir, lock, res)
-}
-
-// syncAddedLocked refreshes every marketplace in effect of decls and the
-// plugins installed from it, as Sync does after the sources. One that is
-// also a source in effect was synced whole already and is skipped. Callers
-// hold syncMu.
-func syncAddedLocked(ctx context.Context, cfg *config.Config, decls []Declaration, managedDir string, lock map[string]RemoteEntry, res *SyncResult) {
-	cache, err := readMarketplaces(cfg)
-	if err != nil {
-		res.Failed = append(res.Failed, SyncFailure{Source: marketplacesFile, Error: err.Error()})
-		return
-	}
-	ms := marketplacesInEffect(decls, cache)
-	whole := wholeSources(decls)
-	for i := range ms {
-		if containsSource(whole, ms[i].Source) {
-			continue
-		}
-		if err := updateAddedLocked(ctx, &ms[i], managedDir, lock, res); err != nil {
-			res.Failed = append(res.Failed, SyncFailure{Source: ms[i].Name, Error: err.Error()})
-			continue
-		}
-		if err := cacheListing(cfg, ms[i]); err != nil {
-			res.Failed = append(res.Failed, SyncFailure{Source: marketplacesFile, Error: err.Error()})
-		}
-	}
-}
-
-// isWholeSource reports whether source is one whose every plugin is installed
-// for cwd: the system source, or a source of the operator's file or of a
-// project file the trust gate admits.
+// isWholeSource reports whether source is declared for cwd as a source,
+// installed whole: in the operator's file or in a project file the trust gate
+// admits.
 func isWholeSource(cfg *config.Config, cwd, source string) bool {
 	return containsSource(ListSources(cfg, cwd), source)
 }
@@ -408,42 +313,6 @@ func sameSource(a, b string) bool {
 		return strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(u), "/"), ".git")
 	}
 	return sa.kind == sb.kind && strings.EqualFold(norm(sa.url), norm(sb.url)) && sa.ref == sb.ref
-}
-
-// UpdateSource refreshes what key names for cwd. A whole source (the system
-// one, or a source of a marketplaces.json in effect) syncs every plugin it
-// publishes; a marketplace in effect, by name or source, refreshes its list
-// and the plugins installed from it; a project entry the trust gate holds
-// back is refused; any other source is synced whole once, as `plugin
-// marketplace sync <source>` always did. added is the marketplace key named,
-// when it is one.
-func UpdateSource(ctx context.Context, cfg *config.Config, cwd, key string) (res *SyncResult, added *AddedMarketplace, err error) {
-	key = strings.TrimSpace(key)
-	target := key
-	if ms, err := AddedMarketplaces(cfg, cwd); err == nil {
-		if i := indexAdded(ms, key, false); i >= 0 {
-			// A name stands for its source, so a marketplace that is a whole
-			// source too syncs whole by its name as by its address.
-			target = ms[i].Source
-		}
-	}
-	if !isWholeSource(cfg, cwd, target) {
-		m, res, err := UpdateMarketplace(ctx, cfg, cwd, key)
-		switch {
-		case err == nil:
-			return res, &m, nil
-		case !errors.Is(err, errMarketplaceNotAdded):
-			return res, nil, err
-		}
-		if d, ok := FindDeclaration(cfg, cwd, key); ok && d.State != StateReady {
-			return nil, nil, heldError(d)
-		}
-		if _, perr := parseSource(key); perr != nil {
-			return nil, nil, fmt.Errorf("marketplace %q is not added; `plugin marketplace list` shows the added ones", key)
-		}
-	}
-	res, err = SyncSource(ctx, cfg, target)
-	return res, nil, err
 }
 
 func listingOf(mf *Marketplace) []ListedPlugin {

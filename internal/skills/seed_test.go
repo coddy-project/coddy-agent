@@ -179,10 +179,27 @@ func TestDeliveryDoesNotCreateAConfigFile(t *testing.T) {
 		t.Fatalf("a config file appeared at %s", cfg.Paths.ConfigPath)
 	}
 	// A home with no config file still has the marketplace: it is a system
-	// source, not something the file has to name.
-	if len(skills.ListSources(cfg, "")) == 0 {
-		t.Fatal("a home without a config file has no marketplace in effect")
+	// marketplace, not something the file has to name.
+	if keys := inEffectKeys(t, cfg); len(keys) == 0 || keys[0] != config.SystemSkillsMarketplace {
+		t.Fatalf("a home without a config file has %v in effect, want the system marketplace", keys)
 	}
+}
+
+// inEffectKeys names every marketplace and source in effect for the home, in
+// order: a marketplace by its name, a source by its address.
+func inEffectKeys(t *testing.T, cfg *config.Config) []string {
+	t.Helper()
+	decls, errs := skills.Declarations(cfg, "")
+	if len(errs) > 0 {
+		t.Fatal(errs)
+	}
+	var out []string
+	for _, d := range decls {
+		if d.State == skills.StateReady {
+			out = append(out, d.Key())
+		}
+	}
+	return out
 }
 
 // declareHome makes <home>/marketplaces.json declare sources.
@@ -200,14 +217,16 @@ func TestSystemSourceIsListedAndUndeletable(t *testing.T) {
 	cfg := deliveryHome(t, true)
 	declareHome(t, cfg, "someone/else", "https://github.com/"+config.SystemSkillsSource)
 
-	got := skills.ListSources(cfg, "")
-	want := []string{config.SystemSkillsSource, "someone/else"}
+	got := inEffectKeys(t, cfg)
+	want := []string{config.SystemSkillsMarketplace, "someone/else"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("sources: want %v, got %v", want, got)
+		t.Fatalf("in effect: want %v, got %v", want, got)
 	}
 
-	if _, err := skills.RemoveSource(cfg, "", config.SystemSkillsSource, ""); err == nil {
-		t.Fatal("removing the system marketplace was allowed")
+	for _, key := range []string{config.SystemSkillsSource, config.SystemSkillsMarketplace} {
+		if _, err := skills.RemoveSource(cfg, "", key, ""); err == nil {
+			t.Fatalf("removing the system marketplace by %q was allowed", key)
+		}
 	}
 	if added, err := skills.AddSource(cfg, "", config.SystemSkillsSource, skills.ScopeGlobal); err != nil || added {
 		t.Fatalf("adding the system marketplace should be a no-op, got added=%v err=%v", added, err)
@@ -333,10 +352,7 @@ func TestRemovingARedundantConfigEntryClearsTheFile(t *testing.T) {
 		}
 	}
 	// The marketplace is in effect all the same, and the other source survived.
-	if !strings.EqualFold(skills.ListSources(cfg, "")[0], config.SystemSkillsSource) {
-		t.Fatalf("the system marketplace left the listing: %v", skills.ListSources(cfg, ""))
-	}
-	if !strings.Contains(strings.Join(skills.ListSources(cfg, ""), " "), "someone/else") {
-		t.Fatalf("an unrelated source was dropped: %v", skills.ListSources(cfg, ""))
+	if keys := inEffectKeys(t, cfg); !reflect.DeepEqual(keys, []string{config.SystemSkillsMarketplace, "someone/else"}) {
+		t.Fatalf("in effect after the removal: %v", keys)
 	}
 }

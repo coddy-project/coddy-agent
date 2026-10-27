@@ -16,8 +16,11 @@ package skills
 //   - a copy that is newer is left exactly as it is.
 //
 // The marketplace those skills are published from needs no receipt: it is a
-// system source (config.SystemSkillsSource), listed and synced beside whatever
-// the marketplaces.json files declare, so no file is ever written here.
+// system marketplace (config.SystemSkillsSource), in effect beside whatever
+// the marketplaces.json files declare, so no file is ever written here. It
+// installs nothing on its own; while a delivered skill is on disk it counts as
+// installed from it, so `plugin update` brings a newer version published
+// there, and a delivered skill the operator deleted is never written again.
 
 import (
 	"encoding/json"

@@ -238,11 +238,13 @@ func printUsage(w io.Writer) {
   %[1]s skills enable <name>
   %[1]s skills disable <name>
   %[1]s skills add <owner/repo | git-url | marketplace-url> [--project]
-  %[1]s skills sync
+  %[1]s skills sync (read the marketplace lists and report newer versions,
+        as plugin marketplace update does; installs nothing)
   %[1]s skills remove <name>
   %[1]s plugin marketplace add <src> | list [marketplace] | update [marketplace] | remove <marketplace | src>
   %[1]s plugin marketplace trust <marketplace | src> | untrust <marketplace | src>
   %[1]s plugin install <plugin>@<marketplace> | <owner/repo | git-url | marketplace-url>
+  %[1]s plugin update [<name>] (install the newer versions of installed skills, or of one)
   %[1]s plugin remove <name>
   %[1]s plugin enable <name> | disable <name>
   %[1]s mcp list | trust <name> | untrust <name> [--cwd DIR]
@@ -634,18 +636,20 @@ func runSkills(args []string) error {
 			return err
 		}
 		if added {
-			fmt.Printf("Added skill source %q. Run `%s skills sync` to install.\n", rest[0], os.Args[0])
+			fmt.Printf("Added skill source %q. Run `%s plugin install %s` to install its skills.\n", rest[0], os.Args[0], rest[0])
 		} else {
 			fmt.Printf("Source %q already configured.\n", rest[0])
 		}
 		return nil
 	case "sync":
+		// The lists are read and the newer versions named; `plugin update`
+		// installs them.
 		cwd, _ := os.Getwd()
-		res, err := skills.Sync(context.Background(), cfg, cwd)
+		out, err := skills.RunPluginCommandWith(context.Background(), cfg, cwd, []string{"marketplace", "update"}, skills.PluginOptions{AllowTrust: true})
 		if err != nil {
 			return err
 		}
-		printSyncResult(res)
+		fmt.Println(out)
 		return nil
 	case "remove":
 		if len(args) < 2 {
@@ -692,26 +696,6 @@ func runPlugin(args []string) error {
 	}
 	fmt.Println(out)
 	return nil
-}
-
-func printSyncResult(res *skills.SyncResult) {
-	fmt.Printf("Synced: %d added, %d updated, %d failed.\n", len(res.Added), len(res.Updated), len(res.Failed))
-	for _, d := range res.Held {
-		if d.State == skills.StateDenied {
-			fmt.Printf("  ? %s: declared by %s, switched off by skills.project_trust: deny\n", d.Key(), d.Path)
-			continue
-		}
-		fmt.Printf("  ? %s: declared by %s, not approved for this workspace (`%s plugin marketplace trust %s`)\n", d.Key(), d.Path, os.Args[0], d.Key())
-	}
-	for _, n := range res.Added {
-		fmt.Printf("  + %s\n", n)
-	}
-	for _, n := range res.Updated {
-		fmt.Printf("  ~ %s\n", n)
-	}
-	for _, f := range res.Failed {
-		fmt.Printf("  ! %s: %s\n", f.Source, f.Error)
-	}
 }
 
 // rulesUsage is the one usage line of `coddy rules`.

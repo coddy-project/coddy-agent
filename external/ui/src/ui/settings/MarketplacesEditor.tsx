@@ -8,7 +8,7 @@ import {
 import { IconTrash } from "./SchemaForm";
 import { LegendWithHint } from "./FieldHint";
 import { SETTINGS_TEXTS, landmarkAnchor } from "./settingsSections";
-import { IconCheck, IconShield, IconSync } from "./icons";
+import { IconCheck, IconDownload, IconShield, IconSync } from "./icons";
 import { useT } from "../i18n/I18nProvider";
 import { translate } from "../i18n/i18n";
 import {
@@ -35,7 +35,7 @@ async function send(
   path: string,
   method: "POST" | "DELETE",
   body?: unknown,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; body?: unknown }> {
   const init: RequestInit = {
     method,
     headers: sessionHeaders(sessionId, body !== undefined),
@@ -47,7 +47,13 @@ async function send(
   } catch {
     return { ok: false };
   }
-  if (res.ok) return { ok: true };
+  if (res.ok) {
+    try {
+      return { ok: true, body: await res.json() };
+    } catch {
+      return { ok: true };
+    }
+  }
   try {
     const j = (await res.json()) as { error?: { message?: string } };
     return { ok: false, error: j.error?.message || `HTTP ${res.status}` };
@@ -73,22 +79,31 @@ function originBadgeKey(e: MarketplaceEntry): string {
   }
 }
 
+// updatesFound reads how many newer versions a check answered with.
+function updatesFound(body: unknown): number {
+  const updates = (body as { updates?: unknown } | undefined)?.updates;
+  return Array.isArray(updates) ? updates.length : 0;
+}
+
 /**
  * MarketplacesEditor is the marketplaces list of Settings -> Skills. It is
  * API-driven like the MCP tab (/coddy/skills/sources*): what it shows is
  * declared in ~/.coddy/marketplaces.json and the viewed workspace's
  * .coddy/marketplaces.json, never in the settings document, and every action
- * applies at once. A row is a source (every plugin installed) or a
- * marketplace (a catalog), with where it is declared; a project row under
- * ask carries the MCP shield that approves it for the workspace, and the
- * built-in source a shield that says it is always trusted.
+ * applies at once. A row is a source (installed whole by its install button,
+ * or as it is added) or a marketplace (a catalog), with where it is declared;
+ * a project row under ask carries the MCP shield that approves it for the
+ * workspace, and the built-in catalog a shield that says it is always
+ * trusted. The check of a row, or of every row, reads the lists and installs
+ * nothing: the newer versions it finds are installed from the list of
+ * installed skills.
  */
 export function MarketplacesEditor(props: {
   activeSessionId?: string | undefined;
-  /** Called after a sync, so the installed list can follow. */
+  /** Called after a check or an install, so the installed list can follow. */
   onSynced: () => Promise<void> | void;
 }) {
-  const { t } = useT();
+  const { t, tp } = useT();
   const sessionId = props.activeSessionId || undefined;
   const onSynced = props.onSynced;
   const [listing, setListing] = useState<MarketplaceListing | null>(null);
@@ -97,6 +112,8 @@ export function MarketplacesEditor(props: {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [syncing, setSyncing] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
+  // What the last check found: how many newer versions, or null before one.
+  const [found, setFound] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const [scope, setScope] = useState<"global" | "local">("global");
   // A project entry is written into the session's workspace; before the chat
@@ -148,6 +165,8 @@ export function MarketplacesEditor(props: {
     })();
   };
 
+  // A check reads the lists and installs nothing; what it finds shows up as
+  // the update buttons of the installed list.
   const onSync = (key?: string) => {
     setSyncing(true);
     setError(null);
@@ -159,6 +178,7 @@ export function MarketplacesEditor(props: {
         const res = await send(sessionId, path, "POST");
         if (!res.ok) setError(res.error || translate("skills.error.sync"));
         else {
+          setFound(updatesFound(res.body));
           await onSynced();
           flashDone(key ?? SYNC_ALL_KEY);
         }
@@ -170,6 +190,26 @@ export function MarketplacesEditor(props: {
         setSyncing(false);
       }
     })();
+  };
+
+  // Installs every plugin a source publishes: the explicit install the list
+  // offers, since nothing installs a source on its own.
+  const onInstall = (e: MarketplaceEntry) => {
+    const key = entryKey(e);
+    withBusy(key, async () => {
+      const res = await send(sessionId, "/coddy/skills/install", "POST", {
+        source: e.source,
+      });
+      if (!res.ok) {
+        setError(
+          res.error ||
+            translate("skills.sources.error.install", { source: key }),
+        );
+        return;
+      }
+      await onSynced();
+      flashDone(`${key} install`);
+    });
   };
 
   const onRemove = (e: MarketplaceEntry) => {
@@ -214,18 +254,22 @@ export function MarketplacesEditor(props: {
     const source = draft.trim();
     if (!source) return;
     withBusy(ADD_KEY, async () => {
+      // A source is installed as it is added: nothing installs it later.
       const res = await send(sessionId, "/coddy/skills/sources", "POST", {
         source,
         scope: effectiveScope,
+        sync: true,
       });
       if (!res.ok) {
         setError(
           res.error || translate("skills.sources.error.add", { source }),
         );
+        await load();
         return;
       }
       setDraft("");
       await load();
+      await onSynced();
     });
   };
 
@@ -256,6 +300,13 @@ export function MarketplacesEditor(props: {
         </p>
       ))}
       {error ? <p className="settings-error">{error}</p> : null}
+      {found !== null ? (
+        <p className="settings-muted" data-testid="skills-check-status">
+          {found > 0
+            ? tp("skills.sources.check.updates", found)
+            : t("skills.sources.check.current")}
+        </p>
+      ) : null}
       <ul
         className="skills-marketplaces"
         data-testid="skills-marketplaces-list"
@@ -325,6 +376,31 @@ export function MarketplacesEditor(props: {
                     data-testid={`skills-marketplace-trust-${key}`}
                   >
                     <IconShield />
+                  </button>
+                ) : null}
+                {e.kind === "source" ? (
+                  <button
+                    type="button"
+                    className={`settings-btn settings-btn-icon${flash === `${key} install` ? " is-synced" : ""}`}
+                    disabled={syncing || held || !!busy[key]}
+                    onClick={() => onInstall(e)}
+                    title={
+                      held
+                        ? t("skills.sources.heldSyncTitle")
+                        : flash === `${key} install`
+                          ? t("skills.sources.installedTitle")
+                          : t("skills.sources.installTitle", { source: key })
+                    }
+                    aria-label={t("skills.sources.installAria", {
+                      source: key,
+                    })}
+                    data-testid={`skills-marketplace-install-${key}`}
+                  >
+                    {flash === `${key} install` ? (
+                      <IconCheck />
+                    ) : (
+                      <IconDownload />
+                    )}
                   </button>
                 ) : null}
                 <button

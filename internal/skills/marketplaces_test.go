@@ -293,14 +293,27 @@ func TestUpdatesTouchOnlyWhatWasInstalled(t *testing.T) {
 	c := newCatalogue(t, "neuraldeep", "a", "b")
 	reachRemote(t, c.srv)
 
-	t.Run("sync of everything", func(t *testing.T) {
+	t.Run("reading every list, then updating by name", func(t *testing.T) {
 		cfg := marketHome(t)
 		mustRun(t, cfg, "marketplace", "add", c.url())
 		mustRun(t, cfg, "install", "a@neuraldeep")
 		c.set("a", pluginArchive(t, "a", 2))
-		out := mustRun(t, cfg, "marketplace", "sync")
-		if !strings.Contains(out, "0 added, 1 updated, 0 failed.") {
-			t.Fatalf("sync answered %q", out)
+		t.Cleanup(func() { c.set("a", pluginArchive(t, "a", 1)) })
+		out := mustRun(t, cfg, "marketplace", "update")
+		if !strings.Contains(out, "Every installed skill is up to date.") {
+			t.Fatalf("marketplace update answered %q", out)
+		}
+		if body := managedSkillBody(t, cfg, "a"); !strings.Contains(body, "revision 1") {
+			t.Fatalf("marketplace update installed %s", body)
+		}
+		// The marketplace names no version, so only an update by name, which
+		// cannot tell, reinstalls the plugin.
+		if out := mustRun(t, cfg, "update"); !strings.Contains(out, "Every installed skill is up to date.") {
+			t.Fatalf("update answered %q", out)
+		}
+		out = mustRun(t, cfg, "update", "a")
+		if !strings.Contains(out, "Updated a. 0 added, 1 updated, 0 failed.") {
+			t.Fatalf("update a answered %q", out)
 		}
 		if got := installedSkills(t, cfg); strings.Join(got, ",") != "a" {
 			t.Fatalf("installed %v, want only a", got)
@@ -310,9 +323,9 @@ func TestUpdatesTouchOnlyWhatWasInstalled(t *testing.T) {
 		cfg := marketHome(t)
 		mustRun(t, cfg, "marketplace", "add", c.url())
 		mustRun(t, cfg, "install", "a@neuraldeep")
-		res, err := UpdateSkill(context.Background(), cfg, "", "a")
+		res, err := UpdateSkills(context.Background(), cfg, "", "a")
 		if err != nil || len(res.Failed) != 0 || strings.Join(res.Updated, ",") != "a" {
-			t.Fatalf("UpdateSkill = %+v, %v", res, err)
+			t.Fatalf("UpdateSkills = %+v, %v", res, err)
 		}
 		if got := installedSkills(t, cfg); strings.Join(got, ",") != "a" {
 			t.Fatalf("installed %v, want only a", got)
@@ -324,9 +337,9 @@ func TestUpdatesTouchOnlyWhatWasInstalled(t *testing.T) {
 		mustRun(t, cfg, "install", "b@neuraldeep")
 		c.drop("b")
 		t.Cleanup(func() { c.set("b", pluginArchive(t, "b", 1)) })
-		out := mustRun(t, cfg, "marketplace", "update", "neuraldeep")
-		if !strings.Contains(out, "1 failed") || !strings.Contains(out, `plugin "b" is no longer in the marketplace`) {
-			t.Fatalf("update answered %q", out)
+		_, err := run(t, cfg, "update", "b")
+		if err == nil || !strings.Contains(err.Error(), `plugin "b" is no longer in`) {
+			t.Fatalf("update b: %v", err)
 		}
 		if got := installedSkills(t, cfg); strings.Join(got, ",") != "b" {
 			t.Fatalf("installed %v, want b kept", got)
@@ -334,37 +347,34 @@ func TestUpdatesTouchOnlyWhatWasInstalled(t *testing.T) {
 	})
 	t.Run("an address nobody added", func(t *testing.T) {
 		cfg := marketHome(t)
-		if _, err := run(t, cfg, "marketplace", "update", "nothing-here"); err == nil || !strings.Contains(err.Error(), `marketplace "nothing-here" is not added`) {
+		if _, err := run(t, cfg, "marketplace", "update", "nothing-here"); err == nil || !strings.Contains(err.Error(), `"nothing-here" is neither a marketplace nor a source in effect`) {
 			t.Fatalf("update of an unknown name: %v", err)
 		}
 	})
 }
 
-func TestAWholeSourceSyncsWholeByItsMarketplaceName(t *testing.T) {
-	c := newCatalogue(t, "neuraldeep", "a", "b")
-	reachRemote(t, c.srv)
-	cfg := marketHome(t, c.url())
-	mustRun(t, cfg, "marketplace", "add", c.url())
-	out := mustRun(t, cfg, "marketplace", "update", "neuraldeep")
-	if !strings.Contains(out, "2 added") {
-		t.Fatalf("update by name of a marketplace that is a source too answered %q, want every plugin installed", out)
-	}
-	if got := installedSkills(t, cfg); strings.Join(got, ",") != "a,b" {
-		t.Fatalf("installed %v", got)
-	}
-}
-
-func TestASourceInConfigStaysWhole(t *testing.T) {
+// A marketplace that is a source of the operator's file too is read by its
+// name or its address and installs nothing; installing the source installs
+// every plugin it publishes.
+func TestUpdatingAMarketplaceThatIsASourceInstallsNothing(t *testing.T) {
 	c := newCatalogue(t, "neuraldeep", "a", "b")
 	reachRemote(t, c.srv)
 	cfg := marketHome(t, c.url())
 	out := mustRun(t, cfg, "marketplace", "add", c.url())
-	if !strings.Contains(out, "every plugin it lists is installed") {
+	if !strings.Contains(out, "plugin install "+c.url()+"` installs every plugin it lists") {
 		t.Fatalf("adding a configured source answered %q", out)
 	}
-	out = mustRun(t, cfg, "marketplace", "update", c.url())
-	if !strings.Contains(out, "2 added") {
-		t.Fatalf("updating a configured source answered %q, want every plugin installed", out)
+	for _, key := range []string{"neuraldeep", c.url()} {
+		out = mustRun(t, cfg, "marketplace", "update", key)
+		if !strings.Contains(out, "Read marketplace \"neuraldeep\": 2 plugin(s) listed.") {
+			t.Fatalf("marketplace update %s answered %q", key, out)
+		}
+		if got := installedSkills(t, cfg); len(got) != 0 {
+			t.Fatalf("marketplace update %s installed %v", key, got)
+		}
+	}
+	if out := mustRun(t, cfg, "install", c.url()); !strings.Contains(out, "2 added") {
+		t.Fatalf("installing the source answered %q, want every plugin installed", out)
 	}
 	if got := installedSkills(t, cfg); strings.Join(got, ",") != "a,b" {
 		t.Fatalf("installed %v", got)
@@ -443,12 +453,12 @@ func TestACorruptMarketplaceListIsNotOverwritten(t *testing.T) {
 	if data, _ := os.ReadFile(path); string(data) != "{not json" {
 		t.Fatalf("the corrupt list was overwritten: %q", data)
 	}
-	res, err := Sync(context.Background(), cfg, "")
+	res, err := RefreshIndex(context.Background(), cfg, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(res.Failed) != 1 || res.Failed[0].Source != marketplacesFile {
-		t.Fatalf("sync = %+v, want the list reported", res)
+		t.Fatalf("marketplace update = %+v, want the list reported", res)
 	}
 }
 
@@ -479,8 +489,8 @@ func TestAnAddedMarketplaceAnswersToAnySpellingOfItsSource(t *testing.T) {
 	mustRun(t, cfg, "marketplace", "add", c.url())
 	mustRun(t, cfg, "install", "a@neuraldeep")
 	out := mustRun(t, cfg, "marketplace", "update", c.url()+"/")
-	if !strings.Contains(out, `Updated marketplace "neuraldeep"`) || !strings.Contains(out, "0 added, 1 updated") {
-		t.Fatalf("update by another spelling answered %q, want the added marketplace updated", out)
+	if !strings.Contains(out, `Read marketplace "neuraldeep": 2 plugin(s) listed.`) {
+		t.Fatalf("update by another spelling answered %q, want the added marketplace read", out)
 	}
 	if got := installedSkills(t, cfg); strings.Join(got, ",") != "a" {
 		t.Fatalf("installed %v, want only a", got)
@@ -506,7 +516,7 @@ func TestRemovingAMarketplaceByNameTakesItsSourceOut(t *testing.T) {
 func trustHome(t *testing.T, policy string, home, project config.MarketplacesFile) (*config.Config, string) {
 	t.Helper()
 	offlineSystemSources(t)
-	SystemSources = []string{"system/market"}
+	SystemSources = []config.DeclaredMarketplace{{Name: "system", Source: "system/market"}}
 	cfg := &config.Config{Paths: config.Paths{Home: t.TempDir()}}
 	cfg.Skills.ProjectTrust = policy
 	cwd := t.TempDir()
@@ -537,7 +547,7 @@ func TestDeclarationsComeInOrderEachOnce(t *testing.T) {
 		got = append(got, d.Origin+":"+d.Kind+":"+d.Key()+":"+d.State)
 	}
 	want := []string{
-		"system:source:system/market:ready",
+		"system:marketplace:system:ready",
 		"home:source:owner/home:ready",
 		"home:marketplace:shop:ready",
 		"project:source:owner/project:needs_approval",
@@ -546,7 +556,7 @@ func TestDeclarationsComeInOrderEachOnce(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("declarations:\n%v\nwant:\n%v", got, want)
 	}
-	if got := ListSources(cfg, cwd); !reflect.DeepEqual(got, []string{"system/market", "owner/home"}) {
+	if got := ListSources(cfg, cwd); !reflect.DeepEqual(got, []string{"owner/home"}) {
 		t.Fatalf("sources in effect = %v", got)
 	}
 }
@@ -578,12 +588,12 @@ func TestProjectEntryTrustFollowsTheDeclaration(t *testing.T) {
 	if d, _ := FindDeclaration(cfg, cwd, "attacker/project"); d.State != StateNeedsApproval {
 		t.Fatalf("a rewritten entry = %+v, want it awaiting approval", d)
 	}
-	res, err := Sync(context.Background(), cfg, cwd)
+	res, err := RefreshIndex(context.Background(), cfg, cwd, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Held) != 1 || res.Held[0].Source != "attacker/project" || len(res.Failed) != 0 {
-		t.Fatalf("sync = %+v, want the rewritten entry held and nothing fetched", res)
+	if len(res.Held) != 1 || res.Held[0].Source != "attacker/project" || len(res.Failed) != 0 || len(res.Read) != 0 {
+		t.Fatalf("marketplace update = %+v, want the rewritten entry held and nothing read", res)
 	}
 
 	cfg.Skills.ProjectTrust = config.ProjectTrustAllow
@@ -644,11 +654,11 @@ func TestLegacyMarketplaceListMovesIntoTheHomeFile(t *testing.T) {
 	for _, m := range ms {
 		names = append(names, m.Name+"="+m.Source)
 	}
-	if !reflect.DeepEqual(names, []string{"kept=owner/kept-there", "neuraldeep=https://neuraldeep.example/marketplace.json"}) {
+	if !reflect.DeepEqual(names, []string{"system=system/market", "kept=owner/kept-there", "neuraldeep=https://neuraldeep.example/marketplace.json"}) {
 		t.Fatalf("marketplaces after the move = %v", names)
 	}
-	if ms[1].Plugins == nil || ms[1].Plugins[0].Name != "wordstat" {
-		t.Fatalf("the listing of the moved marketplace was lost: %+v", ms[1])
+	if ms[2].Plugins == nil || ms[2].Plugins[0].Name != "wordstat" {
+		t.Fatalf("the listing of the moved marketplace was lost: %+v", ms[2])
 	}
 	doc, err := readMarketplacesDoc(managed)
 	if err != nil || doc.Version != marketplacesCacheVersion {
@@ -658,8 +668,8 @@ func TestLegacyMarketplaceListMovesIntoTheHomeFile(t *testing.T) {
 	if _, err := RemoveSource(cfg, cwd, "neuraldeep", ""); err != nil {
 		t.Fatal(err)
 	}
-	if ms, _ := AddedMarketplaces(cfg, cwd); len(ms) != 1 {
-		t.Fatalf("marketplaces after the removal = %+v", ms)
+	if ms, _ := AddedMarketplaces(cfg, cwd); len(ms) != 2 || ms[1].Name != "kept" {
+		t.Fatalf("marketplaces after the removal = %+v, want the system one and kept", ms)
 	}
 }
 
@@ -698,8 +708,8 @@ func TestAHeldProjectSourceIsNeitherUpdatedFromNorChecked(t *testing.T) {
 			if _, err := ApproveShown(cfg, cwd, c.url(), ""); err != nil {
 				t.Fatal(err)
 			}
-			if res, err := Sync(context.Background(), cfg, cwd); err != nil || len(res.Added) != 1 {
-				t.Fatalf("sync = %+v, %v", res, err)
+			if res, _, err := InstallSource(context.Background(), cfg, cwd, c.url()); err != nil || len(res.Added) != 1 {
+				t.Fatalf("install = %+v, %v", res, err)
 			}
 			if mode == "untrust" {
 				if ok, err := Revoke(cfg, cwd, c.url()); err != nil || !ok {
@@ -710,7 +720,7 @@ func TestAHeldProjectSourceIsNeitherUpdatedFromNorChecked(t *testing.T) {
 			}
 			c.set("lint", pluginArchive(t, "lint", 2))
 
-			_, err := UpdateSkill(context.Background(), cfg, cwd, "lint")
+			_, err := UpdateSkills(context.Background(), cfg, cwd, "lint")
 			if !errors.Is(err, ErrHeld) {
 				t.Fatalf("updating from a held source: %v, want ErrHeld", err)
 			}
@@ -732,7 +742,7 @@ func TestAHeldProjectSourceIsNeitherUpdatedFromNorChecked(t *testing.T) {
 
 			// Another workspace declares nothing: the operator may still update
 			// what is installed, as an explicit request.
-			if _, err := UpdateSkill(context.Background(), cfg, t.TempDir(), "lint"); err != nil {
+			if _, err := UpdateSkills(context.Background(), cfg, t.TempDir(), "lint"); err != nil {
 				t.Fatalf("an update where no file declares the source: %v", err)
 			}
 			if body := managedSkillBody(t, cfg, "lint"); !strings.Contains(body, "revision 2") {
@@ -841,7 +851,7 @@ func TestAProjectSourceAtTheAddressOfYourCatalogCanBeApproved(t *testing.T) {
 	if err != nil || d.Origin != OriginProject || d.Kind != KindSource {
 		t.Fatalf("approval = %+v, %v", d, err)
 	}
-	if got := ListSources(cfg, cwd); !reflect.DeepEqual(got, []string{"system/market", "owner/repo"}) {
+	if got := ListSources(cfg, cwd); !reflect.DeepEqual(got, []string{"owner/repo"}) {
 		t.Fatalf("sources in effect after the approval = %v", got)
 	}
 	// Without a fingerprint the project entry is the one approved as well.

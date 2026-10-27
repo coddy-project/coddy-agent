@@ -1865,40 +1865,52 @@ on screen (`X-Coddy-Session-ID`), and every action applies at once.
   address), a kind badge (**all plugins** for a source, **catalog** for a marketplace, whose address
   sits under the name) and an origin badge (**built in**, **yours**, **from the project**) whose
   tooltip names the declaring file.
-- The built-in `EvilFreelancer/rpa-skills` carries a shield that cannot be clicked (always trusted)
-  and a disabled delete button; it syncs like any row.
+- The built-in catalog `rpa-skills` (its address `EvilFreelancer/rpa-skills` under the name) carries
+  a shield that cannot be clicked (always trusted) and a disabled delete button; it is checked for
+  updates like any row.
 - Under `skills.project_trust: ask` a project row carries the MCP shield: amber while the entry
   waits for approval, plain once approved. Clicking it posts `POST /coddy/skills/sources/trust` with
   the row's `fingerprint` (an entry the checkout rewrote since is refused with 409 and the message is
   shown above the list), or `untrust` for an approved one; the list is read again after either. A
-  row still waiting is dimmed, says which file declares it and that it is not synced until approved,
-  and its **Sync** button is disabled. Under `deny` its note says the policy switched it off and
+  row still waiting is dimmed, says which file declares it and that it is neither read nor installed
+  until approved, and its check and install buttons are disabled. Under `deny` its note says the policy switched it off and
   there is no shield; under `allow` project rows are in effect and have none either.
-- **Sync** on a row is `POST /coddy/skills/sync?source=<key>`, **Sync all** `POST /coddy/skills/sync`;
-  both refresh the installed list and flash a check mark, and a refresh that fails says so and leaves
-  the buttons usable. The Sync of a held row is disabled, its title asks for the approval first,
-  or under `deny` names the policy. Delete is `DELETE /coddy/skills/sources?source=<key>&origin=<row origin>`: it
-  edits the file of that row only, so removing your entry never touches the project's checked-in copy.
-- The add field declares a source (installed whole) with `POST /coddy/skills/sources`, in your file
-  or, with **This project**, in the project's, which approves it for that workspace as it is written.
+- The check of a row is `POST /coddy/skills/sync?source=<key>`, **Check for updates**
+  `POST /coddy/skills/sync`; neither installs anything. Both refresh the installed list and flash a
+  check mark, a line above the list says how many updates the check found or that every installed
+  skill is up to date, and a refresh that fails says so and leaves the buttons usable. The check of a
+  held row is disabled, its title asks for the approval first, or under `deny` names the policy.
+- A source row (**all plugins**) has an install button, `POST /coddy/skills/install` with the row's
+  `source` and no plugin: it installs every plugin the source publishes, the only way a source is
+  installed whole after it was added. A catalog row has none; its plugins are installed from the
+  install search.
+- Delete is `DELETE /coddy/skills/sources?source=<key>&origin=<row origin>`: it edits the file of
+  that row only, so removing your entry never touches the project's checked-in copy.
+- The add field declares a source with `POST /coddy/skills/sources` and `sync: true`, so it is
+  installed whole as it is added, in your file or, with **This project**, in the project's, which
+  approves it for that workspace as it is written.
   **This project** is available once the chat has a session: before its first message the server
   would take its own default folder, not the one on screen, so the picker stays on your file.
 - A chat kept as a draft in the browser has no session on the server: the list and its actions then
   send no `X-Coddy-Session-ID` and answer for the server's default workspace (the MCP tab does the
   same). A save of the settings reads the list again, so the rows follow a changed
   `skills.project_trust`; the Subagents catalog does the same for `subagents.project_trust`.
+- After a check, each installed skill a newer version is published for carries a download button
+  (`POST /coddy/skills/{name}/update`), and the list has one **Update N skills** button over all of
+  them (`POST /coddy/skills/update`), shown only while there is something to update. Neither
+  installs a skill that is not installed.
 - The install search (`GET /coddy/skills/available`), the update check (`GET /coddy/skills/updates`)
-  and **Update** go to the same session, so a project marketplace approved there is offered and one
-  held there is neither checked nor updated from.
+  and both updates go to the same session, so a project marketplace approved there is offered and
+  one held there is neither checked nor updated from.
 - On a phone the row's controls wrap under the key and the add field takes the full width.
 
 ![Settings, Skills: the marketplaces list](../assets/skills/skills-marketplaces-dark-1280.png)
 
 Automated checks:
 
-- **external/ui/src/ui/settings/MarketplacesEditor.test.tsx** (rows with kind, origin and file, the built-in row's disabled shield and delete, a held project row with its note, disabled sync and shield, approval with the fingerprint and its withdrawal, a refused approval, a denied row, add with the scope, remove by key, sync of one and of all, Russian copy)
+- **external/ui/src/ui/settings/MarketplacesEditor.test.tsx** (rows with kind, origin and file, the built-in row's disabled shield and delete, a held project row with its note, disabled check, install and shield, approval with the fingerprint and its withdrawal, a refused approval, a denied row, add with the scope and the install, remove by key, the check of one and of all with what it found, the install button of a source, Russian copy); **external/ui/src/ui/settings/SkillsSection.workspace.test.tsx** (a check that finds newer versions offers **Update N skills**, which updates them for the viewed session)
 - **external/httpserver/server_test.go** (`TestCoddySkillsSourcesSyncDelete`, `TestCoddySkillsNewRoutesEdgeCases`: the routes, the scopes, 409 on a rewritten entry, 400 on syncing a held one)
-- **features/skills_marketplace.feature**, **features/skills_marketplace_trust.feature** (a project marketplace waits for its approval, then syncs into the Coddy home)
+- **features/skills_marketplace.feature**, **features/skills_marketplace_trust.feature** (a project marketplace waits for its approval, then installs into the Coddy home; a check reports a newer version and installs nothing; an update installs it)
 
 ## Swarm screen
 

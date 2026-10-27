@@ -1237,30 +1237,46 @@ export const messagesEn: Record<string, string> = {
   "skills.error.toggle": "Failed to {action}",
   "skills.error.delete": "Failed to delete",
   "skills.error.update": "Update failed",
-  "skills.error.sync": "Sync failed",
+  "skills.error.sync": "Check failed",
   "skills.error.install": "Failed to install {name}",
   "skills.status.updated": "Updated {name}.",
   "skills.status.installed": "Installed {name}.",
+  "skills.status.updatedAll.one": "Updated {count} skill.",
+  "skills.status.updatedAll.other": "Updated {count} skills.",
+  "skills.status.upToDate": "Every installed skill is up to date.",
+  "skills.updateAll.one": "Update {count} skill",
+  "skills.updateAll.other": "Update {count} skills",
+  "skills.updateAll.title":
+    "Install the newer version of every skill that has one; nothing else is installed",
   "skills.trust.legend": "Marketplace discovery",
   "skills.trust.description":
-    "The project's .coddy/marketplaces.json arrives with the checkout, so the repository - not you - picks what a sync installs into ~/.coddy/skills. On ask its entries are neither synced nor offered until you approve each one for this workspace (the shield in the list below); rewriting an approved entry asks again. Entries you add to the project here are approved as you write them, and ~/.coddy/marketplaces.json is yours and never gated. Saved with the rest of the settings.",
+    "The project's .coddy/marketplaces.json arrives with the checkout, so the repository - not you - picks what can be installed from it into ~/.coddy/skills. On ask its entries are neither read nor offered until you approve each one for this workspace (the shield in the list below); rewriting an approved entry asks again. Entries you add to the project here are approved as you write them, and ~/.coddy/marketplaces.json is yours and never gated. Saved with the rest of the settings.",
   "skills.sources.legend": "Marketplaces",
   "skills.sources.add": "Add",
   "skills.sources.addAria": "Source to add",
   "skills.sources.scopeAria": "Where to declare it",
   "skills.sources.scope.global": "Yours (~/.coddy)",
   "skills.sources.scope.local": "This project",
-  "skills.sources.syncAll": "Sync all",
-  "skills.sources.syncAllTitle": "Fetch every source and marketplace in effect",
+  "skills.sources.syncAll": "Check for updates",
+  "skills.sources.syncAllTitle":
+    "Read the list of every marketplace and source in effect and find newer versions; installs nothing",
   "skills.sources.completed": "Completed",
-  "skills.sources.syncedTitle": "Synced",
-  "skills.sources.syncTitle": "Sync {source}",
+  "skills.sources.syncedTitle": "Checked",
+  "skills.sources.syncTitle": "Check {source} for updates",
+  "skills.sources.check.updates.one":
+    "{count} update available: install it in the list below.",
+  "skills.sources.check.updates.other":
+    "{count} updates available: install them in the list below.",
+  "skills.sources.check.current": "Every installed skill is up to date.",
+  "skills.sources.installTitle": "Install every plugin of {source}",
+  "skills.sources.installedTitle": "Installed",
+  "skills.sources.installAria": "Install {source}",
   "skills.sources.heldSyncTitle": "Approve it for this workspace first",
   "skills.sources.deniedSyncTitle":
     "Project marketplaces are switched off by skills.project_trust: deny",
   "skills.sources.scope.noSessionTitle":
     "Send the first message of a chat in the project to declare a marketplace for it; until then this adds to yours",
-  "skills.sources.syncAria": "Sync this marketplace",
+  "skills.sources.syncAria": "Check this marketplace for updates",
   "skills.sources.removeTitle": "Remove from {path}",
   "skills.sources.systemTitle":
     "Built into Coddy: always in effect, always trusted, not removable",
@@ -1272,22 +1288,22 @@ export const messagesEn: Record<string, string> = {
   "skills.sources.origin.project": "from the project",
   "skills.sources.trust.systemAria":
     "{source} is built into Coddy and always trusted",
-  "skills.sources.trust.approveTitle":
-    "Approve syncing {source} in this workspace",
+  "skills.sources.trust.approveTitle": "Approve {source} for this workspace",
   "skills.sources.trust.approvedTitle":
     "Approved for this workspace, click to withdraw",
   "skills.sources.trust.approveAria": "Approve {source} for this workspace",
   "skills.sources.trust.withdrawAria": "Withdraw the approval of {source}",
   "skills.sources.note.held":
-    "Declared by {path}, which travels with the checkout, so it is not synced until you approve it for this workspace with the shield.",
+    "Declared by {path}, which travels with the checkout, so it is neither read nor installed until you approve it for this workspace with the shield.",
   "skills.sources.note.denied":
     "Project marketplaces are switched off by skills.project_trust: deny.",
   "skills.sources.error.load": "Could not load the marketplaces.",
   "skills.sources.error.add": "Could not add {source}.",
   "skills.sources.error.remove": "Could not remove {source}.",
   "skills.sources.error.trust": "Could not change the approval of {source}.",
+  "skills.sources.error.install": "Could not install {source}.",
   "skills.sources.description":
-    'Where remote skills come from. A source installs every plugin it publishes and keeps them in sync; a catalog (coddy plugin marketplace add) installs its plugins one by one. Yours are kept in ~/.coddy/marketplaces.json, the project\'s in its .coddy/marketplaces.json, which travels with the checkout: under "ask" a project entry is synced only once you approve it with the shield. Everything installs into ~/.coddy/skills, and nothing is fetched until you sync. The built-in rpa-skills marketplace is always in effect and always trusted.',
+    'Where remote skills come from. A source is installed whole: adding it, or its install button, installs every plugin it publishes; a catalog (coddy plugin marketplace add) installs its plugins one by one. Yours are kept in ~/.coddy/marketplaces.json, the project\'s in its .coddy/marketplaces.json, which travels with the checkout: under "ask" a project entry is used only once you approve it with the shield. Everything installs into ~/.coddy/skills. Checking for updates reads the lists and installs nothing, and a skill you delete is never installed back. The built-in rpa-skills catalog is always in effect and always trusted.',
   "skills.sources.placeholder": "owner/repo  ·  https://…/marketplace.json",
   "skills.install.cliHint":
     "You can also install skills via npx skills or npx skillsbd - they land in ~/.agents/skills/ and are picked up automatically.",
@@ -1301,7 +1317,7 @@ export const messagesEn: Record<string, string> = {
   "skills.delete.aria": "Delete {name}",
   "skills.update.title": "Download update: {name} v{from} → v{to}",
   "skills.update.aria": "Download update for {name} to version {version}",
-  "skills.badge.syncedFrom": "Synced from {source}",
+  "skills.badge.syncedFrom": "Installed from {source}",
   "app.chatBusy": "This chat is busy in another client. Try again in a moment.",
   "app.stopFailed": "Could not stop generation. Try again.",
   "app.undoEditFailed": "Could not undo the edit: {error}",
