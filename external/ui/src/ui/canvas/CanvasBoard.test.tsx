@@ -150,6 +150,11 @@ async function renderBoard(over: Partial<Props> = {}) {
       fetches.some((f) => /\/canvas\?file=/.test(f.url) && !f.init?.method),
     ).toBe(true),
   );
+  // The answer lands on its own time: a loaded runner takes more than one
+  // tick, and a test that reads the board before it sees an empty one.
+  await waitFor(() =>
+    expect(screen.getByTestId("canvas-view").dataset.board).not.toBe("reading"),
+  );
   await act(async () => {});
   return { props: p, view };
 }
