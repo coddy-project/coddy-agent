@@ -186,9 +186,9 @@ A chat that carries `session.node` is asked about first, once: allow this chat, 
 `chat_prompt_timeout`). "Always allow" covers the chats of the home server only, so every new website asks again for
 a chat of another process, and Stop takes back what such chats were allowed.
 
-Local origins - `localhost` and `*.localhost`, `127.0.0.0/8`, `[::1]`, any port - count as allowed always for the
-chats of the home server unless the user turned that off. The home server's own port is left out under every local
-name, and a chat that carries `session.node` asks about local origins like any other.
+The list of sites allowed always starts with host entries for `localhost`, `127.0.0.1` and `[::1]` (`*://<host>:*`,
+any scheme and port), which the user revokes like any other. A host entry leaves out the home server's own port under
+every local name, and a chat that carries `session.node` asks about local origins like any other.
 
 ## Files
 

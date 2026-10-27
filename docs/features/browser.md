@@ -153,11 +153,11 @@ Before the first action on a website, the extension asks you in a window of its 
 open, whether to allow it for this chat, allow it always, or decline. The answer stays in the browser; a page cannot
 answer it, and neither can Coddy. The settings page lists the sites allowed always and revokes them.
 
-Pages on this machine - `localhost` and its subdomains, `127.0.0.1` and the rest of `127.0.0.0/8`, `[::1]`, on any
-port - count as allowed always, so a chat works with a local dev server without a question; the settings page turns
-that off. The Coddy server itself is left out under every local name of its port: its web UI is where a chat's own
-requests are approved, so a chat acts there only after you allow it. A chat of another machine asks about local
-pages like any other site.
+The list of sites allowed always starts with this machine - `localhost`, `127.0.0.1` and `[::1]`, any port - so a
+chat works with a local dev server without a question; revoke an entry on the settings page like any other site.
+These entries leave out the Coddy server itself under every local name of its port: its web UI is where a chat's own
+requests are approved, so a chat acts there only after you allow that address. A chat of another machine asks about
+local pages like any other site.
 
 ![The extension asks whether Coddy may act on a website](../assets/browser/browser-approval-dark-420.png)
 
