@@ -313,13 +313,17 @@ skills:
   # ${CODDY_HOME}/marketplaces.json (yours) and the project's
   # .coddy/marketplaces.json, {"sources": [...], "marketplaces": [{"name", "source"}]},
   # written by `coddy skills add [--project]`, `coddy plugin marketplace add`
-  # and Settings -> Skills. Nothing is fetched until `coddy skills sync`.
+  # and Settings -> Skills. Declaring installs nothing: `coddy plugin install`
+  # installs a plugin or a source, `coddy plugin marketplace update` reads the
+  # lists and names the newer versions, `coddy plugin update` installs them.
   # An old skills.sources list moves into the home file on the first load.
-  # "EvilFreelancer/rpa-skills", the catalogue the bundled rpa-* skills are
-  # published from, is always in effect and always trusted beside both files.
+  # The catalogue rpa-skills (EvilFreelancer/rpa-skills), which the bundled
+  # rpa-* skills are published from, is always in effect and always trusted
+  # beside both files; it installs nothing on its own, and a skill of it you
+  # delete stays deleted.
   #
   # project_trust decides the project's marketplaces.json, which travels with
-  # the checkout: "ask" (default) syncs an entry only once it is approved for
+  # the checkout: "ask" (default) uses an entry only once it is approved for
   # the workspace (`coddy plugin marketplace trust <name>` or the shield in
   # Settings -> Skills), "allow" treats it like your own file, "deny" never
   # uses it. Whatever any entry installs goes to ${CODDY_HOME}/skills.
