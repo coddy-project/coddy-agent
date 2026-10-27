@@ -28,7 +28,7 @@ import (
 // connects a fake extension with one shared tab.
 func connected(t *testing.T, id string) *browsertest.Extension {
 	t.Helper()
-	srv := httptest.NewServer(browser.NewServer(browser.Default(), testKey, nil))
+	srv := httptest.NewServer(browser.NewServer(browser.Default(), func() string { return testKey }, nil))
 	serverURL = srv.URL
 	ext, err := browsertest.Connect(srv.URL, browsertest.Options{Key: testKey, ID: id})
 	if err != nil {
@@ -81,7 +81,7 @@ func run(t *testing.T, env *tooling.Env, args map[string]any) (string, error) {
 	raw, _ := json.Marshal(args)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return execute(ctx, string(raw), env)
+	return execute(ctx, nil, string(raw), env)
 }
 
 func chat(t *testing.T) *tooling.Env {
@@ -221,7 +221,7 @@ func TestScreenshotsAreCheckedAndAttached(t *testing.T) {
 }
 
 func TestUnknownActionsAndMissingSessionsAreRefused(t *testing.T) {
-	if _, err := execute(context.Background(), `{"action":"snapshot"}`, &tooling.Env{}); err == nil {
+	if _, err := execute(context.Background(), nil, `{"action":"snapshot"}`, &tooling.Env{}); err == nil {
 		t.Fatal("ran without a session")
 	}
 	if _, err := run(t, chat(t), map[string]any{"action": "javascript"}); err == nil {
@@ -232,7 +232,7 @@ func TestUnknownActionsAndMissingSessionsAreRefused(t *testing.T) {
 func TestACallWithoutATabInAPanelChatActsOnThePanelsTab(t *testing.T) {
 	ext := connected(t, "browser-panel-0001")
 	env := chat(t)
-	if err := os.WriteFile(filepath.Join(env.SessionDir, browser.PanelTabFile), []byte("1"), 0o600); err != nil {
+	if _, err := browser.PreparePanelTurn(env.SessionDir, browser.PanelTab{BrowserID: "browser-panel-0001", TabID: 1}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := run(t, env, map[string]any{"action": "snapshot"}); err != nil {
@@ -241,6 +241,18 @@ func TestACallWithoutATabInAPanelChatActsOnThePanelsTab(t *testing.T) {
 	cmd, err := ext.Next(time.Second)
 	if err != nil || cmd.TabID != 1 {
 		t.Fatalf("the call went to tab %d: %v", cmd.TabID, err)
+	}
+	// The panel's tab is a tab of its browser: a call that names another
+	// browser does not take its id.
+	if _, err := run(t, env, map[string]any{"action": "snapshot", "browser_id": "browser-other-0002"}); err == nil {
+		t.Fatal("a call to another browser took the panel's tab")
+	}
+	// The default lasts the panel's turn.
+	if err := browser.ClearPanelTurn(env.SessionDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, env, map[string]any{"action": "snapshot"}); err == nil || !strings.Contains(err.Error(), "not shared") {
+		t.Fatalf("a call after the panel's turn: %v", err)
 	}
 	// A chat outside the panel names its tab, or the call reaches none.
 	if _, err := run(t, chat(t), map[string]any{"action": "snapshot"}); err == nil || !strings.Contains(err.Error(), "not shared") {

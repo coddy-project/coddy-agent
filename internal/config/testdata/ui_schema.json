@@ -114,32 +114,26 @@
     },
     "browser": {
       "additionalProperties": false,
-      "description": "The listener of the Coddy for Browser extension, through which chats work in your Chrome. It takes effect only in a binary built with the browser tag.",
+      "description": "Coddy for Browser: the extension connects to this server, lets the chats work in your browser through the browser tool, and shows the web UI in its side panel. It takes effect only in a binary built with the browser tag.",
       "properties": {
-        "cert_file": {
-          "description": "Certificate PEM for a listener a browser on another machine reaches; use together with key_file.",
-          "title": "TLS certificate",
-          "type": "string"
-        },
         "enable": {
-          "description": "Run the listener and offer the browser tool to the chats.",
+          "description": "Offer the browser tool to the chats, and accept the extension when a key is set.",
           "title": "Enabled",
           "type": "boolean"
         },
-        "host": {
-          "description": "Empty uses 127.0.0.1.",
-          "title": "Listen host",
-          "type": "string"
+        "remotes": {
+          "default": [],
+          "description": "Coddy servers whose browsers the chats of this one may use: a name of httpserver.remotes, or an address such as a node mount of a swarm relay. That server needs browser.serve_remote.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Browsers of other servers",
+          "type": "array"
         },
-        "key_file": {
-          "description": "Private key PEM for the listener.",
-          "title": "TLS private key",
-          "type": "string"
-        },
-        "port": {
-          "description": "0 uses 12348.",
-          "title": "Listen port",
-          "type": "integer"
+        "serve_remote": {
+          "description": "Let a console or an editor on this machine and the nodes of the swarm drive the browsers connected here, through /coddy/browser/v1 with this server's API credential. The extension asks you before the first action of each such chat.",
+          "title": "Serve to other Coddy processes",
+          "type": "boolean"
         },
         "token": {
           "description": "At least 32 characters, entered in the extension. Write-only: leave empty to keep the current key.",
@@ -153,11 +147,9 @@
       "type": "object",
       "x-coddy-property-order": [
         "enable",
-        "host",
-        "port",
         "token",
-        "cert_file",
-        "key_file"
+        "serve_remote",
+        "remotes"
       ]
     },
     "compaction": {

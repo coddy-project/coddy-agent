@@ -35,6 +35,9 @@ type Command struct {
 	Session struct {
 		ID    string `json:"id"`
 		Title string `json:"title"`
+		// Node is where a chat of another Coddy process runs; "" for a
+		// chat of the server the extension is connected to.
+		Node string `json:"node"`
 	} `json:"session"`
 }
 

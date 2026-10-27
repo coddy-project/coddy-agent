@@ -69,24 +69,6 @@ func (r *runner) metricsExposure() {
 		"set metrics.token, or bind metrics.host to 127.0.0.1"))
 }
 
-// browserExposure warns of a browser listener that coddy serve would bind off
-// loopback without TLS: the extension key and the tab data it carries would
-// cross the network in the clear. The extension refuses plain HTTP for a
-// remote server on its own, but the listener does not force that decision on
-// whoever else dials it. A listener exists only where serve resolved the
-// subsystem as enabled.
-func (r *runner) browserExposure() {
-	if r.req.Surface != SurfaceServe || !slices.ContainsFunc(r.req.Listeners, func(l Listener) bool { return l.Path == "browser" }) {
-		return
-	}
-	if !r.req.Cfg.Browser.ExposedWithoutTLS() {
-		return
-	}
-	r.rep.add(r.check(StatusWarning, "browser.cert_file", "browser.host",
-		"the browser listener will listen on "+r.req.Cfg.Browser.ListenAddr()+" without TLS: the extension key and the tab data it carries cross the network in the clear",
-		"set browser.cert_file and browser.key_file, or bind browser.host to 127.0.0.1"))
-}
-
 // telegramProbes checks the bot token against the Bot API when the gateway
 // is enabled: getMe answers 401 for a revoked or mistyped token.
 func (r *runner) telegramProbes() []probe {

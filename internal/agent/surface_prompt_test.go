@@ -67,3 +67,38 @@ func TestSurfaceSystemPromptIsNotPersisted(t *testing.T) {
 		t.Fatalf("a reloaded session carries a surface block: %q", got)
 	}
 }
+
+// What a surface adds that moves from turn to turn - the tab of Coddy for
+// Browser's side panel - rides in the turn context, so two turns written from
+// two pages send byte-identical system messages and the provider's cached
+// prefix holds.
+func TestPromptCacheSurfaceTurnContextLeavesTheSystemMessageAlone(t *testing.T) {
+	st := &session.State{ID: "t", CWD: t.TempDir(), Mode: session.ModeAgent}
+	cfg := &config.Config{}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+	a := NewAgent(cfg, st, nil, nil)
+	const block = "## Coddy for Browser\n\nThe turn context names the tab the user writes from."
+	st.SetSurfaceSystemPrompt(block)
+
+	st.SetSurfaceTurnContext("## Coddy for Browser tab\n\n{\"url\":\"https://a.example/\"}")
+	firstSystem := a.buildSystemPrompt("agent", nil, nil)
+	firstContext := a.buildTurnContext(nil)
+	st.SetSurfaceTurnContext("## Coddy for Browser tab\n\n{\"url\":\"https://b.example/\"}")
+	secondSystem := a.buildSystemPrompt("agent", nil, nil)
+	secondContext := a.buildTurnContext(nil)
+
+	if firstSystem != secondSystem {
+		t.Fatal("the system message moved with the page")
+	}
+	if strings.Contains(firstSystem, "a.example") {
+		t.Fatal("the page's address reached the system message")
+	}
+	if !strings.Contains(firstContext, "a.example") || !strings.Contains(secondContext, "b.example") {
+		t.Fatalf("the tab is missing from the turn context:\n%s", secondContext)
+	}
+	st.SetSurfaceTurnContext("")
+	if strings.Contains(a.buildTurnContext(nil), "Coddy for Browser tab") {
+		t.Fatal("the section outlived its turn")
+	}
+}

@@ -869,15 +869,18 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"level", "levels", "outputs", "file", "format", "rotation"},
 			nil),
-		"browser": objectSchema("Browser", "The listener of the Coddy for Browser extension, through which chats work in your Chrome. It takes effect only in a binary built with the browser tag.",
+		"browser": objectSchema("Browser", "Coddy for Browser: the extension connects to this server, lets the chats work in your browser through the browser tool, and shows the web UI in its side panel. It takes effect only in a binary built with the browser tag.",
 			map[string]interface{}{
-				"enable":    boolProp("Enabled", "Run the listener and offer the browser tool to the chats."),
-				"host":      strProp("Listen host", "Empty uses 127.0.0.1."),
-				"port":      intProp("Listen port", "0 uses 12348."),
-				"token":     secretProp("Extension key", "At least 32 characters, entered in the extension. Write-only: leave empty to keep the current key.", "token_configured"),
-				"cert_file": strProp("TLS certificate", "Certificate PEM for a listener a browser on another machine reaches; use together with key_file."),
-				"key_file":  strProp("TLS private key", "Private key PEM for the listener."),
-			}, []string{"enable", "host", "port", "token", "cert_file", "key_file"}, nil),
+				"enable":       boolProp("Enabled", "Offer the browser tool to the chats, and accept the extension when a key is set."),
+				"token":        secretProp("Extension key", "At least 32 characters, entered in the extension. Write-only: leave empty to keep the current key.", "token_configured"),
+				"serve_remote": boolProp("Serve to other Coddy processes", "Let a console or an editor on this machine and the nodes of the swarm drive the browsers connected here, through /coddy/browser/v1 with this server's API credential. The extension asks you before the first action of each such chat."),
+				"remotes": map[string]interface{}{
+					"type":        "array",
+					"title":       "Browsers of other servers",
+					"description": "Coddy servers whose browsers the chats of this one may use: a name of httpserver.remotes, or an address such as a node mount of a swarm relay. That server needs browser.serve_remote.",
+					"items":       map[string]interface{}{"type": "string"},
+				},
+			}, []string{"enable", "token", "serve_remote", "remotes"}, nil),
 		"metrics": objectSchema("Metrics", "Prometheus exporter on a port of its own. It takes effect only in a binary built with the metrics tag.",
 			map[string]interface{}{
 				"enable": boolProp("Enabled", "Serve /metrics from this process."),
@@ -939,7 +942,7 @@ func UISchemaMap() map[string]interface{} {
 	// model), then what the agent can do (tools, MCP servers, skills,
 	// subagents, hooks), then what runs it without a person at the composer
 	// (the scheduler, the messenger gateways), and last the operation of the
-	// process (the logger, the metrics exporter and the browser listener, then prompts and
+	// process (the logger, the metrics exporter and the browser extension, then prompts and
 	// instructions, which the web UI folds into one System tab). The sessions
 	// key belongs to the Sessions tab.
 	rootOrder := []string{

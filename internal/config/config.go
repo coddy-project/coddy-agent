@@ -94,6 +94,9 @@ func validateSubconfigs(cfg *Config) error {
 	if err := cfg.Browser.Validate(); err != nil {
 		return err
 	}
+	if cfg.Browser.Serves() && !cfg.HTTPServer.IsEnabled() {
+		return fmt.Errorf("browser.token needs httpserver.enable: Coddy for Browser connects to the HTTP server")
+	}
 	if err := cfg.Logger.Validate(); err != nil {
 		return fmt.Errorf("logger: %w", err)
 	}

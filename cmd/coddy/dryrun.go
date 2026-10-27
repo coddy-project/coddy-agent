@@ -36,8 +36,6 @@ func runServeDryRun(cli config.CLIPaths, verbose bool, apply func(*config.Config
 				req.Listeners = append(req.Listeners, dryrun.Listener{Path: "swarm", Addr: swarmListenAddr(prep.Cfg)})
 			case serve.KindMetrics:
 				req.Listeners = append(req.Listeners, dryrun.Listener{Path: "metrics", Addr: prep.Cfg.Metrics.ListenAddr()})
-			case serve.KindBrowser:
-				req.Listeners = append(req.Listeners, dryrun.Listener{Path: "browser", Addr: prep.Cfg.Browser.ListenAddr()})
 			}
 		}
 		return req, nil

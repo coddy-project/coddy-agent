@@ -650,19 +650,36 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			},
 		},
 		{
-			// The extension dials this listener, so it is rebuilt in place: a
-			// new key or address disconnects the extensions that used the old
-			// one, and they reconnect to the new listener on their own.
-			Kind:          serve.KindBrowser,
-			ConfigKey:     "browser.enable",
-			BuildTag:      "browser",
-			Available:     browser.Available,
-			NeedsSessions: true,
-			Enabled:       func(c *config.Config) bool { return c.Browser.Enable },
-			Address:       func(c *config.Config) string { return c.Browser.ListenAddr() },
-			Fingerprint:   browser.Fingerprint,
-			Run: func(ctx context.Context, cfg *config.Config) error {
-				return browser.Serve(ctx, browser.Options{Cfg: cfg, Mgr: rt.Mgr, Log: rt.Log, Mirror: rt, DefaultCWD: rt.Paths.CWD})
+			// Coddy for Browser rides the HTTP server: the extension's
+			// endpoint is mounted on its mux, so this subsystem runs nothing of
+			// its own. It is here so a binary without the tag refuses
+			// browser.enable by name, and so the banner and the status table
+			// name it; auxiliary, it never keeps the process up alone. It is
+			// on while the server accepts the extension (browser.enable with
+			// a key): a process that only uses the browsers of
+			// browser.remotes has no endpoint.
+			Kind:      serve.KindBrowser,
+			ConfigKey: "browser.enable",
+			BuildTag:  "browser",
+			Available: browser.Available,
+			Auxiliary: true,
+			// A binary without the module refuses browser.enable by name,
+			// remotes alone included.
+			Enabled: func(c *config.Config) bool {
+				if !browser.Available {
+					return c.Browser.Enable
+				}
+				return c.Browser.Serves()
+			},
+			Address: func(c *config.Config) string {
+				if deps.httpListenAddr == nil {
+					return ""
+				}
+				return deps.httpListenAddr(c)
+			},
+			Run: func(ctx context.Context, _ *config.Config) error {
+				<-ctx.Done()
+				return nil
 			},
 		},
 		metrics,
@@ -769,11 +786,11 @@ func printServeBanner(w io.Writer, cfg *config.Config, enabled []serve.Subsystem
 		case serve.KindScheduler:
 			_, _ = fmt.Fprintf(w, "  scheduler   %s\n", cfg.SchedulerUserDir())
 		case serve.KindBrowser:
-			scheme := "http"
-			if cfg.Browser.CertFile != "" {
-				scheme = "https"
+			served := "extension key"
+			if cfg.Browser.ServeRemote {
+				served += "; served to other processes at /coddy/browser/v1"
 			}
-			_, _ = fmt.Fprintf(w, "  browser     %s://%s  (extension key)\n", scheme, cfg.Browser.ListenAddr())
+			_, _ = fmt.Fprintf(w, "  browser     ws://%s/browser/v1/connect  (%s)\n", httpAddr, served)
 		case serve.KindMetrics:
 			// Whether a scrape needs a credential, never the credential.
 			auth := "no token"

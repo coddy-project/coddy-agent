@@ -32,7 +32,7 @@ func TestLiveExtension(t *testing.T) {
 		t.Skip("set CODDY_FOR_BROWSER_DIR to a built coddy-for-browser checkout")
 	}
 	mux := http.NewServeMux()
-	mux.Handle("/browser/", browser.NewServer(browser.Default(), testKey, nil))
+	mux.Handle("/browser/", browser.NewServer(browser.Default(), func() string { return testKey }, nil))
 	mux.HandleFunc("/fixture", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		_, _ = w.Write([]byte(`<!doctype html><title>Live fixture</title><h1>Live fixture</h1>

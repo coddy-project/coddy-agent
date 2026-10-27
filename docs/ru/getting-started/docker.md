@@ -265,7 +265,7 @@ docker compose logs -f coddy
 - **`cli`** - интерактивная консоль (**[docs/surfaces/console.md](../surfaces/console.md)**) для **`docker run -it ... coddy`**;
 - **`swarm`** - релей, который объединяет узлы (**[docs/operate/swarm.md](../operate/swarm.md)**), под **`swarm.enable`**;
 - **`metrics`** - экспортёр Prometheus (**[docs/operate/monitoring.md](../operate/monitoring.md)**), выключенный, пока не задан **`metrics.enable`**. Он слушает loopback, до которого не дотянется опубликованный порт контейнера: чтобы снимать метрики снаружи контейнера, задайте **`metrics.host`** равным **`0.0.0.0`** вместе с **`metrics.token`** и опубликуйте **`metrics.port`** (по умолчанию 12347);
-- **`browser`** - слушатель расширения [Coddy for Browser](../features/browser.md) и инструмент `browser`, выключенные, пока не задан **`browser.enable`**. Как и экспортёр, он слушает loopback. Для браузера снаружи контейнера задайте **`browser.host`** равным **`0.0.0.0`**, опубликуйте **`browser.port`** (по умолчанию 12348) и дайте слушателю TLS, потому что простой HTTP расширение принимает только для сервера на своей же машине.
+- **`browser`** - эндпоинт расширения [Coddy for Browser](../features/browser.md) на HTTP-сервере и инструмент `browser`, выключенные, пока не заданы **`browser.enable`** и **`browser.token`**. Расширение подключается к опубликованному HTTP-порту, по адресу веб-интерфейса. Если браузер работает не на машине контейнера, перед сервером нужен HTTPS-прокси, потому что простой HTTP расширение принимает только для сервера на той же машине, что и браузер.
 
 Чтобы собрать образ **без** памяти или встроенного интерфейса, переопределите **`BUILD_TAGS`** (например, **`http,scheduler,ui`** или **`http,scheduler`**) через **`docker compose` `args`** или **`docker build --build-arg`**.
 
@@ -298,4 +298,4 @@ make check-image IMAGE_PLATFORMS=linux/arm64
 
 Скрипт создаёт временный **`config.yaml`**, поднимает **`coddy`** через **`docker-compose.dev.yml`**, ждёт **`/v1/models`** и запускает **`examples/httpserver/http_smoke_gateway.py`**.
 
-<!-- docsgen:source sha256=ba510de0a99b1168 -->
+<!-- docsgen:source sha256=0218fb0c92bb4bd7 -->

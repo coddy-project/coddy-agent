@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/external/browser"
 	"github.com/EvilFreelancer/coddy-agent/external/browser/browsertest"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
@@ -33,6 +35,11 @@ type browserWorld struct {
 	lastOut   string
 	lastCmd   browsertest.Command
 	openedTab int
+	// cfg is the configuration of the process the chat runs in: nil for the
+	// home server itself, browser.remotes for a chat of another process.
+	cfg *config.Config
+	// browserName is the browser as the chat names it.
+	browserName string
 }
 
 type toolOutcome struct {
@@ -41,19 +48,81 @@ type toolOutcome struct {
 }
 
 func (w *browserWorld) connected() error {
-	w.srv = httptest.NewServer(browser.NewServer(browser.Default(), testKey, nil))
+	w.srv = httptest.NewServer(browser.NewServer(browser.Default(), func() string { return testKey }, nil))
 	ext, err := browsertest.Connect(w.srv.URL, browsertest.Options{Key: testKey, ID: "browser-bdd-0001"})
 	if err != nil {
 		return err
 	}
 	w.ext = ext
 	// The extension announces what is shared right after initialize, an
-	// empty list included.
-	if err := ext.Share(); err != nil {
+	// empty list included, under the grant initialize carried.
+	if err := ext.Publish(); err != nil {
 		return err
 	}
 	w.env = &tooling.Env{SessionID: "sess_bdd_chat", SessionDir: w.t.TempDir(), CWD: w.t.TempDir()}
 	return waitFor(func() bool { return browser.Default().Connected("browser-bdd-0001") })
+}
+
+// connectedHome is the home server of the cross-process scenario: the
+// extension's endpoint and the API other processes call, on one mux, as the
+// HTTP server mounts them.
+func (w *browserWorld) connectedHome() error {
+	mux := http.NewServeMux()
+	mux.Handle("/browser/", browser.NewServer(browser.Default(), func() string { return testKey }, nil))
+	(&browser.API{Hub: browser.Default()}).Register(mux)
+	w.srv = httptest.NewServer(mux)
+	ext, err := browsertest.Connect(w.srv.URL, browsertest.Options{Key: testKey, ID: "browser-bdd-0001"})
+	if err != nil {
+		return err
+	}
+	w.ext = ext
+	if err := ext.Publish(); err != nil {
+		return err
+	}
+	w.env = &tooling.Env{SessionID: "sess_bdd_chat", SessionDir: w.t.TempDir(), CWD: w.t.TempDir()}
+	return waitFor(func() bool { return browser.Default().Connected("browser-bdd-0001") })
+}
+
+// remoteListed lists the browsers from a process whose configuration names
+// the home server in browser.remotes.
+func (w *browserWorld) remoteListed(node string) error {
+	w.cfg = &config.Config{
+		Browser: config.BrowserConfig{Enable: true, Remotes: []string{w.srv.URL}},
+		Swarm:   config.SwarmConfig{Join: []config.SwarmJoin{{Name: node}}},
+	}
+	return w.listed()
+}
+
+func (w *browserWorld) seesTabOnServer(title string) error {
+	if err := w.seesTab(title); err != nil {
+		return err
+	}
+	w.browserName = "browser-bdd-0001@" + strings.TrimPrefix(w.srv.URL, "http://")
+	if !strings.Contains(w.lastOut, `"id":"`+w.browserName+`"`) {
+		return fmt.Errorf("the list does not name the browser %q: %s", w.browserName, w.lastOut)
+	}
+	return nil
+}
+
+func (w *browserWorld) snapshotIn() error {
+	w.ext.Handle = func(c browsertest.Command) browsertest.Answer {
+		return browsertest.Answer{Result: map[string]any{"title": "Example Domain", "text": "This domain is for use in examples."}}
+	}
+	w.call(map[string]any{"action": "snapshot", "tab_id": w.tabID, "browser_id": w.browserName})
+	return nil
+}
+
+func (w *browserWorld) receivedFromNode(action, node string) error {
+	if err := w.received(action); err != nil {
+		return err
+	}
+	if w.lastCmd.TabID != w.tabID {
+		return fmt.Errorf("the command went to tab %d", w.lastCmd.TabID)
+	}
+	if want := node + "/" + w.env.SessionID; w.lastCmd.Session.ID != want || w.lastCmd.Session.Node != node {
+		return fmt.Errorf("the command came from %q on %q, not %q on %q", w.lastCmd.Session.ID, w.lastCmd.Session.Node, want, node)
+	}
+	return nil
 }
 
 func (w *browserWorld) shared(url, title string) error {
@@ -77,7 +146,7 @@ func (w *browserWorld) call(args map[string]any) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		out, err := execute(ctx, string(raw), w.env)
+		out, err := execute(ctx, w.cfg, string(raw), w.env)
 		w.pending <- toolOutcome{out, err}
 	}()
 }
@@ -245,6 +314,11 @@ func TestBrowserFeature(t *testing.T) {
 			sc.Step(`^the extension receives an "([^"]*)" command for "([^"]*)"$`, w.receivedOpen)
 			sc.Step(`^the chat clicks the link "([^"]*)" in the tab it opened$`, w.clicksInOpened)
 			sc.Step(`^the extension receives a "([^"]*)" command for the opened tab from that chat$`, w.receivedForOpened)
+			sc.Step(`^Coddy for Browser connected to a home Coddy that serves its browsers to other processes$`, w.connectedHome)
+			sc.Step(`^a chat of the Coddy process "([^"]*)" lists the browsers of the home server$`, w.remoteListed)
+			sc.Step(`^the chat sees the tab "([^"]*)" in a browser named after the home server$`, w.seesTabOnServer)
+			sc.Step(`^the chat takes a snapshot of that tab in that browser$`, w.snapshotIn)
+			sc.Step(`^the extension receives a "([^"]*)" command for that tab from the chat on "([^"]*)"$`, w.receivedFromNode)
 		},
 	}
 	if suite.Run() != 0 {

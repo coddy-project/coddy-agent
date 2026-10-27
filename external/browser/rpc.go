@@ -21,6 +21,7 @@ const (
 	methodTurnEnded  = "browser/turnEnded"
 	methodCancel     = "$/cancelRequest"
 	methodPing       = "$/ping"
+	methodPanelOpen  = "panel/open"
 )
 
 // Error codes Coddy answers with. The -32xxx range below -32000 is JSON-RPC's

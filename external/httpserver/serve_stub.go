@@ -13,6 +13,9 @@ import (
 // Available reports whether this binary can serve the HTTP API.
 const Available = false
 
+// UIAvailable reports whether this binary embeds the web UI.
+const UIAvailable = false
+
 // Server is the placeholder the stub hands to OnServer callbacks so a caller
 // needs no build tag of its own.
 type Server struct{}

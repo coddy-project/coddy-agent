@@ -23,19 +23,18 @@ type transfer struct {
 
 var transfers sync.Map
 
-// transferTTL bounds how long the extension has to fetch or post the bytes.
-const transferTTL = 2 * time.Minute
-
-// StageFile opens a ticket. For an upload to the page, data is what the
-// extension downloads; for a download from the page, the extension posts the
-// bytes it fetched and FileResult reads them. The returned func removes the
-// ticket.
-func StageFile(data []byte, toPage bool) (string, func(), error) {
+// StageFile opens a ticket good for ttl: as long as the action it belongs to
+// may take, since the extension posts a download's bytes only once the person
+// answered its questions and the download finished. For an upload to the
+// page, data is what the extension downloads; for a download from the page,
+// the extension posts the bytes it fetched and FileResult reads them. The
+// returned func removes the ticket, which the call does as soon as it ends.
+func StageFile(data []byte, toPage bool, ttl time.Duration) (string, func(), error) {
 	if len(data) > MaxFileBytes {
 		return "", nil, errors.New("the file exceeds 32 MiB")
 	}
 	id := randomID()
-	transfers.Store(id, &transfer{data: data, upload: !toPage, expires: time.Now().Add(transferTTL)})
+	transfers.Store(id, &transfer{data: data, upload: !toPage, expires: time.Now().Add(ttl)})
 	return id, func() { transfers.Delete(id) }, nil
 }
 

@@ -3,26 +3,20 @@
 # the English description the entry translates; make docs-check reports an
 # entry whose English text has changed since, and a key without an entry.
 browser:
-  en: "The listener of the Coddy for Browser extension, which lets chats work in the user's Chrome. Needs a binary built with the browser tag; off by default. See https://coddy.dev/docs/features/browser."
-  ru: "Слушатель расширения Coddy for Browser, через которое чаты работают в Chrome пользователя. Нужен бинарник, собранный с тегом browser. По умолчанию выключен. См. https://coddy.dev/docs/features/browser."
+  en: "Coddy for Browser: the extension connects to the HTTP server, lets chats work in the user's browser through the browser tool and shows the web UI in its side panel; chats of other Coddy processes and of the swarm reach the browser through this server. Needs a binary built with the browser tag; off by default. See https://coddy.dev/docs/features/browser."
+  ru: "Coddy for Browser - расширение подключается к HTTP-серверу, даёт чатам работать в браузере пользователя через инструмент browser и показывает веб-интерфейс в своей боковой панели. Чаты других процессов Coddy и узлов роя доходят до браузера через этот сервер. Нужен бинарник, собранный с тегом browser. По умолчанию выключено. См. https://coddy.dev/docs/features/browser."
 browser.enable:
-  en: "Run the listener in coddy serve and offer the browser tool to the chats."
-  ru: "Запускать слушатель в coddy serve и давать чатам инструмент browser."
-browser.host:
-  en: "Address the listener binds. Empty uses 127.0.0.1."
-  ru: "Адрес, на котором слушатель принимает подключения. Пустое значение означает 127.0.0.1."
-browser.port:
-  en: "Port of the listener. 0 uses 12348."
-  ru: "Порт слушателя. При 0 используется 12348."
+  en: "Offer the browser tool to the chats of this process. Needs browser.token, browser.remotes or both."
+  ru: "Давать чатам этого процесса инструмент browser. Нужен browser.token, browser.remotes или оба."
 browser.token:
-  en: "The extension key, at least 32 characters when enabled, independent of the HTTP API's credentials. Write-only. Use an environment reference to keep it out of YAML."
-  ru: "Ключ расширения, не короче 32 символов при включении, независимый от учётных данных HTTP API. Доступен только для записи. Чтобы не хранить ключ в YAML, укажите ссылку на переменную окружения."
-browser.cert_file:
-  en: "TLS certificate PEM of the listener. Set together with key_file; an extension uses plain HTTP only for a listener on this machine."
-  ru: "TLS-сертификат слушателя в PEM. Укажите вместе с key_file, потому что простой HTTP расширение принимает только для слушателя на этой же машине."
-browser.key_file:
-  en: "TLS private key PEM of the listener."
-  ru: "Закрытый TLS-ключ слушателя в PEM."
+  en: "The extension key, at least 32 characters, independent of the HTTP API's credentials. With it the HTTP server accepts the extension (/browser/v1/connect), and it also signs the extension's side panel into the web UI, so keep it as secret as the API's token. Write-only. Use an environment reference to keep it out of YAML."
+  ru: "Ключ расширения, не короче 32 символов, независимый от учётных данных HTTP API. С ним HTTP-сервер принимает расширение (/browser/v1/connect), и он же открывает боковой панели расширения вход в веб-интерфейс, поэтому храните его в таком же секрете, как токен API. Доступен только для записи. Чтобы не хранить ключ в YAML, укажите ссылку на переменную окружения."
+browser.serve_remote:
+  en: "Let other Coddy processes drive the browsers connected here: a console or an editor on this machine, a node of the swarm. They call /coddy/browser/v1 with this server's API credential, and the extension asks the person before the first action of each such chat. Needs browser.token."
+  ru: "Разрешить другим процессам Coddy управлять подключёнными сюда браузерами - консоли или редактору на этой машине, узлу роя. Они вызывают /coddy/browser/v1 с учётными данными API этого сервера, а расширение спрашивает человека перед первым действием каждого такого чата. Нужен browser.token."
+browser.remotes:
+  en: "Coddy servers whose browsers the chats of this process may use, besides its own: a name of httpserver.remotes, or a server address such as a node mount of a swarm relay (https://relay:8443/swarm/nodes/home), whose token is found like --remote's. That server needs browser.serve_remote."
+  ru: "Серверы Coddy, браузерами которых могут пользоваться чаты этого процесса, кроме своих: имя из httpserver.remotes или адрес сервера, например точка монтирования узла в релее роя (https://relay:8443/swarm/nodes/home). Токен для адреса ищется так же, как для --remote. На том сервере нужен browser.serve_remote."
 providers:
   en: "API credentials and transport selection for upstream LLM vendors. When api_key is empty, the runtime reads the NAME_API_KEY environment variable (NAME is the provider name in uppercase with hyphens mapped to underscores); a row of type \"codex\" signs in with ChatGPT and reads no key."
   ru: "Учётные данные API и выбор транспорта для внешних LLM-провайдеров. Если api_key пуст, Coddy читает переменную окружения NAME_API_KEY (NAME - имя провайдера в верхнем регистре, дефисы заменены подчёркиваниями); строка типа \"codex\" входит через ChatGPT и ключ не читает."

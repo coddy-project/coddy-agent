@@ -15,11 +15,11 @@ The Permission column uses the classes the gate in `internal/agent/react.go` app
 
 ## Files
 
-The browser tool is offered in Agent mode when `browser.enable` is true, in a binary built with the `browser` tag.
+The browser tool is offered in Agent mode when `browser.enable` is true, in a binary built with the `browser` tag. It reaches the browsers connected to this server, to the server of this machine (under its `browser.serve_remote`) and to the servers of `browser.remotes`.
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
-| `browser` | Work in the user's Chrome through the Coddy for Browser extension: list the connected browsers and the tabs in reach, open, read and act on a tab, move files between a page and the workspace ([Coddy for Browser](../features/browser.md)) | `action`, `browser_id`, `tab_id`, `params`, `path` | always, plus the website approval in the extension | agent |
+| `browser` | Work in the user's browser through the Coddy for Browser extension: list the connected browsers and the tabs in reach, open, read and act on a tab, move files between a page and the workspace ([Coddy for Browser](../features/browser.md)) | `action`, `browser_id`, `tab_id`, `params`, `path` | always, plus the website approval in the extension | agent |
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|

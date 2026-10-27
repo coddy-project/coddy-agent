@@ -242,6 +242,9 @@ type State struct {
 	// surfaceSystemPrompt is the block the surface running the current turn
 	// contributed to the system prompt; turn-scoped and never persisted.
 	surfaceSystemPrompt string
+	// surfaceTurnContext is the section the surface running the current turn
+	// contributed to the turn context block; turn-scoped and never persisted.
+	surfaceTurnContext string
 	// turnRestriction is what the surface running the current turn took away
 	// from it; turn-scoped and never persisted.
 	turnRestriction *TurnRestriction
@@ -1811,6 +1814,23 @@ func (s *State) GetTurnRestriction() *TurnRestriction {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.turnRestriction
+}
+
+// SetSurfaceTurnContext records the section the surface running the current
+// turn contributed to the turn context block; "" clears it. Turn-scoped like
+// SetSurfaceSystemPrompt.
+func (s *State) SetSurfaceTurnContext(section string) {
+	s.mu.Lock()
+	s.surfaceTurnContext = strings.TrimSpace(section)
+	s.mu.Unlock()
+}
+
+// GetSurfaceTurnContext returns that section, or "" when the turn came from a
+// surface that adds none.
+func (s *State) GetSurfaceTurnContext() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.surfaceTurnContext
 }
 
 // GetSurfaceSystemPrompt returns that block, or "" when the turn came from a

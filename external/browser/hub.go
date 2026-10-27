@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -30,7 +31,7 @@ const MaxFileBytes = 32 << 20
 var tablessActions = []string{"open_tab", "release"}
 
 // Tab is a tab the extension lets the agent reach. The extension keeps every
-// such tab in a Chrome tab group: the shared "Coddy" group the user drags tabs
+// such tab in a tab group of the browser: the shared "Coddy" group the user drags tabs
 // into, which any chat may take a tab from, or the group of one chat, which
 // SessionID names and no other chat may act in. A chat takes a shared tab into
 // its own group with its first action there, and every tab it opens starts in
@@ -74,7 +75,11 @@ type Connection struct {
 	actions []string
 	tabs    map[int]Tab
 	grant   string
-	pending map[string]chan reply
+	// keyDigest is the digest of the key this connection proved in
+	// initialize: a panel ticket it asks for is bound to that key, not to
+	// whatever the configuration holds by then.
+	keyDigest string
+	pending   map[string]chan reply
 	// out is what the socket's writer sends, in order.
 	out  chan []byte
 	done chan struct{}
@@ -96,7 +101,17 @@ type Hub struct {
 	// title names a chat for the extension, which titles the chat's tab
 	// group with it. Nil leaves groups named by the extension alone.
 	title func(sessionID string) string
+	// serving is set while an HTTP server of this process takes the
+	// extension's sockets: only then do the browsers come to this hub, and a
+	// process without it reaches them through the server that has them.
+	serving atomic.Bool
 }
+
+// Serving reports whether this process accepts the extension, so its hub is
+// where the browsers are.
+func (h *Hub) Serving() bool { return h.serving.Load() }
+
+func (h *Hub) setServing(on bool) { h.serving.Store(on) }
 
 // SetTitles installs how a chat's title is looked up; coddy serve hands the
 // session manager's.
@@ -122,18 +137,6 @@ func randomID() string {
 	return hex.EncodeToString(b[:])
 }
 
-func validID(id string) bool {
-	if len(id) < 8 || len(id) > 80 {
-		return false
-	}
-	for _, r := range id {
-		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' {
-			return false
-		}
-	}
-	return true
-}
-
 // Connect registers a browser. A browser that connects again under the same
 // id replaces its previous connection: a Chrome service worker that was torn
 // down leaves its old socket behind for up to a read deadline, and the user
@@ -141,7 +144,7 @@ func validID(id string) bool {
 // requests fail as an unknown outcome.
 func (h *Hub) Connect(info BrowserInfo, actions []string) (*Connection, error) {
 	info.Name = strings.TrimSpace(info.Name)
-	if !validID(info.ID) || info.Name == "" || len(info.Name) > 100 || len(info.Version) > 40 || len(actions) > 64 {
+	if !validBrowserID(info.ID) || info.Name == "" || len(info.Name) > 100 || len(info.Version) > 40 || len(actions) > 64 {
 		return nil, errors.New("invalid browser registration")
 	}
 	h.mu.Lock()
@@ -298,13 +301,20 @@ func actionTimeout(action string) time.Duration {
 
 // Request is one action a chat asks of a browser.
 type Request struct {
+	// SessionID names the chat that owns the tabs it works in: a session of
+	// this process, or <node>/<session id> for a chat of another Coddy
+	// process (RemoteOwner).
 	SessionID string
 	// SessionTitle is shown by the extension next to the tab being worked on.
 	SessionTitle string
-	BrowserID    string
-	Action       string
-	TabID        int
-	Params       json.RawMessage
+	// Node is where a chat of another Coddy process runs, as it names itself;
+	// "" for a chat of this process. The extension asks the person before such
+	// a chat's first action and never lets an "always allow" cover it.
+	Node      string
+	BrowserID string
+	Action    string
+	TabID     int
+	Params    json.RawMessage
 }
 
 type commandParams struct {
@@ -318,6 +328,7 @@ type commandParams struct {
 type commandSession struct {
 	ID    string `json:"id"`
 	Title string `json:"title,omitempty"`
+	Node  string `json:"node,omitempty"`
 }
 
 // Call sends one action and waits for its answer. It never retries: a lost
@@ -330,7 +341,7 @@ func (h *Hub) Call(ctx context.Context, req Request) (json.RawMessage, error) {
 	h.mu.Lock()
 	title := h.title
 	h.mu.Unlock()
-	if req.SessionTitle == "" && title != nil {
+	if req.SessionTitle == "" && title != nil && req.Node == "" {
 		req.SessionTitle = title(req.SessionID)
 	}
 	h.mu.Lock()
@@ -358,7 +369,7 @@ func (h *Hub) Call(ctx context.Context, req Request) (json.RawMessage, error) {
 	}
 	params := commandParams{
 		Action: req.Action, TabID: req.TabID, Params: req.Params, Grant: c.grant,
-		Session: commandSession{ID: req.SessionID, Title: req.SessionTitle},
+		Session: commandSession{ID: req.SessionID, Title: req.SessionTitle, Node: req.Node},
 	}
 	h.mu.Unlock()
 	out, err := h.request(ctx, c, methodCommand, params)
@@ -380,7 +391,7 @@ var (
 )
 
 // request sends one request of Coddy's to the extension of c and waits for
-// its answer: a browser/command, or a question of the side panel's chat.
+// its answer.
 // When ctx ends first, the extension hears $/cancelRequest.
 func (h *Hub) request(ctx context.Context, c *Connection, method string, params any) (json.RawMessage, error) {
 	id := randomID()
@@ -418,18 +429,5 @@ func (h *Hub) request(ctx context.Context, c *Connection, method string, params 
 			}
 		}
 		return nil, ctx.Err()
-	}
-}
-
-// notify sends a notification to the extension of c without waiting for the
-// socket longer than the connection lives.
-func (h *Hub) notify(c *Connection, method string, params any) {
-	frame, err := notification(method, params)
-	if err != nil {
-		return
-	}
-	select {
-	case c.out <- frame:
-	case <-c.done:
 	}
 }

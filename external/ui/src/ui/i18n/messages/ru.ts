@@ -270,22 +270,21 @@ export const messagesRu: Record<string, string> = {
   "settings.section.logger.desc": "Уровень, приёмники, ротация",
   "settings.section.metrics.label": "Метрики",
   "settings.section.browser.label": "Браузер",
-  "settings.section.browser.desc": "Coddy for Browser, слушатель и ключ",
+  "settings.section.browser.desc":
+    "Coddy for Browser, ключ и кто им пользуется",
   "settings.schema.browser.enable.label": "Включено",
   "settings.schema.browser.enable.desc":
-    "Запускать слушатель и давать чатам инструмент browser.",
-  "settings.schema.browser.host.label": "Адрес прослушивания",
-  "settings.schema.browser.host.desc": "Пустое значение означает 127.0.0.1.",
-  "settings.schema.browser.port.label": "Порт прослушивания",
-  "settings.schema.browser.port.desc": "При 0 используется 12348.",
+    "Давать чатам инструмент browser и принимать расширение, когда задан ключ.",
   "settings.schema.browser.token.label": "Ключ расширения",
   "settings.schema.browser.token.desc":
     "Не короче 32 символов, вводится в расширении. Оставьте поле пустым, чтобы сохранить текущий ключ.",
-  "settings.schema.browser.cert_file.label": "TLS-сертификат",
-  "settings.schema.browser.cert_file.desc":
-    "Сертификат PEM для слушателя, к которому подключается браузер с другой машины. Укажите вместе с закрытым ключом.",
-  "settings.schema.browser.key_file.label": "Закрытый TLS-ключ",
-  "settings.schema.browser.key_file.desc": "Закрытый ключ PEM для слушателя.",
+  "settings.schema.browser.serve_remote.label":
+    "Отдавать другим процессам Coddy",
+  "settings.schema.browser.serve_remote.desc":
+    "Разрешить консоли или редактору на этой машине и узлам роя управлять подключёнными сюда браузерами через /coddy/browser/v1 с учётными данными API этого сервера. Перед первым действием каждого такого чата расширение спросит вас.",
+  "settings.schema.browser.remotes.label": "Браузеры других серверов",
+  "settings.schema.browser.remotes.desc":
+    "Серверы Coddy, браузерами которых могут пользоваться чаты этого сервера: имя из httpserver.remotes или адрес, например монтирование узла в релее роя. На том сервере нужен browser.serve_remote.",
   "settings.section.metrics.desc": "Экспортёр Prometheus, свой порт",
   "settings.section.status.label": "Система",
   "settings.section.status.desc": "Версия, диск, нагрузка",

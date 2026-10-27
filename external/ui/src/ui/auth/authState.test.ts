@@ -425,3 +425,87 @@ describe("Telegram Mini App sign-in that does not end in a session", () => {
     expect(state.telegramRefused).toBe(false);
   });
 });
+
+describe("Coddy for Browser side panel sign-in", () => {
+  const ORIGIN = "chrome-extension://abcdefghijklmnopabcdefghijklmnop";
+  const TICKET = "b".repeat(64);
+
+  afterEach(async () => {
+    const { resetBrowserPanelLaunchForTests } =
+      await import("../browserPanel/launch");
+    resetBrowserPanelLaunchForTests();
+  });
+
+  async function openInPanel() {
+    const { captureBrowserPanelLaunch } =
+      await import("../browserPanel/launch");
+    const frame = {
+      location: {
+        search: `?coddy_panel=${TICKET}&coddy_panel_origin=${encodeURIComponent(ORIGIN)}`,
+        pathname: "/",
+        hash: "",
+      },
+      parent: {},
+      document,
+      sessionStorage: window.sessionStorage,
+      history: { state: null, replaceState: () => {} },
+    } as unknown as Window;
+    captureBrowserPanelLaunch(frame);
+  }
+
+  it("signs the frame in with the panel's ticket", async () => {
+    await openInPanel();
+    let signedIn = false;
+    let posted = "";
+    respond = (url, init) => {
+      if (url === "/coddy/auth/browser") {
+        posted = String(init?.body ?? "");
+        signedIn = true;
+        return jsonResponse(200, { ok: true, user: "browser:chrome-1" });
+      }
+      return jsonResponse(200, {
+        login_required: true,
+        auth_required: true,
+        authenticated: signedIn,
+        user: signedIn ? "browser:chrome-1" : "",
+        browser_login: true,
+      });
+    };
+    const state = await refreshAuthState();
+    expect(seen.map((s) => `${s.method} ${s.url}`)).toEqual([
+      "GET /coddy/auth/me",
+      "POST /coddy/auth/browser",
+      "GET /coddy/auth/me",
+    ]);
+    expect(JSON.parse(posted)).toEqual({ ticket: TICKET });
+    expect(state.authenticated).toBe(true);
+  });
+
+  it("spends the ticket once, even when the server refuses it", async () => {
+    await openInPanel();
+    respond = (url) =>
+      url === "/coddy/auth/browser"
+        ? jsonResponse(401, { error: "the side panel's ticket is used" })
+        : jsonResponse(200, {
+            login_required: true,
+            auth_required: true,
+            authenticated: false,
+            browser_login: true,
+          });
+    await refreshAuthState();
+    await refreshAuthState();
+    expect(seen.filter((s) => s.url === "/coddy/auth/browser")).toHaveLength(1);
+  });
+
+  it("does not post a ticket the server does not ask for", async () => {
+    await openInPanel();
+    respond = () =>
+      jsonResponse(200, {
+        login_required: true,
+        auth_required: true,
+        authenticated: false,
+      });
+    await refreshAuthState();
+    expect(seen.some((s) => s.url === "/coddy/auth/browser")).toBe(false);
+  });
+});

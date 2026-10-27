@@ -8,11 +8,12 @@ import (
 )
 
 // registerBrowserTools offers the browser tool where the configuration turns
-// the extension listener on: without it no browser can connect, and a tool
-// that can only fail would cost every request its definition.
+// the module on: the browsers connected to this server, to the server of this
+// machine or to the servers of browser.remotes. Without it a tool that can
+// only fail would cost every request its definition.
 func registerBrowserTools(r *Registry, cfg *config.Config) {
 	if cfg == nil || !cfg.Browser.Enable {
 		return
 	}
-	r.Register(browsertool.Tool())
+	r.Register(browsertool.Tool(cfg))
 }

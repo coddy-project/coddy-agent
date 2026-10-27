@@ -1472,6 +1472,14 @@ type PromptRunOpts struct {
 	// another surface on the same session carries a different prefix - which
 	// costs that turn its cached prefix, deliberately.
 	SurfaceSystemPrompt string
+	// SurfaceTurnContext is what the surface running this turn wants the
+	// model to know that moves from turn to turn: a section of the turn
+	// context block, heading included, which rides after the history on every
+	// request of the turn instead of in the system message, so the cached
+	// prefix holds while it changes. The side panel of Coddy for Browser names
+	// the tab the person writes from here. Turn-scoped like
+	// SurfaceSystemPrompt, and never persisted.
+	SurfaceTurnContext string
 	// Restriction narrows what this turn may do: a surface that knows who
 	// wrote the message - a messenger bot and a user who is not its admin -
 	// says which tools are refused and that everything needing approval is
@@ -1884,6 +1892,10 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if opts != nil && strings.TrimSpace(opts.SurfaceSystemPrompt) != "" {
 		state.SetSurfaceSystemPrompt(opts.SurfaceSystemPrompt)
 		defer state.SetSurfaceSystemPrompt("")
+	}
+	if opts != nil && strings.TrimSpace(opts.SurfaceTurnContext) != "" {
+		state.SetSurfaceTurnContext(opts.SurfaceTurnContext)
+		defer state.SetSurfaceTurnContext("")
 	}
 	if opts != nil && opts.Restriction != nil {
 		state.SetTurnRestriction(opts.Restriction)

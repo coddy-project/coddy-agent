@@ -154,6 +154,11 @@ Since the relay's answer is the only one, it carries what the web UI's Files win
 another origin: `HEAD` among the methods, `Range` and `If-None-Match` among the request headers,
 and `ETag`, `Content-Range`, `Accept-Ranges` and `Content-Disposition` exposed to the page.
 
+The WebSocket of the [Coddy for Browser](../features/browser.md) extension (`/browser/v1/`) is not carried: a
+browser connects to the node on its own machine. A chat of another node reaches that browser through `/coddy/browser/v1`
+of the node's mount, which the prefix list carries like any other route
+([Chats of other Coddy processes](../features/browser.md#chats-of-other-coddy-processes)).
+
 A hand-written path is capped at the same hop budget the fan-out uses, so a client cannot
 walk a ring indefinitely by writing hops out one after another.
 

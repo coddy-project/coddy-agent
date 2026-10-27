@@ -158,6 +158,11 @@ coddy acp --remote https://relay.example/swarm/nodes/nas02 --remote-token "$CLIE
 другого origin: `HEAD` среди методов, `Range` и `If-None-Match` среди заголовков запроса, а
 `ETag`, `Content-Range`, `Accept-Ranges` и `Content-Disposition` открыты странице.
 
+WebSocket расширения [Coddy for Browser](../features/browser.md) (`/browser/v1/`) точка монтирования не
+пропускает, потому что браузер подключается к узлу на своей же машине. Чат другого узла добирается до этого браузера
+через `/coddy/browser/v1` точки монтирования узла, а этот маршрут список префиксов пропускает, как любой другой
+([Чаты других процессов Coddy](../features/browser.md#чаты-других-процессов-coddy)).
+
 Путь, написанный вручную, ограничен тем же бюджетом хопов, что и параллельный опрос узлов,
 поэтому клиент не может бесконечно ходить по кольцу, выписывая хопы один за другим.
 
@@ -483,4 +488,4 @@ swarm:
 - `examples/swarm/` - живой стенд: релеи, агенты, кольцо и узел, который только сам подключается наружу;
 - руководства: [релей и его узлы в Docker](../tutorials/swarm-relay-and-nodes.md), [цепочка релеев](../tutorials/swarm-multi-hop.md), [работа с удалёнными узлами](../tutorials/swarm-remote-nodes.md).
 
-<!-- docsgen:source sha256=35a4f7ca6c4ac05f -->
+<!-- docsgen:source sha256=e7ec8b833ad2d08f -->

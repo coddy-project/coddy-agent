@@ -3,12 +3,9 @@
 package browser
 
 import (
-	"context"
 	"crypto/subtle"
 	"encoding/json"
-	"errors"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -34,41 +31,56 @@ const (
 	writeDeadline = 10 * time.Second
 )
 
-// Server is the listener of the extension. Its key is independent of the
-// HTTP API's credentials and reaches only this protocol and its transfers.
+// Server is the extension's endpoint on the HTTP server. Its key is
+// independent of the HTTP API's credentials and reaches only this protocol,
+// its transfers and the side panel's sign-in ticket.
 type Server struct {
 	Hub *Hub
-	Key string
+	// Key is the extension key of the live configuration, "" while the
+	// endpoint is off.
+	Key func() string
 	Log *slog.Logger
-	// Chat runs the side panel's conversations; nil answers its methods
-	// with method not found.
-	Chat *Chat
 
 	mu      sync.Mutex
 	sockets map[*websocket.Conn]struct{}
 }
 
-func NewServer(hub *Hub, key string, log *slog.Logger) *Server {
+func NewServer(hub *Hub, key func() string, log *slog.Logger) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
 	return &Server{Hub: hub, Key: key, Log: log, sockets: make(map[*websocket.Conn]struct{})}
 }
 
-// extensionOrigin accepts the origin of a Chromium extension page or worker
-// and nothing else, so a web page the user visits cannot open the socket, even
-// to a listener on localhost.
+// extensionOrigin accepts the origin of an extension page or worker - a
+// Chromium extension's (Chrome, Yandex Browser) or a Firefox one's - and
+// nothing else, so a web page the user visits cannot open the socket, even to
+// a server on localhost.
 func extensionOrigin(origin string) bool {
 	u, err := url.Parse(origin)
-	return err == nil && u.Scheme == "chrome-extension" && u.Host != "" && u.Path == "" &&
+	return err == nil && (u.Scheme == "chrome-extension" || u.Scheme == "moz-extension") && u.Host != "" && u.Path == "" &&
 		u.User == nil && u.RawQuery == "" && u.Fragment == ""
 }
 
+func (s *Server) key() string {
+	if s.Key == nil {
+		return ""
+	}
+	return s.Key()
+}
+
 func (s *Server) accepts(key string) bool {
-	return s.Key != "" && subtle.ConstantTimeCompare([]byte(key), []byte(s.Key)) == 1
+	want := s.key()
+	return want != "" && subtle.ConstantTimeCompare([]byte(key), []byte(want)) == 1
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Off is not there: browser.enable turned off answers as a server without
+	// the module would.
+	if s.key() == "" {
+		http.NotFound(w, r)
+		return
+	}
 	origin := r.Header.Get("Origin")
 	if origin != "" && !extensionOrigin(origin) {
 		http.Error(w, "extension origin required", http.StatusForbidden)
@@ -135,14 +147,14 @@ type tabsParams struct {
 	Grant string `json:"grant"`
 }
 
-func (s *Server) track(ws *websocket.Conn) bool {
+// track remembers a socket, so CloseSockets reaches it. Nothing is capped
+// here: a socket that never proves the key is closed by the handshake's
+// deadline, and the hub caps the browsers that did, so sockets that never
+// authenticate cannot keep the extension out.
+func (s *Server) track(ws *websocket.Conn) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.sockets) >= 64 {
-		return false
-	}
 	s.sockets[ws] = struct{}{}
-	return true
+	s.mu.Unlock()
 }
 
 func (s *Server) untrack(ws *websocket.Conn) {
@@ -189,6 +201,7 @@ func (s *Server) handshake(ws *websocket.Conn) (*Connection, bool) {
 		_ = send(ws, failure(msg.ID, codeInvalidParams, err.Error(), nil))
 		return nil, false
 	}
+	c.keyDigest = KeyDigest(p.Key)
 	_ = s.Hub.UpdateTabs(c, nil, p.Grant)
 	frame, err := result(msg.ID, initializeResult{
 		ProtocolVersion: ProtocolVersion,
@@ -203,10 +216,7 @@ func (s *Server) handshake(ws *websocket.Conn) (*Connection, bool) {
 }
 
 func (s *Server) socket(ws *websocket.Conn) {
-	if !s.track(ws) {
-		_ = ws.Close()
-		return
-	}
+	s.track(ws)
 	defer s.untrack(ws)
 	c, ok := s.handshake(ws)
 	if !ok {
@@ -260,31 +270,41 @@ func (s *Server) socket(ws *websocket.Conn) {
 				return
 			}
 		case msg.isRequest():
-			go s.answer(ws.Request().Context(), c, msg)
+			go s.answer(c, msg)
 		default:
 			return
 		}
 	}
 }
 
-// answer runs one request of the extension - a chat request of the side
-// panel - and writes its answer. A method this server does not know is a
-// newer extension's, which hears so and goes on.
-func (s *Server) answer(ctx context.Context, c *Connection, msg message) {
+// answer runs one request of the extension and writes its answer. A method
+// this server does not know is a newer extension's, which hears so and goes on.
+func (s *Server) answer(c *Connection, msg message) {
 	var frame []byte
-	if s.Chat == nil || !strings.HasPrefix(msg.Method, "chat/") {
+	switch msg.Method {
+	case methodPanelOpen:
+		frame = s.panelOpen(c, msg)
+	default:
 		frame = failure(msg.ID, codeMethodNotFound, "method not found: "+msg.Method, nil)
-	} else if value, rerr := s.Chat.handle(ctx, s.Hub, c, msg.Method, msg.Params); rerr != nil {
-		frame = failure(msg.ID, rerr.Code, rerr.Message, rerr.Data)
-	} else if out, err := result(msg.ID, value); err != nil {
-		frame = failure(msg.ID, codeFailed, err.Error(), nil)
-	} else {
-		frame = out
 	}
 	select {
 	case c.out <- frame:
 	case <-c.done:
 	}
+}
+
+// panelOpen answers the side panel opening with a one-time ticket that
+// signs its frame in to the web UI of this server, which the extension
+// reaches at the address it connected to. The key the extension proved
+// stands for the ticket, so the person never types a password of the web UI
+// into the panel.
+func (s *Server) panelOpen(c *Connection, msg message) []byte {
+	ticket := IssuePanelTicket(PanelGrant{BrowserID: c.info.ID, KeyDigest: c.keyDigest}, time.Now())
+	out, err := result(msg.ID, map[string]string{"ticket": ticket})
+	if err != nil {
+		return failure(msg.ID, codeFailed, err.Error(), nil)
+	}
+	return out
 }
 
 // notice handles a notification from the extension. A malformed tab list ends
@@ -303,11 +323,6 @@ func (s *Server) notice(c *Connection, msg message) bool {
 	case methodStop:
 		s.Hub.Stop(c)
 		s.Log.Info("browser stopped by the user", "browser", c.info.ID)
-	case methodChatCancel:
-		var p chatSessionParams
-		if s.Chat != nil && json.Unmarshal(msg.Params, &p) == nil {
-			s.Chat.cancel(p.SessionID)
-		}
 	case methodPing:
 	default:
 		// A notification this server does not know is a newer extension's
@@ -316,49 +331,14 @@ func (s *Server) notice(c *Connection, msg message) bool {
 	return true
 }
 
-// Serve owns the listener and the sockets, including a rebuild on a config
-// reload: when ctx ends every socket is closed and the extensions reconnect to
-// whatever listener comes next.
-func (s *Server) Serve(ctx context.Context, address, certFile, keyFile string) error {
-	if strings.TrimSpace(s.Key) == "" {
-		return errors.New("browser.token is required")
+// CloseSockets ends every extension socket. The HTTP server's shutdown does
+// not reach a connection the socket took over, so the server calls this when
+// it goes away, and when the key changes under the extensions holding the old
+// one.
+func (s *Server) CloseSockets() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for ws := range s.sockets {
+		_ = ws.Close()
 	}
-	ln, err := net.Listen("tcp", address)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = ln.Close() }()
-	srv := &http.Server{
-		Handler: s, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10,
-		BaseContext: func(net.Listener) context.Context { return ctx },
-	}
-	defer func() { _ = srv.Close() }()
-	done := make(chan struct{})
-	defer close(done)
-	go func() {
-		select {
-		case <-ctx.Done():
-		case <-done:
-			return
-		}
-		s.mu.Lock()
-		for ws := range s.sockets {
-			_ = ws.Close()
-		}
-		s.mu.Unlock()
-		// ctx is done by now; the grace for the open requests keeps its
-		// values and drops its cancellation.
-		stop, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(stop)
-	}()
-	if certFile != "" {
-		err = srv.ServeTLS(ln, certFile, keyFile)
-	} else {
-		err = srv.Serve(ln)
-	}
-	if errors.Is(err, http.ErrServerClosed) {
-		return nil
-	}
-	return err
 }

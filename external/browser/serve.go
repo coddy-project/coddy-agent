@@ -3,7 +3,7 @@
 package browser
 
 import (
-	"context"
+	"net/http"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -12,11 +12,18 @@ import (
 // Available reports whether this binary carries the browser module.
 const Available = true
 
-// Serve runs the extension listener until ctx ends. It follows the manager's
-// turns, so a browser hears when a chat it holds tabs of stops working, and
-// names each chat's tab group after the chat's title.
-func Serve(ctx context.Context, opts Options) error {
+// Mount puts the extension's endpoint on the HTTP server's mux: the socket
+// and the file transfers, over the process hub the browser tool calls
+// through.
+func Mount(mux *http.ServeMux, opts MountOptions) Mounted {
 	log := logger.Component(opts.Log, logger.ComponentBrowser)
+	srv := NewServer(Default(), opts.Key, log)
+	mux.Handle(ConnectPattern, srv)
+	mux.Handle(FilesPattern, srv)
+	api := &API{Hub: Default(), Allow: opts.ServeRemote, Log: log}
+	api.Register(mux)
+	Default().setServing(true)
+	detach := func() {}
 	if mgr := opts.Mgr; mgr != nil {
 		Default().SetTitles(func(id string) string {
 			if st := mgr.SessionByID(id); st != nil {
@@ -24,19 +31,23 @@ func Serve(ctx context.Context, opts Options) error {
 			}
 			return ""
 		})
-		defer Default().SetTitles(nil)
 		remove := mgr.AddTurnObserver(func(event session.TurnEvent) {
 			if event.Phase == session.TurnPhaseEnded {
 				Default().TurnEnded(event.SessionID)
 			}
 		})
-		defer remove()
+		detach = func() {
+			remove()
+			Default().SetTitles(nil)
+		}
 	}
-	b := opts.Cfg.Browser
-	srv := NewServer(Default(), b.Token, log)
-	if opts.Mgr != nil {
-		srv.Chat = &Chat{Mgr: opts.Mgr, Mirror: opts.Mirror, CWD: opts.DefaultCWD, Log: log}
+	return Mounted{
+		Disconnect: srv.CloseSockets,
+		Close: func() {
+			detach()
+			Default().setServing(false)
+			api.close()
+			srv.CloseSockets()
+		},
 	}
-	log.Info("browser listener", "addr", b.ListenAddr(), "tls", b.CertFile != "")
-	return srv.Serve(ctx, b.ListenAddr(), b.CertFile, b.KeyFile)
 }

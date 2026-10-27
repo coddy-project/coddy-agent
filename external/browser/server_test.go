@@ -4,10 +4,9 @@ package browser
 
 import (
 	"bytes"
-	"context"
+	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,10 +20,12 @@ import (
 
 const testKey = "0123456789abcdef0123456789abcdef"
 
+func keyOf(k string) func() string { return func() string { return k } }
+
 func listener(t *testing.T) (*Hub, *httptest.Server) {
 	t.Helper()
 	hub := NewHub()
-	srv := httptest.NewServer(NewServer(hub, testKey, nil))
+	srv := httptest.NewServer(NewServer(hub, keyOf(testKey), nil))
 	t.Cleanup(srv.Close)
 	return hub, srv
 }
@@ -56,11 +57,17 @@ func TestInitializeRefusesAWrongKeyAndAnotherProtocolVersion(t *testing.T) {
 
 func TestOnlyAnExtensionOriginReachesTheSocket(t *testing.T) {
 	_, srv := listener(t)
-	for _, origin := range []string{"https://evil.example", "moz-extension://abc", "chrome-extension://abc/path"} {
+	for _, origin := range []string{"https://evil.example", "chrome-extension://abc/path", "moz-extension://abc/path", "ftp-extension://abc"} {
 		if _, err := browsertest.Connect(srv.URL, browsertest.Options{Key: testKey, Origin: origin}); err == nil {
 			t.Fatalf("origin %q opened the socket", origin)
 		}
 	}
+	// Firefox's extension pages have origins of their own scheme.
+	ext, err := browsertest.Connect(srv.URL, browsertest.Options{Key: testKey, ID: "browser-firefox-0001", Origin: "moz-extension://0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"})
+	if err != nil {
+		t.Fatalf("a Firefox extension was refused: %v", err)
+	}
+	_ = ext.Close()
 	// A plain request with no origin is not an upgrade the listener accepts.
 	resp, err := http.Get(srv.URL + pathConnect)
 	if err != nil {
@@ -170,7 +177,7 @@ func TestAReconnectOfTheSameBrowserClosesTheOldSocket(t *testing.T) {
 
 func TestATransferTicketIsKeyedAndSingleUse(t *testing.T) {
 	_, srv := listener(t)
-	ticket, cleanup, err := StageFile([]byte("payload"), true)
+	ticket, cleanup, err := StageFile([]byte("payload"), true, 2*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +206,7 @@ func TestATransferTicketIsKeyedAndSingleUse(t *testing.T) {
 		t.Fatalf("second read: %d", code)
 	}
 	// An upload ticket takes one POST and nothing else.
-	up, cleanupUp, _ := StageFile(nil, false)
+	up, cleanupUp, _ := StageFile(nil, false, 2*time.Minute)
 	defer cleanupUp()
 	post := func() int {
 		req, _ := http.NewRequest(http.MethodPost, srv.URL+pathFilesPrefix+up, bytes.NewReader([]byte("from the page")))
@@ -225,34 +232,140 @@ func TestATransferTicketIsKeyedAndSingleUse(t *testing.T) {
 	}
 }
 
-func TestShutdownClosesTheSockets(t *testing.T) {
-	probe, err := net.Listen("tcp", "127.0.0.1:0")
+func TestClosingTheSocketsAndAnEmptyKey(t *testing.T) {
+	hub := NewHub()
+	key := testKey
+	srv := NewServer(hub, func() string { return key }, nil)
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+	ext, err := browsertest.Connect(ts.URL, browsertest.Options{Key: testKey})
 	if err != nil {
 		t.Fatal(err)
 	}
-	address := probe.Addr().String()
-	_ = probe.Close()
-	hub := NewHub()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- NewServer(hub, testKey, nil).Serve(ctx, address, "", "") }()
-	var ext *browsertest.Extension
-	waitUntil(t, func() bool {
-		ext, err = browsertest.Connect("http://"+address, browsertest.Options{Key: testKey})
-		return err == nil
-	})
 	defer func() { _ = ext.Close() }()
-	cancel()
+	// What the HTTP server does when it goes away, or when the key changes.
+	srv.CloseSockets()
 	select {
 	case <-ext.Closed():
 	case <-time.After(3 * time.Second):
-		t.Fatal("a socket outlived its listener")
+		t.Fatal("a socket outlived CloseSockets")
 	}
-	if err := <-done; err != nil {
+	// browser.enable off: the endpoint is not there.
+	key = ""
+	resp, err := http.Get(ts.URL + pathConnect)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := NewServer(hub, "", nil).Serve(context.Background(), address, "", ""); err == nil {
-		t.Fatal("a listener started without a key")
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("the endpoint answered %d with no key", resp.StatusCode)
 	}
+}
+
+func TestOpeningThePanelGivesATicketOfThisBrowser(t *testing.T) {
+	hub := NewHub()
+	srv := NewServer(hub, keyOf(testKey), nil)
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+	ext, err := browsertest.Connect(ts.URL, browsertest.Options{Key: testKey, ID: "browser-panel-0001"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ext.Close() }()
+	raw, err := ext.Request("panel/open", map[string]any{}, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Ticket string `json:"ticket"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	grant, ok := RedeemPanelTicket(got.Ticket, time.Now())
+	if !ok || grant.BrowserID != "browser-panel-0001" || grant.KeyDigest != KeyDigest(testKey) {
+		t.Fatalf("ticket %+v %v", grant, ok)
+	}
+	if _, err := ext.Request("chat/send", map[string]any{}, 5*time.Second); err == nil {
+		t.Fatal("an unknown method was answered")
+	}
+}
+
+// A transfer ticket lives as long as the action it belongs to: a download is
+// posted only after the person answered and the bytes arrived.
+func TestATransferTicketLastsAsLongAsItsAction(t *testing.T) {
+	hub, srv := listener(t)
+	ext, err := browsertest.Connect(srv.URL, browsertest.Options{Key: testKey, ID: "browser-ticket-life"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ext.Close() })
+	if err := ext.Share(browsertest.Tab{ID: 1, URL: "https://example.com/", Title: "Example"}); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, func() bool { s := hub.List(""); return len(s) == 1 && len(s[0].Tabs) == 1 })
+	var left time.Duration
+	ext.Handle = func(c browsertest.Command) browsertest.Answer {
+		var p struct {
+			TransferID string `json:"transfer_id"`
+		}
+		_ = json.Unmarshal(c.Params, &p)
+		if v, ok := transfers.Load(p.TransferID); ok {
+			left = time.Until(v.(*transfer).expires)
+		}
+		return browsertest.Answer{Error: "stop here"}
+	}
+	_, _, _ = hub.Transfer(t.Context(), Request{SessionID: "sess_1", BrowserID: "browser-ticket-life", Action: "download_file", TabID: 1}, "f.bin", nil)
+	if left < actionTimeout("download_file") {
+		t.Fatalf("the ticket lives %v, the download may take %v", left, actionTimeout("download_file"))
+	}
+}
+
+// A panel ticket is bound to the key the extension proved, whatever the
+// configuration holds when the panel asks.
+func TestAPanelTicketIsBoundToTheKeyTheExtensionProved(t *testing.T) {
+	key := testKey
+	hub := NewHub()
+	srv := httptest.NewServer(NewServer(hub, func() string { return key }, nil))
+	t.Cleanup(srv.Close)
+	ext, err := browsertest.Connect(srv.URL, browsertest.Options{Key: testKey, ID: "browser-panel-key1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ext.Close() })
+	key = strings.Repeat("b", 32)
+	raw, err := ext.Request("panel/open", map[string]any{}, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Ticket string `json:"ticket"`
+	}
+	_ = json.Unmarshal(raw, &got)
+	grant, ok := RedeemPanelTicket(got.Ticket, time.Now())
+	if !ok || grant.KeyDigest != KeyDigest(testKey) {
+		t.Fatalf("the ticket is bound to %q, the proved key is %q", grant.KeyDigest, KeyDigest(testKey))
+	}
+}
+
+// Sockets that never prove the key do not keep the extension out.
+func TestSocketsThatNeverAuthenticateDoNotKeepTheExtensionOut(t *testing.T) {
+	_, srv := listener(t)
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/browser/v1/connect"
+	for i := 0; i < 80; i++ {
+		cfg, err := websocket.NewConfig(wsURL, "chrome-extension://abcdefghijklmnopabcdefghijklmnop")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ws, err := websocket.DialConfig(cfg)
+		if err != nil {
+			t.Fatalf("socket %d: %v", i, err)
+		}
+		t.Cleanup(func() { _ = ws.Close() })
+	}
+	ext, err := browsertest.Connect(srv.URL, browsertest.Options{Key: testKey, ID: "browser-not-locked"})
+	if err != nil {
+		t.Fatalf("the extension was kept out: %v", err)
+	}
+	_ = ext.Close()
 }
