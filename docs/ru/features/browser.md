@@ -63,8 +63,8 @@ browser:
 ## Установка расширения
 
 Пакеты прикреплены к каждому [релизу](https://github.com/coddy-project/coddy-for-browser/releases) расширения, а
-сам релиз уходит в Chrome Web Store и на addons.mozilla.org. Магазины публикуют его, как только он пройдёт их
-проверку. Ссылки на страницы в магазинах есть в заметках к релизу. Каждый прогон CI расширения сохраняет пакеты в артефактах.
+само расширение уходит в Chrome Web Store и на addons.mozilla.org. Магазины публикуют версию, как только она пройдёт их
+проверку. Каждый запуск CI расширения сохраняет пакеты в артефактах.
 
 | Пакет | Браузеры |
 | --- | --- |
@@ -283,4 +283,4 @@ Chrome в Chromium, а пакет для Firefox в Firefox, в обоих сл�
 CODDY_FOR_BROWSER_DIR=../coddy-for-browser go test -tags=browser ./external/browser/... -run TestLiveExtension -v
 ```
 
-<!-- docsgen:source sha256=a14dad2e657d2ad1 -->
+<!-- docsgen:source sha256=558946a3d634e760 -->

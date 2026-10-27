@@ -61,9 +61,9 @@ of the server. Keep it as secret as the HTTP API's token.
 
 ## Install the extension
 
-Every [release](https://github.com/coddy-project/coddy-for-browser/releases) of the extension carries its packages
-and goes to the Chrome Web Store and addons.mozilla.org, which publish it once their review passes; the release notes
-link the listings. Every run of the extension's CI keeps the packages as artifacts:
+Every [release](https://github.com/coddy-project/coddy-for-browser/releases) of the extension carries its packages,
+and the extension itself goes to the Chrome Web Store and addons.mozilla.org, which publish a version once their
+review passes. Every run of the extension's CI keeps the packages as artifacts:
 
 | Package | Browsers |
 | --- | --- |
