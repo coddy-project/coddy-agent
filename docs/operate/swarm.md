@@ -11,7 +11,7 @@ live view of what the nodes told it.
 
 Built with `-tags swarm`, which is part of the shipped set (`FULL_TAGS` in the **Makefile**), so
 the release binaries, the Docker image, the Linux packages and the Homebrew formula all carry the
-relay. Build it yourself with `make build TAGS="http ui scheduler memory cli gateway swarm metrics"`.
+relay. Build it yourself with `make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"`.
 
 The relay is not a command of its own: `coddy serve` runs it when `swarm.enable` is true, next to
 whatever else the configuration enables. A binary built without the tag refuses `swarm.enable` at
@@ -153,6 +153,11 @@ origin twice. The same rule keeps a node's policy from opening a relay whose own
 Since the relay's answer is the only one, it carries what the web UI's Files window needs from
 another origin: `HEAD` among the methods, `Range` and `If-None-Match` among the request headers,
 and `ETag`, `Content-Range`, `Accept-Ranges` and `Content-Disposition` exposed to the page.
+
+The WebSocket of the [Coddy for Browser](../features/browser.md) extension (`/browser/v1/`) is not carried: a
+browser connects to the node on its own machine. A chat of another node reaches that browser through `/coddy/browser/v1`
+of the node's mount, which the prefix list carries like any other route
+([Chats of other Coddy processes](../features/browser.md#chats-of-other-coddy-processes)).
 
 A hand-written path is capped at the same hop budget the fan-out uses, so a client cannot
 walk a ring indefinitely by writing hops out one after another.

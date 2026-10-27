@@ -1645,6 +1645,7 @@ func openAPISpec() map[string]interface{} {
 											"user":           map[string]string{"type": "string", "description": "Signed-in account; absent otherwise."},
 											"expires_at":     map[string]string{"type": "string", "format": "date-time", "description": "When the session ends; absent otherwise."},
 											"telegram_login": map[string]string{"type": "boolean", "description": "A page opened as the Telegram bot's Mini App can sign in with its launch data (POST /coddy/auth/telegram), the bot's admins only."},
+											"browser_login":  map[string]string{"type": "boolean", "description": "A page opened in the side panel of Coddy for Browser can sign in with the ticket the extension's endpoint gave it (POST /coddy/auth/browser)."},
 										},
 										"required": []string{"login_required", "auth_required", "authenticated"},
 									},
@@ -1744,10 +1745,140 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/auth/browser": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Sign the side panel of Coddy for Browser in with its ticket",
+					"description": "Public: the way through the gate for the web UI the extension shows in its side panel. `ticket` is the one-time ticket the extension's endpoint (`browser.token`) gave a browser that connected with the extension key, over its socket (`panel/open`); it is good for one sign-in within a minute. " +
+						"On success sets an HttpOnly, SameSite=Strict `" + browserSessionCookieBaseName + "_<host digest>` cookie that opens what the sign-in form's cookie opens, also behind a token-only gate; it ends when `browser.token` changes or `browser.enable` is turned off. " +
+						"**400** without an enabled endpoint with a key, **401** for an unknown, used or expired ticket, **403** for a cross-site attempt.",
+					"operationId": "authBrowser",
+					"security":    []interface{}{map[string]interface{}{}},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":       "object",
+									"properties": map[string]interface{}{"ticket": map[string]string{"type": "string"}},
+									"required":   []string{"ticket"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Signed in; the panel's session cookie is set",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"ok":         map[string]string{"type": "boolean"},
+											"user":       map[string]string{"type": "string", "description": "`browser:<browser id>`"},
+											"expires_at": map[string]string{"type": "string", "format": "date-time"},
+										},
+										"required": []string{"ok", "user"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"401": errorResponseRef(),
+						"403": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/browser/v1/browsers": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "List the browsers connected to this server, for a chat of another Coddy process",
+					"description": "Coddy for Browser: the browsers whose extension connected to this server and the tabs they share, as the chat `node`/`session_id` sees them (`yours` for its own tab group, `busy` for another chat's). A console or an editor on this machine and the nodes of the swarm call it, behind this server's ordinary credentials; the extension key does not open it. " +
+						"**404** unless `browser.serve_remote` is on (and `browser.token` set).",
+					"operationId": "browserList",
+					"parameters": []interface{}{
+						map[string]interface{}{"name": "node", "in": "query", "schema": map[string]string{"type": "string"}, "description": "Where the calling chat runs, as it names itself."},
+						map[string]interface{}{"name": "session_id", "in": "query", "schema": map[string]string{"type": "string"}, "description": "The calling chat's session id."},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "The connected browsers",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"browsers": map[string]interface{}{"type": "array", "items": browserSnapshotSchema()},
+										},
+										"required": []string{"browsers"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"401": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/browser/v1/call": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Ask a browser connected to this server for one action, for a chat of another Coddy process",
+					"description": "Coddy for Browser: one action of the `browser` tool (`snapshot`, `click`, `navigate`, `upload_file`, `download_file` and the rest; docs/reference/browser-protocol.md) sent to the extension of `browser_id`. The calling chat owns tabs as `<node>/<session_id>`, and the extension asks the person before its first action and before every new website. `upload_file` carries the file in `file` (base64 `data`), `download_file` names it there and gets the bytes back in the answer, 32 MiB at most. The call lasts as long as the action and is never retried; dropping the request cancels it. " +
+						"**404** unless `browser.serve_remote` is on, **400** for an invalid caller or body, **409** when the browser refuses or fails the action (the message says why), **413** for a file over the limit.",
+					"operationId": "browserCall",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"browser_id": map[string]string{"type": "string"},
+										"action":     map[string]string{"type": "string"},
+										"tab_id":     map[string]string{"type": "integer"},
+										"params":     map[string]string{"type": "object", "description": "The action's parameters, as the browser tool takes them."},
+										"caller": map[string]interface{}{
+											"type": "object",
+											"properties": map[string]interface{}{
+												"node":       map[string]string{"type": "string", "description": "Where the chat runs: 1 to 64 letters, digits, dots, dashes or underscores. Shown to the person, not trusted."},
+												"session_id": map[string]string{"type": "string"},
+												"title":      map[string]string{"type": "string", "description": "Names the chat's tab group."},
+											},
+											"required": []string{"node", "session_id"},
+										},
+										"file": browserFileSchema(),
+									},
+									"required": []string{"browser_id", "action", "caller"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "What the extension answered",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"result": map[string]string{"type": "object", "description": "The extension's answer, untrusted page data."},
+											"file":   browserFileSchema(),
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"401": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+						"413": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/auth/logout": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "End the browser session on the server",
-					"description": "Drops the session server-side and expires the cookie - the sign-in form's and, when the browser holds one, the Telegram Mini App's (`" + tgSessionCookieBaseName + "_<host digest>`) - so a copy of it taken elsewhere stops working too. Idempotent: a request with no cookie, or with one this server no longer knows, still answers **200**. **403** for a cross-site attempt.",
+					"description": "Drops the session server-side and expires the cookie - the sign-in form's and, when the browser holds one, the Telegram Mini App's (`" + tgSessionCookieBaseName + "_<host digest>`) and the Coddy for Browser side panel's (`" + browserSessionCookieBaseName + "_<host digest>`) - so a copy of it taken elsewhere stops working too. Idempotent: a request with no cookie, or with one this server no longer knows, still answers **200**. **403** for a cross-site attempt.",
 					"operationId": "authLogout",
 					"security":    []interface{}{map[string]interface{}{}},
 					"responses": map[string]interface{}{
@@ -4167,7 +4298,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. `lang` (the web UI sends its locale, e.g. `\"ru\"`) is the language of the turn: Coddy's documentation that the turn's `@coddy:` mentions attach and the agent's documentation tools read is in it.",
+							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. `lang` (the web UI sends its locale, e.g. `\"ru\"`) is the language of the turn: Coddy's documentation that the turn's `@coddy:` mentions attach and the agent's documentation tools read is in it. `browser` (`{browser_id, tab_id, url, title}`, what the web UI in the side panel of Coddy for Browser sends) names the tab the turn is written from: the session's browser tool selects that browser and acts on that tab when a call names none, and the turn's system prompt says so, with the page's address and title as JSON data.",
 							"additionalProperties": true,
 						},
 						"attachments": map[string]interface{}{
@@ -4836,5 +4967,45 @@ func listingCWDParam() map[string]interface{} {
 		"description": "Absolute path of an existing folder that names the workspace when no session is behind the request " +
 			"(X-Coddy-Session-ID absent, or naming a session the server does not have yet): the folder a new chat picked before its first message. " +
 			"Ignored next to a session the server has. 400 for a relative path or a missing folder.",
+	}
+}
+
+// browserSnapshotSchema is one connected browser as GET /coddy/browser/v1/browsers lists it.
+func browserSnapshotSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"id":      map[string]string{"type": "string"},
+			"name":    map[string]string{"type": "string"},
+			"version": map[string]string{"type": "string"},
+			"actions": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+			"tabs": map[string]interface{}{
+				"type": "array",
+				"items": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"id":        map[string]string{"type": "integer"},
+						"url":       map[string]string{"type": "string"},
+						"title":     map[string]string{"type": "string"},
+						"sessionId": map[string]string{"type": "string", "description": "The chat whose tab group holds the tab; empty for the shared group."},
+						"yours":     map[string]string{"type": "boolean"},
+						"busy":      map[string]string{"type": "boolean"},
+					},
+				},
+			},
+		},
+		"required": []string{"id", "name", "actions", "tabs"},
+	}
+}
+
+// browserFileSchema is a file inside a browser call.
+func browserFileSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"name": map[string]string{"type": "string"},
+			"data": map[string]string{"type": "string", "format": "byte"},
+		},
+		"required": []string{"name"},
 	}
 }

@@ -766,6 +766,19 @@ logger:
 #         ca_file: "/etc/coddy/internal-ca.pem"
 
 # ----------------------------------------------------------------------------
+# browser - Coddy for Browser, the extension that lets chats work in your
+# browser (Chrome, Yandex Browser, Firefox) through the browser tool. It connects to the HTTP server and shows
+# the web UI in its side panel. Needs a binary built with -tags browser;
+# others refuse enable.
+# Guide: docs/features/browser.md
+# ----------------------------------------------------------------------------
+# browser:
+#   enable: false                    # off by default
+#   token: "${CODDY_BROWSER_KEY}"    # the key entered in the extension, 32+ characters
+#   serve_remote: false              # let a console, an editor or a swarm node use these browsers
+#   remotes: []                      # servers whose browsers this one's chats use
+
+# ----------------------------------------------------------------------------
 # metrics - the Prometheus exporter: GET /metrics on a port of its own, run by
 # coddy serve. Needs a binary built with -tags metrics; others refuse enable.
 # Full reference: docs/reference/config.md

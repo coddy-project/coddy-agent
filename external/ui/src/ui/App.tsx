@@ -1,3 +1,5 @@
+import { browserPanelLaunch } from "./browserPanel/launch";
+import { panelTabForTurn } from "./browserPanel/bridge";
 import {
   chatWorkspacePath,
   withWorkspaceQuery,
@@ -5742,7 +5744,7 @@ export function App() {
       // The web UI names itself, so the turn's system prompt says what it
       // draws: Mermaid and SVG fences as pictures, LaTeX as formulas
       // (external/httpserver/webui_prompt.go).
-      const meta: Record<string, string> = { surface: "webui" };
+      const meta: Record<string, unknown> = { surface: "webui" };
       // The turn's @coddy: mentions and the agent's documentation tools
       // follow the interface's language (webui_prompt.go, langFromHTTP).
       meta.lang = locale;
@@ -5755,6 +5757,14 @@ export function App() {
       const toolsetPick = pendingToolsetRef.current;
       if (toolsetPick.name && toolsetPick.sid === sid.trim()) {
         meta.toolset = toolsetPick.name;
+      }
+      // In the side panel of Coddy for Browser the turn names the tab it is
+      // written from; the panel has given that tab to this chat by then. A
+      // chat of another environment gets none: the tab is in the browser of
+      // the panel's own server.
+      if (browserPanelLaunch() && getEnv().mode === "local") {
+        const tab = await panelTabForTurn(sid.trim(), text);
+        if (tab) meta.browser = tab;
       }
       reqBody.metadata = meta;
       // A permission mode picked before the chat had a session goes first,

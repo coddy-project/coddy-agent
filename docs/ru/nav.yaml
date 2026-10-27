@@ -46,6 +46,12 @@ groups:
       title: "Contributing"
       summary: "How Coddy is built, tested, documented and released."
 pages:
+  features/browser.md:
+    title: "Coddy for Browser"
+    summary: "Ваш собственный браузер - Chrome, Яндекс Браузер или Firefox - как руки агента через расширение Coddy for Browser - инструмент browser, группы вкладок, одобрение сайтов, файлы, веб-интерфейс в боковой панели, чаты других процессов и роя."
+    en:
+      title: "Coddy for Browser"
+      summary: "Your own browser - Chrome, Yandex Browser or Firefox - as the agent's hands through the Coddy for Browser extension - the browser tool, tab groups, website approvals, files, the web UI in its side panel, chats of other processes and of the swarm."
   getting-started/quickstart.md:
     title: "Быстрый старт"
     summary: "От свежей установки до первого ответа за пять минут - в консоли, в браузере и из редактора."
@@ -376,6 +382,12 @@ pages:
     en:
       title: "ACP protocol"
       summary: "How coddy acp implements the Agent Client Protocol, methods, notifications, permission and question requests."
+  reference/browser-protocol.md:
+    title: "Протокол браузера"
+    summary: "Протокол JSON-RPC между coddy serve и расширением Coddy for Browser - рукопожатие, вкладки, команды, одобрение сайтов, передача файлов, боковая панель и API для других процессов Coddy."
+    en:
+      title: "Browser protocol"
+      summary: "The JSON-RPC wire between coddy serve and the Coddy for Browser extension - the handshake, the tabs, the commands, website approval, file transfers, the side panel and the API for other Coddy processes."
   tutorials/coddy-in-ci.md:
     title: "Coddy в CI"
     summary: "Файл workflow, который запускает coddy -p на каждом пул-реквесте, с ключом в секрете и ответом в логе задания."

@@ -626,6 +626,7 @@ export function CanvasBoard(props: CanvasBoardProps) {
     <div
       className="canvas-pane"
       data-testid="canvas-view"
+      data-board={board ? "read" : readError ? "error" : "reading"}
       aria-label={t("canvas.title")}
     >
       <div

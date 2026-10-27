@@ -26,7 +26,7 @@ CI publishes one archive per platform on each SemVer tag **`X.Y.Z`**, plus Linux
 
 The Linux, Android and macOS archives carry the man page and the bash and zsh completions beside the binary; the packages install the same files where the system expects them - see [Install](install.md#linux-packages-deb-rpm). Every release also publishes **`coddy.rb`**, the Homebrew cask for the two macOS archives of that tag, and commits the same file to the tap [coddy-project/homebrew-coddy-agent](https://github.com/coddy-project/homebrew-coddy-agent), which is where **`brew install coddy-project/coddy-agent/coddy`** and **`brew upgrade`** read it.
 
-Each binary is built with the whole tag set - **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, **`gateway`**, **`swarm`** and **`metrics`** - the same as **`make build TAGS="http ui scheduler memory cli gateway swarm metrics"`** and the default Docker image. See [Build from source](../contributing/build.md#release-binaries-ci) for the release pipeline.
+Each binary is built with the whole tag set - **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, **`gateway`**, **`swarm`**, **`metrics`** and **`browser`** - the same as **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"`** and the default Docker image. See [Build from source](../contributing/build.md#release-binaries-ci) for the release pipeline.
 
 ## Which file is replaced
 

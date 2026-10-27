@@ -267,6 +267,21 @@ export const messagesEn: Record<string, string> = {
   "settings.section.logger.label": "Logger",
   "settings.section.logger.desc": "Level, outputs, rotation",
   "settings.section.metrics.label": "Metrics",
+  "settings.section.browser.label": "Browser",
+  "settings.section.browser.desc": "Coddy for Browser, its key and who uses it",
+  "settings.schema.browser.enable.label": "Enabled",
+  "settings.schema.browser.enable.desc":
+    "Offer the browser tool to the chats, and accept the extension when a key is set.",
+  "settings.schema.browser.token.label": "Extension key",
+  "settings.schema.browser.token.desc":
+    "At least 32 characters, entered in the extension. Leave empty to keep the current key.",
+  "settings.schema.browser.serve_remote.label":
+    "Serve to other Coddy processes",
+  "settings.schema.browser.serve_remote.desc":
+    "Let a console or an editor on this machine and the nodes of the swarm drive the browsers connected here, through /coddy/browser/v1 with this server's API credential. The extension asks you before the first action of each such chat.",
+  "settings.schema.browser.remotes.label": "Browsers of other servers",
+  "settings.schema.browser.remotes.desc":
+    "Coddy servers whose browsers the chats of this one may use: a name of httpserver.remotes, or an address such as a node mount of a swarm relay. That server needs browser.serve_remote.",
   "settings.section.metrics.desc": "Prometheus exporter, own port",
   "settings.section.status.label": "System",
   "settings.section.status.desc": "Version, disk, activity",

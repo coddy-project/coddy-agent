@@ -8,6 +8,9 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/external/ui"
 )
 
+// UIAvailable reports whether this binary embeds the web UI.
+const UIAvailable = true
+
 func mountEmbeddedSPARoot(s *Server) {
 	spa := ui.Handler()
 	s.mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/EvilFreelancer/coddy-agent/external/browser"
 	"github.com/EvilFreelancer/coddy-agent/external/gateway"
 	"github.com/EvilFreelancer/coddy-agent/external/httpserver"
 	"github.com/EvilFreelancer/coddy-agent/external/scheduler"
@@ -517,7 +518,10 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 	metrics := deps.metrics.Subsystem()
 	var unbuilt []string
 	if !metrics.Available {
-		unbuilt = []string{"metrics"}
+		unbuilt = append(unbuilt, "metrics")
+	}
+	if !browser.Available {
+		unbuilt = append(unbuilt, "browser")
 	}
 	return []serve.Subsystem{
 		{
@@ -645,6 +649,39 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 				})
 			},
 		},
+		{
+			// Coddy for Browser rides the HTTP server: the extension's
+			// endpoint is mounted on its mux, so this subsystem runs nothing of
+			// its own. It is here so a binary without the tag refuses
+			// browser.enable by name, and so the banner and the status table
+			// name it; auxiliary, it never keeps the process up alone. It is
+			// on while the server accepts the extension (browser.enable with
+			// a key): a process that only uses the browsers of
+			// browser.remotes has no endpoint.
+			Kind:      serve.KindBrowser,
+			ConfigKey: "browser.enable",
+			BuildTag:  "browser",
+			Available: browser.Available,
+			Auxiliary: true,
+			// A binary without the module refuses browser.enable by name,
+			// remotes alone included.
+			Enabled: func(c *config.Config) bool {
+				if !browser.Available {
+					return c.Browser.Enable
+				}
+				return c.Browser.Serves()
+			},
+			Address: func(c *config.Config) string {
+				if deps.httpListenAddr == nil {
+					return ""
+				}
+				return deps.httpListenAddr(c)
+			},
+			Run: func(ctx context.Context, _ *config.Config) error {
+				<-ctx.Done()
+				return nil
+			},
+		},
 		metrics,
 	}
 }
@@ -748,6 +785,12 @@ func printServeBanner(w io.Writer, cfg *config.Config, enabled []serve.Subsystem
 			_, _ = fmt.Fprintf(w, "  gateway     pachca\n")
 		case serve.KindScheduler:
 			_, _ = fmt.Fprintf(w, "  scheduler   %s\n", cfg.SchedulerUserDir())
+		case serve.KindBrowser:
+			served := "extension key"
+			if cfg.Browser.ServeRemote {
+				served += "; served to other processes at /coddy/browser/v1"
+			}
+			_, _ = fmt.Fprintf(w, "  browser     ws://%s/browser/v1/connect  (%s)\n", httpAddr, served)
 		case serve.KindMetrics:
 			// Whether a scrape needs a credential, never the credential.
 			auth := "no token"
