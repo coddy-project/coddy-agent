@@ -116,8 +116,17 @@ When adding or changing behavior (including words like feature, add, implement, 
       several and at the top level of **`docs/assets/`** otherwise, with a one-line italic caption. A demo video goes to **`docs/assets/video/`** (H.264, 1280 px wide, no audio, under 4 MB)
       and is embedded on the page as a GitHub attachment URL on a line of its own (uploaded through a comment box
       and posted, see the Videos section of **`docs/contributing/documentation.md`**), with the repository copy linked under it.
+    - **Diagrams** - a page that describes a module whose work spans several parts (a pipeline of
+      steps, a lifecycle, an invariant such as the provider's prompt cache, data that crosses packages
+      or processes) shows it with a diagram next to the prose, in the style of the compaction chain:
+      numbered panels, real names, short notes that say why, English labels. The source is an HTML page
+      under **`docs/assets/diagrams/`** on the shared **`diagram.css`** and **`diagram.js`**; **`make diagrams`**
+      renders it into the PNG of the same name, which the page embeds, and both are committed. A change to
+      the behaviour a diagram shows edits its source and renders it again in the same pull request; no
+      Mermaid fences for documentation diagrams. See the Diagrams section of
+      **`docs/contributing/documentation.md`**.
     - **Assets** - every file under **`docs/assets/`** is referenced by a page, the README, **`DESIGN.md`**
-      or the **`Dockerfile`**; **`make docs-check`** fails on one that is not, so a screenshot leaves
+      or the **`Dockerfile`** (a diagram's HTML source counts through its PNG); **`make docs-check`** fails on one that is not, so a screenshot leaves
       together with the feature it showed. Screenshots that only prove a pull request go to the pull
       request (drag and drop, or the orphan **`screenshots`** branch), never under **`docs/assets/`**.
     - **Generated pages** - **`make docs`** regenerates **`docs/README.md`**,

@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Where hooks fire</title>
+    <link rel="stylesheet" href="diagram.css" />
+    <style>
+      .top {
+        grid-template-columns: 850px 1fr;
+        gap: 36px;
+      }
+      .bottom {
+        grid-template-columns: 940px 1fr;
+        gap: 36px;
+      }
+      .tl {
+        display: grid;
+        grid-template-columns: 82px 220px 196px 1fr;
+        column-gap: 12px;
+        row-gap: 9px;
+        align-items: center;
+      }
+      .tl .box {
+        padding: 6px 11px;
+      }
+      .tl .ev {
+        font-family: "Noto Sans Mono", "DejaVu Sans Mono", monospace;
+        font-size: 13.5px;
+        font-weight: 600;
+      }
+      .tl .ev small {
+        font-family: "Noto Sans", Arial, sans-serif;
+        font-weight: 400;
+      }
+      .tl .what {
+        font-size: 13px;
+        line-height: 1.3;
+        color: var(--ink-2);
+      }
+      .tl .what b.no {
+        color: var(--red-line);
+      }
+      .tl .what b.ok {
+        color: var(--green-line);
+      }
+      .tl .what b.ctx {
+        color: var(--blue-line);
+      }
+      .tl .none {
+        font-size: 13px;
+        color: var(--faint);
+        font-style: italic;
+        padding-left: 4px;
+      }
+      .files {
+        display: grid;
+        grid-template-columns: 1fr;
+        row-gap: 5px;
+      }
+      .files .box {
+        padding: 4px 11px;
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .scope {
+        font-size: 12px;
+        font-weight: 600;
+        opacity: 0.8;
+        white-space: nowrap;
+      }
+      .proc {
+        display: grid;
+        grid-template-columns: 256px 236px 1fr;
+        column-gap: 30px;
+        align-items: start;
+      }
+      .json {
+        font-family: "Noto Sans Mono", "DejaVu Sans Mono", monospace;
+        font-size: 12px;
+        line-height: 1.45;
+        white-space: pre;
+      }
+      .exits {
+        display: grid;
+        grid-template-columns: 84px 1fr;
+        column-gap: 8px;
+        row-gap: 6px;
+        align-items: center;
+      }
+      .exits .code {
+        font-family: "Noto Sans Mono", "DejaVu Sans Mono", monospace;
+        font-size: 13px;
+        font-weight: 700;
+        text-align: right;
+        color: var(--ink-2);
+      }
+      .exits .box {
+        padding: 5px 11px;
+        font-size: 13.5px;
+      }
+      .mini {
+        font-size: 13.5px;
+        margin: 0;
+        padding-left: 17px;
+      }
+      .mini li {
+        margin: 3px 0;
+      }
+    </style>
+  </head>
+  <body style="--width: 1400px">
+    <h1>Where hooks fire</h1>
+    <p class="lead">
+      A hook is a command of yours: it reads one JSON document on stdin and answers with an exit code and optional
+      JSON on stdout.
+    </p>
+
+    <div class="cols top">
+      <div>
+        <h2>1. Events on the timeline of one session and one turn</h2>
+        <div class="tl">
+          <div></div>
+          <div class="box core">session created, reopened or moved to a workspace</div>
+          <div class="box amber ev">SessionStart <small>startup, resume, workspace</small></div>
+          <div class="what">
+            <b class="ctx">context only</b>: stored as <code>hookContext</code> in <code>session.json</code>, shown in
+            every system prompt
+          </div>
+
+          <div></div>
+          <div class="box amber">the person sends a prompt <small>built-ins like /compact run first</small></div>
+          <div class="box amber ev">UserPromptSubmit</div>
+          <div class="what">
+            <b class="no">reject</b>: never saved, no model call; or <b class="ctx">context</b> for this turn's
+            <code>## Hook context</code> block
+          </div>
+
+          <div class="bracket left muted" style="grid-row: 3 / span 6; align-self: stretch">ReAct loop, every step</div>
+          <div class="box core" id="t-model">model call</div>
+          <div class="none">no event</div>
+          <div></div>
+
+          <div class="box blue">tool call passed the mode and subagent checks</div>
+          <div class="box amber ev" id="t-pre">PreToolUse <small>tool name</small></div>
+          <div class="what">
+            <b class="no">deny</b>: <code>blocked by hook: …</code> is the result; <b class="ok">allow</b>: no prompt;
+            <b>ask</b>: a prompt even in <code>bypass</code>; <code>updatedInput</code> rewrites the arguments
+          </div>
+
+          <div class="box blue">the permission prompt is about to go out</div>
+          <div class="box amber ev">Notification <small>permission_prompt</small></div>
+          <div class="what">observational: give it <code>async: true</code> so the prompt is not delayed</div>
+
+          <div class="box core" id="t-run">the tool runs</div>
+          <div class="box amber ev">PostToolUse <small>or PostToolUseFailure</small></div>
+          <div class="what">
+            <code>Hook feedback</code> and <code>Hook context</code> appended to the result; nothing is undone
+          </div>
+
+          <div class="box core">the tool is <code>spawn_agent</code></div>
+          <div class="box amber ev">SubagentStart <small>then SubagentStop</small></div>
+          <div class="what">
+            <b class="no">refuse</b> the spawn, or put <b class="ctx">context</b> in front of the child's task;
+            SubagentStop sees status and report
+          </div>
+
+          <div class="box blue"><code>/compact</code> or an automatic compaction</div>
+          <div class="box amber ev">PreCompact <small>then PostCompact</small></div>
+          <div class="what">
+            <b class="no">veto</b>: <code>/compact</code> fails, an automatic one is skipped; PostCompact gets the
+            summary
+          </div>
+
+          <div></div>
+          <div class="box green" id="t-end">the model ends the turn (<code>end_turn</code>)</div>
+          <div class="box amber ev">Stop</div>
+          <div class="what">
+            <b class="no">block</b>: the reason goes back as a <code>[Stop hook]</code> user message and the loop goes
+            on, at most <code>hooks.stop_loop_limit</code> (5) times
+          </div>
+        </div>
+        <p class="note muted" style="margin: 12px 0 0">
+          Inside a child session every event fires for the child's own turn, with a <code>subagent</code> block in the
+          payload; SubagentStart and SubagentStop fire in the parent. Stop does not fire on cancel, an error or the
+          turn cap.
+        </p>
+      </div>
+
+      <div>
+        <h2>2. Which hooks run</h2>
+        <p class="note muted" style="margin: -6px 0 8px">
+          <code>hooks.files</code>, lowest priority first, re-read every turn. Every matching hook of every file runs.
+        </p>
+        <div class="files">
+          <div class="box green"><code>${CODDY_HOME}/hooks.json</code> <span class="scope">user</span></div>
+          <div class="box amber">
+            <span><code>${CWD}/.claude/settings.json</code> <small>its hooks key only</small></span>
+            <span class="scope">project</span>
+          </div>
+          <div class="box amber">
+            <code>${CWD}/.claude/settings.local.json</code> <span class="scope">project</span>
+          </div>
+          <div class="box amber"><code>${CWD}/.coddy/hooks.json</code> <span class="scope">project</span></div>
+        </div>
+        <div class="panel" style="margin-top: 12px; padding: 11px 14px">
+          <div class="title" style="margin-bottom: 6px">Project files: <code>hooks.project_trust</code></div>
+          <div class="note">
+            <b>deny</b>: never read; <b>ask</b> (default): held until a receipt in
+            <code>&lt;home&gt;/hooks-trust.json</code> matches project, file and digest, with one notice row per
+            session; <b>allow</b>: they run like your own file. Approve with <code>coddy hooks trust &lt;file&gt;</code>.
+          </div>
+        </div>
+        <div class="box json" style="margin-top: 12px; padding: 8px 12px">{"hooks": {"PreToolUse": [{
+  "matcher": "Bash",
+  "hooks": [{"type": "command",
+    "command": ".coddy/hooks/guard.sh",
+    "timeout": 30, "failClosed": true}]
+}]}}</div>
+        <ul class="mini" style="margin-top: 8px">
+          <li>matcher: empty or <code>*</code> is every call, <code>edit|write</code> exact names, anything else a
+            regular expression;</li>
+          <li>Claude Code names are aliases: <code>Bash</code> is <code>run_command</code>, <code>Edit</code> and
+            <code>Write</code> also <code>apply_patch</code>, <code>Task</code> is <code>spawn_agent</code>, an MCP
+            tool also <code>mcp__server__tool</code>;</li>
+          <li>only <code>command</code> handlers run; <code>http</code>, <code>prompt</code>, <code>agent</code> are
+            skipped.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <div class="cols bottom">
+      <div>
+        <h2>3. One hook process</h2>
+        <div class="proc">
+          <div class="box core json" id="p-in">stdin: one JSON document
+{"session_id": "sess_5f1c…",
+ "hook_event_name": "PreToolUse",
+ "cwd": "/home/op/project",
+ "permission_mode": "ask",
+ "mode": "agent", "turn": 3,
+ "tool_name": "run_command",
+ "tool_input": {
+   "command": "rm -rf build"},
+ "tool_use_id": "call_01"}</div>
+          <div class="box amber" id="p-cmd">
+            <b>your command</b>
+            <small>through the shell, or exec form with <code>args</code>, in the session's cwd, with
+              <code>CODDY_SESSION_ID</code> and <code>CODDY_HOOK_EVENT</code></small>
+            <small style="margin-top: 6px">in a process group of its own: past <code>timeout</code> (default
+              <code>hooks.default_timeout_seconds</code>, 60) the whole group is stopped</small>
+          </div>
+          <div class="panel exits" id="p-out" style="padding: 10px 12px">
+            <div class="code">0, empty</div>
+            <div class="box gray" style="color: var(--ink-2)">no decision; silence approves nothing</div>
+            <div class="code">0, JSON</div>
+            <div class="box blue">
+              the fields apply
+              <small><code>permissionDecision</code>, <code>updatedInput</code>, <code>additionalContext</code>,
+                <code>decision</code>, <code>continue: false</code>, <code>systemMessage</code></small>
+            </div>
+            <div class="code">0, text</div>
+            <div class="box gray" style="color: var(--ink-2)">
+              context for SessionStart and UserPromptSubmit only
+            </div>
+            <div class="code">2</div>
+            <div class="box red">block: the JSON reason, else stderr</div>
+            <div class="code">other</div>
+            <div class="box">
+              non-blocking error and a notice row
+              <small>also a crash, a timeout, a cancelled turn or invalid JSON; with <code>failClosed</code> it
+                blocks</small>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h2>4. Several hooks on one event</h2>
+        <div class="box purple b">deny &gt; ask &gt; allow <small>the most restrictive decision wins</small></div>
+        <ul class="mini" style="margin-top: 10px">
+          <li>they run one after another in catalog order, your file first; each sees the input the previous one
+            rewrote;</li>
+          <li>all of them run even after a deny, so an audit hook sees every call;</li>
+          <li>every <code>additionalContext</code> is kept in order, each text capped at
+            <code>hooks.max_output_chars</code> (10,000);</li>
+          <li><code>async: true</code> is started and not awaited: it never decides, at most 8 run at once.</li>
+        </ul>
+      </div>
+    </div>
+
+    <script src="diagram.js"></script>
+    <script>
+      wires([
+        { from: "#p-in", to: "#p-cmd", color: "ink", fromShift: -0.38, toShift: -0.38, route: "straight" },
+        { from: "#p-cmd", to: "#p-out", color: "amber", fromShift: -0.38, toShift: -0.42, route: "straight" },
+      ]);
+    </script>
+  </body>
+</html>

@@ -1,7 +1,7 @@
 # Running Coddy as a daemon
 
 `coddy serve` runs every subsystem the configuration enables - the HTTP API and the
-embedded web UI, the messenger gateway, the swarm relay, the cron scheduler, the listener of
+embedded web UI, the messenger gateway, the swarm relay, the cron scheduler, the endpoint of
 the browser extension - in one process over one session manager. Which of them start is
 decided by `config.yaml`; see the [configuration reference](../reference/config.md) and the
 per-surface guides ([HTTP API](../reference/http-api.md), [gateway](../surfaces/gateway.md),
@@ -23,6 +23,9 @@ project's servers run once per workspace, shared with its git worktrees
 ([MCP](../features/mcp.md#shared-servers)).
 
 This page is about keeping that process running and keeping it current.
+
+![How coddy serve runs: the dispatcher, systemd or a terminal keeps one process up, its runtime and supervisor run every enabled subsystem, and a configuration change is applied in place or answered with a fresh process](../assets/diagrams/serve-runtime.png)
+*One process, one session manager, a goroutine per subsystem: a change the supervisor can apply in place is applied there, and a moved listen address ends the worker with status 75 so that a fresh process binds it.*
 
 ## In the foreground
 

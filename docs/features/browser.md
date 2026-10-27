@@ -15,12 +15,9 @@ to the browser, so a browser on a laptop behind NAT works the same as one on the
 process - a console or an editor on the same machine, a node of the swarm - reaches the browser through the home
 server's HTTP API. The wire is described in [Browser protocol](../reference/browser-protocol.md).
 
-```
- chat --> browser tool --> coddy serve, HTTP server  <== WebSocket, opened by the extension ==  Coddy for Browser
-                           /browser/v1/connect                                                         |
- a console, an editor,          ^                                                     tabs in the Coddy tab groups
- a node of the swarm  ---------/  /coddy/browser/v1
-```
+![Coddy for Browser: the extension's socket to its home server, the routes of that server, the chats of other processes, and the path of one action](../assets/diagrams/browser-flow.png)
+
+*How the browser, its home server and the chats of other processes connect, and what one action passes through.*
 
 Coddy reaches only the tabs in its tab groups of the browser:
 

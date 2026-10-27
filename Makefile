@@ -1,4 +1,4 @@
-.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version print-revision hooks deb rpm brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check models-catalog models-catalog-check docs docs-check docs-stamp docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
+.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version print-revision hooks deb rpm brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check models-catalog models-catalog-check docs docs-check diagrams docs-stamp docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -247,6 +247,15 @@ docs:
 docs-check:
 	$(MAKE) build TAGS="$(FULL_TAGS)"
 	go run ./cmd/docsgen -coddy $(BINARY) -tags "$(FULL_TAGS_CSV)"
+
+# diagrams renders every docs/assets/diagrams/<name>.html into the <name>.png
+# the pages embed, at twice the CSS size, with headless Chromium (CHROME=...
+# names the binary) and the Noto Sans font. NAMES="a b" renders only those.
+# docs-check fails on a picture without its source and a source without its
+# picture; it cannot tell a picture that is older than its source, so render
+# after every edit of a source.
+diagrams:
+	scripts/render-diagrams.sh $(NAMES)
 
 # docs-fast regenerates everything but the CLI reference, so a machine without
 # Node (the ui tag needs the SPA build) can still refresh the hub, the llms

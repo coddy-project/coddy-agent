@@ -16,12 +16,9 @@ Coddy отправляет каждое действие чата по этом�
 другого процесса Coddy, будь то консоль или редактор на той же машине или узел роя, добирается до браузера через HTTP
 API домашнего сервера. Протокол описан на странице [Протокол браузера](../reference/browser-protocol.md).
 
-```
- chat --> browser tool --> coddy serve, HTTP server  <== WebSocket, opened by the extension ==  Coddy for Browser
-                           /browser/v1/connect                                                         |
- a console, an editor,          ^                                                     tabs in the Coddy tab groups
- a node of the swarm  ---------/  /coddy/browser/v1
-```
+![Coddy for Browser - сокет расширения к домашнему серверу, маршруты этого сервера, чаты других процессов и путь одного действия](../../assets/diagrams/browser-flow.png)
+
+*Как связаны браузер, его домашний сервер и чаты других процессов и через что проходит одно действие.*
 
 Coddy дотягивается только до вкладок в своих группах вкладок браузера:
 
@@ -257,4 +254,4 @@ Chrome в Chromium, а пакет для Firefox в Firefox, в обоих сл�
 CODDY_FOR_BROWSER_DIR=../coddy-for-browser go test -tags=browser ./external/browser/... -run TestLiveExtension -v
 ```
 
-<!-- docsgen:source sha256=28a17d11fdfcc768 -->
+<!-- docsgen:source sha256=7ad30e2e49837e74 -->
