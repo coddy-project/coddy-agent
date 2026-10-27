@@ -186,6 +186,10 @@ A chat that carries `session.node` is asked about first, once: allow this chat, 
 `chat_prompt_timeout`). "Always allow" covers the chats of the home server only, so every new website asks again for
 a chat of another process, and Stop takes back what such chats were allowed.
 
+Local origins - `localhost` and `*.localhost`, `127.0.0.0/8`, `[::1]`, any port - count as allowed always for the
+chats of the home server unless the user turned that off. The home server's own port is left out under every local
+name, and a chat that carries `session.node` asks about local origins like any other.
+
 ## Files
 
 `upload_file` and `download_file` carry no file content on the socket. Coddy opens a one-time ticket for the length
@@ -240,9 +244,13 @@ the other's window at that origin.
 | `{source: "coddy-web-ui", type: "turn"}` | the web UI | `requestId`, `sessionId`, `title` | Before a turn is sent: which tab does the person write from? |
 | `{source: "coddy-for-browser", type: "turn"}` | the panel | `requestId`, `tab` (`browser_id`, `tab_id`, `url`, `title`) or `null`, `error` | The tab, already in the chat's tab group. The web UI sends it as `metadata.browser` of `POST /v1/responses`. |
 | `{source: "coddy-web-ui", type: "theme"}` | the web UI | `theme`: `scheme` and the colours `bg`, `surface`, `border`, `text`, `muted`, `accent` as computed colours, `rgb()` or `color(srgb ...)` | The panel's strip takes the web UI's theme; any other value is refused. |
+| `{source: "coddy-for-browser", type: "open"}` | the panel | `sessionId` | Show this chat of the server (`#/s/<sessionId>`). Only an id of the form `sess_...` is taken, and only while the web UI shows the panel's own server. |
 
 The web UI waits 3 s for the panel's answer and sends the turn without a tab when none comes. A chat of another
 environment of the web UI gets no tab.
+
+Opened on a tab that a chat of the home server holds, the panel loads the web UI on that chat:
+`<server>/?coddy_panel=...&coddy_panel_origin=...#/s/<session id>`.
 
 ## Other Coddy processes
 

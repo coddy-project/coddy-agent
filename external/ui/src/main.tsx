@@ -12,14 +12,17 @@ import { bootstrapUiThemeFromCookie } from "./ui/theme/uiTheme";
 import { bootstrapUiLocaleFromUrlOrCookie } from "./ui/i18n/uiLocale";
 import { initLocale } from "./ui/i18n/i18n";
 import { I18nProvider } from "./ui/i18n/I18nProvider";
-import { installRemoteFetchShim } from "./ui/env/remoteEnv";
+import { getEnv, installRemoteFetchShim } from "./ui/env/remoteEnv";
 import { AuthGate } from "./ui/auth/AuthGate";
 import { EnvScope } from "./ui/env/EnvScope";
 import { startActiveHealthMonitor } from "./ui/env/activeHealth";
 import { initTelegramMiniApp } from "./ui/telegram/miniApp";
 import { registerServiceWorker } from "./ui/pwa/serviceWorker";
 import { followThemeColor } from "./ui/pwa/themeColor";
-import { startPanelTheme } from "./ui/browserPanel/bridge";
+import {
+  startPanelNavigation,
+  startPanelTheme,
+} from "./ui/browserPanel/bridge";
 
 // Route API calls to the selected remote environment (no-op in local mode). Must run before the
 // app issues any fetch so remote sessions/config/streaming all target the chosen backend.
@@ -34,8 +37,10 @@ initLocale(bootstrapUiLocaleFromUrlOrCookie());
 // The installed app's title bar takes the theme's colour (ui/pwa/themeColor.ts).
 followThemeColor();
 // In the side panel of Coddy for Browser the panel's strip takes the theme's
-// colours too (ui/browserPanel/bridge.ts). Outside the panel this does nothing.
+// colours too (ui/browserPanel/bridge.ts), and the panel may open the chat that
+// holds the person's tab. Outside the panel this does nothing.
 startPanelTheme();
+startPanelNavigation(() => getEnv().mode === "local");
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

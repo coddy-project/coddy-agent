@@ -109,9 +109,17 @@ that names no tab acts on it.
 
 The strip over the web UI is the extension's own. It names the current tab and whose it is, with **Share** and
 **Take back** and a button that opens the extension's settings, and it takes the theme of the web UI. The connection
-is shown on the settings page; while there is none, the panel shows a card that leads there instead of the web UI. A chat of the panel is an
-ordinary Coddy session, listed in the web UI everywhere. A chat of another environment the web UI switches to gets no
-tab: the tab is in the browser of the panel's own server.
+is shown on the settings page; while there is none, the panel shows a card that leads there instead of the web UI. A
+chat of the panel is an ordinary Coddy session, listed in the web UI everywhere. A chat of another environment the web
+UI switches to gets no tab: the tab is in the browser of the panel's own server.
+
+Opened on a tab that a chat of the home server holds, the panel shows that chat. A turn that a console, an editor, a
+scheduled job or the API started there streams in the panel as in any chat, and the chat's name in the strip shows it
+again after you went elsewhere in the web UI. A chat of another Coddy process lives on its own server, so the panel
+names it and cannot show it.
+
+A question of the extension - a website, a chat of another machine - comes up at the top of the panel, over the web
+UI, and the chat stays in view around it.
 
 ## Share a tab
 
@@ -144,6 +152,12 @@ runs in the `bypass` permission mode.
 Before the first action on a website, the extension asks you in a window of its own, or in the side panel when it is
 open, whether to allow it for this chat, allow it always, or decline. The answer stays in the browser; a page cannot
 answer it, and neither can Coddy. The settings page lists the sites allowed always and revokes them.
+
+Pages on this machine - `localhost` and its subdomains, `127.0.0.1` and the rest of `127.0.0.0/8`, `[::1]`, on any
+port - count as allowed always, so a chat works with a local dev server without a question; the settings page turns
+that off. The Coddy server itself is left out under every local name of its port: its web UI is where a chat's own
+requests are approved, so a chat acts there only after you allow it. A chat of another machine asks about local
+pages like any other site.
 
 ![The extension asks whether Coddy may act on a website](../assets/browser/browser-approval-dark-420.png)
 

@@ -4,7 +4,8 @@
  * writes from; the panel gives that tab to the turn's chat (its tab group) and
  * answers with it, and the turn carries it as metadata.browser. Messages go to
  * the panel's origin only and are taken only from the parent window at that
- * origin.
+ * origin. The panel can also ask the frame to show a chat of this server: the
+ * one that holds the tab the person looks at (startPanelNavigation).
  */
 import { browserPanelLaunch } from "./launch";
 
@@ -187,4 +188,34 @@ export function startPanelTheme(win: Window = window): () => void {
     attributeFilter: ["data-theme"],
   });
   return () => observer.disconnect();
+}
+
+/** A chat of this server, as the panel names one: a chat of another Coddy
+ * process (`<node>/<session id>`) is not one this web UI can open. */
+const SESSION_ID = /^sess_[A-Za-z0-9_-]{1,128}$/;
+
+/**
+ * startPanelNavigation lets the panel open a chat of this server in the frame:
+ * on `{type: "open", sessionId}` the address becomes `#/s/<sessionId>`, so a
+ * chat that works in the person's tab shows its turn live. Only the parent
+ * window at the panel's origin is heard, only a session id is taken, and only
+ * while local() says the web UI shows the panel's own server.
+ */
+export function startPanelNavigation(
+  local: () => boolean,
+  win: Window = window,
+): () => void {
+  const launch = browserPanelLaunch();
+  if (!launch || win.parent === win) return () => {};
+  const onMessage = (ev: MessageEvent) => {
+    if (ev.source !== win.parent || ev.origin !== launch.origin) return;
+    const msg = ev.data as Record<string, unknown> | null;
+    if (!msg || msg.source !== PANEL_SOURCE || msg.type !== "open") return;
+    if (typeof msg.sessionId !== "string" || !SESSION_ID.test(msg.sessionId))
+      return;
+    if (!local()) return;
+    win.location.hash = `#/s/${msg.sessionId}`;
+  };
+  win.addEventListener("message", onMessage);
+  return () => win.removeEventListener("message", onMessage);
 }

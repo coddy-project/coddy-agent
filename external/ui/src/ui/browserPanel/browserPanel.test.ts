@@ -4,6 +4,7 @@ import {
   PANEL_SOURCE,
   panelTabForTurn,
   schemeOf,
+  startPanelNavigation,
   startPanelTheme,
   WEBUI_SOURCE,
 } from "./bridge";
@@ -231,5 +232,63 @@ describe("the panel's theme", () => {
     const f = fakeFrame("");
     startPanelTheme(f.win)();
     expect(f.posted).toHaveLength(0);
+  });
+});
+
+describe("a chat the panel opens", () => {
+  function inPanel() {
+    const f = fakeFrame(
+      `?coddy_panel=${TICKET}&coddy_panel_origin=${encodeURIComponent(ORIGIN)}`,
+    );
+    captureBrowserPanelLaunch(f.win);
+    return f;
+  }
+
+  it("shows the chat of this server the panel names", () => {
+    const f = inPanel();
+    const stop = startPanelNavigation(() => true, f.win);
+    f.answer({ source: PANEL_SOURCE, type: "open", sessionId: "sess_ab12" });
+    expect(f.location.hash).toBe("#/s/sess_ab12");
+    stop();
+    f.answer({ source: PANEL_SOURCE, type: "open", sessionId: "sess_cd34" });
+    expect(f.location.hash).toBe("#/s/sess_ab12");
+  });
+
+  it("takes only a session id of this server, from the panel, in the panel's environment", () => {
+    const f = inPanel();
+    let local = true;
+    startPanelNavigation(() => local, f.win);
+    const before = f.location.hash;
+    // A chat of another Coddy process, an id that is not one, another source.
+    f.answer({
+      source: PANEL_SOURCE,
+      type: "open",
+      sessionId: "laptop/sess_1",
+    });
+    f.answer({ source: PANEL_SOURCE, type: "open", sessionId: "../settings" });
+    f.answer({ source: WEBUI_SOURCE, type: "open", sessionId: "sess_ab12" });
+    // Another origin, another window.
+    f.answer(
+      { source: PANEL_SOURCE, type: "open", sessionId: "sess_ab12" },
+      "https://evil.example",
+    );
+    f.answer(
+      { source: PANEL_SOURCE, type: "open", sessionId: "sess_ab12" },
+      ORIGIN,
+      {},
+    );
+    expect(f.location.hash).toBe(before);
+    // The web UI switched to another environment: its chats are not the panel's.
+    local = false;
+    f.answer({ source: PANEL_SOURCE, type: "open", sessionId: "sess_ab12" });
+    expect(f.location.hash).toBe(before);
+  });
+
+  it("listens to nothing outside the panel", () => {
+    const f = fakeFrame("", false);
+    captureBrowserPanelLaunch(f.win);
+    startPanelNavigation(() => true, f.win);
+    f.answer({ source: PANEL_SOURCE, type: "open", sessionId: "sess_ab12" });
+    expect(f.location.hash).toBe("#/s/sess_1");
   });
 });
