@@ -105,3 +105,29 @@ func TestChangedBytesNeedApproval(t *testing.T) {
 		t.Fatal("changed package served")
 	}
 }
+
+func TestListSkipsUnreadableRecords(t *testing.T) {
+	home := t.TempDir()
+	s := NewStore(home)
+	row, err := s.Install(fixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, "extensions")
+	for name, body := range map[string]string{
+		"notes.json":    "not a record",
+		"half.json":     "{",
+		"mismatch.json": `{"archive":null,"sha256":"x","enabled":false}`,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, err := s.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ID != row.ID {
+		t.Fatalf("list: %v", rows)
+	}
+}
