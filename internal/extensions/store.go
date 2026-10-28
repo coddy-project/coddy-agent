@@ -238,13 +238,17 @@ func (s *Store) List() ([]Entry, error) {
 		}
 		sort.Strings(names)
 		for _, name := range names {
-			if strings.HasSuffix(name, ".json") {
-				b, err := read(root, strings.TrimSuffix(name, ".json"))
-				if err != nil {
-					return fmt.Errorf("read %s: %w", name, err)
-				}
-				out = append(out, b.entry)
+			if !strings.HasSuffix(name, ".json") {
+				continue
 			}
+			// One unreadable record - a stray or hand-edited file in the operator's
+			// extension folder - must not take the whole catalog down: the bundles
+			// that still read stay listed, and Remove still reaches the bad file by id.
+			b, err := read(root, strings.TrimSuffix(name, ".json"))
+			if err != nil {
+				continue
+			}
+			out = append(out, b.entry)
 		}
 		return nil
 	})
