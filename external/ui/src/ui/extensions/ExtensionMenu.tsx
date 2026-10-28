@@ -23,27 +23,37 @@ export function ExtensionIcon({ className }: { className?: string }) {
 }
 
 /** The rail entry remains useful before an extension is installed: it opens
- * the dedicated settings tab. Installed pages and dynamic commands join it. */
+ * the dedicated settings tab. Installed pages and dynamic commands join it.
+ * onUse runs after a pick, so a host menu (the rail's More list) can close. */
 export function ExtensionMenu({
   className,
   wide,
+  onUse,
 }: {
   className: string;
   wide?: boolean | undefined;
+  onUse?: (() => void) | undefined;
 }) {
   const context = useExtensions();
   return context ? (
-    <LiveMenu context={context} className={className} wide={wide} />
+    <LiveMenu
+      context={context}
+      className={className}
+      wide={wide}
+      onUse={onUse}
+    />
   ) : null;
 }
 function LiveMenu({
   context,
   className,
   wide,
+  onUse,
 }: {
   context: NonNullable<ReturnType<typeof useExtensions>>;
   className: string;
   wide: boolean | undefined;
+  onUse: (() => void) | undefined;
 }) {
   const { t } = useT();
   const [error, setError] = useState("");
@@ -94,14 +104,20 @@ function LiveMenu({
         value=""
         onChange={(e) => {
           const key = e.target.value;
+          onUse?.();
           if (key === "settings") {
             window.location.hash = appNavHrefSettingsSection("extensions");
             return;
           }
+          const picked = items.find((item) => item.key === key);
+          if (!picked) return;
           try {
-            items.find((item) => item.key === key)?.run();
-          } catch (e) {
-            setError(String(e));
+            // An async onSelect rejects here, not as an unhandled rejection.
+            void Promise.resolve(picked.run()).catch((err) =>
+              setError(String(err)),
+            );
+          } catch (err) {
+            setError(String(err));
           }
         }}
       >

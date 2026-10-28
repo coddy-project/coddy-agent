@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -56,6 +57,10 @@ export function ExtensionsProvider({ children }: { children: ReactNode }) {
     return { ready, resolve, activation: null as Promise<void> | null };
   });
   const generation = useRef(0);
+  // The list is polled every 15 s and on every focus. A poll that finds the
+  // same packages keeps the array it has: a new one would re-render every
+  // consumer of the context, the whole App among them.
+  const listed = useRef("");
   useEffect(() => {
     let previous = window.location.hash;
     const changed = () => {
@@ -79,7 +84,11 @@ export function ExtensionsProvider({ children }: { children: ReactNode }) {
       const response = await extensionRequest();
       const body = (await response.json()) as { items: ExtensionEntry[] };
       if (current !== generation.current) return;
-      setEntries(body.items);
+      const text = JSON.stringify(body.items);
+      if (text !== listed.current) {
+        listed.current = text;
+        setEntries(body.items);
+      }
       setError("");
       const activation = runtime.reconcile(body.items);
       if (!startup.activation) {
@@ -108,10 +117,12 @@ export function ExtensionsProvider({ children }: { children: ReactNode }) {
   }, [refresh, runtime]);
   const snapshot = useSyncExternalStore(runtime.subscribe, runtime.snapshot);
   const livePage = page && snapshot.pages.find((p) => p.key === page.key);
+  const value = useMemo(
+    () => ({ entries, error, refresh, runtime, ready: startup.ready }),
+    [entries, error, refresh, runtime, startup.ready],
+  );
   return (
-    <Context.Provider
-      value={{ entries, error, refresh, runtime, ready: startup.ready }}
-    >
+    <Context.Provider value={value}>
       {children}
       {livePage ? (
         <ExtensionWindow page={livePage} onClose={() => setPage(null)} />

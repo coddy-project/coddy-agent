@@ -86,7 +86,7 @@ export function activate(coddy) {
 | `coddy.settings.get(id)`, `coddy.settings.set(id, value)` | Read or save an extension-owned configuration value. Both are asynchronous; `set(id, null)` removes the stored value. |
 | `coddy.ui.registerPage({id, title, mount})` | Add a page to the Extensions menu. `mount(element, api)` may return a cleanup function. |
 | `coddy.ui.registerMenuItem({id, title, onSelect})` | Add a menu action. |
-| `handle.update(patch)`, `handle.remove()` | Update a registered page or action, or remove it. Ids stay fixed and are namespaced by extension. |
+| `handle.update(patch)`, `handle.remove()` | Update a registered page or action, or remove it. Ids stay fixed and are namespaced by extension. A patch is validated like the registration and throws on a blank title or a missing callback. |
 | `coddy.ui.openPage(id)` | Open a page owned by this extension in a dialog. |
 | `coddy.stream.registerIncoming({id, transform})` | Process incoming turn payloads before the browser applies them. Returns a `remove()` handle. |
 | `coddy.React` | The host's React instance for authors who need it. The page mount contract also works with plain DOM code. |

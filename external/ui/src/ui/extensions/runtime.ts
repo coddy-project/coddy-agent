@@ -196,6 +196,17 @@ export class ExtensionRuntime {
     this.lifetimes.set(entry.id, life);
     const active = () =>
       !controller.signal.aborted && this.lifetimes.get(entry.id) === life;
+    // A module import or activate call that never settles must not hold
+    // reconcile's Promise.all - and the stream-readiness gate behind it - open
+    // forever: the activation timeout aborts the lifetime, so these awaits
+    // follow it instead of the misbehaving module.
+    const aborting = () =>
+      new Promise<never>((_, reject) => {
+        const fail = () =>
+          reject(new DOMException("Extension disposed", "AbortError"));
+        if (controller.signal.aborted) fail();
+        else controller.signal.addEventListener("abort", fail, { once: true });
+      });
     const assetBytes = async (path: string) => {
       if (!active()) throw new DOMException("Extension disposed", "AbortError");
       const encoded = path.split("/").map(encodeURIComponent).join("/");
@@ -215,9 +226,19 @@ export class ExtensionRuntime {
       kind: "pages" | "menu",
       value: T,
     ): Handle<T> => {
+      const valid = (row: Partial<ExtensionPage & MenuItem>) => {
+        if (!/^[a-z][a-z0-9-]{0,63}$/.test(row.id ?? "") || !row.title?.trim())
+          throw new Error("A control needs an id and title");
+        if (
+          kind === "pages" &&
+          typeof (row as ExtensionPage).mount !== "function"
+        )
+          throw new Error("A page needs a mount function");
+        if (kind === "menu" && typeof (row as MenuItem).onSelect !== "function")
+          throw new Error("A menu item needs an onSelect function");
+      };
       if (!active()) throw new Error("Extension disposed");
-      if (!/^[a-z][a-z0-9-]{0,63}$/.test(value.id) || !value.title?.trim())
-        throw new Error("A control needs an id and title");
+      valid(value);
       const key = `${entry.id}/${value.id}`;
       if (this.state[kind].some((row) => row.key === key))
         throw new Error(`Duplicate control: ${key}`);
@@ -229,33 +250,30 @@ export class ExtensionRuntime {
       return {
         update: (patch) => {
           if (!active() || removed) return;
+          const current =
+            kind === "pages"
+              ? this.state.pages.find((p) => p.key === key)
+              : this.state.menu.find((p) => p.key === key);
+          if (!current) return;
+          const next = {
+            ...current,
+            ...patch,
+            id: value.id,
+            key,
+            owner: entry.id,
+            api,
+          };
+          valid(next as unknown as T);
           if (kind === "pages")
             this.publish({
               pages: this.state.pages.map((p) =>
-                p.key === key
-                  ? ({
-                      ...p,
-                      ...patch,
-                      id: value.id,
-                      key,
-                      owner: entry.id,
-                      api,
-                    } as RuntimePage)
-                  : p,
+                p.key === key ? (next as RuntimePage) : p,
               ),
             });
           else
             this.publish({
               menu: this.state.menu.map((p) =>
-                p.key === key
-                  ? ({
-                      ...p,
-                      ...patch,
-                      id: value.id,
-                      key,
-                      owner: entry.id,
-                    } as RuntimeMenu)
-                  : p,
+                p.key === key ? (next as RuntimeMenu) : p,
               ),
             });
         },
@@ -363,11 +381,14 @@ export class ExtensionRuntime {
       this.evaluated = true;
       requireEnvironmentReload();
       this.evaluatedDigests.set(entry.id, entry.sha256);
-      const mod = await this.loadModule(url);
+      const mod = await Promise.race([this.loadModule(url), aborting()]);
       if (!active()) return;
       if (typeof mod.activate !== "function")
         throw new Error("Module must export activate(coddy)");
-      const cleanup = await mod.activate(api);
+      const cleanup = await Promise.race([
+        Promise.resolve(mod.activate(api)),
+        aborting(),
+      ]);
       if (!active()) {
         if (typeof cleanup === "function") cleanup();
         return;
