@@ -164,6 +164,45 @@ describe("extension lifetime", () => {
     expect(load).toHaveBeenCalledOnce();
     vi.useRealTimers();
   });
+  test("an explicit refresh retries a failure that never ran code", async () => {
+    setup();
+    let attempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        attempts += 1;
+        if (attempts === 1) return new Response("", { status: 500 });
+        return new Response(url.includes("main.css") ? ".demo {}" : source);
+      }),
+    );
+    const load = vi.fn(async () => ({ activate() {} }));
+    const runtime = new ExtensionRuntime(vi.fn(), load);
+    await runtime.reconcile([entry]);
+    expect(load).not.toHaveBeenCalled();
+    expect(runtime.snapshot().errors.demo).toContain("HTTP 500");
+    // The list poll keeps leaving the failed digest alone.
+    await runtime.reconcile([entry]);
+    expect(load).not.toHaveBeenCalled();
+    await runtime.reconcile([entry], true);
+    expect(load).toHaveBeenCalledOnce();
+    expect(runtime.snapshot().errors.demo).toBeUndefined();
+    runtime.stop();
+  });
+  test("an explicit refresh never re-evaluates a module that already ran", async () => {
+    setup();
+    const load = vi.fn(async () => ({
+      activate() {
+        throw new Error("broken");
+      },
+    }));
+    const runtime = new ExtensionRuntime(vi.fn(), load);
+    await runtime.reconcile([entry]);
+    expect(runtime.snapshot().errors.demo).toContain("broken");
+    await runtime.reconcile([entry], true);
+    expect(load).toHaveBeenCalledOnce();
+    expect(runtime.snapshot().errors.demo).toContain("broken");
+    runtime.stop();
+  });
   test("control updates are validated like registrations", async () => {
     setup();
     let api!: ExtensionAPI;

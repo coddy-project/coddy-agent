@@ -37,7 +37,7 @@ export async function extensionRequest(path = "", init?: RequestInit) {
 type ExtensionsContext = {
   entries: ExtensionEntry[];
   error: string;
-  refresh: () => Promise<void>;
+  refresh: (retryFailed?: boolean) => Promise<void>;
   runtime: ExtensionRuntime;
   ready: Promise<void>;
 };
@@ -78,7 +78,7 @@ export function ExtensionsProvider({ children }: { children: ReactNode }) {
     window.addEventListener("hashchange", changed);
     return () => window.removeEventListener("hashchange", changed);
   }, [runtime]);
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (retryFailed = false) => {
     const current = ++generation.current;
     try {
       const response = await extensionRequest();
@@ -90,7 +90,7 @@ export function ExtensionsProvider({ children }: { children: ReactNode }) {
         setEntries(body.items);
       }
       setError("");
-      const activation = runtime.reconcile(body.items);
+      const activation = runtime.reconcile(body.items, retryFailed);
       if (!startup.activation) {
         startup.activation = activation;
         void activation.then(startup.resolve, startup.resolve);
