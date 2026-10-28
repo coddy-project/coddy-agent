@@ -12,6 +12,10 @@ Start with [Your first JavaScript extension](../tutorials/first-extension.md) fo
 
 *Extensions settings with the Hello package enabled.*
 
+![Extensions settings on the light theme](../assets/extensions/extensions-settings-light-1280.png)
+
+*The same settings on the light theme.*
+
 1. Choose **Install ZIP** in **Settings → Extensions**. Installation checks the archive and stores it under `<home>/extensions/`. It leaves the extension disabled and executes no code.
 2. Check the name, version and SHA-256. Read the source before enabling a package from someone else.
 3. Choose **Enable**, then **Accept risk and enable**. The approval names the exact installed package digest. The page reloads and loads the extension.
