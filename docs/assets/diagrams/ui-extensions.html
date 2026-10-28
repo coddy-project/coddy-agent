@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>JavaScript extensions and incoming turn data</title>
+    <link rel="stylesheet" href="diagram.css" />
+    <style>
+      .flow { grid-template-columns: 340px 400px 340px; gap: 56px; }
+      .stack { display: grid; gap: 28px; }
+      .stack .box { min-height: 76px; }
+    </style>
+  </head>
+  <body style="--width: 1280px">
+    <h1>JavaScript extensions and incoming turn data</h1>
+    <p class="lead">The server stores the package and its approval. The browser runs the code and processes live payloads.</p>
+    <div class="cols flow">
+      <section>
+        <h2>1. Load an approved package</h2>
+        <div class="stack">
+          <div class="box amber" id="zip">Install one ZIP<br /><code>manifest.json</code> + JS / CSS / HTML</div>
+          <div class="box blue" id="stored">Store disabled<br /><code>&lt;home&gt;/extensions/&lt;id&gt;.json</code></div>
+          <div class="box green" id="approved">Accept risk and enable<br />Approval names the exact SHA-256</div>
+          <div class="box core" id="activate">Verify entry digest, then import<br /><code>activate(coddy)</code> in the app origin</div>
+        </div>
+        <p class="note">Code has the origin's authority. The SDK is not a sandbox.</p>
+      </section>
+      <section>
+        <h2>2. Process incoming turn payloads</h2>
+        <div class="stack">
+          <div class="box core" id="stream">POST response or composer relay<br />Wait up to 11 s for initial loading</div>
+          <div class="box blue" id="chain"><code>stream.registerIncoming</code><br />Extension id order, then registration order</div>
+          <div class="box blue" id="transform">Synchronous <code>transform(data, context)</code><br />Return a string, or observe with <code>undefined</code></div>
+          <div class="box green" id="consume">Apply the last valid payload<br />Assistant text, tools and other turn events</div>
+        </div>
+        <p class="note">The context is frozen. Empty keepalives, <code>[DONE]</code> and <code>desync</code> bypass the chain.</p>
+      </section>
+      <section>
+        <h2>3. Remove or revoke</h2>
+        <div class="stack">
+          <div class="box red" id="failure">Throw, promise or invalid result<br />Remove that processor; report in Settings</div>
+          <div class="box core">Keep the previous valid payload<br />Continue with the next processor</div>
+          <div class="box amber">Handle <code>remove()</code> or lifetime abort<br />Stop the owned registration</div>
+          <div class="box core">Disable, remove or switch environment<br />Reload evaluated extension code</div>
+        </div>
+        <p class="note">The server keeps the original history. A REST refresh can replace the transformed display.</p>
+      </section>
+    </div>
+    <script src="diagram.js"></script>
+    <script>
+      wires([
+        { from: "#zip", to: "#stored", fromSide: "bottom", toSide: "top" },
+        { from: "#stored", to: "#approved", fromSide: "bottom", toSide: "top" },
+        { from: "#approved", to: "#activate", fromSide: "bottom", toSide: "top" },
+        { from: "#activate", to: "#chain", color: "blue" },
+        { from: "#stream", to: "#chain", fromSide: "bottom", toSide: "top" },
+        { from: "#chain", to: "#transform", fromSide: "bottom", toSide: "top", color: "blue" },
+        { from: "#transform", to: "#consume", fromSide: "bottom", toSide: "top", color: "green" },
+        { from: "#transform", to: "#failure", color: "red", dash: true },
+      ]);
+    </script>
+  </body>
+</html>

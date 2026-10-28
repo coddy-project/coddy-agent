@@ -57,6 +57,7 @@ import {
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import { isNoLiveTurnRelayError } from "./chat/composerStreamError";
 import { subscribeSharedServerEvents } from "./chat/sharedServerEvents";
+import { useExtensions } from "./extensions/ExtensionsProvider";
 import { readOpening, type OpeningRead } from "./chat/openingRead";
 import {
   isNewerSettings,
@@ -471,6 +472,7 @@ function isStackedShell(): boolean {
 }
 
 export function App() {
+  const extensions = useExtensions();
   const { t, locale } = useT();
   const confirm = useConfirm();
   const [knownSkillNames, setKnownSkillNames] = useState<Set<string>>(
@@ -5148,6 +5150,14 @@ export function App() {
         lastAssistantId,
         assistantIds,
       } = await consumeComposerSseReader({
+        incoming:
+          (extensions && {
+            sessionId: key,
+            transport: "relay",
+            process: extensions.runtime.incoming.process,
+            ready: extensions.ready,
+          }) ||
+          undefined,
         reader,
         dec,
         carry,
@@ -5928,6 +5938,14 @@ export function App() {
         lastAssistantId,
         assistantIds,
       } = await consumeComposerSseReader({
+        incoming:
+          (extensions && {
+            sessionId: streamKey,
+            transport: "post",
+            process: extensions.runtime.incoming.process,
+            ready: extensions.ready,
+          }) ||
+          undefined,
         reader,
         dec,
         carry,

@@ -303,7 +303,7 @@ func (f *openAIStreamFilter) emitChunk(delta map[string]any, finish any) error {
 }
 
 func (f *openAIStreamFilter) emit(frame string) error {
-	_, err := f.ResponseWriter.Write([]byte(frame + "\n\n"))
+	_, err := f.ResponseWriter.Write([]byte(frame + "\n\n")) //nolint:gosec // G705: this writer emits text/event-stream frames, never an HTML document.
 	return err
 }
 

@@ -220,6 +220,12 @@ pages:
     en:
       title: "Subagents"
       summary: "spawn_agent, definition files, the built-ins, project trust receipts, capability narrowing, child sessions."
+  features/extensions.md:
+    title: "Расширения на JavaScript"
+    summary: "ZIP-пакеты, страницы и действия меню, включение с подтверждением, хеши пакетов и перезагрузка браузера."
+    en:
+      title: "JavaScript extensions"
+      summary: "Operator-installed ZIP bundles, pages and menu actions, explicit enabling, package digests and browser reloads."
   features/hooks.md:
     title: "Хуки"
     summary: "Хуки жизненного цикла в формате hooks.json из Claude Code, события, матчеры, данные на stdin, коды выхода и JSON-ответы, доверие к проекту."

@@ -112,6 +112,9 @@ groups:
       - path: features/hooks.md
         title: Hooks
         summary: Lifecycle hooks in Claude Code's hooks.json shape, events, matchers, the stdin payload, exit codes and JSON answers, project trust.
+      - path: features/extensions.md
+        title: JavaScript extensions
+        summary: Operator-installed ZIP bundles, pages and menu actions, explicit enabling, package digests and browser reloads.
       - path: features/mcp.md
         title: MCP servers
         summary: Connecting MCP servers over stdio, streamable HTTP and SSE, mcp.json files, workspace trust, enable switches, the management API.

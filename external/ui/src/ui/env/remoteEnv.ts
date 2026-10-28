@@ -47,6 +47,12 @@ export function localFetch(
 
 let cached: CoddyEnv | null = null;
 const listeners = new Set<() => void>();
+let environmentReloadRequired = false;
+
+/** Evaluated extension JavaScript cannot be revoked by unmounting React. */
+export function requireEnvironmentReload(): void {
+  environmentReloadRequired = true;
+}
 
 function normalizeBase(url: string): string {
   return url.trim().replace(/\/+$/, "");
@@ -122,7 +128,18 @@ function storeEnv(env: CoddyEnv): void {
 }
 
 export function setEnv(env: CoddyEnv): void {
+  const before = getEnv();
   storeEnv(env);
+  if (
+    environmentReloadRequired &&
+    (environmentKey(before) !== environmentKey(env) ||
+      (before.mode === "remote" &&
+        env.mode === "remote" &&
+        before.token !== env.token))
+  ) {
+    window.location.reload();
+    return;
+  }
   listeners.forEach((cb) => cb());
 }
 
@@ -272,7 +289,11 @@ function switchTo(next: CoddyEnv, hash?: string): void {
   // address cancels the reload.
   storeEnv(next);
   window.location.hash = hash || routeFor(getEnv());
-  if (before.mode === "remote" && next.mode === "remote") {
+  if (
+    before.mode === "remote" &&
+    next.mode === "remote" &&
+    !environmentReloadRequired
+  ) {
     // What held the old one forgets it first, so the app started over reads
     // the new one from the start.
     generation += 1;

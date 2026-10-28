@@ -1,5 +1,30 @@
 /** Russian UI strings for the Coddy SPA. Key set mirrors messages/en.ts. */
 export const messagesRu: Record<string, string> = {
+  "extensions.title": "Расширения",
+  "extensions.close": "Закрыть",
+  "extensions.description": "Страницы и действия на JavaScript",
+  "extensions.lead":
+    "Установите ZIP с одним JavaScript-модулем и, при необходимости, CSS и HTML. Пакеты хранятся на этом сервере. После установки расширение выключено.",
+  "extensions.risk":
+    "Вы включаете расширения на свой страх и риск. Их JavaScript получает доступ веб-приложения к чатам, учётным данным и API сервера. Включайте только код, которому доверяете. Расширения работают без изоляции.",
+  "extensions.install": "Установить ZIP",
+  "extensions.refresh": "Обновить список",
+  "extensions.tooLarge": "Размер ZIP не должен превышать 8 МиБ.",
+  "extensions.empty": "Расширения пока не установлены.",
+  "extensions.enable": "Включить",
+  "extensions.disable": "Выключить и перезагрузить",
+  "extensions.enabled": "Включено",
+  "extensions.disabled": "Выключено",
+  "extensions.enableTitle": "Включить {name}?",
+  "extensions.disableTitle": "Выключить {name}?",
+  "extensions.accept": "Принять риск и включить",
+  "extensions.reloadHint":
+    "Страница перезагрузится, чтобы выгрузить код расширений. Другие открытые браузеры перезагрузятся при следующей проверке списка расширений. Для немедленного отзыва доступа перезагрузите их сами.",
+  "extensions.remove": "Удалить",
+  "extensions.removeTitle": "Удалить {name}?",
+  "extensions.manage": "Управление расширениями…",
+  "extensions.format":
+    "Формат ZIP: manifest.json в корне; поля api: 1, id, name, version и ui.entry. Точка входа - один ES-модуль с экспортом activate(coddy), без относительных импортов. Необязательное поле ui.styles перечисляет CSS-файлы. Для загрузки JavaScript нужен HTTPS или localhost.",
   "appearance.themeLabel": "Тема",
   "appearance.themeGroupAria": "Тема",
   "appearance.languageLabel": "Язык",

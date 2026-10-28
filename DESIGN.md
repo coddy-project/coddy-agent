@@ -1593,6 +1593,57 @@ The web UI installs as an app and shows system notifications while it is in the 
   **`/#/s/<id>`**) and opens the chat through the same path as a History pick, only when the notice
   belongs to the environment the tab shows.
 
+### JavaScript extensions
+
+The Extensions entry of the navigation opens Settings → Extensions before any
+extension contributes controls. With contributions, it offers a native select
+of registered pages and menu actions plus Manage extensions. On a phone it
+folds into More with the other optional entries.
+
+Settings → Extensions is a synthetic, schema-independent section on agents.
+It shows the risk statement, Install ZIP and Refresh, then package cards with
+name, version, description, enabled state, SHA-256, switch and remove actions.
+Enabling uses the shared confirmation dialog and reloads the page. Installation
+always leaves the package disabled. The host stores packages; no settings live
+in the YAML form's draft. The section is searchable by its tab title.
+
+Extension pages mount into a native modal dialog with a title, Close and an
+extension-owned body. The dialog traps focus and answers Escape. Styles use
+theme tokens. Registrations have update/remove handles, all ids are namespaced,
+and the lifetime owns an abort signal. Disabling, removing or changing evaluated
+code requires a full reload; environment switches do the same after evaluation.
+The implementation and initial API are in ui/extensions; the user contract is
+docs/features/extensions.md. This phase adds pages, menu actions and incoming
+turn-stream processors from the [expanded extension proposal](https://gist.github.com/hijera/95b016e1721608e8c3974fe3b80e29dc).
+
+`coddy.stream.registerIncoming({id, transform})` registers a synchronous payload
+processor before the turn reader applies an SSE frame. Both the POST reader and
+the composer relay reader use this chain, including the EOF tail. The callback
+receives the data string and frozen context (`sessionId`, `transport`, `event`,
+`id`, optional `ageMs`). It returns a replacement string, or `undefined` to observe
+without replacing. JSON input requires JSON output. A processor can enrich JSON,
+rewrite assistant deltas or tool results, and keep state in its extension.
+The reader waits up to 11 seconds for initial extension loading, then continues
+with the registered processors if loading fails or exceeds that bound. Extensions
+that activate later do not receive frames already consumed.
+
+Processors run by extension id in ascending ASCII order, then registration order
+within an extension, so parallel module activation cannot reorder the chain.
+Each sees its predecessor's output. Throws, asynchronous callbacks and invalid
+results remove that processor, show the error in Settings → Extensions and pass
+its input to the next processor. Processing does not await extension promises;
+callbacks must finish promptly on the browser thread. A remove handle or the
+extension's abort signal revokes a registration before the next frame.
+
+The callback cannot replace transport metadata or generate `[DONE]`; the existing
+`[DONE]`, `desync` and frames without data bypass processors. This preserves the reader's cursor
+and termination. Payload schemas still apply, including tool ids, permission ids
+and versions the host uses. The SDK is not a sandbox for approved origin code.
+Transforms affect live browser consumption only; REST history reconciliation can
+replace them with the server's original data. They do not change stored history,
+LLM context, outgoing requests or the shared `/coddy/events` connection. There is
+no second events reader and no interception of authentication or asset fetches.
+
 ## States
 
 - Idle composer: bordered textarea.

@@ -53,6 +53,7 @@ What the agent can do and how each capability is configured.
 - [Skills](features/skills.md) - SKILL.md packs as slash commands, skills.dirs, the registries and the plugin command.
 - [Subagents](features/subagents.md) - spawn_agent, definition files, the built-ins, project trust receipts, capability narrowing, child sessions.
 - [Hooks](features/hooks.md) - Lifecycle hooks in Claude Code's hooks.json shape, events, matchers, the stdin payload, exit codes and JSON answers, project trust.
+- [JavaScript extensions](features/extensions.md) - Operator-installed ZIP bundles, pages and menu actions, explicit enabling, package digests and browser reloads.
 - [MCP servers](features/mcp.md) - Connecting MCP servers over stdio, streamable HTTP and SSE, mcp.json files, workspace trust, enable switches, the management API.
 - [Devin](features/devin.md) - Using the models of a Devin (Cognition) account - browser sign-in or the Devin CLI login, one model per family with reasoning levels mapped to its variants, where the session token comes from.
 - [OpenCode](features/opencode.md) - Using the OpenCode Go and Console gateways with account login or a service account key - model protocols, client headers and gateway selection.

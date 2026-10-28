@@ -16,6 +16,7 @@ import { normalizeTodoPlanSnapshot } from "./todoToolPreview";
 import { todoPlanFromPlanFrame } from "./todoChecklist";
 import type { TodoPlanEntry } from "./todoToolPreview";
 import { parseSSEBlocks } from "./sse";
+import type { IncomingFrame } from "../extensions/incomingStream";
 import { queuedUserMessageItem } from "./queuedUserMessage";
 import { sessionMessageFiles } from "./sessionMessageFiles";
 import { parseToolArtifacts } from "./toolArtifacts";
@@ -125,6 +126,15 @@ export type ComposerStreamCursor = {
 };
 
 export type ConsumeComposerSseParams = {
+  /** Browser extension middleware, shared by fresh and resumed turn readers. */
+  incoming?:
+    | {
+        sessionId: string;
+        transport: "post" | "relay";
+        process: (frame: IncomingFrame) => string;
+        ready?: Promise<void>;
+      }
+    | undefined;
   reader: ReadableStreamDefaultReader<Uint8Array>;
   dec: TextDecoder;
   carry: { buf: string };
@@ -204,6 +214,19 @@ export type ConsumeComposerSseResult = {
 export async function consumeComposerSseReader(
   p: ConsumeComposerSseParams,
 ): Promise<ConsumeComposerSseResult> {
+  const incomingReady = p.incoming?.ready;
+  if (incomingReady) {
+    // Initial module loading must finish before a fast POST or replay is read.
+    // A broken server or an uncooperative activation cannot hold a reader forever.
+    await new Promise<void>((resolve) => {
+      const timer = window.setTimeout(resolve, 11000);
+      const finish = () => {
+        window.clearTimeout(timer);
+        resolve();
+      };
+      void incomingReady.then(finish, finish);
+    });
+  }
   const {
     reader,
     dec,
@@ -227,6 +250,17 @@ export async function consumeComposerSseReader(
     onSettingsOnly,
     cursor,
   } = p;
+  const transformIncoming = (raw: ReturnType<typeof parseSSEBlocks>[number]) =>
+    p.incoming
+      ? {
+          ...raw,
+          data: p.incoming.process({
+            ...raw,
+            sessionId: p.incoming.sessionId,
+            transport: p.incoming.transport,
+          }),
+        }
+      : raw;
 
   // Streaming assistant segmentation. Text before any tool/thinking stays in
   // one bubble; when text resumes AFTER a tool call or thinking row we open a
@@ -549,7 +583,8 @@ export async function consumeComposerSseReader(
       dec.decode(step.value, { stream: true }),
       carry,
     );
-    for (const ev of events) {
+    for (const raw of events) {
+      const ev = transformIncoming(raw);
       countFrame(ev.id);
       frameAt = typeof ev.ageMs === "number" ? Date.now() - ev.ageMs : null;
       if (ev.id) {
@@ -970,7 +1005,9 @@ export async function consumeComposerSseReader(
 
   if (carry.buf.trim()) {
     const tailEvents = parseSSEBlocks("\n\n", carry);
-    for (const ev of tailEvents) {
+    for (const raw of tailEvents) {
+      const ev = transformIncoming(raw);
+      countFrame(ev.id);
       frameAt = typeof ev.ageMs === "number" ? Date.now() - ev.ageMs : null;
       if (ev.id) {
         lastEventId = ev.id;

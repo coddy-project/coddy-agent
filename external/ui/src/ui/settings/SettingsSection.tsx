@@ -20,6 +20,7 @@ import {
   type SchemaFormGroup,
 } from "./SchemaForm";
 import { MCPSection } from "./MCPSection";
+import { ExtensionsSection } from "../extensions/ExtensionsSection";
 import { schemaFieldDesc, schemaFieldLabel } from "./schemaI18n";
 import { SettingsArraySection } from "./SettingsArraySection";
 import { SessionsManager } from "../sessions/SessionsManager";
@@ -591,6 +592,7 @@ export function SettingsSection(props: {
   if (section.kind === "appearance") {
     return <AppearanceThemePicker />;
   }
+  if (section.kind === "extensions") return <ExtensionsSection />;
 
   // The session table is API-driven (/coddy/sessions): it reads and removes
   // stored bundles and never touches the settings document. Above it, once
