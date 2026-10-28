@@ -98,6 +98,7 @@ Task-shaped guides, each a complete path from a goal to a working result, with t
 - [A server driven from a laptop](tutorials/server-driven-from-a-laptop.md) - A coddy serve on a machine with the models and the workspace, driven from a laptop over the console, an editor and the browser.
 - [Coddy as a model in VS Code Copilot](tutorials/coddy-as-a-model-in-vs-code.md) - A running coddy serve registered in chatLanguageModels.json, so its models and its agent sit in Copilot's model picker, with sessions per request and the agent's permission gate.
 - [A skill of your own](tutorials/a-skill-of-your-own.md) - A SKILL.md that becomes a slash command on every surface, from the first file to a registry install.
+- [Your first JavaScript extension](tutorials/first-extension.md) - A two-file counter extension, ZIP packaging, enabling it in Settings and calling a local API through the server proxy.
 - [A swarm across your machines](tutorials/swarm-across-machines.md) - Workers on several machines join one relay, and a laptop drives any of them from its own web UI and console, with the relay and its agents in the environment menu and the map one click away.
 - [A relay and its nodes in Docker](tutorials/swarm-relay-and-nodes.md) - A Compose stand with a relay and nodes that dial out to it, the tokens, the checks, a mounted node from the console and the browser, scaling by adding nameless workers.
 - [A chain of relays](tutorials/swarm-multi-hop.md) - A second relay behind the first with its own nodes, two-hop mounts, the recursive session list, rings and alternates.

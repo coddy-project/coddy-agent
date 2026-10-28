@@ -294,6 +294,20 @@ func (s *Store) Remove(id string) error {
 	return s.withRoot(func(root *os.Root) error { return root.Remove(id + ".json") })
 }
 
+// CheckEnabled authorizes a server-side operation for one approved bundle.
+func (s *Store) CheckEnabled(id, sha string) error {
+	return s.withRoot(func(root *os.Root) error {
+		b, err := read(root, id)
+		if err != nil {
+			return err
+		}
+		if !b.Enabled || sha != b.SHA256 {
+			return ErrUnavailable
+		}
+		return nil
+	})
+}
+
 // Asset returns bytes from the exact approved bundle, without extracting it.
 func (s *Store) Asset(id, sha, name string) ([]byte, error) {
 	var out []byte

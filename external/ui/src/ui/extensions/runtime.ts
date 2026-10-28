@@ -1,5 +1,6 @@
 import * as React from "react";
 import { requireEnvironmentReload } from "../env/remoteEnv";
+import { extensionNetwork, type ExtensionNetwork } from "./network";
 import {
   IncomingStream,
   type IncomingRegistration,
@@ -34,6 +35,7 @@ export type ExtensionAPI = {
   signal: AbortSignal;
   React: typeof React;
   assets: { text: (path: string) => Promise<string> };
+  net: ExtensionNetwork;
   stream: {
     registerIncoming: (registration: IncomingRegistration) => IncomingHandle;
   };
@@ -233,6 +235,7 @@ export class ExtensionRuntime {
       signal: controller.signal,
       React,
       assets: { text: assetText },
+      net: extensionNetwork(entry.id, entry.sha256, controller.signal),
       stream: {
         registerIncoming: ({ id, transform }) => {
           if (!active()) throw new Error("Extension disposed");

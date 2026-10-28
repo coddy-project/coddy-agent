@@ -1,0 +1,7 @@
+{
+  "api": 1,
+  "id": "first-extension",
+  "name": "My first extension",
+  "version": "1.0.0",
+  "ui": { "entry": "main.js" }
+}

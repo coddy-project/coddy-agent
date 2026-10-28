@@ -4,6 +4,8 @@ The web UI can load operator-installed JavaScript extensions. Open **Extensions*
 
 An extension can add pages and menu actions, update or remove its own entries, and process incoming turn data before the browser uses it. This first version covers the browser UI. Native executables, agent tools, composer controls, settings alterations and marketplaces from the [extension issue](https://github.com/coddy-project/coddy-agent/issues/347) and [expanded specification](https://gist.github.com/hijera/95b016e1721608e8c3974fe3b80e29dc) are not implemented.
 
+Start with [Your first JavaScript extension](../tutorials/first-extension.md) for a short walkthrough, or use the [example index](../../examples/extensions/README.md).
+
 ## Install and enable
 
 ![Extensions settings with an installed package](../assets/extensions/extensions-settings-dark-1280.png)
@@ -77,6 +79,7 @@ export function activate(coddy) {
 | `coddy.api`, `coddy.id` | SDK version `1` and the owning extension id. |
 | `coddy.signal` | Aborted when the extension's lifetime ends. Pass it to listeners and requests. |
 | `coddy.assets.text(path)` | Fetch a UTF-8 asset from the exact enabled package through the authenticated API. |
+| `coddy.net.fetch(url, options?)` | Send an HTTP(S) request from the Coddy server and receive a buffered `Response`. |
 | `coddy.ui.registerPage({id, title, mount})` | Add a page to the Extensions menu. `mount(element, api)` may return a cleanup function. |
 | `coddy.ui.registerMenuItem({id, title, onSelect})` | Add a menu action. |
 | `handle.update(patch)`, `handle.remove()` | Update a registered page or action, or remove it. Ids stay fixed and are namespaced by extension. |
@@ -94,11 +97,51 @@ python -m zipfile -c hello.zip manifest.json main.js style.css panel.html
 
 Install the resulting ZIP through Settings. No Node.js runtime is needed on the server or in the browser.
 
+## Server-side HTTP requests
+
+Use `coddy.net.fetch` to call a local or external API through the Coddy server. The browser sends an authenticated request to Coddy; Go makes the target request and returns its status, headers and bytes inside JSON. The target needs no CORS headers. Target HTML and `Set-Cookie` headers never become an active response of the web app.
+
+```js
+const response = await coddy.net.fetch("http://127.0.0.1:8080/api/data", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: "Bearer target-service-key"
+  },
+  body: JSON.stringify({ query: "hello" }),
+  signal: coddy.signal
+});
+if (!response.ok) throw new Error(`Target returned HTTP ${response.status}`);
+const data = await response.json();
+```
+
+`localhost` and private network addresses refer to the machine running the selected Coddy server. With a remote environment or swarm relay, the request runs on that node. A normal browser `fetch` still runs from the browser's machine and follows browser network rules.
+
+`options` accepts `method`, `headers`, `body` and `signal`. Supported methods are `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE` and `OPTIONS`; the default is `GET`. Bodies may be strings, `Blob`, `ArrayBuffer`, `Uint8Array` or `URLSearchParams`. `GET` and `HEAD` have no body. Read the buffered result with `text()`, `json()`, `arrayBuffer()` or `blob()`, or inspect `status`, `ok` and `headers`. Target HTTP errors resolve to a response; proxy failures reject the promise. The reconstructed response has an empty `url`; it does not expose a network stream.
+
+Each call requires the exact enabled package digest. Disabling or removing a package through this server cancels its in-flight proxy requests. The SDK also cancels them when its lifetime or the caller's signal ends. Another process sharing the extension store is checked before dispatch and after reading the response. Calls have a 30-second timeout, at most 4 MiB of request bytes and 8 MiB of response bytes. The JSON request envelope is limited to 6 MiB, request headers to 32 KiB and response headers to 64 KiB. Cancellation cannot undo effects the target already received.
+
+Only absolute `http:` and `https:` URLs without embedded credentials or fragments are accepted. Loopback, private and external targets are allowed, with normal TLS certificate validation. Redirects return their `3xx` response and `Location` header without being followed. The proxy uses no cookie jar, environment proxy or provider proxy. It forwards only headers the extension supplies, including an explicit target `Authorization`. Coddy's outer bearer token and browser cookies stay on the Coddy request. Caller-supplied cookies, routing headers, hop-by-hop headers, `Origin`, `Referer` and `Sec-*` headers are refused. Target cookies and hop-by-hop headers are omitted from the result.
+
+Enabling an extension grants access to services reachable from the server, including its loopback and private network. The risk warning in Settings names that access. This SDK remains part of the approved code's authority; it does not isolate extensions from each other.
+
+Network calls are asynchronous. Use them in activation or UI callbacks, or to refresh a cache that a synchronous incoming-stream processor reads. Do not return a network promise from `transform`.
+
+![Calling a local API from an extension](../assets/extensions/extensions-network-dark-1280.png)
+
+*Calling a local API through the Coddy server.*
+
+The [Local API example](../../examples/extensions/local-api/main.js) provides a URL field, GET/POST requests and cancellation. From `examples/extensions/local-api`, package it with the following command.
+
+```sh
+python -m zipfile -c local-api.zip manifest.json main.js
+```
+
 ## Incoming stream data
 
 ![Extension loading and incoming data processing](../assets/diagrams/ui-extensions.png)
 
-*Package approval, browser activation and the incoming payload chain.*
+*Package approval, browser activation, the incoming payload chain and server-side HTTP requests.*
 
 Register a processor to inspect, rewrite or enrich incoming SSE payloads. The chain runs for fresh responses and for the composer relay when you follow or resume a turn. It also processes the last payload if the connection ends without a blank line.
 

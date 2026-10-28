@@ -8,7 +8,7 @@ export const messagesEn: Record<string, string> = {
   "extensions.lead":
     "Install a ZIP containing a single JavaScript bundle and optional CSS and HTML. Packages are stored on this server. Installation leaves them disabled.",
   "extensions.risk":
-    "Enable extensions at your own risk. Their JavaScript runs with the web app's access to chats, credentials and server APIs. Only enable code you trust. Extensions are not sandboxed.",
+    "Enable extensions at your own risk. Their JavaScript can access chats, credentials and server APIs, and send HTTP requests from the Coddy server to local and external services. Only enable code you trust. Extensions are not sandboxed.",
   "extensions.install": "Install ZIP",
   "extensions.refresh": "Refresh",
   "extensions.tooLarge": "The ZIP must be no larger than 8 MiB.",

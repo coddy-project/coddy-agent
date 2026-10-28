@@ -1595,6 +1595,19 @@ The web UI installs as an app and shows system notifications while it is in the 
 
 ### JavaScript extensions
 
+`coddy.net.fetch(url, options)` sends buffered HTTP(S) requests from the selected
+Coddy server, including loopback and private targets. The SDK uses the normal
+authenticated environment route and the exact enabled package digest. Target
+credentials are explicit; browser cookies and Coddy's bearer stay on the outer
+request. JSON carries target status, headers and base64 bytes, so target HTML
+and cookies do not become responses of the application origin. Redirects are
+returned without following them. Calls are bounded to 30 seconds, 4 MiB upload
+and 8 MiB download. The server cancels in-flight calls on disable/removal through
+its routes; the SDK also binds them to its lifetime and the caller's signal.
+Settings' risk warning names access to local and external services from the server.
+Incoming `transform` callbacks stay synchronous; network data can feed a cache
+read by those callbacks. See the feature guide for the complete network contract.
+
 The Extensions entry of the navigation opens Settings → Extensions before any
 extension contributes controls. With contributions, it offers a native select
 of registered pages and menu actions plus Manage extensions. On a phone it
