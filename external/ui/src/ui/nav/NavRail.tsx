@@ -24,6 +24,8 @@ import {
 } from "../shellBreakpoint";
 import { navSlots, splitNavItems, type NavItemId } from "./navOverflow";
 import { EnvironmentSwitcher } from "./EnvironmentSwitcher";
+import { ExtensionMenu } from "../extensions/ExtensionMenu";
+import { useExtensions } from "../extensions/ExtensionsProvider";
 import { useEscapeCloses } from "../components/useEscapeCloses";
 
 function IconPlus(props: { className?: string }) {
@@ -264,6 +266,7 @@ export function NavRail(props: {
   onToggleRailLabels: () => void;
 }) {
   const { t, tp } = useT();
+  const extensions = useExtensions();
   // The sign-in state is read here rather than threaded down from the gate: the
   // rail is the one place in the app that is always on screen, which is where a
   // "you are signed in as ..., and here is the way out" belongs.
@@ -364,6 +367,7 @@ export function NavRail(props: {
   if (showScheduler) present.push("scheduler");
   if (showSwarm) present.push("swarm");
   if (props.onOpenDocs) present.push("docs");
+  if (extensions && props.showHistory !== false) present.push("extensions");
   present.push("settings");
   present.push("environment");
   if (signedIn) present.push("signOut");
@@ -662,6 +666,9 @@ export function NavRail(props: {
             </div>
           ) : null}
 
+          {inBar("extensions") ? (
+            <ExtensionMenu className={navBtnCls} wide={pillWide} />
+          ) : null}
           {inBar("settings") ? (
             <div className="rail-tip-host">
               <a
@@ -742,6 +749,14 @@ export function NavRail(props: {
                   aria-label={t("nav.more")}
                 >
                   {menu.map((id, i) => {
+                    if (id === "extensions")
+                      return (
+                        <ExtensionMenu
+                          key={id}
+                          className="rail-more-item"
+                          wide
+                        />
+                      );
                     if (id === "docs") {
                       return (
                         <a

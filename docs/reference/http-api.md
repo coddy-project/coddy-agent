@@ -8,6 +8,20 @@ The bundled SPA is included only when you also set the **`ui`** tag (for example
 
 A JSON answer goes out with **`Content-Encoding: gzip`** and **`Vary: Accept-Encoding`** to a client whose **`Accept-Encoding`** admits gzip; event streams, files and error pages are sent as written.
 
+## UI extension management
+
+The [JavaScript extensions guide](../features/extensions.md) describes package contents and the risk of enabling UI code. All routes use the ordinary API authentication policy:
+
+| Method and route | Behavior |
+| --- | --- |
+| `GET /coddy/extensions` | `{items: [...]}` with manifests, enabled state, package `sha256` and `entry_sha256`. |
+| `POST /coddy/extensions` | Raw `application/zip` body, at most 8 MiB. Returns the disabled entry with `201`; `400` invalid package, `409` existing id, `413` oversized body. |
+| `PUT /coddy/extensions/{id}` | JSON `{sha256, enabled, accept_risk}`. Enabling requires `accept_risk: true`; `409` if the package digest changed. Returns the current entry. |
+| `DELETE /coddy/extensions/{id}` | Removes the package, `204`. Reload affected browsers to revoke code already executed. |
+| `GET /coddy/extensions/{id}/assets/{file}?sha256=...` | Bytes from the exact enabled bundle, fetched as attachments with `no-store` and a sandbox CSP; `409` for a disabled or changed bundle. |
+
+Unknown ids or assets return `404`. Invalid ids return `400`. Storage errors return `500`.
+
 ## OpenAPI and Swagger UI
 
 Specs are regenerated on each request so they stay aligned with handlers.

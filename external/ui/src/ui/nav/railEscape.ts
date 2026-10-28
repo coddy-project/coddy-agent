@@ -27,7 +27,10 @@ import type { NavItemId } from "./navOverflow";
  * which opens a menu (it answers Escape through useEscapeCloses) rather than
  * a screen.
  */
-export type RailScreenId = Exclude<NavItemId, "signOut" | "environment">;
+export type RailScreenId = Exclude<
+  NavItemId,
+  "signOut" | "environment" | "extensions"
+>;
 
 /** Whether a screen is on screen, and what Escape does to it. */
 export type RailScreen = { open: boolean; close: () => void };

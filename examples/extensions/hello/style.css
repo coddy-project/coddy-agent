@@ -1,0 +1,3 @@
+.ext-hello { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; color: var(--text); }
+.ext-hello h2, .ext-hello p { margin: 0; }
+.ext-hello button { background: var(--accent); color: var(--bg); border: 0; border-radius: 8px; padding: 10px 16px; cursor: pointer; font: inherit; }

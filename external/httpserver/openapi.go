@@ -5016,6 +5016,7 @@ func openAPISpec() map[string]interface{} {
 	mergeOpenCodeAuthOpenAPI(doc)
 	mergeWallpaperOpenAPI(doc)
 	mergeResponsesOpenAPI(doc)
+	mergeExtensionsOpenAPI(doc)
 	return doc
 }
 

@@ -8,6 +8,31 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.providers.user_agent.label": "User-Agent",
   "settings.schema.providers.user_agent.desc":
     "Client identity for OpenAI-compatible and Anthropic-compatible requests. The provider SDK is the default (OpenAI/Go or Anthropic/Go); Coddy uses the running application version.",
+  "extensions.title": "Extensions",
+  "extensions.close": "Close",
+  "extensions.description": "JavaScript pages and actions",
+  "extensions.lead":
+    "Install a ZIP containing a single JavaScript bundle and optional CSS and HTML. Packages are stored on this server. Installation leaves them disabled.",
+  "extensions.risk":
+    "Enable extensions at your own risk. Their JavaScript runs with the web app's access to chats, credentials and server APIs. Only enable code you trust. Extensions are not sandboxed.",
+  "extensions.install": "Install ZIP",
+  "extensions.refresh": "Refresh",
+  "extensions.tooLarge": "The ZIP must be no larger than 8 MiB.",
+  "extensions.empty": "No extensions installed.",
+  "extensions.enable": "Enable",
+  "extensions.disable": "Disable and reload",
+  "extensions.enabled": "Enabled",
+  "extensions.disabled": "Disabled",
+  "extensions.enableTitle": "Enable {name}?",
+  "extensions.disableTitle": "Disable {name}?",
+  "extensions.accept": "Accept risk and enable",
+  "extensions.reloadHint":
+    "The page will reload to unload extension code. Other open browsers reload when they next check the extension list. Reload them yourself to revoke access immediately.",
+  "extensions.remove": "Remove",
+  "extensions.removeTitle": "Remove {name}?",
+  "extensions.manage": "Manage extensions…",
+  "extensions.format":
+    "ZIP format: manifest.json at the root; api: 1, id, name, version and ui.entry. The entry is one ES module exporting activate(coddy), with no relative imports. Optional ui.styles lists CSS files. JavaScript loading requires HTTPS or localhost.",
   "appearance.themeLabel": "Theme",
   "appearance.themeGroupAria": "Theme",
   "appearance.simpleLabel": "Simplified mode",
