@@ -86,7 +86,7 @@ export function activate(coddy) {
 | `coddy.settings.get(id)`, `coddy.settings.set(id, value)` | Читает или сохраняет значение конфигурации расширения. Оба метода асинхронны; `set(id, null)` удаляет сохранённое значение. |
 | `coddy.ui.registerPage({id, title, mount})` | Добавляет страницу в меню расширений. `mount(element, api)` может вернуть функцию очистки. |
 | `coddy.ui.registerMenuItem({id, title, onSelect})` | Добавляет действие меню. |
-| `handle.update(patch)`, `handle.remove()` | Обновляет или удаляет страницу либо действие. Идентификаторы не меняются и принадлежат пространству имён расширения. |
+| `handle.update(patch)`, `handle.remove()` | Обновляет или удаляет страницу либо действие. Идентификаторы не меняются и принадлежат пространству имён расширения. Патч проверяется как при регистрации и завершается ошибкой при пустом заголовке или отсутствующем колбеке. |
 | `coddy.ui.openPage(id)` | Открывает страницу этого расширения в диалоговом окне. |
 | `coddy.stream.registerIncoming({id, transform})` | Обрабатывает входящие данные хода до того, как их применит браузер. Возвращает дескриптор с методом `remove()`. |
 | `coddy.React` | Экземпляр React приложения для авторов, которым он нужен. Контракт монтирования страницы работает и с обычным DOM-кодом. |
@@ -287,4 +287,4 @@ export function activate(coddy) {
 python -m zipfile -c stream-tools.zip manifest.json main.js
 ```
 
-<!-- docsgen:source sha256=1ba2d76d6583fc1b -->
+<!-- docsgen:source sha256=b6dbeabae8b54cfe -->

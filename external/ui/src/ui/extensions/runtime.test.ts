@@ -4,6 +4,8 @@ import {
   ExtensionRuntime,
   type ExtensionAPI,
   type ExtensionEntry,
+  type ExtensionPage,
+  type MenuItem,
 } from "./runtime";
 
 vi.mock("../env/remoteEnv", () => ({
@@ -129,6 +131,78 @@ describe("extension lifetime", () => {
     await runtime.reconcile([entry, { ...entry, id: "other" }]);
     expect(runtime.snapshot().menu.map((row) => row.owner)).toEqual(["other"]);
     expect(runtime.snapshot().errors.demo).toContain("broken");
+    runtime.stop();
+  });
+  test("a module that never settles releases reconcile when its lifetime ends", async () => {
+    setup();
+    const load = vi.fn(() => new Promise<never>(() => {}));
+    const runtime = new ExtensionRuntime(vi.fn(), load);
+    const work = runtime.reconcile([entry]);
+    await vi.waitFor(() => expect(load).toHaveBeenCalledOnce());
+    runtime.stop();
+    await work;
+    expect(load).toHaveBeenCalledOnce();
+  });
+  test("an activation timeout releases reconcile and is not retried", async () => {
+    setup();
+    // Only the activation timer is faked: the fetch and digest chain before
+    // the module import still needs the real event loop.
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "Date"],
+    });
+    const load = vi.fn(() => new Promise<never>(() => {}));
+    const runtime = new ExtensionRuntime(vi.fn(), load);
+    const work = runtime.reconcile([entry]);
+    for (let i = 0; i < 100 && load.mock.calls.length === 0; i++) {
+      await new Promise((done) => setImmediate(done));
+    }
+    expect(load).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await work;
+    expect(runtime.snapshot().errors.demo).toBe("Activation timed out");
+    await runtime.reconcile([entry]);
+    expect(load).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
+  test("control updates are validated like registrations", async () => {
+    setup();
+    let api!: ExtensionAPI;
+    let page!: ReturnType<ExtensionAPI["ui"]["registerPage"]>;
+    let menu!: ReturnType<ExtensionAPI["ui"]["registerMenuItem"]>;
+    const runtime = new ExtensionRuntime(vi.fn(), async () => ({
+      activate(value: ExtensionAPI) {
+        api = value;
+        page = api.ui.registerPage({
+          id: "page",
+          title: "Page",
+          mount() {},
+        });
+        menu = api.ui.registerMenuItem({
+          id: "action",
+          title: "Action",
+          onSelect() {},
+        });
+      },
+    }));
+    await runtime.reconcile([entry]);
+    expect(() =>
+      api.ui.registerPage({
+        id: "bad",
+        title: "Bad",
+        mount: 1 as unknown as () => void,
+      }),
+    ).toThrow("mount");
+    expect(() => page.update({ title: " " })).toThrow("title");
+    expect(() =>
+      page.update({ mount: 1 as unknown as ExtensionPage["mount"] }),
+    ).toThrow("mount");
+    expect(() =>
+      menu.update({ onSelect: 1 as unknown as MenuItem["onSelect"] }),
+    ).toThrow("onSelect");
+    page.update({ title: "Renamed" });
+    menu.update({ title: "Renamed" });
+    expect(runtime.snapshot().pages[0]?.title).toBe("Renamed");
+    expect(runtime.snapshot().menu[0]?.title).toBe("Renamed");
     runtime.stop();
   });
 });
