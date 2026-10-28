@@ -6,4 +6,3 @@ Feature: Server-side HTTP requests from approved UI extensions
     And the extension receives the API status headers and binary response
     When the extension is disabled
     Then another proxy request is refused before reaching the API
-

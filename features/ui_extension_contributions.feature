@@ -13,4 +13,3 @@ Feature: UI extension contributions
     Given an extension field in the Agent settings section
     When the user edits its value
     Then the field updates the extension namespace in the configuration draft
-
