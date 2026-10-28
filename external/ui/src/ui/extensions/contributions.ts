@@ -46,6 +46,7 @@ export type ContributionHandle<T> = {
 
 export class Contributions<T extends { id: string }> {
   rows: Owned<T>[] = [];
+  private removers = new Map<string, () => void>();
   constructor(private notify: () => void) {}
   register(
     owner: string,
@@ -66,15 +67,19 @@ export class Contributions<T extends { id: string }> {
     this.rows = [...this.rows, { ...value, key, owner, api }];
     this.notify();
     const remove = () => {
+      if (this.removers.get(key) !== remove) return;
+      this.removers.delete(key);
       this.rows = this.rows.filter((row) => row.key !== key);
       api.signal.removeEventListener("abort", remove);
       this.notify();
     };
+    this.removers.set(key, remove);
     api.signal.addEventListener("abort", remove, { once: true });
     return {
       remove,
       update: (patch) => {
         check();
+        if (this.removers.get(key) !== remove) return;
         const row = this.rows.find((row) => row.key === key);
         if (!row) return;
         const next = { ...row, ...patch, id: row.id, key, owner, api };
@@ -85,8 +90,7 @@ export class Contributions<T extends { id: string }> {
     };
   }
   remove(key: string) {
-    this.rows = this.rows.filter((row) => row.key !== key);
-    this.notify();
+    this.removers.get(key)?.();
   }
 }
 

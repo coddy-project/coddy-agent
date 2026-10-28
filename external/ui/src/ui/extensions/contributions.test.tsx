@@ -245,3 +245,25 @@ test("a stream without progress never inherits a previous turn start", () => {
   expect(listener).toHaveBeenCalledTimes(2);
   expect(listener.mock.calls[1]![0].turnStartedAt).toBeNull();
 });
+
+test("a removed contribution handle cannot change or remove its replacement", () => {
+  const { runtime, api } = setup();
+  const definition = {
+    id: "badge",
+    section: "agent",
+    title: "Badge",
+    type: "string" as const,
+  };
+  const first = runtime.fields.register("demo", api, definition, validateField);
+  first.remove();
+  runtime.fields.register("demo", api, definition, validateField);
+
+  first.update({ title: "Stale" });
+  first.remove();
+
+  expect(runtime.snapshot().fields).toHaveLength(1);
+  expect(runtime.snapshot().fields[0]).toMatchObject({
+    key: "demo/badge",
+    title: "Badge",
+  });
+});

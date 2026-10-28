@@ -17,9 +17,7 @@ Configuration edits never apply immediately. The flow is always:
 2. **Stage** edits with `config_set`. Nothing on disk changes; commands accumulate for this session.
 3. **Review** with `config_changes` and summarize the pending commands to the user in plain language.
 4. **Ask the user to save.** In any language, e.g. "I staged these changes: ... Save them?". Wait for a clear agreement ("да, сохраняй", "yes, save it", "go ahead").
-5. **Commit** with `config_commit` only after that agreement. The commit validates the batch, snapshots the previous file, writes atomically, and hot-reloads the running session - new skills, rules and tools become usable in the same turn, no restart needed. ## MCP servers
-
-MCP servers are not part of config.yaml (see MCP servers below).
+5. **Commit** with `config_commit` only after that agreement. The commit validates the batch, snapshots the previous file, writes atomically, and hot-reloads the running session - new skills, rules and tools become usable in the same turn, no restart needed. MCP servers are not part of config.yaml (see MCP servers below).
 6. If the user declines or changes their mind, drop the staged commands with `config_revert` (optionally scoped to one path).
 
 `config_commit` also goes through Coddy's permission gate: it prompts even in `accept_edits` mode (a config commit can start MCP processes through `mcp.project_trust` and change the permission policy itself), and the dialog lists the staged commands with secrets redacted. Never weaken the permission policy merely to avoid that prompt, and never call `config_commit` before the user agreed to save.
