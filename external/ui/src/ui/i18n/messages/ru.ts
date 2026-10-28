@@ -7,6 +7,7 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.providers.user_agent.desc":
     "Имя клиента в запросах к OpenAI- и Anthropic-совместимым провайдерам. По умолчанию используется имя SDK (OpenAI/Go или Anthropic/Go); Coddy передаёт версию запущенного приложения.",
   "extensions.title": "Расширения",
+  "extensions.originalToolDetails": "Исходные данные вызова инструмента",
   "extensions.close": "Закрыть",
   "extensions.description": "Страницы и действия на JavaScript",
   "extensions.lead":

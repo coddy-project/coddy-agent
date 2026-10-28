@@ -94,3 +94,29 @@
   background: var(--bg);
   color: var(--text);
 }
+.extension-tool-view {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.extension-tool-original {
+  margin-top: 8px;
+}
+.extension-tool-original > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+.coddy-tool-call-row.extension-tool-call {
+  display: block;
+}
+
+.extension-tool-original > summary::-webkit-details-marker {
+  display: none;
+}
+.extension-tool-original[open] > summary .coddy-chevron {
+  transform: rotate(90deg);
+}

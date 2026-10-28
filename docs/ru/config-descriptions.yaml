@@ -896,7 +896,10 @@ supervisor.token_budget:
 supervisor.max_chain_sessions:
   en: "Sessions one goal chain (/goal --then-file) may open one after another; when the goal of the last one is met, the chain stops. 0 turns goal chains off."
   ru: "Сколько сессий одна цепочка целей (/goal --then-file) может открыть одну за другой; когда цель последней из них выполнена, цепочка останавливается. 0 отключает цепочки целей."
-
 providers[].user_agent:
   en: "Client identity for types openai and anthropic. Empty (the default), openai or anthropic keeps the current provider SDK identity (OpenAI/Go or Anthropic/Go); coddy sends Coddy/<running version>. Applies to completions and model listing. Ignored for other provider types."
   ru: "Имя клиента для провайдеров типов openai и anthropic. Пустое значение (по умолчанию), openai и anthropic сохраняют имя SDK текущего протокола (OpenAI/Go или Anthropic/Go); coddy передаёт Coddy/<running version>. Настройка действует для запросов к модели и списка моделей. Другие типы провайдеров её игнорируют."
+
+extension_values:
+  en: "Persistent scalar values for UI extensions, keyed by extension id and field id. Registered fields appear in existing Settings sections. Values are ordinary configuration, not write-only secrets; at most 128 fields per extension and 256 KiB in total."
+  ru: "Постоянные скалярные значения расширений интерфейса, сгруппированные по идентификаторам расширения и поля. Зарегистрированные поля появляются в существующих разделах настроек. Значения хранятся как обычная конфигурация, а не как секреты только для записи; не больше 128 полей на расширение и 256 КиБ всего."

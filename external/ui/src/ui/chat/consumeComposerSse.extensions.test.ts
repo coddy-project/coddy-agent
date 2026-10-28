@@ -7,7 +7,10 @@ import {
 } from "./consumeComposerSse";
 import type { TranscriptItem } from "./types";
 
-vi.mock("../env/remoteEnv", () => ({ requireEnvironmentReload: vi.fn() }));
+vi.mock("../env/remoteEnv", () => ({
+  requireEnvironmentReload: vi.fn(),
+  onEnvironmentSwitch: vi.fn(),
+}));
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -113,6 +116,7 @@ test.each(["post", "relay"] as const)(
       segmentDirty: false,
       segmentHasText: false,
     };
+    const observed = vi.fn();
     const result = await consumeComposerSseReader({
       reader: new ReadableStream<Uint8Array>({
         start(controller) {
@@ -129,6 +133,7 @@ test.each(["post", "relay"] as const)(
         sessionId: "sess_demo",
         transport,
         process: runtime.incoming.process,
+        observe: observed,
         ready,
       },
       applyStreamItems: (fn) => {
@@ -155,6 +160,14 @@ test.each(["post", "relay"] as const)(
       ]),
     );
     expect(seen).toEqual(["1", "2"]);
+    const payloads = observed.mock.calls
+      .map(([frame]) => frame)
+      .filter((frame) => frame.data);
+    expect(payloads).toHaveLength(2);
+    expect(payloads[1]).toMatchObject({
+      sequence: "2",
+      data: '{"toolCallId":"tool","status":"completed","content":[{"content":{"text":"result"}}]}',
+    });
     expect(result.lastEventId).toBe("2");
     expect(cursor.frames).toBe(2);
     expect(runtime.snapshot().errors).toEqual({});

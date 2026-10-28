@@ -10,6 +10,11 @@ A JSON answer goes out with **`Content-Encoding: gzip`** and **`Vary: Accept-Enc
 
 ## UI extension management
 
+Extension-owned scalar settings use the normal configuration routes below,
+under `extension_values.<extension-id>.<field-id>`. Registrations and their UI
+metadata live in the browser; values persist in config.yaml. They are ordinary
+readable configuration, with at most 128 fields per extension and 256 KiB total.
+
 The [JavaScript extensions guide](../features/extensions.md) describes package contents and the risk of enabling UI code. All routes use the ordinary API authentication policy:
 
 | Method and route | Behavior |

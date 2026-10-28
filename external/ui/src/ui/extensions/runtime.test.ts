@@ -6,7 +6,10 @@ import {
   type ExtensionEntry,
 } from "./runtime";
 
-vi.mock("../env/remoteEnv", () => ({ requireEnvironmentReload: vi.fn() }));
+vi.mock("../env/remoteEnv", () => ({
+  requireEnvironmentReload: vi.fn(),
+  onEnvironmentSwitch: vi.fn(),
+}));
 const source = "export function activate(coddy) {}";
 const entry: ExtensionEntry = {
   api: 1,

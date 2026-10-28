@@ -9,6 +9,7 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.providers.user_agent.desc":
     "Client identity for OpenAI-compatible and Anthropic-compatible requests. The provider SDK is the default (OpenAI/Go or Anthropic/Go); Coddy uses the running application version.",
   "extensions.title": "Extensions",
+  "extensions.originalToolDetails": "Original tool details",
   "extensions.close": "Close",
   "extensions.description": "JavaScript pages and actions",
   "extensions.lead":
