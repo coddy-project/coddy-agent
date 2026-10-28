@@ -91,7 +91,7 @@ export function activate(coddy) {
 | `coddy.stream.registerIncoming({id, transform})` | Process incoming turn payloads before the browser applies them. Returns a `remove()` handle. |
 | `coddy.React` | The host's React instance for authors who need it. The page mount contract also works with plain DOM code. |
 
-`activate` may return a cleanup function or a promise for one. The host gives activation 10 seconds. Failed activation removes its registrations, requests, styles and blob URL; the error appears in Settings. The host does not retry failed code until a page reload. Closing a page calls its mount cleanup. Cleanup is cooperative and cannot revoke arbitrary same-origin JavaScript.
+`activate` may return a cleanup function or a promise for one. The host gives activation 10 seconds. Failed activation removes its registrations, requests, styles and blob URL; the error appears in Settings. The host does not retry failed code on its own; the list refresh leaves a failed package alone. **Refresh** in **Settings → Extensions** asks again, and only for what failed before any code ran - a module whose code has already been evaluated still needs a page reload. Closing a page calls its mount cleanup. Cleanup is cooperative and cannot revoke arbitrary same-origin JavaScript.
 
 The [Hello example](../../examples/extensions/hello/manifest.json) includes a module, CSS and HTML. From `examples/extensions/hello`, run:
 

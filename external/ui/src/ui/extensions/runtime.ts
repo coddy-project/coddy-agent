@@ -152,7 +152,10 @@ export class ExtensionRuntime {
   stop() {
     for (const id of this.lifetimes.keys()) this.dispose(id);
   }
-  async reconcile(entries: ExtensionEntry[]) {
+  /** Reconciles what is installed with what is running. retryFailed asks again
+   * for the ones a previous attempt failed, which only an explicit user action
+   * does - the list poll leaves a failed digest alone instead of hammering it. */
+  async reconcile(entries: ExtensionEntry[], retryFailed = false) {
     for (const [id, digest] of this.evaluatedDigests) {
       if (
         !entries.some((e) => e.id === id && e.enabled && e.sha256 === digest)
@@ -175,6 +178,14 @@ export class ExtensionRuntime {
         }
       }
     }
+    if (retryFailed) {
+      // A retry re-reads what never ran, but never what did: a module's
+      // top-level code has the origin's authority and its side effects happen
+      // once, so undoing them takes a reload rather than a second import.
+      for (const id of [...this.failed.keys()]) {
+        if (!this.evaluatedDigests.has(id)) this.failed.delete(id);
+      }
+    }
     await Promise.all(
       entries
         .filter(
@@ -187,6 +198,14 @@ export class ExtensionRuntime {
     );
   }
   private async activate(entry: ExtensionEntry) {
+    // A new attempt replaces the report of the previous one as it starts, so
+    // one that succeeds leaves no stale failure on the card. Nothing else has
+    // reported for this owner yet: the extension has no registration alive.
+    if (this.state.errors[entry.id]) {
+      const errors = { ...this.state.errors };
+      delete errors[entry.id];
+      this.publish({ errors });
+    }
     const controller = new AbortController();
     const life = {
       digest: entry.sha256,

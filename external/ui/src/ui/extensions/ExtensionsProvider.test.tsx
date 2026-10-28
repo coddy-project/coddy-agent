@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { ExtensionsProvider, useExtensions } from "./ExtensionsProvider";
+import { ExtensionRuntime } from "./runtime";
 
 afterEach(() => {
   cleanup();
@@ -52,4 +53,33 @@ test("a poll that finds the same packages does not re-render the context", async
     await act(async () => {});
   }
   expect(renders).toBe(settled);
+});
+
+test("an explicit refresh is the one that asks for the failed again", async () => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(
+    async () =>
+      new Response(JSON.stringify({ items: [installed] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+  );
+  const reconcile = vi
+    .spyOn(ExtensionRuntime.prototype, "reconcile")
+    .mockResolvedValue(undefined);
+  let refresh!: (retryFailed?: boolean) => Promise<void>;
+  function Consumer() {
+    refresh = useExtensions()!.refresh;
+    return null;
+  }
+  render(
+    <ExtensionsProvider>
+      <Consumer />
+    </ExtensionsProvider>,
+  );
+  await waitFor(() => expect(reconcile).toHaveBeenCalled());
+  expect(reconcile).toHaveBeenLastCalledWith([installed], false);
+  await act(async () => {
+    await refresh(true);
+  });
+  expect(reconcile).toHaveBeenLastCalledWith([installed], true);
 });

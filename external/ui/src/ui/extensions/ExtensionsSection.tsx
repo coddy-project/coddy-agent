@@ -95,7 +95,7 @@ function ExtensionList({
           type="button"
           className="settings-btn"
           disabled={busy}
-          onClick={() => void context.refresh()}
+          onClick={() => void context.refresh(true)}
         >
           {t("extensions.refresh")}
         </button>
