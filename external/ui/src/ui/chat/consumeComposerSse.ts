@@ -583,6 +583,25 @@ export async function consumeComposerSseReader(
       flushToolQueue();
       syncCursor();
     };
+  // The two frame loops below share this preamble: run the extension
+  // processors, count the frame and publish it for observation. Keeping it in
+  // one place is what stops the tail loop from drifting off the main one.
+  const dispatch = (raw: ReturnType<typeof parseSSEBlocks>[number]) => {
+    const ev = transformIncoming(raw);
+    countFrame(ev.id);
+    p.incoming?.observe?.({
+      ...raw,
+      sessionId: p.incoming.sessionId,
+      transport: p.incoming.transport,
+      sequence: ev.id || String(currentFrames),
+      streamId: extensionStreamId,
+    });
+    frameAt = typeof ev.ageMs === "number" ? Date.now() - ev.ageMs : null;
+    if (ev.id) {
+      lastEventId = ev.id;
+    }
+    return ev;
+  };
   while (true) {
     const step = await reader.read();
     if (step.done) {
@@ -593,19 +612,7 @@ export async function consumeComposerSseReader(
       carry,
     );
     for (const raw of events) {
-      const ev = transformIncoming(raw);
-      countFrame(ev.id);
-      p.incoming?.observe?.({
-        ...raw,
-        sessionId: p.incoming.sessionId,
-        transport: p.incoming.transport,
-        sequence: ev.id || String(currentFrames),
-        streamId: extensionStreamId,
-      });
-      frameAt = typeof ev.ageMs === "number" ? Date.now() - ev.ageMs : null;
-      if (ev.id) {
-        lastEventId = ev.id;
-      }
+      const ev = dispatch(raw);
       if (ev.data === "[DONE]") {
         sawDone = true;
         break;
@@ -1022,19 +1029,7 @@ export async function consumeComposerSseReader(
   if (carry.buf.trim()) {
     const tailEvents = parseSSEBlocks("\n\n", carry);
     for (const raw of tailEvents) {
-      const ev = transformIncoming(raw);
-      countFrame(ev.id);
-      p.incoming?.observe?.({
-        ...raw,
-        sessionId: p.incoming.sessionId,
-        transport: p.incoming.transport,
-        sequence: ev.id || String(currentFrames),
-        streamId: extensionStreamId,
-      });
-      frameAt = typeof ev.ageMs === "number" ? Date.now() - ev.ageMs : null;
-      if (ev.id) {
-        lastEventId = ev.id;
-      }
+      const ev = dispatch(raw);
       if (ev.data === "[DONE]") continue;
       if (ev.event === "desync") {
         desynced = true;
