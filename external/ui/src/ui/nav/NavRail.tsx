@@ -710,6 +710,7 @@ export function NavRail(props: {
                           key={id}
                           className="rail-more-item"
                           wide
+                          onUse={() => setMoreOpen(false)}
                         />
                       );
                     if (id === "docs") {
