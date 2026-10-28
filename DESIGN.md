@@ -1595,6 +1595,26 @@ The web UI installs as an app and shows system notifications while it is in the 
 
 ### JavaScript extensions
 
+Extensions observe app hash navigation (`tabChanged`), completed model calls
+(`stepEnded`, the raw `token_usage` frame) and completed whole turns (`turnEnded`,
+the app's shared server-events connection). Callbacks are observational and may
+be asynchronous. A failing listener is removed; other listeners and the host
+continue. No new global connection is opened for extensions.
+
+`ui.registerToolRenderer` selects an MCP call by exact server/tool names or
+wildcards, with specificity, extension id and registration order as precedence.
+The extension mounts its own DOM and may update it as the call changes. The host
+keeps Original tool details underneath; prompts stay host-owned. Errors remove
+the renderer and restore the next match or the normal card. Disposal follows
+the extension and the transcript window's mounted rows.
+
+`settings.registerField` appends typed scalar controls to existing Settings
+sections, grouped by extension id, through the ordinary form and its draft.
+Values persist under `extension_values.<extension-id>.<field-id>` in config.yaml.
+`settings.get` reads saved values or registered defaults; `settings.set` uses
+the ordinary authenticated, revision-aware config transaction and cache refresh.
+Disabling an extension removes controls while retaining their saved values.
+
 `coddy.net.fetch(url, options)` sends buffered HTTP(S) requests from the selected
 Coddy server, including loopback and private targets. The SDK uses the normal
 authenticated environment route and the exact enabled package digest. Target

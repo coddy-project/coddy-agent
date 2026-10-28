@@ -8,31 +8,32 @@ import (
 
 // ConfigJSON is the JSON shape for GET/PUT /coddy/config (snake_case keys match YAML).
 type ConfigJSON struct {
-	Providers    []ProviderJSON   `json:"providers,omitempty"`
-	Models       []ModelJSON      `json:"models,omitempty"`
-	Toolsets     []ToolsetJSON    `json:"toolsets,omitempty"`
-	Agent        AgentJSON        `json:"agent,omitempty"`
-	Supervisor   Supervisor       `json:"supervisor,omitempty"`
-	Prompts      PromptsJSON      `json:"prompts,omitempty"`
-	Instructions InstructionsJSON `json:"instructions,omitempty"`
-	Skills       SkillsJSON       `json:"skills,omitempty"`
-	Rules        RulesJSON        `json:"rules,omitempty"`
-	MCP          MCPJSON          `json:"mcp,omitempty"`
-	Tools        ToolsJSON        `json:"tools,omitempty"`
-	Subagents    SubagentsJSON    `json:"subagents,omitempty"`
-	Hooks        HooksJSON        `json:"hooks,omitempty"`
-	Logger       LoggerJSON       `json:"logger,omitempty"`
-	Sessions     SessionsJSON     `json:"sessions,omitempty"`
-	Compaction   CompactionJSON   `json:"compaction,omitempty"`
-	Memory       MemoryJSON       `json:"memory,omitempty"`
-	Decisions    DecisionsJSON    `json:"decisions,omitempty"`
-	HTTPServer   HTTPServerJSON   `json:"httpserver,omitempty"`
-	Swarm        SwarmJSON        `json:"swarm,omitempty"`
-	Metrics      MetricsJSON      `json:"metrics,omitempty"`
-	Browser      BrowserJSON      `json:"browser,omitempty"`
-	UI           UIJSON           `json:"ui,omitempty"`
-	Scheduler    SchedulerJSON    `json:"scheduler,omitempty"`
-	Gateways     GatewaysJSON     `json:"gateways,omitempty"`
+	ExtensionValues map[string]map[string]any `json:"extension_values,omitempty"`
+	Providers       []ProviderJSON            `json:"providers,omitempty"`
+	Models          []ModelJSON               `json:"models,omitempty"`
+	Toolsets        []ToolsetJSON             `json:"toolsets,omitempty"`
+	Agent           AgentJSON                 `json:"agent,omitempty"`
+	Supervisor      Supervisor                `json:"supervisor,omitempty"`
+	Prompts         PromptsJSON               `json:"prompts,omitempty"`
+	Instructions    InstructionsJSON          `json:"instructions,omitempty"`
+	Skills          SkillsJSON                `json:"skills,omitempty"`
+	Rules           RulesJSON                 `json:"rules,omitempty"`
+	MCP             MCPJSON                   `json:"mcp,omitempty"`
+	Tools           ToolsJSON                 `json:"tools,omitempty"`
+	Subagents       SubagentsJSON             `json:"subagents,omitempty"`
+	Hooks           HooksJSON                 `json:"hooks,omitempty"`
+	Logger          LoggerJSON                `json:"logger,omitempty"`
+	Sessions        SessionsJSON              `json:"sessions,omitempty"`
+	Compaction      CompactionJSON            `json:"compaction,omitempty"`
+	Memory          MemoryJSON                `json:"memory,omitempty"`
+	Decisions       DecisionsJSON             `json:"decisions,omitempty"`
+	HTTPServer      HTTPServerJSON            `json:"httpserver,omitempty"`
+	Swarm           SwarmJSON                 `json:"swarm,omitempty"`
+	Metrics         MetricsJSON               `json:"metrics,omitempty"`
+	Browser         BrowserJSON               `json:"browser,omitempty"`
+	UI              UIJSON                    `json:"ui,omitempty"`
+	Scheduler       SchedulerJSON             `json:"scheduler,omitempty"`
+	Gateways        GatewaysJSON              `json:"gateways,omitempty"`
 	// Revision names the configuration a GET /coddy/config document was read from.
 	// It is no setting: a client sends the document back with it unchanged, so a PUT
 	// can tell the values the client changed from the ones it only read, even when
@@ -513,6 +514,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		return &ConfigJSON{}
 	}
 	out := &ConfigJSON{}
+	out.ExtensionValues = cloneExtensionValues(c.ExtensionValues)
 	for _, p := range c.Providers {
 		pj := ProviderJSON(p)
 		// Hand the DTO its own copy of the pointer field, as the models do.
@@ -767,6 +769,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	if j == nil {
 		return cfg
 	}
+	cfg.ExtensionValues = cloneExtensionValues(j.ExtensionValues)
 	for _, p := range j.Providers {
 		pc := ProviderConfig(p)
 		pc.UsageLimitsPanel = cloneBoolPtr(p.UsageLimitsPanel)
@@ -1173,11 +1176,20 @@ func preserveSwarmSecrets(next, current *SwarmConfig) {
 	}
 }
 
-// escapeYAMLSecrets returns a copy of cfg with always-literal proxy URLs "$"-escaped for disk.
-// It copies only what it mutates (the Providers slice and the gateway proxy string), leaving the
-// caller's in-memory *Config untouched — the live config keeps the real, unescaped values.
+// escapeYAMLSecrets returns a config copy with literal dollar signs escaped for YAML.
+// It copies mutated maps and slices so the live configuration keeps unescaped values.
 func escapeYAMLSecrets(cfg *Config) *Config {
 	out := *cfg
+	// Extension variables are literal values written by the SDK. Copy the maps
+	// before escaping dollars so a save cannot mutate the live configuration.
+	out.ExtensionValues = cloneExtensionValues(cfg.ExtensionValues)
+	for _, values := range out.ExtensionValues {
+		for key, value := range values {
+			if text, ok := value.(string); ok {
+				values[key] = escapeYAMLDollar(text)
+			}
+		}
+	}
 	if len(cfg.Providers) > 0 {
 		out.Providers = make([]ProviderConfig, len(cfg.Providers))
 		copy(out.Providers, cfg.Providers)

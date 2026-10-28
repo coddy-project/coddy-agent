@@ -3,6 +3,7 @@
  *  existing English-asserting tests keep passing when strings move behind t(). */
 export const messagesEn: Record<string, string> = {
   "extensions.title": "Extensions",
+  "extensions.originalToolDetails": "Original tool details",
   "extensions.close": "Close",
   "extensions.description": "JavaScript pages and actions",
   "extensions.lead":

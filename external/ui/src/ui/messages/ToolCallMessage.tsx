@@ -1,3 +1,4 @@
+import { ExtensionToolView } from "../extensions/ExtensionToolView";
 import {
   type ReactElement,
   memo,
@@ -232,11 +233,24 @@ function WebSearchEngines(props: { report: WebSearchReport }) {
   );
 }
 
-export const ToolCallMessage = memo(function ToolCallMessage(props: {
+export const ToolCallMessage = memo(function ToolCallMessage(
+  props: Parameters<typeof BuiltinToolCallMessage>[0],
+) {
+  return (
+    <ExtensionToolView
+      {...props}
+      fallback={<BuiltinToolCallMessage {...props} />}
+      original={<BuiltinToolCallMessage {...props} rowId={undefined} />}
+    />
+  );
+});
+
+const BuiltinToolCallMessage = memo(function BuiltinToolCallMessage(props: {
+  sessionId?: string | undefined;
   toolCallId: string;
   /** The transcript row id, stamped on the row so the transcript window can
    *  find it on screen. */
-  rowId?: string;
+  rowId?: string | undefined;
   title?: string | undefined;
   kind?: string | undefined;
   status: string;

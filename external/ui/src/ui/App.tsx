@@ -3610,6 +3610,7 @@ export function App() {
       },
       onTurnStarted: (sid) => serverEventHandlersRef.current.turnStarted(sid),
       onTurnEnded: (sid, at) => {
+        extensions?.runtime.events.turnEnded(sid, at);
         // Whatever surface ran it, the turn may have edited the folder.
         emitChangesSettled(sid);
         serverEventHandlersRef.current.turnEnded(sid, at);
@@ -5155,6 +5156,7 @@ export function App() {
             sessionId: key,
             transport: "relay",
             process: extensions.runtime.incoming.process,
+            observe: extensions.runtime.events.observe,
             ready: extensions.ready,
           }) ||
           undefined,
@@ -5943,6 +5945,7 @@ export function App() {
             sessionId: streamKey,
             transport: "post",
             process: extensions.runtime.incoming.process,
+            observe: extensions.runtime.events.observe,
             ready: extensions.ready,
           }) ||
           undefined,

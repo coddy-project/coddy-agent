@@ -1,6 +1,7 @@
 /** Russian UI strings for the Coddy SPA. Key set mirrors messages/en.ts. */
 export const messagesRu: Record<string, string> = {
   "extensions.title": "Расширения",
+  "extensions.originalToolDetails": "Исходные данные вызова инструмента",
   "extensions.close": "Закрыть",
   "extensions.description": "Страницы и действия на JavaScript",
   "extensions.lead":

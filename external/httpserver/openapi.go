@@ -3870,6 +3870,10 @@ func openAPISpec() map[string]interface{} {
 					"type":        "object",
 					"description": "Coddy configuration as JSON (same logical fields as **config.yaml**). See **GET** `/coddy/config/schema` for the machine-readable JSON Schema.",
 					"properties": map[string]interface{}{
+						"extension_values": map[string]any{
+							"type": "object", "description": "Persistent UI extension scalar values, keyed by extension id then field id. Ordinary readable configuration; at most 128 fields per extension and 256 KiB total.",
+							"additionalProperties": map[string]any{"type": "object", "maxProperties": 128, "additionalProperties": map[string]any{"anyOf": []any{map[string]any{"type": "string", "nullable": true}, map[string]any{"type": "number", "nullable": true}, map[string]any{"type": "boolean", "nullable": true}}}},
+						},
 						"revision": map[string]interface{}{
 							"type":        "string",
 							"description": "The configuration a **GET** document was read from; not a setting. Sent back unchanged with a **PUT**, it makes the save measure the values a client left alone against what that client read, so a save does not put back what another save changed in between.",

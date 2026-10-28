@@ -377,6 +377,7 @@ export function MessageList(props: {
         );
         return (
           <ToolCallMessage
+            sessionId={props.sessionId}
             key={it.id}
             rowId={it.id}
             toolCallId={it.toolCallId}

@@ -2,6 +2,18 @@ import * as React from "react";
 import { requireEnvironmentReload } from "../env/remoteEnv";
 import { extensionNetwork, type ExtensionNetwork } from "./network";
 import {
+  Contributions,
+  validateField,
+  validateRenderer,
+  type SettingsField,
+  type ToolRenderer,
+  type Owned,
+  type ContributionHandle,
+} from "./contributions";
+import { ExtensionEvents, type ExtensionEventAPI } from "./events";
+import { extensionSettings, type ExtensionSettingsAPI } from "./settings";
+import { knownSectionLabel } from "../settings/settingsSections";
+import {
   IncomingStream,
   type IncomingRegistration,
   type IncomingHandle,
@@ -36,6 +48,8 @@ export type ExtensionAPI = {
   React: typeof React;
   assets: { text: (path: string) => Promise<string> };
   net: ExtensionNetwork;
+  events: ExtensionEventAPI;
+  settings: ExtensionSettingsAPI;
   stream: {
     registerIncoming: (registration: IncomingRegistration) => IncomingHandle;
   };
@@ -43,6 +57,9 @@ export type ExtensionAPI = {
     registerPage: (page: ExtensionPage) => Handle<ExtensionPage>;
     registerMenuItem: (item: MenuItem) => Handle<MenuItem>;
     openPage: (id: string) => void;
+    registerToolRenderer: (
+      renderer: ToolRenderer,
+    ) => ContributionHandle<ToolRenderer>;
   };
 };
 export type RuntimePage = ExtensionPage & {
@@ -54,6 +71,8 @@ export type RuntimeMenu = MenuItem & { key: string; owner: string };
 export type RuntimeSnapshot = {
   pages: RuntimePage[];
   menu: RuntimeMenu[];
+  fields: Owned<SettingsField>[];
+  renderers: Owned<ToolRenderer>[];
   errors: Record<string, string>;
 };
 
@@ -65,7 +84,29 @@ export class ExtensionRuntime {
     string,
     { digest: string; controller: AbortController; dispose: (() => void)[] }
   >();
-  private state: RuntimeSnapshot = { pages: [], menu: [], errors: {} };
+  private state: RuntimeSnapshot = {
+    pages: [],
+    menu: [],
+    fields: [],
+    renderers: [],
+    errors: {},
+  };
+  readonly fields = new Contributions<SettingsField>(() =>
+    this.publish({ fields: this.fields.rows }),
+  );
+  readonly renderers = new Contributions<ToolRenderer>(() =>
+    this.publish({ renderers: this.renderers.rows }),
+  );
+  readonly events = new ExtensionEvents((owner, message) =>
+    this.reportError(owner, message),
+  );
+  reportError(owner: string, message: string) {
+    this.publish({ errors: { ...this.state.errors, [owner]: message } });
+  }
+  failRenderer(key: string, owner: string, error: unknown) {
+    this.renderers.remove(key);
+    this.reportError(owner, String(error));
+  }
   private evaluated = false;
   private evaluatedDigests = new Map<string, string>();
   private failed = new Map<string, string>();
@@ -236,6 +277,29 @@ export class ExtensionRuntime {
       React,
       assets: { text: assetText },
       net: extensionNetwork(entry.id, entry.sha256, controller.signal),
+      events: {
+        on: (type, listener) =>
+          this.events.on(entry.id, controller.signal, type, listener),
+      },
+      settings: extensionSettings(
+        entry.id,
+        controller.signal,
+        (field) => {
+          if (!knownSectionLabel(field.section))
+            throw new Error("Unknown settings section");
+          if (
+            this.fields.rows.filter((row) => row.owner === entry.id).length >=
+            128
+          )
+            throw new Error("Too many extension fields");
+          return this.fields.register(entry.id, api, field, (value) => {
+            validateField(value);
+            if (!knownSectionLabel(value.section))
+              throw new Error("Unknown settings section");
+          });
+        },
+        () => this.fields.rows.filter((row) => row.owner === entry.id),
+      ),
       stream: {
         registerIncoming: ({ id, transform }) => {
           if (!active()) throw new Error("Extension disposed");
@@ -248,6 +312,8 @@ export class ExtensionRuntime {
         },
       },
       ui: {
+        registerToolRenderer: (renderer) =>
+          this.renderers.register(entry.id, api, renderer, validateRenderer),
         registerPage: (page) => register("pages", page),
         registerMenuItem: (item) => register("menu", item),
         openPage: (id) => {

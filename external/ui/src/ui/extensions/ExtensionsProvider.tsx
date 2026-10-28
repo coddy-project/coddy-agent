@@ -16,6 +16,7 @@ import {
 import { useT } from "../i18n/I18nProvider";
 import { PanePortal } from "../components/PanePortal";
 import "./extensions.css";
+import { parseAppHash } from "../scheduler/hashRoute";
 
 export async function extensionRequest(path = "", init?: RequestInit) {
   const response = await fetch(`/coddy/extensions${path}`, init);
@@ -55,6 +56,23 @@ export function ExtensionsProvider({ children }: { children: ReactNode }) {
     return { ready, resolve, activation: null as Promise<void> | null };
   });
   const generation = useRef(0);
+  useEffect(() => {
+    let previous = window.location.hash;
+    const changed = () => {
+      const to = window.location.hash;
+      if (previous === to) return;
+      const from = previous;
+      previous = to;
+      const route = parseAppHash();
+      runtime.events.emit("tabChanged", {
+        from,
+        to,
+        sessionId: route.branch === "session" ? route.sessionId : null,
+      });
+    };
+    window.addEventListener("hashchange", changed);
+    return () => window.removeEventListener("hashchange", changed);
+  }, [runtime]);
   const refresh = useCallback(async () => {
     const current = ++generation.current;
     try {

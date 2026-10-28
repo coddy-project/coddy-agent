@@ -21,6 +21,7 @@ import {
 } from "./SchemaForm";
 import { MCPSection } from "./MCPSection";
 import { ExtensionsSection } from "../extensions/ExtensionsSection";
+import { ExtensionFields } from "../extensions/ExtensionFields";
 import { schemaFieldDesc, schemaFieldLabel } from "./schemaI18n";
 import { SettingsArraySection } from "./SettingsArraySection";
 import { SessionsManager } from "../sessions/SessionsManager";
@@ -530,7 +531,22 @@ function SystemPending() {
  * object sections; Skills and Appearance are special tabs. Model fields receive custom editors via
  * the SchemaForm fieldOverride hook.
  */
-export function SettingsSection(props: {
+export function SettingsSection(
+  props: Parameters<typeof BuiltinSettingsSection>[0],
+) {
+  return (
+    <>
+      <BuiltinSettingsSection {...props} />
+      <ExtensionFields
+        section={props.section.id}
+        doc={props.doc}
+        setDoc={props.setDoc}
+      />
+    </>
+  );
+}
+
+function BuiltinSettingsSection(props: {
   section: SectionDescriptor;
   schema: JsonSchema;
   doc: Record<string, unknown>;

@@ -17,7 +17,9 @@ Configuration edits never apply immediately. The flow is always:
 2. **Stage** edits with `config_set`. Nothing on disk changes; commands accumulate for this session.
 3. **Review** with `config_changes` and summarize the pending commands to the user in plain language.
 4. **Ask the user to save.** In any language, e.g. "I staged these changes: ... Save them?". Wait for a clear agreement ("да, сохраняй", "yes, save it", "go ahead").
-5. **Commit** with `config_commit` only after that agreement. The commit validates the batch, snapshots the previous file, writes atomically, and hot-reloads the running session - new skills, rules and tools become usable in the same turn, no restart needed. MCP servers are not part of config.yaml (see MCP servers below).
+5. **Commit** with `config_commit` only after that agreement. The commit validates the batch, snapshots the previous file, writes atomically, and hot-reloads the running session - new skills, rules and tools become usable in the same turn, no restart needed. ## MCP servers
+
+MCP servers are not part of config.yaml (see MCP servers below).
 6. If the user declines or changes their mind, drop the staged commands with `config_revert` (optionally scoped to one path).
 
 `config_commit` also goes through Coddy's permission gate: it prompts even in `accept_edits` mode (a config commit can start MCP processes through `mcp.project_trust` and change the permission policy itself), and the dialog lists the staged commands with secrets redacted. Never weaken the permission policy merely to avoid that prompt, and never call `config_commit` before the user agreed to save.
@@ -87,6 +89,8 @@ logged as needing a restart where it cannot (the HTTP and relay listeners).
 Fields behind a build tag are parsed and ignored by binaries built without it; process-level listener changes (HTTP port, gateway tokens) may still need the relevant command restarted. The hot reload is guaranteed for the current session's agent configuration, skills, rules, built-in tools, and the MCP trust policy.
 
 Maintenance contract: this catalog and the command examples must be updated in the same change as any `internal/config` schema edit, together with `internal/config/config.schema.json` (embedded into the binary; `coddy -t` checks a file against it) and https://coddy.dev/docs/reference/config (see the workflow rules).
+
+UI extensions store their scalar variables under `extension_values.<extension-id>.<field-id>` in config.yaml. For example, stage `set extension_values.workflow-tools.accent=blue` and use the ordinary config commit flow. Fields registered by enabled JavaScript extensions appear inside existing Settings sections and use the same save transaction. Values are ordinary readable configuration, with at most 128 fields per extension and 256 KiB in total. See https://coddy.dev/docs/features/extensions.
 
 ## MCP servers
 

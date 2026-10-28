@@ -2,7 +2,7 @@
 
 The web UI can load operator-installed JavaScript extensions. Open **Extensions** in the navigation menu, or **Settings → Extensions**, to install a ZIP and switch extensions on or off.
 
-An extension can add pages and menu actions, update or remove its own entries, and process incoming turn data before the browser uses it. This first version covers the browser UI. Native executables, agent tools, composer controls, settings alterations and marketplaces from the [extension issue](https://github.com/coddy-project/coddy-agent/issues/347) and [expanded specification](https://gist.github.com/hijera/95b016e1721608e8c3974fe3b80e29dc) are not implemented.
+An extension can add pages and menu actions, process incoming turn data, observe lifecycle events, render MCP calls and add fields to existing Settings sections. This first version covers the browser UI. Native executables, agent tools, composer controls and marketplaces from the [extension issue](https://github.com/coddy-project/coddy-agent/issues/347) and [expanded specification](https://gist.github.com/hijera/95b016e1721608e8c3974fe3b80e29dc) are not implemented.
 
 Start with [Your first JavaScript extension](../tutorials/first-extension.md) for a short walkthrough, or use the [example index](../../examples/extensions/README.md).
 
@@ -80,6 +80,10 @@ export function activate(coddy) {
 | `coddy.signal` | Aborted when the extension's lifetime ends. Pass it to listeners and requests. |
 | `coddy.assets.text(path)` | Fetch a UTF-8 asset from the exact enabled package through the authenticated API. |
 | `coddy.net.fetch(url, options?)` | Send an HTTP(S) request from the Coddy server and receive a buffered `Response`. |
+| `coddy.events.on(type, listener)` | Observe `tabChanged`, `stepEnded` or `turnEnded`. Returns a `remove()` handle. |
+| `coddy.ui.registerToolRenderer({id, server?, tool?, mount})` | Replace the presentation of matching MCP calls; original details remain available. |
+| `coddy.settings.registerField(field)` | Add a scalar field to an existing Settings section. Returns an update/remove handle. |
+| `coddy.settings.get(id)`, `coddy.settings.set(id, value)` | Read or save an extension-owned configuration value. Both are asynchronous; `set(id, null)` removes the stored value. |
 | `coddy.ui.registerPage({id, title, mount})` | Add a page to the Extensions menu. `mount(element, api)` may return a cleanup function. |
 | `coddy.ui.registerMenuItem({id, title, onSelect})` | Add a menu action. |
 | `handle.update(patch)`, `handle.remove()` | Update a registered page or action, or remove it. Ids stay fixed and are namespaced by extension. |
@@ -96,6 +100,94 @@ python -m zipfile -c hello.zip manifest.json main.js style.css panel.html
 ```
 
 Install the resulting ZIP through Settings. No Node.js runtime is needed on the server or in the browser.
+
+## Navigation and completion events
+
+![Workflow events page with completion counters](../assets/extensions/extensions-events-dark-1280.png)
+
+*The example counts navigation changes, completed model steps and completed turns.*
+
+```js
+coddy.events.on("tabChanged", ({ from, to, sessionId }) => {
+  console.log("Opened", to, "from", from, "chat", sessionId);
+});
+coddy.events.on("stepEnded", ({ sessionId, usage }) => {
+  console.log("Model call finished", sessionId, usage.totalTokens);
+});
+coddy.events.on("turnEnded", async ({ sessionId, at }) => {
+  console.log("Agent turn finished", sessionId, at);
+});
+```
+
+| Event | Payload and source |
+| --- | --- |
+| `tabChanged` | `{from, to, sessionId}` for an app hash-route change: chats, Settings sections, Files, tasks and other sections. `from` and `to` are hashes; `sessionId` is the destination chat or `null`. The initial route, browser focus and switching to another browser tab do not emit it. |
+| `stepEnded` | `{sessionId, sequence, transport, turnStartedAt, usage}` when a completed model call's `token_usage` frame reaches this browser. This is the end of the model response, before any tools it requested finish. `sequence` is the frame id or count, `transport` is `post` or `relay`, `turnStartedAt` is the server timestamp when known or `null`, and `usage` holds the original model-call counters. |
+| `turnEnded` | `{sessionId, at}` from the app's existing shared `/coddy/events` connection when the whole turn ends, including cancellation or failure. It also covers turns started by another surface or in another chat. `at` is the server's timestamp. |
+
+These callbacks observe events; their return values do not cancel navigation or change the agent's control flow. They may start asynchronous work. The host consumes rejected promises, removes a failing listener and reports its error in Settings. Other listeners continue. Delivery runs by extension id in ascending ASCII order, then registration order. Each payload is a frozen copy.
+
+Only events received while the listener is registered are delivered. Disconnecting or reaching EOF does not itself announce a completed turn. Step events follow streams this browser consumes; historical REST reads produce none. The host suppresses duplicate frame identities and turn-end timestamps within a bounded in-memory window. A reload resets it. Delivery order between the turn stream and shared server events is not guaranteed. Stream transforms do not rewrite the lifecycle payloads.
+
+Remove a subscription with its `remove()` handle. The extension's lifetime signal removes its listeners too.
+
+## Custom MCP cards
+
+![Custom MCP card with original details below](../assets/extensions/extensions-mcp-card-dark-1280.png)
+
+*The extension renders the demo status result and keeps the original call available.*
+
+```js
+coddy.ui.registerToolRenderer({
+  id: "status-card", server: "demo", tool: "status",
+  mount(element, call) {
+    const title = document.createElement("strong");
+    element.append(title);
+    const update = (next) => {
+      title.textContent = `${next.server}: ${next.status} - ${next.resultText}`;
+    };
+    update(call);
+    return { update, dispose: () => title.remove() };
+  }
+});
+```
+
+`server` and `tool` match exact MCP names; omit either or use `"*"` to match all names in that position. Both `server__tool` and `mcp__server__tool` are recognised. Built-in tool calls keep their normal renderer. More-specific registrations win, then extension id in ASCII order, then registration order.
+
+`mount(element, call, api)` receives this extension's SDK and a frozen call snapshot: `sessionId`, `toolCallId`, `name`, `server`, `tool`, `status`, `argsText`, `resultText`, `resultWasTruncated`, `permissionWaiting`, `durationMs` and `startedAtMs`. Times are numbers in milliseconds, or `null` when absent. `resultText` is the full result when loaded, otherwise the preview. A renderer does not automatically fetch a full result.
+
+Return `{update(call), dispose()}` to keep the same DOM while input, status or result changes. `mount` and `update` must finish synchronously. A mount that returns only cleanup, or nothing, is mounted again for changed data. The host runs cleanup on replacement, transcript-window unmount or extension disposal. A thrown error removes the failing registration and restores the next matching renderer or the normal view. Errors appear in Settings.
+
+The host keeps **Original tool details** below the custom view, including raw input/output and the ordinary attachments. Permission and question prompts stay under host control. A custom card changes presentation in this browser; it changes no tool arguments, results, permissions or stored history.
+
+## Fields in existing Settings sections
+
+![Extension field inside ReAct loop settings](../assets/extensions/extensions-field-dark-1280.png)
+
+*The example adds MCP card badge to the existing ReAct loop section.*
+
+```js
+coddy.settings.registerField({
+  id: "badge", section: "agent", title: "MCP card badge",
+  type: "string", default: "CUSTOM MCP"
+});
+const badge = await coddy.settings.get("badge");
+await coddy.settings.set("badge", "MY CARD");
+```
+
+The field id uses a lowercase letter followed by lowercase letters, digits or hyphens, at most 64 characters. `section` is an existing section id, such as `agent`, `mcp_servers`, `tools`, `appearance` or `extensions`. The title is required; `description` and `default` are optional. Types are `string`, `number` and `boolean`; a string field may declare an `enum` of choices. Defaults must match the type and choices.
+
+Registered fields appear below the existing section controls, grouped under the extension id. They edit the same configuration draft as the normal fields and use its Save, Reload and unsaved-change handling. A default is displayed without writing it to disk. Removing a field or disabling its extension removes the control and keeps the saved value.
+
+Values live in the server's `config.yaml`, under `extension_values.<extension-id>.<field-id>`. They are ordinary readable configuration, not write-only secrets. Each extension may store at most 128 scalar fields; all extension values together are limited to 256 KiB. SDK-written strings preserve literal dollar signs. Existing YAML environment references follow the normal loader rules.
+
+`get` reads the saved value, or the registered default when none is stored; unsaved form edits are not returned. `set` uses the normal authenticated config transaction and revision merge, preserves neighbouring values, then refreshes the Settings cache. It accepts scalar variables even without a registered control. Calls stop with the extension lifetime. Saving reloads configuration as an ordinary Settings save does. Passing `null` removes a key, so a registered default applies again.
+
+The [Workflow tools example](../../examples/extensions/workflow-tools/main.js) combines events, a `demo__status` card and fields in ReAct loop and MCP servers settings. From `examples/extensions/workflow-tools`, package it with the following command.
+
+```sh
+python -m zipfile -c workflow-tools.zip manifest.json main.js
+```
 
 ## Server-side HTTP requests
 

@@ -114,6 +114,7 @@ function reasoningDurationCacheKey(text: string): string {
  * the whole turn on top of what it already shows.
  */
 export type ComposerStreamCursor = {
+  extensionStreamId?: string;
   /** Frames consumed: the relay sequence of the last one. */
   frames: number;
   /** The open assistant text segment. */
@@ -132,6 +133,9 @@ export type ConsumeComposerSseParams = {
         sessionId: string;
         transport: "post" | "relay";
         process: (frame: IncomingFrame) => string;
+        observe?: (
+          frame: IncomingFrame & { sequence: string; streamId?: string },
+        ) => void;
         ready?: Promise<void>;
       }
     | undefined;
@@ -504,10 +508,15 @@ export async function consumeComposerSseReader(
   let pendingWhitespace = "";
   let currentSegmentHasText = resuming ? cursor.segmentHasText : false;
   // A relay frame names its sequence; a POST frame is counted.
+  let currentFrames = cursor?.frames ?? 0;
+  const extensionStreamId =
+    cursor?.extensionStreamId ??
+    (p.incoming?.observe ? newId("extension_stream") : "");
+  if (cursor) cursor.extensionStreamId = extensionStreamId;
   const countFrame = (id: string) => {
-    if (!cursor) return;
     const seq = id ? Number(id) : NaN;
-    cursor.frames = Number.isInteger(seq) && seq > 0 ? seq : cursor.frames + 1;
+    currentFrames = Number.isInteger(seq) && seq > 0 ? seq : currentFrames + 1;
+    if (cursor) cursor.frames = currentFrames;
   };
   // Run after every batch of frames, before the next read: an abort lands only
   // on a read, so the cursor then holds the state after the last counted frame.
@@ -586,6 +595,13 @@ export async function consumeComposerSseReader(
     for (const raw of events) {
       const ev = transformIncoming(raw);
       countFrame(ev.id);
+      p.incoming?.observe?.({
+        ...raw,
+        sessionId: p.incoming.sessionId,
+        transport: p.incoming.transport,
+        sequence: ev.id || String(currentFrames),
+        streamId: extensionStreamId,
+      });
       frameAt = typeof ev.ageMs === "number" ? Date.now() - ev.ageMs : null;
       if (ev.id) {
         lastEventId = ev.id;
@@ -1008,6 +1024,13 @@ export async function consumeComposerSseReader(
     for (const raw of tailEvents) {
       const ev = transformIncoming(raw);
       countFrame(ev.id);
+      p.incoming?.observe?.({
+        ...raw,
+        sessionId: p.incoming.sessionId,
+        transport: p.incoming.transport,
+        sequence: ev.id || String(currentFrames),
+        streamId: extensionStreamId,
+      });
       frameAt = typeof ev.ageMs === "number" ? Date.now() - ev.ageMs : null;
       if (ev.id) {
         lastEventId = ev.id;

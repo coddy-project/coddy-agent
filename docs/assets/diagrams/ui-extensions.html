@@ -54,6 +54,14 @@
       <div class="box green" id="net-target">Server loopback, private or external API<br />Return status, headers and bytes</div>
     </div>
     <p class="note">No browser CORS on the target request. No automatic credentials or redirects. Disable/removal cancels calls through this server.</p>
+    <h2 style="margin-top: 32px">5. Observe and extend the interface</h2>
+    <div class="cols network">
+      <div class="box blue"><code>events.on</code><br />Tab changes, model steps and turn completion</div>
+      <div class="box green"><code>ui.registerToolRenderer</code><br />Custom MCP cards with original details</div>
+      <div class="box blue"><code>settings.registerField</code><br />Fields inside existing Settings sections</div>
+      <div class="box core"><code>settings.get / set</code><br />config.yaml: extension_values.&lt;id&gt;</div>
+    </div>
+    <p class="note">Lifetime abort removes listeners, views and fields. Saved scalar values survive disabling the extension.</p>
     <script src="diagram.js"></script>
     <script>
       wires([
