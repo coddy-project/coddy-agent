@@ -1,0 +1,8 @@
+{
+  "api": 1,
+  "id": "local-api",
+  "name": "Local API",
+  "version": "1.0.0",
+  "description": "Call HTTP APIs from the Coddy server",
+  "ui": { "entry": "main.js" }
+}

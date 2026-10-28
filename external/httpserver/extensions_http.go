@@ -15,7 +15,9 @@ import (
 )
 
 func (s *Server) registerExtensionRoutes() {
+	proxy := newExtensionProxy()
 	store := func() *extensions.Store { return extensions.NewStore(s.activeCfg().Paths.Home) }
+	proxyKey := func(id string) string { return s.activeCfg().Paths.Home + "\x00" + id }
 	reply := func(w http.ResponseWriter, code int, value any) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
@@ -80,7 +82,12 @@ func (s *Server) registerExtensionRoutes() {
 			http.Error(w, errorJSON("enabling JavaScript requires accept_risk: true"), 400)
 			return
 		}
-		row, err := store().SetEnabled(r.PathValue("id"), body.SHA256, *body.Enabled)
+		var row extensions.Entry
+		err := proxy.mutate(proxyKey(r.PathValue("id")), func() error {
+			var err error
+			row, err = store().SetEnabled(r.PathValue("id"), body.SHA256, *body.Enabled)
+			return err
+		})
 		if err != nil {
 			fail(w, err)
 			return
@@ -88,11 +95,16 @@ func (s *Server) registerExtensionRoutes() {
 		reply(w, 200, row)
 	})
 	s.mux.HandleFunc("DELETE /coddy/extensions/{id}", func(w http.ResponseWriter, r *http.Request) {
-		if err := store().Remove(r.PathValue("id")); err != nil {
+		if err := proxy.mutate(proxyKey(r.PathValue("id")), func() error {
+			return store().Remove(r.PathValue("id"))
+		}); err != nil {
 			fail(w, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	})
+	s.mux.HandleFunc("POST /coddy/extensions/{id}/fetch", func(w http.ResponseWriter, r *http.Request) {
+		proxy.serve(w, r, store(), proxyKey(r.PathValue("id")))
 	})
 	s.mux.HandleFunc("GET /coddy/extensions/{id}/assets/{file...}", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("file")
