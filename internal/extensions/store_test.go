@@ -3,8 +3,10 @@ package extensions
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -129,5 +131,56 @@ func TestListSkipsUnreadableRecords(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].ID != row.ID {
 		t.Fatalf("list: %v", rows)
+	}
+}
+
+func TestReadIsNotServedFromAStaleCache(t *testing.T) {
+	home := t.TempDir()
+	s := NewStore(home)
+	row, err := s.Install(fixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetEnabled("demo", row.SHA256, true); err != nil {
+		t.Fatal(err)
+	}
+	// This read fills the derived cache. The enabled flag still has to come
+	// from the record rather than from what the cache holds.
+	if _, err := s.Asset("demo", row.SHA256, "main.js"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetEnabled("demo", row.SHA256, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Asset("demo", row.SHA256, "main.js"); err == nil {
+		t.Fatal("a cached bundle kept serving after it was disabled")
+	}
+	// A record rewritten behind the store's back is picked up at once: the
+	// cache is keyed by the archive bytes, never by the id alone.
+	next := archive(t, map[string]string{"manifest.json": `{"api":1,"id":"demo","name":"Demo","version":"1.0","ui":{"entry":"main.js"}}`, "main.js": "export function activate(coddy) { return 1 }"})
+	stored, err := json.Marshal(record{Archive: next, SHA256: digest(next), Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "extensions", "demo.json"), stored, 0600); err != nil {
+		t.Fatal(err)
+	}
+	body, err := s.Asset("demo", digest(next), "main.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "return 1") {
+		t.Fatalf("served the cached bytes: %q", body)
+	}
+	// The flag of that same record is honoured just as at once.
+	stored, err = json.Marshal(record{Archive: next, SHA256: digest(next), Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "extensions", "demo.json"), stored, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Asset("demo", digest(next), "main.js"); err == nil {
+		t.Fatal("a cached bundle kept serving after the record disabled it")
 	}
 }

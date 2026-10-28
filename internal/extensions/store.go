@@ -64,6 +64,20 @@ type bundle struct {
 
 type Store struct{ dir string }
 
+type parsed struct {
+	digest string
+	bundle *bundle
+}
+
+// One derived bundle per installed id, keyed by the folder it lives in. The
+// store is built per request, so the cache sits out here rather than on it:
+// without it List, Asset and CheckEnabled each re-read and re-expand the whole
+// ZIP, and the UI polls List every 15 seconds and on every window focus. The
+// entry records the digest it was parsed from, so bytes that changed always
+// miss and replace it - the check against the record's own digest is repeated
+// either way. At most one bundle per id is held, and Remove drops it.
+var parsedBundles sync.Map // dir + "\x00" + id -> *parsed
+
 func NewStore(home string) *Store { return &Store{dir: filepath.Join(home, "extensions")} }
 
 func digest(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
@@ -159,7 +173,7 @@ func (s *Store) withRoot(fn func(*os.Root) error) error {
 	return fn(root)
 }
 
-func read(root *os.Root, id string) (*bundle, error) {
+func (s *Store) read(root *os.Root, id string) (*bundle, error) {
 	if !validID(id) {
 		return nil, ErrInvalid
 	}
@@ -179,16 +193,29 @@ func read(root *os.Root, id string) (*bundle, error) {
 	if err := json.NewDecoder(io.LimitReader(f, 2*MaxArchive+1)).Decode(&r); err != nil {
 		return nil, err
 	}
-	b, err := parse(r.Archive)
-	if err != nil {
-		return nil, err
+	key := s.dir + "\x00" + id
+	sum := digest(r.Archive)
+	var b *bundle
+	cached := false
+	if v, ok := parsedBundles.Load(key); ok && v.(*parsed).digest == sum {
+		b = v.(*parsed).bundle
+		cached = true
+	}
+	if !cached {
+		if b, err = parse(r.Archive); err != nil {
+			return nil, err
+		}
 	}
 	if b.entry.ID != id || b.SHA256 != r.SHA256 {
 		return nil, ErrUnavailable
 	}
-	b.Enabled = r.Enabled
-	b.entry.Enabled = r.Enabled
-	return b, nil
+	if !cached {
+		parsedBundles.Store(key, &parsed{digest: sum, bundle: b})
+	}
+	out := *b
+	out.Enabled = r.Enabled
+	out.entry.Enabled = r.Enabled
+	return &out, nil
 }
 
 func write(root *os.Root, id string, r record) error {
@@ -244,7 +271,7 @@ func (s *Store) List() ([]Entry, error) {
 			// One unreadable record - a stray or hand-edited file in the operator's
 			// extension folder - must not take the whole catalog down: the bundles
 			// that still read stay listed, and Remove still reaches the bad file by id.
-			b, err := read(root, strings.TrimSuffix(name, ".json"))
+			b, err := s.read(root, strings.TrimSuffix(name, ".json"))
 			if err != nil {
 				continue
 			}
@@ -276,7 +303,7 @@ func (s *Store) Install(data []byte) (Entry, error) {
 func (s *Store) SetEnabled(id, sha string, enabled bool) (Entry, error) {
 	var out Entry
 	err := s.withRoot(func(root *os.Root) error {
-		b, err := read(root, id)
+		b, err := s.read(root, id)
 		if err != nil {
 			return err
 		}
@@ -295,13 +322,17 @@ func (s *Store) Remove(id string) error {
 	if !validID(id) {
 		return ErrInvalid
 	}
-	return s.withRoot(func(root *os.Root) error { return root.Remove(id + ".json") })
+	return s.withRoot(func(root *os.Root) error {
+		err := root.Remove(id + ".json")
+		parsedBundles.Delete(s.dir + "\x00" + id)
+		return err
+	})
 }
 
 // CheckEnabled authorizes a server-side operation for one approved bundle.
 func (s *Store) CheckEnabled(id, sha string) error {
 	return s.withRoot(func(root *os.Root) error {
-		b, err := read(root, id)
+		b, err := s.read(root, id)
 		if err != nil {
 			return err
 		}
@@ -316,7 +347,7 @@ func (s *Store) CheckEnabled(id, sha string) error {
 func (s *Store) Asset(id, sha, name string) ([]byte, error) {
 	var out []byte
 	err := s.withRoot(func(root *os.Root) error {
-		b, err := read(root, id)
+		b, err := s.read(root, id)
 		if err != nil {
 			return err
 		}
