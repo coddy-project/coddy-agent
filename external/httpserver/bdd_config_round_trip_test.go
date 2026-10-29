@@ -274,6 +274,26 @@ func (w *configRoundTripWorld) wantSaved(want string) error {
 	return fmt.Errorf("config.yaml after the save:\n%s\nwant:\n%s", w.saved, want)
 }
 
+// saveBrowserKey writes the extension key through the Settings endpoint.
+func (w *configRoundTripWorld) saveBrowserKey(key string) error {
+	return w.save(func(doc map[string]interface{}) error {
+		doc["browser"] = map[string]interface{}{"enable": true, "token": key}
+		return nil
+	})
+}
+
+// wantBrowserKey checks the key a fresh server would load from the saved file.
+func (w *configRoundTripWorld) wantBrowserKey(key string) error {
+	cfg, err := config.LoadWithPaths(config.Paths{Home: filepath.Dir(w.cfgPath), CWD: filepath.Dir(w.cfgPath), ConfigPath: w.cfgPath})
+	if err != nil {
+		return err
+	}
+	if cfg.Browser.Token != key {
+		return fmt.Errorf("reloaded browser key = %q, want %q", cfg.Browser.Token, key)
+	}
+	return nil
+}
+
 func TestConfigSaveRoundTripFeature(t *testing.T) {
 	suite := godog.TestSuite{
 		Name: "config_save_round_trip",
@@ -282,6 +302,8 @@ func TestConfigSaveRoundTripFeature(t *testing.T) {
 			sc.Step(`^a coddy server whose config\.yaml spells its paths with \$\{CODDY_HOME\}, \$\{CWD\}, ~ and \$\{VAR\}$`, func() error {
 				return w.startSpelledGateway(t)
 			})
+			sc.Step(`^the settings screen saves the browser key "([^"]*)"$`, w.saveBrowserKey)
+			sc.Step(`^a fresh configuration load keeps the browser key "([^"]*)"$`, w.wantBrowserKey)
 			sc.Step(`^the binary behind the server has no metrics support$`, w.withoutMetrics)
 			sc.Step(`^the settings screen saves the config without changing anything$`, w.saveUnchanged)
 			sc.Step(`^the settings screen saves the config with "([^"]*)" set to (\d+)$`, w.saveWithField)

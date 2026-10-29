@@ -1193,6 +1193,8 @@ func escapeYAMLSecrets(cfg *Config) *Config {
 	// and it is why `coddy serve set-password` exists rather than a line an
 	// operator types into the file by hand.
 	out.HTTPServer.Login.PasswordHash = escapeYAMLDollar(cfg.HTTPServer.Login.PasswordHash)
+	// Settings accept a literal extension key, including dollar signs.
+	out.Browser.Token = escapeYAMLDollar(cfg.Browser.Token)
 	// A swarm proxy URL carries credentials just as a provider's does, so a "$"
 	// in a password would otherwise be read as an environment reference on the
 	// next load and silently expand to nothing.

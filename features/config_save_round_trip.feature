@@ -46,3 +46,10 @@ Feature: A settings save rewrites only what the operator changed
     When the settings screen saves the config with "agent.max_turns" set to 42
     Then the settings form offers no "metrics" section
     And config.yaml is what it was with "max_turns: 40" written as "max_turns: 42"
+
+  Scenario: A browser key entered in Settings keeps literal dollar signs after reload
+    Given a coddy server whose config.yaml spells its paths with ${CODDY_HOME}, ${CWD}, ~ and ${VAR}
+    When the settings screen saves the browser key "extension-key-with-32-characters-$CODDY_BDD_LOCAL_KEY-$$"
+    Then a fresh configuration load keeps the browser key "extension-key-with-32-characters-$CODDY_BDD_LOCAL_KEY-$$"
+    When the settings screen saves the config with "agent.max_turns" set to 42
+    Then a fresh configuration load keeps the browser key "extension-key-with-32-characters-$CODDY_BDD_LOCAL_KEY-$$"

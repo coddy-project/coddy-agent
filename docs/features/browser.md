@@ -50,6 +50,9 @@ The extension connects to the HTTP server (`httpserver.enable`), at the address 
 **Settings** or restart `coddy serve`; a new key disconnects the extensions that held the old one. The `browser` tool
 is offered to the chats while `browser.enable` is true.
 
+When you enter a key in Settings, Coddy preserves its dollar signs on save and reload. Environment references such as
+`${CODDY_BROWSER_KEY}` in hand-written YAML still work and survive unrelated Settings saves.
+
 Run `coddy serve` on the machine of the browser. A server on another machine needs HTTPS in front of it, a reverse
 proxy that passes WebSocket upgrades: the extension uses plain HTTP only for `localhost`, `127.0.0.1` and `[::1]`.
 A machine that accepts no inbound connection joins your swarm with `swarm.join`, and the other nodes reach its
