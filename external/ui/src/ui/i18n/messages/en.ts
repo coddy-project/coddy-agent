@@ -2542,6 +2542,7 @@ export const messagesEn: Record<string, string> = {
   "status.waitingStuck": "Still no response from the server",
   "status.turnTokens.one": "{shown} token",
   "status.turnTokens.other": "{shown} tokens",
+  "status.generationSpeed": "{speed} tok/s",
   "messages.toolArtifacts": "Shared files",
   "messages.artifactOpenFile": "Open {fileName} in the Files window",
   "messages.artifactSourceDeleted": "File deleted",

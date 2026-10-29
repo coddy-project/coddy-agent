@@ -581,6 +581,65 @@ test("turn_progress reaches the caller on this machine's clock, replayed frames 
   ]);
 });
 
+test("a completed generation caption follows the answer and is not duplicated by replay", async () => {
+  const final = `event: turn_progress\ndata: ${JSON.stringify({ startedAt: "2026-10-24T10:00:00Z", elapsedMs: 10000, outputTokens: 500, tokensPerSecond: 9.8, completed: true })}\n\n`;
+  let items: TranscriptItem[] = [];
+  await consumeComposerSseReader({
+    reader: mockReader(final + final + "data: [DONE]\n\n"),
+    dec: new TextDecoder(),
+    carry: { buf: "" },
+    assistantId: "answer",
+    applyStreamItems: (update) => {
+      items = update(items);
+    },
+    setTokenUsage: () => {},
+    setContextUsage: () => {},
+    tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
+    reasoningDurationMsByContentRef: { current: new Map() },
+    newId: (p) => p,
+    applyMemoryRunToItems: (prev) => prev,
+  });
+  expect(items).toHaveLength(1);
+  expect(items[0]).toMatchObject({
+    id: "generation_2026-10-24T10:00:00Z",
+    type: "system_notice",
+    generation: { outputTokens: 500, tokensPerSecond: 9.8 },
+  });
+});
+
+test("a continued turn replaces its generation caption after the latest answer", async () => {
+  const completed = (
+    startedAt: string,
+    outputTokens: number,
+    tokensPerSecond: number,
+  ) =>
+    `event: turn_progress\ndata: ${JSON.stringify({ startedAt, outputTokens, tokensPerSecond, completed: true })}\n\n`;
+  const first = "2026-10-24T10:00:00Z";
+  const next = "2026-10-24T10:01:00Z";
+  const final = completed(first, 300, 75);
+  const items = await drive(
+    textEvent("First answer.") +
+      completed(first, 100, 50) +
+      `event: user_message\ndata: ${JSON.stringify({ content: { text: "Follow up" } })}\n\n` +
+      textEvent("Follow-up answer.") +
+      final +
+      final +
+      completed(next, 200, 20) +
+      "data: [DONE]\n\n",
+  );
+  const captions = items.filter((item) => item.type === "system_notice");
+  expect(captions).toHaveLength(2);
+  expect(captions[0]).toMatchObject({
+    id: "generation_" + first,
+    generation: { outputTokens: 300, tokensPerSecond: 75 },
+  });
+  expect(captions[1]).toMatchObject({
+    id: "generation_" + next,
+    generation: { outputTokens: 200, tokensPerSecond: 20 },
+  });
+  expect(items.slice(-2)).toEqual(captions);
+});
+
 test("a woken turn opens with the wake, before anything it says", async () => {
   const wake = {
     sessionUpdate: "background_wake",
