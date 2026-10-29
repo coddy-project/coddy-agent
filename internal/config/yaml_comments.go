@@ -46,7 +46,7 @@ func SchemaModeline() string {
 var identityKeys = []string{"name", "model", "id", "url", "path", "command"}
 
 // MarshalConfigYAML serializes cfg to YAML bytes for disk (Paths is omitted via yaml:"-" on
-// field). Always-literal secret fields (proxy URLs) are "$"-escaped so the load-time expansion
+// field). Literal credential fields are "$"-escaped so the load-time expansion
 // pass restores them verbatim instead of resolving "$WORD"/"$N" fragments to empty environment
 // variables. The result carries the schema modeline, so an editor validates every config Coddy
 // writes.

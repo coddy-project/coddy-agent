@@ -227,7 +227,10 @@ agent:
   model: openai/gpt-5.4
 `
 	t.Setenv("CODDY_TEST_KEY", "resolved-value")
-	cfg := loadForRewrite(t, withRef)
+	cfg := loadForRewrite(t, expandConfigBody(withRef, Paths{}))
+	if cfg.Providers[0].APIKey != "resolved-value" {
+		t.Fatal("the environment reference was not resolved before the save")
+	}
 	saved := rewrite(t, cfg, withRef)
 
 	if !strings.Contains(saved, "api_key: ${CODDY_TEST_KEY}") {

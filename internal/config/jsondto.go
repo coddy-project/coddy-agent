@@ -1173,26 +1173,52 @@ func preserveSwarmSecrets(next, current *SwarmConfig) {
 	}
 }
 
-// escapeYAMLSecrets returns a copy of cfg with always-literal proxy URLs "$"-escaped for disk.
-// It copies only what it mutates (the Providers slice and the gateway proxy string), leaving the
-// caller's in-memory *Config untouched — the live config keeps the real, unescaped values.
+// escapeYAMLSecrets returns a copy of cfg with literal credentials "$"-escaped for disk.
+// It copies each collection it mutates, leaving the caller's live values untouched.
 func escapeYAMLSecrets(cfg *Config) *Config {
 	out := *cfg
 	if len(cfg.Providers) > 0 {
 		out.Providers = make([]ProviderConfig, len(cfg.Providers))
 		copy(out.Providers, cfg.Providers)
 		for i := range out.Providers {
+			out.Providers[i].APIKey = escapeYAMLDollar(out.Providers[i].APIKey)
 			out.Providers[i].Proxy = escapeYAMLDollar(out.Providers[i].Proxy)
 		}
 	}
+	out.Gateways.Telegram.Token = escapeYAMLDollar(cfg.Gateways.Telegram.Token)
 	out.Gateways.Telegram.Proxy = escapeYAMLDollar(cfg.Gateways.Telegram.Proxy)
+	out.Gateways.Pachca.Token = escapeYAMLDollar(cfg.Gateways.Pachca.Token)
 	out.Gateways.Pachca.Proxy = escapeYAMLDollar(cfg.Gateways.Pachca.Proxy)
+	out.HTTPServer.AuthToken = escapeYAMLDollar(cfg.HTTPServer.AuthToken)
+	if len(cfg.HTTPServer.Remotes) > 0 {
+		out.HTTPServer.Remotes = append([]HTTPRemote(nil), cfg.HTTPServer.Remotes...)
+		for i := range out.HTTPServer.Remotes {
+			out.HTTPServer.Remotes[i].Token = escapeYAMLDollar(out.HTTPServer.Remotes[i].Token)
+		}
+	}
 	// An argon2id hash is "$argon2id$v=19$m=...", which the load-time expansion
 	// would otherwise read as a row of empty environment references and hand
 	// back as rubble. Doubling the signs here is what makes the hash a literal,
 	// and it is why `coddy serve set-password` exists rather than a line an
 	// operator types into the file by hand.
 	out.HTTPServer.Login.PasswordHash = escapeYAMLDollar(cfg.HTTPServer.Login.PasswordHash)
+	// Settings accept a literal extension key, including dollar signs.
+	out.Browser.Token = escapeYAMLDollar(cfg.Browser.Token)
+	out.Metrics.Token = escapeYAMLDollar(cfg.Metrics.Token)
+	out.Swarm.AuthToken = escapeYAMLDollar(cfg.Swarm.AuthToken)
+	if len(cfg.Swarm.PairingTokens) > 0 {
+		out.Swarm.PairingTokens = append([]string(nil), cfg.Swarm.PairingTokens...)
+		for i := range out.Swarm.PairingTokens {
+			out.Swarm.PairingTokens[i] = escapeYAMLDollar(out.Swarm.PairingTokens[i])
+		}
+	}
+	out.Tools.WebSearch.BraveAPIKey = escapeYAMLDollar(cfg.Tools.WebSearch.BraveAPIKey)
+	if len(cfg.Tools.HTTPRequest.DefaultHeaders) > 0 {
+		out.Tools.HTTPRequest.DefaultHeaders = cloneStringMap(cfg.Tools.HTTPRequest.DefaultHeaders)
+		for name, value := range out.Tools.HTTPRequest.DefaultHeaders {
+			out.Tools.HTTPRequest.DefaultHeaders[name] = escapeYAMLDollar(value)
+		}
+	}
 	// A swarm proxy URL carries credentials just as a provider's does, so a "$"
 	// in a password would otherwise be read as an environment reference on the
 	// next load and silently expand to nothing.
@@ -1203,6 +1229,7 @@ func escapeYAMLSecrets(cfg *Config) *Config {
 		out.Swarm.Upstreams = make([]SwarmUpstream, len(cfg.Swarm.Upstreams))
 		copy(out.Swarm.Upstreams, cfg.Swarm.Upstreams)
 		for i := range out.Swarm.Upstreams {
+			out.Swarm.Upstreams[i].Token = escapeYAMLDollar(out.Swarm.Upstreams[i].Token)
 			out.Swarm.Upstreams[i].Dial.Proxy = escapeYAMLDollar(out.Swarm.Upstreams[i].Dial.Proxy)
 		}
 	}
@@ -1210,6 +1237,8 @@ func escapeYAMLSecrets(cfg *Config) *Config {
 		out.Swarm.Join = make([]SwarmJoin, len(cfg.Swarm.Join))
 		copy(out.Swarm.Join, cfg.Swarm.Join)
 		for i := range out.Swarm.Join {
+			out.Swarm.Join[i].PairingToken = escapeYAMLDollar(out.Swarm.Join[i].PairingToken)
+			out.Swarm.Join[i].Token = escapeYAMLDollar(out.Swarm.Join[i].Token)
 			out.Swarm.Join[i].Dial.Proxy = escapeYAMLDollar(out.Swarm.Join[i].Dial.Proxy)
 		}
 	}
