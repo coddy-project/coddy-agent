@@ -53,3 +53,10 @@ Feature: A settings save rewrites only what the operator changed
     Then a fresh configuration load keeps the browser key "extension-key-with-32-characters-$CODDY_BDD_LOCAL_KEY-$$"
     When the settings screen saves the config with "agent.max_turns" set to 42
     Then a fresh configuration load keeps the browser key "extension-key-with-32-characters-$CODDY_BDD_LOCAL_KEY-$$"
+
+  Scenario: An API key entered in Settings keeps literal dollar signs after reload
+    Given a coddy server whose config.yaml spells its paths with ${CODDY_HOME}, ${CWD}, ~ and ${VAR}
+    When the settings screen saves the provider key "sk-literal-$CODDY_BDD_LOCAL_KEY-${CODDY_BDD_LOCAL_KEY}-$$"
+    Then a fresh configuration load keeps the provider key "sk-literal-$CODDY_BDD_LOCAL_KEY-${CODDY_BDD_LOCAL_KEY}-$$"
+    When the settings screen saves the config with "agent.max_turns" set to 42
+    Then a fresh configuration load keeps the provider key "sk-literal-$CODDY_BDD_LOCAL_KEY-${CODDY_BDD_LOCAL_KEY}-$$"

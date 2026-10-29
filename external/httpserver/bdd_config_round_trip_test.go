@@ -72,6 +72,7 @@ type configRoundTripWorld struct {
 	srv     *Server
 	ts      *httptest.Server
 	cfgPath string
+	paths   config.Paths
 	initial string
 	saved   string
 	// second is the document another browser read and holds on to.
@@ -98,6 +99,7 @@ func (w *configRoundTripWorld) startSpelledGateway(t *testing.T) error {
 		ConfigPath: filepath.Join(home, "config.yaml"),
 	}
 	w.cfgPath = paths.ConfigPath
+	w.paths = paths
 	w.initial = spelledConfigYAML
 	if err := os.WriteFile(w.cfgPath, []byte(spelledConfigYAML), 0o644); err != nil {
 		return err
@@ -284,12 +286,38 @@ func (w *configRoundTripWorld) saveBrowserKey(key string) error {
 
 // wantBrowserKey checks the key a fresh server would load from the saved file.
 func (w *configRoundTripWorld) wantBrowserKey(key string) error {
-	cfg, err := config.LoadWithPaths(config.Paths{Home: filepath.Dir(w.cfgPath), CWD: filepath.Dir(w.cfgPath), ConfigPath: w.cfgPath})
+	cfg, err := config.LoadWithPaths(w.paths)
 	if err != nil {
 		return err
 	}
 	if cfg.Browser.Token != key {
 		return fmt.Errorf("reloaded browser key = %q, want %q", cfg.Browser.Token, key)
+	}
+	return nil
+}
+
+func (w *configRoundTripWorld) saveProviderKey(key string) error {
+	return w.save(func(doc map[string]interface{}) error {
+		providers, ok := doc["providers"].([]interface{})
+		if !ok || len(providers) == 0 {
+			return fmt.Errorf("GET /coddy/config carries no providers")
+		}
+		provider, ok := providers[0].(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("GET /coddy/config carries an invalid provider")
+		}
+		provider["api_key"] = key
+		return nil
+	})
+}
+
+func (w *configRoundTripWorld) wantProviderKey(key string) error {
+	cfg, err := config.LoadWithPaths(w.paths)
+	if err != nil {
+		return err
+	}
+	if len(cfg.Providers) == 0 || cfg.Providers[0].APIKey != key {
+		return fmt.Errorf("reloaded provider key does not match the Settings input")
 	}
 	return nil
 }
@@ -304,6 +332,8 @@ func TestConfigSaveRoundTripFeature(t *testing.T) {
 			})
 			sc.Step(`^the settings screen saves the browser key "([^"]*)"$`, w.saveBrowserKey)
 			sc.Step(`^a fresh configuration load keeps the browser key "([^"]*)"$`, w.wantBrowserKey)
+			sc.Step(`^the settings screen saves the provider key "([^"]*)"$`, w.saveProviderKey)
+			sc.Step(`^a fresh configuration load keeps the provider key "([^"]*)"$`, w.wantProviderKey)
 			sc.Step(`^the binary behind the server has no metrics support$`, w.withoutMetrics)
 			sc.Step(`^the settings screen saves the config without changing anything$`, w.saveUnchanged)
 			sc.Step(`^the settings screen saves the config with "([^"]*)" set to (\d+)$`, w.saveWithField)

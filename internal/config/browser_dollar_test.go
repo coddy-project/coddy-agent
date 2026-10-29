@@ -9,9 +9,22 @@ import (
 )
 
 func TestBrowserKeyDollarsSurviveSettingsSave(t *testing.T) {
-	for _, env := range []string{"", "expanded-value"} {
-		t.Run("environment="+env, func(t *testing.T) {
-			t.Setenv("CODDY_TEST_BROWSER_KEY", env)
+	for _, env := range []struct {
+		name  string
+		value string
+		unset bool
+	}{
+		{name: "unset", unset: true},
+		{name: "empty"},
+		{name: "set", value: "expanded-value"},
+	} {
+		t.Run("environment="+env.name, func(t *testing.T) {
+			t.Setenv("CODDY_TEST_BROWSER_KEY", env.value)
+			if env.unset {
+				if err := os.Unsetenv("CODDY_TEST_BROWSER_KEY"); err != nil {
+					t.Fatal(err)
+				}
+			}
 			for _, suffix := range []string{"$CODDY_TEST_BROWSER_KEY", "${CODDY_TEST_BROWSER_KEY}", "$$"} {
 				t.Run(suffix, func(t *testing.T) {
 					key := strings.Repeat("k", 32) + suffix

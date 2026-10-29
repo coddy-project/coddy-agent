@@ -62,7 +62,7 @@ func expandConfigText(s string, p Paths) string {
 }
 
 // escapeYAMLDollar doubles every "$" so that expandEnvEscaped restores the exact literal
-// on the next load. Applied to always-literal secret fields (proxy URLs) before they are
+// on the next load. Applied to literal credentials before they are
 // serialized to disk, so a value never gets mangled by environment-variable expansion.
 func escapeYAMLDollar(s string) string {
 	return strings.ReplaceAll(s, "$", "$$")

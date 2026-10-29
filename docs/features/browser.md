@@ -52,6 +52,7 @@ is offered to the chats while `browser.enable` is true.
 
 When you enter a key in Settings, Coddy preserves its dollar signs on save and reload. Environment references such as
 `${CODDY_BROWSER_KEY}` in hand-written YAML still work and survive unrelated Settings saves.
+If environment expansion has already changed a saved key, enter the original key again in Settings.
 
 Run `coddy serve` on the machine of the browser. A server on another machine needs HTTPS in front of it, a reverse
 proxy that passes WebSocket upgrades: the extension uses plain HTTP only for `localhost`, `127.0.0.1` and `[::1]`.
