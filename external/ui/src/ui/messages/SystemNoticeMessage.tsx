@@ -7,6 +7,11 @@ import {
 import { useT } from "../i18n/I18nProvider";
 import { MessageCopyIconButton } from "./MessageCopyIconButton";
 import { MessageRetryIconButton } from "./MessageRetryIconButton";
+import {
+  formatGenerationSpeed,
+  type GenerationSummary,
+} from "../chat/generationSpeed";
+import { formatTurnTokens } from "../chat/turnProgress";
 
 export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
   /** The transcript row id, stamped on the row so the transcript window can
@@ -15,11 +20,29 @@ export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
   /** error: a failed request or turn; notice: information the operator should see once. */
   level: "error" | "notice";
   message: string;
+  generation?: GenerationSummary;
   createdAtUtc?: string;
   /** When provided, a refresh button re-runs the last turn (e.g. after a no-response error). */
   onRetry?: () => void;
 }) {
-  const { t } = useT();
+  const { t, tp } = useT();
+  if (props.generation) {
+    return (
+      <div
+        className="msg-system-foot"
+        data-row-id={props.rowId}
+        data-testid="generation-summary"
+      >
+        {tp("status.turnTokens", props.generation.outputTokens, {
+          shown: formatTurnTokens(props.generation.outputTokens),
+        })}
+        {" · "}
+        {t("status.generationSpeed", {
+          speed: formatGenerationSpeed(props.generation.tokensPerSecond),
+        })}
+      </div>
+    );
+  }
   const timeHM = props.createdAtUtc
     ? formatUtcToLocalHM(props.createdAtUtc)
     : "";

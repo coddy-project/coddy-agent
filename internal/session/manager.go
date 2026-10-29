@@ -1020,7 +1020,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 			live.SetAdditionalDirectories(params.AdditionalDirectories)
 		}
 		if opts.replay {
-			if err := m.replayConversation(params.SessionID, live.GetMessages(), live.GetPersistedSessionDir()); err != nil {
+			if err := m.replayConversation(params.SessionID, live.GetMessages(), live.GetPersistedSessionDir(), live.GetUILog()); err != nil {
 				m.log.Warn("replay conversation", "error", err)
 			}
 		}
@@ -1171,7 +1171,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		m.sendContextUsageUpdate(params.SessionID, st)
 
 		if opts.replay {
-			if err := m.replayConversation(params.SessionID, snap.Messages, snap.Dir); err != nil {
+			if err := m.replayConversation(params.SessionID, snap.Messages, snap.Dir, snap.UILog); err != nil {
 				m.log.Warn("replay conversation", "error", err)
 			}
 		}
