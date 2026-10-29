@@ -10,7 +10,53 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/browser/browsertest"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
+
+func TestBrowserKeyDollarsAuthenticateAfterSettingsReload(t *testing.T) {
+	w := &configRoundTripWorld{}
+	if err := w.startSpelledGateway(t); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(w.srv.Drain)
+	key := strings.Repeat("k", 32) + "$CODDY_BDD_LOCAL_KEY-${CODDY_BDD_LOCAL_KEY}-$$"
+	if err := w.saveBrowserKey(key); err != nil {
+		t.Fatal(err)
+	}
+	for _, stage := range []string{"saved", "unrelated save"} {
+		t.Run(stage, func(t *testing.T) {
+			if stage == "unrelated save" {
+				if err := w.saveWithField("agent.max_turns", 42); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cfg, err := config.LoadWithPaths(w.paths)
+			if err != nil {
+				t.Fatal(err)
+			}
+			srv, ts, _ := browserAuthServer(t, true)
+			srv.ReplaceConfig(cfg)
+			ext, err := browsertest.Connect(ts.URL, browsertest.Options{Key: key})
+			if err != nil {
+				t.Fatalf("the original key did not authenticate after reload: %v", err)
+			}
+			defer func() { _ = ext.Close() }()
+			for _, wrong := range []string{
+				strings.Repeat("k", 32) + "sk-local-sk-local-$",
+				strings.ReplaceAll(key, "$", "$$"),
+			} {
+				other, err := browsertest.Connect(ts.URL, browsertest.Options{Key: wrong, ID: "browser-wrong-key"})
+				if other != nil {
+					_ = other.Close()
+				}
+				var rpcErr *browsertest.RPCError
+				if !errors.As(err, &rpcErr) || rpcErr.Code != -32001 {
+					t.Fatalf("a changed key must be refused as unauthorized, got %v", err)
+				}
+			}
+		})
+	}
+}
 
 // The extension reaches the HTTP server with its own key, past the token gate,
 // and a new key in the settings disconnects an extension that held the old one.
