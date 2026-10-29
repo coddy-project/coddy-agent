@@ -35,7 +35,7 @@ async function send(
   path: string,
   method: "POST" | "DELETE",
   body?: unknown,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; body?: unknown }> {
   const init: RequestInit = {
     method,
     headers: sessionHeaders(sessionId, body !== undefined),
@@ -47,7 +47,13 @@ async function send(
   } catch {
     return { ok: false };
   }
-  if (res.ok) return { ok: true };
+  if (res.ok) {
+    try {
+      return { ok: true, body: await res.json() };
+    } catch {
+      return { ok: true };
+    }
+  }
   try {
     const j = (await res.json()) as { error?: { message?: string } };
     return { ok: false, error: j.error?.message || `HTTP ${res.status}` };
@@ -73,22 +79,58 @@ function originBadgeKey(e: MarketplaceEntry): string {
   }
 }
 
+// What a check answered with: how many newer versions it found, the
+// marketplaces and sources it could not read, and the entry a check of one
+// row read.
+type CheckFound = { count: number; unread: string[]; key?: string };
+
+// failuresOf lists the failures an answer carries, as "source: error".
+function failuresOf(failed: unknown): string[] {
+  if (!Array.isArray(failed)) return [];
+  return (failed as Array<{ source?: unknown; error?: unknown }>).map(
+    (f) => `${String(f?.source ?? "")}: ${String(f?.error ?? "")}`,
+  );
+}
+
+function checkFound(body: unknown): CheckFound {
+  const b = body as { updates?: unknown; failed?: unknown } | undefined;
+  const unread = Array.isArray(b?.failed)
+    ? (b.failed as Array<{ source?: unknown }>)
+        .map((f) => (typeof f?.source === "string" ? f.source : ""))
+        .filter((s) => s !== "")
+    : [];
+  return {
+    count: Array.isArray(b?.updates) ? b.updates.length : 0,
+    unread,
+  };
+}
+
 /**
  * MarketplacesEditor is the marketplaces list of Settings -> Skills. It is
  * API-driven like the MCP tab (/coddy/skills/sources*): what it shows is
  * declared in ~/.coddy/marketplaces.json and the viewed workspace's
  * .coddy/marketplaces.json, never in the settings document, and every action
- * applies at once. A row is a source (every plugin installed) or a
- * marketplace (a catalog), with where it is declared; a project row under
- * ask carries the MCP shield that approves it for the workspace, and the
- * built-in source a shield that says it is always trusted.
+ * applies at once. A row is a source (installed whole as it is added, or by
+ * `coddy plugin install <source>`) or a marketplace (a catalog), with where
+ * it is declared;
+ * a project row under ask carries the MCP shield that approves it for the
+ * workspace, and the built-in catalog a shield that says it is always
+ * trusted. The check of a row, or of every row, reads the lists and installs
+ * nothing: the newer versions it finds are installed from the list of
+ * installed skills.
  */
 export function MarketplacesEditor(props: {
   activeSessionId?: string | undefined;
-  /** Called after a sync, so the installed list can follow. */
+  /** Called after a check or an add, so the installed list can follow. */
   onSynced: () => Promise<void> | void;
+  /**
+   * How many installed skills have a newer version, as the installed list
+   * knows it now: after a check, the line under the legend follows it, so it
+   * stays true once those updates are installed.
+   */
+  updateCount?: number;
 }) {
-  const { t } = useT();
+  const { t, tp } = useT();
   const sessionId = props.activeSessionId || undefined;
   const onSynced = props.onSynced;
   const [listing, setListing] = useState<MarketplaceListing | null>(null);
@@ -96,7 +138,13 @@ export function MarketplacesEditor(props: {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [syncing, setSyncing] = useState(false);
+  // The check of every row runs: the legend's icon spins.
+  const [checkingAll, setCheckingAll] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
+  // What the last check found, or null before one and after a change that
+  // makes it stale (an add, a failed check).
+  const [found, setFound] = useState<CheckFound | null>(null);
+  const updateCount = found ? (props.updateCount ?? found.count) : 0;
   const [draft, setDraft] = useState("");
   const [scope, setScope] = useState<"global" | "local">("global");
   // A project entry is written into the session's workspace; before the chat
@@ -148,26 +196,47 @@ export function MarketplacesEditor(props: {
     })();
   };
 
+  // A check reads the lists and installs nothing; what it finds shows up as
+  // the update buttons of the installed list.
   const onSync = (key?: string) => {
     setSyncing(true);
+    setCheckingAll(!key);
     setError(null);
+    // A check of one row keeps what an earlier check could not read of the
+    // other rows: that one row read well says nothing about them.
+    const before = found;
     void (async () => {
       const path = key
         ? `/coddy/skills/sync?source=${encodeURIComponent(key)}`
         : "/coddy/skills/sync";
       try {
         const res = await send(sessionId, path, "POST");
-        if (!res.ok) setError(res.error || translate("skills.error.sync"));
-        else {
+        if (!res.ok) {
+          setFound(null);
+          setError(res.error || translate("skills.error.sync"));
+        } else {
           await onSynced();
+          const now = checkFound(res.body);
+          if (key) {
+            const kept = (before?.unread ?? []).filter((u) => u !== key);
+            setFound({
+              ...now,
+              key,
+              unread: [...kept, ...now.unread.filter((u) => !kept.includes(u))],
+            });
+          } else {
+            setFound(now);
+          }
           flashDone(key ?? SYNC_ALL_KEY);
         }
       } catch {
         // The refresh after the sync failed (the connection dropped): say
         // so, and never leave every Sync button disabled.
+        setFound(null);
         setError(translate("skills.error.sync"));
       } finally {
         setSyncing(false);
+        setCheckingAll(false);
       }
     })();
   };
@@ -213,19 +282,35 @@ export function MarketplacesEditor(props: {
   const onAdd = () => {
     const source = draft.trim();
     if (!source) return;
+    setFound(null);
     withBusy(ADD_KEY, async () => {
+      // A source is installed as it is added: nothing installs it later. One
+      // in the list already, and the built-in catalog, install nothing.
       const res = await send(sessionId, "/coddy/skills/sources", "POST", {
         source,
         scope: effectiveScope,
+        sync: true,
       });
       if (!res.ok) {
         setError(
           res.error || translate("skills.sources.error.add", { source }),
         );
+        await load();
         return;
       }
       setDraft("");
+      const answer = res.body as
+        | { added?: unknown; sync?: { failed?: unknown } }
+        | undefined;
+      if (answer?.added === false) {
+        setError(translate("skills.sources.addedAlready", { source }));
+      } else {
+        // Declared, and its install failed: say why.
+        const failed = failuresOf(answer?.sync?.failed);
+        if (failed.length > 0) setError(failed.join("; "));
+      }
       await load();
+      await onSynced();
     });
   };
 
@@ -241,6 +326,27 @@ export function MarketplacesEditor(props: {
       <LegendWithHint
         label={t(SETTINGS_TEXTS.skillsMarketplaces.label)}
         description={t(SETTINGS_TEXTS.skillsMarketplaces.desc)}
+        action={
+          // The check of every marketplace and source: the refresh icon of
+          // the heading, the way the provider's Models list refreshes.
+          <button
+            type="button"
+            className={`settings-legend-action${flash === SYNC_ALL_KEY ? " is-synced" : ""}`}
+            disabled={syncing}
+            onClick={() => onSync()}
+            title={t("skills.sources.syncAllTitle")}
+            aria-label={t("skills.sources.syncAll")}
+            data-testid="skills-sync-all"
+          >
+            {flash === SYNC_ALL_KEY ? (
+              <IconCheck />
+            ) : (
+              <IconSync
+                className={checkingAll ? "settings-icon-spin" : undefined}
+              />
+            )}
+          </button>
+        }
       />
       {loadError ? (
         <p
@@ -256,6 +362,26 @@ export function MarketplacesEditor(props: {
         </p>
       ))}
       {error ? <p className="settings-error">{error}</p> : null}
+      {found !== null && found.unread.length > 0 ? (
+        <p className="settings-error" data-testid="skills-check-unread">
+          {t("skills.sources.check.unread", {
+            sources: found.unread.join(", "),
+          })}
+        </p>
+      ) : null}
+      {found !== null &&
+      (updateCount > 0 ||
+        (found.key
+          ? !found.unread.includes(found.key)
+          : found.unread.length === 0)) ? (
+        <p className="settings-muted" data-testid="skills-check-status">
+          {updateCount > 0
+            ? tp("skills.sources.check.updates", updateCount)
+            : found.key
+              ? t("skills.sources.check.currentFrom", { source: found.key })
+              : t("skills.sources.check.current")}
+        </p>
+      ) : null}
       <ul
         className="skills-marketplaces"
         data-testid="skills-marketplaces-list"
@@ -428,26 +554,6 @@ export function MarketplacesEditor(props: {
             {t("skills.sources.add")}
           </button>
         </div>
-        <button
-          type="button"
-          className={`settings-btn skills-sync-all-btn${flash === SYNC_ALL_KEY ? " is-synced" : ""}`}
-          disabled={syncing}
-          onClick={() => onSync()}
-          title={t("skills.sources.syncAllTitle")}
-          data-testid="skills-sync-all"
-        >
-          {flash === SYNC_ALL_KEY ? (
-            <>
-              <IconCheck />
-              <span>{t("skills.sources.completed")}</span>
-            </>
-          ) : (
-            <>
-              <IconSync />
-              <span>{t("skills.sources.syncAll")}</span>
-            </>
-          )}
-        </button>
       </div>
     </fieldset>
   );

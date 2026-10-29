@@ -13,9 +13,33 @@ func TestNewModelCallHidesThePreviousSpeedBeforeItsFirstToken(t *testing.T) {
 	var last acp.TurnProgressUpdate
 	p := &turnProgress{startedAt: time.Now(), speed: generationSpeed{current: &speed},
 		send: func(u acp.TurnProgressUpdate) { last = u }}
-	p.beginCall()
+	p.beginCall(true)
 	if last.StartedAt == "" || last.TokensPerSecond != nil {
 		t.Fatalf("new call did not clear the visible window: %+v", last)
+	}
+}
+
+func TestContinuedTurnReplacesItsGenerationSummary(t *testing.T) {
+	state := &session.State{ID: "sess_continued_speed"}
+	start := time.Now().Add(-time.Hour)
+	state.BeginTurnProgress(start)
+	for _, tokens := range []int{100, 200} {
+		a := &Agent{state: state, server: &progressSender{}}
+		a.beginTurnProgress()
+		a.progress.beginCall(true)
+		a.progress.mu.Lock()
+		a.progress.inflightRunes = tokens * 4
+		a.progress.speed.add(1, start)
+		a.progress.speed.add(tokens, start.Add(2*time.Second))
+		a.progress.mu.Unlock()
+		a.endTurnProgress()
+	}
+	rows := state.GetUILog()
+	if len(rows) != 1 {
+		t.Fatalf("one admitted turn produced %d generation summaries, want 1", len(rows))
+	}
+	if got := rows[0].Generation; got == nil || got.OutputTokens != 300 || got.TokensPerSecond != 75 {
+		t.Fatalf("continued turn summary = %+v, want 300 tokens at 75 tok/s", got)
 	}
 }
 
@@ -28,7 +52,7 @@ func TestInterruptedTurnKeepsGenerationAverage(t *testing.T) {
 	sender := &progressSender{}
 	a := &Agent{state: state, server: sender}
 	a.beginTurnProgress()
-	a.progress.beginCall()
+	a.progress.beginCall(true)
 	a.progress.mu.Lock()
 	a.progress.inflightRunes = 400
 	a.progress.speed.add(1, start)

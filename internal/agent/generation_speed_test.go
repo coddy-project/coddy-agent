@@ -83,6 +83,40 @@ func TestGenerationSpeedPartialAndSingleChunk(t *testing.T) {
 	requireSpeed(t, speed.average(), 50)
 }
 
+func TestGenerationSpeedIncludesTrailingOutputWithinTheSameTokenEstimate(t *testing.T) {
+	var speed generationSpeed
+	start := time.Unix(100, 0)
+	speed.begin()
+	speed.add(1, start)
+	speed.add(2, start.Add(time.Second))
+	speed.add(2, start.Add(9*time.Second))
+	speed.finish(2)
+	if speed.totalTime != 9*time.Second {
+		t.Fatalf("generation interval = %s, want 9s", speed.totalTime)
+	}
+	requireSpeed(t, speed.average(), 2.0/9.0)
+}
+
+func TestGenerationSpeedInterpolationKeepsTheLastTokenBoundary(t *testing.T) {
+	var speed generationSpeed
+	start := time.Unix(100, 0)
+	speed.begin()
+	speed.add(1, start)
+	speed.add(2, start.Add(time.Second))
+	speed.add(2, start.Add(9*time.Second))
+	speed.add(4, start.Add(11*time.Second))
+	// The next estimated tokens span the interval since token 2, not just
+	// since the last delta whose output still rounded to token 2.
+	if got := speed.boundaries[3]; !got.Equal(start.Add(6 * time.Second)) {
+		t.Fatalf("token 3 boundary = %v, want %v", got, start.Add(6*time.Second))
+	}
+	speed.finish(4)
+	if speed.totalTime != 11*time.Second {
+		t.Fatalf("generation interval = %s, want 11s", speed.totalTime)
+	}
+	requireSpeed(t, speed.average(), 4.0/11.0)
+}
+
 func TestGenerationSpeedDisplayChangesAtMostEveryFiveSeconds(t *testing.T) {
 	var speed generationSpeed
 	start := time.Unix(100, 0)

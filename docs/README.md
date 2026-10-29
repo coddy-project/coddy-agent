@@ -59,6 +59,7 @@ What the agent can do and how each capability is configured.
 - [ACP agent as a model](features/acp-provider.md) - Serving a local ACP agent (Claude Code, Codex, OpenCode, ZCode, another Coddy) as a model - the acp block, one agent session per Coddy session, its permission requests, plan and ask modes, the agent process.
 - [Web search](features/web-search.md) - The engines websearch asks, how a blocked backend is reported instead of counted as nothing found, the relevance gate, and pointing it at your own SearXNG.
 - [HTTP requests](features/http-requests.md) - The http_request tool - any method, headers, bodies, multipart uploads and downloads, a proxy and the certificate check per request, headers the configuration adds to every request - and the permission prompt that shows where a request goes and what it carries.
+- [Coddy for Browser](features/browser.md) - Your own browser - Chrome, Yandex Browser or Firefox - as the agent's hands through the Coddy for Browser extension - the browser tool, tab groups, website approvals, files, the web UI in its side panel, chats of other processes and of the swarm.
 - [Mentions](features/mentions.md) - Pointing at things with @ in a prompt - files anywhere on disk, line ranges, folders, other sessions, rules, subagents, web pages - resolved once into the message, with completion on every surface.
 - [Images](features/images.md) - The model looking at a picture - read of a PNG, JPEG, GIF or WebP file for a model marked multimodal, a screenshot an MCP tool returns, the limits, what the provider is sent, and the preview in the web UI and a Telegram chat.
 - [Pasting and marking up pictures](features/picture-markup.md) - A copied picture pasted into a prompt - ctrl+v in the console, a paste in the web UI - and the markup editor it opens in first, with pencil, shapes, arrow, text, crop, rotate and undo.
@@ -84,6 +85,7 @@ Complete lists, generated from the code wherever the code is the source of truth
 - [Tools](reference/tools.md) - The built-in tools the model can call, their arguments, permissions and the modes that expose them.
 - [HTTP API](reference/http-api.md) - The OpenAI-compatible endpoints and the /coddy REST surface, authentication, sessions and headers, the OpenAPI document.
 - [ACP protocol](reference/acp-protocol.md) - How coddy acp implements the Agent Client Protocol, methods, notifications, permission and question requests.
+- [Browser protocol](reference/browser-protocol.md) - The JSON-RPC wire between coddy serve and the Coddy for Browser extension - the handshake, the tabs, the commands, website approval, file transfers, the side panel and the API for other Coddy processes.
 
 ## Tutorials
 
@@ -117,6 +119,7 @@ How Coddy is built, tested, documented and released.
 - [Codex hooks](contributing/codex-hooks.md) - How the Cursor rules reach a Codex CLI session working on this repository.
 - [OpenCode hooks](contributing/opencode-hooks.md) - Deterministic delivery of the Cursor rules to OpenCode sessions working on this repository.
 - [ZCode hooks](contributing/zcode-hooks.md) - Deterministic delivery of the Cursor rules to ZCode sessions working on this repository.
+- [Kimi Code hooks](contributing/kimi-code-hooks.md) - Deterministic delivery of the Cursor rules to Kimi Code sessions working on this repository.
 - [Syntax highlighting audit](contributing/syntax-highlighting-audit.md) - The NeuralDeep audit of code highlighting across the seven themes, its fixtures and how to re-run it.
 - [Agent notes](../AGENTS.md) - The repository map and contributor notes for coding agents.
 <!-- docsgen:nav:end -->

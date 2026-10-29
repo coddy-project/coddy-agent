@@ -97,7 +97,8 @@ Clear the field to use the session model for summarization.
 
 - A provider's form (**Settings → LLM providers → row**) is three blocks: **Provider settings** (id, type, endpoint, key, sign-in, the usage switch), **Advanced settings** (the credential command, the proxy, the request timeout), folded until its chevron is clicked, and **Models**.
 - **Models** lists what the provider advertises, fetched through **`POST /coddy/providers/models`** with the row exactly as the form holds it, so an unsaved row, a sign-in that exists only on disk and a provider the document does not have yet all list their models the way a saved row does (issue #335). The list is fetched when the form opens and again when the row becomes another provider, once its id or type has stopped changing; an edit to the endpoint, the key or the proxy waits for the refresh icon beside the **Models** title, which fetches at once with the row as it now stands. An automatic fetch never sends the credential command, so a command is not run half-typed: the refresh icon is the only fetch that runs it.
-- Each row is the model id, the context window the provider reports right of it (**`131k`**, the exact count in its tooltip), and a toggle: a plus adds **`provider/id`** to **Logical models** in the same unsaved document, with the reported window written into its **Context window**; a check says the model is there, and clicking it takes the model out again. Nothing reaches `config.yaml` until **Save all**. An id Logical models lists under this provider that the provider no longer advertises shows in amber, checked, the reason in its tooltip. A line under the title appears only when there is nothing to list: while fetching, on an error, for an empty answer, or for a row without an id and a type. Past eight models a filter field narrows the list.
+- Each row is the model id, its context window right of it (**`131k`**, the exact count in its tooltip), and a toggle. The window is the one the provider reports; for a model it reports no window for, it is the one Coddy's models catalog (below) has for the id. A plus adds **`provider/id`** to **Logical models** in the same unsaved document and writes that window into the new model's **Context window**; when the catalog has the same window for the id, its number for **Max tokens** comes with it, and **Multimodal** switched on for a model that reads images. A check says the model is there, and clicking it takes the model out again. Nothing reaches `config.yaml` until **Save all**. An id Logical models lists under this provider that the provider no longer advertises shows in amber, checked, the reason in its tooltip. A line under the title appears only when there is nothing to list: while fetching, on an error, for an empty answer, or for a row without an id and a type. Past eight models a filter field narrows the list.
+- The models catalog is a table of the models of OpenAI, Anthropic and OpenCode, each with a context window, a max tokens to start from and whether it reads images. It is built from [models.dev](https://models.dev) and embedded into the binary, so nothing is downloaded for it while Coddy runs, and a model newer than the build has no numbers until a later release. The list reads it for a model the provider reports no window for or the same window as the catalog, as Anthropic's listing does, and takes both numbers or neither, because the max tokens was worked out for the catalog's own window. For a model whose prompt and answer share the window it is at most a fifth of the window, the part above the default compaction threshold, since a provider refuses a request whose prompt and max tokens do not fit the window together. A model with an input budget of its own gets its whole output limit. A session never reads the catalog: a model added with its numbers keeps them as its own settings, and the **Context window** field of a logical model shows what the provider reports.
 - The open row is part of the address: **`#/settings/providers?id=demo`**, **`#/settings/models?id=demo%2Fqwen3.8-27b`**. Opening a row writes it, going back removes it, renaming the row rewrites it, and editing the address opens the row it names. The search adds `&field=<anchor>` for the setting it took you to ([Settings: search](#settings-search)). An address naming a row that does not exist shows the list and drops the name. While a row is open, the drawer's head reads **Provider settings** (or **Model settings**) behind a back arrow that returns to the list, on a desktop and on a phone alike.
 - **Settings → Logical models → row** is four blocks: **Model** (the provider, the model id, the context window, multimodal input), **Generation** (max tokens, temperature, streamed responses), **Reasoning** (the levels and the default) and **Tools** (the toolset a session on this model is offered its tools by). **Provider** is a combobox over the document's `providers[].name` rows (a name not listed yet can still be typed) and **Model id** a plain field; the two compose into `provider/id` on the first slash. Picking an id out of what the provider advertises happens in the provider's own form.
 - **Context window (tokens)** asks the provider too. Left at 0, the model measures against the window the provider's listing reports (else 128000), so the field shows that number as its placeholder, for example **`131072, reported by demo`**, and writes nothing. The refresh icon beside it asks again and writes the number into `max_context_tokens`, which pins it; a note under the field says when the provider reports no window for the id or the request failed.
@@ -224,6 +225,7 @@ Off unless the server has an account, and a server without one renders exactly a
 - **After a successful sign-in** the page reloads: every list, stream and cached response on it was fetched by a browser with no session.
 - **A session that ends while the page is open** - expired, rotated, signed out in another tab - brings the screen back: the local-origin **`fetch`** shim reports a **401** from any **`/v1/*`** or **`/coddy/*`** call (the **`/coddy/auth/*`** routes excepted) and the gate re-reads the state.
 - **Signing out** is the last entry of the nav rail (**`data-testid="nav-sign-out"`**), shown only while a form is configured and this browser has passed it; its tooltip names the account. It posts **`/coddy/auth/logout`** and reloads **only when the server actually dropped the session** - the cookie is HttpOnly, so a page that cleared its own state after a refusal would be signed straight back in by the reload and the button would look broken rather than refused.
+- **The side panel of Coddy for Browser signs itself in.** A page opened in the extension's frame with a ticket (**`?coddy_panel=`**) posts it to **`POST /coddy/auth/browser`** before the screen is drawn, once per page, and gets a session cookie of its own ([Coddy for Browser](../features/browser.md#the-side-panel)).
 - **Remote environments are not gated here.** A remote is reached cross-origin with the bearer token from the environment selector, and a cookie of this origin would not travel with those calls; **`AuthGate`** passes straight through in remote mode.
 
 Server behaviour, the cookie and the CSRF rule: [HTTP API](../reference/http-api.md#web-ui-sign-in-optional). Visual contract: [DESIGN.md](../../DESIGN.md).
@@ -1017,7 +1019,7 @@ For the whole of a running turn, streaming text included, the typing dots carry 
 *Without a checklist, the working status sits 4px closer to the preceding answer; the composer stays in place*
 
 - The turn's own numbers lead the line: how long the turn has been running, how many tokens the model has generated in it, how many background tasks are running right now (`15m 08s · 13.5k tokens · 1 running task · Thinking…`). Before the first token the line is the clock and the phrase alone (`57s · Waiting for the model`), and the tasks segment appears only while something runs. It is a button: it opens the [Tasks panel](../features/background-tasks.md#ui).
-- Generation speed follows the output token count, for example `1.2k tokens · 9.8 tok/s`. Each model call starts a fresh window: 200 tokens with a 50-token step, then 500 tokens with a 100-token step once output exceeds 200 tokens. While streaming, speed stays hidden until the current window fills. It refreshes every five seconds, including a partial step; a stalled stream keeps the last value. The measurement includes text, reasoning and tool arguments, from the first output delta to the last, and excludes tool execution, permission waits and time to the first token. Live token counts are estimates. When the turn finishes, is cancelled or fails, a caption keeps total output tokens and the average across its measured model calls; reopening the session restores it. A call delivered in a single chunk has no measurable generation interval and contributes no speed. Speeds below 2 use two decimal places, below 10 one, and 10 or more none.
+- Generation speed follows the output token count, for example `1.2k tokens · 9.8 tok/s`. Each model call starts a fresh window: 200 tokens with a 50-token step, then 500 tokens with a 100-token step once output exceeds 200 tokens. While streaming, speed stays hidden until the current window fills. It refreshes every five seconds, including a partial step; a stalled stream keeps the last value. The measurement includes text, reasoning and tool arguments, from the first output delta to the last, and excludes tool execution, permission waits and time to the first token. Live token counts are estimates. When the turn finishes, is cancelled or fails, a caption is saved only if at least one model call has a measurable generation interval. It pairs total output tokens from all calls with the average across measured calls only; reopening the session restores it. Blocking (non-streaming) providers and ACP agent models have no measurable per-model streaming boundaries, so their live output counts have no speed. A streamed call delivered in a single output chunk has no measurable generation interval either: neither its tokens nor its time contribute to the speed average, but its output still counts toward the turn total. With no measurable call interval, live output counters still work, but no speed or persisted generation caption is produced. Speeds below 2 use two decimal places, below 10 one, and 10 or more none.
 
 ![Generation speed during streaming](../assets/generation-speed/generation-speed-live-dark-1280.png)
 
@@ -1873,40 +1875,58 @@ on screen (`X-Coddy-Session-ID`), and every action applies at once.
   address), a kind badge (**all plugins** for a source, **catalog** for a marketplace, whose address
   sits under the name) and an origin badge (**built in**, **yours**, **from the project**) whose
   tooltip names the declaring file.
-- The built-in `EvilFreelancer/rpa-skills` carries a shield that cannot be clicked (always trusted)
-  and a disabled delete button; it syncs like any row.
+- The built-in catalog `rpa-skills` (its address `EvilFreelancer/rpa-skills` under the name) carries
+  a shield that cannot be clicked (always trusted) and a disabled delete button; it is checked for
+  updates like any row.
 - Under `skills.project_trust: ask` a project row carries the MCP shield: amber while the entry
   waits for approval, plain once approved. Clicking it posts `POST /coddy/skills/sources/trust` with
   the row's `fingerprint` (an entry the checkout rewrote since is refused with 409 and the message is
   shown above the list), or `untrust` for an approved one; the list is read again after either. A
-  row still waiting is dimmed, says which file declares it and that it is not synced until approved,
-  and its **Sync** button is disabled. Under `deny` its note says the policy switched it off and
+  row still waiting is dimmed, says which file declares it and that it is neither read nor installed
+  until approved, and its check button is disabled. Under `deny` its note says the policy switched it off and
   there is no shield; under `allow` project rows are in effect and have none either.
-- **Sync** on a row is `POST /coddy/skills/sync?source=<key>`, **Sync all** `POST /coddy/skills/sync`;
-  both refresh the installed list and flash a check mark, and a refresh that fails says so and leaves
-  the buttons usable. The Sync of a held row is disabled, its title asks for the approval first,
-  or under `deny` names the policy. Delete is `DELETE /coddy/skills/sources?source=<key>&origin=<row origin>`: it
-  edits the file of that row only, so removing your entry never touches the project's checked-in copy.
-- The add field declares a source (installed whole) with `POST /coddy/skills/sources`, in your file
-  or, with **This project**, in the project's, which approves it for that workspace as it is written.
+- A row's check button checks that row, `POST /coddy/skills/sync?source=<key>`; the refresh icon
+  beside the **Marketplaces** heading checks every row, the way the provider's **Models** list
+  refreshes, `POST /coddy/skills/sync`; neither installs anything. Both refresh the installed list and flash a
+  check mark, a line above the list says how many updates the check found or that every installed
+  skill is up to date (after the check of one row, every skill installed from it), a list the check
+  could not read is named in an error line instead of being called up to date, and a refresh that
+  fails says so and leaves the buttons usable. The check of a
+  held row is disabled, its title asks for the approval first, or under `deny` names the policy.
+- A row installs nothing: a source is installed whole as it is added (or with
+  `coddy plugin install <source>`), and the plugins of a catalog from the install search.
+- Delete is `DELETE /coddy/skills/sources?source=<key>&origin=<row origin>`: it edits the file of
+  that row only, so removing your entry never touches the project's checked-in copy.
+- The add field declares a source with `POST /coddy/skills/sources` and `sync: true`, so it is
+  installed whole as it is added, in your file or, with **This project**, in the project's, which
+  approves it for that workspace as it is written.
   **This project** is available once the chat has a session: before its first message the server
   would take its own default folder, not the one on screen, so the picker stays on your file.
 - A chat kept as a draft in the browser has no session on the server: the list and its actions then
   send no `X-Coddy-Session-ID` and answer for the server's default workspace (the MCP tab does the
   same). A save of the settings reads the list again, so the rows follow a changed
   `skills.project_trust`; the Subagents catalog does the same for `subagents.project_trust`.
+- After a check, each installed skill a newer version is published for carries a download button
+  (`POST /coddy/skills/{name}/update`), and the list has one **Update N skills** button over all of
+  them (`POST /coddy/skills/update`), shown only while there is something to update. Neither
+  installs a skill that is not installed.
+- The install search of **Installed skills** reads the marketplaces in effect when the field is
+  focused and lists the plugins that match what is typed and are not installed, under the field;
+  the list is scrolled into view when it opens, since the field sits low in the Settings panel. A
+  marketplace or a source it could not read is named in the list instead of being left out
+  silently.
 - The install search (`GET /coddy/skills/available`), the update check (`GET /coddy/skills/updates`)
-  and **Update** go to the same session, so a project marketplace approved there is offered and one
-  held there is neither checked nor updated from.
+  and both updates go to the same session, so a project marketplace approved there is offered and
+  one held there is neither checked nor updated from.
 - On a phone the row's controls wrap under the key and the add field takes the full width.
 
 ![Settings, Skills: the marketplaces list](../assets/skills/skills-marketplaces-dark-1280.png)
 
 Automated checks:
 
-- **external/ui/src/ui/settings/MarketplacesEditor.test.tsx** (rows with kind, origin and file, the built-in row's disabled shield and delete, a held project row with its note, disabled sync and shield, approval with the fingerprint and its withdrawal, a refused approval, a denied row, add with the scope, remove by key, sync of one and of all, Russian copy)
+- **external/ui/src/ui/settings/MarketplacesEditor.test.tsx** (rows with kind, origin and file, the built-in row's disabled shield and delete, a held project row with its note, disabled check and shield, approval with the fingerprint and its withdrawal, a refused approval, a denied row, add with the scope and the install, remove by key, the check of one and of all (the refresh icon of the heading) with what it found, Russian copy); **external/ui/src/ui/settings/SkillsSection.workspace.test.tsx** (a check that finds newer versions offers **Update N skills**, which updates them for the viewed session)
 - **external/httpserver/server_test.go** (`TestCoddySkillsSourcesSyncDelete`, `TestCoddySkillsNewRoutesEdgeCases`: the routes, the scopes, 409 on a rewritten entry, 400 on syncing a held one)
-- **features/skills_marketplace.feature**, **features/skills_marketplace_trust.feature** (a project marketplace waits for its approval, then syncs into the Coddy home)
+- **features/skills_marketplace.feature**, **features/skills_marketplace_trust.feature** (a project marketplace waits for its approval, then installs into the Coddy home; a check reports a newer version and installs nothing; an update installs it)
 
 ## Swarm screen
 

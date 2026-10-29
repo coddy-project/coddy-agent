@@ -106,8 +106,9 @@ func (a *Agent) endTurnProgress() {
 
 // beginCall opens the account of one model call. What an abandoned call had
 // streamed - a response the loop guard cut, a stream that broke - was still
-// generated, so it stays in the count as an estimate.
-func (p *turnProgress) beginCall() {
+// generated, so it stays in the count as an estimate. Calls without measurable
+// model-output timing keep counting tokens with measureSpeed set to false.
+func (p *turnProgress) beginCall(measureSpeed bool) {
 	if p == nil {
 		return
 	}
@@ -115,6 +116,7 @@ func (p *turnProgress) beginCall() {
 	p.foldInflight()
 	p.speed.finish(0)
 	p.speed.begin()
+	p.speed.active = measureSpeed
 	p.mu.Unlock()
 	// Hide the previous call's window immediately, including while the new
 	// call is still waiting for its first token.
@@ -123,15 +125,16 @@ func (p *turnProgress) beginCall() {
 
 // streamed counts text the call in flight produced: a text or reasoning
 // delta, tool argument fragments, or a complete call from a non-streaming provider.
-func (p *turnProgress) streamed(text string) {
-	p.streamedRunes(utf8.RuneCountInString(text))
+// Every channel of one provider callback shares at, so processing that callback
+// cannot manufacture a generation interval between its channels.
+func (p *turnProgress) streamed(text string, at time.Time) {
+	p.streamedRunes(utf8.RuneCountInString(text), at)
 }
 
-func (p *turnProgress) streamedRunes(count int) {
+func (p *turnProgress) streamedRunes(count int, now time.Time) {
 	if p == nil || count <= 0 {
 		return
 	}
-	now := time.Now()
 	p.mu.Lock()
 	p.inflightRunes += count
 	p.speed.add(estimateTokensFromRunes(p.inflightRunes), now)

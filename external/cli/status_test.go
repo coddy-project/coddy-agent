@@ -3,12 +3,62 @@
 package cli
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 )
+
+func TestContinuedTurnReplacesConsoleGenerationCaption(t *testing.T) {
+	for _, transport := range []string{"local", "remote"} {
+		t.Run(transport, func(t *testing.T) {
+			a := &App{theme: newTheme("dark"), chat: &tui.Container{}, sessionID: "sess_speed"}
+			deliver := func(start string, tokens int, speed float64) {
+				u := acp.TurnProgressUpdate{SessionUpdate: acp.UpdateTypeTurnProgress, StartedAt: start,
+					OutputTokens: tokens, TokensPerSecond: &speed, Completed: true}
+				if transport == "remote" {
+					b, err := json.Marshal(u)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := json.Unmarshal(b, &u); err != nil {
+						t.Fatal(err)
+					}
+				}
+				a.applyLoopMessage(updateMsg{sessionID: a.sessionID, update: u})
+			}
+			render := func() string {
+				return tui.StripTerminalSequences(strings.Join(a.chat.Render(100), "\n"))
+			}
+			const start = "2026-10-24T10:00:00Z"
+			deliver(start, 100, 50)
+			if got := render(); !strings.Contains(got, "100 tokens · 50 tok/s") {
+				t.Fatalf("first completion missing: %s", got)
+			}
+			a.appendStatus(roleDim, "Follow-up answer")
+			deliver(start, 300, 75)
+			deliver(start, 300, 75)
+			got := render()
+			if strings.Count(got, "tok/s") != 1 || strings.Contains(got, "100 tokens") ||
+				!strings.Contains(got, "300 tokens · 75 tok/s") ||
+				strings.Index(got, "Follow-up answer") > strings.Index(got, "300 tokens") {
+				t.Fatalf("continued turn left stale or misplaced captions: %s", got)
+			}
+			deliver("2026-10-24T10:01:00Z", 200, 20)
+			if got := render(); strings.Count(got, "tok/s") != 2 || !strings.Contains(got, "200 tokens · 20 tok/s") {
+				t.Fatalf("another admitted turn lost its own caption: %s", got)
+			}
+			a.chat.Clear()
+			deliver(start, 300, 75)
+			if got := render(); strings.Count(got, "tok/s") != 1 {
+				t.Fatalf("a cleared transcript kept stale caption state: %s", got)
+			}
+		})
+	}
+}
 
 func TestStatusVerbForTool(t *testing.T) {
 	cases := map[string]string{

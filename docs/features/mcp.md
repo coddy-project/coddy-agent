@@ -23,6 +23,9 @@ config.yaml](#moving-from-configyaml)).
 Tools from all connected MCP servers are merged into the tool list passed to the LLM during
 the ReAct loop (in **`agent`** and **`plan`** modes).
 
+![The life of a configured MCP server: where it is declared, the trust gate for project declarations, the shared server pool, the dial and its retries, and what reaches the model](../assets/diagrams/mcp-servers.png)
+*One running server serves every session that resolves its declaration the same way, and a project declaration starts only once the trust gate admits it.*
+
 ## mcp.json (global and local)
 
 Both mcp.json files use the same shape as Cursor's: a single `mcpServers` object keyed by

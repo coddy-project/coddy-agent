@@ -80,13 +80,18 @@ type MentionScope struct {
 	// spawned in this turn; the mention still says which one the user meant.
 	Agents func() (agents []MentionAgent, note string)
 	// ConfineHome, when set, keeps file and folder mentions inside the
-	// session's working directory and out of this directory (the agent's
-	// home): a restricted turn (TurnRestriction.ConfineToWorkspace) attaches
-	// nothing else, and the mention stays plain text.
+	// session's workspace and out of this directory (the agent's home): a
+	// restricted turn (TurnRestriction.ConfineToWorkspace) attaches nothing
+	// else, and the mention stays plain text.
 	ConfineHome string
 	// Confined turns ConfineHome on; ConfineHome may be empty when the agent
 	// has no home to keep out.
 	Confined bool
+	// WorkspaceRoots are the extra workspace roots a confined prompt may
+	// reach beside cwd (ACP additionalDirectories): a mention of a file under
+	// one of them attaches the file. Empty for a session that carries none,
+	// and never read while Confined is off.
+	WorkspaceRoots []string
 }
 
 // mentionScope is what a prompt of this session may resolve. A child's task
@@ -96,14 +101,15 @@ func (m *Manager) mentionScope(st *State, subagentTurn, askMode bool) MentionSco
 	if subagentTurn || st == nil {
 		return MentionScope{}
 	}
-	// A restricted turn reads inside its working directory only and fetches
-	// no page for anybody.
+	// A restricted turn reads inside its workspace - the working directory
+	// and the extra roots the session carries - and fetches no page for
+	// anybody.
 	if r := st.GetTurnRestriction(); r != nil && r.ConfineToWorkspace {
 		home := ""
 		if cfg := m.Cfg(); cfg != nil {
 			home = cfg.Paths.Home
 		}
-		return MentionScope{Confined: true, ConfineHome: home}
+		return MentionScope{Confined: true, ConfineHome: home, WorkspaceRoots: st.GetAdditionalDirectories()}
 	}
 	return MentionScope{
 		Sessions: m.store != nil && !IsGatewayOrigin(st.GetOrigin()),
@@ -332,7 +338,7 @@ func (r *mentionResolver) resolvePath(reading mention.PathReading, typed string)
 	if !okLoc {
 		return nil, false, false
 	}
-	if r.scope.Confined && !PathInWorkspace(loc.Abs, r.cwd, r.scope.ConfineHome) {
+	if r.scope.Confined && !PathInWorkspace(loc.Abs, r.cwd, r.scope.ConfineHome, r.scope.WorkspaceRoots) {
 		return nil, false, false
 	}
 	info, err := os.Stat(loc.Abs)
@@ -848,8 +854,8 @@ func findMentionRule(catalog []*rules.Rule, name string) *rules.Rule {
 }
 
 func (r *mentionResolver) ruleResource(rule *rules.Rule, typed string) (*acp.Resource, bool) {
-	// A restricted turn attaches the rules of its working directory only.
-	if r.scope.Confined && !PathInWorkspace(rule.FilePath, r.cwd, r.scope.ConfineHome) {
+	// A restricted turn attaches the rules of its workspace only.
+	if r.scope.Confined && !PathInWorkspace(rule.FilePath, r.cwd, r.scope.ConfineHome, r.scope.WorkspaceRoots) {
 		return nil, false
 	}
 	res := RuleAttachment(r.cwd, r.home, rule)
@@ -1016,10 +1022,13 @@ func (r *mentionResolver) resolveAgent(name, typed string) (*acp.Resource, bool)
 }
 
 // PathInWorkspace reports whether p - absolute, or relative to cwd, or under
-// "~" - lies inside cwd and outside home (home empty keeps nothing out).
-// Symbolic links are followed as far as they exist, so a link inside the
-// workspace that points out of it does not count as inside.
-func PathInWorkspace(p, cwd, home string) bool {
+// "~" - lies inside the session's workspace and outside home (home empty keeps
+// nothing out). The workspace is cwd plus every entry of additionalDirs (ACP
+// additionalDirectories). Symbolic links are followed as far as they exist, so
+// a link inside the workspace that points out of it does not count as inside;
+// home wins over any root, so a root named under the agent's home confines
+// nothing.
+func PathInWorkspace(p, cwd, home string, additionalDirs []string) bool {
 	p = strings.TrimSpace(p)
 	if p == "" || strings.TrimSpace(cwd) == "" {
 		return false
@@ -1033,13 +1042,18 @@ func PathInWorkspace(p, cwd, home string) bool {
 		p = filepath.Join(cwd, p)
 	}
 	abs := realPath(p)
-	if !pathWithin(realPath(cwd), abs) {
-		return false
-	}
 	if h := strings.TrimSpace(home); h != "" && pathWithin(realPath(h), abs) {
 		return false
 	}
-	return true
+	if pathWithin(realPath(cwd), abs) {
+		return true
+	}
+	for _, d := range additionalDirs {
+		if t := strings.TrimSpace(d); t != "" && pathWithin(realPath(t), abs) {
+			return true
+		}
+	}
+	return false
 }
 
 // realPath resolves the symbolic links of the longest existing prefix of p.

@@ -1,6 +1,6 @@
 # Writing documentation
 
-How the documentation under `docs/` is organised, what a change to Coddy must carry into it, how screenshots and videos get onto a page, and which checks guard all of that. The rule in one sentence: a capability a user will notice, or a change to anything a page describes, is finished when the page says so, in the same pull request.
+How the documentation under `docs/` is organised, what a change to Coddy must carry into it, how screenshots, diagrams and videos get onto a page, and which checks guard all of that. The rule in one sentence: a capability a user will notice, or a change to anything a page describes, is finished when the page says so, in the same pull request.
 
 ## Layout
 
@@ -42,6 +42,7 @@ Every page starts with `# <title>` (the title from `nav.yaml`), then one lead pa
 - **A new capability** gets a page under `features/`, `surfaces/` or `operate/` (or a section of the page that owns the area), an entry in `nav.yaml`, a row in the reference that lists things of its kind (`tools.md` for a tool, `slash-commands.md` for a command, `environment-variables.md` for a variable, `keyboard.md` for a key, the generated `config.md` for a key through the schema description), and a line in the README "What it does" list when it is something a newcomer chooses Coddy for.
 - **A changed behaviour** updates the page that describes it. Find it with `git grep -n '<key or command>' docs/`; the old text keeps teaching itself to the next reader, human or agent, until it is gone.
 - **A web UI or console feature** is shown, not only described: a screenshot embedded next to the explaining paragraph, following the capture recipes below. A change that alters what a screenshot shows re-captures it.
+- **A module whose work spans several parts** - a pipeline of steps, a lifecycle, an invariant such as the provider's prompt cache, data that crosses packages or processes - is shown with a diagram on the page that describes it, and a change to what the diagram shows renders it again ([Diagrams](#diagrams)).
 - **A removed feature** takes its page, its `nav.yaml` entry and its assets with it; no redirect stub remains.
 - **A renamed key, command or flag** is swept through the whole tree, docs included, as step 9 of the paired workflow rule ([Cursor](../../.cursor/rules/workflow.mdc), [Claude Code](../../.claude/rules/workflow.md)) describes.
 
@@ -68,7 +69,7 @@ The writing rules for both languages, the glossary of Russian terms and the comm
 
 Capture the real surface, never a mockup and never a re-used older image that no longer matches.
 
-- **Web UI**: `make build TAGS="http ui scheduler memory cli gateway swarm metrics"`, `coddy serve` on a disposable `CODDY_HOME` at a presentable path, Playwright at 1280x800 in the Dark theme as the default, 390 wide when the page discusses the narrow layout, Light when the page discusses themes. Never capture the provider detail pane: it renders `api_key` values in full. The `examples/` harnesses and the paired UI verification rule ([Cursor](../../.cursor/rules/ui-verification.mdc), [Claude Code](../../.claude/rules/ui-verification.md)) describe the stand.
+- **Web UI**: `make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"`, `coddy serve` on a disposable `CODDY_HOME` at a presentable path, Playwright at 1280x800 in the Dark theme as the default, 390 wide when the page discusses the narrow layout, Light when the page discusses themes. Never capture the provider detail pane: it renders `api_key` values in full. The `examples/` harnesses and the paired UI verification rule ([Cursor](../../.cursor/rules/ui-verification.mdc), [Claude Code](../../.claude/rules/ui-verification.md)) describe the stand.
 - **Console**: a real Konsole window on an isolated Xvfb display, driven with XTEST (`demo-videos/rig/stage_konsole.sh` in the demo-videos repository), cropped to the used rows. States a real model would not reproduce on demand are captured the other way, without Konsole: a script drives `coddy cli` in a pty, emulates the screen with **pyte** and renders the cell grid to PNG through headless chromium, standing its own HTTP endpoint so it needs neither a provider nor a key - `examples/cli/capture_usage.py` for the usage footer, `examples/cli/capture_subagent.py` for a delegated run with a loaded skill, `examples/cli/capture_tasks.py` for the status line of a running turn and the `/tasks` overlay, `examples/cli/capture_settings.py` for the footer after the session settings commands.
 - **Naming and placement**: `docs/assets/<page-or-feature>/<state>-<theme>-<width>.png` when a page needs more than a couple of images, otherwise `docs/assets/<feature>-<state>-<theme>-<width>.png` at the top level. Kebab-case, no issue or pull request numbers, under 1 MB.
 - **On the page**: an image line followed by a one-line caption in italics, placed next to the paragraph that explains what the image shows. One image per view and state; a table with two images side by side when the page compares them.
@@ -80,6 +81,17 @@ Capture the real surface, never a mockup and never a re-used older image that no
   ```
 
 Screenshots taken as evidence for a pull request (before and after pairs, every theme, every width) belong to the pull request: drag them into the description on GitHub, which stores them under `user-attachments`, or push them to the orphan `screenshots` branch and link the raw file. They never go under `docs/assets/`.
+
+## Diagrams
+
+A page that describes a module whose work spans several parts - a pipeline of steps, a lifecycle, an invariant such as the provider's prompt cache, data that crosses packages or processes - shows it with a diagram next to the prose. [Summaries form a chain](../features/compaction.md#summaries-form-a-chain) and [System prompt structure](react-agent.md#system-prompt-structure) are examples. A reader who sees the parts and the arrows between them follows the prose in one pass, and the same picture goes on a slide.
+
+- **Source and picture.** A diagram is an HTML page under `docs/assets/diagrams/` that links the shared `diagram.css` and `diagram.js`, and the PNG of the same name rendered from it. The documentation page embeds the PNG. A change edits the HTML and runs `make diagrams`, which needs headless Chromium and the Noto Sans font (`NAMES="compaction-chain"` renders one diagram), and commits both files. `make docs-check` fails on a picture without its source and on a source without its picture; it cannot tell a picture older than its source, so render after every edit.
+- **Look.** Every diagram follows `compaction-chain.html`: a title, one line that says what the picture shows, numbered panels, the real names (config keys, files, functions, routes) where they help, and short notes that say why. `diagram.css` fixes what each colour means in every diagram, and `diagram.js` draws the arrows between boxes. The picture is rendered at twice its CSS size and stays under 1 MB.
+- **Language.** Labels are English. A Russian page embeds the same PNG and translates its alt text and caption.
+- **Accuracy.** A diagram makes claims the way prose does. Each one is checked against the code, not only against the page, and a change to the behaviour a diagram shows edits its source and renders it again in the same pull request.
+- **No Mermaid.** Documentation diagrams are not written as Mermaid fences: Mermaid lays the picture out by itself, leaves no room for notes beside the boxes, and a fence does not go on a slide.
+- **On the page.** The image goes next to the paragraph that explains the same thing, with alt text and a one-line italic caption, as a screenshot does.
 
 ## Videos
 

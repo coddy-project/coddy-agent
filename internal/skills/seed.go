@@ -1,13 +1,16 @@
 package skills
 
 // The standard delivery. Coddy carries a set of skills inside its binary and
-// hands them to ${CODDY_HOME}/skills, so a fresh install has them without a
-// network round trip and a skill that reads files beside its SKILL.md finds
-// them on disk. Once handed over they are ordinary managed skills: the operator
-// can edit, disable, delete or update them from the marketplace.
+// hands them to ${CODDY_HOME}/skills on the first install, so a fresh install
+// has them without a network round trip and a skill that reads files beside
+// its SKILL.md finds them on disk. Once handed over they are ordinary managed
+// skills: the operator can edit, disable, delete or update them from the
+// marketplace.
 //
 // What the delivery may and may not do is written down in one receipt,
-// .bundled.json, beside the skills it wrote:
+// ${CODDY_HOME}/skills-delivery.json, beside the skills folder rather than in
+// it: deleting the folder is not a first install, so the delivery does not
+// write its skills again. The receipt says:
 //
 //   - a skill it has never handed over is written;
 //   - a skill it has handed over and the operator then deleted stays deleted;
@@ -16,8 +19,11 @@ package skills
 //   - a copy that is newer is left exactly as it is.
 //
 // The marketplace those skills are published from needs no receipt: it is a
-// system source (config.SystemSkillsSource), listed and synced beside whatever
-// the marketplaces.json files declare, so no file is ever written here.
+// system marketplace (config.SystemSkillsSource), in effect beside whatever
+// the marketplaces.json files declare, so no file is ever written here. It
+// installs nothing on its own; while a delivered skill is on disk it counts as
+// installed from it, so `plugin update` brings a newer version published
+// there, and a delivered skill the operator deleted is never written again.
 
 import (
 	"encoding/json"
@@ -34,8 +40,14 @@ import (
 )
 
 // deliveryReceiptFile records what the delivery has already handed over. It
-// lives beside .remote.json in the managed skills dir.
-const deliveryReceiptFile = ".bundled.json"
+// lives in the coddy home, beside the managed skills dir: a receipt inside it
+// would go with the folder, and the next start would take the home for a fresh
+// install and write back every skill the operator had deleted.
+const deliveryReceiptFile = "skills-delivery.json"
+
+// legacyDeliveryReceiptFile is where Coddy kept the receipt before: inside the
+// managed skills dir. The next delivery moves it out.
+const legacyDeliveryReceiptFile = ".bundled.json"
 
 // deliveryReceipt is the on-disk form of that record. Skills maps a skill name
 // to the version handed over for it - an empty value meaning the delivery saw
@@ -43,6 +55,10 @@ const deliveryReceiptFile = ".bundled.json"
 type deliveryReceipt struct {
 	Version int               `json:"version"`
 	Skills  map[string]string `json:"skills,omitempty"`
+
+	// legacy says the receipt was read from inside the managed dir, where an
+	// older Coddy kept it.
+	legacy bool
 }
 
 // SeedResult summarizes one delivery run. An empty result is the normal
@@ -77,7 +93,9 @@ func SeedDelivery(cfg *config.Config) (*SeedResult, error) {
 	res := &SeedResult{}
 
 	var firstErr error
-	changed := false
+	// A receipt read from where an older Coddy kept it is written to its
+	// place now, and the old one removed once that is done.
+	changed := receipt.legacy
 	for _, entry := range BundledEntries() {
 		acted, err := deliverSkill(entry, managedDir, receipt, res)
 		if err != nil && firstErr == nil {
@@ -87,8 +105,12 @@ func SeedDelivery(cfg *config.Config) (*SeedResult, error) {
 	}
 
 	if changed {
-		if err := writeDeliveryReceipt(managedDir, receipt); err != nil && firstErr == nil {
-			firstErr = err
+		if err := writeDeliveryReceipt(managedDir, receipt); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+		} else if receipt.legacy {
+			_ = os.Remove(filepath.Join(managedDir, legacyDeliveryReceiptFile))
 		}
 	}
 	return res, firstErr
@@ -252,8 +274,10 @@ func DeliveredAndDeleted(managedDir string) map[string]struct{} {
 	return out
 }
 
+// deliveryReceiptPath is the receipt in the coddy home: the parent of the
+// managed skills dir, which is always <home>/skills.
 func deliveryReceiptPath(managedDir string) string {
-	return filepath.Join(managedDir, deliveryReceiptFile)
+	return filepath.Join(filepath.Dir(filepath.Clean(managedDir)), deliveryReceiptFile)
 }
 
 // readDeliveryReceipt reads the record of what has been handed over. A missing
@@ -263,17 +287,23 @@ func deliveryReceiptPath(managedDir string) string {
 // would write back every skill the operator had deleted.
 func readDeliveryReceipt(managedDir string) (*deliveryReceipt, error) {
 	fresh := &deliveryReceipt{Version: 1, Skills: map[string]string{}}
-	data, err := os.ReadFile(deliveryReceiptPath(managedDir))
+	path, legacy := deliveryReceiptPath(managedDir), false
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		path, legacy = filepath.Join(managedDir, legacyDeliveryReceiptFile), true
+		data, err = os.ReadFile(path)
+	}
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return fresh, nil
 		}
-		return nil, fmt.Errorf("read %s: %w", deliveryReceiptFile, err)
+		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 	var parsed deliveryReceipt
 	if err := json.Unmarshal(data, &parsed); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", deliveryReceiptFile, err)
+		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
+	parsed.legacy = legacy
 	if parsed.Skills == nil {
 		parsed.Skills = map[string]string{}
 	}

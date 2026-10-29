@@ -194,6 +194,34 @@ func TestACPCallKeepsAnErrorAnswerTheExitOvertook(t *testing.T) {
 	}
 }
 
+// The agent's exit can also reach the SDK through our own stdin: a write
+// that saw the process end before the writer reported the line written
+// answers with the exit, and the SDK fails the request with that text. It is
+// the connection's end all the same, so the error answer the router read is
+// still the call's error.
+func TestACPCallKeepsAnErrorAnswerOurWriteReportedAsTheExit(t *testing.T) {
+	p := &acpProcess{spec: acpSpec{command: "agent"}, sent: map[string]acpSentRequest{}}
+	p.init.AuthMethods = []acpsdk.AuthMethod{{Agent: &acpsdk.AuthMethodAgent{Id: "login", Name: "login"}}}
+	p.exitErr = &ACPError{Kind: ACPErrorExited, Agent: "agent", Message: "exit status 1"}
+	p.done = make(chan struct{})
+	close(p.done)
+	start := p.requestSeq()
+	p.noteRequest([]byte(`{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/w"}}`))
+	p.noteAnswer(json.RawMessage(`1`), acpMessage{Error: &acpRPCError{Code: acpAuthRequired, Message: "Authentication required"}})
+	ourExit := acpsdk.NewInternalError(map[string]any{"error": p.exitErr.Error()})
+
+	err := p.callError(context.Background(), "session/new", start, ourExit)
+	var acpErr *ACPError
+	if !errors.As(err, &acpErr) || acpErr.Kind != ACPErrorAuth || strings.Join(acpErr.AuthMethods, ",") != "login" {
+		t.Fatalf("err = %v, want the authentication error with its method", err)
+	}
+	// An internal error the agent itself sent stays the agent's answer.
+	theirs := acpsdk.NewInternalError(map[string]any{"error": "database is down"})
+	if err := p.callError(context.Background(), "session/new", start, theirs); !errors.As(err, &acpErr) || acpErr.Kind != ACPErrorRPC {
+		t.Fatalf("err = %v, want the agent's own internal error", err)
+	}
+}
+
 // A request cancelAll took is answered cancelled, even when the person's
 // answer lands between cancelAll taking it and answering it.
 func TestACPPermissionsCancelAllWinsOverALateAnswer(t *testing.T) {

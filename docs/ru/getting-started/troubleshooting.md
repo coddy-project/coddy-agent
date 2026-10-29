@@ -85,7 +85,7 @@ coddy serve -P 12346          # or httpserver.port in the file
 **Решение.** Возьмите релизную сборку - архивы GitHub Release, пакеты `.deb` и `.rpm` и Homebrew cask собраны со всеми тегами, а Docker-образ включает API, веб-интерфейс, планировщик, субагент памяти, консоль и шлюз, - или соберите бинарник сами.
 
 ```bash
-make build TAGS="http ui scheduler memory cli gateway swarm metrics"
+make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
 ```
 
 Для `ui` нужны Node.js и npm (Makefile сначала запускает `ui-build`). `coddy serve --dry-run` сообщает об интерфейсе, без которого собран бинарник, ничего не запуская. Справочник тегов - на странице [Сборка из исходников](../contributing/build.md#справочник-тегов-сборки).
@@ -149,7 +149,7 @@ coddy agents trust <name>
 
 ## Маркетплейс проекта не синхронизируется
 
-**Симптом.** Источник или маркетплейс, который проект объявляет в `.coddy/marketplaces.json`, ничего не устанавливает: `coddy skills sync` заканчивается строкой вроде `? team/skills: declared by <workspace>/.coddy/marketplaces.json, not approved for this workspace`, `plugin install <plugin>@<name>` сообщает, что маркетплейс не одобрен, а в разделе "Настройки > Навыки" строка показана с примечанием и неактивной кнопкой **Синхронизировать**.
+**Симптом.** Источник или маркетплейс, который проект объявляет в `.coddy/marketplaces.json`, не используется. `coddy plugin marketplace update` заканчивается строкой вроде `? team/skills: declared by <workspace>/.coddy/marketplaces.json, not approved for this workspace`, `plugin install <plugin>@<name>` сообщает, что маркетплейс не одобрен, а в разделе "Настройки > Навыки" строка показана с примечанием и неактивной кнопкой проверки.
 
 **Причина.** Этот файл приходит вместе с чекаутом и решает, что установить в `${CODDY_HOME}/skills`, поэтому его записи подчиняются `skills.project_trust`. При значении по умолчанию `ask` запись действует только после того, как вы одобрите её для этой рабочей папки, а одобрение привязано к записи, поэтому чекаут, который её переписывает, запрашивает одобрение снова. При `deny` записи показываются выключенными и никогда не используются.
 
@@ -158,8 +158,10 @@ coddy agents trust <name>
 ```bash
 coddy plugin marketplace list            # what is declared, and what waits for approval
 coddy plugin marketplace trust <name>    # a marketplace by name, a source by its address
-coddy skills sync
+coddy plugin install <source>            # a source; a plugin of a marketplace: coddy plugin install <plugin>@<name>
 ```
+
+Само одобрение ничего не ставит, установку делает последняя команда.
 
 `/plugin` в чате одобрить запись не может. Чекаут, которому вы уже доверяете, может работать с `skills.project_trust: allow`. Руководство - [Скилы](../features/skills.md#маркетплейсы-проекта-и-доверие).
 
@@ -374,7 +376,7 @@ file ./coddy-from-image   # ARM aarch64 on an arm64 host
 
   ```bash
   (cd external/ui && npm install && npm run build:go)
-  make build TAGS="http ui scheduler memory cli gateway swarm metrics"
+  make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
   ```
 
 - **Обновления из скриптов.** `coddy update -y --no-restart` устанавливает обновление, не запуская Coddy заново, для шага CI, где нет консоли;
@@ -404,4 +406,4 @@ coddy acp --log-level debug
 
 Те же настройки можно сохранить в разделе `logger` файла `config.yaml` (`level`, `levels`, `outputs`, `file`, `format`). Справка - [Конфигурация](configuration.md), [`logger`](../reference/config.md#logger).
 
-<!-- docsgen:source sha256=e167acc1de8ceb14 -->
+<!-- docsgen:source sha256=3db6aab4021ac590 -->

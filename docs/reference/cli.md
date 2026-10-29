@@ -7,7 +7,7 @@ Commands that only print a one-line usage (`skills`, `mcp`, `rules`, `agents`, `
 ## Help screens
 
 <!-- docsgen:cli:start -->
-Help screens of a binary built with `-tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics`, the set the release binaries carry.
+Help screens of a binary built with `-tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser`, the set the release binaries carry.
 
 ### coddy
 
@@ -53,11 +53,13 @@ Usage:
   coddy skills enable <name>
   coddy skills disable <name>
   coddy skills add <owner/repo | git-url | marketplace-url> [--project]
-  coddy skills sync
+  coddy skills sync (read the marketplace lists and report newer versions,
+        as plugin marketplace update does; installs nothing)
   coddy skills remove <name>
   coddy plugin marketplace add <src> | list [marketplace] | update [marketplace] | remove <marketplace | src>
   coddy plugin marketplace trust <marketplace | src> | untrust <marketplace | src>
   coddy plugin install <plugin>@<marketplace> | <owner/repo | git-url | marketplace-url>
+  coddy plugin update [<name>] (install the newer versions of installed skills, or of one)
   coddy plugin remove <name>
   coddy plugin enable <name> | disable <name>
   coddy mcp list | trust <name> | untrust <name> [--cwd DIR]
@@ -319,12 +321,13 @@ Usage of providers:
 plugin commands:
   plugin marketplace add <owner/repo|url>     add a marketplace and read its plugin list (installs nothing)
   plugin marketplace list [<marketplace>]     list marketplaces and sources, or the plugins of one marketplace
-  plugin marketplace update [<marketplace>]   refresh marketplaces and what is installed from them (alias: sync)
+  plugin marketplace update [<marketplace>]   read the plugin lists again and report newer versions (installs nothing)
   plugin marketplace remove <marketplace>     remove a marketplace or a source
   plugin marketplace trust <marketplace>      approve a project marketplace or source for this workspace (terminal only)
   plugin marketplace untrust <marketplace>    withdraw that approval
   plugin install <plugin>@<marketplace>       install one plugin of an added marketplace
-  plugin install <owner/repo|url>             install every skill a source publishes and keep them in sync
+  plugin install <owner/repo|url>             install every skill a source publishes
+  plugin update [<name>]                      install the newer versions of installed skills, or of one
   plugin remove <name>                        remove an installed skill
   plugin enable <name>                        enable a skill
   plugin disable <name>                       disable a skill

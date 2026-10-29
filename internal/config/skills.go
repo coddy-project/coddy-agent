@@ -28,13 +28,19 @@ func ApplySkillsAutoDiscoveryFlag(fs *flag.FlagSet, cfg *Config, val *bool) {
 	})
 }
 
-// SystemSkillsSource is the marketplace Coddy is born with: the catalogue that
-// publishes the skills of the standard delivery plus the rest of the same
-// collection. It is not written into any marketplaces.json - it sits beside
-// them, always in effect and always trusted, which is why no surface offers
-// to remove it and why no file has to be edited to have it. Only an address:
-// nothing is fetched from it until `coddy skills sync` asks.
+// SystemSkillsSource is the address of the marketplace Coddy is born with: the
+// catalogue that publishes the skills of the standard delivery plus the rest
+// of the same collection. It is not written into any marketplaces.json - it
+// sits beside them, always in effect and always trusted, which is why no
+// surface offers to remove it and why no file has to be edited to have it.
+// Only an address: nothing is fetched from it until `plugin marketplace
+// update` reads its list, and nothing is installed from it but what `plugin
+// install <plugin>@rpa-skills` names or `plugin update` updates.
 const SystemSkillsSource = "EvilFreelancer/rpa-skills"
+
+// SystemSkillsMarketplace is the name the catalogue at SystemSkillsSource
+// gives itself in its marketplace.json, what <plugin>@<marketplace> uses.
+const SystemSkillsMarketplace = "rpa-skills"
 
 // Skills is the YAML skills section (key skills). The remote marketplaces
 // are declared in <home>/marketplaces.json and the project's

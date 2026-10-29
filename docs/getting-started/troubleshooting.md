@@ -85,7 +85,7 @@ For access from other machines bind wider and require a token: `coddy serve -H 0
 **Fix.** Use a release build - the GitHub Release archives, the `.deb` and `.rpm` packages and the Homebrew cask are built with every tag, and the Docker image ships the API, the web UI, the scheduler, the memory subagent, the console and the gateway - or build it yourself:
 
 ```bash
-make build TAGS="http ui scheduler memory cli gateway swarm metrics"
+make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
 ```
 
 `ui` needs Node.js and npm (the Makefile runs `ui-build` first). `coddy serve --dry-run` reports a surface this binary was not built with without starting anything. Tag reference: [Build from source](../contributing/build.md#build-tags-reference).
@@ -149,7 +149,7 @@ Both `trust` commands print what they are about to approve and record the receip
 
 ## A project marketplace is not synced
 
-**Symptom.** A source or marketplace the project declares in `.coddy/marketplaces.json` installs nothing: `coddy skills sync` ends with a line like `? team/skills: declared by <workspace>/.coddy/marketplaces.json, not approved for this workspace`, `plugin install <plugin>@<name>` says the marketplace is not approved, and Settings > Skills shows the row with a note and its **Sync** button disabled.
+**Symptom.** A source or marketplace the project declares in `.coddy/marketplaces.json` is not used: `coddy plugin marketplace update` ends with a line like `? team/skills: declared by <workspace>/.coddy/marketplaces.json, not approved for this workspace`, `plugin install <plugin>@<name>` says the marketplace is not approved, and Settings > Skills shows the row with a note and its check button disabled.
 
 **Cause.** That file arrives with the checkout and decides what is installed into `${CODDY_HOME}/skills`, so its entries follow `skills.project_trust`: under the default `ask` an entry takes effect only once you approve it for that workspace, and an approval is bound to the entry, so a checkout that rewrites it asks again. Under `deny` the entries are listed as switched off and never used.
 
@@ -158,8 +158,10 @@ Both `trust` commands print what they are about to approve and record the receip
 ```bash
 coddy plugin marketplace list            # what is declared, and what waits for approval
 coddy plugin marketplace trust <name>    # a marketplace by name, a source by its address
-coddy skills sync
+coddy plugin install <source>            # a source; a plugin of a marketplace: coddy plugin install <plugin>@<name>
 ```
+
+Approving installs nothing on its own: the install is the last command.
 
 `/plugin` in a chat cannot approve one. A checkout you already trust can run under `skills.project_trust: allow`. Guide: [Skills](../features/skills.md#project-marketplaces-and-trust).
 
@@ -374,7 +376,7 @@ A build from source that stops at the first `FROM` with `failed to parse platfor
 
   ```bash
   (cd external/ui && npm install && npm run build:go)
-  make build TAGS="http ui scheduler memory cli gateway swarm metrics"
+  make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
   ```
 
 - **Updates from scripts.** `coddy update -y --no-restart` installs without starting Coddy again, for a CI step with no console to run in.

@@ -676,21 +676,19 @@ export async function consumeComposerSseReader(
           const summary = generationSummaryFromFrame(raw);
           if (summary && typeof raw.startedAt === "string") {
             const id = "generation_" + raw.startedAt;
-            applyStreamItems((prev) =>
-              prev.some((it) => it.id === id)
-                ? prev
-                : [
-                    ...prev,
-                    {
-                      id,
-                      type: "system_notice",
-                      level: "notice",
-                      message: "Generation complete",
-                      generation: summary,
-                      createdAtUtc: new Date(eventNow()).toISOString(),
-                    },
-                  ],
-            );
+            // A continuation shares the admitted turn's id and publishes a
+            // new cumulative average. Replace its earlier caption at the tail.
+            applyStreamItems((prev) => [
+              ...prev.filter((it) => it.id !== id),
+              {
+                id,
+                type: "system_notice",
+                level: "notice",
+                message: "Generation complete",
+                generation: summary,
+                createdAtUtc: new Date(eventNow()).toISOString(),
+              },
+            ]);
           }
           const progress = turnProgressFromFrame(raw, ev.ageMs, Date.now());
           if (progress) {

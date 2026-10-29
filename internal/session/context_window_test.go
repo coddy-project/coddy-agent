@@ -162,18 +162,22 @@ func TestContextWindowResolutionOrder(t *testing.T) {
 func TestContextWindowAsksOnlyProvidersThatReportWindows(t *testing.T) {
 	home := t.TempDir()
 	cfg := windowTestConfig(home)
-	listing := &windowListing{windows: map[string]int{"qwen3.8-27b": 262144, "gpt-5.6": 272000}}
+	listing := &windowListing{windows: map[string]int{"qwen3.8-27b": 262144, "gpt-5.6": 272000, "claude": 200000}}
 	m := newWindowTestManager(t, cfg, listing, nil)
 
 	// A model with max_context_tokens needs no listing either.
-	m.AwaitContextWindows(context.Background(), cfg, []string{"oai/gpt-4o", "ant/claude", "hub/configured"}, time.Second)
+	m.AwaitContextWindows(context.Background(), cfg, []string{"oai/gpt-4o", "hub/configured"}, time.Second)
 	if n := listing.calls.Load(); n != 0 {
 		t.Fatalf("listing read %d times for providers that report no windows, want 0", n)
 	}
-	for _, model := range []string{"oai/gpt-4o", "ant/claude"} {
-		if tokens, source := m.ContextWindow(cfg, model); tokens != config.DefaultContextWindowTokens || source != ContextWindowDefault {
-			t.Errorf("%s: ContextWindow = %d/%q, want the default", model, tokens, source)
-		}
+	if tokens, source := m.ContextWindow(cfg, "oai/gpt-4o"); tokens != config.DefaultContextWindowTokens || source != ContextWindowDefault {
+		t.Errorf("oai/gpt-4o: ContextWindow = %d/%q, want the default", tokens, source)
+	}
+
+	// Anthropic's listing reports each model's window as max_input_tokens.
+	m.AwaitContextWindows(context.Background(), cfg, []string{"ant/claude"}, time.Second)
+	if tokens, source := m.ContextWindow(cfg, "ant/claude"); tokens != 200000 || source != ContextWindowFromProvider {
+		t.Fatalf("anthropic model: ContextWindow = %d/%q, want 200000 from the provider", tokens, source)
 	}
 
 	m.AwaitContextWindows(context.Background(), cfg, []string{"nd/qwen3.8-27b"}, time.Second)

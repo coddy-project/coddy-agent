@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>What Coddy sends the model on every request</title>
+    <link rel="stylesheet" href="diagram.css" />
+    <style>
+      .top {
+        grid-template-columns: 720px 1fr;
+        gap: 34px;
+      }
+      .req {
+        display: grid;
+        grid-template-columns: 1fr 150px;
+        column-gap: 12px;
+        row-gap: 6px;
+      }
+      .req > .box {
+        grid-column: 1;
+        padding: 6px 12px;
+      }
+      .req > .bracket {
+        grid-column: 2;
+      }
+      .req .box .k {
+        font-weight: 700;
+      }
+      .req .box .why {
+        float: right;
+        margin-left: 10px;
+        font-size: 11.5px;
+        font-weight: 600;
+        padding: 1px 8px;
+        border-radius: 999px;
+        border: 1.2px solid currentColor;
+        background: #ffffff;
+        white-space: nowrap;
+      }
+      .why.session {
+        color: var(--green-line) !important;
+      }
+      .why.gen {
+        color: var(--purple-line) !important;
+      }
+      .why.turn {
+        color: var(--amber-line) !important;
+      }
+      .why.step {
+        color: var(--red-line) !important;
+      }
+      .box.core .why {
+        background: #ffffff;
+      }
+      .zone {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        margin: 8px 0 0;
+        grid-column: 1 / span 2;
+      }
+      .bracket.red {
+        color: var(--red-line);
+      }
+      .side .panel {
+        margin-bottom: 16px;
+      }
+      .side ul {
+        margin: 4px 0 0;
+        padding-left: 18px;
+        font-size: 13.5px;
+        color: var(--ink-2);
+      }
+      .side li {
+        margin-bottom: 4px;
+      }
+      .keys {
+        display: grid;
+        grid-template-columns: 112px 1fr;
+        row-gap: 7px;
+        column-gap: 10px;
+        font-size: 13px;
+        color: var(--ink-2);
+        align-items: start;
+      }
+      .keys .why {
+        font-size: 11.5px;
+        font-weight: 600;
+        padding: 1px 8px;
+        border-radius: 999px;
+        border: 1.2px solid currentColor;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body style="--width: 1300px">
+    <h1>What Coddy sends the model on every request</h1>
+    <p class="lead">
+      A provider caches a request by its prefix: the first byte that differs from the previous request throws away
+      the cached rest. So the system prompt is built to stay the same bytes from request to request, and what moves
+      goes to the end.
+    </p>
+
+    <div class="cols top">
+      <div>
+        <h2>1. The request, top to bottom</h2>
+        <div class="req">
+          <div class="box blue" id="tools">
+            <span class="why turn">mode, model, toolset, MCP</span>
+            <span class="k">Tool definitions</span> (the request's <code>tools</code> field)
+            <small>the built-in tools of the mode, plus MCP tools in agent and plan mode</small>
+          </div>
+          <div></div>
+
+          <div class="zone">SYSTEM MESSAGE <span class="mono" style="font-weight:600">(buildSystemPromptParts)</span></div>
+
+          <div class="box core" id="sp-first">
+            <span class="why session">fixed</span>
+            <span class="k">Identity and working directory</span>
+            <small>"You are Coddy, an AI coding agent...", <code>Working directory: {{.CWD}}</code>, a subagent's role in a child session</small>
+          </div>
+          <div class="bracket right green" id="sys-bracket" style="grid-row: 3 / span 12">
+            rendered once per turn and sent byte for byte by every step of it; with nothing on the right happening,
+            the same bytes for the whole session
+          </div>
+          <div class="box core">
+            <span class="why turn">mode switch</span>
+            <span class="k">Mode and how to work</span>
+            <small>## Mode: Agent / Plan / Ask, the capabilities, the guidance on files, shell, background tasks, worktrees, web</small>
+          </div>
+          <div class="box blue">
+            <span class="why turn">definition files</span>
+            <span class="k">Subagent catalog</span>
+            <small>the definitions <code>spawn_agent</code> can start, when the session may spawn</small>
+          </div>
+          <div class="box blue">
+            <span class="why turn">mode, model, toolset, MCP</span>
+            <span class="k">## Available tools</span>
+            <small>the same tools as text, MCP tools among them; MCP has no section of its own</small>
+          </div>
+          <div class="box blue">
+            <span class="why turn">config reload, workspace switch</span>
+            <span class="k">## Slash commands</span>
+            <small>the catalog of skills, a name and a description each, and the hint to call <code>load_skill</code></small>
+          </div>
+          <div class="box blue">
+            <span class="why turn">implementing a plan</span>
+            <span class="k">Plan context</span>
+            <small>agent mode, on the turn that implements an approved plan</small>
+          </div>
+          <div class="box amber">
+            <span class="why gen">rules generation</span>
+            <span class="k">Documents and always-on rules</span>
+            <small>AGENTS.md and DESIGN.md of the agent home, then of the workspace, then the rules that always apply</small>
+          </div>
+          <div class="box amber">
+            <span class="why gen">rules generation</span>
+            <span class="k">## Project instructions</span>
+            <small>the files of <code>instructions.files</code></small>
+          </div>
+          <div class="box blue">
+            <span class="why session">fixed</span>
+            <span class="k">## Session memory</span>
+            <small>the session's notes, when it has any; the memory subagent's report never goes here</small>
+          </div>
+          <div class="box core">
+            <span class="why session">fixed</span>
+            <span class="k">&lt;environment_context&gt;</span>
+            <small>os, arch and shell, appended whatever the template prints</small>
+          </div>
+          <div class="box amber">
+            <span class="why turn">hook output</span>
+            <span class="k">Hook context</span>
+            <small>what SessionStart left on the session, plus this turn's UserPromptSubmit context</small>
+          </div>
+          <div class="box amber" id="sp-last">
+            <span class="why turn">surface</span>
+            <span class="k">Surface block</span>
+            <small>how the web UI, Telegram or Pachca shows an answer: diagrams, formatting</small>
+          </div>
+
+          <div class="zone">HISTORY, REPLAYED AS STORED</div>
+
+          <div class="box blue">
+            <span class="why gen">compaction</span>
+            <span class="k">Compaction summary rows</span>
+            <small>the chain of summaries, oldest first, in place of the turns they cover</small>
+          </div>
+          <div class="bracket right blue" style="grid-row: 16 / span 2">
+            only grows at its end; a compaction is the one place it is rewritten
+          </div>
+          <div class="box green">
+            <span class="why session">appended</span>
+            <span class="k">Messages, tool calls and results</span>
+            <small>a rule a tool call activated rides in that call's result; a mention brings its file or rule in that message</small>
+          </div>
+
+          <div class="zone">APPENDED AT THE SEND BOUNDARY, NEVER STORED</div>
+
+          <div class="box red" id="tc">
+            <span class="why step">every step</span>
+            <span class="k">&lt;turn_context&gt;</span>
+            <small>UTC time (stamped once per turn), Git workspace, todo checklist, the memory report, background tasks still running</small>
+          </div>
+          <div class="bracket right red" style="grid-row: 19">
+            the only part out of the cache
+          </div>
+        </div>
+      </div>
+
+      <div class="side">
+        <h2>2. What re-renders it</h2>
+        <div class="panel">
+          <div class="keys">
+            <span class="why session" style="color: var(--green-line)">fixed</span>
+            <span>the same for the whole session (the working directory moves only with a workspace switch)</span>
+            <span class="why gen" style="color: var(--purple-line)">rules generation</span>
+            <span>
+              read once per generation: a compaction, a config reload or a workspace switch starts the next one, so an
+              AGENTS.md edited mid-session waits for it
+            </span>
+            <span class="why turn" style="color: var(--amber-line)">named event</span>
+            <span>
+              renders the system message again on the next turn, only when that event happens; a turn that changes
+              nothing sends the previous bytes
+            </span>
+            <span class="why step" style="color: var(--red-line)">every step</span>
+            <span>new on every request, which is why it sits after the history</span>
+          </div>
+        </div>
+
+        <h2>3. Re-rendered inside a turn</h2>
+        <div class="panel">
+          <ul>
+            <li>after a compaction, which also starts the next rules generation;</li>
+            <li>after <code>worktree_open</code> or another workspace switch;</li>
+            <li>after <code>switch_model</code> or a toolset switch that changed the tool set, and a config reload that did;</li>
+            <li>when a permission answer resumes the turn.</li>
+          </ul>
+        </div>
+
+        <h2>4. Kept out of it on purpose</h2>
+        <div class="panel">
+          <ul>
+            <li>the clock, the todo checklist, the memory report and running tasks: in <code>&lt;turn_context&gt;</code>;</li>
+            <li>a rule or nested AGENTS.md a tool call reaches: in that call's result, once;</li>
+            <li>a rule or file a mention brings, a <code>/skill</code> body: in that user message; a skill the model loads: in the <code>load_skill</code> result;</li>
+            <li>MCP server instructions: not sent at all.</li>
+          </ul>
+        </div>
+        <p class="note italic" style="margin: 0">
+          A template under <code>prompts.dir</code> that prints <code>{{.UTCNow}}</code> or
+          <code>{{.TodoList}}</code> is rendered again on every step and loses the cache.
+        </p>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>
+        Plan and ask mode use their own templates (<code>internal/prompts/plan.md</code>, <code>ask.md</code>) with the
+        same slots, except that plan mode lists the discarded plans instead of a plan context, and ask mode, which is
+        read-only, has no subagent catalog and no MCP tools.
+      </p>
+    </div>
+
+    <script src="diagram.js"></script>
+    <script>
+      wires([]);
+    </script>
+  </body>
+</html>

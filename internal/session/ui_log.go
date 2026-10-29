@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -55,10 +56,15 @@ func (row UILogEntry) GenerationProgress() acp.TurnProgressUpdate {
 	}
 }
 
+// AppendGenerationSummary replaces a continued run's cumulative summary and
+// places it after the latest answer. Several Agent.Run calls can share one
+// admitted turn, identified by startedAt.
 func (s *State) AppendGenerationSummary(startedAt time.Time, turn, tokens int, speed float64) {
+	id := "generation_" + startedAt.UTC().Format(time.RFC3339Nano)
 	s.mu.Lock()
+	s.UILog = slices.DeleteFunc(s.UILog, func(row UILogEntry) bool { return row.ID == id })
 	s.UILog = append(s.UILog, UILogEntry{
-		ID: "generation_" + startedAt.UTC().Format(time.RFC3339Nano), Level: UILogLevelNotice, Message: "Generation complete",
+		ID: id, Level: UILogLevelNotice, Message: "Generation complete",
 		UserTurnIndex: max(1, turn), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 		Generation: &GenerationSummary{OutputTokens: tokens, TokensPerSecond: speed},
 	})

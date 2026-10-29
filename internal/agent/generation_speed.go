@@ -12,6 +12,9 @@ type generationSpeed struct {
 	boundaries  [501]time.Time
 	callTokens  int
 	first, last time.Time
+	// lastOutput includes deltas that did not advance the rounded token
+	// estimate; last remains the boundary used to interpolate new tokens.
+	lastOutput  time.Time
 	refreshed   time.Time
 	windowEnd   int
 	active      bool
@@ -24,6 +27,7 @@ type generationSpeed struct {
 func (s *generationSpeed) begin() {
 	s.callTokens = 0
 	s.first, s.last, s.refreshed = time.Time{}, time.Time{}, time.Time{}
+	s.lastOutput = time.Time{}
 	s.windowEnd = 0
 	s.active = true
 	s.current = nil
@@ -31,7 +35,11 @@ func (s *generationSpeed) begin() {
 }
 
 func (s *generationSpeed) add(tokens int, now time.Time) {
-	if !s.active || tokens <= s.callTokens {
+	if !s.active {
+		return
+	}
+	s.lastOutput = now
+	if tokens <= s.callTokens {
 		return
 	}
 	previous := s.last
@@ -75,7 +83,7 @@ func (s *generationSpeed) finish(reported int) {
 		return
 	}
 	s.active = false
-	if elapsed := s.last.Sub(s.first); !s.first.IsZero() && elapsed > 0 {
+	if elapsed := s.lastOutput.Sub(s.first); !s.first.IsZero() && elapsed > 0 {
 		if reported <= 0 {
 			reported = s.callTokens
 		}

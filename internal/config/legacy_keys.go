@@ -36,9 +36,9 @@ type legacyMove struct {
 // mcp.json resolves when the server starts), a name the file declares
 // already left alone; and skills.sources into the sources of
 // <home>/marketplaces.json, a source the file has already (in any case) and
-// the system source not repeated. A move that cannot write its target leaves
-// its key where it is; the others go ahead, in one rewrite of config.yaml
-// with one backup of the old file.
+// the address of the system marketplace not repeated. A move that cannot
+// write its target leaves its key where it is; the others go ahead, in one
+// rewrite of config.yaml with one backup of the old file.
 func migrateLegacyKeys(paths Paths, data []byte) []byte {
 	if strings.TrimSpace(paths.ConfigPath) == "" {
 		return data
@@ -229,8 +229,8 @@ func moveLegacyMCPServers(paths Paths, value *yaml.Node) (moved, kept []string, 
 
 // moveLegacySkillSources appends the sources of an old skills.sources list to
 // the sources of <home>/marketplaces.json. A source the file has already, in
-// any case, and the system source, which is in effect without any file, are
-// not repeated.
+// any case, and the system marketplace, which is in effect without any file,
+// are not repeated.
 func moveLegacySkillSources(paths Paths, value *yaml.Node) (moved, kept []string, err error) {
 	var sources []string
 	if err := value.Decode(&sources); err != nil {

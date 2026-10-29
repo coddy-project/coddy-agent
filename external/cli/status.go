@@ -453,6 +453,11 @@ func (a *App) stepMessage() string {
 	return a.stepStatus.statusText(elapsed)
 }
 
+type generationStatusLine struct {
+	*statusLine
+	startedAt string
+}
+
 // applyTurnProgress takes the server's account of the running turn. The token count
 // is the agent's: provider figures for the calls that finished, an estimate for the
 // one in flight. The clock is the console's own for a turn it started - it knows when
@@ -460,7 +465,18 @@ func (a *App) stepMessage() string {
 func (a *App) applyTurnProgress(u acp.TurnProgressUpdate) {
 	if u.Completed {
 		if u.TokensPerSecond != nil {
-			a.appendStatus(roleDim, tui.FormatTokenCount(u.OutputTokens)+" "+plural(u.OutputTokens, "token", "tokens")+" · "+formatGenerationSpeed(*u.TokensPerSecond)+" tok/s")
+			// A late queued follow-up runs again under the same admitted turn.
+			// Its cumulative caption replaces the earlier run's, at the tail.
+			for _, child := range a.chat.Children() {
+				if row, ok := child.(*generationStatusLine); ok && row.startedAt == u.StartedAt {
+					a.chat.RemoveChild(row)
+					break
+				}
+			}
+			a.chat.AddChild(&generationStatusLine{
+				statusLine: newStatusLine(a.theme, roleDim, tui.FormatTokenCount(u.OutputTokens)+" "+plural(u.OutputTokens, "token", "tokens")+" · "+formatGenerationSpeed(*u.TokensPerSecond)+" tok/s"),
+				startedAt:  u.StartedAt,
+			})
 		}
 		return
 	}

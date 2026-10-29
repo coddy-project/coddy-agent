@@ -707,7 +707,11 @@ func (p *acpProcess) callError(ctx context.Context, method string, start uint64,
 
 // disconnected reports whether an error the SDK returned for a request is
 // the connection's end (or a write that failed) rather than the agent's
-// answer.
+// answer. Besides the SDK's own "peer disconnected", that is our exit error:
+// a write that saw the agent end before the writer reported the line written
+// returns it, and the SDK fails the request with its text. The process is
+// done only after the SDK read everything the agent wrote, so its answers
+// are with the router by then.
 func (p *acpProcess) disconnected(re *acpsdk.RequestError) bool {
 	if p.writeErr.Load() != nil {
 		return true
@@ -715,8 +719,16 @@ func (p *acpProcess) disconnected(re *acpsdk.RequestError) bool {
 	if re.Code != -32603 {
 		return false
 	}
-	if d, ok := re.Data.(map[string]any); ok {
-		if msg, _ := d["error"].(string); strings.HasPrefix(msg, "peer disconnected") {
+	d, ok := re.Data.(map[string]any)
+	if !ok {
+		return false
+	}
+	msg, _ := d["error"].(string)
+	if strings.HasPrefix(msg, "peer disconnected") {
+		return true
+	}
+	if !p.alive() {
+		if exit := p.exitError(); exit != nil && msg == exit.Error() {
 			return true
 		}
 	}

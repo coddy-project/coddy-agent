@@ -29,6 +29,7 @@ type ConfigJSON struct {
 	HTTPServer   HTTPServerJSON   `json:"httpserver,omitempty"`
 	Swarm        SwarmJSON        `json:"swarm,omitempty"`
 	Metrics      MetricsJSON      `json:"metrics,omitempty"`
+	Browser      BrowserJSON      `json:"browser,omitempty"`
 	UI           UIJSON           `json:"ui,omitempty"`
 	Scheduler    SchedulerJSON    `json:"scheduler,omitempty"`
 	Gateways     GatewaysJSON     `json:"gateways,omitempty"`
@@ -429,6 +430,15 @@ type MetricsJSON struct {
 	TokenConfigured bool   `json:"token_configured,omitempty"`
 }
 
+// BrowserJSON keeps the extension key write-only in configuration reads.
+type BrowserJSON struct {
+	Enable          bool     `json:"enable,omitempty"`
+	Token           string   `json:"token,omitempty"`
+	TokenConfigured bool     `json:"token_configured,omitempty"`
+	ServeRemote     bool     `json:"serve_remote,omitempty"`
+	Remotes         []string `json:"remotes,omitempty"`
+}
+
 // SwarmTLSJSON mirrors SwarmTLSConfig.
 type SwarmTLSJSON struct {
 	CertFile string `json:"cert_file,omitempty"`
@@ -694,6 +704,10 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		TokenConfigured: strings.TrimSpace(c.Metrics.Token) != "",
 	}
 	out.UI = UIJSON{Enabled: cloneBoolPtr(c.UI.Enabled)}
+	out.Browser = BrowserJSON{
+		Enable: c.Browser.Enable, TokenConfigured: c.Browser.Token != "",
+		ServeRemote: c.Browser.ServeRemote, Remotes: append([]string(nil), c.Browser.Remotes...),
+	}
 	out.Scheduler = SchedulerJSON{
 		Enabled: c.Scheduler.Enabled, MaxQueue: c.Scheduler.MaxQueue,
 		Timeout: c.Scheduler.Timeout, RetainSessions: c.Scheduler.RetainSessions,
@@ -943,6 +957,10 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Token:  j.Metrics.Token,
 	}
 	cfg.UI = UIConfig{Enabled: cloneBoolPtr(j.UI.Enabled)}
+	cfg.Browser = BrowserConfig{
+		Enable: j.Browser.Enable, Token: j.Browser.Token,
+		ServeRemote: j.Browser.ServeRemote, Remotes: append([]string(nil), j.Browser.Remotes...),
+	}
 	cfg.Scheduler = SchedulerConfig{
 		Enabled: j.Scheduler.Enabled, MaxQueue: j.Scheduler.MaxQueue,
 		Timeout: j.Scheduler.Timeout, RetainSessions: j.Scheduler.RetainSessions,
@@ -1094,6 +1112,9 @@ func preserveRedactedSecrets(next, current *Config) {
 		next.HTTPServer.Login.PasswordHash = current.HTTPServer.Login.PasswordHash
 	}
 	preserveSwarmSecrets(&next.Swarm, &current.Swarm)
+	if strings.TrimSpace(next.Browser.Token) == "" {
+		next.Browser.Token = current.Browser.Token
+	}
 	if strings.TrimSpace(next.Metrics.Token) == "" && strings.TrimSpace(current.Metrics.Token) != "" {
 		next.Metrics.Token = current.Metrics.Token
 	}

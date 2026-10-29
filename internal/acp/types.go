@@ -1,6 +1,11 @@
 package acp
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"strconv"
+)
 
 // Protocol version supported by this agent.
 const ProtocolVersion = 1
@@ -67,8 +72,9 @@ type InitializeParams struct {
 
 // ClientCapabilities describes what the client supports.
 type ClientCapabilities struct {
-	FS       *FSCapabilities `json:"fs,omitempty"`
-	Terminal bool            `json:"terminal,omitempty"`
+	FS          *FSCapabilities          `json:"fs,omitempty"`
+	Terminal    bool                     `json:"terminal,omitempty"`
+	Elicitation *ElicitationCapabilities `json:"elicitation,omitempty"`
 }
 
 // FSCapabilities describes filesystem capabilities of the client.
@@ -76,6 +82,22 @@ type FSCapabilities struct {
 	ReadTextFile  bool `json:"readTextFile,omitempty"`
 	WriteTextFile bool `json:"writeTextFile,omitempty"`
 }
+
+// ElicitationCapabilities names the elicitation modes the client renders. A
+// nil entry means the client did not advertise that mode, and the agent must
+// not send a request in it.
+type ElicitationCapabilities struct {
+	Form *ElicitationFormCapabilities `json:"form,omitempty"`
+	URL  *ElicitationURLCapabilities  `json:"url,omitempty"`
+}
+
+// ElicitationFormCapabilities advertises form-based elicitation: the client
+// renders the requested schema and answers with its values.
+type ElicitationFormCapabilities struct{}
+
+// ElicitationURLCapabilities advertises URL-based elicitation. Coddy sends
+// forms only, so it reads this flag and never acts on it.
+type ElicitationURLCapabilities struct{}
 
 // InitializeResult is returned in response to initialize.
 type InitializeResult struct {
@@ -86,12 +108,40 @@ type InitializeResult struct {
 }
 
 // SessionCaps is advertised during initialize (sessionCapabilities in ACP).
-type SessionCaps struct{}
-
-// MarshalJSON emits {"list":{}} when list support is enabled.
-func (SessionCaps) MarshalJSON() ([]byte, error) {
-	return []byte(`{"list":{}}`), nil
+// A nil entry means the agent does not advertise that session method, so the
+// client must not call it; a non-nil empty marker advertises it as `{}`.
+type SessionCaps struct {
+	List                  *SessionListCapabilities                  `json:"list,omitempty"`
+	Delete                *SessionDeleteCapabilities                `json:"delete,omitempty"`
+	AdditionalDirectories *SessionAdditionalDirectoriesCapabilities `json:"additionalDirectories,omitempty"`
+	Resume                *SessionResumeCapabilities                `json:"resume,omitempty"`
 }
+
+// FullSessionCaps advertises every session capability a persisted store backs:
+// listing, deleting, resuming and the additionalDirectories fields those
+// requests and the listing rows carry.
+func FullSessionCaps() *SessionCaps {
+	return &SessionCaps{
+		List:                  &SessionListCapabilities{},
+		Delete:                &SessionDeleteCapabilities{},
+		AdditionalDirectories: &SessionAdditionalDirectoriesCapabilities{},
+		Resume:                &SessionResumeCapabilities{},
+	}
+}
+
+// SessionListCapabilities advertises session/list.
+type SessionListCapabilities struct{}
+
+// SessionDeleteCapabilities advertises session/delete.
+type SessionDeleteCapabilities struct{}
+
+// SessionAdditionalDirectoriesCapabilities advertises the
+// additionalDirectories field of the session lifecycle requests and of the
+// session/list rows.
+type SessionAdditionalDirectoriesCapabilities struct{}
+
+// SessionResumeCapabilities advertises session/resume.
+type SessionResumeCapabilities struct{}
 
 // AgentCapabilities describes what this agent supports.
 type AgentCapabilities struct {
@@ -125,8 +175,11 @@ type ImplementationInfo struct {
 
 // SessionNewParams are the parameters for session/new.
 type SessionNewParams struct {
-	CWD        string      `json:"cwd"`
-	MCPServers []MCPServer `json:"mcpServers,omitempty"`
+	CWD string `json:"cwd"`
+	// AdditionalDirectories are extra workspace roots the client activates for
+	// the session, on top of CWD. Each path must be absolute.
+	AdditionalDirectories []string    `json:"additionalDirectories,omitempty"`
+	MCPServers            []MCPServer `json:"mcpServers,omitempty"`
 }
 
 // SessionNewResult is returned by session/new.
@@ -199,9 +252,12 @@ type SessionMode struct {
 
 // SessionLoadParams are the parameters for session/load.
 type SessionLoadParams struct {
-	SessionID  string      `json:"sessionId"`
-	CWD        string      `json:"cwd"`
-	MCPServers []MCPServer `json:"mcpServers,omitempty"`
+	SessionID string `json:"sessionId"`
+	CWD       string `json:"cwd"`
+	// AdditionalDirectories are extra workspace roots the client activates for
+	// the session, on top of CWD. Each path must be absolute.
+	AdditionalDirectories []string    `json:"additionalDirectories,omitempty"`
+	MCPServers            []MCPServer `json:"mcpServers,omitempty"`
 }
 
 // SessionLoadResult is returned by session/load after restoring state.
@@ -209,6 +265,37 @@ type SessionLoadResult struct {
 	Modes         *ModeState     `json:"modes,omitempty"`
 	ConfigOptions []ConfigOption `json:"configOptions,omitempty"`
 }
+
+// ---- ACP session/resume ----
+
+// SessionResumeParams are the parameters for session/resume. Resume brings a
+// stored session back without replaying its transcript, unlike session/load.
+type SessionResumeParams struct {
+	SessionID string `json:"sessionId"`
+	CWD       string `json:"cwd"`
+	// AdditionalDirectories replace the session's extra workspace roots for
+	// this resume: the list below is the complete one, and an empty list turns
+	// the extra roots off. Each path must be absolute.
+	AdditionalDirectories []string    `json:"additionalDirectories,omitempty"`
+	MCPServers            []MCPServer `json:"mcpServers,omitempty"`
+}
+
+// SessionResumeResult is returned by session/resume.
+type SessionResumeResult struct {
+	Modes         *ModeState     `json:"modes,omitempty"`
+	ConfigOptions []ConfigOption `json:"configOptions,omitempty"`
+}
+
+// ---- ACP session/delete ----
+
+// SessionDeleteParams are the parameters for session/delete.
+type SessionDeleteParams struct {
+	SessionID string `json:"sessionId"`
+}
+
+// SessionDeleteResult is returned by session/delete: the session and every
+// bundle nested under it are gone.
+type SessionDeleteResult struct{}
 
 // ---- ACP session/list ----
 
@@ -224,6 +311,9 @@ type SessionListInfo struct {
 	CWD       string  `json:"cwd"`
 	Title     *string `json:"title,omitempty"`
 	UpdatedAt *string `json:"updatedAt,omitempty"`
+	// AdditionalDirectories is the complete ordered list of extra workspace
+	// roots the session carries. Omitted when it carries none.
+	AdditionalDirectories []string `json:"additionalDirectories,omitempty"`
 }
 
 // SessionListResult is the response payload for session/list.
@@ -335,6 +425,7 @@ const (
 	UpdateTypeSessionSettings         = "session_settings"
 	UpdateTypeSessionGoal             = "session_goal"
 	UpdateTypeGoalTurn                = "goal_turn"
+	UpdateTypeSessionInfoUpdate       = "session_info_update"
 )
 
 // TurnOverride is a setting changed for a number of operator turns rather
@@ -679,6 +770,18 @@ type UsageUpdate struct {
 	Size          int    `json:"size"`
 }
 
+// SessionInfoUpdate announces a change of what the client lists the session
+// by - its title. The title is always present, so a client cannot mistake a
+// rename for a field that said nothing: a nil Title clears the title rather
+// than leaving the old one in place.
+type SessionInfoUpdate struct {
+	SessionUpdate string  `json:"sessionUpdate"` // "session_info_update"
+	Title         *string `json:"title"`
+	// UpdatedAt is the moment of the change, ISO 8601. Nil when the caller
+	// has no timestamp to offer.
+	UpdatedAt *string `json:"updatedAt,omitempty"`
+}
+
 // ProviderUsageUpdate reports the provider-side account quota behind the
 // session's model: how much of each metered window is spent, when it resets,
 // the wallet balance for wallet keys, and whether a request would be refused
@@ -1008,6 +1111,186 @@ type QuestionRequestParams struct {
 // QuestionResult is the client's response to session/request_question.
 type QuestionResult struct {
 	Answers [][]string `json:"answers"`
+}
+
+// ---- ACP elicitation/create ----
+
+// ElicitationModeForm is the elicitation mode Coddy sends: the client renders
+// the requested schema as a form and answers with its values.
+const ElicitationModeForm = "form"
+
+// CreateElicitationRequest is the agent's request for structured user input.
+// It is the standard replacement for session/request_question: the same
+// questions, rendered by any client that implements elicitation.
+type CreateElicitationRequest struct {
+	// SessionID and ToolCallID scope the request the way the question tool's
+	// own request was scoped.
+	SessionID  string `json:"sessionId"`
+	ToolCallID string `json:"toolCallId,omitempty"`
+	// Message is the prompt over the form.
+	Message string `json:"message"`
+	// Mode selects the elicitation kind; Coddy sends "form".
+	Mode string `json:"mode"`
+	// RequestedSchema describes the form fields when Mode is "form".
+	RequestedSchema *ElicitationSchema `json:"requestedSchema,omitempty"`
+}
+
+// ElicitationSchema is a JSON Schema object of primitive-typed properties:
+// the form the client renders.
+type ElicitationSchema struct {
+	Type        string `json:"type"` // "object"
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	// Properties maps a field name to its control.
+	Properties map[string]ElicitationPropertySchema `json:"properties"`
+	// Required names the fields the user must fill.
+	Required []string `json:"required,omitempty"`
+}
+
+// ElicitationPropertySchema is one form field. The ACP variants (string,
+// number, integer, boolean, array) are flattened into one struct: Type picks
+// the control and only the fields of that control are written, since every
+// one of them is omitted when empty.
+type ElicitationPropertySchema struct {
+	Type        string `json:"type"` // "string" | "number" | "integer" | "boolean" | "array"
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	// Enum offers untitled single-select choices on a string field.
+	Enum []string `json:"enum,omitempty"`
+	// OneOf offers titled single-select choices on a string field.
+	OneOf []EnumOption `json:"oneOf,omitempty"`
+	// Items describes the choices of a multi-select array field.
+	Items *MultiSelectItems `json:"items,omitempty"`
+}
+
+// EnumOption is one titled choice of a single-select field.
+type EnumOption struct {
+	Const       string `json:"const"`
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+}
+
+// MultiSelectItems describes the choices of a multi-select array field. Enum
+// offers untitled labels under Type "string"; AnyOf offers titled ones and
+// leaves Type empty, since the titled variant is MCP's {"anyOf": [...]} and a
+// "type":"string" beside it would name the untitled one. Exactly one of Enum
+// and AnyOf is written.
+type MultiSelectItems struct {
+	Type  string       `json:"type,omitempty"` // "string" with Enum, empty with AnyOf
+	Enum  []string     `json:"enum,omitempty"`
+	AnyOf []EnumOption `json:"anyOf,omitempty"`
+}
+
+// Elicitation outcomes: what the client reports the user did with the form.
+const (
+	ElicitationAccept  = "accept"
+	ElicitationDecline = "decline"
+	ElicitationCancel  = "cancel"
+)
+
+// CreateElicitationResult is the client's answer to elicitation/create.
+type CreateElicitationResult struct {
+	// Action is "accept", "decline" or "cancel".
+	Action string `json:"action"`
+	// Content maps a field name to the value the user entered. Written on
+	// "accept"; the other outcomes carry none.
+	Content map[string]ElicitationContentValue `json:"content,omitempty"`
+}
+
+// ElicitationContentValue is one form field's answer: a single value, or the
+// selections of a multi-select. It decodes whatever primitive the client sent
+// and hands the caller the strings behind it, which is all the question tool's
+// answer format carries.
+type ElicitationContentValue struct {
+	// Values holds the answer as text: one entry for a single-valued field,
+	// one per selection for a multi-select. Empty for a null.
+	Values []string
+}
+
+// UnmarshalJSON reads a field answer as strings. A string becomes one entry,
+// an array becomes one entry per value it holds, a number keeps the digits the
+// client wrote and a boolean becomes "true" or "false". Every value is decoded
+// into a concrete type, never into interface{}: anything else a client sends -
+// an object, a nested array - is kept as its compact JSON text, so a client
+// that renders a control Coddy never asked for still gets its answer through
+// to the model without the decoder building whatever structure it was sent.
+func (v *ElicitationContentValue) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) > 0 && trimmed[0] == '[' {
+		var items []json.RawMessage
+		if err := json.Unmarshal(trimmed, &items); err != nil {
+			return err
+		}
+		out := make([]string, 0, len(items))
+		for _, item := range items {
+			text, ok, err := elicitationValueText(item)
+			if err != nil {
+				return err
+			}
+			if ok {
+				out = append(out, text)
+			}
+		}
+		v.Values = out
+		return nil
+	}
+	text, ok, err := elicitationValueText(trimmed)
+	if err != nil {
+		return err
+	}
+	v.Values = nil
+	if ok {
+		v.Values = []string{text}
+	}
+	return nil
+}
+
+// elicitationValueText is the text of one answered value. ok is false for a
+// null, which answers nothing.
+func elicitationValueText(raw []byte) (text string, ok bool, err error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return "", false, nil
+	}
+	switch raw[0] {
+	case '"':
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return "", false, err
+		}
+		return s, true, nil
+	case 't', 'f':
+		var b bool
+		if err := json.Unmarshal(raw, &b); err != nil {
+			return "", false, err
+		}
+		return strconv.FormatBool(b), true, nil
+	case '{', '[':
+		var buf bytes.Buffer
+		if err := json.Compact(&buf, raw); err != nil {
+			return "", false, err
+		}
+		return buf.String(), true, nil
+	default:
+		var n json.Number
+		if err := json.Unmarshal(raw, &n); err != nil {
+			return "", false, fmt.Errorf("elicitation answer %s: %w", raw, err)
+		}
+		return n.String(), true, nil
+	}
+}
+
+// MarshalJSON writes the answer the way the control that collected it would:
+// one value when the field holds one, an array when it collected several.
+func (v ElicitationContentValue) MarshalJSON() ([]byte, error) {
+	switch len(v.Values) {
+	case 0:
+		return []byte("null"), nil
+	case 1:
+		return json.Marshal(v.Values[0])
+	default:
+		return json.Marshal(v.Values)
+	}
 }
 
 // ---- Content blocks ----
