@@ -101,7 +101,7 @@ func postTerminalInput(t *testing.T, endpoint, input string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("POST terminal status = %d", res.StatusCode)
 	}
