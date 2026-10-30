@@ -22,3 +22,16 @@ Feature: Optional follow-up prompt suggestions
     Then both surfaces offer "run the tests"
     And only one suggestion model call was made
     And the recorded conversation is unchanged
+
+  Scenario Outline: Compare recent and full text context
+    Given a finished conversation using <mode> suggestion context
+    When two surfaces request its next prompt
+    Then both surfaces offer "run the tests"
+    And the prediction history <selection> the first request
+    And only one suggestion model call was made
+    And the recorded conversation is unchanged
+
+    Examples:
+      | mode   | selection |
+      | recent | omits     |
+      | full   | includes  |

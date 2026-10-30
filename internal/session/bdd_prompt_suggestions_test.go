@@ -2,8 +2,11 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -17,10 +20,39 @@ func TestPromptSuggestionsFeature(t *testing.T) {
 	var calls *atomic.Int32
 	var before []llm.Message
 	var answers []string
+	var history atomic.Value
 	suite := godog.TestSuite{
 		Name:    "prompt-suggestions",
 		Options: &godog.Options{Format: "progress", Paths: []string{"../../features/prompt_suggestions.feature"}, TestingT: t},
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
+			sc.Step(`^a finished conversation using (recent|full) suggestion context$`, func(mode string) {
+				mgr, state, calls = newSuggestionTestManager(t, func(w http.ResponseWriter, r *http.Request) {
+					var request struct {
+						Messages []llm.Message `json:"messages"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+						http.Error(w, "invalid request", http.StatusBadRequest)
+						return
+					}
+					history.Store(request.Messages[len(request.Messages)-1].Content)
+					answerSuggestion(w, r)
+				})
+				mgr.activeCfg().Agent.PromptSuggestionsContext = mode
+				messages := []llm.Message{{Role: llm.RoleUser, Content: "FIRST_REQUEST_MARKER"}}
+				for range 8 {
+					messages = append(messages, llm.Message{Role: llm.RoleAssistant, Content: "completed one step"}, llm.Message{Role: llm.RoleUser, Content: "continue with the next step"})
+				}
+				messages = append(messages, llm.Message{Role: llm.RoleAssistant, Content: "completed the last step"})
+				state.ReplaceMessagesWithoutPersist(messages)
+				before, answers = state.GetMessages(), nil
+			})
+			sc.Step(`^the prediction history (includes|omits) the first request$`, func(want string) error {
+				text, _ := history.Load().(string)
+				if strings.Contains(text, "FIRST_REQUEST_MARKER") != (want == "includes") {
+					return fmt.Errorf("prediction history must %s the first request", want)
+				}
+				return nil
+			})
 			sc.Step(`^a conversation with its first completed reply$`, func() error {
 				mgr, state, calls = newSuggestionTestManager(t, answerSuggestion)
 				state.ReplaceMessagesWithoutPersist(state.GetMessages()[:2])

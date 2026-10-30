@@ -78,6 +78,16 @@
           "title": "Prompt suggestions",
           "type": "boolean"
         },
+        "prompt_suggestions_context": {
+          "default": "recent",
+          "description": "recent uses up to 12 whole text messages, including the one that exceeds 10000 characters in total. full uses the entire text conversation for comparison.",
+          "enum": [
+            "recent",
+            "full"
+          ],
+          "title": "Suggestion context",
+          "type": "string"
+        },
         "queue_mode": {
           "description": "Preferred action for Enter while a turn runs. Choose steer for the next ReAct step or after_turn for a new turn after the answer.",
           "enum": [
@@ -115,6 +125,7 @@
         "loop_stream_repeat_cycles",
         "loop_nudge_max",
         "prompt_suggestions",
+        "prompt_suggestions_context",
         "wait_for_limit_reset",
         "wait_for_limit_reset_max_ms"
       ]
