@@ -20,6 +20,14 @@ Feature: Operator hooks around tool calls
     Then the tool result contains "allowed-by-hook"
     And the client received no permission request
 
+  Scenario: A PreToolUse hook executes the call itself and answers for it
+    Given the operator's hooks.json has a PreToolUse hook for "run_command" that handles the call with the result "done in the sandbox"
+    And an agent session in permission mode "ask"
+    When the model runs the command "echo never-run"
+    Then the tool result contains "done in the sandbox"
+    And the tool result does not contain "never-run"
+    And the client received no permission request
+
   Scenario: A silent hook leaves the ordinary permission flow in place
     Given the operator's hooks.json has a PreToolUse hook for "run_command" that exits without a decision
     And an agent session in permission mode "ask"

@@ -57,6 +57,14 @@ type Outcome struct {
 	// UpdatedInput is the rewritten tool input when a PreToolUse hook
 	// returned one; nil otherwise.
 	UpdatedInput map[string]interface{}
+	// Handled is set by a PreToolUse handler that performed the call itself -
+	// an external executor such as an editor's document model, a sandbox or a
+	// remote host - and answers for it. ToolResult / ToolError carry the tool
+	// result the model must see. The first handler to say handled answers for
+	// the call; a deny or block from any handler still wins over it.
+	Handled    bool
+	ToolResult string
+	ToolError  string
 	// Context collects every additionalContext value (and plain stdout on the
 	// events that accept it), in run order.
 	Context []string
@@ -354,6 +362,9 @@ type hookOutput struct {
 		PermissionDecisionReason string                 `json:"permissionDecisionReason"`
 		UpdatedInput             map[string]interface{} `json:"updatedInput"`
 		AdditionalContext        string                 `json:"additionalContext"`
+		Handled                  bool                   `json:"handled"`
+		ToolResult               string                 `json:"toolResult"`
+		ToolError                string                 `json:"toolError"`
 	} `json:"hookSpecificOutput"`
 }
 
@@ -525,6 +536,11 @@ func (r *Runner) apply(out *Outcome, ev Event, label string, o hookOutput, field
 	if sp.UpdatedInput != nil && ev.Name == EventPreToolUse {
 		fields["tool_input"] = sp.UpdatedInput
 		out.UpdatedInput = sp.UpdatedInput
+	}
+	if sp.Handled && ev.Name == EventPreToolUse && !out.Handled {
+		out.Handled = true
+		out.ToolResult = r.truncate(sp.ToolResult)
+		out.ToolError = r.truncate(sp.ToolError)
 	}
 	if text := strings.TrimSpace(sp.AdditionalContext); text != "" {
 		out.Context = append(out.Context, r.truncate(text))

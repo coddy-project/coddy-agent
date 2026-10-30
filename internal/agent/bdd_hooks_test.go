@@ -120,6 +120,10 @@ func (s *hooksFeatureState) hookAddsContext(event, matcher, text string) error {
 	return s.addHook(event, matcher, hooktest.Handler("context", text))
 }
 
+func (s *hooksFeatureState) hookHandles(event, matcher, result string) error {
+	return s.addHook(event, matcher, hooktest.Handler("handle", result))
+}
+
 func (s *hooksFeatureState) hookRecords(event, matcher string) error {
 	return s.addHook(event, matcher, hooktest.Handler("record", s.recordFile))
 }
@@ -358,6 +362,7 @@ func initializeHooksScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that exits without a decision$`, s.hookSilent)
 	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that rewrites the command to "([^"]*)"$`, s.hookRewrites)
 	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that adds the context "([^"]*)"$`, s.hookAddsContext)
+	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that handles the call with the result "([^"]*)"$`, s.hookHandles)
 	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that records its stdin$`, s.hookRecords)
 	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that exits with code 2 and prints "([^"]*)" to stderr$`, s.hookExitsTwo)
 	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that shows the message "([^"]*)"$`, s.hookShowsMessage)

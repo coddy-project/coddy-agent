@@ -2277,6 +2277,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	{
 		original := tc.InputJSON
 		var ran bool
+		hookStart := time.Now()
 		hookRes, ran = a.runPreToolUseHooks(ctx, &tc, mode)
 		if ran && hookRes.blocked {
 			result := session.ToolResultHookBlockedPrefix + hookRes.reason
@@ -2315,6 +2316,27 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 					{Type: "content", Content: acp.ContentBlock{Type: "text", Text: tc.InputJSON}},
 				},
 			})
+		}
+		// A handler that reports `handled` performed the call itself - an
+		// external executor such as an editor's document model, a sandbox or a
+		// remote host. The permission gate and the local dispatch are skipped:
+		// the call already happened, and the handler's result is the tool's.
+		// deny and block above still win; the bookkeeping is the same as for a
+		// local run.
+		if ran && hookRes.handled {
+			var result string
+			var execErr error
+			if msg := strings.TrimSpace(hookRes.toolError); msg != "" {
+				execErr = tools.ApplyOutputLimitError(errors.New(msg), tc.Name, env)
+			} else {
+				result = tools.ApplyOutputLimit(hookRes.toolResult, tc.Name, env)
+			}
+			ranFor = time.Since(hookStart)
+			outcome = ToolOutcomeOK
+			if execErr != nil {
+				outcome = ToolOutcomeError
+			}
+			return a.completeToolCall(ctx, sessionDir, sessionID, tc, hookRes, mode, result, execErr, ranFor)
 		}
 	}
 
@@ -2535,7 +2557,14 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	if execErr != nil {
 		outcome = ToolOutcomeError
 	}
+	return a.completeToolCall(ctx, sessionDir, sessionID, tc, hookRes, mode, result, execErr, ranFor)
+}
 
+// completeToolCall closes one tool call: PostToolUse feedback and the
+// PreToolUse context travel with the result, then the outcome is persisted and
+// announced. Shared by a local run and a call a PreToolUse handler performed
+// itself (the `handled` answer).
+func (a *Agent) completeToolCall(ctx context.Context, sessionDir, sessionID string, tc llm.ToolCall, hookRes preToolUseOutcome, mode string, result string, execErr error, ranFor time.Duration) (string, error) {
 	// PostToolUse (or PostToolUseFailure) feedback and the PreToolUse
 	// context travel with the result, so the model reads them next to the
 	// output they refer to.

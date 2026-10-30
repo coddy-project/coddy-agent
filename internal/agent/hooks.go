@@ -146,6 +146,12 @@ type preToolUseOutcome struct {
 	allow   bool
 	ask     bool
 	context []string
+	// handled means a handler performed the call itself and answers for it:
+	// the permission gate and the local dispatch are skipped, and
+	// toolResult / toolError are the tool's result.
+	handled    bool
+	toolResult string
+	toolError  string
 }
 
 // runPreToolUseHooks fires PreToolUse for a call. A rewritten input is
@@ -173,6 +179,11 @@ func (a *Agent) runPreToolUseHooks(ctx context.Context, tc *llm.ToolCall, mode s
 		res.blocked = true
 		res.reason = out.Reason
 		return res, true
+	}
+	if out.Handled {
+		res.handled = true
+		res.toolResult = out.ToolResult
+		res.toolError = out.ToolError
 	}
 	switch out.Decision {
 	case hooks.DecisionAllow:
