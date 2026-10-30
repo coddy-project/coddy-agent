@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test, vi } from "vitest";
 import {
   EXTENSION_THEME_COLOR_VARS,
@@ -10,6 +7,7 @@ import {
   type ExtensionThemeColor,
 } from "./theme";
 import { UI_THEME_IDS } from "../theme/themeCookie";
+import { stylesSource } from "../../stylesSource";
 
 function fakeTheme(id: ExtensionTheme["id"], accent: string): ExtensionTheme {
   const colors = {} as Record<ExtensionThemeColor, string>;
@@ -122,11 +120,8 @@ test("the colours come from the theme tokens resolved through a probe", () => {
   }
 });
 
-test("every theme colour names a variable styles.css defines", () => {
-  const css = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
-    "utf8",
-  );
+test("every theme colour names a variable the stylesheet defines", () => {
+  const css = stylesSource();
   for (const token of Object.values(EXTENSION_THEME_COLOR_VARS))
     expect(css, `${token} should be defined`).toContain(`${token}:`);
 });
