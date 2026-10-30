@@ -53,7 +53,7 @@ func TestWebUISmallFixesFeature(t *testing.T) {
 			"DocsView folds On this page into a button that a section link closes"},
 		{`^on the desktop the documentation search ends where the text does$`,
 			"src/ui/docs/docsReaderCss.test.ts",
-			"on the desktop the header uses the page's own columns"},
+			"on the desktop the header stands over the page's own columns"},
 		{`^the pages of the contents are indented under their group title$`,
 			"src/ui/docs/docsReaderCss.test.ts",
 			"the pages of the contents are indented under their group title"},
