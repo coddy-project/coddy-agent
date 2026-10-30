@@ -10,9 +10,14 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"regexp"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/extensions"
 )
+
+// Event types an extension publishes share the contribution id shape, so a
+// listener addresses one as ext.<id>.<type>.
+var extensionEventTypePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 
 func (s *Server) registerExtensionRoutes() {
 	proxy := newExtensionProxy()
@@ -105,6 +110,61 @@ func (s *Server) registerExtensionRoutes() {
 	})
 	s.mux.HandleFunc("POST /coddy/extensions/{id}/fetch", func(w http.ResponseWriter, r *http.Request) {
 		proxy.serve(w, r, store(), proxyKey(r.PathValue("id")))
+	})
+	s.mux.HandleFunc("POST /coddy/extensions/{id}/events", func(w http.ResponseWriter, r *http.Request) {
+		// An extension publishes one host event: `extension_event` on the
+		// shared stream, for hook handlers and an IDE bridge to answer.
+		id := r.PathValue("id")
+		var body struct {
+			SHA256 string          `json:"sha256"`
+			Type   string          `json:"type"`
+			Data   json.RawMessage `json:"data"`
+		}
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&body); err != nil {
+			http.Error(w, errorJSON("expected sha256, type and data"), http.StatusBadRequest)
+			return
+		}
+		if err := dec.Decode(new(any)); err != io.EOF {
+			http.Error(w, errorJSON("expected one JSON object"), http.StatusBadRequest)
+			return
+		}
+		if err := store().CheckEnabled(id, body.SHA256); err != nil {
+			fail(w, err)
+			return
+		}
+		if !extensionEventTypePattern.MatchString(body.Type) {
+			http.Error(w, errorJSON("type must match ^[a-z][a-z0-9-]{0,63}$"), http.StatusBadRequest)
+			return
+		}
+		data := body.Data
+		if len(data) == 0 {
+			data = json.RawMessage("null")
+		}
+		var probe any
+		if err := json.Unmarshal(data, &probe); err != nil {
+			http.Error(w, errorJSON("data must be one JSON value"), http.StatusBadRequest)
+			return
+		}
+		payload, err := json.Marshal(map[string]any{
+			"object":    "coddy.extension_event",
+			"extension": id,
+			"type":      body.Type,
+			"data":      probe,
+		})
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		if s.events != nil {
+			frame := make([]byte, 0, len(payload)+32)
+			frame = append(frame, "event: extension_event\ndata: "...)
+			frame = append(frame, payload...)
+			frame = append(frame, "\n\n"...)
+			s.events.publish(frame)
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 	s.mux.HandleFunc("GET /coddy/extensions/{id}/assets/{file...}", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("file")

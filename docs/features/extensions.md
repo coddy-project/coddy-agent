@@ -50,7 +50,7 @@ The id uses lowercase ASCII letters, digits and hyphens, starts with a letter an
 
 `ui.entry` names one prebuilt ES module exporting `activate(coddy)`. Bundle dependencies into that file: relative imports have no base inside its blob URL. HTML and CSS may be embedded as strings in the module, or shipped as files in the ZIP. `ui.styles` lists CSS files loaded with the extension; use an extension-specific class prefix to avoid changing unrelated UI.
 
-The optional top-level `permissions` lists the scopes the package declares: `ui.page`, `ui.alter`, `sessions.read`, `sessions.assets.write`, `sessions.title`, `sessions.prompt`, `workspace.switch`, `events.publish`, `kv`, `config.read` and `llm.complete`. The vocabulary is closed - at most 32 dotted lowercase names, and an unknown one is refused at install. Enablement stays the authority gate: the declaration is the vocabulary a later phase enforces, and nothing checks the code against it today.
+The optional top-level `permissions` lists the scopes the package declares: `ui.page`, `ui.alter`, `sessions.read`, `sessions.assets.write`, `sessions.title`, `sessions.prompt`, `workspace.switch`, `events.publish`, `ide.actions`, `kv`, `config.read` and `llm.complete`. The vocabulary is closed - at most 32 dotted lowercase names, and an unknown one is refused at install. Enablement stays the authority gate: the declaration is the vocabulary a later phase enforces, and nothing checks the code against it today.
 
 The optional `ui.compat_styles` lists CSS files of the ZIP that load only on a legacy engine, layered over the ordinary styles. A modern engine never applies them; both are covered under the engine tier below.
 
@@ -86,7 +86,7 @@ export function activate(coddy) {
 | --- | --- |
 | `coddy.api`, `coddy.id` | SDK version `1` and the owning extension id. |
 | `coddy.signal` | Aborted when the extension's lifetime ends. Pass it to listeners and requests. |
-| `coddy.host` | The reserved host channel: `host.api` is `1`, and `await host.capabilities()` names the manifest permissions this build honours. |
+| `coddy.host` | The reserved host channel: `host.api` is `1`, `await host.capabilities()` names the manifest permissions this build honours, and `await host.fireEvent({type, data})` publishes one host event - `extension_event` on the shared server stream for hook handlers and an IDE bridge to answer, and `ext.<id>.<type>` to this page's listeners. An event type matches `^[a-z][a-z0-9-]{0,63}$`, and `data` is one JSON value. |
 | `coddy.assets.text(path)` | Fetch a UTF-8 asset from the exact enabled package through the authenticated API. |
 | `coddy.net.fetch(url, options?)` | Send an HTTP(S) request from the Coddy server and receive a buffered `Response`. |
 | `coddy.events.on(type, listener)` | Observe `tabChanged`, `stepEnded` or `turnEnded`. Returns a `remove()` handle. |
@@ -459,6 +459,6 @@ python -m zipfile -c stream-tools.zip manifest.json main.js
 
 - `ext_frame` rows are live only. They are never persisted, and a later history read replaces them with the original data.
 - The host channel answers `host.capabilities()` with the manifest permissions this build honours, and today that is `ui.page` alone. The sessions and messages host API lands on the same object later.
-- A declared `permissions` list is vocabulary, not enforcement: every scope, `ui.alter` included, is declared but not yet checked, and enablement stays the authority gate.
+- A declared `permissions` list is vocabulary, not enforcement: every scope, `ui.alter` included, is declared but not yet checked, and enablement stays the authority gate. `ide.actions` is reserved for an IDE action bridge that no build honours yet.
 - One panel is open at a time, whatever extension owns it.
 - An anchor box is an empty div the host keeps at a named place, and the host mounts it only while its surface is open: `ui.anchor(name)` is `null` otherwise, and `ui.onAnchor` is how an extension waits for one.
