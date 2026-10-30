@@ -195,9 +195,16 @@ Clear the field to use the session model for summarization.
 **ReAct loop → Prompt suggestions** controls the dim next-prompt hint in an empty composer.
 It is enabled by default. After a turn, Coddy asks the session's model for a suggestion
 without tools or transcript entries; this uses an extra model call. **Tab** or **Right**
-copies the suggestion into the draft. Typing hides it. Set `agent.prompt_suggestions: false`
+copies the suggestion into the draft. The suggestion stays as the placeholder while
+you edit. Clearing the draft shows the same suggestion again, including after accepting
+and editing it. Sending a message, starting another turn or switching context retires it.
+Set `agent.prompt_suggestions: false`
 in `config.yaml`, or turn the switch off and save, to stop generating suggestions in both
 the web UI and the local console. The change applies without restarting Coddy.
+
+![The same suggestion after editing and clearing the draft](../assets/web-ui/prompt-suggestion-restored-dark-1280.png)
+
+*The same suggestion after editing and clearing the draft, dark theme, 1280px. [Narrow view at 390px](../assets/web-ui/prompt-suggestion-restored-dark-390.png).*
 
 ![Prompt suggestions enabled in ReAct loop settings](../assets/web-ui/prompt-suggestions-on-dark-1280.png)
 

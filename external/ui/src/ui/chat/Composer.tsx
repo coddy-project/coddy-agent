@@ -3313,14 +3313,12 @@ export function Composer(props: {
                 placeholder={
                   props.generating
                     ? t("composer.placeholderQueue")
-                    : !props.value.trim()
-                      ? (props.promptSuggestion ??
-                        t(
-                          props.isEmpty
-                            ? "composer.placeholderEmpty"
-                            : "composer.placeholderFollowUp",
-                        ))
-                      : t("composer.placeholderFollowUp")
+                    : (props.promptSuggestion ??
+                      t(
+                        props.isEmpty
+                          ? "composer.placeholderEmpty"
+                          : "composer.placeholderFollowUp",
+                      ))
                 }
                 autoComplete="off"
                 value={props.value}

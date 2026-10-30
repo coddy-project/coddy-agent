@@ -3547,7 +3547,48 @@ test("a draft hides the prompt suggestion from Tab", () => {
     />,
   );
   const ta = document.getElementById("composer") as HTMLTextAreaElement;
-  expect(ta.placeholder).not.toBe("run the tests");
+  expect(ta.placeholder).toBe("run the tests");
   fireEvent.keyDown(ta, { key: "Tab" });
   expect(onChange).not.toHaveBeenCalledWith("run the tests");
 });
+
+test.each(["Tab", "ArrowRight"])(
+  "the composer preserves its suggestion through editing and clearing - %s",
+  (key) => {
+    const onSend = vi.fn();
+    const onAccepted = vi.fn();
+    function EditableComposer() {
+      const [value, onChange] = useState("");
+      return (
+        <Composer
+          value={value}
+          isEmpty={false}
+          mode="agent"
+          modes={["agent", "plan"]}
+          onModeChange={() => {}}
+          onChange={onChange}
+          onSend={onSend}
+          promptSuggestion="run the tests"
+          onPromptSuggestionAccepted={onAccepted}
+        />
+      );
+    }
+    render(<EditableComposer />);
+    const ta = document.getElementById("composer") as HTMLTextAreaElement;
+    expect(ta.placeholder).toBe("run the tests");
+    fireEvent.change(ta, { target: { value: "my own follow-up" } });
+    expect(ta.value).toBe("my own follow-up");
+    expect(ta.placeholder).toBe("run the tests");
+    fireEvent.change(ta, { target: { value: "" } });
+    expect(ta.placeholder).toBe("run the tests");
+    fireEvent.keyDown(ta, { key });
+    expect(ta.value).toBe("run the tests");
+    expect(onAccepted).toHaveBeenCalledTimes(1);
+    fireEvent.change(ta, { target: { value: "run the tests and explain" } });
+    expect(ta.placeholder).toBe("run the tests");
+    fireEvent.change(ta, { target: { value: "" } });
+    expect(ta.value).toBe("");
+    expect(ta.placeholder).toBe("run the tests");
+    expect(onSend).not.toHaveBeenCalled();
+  },
+);

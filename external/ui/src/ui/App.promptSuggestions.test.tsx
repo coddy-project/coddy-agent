@@ -1,13 +1,31 @@
 import React from "react";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { App } from "./App";
 import { ConfirmProvider } from "./components/useConfirm";
 import { initLocale } from "./i18n/i18n";
 
 vi.mock("./chat/ChatScreen", () => ({
-  ChatScreen: (props: { promptSuggestion?: string }) => (
-    <div data-testid="offered-suggestion">{props.promptSuggestion ?? ""}</div>
+  ChatScreen: (props: {
+    promptSuggestion?: string;
+    draft: string;
+    onDraftChange: (text: string) => void;
+  }) => (
+    <>
+      <div data-testid="offered-suggestion">{props.promptSuggestion ?? ""}</div>
+      <input
+        aria-label="Suggestion draft"
+        value={props.draft}
+        onChange={(event) => props.onDraftChange(event.target.value)}
+      />
+    </>
   ),
 }));
 
@@ -150,5 +168,28 @@ test("a late suggestion from a previous turn is discarded", async () => {
   await chat.start();
   expect(chat.requests[0]!.aborted).toBe(true);
   await chat.resolve();
+  expect(screen.getByTestId("offered-suggestion").textContent).toBe("");
+});
+
+test("editing and clearing a draft retains the finished turn's suggestion", async () => {
+  const chat = await openRunningChat();
+  await chat.end();
+  await chat.resolve();
+  await waitFor(() =>
+    expect(screen.getByTestId("offered-suggestion").textContent).toBe(
+      "run the tests",
+    ),
+  );
+  const draft = screen.getByLabelText("Suggestion draft");
+  fireEvent.change(draft, { target: { value: "my follow-up" } });
+  expect(screen.getByTestId("offered-suggestion").textContent).toBe(
+    "run the tests",
+  );
+  fireEvent.change(draft, { target: { value: "" } });
+  expect(screen.getByTestId("offered-suggestion").textContent).toBe(
+    "run the tests",
+  );
+  expect(chat.requests).toHaveLength(1);
+  await chat.start();
   expect(screen.getByTestId("offered-suggestion").textContent).toBe("");
 });
