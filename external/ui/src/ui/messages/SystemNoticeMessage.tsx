@@ -39,7 +39,6 @@ export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
     const { elapsedMs, outputTokens, tokensPerSecond } = props.generation;
     const at = props.createdAtUtc;
     const runningTasks = props.runningTasks ?? 0;
-    const tasksLabel = tp("tasks.running", runningTasks);
     return (
       <div
         className="msg-assistant-stack"
@@ -71,13 +70,8 @@ export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
               </span>
               {runningTasks > 0 ? (
                 <TurnTasksSegment
-                  label={tasksLabel}
-                  {...(props.onOpenTasks
-                    ? {
-                        onOpen: props.onOpenTasks,
-                        aria: t("tasks.openAria", { label: tasksLabel }),
-                      }
-                    : {})}
+                  count={runningTasks}
+                  {...(props.onOpenTasks ? { onOpen: props.onOpenTasks } : {})}
                 />
               ) : null}
             </span>

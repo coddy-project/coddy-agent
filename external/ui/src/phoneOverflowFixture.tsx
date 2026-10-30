@@ -16,6 +16,7 @@ import "./styles.scss";
 import { AssistantMessage } from "./ui/messages/AssistantMessage";
 import { ToolCallMessage } from "./ui/messages/ToolCallMessage";
 import { UserMessage } from "./ui/messages/UserMessage";
+import { TypingDotsMessage } from "./ui/messages/TypingDotsMessage";
 import { I18nProvider } from "./ui/i18n/I18nProvider";
 import { initLocale } from "./ui/i18n/i18n";
 import { UI_LOCALE_DEFAULT, isUiLocale } from "./ui/i18n/locales";
@@ -157,6 +158,16 @@ function Fixture() {
           onFetchToolCallFull={async () => {}}
         />
         <AssistantMessage content={answer} />
+        <TypingDotsMessage
+          statusKind="tool"
+          statusKey="status.run"
+          startedAtMs={Date.now() - 164_000}
+          turnStartedAtMs={Date.now() - 645_000}
+          turnTokens={13_200}
+          tokensPerSecond={46}
+          runningTasks={1}
+          onOpenTasks={() => {}}
+        />
       </div>
     </div>
   );

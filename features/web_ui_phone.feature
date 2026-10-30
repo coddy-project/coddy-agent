@@ -53,6 +53,9 @@ Feature: The web UI on a phone
   Scenario: Zoom controls remain compact on a phone
     Then the shared image, canvas and swarm zoom controls stay compact at every viewport
 
+  Scenario: The running task count fits the phone's live line
+    Then on a phone the live line shows a short plural task count and still opens the Tasks panel
+
   Scenario: The on-screen keyboard opens when the reader asks for it
     Then on a touch-only device opening the start screen or a chat leaves the composer unfocused
     And a narrow desktop window still focuses the composer
