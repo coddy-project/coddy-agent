@@ -47,8 +47,9 @@ Feature: The views of a chat
     Then discarding a file asks first, then puts it back through the server
     And discarding everything asks first, and a refusal touches nothing
 
-  Scenario: The files open in a window over the chat
-    Then the files open in a window over the chat, not in the dock
+  Scenario: The files open beside the chat
+    Then the files open beside the live chat, not in the tasks dock
+    And the chat stays interactive until the files' own close button is used
     And the window shows the workspace tree beside an empty preview
     And the names in the tree start where the filter's text does
     And a file picked in the tree opens in a tab, and a second one beside it

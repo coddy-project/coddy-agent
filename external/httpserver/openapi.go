@@ -1550,6 +1550,27 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/sessions/{id}/terminal": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Start or snapshot the integrated terminal",
+					"description": "Starts one host shell in the session workspace when none exists and returns its bounded output, shell path and running state. The process retains cwd and environment between commands.",
+					"parameters":  []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}, "description": "Session id."}},
+					"responses":   map[string]interface{}{"200": map[string]interface{}{"description": "Terminal snapshot"}, "400": errorResponseRef(), "404": errorResponseRef(), "500": errorResponseRef()},
+				},
+				"post": map[string]interface{}{
+					"summary":     "Write a command to the integrated terminal",
+					"description": "Writes **input** followed by a newline to the chat's persistent host shell and returns the immediate snapshot.",
+					"parameters":  []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}, "description": "Session id."}},
+					"requestBody": map[string]interface{}{"required": true, "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "required": []interface{}{"input"}, "properties": map[string]interface{}{"input": map[string]interface{}{"type": "string"}}}}}},
+					"responses":   map[string]interface{}{"200": map[string]interface{}{"description": "Terminal snapshot"}, "400": errorResponseRef(), "404": errorResponseRef(), "409": errorResponseRef()},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Restart the integrated terminal",
+					"description": "Stops and forgets the chat's shell. The next GET or POST starts a clean shell in the session workspace.",
+					"parameters":  []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}, "description": "Session id."}},
+					"responses":   map[string]interface{}{"204": map[string]interface{}{"description": "Terminal stopped"}, "400": errorResponseRef(), "404": errorResponseRef()},
+				},
+			},
 			"/coddy/subagents": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Subagent definitions visible from a workspace",

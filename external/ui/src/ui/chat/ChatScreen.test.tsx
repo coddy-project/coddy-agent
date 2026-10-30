@@ -338,6 +338,21 @@ const firstTurn: TranscriptItem[] = [
   { type: "assistant_message", id: "a1", content: "a very long answer" },
 ];
 
+test("the terminal is part of the measured composer block", () => {
+  const { container } = render(
+    <ChatScreen
+      {...scrollBase}
+      items={firstTurn}
+      terminal={<section data-testid="terminal-dock" />}
+    />,
+  );
+  const host = container.querySelector(".chat-bottom-inner");
+  const terminal = screen.getByTestId("terminal-dock");
+  expect(host).toBeTruthy();
+  expect(host?.contains(terminal)).toBe(true);
+  expect(host?.firstElementChild).toBe(terminal);
+});
+
 /** jsdom lays nothing out, so the scroll viewport is given real metrics by hand. */
 function transcriptViewport(
   container: HTMLElement,
