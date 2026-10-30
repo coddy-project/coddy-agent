@@ -604,6 +604,10 @@ export const messagesRu: Record<string, string> = {
     "Циклы повтора в потоке",
   "settings.schema.agent.loop_stream_repeat_cycles.desc":
     "Сколько одинаковых подряд идущих циклов вывода внутри одного потокового ответа допустимо, прежде чем он будет обрезан (0 отключает проверку).",
+  "settings.schema.agent.prompt_suggestions.label":
+    "Подсказки следующего промпта",
+  "settings.schema.agent.prompt_suggestions.desc":
+    "После хода предлагает следующий промпт в пустом поле ввода. Для этого нужен дополнительный вызов модели; Tab или стрелка вправо принимает подсказку. Отключите, чтобы прекратить генерацию подсказок.",
   "settings.schema.agent.loop_nudge_max.label": "Максимум поправок",
   "settings.schema.agent.loop_nudge_max.desc":
     "Сколько раз за один шаг модель можно вернуть на путь, прежде чем защита от зацикливания остановит его.",

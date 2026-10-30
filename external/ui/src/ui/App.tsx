@@ -566,6 +566,21 @@ export function App() {
     text: string;
   } | null>(null);
   const promptSuggestionAcceptedRef = useRef(false);
+  const promptSuggestionRequestRef = useRef<AbortController | null>(null);
+  const retirePromptSuggestion = useCallback(() => {
+    promptSuggestionRequestRef.current?.abort();
+    promptSuggestionRequestRef.current = null;
+    promptSuggestionAcceptedRef.current = false;
+    setPromptSuggestion(null);
+  }, []);
+  useEffect(() => {
+    retirePromptSuggestion();
+    return retirePromptSuggestion;
+  }, [sessionId, retirePromptSuggestion]);
+  useEffect(
+    () => subscribeEnv(retirePromptSuggestion),
+    [retirePromptSuggestion],
+  );
   // The files attached in the composer. Held here, not in the composer, so a
   // send the server never took can put them back next to the text.
   const [composerFiles, setComposerFiles] = useState<File[]>([]);
@@ -1071,7 +1086,7 @@ export function App() {
       if (active) {
         void attachViewedComposer(sid);
         // A turn running again retires the suggestion of the turn before it.
-        setPromptSuggestion((cur) => (cur && cur.sid === sid ? null : cur));
+        if (sid === viewedSessionIdRef.current.trim()) retirePromptSuggestion();
       } else if (wasActive) reconcileEndedTurn(sid);
     },
   });
@@ -1116,9 +1131,25 @@ export function App() {
     // The turn ended: ask once what the operator might type next and offer
     // it dim in the empty composer of the session this tab still views. A
     // turn with nothing to suggest clears what an older turn left.
+    if (!viewing) return;
+    retirePromptSuggestion();
+    const request = new AbortController();
+    promptSuggestionRequestRef.current = request;
+    const generation = turnActivity.generation(sid);
+    const environment = environmentKey(snapshotEnv());
     void (async () => {
-      const text = await fetchPromptSuggestion(sid);
-      if (viewedSessionIdRef.current.trim() !== sid) return;
+      const text = await fetchPromptSuggestion(sid, fetch, request.signal);
+      if (
+        request.signal.aborted ||
+        promptSuggestionRequestRef.current !== request ||
+        viewedSessionIdRef.current.trim() !== sid ||
+        turnActivity.generation(sid) !== generation ||
+        turnActivity.get(sid) === true ||
+        pendingPostBySidRef.current.has(sid) ||
+        environmentKey(snapshotEnv()) !== environment
+      )
+        return;
+      promptSuggestionRequestRef.current = null;
       promptSuggestionAcceptedRef.current = false;
       setPromptSuggestion(text ? { sid, text } : null);
     })();
@@ -3490,6 +3521,7 @@ export function App() {
       noteSchedulerTurn();
       const key = sid.trim();
       attention.turnStarted(key);
+      if (key === viewedSessionIdRef.current.trim()) retirePromptSuggestion();
       if (
         key !== viewedSessionIdRef.current.trim() &&
         turnActivity.get(key) === undefined
@@ -3529,6 +3561,7 @@ export function App() {
     // The configuration swapped: every config-derived list reads again, and
     // so does the copy of the config the Settings drawer keeps.
     configReloaded: () => {
+      retirePromptSuggestion();
       setConfigEpoch((e) => e + 1);
       noteSettingsConfigReloaded();
       void refreshConfiguredRemotes();
@@ -8404,8 +8437,7 @@ export function App() {
                       promptSuggestion.text.trim().toLowerCase();
                   void reportPromptSuggestionOutcome(sid, accepted);
                 }
-                setPromptSuggestion(null);
-                promptSuggestionAcceptedRef.current = false;
+                retirePromptSuggestion();
               }
               if (
                 sessionId.trim() &&

@@ -322,6 +322,13 @@ throttle with immediate renders after keystrokes.
 
 ## Commands and keys
 
+After a turn, the empty editor can show a dim suggestion for the next prompt.
+**Tab** or **Right** copies it into the draft; typing hides it. Suggestions use an
+extra call to the session's model without tools or transcript entries. They are
+enabled by default; set `agent.prompt_suggestions: false` in `config.yaml` to
+disable them, or use **Settings → ReAct loop → Prompt suggestions** in the web UI.
+The remote console (`--remote`) does not offer these hints yet.
+
 Slash commands: the settings commands `/model`, `/reasoning` (`/effort`),
 `/think`, `/nothink`, `/toolset`, `/agent`, `/plan`, `/ask` and `/permissions`, each with
 `--once` or `--count=N` for the next turns only

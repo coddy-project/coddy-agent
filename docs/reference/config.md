@@ -108,6 +108,7 @@ Defaults for the main agent loop (model id and safety caps).
 | `agent.loop_tool_repeat_limit` | integer or null | 2 | Consecutive identical tool calls in successive ReAct responses (same name, same canonical arguments) before the loop guard steps in. 0 disables the tool-repeat check. |
 | `agent.loop_stream_repeat_cycles` | integer or null | 5 | Identical back-to-back output cycles inside one streamed response before the stream is cut. 0 disables the stream check. |
 | `agent.loop_nudge_max` | integer or null | 1 | How many times one turn may be nudged back on track before the loop guard stops it with a notice. |
+| `agent.prompt_suggestions` | boolean or null | true | Suggest the next prompt in the empty console or web composer after a turn. Uses an extra model call without tools or transcript entries; Tab or Right accepts the suggestion. Defaults to true; false disables generation. |
 | `agent.wait_for_limit_reset` | boolean | false | Wait for a hit usage limit to lift and re-issue the call, instead of ending the turn with the provider's error. Applies to a top-level turn whose provider names a pause beyond the retry budget (a 429 with Retry-After or "Limit resets at"); the turn lock and the client stream stay open while it waits, so it is off by default. |
 | `agent.wait_for_limit_reset_max_ms` | integer or null | 14400000 | Longest time one turn spends waiting for limits in total, in milliseconds, the retry wrapper's own sleeps on a limit included; a pause that would exceed it ends the turn at once with the error. An explicit 0 never waits. |
 

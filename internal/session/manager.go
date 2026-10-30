@@ -587,6 +587,7 @@ func (m *Manager) storeConfig(next *config.Config) (*config.Config, string) {
 	previousTrust, _ := m.mcpTrust.Swap(next.MCP.ResolvedProjectTrust()).(string)
 	m.skillsLoad = skills.NewLoader(next.Skills.SearchDirs())
 	m.cfgAt.Store(next)
+	m.resetPromptSuggestions()
 	// The global servers the pool keeps follow the configuration: a server
 	// added or switched on starts, one removed, switched off or redeclared
 	// is let go once no session holds it. A changed mcp.idle_timeout_seconds

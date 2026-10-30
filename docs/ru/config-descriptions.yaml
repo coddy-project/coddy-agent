@@ -167,6 +167,9 @@ agent.loop_stream_repeat_cycles:
 agent.loop_nudge_max:
   en: "How many times one turn may be nudged back on track before the loop guard stops it with a notice."
   ru: "Сколько раз один ход можно вернуть в нужное русло, прежде чем защита от зацикливания остановит его с уведомлением."
+agent.prompt_suggestions:
+  en: "Suggest the next prompt in the empty console or web composer after a turn. Uses an extra model call without tools or transcript entries; Tab or Right accepts the suggestion. Defaults to true; false disables generation."
+  ru: "После хода предлагает следующий промпт в пустом поле ввода консоли или веб-интерфейса. Использует дополнительный вызов модели без инструментов и записей в транскрипте; Tab или стрелка вправо принимает подсказку. По умолчанию true; false отключает генерацию."
 agent.wait_for_limit_reset:
   en: "Wait for a hit usage limit to lift and re-issue the call, instead of ending the turn with the provider's error. Applies to a top-level turn whose provider names a pause beyond the retry budget (a 429 with Retry-After or \"Limit resets at\"); the turn lock and the client stream stay open while it waits, so it is off by default."
   ru: "Дождаться снятия исчерпанного лимита использования и повторить вызов, вместо того чтобы завершать ход ошибкой провайдера. Действует для хода верхнего уровня, провайдер которого называет паузу длиннее бюджета повторов (429 с Retry-After или \"Limit resets at\"); пока ход ждёт, блокировка хода и поток клиента остаются открытыми, поэтому по умолчанию настройка выключена."

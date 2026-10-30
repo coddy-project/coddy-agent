@@ -319,6 +319,16 @@ header where the client can set one, since a query token reaches proxy access lo
 
 After **`PUT`** **`/coddy/config`**, the next **`agent`**, **`plan`**, or **`ask`** turn uses the updated **`models`**, **`tools`**, and other fields from the swapped in-memory config. A changed **`mcp.project_trust`** is applied to idle active sessions before the save response completes and to future sessions; a session running a turn is reconnected when that turn ends. A reconnect that runs past the save's deadline leaves that session on the servers it already has and retries on its next turn, so one hanging server cannot strip the others.
 
+### Prompt suggestions
+
+The composer reads **`GET /coddy/sessions/{id}/prompt-suggestion`** after a turn.
+It returns `{"object":"coddy.prompt_suggestion","sessionId":"...","text":"..."}`;
+`text` is empty when suggestions are disabled, suppressed, or unavailable.
+**`POST /coddy/sessions/{id}/prompt-suggestion/outcome`** with `{"accepted":true}`
+records acceptance; `false` records an unused suggestion. Repeated unused suggestions
+reduce their frequency after the initial grace period. `agent.prompt_suggestions`
+defaults to `true`; setting it to `false` stops the extra model calls.
+
 ### System status
 
 **`GET /coddy/status`** answers **`200 application/json`** with one document the server builds from the running process on each request. It sits behind the **`/coddy`** gate like every route ([Authentication](#authentication-optional)): the API's credential opens it, the exporter's metrics token does not, and the API's credential does not open **`/metrics`** ([Monitoring](../operate/monitoring.md#the-system-page)). Reading it starts no outbound request: no provider, bot API or MCP server is asked. A relay mount carries it unchanged (**`/swarm/nodes/<id>/coddy/status`**), and **`404`** means a server older than the route.

@@ -315,15 +315,21 @@ func (s *promptSuggestionStore) update(fn func(*promptSuggestionState)) promptSu
 // entry per session: a second surface asking for the same turn's suggestion
 // reuses the answer, and a turn that starts while the call runs cancels it.
 type promptSuggestionSide struct {
-	mu    sync.Mutex
-	call  map[string]*promptSuggestionCall
-	cache map[string]promptSuggestionCacheEntry
+	mu      sync.Mutex
+	storeMu sync.Mutex
+	call    map[string]*promptSuggestionCall
+	cache   map[string]promptSuggestionCacheEntry
 }
 
 // promptSuggestionCall is one side call in flight; the pointer is its
 // identity.
 type promptSuggestionCall struct {
-	cancel context.CancelFunc
+	cancel  context.CancelFunc
+	done    chan struct{}
+	rev     uint64
+	waiters int
+	text    string
+	err     error
 }
 
 type promptSuggestionCacheEntry struct {
@@ -350,6 +356,18 @@ func (m *Manager) CancelPromptSuggestion(sessionID string) {
 	m.promptSuggestionSide.mu.Lock()
 	defer m.promptSuggestionSide.mu.Unlock()
 	m.promptSuggestionSide.cancelLocked(sessionID)
+	delete(m.promptSuggestionSide.cache, sessionID)
+}
+
+// resetPromptSuggestions retires work and cached answers on config reload.
+func (m *Manager) resetPromptSuggestions() {
+	side := &m.promptSuggestionSide
+	side.mu.Lock()
+	defer side.mu.Unlock()
+	for id := range side.call {
+		side.cancelLocked(id)
+	}
+	side.cache = nil
 }
 
 // GeneratePromptSuggestion predicts the operator's next message over the
@@ -379,7 +397,8 @@ func (m *Manager) GeneratePromptSuggestion(ctx context.Context, sessionID string
 	if m.SessionTurnActiveInProcess(sessionID) {
 		return "", errPromptSuggestionSuppressed
 	}
-	messages := MessagesForLLM(st.GetMessages())
+	messages, rev := st.MessagesWithRev()
+	messages = MessagesForLLM(messages)
 	assistant := 0
 	for _, msg := range messages {
 		if msg.Role == llm.RoleAssistant {
@@ -394,61 +413,89 @@ func (m *Manager) GeneratePromptSuggestion(ctx context.Context, sessionID string
 
 	side := &m.promptSuggestionSide
 	side.mu.Lock()
-	if entry, ok := side.cache[sessionID]; ok && entry.rev == st.MessagesRev() && time.Since(entry.at) < promptSuggestionCacheFor {
+	// Recheck after taking the side-call lock: a new turn or config reload
+	// may have retired the snapshot while it was being read.
+	if m.activeCfg() != cfg || st.MessagesRev() != rev || m.SessionTurnActiveInProcess(sessionID) {
+		side.mu.Unlock()
+		return "", errPromptSuggestionSuppressed
+	}
+	if entry, ok := side.cache[sessionID]; ok && entry.rev == rev && time.Since(entry.at) < promptSuggestionCacheFor {
 		side.mu.Unlock()
 		if entry.text == "" {
 			return "", errPromptSuggestionSuppressed
 		}
 		return entry.text, nil
 	}
-	// One call per session: a request still running is cancelled and replaced.
-	// The holder pointer is the identity that lets this call's cleanup leave a
-	// newer call's entry alone.
-	call := &promptSuggestionCall{}
-	side.cancelLocked(sessionID)
-	callCtx, cancel := context.WithCancel(ctx)
-	call.cancel = cancel
-	if side.call == nil {
-		side.call = map[string]*promptSuggestionCall{}
+	call := side.call[sessionID]
+	if call == nil || call.rev != rev {
+		side.cancelLocked(sessionID)
+		// Each surface may disconnect independently. Keep the shared request
+		// while someone waits, with a finite lifetime even for a bare caller.
+		callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 25*time.Second)
+		call = &promptSuggestionCall{cancel: cancel, done: make(chan struct{}), rev: rev}
+		if side.call == nil {
+			side.call = map[string]*promptSuggestionCall{}
+		}
+		side.call[sessionID] = call
+		go m.completePromptSuggestion(callCtx, cfg, st, messages, call)
 	}
-	side.call[sessionID] = call
+	call.waiters++
 	side.mu.Unlock()
 	defer func() {
-		cancel()
 		side.mu.Lock()
-		if side.call[sessionID] == call {
-			delete(side.call, sessionID)
+		call.waiters--
+		if call.waiters == 0 && side.call[sessionID] == call {
+			side.cancelLocked(sessionID)
 		}
 		side.mu.Unlock()
 	}()
-
-	text, err := m.runPromptSuggestion(callCtx, cfg, st, messages)
-	// Whatever came back belongs to this conversation revision only while
-	// nobody turned again.
-	rev := st.MessagesRev()
-	side.mu.Lock()
-	if side.cache == nil {
-		side.cache = map[string]promptSuggestionCacheEntry{}
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case <-call.done:
+		return call.text, call.err
 	}
-	side.cache[sessionID] = promptSuggestionCacheEntry{rev: rev, at: time.Now(), text: text}
-	side.mu.Unlock()
-	return text, err
+}
+
+func (m *Manager) completePromptSuggestion(ctx context.Context, cfg *config.Config, st *State, messages []llm.Message, call *promptSuggestionCall) {
+	defer call.cancel()
+	text, err := m.runPromptSuggestion(ctx, cfg, st, messages)
+	side := &m.promptSuggestionSide
+	side.mu.Lock()
+	defer side.mu.Unlock()
+	id := st.GetID()
+	current := side.call[id] == call
+	if ctx.Err() != nil || !current || m.activeCfg() != cfg || st.MessagesRev() != call.rev || m.SessionTurnActiveInProcess(id) {
+		text, err = "", errPromptSuggestionSuppressed
+	} else if err == nil || IsPromptSuggestionSuppressed(err) {
+		if side.cache == nil {
+			side.cache = map[string]promptSuggestionCacheEntry{}
+		}
+		side.cache[id] = promptSuggestionCacheEntry{rev: call.rev, at: time.Now(), text: text}
+	}
+	if current {
+		delete(side.call, id)
+	}
+	call.text, call.err = text, err
+	close(call.done)
 }
 
 // runPromptSuggestion is the call itself: the back-off decision, the recent
 // conversation window, and one no-tools completion through the same
 // resilience as the agent's own calls.
 func (m *Manager) runPromptSuggestion(ctx context.Context, cfg *config.Config, st *State, messages []llm.Message) (string, error) {
+	m.promptSuggestionSide.storeMu.Lock()
 	store := &promptSuggestionStore{home: cfg.Paths.Home}
 	state := store.load()
 	if state.backedOff(time.Now()) {
 		// Quiet mode: only every Nth turn that asks offers a suggestion.
-		next := state.Turns + 1
-		store.update(func(s *promptSuggestionState) { s.Turns = next })
-		if next%promptSuggestionEveryNthTurn != 0 {
+		state = store.update(func(s *promptSuggestionState) { s.Turns++ })
+		if state.Turns%promptSuggestionEveryNthTurn != 0 {
+			m.promptSuggestionSide.storeMu.Unlock()
 			return "", errPromptSuggestionSuppressed
 		}
 	}
+	m.promptSuggestionSide.storeMu.Unlock()
 
 	model := st.EffectiveModelID(cfg)
 	if cfg.ModelRunsACPAgent(model) {
@@ -483,7 +530,6 @@ func (m *Manager) runPromptSuggestion(ctx context.Context, cfg *config.Config, s
 
 	out := []llm.Message{{Role: llm.RoleSystem, Content: promptSuggestionInstruction}}
 	history := promptSuggestionHistoryWindow(messages)
-	out = append(out, history...)
 	out = append(out, llm.Message{Role: llm.RoleUser, Content: promptSuggestionUserMessage(history)})
 
 	response, err := provider.Complete(ctx, out, nil)
@@ -545,9 +591,11 @@ func (m *Manager) NotePromptSuggestionOutcome(sessionID string, accepted bool) {
 		return
 	}
 	cfg := m.activeCfg()
-	if cfg == nil {
+	if cfg == nil || !cfg.Agent.EffectivePromptSuggestions() || m.SessionByID(sessionID) == nil {
 		return
 	}
+	m.promptSuggestionSide.storeMu.Lock()
+	defer m.promptSuggestionSide.storeMu.Unlock()
 	store := &promptSuggestionStore{home: cfg.Paths.Home}
 	store.update(func(s *promptSuggestionState) {
 		if accepted {

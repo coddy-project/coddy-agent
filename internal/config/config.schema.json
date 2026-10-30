@@ -345,6 +345,14 @@
           "default": 1,
           "minimum": 0
         },
+        "prompt_suggestions": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Suggest the next prompt in the empty console or web composer after a turn. Uses an extra model call without tools or transcript entries; Tab or Right accepts the suggestion. Defaults to true; false disables generation.",
+          "default": true
+        },
         "wait_for_limit_reset": {
           "type": "boolean",
           "description": "Wait for a hit usage limit to lift and re-issue the call, instead of ending the turn with the provider's error. Applies to a top-level turn whose provider names a pause beyond the retry budget (a 429 with Retry-After or \"Limit resets at\"); the turn lock and the client stream stay open while it waits, so it is off by default.",

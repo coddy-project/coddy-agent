@@ -4,6 +4,8 @@ The keys of the console TUI and of the web UI composer, as the code binds them: 
 
 ## Console
 
+With a next-prompt suggestion in the empty editor, **Tab** or **Right** copies it into the draft (`agent.prompt_suggestions`, enabled by default). The same keys accept the hint in the web composer.
+
 Keys are parsed into the `ctrl+x` / `shift+enter` / `alt+backspace` notation of `external/cli/tui/keys.go`. While a modal is open, only the modal sees the keyboard; while the suggestion menu of the editor is open, it takes the navigation keys first.
 
 | Key | Action |
