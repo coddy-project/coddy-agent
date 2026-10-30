@@ -37,8 +37,11 @@ export function DevinAuthField(props: {
   const onConnectedChange = props.onConnectedChange;
 
   useLayoutEffect(() => {
-    onConnectedChange?.(status.connected);
-  }, [status.connected, onConnectedChange]);
+    const managedLogin =
+      status.connected &&
+      (status.source === "coddy" || status.source === "devin_cli");
+    onConnectedChange?.(managedLogin);
+  }, [status.connected, status.source, onConnectedChange]);
 
   useEffect(() => {
     const mine = ++generation.current;
@@ -191,8 +194,8 @@ export function DevinAuthField(props: {
   return (
     <div className="settings-row" data-testid="devin-auth-field">
       <FieldLabel
-        label={props.texts.second}
-        description={props.texts.secondDesc}
+        label={props.texts.second ?? props.texts.primary}
+        description={props.texts.secondDesc ?? props.texts.primaryDesc}
       />
       {status.connected ? (
         <p className="settings-muted codex-auth-status">

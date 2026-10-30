@@ -23,6 +23,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/devinfake"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/cucumber/godog"
 )
 
 func newDevinHTTPTestServer(t *testing.T, home string) *Server {
@@ -254,5 +255,68 @@ func TestDevinAuthHTTPLogoutCancelsPendingLogin(t *testing.T) {
 	}
 	if _, err := os.Stat(config.DevinAuthPath(home, "devin")); !os.IsNotExist(err) {
 		t.Fatalf("cancelled login stored a credential: %v", err)
+	}
+}
+
+func TestDevinLoginFeature(t *testing.T) {
+	var srv *Server
+	var start codexAuthLoginResponse
+	suite := godog.TestSuite{
+		Name: "devin_login",
+		Options: &godog.Options{
+			Format:   "pretty",
+			Paths:    []string{"../../features/devin_login.feature"},
+			Tags:     "~@ui",
+			TestingT: t,
+			Strict:   true,
+		},
+		ScenarioInitializer: func(sc *godog.ScenarioContext) {
+			sc.Step(`^a Devin account server and a provider settings server$`, func() {
+				stand := httptest.NewServer(devinfake.New(devinfake.Options{}))
+				t.Cleanup(stand.Close)
+				devinHTTPTestEnv(t, stand.URL)
+				srv = newDevinHTTPTestServer(t, t.TempDir())
+			})
+			sc.Step(`^the form starts Devin sign-in$`, func() {
+				start = startDevinHTTPLogin(t, srv, "")
+			})
+			sc.Step(`^the browser receives a verification page$`, func() {
+				if start.VerificationURL == "" {
+					t.Fatal("the start response has no verification page")
+				}
+			})
+			sc.Step(`^the login completes from the pasted callback address$`, func() {
+				client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+				res, err := client.Get(start.VerificationURL)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_ = res.Body.Close()
+				callback := res.Header.Get("Location")
+				path := "/coddy/providers/devin/devin-auth/device/" + start.LoginID + "/paste"
+				pasted := devinAuthRequest(t, srv, "POST", path, fmt.Sprintf(`{"url":%q}`, callback))
+				if pasted.Code != http.StatusAccepted {
+					t.Fatalf("paste: %d %s", pasted.Code, pasted.Body)
+				}
+				if state := waitDevinHTTPLogin(t, srv, start.LoginID); state.Status != "completed" {
+					t.Fatalf("login = %+v", state)
+				}
+			})
+			sc.Step(`^the form signs out of Devin$`, func() {
+				removed := devinAuthRequest(t, srv, "DELETE", "/coddy/providers/devin/devin-auth", "")
+				if removed.Code != http.StatusOK {
+					t.Fatalf("delete: %d %s", removed.Code, removed.Body)
+				}
+			})
+			sc.Step(`^the provider has no stored Devin login$`, func() {
+				path := config.DevinAuthPath(srv.activeCfg().Paths.Home, "devin")
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Fatalf("stored credential still exists: %v", err)
+				}
+			})
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("devin_login feature failed")
 	}
 }

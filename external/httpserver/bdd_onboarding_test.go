@@ -46,6 +46,16 @@ agent:
   model: "openai/gpt-5.6-terra"
 `)
 			})
+			sc.Step(`^a Coddy config with a ready local provider and no default agent model$`, func() {
+				status = onboardingStatusFor(t, `
+providers:
+  - name: local
+    type: openai
+    api_base: "http://127.0.0.1:8080/v1"
+models:
+  - model: "local/qwen"
+`)
+			})
 			sc.Step(`^the onboarding status is requested$`, func() {})
 			sc.Step(`^the onboarding status keeps the provider picker closed$`, func() {
 				if !status.HasProviders || !status.HasModels || !status.HasAgentModel || !status.HasAgentCredentials {

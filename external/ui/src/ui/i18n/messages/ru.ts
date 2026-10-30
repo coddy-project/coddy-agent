@@ -1076,6 +1076,8 @@ export const messagesRu: Record<string, string> = {
   "devinAuth.error.incompleteResponse":
     "Devin вернул неполные инструкции входа.",
   "devinAuth.fieldLabel": "Аккаунт Devin",
+  "devinAuth.description":
+    "Войдите через браузер и вставьте callback-адрес, если браузер не может достучаться до Coddy. Токены остаются на сервере Coddy. Сохраните настройки провайдера, чтобы использовать эту строку в чатах.",
   "devinAuth.connected": "Выполнен вход в Devin ({account}).",
   "devinAuth.shadowedByKey":
     "Явно заданный ключ API имеет приоритет над этим входом.",

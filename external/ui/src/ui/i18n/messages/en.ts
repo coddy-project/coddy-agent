@@ -1051,6 +1051,8 @@ export const messagesEn: Record<string, string> = {
   "devinAuth.error.incompleteResponse":
     "Devin returned incomplete sign-in instructions.",
   "devinAuth.fieldLabel": "Devin account",
+  "devinAuth.description":
+    "Sign in through the browser and paste the callback address when the browser cannot reach Coddy. Tokens stay on the Coddy server. Save the provider settings to use this row for chats.",
   "devinAuth.connected": "Signed in to Devin ({account}).",
   "devinAuth.shadowedByKey":
     "The explicit API key takes priority over this login.",

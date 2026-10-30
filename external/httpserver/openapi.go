@@ -2716,7 +2716,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/onboarding/status": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get first-run onboarding status",
-					"description": "Reports whether config.yaml exists and whether the configured agent has providers, models, an agent.model and a credential source for that model's provider. `missing_api_keys` is informational and lists every provider row that cannot answer; it does not by itself require onboarding. No credential helper is executed and no provider request is made.",
+					"description": "Reports whether config.yaml exists and whether the configured agent has providers, models, an effective default model (`agent.model`, or the alphabetically first `models[]` row when it is empty) and a credential source for that model's provider. `missing_api_keys` is informational and lists every provider row that cannot answer; it does not by itself require onboarding. No credential helper is executed and no provider request is made.",
 					"operationId": "getOnboardingStatus",
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("First-run and agent readiness status.", "#/components/schemas/OnboardingStatus"),

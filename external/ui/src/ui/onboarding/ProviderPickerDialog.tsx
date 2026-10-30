@@ -7,7 +7,7 @@ import { NeuralDeepAuthField } from "../settings/NeuralDeepAuthField";
 import { OpenCodeAuthField } from "../settings/OpenCodeAuthField";
 import { ProxySettingField } from "../settings/ProxySettingField";
 import { useProviderModels } from "../settings/useProviderModels";
-import { DevinAuthField } from "./DevinAuthField";
+import { DevinAuthField } from "../settings/DevinAuthField";
 import {
   buildOnboardingConfig,
   catalogEntry,
@@ -245,6 +245,7 @@ export function ProviderPickerDialog(props: {
         className="backdrop is-open"
         aria-label={t("onboarding.close")}
         onClick={props.onSkip}
+        disabled={busy}
       />
       <div
         className="provider-picker-panel"

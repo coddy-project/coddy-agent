@@ -77,6 +77,7 @@ const rootSchema: JsonSchema = {
               "neuraldeep",
               "opencode",
               "codex",
+              "devin",
               "acp",
             ],
           },
@@ -306,6 +307,88 @@ test("OpenCode account sign-in uses the unsaved proxy", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Sign Out" }));
   expect(
     await screen.findByTestId("opencode-auth-sign-in"),
+  ).toBeInTheDocument();
+});
+
+test("Devin account sign-in uses the unsaved proxy and callback paste", async () => {
+  let approved = false;
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/devin-auth/device") && init?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({
+            login_id: "devin-login",
+            verification_url: "https://devin.example/login",
+            status: "pending",
+          }),
+        };
+      }
+      if (url.endsWith("/device/devin-login/paste")) {
+        return { ok: true, json: async () => ({ status: "pending" }) };
+      }
+      if (url.endsWith("/device/devin-login")) {
+        approved = true;
+        return {
+          ok: true,
+          json: async () => ({ status: "completed", connected: true }),
+        };
+      }
+      if (init?.method === "DELETE") {
+        approved = false;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          connected: approved,
+          source: approved ? "coddy" : "none",
+          email: approved ? "dev@example.com" : undefined,
+        }),
+      };
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  const open = vi.spyOn(window, "open").mockImplementation(() => null);
+  render(
+    <Harness
+      provider={{
+        name: "devin",
+        type: "devin",
+        proxy: "http://proxy.example:8080",
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByTestId("devin-auth-sign-in"));
+  expect(await screen.findByTestId("devin-callback-paste")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/coddy/providers/devin/devin-auth/device",
+    expect.objectContaining({
+      body: JSON.stringify({ proxy: "http://proxy.example:8080" }),
+    }),
+  );
+  expect(open).toHaveBeenCalledWith(
+    "https://devin.example/login",
+    "_blank",
+    "noopener,noreferrer",
+  );
+  fireEvent.change(screen.getByTestId("devin-callback-paste"), {
+    target: {
+      value: "http://127.0.0.1:1234/callback?code=abc&state=xyz",
+    },
+  });
+  fireEvent.click(screen.getByTestId("devin-paste-submit"));
+  expect(
+    await screen.findByText(
+      "Signed in to Devin (dev@example.com).",
+      {},
+      { timeout: 3000 },
+    ),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Sign Out" }));
+  expect(
+    await screen.findByTestId("devin-auth-sign-in"),
   ).toBeInTheDocument();
 });
 

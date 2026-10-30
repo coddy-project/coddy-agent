@@ -40,8 +40,12 @@ func (s *Server) coddyOnboardingStatusGet(w http.ResponseWriter, r *http.Request
 			missing = append(missing, prov.Name)
 		}
 	}
+	modelRef := strings.TrimSpace(c.Agent.Model)
+	if modelRef == "" {
+		modelRef = c.FirstModelID()
+	}
 	agentReady := false
-	if name, _, err := config.SplitModelRef(c.Agent.Model); err == nil {
+	if name, _, err := config.SplitModelRef(modelRef); err == nil {
 		agentReady = providerlogin.ProviderReady(c, name)
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -50,7 +54,7 @@ func (s *Server) coddyOnboardingStatusGet(w http.ResponseWriter, r *http.Request
 		HasConfig:           hasConfig,
 		HasProviders:        len(c.Providers) > 0,
 		HasModels:           len(c.Models) > 0,
-		HasAgentModel:       strings.TrimSpace(c.Agent.Model) != "",
+		HasAgentModel:       modelRef != "",
 		HasAgentCredentials: agentReady,
 		MissingAPIKeys:      missing,
 	}); err != nil {

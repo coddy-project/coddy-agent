@@ -15,3 +15,9 @@ Feature: Onboarding status follows the agent's provider
     Given a Coddy config whose OpenAI agent provider has no credentials
     When the onboarding status is requested
     Then the onboarding status asks for the provider picker
+
+  @http
+  Scenario: The first configured model is the default without agent.model
+    Given a Coddy config with a ready local provider and no default agent model
+    When the onboarding status is requested
+    Then the onboarding status keeps the provider picker closed
