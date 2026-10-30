@@ -7,10 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
-	"unicode"
+	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -77,7 +78,7 @@ func promptSuggestionUserMessage(history []llm.Message) string {
 		default:
 			continue
 		}
-		b.WriteString(strings.TrimSpace(m.Content))
+		b.WriteString(m.Content)
 		b.WriteString("\n")
 	}
 	b.WriteString("</conversation>\n\nWhat does the user type next? Answer with the suggestion only, or nothing.")
@@ -98,8 +99,8 @@ const (
 	// promptSuggestionHistoryMessages caps the recorded conversation the side
 	// call reads: the prediction needs the latest exchanges, not the file.
 	promptSuggestionHistoryMessages = 12
-	// promptSuggestionMessageRunes caps one recorded message.
-	promptSuggestionMessageRunes = 2000
+	// Include the whole message that crosses this cumulative character bound.
+	promptSuggestionHistoryRunes = 10000
 	// promptSuggestionMaxRunes and promptSuggestionMaxWords are the format the
 	// instruction asks for, enforced on whatever comes back.
 	promptSuggestionMaxRunes = 100
@@ -537,7 +538,12 @@ func (m *Manager) runPromptSuggestion(ctx context.Context, cfg *config.Config, s
 	}
 
 	out := []llm.Message{{Role: llm.RoleSystem, Content: promptSuggestionInstruction}}
-	history := promptSuggestionHistoryWindow(messages)
+	var history []llm.Message
+	if cfg.Agent.EffectivePromptSuggestionsContext() == "full" {
+		history = promptSuggestionHistory(messages, false)
+	} else {
+		history = promptSuggestionHistoryWindow(messages)
+	}
 	out = append(out, llm.Message{Role: llm.RoleUser, Content: promptSuggestionUserMessage(history)})
 
 	response, err := provider.Complete(ctx, out, nil)
@@ -559,35 +565,32 @@ func (m *Manager) runPromptSuggestion(ctx context.Context, cfg *config.Config, s
 }
 
 // promptSuggestionHistoryWindow is the recent conversation the prediction
-// reads: user and assistant text only, each message capped, newest last.
+// reads: up to twelve whole user/assistant text messages, newest last.
 func promptSuggestionHistoryWindow(messages []llm.Message) []llm.Message {
-	start := len(messages) - promptSuggestionHistoryMessages
-	if start < 0 {
-		start = 0
-	}
+	return promptSuggestionHistory(messages, true)
+}
+
+func promptSuggestionHistory(messages []llm.Message, recent bool) []llm.Message {
 	var window []llm.Message
-	for _, msg := range messages[start:] {
+	characters := 0
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg := messages[i]
 		switch msg.Role {
 		case llm.RoleUser, llm.RoleAssistant:
 		default:
 			continue
 		}
-		content := strings.TrimSpace(msg.Content)
-		if content == "" {
+		if strings.TrimSpace(msg.Content) == "" {
 			continue
 		}
-		window = append(window, llm.Message{Role: msg.Role, Content: clipPromptSuggestionMessage(content)})
+		window = append(window, llm.Message{Role: msg.Role, Content: msg.Content})
+		characters += utf8.RuneCountInString(msg.Content)
+		if recent && (len(window) == promptSuggestionHistoryMessages || characters > promptSuggestionHistoryRunes) {
+			break
+		}
 	}
+	slices.Reverse(window)
 	return window
-}
-
-func clipPromptSuggestionMessage(text string) string {
-	runes := []rune(text)
-	if len(runes) <= promptSuggestionMessageRunes {
-		return text
-	}
-	kept := strings.TrimRightFunc(string(runes[:promptSuggestionMessageRunes]), unicode.IsSpace)
-	return kept + " …"
 }
 
 // NotePromptSuggestionOutcome records what became of a shown suggestion:

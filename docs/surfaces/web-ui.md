@@ -202,6 +202,18 @@ Set `agent.prompt_suggestions: false`
 in `config.yaml`, or turn the switch off and save, to stop generating suggestions in both
 the web UI and the local console. The change applies without restarting Coddy.
 
+**ReAct loop → Suggestion context** selects `recent` (default) or `full`, backed by
+`agent.prompt_suggestions_context`. `recent` reads user/assistant text from newest
+to oldest, up to 12 whole messages. The message that takes the total past 10000
+Unicode characters is included whole and ends the selection. `full` reads all
+user/assistant text messages. The same model, instruction and output budget are
+used in both modes, without tools or the main system prompt. Switch modes and
+save to compare subsequent suggestions; this is not Claude Code's native context fork.
+
+![Suggestion context set to full](../assets/web-ui/prompt-suggestion-context-full-dark-1280.png)
+
+*Suggestion context set to `full`, dark theme, 1280px. [Narrow view at 390px](../assets/web-ui/prompt-suggestion-context-full-dark-390.png).*
+
 ![The same suggestion after editing and clearing the draft](../assets/web-ui/prompt-suggestion-restored-dark-1280.png)
 
 *The same suggestion after editing and clearing the draft, dark theme, 1280px. [Narrow view at 390px](../assets/web-ui/prompt-suggestion-restored-dark-390.png).*

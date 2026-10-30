@@ -1,11 +1,14 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,7 +23,9 @@ func newSuggestionTestManager(t *testing.T, respond func(http.ResponseWriter, *h
 	t.Helper()
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.Copy(io.Discard, r.Body)
+		body, _ := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		r.Body = io.NopCloser(bytes.NewReader(body))
 		calls.Add(1)
 		respond(w, r)
 	}))
@@ -267,25 +272,51 @@ func TestPromptSuggestionStoreRoundTrip(t *testing.T) {
 }
 
 func TestPromptSuggestionHistoryWindow(t *testing.T) {
-	var msgs []llm.Message
-	for i := 0; i < promptSuggestionHistoryMessages+6; i++ {
-		role := llm.RoleUser
-		if i%2 == 1 {
-			role = llm.RoleAssistant
+	t.Run("latest twelve text messages in chronological order", func(t *testing.T) {
+		var msgs []llm.Message
+		for i := 0; i < 18; i++ {
+			msgs = append(msgs,
+				llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("message %d", i)},
+				llm.Message{Role: llm.RoleTool, Content: "tool output"},
+				llm.Message{Role: llm.RoleUser, Content: " \n "},
+				llm.Message{Role: llm.RoleAssistant},
+			)
 		}
-		msgs = append(msgs, llm.Message{Role: role, Content: strings.Repeat("x", 50)})
+		window := promptSuggestionHistoryWindow(msgs)
+		if len(window) != 12 || window[0].Content != "message 6" || window[11].Content != "message 17" {
+			t.Fatalf("unexpected history window: %+v", window)
+		}
+	})
+	for _, tc := range []struct {
+		name      string
+		texts     []string
+		wantStart int
+	}{
+		{"crossing message is included whole", []string{"old", strings.Repeat("a", 6000), strings.Repeat("b", 5000)}, 1},
+		{"one oversized message", []string{"old", strings.Repeat("z", 15000)}, 1},
+		{"exactly ten thousand continues", []string{"older", "crossing", strings.Repeat("a", 5000), strings.Repeat("b", 5000)}, 1},
+		{"Unicode characters rather than bytes", []string{"older", strings.Repeat("я", 4000), strings.Repeat("界", 4000)}, 0},
+		{"whitespace stays in whole messages", []string{"  user text\n", "\nassistant text  "}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var msgs []llm.Message
+			for _, text := range tc.texts {
+				msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: text})
+			}
+			got := promptSuggestionHistoryWindow(msgs)
+			if !reflect.DeepEqual(got, msgs[tc.wantStart:]) {
+				t.Fatalf("messages were dropped or clipped: got %d, want %d", len(got), len(msgs)-tc.wantStart)
+			}
+		})
 	}
-	window := promptSuggestionHistoryWindow(msgs)
-	if len(window) != promptSuggestionHistoryMessages {
-		t.Fatalf("window holds %d messages, want %d", len(window), promptSuggestionHistoryMessages)
+}
+
+func TestPromptSuggestionFullHistory(t *testing.T) {
+	var msgs []llm.Message
+	for range 20 {
+		msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: strings.Repeat("я", 3000)})
 	}
-	// A tool result inside the window is skipped, not counted.
-	withTool := append(append([]llm.Message(nil), msgs...), llm.Message{Role: llm.RoleTool, Content: "tool output"})
-	if got := len(promptSuggestionHistoryWindow(withTool)); got != promptSuggestionHistoryMessages-1 {
-		t.Fatalf("a tool result must shrink the window, got %d", got)
-	}
-	long := promptSuggestionHistoryWindow([]llm.Message{{Role: llm.RoleUser, Content: strings.Repeat("y", promptSuggestionMessageRunes*2)}})
-	if len([]rune(long[0].Content)) > promptSuggestionMessageRunes+2 {
-		t.Fatalf("a message longer than the cap was not clipped: %d runes", len([]rune(long[0].Content)))
+	if got := promptSuggestionHistory(msgs, false); !reflect.DeepEqual(got, msgs) {
+		t.Fatal("full history must keep every text message without clipping")
 	}
 }

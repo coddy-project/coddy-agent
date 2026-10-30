@@ -229,6 +229,9 @@ agent:
   # takes it into the input. Ignored suggestions back off: after 20 unused in
   # a row only every 10th turn offers one.
   # prompt_suggestions: true
+  # recent: up to 12 whole text messages, including the one crossing 10000 characters.
+  # full: all user/assistant text messages, for comparing suggestion quality.
+  # prompt_suggestions_context: recent
 
 # Session goal and supervisor: /goal <objective> starts work on a goal, and a
 # second model checks every turn against it, continues unfinished work and
