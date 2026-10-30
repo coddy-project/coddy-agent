@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -1156,20 +1157,28 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 		// the activity of a session is known.
 		IncludeEmpty: true,
 	}
-	rows, err := fs.ListSnapshotsWith(listOpts)
+	// The rail badge is global to History, not to the page or any filter the
+	// reader currently has open. Active child sessions contribute even though
+	// History itself keeps their rows hidden. The plain History page is that
+	// scope without the child rows, so one scan serves both; a filtered page
+	// needs a scan of its own.
+	historyOpts := session.ListOptions{IncludeSubagents: true, IncludeEmpty: true}
+	historyRows, err := fs.ListSnapshotsWith(historyOpts)
 	if err != nil {
-		s.log.Error("coddy sessions list", "error", err)
+		s.log.Error("coddy sessions active count", "error", err)
 		http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)
 		return
 	}
-	// The rail badge is global to History, not to the page or any filter the
-	// reader currently has open. Active child sessions contribute even though
-	// History itself keeps their rows hidden.
-	historyRows := rows
-	if !isNormalHistoryList(listOpts) || !listOpts.IncludeSubagents {
-		historyRows, err = fs.ListSnapshotsWith(session.ListOptions{IncludeSubagents: true, IncludeEmpty: true})
+	var rows []session.SessionListEntry
+	switch {
+	case isNormalHistoryList(listOpts):
+		rows = session.WithoutSubagentRuns(historyRows)
+	case reflect.DeepEqual(listOpts, historyOpts):
+		rows = append([]session.SessionListEntry(nil), historyRows...)
+	default:
+		rows, err = fs.ListSnapshotsWith(listOpts)
 		if err != nil {
-			s.log.Error("coddy sessions active count", "error", err)
+			s.log.Error("coddy sessions list", "error", err)
 			http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)
 			return
 		}
@@ -1349,9 +1358,9 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 
-// isNormalHistoryList reports whether opts are the unfiltered working History
-// scope used by active_count. Keeping it here makes the single-scan path
-// explicit without changing the badge semantics for filtered requests.
+// isNormalHistoryList reports whether opts are the unfiltered History page:
+// the active_count scope without its child rows, so the page is derived from
+// that one scan (session.WithoutSubagentRuns) instead of a second one.
 func isNormalHistoryList(opts session.ListOptions) bool {
 	return strings.TrimSpace(opts.CWD) == "" &&
 		!opts.IncludeSchedulerRuns &&
