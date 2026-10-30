@@ -18,7 +18,7 @@ The files must sit at the ZIP root. Bundle dependencies into `main.js`; relative
 | Example | What to copy |
 | --- | --- |
 | [first-extension](first-extension/main.js) | Minimal manifest, page, DOM event and cleanup. |
-| [hello](hello/main.js) | Separate HTML/CSS assets and a counter. |
+| [hello](hello/main.js) | Separate HTML/CSS assets, a counter and the theme colours. |
 | [local-api](local-api/main.js) | `coddy.net.fetch` for GET/POST, binary-capable transport and cancellation. `localhost` means the Coddy server. |
 | [stream-tools](stream-tools/main.js) | A synchronous incoming-stream processor and a page showing the last frame. |
 | [workflow-tools](workflow-tools/main.js) | Navigation/step/turn events, a custom `demo__status` MCP card, and fields in ReAct loop and MCP servers settings. |
@@ -33,6 +33,6 @@ const status = await response.json();
 
 Use this in an asynchronous UI handler or activation, not inside `transform`. Refresh a cache asynchronously if a stream processor needs network data. Requests are buffered, limited to 30 seconds, 4 MiB upload and 8 MiB download. Target authentication must be supplied explicitly; redirects are returned without following them.
 
-The [short tutorial](../../docs/tutorials/first-extension.md) walks through the files. The [extension API reference](../../docs/features/extensions.md) covers assets, menu actions, incoming data and the network contract.
+The [short tutorial](../../docs/tutorials/first-extension.md) walks through the files. The [extension API reference](../../docs/features/extensions.md) covers assets, menu actions, theme colours, incoming data and the network contract.
 
 To try the contribution APIs, package `workflow-tools/manifest.json` and `workflow-tools/main.js` from inside that folder with `python -m zipfile -c workflow-tools.zip manifest.json main.js`. After enabling it, edit **MCP card badge** in **Settings → ReAct loop** and use Save. Open **Extensions → Workflow events** and choose **Read saved badge**. A call of the MCP server `demo`, tool `status`, uses its custom card; its original details remain available underneath. See the API guide for matching other MCP tools.

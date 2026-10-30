@@ -49,6 +49,26 @@ describe("extension lifetime", () => {
     expect(fetch).not.toHaveBeenCalled();
     expect(load).not.toHaveBeenCalled();
   });
+  test("every extension gets the theme API of the active theme", async () => {
+    setup();
+    let api!: ExtensionAPI;
+    const runtime = new ExtensionRuntime(vi.fn(), async () => ({
+      activate(value) {
+        api = value;
+      },
+    }));
+    await runtime.reconcile([entry]);
+    expect(api.theme.get().colors).toHaveProperty("accent");
+    const seen: unknown[] = [];
+    api.theme.onChange((theme) => {
+      seen.push(theme);
+    });
+    runtime.themes.changed();
+    expect(seen).toHaveLength(1);
+    runtime.stop();
+    expect(() => api.theme.get()).toThrow("Extension disposed");
+    expect(() => api.theme.onChange(() => {})).toThrow("Extension disposed");
+  });
   test("register, update, open and remove controls; disabling disposes and reloads", async () => {
     setup();
     const open = vi.fn();
