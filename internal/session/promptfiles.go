@@ -152,11 +152,26 @@ func ReadWorkspaceUTF8(cwdAbs, relPath string) (content string, mime string, err
 	if normRel == "" {
 		return "", "", fmt.Errorf("empty path")
 	}
-	abs, err := AbsPathUnderWorkspaceRoot(cwdAbs, normRel)
+	if _, err := AbsPathUnderWorkspaceRoot(cwdAbs, normRel); err != nil {
+		return "", "", err
+	}
+	// The lexical check above cannot see links: the file is opened through
+	// os.Root, so a link inside the workspace is followed while it stays
+	// there and one that leads out is refused, as the Files window does.
+	root, err := os.OpenRoot(cwdAbs)
 	if err != nil {
 		return "", "", err
 	}
-	st, err := os.Stat(abs)
+	defer func() { _ = root.Close() }()
+	f, err := root.Open(filepath.FromSlash(normRel))
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) && !errors.Is(err, os.ErrPermission) {
+			return "", "", fmt.Errorf("%w: %s", ErrPathTraversal, normRel)
+		}
+		return "", "", err
+	}
+	defer func() { _ = f.Close() }()
+	st, err := f.Stat()
 	if err != nil {
 		return "", "", err
 	}
@@ -166,11 +181,6 @@ func ReadWorkspaceUTF8(cwdAbs, relPath string) (content string, mime string, err
 	if st.Size() > MaxPromptAttachmentBytes {
 		return "", "", fmt.Errorf("file too large (max %d bytes)", MaxPromptAttachmentBytes)
 	}
-	f, err := os.Open(abs)
-	if err != nil {
-		return "", "", err
-	}
-	defer func() { _ = f.Close() }()
 	data, err := io.ReadAll(io.LimitReader(f, MaxPromptAttachmentBytes+1))
 	if err != nil {
 		return "", "", err
