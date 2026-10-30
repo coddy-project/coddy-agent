@@ -46,6 +46,29 @@ func TestWebSearchBraveKeyComesFromTheEnvironmentWhenTheConfigHasNone(t *testing
 	}
 }
 
+// TestWebSearchDeepSeekKeyComesFromTheEnvironmentWhenTheConfigHasNone mirrors
+// the Brave convention: DeepSeek's Search API is key-only, and the key belongs
+// in the environment (or ${CODDY_HOME}/.env) as much as a provider's does.
+func TestWebSearchDeepSeekKeyComesFromTheEnvironmentWhenTheConfigHasNone(t *testing.T) {
+	t.Setenv(WebSearchDeepSeekAPIKeyEnv, " sk-deep-from-env ")
+	var unset ToolWebSearch
+	if got := unset.ToolSettings().DeepSeekAPIKey; got != "sk-deep-from-env" {
+		t.Errorf("key without a configured one = %q, want the environment's", got)
+	}
+	var nilSection *ToolWebSearch
+	if got := nilSection.ToolSettings().DeepSeekAPIKey; got != "sk-deep-from-env" {
+		t.Errorf("key without a websearch section = %q, want the environment's", got)
+	}
+	configured := ToolWebSearch{DeepSeekAPIKey: "sk-deep-from-config"}
+	if got := configured.ToolSettings().DeepSeekAPIKey; got != "sk-deep-from-config" {
+		t.Errorf("key with a configured one = %q, want the configured one", got)
+	}
+	t.Setenv(WebSearchDeepSeekAPIKeyEnv, "")
+	if got := unset.ToolSettings().DeepSeekAPIKey; got != "" {
+		t.Errorf("key with neither = %q, want none", got)
+	}
+}
+
 // TestWebSearchDefaultEnginesExcludeTheMeasuredDeadOnes pins the decision:
 // DuckDuckGo answers a server with an anti-bot interstitial and Google renders
 // its results in the browser, so neither is asked unless an operator says so.

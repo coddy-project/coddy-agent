@@ -52,6 +52,7 @@
 | `brave` | нет (необязателен) | Включён по умолчанию, первый в порядке объединения. Читает публичную страницу результатов; с API-ключом (`brave_api_key` или `BRAVE_API_KEY`) вместо этого использует официальный Search API, где нет парсера, который мог бы сломаться. |
 | `bing` | нет | Включён по умолчанию, второй. Клиенту, который ему не нравится, отдаёт набор посторонних результатов, и их ловит фильтр релевантности, описанный ниже. |
 | `searxng` | нет, но нужен `searxng_url` | Ваш собственный экземпляр, к которому обращаются через его JSON API. Надёжный вариант, потому что он не ограничивает частоту запросов своему владельцу и никогда не подсовывает приманку. |
+| `deepseek` | да (`deepseek_api_key` или `DEEPSEEK_API_KEY`) | Search API DeepSeek, опрашиваемый через его JSON API. По умолчанию не опрашивается. Публичной страницы для скрейпинга нет - API единственный вход, поэтому без ключа движок сообщает `blocked`, а не молча пуст. Пагинации нет: каждый вызов возвращает верхние `max_results` строк. |
 | `ddg` | нет | По умолчанию не опрашивается. С сервера оба его эндпоинта отвечают на любой запрос антибот-страницей HTTP 202, и она приходит как `blocked`; там, где DuckDuckGo вас ещё обслуживает, запрос, по которому у него ничего нет, приходит как `empty`. |
 | `google` | нет | По умолчанию не опрашивается. Страница, которую получает неодобренный клиент, не содержит органических результатов ни при каком user agent, потому что результаты отрисовываются в браузере. |
 
@@ -72,7 +73,7 @@
 ```yaml
 tools:
   websearch:
-    engines: [brave, bing]        # merge order; brave, bing, ddg, google, searxng
+    engines: [brave, bing]        # merge order; brave, bing, ddg, google, searxng, deepseek
     engine_timeout_seconds: 8     # per-engine budget
     total_timeout_seconds: 20     # budget for the whole search
     max_concurrent_engines: 4     # how many engines are asked at once
@@ -80,6 +81,7 @@ tools:
     cache_ttl_seconds: 300        # reuse an engine answer for this long; negative = off
     searxng_url: ""               # e.g. http://localhost:8080
     brave_api_key: ""             # official Brave Search API; or BRAVE_API_KEY
+    deepseek_api_key: ""          # DeepSeek Search API; the deepseek engine needs a key
 ```
 
 Имя поисковика, которое загрузчик не знает, считается ошибкой конфигурации, и такой бэкенд не пропускается молча; `searxng` без `searxng_url` отклоняется так же - `coddy -t` сообщает об обоих случаях с номером строки.
@@ -137,4 +139,4 @@ tools:
 [Режимы работы](modes.md) - `websearch` и `webfetch` доступны в любом режиме, включая `ask`, где разрешено только чтение;
 [HTTP-запросы](http-requests.md) - `http_request`, curl агента, и клиент, на котором построен `webfetch`.
 
-<!-- docsgen:source sha256=b0be300a671ef628 -->
+<!-- docsgen:source sha256=d2648c54e6c53085 -->
