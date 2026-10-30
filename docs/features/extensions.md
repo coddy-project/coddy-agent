@@ -2,7 +2,7 @@
 
 The web UI can load operator-installed JavaScript extensions. Open **Extensions** in the navigation menu, or **Settings → Extensions**, to install a ZIP and switch extensions on or off.
 
-An extension can add pages and menu actions, process incoming turn data, observe lifecycle events, render MCP calls and add fields to existing Settings sections. This first version covers the browser UI. Native executables, agent tools, composer controls and marketplaces from the [extension issue](https://github.com/coddy-project/coddy-agent/issues/347) and [expanded specification](https://gist.github.com/hijera/95b016e1721608e8c3974fe3b80e29dc) are not implemented.
+An extension can add pages and menu actions, process incoming turn data, observe lifecycle events, render MCP calls, paint with the app's theme colours and add fields to existing Settings sections. This first version covers the browser UI. Native executables, agent tools, composer controls and marketplaces from the [extension issue](https://github.com/coddy-project/coddy-agent/issues/347) and [expanded specification](https://gist.github.com/hijera/95b016e1721608e8c3974fe3b80e29dc) are not implemented.
 
 Start with [Your first JavaScript extension](../tutorials/first-extension.md) for a short walkthrough, or use the [example index](../../examples/extensions/README.md).
 
@@ -56,7 +56,7 @@ An existing id cannot be overwritten. Remove the old package, install the new ZI
 
 ![A page opened by the Hello extension](../assets/extensions/extensions-page-dark-1280.png)
 
-*An extension-owned page with HTML, CSS and a JavaScript counter.*
+*An extension-owned page with HTML, CSS, a JavaScript counter and the theme swatches.*
 
 ```js
 export function activate(coddy) {
@@ -85,6 +85,8 @@ export function activate(coddy) {
 | `coddy.assets.text(path)` | Fetch a UTF-8 asset from the exact enabled package through the authenticated API. |
 | `coddy.net.fetch(url, options?)` | Send an HTTP(S) request from the Coddy server and receive a buffered `Response`. |
 | `coddy.events.on(type, listener)` | Observe `tabChanged`, `stepEnded` or `turnEnded`. Returns a `remove()` handle. |
+| `coddy.theme.get()` | The active theme: its id, `light`/`dark` mode and the resolved colours an extension paints with. A frozen snapshot. |
+| `coddy.theme.onChange(listener)` | Observe every theme switch; the listener gets the new frozen snapshot. Returns a `remove()` handle. |
 | `coddy.ui.registerToolRenderer({id, server?, tool?, mount})` | Replace the presentation of matching MCP calls; original details remain available. |
 | `coddy.settings.registerField(field)` | Add a scalar field to an existing Settings section. Returns an update/remove handle. |
 | `coddy.settings.get(id)`, `coddy.settings.set(id, value)` | Read or save an extension-owned configuration value. Both are asynchronous; `set(id, null)` removes the stored value. |
@@ -163,6 +165,40 @@ coddy.ui.registerToolRenderer({
 Return `{update(call), dispose()}` to keep the same DOM while input, status or result changes. `mount` and `update` must finish synchronously. A mount that returns only cleanup, or nothing, is mounted again for changed data. The host runs cleanup on replacement, transcript-window unmount or extension disposal. A thrown error removes the failing registration and restores the next matching renderer or the normal view. Errors appear in Settings.
 
 The host keeps **Original tool details** below the custom view, including raw input/output and the ordinary attachments. Permission and question prompts stay under host control. A custom card changes presentation in this browser; it changes no tool arguments, results, permissions or stored history.
+
+## Theme colours
+
+![The Hello extension page on the light theme](../assets/extensions/extensions-page-light-1280.png)
+
+*The same page on the light theme: its swatches are painted from `coddy.theme`, its button and labels from the theme's CSS variables.*
+
+An extension's styles are injected into the app's document, so its CSS variables are the theme's colours whatever theme is active. Paint with these variables and every one of the seven themes follows.
+
+| Variable | The colour of |
+| --- | --- |
+| `--bg` | The app ground and the page of an extension window. |
+| `--text` | Primary text. |
+| `--muted` | Secondary text and captions. |
+| `--accent` | The accent: a selected control, a primary button. |
+| `--coddy-danger` | Destructive actions and failures. |
+| `--coddy-link` | Links in prose. |
+| `--coddy-glass-panel-border` | The border of a card or panel. |
+| `--coddy-glass-panel-bg` | The frosted ground of a card or panel. |
+
+Drawing outside CSS - a canvas, a colour computed in code - reads the same palette through `coddy.theme`.
+
+```js
+const paint = (theme) => {
+  label.textContent = `Theme: ${theme.id}`;
+  context.fillStyle = theme.colors.accent;
+};
+paint(coddy.theme.get());
+const watched = coddy.theme.onChange(paint);
+```
+
+`coddy.theme.get()` returns a frozen snapshot. `id` names the theme (`dark`, `light`, `midnight`, `solarized-dark`, `monokai`, `nord` or `rose-pine`), `mode` is `light` or `dark`, and `colors` maps `bg`, `text`, `muted`, `accent`, `danger`, `link`, `border` and `surface` to computed colours (`rgb()` or `rgba()`, and `color(srgb ...)` for a token written with `color-mix()`) that a canvas and an element style can both use. `surface` is the frosted ground of `--coddy-glass-panel-bg`, `border` its border.
+
+`coddy.theme.onChange(listener)` hands the new frozen snapshot on every theme switch and returns a `remove()` handle. Delivery runs by extension id in ascending ASCII order, then registration order. The host consumes rejected promises, removes a failing listener and reports its error in Settings, as it does for the lifecycle events. The lifetime signal removes listeners, and `get` and `onChange` stop with the lifetime the way registrations do. The [Hello example](../../examples/extensions/hello/main.js) paints its swatches this way.
 
 ## Fields in existing Settings sections
 
