@@ -117,7 +117,7 @@
   text-transform: uppercase;
   letter-spacing: 0.06em;
   min-height: var(--coddy-panel-head-height);
-  padding: 0 14px;
+  padding: 0 var(--coddy-panel-head-inline);
   font-size: 12px;
   font-weight: 700;
   display: flex;

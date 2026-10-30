@@ -195,13 +195,23 @@ test("the pages of the contents are indented under their group title", () => {
 // The header is laid on the columns of the page. With columns of its own (the
 // actions as wide as their content), the search ran past the text into the
 // On this page column beside it.
-test("on the desktop the header uses the page's own columns", () => {
-  const columns = (block: string) =>
-    /grid-template-columns:\s*([^;]+);/
-      .exec(block)?.[1]
-      ?.replace(/\s+/g, " ")
-      .trim();
-  expect(columns(rule(".docs-header"))).toBe(columns(rule(".docs-layout")));
+test("on the desktop the header stands over the page's own columns", () => {
+  const css = stylesSource();
+  const value = (name: string) =>
+    new RegExp(`\\$${name}:\\s*([^;]+);`).exec(css)?.[1]?.replace(/\s+/g, " ");
+  const tracks = (name: string) =>
+    [...(value(name) ?? "").matchAll(/minmax\((\d+)px, (\d+)px\)/g)].map(
+      (m) => [Number(m[1]), Number(m[2])],
+    );
+  expect(rule(".docs-layout")).toContain("$docs-columns");
+  expect(rule(".docs-header")).toContain("$docs-head-columns");
+  // The head's inset is 14px less than the page's on each side, and its outer
+  // tracks take that up, which keeps the search over the text.
+  const page = tracks("docs-columns");
+  const head = tracks("docs-head-columns");
+  expect(head).toEqual(page.map(([min, max]) => [min! + 14, max! + 14]));
+  expect(px(rule(".docs-view"), "--docs-inline")).toBe(28);
+  expect(css).toMatch(/--coddy-panel-head-inline:\s*14px;/);
 });
 
 // The header's insets are the same on both sides, as in every other panel
@@ -211,10 +221,12 @@ test("on the desktop the header uses the page's own columns", () => {
 // out of its own right padding instead, so the scrollbar stands in the margin
 // and the columns of the header and the page stay one.
 test("the header keeps one inset on both sides and the body pays for the scrollbar", () => {
-  expect(rule(".docs-header")).toMatch(/padding:\s*0 var\(--docs-inline\);/);
+  expect(rule(".docs-header")).toMatch(
+    /padding:\s*0 var\(--coddy-panel-head-inline\);/,
+  );
   // Two rows on the stacked shell, so they carry a padding above and below.
   expect(mediaRule("max-width: 1199px", ".docs-header")).toMatch(
-    /padding:\s*\d+px var\(--docs-inline\) \d+px;/,
+    /padding:\s*0 var\(--coddy-panel-head-inline\) 10px;/,
   );
   expect(rule(".docs-header")).not.toMatch(/--docs-scrollbar/);
   expect(mediaRule("max-width: 1199px", ".docs-header")).not.toMatch(

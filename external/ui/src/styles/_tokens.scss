@@ -28,6 +28,8 @@
   /* The head of every window, panel and popover, its rule included: a window
      opened over a panel shows both heads side by side. */
   --coddy-panel-head-height: 58px;
+  /* And its inset from the sides, whatever inset the page under it has. */
+  --coddy-panel-head-inline: 14px;
   /* The docked composer's wrap above its card (18px on a desktop): the expand
      control and the jump stand on the card, not on the wrap, so they subtract
      it. */

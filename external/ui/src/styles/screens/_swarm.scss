@@ -71,7 +71,7 @@
   align-items: center;
   margin: -14px calc(-1 * var(--swarm-inline, 24px)) 0;
   min-height: var(--coddy-panel-head-height);
-  padding: 0 var(--swarm-inline, 24px);
+  padding: 0 var(--coddy-panel-head-inline);
   background: color-mix(in srgb, var(--bg) 82%, transparent);
   border-bottom: 1px solid mix-text(6%);
 }
