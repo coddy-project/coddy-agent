@@ -7,21 +7,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 // Follow-up prompt suggestions in the console: when a turn of the visible
-// session ends well, the backend (the in-process manager; over --remote the
-// feature waits for a server route) predicts what the operator might type
+// session ends well, the backend (the in-process manager or the remote
+// server over --remote) predicts what the operator might type
 // next over the recorded conversation. The one line it answers with is shown
 // dim in the empty editor; Tab or Right takes it into the buffer. What the
 // operator then sends is compared with the suggestion (taken counts as
 // accepted; typing the same words by hand counts too, the way Claude Code
 // counts it) and the outcome feeds the backend's back-off counters.
 
-// suggestionBackend is the part of the backend behind the suggestion: what
-// the manager serves in process. Over --remote no type satisfies it yet and
-// the console simply shows nothing.
+// suggestionBackend is served by the manager in process, or by the remote
+// handler through the server's prediction and outcome routes.
 type suggestionBackend interface {
 	GeneratePromptSuggestion(ctx context.Context, sessionID string) (string, error)
 	NotePromptSuggestionOutcome(sessionID string, accepted bool)
@@ -46,14 +46,20 @@ func (a *App) startSuggestion(sessionID string) {
 	a.clearSuggestion()
 	// A bare App (tests drive the loop without a configuration) asks nothing.
 	cfg := a.config()
-	if cfg == nil || !cfg.Agent.EffectivePromptSuggestions() {
+	if cfg == nil || (a.remoteURL == "" && !cfg.Agent.EffectivePromptSuggestions()) {
 		return
 	}
 	sb, ok := a.mgr.(suggestionBackend)
 	if !ok {
 		return
 	}
-	if a.editor == nil || !a.editor.IsEmpty() || a.turnActive || a.remoteTurnActive || a.modal != nil || a.sessionID != sessionID {
+	if a.editor == nil || !a.editor.IsEmpty() || a.turnActive || a.modal != nil || a.sessionID != sessionID {
+		return
+	}
+	if a.remoteTurnActive {
+		// The response stream can end before the server's idle event arrives.
+		// Keep the intent until that event, without declaring the server idle.
+		a.suggestionWaiting = true
 		return
 	}
 	a.suggestionGen++
@@ -97,6 +103,7 @@ func (a *App) applySuggestion(gen uint64, sessionID, text string, err error) {
 func (a *App) clearSuggestion() {
 	a.suggestionGen++
 	a.suggestion = nil
+	a.suggestionWaiting = false
 	if a.suggestionCancel != nil {
 		a.suggestionCancel()
 		a.suggestionCancel = nil
@@ -133,5 +140,7 @@ func (a *App) suggestionAccepted() {
 	}
 }
 
-// Interface conformance: the manager serves the suggestion in process.
-var _ suggestionBackend = (*session.Manager)(nil)
+var (
+	_ suggestionBackend = (*session.Manager)(nil)
+	_ suggestionBackend = (*remote.Handler)(nil)
+)

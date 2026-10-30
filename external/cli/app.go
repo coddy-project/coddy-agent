@@ -168,6 +168,8 @@ type App struct {
 	suggestion       *activeSuggestion
 	suggestionGen    uint64
 	suggestionCancel context.CancelFunc
+	// A successful remote response may precede its server-idle notification.
+	suggestionWaiting bool
 
 	sessionID string
 	modeID    string

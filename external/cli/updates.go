@@ -135,6 +135,9 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		// or takes it down without waiting for the next turn.
 		a.refreshUsage(usageProviderOf(a.modelID), false)
 		return
+	case remote.ConfigReloadedUpdate:
+		a.clearSuggestion()
+		return
 	case gateWithdrawn:
 		a.dropAbandonedGate()
 		return
@@ -217,9 +220,16 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		a.queue.ApplyControl(u)
 	case remote.ActivityUpdate:
 		if u.Revision >= a.remoteActivityRevision {
+			wasActive := a.remoteTurnActive
 			a.remoteActivityRevision = u.Revision
 			a.remoteTurnActive = u.TurnActive
+			if u.TurnActive && !wasActive {
+				a.clearSuggestion()
+			}
 			a.flushPromptsAfterTurn()
+			if !u.TurnActive && a.suggestionWaiting {
+				a.startSuggestion(a.sessionID)
+			}
 		}
 	case remote.FollowUpdate:
 		a.applyFollow(u)
@@ -456,6 +466,7 @@ func intFromAny(v interface{}) int {
 func (a *App) applyFollow(u remote.FollowUpdate) {
 	a.curAssistant = nil
 	if u.Active {
+		a.clearSuggestion()
 		if !a.turnActive {
 			a.stepStatus = newWaitingStatus()
 			a.stepBlocked = ""
@@ -472,6 +483,7 @@ func (a *App) applyFollow(u remote.FollowUpdate) {
 	}
 	a.dropAbandonedGate()
 	a.refreshTasks()
+	a.startSuggestion(a.sessionID)
 }
 
 // followSessionFolder lists the context of the folder the session works in
