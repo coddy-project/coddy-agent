@@ -83,8 +83,8 @@
 }
 
 .sessions-search-input:focus {
-  border-color: rgba(147, 51, 234, 0.45);
-  box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.1);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .sessions-search-clear {
@@ -116,7 +116,8 @@
   color: mix-text(72%);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  padding: 14px 14px 10px;
+  min-height: var(--coddy-panel-head-height);
+  padding: 0 var(--coddy-panel-head-inline);
   font-size: 12px;
   font-weight: 700;
   display: flex;
@@ -202,8 +203,8 @@
 }
 
 .session-item.active {
-  border-color: rgba(147, 51, 234, 0.45);
-  background: rgba(147, 51, 234, 0.08);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .session-row {
@@ -231,7 +232,7 @@
   height: 8px;
   border-radius: 50%;
   background: color-mix(in srgb, rgba(167, 139, 250, 0.95) 67%, #000);
-  box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.2);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
   flex-shrink: 0;
   animation: session-activity-pulse 1.2s ease-in-out infinite;
 }
@@ -263,7 +264,7 @@
   height: 8px;
   border-radius: 50%;
   background: rgba(167, 139, 250, 0.95);
-  box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.25);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
   flex-shrink: 0;
 }
 
@@ -338,8 +339,8 @@
 }
 
 .session-title-input:focus {
-  border-color: rgba(147, 51, 234, 0.45);
-  box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.12);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .session-title {
@@ -348,7 +349,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: mix-text(90%);
+  color: mix-text(98%);
 }
 
 /* The filter control sits in the search row - both narrow the list below. Its
@@ -568,24 +569,28 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  padding-right: 8px;
+  /* Puts the plus's box on the column of the rows' own control. */
+  padding-right: 4px;
 }
 
 /* In the column the rows' own control sits in, and visible at rest: a way to
    start work in this folder is worth a glance, not a hunt with the pointer. */
 .session-group-new {
   flex: 0 0 auto;
-  width: 26px;
-  height: 22px;
+  width: 34px;
+  height: 32px;
   display: grid;
   place-items: center;
   border: 0;
   background: transparent;
-  color: mix-text(45%);
-  font-size: 16px;
-  line-height: 1;
+  color: mix-text(62%);
   cursor: pointer;
   transition: color 140ms ease;
+}
+
+.session-group-new svg {
+  width: 18px;
+  height: 18px;
 }
 
 .session-group-new:hover,
@@ -597,18 +602,16 @@
   margin-bottom: 4px;
 }
 
-/* The heading is the folder's own name with a caret after it, not a band across
-   the list: only the name is the target, so the hover says what will fold. The
-   name keeps the case the folder has - upper-casing a path is a small lie. */
+/* The heading is the folder's own name with a caret after it. All of the row up to
+   the plus is the fold target, without a band across the list. The name keeps the
+   case the folder has - upper-casing a path is a small lie. */
 .session-group-head {
   display: flex;
   align-items: center;
   gap: 5px;
-  flex: 0 1 auto;
+  /* All of the row up to the plus folds it: a finger aims at a row, not a word. */
+  flex: 1 1 auto;
   min-width: 0;
-  /* Only the name is the fold target; the empty space after it belongs to
-     nothing, and pushes the controls at the end of the bar to the edge. */
-  margin-right: auto;
   padding: 5px 7px 5px 10px;
   border: 0;
   border-radius: 8px;
@@ -854,8 +857,8 @@
 }
 
 .session-tag-input:focus {
-  border-color: rgba(147, 51, 234, 0.45);
-  box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.12);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .session-tag-input:disabled {

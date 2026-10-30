@@ -44,6 +44,20 @@
   padding: 0;
 }
 
+/* A message ending in a list ends where one ending in a paragraph does: what
+   follows it, the live line or the finished one, keeps its distance. */
+.md > :where(ul, ol):last-child,
+.md > :where(ul, ol):last-child > :where(li:last-child) {
+  margin-bottom: 0;
+}
+
+/* The markers hang in the margin: 18px holds one digit and its dot, and every
+   further digit of the list's last number (Markdown.tsx) takes one more 1ch, or
+   the number sticks out of the text column on the left. */
+.md :where(ol) {
+  margin-left: calc(18px + (var(--md-ol-digits, 1) - 1) * 1ch);
+}
+
 .md :where(li) {
   margin: 6px 0;
 }

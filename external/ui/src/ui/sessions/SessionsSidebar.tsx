@@ -1,3 +1,4 @@
+import { SchedulerIconPlus } from "../scheduler/schedulerToolbarIcons";
 import {
   useEffect,
   useMemo,
@@ -927,7 +928,7 @@ export function SessionsSidebar(props: {
                           onNewChatInWorkspace(String(group.workspacePath))
                         }
                       >
-                        +
+                        <SchedulerIconPlus />
                       </button>
                     ) : null}
                   </div>

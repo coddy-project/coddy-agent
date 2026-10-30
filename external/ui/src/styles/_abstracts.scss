@@ -43,6 +43,11 @@ $sheet-corners: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius)
 // The three-column page of the documentation reader and the settings lists.
 $docs-columns: minmax(210px, 240px) minmax(0, 1fr) minmax(170px, 210px);
 
+// The head's tracks over those columns: its inset from the sides (14px,
+// --coddy-panel-head-inline) is 14px less than the page's (28px, --docs-inline),
+// and the outer tracks take that up, so the search still stands over the text.
+$docs-head-columns: minmax(224px, 254px) minmax(0, 1fr) minmax(184px, 224px);
+
 // The wide slot of a dock cluster: the drawer beside it, then 8px of air.
 $dock-wide-width: min(
   480px,

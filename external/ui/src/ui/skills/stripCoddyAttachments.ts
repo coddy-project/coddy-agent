@@ -212,25 +212,41 @@ function mentionedBefore(
 export function parseSessionAssetFiles(
   content: string,
 ): { name: string; mimeType: string }[] {
+  return sessionAssetLines(content).map(({ path, name }) => ({
+    name: name || path.split("/").pop() || "file",
+    mimeType: "application/octet-stream",
+  }));
+}
+
+/** The name each file of the note has in the session's assets, in the note's order. */
+export function sessionAssetNames(content: string): string[] {
+  return sessionAssetLines(content).map(
+    ({ path }) => path.split("/").pop() || "",
+  );
+}
+
+/** The note's lines: "- <path>", or "- <path> (<name>)" for a file saved under another name. */
+function sessionAssetLines(content: string): { path: string; name: string }[] {
   const m = /<coddy_session_assets>([\s\S]*?)<\/coddy_session_assets>/i.exec(
     content,
   );
   if (!m) return [];
-  const files: { name: string; mimeType: string }[] = [];
+  const lines: { path: string; name: string }[] = [];
   for (const line of (m[1] ?? "").split("\n")) {
     const t = line.trim();
     if (!t.startsWith("- /")) continue;
     const body = t.slice(2); // remove "- "
     const parenIdx = body.indexOf(" (");
-    let name: string;
     if (parenIdx >= 0 && body.endsWith(")")) {
-      name = body.slice(parenIdx + 2, -1);
+      lines.push({
+        path: body.slice(0, parenIdx),
+        name: body.slice(parenIdx + 2, -1),
+      });
     } else {
-      name = body.split("/").pop() || "file";
+      lines.push({ path: body, name: "" });
     }
-    files.push({ name, mimeType: "application/octet-stream" });
   }
-  return files;
+  return lines;
 }
 
 /**
