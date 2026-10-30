@@ -77,21 +77,14 @@ func TakeQueuedPromptBatch(ctx context.Context, sessionID string) ([]QueuedMessa
 // BeginQueuedPromptRead linearizes a queued input's append against Stop. Once
 // true, the runner commits the whole bounded batch even if cancellation arrives
 // during persistence; deletion waits for that runner. False forbids the append.
-// Ordinary prompts and later supervisor prompts after a read only check
-// their context. Claiming the batch itself remains single-use.
+// Claiming the batch itself remains single-use.
 func BeginQueuedPromptRead(ctx context.Context, sessionID string) bool {
 	r := queuedPromptOf(ctx, sessionID)
 	if r == nil {
-		if ctx.Err() == nil {
-			return true
-		}
-		// An initial admitted prompt is not a queued receipt. Finish its
-		// append in the old run before the queued batch, even when the
-		// interrupt arrived during input preparation. Never do this for
-		// root cancellation or a different session inheriting the context.
-		c, _ := ctx.Value(interruptRunKey{}).(*queuedTurnInterrupt)
-		return c != nil && c.state.GetID() == sessionID && IsQueuedTurnInterrupt(ctx, sessionID) &&
-			c.root.Err() == nil && !c.state.IsUserCancelledTurn()
+		// An admitted prompt is not a queued receipt: it has no queue to go
+		// back to, so it reaches the transcript whatever cancelled its run,
+		// and a queued batch follows it.
+		return true
 	}
 	st := r.state
 	st.queueMu.Lock()

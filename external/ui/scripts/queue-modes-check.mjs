@@ -811,17 +811,69 @@ async function scenario() {
     (await thumbLoaded(b.page)) > 0,
   );
 
-  // Stop keeps what waits for after the turn, without starting it.
+  // The browser's Stop continues with what waits: the message enters the
+  // transcript and the same admitted turn answers it.
   await composer(a.page).fill("Start the second task");
   await composer(a.page).press("Enter");
   await until("the second turn running", () => model.holds.length === 1, 30000);
+  await composer(a.page).fill("Continued after stop");
+  await composer(a.page).press("Tab");
+  await until(
+    "the row Stop continues with",
+    async () => (await queueRows(a.page)).length === 1,
+  );
+  await a.page.locator("#btn-send").click();
+  await until(
+    "the queued message answered after Stop",
+    async () =>
+      (await transcript(a.page)).some((row) =>
+        row.includes("Answer to: Continued after stop"),
+      ),
+    30000,
+  );
+  model.release();
+  await until(
+    "the continued turn ended",
+    async () => {
+      const act = await viaMount(`/coddy/sessions/${sid}/activity`);
+      return act.json && act.json.turnActive === false;
+    },
+    30000,
+  );
+  rows = await transcript(a.page);
+  q = await viaMount(`/coddy/sessions/${sid}/queue`);
+  const continuedAt = rows.findIndex((r) =>
+    r.startsWith("user:Continued after stop"),
+  );
+  const answeredAt = rows.findIndex(
+    (r) =>
+      r.startsWith("assistant:") &&
+      r.includes("Answer to: Continued after stop"),
+  );
+  check(
+    "Stop puts the queued message above its answer",
+    continuedAt >= 0 && continuedAt < answeredAt,
+    `${continuedAt} < ${answeredAt}`,
+  );
+  check(
+    "and leaves nothing waiting",
+    (await queueRows(a.page)).length === 0 &&
+      (q.json?.messages || []).length === 0,
+    q.raw.slice(0, 200),
+  );
+
+  // A client that does not ask for the continuation (the console, an editor,
+  // any API client) still stops: what waits for after the turn stays, unstarted.
+  await composer(a.page).fill("Start the second task");
+  await composer(a.page).press("Enter");
+  await until("the third turn running", () => model.holds.length === 1, 30000);
   await composer(a.page).fill("Deferred after stop");
   await composer(a.page).press("Tab");
   await until(
     "the deferred row",
     async () => (await queueRows(a.page)).length === 1,
   );
-  await a.page.locator("#btn-send").click();
+  await viaMount(`/coddy/sessions/${sid}/cancel`, { method: "POST" });
   await until(
     "the turn stopped",
     async () => {
@@ -837,7 +889,7 @@ async function scenario() {
   });
   q = await viaMount(`/coddy/sessions/${sid}/queue`);
   check(
-    "Stop keeps an after-turn message waiting",
+    "a plain cancel keeps an after-turn message waiting",
     rows[0]?.mode === "After turn" &&
       q.json?.messages?.[0]?.mode === "after_turn",
     q.raw.slice(0, 200),

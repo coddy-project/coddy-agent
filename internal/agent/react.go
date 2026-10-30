@@ -1595,8 +1595,9 @@ func (a *Agent) runReActLoop(
 						// The user's Stop ends the turn as a stop. A deadline or
 						// a shutdown does not: the turn ends with the refusal it
 						// was recovering from and says what cut the compaction
-						// short, as a provider recovery does.
-						if a.state.IsUserCancelledTurn() {
+						// short, as a provider recovery does. A queue interrupt
+						// leaves the continuation to the admitted turn.
+						if a.state.IsUserCancelledTurn() || session.IsQueuedTurnInterrupt(ctx, a.state.GetID()) {
 							return string(acp.StopReasonCancelled), nil
 						}
 						return string(acp.StopReasonRefused), fmt.Errorf("%w (the compaction after the refusal was interrupted: %v)",

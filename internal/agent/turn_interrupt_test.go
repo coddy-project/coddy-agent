@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
@@ -349,5 +350,97 @@ func TestQueuedInterruptAgentDuringProviderWait(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A Stop that lands while the run prepares (an MCP dial, a UserPromptSubmit
+// hook) cancels the turn, not the message that started it: the operator's prompt
+// stays in the transcript, as it does with no queue involved.
+func TestStopDuringPreparationKeepsThePrompt(t *testing.T) {
+	f := &queueFeatureState{}
+	if err := f.reset(); err != nil {
+		t.Fatal(err)
+	}
+	defer f.close()
+	if err := f.buildSession(nil); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runner := func(runCtx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
+		st.SetUserCancelledTurn()
+		cancel()
+		a := NewAgent(f.cfg, st, snd, slog.Default())
+		a.SetProviderFactory(func(llm.ProviderInput) (llm.Provider, error) { return f.provider, nil })
+		return a.Run(runCtx, prompt)
+	}
+	m := session.NewManager(f.cfg, f.client, runner, slog.Default(), f.cwd, f.store)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: f.cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.HandleSessionPrompt(ctx, acp.SessionPromptParams{SessionID: res.SessionID, Prompt: []acp.ContentBlock{{Type: "text", Text: "typed before Stop"}}}); err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	var users []string
+	for _, msg := range m.SessionByID(res.SessionID).GetMessages() {
+		if msg.Role == llm.RoleUser {
+			users = append(users, msg.Content)
+		}
+	}
+	if len(users) != 1 || users[0] != "typed before Stop" {
+		t.Fatalf("the prompt did not reach the transcript: %q", users)
+	}
+}
+
+// Stop with a waiting queue during the compaction after a provider's refusal
+// continues with the queue, as it does in the loop's other waits, instead of
+// failing the turn with the refusal it was recovering from.
+func TestQueuedInterruptDuringOverflowRecoveryContinues(t *testing.T) {
+	f := &queueFeatureState{}
+	if err := f.reset(); err != nil {
+		t.Fatal(err)
+	}
+	defer f.close()
+	if err := f.buildSession(nil); err != nil {
+		t.Fatal(err)
+	}
+	p := &recoveryProvider{steps: readSteps(4), refuse: refuseCalls(3), foldFail: context.Canceled}
+	fix := newRecoveryFixture(t, p, config.Compaction{})
+	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
+		a := NewAgent(fix.ag.cfg, st, snd, slog.Default())
+		a.SetProviderFactory(func(llm.ProviderInput) (llm.Provider, error) { return p, nil })
+		return a.Run(ctx, prompt)
+	}
+	m := session.NewManager(fix.ag.cfg, f.client, runner, slog.Default(), fix.cwd, f.store)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: fix.cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	folded := false
+	p.onFold = func() {
+		folded = true
+		p.onFold = nil
+		if _, _, err := m.EnqueueTurnMessage(res.SessionID, "follow up"); err != nil {
+			t.Error(err)
+		}
+		if !m.TryInterruptQueuedTurn(res.SessionID) {
+			t.Error("interrupt refused")
+		}
+	}
+	if _, err := m.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{SessionID: res.SessionID, Prompt: []acp.ContentBlock{{Type: "text", Text: recoveryPrompt}}}); err != nil {
+		t.Fatalf("Stop with a waiting queue failed the turn: %v", err)
+	}
+	if !folded {
+		t.Fatal("the recovery never reached its compaction")
+	}
+	var users []string
+	for _, msg := range m.SessionByID(res.SessionID).GetMessages() {
+		if msg.Role == llm.RoleUser {
+			users = append(users, msg.Content)
+		}
+	}
+	if len(users) != 2 || users[1] != "follow up" {
+		t.Fatalf("the queue did not continue: %q", users)
 	}
 }
