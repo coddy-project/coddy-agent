@@ -5,9 +5,11 @@ package skills
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
@@ -205,7 +207,40 @@ func loadFile(path string) (*Skill, error) {
 	if err != nil {
 		return nil, err
 	}
+	sum := sha256.Sum256(data)
+	parseCache.mu.Lock()
+	hit, ok := parseCache.byPath[path]
+	parseCache.mu.Unlock()
+	if ok && hit.sum == sum {
+		c := *hit.skill
+		return &c, nil
+	}
+	skill := parseSkillFile(path, data)
+	parseCache.mu.Lock()
+	if parseCache.byPath == nil {
+		parseCache.byPath = map[string]parsedSkill{}
+	}
+	c := *skill
+	parseCache.byPath[path] = parsedSkill{sum: sum, skill: &c}
+	parseCache.mu.Unlock()
+	return skill, nil
+}
 
+// parsedSkill is the last parse of a skill file. Every session loads the
+// skills of its search roots, and each kept a parse of its own; the entry is
+// replaced when the file's bytes change, and a caller always gets a copy
+// whose text shares the parse.
+type parsedSkill struct {
+	sum   [sha256.Size]byte
+	skill *Skill
+}
+
+var parseCache struct {
+	mu     sync.Mutex
+	byPath map[string]parsedSkill
+}
+
+func parseSkillFile(path string, data []byte) *Skill {
 	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	skill := &Skill{
 		Name:     name,
@@ -229,7 +264,7 @@ func loadFile(path string) (*Skill, error) {
 		}
 	}
 
-	return skill, nil
+	return skill
 }
 
 // frontmatter is the YAML frontmatter of a skill file.
