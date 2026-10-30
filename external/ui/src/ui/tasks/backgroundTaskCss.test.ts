@@ -264,14 +264,8 @@ test("the whole summary of a card is its click surface, and Stop stands above it
   expect(stop).toContain("z-index: 1");
 });
 
-test("the child transcript action is an expanded-card tab attached below output", () => {
-  const transcript = ruleBody(".bgtask-card-transcript {");
-  expect(transcript).toContain("margin-top: -8px");
-  expect(transcript).toContain("var(--accent)");
-
-  // The folded summary has no transcript row; only a running preview server keeps
-  // its address there.
-  expect(css).not.toContain(".bgtask-card-transcript-row");
+test("the way into a task stands on a row of its own in the folded summary", () => {
+  expect(ruleBody("\n.bgtask-card-transcript {")).toContain("var(--accent)");
   expect(ruleBody(".bgtask-card-address-row {")).toContain("100%");
 
   // An address is as long as it is: it wraps whole instead of trailing off in an
@@ -473,4 +467,40 @@ test("reduced motion leaves the Coddy work indicator still", () => {
     .map((match) => match[1])
     .join("\n");
   expect(reduced).toMatch(/\.coddy-work-indicator-c \{\s*animation: none;/);
+});
+
+test("the transcript link is text above the card's click surface, with no tab around it", () => {
+  const link = ruleBody("\n.bgtask-card-transcript {");
+  expect(link).toMatch(/position: relative;/);
+  expect(link).toMatch(/z-index: 1;/);
+  expect(link).toMatch(/border: none;/);
+  expect(link).toMatch(/background: none;/);
+  expect(link).toMatch(/padding: 0;/);
+  expect(link).not.toMatch(/margin-top: -|border-radius/);
+});
+
+test("the way into a task keeps the card's rhythm on a phone", () => {
+  // Its tap area is invisible: min-height on the link itself left uneven gaps.
+  const phone = css.slice(
+    css.indexOf(".bgtask-stop-icon.composer-icon {\n    width: 30px"),
+  );
+  expect(phone).toMatch(
+    /\.bgtask-card-transcript::after,\s+\.bgtask-card-link::after \{/,
+  );
+  expect(ruleBody(".bgtask-card-transcript::after,")).toContain(
+    "inset: -7px -6px;",
+  );
+});
+
+test("usage that drops under the status starts where the status starts", () => {
+  expect(ruleBody("\n.bgtask-card-meta {")).toContain(
+    "justify-content: space-between",
+  );
+  expect(ruleBody("\n.bgtask-card-usage {")).not.toContain("margin-left");
+});
+
+test("the mark of a finished turn's line stands still", () => {
+  expect(
+    ruleBody(".typing-dots--finished .coddy-work-indicator-c {"),
+  ).toContain("animation: none");
 });

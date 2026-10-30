@@ -2,13 +2,16 @@ import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import { syntaxHighlightOptions } from "./syntaxLanguages";
 import {
-  createContext,
+  Children,
   isValidElement,
+  createContext,
   memo,
   useCallback,
   useContext,
   useMemo,
   useState,
+  type ComponentProps,
+  type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
@@ -273,6 +276,25 @@ function MarkdownLink(p: AProps) {
   return anchor;
 }
 
+/**
+ * A numbered list tells the stylesheet how long its last number is: the markers
+ * hang in the list's margin, which is as wide as one digit and its dot.
+ */
+function OrderedList(props: ComponentProps<"ol">) {
+  const items = Children.toArray(props.children).filter(isValidElement).length;
+  const digits = String((props.start ?? 1) + Math.max(0, items - 1)).length;
+  return (
+    <ol
+      start={props.start}
+      style={
+        digits > 1 ? ({ "--md-ol-digits": digits } as CSSProperties) : undefined
+      }
+    >
+      {props.children}
+    </ol>
+  );
+}
+
 export const Markdown = memo(function Markdown(props: {
   text: string;
   /** The text is still arriving: a diagram that does not parse yet is not an error. */
@@ -286,6 +308,7 @@ export const Markdown = memo(function Markdown(props: {
     () => ({
       code: MarkdownCode,
       pre: MarkdownPre,
+      ol: OrderedList,
       table: ({ children }: { children?: ReactNode }) => (
         <div className="md-table-scroll">
           <table>{children}</table>

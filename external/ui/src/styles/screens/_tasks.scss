@@ -342,6 +342,9 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
+  /* Beside the status the usage stands at the right edge; on a line of its own,
+     when the two do not fit, it starts under the status like everything else. */
+  justify-content: space-between;
   gap: 1px 12px;
   min-width: 0;
   font-size: 12px;
@@ -360,7 +363,6 @@
   flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
-  margin-left: auto;
   white-space: nowrap;
   color: mix-text(42%);
 }
@@ -496,30 +498,29 @@
   overflow: auto;
 }
 
-/* The child transcript belongs to an agent task's expanded report. The tab
-   cancels the body's flex gap so it attaches directly below the output. */
+/* The child transcript is reached from the folded card, as plain text with no
+   plate or tab around it; it stands above the card's stretched opener, so a click
+   opens the chat and never folds the card. */
 .bgtask-card-transcript {
-  align-self: flex-start;
-  margin-top: -8px;
-  padding: 4px 10px;
-  border: 1px solid var(--coddy-glass-panel-border);
-  border-top: 0;
-  border-radius: 0 0 8px 8px;
-  background: mix-text(4%);
-  color: var(--accent);
+  position: relative;
+  z-index: 1;
+  padding: 0;
+  border: none;
+  background: none;
   font: inherit;
-  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
   cursor: pointer;
 }
 
-.bgtask-card-transcript:hover:not(:disabled),
+.bgtask-card-transcript:hover,
 .bgtask-card-transcript:focus-visible {
   text-decoration: underline;
 }
 
-/* A run whose child session is not known yet keeps the action in place until
+/* A run whose child session is not known yet keeps the words in place until
    the child transcript can be opened. */
-.bgtask-card-transcript:disabled {
+.bgtask-card-transcript[aria-disabled="true"] {
   color: inherit;
   opacity: 0.55;
   cursor: not-allowed;
@@ -573,11 +574,13 @@
     min-height: 30px;
   }
 
-  .bgtask-card-transcript,
-  .bgtask-card-link {
-    min-height: 28px;
-    display: flex;
-    align-items: center;
+  /* A finger gets its room from an invisible area: a taller line would stand
+     apart from the meta above it and the card's edge below it. */
+  .bgtask-card-transcript::after,
+  .bgtask-card-link::after {
+    content: "";
+    position: absolute;
+    inset: -7px -6px;
   }
 
   .bgtask-card-output {

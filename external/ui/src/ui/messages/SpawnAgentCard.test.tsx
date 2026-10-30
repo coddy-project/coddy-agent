@@ -1,5 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -13,6 +14,7 @@ import type { BackgroundTask } from "../tasks/types";
 afterEach(() => {
   cleanup();
   initLocale("en");
+  vi.restoreAllMocks();
 });
 
 const args = JSON.stringify({
@@ -23,6 +25,26 @@ const args = JSON.stringify({
   reasoning: "high",
   timeout_seconds: 120,
 });
+
+/** jsdom has no layout: what a prompt measures is what the test says it does. */
+function promptHeights(start: { scrollHeight: number; clientHeight: number }) {
+  let now = start;
+  const scroll = vi
+    .spyOn(Element.prototype, "scrollHeight", "get")
+    .mockImplementation(() => now.scrollHeight);
+  const client = vi
+    .spyOn(Element.prototype, "clientHeight", "get")
+    .mockImplementation(() => now.clientHeight);
+  return {
+    set(next: { scrollHeight: number; clientHeight: number }) {
+      now = next;
+    },
+    restore() {
+      scroll.mockRestore();
+      client.mockRestore();
+    },
+  };
+}
 
 function agentTask(over: Partial<BackgroundTask> = {}): BackgroundTask {
   return {
@@ -78,6 +100,7 @@ test("spawn_agent displays identity and bottom model/reasoning/timeout metadata"
 });
 
 test("spawn agent prompt expands through the shared localized overflow control", () => {
+  promptHeights({ scrollHeight: 160, clientHeight: 60 });
   render(
     <ToolCallMessage
       toolCallId="spawn-prompt"
@@ -109,37 +132,8 @@ test("spawn agent prompt expands through the shared localized overflow control",
   expect(prompt).toHaveAttribute("aria-expanded", "false");
 });
 
-test("spawn agent transcript action follows the mapped task child session", () => {
-  const onOpenSession = vi.fn();
-  const { rerender } = render(
-    <ToolCallMessage
-      toolCallId="spawn-transcript"
-      title="spawn_agent"
-      status="completed"
-      argsText={args}
-      onOpenSession={onOpenSession}
-    />,
-  );
-  expect(screen.queryByTestId("spawn-agent-open-transcript")).toBeNull();
-
-  rerender(
-    <ToolCallMessage
-      toolCallId="spawn-transcript"
-      title="spawn_agent"
-      status="completed"
-      argsText={args}
-      backgroundTask={agentTask()}
-      onOpenSession={onOpenSession}
-    />,
-  );
-  const pending = screen.getByTestId("spawn-agent-open-transcript");
-  expect(pending).toBeDisabled();
-  expect(pending).toHaveAttribute(
-    "title",
-    "The child session is not known yet",
-  );
-
-  rerender(
+test("the card of a spawn does not lead to the transcript: the task's card does", () => {
+  render(
     <ToolCallMessage
       toolCallId="spawn-transcript"
       title="spawn_agent"
@@ -148,13 +142,58 @@ test("spawn agent transcript action follows the mapped task child session", () =
       backgroundTask={agentTask({
         agent: { name: "explore", session_id: "sess_child" },
       })}
-      onOpenSession={onOpenSession}
     />,
   );
-  const ready = screen.getByTestId("spawn-agent-open-transcript");
-  expect(ready).toBeEnabled();
-  fireEvent.click(ready);
-  expect(onOpenSession).toHaveBeenCalledWith("sess_child");
+  expect(screen.queryByTestId("spawn-agent-open-transcript")).toBeNull();
+  expect(screen.queryByText("Show transcript")).toBeNull();
+});
+
+test("a prompt that fits has no More control", () => {
+  const heights = promptHeights({ scrollHeight: 60, clientHeight: 60 });
+  try {
+    render(
+      <ToolCallMessage
+        toolCallId="spawn-short"
+        title="spawn_agent"
+        status="completed"
+        argsText={args}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "More…" })).toBeNull();
+  } finally {
+    heights.restore();
+  }
+});
+
+test("the More control follows the prompt's overflow as the card resizes", () => {
+  const heights = promptHeights({ scrollHeight: 60, clientHeight: 60 });
+  const observers: (() => void)[] = [];
+  const original = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    constructor(private readonly cb: () => void) {
+      observers.push(() => this.cb());
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  try {
+    render(
+      <ToolCallMessage
+        toolCallId="spawn-resize"
+        title="spawn_agent"
+        status="completed"
+        argsText={args}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "More…" })).toBeNull();
+    heights.set({ scrollHeight: 160, clientHeight: 60 });
+    act(() => observers.forEach((notify) => notify()));
+    expect(screen.getByRole("button", { name: "More…" })).toBeInTheDocument();
+  } finally {
+    globalThis.ResizeObserver = original;
+    heights.restore();
+  }
 });
 
 test("restored truncated spawn args are fetched once and replaced with the card", async () => {

@@ -1537,6 +1537,7 @@ export const messagesRu: Record<string, string> = {
   "chat.subagentReadOnly.noticeUnnamed":
     "Только для чтения: транскрипт субагента.",
   "chat.subagentReadOnly.model": "Используемая модель: {model}",
+  "chat.subagentReadOnly.reasoningDefault": "по умолчанию",
   "chat.subagentReadOnly.openParent": "Открыть родительский чат",
   "chat.subagentTitle": "Субагент {name}",
   "chat.subagentTitleUnnamed": "Транскрипт субагента",
@@ -1636,6 +1637,8 @@ export const messagesRu: Record<string, string> = {
   "composer.enhanceFailed": "Не удалось улучшить промпт. Черновик не изменён.",
   "composer.attachFile": "Прикрепить файл",
   "composer.attachUnsupportedModel": "Выбранная модель не принимает вложения",
+  "composer.attachCopyFailed":
+    "Не удалось прочитать {name}, файл не прикреплён.",
   "composer.attachmentTooltip": "{fileName}\\n{label} · {size}",
   "composer.removeAttachment": "Удалить {fileName}",
   "composer.openAttachmentImage": "Открыть {fileName} крупнее",

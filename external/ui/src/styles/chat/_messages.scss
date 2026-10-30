@@ -21,8 +21,10 @@
   align-items: flex-end;
 }
 
+/* One gap above a follow-up: the footer of the prompt before it already stands
+   between two bubbles. */
 .msg-user-stack--followup {
-  padding-top: calc(var(--user-foot-height) + var(--user-foot-gap));
+  padding-top: var(--user-foot-gap);
 }
 
 .msg-user-files {
@@ -281,6 +283,26 @@
 /* The turn has ended and only background tasks are still running: the count is the
    whole line, so it closes with no middle dot - nothing follows it to separate. */
 .typing-dots-status--tasks-only .typing-dots-turn-item::after {
+  content: none;
+}
+
+/* A finished turn keeps the line: the mark at rest, its numbers can be copied,
+   and no phrase follows the last of them. */
+.typing-dots--finished .coddy-work-indicator-c {
+  animation: none;
+}
+
+.typing-dots-status--finished {
+  user-select: text;
+}
+
+/* With tasks still running the line can outgrow a phone: it wraps between its
+   numbers, which the live line's phrase never has to. */
+.typing-dots-status--finished .typing-dots-turn {
+  flex-wrap: wrap;
+}
+
+.typing-dots-status--finished .typing-dots-turn-item:last-child::after {
   content: none;
 }
 

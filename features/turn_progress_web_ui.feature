@@ -23,6 +23,7 @@ Feature: The progress of a running turn in the web UI
   Scenario: Generation speed rides the token count and outlives the turn
     Then the live line shows generation speed immediately after the running token count
     And a completed generation caption follows the answer and is not duplicated by replay
+    And a finished turn keeps the live line without its phrase, the time on hover
 
   Scenario: The line of a running turn carries what the server reported
     Then the live line of a running turn carries the server's clock and token count

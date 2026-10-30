@@ -5195,6 +5195,7 @@ export function App() {
         dec,
         carry,
         assistantId,
+        sessionId: key,
         cursor,
         applyStreamItems,
         setTokenUsage: branchTokenUsage,
@@ -5753,16 +5754,20 @@ export function App() {
             name: string;
             reason: string;
           };
+          const readFailed = t("composer.attachReadFailed", { name, reason });
           applyStreamItems((prev) => [
             ...prev,
             {
               id: newId("s"),
               type: "system_notice",
               level: "error" as const,
-              message: t("composer.attachReadFailed", { name, reason }),
+              message: readFailed,
               createdAtUtc: new Date().toISOString(),
             },
           ]);
+          // A new chat keeps no transcript for the notice: the read that ends
+          // this send starts over from the server's empty one.
+          if (isNewChatFirstSend) setStartNotice(readFailed);
           giveBack();
           completedNormally = true;
           return;
@@ -5976,6 +5981,7 @@ export function App() {
         dec,
         carry,
         assistantId,
+        sessionId: streamKey,
         cursor,
         applyStreamItems,
         setTokenUsage: branchTokenUsage,

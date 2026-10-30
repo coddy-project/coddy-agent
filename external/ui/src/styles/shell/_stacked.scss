@@ -231,7 +231,9 @@
     position: sticky !important;
     top: var(--coddy-mobile-title-sticky-top);
     z-index: 37;
-    padding-bottom: var(--coddy-mobile-chat-stack-gap);
+    /* The same room as above the title at rest: the stack gap and the bar's 4px
+       of slack (--coddy-mobile-title-sticky-top). */
+    padding-bottom: calc(var(--coddy-mobile-chat-stack-gap) + 4px);
     flex-shrink: 0;
   }
 

@@ -39,6 +39,10 @@ func TestTurnProgressWebUIFeature(t *testing.T) {
 			sc.Step(`^the live line shows generation speed immediately after the running token count$`, func() error {
 				return runVitestScenario(dots, "shows generation speed immediately after the running token count")
 			})
+			sc.Step(`^a finished turn keeps the live line without its phrase, the time on hover$`, func() error {
+				return runVitestScenario("src/ui/messages/SystemNoticeMessage.test.tsx",
+					"a finished turn keeps the live line without its phrase, the time on hover")
+			})
 			sc.Step(`^a completed generation caption follows the answer and is not duplicated by replay$`, func() error {
 				return runVitestScenario("src/ui/chat/consumeComposerSse.order.test.ts",
 					"a completed generation caption follows the answer and is not duplicated by replay")
@@ -112,8 +116,11 @@ func TestBackgroundTasksWebUIFeature(t *testing.T) {
 			sc.Step(`^an open command card shows the command with a copy control, the output and how it ended$`, func() error {
 				return runVitestScenario(panel, "an expanded command card shows the command with a copy control, the output and how it ended")
 			})
-			sc.Step(`^an open subagent card offers the child transcript and shows the run's log$`, func() error {
-				return runVitestScenario(panel, "an expanded subagent card opens the child transcript and shows the run's log, not a command")
+			sc.Step(`^an open subagent card shows the run's log$`, func() error {
+				return runVitestScenario(panel, "an expanded subagent card shows the run's log, not a command")
+			})
+			sc.Step(`^a folded subagent card links to the child transcript as plain text$`, func() error {
+				return runVitestScenario(panel, "a folded subagent card links to its child transcript as plain text")
 			})
 			sc.Step(`^any number of cards stay open at once, each with its own output$`, func() error {
 				return runVitestScenario(panel, "any number of cards stay open side by side, each with its own output")

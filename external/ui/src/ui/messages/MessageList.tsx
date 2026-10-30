@@ -95,8 +95,6 @@ export function MessageList(props: {
   /** Background tasks of this session keyed by the tool call that started them. */
   backgroundTasksByToolCallId?: Map<string, BackgroundTask>;
   backgroundNowMs?: number;
-  /** Opens a child transcript in the current SPA shell. */
-  onOpenSession?: (sessionId: string) => void;
   /** Roots this session works in - its own directory, then its worktrees -
    *  which tool rows spell paths against. */
   pathRoots?: readonly string[];
@@ -115,6 +113,12 @@ export function MessageList(props: {
   // Tasks the tail has to speak for itself: while the turn runs, its own line counts them.
   const tailTasks =
     props.generating === true ? 0 : Math.max(0, props.runningTasks ?? 0);
+  // A finished turn's line says them itself when it stands last: one line, not two.
+  const lastItem = props.items[props.items.length - 1];
+  const tasksOnFinishedLine =
+    tailTasks > 0 &&
+    lastItem?.type === "system_notice" &&
+    lastItem.generation !== undefined;
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
     [props.items],
@@ -298,6 +302,14 @@ export function MessageList(props: {
               {...(isLast && it.level === "error" && props.onRetryLast
                 ? { onRetry: props.onRetryLast }
                 : {})}
+              {...(isLast && tasksOnFinishedLine
+                ? {
+                    runningTasks: tailTasks,
+                    ...(props.onOpenTasks
+                      ? { onOpenTasks: props.onOpenTasks }
+                      : {}),
+                  }
+                : {})}
             />
           );
         }
@@ -394,9 +406,6 @@ export function MessageList(props: {
             {...(rowBackgroundTask && props.backgroundNowMs !== undefined
               ? { backgroundNowMs: props.backgroundNowMs }
               : {})}
-            {...(props.onOpenSession
-              ? { onOpenSession: props.onOpenSession }
-              : {})}
             {...(it.title !== undefined ? { title: it.title } : {})}
             {...(it.kind !== undefined ? { kind: it.kind } : {})}
             {...(it.argsText !== undefined ? { argsText: it.argsText } : {})}
@@ -472,7 +481,9 @@ export function MessageList(props: {
       {/* The turn is over, the work it started is not. The same dots stay at the tail
           with the count beside them, so a chat with tasks in flight does not read as
           finished; the running turn's line above already carries that count. */}
-      {tailTasks > 0 && renderEnd === props.items.length ? (
+      {tailTasks > 0 &&
+      !tasksOnFinishedLine &&
+      renderEnd === props.items.length ? (
         <TypingDotsMessage
           tasksOnly={true}
           runningTasks={tailTasks}
@@ -481,7 +492,7 @@ export function MessageList(props: {
       ) : null}
       {/* Between turns keep an empty slot with the base line's padding. */}
       {props.generating !== true &&
-      tailTasks === 0 &&
+      (tailTasks === 0 || tasksOnFinishedLine) &&
       renderEnd === props.items.length ? (
         <TypingDotsMessage idle={true} />
       ) : null}

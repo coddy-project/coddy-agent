@@ -198,6 +198,14 @@ func TestSubagentsWebUIFeature(t *testing.T) {
 				return runVitestScenario("src/ui/settings/SubagentsSection.test.tsx",
 					"lists every definition of the session workspace with its scope, description and file")
 			})
+			sc.Step(`^the notice of a child's transcript shows the reasoning level in parentheses after the model$`, func() error {
+				return runVitestScenario("src/ui/chat/SubagentReadOnlyNotice.test.tsx",
+					"the effective reasoning level follows the model in parentheses")
+			})
+			sc.Step(`^a model with levels and none chosen says the provider's default applies$`, func() error {
+				return runVitestScenario("src/ui/chat/SubagentReadOnlyNotice.test.tsx",
+					"a model with levels and none chosen says the provider's default applies")
+			})
 			sc.Step(`^a background subagent's prompt waits at the end of its parent chat$`, func() error {
 				return runVitestScenario("src/ui/chat/ChatScreen.test.tsx",
 					"a background subagent's prompt waits at the end of its parent chat")

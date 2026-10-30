@@ -30,7 +30,8 @@ Feature: The background tasks of a chat in the web UI
   Scenario: A card opens in place
     Then a click on a card expands it in place and another folds it
     And an open command card shows the command with a copy control, the output and how it ended
-    And an open subagent card offers the child transcript and shows the run's log
+    And an open subagent card shows the run's log
+    And a folded subagent card links to the child transcript as plain text
     And any number of cards stay open at once, each with its own output
     And a card the shell points at opens on its own
 

@@ -737,6 +737,9 @@ export function ChatScreen(props: {
   const readOnlyNotice = props.subagentTranscript ? (
     <SubagentReadOnlyNotice
       meta={props.subagentTranscript}
+      reasoningLevels={
+        props.llmReasoningLevelsByModel?.[props.subagentTranscript.model ?? ""]
+      }
       {...(props.onOpenSession ? { onOpenSession: props.onOpenSession } : {})}
     />
   ) : props.sessionArchived ? (
@@ -851,7 +854,6 @@ export function ChatScreen(props: {
     ...(props.backgroundNowMs !== undefined
       ? { backgroundNowMs: props.backgroundNowMs }
       : {}),
-    ...(props.onOpenSession ? { onOpenSession: props.onOpenSession } : {}),
     ...(props.onMentionArtifact
       ? { onMentionArtifact: props.onMentionArtifact }
       : {}),

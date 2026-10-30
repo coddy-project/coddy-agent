@@ -123,6 +123,17 @@ Obsidian `.canvas` file opened in the window, and the window at every tier of th
 and in Russian. Run it once more with **`CODDY_ENGINE=webkit`** when the change touches the frames'
 scaling or the pointer handling of the board.
 
+## The attachments
+
+A screenshot tool hands the browser a file in a temporary folder and deletes it at the next capture,
+so a **`File`** held only by its path stops being readable: the picture cannot be shown or sent
+(**`DESIGN.md`**, *Composer attachments*). jsdom has no such files. When the change touches
+how files enter the composer, **`optimisticUserFiles`**, the reconciliation of a sent row or the row
+of a queued message, run **`external/ui/scripts/attachments-check.mjs`**
+(**`npm run check:attachments`**) against a binary built with **`TAGS="http ui"`**: it drops and pastes
+real files, deletes them, follows them to a scripted model byte for byte, and holds a picture's row
+while the model is still answering it.
+
 ## The shared file cards
 
 The card of a shared file is `overflow: hidden`, so its actions menu is portalled to the document

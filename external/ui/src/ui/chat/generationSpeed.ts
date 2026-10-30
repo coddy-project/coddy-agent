@@ -1,6 +1,8 @@
 export type GenerationSummary = {
   outputTokens: number;
   tokensPerSecond: number;
+  /** How long the turn ran; absent on a row saved before it was kept. */
+  elapsedMs?: number;
 };
 
 /**
@@ -24,6 +26,14 @@ export function generationSummaryFromFrame(
     typeof f.tokensPerSecond === "number" &&
     Number.isFinite(f.tokensPerSecond) &&
     f.tokensPerSecond > 0
-    ? { outputTokens: f.outputTokens, tokensPerSecond: f.tokensPerSecond }
+    ? {
+        outputTokens: f.outputTokens,
+        tokensPerSecond: f.tokensPerSecond,
+        ...(typeof f.elapsedMs === "number" &&
+        Number.isFinite(f.elapsedMs) &&
+        f.elapsedMs >= 0
+          ? { elapsedMs: f.elapsedMs }
+          : {}),
+      }
     : null;
 }

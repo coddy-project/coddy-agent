@@ -149,10 +149,18 @@ jobs:
       # The message queue (issue #364) through the same kind of stand: the
       # first-use question, steer and after-turn messages with an image, a mode
       # switched and a message taken back through the relay's mount, the
-      # deferred prompt answered above its answer, and a Stop that keeps it.
+      # deferred prompt answered above its answer, the browser's Stop continuing
+      # with what waits, and a plain cancel that keeps it.
       - name: Drive the message queue through a swarm relay
         if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
         run: CODDY_BIN="$PWD/build/coddy" npm --prefix external/ui run check:queue
+
+      # Pictures from a screenshot tool: files on disk dropped and pasted, then
+      # deleted the way the tool deletes them, followed to the model byte for
+      # byte, and a queued picture's row while the model is still answering it.
+      - name: Follow attachments from disk to the model in a browser
+        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        run: CODDY_BIN="$PWD/build/coddy" npm --prefix external/ui run check:attachments
 
       # The views of a chat through the same kind of stand, the node asking for
       # a token of its own: the header's views menu, the edits and the
