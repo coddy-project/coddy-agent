@@ -309,9 +309,9 @@ Desktop layout
 
 - **Brand** is **typography only** (**Coddy** and **agent**). **No** circular logo or icon before the brand text, regardless of older reference images that include a circle.
 - Desktop nav is a **vertical panel** with rounding on the **right** edge (not a full-height center-pill). On **`min-width: 1920px`**, the wide rail header includes an icon with **horizontal lines** used **only** to **collapse** to narrow rail, not as a global navigation drawer.
-- Left rail opens **chat history** from **History** under the brand; brand click goes to the **start screen** (**new chat**).
+- Left rail opens **chat history** from **History** under the brand; brand click goes to the **start screen** (**new chat**), and so does **New Chat** (**`data-testid="nav-new-chat"`**): a plus under the brand in the narrow rail, a plus after it in the top bar and a labelled row above **History** in the wide rail.
 - **Brand**, **History**, **Scheduler** (when linked), **Settings**, and each row in the **History** list use real fragment **`href`** values (**`#/`**, **`#/history`**, **`#/scheduler`**, **`#/scheduler/new`** (new job editor), **`#/settings`**, **`#/s/<sessionId>`**) so **middle-click** or **Ctrl/Cmd-click** opens a **new browser tab** on the same origin while another tab can keep streaming.
-- Sessions list is **always** a **drawer overlay** with backdrop at **all** breakpoints and rail widths (**no** inline column beside the rail that would shrink the chat area). The panel heading and related chrome use the copy **History**.
+- Sessions list is **always** a **drawer overlay** with backdrop at **all** breakpoints and rail widths (**no** inline column beside the rail that would shrink the chat area). The panel heading and related chrome use the copy **History**. On the stacked shell the panel ends 30% above the foot of the screen, so a tap below it returns to the conversation.
 - Optional rail **narrow versus wide** (icons plus labels) only when **`min-width: 1920px`**, persisted in **`coddy_nav_rail`** cookie (**`narrow`** default)
 - Main chat area with streamed assistant output
 - Right rail is out of scope for the current milestone
@@ -323,7 +323,7 @@ Wide screens
 Mobile layout
 
 - On mobile the left rail becomes a top bar to preserve horizontal space; the top bar is **`position: fixed`** at the viewport top (**`shell-main`** is padded with **`--coddy-mobile-top-inset`**) while **`body`** scrolls the chat.
-- On mobile the brand stays on a single line.
+- On a phone the brand takes two lines, **Coddy** over **agent**, as in the narrow rail on a desktop.
 - On **`max-width: 1199px`** (phones and tablets alike) the **Settings** drawer keeps one inline inset, **14px**, for every band it stacks: the **SETTINGS** head, the status band under it (shown only when loading failed or a save was refused), the section tiles, the opened section and the reload / save footer all start and end on the same edge. Check it by measuring `getBoundingClientRect().left` of `.settings-tile` and `.settings-body` against `.settings.drawer` - the two must agree.
 
 Phone layout (**`max-width: 599px`**)
@@ -334,7 +334,7 @@ The shell has four tiers by the width of the window: a **phone** up to **599px**
 
 *A chat at 375 px: the MCP tool row wraps its label and moves its target and duration under it, and the long link in the answer breaks instead of widening the page.*
 
-- **Top bar.** The brand drops its second word and shows **Coddy** alone, the icons are **40px** with a **4px** gap and keep to the right edge. What does not fit next to the brand folds behind a **More** button (three dots): **History**, **Swarm** and the environment always stay in the bar, the others come back as room grows in the order **Settings**, **Scheduler**, **Docs**, **Sign out**, and the menu lists the folded ones as **Docs**, **Scheduler**, **Settings** and, under a separator, **Sign out**. A pick, **Escape** or a press outside closes it; the button is highlighted while a folded panel is open. With 40px icons five items fit from about 290px, so on most phones the menu only appears on a relay or a very narrow screen. The split is **`nav/navOverflow.ts`**, measured by **`NavRail`** on the stacked shell only.
+- **Top bar.** The brand takes two lines, **Coddy** over **agent**, with the plus of a new chat after it, the icons are **40px** with a **4px** gap and keep to the right edge. What does not fit next to the brand folds behind a **More** button (three dots): **History**, **Swarm** and the environment always stay in the bar, the others come back as room grows in the order **Settings**, **Scheduler**, **Docs**, **Sign out**, and the menu lists the folded ones as **Docs**, **Scheduler**, **Settings** and, under a separator, **Sign out**. A pick, **Escape** or a press outside closes it; the button is highlighted while a folded panel is open. With 40px icons five items fit from about 290px, so on most phones the menu only appears on a relay or a very narrow screen. The split is **`nav/navOverflow.ts`**, measured by **`NavRail`** on the stacked shell only.
 - **Composer, plate.** The composer card has no chip row: the workspace is on the plate over it, one line whose folder and branch shrink with an ellipsis. On a phone and on any touch screen the plate's picks and the worktree checkbox are **36px** tall, and git's count keeps its slim framed look with an invisible **40px** hit area over it, so a finger can hit them; the improve-prompt wand stands in the field's top right corner.
 - **Composer, selector chips.** The attach button of a multimodal model, then mode, model, reasoning and permission (this order on every width) form one strip that scrolls sideways under a fade at its right edge; the context ring and **Send** never shrink, so no chip is ever drawn under them. A long model name ends in an ellipsis.
 - **Start screen.** The hero is one grid track that cannot grow past its container (**`grid-template-columns: minmax(0, 1fr)`**), so the page never scrolls sideways and the title stays centred.
@@ -376,7 +376,7 @@ Header links
 
 Narrow-rail tooltips (desktop)
 
-- When the rail has **no** wide labels, **hover tooltips** reinforce icon meaning (example **New Chat** on the brand, **History** on history). **Wide labeled rail** hides those tooltips; labels are the affordance.
+- When the rail has **no** wide labels, **hover tooltips** reinforce icon meaning (example **New Chat** on the plus, **History** on history). **Wide labeled rail** hides those tooltips; labels are the affordance.
 - After opening **History**, the history trigger's tooltip must **not** stay visible if the pointer still hovers the rail (see **DESIGN.md**).
 
 Closing a screen with Escape

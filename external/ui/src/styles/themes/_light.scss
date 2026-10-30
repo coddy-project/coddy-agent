@@ -29,7 +29,7 @@
   --muted: #52525b;
   --bubble-user: #e4e4e7;
   --shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
-  --coddy-canvas-glow-purple: rgba(147, 51, 234, 0.07);
+  --coddy-canvas-glow-purple: color-mix(in srgb, var(--accent) 7%, transparent);
   --coddy-canvas-glow-indigo: rgba(99, 102, 241, 0.05);
   --coddy-canvas-gradient-top: #ffffff;
   --coddy-canvas-gradient-bottom: #f4f4f5;

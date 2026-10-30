@@ -46,8 +46,8 @@
 }
 
 .settings-btn-primary {
-  border-color: rgba(147, 51, 234, 0.55);
-  background: rgba(147, 51, 234, 0.22);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
   /* Slower than the other buttons, so the green of a save eases back. */
   transition:
     background 360ms ease,
@@ -57,9 +57,9 @@
 }
 
 .settings-btn-primary:hover:not(:disabled) {
-  background: rgba(147, 51, 234, 0.34);
-  border-color: rgba(147, 51, 234, 0.75);
-  box-shadow: 0 0 0 1px rgba(147, 51, 234, 0.4);
+  background: color-mix(in srgb, var(--accent) 34%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 75%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 .settings-btn-danger:hover:not(:disabled) {

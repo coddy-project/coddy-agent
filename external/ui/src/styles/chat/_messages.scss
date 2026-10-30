@@ -408,7 +408,7 @@
 }
 
 .msg-copy-icon-btn:focus-visible {
-  outline: 2px solid rgba(147, 51, 234, 0.45);
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
   outline-offset: 2px;
 }
 

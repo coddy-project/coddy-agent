@@ -365,7 +365,7 @@
 
 .goal-icon-btn:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.35);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .goal-icon-btn:disabled {

@@ -1239,6 +1239,33 @@ async function scenarioViews() {
     JSON.stringify(offsets),
   );
 
+  // The tooltip of the context ring opens upward from inside the composer card,
+  // and the card's blur makes it a layer of its own: the plate joined to its top
+  // used to paint over the tip. A tip takes no pointer, so it takes one to be read.
+  await a.page.locator(".composer-context-tip-host").first().hover();
+  await a.page.waitForTimeout(250);
+  const overPlate = await a.page.evaluate(() => {
+    const tip = document.querySelector(".composer-context-tip");
+    const plate = document
+      .querySelector(".workspace-bar")
+      .getBoundingClientRect();
+    tip.style.pointerEvents = "auto";
+    const r = tip.getBoundingClientRect();
+    const at = document.elementFromPoint(r.left + r.width / 2, r.top + 4);
+    tip.style.pointerEvents = "";
+    return {
+      overlaps: r.top < plate.bottom,
+      top: !!at && tip.contains(at),
+      at: at ? String(at.className) : "",
+    };
+  });
+  check(
+    "the context ring's tooltip stands over the plate it opens across",
+    overPlate.overlaps && overPlate.top,
+    JSON.stringify(overPlate),
+  );
+  await a.page.mouse.move(5, 400);
+
   // Edits: their one view is a window over the chat, opened by git's count.
   await a.page.getByTestId("workspace-bar-edits").click();
   const edits = a.page.getByTestId("edits-view");
@@ -1857,6 +1884,59 @@ async function scenarioTouch(sid) {
     "no tooltip comes back when the panel has gone from over the button",
     (await tip()) === "0",
   );
+  // History ends 30% above the foot of the screen, and a tap below it goes back
+  // to the conversation. A folder's whole row folds it, up to the plus.
+  await page.getByTestId("nav-history").tap();
+  const drawer = page.locator(".sessions.drawer");
+  await drawer.waitFor();
+  await page.waitForTimeout(300);
+  const box = await drawer.boundingBox();
+  check(
+    "on a phone History ends 30% above the foot of the screen",
+    Math.abs(box.y + box.height - 844 * 0.7) <= 2,
+    JSON.stringify(box),
+  );
+  const bar = page.locator(".session-group-bar").first();
+  if (await bar.count()) {
+    const row = await bar.boundingBox();
+    const head = await bar.locator(".session-group-head").boundingBox();
+    const plus = bar.locator(".session-group-new");
+    const plusBox = (await plus.count()) ? await plus.boundingBox() : null;
+    check(
+      "the heading of a group is a fold target across its row",
+      head.width >= row.width - (plusBox ? plusBox.width : 0) - 8,
+      JSON.stringify({ row, head, plusBox }),
+    );
+    if (plusBox) {
+      check(
+        "the plus of a group is a box a finger can hit",
+        plusBox.width >= 34 && plusBox.height >= 32,
+        JSON.stringify(plusBox),
+      );
+    }
+    const toggle = bar.locator(".session-group-head");
+    const before = await toggle.getAttribute("aria-expanded");
+    await page.touchscreen.tap(
+      head.x + head.width - 6,
+      head.y + head.height / 2,
+    );
+    await page.waitForTimeout(200);
+    check(
+      "a tap at the far end of the heading folds the group",
+      (await toggle.getAttribute("aria-expanded")) !== before,
+    );
+    await page.touchscreen.tap(
+      head.x + head.width - 6,
+      head.y + head.height / 2,
+    );
+  }
+  await page.touchscreen.tap(195, 844 * 0.85);
+  await until(
+    "History put away by a tap below it",
+    async () => (await drawer.count()) === 0,
+    3000,
+  );
+  check("a tap below History goes back to the conversation", true);
   await context.close();
 }
 

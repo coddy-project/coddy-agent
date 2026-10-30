@@ -36,12 +36,21 @@
     padding-inline: 4px;
   }
 
+  /* Two lines, as in the narrow rail on a desktop: the name over its second word. */
   .rail-brand-text {
+    display: grid;
+    justify-items: center;
+    gap: 2px;
     min-width: 0;
+    line-height: 1.05;
+  }
+
+  .rail-brand-title {
+    font-size: 13px;
   }
 
   .rail-brand-sub {
-    display: none;
+    font-size: 12px;
   }
 
   /* Grows so the icons keep to the right edge, never shrinks. */

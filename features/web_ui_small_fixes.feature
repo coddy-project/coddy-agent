@@ -43,6 +43,11 @@ Feature: Five small fixes of the web UI
   Scenario: A touch leaves no tooltip behind
     Then a tooltip opens on hover only where there is a real pointer
     And a tooltip opens by focus only for a keyboard
+    And a tooltip of the composer card stands over the plate joined to it
+
+  Scenario: A plus beside the name starts a new chat
+    Then the plus beside the name starts a new chat from the wide rail
+    And the plus beside the name starts a new chat from the top bar and the narrow rail
 
   Scenario: Archiving from History keeps the list where it was
     Then an archived row leaves History at once and the list is not read again
