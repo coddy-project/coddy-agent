@@ -142,8 +142,10 @@ function normalize(rows: ModelsResponse["models"]): FetchedModel[] {
  *
  * Every call takes a ticket; a newer call, `reset` and unmounting invalidate
  * the older ones, and an answer whose ticket is stale resolves to `null` and
- * touches no state. That is what keeps a slow answer for the provider the
- * operator has since switched away from off the list of the one they picked.
+ * touches no state. A failed request resolves to an empty list with the reason
+ * as its `error`, alongside the hook state of the same name. That keeps a slow
+ * answer for the provider the operator has since switched away from off the
+ * list of the one they picked.
  */
 export function useProviderModels() {
   const [loading, setLoading] = useState(false);
@@ -173,7 +175,7 @@ export function useProviderModels() {
     async (
       row: ProviderRow,
       options?: { runCommand?: boolean },
-    ): Promise<FetchedModel[] | null> => {
+    ): Promise<{ models: FetchedModel[]; error: string } | null> => {
       if (!providerRowFetchable(row)) {
         return null;
       }
@@ -210,7 +212,7 @@ export function useProviderModels() {
       setError(failure);
       setLoading(false);
       setFetched(true);
-      return list;
+      return { models: list, error: failure };
     },
     [],
   );

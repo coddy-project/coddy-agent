@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
+import { responseError } from "./apiError";
 import { FieldLabel } from "./FieldHint";
 import type { OverrideTexts } from "./settingsSections";
 import { useT } from "../i18n/I18nProvider";
@@ -24,23 +25,12 @@ type DeviceLogin = {
   error?: string;
 };
 
-async function responseError(response: Response): Promise<string> {
-  try {
-    const body = (await response.json()) as { error?: unknown };
-    if (typeof body.error === "string" && body.error.trim() !== "") {
-      return body.error;
-    }
-  } catch {
-    // Fall through to the HTTP status when the server did not return JSON.
-  }
-  return `HTTP ${response.status}`;
-}
-
 export function CodexAuthField(props: {
   providerName: string;
   proxy?: string;
   /** The account's name and description (primary). */
   texts: OverrideTexts;
+  onConnectedChange?: (connected: boolean) => void;
 }) {
   const providerName = props.providerName.trim();
   const endpoint = `/coddy/providers/${encodeURIComponent(providerName)}/codex-auth`;
@@ -48,6 +38,11 @@ export function CodexAuthField(props: {
   const [login, setLogin] = useState<DeviceLogin | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const onConnectedChange = props.onConnectedChange;
+
+  useLayoutEffect(() => {
+    onConnectedChange?.(status.connected);
+  }, [status.connected, onConnectedChange]);
 
   useEffect(() => {
     setLogin(null);

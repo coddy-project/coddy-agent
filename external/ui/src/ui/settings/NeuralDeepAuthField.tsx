@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { responseError } from "./apiError";
 import { FieldLabel } from "./FieldHint";
 import type { OverrideTexts } from "./settingsSections";
 import { useT } from "../i18n/I18nProvider";
@@ -26,18 +27,6 @@ type DeviceLogin = {
   error?: string;
 };
 
-async function responseError(response: Response): Promise<string> {
-  try {
-    const body = (await response.json()) as { error?: unknown };
-    if (typeof body.error === "string" && body.error.trim() !== "") {
-      return body.error;
-    }
-  } catch {
-    // Fall through to the HTTP status when the server did not return JSON.
-  }
-  return `HTTP ${response.status}`;
-}
-
 /**
  * NeuralDeepAuthField signs the provider in through the hub's device flow:
  * the browser and the Coddy server may run on different machines, so the
@@ -59,6 +48,7 @@ export function NeuralDeepAuthField(props: {
   proxy?: string;
   /** The account's name and description (second); primary is the endpoint's. */
   texts: OverrideTexts;
+  onConnectedChange?: (connected: boolean) => void;
 }) {
   const providerName = props.providerName.trim();
   const apiBase = props.apiBase.trim();
@@ -239,6 +229,10 @@ export function NeuralDeepAuthField(props: {
     !!status.endpoint_hub &&
     status.hub.replace(/\/+$/, "").toLowerCase() !==
       status.endpoint_hub.replace(/\/+$/, "").toLowerCase();
+  const onConnectedChange = props.onConnectedChange;
+  useLayoutEffect(() => {
+    onConnectedChange?.(status.connected && !hubMismatch);
+  }, [status.connected, hubMismatch, onConnectedChange]);
 
   return (
     <div className="settings-row" data-testid="neuraldeep-auth-field">

@@ -994,6 +994,96 @@ export const messagesEn: Record<string, string> = {
 
   "settings.combobox.toggleAria": "Toggle options",
 
+  "onboarding.title": "Choose a provider",
+  "onboarding.lead":
+    "Connect a model provider to start chatting. You can change this later in Settings.",
+  "onboarding.close": "Close onboarding",
+  "onboarding.provider.openai.description": "GPT models and the OpenAI API",
+  "onboarding.provider.anthropic.description": "Claude models",
+  "onboarding.provider.ollama.description":
+    "Local models through an OpenAI-compatible API",
+  "onboarding.provider.compatible.description":
+    "DeepSeek, Groq, Together or a custom endpoint",
+  "onboarding.provider.neuraldeep.description":
+    "API key or account sign-in on either hub",
+  "onboarding.provider.codex.description":
+    "Your ChatGPT subscription through OAuth",
+  "onboarding.provider.opencode.description":
+    "OpenCode Go or Console with account sign-in",
+  "onboarding.provider.devin.description": "Devin models with browser sign-in",
+  "onboarding.apiKey": "API key",
+  "onboarding.showKey": "Show",
+  "onboarding.hideKey": "Hide",
+  "onboarding.apiBase": "API base URL",
+  "onboarding.apiBaseRequired":
+    "Enter the API base URL before testing or saving this provider.",
+  "onboarding.proxy": "Proxy URL",
+  "onboarding.proxyHint":
+    "Model discovery, sign-in and chat requests use this route.",
+  "onboarding.defaultModel": "Default model",
+  "onboarding.fetchingModels": "Fetching models…",
+  "onboarding.refreshModels": "Refresh",
+  "onboarding.fetchModels": "Fetch models",
+  "onboarding.modelMultimodalOn": "This model accepts image input.",
+  "onboarding.modelMultimodalOff":
+    "No image support is reported for this model.",
+  "onboarding.modelVisionOption": "{model} (vision)",
+  "onboarding.validationFailed": "The configuration is invalid.",
+  "onboarding.saveFailed": "Could not save the configuration ({status}).",
+  "onboarding.saveFailedGeneric": "Could not save the configuration.",
+  "onboarding.testOk": "The provider answered with a model catalog.",
+  "onboarding.skip": "Skip for now",
+  "onboarding.test": "Test connection",
+  "onboarding.save": "Save and continue",
+  "onboarding.restart": "Restart onboarding",
+  "onboarding.restartHint":
+    "Choose a provider again and replay the guided tour.",
+  "onboarding.codexAuth.description":
+    "Sign in with ChatGPT. Tokens stay on the Coddy server.",
+  "onboarding.neuralDeepAuth.description":
+    "Sign in to the selected hub instead of pasting a key.",
+  "onboarding.openCodeAuth.description":
+    "Confirm the device code and select your organization. Tokens stay on the Coddy server.",
+  "onboarding.devinAuth.description":
+    "Sign in through the browser, or paste a Devin session token above.",
+
+  "devinAuth.error.signInFailed": "Devin sign in failed.",
+  "devinAuth.error.incompleteResponse":
+    "Devin returned incomplete sign-in instructions.",
+  "devinAuth.fieldLabel": "Devin account",
+  "devinAuth.connected": "Signed in to Devin ({account}).",
+  "devinAuth.shadowedByKey":
+    "The explicit API key takes priority over this login.",
+  "devinAuth.openSignInPage": "Open sign-in page",
+  "devinAuth.waiting": "Waiting for Devin…",
+  "devinAuth.signOut": "Sign Out",
+  "devinAuth.signIn": "Sign In with Devin",
+  "devinAuth.pasteLabel": "Remote browser? Paste the full callback address",
+  "devinAuth.pasteSubmit": "Complete sign-in",
+
+  "tour.stepCounter": "Step {current} of {total}",
+  "tour.skip": "Skip tour",
+  "tour.back": "Back",
+  "tour.next": "Next",
+  "tour.done": "Done",
+  "tour.step.settings.title": "Settings",
+  "tour.step.settings.body":
+    "Manage providers, models, tools and the rest of Coddy here.",
+  "tour.step.project.title": "Workspace",
+  "tour.step.project.body": "Choose the folder and branch the agent works in.",
+  "tour.step.history.title": "History",
+  "tour.step.history.body": "Open earlier conversations or start a new chat.",
+  "tour.step.scheduler.title": "Scheduler",
+  "tour.step.scheduler.body": "Create recurring jobs that run Coddy for you.",
+  "tour.step.model.title": "Model",
+  "tour.step.model.body": "Pick the configured model for this chat.",
+  "tour.step.input.title": "Message",
+  "tour.step.input.body":
+    "Write a request here. Use @ to mention files and / for commands.",
+  "tour.step.send.title": "Send",
+  "tour.step.send.body":
+    "Send the message and watch the agent work in the transcript.",
+
   "codexAuth.error.signInFailed": "ChatGPT sign in failed.",
   "codexAuth.error.incompleteResponse":
     "The OAuth server returned an incomplete sign-in response.",

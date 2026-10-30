@@ -117,13 +117,15 @@ export function ContextWindowField(props: {
             }
             setNote("");
             const askedFor = model;
-            void fetchModels(row, { runCommand: true }).then((list) => {
+            void fetchModels(row, { runCommand: true }).then((result) => {
               // null: a newer fetch or an unmount dropped the answer. Another
               // model on screen: the answer is about the one it replaced.
-              if (list === null || modelRef.current !== askedFor) {
+              if (result === null || modelRef.current !== askedFor) {
                 return;
               }
-              const window = list.find((m) => m.id === id)?.context_window;
+              const window = result.models.find(
+                (m) => m.id === id,
+              )?.context_window;
               if (window) {
                 onChangeRef.current(window);
               } else {

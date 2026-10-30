@@ -1019,6 +1019,100 @@ export const messagesRu: Record<string, string> = {
 
   "settings.combobox.toggleAria": "Показать параметры",
 
+  "onboarding.title": "Выберите провайдера",
+  "onboarding.lead":
+    "Подключите провайдера моделей, чтобы начать чат. Позже это можно изменить в настройках.",
+  "onboarding.close": "Закрыть онбординг",
+  "onboarding.provider.openai.description": "Модели GPT и API OpenAI",
+  "onboarding.provider.anthropic.description": "Модели Claude",
+  "onboarding.provider.ollama.description":
+    "Локальные модели через OpenAI-совместимый API",
+  "onboarding.provider.compatible.description":
+    "DeepSeek, Groq, Together или свой endpoint",
+  "onboarding.provider.neuraldeep.description":
+    "Ключ API или вход в аккаунт на любом хабе",
+  "onboarding.provider.codex.description": "Ваша подписка ChatGPT через OAuth",
+  "onboarding.provider.opencode.description":
+    "OpenCode Go или Console со входом в аккаунт",
+  "onboarding.provider.devin.description":
+    "Модели Devin со входом через браузер",
+  "onboarding.apiKey": "Ключ API",
+  "onboarding.showKey": "Показать",
+  "onboarding.hideKey": "Скрыть",
+  "onboarding.apiBase": "Базовый URL API",
+  "onboarding.apiBaseRequired":
+    "Введите базовый URL API, прежде чем проверять или сохранять этого провайдера.",
+  "onboarding.proxy": "URL прокси",
+  "onboarding.proxyHint":
+    "Этот маршрут используется для получения моделей, входа и запросов чата.",
+  "onboarding.defaultModel": "Модель по умолчанию",
+  "onboarding.fetchingModels": "Получаем модели…",
+  "onboarding.refreshModels": "Обновить",
+  "onboarding.fetchModels": "Получить модели",
+  "onboarding.modelMultimodalOn": "Эта модель принимает изображения.",
+  "onboarding.modelMultimodalOff":
+    "Поддержка изображений у этой модели не заявлена.",
+  "onboarding.modelVisionOption": "{model} (изображения)",
+  "onboarding.validationFailed": "Конфигурация недействительна.",
+  "onboarding.saveFailed": "Не удалось сохранить конфигурацию ({status}).",
+  "onboarding.saveFailedGeneric": "Не удалось сохранить конфигурацию.",
+  "onboarding.testOk": "Провайдер ответил каталогом моделей.",
+  "onboarding.skip": "Пропустить пока",
+  "onboarding.test": "Проверить соединение",
+  "onboarding.save": "Сохранить и продолжить",
+  "onboarding.restart": "Пройти онбординг снова",
+  "onboarding.restartHint":
+    "Выбрать провайдера и повторить краткий тур по интерфейсу.",
+  "onboarding.codexAuth.description":
+    "Войдите через ChatGPT. Токены хранятся на сервере Coddy.",
+  "onboarding.neuralDeepAuth.description":
+    "Войдите на выбранном хабе вместо вставки ключа.",
+  "onboarding.openCodeAuth.description":
+    "Подтвердите код устройства и выберите организацию. Токены хранятся на сервере Coddy.",
+  "onboarding.devinAuth.description":
+    "Войдите через браузер или вставьте токен сессии Devin выше.",
+
+  "devinAuth.error.signInFailed": "Не удалось войти через Devin.",
+  "devinAuth.error.incompleteResponse":
+    "Devin вернул неполные инструкции входа.",
+  "devinAuth.fieldLabel": "Аккаунт Devin",
+  "devinAuth.connected": "Выполнен вход в Devin ({account}).",
+  "devinAuth.shadowedByKey":
+    "Явно заданный ключ API имеет приоритет над этим входом.",
+  "devinAuth.openSignInPage": "Открыть страницу входа",
+  "devinAuth.waiting": "Ждём Devin…",
+  "devinAuth.signOut": "Выйти",
+  "devinAuth.signIn": "Войти через Devin",
+  "devinAuth.pasteLabel":
+    "Браузер на другой машине? Вставьте полный callback-адрес",
+  "devinAuth.pasteSubmit": "Завершить вход",
+
+  "tour.stepCounter": "Шаг {current} из {total}",
+  "tour.skip": "Пропустить тур",
+  "tour.back": "Назад",
+  "tour.next": "Далее",
+  "tour.done": "Готово",
+  "tour.step.settings.title": "Настройки",
+  "tour.step.settings.body":
+    "Здесь настраиваются провайдеры, модели, инструменты и остальные возможности Coddy.",
+  "tour.step.project.title": "Рабочая папка",
+  "tour.step.project.body":
+    "Выберите папку и ветку, с которыми будет работать агент.",
+  "tour.step.history.title": "История",
+  "tour.step.history.body":
+    "Открывайте прошлые разговоры или начинайте новый чат.",
+  "tour.step.scheduler.title": "Планировщик",
+  "tour.step.scheduler.body":
+    "Создавайте периодические задания, которые Coddy выполняет за вас.",
+  "tour.step.model.title": "Модель",
+  "tour.step.model.body": "Выберите настроенную модель для этого чата.",
+  "tour.step.input.title": "Сообщение",
+  "tour.step.input.body":
+    "Напишите запрос здесь. Используйте @ для упоминания файлов и / для команд.",
+  "tour.step.send.title": "Отправка",
+  "tour.step.send.body":
+    "Отправьте сообщение и следите за работой агента в транскрипте.",
+
   "codexAuth.error.signInFailed": "Не удалось войти через ChatGPT.",
   "codexAuth.error.incompleteResponse":
     "Сервер OAuth вернул неполный ответ входа.",
