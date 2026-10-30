@@ -2,7 +2,8 @@
  * The picture markup editor without the screen: the shapes, the history
  * (marks, crops, quarter turns) and undo, the sizes a picture is drawn with.
  * The console's editor (external/cli/markup) follows the same rules, so a
- * picture marked up in either looks the same.
+ * picture marked up in either looks the same, but for what only a pen gives
+ * the web editor: the pressure of a stroke.
  */
 
 export type MarkupTool = "pen" | "ellipse" | "rect" | "arrow" | "text" | "crop";
@@ -24,11 +25,19 @@ export type MarkupColorId = (typeof MARKUP_PALETTE)[number]["id"];
 
 /**
  * One mark, in the picture's pixels at the moment it was drawn. A pen keeps
- * its whole path; ellipse, rectangle and arrow keep two corners (tail and tip
- * for the arrow); a label keeps its top-left corner.
+ * its whole path, and the pressure of each point when a pen drew it (a mouse
+ * or a finger keeps none, and draws at one width); ellipse, rectangle and
+ * arrow keep two corners (tail and tip for the arrow); a label keeps its
+ * top-left corner.
  */
 export type MarkupShape =
-  | { kind: "pen"; color: string; width: number; points: Pt[] }
+  | {
+      kind: "pen";
+      color: string;
+      width: number;
+      points: Pt[];
+      pressures?: number[];
+    }
   | {
       kind: "ellipse" | "rect" | "arrow";
       color: string;
@@ -133,6 +142,86 @@ export function fitView(
   const w = pic.w * k;
   const h = pic.h * k;
   return { x: (stage.w - w) / 2, y: (stage.h - h) / 2, w, h, k };
+}
+
+/**
+ * The pressure a pointer event gives a pen stroke: a pen's own reading, or
+ * none for a mouse or a finger, whose pressure says only that a button is
+ * down.
+ */
+export function penPressure(e: {
+  pointerType?: string;
+  pressure?: number;
+}): number | undefined {
+  if (e.pointerType !== "pen") return undefined;
+  const p = e.pressure;
+  return typeof p === "number" && p > 0 ? clamp(p, 0, 1) : undefined;
+}
+
+/**
+ * How much wider than its base width a stroke is drawn at a pressure: half
+ * pressure, a pen's resting press, draws at the base width, as a mouse does.
+ */
+export function penWidthFactor(pressure: number): number {
+  return clamp(0.35 + 1.3 * pressure, 0.35, 1.65);
+}
+
+/** One piece of a pen stroke: a straight line when ctrl is null. */
+export type PenSegment = {
+  from: Pt;
+  ctrl: Pt | null;
+  to: Pt;
+  width: number;
+};
+
+/**
+ * A pen stroke as pieces to draw: from midpoint to midpoint of its points,
+ * each bent through the point between them, so the stroke runs smooth rather
+ * than as a chain of straight lines, with straight pieces at both ends. Each
+ * piece takes its width from the pressure at its point, or the stroke's
+ * width when the stroke has none.
+ */
+export function penSegments(s: {
+  width: number;
+  points: readonly Pt[];
+  pressures?: readonly number[];
+}): PenSegment[] {
+  const pts = s.points;
+  const widthAt = (i: number): number => {
+    const p = s.pressures?.[i];
+    return typeof p === "number" ? s.width * penWidthFactor(p) : s.width;
+  };
+  const mid = (a: Pt, b: Pt): Pt => ({
+    x: (a.x + b.x) / 2,
+    y: (a.y + b.y) / 2,
+  });
+  const out: PenSegment[] = [];
+  const n = pts.length;
+  for (let i = 0; i + 1 < n; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    if (!a || !b) continue;
+    if (n === 2) {
+      out.push({ from: a, ctrl: null, to: b, width: widthAt(1) });
+      continue;
+    }
+    // The first piece runs straight from the start to the first midpoint,
+    // and the last straight from the last midpoint to the end.
+    if (i === 0)
+      out.push({ from: a, ctrl: null, to: mid(a, b), width: widthAt(0) });
+    const next = pts[i + 2];
+    if (next) {
+      out.push({
+        from: mid(a, b),
+        ctrl: b,
+        to: mid(b, next),
+        width: widthAt(i + 1),
+      });
+    } else {
+      out.push({ from: mid(a, b), ctrl: null, to: b, width: widthAt(i + 1) });
+    }
+  }
+  return out;
 }
 
 /** The keys that pick a tool when no label is being typed. */
