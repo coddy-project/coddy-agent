@@ -1,3 +1,4 @@
+import { motionIsReduced } from "../theme/uiSimple";
 import type { CSSProperties, Dispatch, ReactNode, SetStateAction } from "react";
 import { HeroFooter } from "./HeroFooter";
 import {
@@ -476,9 +477,7 @@ export function ChatScreen(props: {
     setShowScrollToBottom(false);
     const from = readTranscriptScrollTop();
     const to = transcriptScrollBottom();
-    const reduceMotion =
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduceMotion = motionIsReduced();
     if (to <= from) {
       // Already at the newest message, or past where this measure puts it: a
       // "jump" to the smaller offset would take the reader back up the page.

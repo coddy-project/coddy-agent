@@ -4,6 +4,9 @@
 export const messagesEn: Record<string, string> = {
   "appearance.themeLabel": "Theme",
   "appearance.themeGroupAria": "Theme",
+  "appearance.simpleLabel": "Simplified mode",
+  "appearance.simple.hint":
+    "For slower machines, in every theme. Turns off the blur behind panels, soft shadows, the gradients and grain of the background, animations and smooth transitions, so panels take solid colours. Marks of a state stay: the focus ring, the chosen theme, a session's dot.",
   "appearance.languageLabel": "Language",
   "appearance.locale.auto": "Auto",
   "appearance.locale.en": "English",

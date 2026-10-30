@@ -134,6 +134,10 @@ of a queued message, run **`external/ui/scripts/attachments-check.mjs`**
 real files, deletes them, follows them to a scripted model byte for byte, and holds a picture's row
 while the model is still answering it.
 
+## The simplified mode
+
+The mode clears the glass of the whole stylesheet from one partial (**`DESIGN.md`**, *Simplified mode*), and what it leaves behind is a computed style jsdom does not have. When the change adds a shadow, a blur, a gradient, a mask, a transition, an animation or a translucent panel, or touches **`styles/_simple.scss`**, run **`external/ui/scripts/simple-mode-check.mjs`** (**`npm run check:simple`**) against a binary built with **`TAGS="http ui"`** (setup in **`docs/surfaces/web-ui.md`**, *Checking the simplified mode*): it reads every element of six screens in every theme at 1280, 800 and 390 px.
+
 ## The shared file cards
 
 The card of a shared file is `overflow: hidden`, so its actions menu is portalled to the document

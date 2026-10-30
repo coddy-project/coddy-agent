@@ -20,6 +20,10 @@ https://github.com/user-attachments/assets/604d01bb-b730-4ca5-9955-a7a593891054
 
 *Settings, Appearance tab: the theme swatches and the language picker*
 
+![The simplified mode: Settings over a chat, the panels in solid colours, with no shadows or blur](../assets/web-ui/simple-mode-setting-dark-1280.png)
+
+*The simplified mode: Settings over a chat, the panels in solid colours, with no shadows or blur*
+
 ![The Russian dictionary applied to the conversation: the chat header, the tool rows and the composer](../assets/localization-ru-wide.png)
 
 *The Russian dictionary applied to the conversation: the chat header, the tool rows and the composer*
@@ -27,7 +31,8 @@ https://github.com/user-attachments/assets/604d01bb-b730-4ca5-9955-a7a593891054
 - **Default:** dark theme on first visit; language resolves from **`navigator.language`** (RU if Russian, else EN).
 - **Theme cookie:** **`coddy_ui_theme`** with the seven theme ids (**`dark`**, **`light`**, **`midnight`**, **`solarized-dark`**, **`monokai`**, **`nord`**, **`rose-pine`**; path **`/`**, **`SameSite=Lax`**, 1-year `Max-Age`).
 - **Theme picker:** **Settings** (**`#/settings`**) → **Appearance** → theme swatch grid (**`data-testid="theme-swatch-<id>"`** inside **`appearance-theme-picker`**). Selection applies immediately and is client-side only (no config save).
-- **Language picker:** one native select **directly under the theme grid** (**`data-testid="appearance-language-select"`**) with **Auto** (resolves from **`navigator.language`**, stores no cookie) followed by every locale registered in **`locales.ts`**. The current registry renders **English** and **Русский**; changing the select applies the locale immediately.
+- **Simplified mode:** a switch under the theme grid (**`data-testid="appearance-simple-switch"`**) for a slow machine: solid colours in every theme, with no shadows, blur, gradients or animation. The (i) beside it says what it turns off. The choice is the cookie **`coddy_ui_simple`**, client-side only like the theme, and it applies before the first paint.
+- **Language picker:** one native select **under the switch of the simplified mode** (**`data-testid="appearance-language-select"`**) with **Auto** (resolves from **`navigator.language`**, stores no cookie) followed by every locale registered in **`locales.ts`**. The current registry renders **English** and **Русский**; changing the select applies the locale immediately.
 - **Notifications switch:** under the language picker (**`data-testid="appearance-notifications-switch"`**): system notifications while Coddy is in the background, kept in the cookie **`coddy_ui_notify`** ([Notifications](#notifications)).
 - **Language cookie:** **`coddy_ui_lang`** stores a registered locale id (currently **`en`** or **`ru`**), with the same flags as the theme cookie. Choosing **Auto** clears it. Resolution order on load: **`?lang=<registered-id>`** in the URL (also persisted to the cookie) > cookie > **`navigator.language`**. Switching sets **`document.documentElement.lang`** and re-renders without a reload. The documentation follows it: the reader asks for its pages in that language (**`lang=`** on **`/coddy/docs*`**) and every turn names it (**`metadata.lang`**), so the agent reads and attaches Coddy's documentation in it too ([Built-in documentation](../features/built-in-docs.md#languages)). Nothing is written to the config.
 - **i18n engine:** **`external/ui/src/ui/i18n/`** (**`translate`/`t`**, locale store, **`I18nProvider`** + **`useT()`**). **`locales.ts`** is the single registry for supported ids, picker labels, and dictionaries; picker generation, locale validation, bootstrap, and parity tests derive from it. **`main.tsx`** wraps the app plus shared confirmation provider in **`I18nProvider`**. **`useT()` falls back to `translate` outside a provider**, so components render in tests without wrapping; default-English values match the former hardcoded literals exactly.
@@ -2383,6 +2388,19 @@ CODDY_UI_URL=http://127.0.0.1:5243 npm --prefix external/ui run check:artifacts
 ```
 
 The Playwright install is the one of the chevron check above. **`CODDY_BROWSER_PATH`** and **`CODDY_ENGINE=webkit`** (or **`firefox`**) work as in the checks above, and **`CODDY_ARTIFACT_TOLERANCE_PX`** raises the **1px** allowance. It is **not part of `make test`**: run it when a change touches the shared file cards, their menu or their styles.
+
+### Checking the simplified mode
+
+The mode of **Settings → Appearance** is a matter of computed styles, which jsdom does not have. **`npm run check:simple`** turns the switch, reloads and changes the theme, then reads every element of the start screen, a transcript, a running turn, the History drawer, Settings and the documentation, in every theme at 1280, 800 and 390 px. It fails on a soft shadow, a blur, a gradient, a mask, a transition, a running animation or a panel the transcript shows through. It starts its own **`coddy serve`** and a scripted model, so it needs no provider.
+
+```bash
+make build TAGS="http ui"
+CODDY_BIN="$PWD/build/coddy" npm --prefix external/ui run check:simple
+```
+
+The Playwright install is the one of the chevron check above. **`CODDY_BROWSER_PATH`** works as in the checks above, and **`CODDY_SHOTS_DIR`** writes the screenshots of the run there.
+
+**`npm run bench:simple`** measures what the mode saves: it runs the same scenes with the mode off and on and reports the frame rate, the long frames and the browser's CPU time, on all cores and on one.
 
 ## UI test scenarios
 

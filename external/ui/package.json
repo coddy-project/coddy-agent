@@ -21,6 +21,8 @@
     "check:telegram": "node scripts/telegram-mini-app-check.mjs",
     "check:diagrams": "node scripts/diagram-check.mjs",
     "check:files": "node scripts/files-check.mjs",
+    "check:simple": "node scripts/simple-mode-check.mjs",
+    "bench:simple": "node scripts/simple-mode-bench.mjs",
     "check:canvas": "node scripts/canvas-check.mjs",
     "check:artifacts": "node scripts/artifact-card-check.mjs",
     "check:caret": "node scripts/composer-caret-check.mjs",

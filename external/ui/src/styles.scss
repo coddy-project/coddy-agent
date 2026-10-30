@@ -88,3 +88,6 @@
 @use "styles/screens/canvas";
 @use "styles/screens/files-narrow";
 @use "styles/screens/edits";
+
+// The simplified mode clears the glass of everything above, in every theme.
+@use "styles/simple";

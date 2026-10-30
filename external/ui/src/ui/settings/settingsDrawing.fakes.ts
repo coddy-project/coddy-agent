@@ -114,7 +114,11 @@ export function drawnBoxes(root: ParentNode): DrawnBox[] {
       names = fieldNames(box);
       hints = ownHints(box);
     } else {
-      const [heading] = childrenOf([box], "legend, .appearance-section-label");
+      // A block that is one switch has no heading: the switch names it.
+      const [heading] = childrenOf(
+        [box],
+        "legend, .appearance-section-label, .settings-switch-field",
+      );
       names = heading ? [squash(heading.textContent)] : [];
       hints = heading
         ? [...heading.querySelectorAll<HTMLElement>(".field-hint")]

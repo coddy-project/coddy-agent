@@ -2,6 +2,9 @@
 export const messagesRu: Record<string, string> = {
   "appearance.themeLabel": "Тема",
   "appearance.themeGroupAria": "Тема",
+  "appearance.simpleLabel": "Упрощённый режим",
+  "appearance.simple.hint":
+    "Для слабых машин, в любой теме. Отключает размытие за панелями, мягкие тени, градиенты и зернистость фона, анимацию и плавные переходы, поэтому панели становятся сплошного цвета. Отметки состояния остаются - рамка фокуса, выбранная тема, точка сессии.",
   "appearance.languageLabel": "Язык",
   "appearance.locale.auto": "Авто",
   "appearance.locale.en": "English",
