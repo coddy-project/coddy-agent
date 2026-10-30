@@ -225,8 +225,7 @@ site-schema-check:
 # into the binary, so neither a build nor a running Coddy asks models.dev
 # anything. models-catalog downloads the catalog and rewrites the file only
 # when a model's numbers moved, naming the models; models-catalog-check only
-# reports it (exit 1 when the file is behind). The commit gate runs that check
-# over the staged copy (CODDY_HOOK_MODELS, scripts/checks.sh).
+# reports it (exit 1 when the file is behind).
 models-catalog:
 	go run ./cmd/modelsgen
 
@@ -555,5 +554,5 @@ lint-windows: ui-build
 # Bypass a single commit with: git commit --no-verify
 hooks:
 	git config core.hooksPath .githooks
-	@echo "Enabled .githooks — 'git commit' now runs the linter, Prettier over the SPA when it stages SPA files, and compares the models catalog with models.dev (scripts/checks.sh)."
-	@echo "Add tests with CODDY_HOOK_TESTS=fast|full|matrix; skip lint with CODDY_HOOK_LINT=0, Prettier with CODDY_HOOK_FORMAT=0, the catalog with CODDY_HOOK_MODELS=0; bypass once with --no-verify."
+	@echo "Enabled .githooks — 'git commit' now runs the linter, and Prettier over the SPA when it stages SPA files (scripts/checks.sh)."
+	@echo "Add tests with CODDY_HOOK_TESTS=fast|full|matrix; skip lint with CODDY_HOOK_LINT=0, Prettier with CODDY_HOOK_FORMAT=0; bypass once with --no-verify."

@@ -5,9 +5,6 @@
 //
 //	go run ./cmd/modelsgen          # refresh (make models-catalog)
 //	go run ./cmd/modelsgen -check   # exit 1 when the copy is behind (make models-catalog-check)
-//
-// The commit gate (scripts/checks.sh) runs the check with -unreachable-ok and a
-// short -timeout, so a commit does not depend on models.dev answering.
 package main
 
 import (
@@ -26,79 +23,49 @@ import (
 // maxCatalogBytes bounds the download: api.json is about 6 MB.
 const maxCatalogBytes = 64 << 20
 
-// The exit statuses of a run past 0: up to date, refreshed, or not checked.
-const (
-	exitBehind = 1
-	exitFailed = 2
-)
-
-type options struct {
-	check         bool
-	unreachableOK bool
-	source        string
-	out           string
-	timeout       time.Duration
-}
-
 func main() {
-	var o options
-	flag.BoolVar(&o.check, "check", false, "only report whether models.json is behind the catalog; exit 1 when it is")
-	flag.BoolVar(&o.unreachableOK, "unreachable-ok", false, "with -check, a catalog that cannot be read is a warning and exit 0, not a failure")
-	flag.StringVar(&o.source, "source", models.SourceURL, "the catalog: an https address or a local api.json")
-	flag.StringVar(&o.out, "out", models.Path, "models.json to compare with and write")
-	flag.DurationVar(&o.timeout, "timeout", 2*time.Minute, "how long the download may take")
+	check := flag.Bool("check", false, "only report whether models.json is behind the catalog; exit 1 when it is")
+	source := flag.String("source", models.SourceURL, "the catalog: an https address or a local api.json")
+	out := flag.String("out", models.Path, "models.json to compare with and write")
 	flag.Parse()
-	os.Exit(run(o, os.Stdout, os.Stderr))
-}
 
-func run(o options, stdout, stderr io.Writer) int {
-	fresh, err := fetch(o.source, o.timeout)
+	api, err := read(*source)
 	if err != nil {
-		if o.check && o.unreachableOK {
-			_, _ = fmt.Fprintf(stderr, "modelsgen: the catalog was not checked: %v\n", err)
-			return 0
-		}
-		return fail(stderr, err)
+		fail(err)
 	}
-	current, err := os.ReadFile(o.out)
+	fresh, err := models.Compact(api)
+	if err != nil {
+		fail(err)
+	}
+	current, err := os.ReadFile(*out)
 	if err != nil && !os.IsNotExist(err) {
-		return fail(stderr, err)
+		fail(err)
 	}
 	if bytes.Equal(current, fresh) {
-		_, _ = fmt.Fprintf(stdout, "modelsgen: %s is up to date\n", o.out)
-		return 0
+		fmt.Printf("modelsgen: %s is up to date\n", *out)
+		return
 	}
 	changes, err := models.Changes(current, fresh)
 	if err != nil {
 		// A file a merge left conflict markers in is what a refresh repairs.
 		changes = fmt.Sprintf("%v; a refresh writes it anew\n", err)
 	}
-	_, _ = fmt.Fprint(stdout, "modelsgen: ", changes)
-	if o.check {
-		_, _ = fmt.Fprintln(stderr, "modelsgen: run make models-catalog")
-		return exitBehind
+	fmt.Print("modelsgen: ", changes)
+	if *check {
+		fmt.Fprintln(os.Stderr, "modelsgen: run make models-catalog")
+		os.Exit(1)
 	}
-	if err := os.WriteFile(o.out, fresh, 0o644); err != nil {
-		return fail(stderr, err)
+	if err := os.WriteFile(*out, fresh, 0o644); err != nil {
+		fail(err)
 	}
-	_, _ = fmt.Fprintf(stdout, "modelsgen: wrote %s\n", o.out)
-	return 0
+	fmt.Printf("modelsgen: wrote %s\n", *out)
 }
 
-// fetch reads the catalog and turns it into models.json.
-func fetch(source string, timeout time.Duration) ([]byte, error) {
-	api, err := read(source, timeout)
-	if err != nil {
-		return nil, err
-	}
-	return models.Compact(api)
-}
-
-func read(source string, timeout time.Duration) ([]byte, error) {
+func read(source string) ([]byte, error) {
 	if !strings.HasPrefix(source, "https://") {
 		return os.ReadFile(source)
 	}
-	client := &http.Client{Timeout: timeout}
+	client := &http.Client{Timeout: 2 * time.Minute}
 	resp, err := client.Get(source)
 	if err != nil {
 		return nil, err
@@ -114,7 +81,7 @@ func read(source string, timeout time.Duration) ([]byte, error) {
 	return body, err
 }
 
-func fail(stderr io.Writer, err error) int {
-	_, _ = fmt.Fprintln(stderr, "modelsgen:", err)
-	return exitFailed
+func fail(err error) {
+	fmt.Fprintln(os.Stderr, "modelsgen:", err)
+	os.Exit(2)
 }
