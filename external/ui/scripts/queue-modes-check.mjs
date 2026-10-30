@@ -512,6 +512,67 @@ async function sessionIdOf(page) {
   );
 }
 
+/**
+ * Records the transcript's height on every frame of a turn and fails when it
+ * changes after the answer's last word: the finished line takes the live line's
+ * place, and no row or empty slot appears beside it.
+ */
+async function turnEndMovesNothing(page, width, prompt) {
+  await page.setViewportSize({ width, height: 844 });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => {
+    const frames = (window.__turnEndFrames = []);
+    const tick = () => {
+      const inner = document.querySelector(".messages-inner");
+      if (inner) {
+        const answers = inner.querySelectorAll(".md");
+        const last = answers[answers.length - 1];
+        frames.push({
+          height: inner.getBoundingClientRect().height,
+          answers: answers.length,
+          answer: last ? last.getBoundingClientRect().height : 0,
+          stopped: !inner.querySelector("[data-testid=typing-dots]"),
+        });
+      }
+      window.__turnEndFrame = requestAnimationFrame(tick);
+    };
+    tick();
+  });
+  await composer(page).fill(prompt);
+  await composer(page).press("Enter");
+  await until(
+    "the finished line",
+    () =>
+      page.evaluate(
+        () =>
+          !document.querySelector("[data-testid=typing-dots]") &&
+          document
+            .querySelector(".messages-inner")
+            ?.lastElementChild?.matches("[data-testid=generation-summary]"),
+      ),
+    30000,
+  );
+  await page.waitForTimeout(800);
+  const frames = await page.evaluate(() => {
+    cancelAnimationFrame(window.__turnEndFrame);
+    return window.__turnEndFrames;
+  });
+  let end = frames.length - 1;
+  while (
+    end > 0 &&
+    frames[end].answer === frames[end - 1].answer &&
+    frames[end].answers === frames[end - 1].answers
+  ) {
+    end--;
+  }
+  const heights = [...new Set(frames.slice(end).map((f) => f.height))];
+  check(
+    `the end of a turn moves nothing at ${width}px`,
+    heights.length === 1 && frames.some((f) => !f.stopped),
+    heights.join(", "),
+  );
+}
+
 // ---------------------------------------------------------------- scenario
 
 async function scenario() {
@@ -917,6 +978,12 @@ async function scenario() {
     order[0] === "Next task" && order.includes("Deferred after stop"),
     order.join(" | "),
   );
+
+  // The end of a turn moves nothing: the live line stops where it stands.
+  for (const width of [1280, 390]) {
+    await turnEndMovesNothing(a.page, width, `The end of a turn at ${width}`);
+  }
+  await a.page.setViewportSize({ width: 1280, height: 820 });
 
   // The preference lives in Settings.
   await a.page.goto(`${RELAY}/#/settings/agent`);

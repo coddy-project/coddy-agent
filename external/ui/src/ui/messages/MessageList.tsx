@@ -113,12 +113,11 @@ export function MessageList(props: {
   // Tasks the tail has to speak for itself: while the turn runs, its own line counts them.
   const tailTasks =
     props.generating === true ? 0 : Math.max(0, props.runningTasks ?? 0);
-  // A finished turn's line says them itself when it stands last: one line, not two.
+  // The finished turn's line, standing last, is the live line stopped in place: it
+  // says the tasks itself, and nothing else stands at the tail to move the page.
   const lastItem = props.items[props.items.length - 1];
-  const tasksOnFinishedLine =
-    tailTasks > 0 &&
-    lastItem?.type === "system_notice" &&
-    lastItem.generation !== undefined;
+  const endsOnFinishedLine =
+    lastItem?.type === "system_notice" && lastItem.generation !== undefined;
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
     [props.items],
@@ -291,6 +290,11 @@ export function MessageList(props: {
         }
         if (it.type === "system_notice") {
           const isLast = idx === props.items.length - 1;
+          // The completed frame comes a moment before the turn lets go: until
+          // then the live line stands here, and the two never show together.
+          if (isLast && it.generation && props.generating === true) {
+            return null;
+          }
           return (
             <SystemNoticeMessage
               key={it.id}
@@ -302,7 +306,7 @@ export function MessageList(props: {
               {...(isLast && it.level === "error" && props.onRetryLast
                 ? { onRetry: props.onRetryLast }
                 : {})}
-              {...(isLast && tasksOnFinishedLine
+              {...(isLast && endsOnFinishedLine && tailTasks > 0
                 ? {
                     runningTasks: tailTasks,
                     ...(props.onOpenTasks
@@ -482,7 +486,7 @@ export function MessageList(props: {
           with the count beside them, so a chat with tasks in flight does not read as
           finished; the running turn's line above already carries that count. */}
       {tailTasks > 0 &&
-      !tasksOnFinishedLine &&
+      !endsOnFinishedLine &&
       renderEnd === props.items.length ? (
         <TypingDotsMessage
           tasksOnly={true}
@@ -490,9 +494,11 @@ export function MessageList(props: {
           {...(props.onOpenTasks ? { onOpenTasks: props.onOpenTasks } : {})}
         />
       ) : null}
-      {/* Between turns keep an empty slot with the base line's padding. */}
+      {/* Between turns keep an empty slot with the base line's padding, unless the
+          finished turn's line already stands where the live line stood. */}
       {props.generating !== true &&
-      (tailTasks === 0 || tasksOnFinishedLine) &&
+      tailTasks === 0 &&
+      !endsOnFinishedLine &&
       renderEnd === props.items.length ? (
         <TypingDotsMessage idle={true} />
       ) : null}

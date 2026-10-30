@@ -504,3 +504,12 @@ test("the mark of a finished turn's line stands still", () => {
     ruleBody(".typing-dots--finished .coddy-work-indicator-c {"),
   ).toContain("animation: none");
 });
+
+test("the finished line keeps the live line's two rows on a phone", () => {
+  // The phrase and the numbers under it: without this room the page moves when
+  // the turn ends.
+  const phone = css.slice(css.indexOf("Centre the 14px mark"));
+  expect(phone.replace(/\s+/g, " ")).toContain(
+    ".typing-dots-status--finished { min-height: calc(12px * 1.3 + 2px + 11px * 1.3);",
+  );
+});

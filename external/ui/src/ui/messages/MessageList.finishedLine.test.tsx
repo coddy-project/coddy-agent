@@ -54,3 +54,38 @@ test("tasks after anything but a finished turn keep the tail's own line", () => 
     "2 running tasks",
   );
 });
+
+test("the finished line takes the live line's place, with no empty room under it", () => {
+  render(<MessageList items={[answer, finished]} />);
+  expect(screen.getByTestId("generation-summary")).toBeInTheDocument();
+  expect(screen.queryByTestId("live-line-slot")).toBeNull();
+});
+
+test("the live line stands until the turn is released, then simply stops", () => {
+  const { rerender } = render(
+    <MessageList items={[answer, finished]} generating={true} />,
+  );
+  // The completed frame comes a moment before the turn lets go: never both lines.
+  expect(screen.getByTestId("typing-dots")).toBeInTheDocument();
+  expect(screen.queryByTestId("generation-summary")).toBeNull();
+
+  rerender(<MessageList items={[answer, finished]} generating={false} />);
+  expect(screen.queryByTestId("typing-dots")).toBeNull();
+  expect(screen.getByTestId("generation-summary")).toBeInTheDocument();
+});
+
+test("a chat ending in anything else keeps the live line's empty room", () => {
+  render(<MessageList items={[answer]} />);
+  expect(screen.getByTestId("live-line-slot")).toBeInTheDocument();
+});
+
+test("a finished line in the middle of a chat stays while a later turn runs", () => {
+  const next: TranscriptItem = {
+    id: "u2",
+    type: "user_message",
+    content: "More",
+  };
+  render(<MessageList items={[answer, finished, next]} generating={true} />);
+  expect(screen.getByTestId("generation-summary")).toBeInTheDocument();
+  expect(screen.getByTestId("typing-dots")).toBeInTheDocument();
+});

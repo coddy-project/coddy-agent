@@ -39,6 +39,10 @@ func TestTurnProgressWebUIFeature(t *testing.T) {
 			sc.Step(`^the live line shows generation speed immediately after the running token count$`, func() error {
 				return runVitestScenario(dots, "shows generation speed immediately after the running token count")
 			})
+			sc.Step(`^the live line stands until the turn is released, then simply stops$`, func() error {
+				return runVitestScenario("src/ui/messages/MessageList.finishedLine.test.tsx",
+					"the live line stands until the turn is released, then simply stops")
+			})
 			sc.Step(`^a finished turn keeps the live line without its phrase, the time on hover$`, func() error {
 				return runVitestScenario("src/ui/messages/SystemNoticeMessage.test.tsx",
 					"a finished turn keeps the live line without its phrase, the time on hover")
