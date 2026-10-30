@@ -7,12 +7,9 @@
  * does no layout, so the rules are pinned here; the live check at every width of
  * the grid is external/ui/scripts/phone-overflow-check.mjs.
  */
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { stylesSource } from "../../stylesSource";
 
-const dir = dirname(fileURLToPath(import.meta.url));
 const css = stylesSource().replace(/\/\*[\s\S]*?\*\//g, "");
 
 /** Declarations of every top-level rule whose selector list is exactly `selector`. */

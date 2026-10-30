@@ -6,12 +6,9 @@
  * padding up past a 390px panel and scrolled it sideways. jsdom does no
  * layout, so the rule is pinned here.
  */
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { stylesSource } from "../../stylesSource";
 
-const dir = dirname(fileURLToPath(import.meta.url));
 const css = stylesSource().replace(/\/\*[\s\S]*?\*\//g, "");
 
 test("every settings fieldset may shrink below its content", () => {

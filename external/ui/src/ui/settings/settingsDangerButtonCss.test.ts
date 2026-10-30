@@ -4,12 +4,9 @@
  * light one; that canvas takes the danger red of its theme, the same pair the
  * confirmation dialog's button draws (`confirm-dialog-btn--danger`).
  */
-import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { stylesSource } from "../../stylesSource";
 
-const dir = dirname(fileURLToPath(import.meta.url));
 const css = stylesSource();
 
 function rule(selector: string): string {

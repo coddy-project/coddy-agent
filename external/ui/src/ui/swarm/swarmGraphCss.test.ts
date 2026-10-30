@@ -1,13 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { stylesSource } from "../../stylesSource";
 
 // The SVG fills the viewport by absolute placement, never by height:100%:
 // a percentage on a replaced element resolves against the parent's specified
 // height, and .swarm-graph-viewport is sized by flex-grow - the SVG would
 // collapse to its intrinsic 150px and the map would render as an empty box.
-const dir = dirname(fileURLToPath(import.meta.url));
 const css = stylesSource();
 
 const rule = (selector: string): string => {

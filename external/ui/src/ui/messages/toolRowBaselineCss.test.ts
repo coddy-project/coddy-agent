@@ -8,12 +8,9 @@
  * the trailing text floating above the label. Aligning the boxes on their
  * baselines is the only thing that puts the text itself on one line.
  */
-import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { stylesSource } from "../../stylesSource";
 
-const dir = dirname(fileURLToPath(import.meta.url));
 const css = stylesSource();
 
 function rule(selector: string): string {

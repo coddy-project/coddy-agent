@@ -30,9 +30,14 @@ describe("styles.scss compiles through Sass", () => {
     );
   });
 
+  // Sass evaluates nothing inside a custom property without an interpolation,
+  // so a helper written there bare reaches the browser as a broken value.
+  it("leaves no Sass helper in the CSS", () => {
+    expect(compiled.css).not.toMatch(/mix-text\(|\$[a-z]/);
+  });
+
   it("expands mix-text() back into the color-mix() ladder", () => {
     expect(abstracts).toContain("@function mix-text(");
-    expect(compiled.css).not.toMatch(/:\s*mix-text\(/);
     expect(compiled.css).toMatch(
       /color-mix\(in srgb, var\(--text\) \d+%, var\(--coddy-blend-base\)\)/,
     );

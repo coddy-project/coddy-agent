@@ -8,12 +8,9 @@
  * their own, so an 8px dot and a 16px permission/question marker leave title
  * and tags at the same edge with deliberate breathing room.
  */
-import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { stylesSource } from "../../stylesSource";
 
-const dir = dirname(fileURLToPath(import.meta.url));
 const css = stylesSource();
 
 function rule(selector: string): string {

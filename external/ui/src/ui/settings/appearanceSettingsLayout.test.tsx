@@ -93,10 +93,7 @@ test("section labels re-render when the locale changes", async () => {
 // the panel's paddings take 248px), which auto-fill minmax(130px, 1fr) with a
 // 10px gap turns into three columns of about 137px - the cards keep their
 // size, the drawer gives way.
-test("the settings drawer holds three theme cards a row", async () => {
-  const { readFileSync } = await import("node:fs");
-  const { dirname, join } = await import("node:path");
-  const { fileURLToPath } = await import("node:url");
+test("the settings drawer holds three theme cards a row", () => {
   const css = stylesSource();
   const drawer = /^\.settings\.drawer\s*\{\s*width:\s*min\(\s*(\d+)px/m.exec(
     css,

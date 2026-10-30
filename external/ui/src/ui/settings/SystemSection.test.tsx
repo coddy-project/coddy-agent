@@ -1,5 +1,3 @@
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   afterEach,
   beforeEach,
@@ -1205,7 +1203,6 @@ describe("formatting", () => {
  * least 44px, and the charts become one-line rows under the phone width.
  */
 describe("the stylesheet", () => {
-  const dir = dirname(fileURLToPath(import.meta.url));
   const css = stylesSource().replace(/\/\*[\s\S]*?\*\//g, "");
 
   /** Collapses whitespace, which Prettier spreads values over lines with. */

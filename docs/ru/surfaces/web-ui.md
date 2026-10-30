@@ -1123,7 +1123,7 @@ Telegram-бот может открыть веб-интерфейс как св�
 | Слияние списка | **`loadMessages`** в **`App.tsx`** вливает строки **`GET /coddy/sessions/{id}/tool-calls`** в **`resultText`**, **`resultWasTruncated`** и тайминги |
 | Полный текст | Первое нажатие **Ещё…** у результата или автоматическое восстановление неполных аргументов у восстановленных карточек **`apply_patch`** / **`write`** / **`write_file`** / **`edit`** в любом статусе - **`GET /coddy/sessions/{id}/tool-calls/{toolCallId}`**, из JSON берутся **`result`** и **`args`** (тот же объект содержит **`meta`**). Сверка транскрипта никогда не заменяет полные аргументы усечённым до 200 символов **`argsPreview`** (**`pickRicherToolArgs`**), поэтому живые карточки сохраняют полные превью при ответах на запросы разрешений |
 | Картинки | **`ToolImagePreviews.tsx`** под строкой, вне **`details`** - **`.tool-images`**, по одной **`button.tool-image-card`** на картинку (**`data-testid="tool-image-open"`**, миниатюра **`tool-image-thumb`**), которая открывает **`ImageLightbox`**; только у завершённого вызова, из **`images`** строки (**`_meta.coddy.images`** вживую, **`files`** строки инструмента после перезагрузки) |
-| CSS | **`styles/chat/_tool-rows.scss`** - **`.coddy-tool-call-row`**, прозрачный **`.coddy-tool-call-body`**, общие **`.permission-preview*`**, **`.tool-call-result-card`**, **`thinking-details:not([open])` со скрытым телом**, **`.tool-images`** / **`.tool-image-card`**, а также классы области результата и переключателя выше |
+| CSS | **`styles/chat/_tool-rows.scss`** - прозрачный **`.coddy-tool-call-body`**, **`.tool-call-result-card`**, **`thinking-details:not([open])` со скрытым телом**, **`.tool-images`** / **`.tool-image-card`**, а также классы области результата и переключателя выше; общие **`.permission-preview*`** - в **`_permission.scss`** и **`_tool-cards.scss`** рядом |
 
 - `assistant_message`
   - Итоговый текст ассистента за ход, после вызовов инструментов;
@@ -2449,4 +2449,4 @@ Playwright устанавливается так же, как для прове�
 
 Чтобы прогнать Playwright MCP против живого шлюза, соберите **`make build TAGS="http ui memory"`**, затем запустите **`./build/coddy serve`** с одноразовым **`--home`**, чтобы конфигурация могла включить память; откройте **`http://127.0.0.1:<port>/`**, перейдите в сессию, отправьте промпт, откройте панель задач и проверьте метку **память** в строке запуска.
 
-<!-- docsgen:source sha256=d236927ab629839d -->
+<!-- docsgen:source sha256=c010c1979b3238e0 -->

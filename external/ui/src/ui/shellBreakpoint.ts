@@ -12,7 +12,7 @@
 
 /**
  * Viewports at most this width are phones: the compact window class, 360 to
- * 430 CSS px in portrait. The phone block at the end of styles.scss applies here.
+ * 430 CSS px in portrait. The phone block (styles/shell/_phone.scss) applies here.
  */
 export const PHONE_MAX_WIDTH_PX = 599;
 

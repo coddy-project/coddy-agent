@@ -1,9 +1,5 @@
-import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { stylesSource } from "../../stylesSource";
-
-const dir = dirname(fileURLToPath(import.meta.url));
 
 function cssText(): string {
   return stylesSource();
