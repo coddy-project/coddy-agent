@@ -3432,16 +3432,27 @@ a.rail-brand {
   flex-direction: column;
 }
 
-@keyframes typing-dot-bounce {
-  0%,
-  60%,
-  100% {
-    transform: translateY(0);
-    opacity: 0.5;
+@keyframes coddy-work-orbit {
+  from {
+    transform: rotate(90deg);
   }
-  30% {
-    transform: translateY(-5px);
-    opacity: 1;
+  to {
+    transform: rotate(450deg);
+  }
+}
+
+@keyframes coddy-work-arc {
+  0% {
+    stroke-dasharray: 8 92;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 88 12;
+    stroke-dashoffset: -20;
+  }
+  100% {
+    stroke-dasharray: 8 92;
+    stroke-dashoffset: -100;
   }
 }
 
@@ -3474,37 +3485,37 @@ a.rail-brand {
   pointer-events: none;
 }
 
-.typing-dots-slot .typing-dots-dot {
+.typing-dots-slot .coddy-work-indicator-c {
   animation: none;
 }
 
-.typing-dots-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
-  animation: typing-dot-bounce 1.1s ease-in-out infinite;
-  flex-shrink: 0;
+.coddy-work-indicator {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
 }
 
-.typing-dots-dot:nth-child(2) {
-  animation-delay: 0.18s;
+.coddy-work-indicator-ring {
+  opacity: 0.35;
 }
 
-.typing-dots-dot:nth-child(3) {
-  animation-delay: 0.36s;
+.coddy-work-indicator-c {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation:
+    coddy-work-orbit 2.2s linear infinite,
+    coddy-work-arc 2.2s ease-in-out infinite;
 }
 
-/* The dots also stand at the tail while background tasks outlive a turn, which can
-   be minutes of bouncing. Still three dots, just no movement. */
+/* Tasks can outlive a turn by minutes; reduced motion keeps the same still mark. */
 @media (prefers-reduced-motion: reduce) {
-  .typing-dots-dot {
+  .coddy-work-indicator-c {
     animation: none;
   }
 }
 
-/* Live status label. It MUST stay after the three .typing-dots-dot spans - the
-   :nth-child rules above carry the bounce stagger. */
+/* The live status label follows the work indicator. */
 .typing-dots-status {
   display: inline-flex;
   align-items: baseline;
@@ -3607,16 +3618,16 @@ a.rail-brand {
 }
 
 /* Phone: the numbers and a long phrase do not fit one line. The phrase - what the
-   agent is doing - keeps the first line next to the dots, and the turn's numbers move
+   agent is doing - keeps the first line next to the indicator, and the turn's numbers move
    under it as a caption, so the row never breaks wherever it happens to run out. */
 @media (max-width: 599px) {
   .typing-dots {
     align-items: flex-start;
   }
 
-  /* Centre the 7px dots on the first text line (12px x 1.3). */
-  .typing-dots-dot {
-    margin-top: 4px;
+  /* Centre the 14px mark on the first text line (12px x 1.3). */
+  .coddy-work-indicator {
+    margin-top: 0.8px;
   }
 
   .typing-dots-status {

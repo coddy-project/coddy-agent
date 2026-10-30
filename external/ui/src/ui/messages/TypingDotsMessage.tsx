@@ -27,7 +27,7 @@ function keyParamsIdentity(params: Record<string, string> | undefined): string {
 }
 
 function TypingDotsMessageImpl(props: {
-  /** Omit to render bare dots (no live status available). */
+  /** Omit to render the work indicator alone (no live status available). */
   statusKind?: LiveStatusKind;
   statusKey?: string;
   /** What the phrase's {slots} resolve to; only a phrase that names its call has any. */
@@ -137,9 +137,7 @@ function TypingDotsMessageImpl(props: {
         aria-hidden="true"
       >
         <div className="typing-dots">
-          <span className="typing-dots-dot" />
-          <span className="typing-dots-dot" />
-          <span className="typing-dots-dot" />
+          <CoddyWorkIndicator />
           <span className="typing-dots-status">
             <span className="typing-dots-turn">
               <span className="typing-dots-turn-item">{"\u00a0"}</span>
@@ -165,11 +163,7 @@ function TypingDotsMessageImpl(props: {
             turn ended, so it announces itself; the line during a turn does not,
             because a reader already knows the turn is running. */}
         <div className="typing-dots" aria-live="polite">
-          {/* The count node stays after the three dots for the same reason the status
-              node does below: :nth-child(2)/(3) carry the bounce stagger. */}
-          <span className="typing-dots-dot" aria-hidden="true" />
-          <span className="typing-dots-dot" aria-hidden="true" />
-          <span className="typing-dots-dot" aria-hidden="true" />
+          <CoddyWorkIndicator />
           <span
             className="typing-dots-status typing-dots-status--tasks-only"
             data-testid="typing-dots-status"
@@ -199,9 +193,7 @@ function TypingDotsMessageImpl(props: {
           aria-label={t("messages.preparingResponse")}
           aria-live="polite"
         >
-          <span className="typing-dots-dot" aria-hidden="true" />
-          <span className="typing-dots-dot" aria-hidden="true" />
-          <span className="typing-dots-dot" aria-hidden="true" />
+          <CoddyWorkIndicator />
         </div>
       </div>
     );
@@ -239,11 +231,7 @@ function TypingDotsMessageImpl(props: {
   return (
     <div className="msg-assistant-stack" data-testid="typing-dots">
       <div className="typing-dots">
-        {/* The status node must stay after the three dots: :nth-child(2)/(3) carry the
-            bounce stagger, so prepending would silently break the animation. */}
-        <span className="typing-dots-dot" aria-hidden="true" />
-        <span className="typing-dots-dot" aria-hidden="true" />
-        <span className="typing-dots-dot" aria-hidden="true" />
+        <CoddyWorkIndicator />
         <span
           className={
             "typing-dots-status" + (slow ? " typing-dots-status--slow" : "")
@@ -310,6 +298,34 @@ function TypingDotsMessageImpl(props: {
         </span>
       </div>
     </div>
+  );
+}
+
+/** The unplated logo: its outer contour sweeps around the still inner ring. */
+function CoddyWorkIndicator() {
+  return (
+    <svg
+      className="coddy-work-indicator"
+      viewBox="-15 -15 30 30"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <circle
+        className="coddy-work-indicator-c"
+        r="10.25"
+        strokeWidth="2.85"
+        pathLength="100"
+        strokeDasharray="75.5 24.5"
+        strokeDashoffset="12.3"
+        transform="rotate(90)"
+      />
+      <circle className="coddy-work-indicator-ring" r="6" strokeWidth="2" />
+    </svg>
   );
 }
 

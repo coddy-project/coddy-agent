@@ -1,10 +1,14 @@
 Feature: The progress of a running turn in the web UI
   A long turn has to show that it is alive. For the whole of a running turn the
-  line next to the typing dots leads with the turn's own numbers - how long it
+  line next to the Coddy work indicator leads with the turn's own numbers - how long it
   has been running, how many tokens the model has generated in it, how many
   background tasks are running right now - and then says what the agent is
   doing. The numbers come from the server's turn_progress, so a reloaded tab
   shows the same clock instead of starting a new one.
+
+  Scenario: The Coddy logo indicates work with its rotating outer contour
+    Then the working line shows a decorative Coddy logo instead of bouncing dots
+    And its outer contour rotates, grows and shrinks, and reduced motion keeps it still
 
   Scenario: The working line stays closer to the transcript when no checklist is present
     Then without todos the active live line removes 4px above it and adds no room below

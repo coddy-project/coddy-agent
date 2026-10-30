@@ -429,7 +429,44 @@ test("the active live line eases checklist spacing changes only without reduced 
 // The empty slot the live line leaves between turns is transparent and still.
 test("the live line's slot shows nothing and does not move", () => {
   expect(ruleBody(".typing-dots-slot {")).toMatch(/opacity: 0;/);
-  expect(ruleBody(".typing-dots-slot .typing-dots-dot {")).toMatch(
+  expect(ruleBody(".typing-dots-slot .coddy-work-indicator-c {")).toMatch(
     /animation: none;/,
   );
+});
+
+test("the Coddy work indicator animates its outer contour at the folder icon's scale", () => {
+  const indicator = ruleBody(".coddy-work-indicator {");
+  expect(indicator).toContain("width: 14px");
+  expect(indicator).toContain("height: 14px");
+  expect(indicator).toContain("flex: none");
+  expect(indicator).toContain("var(--text)");
+  expect(indicator).not.toMatch(/animation:|transform:|background:/);
+  const outer = ruleBody("\n.coddy-work-indicator-c {");
+  expect(outer).toContain("coddy-work-orbit 2.2s linear infinite");
+  expect(outer).toContain("coddy-work-arc 2.2s ease-in-out infinite");
+  expect(ruleBody(".coddy-work-indicator-ring {")).not.toMatch(
+    /animation:|transform:/,
+  );
+  const at = css.indexOf("@keyframes coddy-work-arc {");
+  expect(at).toBeGreaterThan(-1);
+  const arc = css.slice(at, css.indexOf("\n}", at) + 2);
+  expect(arc).toMatch(/0%\s*\{[^}]*stroke-dasharray:\s*8 92;/);
+  expect(arc).toMatch(/50%\s*\{[^}]*stroke-dasharray:\s*88 12;/);
+  expect(arc).toMatch(/100%\s*\{[^}]*stroke-dasharray:\s*8 92;/);
+  expect(arc).toContain("stroke-dashoffset: -100;");
+  expect(ruleBody("@keyframes coddy-work-orbit {")).toContain("rotate(90deg)");
+  expect(css).not.toContain("coddy-work-indicator-glint");
+  expect(css).not.toContain("typing-dot-bounce");
+  expect(css).not.toContain(".typing-dots-dot");
+});
+
+test("reduced motion leaves the Coddy work indicator still", () => {
+  const reduced = [
+    ...css.matchAll(
+      /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/g,
+    ),
+  ]
+    .map((match) => match[1])
+    .join("\n");
+  expect(reduced).toMatch(/\.coddy-work-indicator-c \{\s*animation: none;/);
 });

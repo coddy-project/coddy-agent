@@ -777,10 +777,18 @@ export function App() {
    *  relay) got to, kept up to date while it reads. */
   const streamCursorBySidRef = useRef(new Map<string, ComposerStreamCursor>());
   /** The cursor of a reader a Stop released, for the turn it was reading (by
-   *  activity generation): when the Stop does not take that turn, the relay
-   *  picks it up after the last frame shown instead of from its start. */
+   *  activity generation), paired with the transcript it had shown. A newer
+   *  snapshot cannot be resumed from this older frame cursor. */
   const releasedCursorBySidRef = useRef(
-    new Map<string, { generation: number; cursor: ComposerStreamCursor }>(),
+    new Map<
+      string,
+      {
+        generation: number;
+        cursor: ComposerStreamCursor;
+        baseline: TranscriptItem[];
+        snapshotOnly?: boolean;
+      }
+    >(),
   );
   const streamingAssistantBySidRef = useRef<Map<string, string>>(new Map());
   /** Session ids with an active client-side composer POST or GET relay. */
@@ -909,6 +917,7 @@ export function App() {
     });
     for (const sid of victims) {
       relayLastEventIdBySidRef.current.delete(sid);
+      releasedCursorBySidRef.current.delete(sid);
       if (sid !== nextViewedSid.trim()) {
         liveWindowBySidRef.current.delete(sid);
         windowRebaseInFlightRef.current.delete(sid);
@@ -1006,6 +1015,7 @@ export function App() {
   );
   const clearTurnProgress = useStableHandler((sid: string) => {
     const key = sid.trim();
+    releasedCursorBySidRef.current.delete(key);
     setTurnProgressBySid((prev) => {
       if (!(key in prev)) return prev;
       const { [key]: _ended, ...rest } = prev;
@@ -1112,10 +1122,23 @@ export function App() {
     relayAttachPendingRef.current.add(sid);
     try {
       const generation = turnActivity.generation(sid);
-      const loaded = await loadMessages(sid, {
+      const authoritative =
+        releasedCursorBySidRef.current.get(sid)?.snapshotOnly === true;
+      let loaded = await loadMessages(sid, {
         preserveOnError: true,
         freshLoad: !streamShadowBySidRef.current.has(sid),
+        authoritative,
       });
+      if (
+        !authoritative &&
+        releasedCursorBySidRef.current.get(sid)?.snapshotOnly &&
+        canAttach()
+      ) {
+        loaded = await loadMessages(sid, {
+          preserveOnError: true,
+          authoritative: true,
+        });
+      }
       if (
         loaded &&
         canAttach() &&
@@ -3470,6 +3493,7 @@ export function App() {
       )
         return;
       stoppedTurnBySidRef.current.delete(key);
+      invalidateReleasedCursor(key);
       const pendingStop = stopPendingBySidRef.current.get(key);
       if (pendingStop) pendingStop.superseded = true;
       turnActivity.observe(key, true);
@@ -3586,6 +3610,9 @@ export function App() {
       // Recovery can miss the idle edge. Retire pending acknowledgements too,
       // so an old Stop cannot re-establish the fence after this reconnect.
       stoppedTurnBySidRef.current.clear();
+      for (const sid of releasedCursorBySidRef.current.keys()) {
+        invalidateReleasedCursor(sid);
+      }
       for (const request of stopPendingBySidRef.current.values())
         request.superseded = true;
       turnActivity.ready();
@@ -3660,6 +3687,8 @@ export function App() {
   );
 
   type LoadMessagesOpts = {
+    /** Recover an invalidated cursor from an exact snapshot, not a local suffix. */
+    authoritative?: boolean;
     skipSetItems?: boolean;
     preserveOnError?: boolean;
     freshLoad?: boolean;
@@ -3964,17 +3993,18 @@ export function App() {
       ? streamShadowBySidRef.current.get(sid)
       : undefined;
     // freshLoad: don't inherit stale items from a previous session (e.g. when first loading a session).
-    const localForMerge = !localAligned
-      ? undefined
-      : opts?.freshLoad
-        ? prevShadow && prevShadow.length > 0
-          ? prevShadow
-          : undefined
-        : prevShadow && prevShadow.length > 0
-          ? prevShadow
-          : viewedSessionIdRef.current.trim() === sid
-            ? itemsRef.current
-            : undefined;
+    const localForMerge =
+      !localAligned || opts?.authoritative
+        ? undefined
+        : opts?.freshLoad
+          ? prevShadow && prevShadow.length > 0
+            ? prevShadow
+            : undefined
+          : prevShadow && prevShadow.length > 0
+            ? prevShadow
+            : viewedSessionIdRef.current.trim() === sid
+              ? itemsRef.current
+              : undefined;
     const mergedTranscript = mergeTranscriptPreferLocalSuffix(
       next,
       localForMerge,
@@ -3988,15 +4018,16 @@ export function App() {
     merged = mergePermissionPromptsIntoTranscript(merged, sid);
     merged = mergeStoredQuestionPromptsIntoTranscript(merged, sid);
     merged = patchQuestionToolArgsFromPromptRecords(merged, sid);
-    const appliedRaw = localAligned
-      ? (keepLocalTranscriptIfServerEmpty({
-          serverNext: merged,
-          sid,
-          viewingSid: viewingNow,
-          prevShadow,
-          prevItems: itemsRef.current,
-        }) ?? merged)
-      : merged;
+    const appliedRaw =
+      localAligned && !opts?.authoritative
+        ? (keepLocalTranscriptIfServerEmpty({
+            serverNext: merged,
+            sid,
+            viewingSid: viewingNow,
+            prevShadow,
+            prevItems: itemsRef.current,
+          }) ?? merged)
+        : merged;
     const withStableIds = preserveTranscriptItemIds(
       appliedRaw,
       localAligned
@@ -4050,15 +4081,16 @@ export function App() {
     if (!sameStream()) return null;
     // Frames may have arrived while the messages request was in flight. They
     // bring back no prompt the read has shown settled.
-    const finalItems = localAligned
-      ? dropSettledPermissionPrompts(
-          mergeTranscriptPreferLocalSuffix(
-            applied,
-            streamShadowBySidRef.current.get(sid),
-          ),
-          sid,
-        )
-      : applied;
+    const finalItems =
+      localAligned && !opts?.authoritative
+        ? dropSettledPermissionPrompts(
+            mergeTranscriptPreferLocalSuffix(
+              applied,
+              streamShadowBySidRef.current.get(sid),
+            ),
+            sid,
+          )
+        : applied;
     if (finalItems === applied) noteSnapshotRev(finalItems);
     streamShadowBySidRef.current.set(sid, finalItems);
     noteLiveWindow(sid, pageWindow, seq);
@@ -4942,6 +4974,9 @@ export function App() {
     return () => {
       lifecycle.abort();
       failedReadStatusRef.current.delete(sessionId);
+      if (releasedCursorBySidRef.current.delete(sessionId)) {
+        relayLastEventIdBySidRef.current.delete(sessionId);
+      }
     };
     // Intentionally sessionId only for loadMessages coalescing; rejoin runs detached.
   }, [sessionId]);
@@ -5019,6 +5054,16 @@ export function App() {
     });
   }
 
+  function invalidateReleasedCursor(sid: string) {
+    const released = releasedCursorBySidRef.current.get(sid);
+    if (!released) return;
+    // A reconnect may hide a successor. Drop the old transcript immediately,
+    // but require an exact snapshot before replaying without its frame cursor.
+    released.snapshotOnly = true;
+    released.baseline = [];
+    relayLastEventIdBySidRef.current.delete(sid);
+  }
+
   /** The frame cursor kept for the turn now running in `sid`, if it is that turn's. */
   function relayCursorFor(sid: string): string {
     const kept = relayLastEventIdBySidRef.current.get(sid);
@@ -5056,10 +5101,14 @@ export function App() {
     releasedCursorBySidRef.current.delete(key);
     const resume =
       released &&
+      !released.snapshotOnly &&
       released.generation === turnActivity.generation(key) &&
       released.cursor.frames > 0
         ? released.cursor
         : undefined;
+    // A transcript read during Stop may already contain frames after the
+    // released cursor. Replay only onto the baseline captured with that cursor.
+    if (resume && released) baseline = released.baseline;
     const cursor: ComposerStreamCursor = resume
       ? { ...resume }
       : {
@@ -5456,6 +5505,7 @@ export function App() {
         (streamGenerationBySidRef.current.get(postSessionKey) ?? 0) + 1,
       );
       stoppedTurnBySidRef.current.delete(postSessionKey);
+      releasedCursorBySidRef.current.delete(postSessionKey);
       turnActivity.observe(postSessionKey, true);
       addActiveComposer(postSessionKey);
       relayAbortBySidRef.current.get(postSessionKey)?.abort();
@@ -6229,7 +6279,8 @@ export function App() {
         `/coddy/sessions/${encodeURIComponent(sid)}/cancel`,
         {
           method: "POST",
-          headers: { [HDR]: sid },
+          headers: { [HDR]: sid, "Content-Type": "application/json" },
+          body: JSON.stringify({ continue_queue: true }),
           signal: cancelCtl.signal,
         },
       );
@@ -6243,24 +6294,34 @@ export function App() {
       if ((post || relay) && cursor) {
         cursor.flush?.();
         const { flush: _flush, ...at } = cursor;
-        releasedCursorBySidRef.current.set(sid, { generation, cursor: at });
+        releasedCursorBySidRef.current.set(sid, {
+          generation,
+          cursor: at,
+          baseline: streamShadowBySidRef.current.get(sid) ?? itemsRef.current,
+        });
       }
       post?.abort();
       relay?.abort();
       const res = await cancelled;
       if (!res.ok) throw new Error(`cancel failed (${res.status})`);
-      // The acknowledgement neither proves idle nor gives an old Stop ownership
-      // of a newer turn in this session.
+      const acknowledgement = (await res.json().catch(() => null)) as {
+        queueContinued?: unknown;
+      } | null;
+      // Only an explicit continuation keeps this admission watched. Older
+      // servers and unrecognized acknowledgements retain full-cancel behavior.
+      // Neither acknowledgement gives an old Stop ownership of a newer turn.
       fenced =
+        acknowledgement?.queueContinued !== true &&
         !request.superseded &&
         turnActivity.generation(sid) === generation &&
         streamGenerationBySidRef.current.get(sid) === streamGeneration;
       if (fenced) {
+        releasedCursorBySidRef.current.delete(sid);
         stoppedTurnBySidRef.current.set(sid, generation);
         void turnActivity.refresh(sid, false);
       }
     } catch {
-      applyStreamItemsForSession(sid, (prev) => [
+      const appendError = (prev: TranscriptItem[]): TranscriptItem[] => [
         ...prev.filter((it) => it.id !== errorId),
         {
           id: errorId,
@@ -6269,14 +6330,25 @@ export function App() {
           message: t("app.stopFailed"),
           createdAtUtc: new Date().toISOString(),
         },
-      ]);
+      ];
+      applyStreamItemsForSession(sid, appendError);
+      const released = releasedCursorBySidRef.current.get(sid);
+      if (released?.generation === generation && !released.snapshotOnly) {
+        released.baseline = appendError(released.baseline);
+      }
     } finally {
       window.clearTimeout(timer);
       if (stopPendingBySidRef.current.get(sid) === request) {
         stopPendingBySidRef.current.delete(sid);
+        if (viewedSessionIdRef.current.trim() !== sid) {
+          releasedCursorBySidRef.current.delete(sid);
+          relayLastEventIdBySidRef.current.delete(sid);
+        } else if (request.superseded) {
+          invalidateReleasedCursor(sid);
+        }
         // The stream was released for a Stop that did not take this turn: the
-        // request failed, or a successor started meanwhile. Rejoin it without
-        // waiting for the next reconciliation tick, one task later, so the
+        // request failed, the queue continues, or a successor started meanwhile.
+        // Rejoin without waiting for the next reconciliation tick, one task later, so the
         // released stream has let go of the session before the attach looks.
         if (!fenced) window.setTimeout(() => void turnActivity.refresh(sid), 0);
       }

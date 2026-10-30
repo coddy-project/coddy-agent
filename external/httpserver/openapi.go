@@ -3445,8 +3445,10 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/coddy/sessions/{id}/cancel": map[string]interface{}{
 				"post": map[string]interface{}{
-					"summary":     "Cancel active generation for a session",
-					"description": "Best-effort cancellation of the current ReAct or direct completion turn. Writes a cross-process cancel signal for persisted bundles so another **coddy** process holding the turn can observe cooperative cancel. When assistant tokens were already streamed, the server persists that partial **assistant** message for the interrupted turn before the turn ends. Optional header **X-Coddy-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
+					"summary": "Cancel active generation for a session",
+					"description": "Best-effort cancellation of the current ReAct or direct completion turn. The optional JSON body takes **continue_queue** (default **false**). With **true**, an eligible in-process ordinary profile prompt reserves every pending queue row in FIFO order, including duplicates and images, interrupts only its current child run, and continues under the same root admission. An accepted reservation returns **queueContinued: true** without writing a disk cancel signal; this acknowledges acceptance, not completion of the continuation. " +
+						"An empty queue, a pending cancellation or an unsupported admission falls back to legacy full cancellation. Direct completions, explicit plan runs and permission-resume admissions do not support queue interruption. Legacy cancellation drops pending steer rows and retains after_turn rows without auto-starting them; it returns no **queueContinued** field and writes a cross-process cancel signal for persisted bundles so another **coddy** process holding the turn can observe cooperative cancel. Provider failures do not by themselves request continuation. " +
+						"An empty body, **null** or **{}** keeps legacy behavior. Malformed JSON, a non-boolean **continue_queue**, trailing JSON or a body over 1 KiB answers **400** before cancellation. When assistant tokens were already streamed, the server persists that partial **assistant** message before the interrupted run ends. Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -3456,8 +3458,41 @@ func openAPISpec() map[string]interface{} {
 							"description": "Session id.",
 						},
 					},
+					"requestBody": map[string]interface{}{
+						"required": false,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object", "nullable": true,
+									"properties": map[string]interface{}{
+										"continue_queue": map[string]interface{}{
+											"type": "boolean", "default": false,
+											"description": "Request queue interruption on an eligible in-process ordinary profile prompt; otherwise use legacy full cancellation.",
+										},
+									},
+								},
+							},
+						},
+					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Cancellation applied (idempotent when nothing is running)."},
+						"200": map[string]interface{}{
+							"description": "Cancellation requested, or queue interruption accepted. Neither confirms that the running turn has completed.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object", "required": []string{"object", "id"},
+										"properties": map[string]interface{}{
+											"object": map[string]interface{}{"type": "string", "enum": []string{"coddy.session_cancelled"}},
+											"id":     map[string]interface{}{"type": "string"},
+											"queueContinued": map[string]interface{}{
+												"type":        "boolean",
+												"description": "Present and true only when queue interruption was accepted, not when its continuation completed. Absent on legacy full cancellation.",
+											},
+										},
+									},
+								},
+							},
+						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 					},

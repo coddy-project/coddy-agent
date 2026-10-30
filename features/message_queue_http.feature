@@ -54,6 +54,17 @@ Feature: The message queue over HTTP
     When the operator deletes that queued message
     Then the answer hands back the message with its image
 
+  @queue_interrupt
+  Scenario: Stop can continue one admitted turn with every queued message
+    Given a turn is running for that session
+    And a second client is watching that turn
+    And three FIFO follow-ups include duplicate text, mixed modes and an image
+    When the operator stops with queue continuation enabled
+    Then only the child run is interrupted without a disk cancel marker
+    When the replacement runner acknowledges the entire reserved batch
+    Then the watcher receives each queued user row in FIFO order
+    And all three rows persist once without an extra run
+
   Scenario: A second client stops the turn and its waiting follow-ups
     Given a turn is running for that session
     And a third client is subscribed to the server event stream

@@ -14,6 +14,16 @@ func TestTurnProgressWebUIFeature(t *testing.T) {
 	suite := godog.TestSuite{
 		Name: "turn_progress_web_ui",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
+			sc.Step(`^the working line shows a decorative Coddy logo instead of bouncing dots$`, func() error {
+				return runVitestScenario(dots, "renders the Coddy work indicator when generating")
+			})
+			sc.Step(`^its outer contour rotates, grows and shrinks, and reduced motion keeps it still$`, func() error {
+				const file = "src/ui/tasks/backgroundTaskCss.test.ts"
+				if err := runVitestScenario(file, "the Coddy work indicator animates its outer contour at the folder icon's scale"); err != nil {
+					return err
+				}
+				return runVitestScenario(file, "reduced motion leaves the Coddy work indicator still")
+			})
 			sc.Step(`^the active live line eases checklist spacing changes only without reduced motion$`, func() error {
 				return runVitestScenario("src/ui/tasks/backgroundTaskCss.test.ts", "the active live line eases checklist spacing changes only without reduced motion")
 			})

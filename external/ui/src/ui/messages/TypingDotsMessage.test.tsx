@@ -24,10 +24,18 @@ test("shows generation speed immediately after the running token count", () => {
   );
 });
 
-test("renders three dots when generating", () => {
+test("renders the Coddy work indicator when generating", () => {
   render(<TypingDotsMessage />);
-  const dots = document.querySelectorAll(".typing-dots-dot");
-  expect(dots.length).toBe(3);
+  const indicator = document.querySelector("svg.coddy-work-indicator");
+  expect(indicator).toHaveAttribute("aria-hidden", "true");
+  expect(indicator).toHaveAttribute("focusable", "false");
+  expect(indicator?.querySelector(".coddy-work-indicator-c")).toHaveAttribute(
+    "pathLength",
+    "100",
+  );
+  expect(indicator?.querySelector(".coddy-work-indicator-ring")).not.toBeNull();
+  expect(indicator?.querySelectorAll("circle")).toHaveLength(2);
+  expect(document.querySelector(".typing-dots-dot")).toBeNull();
   expect(screen.getByTestId("typing-dots")).toBeInTheDocument();
 });
 
@@ -98,15 +106,13 @@ test("without a status kind it renders bare dots and keeps the aria label", () =
   expect(screen.queryByTestId("typing-dots-elapsed")).toBeNull();
 });
 
-test("the status node is the fourth child so the dot animation stagger survives", () => {
+test("the work indicator leads the status without depending on child positions", () => {
   render(<TypingDotsMessage statusKind="tool" statusKey="status.read" />);
   const row = document.querySelector(".typing-dots");
   expect(row).not.toBeNull();
-  expect(row!.children.length).toBe(4);
-  for (let i = 0; i < 3; i++) {
-    expect(row!.children[i]!.className).toContain("typing-dots-dot");
-  }
-  expect(row!.children[3]!.className).toContain("typing-dots-status");
+  expect(row!.children.length).toBe(2);
+  expect(row!.children[0]).toHaveClass("coddy-work-indicator");
+  expect(row!.children[1]).toHaveClass("typing-dots-status");
 });
 
 // The live line carries the phase and nothing it acts on, so the phrase has to be
@@ -507,10 +513,10 @@ test("the separator after the tasks segment is outside the button, so hover does
   expect(button.parentElement?.className).toContain("typing-dots-turn-item");
 });
 
-// The turn has ended and the tasks it started have not: the same dots hold the tail of
+// The turn has ended and the tasks it started have not: the same indicator holds the tail of
 // the transcript, carrying the count and nothing else.
 
-test("after the turn the line is the dots and the count, with no turn numbers", () => {
+test("after the turn the line is the work indicator and the count, with no turn numbers", () => {
   const onOpenTasks = vi.fn();
   render(
     <TypingDotsMessage
@@ -519,7 +525,7 @@ test("after the turn the line is the dots and the count, with no turn numbers", 
       onOpenTasks={onOpenTasks}
     />,
   );
-  expect(document.querySelectorAll(".typing-dots-dot").length).toBe(3);
+  expect(document.querySelectorAll(".coddy-work-indicator")).toHaveLength(1);
   const status = screen.getByTestId("typing-dots-status");
   expect(status.className).toContain("typing-dots-status--tasks-only");
   expect(status.textContent).toBe("2 running tasks");
@@ -531,15 +537,13 @@ test("after the turn the line is the dots and the count, with no turn numbers", 
   expect(onOpenTasks).toHaveBeenCalledTimes(1);
 });
 
-test("the count of a tasks-only line stays after the three dots as well", () => {
+test("the count of a tasks-only line follows the same work indicator", () => {
   render(<TypingDotsMessage tasksOnly={true} runningTasks={1} />);
   const row = document.querySelector(".typing-dots");
   expect(row).not.toBeNull();
-  expect(row!.children.length).toBe(4);
-  for (let i = 0; i < 3; i++) {
-    expect(row!.children[i]!.className).toContain("typing-dots-dot");
-  }
-  expect(row!.children[3]!.className).toContain("typing-dots-status");
+  expect(row!.children.length).toBe(2);
+  expect(row!.children[0]).toHaveClass("coddy-work-indicator");
+  expect(row!.children[1]).toHaveClass("typing-dots-status");
 });
 
 test("a tasks-only line with nothing running does not stand at all", () => {
@@ -580,14 +584,14 @@ test("a running turn carries the count once: the second line is not added", () =
 
 // Between turns the live line keeps its room, empty: the line coming and going
 // at every turn moved the transcript over it and made it jump as a step ended.
-// The slot has the line's shape - the dots, the phrase and the caption the
+// The slot has the line's shape - the indicator, the phrase and the caption the
 // phone puts under it - so it is as tall as the line it stands in for.
 test("an idle slot keeps the line's room and shows nothing", () => {
   render(<TypingDotsMessage idle />);
   const slot = screen.getByTestId("live-line-slot");
   expect(slot).toHaveAttribute("aria-hidden", "true");
   expect(slot).toHaveClass("typing-dots-slot");
-  expect(slot.querySelectorAll(".typing-dots-dot")).toHaveLength(3);
+  expect(slot.querySelectorAll(".coddy-work-indicator")).toHaveLength(1);
   expect(slot.querySelector(".typing-dots-status")).not.toBeNull();
   expect(slot.querySelector(".typing-dots-turn")).not.toBeNull();
   expect(slot.textContent?.trim()).toBe("");
