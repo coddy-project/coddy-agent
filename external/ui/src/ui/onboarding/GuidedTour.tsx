@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useRef,
   useState,
   type CSSProperties,
 } from "react";
@@ -36,6 +37,14 @@ export function GuidedTour(props: {
   const [index, setIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
 
+  // The walk resets only when the tour opens or its steps change. onClose is
+  // read through a ref: a parent that passes a fresh closure on every render
+  // must not restart the walk the user is in the middle of.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
   useEffect(() => {
     if (!open) {
       setActive([]);
@@ -44,12 +53,12 @@ export function GuidedTour(props: {
     }
     const present = steps.filter((step) => document.querySelector(step.anchor));
     if (present.length === 0) {
-      onClose();
+      onCloseRef.current();
       return;
     }
     setActive(present);
     setIndex(0);
-  }, [open, steps, onClose]);
+  }, [open, steps]);
 
   const step = active[index] ?? null;
 

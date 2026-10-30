@@ -8434,29 +8434,38 @@ export function App() {
             onFetchToolCallFull={handleFetchToolCallFull}
           />
         )}
-        <Suspense fallback={null}>
-          <ProviderPickerDialog
-            open={showProviderPicker}
-            onSaved={() => {
-              setShowProviderPicker(false);
-              setConfigEpoch((epoch) => epoch + 1);
-              void refreshConfiguredRemotes();
-              maybeStartTour();
-            }}
-            onSkip={() => {
-              setShowProviderPicker(false);
-              maybeStartTour();
-            }}
-          />
-          <GuidedTour
-            open={showTour}
-            steps={TOUR_STEPS}
-            onClose={() => {
-              markTourSeen();
-              setShowTour(false);
-            }}
-          />
-        </Suspense>
+        {/* Rendered only while one of them shows: both are lazy chunks, and
+            mounting them at startup would fetch first-run code on every load
+            (DESIGN.md: "chunks loaded only when shown"). */}
+        {showProviderPicker || showTour ? (
+          <Suspense fallback={null}>
+            {showProviderPicker ? (
+              <ProviderPickerDialog
+                open
+                onSaved={() => {
+                  setShowProviderPicker(false);
+                  setConfigEpoch((epoch) => epoch + 1);
+                  void refreshConfiguredRemotes();
+                  maybeStartTour();
+                }}
+                onSkip={() => {
+                  setShowProviderPicker(false);
+                  maybeStartTour();
+                }}
+              />
+            ) : null}
+            {showTour ? (
+              <GuidedTour
+                open
+                steps={TOUR_STEPS}
+                onClose={() => {
+                  markTourSeen();
+                  setShowTour(false);
+                }}
+              />
+            ) : null}
+          </Suspense>
+        ) : null}
       </div>
     </div>
   );

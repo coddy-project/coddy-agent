@@ -60,6 +60,31 @@ describe("GuidedTour", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("keeps the step when the parent re-renders with a fresh onClose", () => {
+    document.body.innerHTML = `
+      <button data-testid="nav-settings"></button>
+      <button data-testid="nav-history"></button>
+      <button class="mode-llm"></button>
+      <textarea id="composer"></textarea>
+      <button id="btn-send"></button>`;
+    const { rerender } = render(
+      <I18nProvider>
+        <GuidedTour open steps={TOUR_STEPS} onClose={vi.fn()} />
+      </I18nProvider>,
+    );
+    fireEvent.click(screen.getByTestId("tour-next"));
+    fireEvent.click(screen.getByTestId("tour-next"));
+    expect(screen.getByTestId("tour-counter").textContent).toBe("Step 3 of 5");
+    // A parent that passes a new closure on every render must not send the
+    // walk back to step 1.
+    rerender(
+      <I18nProvider>
+        <GuidedTour open steps={TOUR_STEPS} onClose={vi.fn()} />
+      </I18nProvider>,
+    );
+    expect(screen.getByTestId("tour-counter").textContent).toBe("Step 3 of 5");
+  });
+
   it("keeps the one-shot flag in local storage", () => {
     expect(isTourSeen()).toBe(false);
     markTourSeen();
