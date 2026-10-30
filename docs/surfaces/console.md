@@ -331,7 +331,21 @@ reasoning models such as OpenCode's `beam-free` can finish before producing the 
 extra call to the session's model without tools or transcript entries. They are
 enabled by default; set `agent.prompt_suggestions: false` in `config.yaml` to
 disable them, or use **Settings → ReAct loop → Prompt suggestions** in the web UI.
-The remote console (`--remote`) does not offer these hints yet.
+With `--remote`, the console fetches the hint from the server and reports whether
+it was accepted. The server's `agent.prompt_suggestions` and
+`agent.prompt_suggestions_context` control generation; no local model or provider
+credentials are needed. Tab and Right work the same way. A new remote turn,
+server configuration reload or reconnect retires an obsolete hint and cancels a
+pending request. If the server does not provide the suggestion route, the editor
+continues without a hint. Update both the server and console to use this feature.
+
+![A dim suggestion in a remote console](../assets/cli-tui/remote-suggestion-hint-dark-1280.png)
+
+*A dim hint from the server, dark theme, 1280px. [Narrow view at 390px](../assets/cli-tui/remote-suggestion-hint-dark-390.png).*
+
+![The remote suggestion accepted into the draft](../assets/cli-tui/remote-suggestion-accepted-dark-1280.png)
+
+*The hint accepted with Tab into an editable draft, dark theme, 1280px. [Accepted with Right at 390px](../assets/cli-tui/remote-suggestion-accepted-dark-390.png).*
 
 For comparison, `agent.prompt_suggestions_context` accepts `recent` (default) or
 `full`. `recent` selects up to 12 whole user/assistant text messages, scanning from

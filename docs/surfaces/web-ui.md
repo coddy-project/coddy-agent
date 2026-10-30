@@ -205,7 +205,8 @@ you edit. Clearing the draft shows the same suggestion again, including after ac
 and editing it. Sending a message, starting another turn or switching context retires it.
 Set `agent.prompt_suggestions: false`
 in `config.yaml`, or turn the switch off and save, to stop generating suggestions in both
-the web UI and the local console. The change applies without restarting Coddy.
+the web UI and consoles connected to this server, including `--remote` clients.
+The change applies without restarting Coddy.
 
 **ReAct loop → Suggestion context** selects `recent` (default) or `full`, backed by
 `agent.prompt_suggestions_context`. `recent` reads user/assistant text from newest
