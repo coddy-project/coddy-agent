@@ -1206,7 +1206,7 @@ Automated checks:
 
 Screenshot: `docs/assets/screenshot-fullhd-tasks.png`.
 
-The panel is docked **inside the session**, to the right of the transcript (`.bgtasks-panel`), not a shell drawer: a task belongs to the chat that started it. On `min-width: 1200px` the chat column yields only what the panel actually covers, so opening the panel on a wide window leaves the transcript and composer where they were. The route is `#/s/<sessionId>/tasks`, so a reload restores the chat and the panel together; closing writes `#/s/<sessionId>` back. A link that names a task (`#/s/<sessionId>/tasks/<task_id>`) still opens that card, and the address then drops the id. Backed by `/coddy/sessions/{id}/background-tasks*` (see `docs/features/background-tasks.md`).
+The panel is docked **inside the session**, to the right of the transcript (`.bgtasks-panel`), not a shell drawer: a task belongs to the chat that started it. On `min-width: 1200px` the chat column yields only what the panel actually covers, so opening the panel on a wide window leaves the transcript and composer where they were. Files and Tasks are alternative views on desktop, tablet and phone: opening either closes the other, while Terminal may remain open. The route is `#/s/<sessionId>/tasks`, so a reload restores the chat and the panel together; closing writes `#/s/<sessionId>` back. A link that names a task (`#/s/<sessionId>/tasks/<task_id>`) still opens that card, and the address then drops the id. Backed by `/coddy/sessions/{id}/background-tasks*` (see `docs/features/background-tasks.md`).
 
 - It **polls** rather than listening on SSE, because a background task outlives the turn that started it: every 2.5s while anything runs, every 15s otherwise. A poll against an unreachable server yields a normal error result, never an unhandled rejection.
 - **Every task is one card** (`TaskCard`): status dot, a tag (`taskTag`: `shell`, the agent's name, `memory`, `server`), the title (`taskTitle`: the command, or the description of an agent run without the `agent <name>:` prefix the pool writes) and a meta line (`taskMetaLine`: elapsed against the estimate while it runs, `20s · 12:50` afterwards - the outcome is the dot's colour, and in words only in the open card's foot). An agent run carries the model and the tokens its calls spent at the right of the meta line (`agentUsage`: `agent.model` by its short name, `agent.input_tokens` plus `agent.output_tokens`), dropping under the status whole when the two do not fit; the full model id and the input / output split are the opener's `title`. Under both, on a row of its own, the card carries the way into the task, and at most one of them: an agent run carries **Show transcript** (`.bgtask-card-transcript`, `data-testid="bgtask-open-transcript-<id>"`), which opens the child session at `#/s/<child id>` the way a History pick does; a running preview server carries its address (`.bgtask-card-link`, `data-testid="bgtask-link-<id>"`, `target="_blank"`, `rel="noopener noreferrer"`), which opens the page in a new tab and wraps whole rather than truncating when it is long. The card does not have to be expanded for either, and, like Stop, both stand above the card's own click surface so they never expand it. Show transcript is disabled, with a title saying why, until the row carries `agent.session_id`; a server that has stopped carries no address, because the page it named is gone. Running cards stand at the top under no heading of their own - everything above the **Finished N** counter is running - and add Stop, a **bell** after the title (`.bgtask-notify`, `data-testid="bgtask-notify-<id>"`, `title` and accessible name *Wakes the agent when it ends*) when the task carries `notify_on_finish`, and, only when the model supplied `expected_seconds`, a progress bar. A finished card keeps the bell when the row carries `woke_agent` - its end started a turn - with *Woke the agent when it ended*: the woken turn shows nothing in the transcript, so the card is where the web UI says what woke the agent.
@@ -1285,7 +1285,8 @@ its full name in a tooltip, the Files one with its key. A
 button opens its view, and pressed again puts it away; the button of the view on show brightens, its
 text, border and ground, the way a pointed-at one does, and the accent is kept for
 tasks that run. The background tasks open in the dock beside the chat, files in a
-right-hand workspace panel, and the terminal under the chat. The edits have no button in the header: git's count on [the plate over
+right-hand workspace panel, and the terminal under the chat. Files and Tasks replace
+one another at every viewport width, while the terminal may stay open. The edits have no button in the header: git's count on [the plate over
 the composer](#the-plate-over-the-composer) opens them. Each icon beside a word (the
 Tasks dot, the repository and the branch on the plate) sits on
 the middle of its lowercase letters, not of the capitals: the words are mostly
@@ -1306,7 +1307,9 @@ under the conversation. The panel is centred in the same 920px column as the
 title, transcript and composer, including while Files is open beside the chat. The shell
 starts in that chat's workspace and belongs to the chat: hiding and
 reopening it keeps `cd`, environment changes and the output already printed. Enter
-runs a command; Up and Down walk the commands entered in this browser. **Restart**
+runs a command from the prompt, with no separate Run button. Up and Down walk the
+last 100 commands of this chat, persisted in this browser across closing and reopening
+the panel. Bash's own history is enabled too, so `history` lists commands entered here. **Restart**
 stops that shell and starts a clean one. The server stops every integrated shell when
 its HTTP surface shuts down.
 

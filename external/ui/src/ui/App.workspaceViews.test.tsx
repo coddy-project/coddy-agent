@@ -14,7 +14,10 @@ import { ConfirmProvider } from "./components/useConfirm";
 import { initLocale } from "./i18n/i18n";
 import { t } from "./i18n/i18n";
 import { resetSettingsConfigForTests } from "./settings/settingsConfigStore";
-import { shellStackMaxWidthMediaQuery } from "./shellBreakpoint";
+import {
+  phoneMaxWidthMediaQuery,
+  shellStackMaxWidthMediaQuery,
+} from "./shellBreakpoint";
 import { forgetOpenFiles } from "./files/FilesView";
 
 /**
@@ -261,18 +264,29 @@ test("a files address opens the window on its file", async () => {
   );
 });
 
-test("over the background tasks the files window is the first thing Escape takes away", async () => {
+test("Files and Tasks replace one another while the terminal stays open", async () => {
   mountAt(`#/s/${SID}`);
+  fireEvent.click(await screen.findByTestId("open-terminal"));
+  await screen.findByTestId("terminal-panel");
   fireEvent.click(await screen.findByTestId("open-tasks"));
   await screen.findByTestId("bgtasks-panel");
   fireEvent.click(screen.getByTestId("open-files"));
   await screen.findByTestId("files-view");
-  expect(screen.getByTestId("bgtasks-panel")).toBeTruthy();
-  pressEscape();
+  expect(screen.queryByTestId("bgtasks-panel")).toBeNull();
+  expect(screen.getByTestId("terminal-panel")).toBeTruthy();
+  expect(document.querySelector(".shell-main")).toHaveClass("shell-files-open");
+  expect(document.querySelector(".shell-main")).not.toHaveClass(
+    "shell-tasks-open",
+  );
+
+  fireEvent.click(screen.getByTestId("open-tasks"));
+  await screen.findByTestId("bgtasks-panel");
   await waitFor(() => expect(screen.queryByTestId("files-view")).toBeNull());
-  expect(screen.getByTestId("bgtasks-panel")).toBeTruthy();
-  pressEscape();
-  await waitFor(() => expect(screen.queryByTestId("bgtasks-panel")).toBeNull());
+  expect(screen.getByTestId("terminal-panel")).toBeTruthy();
+  expect(document.querySelector(".shell-main")).toHaveClass("shell-tasks-open");
+  expect(document.querySelector(".shell-main")).not.toHaveClass(
+    "shell-files-open",
+  );
 });
 
 test("Ctrl+Shift+F opens the files window, and closes it", async () => {
@@ -310,9 +324,7 @@ test("the chat stays interactive beside files until their own close button is us
   await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}`));
 });
 
-// The stacked shell shows the dock over the chat; the files window opens over
-// the dock and leaves it there.
-test("on the stacked shell the files window opens over the background tasks and leaves them open", async () => {
+test("on the stacked shell Files replaces background tasks", async () => {
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: query === shellStackMaxWidthMediaQuery,
     media: query,
@@ -328,12 +340,36 @@ test("on the stacked shell the files window opens over the background tasks and 
   await screen.findByTestId("bgtasks-panel");
   fireEvent.click(screen.getByTestId("open-files"));
   await screen.findByTestId("files-view");
-  await act(async () => new Promise((r) => setTimeout(r, 30)));
-  expect(screen.getByTestId("bgtasks-panel")).toBeTruthy();
+  await waitFor(() => expect(screen.queryByTestId("bgtasks-panel")).toBeNull());
+  expect(window.location.hash).toBe(`#/s/${SID}/files`);
   pressEscape();
   await waitFor(() => expect(screen.queryByTestId("files-view")).toBeNull());
-  expect(screen.getByTestId("bgtasks-panel")).toBeTruthy();
-  await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}/tasks`));
+  await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}`));
+});
+
+test("on a phone Files replaces tasks and leaves the terminal mounted", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches:
+      query === shellStackMaxWidthMediaQuery ||
+      query === phoneMaxWidthMediaQuery,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
+  mountAt(`#/s/${SID}`);
+  fireEvent.click(await screen.findByTestId("open-terminal"));
+  await screen.findByTestId("terminal-panel");
+  fireEvent.click(screen.getByTestId("open-tasks"));
+  await screen.findByTestId("bgtasks-panel");
+  fireEvent.click(screen.getByTestId("open-files"));
+  await screen.findByTestId("files-view");
+  await waitFor(() => expect(screen.queryByTestId("bgtasks-panel")).toBeNull());
+  expect(screen.getByTestId("terminal-panel")).toBeTruthy();
+  expect(window.location.hash).toBe(`#/s/${SID}/files`);
 });
 
 test("the files window opened over the edits window takes its place", async () => {

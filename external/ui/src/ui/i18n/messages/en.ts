@@ -1974,7 +1974,6 @@ export const messagesEn: Record<string, string> = {
   "terminal.ready": "Terminal ready",
   "terminal.command": "Terminal command",
   "terminal.placeholder": "Type a command…",
-  "terminal.run": "Run",
   "terminal.resize": "Resize terminal",
   "files.workspace": "Workspace {path}",
   "files.openFiles": "Open files",

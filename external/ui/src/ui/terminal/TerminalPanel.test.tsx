@@ -48,6 +48,7 @@ test("runs commands, recalls them, and restarts the chat shell", async () => {
   const input = await screen.findByRole("textbox", {
     name: "Terminal command",
   });
+  expect(screen.queryByRole("button", { name: "Run" })).toBeNull();
   await waitFor(() => expect(fetcher).toHaveBeenCalled());
 
   fireEvent.change(input, { target: { value: "pwd" } });
@@ -73,4 +74,40 @@ test("runs commands, recalls them, and restarts the chat shell", async () => {
       expect.objectContaining({ method: "DELETE" }),
     ),
   );
+});
+
+test("keeps command history when the panel is closed and reopened", async () => {
+  const first = render(
+    <TerminalPanel
+      sessionId="sess_terminal"
+      workspacePath="/work/demo"
+      onClose={() => {}}
+    />,
+  );
+  const input = await screen.findByRole("textbox", {
+    name: "Terminal command",
+  });
+  fireEvent.change(input, { target: { value: "go test ./..." } });
+  fireEvent.submit(input.closest("form")!);
+  await waitFor(() =>
+    expect(
+      JSON.parse(
+        localStorage.getItem("coddy.terminal.history.sess_terminal") || "[]",
+      ),
+    ).toContain("go test ./..."),
+  );
+
+  first.unmount();
+  render(
+    <TerminalPanel
+      sessionId="sess_terminal"
+      workspacePath="/work/demo"
+      onClose={() => {}}
+    />,
+  );
+  const reopened = await screen.findByRole("textbox", {
+    name: "Terminal command",
+  });
+  fireEvent.keyDown(reopened, { key: "ArrowUp" });
+  expect((reopened as HTMLInputElement).value).toBe("go test ./...");
 });

@@ -2047,7 +2047,6 @@ export const messagesRu: Record<string, string> = {
   "terminal.ready": "Терминал готов",
   "terminal.command": "Команда терминала",
   "terminal.placeholder": "Введите команду…",
-  "terminal.run": "Запустить",
   "terminal.resize": "Изменить высоту терминала",
   "files.workspace": "Рабочая папка {path}",
   "files.openFiles": "Открытые файлы",

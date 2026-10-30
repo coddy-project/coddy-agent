@@ -80,6 +80,16 @@ func (s *Server) terminalFor(sid, cwd string) (*terminalSession, error) {
 		_ = stdin.Close()
 		return nil, err
 	}
+	// Bash does not record commands received from a pipe unless history is
+	// enabled explicitly. Turn it on before the first browser command so the
+	// ordinary `history` builtin behaves as it does in a terminal. The browser
+	// keeps its own chat-scoped Up/Down history for every shell kind as well.
+	if shell.Kind == platform.ShellBash {
+		if _, err := io.WriteString(stdin, "set -o history\n"); err != nil {
+			_ = platform.TerminateProcessGroup(cmd, 500*time.Millisecond)
+			return nil, err
+		}
+	}
 	s.terminals[sid] = term
 	go term.copy(stdout)
 	go term.copy(stderr)

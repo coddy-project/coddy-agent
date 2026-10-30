@@ -10,10 +10,37 @@ type TerminalSnapshot = {
 };
 
 const HEIGHT_KEY = "coddy.terminal.height";
+const HISTORY_KEY = "coddy.terminal.history.";
+const HISTORY_LIMIT = 100;
 
 function savedHeight(): number {
   const n = Number(localStorage.getItem(HEIGHT_KEY));
   return Number.isFinite(n) ? Math.min(560, Math.max(180, n)) : 280;
+}
+
+function historyKey(sessionId: string): string {
+  return `${HISTORY_KEY}${sessionId}`;
+}
+
+function savedHistory(sessionId: string): string[] {
+  try {
+    const value = JSON.parse(
+      localStorage.getItem(historyKey(sessionId)) || "[]",
+    );
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(sessionId: string, history: string[]): void {
+  try {
+    localStorage.setItem(historyKey(sessionId), JSON.stringify(history));
+  } catch {
+    // A private or full storage must not stop the terminal from running.
+  }
 }
 
 /** A chat-scoped shell under the conversation. The server owns the process, so
@@ -26,7 +53,9 @@ export function TerminalPanel(props: {
   const { t } = useT();
   const [snapshot, setSnapshot] = useState<TerminalSnapshot | null>(null);
   const [command, setCommand] = useState("");
-  const [history, setHistory] = useState<string[]>([]);
+  const [history, setHistory] = useState<string[]>(() =>
+    savedHistory(props.sessionId),
+  );
   const [historyAt, setHistoryAt] = useState(0);
   const [error, setError] = useState("");
   const [height, setHeight] = useState(savedHeight);
@@ -68,7 +97,13 @@ export function TerminalPanel(props: {
     const input = command.trimEnd();
     if (!input) return;
     setCommand("");
-    setHistory((prev) => [...prev.filter((x) => x !== input), input]);
+    setHistory((prev) => {
+      const next = [...prev.filter((x) => x !== input), input].slice(
+        -HISTORY_LIMIT,
+      );
+      saveHistory(props.sessionId, next);
+      return next;
+    });
     setHistoryAt(0);
     try {
       const response = await fetch(url, {
@@ -194,9 +229,6 @@ export function TerminalPanel(props: {
             setCommand(next === 0 ? "" : history[history.length - next] || "");
           }}
         />
-        <button type="submit" disabled={!command.trim()}>
-          {t("terminal.run")}
-        </button>
       </form>
     </section>
   );

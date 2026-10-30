@@ -30,3 +30,7 @@ test("the terminal gives the Tasks panel the same room as the chat", () => {
   expect(block).toMatch(/margin-left:\s*max\(/);
   expect(block).toMatch(/margin-right:\s*calc\(/);
 });
+
+test("the command line has no separate Run button", () => {
+  expect(css).not.toMatch(/\.terminal-input-row button/);
+});

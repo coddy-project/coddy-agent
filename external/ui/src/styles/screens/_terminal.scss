@@ -89,8 +89,7 @@
   white-space: nowrap;
 }
 
-.terminal-actions button,
-.terminal-input-row button {
+.terminal-actions button {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.06);
@@ -139,15 +138,6 @@
   color: #f2f2f4;
   font: inherit;
   font-size: 13px;
-}
-
-.terminal-input-row button {
-  padding: 5px 11px;
-}
-
-.terminal-input-row button:disabled {
-  opacity: 0.35;
-  cursor: default;
 }
 
 .terminal-error {

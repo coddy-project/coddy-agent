@@ -50,6 +50,11 @@ func TestTerminalKeepsShellStateForTheChat(t *testing.T) {
 		showCWD = "cd"
 	}
 	postTerminalInput(t, endpoint, showCWD)
+	historyMarker := "coddy-terminal-history-marker"
+	if platform.CurrentShell().Kind == platform.ShellBash {
+		postTerminalInput(t, endpoint, "echo "+historyMarker)
+		postTerminalInput(t, endpoint, "history")
+	}
 
 	deadline := time.Now().Add(3 * time.Second)
 	for {
@@ -63,7 +68,10 @@ func TestTerminalKeepsShellStateForTheChat(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(snap.Output, sub) {
+		historyReady :=
+			platform.CurrentShell().Kind != platform.ShellBash ||
+				strings.Count(snap.Output, historyMarker) >= 2
+		if strings.Contains(snap.Output, sub) && historyReady {
 			if !snap.Running {
 				t.Fatalf("terminal exited early: %+v", snap)
 			}
