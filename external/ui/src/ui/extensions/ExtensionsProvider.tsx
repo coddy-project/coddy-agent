@@ -78,29 +78,32 @@ export function ExtensionsProvider({ children }: { children: ReactNode }) {
     window.addEventListener("hashchange", changed);
     return () => window.removeEventListener("hashchange", changed);
   }, [runtime]);
-  const refresh = useCallback(async (retryFailed = false) => {
-    const current = ++generation.current;
-    try {
-      const response = await extensionRequest();
-      const body = (await response.json()) as { items: ExtensionEntry[] };
-      if (current !== generation.current) return;
-      const text = JSON.stringify(body.items);
-      if (text !== listed.current) {
-        listed.current = text;
-        setEntries(body.items);
+  const refresh = useCallback(
+    async (retryFailed = false) => {
+      const current = ++generation.current;
+      try {
+        const response = await extensionRequest();
+        const body = (await response.json()) as { items: ExtensionEntry[] };
+        if (current !== generation.current) return;
+        const text = JSON.stringify(body.items);
+        if (text !== listed.current) {
+          listed.current = text;
+          setEntries(body.items);
+        }
+        setError("");
+        const activation = runtime.reconcile(body.items, retryFailed);
+        if (!startup.activation) {
+          startup.activation = activation;
+          void activation.then(startup.resolve, startup.resolve);
+        }
+        await activation;
+      } catch (e) {
+        if (current === generation.current) setError(String(e));
+        if (!startup.activation) startup.resolve();
       }
-      setError("");
-      const activation = runtime.reconcile(body.items, retryFailed);
-      if (!startup.activation) {
-        startup.activation = activation;
-        void activation.then(startup.resolve, startup.resolve);
-      }
-      await activation;
-    } catch (e) {
-      if (current === generation.current) setError(String(e));
-      if (!startup.activation) startup.resolve();
-    }
-  }, [runtime, startup]);
+    },
+    [runtime, startup],
+  );
   useEffect(() => {
     void refresh();
     const focus = () => {
