@@ -13,6 +13,10 @@ import {
   type SessionArchiveFilter,
   type SessionSortKey,
 } from "./sessionQuery";
+import {
+  DEFAULT_PROJECT_FILTER,
+  type SessionProjectFilter,
+} from "./projectFilter";
 import { Chevron } from "../components/Chevron";
 
 /** One origin filter or server switch offered by History's Environment menu. */
@@ -124,6 +128,9 @@ export function SessionsFilterMenu(props: {
   onGroupModeChange: (mode: SessionGroupMode) => void;
   sortKey: SessionSortKey;
   onSortKeyChange: (key: SessionSortKey) => void;
+  /** Which projects the listing shows; the row appears when a folder is known. */
+  projectFilter?: SessionProjectFilter;
+  onProjectFilterChange?: (value: SessionProjectFilter) => void;
   /** Local plus every configured remote; omitted when there is only this one. */
   environments?: SessionsEnvironmentOption[];
 }) {
@@ -216,6 +223,27 @@ export function SessionsFilterMenu(props: {
   };
 
   const sections: MenuSection[] = [
+    ...(props.onProjectFilterChange
+      ? [
+          {
+            key: "project",
+            label: t("sessions.filter.project"),
+            value: t(
+              `sessions.filter.project.${props.projectFilter ?? DEFAULT_PROJECT_FILTER}`,
+            ),
+            isDefault:
+              (props.projectFilter ?? DEFAULT_PROJECT_FILTER) ===
+              DEFAULT_PROJECT_FILTER,
+            options: (["project", "all"] as const).map((value) => ({
+              key: value,
+              label: t(`sessions.filter.project.${value}`),
+              active: (props.projectFilter ?? DEFAULT_PROJECT_FILTER) === value,
+              testId: `sessions-filter-project-${value}`,
+              onPick: pick(() => props.onProjectFilterChange!(value)),
+            })),
+          },
+        ]
+      : []),
     {
       key: "status",
       label: t("sessions.filter.status"),

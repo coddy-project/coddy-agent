@@ -1,5 +1,6 @@
 import type {
-  SettingsField,
+  AnySettingsField,
+  SettingsSection,
   SettingValue,
   ContributionHandle,
 } from "./contributions";
@@ -9,7 +10,14 @@ import {
 } from "../settings/settingsConfigStore";
 
 export type ExtensionSettingsAPI = {
-  registerField: (field: SettingsField) => ContributionHandle<SettingsField>;
+  registerField: (
+    field: AnySettingsField,
+  ) => ContributionHandle<AnySettingsField>;
+  /** A section of the extension's own. A field of the same extension may name
+   * it in `section`; fields of other extensions may not. */
+  registerSection: (
+    section: SettingsSection,
+  ) => ContributionHandle<SettingsSection>;
   get: (id: string) => Promise<SettingValue | undefined>;
   set: (id: string, value: SettingValue | null) => Promise<void>;
 };
@@ -36,7 +44,8 @@ export function extensionSettings(
   owner: string,
   signal: AbortSignal,
   registerField: ExtensionSettingsAPI["registerField"],
-  fields: () => SettingsField[],
+  registerSection: ExtensionSettingsAPI["registerSection"],
+  fields: () => AnySettingsField[],
 ): ExtensionSettingsAPI {
   let pending = Promise.resolve();
   const active = () => signal.throwIfAborted();
@@ -51,6 +60,7 @@ export function extensionSettings(
   const field = (id: string) => fields().find((field) => field.id === id);
   return {
     registerField,
+    registerSection,
     async get(id) {
       const doc = await read();
       const values = ownerValues(doc, owner);
@@ -69,6 +79,7 @@ export function extensionSettings(
           (!["string", "number", "boolean"].includes(typeof value) ||
             (typeof value === "number" && !Number.isFinite(value)) ||
             (definition &&
+              definition.type !== "component" &&
               (typeof value !== definition.type ||
                 (definition.enum && !definition.enum.includes(String(value))))))
         )

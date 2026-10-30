@@ -1,4 +1,5 @@
 import { composerAutoFocusAllowed } from "./composerFocus";
+import { ExtensionAnchor } from "../extensions/ExtensionAnchor";
 import {
   lazy,
   Suspense,
@@ -3837,6 +3838,7 @@ export function Composer(props: {
             </div>
 
             <div className="composer-bar-actions">
+              <ExtensionAnchor name="composer.actions" />
               <div
                 className={[
                   "composer-context-tip-host",

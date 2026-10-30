@@ -13,11 +13,22 @@ export function resolveUiLocale(stored: UiLocale | null): UiLocale {
   return stored ?? UI_LOCALE_DEFAULT;
 }
 
+const localeListeners = new Set<() => void>();
+
+/** Notified whenever the applied locale changes (setUiLocale, bootstrap). */
+export function subscribeUiLocale(listener: () => void): () => void {
+  localeListeners.add(listener);
+  return () => {
+    localeListeners.delete(listener);
+  };
+}
+
 export function applyUiLocale(locale: UiLocale): void {
   if (typeof document === "undefined") {
     return;
   }
   document.documentElement.lang = locale;
+  for (const listener of [...localeListeners]) listener();
 }
 
 export function readAppliedUiLocale(): UiLocale {

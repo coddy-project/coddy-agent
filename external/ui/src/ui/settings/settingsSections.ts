@@ -11,7 +11,9 @@ export type SectionKind =
   | "appearance"
   | "sessions"
   | "status"
-  | "extensions";
+  | "extensions"
+  /** A settings section an extension registered (`ext:<owner>/<id>`). */
+  | "ext_section";
 
 /** The MCP servers tab: its id stays the old key's, the address #/settings/mcp_servers. */
 export const MCP_SECTION_ID = "mcp_servers";

@@ -22,6 +22,7 @@ The files must sit at the ZIP root. Bundle dependencies into `main.js`; relative
 | [local-api](local-api/main.js) | `coddy.net.fetch` for GET/POST, binary-capable transport and cancellation. `localhost` means the Coddy server. |
 | [stream-tools](stream-tools/main.js) | A synchronous incoming-stream processor and a page showing the last frame. |
 | [workflow-tools](workflow-tools/main.js) | Navigation/step/turn events, a custom `demo__status` MCP card, and fields in ReAct loop and MCP servers settings. |
+| [theme-lab](theme-lab/main.js) | Theme overrides from a panel: lightness sliders repaint the app live, with swatches, a Reset button and localized strings. |
 
 For a local API, replace ordinary browser fetch with the SDK helper.
 

@@ -1,6 +1,7 @@
 import { motionIsReduced } from "../theme/uiSimple";
 import type { CSSProperties, Dispatch, ReactNode, SetStateAction } from "react";
 import { HeroFooter } from "./HeroFooter";
+import { ExtensionAnchor } from "../extensions/ExtensionAnchor";
 import {
   useCallback,
   useEffect,
@@ -1186,6 +1187,7 @@ export function ChatScreen(props: {
 
           <div className="chat-bottom">
             <div className="chat-bottom-inner" ref={composerHostRef}>
+              <ExtensionAnchor name="statusline" />
               <ScrollToBottomButton
                 visible={showScrollToBottom && !composerExpanded}
                 onClick={jumpToNewestMessage}

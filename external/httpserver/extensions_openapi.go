@@ -9,7 +9,10 @@ func mergeExtensionsOpenAPI(doc map[string]interface{}) {
 	object := func(props map[string]any) map[string]any {
 		return map[string]any{"type": "object", "properties": props}
 	}
-	entry := object(map[string]any{"api": map[string]any{"type": "integer", "enum": []int{1}}, "id": str, "name": str, "version": str, "description": str, "sha256": str, "entry_sha256": str, "enabled": boolean, "ui": object(map[string]any{"entry": str, "styles": map[string]any{"type": "array", "items": str}})})
+	array := func(items any) map[string]any {
+		return map[string]any{"type": "array", "items": items}
+	}
+	entry := object(map[string]any{"api": map[string]any{"type": "integer", "enum": []int{1}}, "id": str, "name": str, "version": str, "description": str, "permissions": array(str), "sha256": str, "entry_sha256": str, "enabled": boolean, "ui": object(map[string]any{"entry": str, "styles": array(str), "compat_styles": array(str)})})
 	response := func(desc string, schema any) map[string]any {
 		return map[string]any{"description": desc, "content": map[string]any{"application/json": map[string]any{"schema": schema}}}
 	}
@@ -17,7 +20,7 @@ func mergeExtensionsOpenAPI(doc map[string]interface{}) {
 	params := []any{map[string]any{"name": "id", "in": "path", "required": true, "schema": str}}
 	paths["/coddy/extensions"] = map[string]any{
 		"get":  map[string]any{"operationId": "listUIExtensions", "summary": "List operator-installed UI extensions", "responses": map[string]any{"200": response("Installed packages", object(map[string]any{"items": map[string]any{"type": "array", "items": entry}})), "500": errResponse}},
-		"post": map[string]any{"operationId": "installUIExtension", "summary": "Install a ZIP as a disabled UI extension", "description": "Raw ZIP up to 8 MiB, at most 128 entries and 16 MiB expanded. Root manifest.json with api 1, id, name, version and ui.entry naming a single bundled ES module. Existing ids are refused; installation runs no JavaScript.", "requestBody": map[string]any{"required": true, "content": map[string]any{"application/zip": map[string]any{"schema": map[string]any{"type": "string", "format": "binary"}}}}, "responses": map[string]any{"201": response("Installed and disabled", entry), "400": errResponse, "409": errResponse, "413": errResponse, "500": errResponse}},
+		"post": map[string]any{"operationId": "installUIExtension", "summary": "Install a ZIP as a disabled UI extension", "description": "Raw ZIP up to 8 MiB, at most 128 entries and 16 MiB expanded. Root manifest.json with api 1, id, name, version and ui.entry naming a single bundled ES module. Optional permissions name scopes of a closed vocabulary and ui.compat_styles names CSS files of the archive applied on legacy engines. Existing ids are refused; installation runs no JavaScript.", "requestBody": map[string]any{"required": true, "content": map[string]any{"application/zip": map[string]any{"schema": map[string]any{"type": "string", "format": "binary"}}}}, "responses": map[string]any{"201": response("Installed and disabled", entry), "400": errResponse, "409": errResponse, "413": errResponse, "500": errResponse}},
 	}
 	paths["/coddy/extensions/{id}"] = map[string]any{
 		"put":    map[string]any{"operationId": "setUIExtensionEnabled", "summary": "Enable or disable the exact installed digest", "parameters": params, "description": "Enabling requires accept_risk:true. UI code runs in the application origin. Reload every affected browser to revoke previously executed code.", "requestBody": map[string]any{"required": true, "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"type": "object", "required": []string{"sha256", "enabled"}, "additionalProperties": false, "properties": map[string]any{"sha256": str, "enabled": boolean, "accept_risk": boolean}}}}}, "responses": map[string]any{"200": response("Current state", entry), "400": errResponse, "404": errResponse, "409": errResponse, "500": errResponse}},

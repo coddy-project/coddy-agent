@@ -25,6 +25,7 @@ import {
 import { MCPSection } from "./MCPSection";
 import { ExtensionsSection } from "../extensions/ExtensionsSection";
 import { ExtensionFields } from "../extensions/ExtensionFields";
+import { ExtensionSectionBody } from "../extensions/ExtensionSections";
 import { schemaFieldDesc, schemaFieldLabel } from "./schemaI18n";
 import { SettingsArraySection } from "./SettingsArraySection";
 import { SessionsManager } from "../sessions/SessionsManager";
@@ -768,6 +769,10 @@ function BuiltinSettingsSection(props: {
   const setKey = (key: string, value: unknown) =>
     setDoc({ ...doc, [key]: value });
 
+  if (section.kind === "ext_section")
+    return (
+      <ExtensionSectionBody sectionKey={section.id} doc={doc} setDoc={setDoc} />
+    );
   if (section.kind === "appearance") {
     return (
       <AppearanceThemePicker onRestartOnboarding={props.onRestartOnboarding} />

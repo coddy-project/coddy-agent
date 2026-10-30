@@ -18,6 +18,7 @@ import { AuthGate } from "./ui/auth/AuthGate";
 import { EnvScope } from "./ui/env/EnvScope";
 import { ExtensionsProvider } from "./ui/extensions/ExtensionsProvider";
 import { startActiveHealthMonitor } from "./ui/env/activeHealth";
+import { bootstrapEngineTier } from "./ui/extensions/compat";
 import { initTelegramMiniApp } from "./ui/telegram/miniApp";
 import { telegramLaunch } from "./ui/telegram/launch";
 import { registerServiceWorker } from "./ui/pwa/serviceWorker";
@@ -47,6 +48,9 @@ bootstrapUiSimpleFromCookie();
 void loadUiDefaults().then((defaults) => {
   if (!telegramLaunch()) applyServerThemeDefaults(defaults);
 });
+// The engine tier (legacy Chromium in the JCEF panels of older IDEs) decides
+// which compatibility stylesheet layer applies, before the first paint.
+bootstrapEngineTier();
 // After the theme: inside Telegram the theme follows Telegram's until the user
 // picks one. Outside Telegram this does nothing.
 initTelegramMiniApp();

@@ -30,7 +30,7 @@ func TestUIExtensionRoutes(t *testing.T) {
 	}
 	var b bytes.Buffer
 	z := zip.NewWriter(&b)
-	for name, body := range map[string]string{"manifest.json": `{"api":1,"id":"demo","name":"Demo","version":"1","ui":{"entry":"main.js"}}`, "main.js": "export function activate() {}"} {
+	for name, body := range map[string]string{"manifest.json": `{"api":1,"id":"demo","name":"Demo","version":"1","permissions":["ui.page"],"ui":{"entry":"main.js","compat_styles":["legacy.css"]}}`, "main.js": "export function activate() {}", "legacy.css": ".legacy {}"} {
 		f, err := z.Create(name)
 		if err != nil {
 			t.Fatal(err)
@@ -65,6 +65,18 @@ func TestUIExtensionRoutes(t *testing.T) {
 	}
 	if w = request("GET", url, nil); w.Code != 200 || !strings.Contains(w.Body.String(), "activate") || w.Header().Get("Content-Security-Policy") == "" {
 		t.Fatalf("asset: %d %s", w.Code, w.Body)
+	}
+	if w = request("GET", "/coddy/extensions", nil); w.Code != 200 {
+		t.Fatalf("list: %d %s", w.Code, w.Body)
+	}
+	var catalog struct {
+		Items []extensions.Entry `json:"items"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &catalog); err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Items) != 1 || strings.Join(catalog.Items[0].Permissions, ",") != "ui.page" || strings.Join(catalog.Items[0].UI.CompatStyles, ",") != "legacy.css" {
+		t.Fatalf("catalog item: %s", w.Body)
 	}
 	s.SetExtraAuthTokens([]string{"secret"})
 	if w = request("GET", "/coddy/extensions", nil); w.Code != 401 {

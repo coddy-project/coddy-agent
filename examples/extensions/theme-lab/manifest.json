@@ -1,0 +1,9 @@
+{
+  "api": 1,
+  "id": "theme-lab",
+  "name": "Theme Lab",
+  "version": "1.0.0",
+  "description": "Adjust the theme colours with sliders and watch the app repaint live.",
+  "permissions": ["ui.page"],
+  "ui": { "entry": "main.js", "styles": ["style.css"] }
+}
