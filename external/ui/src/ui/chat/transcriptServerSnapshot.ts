@@ -281,9 +281,22 @@ export function preserveUserMessageFiles(
   return merged.map((it) => {
     if (it.type !== "user_message") return it;
     const files = localFiles[userIdx++];
-    if (it.files && it.files.length > 0) return it;
     if (!files || files.length === 0) return it;
-    return { ...it, files };
+    if (!it.files || it.files.length === 0) return { ...it, files };
+    // A server file with nothing to show yet keeps the picture the row has.
+    if (it.files.every((f) => f.previewUrl || f.url)) return it;
+    return {
+      ...it,
+      files: it.files.map((f, i) => {
+        const mine = files[i];
+        if (f.previewUrl || f.url || !mine) return f;
+        return {
+          ...f,
+          ...(mine.previewUrl ? { previewUrl: mine.previewUrl } : {}),
+          ...(mine.url ? { url: mine.url } : {}),
+        };
+      }),
+    };
   });
 }
 
@@ -308,12 +321,17 @@ export function revokeSupersededUserMessagePreviews(
       it.type === "user_message",
   );
   for (let i = 0; i < Math.min(mergedUsers.length, localUsers.length); i++) {
-    const hasDurablePreview = mergedUsers[i]?.files?.some(
+    const mergedFiles = mergedUsers[i]?.files;
+    const hasDurablePreview = mergedFiles?.some(
       (file) => file.previewUrl && !file.previewUrl.startsWith("blob:"),
     );
     if (!hasDurablePreview) continue;
+    const stillShown = new Set(mergedFiles?.map((file) => file.previewUrl));
     for (const file of localUsers[i]?.files || []) {
-      if (file.previewUrl?.startsWith("blob:")) {
+      if (
+        file.previewUrl?.startsWith("blob:") &&
+        !stillShown.has(file.previewUrl)
+      ) {
         URL.revokeObjectURL(file.previewUrl);
       }
     }

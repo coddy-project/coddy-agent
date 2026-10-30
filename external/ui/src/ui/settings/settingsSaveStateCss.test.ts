@@ -89,7 +89,9 @@ test("the skeleton is tinted from the theme's text colour", () => {
 // reduced motion; the fill and the ring stay.
 test("Save over unsaved edits is highlighted as a state, and only its breathing stops under reduced motion", () => {
   const dirty = ruleBody(".settings-btn-primary.is-dirty {");
-  expect(dirty).toMatch(/background:\s*rgba\(147, 51, 234, 0\.8/);
+  expect(dirty).toMatch(
+    /background:\s*color-mix\(\s*in srgb,\s*var\(--accent\) 82%,\s*transparent\s*\)/,
+  );
   expect(dirty).toMatch(/box-shadow:\s*0 0 0 3px/);
   expect(dirty).toMatch(/animation:\s*settings-save-attention/);
   const breathe = keyframes("settings-save-attention");

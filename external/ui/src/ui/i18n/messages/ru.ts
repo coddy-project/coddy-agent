@@ -2,6 +2,9 @@
 export const messagesRu: Record<string, string> = {
   "appearance.themeLabel": "Тема",
   "appearance.themeGroupAria": "Тема",
+  "appearance.simpleLabel": "Упрощённый режим",
+  "appearance.simple.hint":
+    "Для слабых машин, в любой теме. Отключает размытие за панелями, мягкие тени, градиенты и зернистость фона, анимацию и плавные переходы, поэтому панели становятся сплошного цвета. Отметки состояния остаются - рамка фокуса, выбранная тема, точка сессии.",
   "appearance.languageLabel": "Язык",
   "appearance.locale.auto": "Авто",
   "appearance.locale.en": "English",
@@ -1630,6 +1633,7 @@ export const messagesRu: Record<string, string> = {
   "chat.subagentReadOnly.noticeUnnamed":
     "Только для чтения: транскрипт субагента.",
   "chat.subagentReadOnly.model": "Используемая модель: {model}",
+  "chat.subagentReadOnly.reasoningDefault": "по умолчанию",
   "chat.subagentReadOnly.openParent": "Открыть родительский чат",
   "chat.subagentTitle": "Субагент {name}",
   "chat.subagentTitleUnnamed": "Транскрипт субагента",
@@ -1664,7 +1668,8 @@ export const messagesRu: Record<string, string> = {
   "chat.transcriptEarlier.failed": "Более ранние сообщения не загрузились.",
   "chat.transcriptEarlier.retry": "Повторить",
   "chat.contextTitle": "Контекст",
-  "chat.contextCompactAt": "Сжимать при {percent}%",
+  "chat.contextAutoCompactAt": "Автосжатие при {percent}% · {tokens}",
+  "chat.contextAutoCompactOff": "Автосжатие выключено",
   "chat.contextCompactNow": "Сжать сейчас",
   "chat.contextCompacting": "Сжимаю…",
   "chat.contextCompactError": "Не удалось сжать контекст",
@@ -1729,6 +1734,8 @@ export const messagesRu: Record<string, string> = {
   "composer.enhanceFailed": "Не удалось улучшить промпт. Черновик не изменён.",
   "composer.attachFile": "Прикрепить файл",
   "composer.attachUnsupportedModel": "Выбранная модель не принимает вложения",
+  "composer.attachCopyFailed":
+    "Не удалось прочитать {name}, файл не прикреплён.",
   "composer.attachmentTooltip": "{fileName}\\n{label} · {size}",
   "composer.removeAttachment": "Удалить {fileName}",
   "composer.openAttachmentImage": "Открыть {fileName} крупнее",
@@ -2580,7 +2587,6 @@ export const messagesRu: Record<string, string> = {
   "tasks.running.many": "Выполняется {count} задач",
   "tasks.running.other": "Выполняется {count} задачи",
   "tasks.openAria": "Открыть фоновые задачи: {label}",
-  "tasks.header.label": "Задачи",
   "tasks.header.counts": "{running} / {total}",
   "tasks.header.aria": "Фоновые задачи: выполняется {running}, всего {total}",
   "tasks.header.ariaEmpty": "Фоновые задачи: пока нет",

@@ -147,7 +147,6 @@ function HeaderViews(props: {
 
   const views: {
     id: ViewId;
-    label: string;
     name: string;
     pressed: boolean;
     run: () => void;
@@ -155,7 +154,6 @@ function HeaderViews(props: {
   if (props.onOpenFiles) {
     views.push({
       id: "files",
-      label: t("files.title"),
       name: t("chat.views.filesTitle", { key: filesShortcutLabel() }),
       pressed: props.filesOpen,
       run: props.onOpenFiles,
@@ -163,7 +161,6 @@ function HeaderViews(props: {
   }
   views.push({
     id: "tasks",
-    label: t("tasks.header.label"),
     name: tasksName,
     pressed: props.tasksOpen,
     run: props.onOpenTasks,
@@ -182,12 +179,10 @@ function HeaderViews(props: {
             type="button"
             className={[
               "chat-view-btn",
-              view.id === "tasks"
-                ? "chat-view-btn--tasks"
-                : "chat-view-btn--icon",
+              view.id === "tasks" ? "chat-view-btn--tasks" : "",
+              view.id === "files" || total === 0 ? "chat-view-btn--icon" : "",
               view.pressed ? "is-active" : "",
               view.id === "tasks" && live ? "is-running" : "",
-              view.id === "tasks" && total > 0 ? "has-tasks" : "",
             ]
               .filter(Boolean)
               .join(" ")}
@@ -196,10 +191,9 @@ function HeaderViews(props: {
             aria-label={view.name}
             onClick={view.run}
           >
-            {/* One line of text: the dot sits on it with vertical-align:
-                middle, the middle of the lowercase letters in any font. The
-                names are in the tooltip; only the tasks word shows, until
-                there are counts. */}
+            {/* A square with its icon or dot alone until there are counts, then
+                one line of text: the dot sits on it with vertical-align:
+                middle. The names are in the tooltip. */}
             <span className="chat-view-face">
               {view.id === "tasks" ? (
                 <span
@@ -209,11 +203,6 @@ function HeaderViews(props: {
               ) : (
                 <FilesIcon />
               )}
-              {view.id === "tasks" ? (
-                <span className="chat-view-label" aria-hidden="true">
-                  {view.label}
-                </span>
-              ) : null}
               {view.id === "tasks" && total > 0 ? (
                 <span
                   className="chat-view-count"

@@ -42,6 +42,9 @@ type UILogEntry struct {
 type GenerationSummary struct {
 	OutputTokens    int     `json:"outputTokens"`
 	TokensPerSecond float64 `json:"tokensPerSecond"`
+	// ElapsedMs is how long the turn had run when it ended, the clock its live
+	// line showed; absent on a row saved before it was kept.
+	ElapsedMs int64 `json:"elapsedMs,omitempty"`
 }
 
 // GenerationProgress replays a saved average through the same event as live
@@ -50,6 +53,7 @@ func (row UILogEntry) GenerationProgress() acp.TurnProgressUpdate {
 	return acp.TurnProgressUpdate{
 		SessionUpdate:   acp.UpdateTypeTurnProgress,
 		StartedAt:       strings.TrimPrefix(row.ID, "generation_"),
+		ElapsedMs:       row.Generation.ElapsedMs,
 		OutputTokens:    row.Generation.OutputTokens,
 		TokensPerSecond: &row.Generation.TokensPerSecond,
 		Completed:       true,
@@ -66,7 +70,11 @@ func (s *State) AppendGenerationSummary(startedAt time.Time, turn, tokens int, s
 	s.UILog = append(s.UILog, UILogEntry{
 		ID: id, Level: UILogLevelNotice, Message: "Generation complete",
 		UserTurnIndex: max(1, turn), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
-		Generation: &GenerationSummary{OutputTokens: tokens, TokensPerSecond: speed},
+		Generation: &GenerationSummary{
+			OutputTokens:    tokens,
+			TokensPerSecond: speed,
+			ElapsedMs:       max(0, time.Since(startedAt).Milliseconds()),
+		},
 	})
 	s.mu.Unlock()
 	s.touchPersist()

@@ -654,9 +654,11 @@ async function openPage({
   theme = "dark",
   from = "",
   using = browser,
+  touch = false,
 } = {}) {
   const context = await using.newContext({
     viewport: { width, height },
+    ...(touch ? { hasTouch: true, isMobile: ENGINE === "chromium" } : {}),
     deviceScaleFactor: 1,
     colorScheme: theme === "light" ? "light" : "dark",
     locale: "en-US",
@@ -735,9 +737,9 @@ async function writeReleaseNotes(page) {
 }
 
 /**
- * The view buttons of the chat header as the reader sees them: which, with what
- * word shown (the Tasks one before the first task, none for Files), what
- * tooltip, pressed or not, where, and how big the icon is.
+ * The view buttons of the chat header as the reader sees them: which, what
+ * tooltip, pressed or not, where, how big the icon is, and whether what stands
+ * in a button with no text is centred in it.
  */
 const viewButtons = (page) =>
   page.$$eval("[data-testid=chat-views] button", (buttons) => {
@@ -747,23 +749,16 @@ const viewButtons = (page) =>
     const title = document.querySelector(".chat-title").getBoundingClientRect();
     return buttons.map((b) => {
       const r = b.getBoundingClientRect();
-      const label = b.querySelector(".chat-view-label");
-      const shown = !!label && label.getBoundingClientRect().width > 0;
       const glyph = b.querySelector("svg.chat-view-icon, .bgtask-dot");
       const icon = glyph.getBoundingClientRect();
       const count = b.querySelector(".chat-view-count");
       return {
         id: b.getAttribute("data-testid"),
-        label: shown ? label.textContent : "",
-        // The name is a run of text inside the button: whole when it ends
-        // inside the button's box (an inline span has no client width to
-        // compare its scroll width with in every engine).
-        labelFits:
-          !shown ||
-          (() => {
-            const l = label.getBoundingClientRect();
-            return l.left >= r.left - 0.5 && l.right <= r.right + 0.5;
-          })(),
+        text: b.textContent,
+        centred:
+          Math.abs(icon.left + icon.width / 2 - (r.left + r.width / 2)) <=
+            0.5 &&
+          Math.abs(icon.top + icon.height / 2 - (r.top + r.height / 2)) <= 0.5,
         tip: b.parentElement.querySelector(".chat-view-tip")?.textContent || "",
         dot: glyph.classList.contains("bgtask-dot"),
         count: count ? count.textContent : "",
@@ -801,7 +796,7 @@ function iconOffsets(page) {
     for (const item of document.querySelectorAll(
       ".chat-view-btn, .workspace-bar-item",
     )) {
-      const label = item.querySelector(".chat-view-label, .workspace-bar-text");
+      const label = item.querySelector(".chat-view-count, .workspace-bar-text");
       const icon = item.querySelector("svg, .bgtask-dot");
       if (!label || !icon || label.getBoundingClientRect().width === 0)
         continue;
@@ -1109,15 +1104,15 @@ async function scenarioViews() {
     JSON.stringify(buttons.map((b) => b.id)),
   );
   check(
-    "on a desktop Files is an 18px icon alone in a 36px square, Tasks the dot and its word",
-    buttons.map((b) => b.label).join(",") === ",Tasks" &&
-      buttons.every((b) => b.labelFits) &&
+    "on a desktop Files is an 18px icon and Tasks the dot, each alone and centred in a 36px square",
+    buttons.every(
+      (b) => b.text === "" && b.centred && Math.round(b.box.width) === 36,
+    ) &&
       buttons[0].icon === 18 &&
-      Math.round(buttons[0].box.width) === 36 &&
       !buttons[0].dot &&
       buttons[1].dot,
     JSON.stringify(
-      buttons.map((b) => [b.label, b.labelFits, b.icon, b.dot, b.count]),
+      buttons.map((b) => [b.text, b.centred, b.icon, b.dot, b.box.width]),
     ),
   );
   check(
@@ -1235,14 +1230,41 @@ async function scenarioViews() {
   );
   await a.page.mouse.move(5, 400);
 
-  // The Tasks dot beside its word, the repository and the branch on the
-  // plate; the Files icon stands alone, with no word to sit on.
+  // The repository and the branch on the plate; the Files icon and the Tasks
+  // dot stand alone until there are counts, with no word to sit on.
   const offsets = await iconOffsets(a.page);
   check(
     "every icon beside a word sits on the middle of its lowercase letters, the plate's a pixel above it",
-    offsets.length >= 3 && offsets.every(iconSitsRight),
+    offsets.length >= 2 && offsets.every(iconSitsRight),
     JSON.stringify(offsets),
   );
+
+  // The tooltip of the context ring opens upward from inside the composer card,
+  // and the card's blur makes it a layer of its own: the plate joined to its top
+  // used to paint over the tip. A tip takes no pointer, so it takes one to be read.
+  await a.page.locator(".composer-context-tip-host").first().hover();
+  await a.page.waitForTimeout(250);
+  const overPlate = await a.page.evaluate(() => {
+    const tip = document.querySelector(".composer-context-tip");
+    const plate = document
+      .querySelector(".workspace-bar")
+      .getBoundingClientRect();
+    tip.style.pointerEvents = "auto";
+    const r = tip.getBoundingClientRect();
+    const at = document.elementFromPoint(r.left + r.width / 2, r.top + 4);
+    tip.style.pointerEvents = "";
+    return {
+      overlaps: r.top < plate.bottom,
+      top: !!at && tip.contains(at),
+      at: at ? String(at.className) : "",
+    };
+  });
+  check(
+    "the context ring's tooltip stands over the plate it opens across",
+    overPlate.overlaps && overPlate.top,
+    JSON.stringify(overPlate),
+  );
+  await a.page.mouse.move(5, 400);
 
   // Edits: their one view is a window over the chat, opened by git's count.
   await a.page.getByTestId("workspace-bar-edits").click();
@@ -1828,6 +1850,96 @@ async function scenarioNoEdits() {
   await c.context.close();
 }
 
+/**
+ * Real touches: :hover stays where a touch landed, and on a phone the close
+ * control of the Tasks panel lies right over the Tasks button of the header. A
+ * tooltip opened by :hover used to stay up after the tap and come back once the
+ * panel had gone.
+ */
+async function scenarioTouch(sid) {
+  const t = await openPage({ width: 390, height: 844, touch: true });
+  const { page, context } = t;
+  await page.goto(`${RELAY}/#/s/${sid}`);
+  const tasks = page.getByTestId("chat-views-tasks");
+  await tasks.waitFor({ timeout: 15000 });
+  const tip = () =>
+    tasks.evaluate(
+      (b) =>
+        getComputedStyle(b.parentElement.querySelector(".chat-view-tip"))
+          .opacity,
+    );
+  await tasks.tap();
+  await page.getByTestId("bgtasks-panel").waitFor();
+  await page.waitForTimeout(300);
+  check("a tap on a view button leaves no tooltip up", (await tip()) === "0");
+  await page.getByTestId("bgtasks-panel-close").tap();
+  await until(
+    "the Tasks panel gone",
+    async () => (await page.getByTestId("bgtasks-panel").count()) === 0,
+    3000,
+  );
+  check("the first tap on the panel's close control closes it", true);
+  await page.waitForTimeout(300);
+  check(
+    "no tooltip comes back when the panel has gone from over the button",
+    (await tip()) === "0",
+  );
+  // History ends 30% above the foot of the screen, and a tap below it goes back
+  // to the conversation. A folder's whole row folds it, up to the plus.
+  await page.getByTestId("nav-history").tap();
+  const drawer = page.locator(".sessions.drawer");
+  await drawer.waitFor();
+  await page.waitForTimeout(300);
+  const box = await drawer.boundingBox();
+  check(
+    "on a phone History ends 30% above the foot of the screen",
+    Math.abs(box.y + box.height - 844 * 0.7) <= 2,
+    JSON.stringify(box),
+  );
+  const bar = page.locator(".session-group-bar").first();
+  if (await bar.count()) {
+    const row = await bar.boundingBox();
+    const head = await bar.locator(".session-group-head").boundingBox();
+    const plus = bar.locator(".session-group-new");
+    const plusBox = (await plus.count()) ? await plus.boundingBox() : null;
+    check(
+      "the heading of a group is a fold target across its row",
+      head.width >= row.width - (plusBox ? plusBox.width : 0) - 8,
+      JSON.stringify({ row, head, plusBox }),
+    );
+    if (plusBox) {
+      check(
+        "the plus of a group is a box a finger can hit",
+        plusBox.width >= 34 && plusBox.height >= 32,
+        JSON.stringify(plusBox),
+      );
+    }
+    const toggle = bar.locator(".session-group-head");
+    const before = await toggle.getAttribute("aria-expanded");
+    await page.touchscreen.tap(
+      head.x + head.width - 6,
+      head.y + head.height / 2,
+    );
+    await page.waitForTimeout(200);
+    check(
+      "a tap at the far end of the heading folds the group",
+      (await toggle.getAttribute("aria-expanded")) !== before,
+    );
+    await page.touchscreen.tap(
+      head.x + head.width - 6,
+      head.y + head.height / 2,
+    );
+  }
+  await page.touchscreen.tap(195, 844 * 0.85);
+  await until(
+    "History put away by a tap below it",
+    async () => (await drawer.count()) === 0,
+    3000,
+  );
+  check("a tap below History goes back to the conversation", true);
+  await context.close();
+}
+
 async function scenarioPhone(sid) {
   const p = await openPage({ width: 390, height: 844 });
   await p.page.goto(`${RELAY}/#/s/${sid}/files?path=src%2Fmain.go&line=7`);
@@ -1888,14 +2000,15 @@ async function scenarioPhone(sid) {
           Math.round(b.box.height) === 40 &&
           b.box.right <= 390,
       ) &&
-      pf.label === "" &&
+      pf.text === "" &&
       pf.icon === 18 &&
       Math.round(pf.box.width) === 40 &&
       pt.dot &&
-      pt.label === "Tasks" &&
+      pt.text === "" &&
+      Math.round(pt.box.width) === 40 &&
       new Set(phoneButtons.map((b) => Math.round(b.box.top))).size === 1,
     JSON.stringify(
-      phoneButtons.map((b) => [b.id, b.label, b.icon, b.dot, b.box]),
+      phoneButtons.map((b) => [b.id, b.text, b.icon, b.dot, b.box]),
     ),
   );
   await p.page.getByTestId("chat-views-files").click();
@@ -2183,25 +2296,24 @@ async function scenarioWidths(sid) {
       const row = await viewButtons(w.page);
       const height = width < 1200 ? 42 : 36;
       check(
-        `${lang} ${width}px: the view buttons sit beside the title in one row, Files a square, the Tasks word whole`,
+        `${lang} ${width}px: the view buttons sit beside the title in one row, two squares`,
         row.length === 2 &&
           row.every(
             (b) =>
               b.inHeader &&
               b.besideTitle &&
-              b.labelFits &&
+              b.text === "" &&
+              b.centred &&
+              Math.round(b.box.width) === height &&
               Math.round(b.box.height) === height,
           ) &&
-          row[0].label === "" &&
           row[0].icon === 18 &&
-          Math.round(row[0].box.width) === height &&
-          row[1].label !== "" &&
           row[1].dot &&
           new Set(row.map((b) => Math.round(b.box.top))).size === 1,
         JSON.stringify(
           row.map((b) => [
-            b.label,
-            b.labelFits,
+            b.text,
+            b.centred,
             b.icon,
             Math.round(b.box.height),
             b.inHeader,
@@ -2209,10 +2321,26 @@ async function scenarioWidths(sid) {
           ]),
         ),
       );
+      await w.page.getByTestId("chat-views-tasks").click();
+      const taskHead = await w.page
+        .locator(".bgtasks-panel .sessions-head")
+        .boundingBox();
+      await w.page.getByTestId("bgtasks-panel-close").click();
+      await w.page.keyboard.press("Control+Shift+F");
+      await win.waitFor();
+      const fileHead = await win.locator(".files-header").boundingBox();
+      await w.page.keyboard.press("Escape");
+      await until("the window put away", async () => (await win.count()) === 0);
+      check(
+        `${lang} ${width}px: the heads of the Tasks panel and the Files window are one height`,
+        Math.round(taskHead.height) === 58 &&
+          Math.round(fileHead.height) === 58,
+        JSON.stringify([taskHead.height, fileHead.height]),
+      );
       const iconRow = await iconOffsets(w.page);
       check(
         `${lang} ${width}px: the icons sit on the middle of their words' lowercase letters`,
-        iconRow.length >= 2 && iconRow.every(iconSitsRight),
+        iconRow.length >= 1 && iconRow.every(iconSitsRight),
         JSON.stringify(iconRow),
       );
       await w.context.close();
@@ -3438,6 +3566,7 @@ try {
   await scenarioDocsClose();
   const sid = await scenarioViews();
   await scenarioPhone(sid);
+  await scenarioTouch(sid);
   await scenarioLongFile(sid);
   await scenarioTabStrip(sid);
   await scenarioManyEdits(sid);

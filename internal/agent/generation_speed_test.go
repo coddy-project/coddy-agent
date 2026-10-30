@@ -20,12 +20,17 @@ func TestGenerationSpeedWindows(t *testing.T) {
 	for n := 1; n <= 800; n++ {
 		speed.add(n, start.Add(time.Duration(n)*100*time.Millisecond))
 		switch n {
-		case 199, 201, 499:
+		case 199:
 			if speed.current != nil {
 				t.Fatalf("speed visible before window filled at %d tokens", n)
 			}
-		case 200:
+		case 200, 201:
 			requireSpeed(t, speed.current, 200/19.9)
+		case 499:
+			// The 500-token window is not full yet, so the 200-token one still speaks.
+			if speed.current == nil {
+				t.Fatal("speed went away between the two windows")
+			}
 		case 500:
 			requireSpeed(t, speed.current, 500/49.9)
 		case 600, 800:
@@ -129,5 +134,19 @@ func TestGenerationSpeedDisplayChangesAtMostEveryFiveSeconds(t *testing.T) {
 	speed.add(700, start.Add(6*time.Second))
 	if speed.current == nil || *speed.current == before {
 		t.Fatal("display did not refresh after five seconds")
+	}
+}
+
+// Most model calls of an agent stop short of 500 tokens: once a call has written
+// 200, its speed stays on the line for the rest of the call.
+func TestGenerationSpeedStaysOnceTheFirstWindowFilled(t *testing.T) {
+	var speed generationSpeed
+	start := time.Unix(100, 0)
+	speed.begin()
+	for n := 1; n <= 520; n++ {
+		speed.add(n, start.Add(time.Duration(n)*100*time.Millisecond))
+		if n >= 200 && speed.current == nil {
+			t.Fatalf("no speed at %d tokens", n)
+		}
 	}
 }

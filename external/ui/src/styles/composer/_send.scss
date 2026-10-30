@@ -27,8 +27,8 @@
 }
 
 .composer-send-play {
-  background: rgba(147, 51, 234, 0.25);
-  border-color: rgba(147, 51, 234, 0.35);
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
   color: mix-text(95%);
 }
 

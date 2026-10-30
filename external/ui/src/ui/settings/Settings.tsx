@@ -1,3 +1,4 @@
+import { motionIsReduced } from "../theme/uiSimple";
 import {
   useCallback,
   useEffect,
@@ -171,13 +172,6 @@ function takesTypedText(node: Element | null): boolean {
     );
   }
   return node instanceof HTMLElement && node.isContentEditable;
-}
-
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
 }
 
 /** Whether the address keeps the history sidebar open (`?history=1`). */
@@ -532,7 +526,7 @@ export function Settings(props: {
     }
     return revealWhenReady(root, trip.entry, {
       touchOnly: snapshotTouchOnly(),
-      reducedMotion: prefersReducedMotion(),
+      reducedMotion: motionIsReduced(),
     });
   }, [trip]);
 

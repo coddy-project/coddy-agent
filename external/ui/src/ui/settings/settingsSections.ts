@@ -323,6 +323,10 @@ export const SETTINGS_TEXTS = {
   },
   modelProvider: { label: "settings.field.provider" },
   appearanceTheme: { label: "appearance.themeLabel" },
+  appearanceSimple: {
+    label: "appearance.simpleLabel",
+    desc: "appearance.simple.hint",
+  },
   appearanceLanguage: { label: "appearance.languageLabel" },
   appearanceNotifications: { label: "appearance.notificationsLabel" },
   sessionsManage: {

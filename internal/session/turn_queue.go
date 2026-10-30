@@ -190,6 +190,7 @@ func (s *State) OpenMessageQueue() {
 		s.queue = keepAfterTurn(s.queue)
 	}
 	s.queueOpen = true
+	s.queueRetained = nil
 	s.bumpQueueLocked()
 	s.queueMu.Unlock()
 	s.notifyQueue()
@@ -204,9 +205,16 @@ func (s *State) OpenMessageQueue() {
 // a second time.
 func (s *State) CloseMessageQueue() []QueuedMessage {
 	s.queueMu.Lock()
-	left := takeSteer(s.queue)
+	var left, kept []QueuedMessage
+	for _, q := range s.queue {
+		if q.Mode == QueueModeAfterTurn || s.queueRetained[q.ID] {
+			kept = append(kept, q)
+		} else {
+			left = append(left, q)
+		}
+	}
 	changed := s.queueOpen || len(left) > 0
-	s.queue = keepAfterTurn(s.queue)
+	s.queue = kept
 	s.queueOpen = false
 	if changed {
 		s.bumpQueueLocked()
@@ -250,7 +258,11 @@ func (s *State) EnqueueMessageWithMode(text string, mode QueueMode, parts []acp.
 	if !s.queueOpen {
 		return QueuedMessage{}, ErrNoActiveTurn
 	}
-	if len(s.queue) >= MaxQueuedMessages {
+	waiting := len(s.queue)
+	if c := s.queueInterrupt; c != nil && c.pending != nil {
+		waiting += len(c.pending.rows)
+	}
+	if waiting >= MaxQueuedMessages {
 		return QueuedMessage{}, ErrQueueFull
 	}
 	msg = QueuedMessage{
@@ -365,6 +377,10 @@ func (s *State) ClearQueuedMessages() []QueuedMessage {
 // that follows them.
 func (s *State) TakeQueuedMessages() []QueuedMessage {
 	s.queueMu.Lock()
+	if c := s.queueInterrupt; c != nil && c.pending != nil {
+		s.queueMu.Unlock()
+		return nil
+	}
 	taken := takeSteer(s.queue)
 	s.queue = keepAfterTurn(s.queue)
 	s.bumpQueueLocked()
@@ -394,6 +410,10 @@ func (s *State) TakeQueuedMessages() []QueuedMessage {
 // is taken as what it is now, never skipped.
 func (s *State) TakeQueuedMessagesOrClose() ([]QueuedMessage, bool) {
 	s.queueMu.Lock()
+	if c := s.queueInterrupt; c != nil && c.pending != nil {
+		s.queueMu.Unlock()
+		return nil, false
+	}
 	taken := takeSteer(s.queue)
 	switch {
 	case len(taken) > 0:

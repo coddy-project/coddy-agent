@@ -462,13 +462,13 @@
 }
 
 .permission-prompt-btn--allow {
-  background: rgba(147, 51, 234, 0.22);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
   border-color: rgba(167, 139, 250, 0.45);
   color: var(--coddy-skill-chip-text);
 }
 
 .permission-prompt-btn--allow:hover:not(:disabled) {
-  background: rgba(147, 51, 234, 0.34);
+  background: color-mix(in srgb, var(--accent) 34%, transparent);
   border-color: rgba(196, 181, 253, 0.55);
 }
 

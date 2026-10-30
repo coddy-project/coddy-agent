@@ -96,26 +96,11 @@
   overflow-y: auto;
 }
 
+/* The toggle hangs from the prompt's lower edge past the box's rounded corner,
+   as it does under every tool box (.tool-overflow-toggle): flush left it covered
+   that corner and the box seemed to lose it. */
 .spawn-agent-prompt-toggle {
-  margin-left: 0;
-}
-
-.spawn-agent-transcript {
-  display: inline-flex;
-  margin-top: 10px;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  color: var(--accent);
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.spawn-agent-transcript:disabled {
-  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
-  cursor: not-allowed;
+  margin-left: 8px;
 }
 
 .coddy-tool-call-body--connected-result > .spawn-agent-card {

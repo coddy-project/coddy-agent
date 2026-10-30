@@ -26,17 +26,16 @@ type helperFeatureState struct {
 	orphan    string
 	bystander string
 	handoff   bool
-	restart   bool
 	started   []string
 	out       bytes.Buffer
 
-	restoreProbe func(string) bool
+	restoreProbe func(string) (bool, error)
 	restoreStart func(string, ...string) error
 }
 
 func (s *helperFeatureState) reset() {
 	if s.restoreProbe != nil {
-		restartProbe = s.restoreProbe
+		handoffProbe = s.restoreProbe
 	}
 	if s.restoreStart != nil {
 		startProcess = s.restoreStart
@@ -52,14 +51,13 @@ func (s *helperFeatureState) reset() {
 	*s = helperFeatureState{}
 }
 
-// stubRestart replaces the two calls that reach outside the process, so the
-// scenarios can watch how the helper hands the restart over without starting a
-// real executable.
-func (s *helperFeatureState) stubRestart() {
-	s.restoreProbe, s.restoreStart = restartProbe, startProcess
+// stubHandoff replaces the two calls that reach outside the process, so the
+// scenarios can watch what the helper starts without starting a real
+// executable.
+func (s *helperFeatureState) stubHandoff() {
+	s.restoreProbe, s.restoreStart = handoffProbe, startProcess
 	s.handoff = true
-	s.restart = true
-	restartProbe = func(string) bool { return s.handoff }
+	handoffProbe = func(string) (bool, error) { return s.handoff, nil }
 	startProcess = func(target string, args ...string) error {
 		s.started = append(s.started, strings.Join(append([]string{target}, args...), " "))
 		return nil
@@ -80,7 +78,7 @@ func (s *helperFeatureState) stagedUpdateNextToTheExecutable() error {
 	if err := os.WriteFile(s.staged, []byte(helperFeatureStaged), 0o755); err != nil {
 		return err
 	}
-	s.stubRestart()
+	s.stubHandoff()
 	return nil
 }
 
@@ -89,15 +87,9 @@ func (s *helperFeatureState) stagedReleasePredatesTheHandoff() error {
 	return nil
 }
 
-func (s *helperFeatureState) updateSkipsTheRestart() error {
-	s.restart = false
-	return nil
-}
-
 func (s *helperFeatureState) helperInstallsTheUpdate() error {
 	req := windowsUpdateRequest{
 		ParentPID:  os.Getpid(),
-		Restart:    s.restart,
 		StagedPath: s.staged,
 		TargetPath: s.target,
 	}
@@ -128,32 +120,19 @@ func (s *helperFeatureState) noLeftoversRemain() error {
 	return nil
 }
 
-func (s *helperFeatureState) restartCarriesTheHelperPath() error {
-	if len(s.started) != 1 {
-		return fmt.Errorf("started %d processes, want 1: %v", len(s.started), s.started)
-	}
-	if !strings.Contains(s.started[0], restartAfterUpdateCommand) || !strings.Contains(s.started[0], helperPrefix) {
-		return fmt.Errorf("restart command = %q", s.started[0])
-	}
-	return nil
-}
-
 func (s *helperFeatureState) cleanupHappensWithoutARestart() error {
 	if len(s.started) != 1 {
 		return fmt.Errorf("started %d processes, want 1: %v", len(s.started), s.started)
 	}
-	if !strings.Contains(s.started[0], helperPrefix) || !strings.Contains(s.started[0], "--no-restart") {
+	if !strings.Contains(s.started[0], afterUpdateCommand) || !strings.Contains(s.started[0], helperPrefix) || !strings.Contains(s.started[0], "--no-restart") {
 		return fmt.Errorf("cleanup command = %q, want a helper deletion that does not start Coddy", s.started[0])
 	}
 	return nil
 }
 
-func (s *helperFeatureState) restartOmitsTheHandoff() error {
-	if len(s.started) != 1 {
-		return fmt.Errorf("started %d processes, want 1: %v", len(s.started), s.started)
-	}
-	if s.started[0] != s.target {
-		return fmt.Errorf("restart command = %q, want a plain %q", s.started[0], s.target)
+func (s *helperFeatureState) startsNothing() error {
+	if len(s.started) != 0 {
+		return fmt.Errorf("started %v, want nothing", s.started)
 	}
 	return nil
 }
@@ -205,13 +184,11 @@ func TestWindowsUpdateHelperFeature(t *testing.T) {
 				return ctx, nil
 			})
 			sc.Step(`^a staged Coddy update next to the installed executable$`, s.stagedUpdateNextToTheExecutable)
-			sc.Step(`^the staged release does not understand the restart handoff$`, s.stagedReleasePredatesTheHandoff)
-			sc.Step(`^the update is installed without starting Coddy again$`, s.updateSkipsTheRestart)
+			sc.Step(`^the staged release does not understand the cleanup handoff$`, s.stagedReleasePredatesTheHandoff)
 			sc.Step(`^the update helper installs it$`, s.helperInstallsTheUpdate)
 			sc.Step(`^the installed executable is the staged one$`, s.installedExecutableIsTheStagedOne)
 			sc.Step(`^the helper leaves no staging or backup files behind$`, s.noLeftoversRemain)
-			sc.Step(`^the helper hands the restart the path of the helper to delete$`, s.restartCarriesTheHelperPath)
-			sc.Step(`^the helper starts Coddy without the handoff$`, s.restartOmitsTheHandoff)
+			sc.Step(`^the helper starts nothing$`, s.startsNothing)
 			sc.Step(`^the helper hands the cleanup over without starting Coddy$`, s.cleanupHappensWithoutARestart)
 			sc.Step(`^an update helper left in the system temporary directory$`, s.orphanedHelperInTemp)
 			sc.Step(`^Coddy sweeps helpers from earlier updates$`, s.coddySweepsOldHelpers)

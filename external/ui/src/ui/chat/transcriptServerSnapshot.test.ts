@@ -284,6 +284,98 @@ describe("preserveUserMessageFiles", () => {
     });
   });
 
+  it("keeps a local picture for a server file that has nothing to show yet", () => {
+    const server: TranscriptItem[] = [
+      {
+        ...u("server", "hello"),
+        files: [
+          {
+            name: "first.png",
+            mimeType: "image/png",
+            previewUrl: "/coddy/sessions/sess_a/assets/first.png/thumbnail",
+          },
+          { name: "second.png", mimeType: "application/octet-stream" },
+        ],
+      },
+    ];
+    const local: TranscriptItem[] = [
+      {
+        ...u("local", "hello"),
+        files: [
+          {
+            name: "first.png",
+            mimeType: "image/png",
+            previewUrl: "blob:first",
+          },
+          {
+            name: "second.png",
+            mimeType: "image/png",
+            previewUrl: "blob:second",
+          },
+        ],
+      },
+    ];
+    const merged = preserveUserMessageFiles(server, local)[0];
+    expect(merged?.type === "user_message" ? merged.files : []).toEqual([
+      {
+        name: "first.png",
+        mimeType: "image/png",
+        previewUrl: "/coddy/sessions/sess_a/assets/first.png/thumbnail",
+      },
+      {
+        name: "second.png",
+        mimeType: "application/octet-stream",
+        previewUrl: "blob:second",
+      },
+    ]);
+  });
+
+  it("does not revoke a local picture the merged row still shows", () => {
+    const revokeObjectURL = vi.fn();
+    const original = URL.revokeObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+    try {
+      const merged: TranscriptItem[] = [
+        {
+          ...u("server", "hello"),
+          files: [
+            {
+              name: "first.png",
+              mimeType: "image/png",
+              previewUrl: "/coddy/sessions/sess_a/assets/first.png/thumbnail",
+            },
+            {
+              name: "second.png",
+              mimeType: "image/png",
+              previewUrl: "blob:second",
+            },
+          ],
+        },
+      ];
+      const local: TranscriptItem[] = [
+        {
+          ...u("local", "hello"),
+          files: [
+            {
+              name: "first.png",
+              mimeType: "image/png",
+              previewUrl: "blob:first",
+            },
+            {
+              name: "second.png",
+              mimeType: "image/png",
+              previewUrl: "blob:second",
+            },
+          ],
+        },
+      ];
+      revokeSupersededUserMessagePreviews(merged, local);
+      expect(revokeObjectURL.mock.calls).toEqual([["blob:first"]]);
+    } finally {
+      URL.revokeObjectURL = original;
+    }
+  });
+
   it("revokes an optimistic blob after the persisted thumbnail arrives", () => {
     const revokeObjectURL = vi.fn();
     const original = URL.revokeObjectURL;

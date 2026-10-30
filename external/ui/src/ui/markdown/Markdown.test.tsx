@@ -332,3 +332,34 @@ test("with breaks code keeps its newlines", () => {
   // The paragraph's only newline is inside the code span.
   expect(container.querySelectorAll("p br")).toHaveLength(0);
 });
+
+test("a numbered list makes room for its longest number", () => {
+  const digitsOf = (text: string) => {
+    const { container, unmount } = render(<Markdown text={text} />);
+    const value = container
+      .querySelector("ol")
+      ?.style.getPropertyValue("--md-ol-digits");
+    unmount();
+    return value;
+  };
+  // One digit fits the list's margin as it is.
+  expect(digitsOf("1. one\n2. two")).toBe("");
+  // The last number decides, wherever the list starts.
+  expect(digitsOf("9. nine\n10. ten")).toBe("2");
+  expect(digitsOf("220. first\n221. second")).toBe("3");
+});
+
+test("list markers stay inside the text column, however long the number", () => {
+  const css = stylesSource().replace(/\s+/g, " ");
+  expect(css).toContain(
+    ".md :where(ol) { margin-left: calc(18px + (var(--md-ol-digits, 1) - 1) * 1ch); }",
+  );
+});
+
+test("a message ending in a list ends as one ending in a paragraph", () => {
+  const css = stylesSource().replace(/\s+/g, " ");
+  // The last item's own margin would come through the list's.
+  expect(css).toContain(
+    ".md > :where(ul, ol):last-child, .md > :where(ul, ol):last-child > :where(li:last-child) { margin-bottom: 0; }",
+  );
+});

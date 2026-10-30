@@ -2447,7 +2447,7 @@ func openAPISpec() map[string]interface{} {
 						"A **user** row that opened a turn nobody typed - finished background tasks the model started woke the agent (**notify_on_finish**, on by default) - carries **`background_wake`** **`{tasks: [{id, kind, label, agent, status, exit_code, duration_ms, error}]}`**; its **content** is the instruction the model read, and a UI does not render the row as a message from the user (the bundled UI shows nothing for it: the turn reads as the agent carrying on). A **user** row the session supervisor opened a goal turn with carries **`goal_turn`** **`{kind, index, limit, objective, reason, remaining}`**; a UI shows it as a one-line goal row, not as a message from the user. The answer also carries **goal**, the session goal in the shape of **GET /coddy/sessions/{id}/goal**, and, while the session keeps a todo checklist, **todoPlan** **`[{content, status, priority}]`**, the list **GET /coddy/sessions/{id}/plan** returns, in its order (the bundled UI shows it under the newest message; a session without a list carries no key). " +
 						"An **assistant** row a model of type acp wrote carries **`agent_tools`** **`[{id, title, kind, status, input, output, output_lines}]`**, the tool calls the agent behind it ran on its own side: a UI draws them as tool rows (the bundled UI puts them before the row's text), and the whole output of each is **GET /coddy/sessions/{id}/tool-calls/{toolCallId}**. " +
 						"A memory subagent run leaves nothing in this payload: its record is the **agent** task of kind agent with **`agent.system`** true under **GET /coddy/sessions/{id}/background-tasks**, and its transcript is the child session named there. " +
-						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors and generation summaries (**generation** with **outputTokens** and **tokensPerSecond**) keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
+						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors and generation summaries (**generation** with **outputTokens**, **tokensPerSecond** and **elapsedMs**, how long the turn ran) keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
 						"**messagesRev** is the revision of the history these **messages** were read at; pass it to **GET /coddy/sessions/{id}/composer-stream** as **`?since_rev=`** to be replayed only the frames of a running turn this transcript does not already hold. " +
 						"Immediately after **POST /coddy/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows. " +
 						"For a child session spawned by **spawn_agent** the payload also carries **readOnly** **true** and **subagent** **`{parentSessionId, name, taskId}`**: the transcript is served from the live child while it runs and from its bundle afterwards, and no route accepts a prompt for it (**409**), so a UI replaces the composer with a notice linking to the parent chat. " +
@@ -3516,8 +3516,10 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/coddy/sessions/{id}/cancel": map[string]interface{}{
 				"post": map[string]interface{}{
-					"summary":     "Cancel active generation for a session",
-					"description": "Best-effort cancellation of the current ReAct or direct completion turn. Writes a cross-process cancel signal for persisted bundles so another **coddy** process holding the turn can observe cooperative cancel. When assistant tokens were already streamed, the server persists that partial **assistant** message for the interrupted turn before the turn ends. Optional header **X-Coddy-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
+					"summary": "Cancel active generation for a session",
+					"description": "Best-effort cancellation of the current ReAct or direct completion turn. The optional JSON body takes **continue_queue** (default **false**). With **true**, an eligible in-process ordinary profile prompt reserves every pending queue row in FIFO order, including duplicates and images, interrupts only its current child run, and continues under the same root admission. An accepted reservation returns **queueContinued: true** without writing a disk cancel signal; this acknowledges acceptance, not completion of the continuation. " +
+						"An empty queue, a pending cancellation or an unsupported admission falls back to legacy full cancellation. Direct completions, explicit plan runs and permission-resume admissions do not support queue interruption. Legacy cancellation drops pending steer rows and retains after_turn rows without auto-starting them; it returns no **queueContinued** field and writes a cross-process cancel signal for persisted bundles so another **coddy** process holding the turn can observe cooperative cancel. Provider failures do not by themselves request continuation. " +
+						"An empty body, **null** or **{}** keeps legacy behavior. Malformed JSON, a non-boolean **continue_queue**, trailing JSON or a body over 1 KiB answers **400** before cancellation. When assistant tokens were already streamed, the server persists that partial **assistant** message before the interrupted run ends. Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -3527,8 +3529,41 @@ func openAPISpec() map[string]interface{} {
 							"description": "Session id.",
 						},
 					},
+					"requestBody": map[string]interface{}{
+						"required": false,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object", "nullable": true,
+									"properties": map[string]interface{}{
+										"continue_queue": map[string]interface{}{
+											"type": "boolean", "default": false,
+											"description": "Request queue interruption on an eligible in-process ordinary profile prompt; otherwise use legacy full cancellation.",
+										},
+									},
+								},
+							},
+						},
+					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Cancellation applied (idempotent when nothing is running)."},
+						"200": map[string]interface{}{
+							"description": "Cancellation requested, or queue interruption accepted. Neither confirms that the running turn has completed.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object", "required": []string{"object", "id"},
+										"properties": map[string]interface{}{
+											"object": map[string]interface{}{"type": "string", "enum": []string{"coddy.session_cancelled"}},
+											"id":     map[string]interface{}{"type": "string"},
+											"queueContinued": map[string]interface{}{
+												"type":        "boolean",
+												"description": "Present and true only when queue interruption was accepted, not when its continuation completed. Absent on legacy full cancellation.",
+											},
+										},
+									},
+								},
+							},
+						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 					},
