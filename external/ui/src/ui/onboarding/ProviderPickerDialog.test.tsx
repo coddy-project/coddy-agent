@@ -22,16 +22,23 @@ function renderPicker(onSaved = vi.fn()) {
 describe("ProviderPickerDialog", () => {
   const fetchMock = vi.fn();
   let devinConnected = false;
+  let baseConfigDelay = 0;
 
   beforeEach(() => {
     initLocale("en");
     devinConnected = false;
+    baseConfigDelay = 0;
     fetchMock.mockReset();
     fetchMock.mockImplementation(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         const method = init?.method || "GET";
         if (url === "/coddy/config" && method === "GET") {
+          if (baseConfigDelay) {
+            await new Promise((resolve) =>
+              setTimeout(resolve, baseConfigDelay),
+            );
+          }
           return new Response(
             JSON.stringify({
               providers: [
@@ -230,5 +237,24 @@ describe("ProviderPickerDialog", () => {
     expect(
       screen.getByText("Модели Devin со входом через браузер"),
     ).toBeTruthy();
+  });
+
+  it("waits for the base config before saving", async () => {
+    // Save is clicked while GET /coddy/config is still in flight: the PUT
+    // must carry the merged document, not a one-row one over the file.
+    baseConfigDelay = 100;
+    const onSaved = renderPicker();
+    fireEvent.click(screen.getByTestId("provider-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled(), { timeout: 3000 });
+    const put = fetchMock.mock.calls.find(
+      ([url, init]) => url === "/coddy/config" && init?.method === "PUT",
+    );
+    const body = JSON.parse(String(put?.[1]?.body));
+    expect(body.providers).toHaveLength(2);
+    expect(body.models).toHaveLength(2);
+    expect(body.agent).toEqual({
+      model: "openai/gpt-5.6-terra",
+      max_turns: 40,
+    });
   });
 });

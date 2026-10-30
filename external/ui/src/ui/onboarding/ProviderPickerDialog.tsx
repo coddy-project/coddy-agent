@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
+import { errorMessage } from "../settings/apiError";
 import { Combobox } from "../settings/Combobox";
 import { CodexAuthField } from "../settings/CodexAuthField";
 import { NeuralDeepAuthField } from "../settings/NeuralDeepAuthField";
@@ -15,19 +16,6 @@ import {
   PROVIDER_PRESETS,
   type ProviderPresetId,
 } from "./providerConfig";
-
-async function errorMessage(
-  response: Response,
-  fallback: string,
-): Promise<string> {
-  try {
-    const body = (await response.json()) as { error?: unknown };
-    if (typeof body.error === "string" && body.error.trim()) return body.error;
-  } catch {
-    // The fallback names the operation when a proxy answered no JSON.
-  }
-  return fallback;
-}
 
 export function ProviderPickerDialog(props: {
   open: boolean;
@@ -45,12 +33,15 @@ export function ProviderPickerDialog(props: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testOk, setTestOk] = useState(false);
-  const [baseDoc, setBaseDoc] = useState<Record<string, unknown>>({});
+  // The /coddy/config document to merge into: null until one has loaded. Save
+  // must never build from the empty stand-in - PUT /coddy/config writes the
+  // lists as sent, so that would replace every saved row with this one.
+  const [baseDoc, setBaseDoc] = useState<Record<string, unknown> | null>(null);
+  const baseLoad = useRef<Promise<Record<string, unknown>> | null>(null);
   const {
     loading: modelsLoading,
     models: fetchedModels,
     error: modelsError,
-    errorRef: modelsErrorRef,
     fetched: modelsFetched,
     fetchModels,
     reset: resetModels,
@@ -82,51 +73,42 @@ export function ProviderPickerDialog(props: {
     }),
     [apiKey, effectiveApiBase, keyless, preset, proxy],
   );
-  const configBody = useMemo(
-    () =>
-      buildOnboardingConfig({
-        preset,
-        apiKey,
-        apiBase: effectiveApiBase,
-        proxy,
-        modelId,
-        baseDoc,
-        catalog: fetchedModels,
-        managedLogin,
-      }),
-    [
-      apiKey,
-      baseDoc,
-      effectiveApiBase,
-      fetchedModels,
-      managedLogin,
-      modelId,
-      preset,
-      proxy,
-    ],
-  );
   const pickedModel = useMemo(
     () => catalogEntry(preset, modelId, fetchedModels),
     [preset, modelId, fetchedModels],
   );
 
+  /** The current config document, one request shared by every caller in
+   * flight; a failure leaves no promise behind, so Save may retry it. */
+  const loadBaseDoc = useCallback((): Promise<Record<string, unknown>> => {
+    const pending =
+      baseLoad.current ??
+      fetch("/coddy/config")
+        .then(async (response) => {
+          if (!response.ok)
+            throw new Error(
+              await errorMessage(response, `HTTP ${response.status}`),
+            );
+          return ((await response.json()) as Record<string, unknown>) || {};
+        })
+        .finally(() => {
+          baseLoad.current = null;
+        });
+    baseLoad.current = pending;
+    return pending;
+  }, []);
+
   useEffect(() => {
     if (!props.open) return;
     setError(null);
     setTestOk(false);
-    void fetch("/coddy/config")
-      .then(async (response) => {
-        if (!response.ok)
-          throw new Error(
-            await errorMessage(response, `HTTP ${response.status}`),
-          );
-        return response.json();
-      })
-      .then((doc) => setBaseDoc((doc as Record<string, unknown>) || {}))
+    setBaseDoc(null);
+    loadBaseDoc()
+      .then((doc) => setBaseDoc(doc))
       .catch((err: unknown) =>
         setError(err instanceof Error ? err.message : String(err)),
       );
-  }, [props.open]);
+  }, [props.open, loadBaseDoc]);
 
   useEffect(() => {
     setError(null);
@@ -153,23 +135,41 @@ export function ProviderPickerDialog(props: {
     setError(null);
     setTestOk(false);
     try {
-      const list = await fetchModels(providerRow);
-      if (modelsErrorRef.current) {
-        setError(modelsErrorRef.current);
+      const result = await fetchModels(providerRow);
+      if (result === null) return;
+      if (result.error) {
+        setError(result.error);
         return;
       }
-      if (list === null) return;
       setTestOk(true);
     } finally {
       setBusy(false);
     }
-  }, [fetchModels, modelsErrorRef, providerRow]);
+  }, [fetchModels, providerRow]);
 
   const save = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
-      const body = JSON.stringify(configBody);
+      // Save waits for the base document: merging into an empty one would put
+      // a one-row document over the config file's lists.
+      let base = baseDoc;
+      if (!base) {
+        base = await loadBaseDoc();
+        setBaseDoc(base);
+      }
+      const body = JSON.stringify(
+        buildOnboardingConfig({
+          preset,
+          apiKey,
+          apiBase: effectiveApiBase,
+          proxy,
+          modelId,
+          baseDoc: base,
+          catalog: fetchedModels,
+          managedLogin,
+        }),
+      );
       const validation = await fetch("/coddy/config/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -219,7 +219,19 @@ export function ProviderPickerDialog(props: {
     } finally {
       setBusy(false);
     }
-  }, [configBody, props, t]);
+  }, [
+    apiKey,
+    baseDoc,
+    effectiveApiBase,
+    fetchedModels,
+    loadBaseDoc,
+    managedLogin,
+    modelId,
+    preset,
+    proxy,
+    props,
+    t,
+  ]);
 
   if (!props.open) return null;
 
