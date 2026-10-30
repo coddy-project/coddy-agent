@@ -19,3 +19,14 @@ test("the terminal stays centred in the chat column beside Files", () => {
   expect(block).toContain("var(--coddy-files-panel-band)");
   expect(block).toContain("920px");
 });
+
+test("the terminal gives the Tasks panel the same room as the chat", () => {
+  const block =
+    /^\s*\.shell-main\.shell-tasks-open > \.terminal-panel\s*\{([^}]+)\}/m.exec(
+      css,
+    )?.[1] ?? "";
+  expect(block).toContain("var(--coddy-tasks-reserve)");
+  expect(block).toContain("920px");
+  expect(block).toMatch(/margin-left:\s*max\(/);
+  expect(block).toMatch(/margin-right:\s*calc\(/);
+});
