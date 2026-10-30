@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { responseError } from "./apiError";
 import { FieldLabel } from "./FieldHint";
 import type { OverrideTexts } from "./settingsSections";
 import { useT } from "../i18n/I18nProvider";
@@ -25,18 +26,6 @@ type DeviceLogin = {
   connected?: boolean;
   error?: string;
 };
-
-async function responseError(response: Response): Promise<string> {
-  try {
-    const body = (await response.json()) as { error?: unknown };
-    if (typeof body.error === "string" && body.error.trim() !== "") {
-      return body.error;
-    }
-  } catch {
-    // Fall through to the HTTP status when the server did not return JSON.
-  }
-  return `HTTP ${response.status}`;
-}
 
 /**
  * NeuralDeepAuthField signs the provider in through the hub's device flow:
