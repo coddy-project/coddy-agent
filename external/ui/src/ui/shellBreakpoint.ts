@@ -19,6 +19,25 @@ export const PHONE_MAX_WIDTH_PX = 599;
 /** Pass to matchMedia or @media for the phone tier. */
 export const phoneMaxWidthMediaQuery = `(max-width: ${PHONE_MAX_WIDTH_PX}px)`;
 
+/** useSyncExternalStore subscription for the phone tier, not the whole stacked shell. */
+export function subscribePhone(cb: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const mq = window.matchMedia(phoneMaxWidthMediaQuery);
+  mq.addEventListener("change", cb);
+  return () => mq.removeEventListener("change", cb);
+}
+
+export function snapshotPhone(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia(phoneMaxWidthMediaQuery).matches
+  );
+}
+
+export function serverSnapshotPhone(): boolean {
+  return false;
+}
+
 /** Viewports at most this width use stacked top nav and document scroll (see styles/shell/_stacked.scss). */
 export const SHELL_STACK_MAX_WIDTH_PX = 1199;
 

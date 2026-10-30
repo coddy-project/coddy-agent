@@ -2401,6 +2401,8 @@ export const messagesEn: Record<string, string> = {
   "tasks.wokeTitle": "Woke the agent when it ended",
   "tasks.running.one": "{count} running task",
   "tasks.running.other": "{count} running tasks",
+  "tasks.runningCompact.one": "{count} task",
+  "tasks.runningCompact.other": "{count} tasks",
   "tasks.openAria": "Open background tasks: {label}",
   "tasks.header.counts": "{running} / {total}",
   "tasks.header.aria": "Background tasks: {running} running, {total} in total",
