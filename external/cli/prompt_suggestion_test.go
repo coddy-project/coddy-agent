@@ -3,19 +3,12 @@
 package cli
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
-
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 func TestFirstConsoleTurnOffersDimPromptSuggestion(t *testing.T) {
@@ -42,46 +35,14 @@ func TestFirstConsoleTurnOffersDimPromptSuggestion(t *testing.T) {
 					"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": content, "reasoning_content": "predicting the next prompt"}, "finish_reason": finish}},
 				})
 			}))
-			defer provider.Close()
-			home := t.TempDir()
-			blocking, zero := false, 0
-			cfg := &config.Config{
-				Paths:     config.Paths{Home: home, CWD: home},
-				Providers: []config.ProviderConfig{{Name: "test", Type: "openai", APIBase: provider.URL, APIKey: "test"}},
-				Models:    []config.ModelEntry{{Model: "test/model", Stream: &blocking}},
-				Agent:     config.Agent{Model: "test/model", LLMRetryMax: &zero},
-			}
-			sender := &lateBoundSender{}
-			mgr := session.NewManager(cfg, sender, nil, discardLogger(), home, nil)
-			defer mgr.CloseMCP()
-			app := newApp(cfg, mgr, discardLogger(), &bddTerminal{cols: 80, rows: 24}, "dark", false)
-			sender.inner = app.Sender()
-			defer func() {
-				app.workStop()
-				close(app.closed)
-				app.workers.Wait()
-			}()
-			res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: home})
-			if err != nil {
-				t.Fatal(err)
-			}
-			app.sessionID, app.turnSessionID, app.turnActive = res.SessionID, res.SessionID, true
-			state := mgr.SessionByID(res.SessionID)
-			state.AddMessage(llm.Message{Role: llm.RoleUser, Content: "fix the bug and run the tests"})
-			state.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "Fixed the bug."})
+			t.Cleanup(provider.Close)
+			app, state := newPromptSuggestionConsole(t, provider.URL)
 			revision := state.MessagesRev()
-			app.applyLoopMessage(updateMsg{update: turnDone{sessionID: res.SessionID, stop: "end_turn"}})
-			deadline := time.NewTimer(5 * time.Second)
-			defer deadline.Stop()
-			for app.editor.Placeholder() == "" {
-				select {
-				case msg := <-app.updatesCh:
-					if _, ok := msg.update.(uiCall); ok {
-						app.applyLoopMessage(msg)
-					}
-				case <-deadline.C:
-					t.Fatalf("no suggestion after the first completed turn; provider calls=%d", calls.Load())
-				}
+			app.turnSessionID, app.turnActive = state.ID, true
+			app.applyLoopMessage(updateMsg{update: turnDone{sessionID: state.ID, stop: "end_turn"}})
+			settlePromptSuggestionUI(t, app)
+			if app.editor.Placeholder() != suggestion {
+				t.Fatalf("no suggestion after the first completed turn; provider calls=%d", calls.Load())
 			}
 			if app.editor.Text() != "" || state.MessagesRev() != revision {
 				t.Fatal("a suggestion must leave the draft and transcript untouched")

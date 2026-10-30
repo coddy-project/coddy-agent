@@ -109,6 +109,7 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		a.applyTaskStopped(u)
 		return
 	case configReloaded:
+		a.clearSuggestion()
 		// The process configuration changed for every session, so the header
 		// and footer always re-read it; the option set is per session and is
 		// adopted only when the committing turn belongs to the visible one.
