@@ -705,7 +705,7 @@ export function ChatScreen(props: {
   // layout viewport, which an overlaying on-screen keyboard covers (iOS Safari
   // ignores interactive-widget=resizes-content): the block rode under the
   // keyboard, scroll-to-bottom button included. --coddy-keyboard-inset lifts it
-  // by what the keyboard hides (styles.css), and the reader's position is read
+  // by what the keyboard hides (styles/shell/_stacked.scss), and the reader's position is read
   // again, since the keyboard changes how much of the transcript is in view.
   useEffect(() => {
     if (!mobileDocScroll) return undefined;

@@ -7,12 +7,13 @@ import {
   PHONE_MAX_WIDTH_PX,
   SHELL_STACK_MAX_WIDTH_PX,
 } from "./shellBreakpoint";
+import { stylesSource } from "../stylesSource";
 
 // jsdom does no layout, so the phone layout is pinned here by its rules; the
 // live check at 360-430px (docs/surfaces/web-ui.md, Phone layout) measures it.
 
 const dir = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(dir, "../styles.css"), "utf8");
+const css = stylesSource();
 const indexHtml = readFileSync(join(dir, "../index.html"), "utf8");
 
 type Block = { prelude: string; body: string; children: Block[] };

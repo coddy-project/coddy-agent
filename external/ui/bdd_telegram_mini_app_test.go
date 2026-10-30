@@ -53,7 +53,7 @@ func TestWebUITelegramMiniAppFeature(t *testing.T) {
 			"the Mini App window outside Telegram nothing is installed and nothing is sent",
 			"launch parameters an ordinary browser is not a Mini App and its address is left alone"},
 		`^the page loads nothing from another origin$`: {
-			"telegram.css nothing of Telegram is left in styles.css or index.html"},
+			"telegram.css nothing of Telegram is left in styles.scss or index.html"},
 	}
 	suite := godog.TestSuite{
 		Name: "web_ui_telegram_mini_app",

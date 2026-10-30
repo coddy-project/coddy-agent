@@ -10,7 +10,7 @@
  * so the check needs nothing but `npx vite`.
  */
 import ReactDOM from "react-dom/client";
-import "./styles.css";
+import "./styles.scss";
 import { AssistantMessage } from "./ui/messages/AssistantMessage";
 import { ToolCallMessage } from "./ui/messages/ToolCallMessage";
 import type { ToolArtifact } from "./ui/chat/toolArtifacts";

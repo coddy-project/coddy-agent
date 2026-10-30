@@ -1,0 +1,1016 @@
+// The History drawer: the backdrop, the session list and its rows.
+
+@use "../abstracts" as *;
+
+/* Sessions drawer (mobile) */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--coddy-overlay-scrim-bg);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+  z-index: 40;
+}
+
+.backdrop.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sessions {
+  min-height: 0;
+  color: var(--text);
+}
+
+.sessions.drawer,
+.scheduler-jobs.drawer,
+.settings.drawer {
+  position: fixed;
+  top: 14px;
+  bottom: 14px;
+  left: calc(var(--rail-shell-track-width) + var(--nav-floating-gutter));
+  width: min(
+    320px,
+    calc(
+      100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 16px
+    )
+  );
+  border-radius: var(--coddy-glass-panel-radius);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 50;
+  min-height: 0;
+}
+
+/* 680px: the section rail plus a content column that holds three theme cards
+   a row (Appearance) and keeps form fields at a readable measure. Narrower,
+   not wider cards: the cards keep their size (appearanceSettingsLayout test). */
+.settings.drawer {
+  width: min(
+    680px,
+    calc(
+      100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 16px
+    )
+  );
+}
+
+.sessions.dock {
+  display: none;
+}
+
+.sessions-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 10px;
+  border-bottom: 1px solid mix-text(6%);
+}
+
+.sessions-search-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 13px;
+  color: mix-text(90%);
+  background: var(--coddy-surface-muted);
+  border: 1px solid mix-text(10%);
+  border-radius: 12px;
+  padding: 8px 10px;
+  outline: none;
+}
+
+.sessions-search-input:focus {
+  border-color: rgba(147, 51, 234, 0.45);
+  box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.1);
+}
+
+.sessions-search-clear {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid mix-text(10%);
+  background: rgba(20, 20, 22, 0.35);
+  color: mix-text(85%);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.sessions-scroll-sentinel {
+  height: 2px;
+  flex-shrink: 0;
+}
+
+.sessions-loading-more {
+  padding: 8px 12px 12px;
+  font-size: 12px;
+  color: mix-text(55%);
+  text-align: center;
+}
+
+.sessions-head {
+  color: mix-text(72%);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 14px 14px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid mix-text(6%);
+}
+
+/* The app's one close control: a framed square with the × in it, used by every
+   drawer, panel and dialog head and, at a smaller size, by a queued message. The
+   frame lightens under the pointer so it reads as a control rather than a label. */
+.sessions-close {
+  width: 34px;
+  height: 30px;
+  border-radius: 12px;
+  border: 1px solid mix-text(10%);
+  background: rgba(20, 20, 22, 0.35);
+  color: mix-text(85%);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.sessions-close:hover,
+.sessions-close:focus-visible {
+  background: color-mix(in srgb, var(--text) 12%, rgba(20, 20, 22, 0.35));
+  border-color: mix-text(18%);
+  color: var(--text);
+}
+
+.session-list {
+  flex: 1;
+  overflow: auto;
+  padding: 8px 8px 12px;
+  min-height: 0;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  border-radius: 14px;
+  padding: 8px 8px 8px 12px;
+  font-size: 14px;
+  margin-bottom: 6px;
+  border: 1px solid transparent;
+  box-sizing: border-box;
+}
+
+/* Two columns: a fixed state-mark slot, then the title with its tags under it.
+   The fixed slot keeps an 8px dot and a 16px prompt marker from moving text. */
+.session-row-link {
+  flex: 1;
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+}
+
+.session-row-marks {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  align-content: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  width: 16px;
+  min-width: 16px;
+  gap: 0;
+  margin-left: 0px;
+}
+
+.session-item:hover {
+  background: mix-text(4%);
+}
+
+.session-item.active {
+  border-color: rgba(147, 51, 234, 0.45);
+  background: rgba(147, 51, 234, 0.08);
+}
+
+.session-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.session-row-leading {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* A running turn is the unread dot a third darker, pulsing: the two marks are one
+   family - "working" and "done, not read yet" - and a spinner beside them read as
+   a third kind of state. */
+.session-activity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: color-mix(in srgb, rgba(167, 139, 250, 0.95) 67%, #000);
+  box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.2);
+  flex-shrink: 0;
+  animation: session-activity-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes session-activity-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-activity-dot {
+    animation: none;
+  }
+}
+
+@keyframes session-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.session-unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(167, 139, 250, 0.95);
+  box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.25);
+  flex-shrink: 0;
+}
+
+.session-idle-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px mix-text(30%);
+}
+
+.session-error-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--coddy-danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--coddy-danger) 25%, transparent);
+}
+
+.session-error-dot.is-seen {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--coddy-danger);
+}
+
+.session-permission-icon,
+.session-question-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  color: rgba(196, 181, 253, 0.95);
+}
+
+.sessions-empty {
+  padding: 12px 12px;
+  color: mix-text(60%);
+  font-size: 13px;
+}
+
+.session-title-btn {
+  flex: 1;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: mix-text(90%);
+  font: inherit;
+  padding: 0;
+  cursor: text;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  max-width: 100%;
+}
+
+.session-title-input {
+  flex: 1;
+  font: inherit;
+  color: mix-text(90%);
+  background: var(--coddy-surface-subtle);
+  border: 1px solid mix-text(12%);
+  border-radius: 12px;
+  padding: 6px 8px;
+  outline: none;
+}
+
+.session-title-input:focus {
+  border-color: rgba(147, 51, 234, 0.45);
+  box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.12);
+}
+
+.session-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: mix-text(90%);
+}
+
+/* The filter control sits in the search row - both narrow the list below. Its
+   menu is portaled out of the drawer and placed from the control's rectangle. */
+.sessions-search-row {
+  position: relative;
+}
+
+/* The same box as the search field beside it - height and corner radius - so
+   the row reads as one strip of controls rather than a field with a smaller
+   button parked next to it. */
+.sessions-filter-trigger {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  border: 1px solid mix-text(10%);
+  background: rgba(20, 20, 22, 0.35);
+  color: mix-text(72%);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sessions-filter-trigger:hover,
+.sessions-filter-trigger.is-open {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.sessions-filter-trigger.is-open {
+  background: color-mix(in srgb, var(--accent) 16%, rgba(20, 20, 22, 0.35));
+}
+
+/* The backdrop only catches the click that dismisses the menu; it draws
+   nothing, because the drawer behind it must stay readable while choosing. */
+.sessions-filter-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: default;
+}
+
+/* Portaled out of the drawer and placed from the trigger: the drawer clips what
+   overflows it, and a submenu has to reach past its edge. */
+.sessions-filter-menu {
+  position: fixed;
+  z-index: 101;
+  min-width: 232px;
+  padding: 6px;
+  border-radius: 14px;
+  /* The tooltip surface, not the glass one: this menu sits over the list it
+     filters, and a translucent panel would be read through. Every theme defines
+     the pair, so it follows the palette like everything else. */
+  background: var(--coddy-tip-bg);
+  border: 1px solid var(--coddy-glass-panel-border);
+  box-shadow: var(--coddy-tip-shadow);
+}
+
+.sessions-filter-parent {
+  position: relative;
+}
+
+/* A rule, not a heading: the four rows are questions of the same kind, and the
+   break only says that the first two are about what is listed and the last two
+   about how it is arranged. */
+.sessions-filter-parent.starts-group {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid mix-text(10%);
+}
+
+/* One row: the question, the answer in force, and the way in. */
+.sessions-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: mix-text(90%);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sessions-filter-row:hover,
+.sessions-filter-row.is-open {
+  background: mix-text(9%);
+}
+
+.sessions-filter-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The answer reads as the value it is, not as a second label - and it is
+   coloured only when the operator moved it off the default. A menu where every
+   row is accented says nothing about what has been narrowed. */
+.sessions-filter-value.is-default {
+  color: mix-text(42%);
+}
+
+.sessions-filter-value {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent);
+}
+
+.sessions-filter-chevron.coddy-chevron {
+  opacity: 0.5;
+}
+
+.sessions-filter-row:hover .sessions-filter-chevron,
+.sessions-filter-row.is-open .sessions-filter-chevron {
+  opacity: 0.9;
+}
+
+/* Beside the row it belongs to, overlapping its own padding so the two panels
+   read as one surface rather than two floating cards. */
+.sessions-filter-submenu {
+  position: absolute;
+  top: -6px;
+  left: calc(100% + 4px);
+  min-width: 160px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--coddy-tip-bg);
+  border: 1px solid var(--coddy-glass-panel-border);
+  box-shadow: var(--coddy-tip-shadow);
+  max-height: min(60vh, 320px);
+  overflow-y: auto;
+}
+
+.sessions-filter-submenu.opens-left {
+  left: auto;
+  right: calc(100% + 4px);
+}
+
+/* Neither side of the menu has the room - a phone, where the drawer is the
+   width of the screen and the trigger sits at its right edge - so the choices
+   fold out under their row, inside the menu, indented under the question they
+   answer. The menu scrolls as a whole rather than nest a second scroller. */
+.sessions-filter-submenu.opens-inline {
+  position: static;
+  min-width: 0;
+  max-height: none;
+  overflow: visible;
+  margin: 2px 0 4px;
+  padding: 0 0 0 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.sessions-filter-menu.has-inline-submenu {
+  overflow-y: auto;
+}
+
+.sessions-filter-submenu.opens-inline .sessions-filter-item > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sessions-filter-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: mix-text(88%);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sessions-filter-item:hover {
+  background: mix-text(9%);
+}
+
+.sessions-filter-item.starts-group {
+  margin-top: 5px;
+  padding-top: 11px;
+  border-top: 1px solid mix-text(10%);
+}
+
+.sessions-filter-check {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+/* A heading, the control that starts a chat in it, and the row count. The end
+   padding matches a session row's, so the count lands in the same column as the
+   rows' own ⋮ below it rather than a few pixels past it. */
+.session-group-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 8px;
+}
+
+/* In the column the rows' own control sits in, and visible at rest: a way to
+   start work in this folder is worth a glance, not a hunt with the pointer. */
+.session-group-new {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: mix-text(45%);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+.session-group-new:hover,
+.session-group-new:focus-visible {
+  color: var(--text);
+}
+
+.session-group {
+  margin-bottom: 4px;
+}
+
+/* The heading is the folder's own name with a caret after it, not a band across
+   the list: only the name is the target, so the hover says what will fold. The
+   name keeps the case the folder has - upper-casing a path is a small lie. */
+.session-group-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 1 auto;
+  min-width: 0;
+  /* Only the name is the fold target; the empty space after it belongs to
+     nothing, and pushes the controls at the end of the bar to the edge. */
+  margin-right: auto;
+  padding: 5px 7px 5px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: mix-text(62%);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+/* Brighter text, no plate behind it: a heading is a line of the list, and a
+   band appearing under the pointer makes it read like a row that can be opened. */
+.session-group-head:hover {
+  color: var(--text);
+}
+
+.session-group-caret {
+  margin-left: 1px;
+}
+
+.session-group-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+/* The path appears only under a name more than one heading carries; it is the
+   thing that tells them apart, so it is quiet but complete. Clipped plainly at
+   the end: reversing the direction to clip the front moves the leading slash to
+   the other side, and a path that reads as ending in "/" is a worse lie than a
+   truncated one. */
+.session-group-path {
+  padding: 0 10px 4px 12px;
+  margin-top: -2px;
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: mix-text(40%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The archive is a state the row is in, so it leads the row with the activity
+   dot and the unread dot rather than sitting among the tags, which are labels the
+   operator chose. */
+.session-archived-mark {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  color: mix-text(45%);
+}
+
+.session-row-tags {
+  grid-column: 2;
+  grid-row: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+/* A refused archive, on the row it put back: a line of its own under the
+   title and the tags, in the failure colour of a tool row's marker. It is a
+   sibling of the row's link, not part of it, so the row wraps to hold it. */
+.session-item.has-row-error {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.session-row-error {
+  flex: 0 0 100%;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--diff-del-no) 82%, var(--text));
+}
+
+.session-tag {
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: mix-text(70%);
+  background: mix-text(6%);
+}
+
+/* One control per row, not a strip of them: the actions have room for their
+   words inside the menu it opens, and the title keeps the width the icons took. */
+.session-row-menu-trigger {
+  opacity: 0.38;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 0;
+  background: transparent;
+  color: mix-text(85%);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+}
+
+.session-item:hover .session-row-menu-trigger,
+.session-row-menu-trigger:focus-visible,
+.session-row-menu-trigger[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.session-row-menu-trigger:hover,
+.session-row-menu-trigger[aria-expanded="true"] {
+  background: mix-text(8%);
+}
+
+/* Portaled out of the drawer, which clips what overflows it. */
+.session-row-menu {
+  position: fixed;
+  z-index: 101;
+  min-width: 180px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--coddy-tip-bg);
+  border: 1px solid var(--coddy-glass-panel-border);
+  box-shadow: var(--coddy-tip-shadow);
+}
+
+.session-row-menu-item {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: mix-text(90%);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.session-row-menu-item:hover {
+  background: mix-text(9%);
+}
+
+/* A rule opens the group of actions that take the conversation out of the list,
+   away from the one that only moves it. */
+.session-row-menu-item.starts-group {
+  margin-top: 5px;
+  padding-top: 8px;
+  border-top: 1px solid mix-text(10%);
+  border-radius: 0 0 8px 8px;
+}
+
+/* The irreversible one, in the colour that says so. */
+.session-row-menu-item.is-danger {
+  color: var(--coddy-danger, #f87171);
+}
+
+.session-row-menu-item.is-danger:hover {
+  background: color-mix(in srgb, #f87171 16%, transparent);
+}
+
+/* The labels of one conversation, edited by hand. Cut from the same surface as
+   the row menu it opens from: both stand over the drawer, and a wash of the text
+   colour is transparent on a dark canvas. */
+.session-tag-editor {
+  position: fixed;
+  z-index: 101;
+  width: 236px;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--coddy-tip-bg);
+  border: 1px solid var(--coddy-glass-panel-border);
+  box-shadow: var(--coddy-tip-shadow);
+}
+
+.session-tag-editor-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 7px;
+}
+
+/* A chip carries what removes it: the label and its cross are one target group,
+   so filing and unfiling are the same gesture in both places tags are shown. */
+.session-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 4px 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: mix-text(80%);
+  background: mix-text(8%);
+  border: 1px solid mix-text(12%);
+}
+
+.session-tag-chip-remove,
+.sessions-manager-tag-remove {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  width: 13px;
+  height: 13px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 1;
+  color: mix-text(45%);
+  transition:
+    color 140ms ease,
+    background 140ms ease;
+}
+
+.session-tag-chip-remove:hover,
+.session-tag-chip-remove:focus-visible,
+.sessions-manager-tag-remove:hover {
+  color: var(--text);
+  background: mix-text(14%);
+}
+
+.session-tag-input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
+  border-radius: 9px;
+  color: var(--text);
+  background: mix-text(5%);
+  border: 1px solid mix-text(12%);
+  outline: none;
+}
+
+.session-tag-input:focus {
+  border-color: rgba(147, 51, 234, 0.45);
+  box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.12);
+}
+
+.session-tag-input:disabled {
+  cursor: not-allowed;
+}
+
+.session-tag-suggest {
+  margin-top: 5px;
+  display: flex;
+  flex-direction: column;
+  max-height: 168px;
+  overflow-y: auto;
+}
+
+.session-tag-suggest-item {
+  text-align: left;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 7px;
+  border-radius: 7px;
+  color: mix-text(72%);
+  transition: color 140ms ease;
+}
+
+.session-tag-suggest-item.is-active,
+.session-tag-suggest-item:hover {
+  background: mix-text(9%);
+  color: var(--text);
+}
+
+/* A write the server refused: the row is already back to what it holds, and
+   this says why it moved. */
+.session-tag-error {
+  margin: 6px 2px 1px;
+  font-size: 10.5px;
+  color: var(--coddy-danger, #f87171);
+}
+
+/* What the fold will store, shown only when it differs from what was typed. */
+.session-tag-hint {
+  margin: 6px 2px 1px;
+  font-size: 10.5px;
+  color: mix-text(40%);
+}
+
+/* The pins are one list the operator keeps by hand, so they stand a little
+   apart from the groups the machine made below them. */
+.session-group.is-pinned {
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid mix-text(8%);
+}
+
+/* A pin is dragged by its row, so the row must not also start a text
+   selection, a native link drag or the long-press callout of a touch browser. */
+.session-item.is-reorderable {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.session-item.is-reorderable .session-row-link {
+  -webkit-user-drag: none;
+}
+
+.session-item.is-dragging {
+  opacity: 0.45;
+  cursor: grabbing;
+}
+
+/* Where the drop would land, drawn on the list rather than under the pointer:
+   a row that follows the finger costs a layer and hides what it lands on. */
+.session-item.is-drop-target {
+  box-shadow: inset 0 2px 0 0 var(--accent);
+}
+
+/* An archived conversation reads as put aside: the row is quieter than the ones
+   still in play, which is the whole difference between the two. */
+.session-item.is-archived .session-title {
+  color: mix-text(45%);
+}
+
+.session-item.is-archived .session-row-tags {
+  opacity: 0.6;
+}
+
+/* The composer's slot on an archived conversation: the same glass panel the
+   subagent notice beside it is cut from, because it stands over the transcript
+   and a wash of the text colour is transparent on a dark canvas. */
+.archived-session-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  color: mix-text(78%);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.archived-session-text {
+  min-width: 0;
+}
+
+.archived-session-action {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid mix-text(22%);
+  background: rgba(20, 20, 22, 0.35);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.archived-session-action:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.archived-session-action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.session-menu {
+  color: mix-text(60%);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  padding: 0 6px;
+}
+
+.sessions-foot {
+  border-top: 1px solid mix-text(6%);
+  padding: 10px 12px;
+}
+
+.link {
+  color: var(--accent);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  padding: 6px 2px;
+  font-size: 13px;
+}

@@ -4,7 +4,7 @@ import "./ui/telegram/capture";
 import "./ui/browserPanel/capture";
 import React from "react";
 import ReactDOM from "react-dom/client";
-import "./styles.css";
+import "./styles.scss";
 import { App } from "./ui/App";
 import { ConfirmProvider } from "./ui/components/useConfirm";
 import { ImageMenuHost } from "./ui/components/ImageMenu";

@@ -1,0 +1,324 @@
+// The tabbed settings layout, its loading skeleton and the save feedback.
+
+@use "../abstracts" as *;
+
+/* --- Tabbed settings layout: vertical nav + content (desktop), horizontal tab strip (mobile) --- */
+.settings-tabs-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.settings-nav-wrap {
+  flex: 0 0 200px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid mix-text(6%);
+}
+
+.settings-nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+/* Edge scroll arrows are only shown on the narrow horizontal strip. */
+.settings-nav-arrow {
+  display: none;
+}
+
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  color: mix-text(80%);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* The number the System tab says need attention: after the rail's label, at the
+   top right of a phone's tile. The app's count, as the main rail draws one on
+   History: the accent with its on-accent text. Drawn for the eye only
+   (aria-hidden); the tab is described by its count text. */
+.settings-nav-badge,
+.settings-tile-badge {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  background: var(--accent);
+  color: var(--coddy-on-accent-fg);
+}
+
+.settings-nav-item:hover:not(.is-active) {
+  background: mix-text(6%);
+  color: var(--text);
+}
+
+.settings-nav-item.is-active {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.settings-tabs-layout .settings-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Thin, unobtrusive scrollbars for the settings drawer — vertical nav + content
+   on desktop and the horizontal tab strip on narrow shells. scrollbar-width is an
+   inherited property, so setting it on the drawer covers every scroller inside it
+   (this is the Firefox path; WebKit uses the ::-webkit-scrollbar rules below). */
+.settings.drawer,
+.settings-nav,
+.settings.drawer .settings-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+.settings-nav::-webkit-scrollbar,
+.settings.drawer .settings-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.settings-nav::-webkit-scrollbar-track,
+.settings.drawer .settings-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.settings-nav::-webkit-scrollbar-thumb,
+.settings.drawer .settings-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 20%, transparent);
+  border-radius: 999px;
+}
+
+.settings-nav::-webkit-scrollbar-thumb:hover,
+.settings.drawer .settings-scroll::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text) 34%, transparent);
+}
+
+/* Reload feedback: the form dissolves then reappears (replayed via key bump). */
+.settings-form-anim {
+  animation: settings-form-refresh 420ms ease both;
+}
+
+@keyframes settings-form-refresh {
+  0% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  35% {
+    opacity: 0;
+    filter: blur(7px);
+    transform: translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+/* Reload feedback: spin the refresh icon while reloading. */
+.settings-icon-spin {
+  animation: settings-spin 0.7s linear infinite;
+  transform-origin: 50% 50%;
+}
+
+@keyframes settings-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Save feedback: a save that went through turns the Save button green for
+   SAVE_SUCCESS_MS (Settings.tsx) - no line of text, the colour is the message -
+   and the button eases back to its own colour after. The green is a state, not
+   a frame of the pop, so it holds under reduced motion too. A failed save says
+   why in the lead pane instead. */
+.settings-btn-primary.is-saved,
+.settings-btn-primary.is-saved:hover:not(:disabled) {
+  border-color: rgba(34, 197, 94, 0.85);
+  background: rgba(34, 197, 94, 0.3);
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.24);
+  animation: settings-save-pop 0.45s ease;
+}
+
+/* Unsaved edits (issue #485): a change in the form applies only after Save,
+   so while the form holds one the Save button stands out - a solid accent, a
+   white glyph and a ring that breathes - and the line before the buttons says
+   the changes are not saved. The fill and the ring are the state; under
+   reduced motion only the breathing stops. */
+.settings-btn-primary.is-dirty {
+  color: #fff;
+  border-color: rgba(147, 51, 234, 0.95);
+  background: rgba(147, 51, 234, 0.82);
+  box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.3);
+  animation: settings-save-attention 1.8s ease-in-out infinite;
+}
+
+.settings-btn-primary.is-dirty:hover:not(:disabled) {
+  background: rgba(147, 51, 234, 0.95);
+  border-color: rgba(147, 51, 234, 1);
+}
+
+@keyframes settings-save-attention {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(147, 51, 234, 0.12);
+  }
+}
+
+.settings-save-status {
+  flex: 1 1 0;
+  min-width: 0;
+  align-self: center;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: color-mix(in srgb, rgb(147, 51, 234) 70%, var(--text));
+}
+
+@keyframes settings-save-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.14);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Skeleton of a settings tab: the first open of the page, while the schema
+   that describes the tab is on its way (SettingsSkeleton.tsx), and grey rows
+   in the section rail and the tile grid for the tabs it will bring. The bars
+   are tinted from --text, so they read on every theme. */
+.settings-skeleton-bar {
+  display: block;
+  height: 10px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--text) 6%, transparent) 0%,
+    color-mix(in srgb, var(--text) 12%, transparent) 40%,
+    color-mix(in srgb, var(--text) 6%, transparent) 80%
+  );
+  background-size: 300% 100%;
+  animation: chat-skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+.settings-skeleton-frame {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 12px 16px;
+  border: 1px solid mix-text(8%);
+  border-radius: 12px;
+}
+
+.settings-skeleton-legend {
+  width: 34%;
+  height: 12px;
+}
+
+.settings-skeleton-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-skeleton-label {
+  width: 28%;
+}
+
+.settings-skeleton-field:nth-child(odd) .settings-skeleton-label {
+  width: 40%;
+}
+
+.settings-skeleton-input {
+  height: 40px;
+  border-radius: 10px;
+}
+
+.settings-nav-item--placeholder {
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Bars as tall as a tab's line of text, so the rail keeps its height when the
+   tabs arrive (37px a row, like .settings-nav-item). */
+.settings-nav-item--placeholder .settings-skeleton-bar {
+  width: 70%;
+  margin: 4.5px 0;
+}
+
+.settings-nav-item--placeholder:nth-child(3n) .settings-skeleton-bar {
+  width: 52%;
+}
+
+.settings-tile--placeholder {
+  cursor: default;
+  pointer-events: none;
+}
+
+/* The title and the description line of a tile, at their line heights: a
+   grey tile is as tall as the tile that replaces it. */
+.settings-skeleton-title {
+  width: 60%;
+  margin: 3px 0;
+}
+
+.settings-skeleton-desc {
+  width: 85%;
+  height: 8px;
+  margin: 3.5px 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-form-anim,
+  .settings-icon-spin,
+  .settings-btn-primary.is-saved,
+  .settings-btn-primary.is-dirty,
+  .settings-skeleton-bar,
+  .is-search-target {
+    animation: none;
+  }
+}
+
+/* Per-section Save action row (top of each section's content). */
+.settings-section-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.settings-section-save {
+  font-size: 0.85rem;
+  padding: 6px 14px;
+}

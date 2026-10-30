@@ -2,14 +2,10 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
-
-const cssPath = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../styles.css",
-);
+import { stylesSource } from "../../stylesSource";
 
 function cssText(): string {
-  return readFileSync(cssPath, "utf8");
+  return stylesSource();
 }
 
 test("canvas background uses theme variables", () => {
@@ -45,7 +41,7 @@ test("index.html bootstraps theme before paint", () => {
   expect(html).toContain("dataset.theme");
 });
 
-test("styles.css defines variable blocks for all 7 themes", () => {
+test("styles.scss defines variable blocks for all 7 themes", () => {
   const css = cssText();
   const themeSelectors = [
     '[data-theme="dark"]',

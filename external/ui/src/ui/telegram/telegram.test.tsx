@@ -39,6 +39,7 @@ import {
   initTelegramMiniApp,
   isDarkColor,
 } from "./miniApp";
+import { stylesSource } from "../../stylesSource";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -753,7 +754,7 @@ describe("telegram.css", () => {
     /\/\*[\s\S]*?\*\//g,
     "",
   );
-  const styles = readFileSync(join(here, "../../styles.css"), "utf8");
+  const styles = stylesSource();
   const indexHtml = readFileSync(join(here, "../../index.html"), "utf8");
 
   test("every rule is scoped to a Mini App and to the stacked shell", () => {
@@ -815,7 +816,7 @@ describe("telegram.css", () => {
     expect(css).not.toMatch(/--coddy-mobile-top-inset:/);
   });
 
-  test("nothing of Telegram is left in styles.css or index.html", () => {
+  test("nothing of Telegram is left in styles.scss or index.html", () => {
     expect(styles).not.toMatch(/telegram/i);
     expect(indexHtml).not.toMatch(/telegram/i);
     expect(indexHtml).not.toMatch(/<script[^>]+src="https?:/);

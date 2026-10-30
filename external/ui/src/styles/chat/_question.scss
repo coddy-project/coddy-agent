@@ -1,0 +1,460 @@
+// The question card.
+
+@use "../abstracts" as *;
+
+.question-prompt-frame {
+  width: 100%;
+}
+
+.question-prompt-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: 0 4px 20px var(--coddy-surface-muted);
+  overflow: hidden;
+}
+
+.question-prompt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid mix-text(8%);
+}
+
+.question-prompt-head-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.question-prompt-icon {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid mix-text(14%);
+  background: var(--coddy-surface-muted);
+  flex-shrink: 0;
+  position: relative;
+}
+
+.question-prompt-icon::before {
+  content: "?";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: rgba(147, 51, 234, 0.92);
+}
+
+.question-prompt-title {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.question-prompt-pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.question-prompt-pager-btn {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  line-height: 1;
+  font-size: 16px;
+}
+
+.question-prompt-pager-btn:hover:not(:disabled) {
+  background: mix-text(6%);
+}
+
+.question-prompt-pager-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.question-prompt-body {
+  padding: 12px 14px 6px;
+}
+
+/* The answered record has no footer under it - the live card's row of buttons is
+   what the 6px bottom was leaving room for - so it closes on its own padding. */
+.question-prompt-answered .question-prompt-body {
+  padding-bottom: 12px;
+}
+
+.question-prompt-subhead {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.question-prompt-qline {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.question-prompt-qnum {
+  font-weight: 700;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.question-prompt-qtext {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.52;
+  color: mix-text(85%);
+}
+
+.question-prompt-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.question-prompt-li {
+  margin: 0;
+  padding: 0;
+}
+
+button.question-prompt-row,
+label.question-prompt-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  margin: 0;
+  border-radius: 10px;
+  border: 1px solid mix-text(9%);
+  background: var(--coddy-surface-subtle);
+  color: mix-text(88%);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+button.question-prompt-row:not(.question-prompt-row--active):hover {
+  background: mix-text(5%);
+  border-color: mix-text(16%);
+}
+
+label.question-prompt-row:not(.question-prompt-row--active):hover {
+  background: mix-text(5%);
+  border-color: mix-text(16%);
+}
+
+label.question-prompt-row.question-prompt-row--active,
+button.question-prompt-row.question-prompt-row--active {
+  border-color: rgba(147, 51, 234, 0.55);
+  background: rgba(147, 51, 234, 0.22);
+}
+
+label.question-prompt-row.question-prompt-row--active .question-prompt-bubble,
+button.question-prompt-row.question-prompt-row--active .question-prompt-bubble {
+  border-color: rgba(147, 51, 234, 0.45);
+  background: rgba(147, 51, 234, 0.85);
+  color: #ffffff;
+}
+
+label.question-prompt-row.question-prompt-row--active:hover,
+button.question-prompt-row.question-prompt-row--active:hover {
+  background: rgba(147, 51, 234, 0.28);
+  border-color: rgba(147, 51, 234, 0.68);
+}
+
+.question-prompt-bubble {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid mix-text(14%);
+  background: var(--coddy-chip-badge-bg);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--coddy-chip-badge-fg);
+  flex-shrink: 0;
+}
+
+.question-prompt-row-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.question-prompt-row:not(.question-prompt-row--active):not(:focus-within)
+  .question-prompt-row-text {
+  color: var(--muted);
+}
+
+.question-prompt-row:not(.question-prompt-row--active):not(:focus-within)
+  .question-prompt-bubble {
+  color: var(--muted);
+}
+
+label.question-prompt-row.question-prompt-row--active .question-prompt-row-text,
+button.question-prompt-row.question-prompt-row--active
+  .question-prompt-row-text,
+.question-prompt-row:focus-within .question-prompt-row-text {
+  color: mix-text(90%);
+}
+
+.question-prompt-row--other {
+  width: 100%;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+.question-prompt-row--other:focus-within:not(.question-prompt-row--active) {
+  border-color: rgba(147, 51, 234, 0.35);
+}
+
+label.question-prompt-row.question-prompt-row--other.question-prompt-row--active,
+button.question-prompt-row.question-prompt-row--other.question-prompt-row--active {
+  border-color: rgba(147, 51, 234, 0.55);
+  background: rgba(147, 51, 234, 0.3);
+}
+
+.question-prompt-other-input {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.question-prompt-other-input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.question-prompt-other-input:focus {
+  outline: none;
+}
+
+.question-prompt-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px 14px;
+  border-top: 1px solid mix-text(8%);
+}
+
+.question-prompt-skip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--coddy-ghost-btn-fg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.question-prompt-skip:hover {
+  color: var(--text);
+  background: mix-text(4%);
+}
+
+.question-prompt-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.9em;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid mix-text(14%);
+  background: var(--coddy-surface-raised);
+  font-size: 11px;
+  color: mix-text(45%);
+}
+
+.question-prompt-continue {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px 9px 16px;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--coddy-on-accent-fg);
+  background: var(--accent);
+}
+
+.question-prompt-continue:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.question-prompt-continue:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.question-prompt-continue-ic {
+  font-size: 15px;
+  opacity: 0.85;
+}
+
+/* The offer a question tool row records: the options behind their letters, with
+   the ones the reader took carrying their letter in the accent the live card
+   uses for a picked row. Read-only, so nothing here takes a pointer. */
+.question-tool-offer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* The question introduces the offer, so it keeps the 12px the live card puts
+     between a question and its first row rather than sitting on top of it. */
+  margin: 12px 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+/* The 8px below the offer separates it from a line that usually is not there -
+   the letters say the answer - and left the block closing on twice the air it
+   opens with. It is kept only when something follows. */
+.question-tool-offer:last-child {
+  margin-bottom: 0;
+}
+
+.question-tool-offer-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: mix-text(58%);
+}
+
+.question-tool-offer-row .question-prompt-bubble {
+  flex: 0 0 auto;
+}
+
+.question-tool-offer-row--taken {
+  color: mix-text(86%);
+}
+
+.question-tool-offer-row--taken .question-prompt-bubble {
+  background: var(--accent);
+  color: #fff;
+}
+
+.question-tool-offer-text {
+  min-width: 0;
+}
+
+.question-prompt-resolved-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.question-prompt-skipped-note {
+  margin: 0;
+  font-size: 13px;
+  color: mix-text(50%);
+}
+
+.question-prompt-resolved-block {
+  padding-top: 8px;
+  border-top: 1px solid mix-text(8%);
+}
+
+.question-prompt-resolved-block:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.question-prompt-resolved-pair {
+  margin: 0;
+}
+
+.coddy-tool-call-body .question-prompt-resolved-q {
+  margin-bottom: 12px;
+}
+
+.coddy-tool-call-body .question-tool-offer + .question-prompt-resolved-a {
+  margin-top: 0;
+}
+
+.question-prompt-resolved-pair .question-prompt-resolved-q {
+  margin: 0 0 6px;
+  font-size: 14px;
+  line-height: 1.52;
+  color: mix-text(72%);
+}
+
+.question-prompt-resolved-pair .question-prompt-resolved-a {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.52;
+  color: mix-text(88%);
+}
+
+.question-prompt-resolved-pair .question-prompt-resolved-a.muted {
+  color: var(--muted);
+}
+
+.question-prompt-resolved-header {
+  font-size: 12px;
+  color: mix-text(46%);
+  margin-bottom: 4px;
+}
+
+.message-row-plan {
+  margin: 10px 0 14px;
+  align-self: stretch;
+  width: 100%;
+  max-width: 720px;
+  box-sizing: border-box;
+}

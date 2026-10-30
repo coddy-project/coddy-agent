@@ -8,7 +8,7 @@
  * backend behind them, so the check needs nothing but `npx vite`.
  */
 import ReactDOM from "react-dom/client";
-import "./styles.css";
+import "./styles.scss";
 import { ThinkingMessage } from "./ui/messages/ThinkingMessage";
 import { ToolCallMessage } from "./ui/messages/ToolCallMessage";
 import { BackgroundTasksPanel } from "./ui/tasks/BackgroundTasksPanel";

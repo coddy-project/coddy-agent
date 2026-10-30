@@ -5,6 +5,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -402,13 +403,17 @@ func (s liveStatus) statusText(elapsed time.Duration) string {
 
 // turnLine renders the turn's own numbers, which lead the status line: how long the
 // turn has been running, how many tokens the model has generated in it, how many
-// background tasks run right now. Tokens and tasks appear once there are any, so a turn
-// that has not heard from the model reads as its clock alone. The web UI renders the
-// same line (external/ui/src/ui/messages/TypingDotsMessage.tsx).
-func turnLine(elapsed time.Duration, tokens, runningTasks int) string {
+// background tasks run right now, and the generation speed once a window has filled.
+// Tokens and tasks appear once there are any, so a turn that has not heard from the
+// model reads as its clock alone. The web UI renders the same line
+// (external/ui/src/ui/messages/TypingDotsMessage.tsx).
+func turnLine(elapsed time.Duration, tokens, runningTasks int, speed *float64) string {
 	parts := []string{formatElapsed(elapsed)}
 	if tokens > 0 {
 		parts = append(parts, tui.FormatTokenCount(tokens)+" "+plural(tokens, "token", "tokens"))
+		if speed != nil {
+			parts = append(parts, formatGenerationSpeed(*speed)+" tok/s")
+		}
 	}
 	if runningTasks > 0 {
 		parts = append(parts, itoa(runningTasks)+" "+plural(runningTasks, "running task", "running tasks"))
@@ -430,7 +435,7 @@ func (a *App) statusMessage() string {
 	if a.turnStartedAt.IsZero() {
 		return step
 	}
-	return turnLine(time.Since(a.turnStartedAt), a.turnTokens, a.runningTasks) + " · " + step
+	return turnLine(time.Since(a.turnStartedAt), a.turnTokens, a.runningTasks, a.turnSpeed) + " · " + step
 }
 
 // stepMessage is what the turn is doing right now, without the turn's own numbers.
@@ -448,15 +453,49 @@ func (a *App) stepMessage() string {
 	return a.stepStatus.statusText(elapsed)
 }
 
+type generationStatusLine struct {
+	*statusLine
+	startedAt string
+}
+
 // applyTurnProgress takes the server's account of the running turn. The token count
 // is the agent's: provider figures for the calls that finished, an estimate for the
 // one in flight. The clock is the console's own for a turn it started - it knows when
 // the operator pressed enter - and the server's for a turn it only attached to.
 func (a *App) applyTurnProgress(u acp.TurnProgressUpdate) {
+	if u.Completed {
+		if u.TokensPerSecond != nil {
+			// A late queued follow-up runs again under the same admitted turn.
+			// Its cumulative caption replaces the earlier run's, at the tail.
+			for _, child := range a.chat.Children() {
+				if row, ok := child.(*generationStatusLine); ok && row.startedAt == u.StartedAt {
+					a.chat.RemoveChild(row)
+					break
+				}
+			}
+			a.chat.AddChild(&generationStatusLine{
+				statusLine: newStatusLine(a.theme, roleDim, tui.FormatTokenCount(u.OutputTokens)+" "+plural(u.OutputTokens, "token", "tokens")+" · "+formatGenerationSpeed(*u.TokensPerSecond)+" tok/s"),
+				startedAt:  u.StartedAt,
+			})
+		}
+		return
+	}
 	a.turnTokens = u.OutputTokens
+	a.turnSpeed = u.TokensPerSecond
 	if a.turnStartedAt.IsZero() && u.ElapsedMs >= 0 {
 		a.turnStartedAt = time.Now().Add(-time.Duration(u.ElapsedMs) * time.Millisecond)
 	}
+}
+
+func formatGenerationSpeed(speed float64) string {
+	digits := 0
+	if speed < 2 {
+		digits = 2
+	} else if speed < 10 {
+		digits = 1
+	}
+	scale := math.Pow10(digits)
+	return fmt.Sprintf("%.*f", digits, math.Round(speed*scale)/scale)
 }
 
 // setStatus replaces the current step. A repeat of the same phrase for the same step

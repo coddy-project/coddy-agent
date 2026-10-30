@@ -572,9 +572,10 @@ Tool call kinds are values of the ACP `ToolKind` enum, and Coddy sends no other:
 
 ### Coddy-specific session updates: `token_usage`, `usage_update`, `provider_usage`
 
-Coddy sends three `session/update` kinds the ACP specification does not
+Coddy sends four `session/update` kinds the ACP specification does not
 define; a client that ignores unknown kinds keeps working.
 
+- **`turn_progress`** carries the turn clock and output tokens. Optional `tokensPerSecond` reports generation speed; `completed: true` marks the final update, including a stopped or failed turn; when present, the rate is the average across measured model calls. Saved averages replay on session load. Blocking (non-streaming) providers, ACP agent models and calls delivered in a single output chunk contribute no tokens or time to the speed average; output counts still include them. With no measurable call interval, live output counts remain available, but the rate is omitted and no generation caption is saved. When an average exists, its saved caption pairs total output tokens from all calls with the rate across measured calls only. The same calculation powers the console and web UI.
 - **`token_usage`** after every completed model call: `inputTokens`,
   `outputTokens` of that call and `totalTokens` accumulated over the turn.
   `inputTokens` is the whole prompt of the call, the part served from the

@@ -1,0 +1,314 @@
+// Settings -> Sessions: the stored history as a table.
+
+@use "../abstracts" as *;
+
+/* ---------------------------------------------------------------------------
+   Settings -> Sessions: the stored history as a table (SessionsManager.tsx).
+   The table is the one horizontally scrollable element on the tab, so a narrow
+   shell scrolls the columns instead of the page. Contract: DESIGN.md,
+   "Settings session management table".
+   --------------------------------------------------------------------------- */
+
+/* The session table is a fieldset (Session management): it drops the
+   min-content inline size every <fieldset> defaults to, or the table's
+   columns would widen the drawer instead of scrolling inside their wrap. */
+.sessions-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-inline-size: 0;
+}
+
+/* The search field and the delete button share one row at every width: with a
+   single 40px action there is always room, and wrapping it onto a line of its
+   own made the narrow shell look unlike the desktop for no gain. */
+.sessions-manager-toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.sessions-manager-search {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sessions-manager-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+/* The three bulk actions are icon buttons; their label is the tooltip and the
+   accessible name. Only the selection count is drawn, as a badge, because it is
+   the one thing a tooltip cannot tell you at a glance. */
+.sessions-manager-action {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.sessions-manager-action-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 650;
+  line-height: 16px;
+  text-align: center;
+  /* Per-theme contrast pair; --coddy-blend-base is transparent in the dark
+     themes and would render the digit invisible. */
+  color: var(--coddy-on-accent-fg);
+  background: var(--accent);
+}
+
+/* The only scrollport of the tab: columns scroll inside this box. */
+.sessions-manager-tablewrap {
+  overflow-x: auto;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  background: var(--coddy-surface-fieldset);
+}
+
+.sessions-manager-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.sessions-manager-table th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  color: var(--muted);
+  /* 5px a side: inside the Session management fieldset the seven columns
+     fit the 680px drawer without a sideways scroll. */
+  padding: 8px 5px;
+  border-bottom: 1px solid var(--coddy-glass-panel-border);
+  position: sticky;
+  top: 0;
+  background: var(--coddy-surface-raised);
+  z-index: 1;
+}
+
+.sessions-manager-table td {
+  padding: 6px 5px;
+  border-bottom: 1px solid mix-text(6%);
+  color: var(--text);
+  vertical-align: middle;
+}
+
+.sessions-manager-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.sessions-manager-table tbody tr:hover {
+  background: mix-text(4%);
+}
+
+/* The conversation currently on screen behind the panel. */
+.sessions-manager-table tbody tr.is-active-session {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.sessions-manager-col-pick {
+  width: 34px;
+  text-align: center;
+}
+
+.sessions-manager-col-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Long values get a cap and an ellipsis; the full text is in the cell title. */
+.sessions-manager-title-line > span,
+.sessions-manager-col-model > span,
+.sessions-manager-cwd {
+  display: inline-block;
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+.sessions-manager-title-line > span {
+  max-width: 22ch;
+}
+
+/* Title and workspace stack inside one cell. */
+.sessions-manager-col-title {
+  line-height: 1.25;
+}
+
+.sessions-manager-title-line {
+  display: block;
+}
+
+.sessions-manager-cwd {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+/* Workspace and the "open" mark share the second line of the title cell. */
+.sessions-manager-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sessions-manager-badge {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  line-height: 1.5;
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* A sortable column head is a button that fills its cell, so the whole header
+   is the target rather than the word inside it. */
+.sessions-manager-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  /* A form control does not inherit these on its own, and a sortable column
+     head must read exactly like the ones that are not sortable. */
+  text-transform: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sessions-manager-sort:hover {
+  color: var(--text);
+}
+
+.sessions-manager-sort-caret {
+  font-size: 0.6rem;
+  opacity: 0.75;
+}
+
+/* The two filters of the table share a row under the search, half of it each,
+   so neither the field nor the actions give up width to them at any width. */
+.sessions-manager-filters {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sessions-manager-archive,
+.sessions-manager-origin {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.sessions-manager-archive-select,
+.sessions-manager-origin-select {
+  width: 100%;
+  min-width: 0;
+}
+
+/* The same mark as in History: a state leading the title, not a pill among the
+   labels. */
+.sessions-manager-archived-mark,
+.sessions-manager-print-mark {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  margin-right: 5px;
+  vertical-align: -3px;
+  color: mix-text(45%);
+}
+
+.sessions-manager-archived-mark svg,
+.sessions-manager-print-mark svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* A tag under a title is a filter you can press. */
+.sessions-manager-tag {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.68rem;
+  line-height: 1.5;
+  cursor: pointer;
+  color: mix-text(78%);
+  background: mix-text(6%);
+  border: 1px solid mix-text(14%);
+}
+
+.sessions-manager-tag:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* Visible at rest, and dashed so it reads as an opening rather than a label:
+   the row's tags end with a way to add one. */
+.sessions-manager-tag-add {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.68rem;
+  line-height: 1.5;
+  cursor: pointer;
+  background: transparent;
+  color: mix-text(40%);
+  border: 1px dashed mix-text(22%);
+  transition:
+    color 140ms ease,
+    border-color 140ms ease;
+}
+
+.sessions-manager-tag-add:hover,
+.sessions-manager-tag-add:focus-visible {
+  color: var(--text);
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.sessions-manager-tag-filter {
+  margin: 0;
+}
+
+.sessions-manager-tag-clear {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.sessions-manager-empty {
+  margin: 0;
+  padding: 14px 10px;
+}
+
+.sessions-manager-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}

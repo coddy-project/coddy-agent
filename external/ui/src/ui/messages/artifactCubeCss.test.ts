@@ -1,12 +1,7 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
-const css = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
-  "utf8",
-);
+const css = stylesSource();
 
 /**
  * A declaration block on one line: Prettier breaks a long value over several,
@@ -135,8 +130,8 @@ test("a card whose source was deleted is struck through and muted, not red", () 
   );
   expect(
     block(".tool-artifact-card--deleted .inline-artifact-extension"),
-  ).toMatch(/color: color-mix\(in srgb, var\(--text\) 52%/);
+  ).toMatch(/color: mix-text\(52%\)/);
   const meta = block(".tool-artifact-meta--deleted");
-  expect(meta).toMatch(/color: color-mix\(in srgb, var\(--text\) 74%/);
+  expect(meta).toMatch(/color: mix-text\(74%\)/);
   expect(meta).not.toMatch(/danger/);
 });

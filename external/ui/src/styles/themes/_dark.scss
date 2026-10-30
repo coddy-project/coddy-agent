@@ -1,0 +1,87 @@
+// The dark theme, which is also the default: :root carries it, so a token
+// another theme leaves out falls back to this value.
+
+@use "../abstracts" as *;
+
+:root,
+[data-theme="dark"] {
+  /* Syntax palette: shared by all explicitly labelled Markdown code blocks. */
+  --syntax-comment: #9ca3af;
+  --syntax-keyword: #c4b5fd;
+  --syntax-string: #6ee7b7;
+  --syntax-number: #93c5fd;
+  --syntax-title: #fcd34d;
+  --syntax-attribute: #7dd3fc;
+  --syntax-type: #67e8f9;
+  --syntax-meta: #f9a8d4;
+  --syntax-deletion: #fca5a5;
+  --coddy-danger: #f87171;
+  --bg: #121212;
+  --diff-add-bg: rgba(46, 160, 67, 0.13);
+  --diff-del-bg: rgba(248, 81, 73, 0.13);
+  --diff-hunk-bg: rgba(32, 122, 174, 0.12);
+  --diff-add-no: rgba(63, 185, 80, 0.55);
+  --diff-del-no: rgba(248, 81, 73, 0.55);
+  --nav: rgba(37, 37, 37, 0.6);
+  --sidebar: rgba(30, 30, 30, 0.7);
+  --accent: #9333ea;
+  --coddy-todo-completed: #34c759;
+  --coddy-skill-chip-bg: rgba(147, 51, 234, 0.14);
+  --coddy-skill-chip-bd: rgba(147, 51, 234, 0.52);
+  --coddy-skill-chip-text: rgba(237, 220, 255, 0.96);
+  --text: #ffffff;
+  --muted: #9ca3af;
+  --bubble-user: #2d2d2d;
+  --shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  --coddy-canvas-glow-purple: rgba(147, 51, 234, 0.12);
+  --coddy-canvas-glow-indigo: rgba(99, 102, 241, 0.1);
+  --coddy-canvas-gradient-top: #0f0f10;
+  --coddy-canvas-gradient-bottom: #0b0b0c;
+  /* 64 px of triangular noise: white or black pixels at alpha 0 to 3/255. */
+  --coddy-grain: url("data:image/png;base64,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");
+  /* Shared frosted panels (composer, History drawer, skills slash picker) */
+  /* Tint stays fairly transparent so backdrop blur reads as frosted glass, not a solid bar */
+  --coddy-glass-panel-bg: rgba(14, 14, 18, 0.62);
+  --coddy-glass-panel-backdrop: blur(52px) saturate(175%);
+  --coddy-glass-panel-border: #{mix-text(12%)};
+  --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.52);
+  /* Plain dim behind History / slash sheet — no fullscreen blur */
+  --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.55);
+  --coddy-surface-subtle: rgba(10, 10, 12, 0.2);
+  --coddy-surface-muted: rgba(10, 10, 12, 0.25);
+  --coddy-surface-raised: rgba(10, 10, 12, 0.35);
+  --coddy-surface-inset: rgba(10, 10, 12, 0.4);
+  --coddy-surface-sunken: rgba(8, 8, 10, 0.38);
+  --coddy-surface-field: rgba(0, 0, 0, 0.35);
+  --coddy-surface-fieldset: rgba(0, 0, 0, 0.2);
+  --coddy-surface-gutter: rgba(0, 0, 0, 0.2);
+  --coddy-surface-code-fg: rgba(186, 192, 204, 0.88);
+  --coddy-surface-code-bg: rgba(229, 231, 235, 0.9);
+  --coddy-link: rgba(167, 139, 250, 0.95);
+  --coddy-md-inline-code-fg: rgba(229, 231, 235, 0.92);
+  --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.1);
+  --coddy-link-action: rgba(140, 175, 255, 0.95);
+  --coddy-link-action-hover: rgba(180, 205, 255, 1);
+  --coddy-hero-muted-mid: rgba(226, 232, 240, 0.82);
+  --coddy-hero-muted-end: rgba(148, 163, 184, 0.62);
+  --coddy-hero-accent: #a585c9;
+  --coddy-hero-accent-glow: rgba(130, 105, 165, 0.22);
+  /* Mix partner for color-mix(in srgb, var(--text) …): transparent reads on dark canvas */
+  --coddy-blend-base: transparent;
+  --coddy-tip-bg: rgba(36, 36, 38, 0.97);
+  --coddy-tip-border: rgba(147, 51, 234, 0.35);
+  --coddy-tip-fg: #f4f4f5;
+  --coddy-tip-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  --coddy-chat-header-bg: rgba(15, 15, 16, 0.35);
+  --coddy-bubble-user-bg: rgba(45, 45, 45, 0.85);
+  --coddy-bubble-user-fg: #f4f4f5;
+  --coddy-chip-badge-bg: rgba(15, 15, 18, 0.9);
+  --coddy-chip-badge-fg: #{mix-text(72%)};
+  --coddy-plan-eye-bg: rgba(14, 14, 16, 0.92);
+  --coddy-plan-eye-fg: #{mix-text(45%)};
+  --coddy-on-accent-fg: #ffffff;
+  --coddy-context-ring-inner: rgba(196, 181, 253, 0.5);
+  /* Logo outer arc (cmf-stroke light end); flat, no gradient */
+  --coddy-context-ring-fg: #f5f3ff;
+  --coddy-ghost-btn-fg: var(--muted);
+}

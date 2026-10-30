@@ -16,6 +16,10 @@ Feature: The progress of a running turn in the web UI
   Scenario: The generated tokens join the line once there are any
     Then the live line shows the generated tokens once there are any, shortened past a thousand
 
+  Scenario: Generation speed rides the token count and outlives the turn
+    Then the live line shows generation speed immediately after the running token count
+    And a completed generation caption follows the answer and is not duplicated by replay
+
   Scenario: The line of a running turn carries what the server reported
     Then the live line of a running turn carries the server's clock and token count
     And a turn_progress frame reaches the tab on its own clock

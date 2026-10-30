@@ -1,0 +1,700 @@
+// The plate over the composer: the workspace picks, the worktree checkbox
+// and the folder browser.
+
+@use "../abstracts" as *;
+
+.composer-tab:hover {
+  background: var(--coddy-surface-raised);
+}
+
+.composer-attach-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 9px;
+}
+
+/* The bar over the composer of a running chat (WorkspaceBar.tsx): where the
+   chat works - the repository, the branch or worktree - and, at its right
+   edge, git's count of the changes, which opens the edits window. A plate of
+   the queue rows' glass, joined to the top of the composer card: square at the
+   bottom, no bottom border of its own (the card's top border is the seam), the
+   card's top corners squared to meet it (.composer-card--joined). Above the
+   card in the stack, so the card's upward halo does not darken it. One line
+   that never wraps. */
+.workspace-bar {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  /* 16px on the left: the plate's first word starts where the field's text
+     does. 12px on the right: git's count ends where the wand below does. */
+  padding: 5px 12px 5px 16px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  font-size: 12px;
+  line-height: 1.45;
+  color: mix-text(66%);
+  white-space: nowrap;
+}
+
+.composer-card.composer-card--joined {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* An item is one line of text that ends in an ellipsis when the bar runs out
+   of room; its icon sits on that line with vertical-align: middle, the middle
+   of the lowercase letters in whatever font the engine draws, and a pixel
+   above it: the glyphs carry their ink low, and on the middle they read as
+   sunk below the words. */
+.workspace-bar-item {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-bar-repo {
+  flex: 0 1 auto;
+  color: mix-text(80%);
+}
+
+.workspace-bar-branch {
+  flex: 0 1 auto;
+}
+
+.workspace-bar-icon {
+  display: inline-block;
+  vertical-align: middle;
+  position: relative;
+  top: -1px;
+  margin-right: 6px;
+  opacity: 0.85;
+}
+
+/* Before the chat starts the plate offers the workspace as a choice
+   (WorkspaceChips on it): the folder and the branch are buttons, the worktree
+   a checkbox, each a row item that a lighter ground marks as pressable. The
+   picks carry their own padding, so the plate's own left padding gives way
+   and the folder still starts on the placeholder's left edge. */
+.workspace-bar--pick {
+  padding-left: 10px;
+  gap: 4px;
+}
+
+.workspace-bar-picks {
+  display: contents;
+}
+
+.workspace-bar-pick,
+.workspace-bar-check {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.workspace-bar-pick:hover,
+.workspace-bar-pick:focus-visible,
+.workspace-bar-pick.is-open,
+.workspace-bar-check:hover {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  color: var(--text);
+  outline: none;
+}
+
+.workspace-bar-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  user-select: none;
+}
+
+.workspace-bar-check.is-locked {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.workspace-bar-check.is-locked:hover {
+  background: transparent;
+}
+
+/* The worktree checkbox is the browser's own, in the theme's colour scheme
+   and accent, so it reads as the ordinary control it is. */
+.workspace-bar-checkbox {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  flex: none;
+  cursor: inherit;
+  accent-color: var(--accent);
+}
+
+.workspace-bar-check:focus-within {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+}
+
+/* A finger needs a target of its own: on a phone and on any touch screen the
+   picks and the worktree checkbox are 36px tall (they have no ground at rest,
+   so only the plate grows around them), and git's count keeps its slim framed
+   look with an invisible hit area 40px tall laid over it. */
+@media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {
+  .workspace-bar {
+    font-size: 13px;
+  }
+
+  .workspace-bar--pick {
+    padding-top: 3px;
+    padding-bottom: 3px;
+    padding-left: 6px;
+  }
+
+  .workspace-bar-pick {
+    min-height: 36px;
+    padding: 1px 10px;
+    line-height: 34px;
+  }
+
+  .workspace-bar-check {
+    min-height: 36px;
+    padding: 0 10px;
+  }
+
+  .workspace-bar-checkbox {
+    width: 16px;
+    height: 16px;
+  }
+
+  .workspace-bar-edits {
+    position: relative;
+  }
+
+  /* The goal mark keeps its small look with a finger's 40px over it. */
+  .workspace-bar .composer-goal::after {
+    content: "";
+    position: absolute;
+    left: -9px;
+    right: -9px;
+    top: 50%;
+    height: 40px;
+    transform: translateY(-50%);
+  }
+
+  .workspace-bar-edits::after {
+    content: "";
+    position: absolute;
+    left: -6px;
+    right: -6px;
+    top: 50%;
+    height: 40px;
+    transform: translateY(-50%);
+  }
+}
+
+/* Git's count, at the right edge: the digits in the diff colours inside a
+   light frame, so it reads as a button; pointed at, the frame and the ground
+   brighten. Never the accent. */
+.workspace-bar-edits {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  margin-left: auto;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  border-radius: 7px;
+  background: transparent;
+  line-height: 15px;
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.workspace-bar-edits:hover,
+.workspace-bar-edits:focus-visible {
+  border-color: color-mix(in srgb, var(--text) 34%, transparent);
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  outline: none;
+}
+
+.workspace-chip-icon {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  opacity: 0.85;
+}
+
+.workspace-recent-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workspace-recent-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-recent-check {
+  flex: none;
+  color: var(--accent);
+}
+
+.workspace-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: color-mix(in srgb, var(--muted) 22%, transparent);
+}
+
+.workspace-open-folder {
+  color: var(--muted);
+}
+
+/* A refresh of the remote branches that failed: the list under it is the one
+   from before, and says so in the warning tone of the context popover - amber,
+   not the failure red, since the list is still usable. */
+/* The branch filter holds the refresh spinner at its right end: the list
+   under it stays rendered while the remotes are fetched, so the menu keeps
+   the size it opened with and the spinner takes no space of its own. */
+.workspace-branch-filter {
+  position: relative;
+  margin: 2px 0 6px;
+}
+
+.workspace-branch-filter .mode-menu-filter {
+  margin: 0;
+  padding-right: 28px;
+}
+
+.workspace-branch-refreshing {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.workspace-branch-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--muted) 30%, transparent);
+  border-top-color: var(--muted);
+  animation: session-spin 0.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-branch-spinner {
+    animation: none;
+  }
+}
+
+.workspace-branch-warning {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 4px 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #b45309;
+  background: color-mix(in srgb, #b45309 10%, transparent);
+}
+
+html:not([data-theme="light"]) .workspace-branch-warning {
+  color: #fbbf24;
+  background: color-mix(in srgb, #fbbf24 10%, transparent);
+}
+
+.workspace-branch-warning-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: mix-text(60%);
+}
+
+/* A row of the branch list: for a branch that is only on a remote a cloud
+   in the muted colour first, then the name, cut with an ellipsis. While any
+   row has a cloud every row keeps its slot, so the names stay in a column. */
+.workspace-branch-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspace-branch-mark {
+  flex: none;
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+}
+
+.workspace-branch-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-branch-remote-icon {
+  flex: none;
+  color: var(--muted);
+}
+
+/* The branch list carries the remotes' branches as well, so it scrolls far
+   more often than it did: the thin scrollbar of the folder browser's list
+   rather than the platform's arrows, and a wheel past its end stays in it. */
+.workspace-menu .mode-menu-scroll {
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+.workspace-menu .mode-menu-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.workspace-menu .mode-menu-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.workspace-menu .mode-menu-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 20%, transparent);
+  border-radius: 999px;
+}
+
+.workspace-menu .mode-menu-scroll::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text) 34%, transparent);
+}
+
+.workspace-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+/* Column flex box with a height cap: the folder list below is its only
+   scrollport, everything else is flex: none. Safari keeps its dynamic browser
+   chrome inside vh but outside dvh, so a vh-only cap can push the action row
+   under the toolbar - the vh line stays as the fallback for engines without
+   dvh (issue #159). */
+.workspace-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 48px));
+  /* Roomy body for a folder with few children: 262px is the 140px of head,
+     path row and actions plus the 120px of list the body used to claim through
+     the list's own min-height. Stated on the dialog, the floor leaves the list
+     free to shrink; clamped by the same viewport fraction as the cap below, it
+     can never exceed it. */
+  min-height: min(520px, 80vh);
+  min-height: min(520px, 80dvh);
+  max-height: min(80vh, 760px);
+  max-height: min(80dvh, 760px);
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--muted) 25%, transparent);
+  background: var(--bg);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+/* The head is the drawers' head (.sessions-head: 12px bold capitals, its
+   padding and rule), the one History and the Scheduler open with; this class
+   only keeps it from shrinking. Overriding its font here is what made the
+   title a 16px regular line unlike every other head. */
+.workspace-modal-head {
+  flex: none;
+}
+
+/* Editable path row: type or paste a path (a Windows user needs it to jump to
+   another drive). Shares the .mode-menu-filter token recipe so every theme is
+   covered; no direction: rtl here - it breaks the caret for LTR text. */
+.workspace-modal-path {
+  flex: none;
+  width: calc(100% - 28px);
+  box-sizing: border-box;
+  margin: 10px 14px 6px;
+  padding: 6px 9px;
+  border-radius: 9px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: mix-text(4%);
+  color: var(--text);
+  /* Inputs and buttons do not inherit the page font: without font: inherit
+     the field, the rows and the buttons of the dialog were drawn in the
+     browser's control font (Arial) instead of the app's. */
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+/* Show hidden sits next to New folder on the left of the footer; its auto
+   margin is what sends Cancel / Open to the right. */
+.workspace-modal-show-hidden {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.workspace-modal-path::placeholder {
+  color: mix-text(45%);
+}
+
+.workspace-modal-path:focus {
+  border-color: rgba(147, 51, 234, 0.45);
+}
+
+/* The dialog's only scrollport. `min-height: 0` is what turns a column flex
+   child into one: with a positive floor here the head, the path row and the
+   action buttons are laid out past the dialog's max-height and clipped away by
+   its `overflow: hidden`, with nothing left to scroll them back into view
+   (issue #159, reported on Safari 26.6 in a short window). The dialog's own
+   min-height keeps the body roomy when the listing is short, and being a bound
+   on the dialog it yields to the cap instead of fighting it.
+   The explicit thin scrollbar below is the same recipe the settings lists use:
+   where the platform draws a scrollbar at all, this one is legible against the
+   dark panel instead of inheriting the default. It does not create a track on
+   platforms with overlay scrollbars (macOS), so it is an affordance, not the
+   fix. */
+.workspace-modal-list {
+  flex: 1 1 120px;
+  min-height: 0;
+  overflow-y: auto;
+  /* A wheel gesture that runs past the last folder stays in the dialog instead
+     of scrolling the page behind it. */
+  overscroll-behavior: contain;
+  padding: 0 8px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+.workspace-modal-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.workspace-modal-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.workspace-modal-list::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 20%, transparent);
+  border-radius: 999px;
+}
+
+.workspace-modal-list::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text) 34%, transparent);
+}
+
+.workspace-modal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  padding: 7px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-modal-row:hover {
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+}
+
+.workspace-modal-row--up {
+  color: var(--muted);
+}
+
+.workspace-modal-row--hidden {
+  opacity: 0.6;
+}
+
+/* The name wins over a link's target: the target path is the part cut short,
+   the name only once it alone passes 70% of the row (a long target used to
+   squeeze "data-link" down to "da..."). */
+.workspace-modal-row-name {
+  flex: 0 0 auto;
+  max-width: 70%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-modal-row-target {
+  flex: 1 1 0;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Inline "new folder" row: a name field on the folder-row metrics, directly
+   above the listing it will appear in. It is a form, not a destination, so it
+   takes no row hover - and it sits *outside* the scrollport below on purpose:
+   as a flex: none sibling it is always fully visible, where a child of the list
+   would scroll away under the operator, and on a short window (issue #159's
+   1024x300: a 38px scrollport) it would be taller than the port it lives in. */
+.workspace-modal-row--new {
+  flex: none;
+  gap: 6px;
+  /* Tighter than a folder row on purpose: the row is chrome, and chrome is
+     what a short dialog runs out of room for. At 1024x300 - the shortest
+     viewport webkit-scroll-check.mjs drives - the list has already shrunk to
+     zero, so every pixel here comes straight off the dialog's own height. */
+  padding: 2px 8px;
+  margin: 0 6px 2px;
+  width: auto;
+  cursor: default;
+  overflow: visible;
+}
+
+.workspace-modal-row--new:hover {
+  background: transparent;
+}
+
+.workspace-modal-new-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: mix-text(4%);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.workspace-modal-new-name::placeholder {
+  color: mix-text(45%);
+}
+
+.workspace-modal-new-name:focus {
+  border-color: rgba(147, 51, 234, 0.45);
+}
+
+.workspace-modal-actions {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--muted) 20%, transparent);
+}
+
+.workspace-modal-btn {
+  border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 6px 14px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.workspace-modal-btn--primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+/* New folder leads the footer: a square as tall as the buttons beside it,
+   with the plus glyph of the scheduler's add button and its colours (the
+   colour rules are shared with .scheduler-btn-primary, light theme included,
+   so the two never drift apart). */
+.workspace-modal-btn--add {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  /* Stated, not derived: aspect-ratio on a stretched flex item left it 18px
+     wide in Chromium. The row stretches Cancel / Open to the same 32px. */
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 9px;
+  color: mix-text(88%);
+}
+
+.workspace-modal-btn--add svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* A phone opens the dialog where History opens: a glass panel under the top
+   bar, 10px from the sides and 14px from the bottom, the full height between
+   (the box and the tokens of .sessions.drawer on the stacked shell). Wider
+   screens keep the centred dialog above. */
+@media (max-width: 599px) {
+  .workspace-modal {
+    position: fixed;
+    top: calc(var(--coddy-mobile-top-inset) + 6px);
+    right: max(10px, env(safe-area-inset-right, 0px));
+    bottom: 14px;
+    left: max(10px, env(safe-area-inset-left, 0px));
+    width: auto;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    border-radius: var(--coddy-glass-panel-radius);
+    border: 1px solid var(--coddy-glass-panel-border);
+    background: var(--coddy-glass-panel-bg);
+    backdrop-filter: var(--coddy-glass-panel-backdrop);
+    -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+    box-shadow: var(--coddy-glass-panel-shadow);
+  }
+}
+
+/* The two buttons inside the inline name row sit on a list row, not in the
+   footer, so they are tighter than the footer pair. Same specificity as the
+   base rule above, which is why they have to come after it. */
+.workspace-modal-btn--inline {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.workspace-modal-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}

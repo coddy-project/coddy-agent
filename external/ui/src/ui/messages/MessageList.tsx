@@ -37,11 +37,14 @@ import {
 function turnLineProps(
   progress: TurnProgress | null | undefined,
   fallbackStartedAtMs: number | undefined,
-): { turnStartedAtMs?: number; turnTokens?: number } {
+): { turnStartedAtMs?: number; turnTokens?: number; tokensPerSecond?: number } {
   if (progress) {
     return {
       turnStartedAtMs: progress.startedAtMs,
       turnTokens: progress.outputTokens,
+      ...(progress.tokensPerSecond !== undefined
+        ? { tokensPerSecond: progress.tokensPerSecond }
+        : {}),
     };
   }
   return typeof fallbackStartedAtMs === "number"
@@ -290,6 +293,7 @@ export function MessageList(props: {
               rowId={it.id}
               level={it.level}
               message={it.message}
+              {...(it.generation ? { generation: it.generation } : {})}
               {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
               {...(isLast && it.level === "error" && props.onRetryLast
                 ? { onRetry: props.onRetryLast }

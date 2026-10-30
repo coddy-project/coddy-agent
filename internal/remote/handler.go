@@ -98,6 +98,7 @@ type sessionState struct {
 	// created yet; they ride in at the start of its first prompt.
 	pendingSettings  []session.SettingsChange
 	pendingReplay    []messageRow
+	pendingUILog     []session.UILogEntry
 	turn             *remoteTurn
 	activityRevision uint64
 	queue            queueOrder
@@ -299,6 +300,7 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 		case err == nil:
 			h.mu.Lock()
 			st.pendingReplay = msgs.Messages
+			st.pendingUILog = msgs.UILog
 			st.historyRev, st.historyLoaded = msgs.MessagesRev, true
 			if msgs.SelectedModelID != "" {
 				st.modelID = msgs.SelectedModelID
@@ -338,7 +340,7 @@ func (h *Handler) HandleSessionLoad(ctx context.Context, params acp.SessionLoadP
 	if err != nil {
 		return nil, fmt.Errorf("session/load: %w", err)
 	}
-	h.replayMessages(params.SessionID, msgs.Messages)
+	h.replayMessages(params.SessionID, msgs.Messages, msgs.UILog)
 	// A background subagent of this session may have asked before the console
 	// opened it; the server announced that prompt then, and it is shown now.
 	h.offerDetachedPromptsFor(params.SessionID)
@@ -684,10 +686,12 @@ func (h *Handler) HandleSessionReady(sessionID string) {
 	h.RefreshSessionState(sessionID)
 	h.mu.Lock()
 	replay := st.pendingReplay
+	uiLog := st.pendingUILog
 	st.pendingReplay = nil
+	st.pendingUILog = nil
 	h.mu.Unlock()
 	if len(replay) > 0 {
-		h.replayMessages(sessionID, replay)
+		h.replayMessages(sessionID, replay, uiLog)
 	}
 	// A goal the session carries is on screen from the start, as the local
 	// manager sends it on ready.
@@ -901,15 +905,31 @@ func hasReasoningLevel(levels []string, value string) bool {
 }
 
 // replayMessages mirrors Manager.replayConversation over REST message rows.
-func (h *Handler) replayMessages(sessionID string, rows []messageRow) {
+func (h *Handler) replayMessages(sessionID string, rows []messageRow, logs []session.UILogEntry) {
 	sender := h.currentSender()
 	if sender == nil {
 		return
 	}
 	toolNames := map[string]string{}
+	var summaries []session.UILogEntry
+	for _, row := range logs {
+		if row.Generation != nil {
+			summaries = append(summaries, row)
+		}
+	}
+	turn := 0
+	flush := func() {
+		for len(summaries) > 0 && summaries[0].UserTurnIndex <= turn {
+			row := summaries[0]
+			summaries = summaries[1:]
+			_ = sender.SendSessionUpdate(sessionID, row.GenerationProgress())
+		}
+	}
 	for _, row := range rows {
 		switch row.Role {
 		case "user":
+			flush()
+			turn++
 			if row.BackgroundWake != nil {
 				_ = sender.SendSessionUpdate(sessionID, session.BackgroundWakeUpdate(row.BackgroundWake))
 				continue
@@ -974,6 +994,7 @@ func (h *Handler) replayMessages(sessionID string, rows []messageRow) {
 			})
 		}
 	}
+	flush()
 }
 
 // replayKind maps a tool name to the ACP tool kind used by transcript boxes.

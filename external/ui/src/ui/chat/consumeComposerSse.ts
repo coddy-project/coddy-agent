@@ -22,6 +22,7 @@ import { sessionMessageFiles } from "./sessionMessageFiles";
 import { parseToolArtifacts } from "./toolArtifacts";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { turnProgressFromFrame, type TurnProgress } from "./turnProgress";
+import { generationSummaryFromFrame } from "./generationSpeed";
 import type { ProviderUsage } from "./providerUsage";
 import {
   sessionSettingsEventOf,
@@ -729,11 +730,25 @@ export async function consumeComposerSseReader(
 
       if (ev.event === "turn_progress") {
         try {
-          const progress = turnProgressFromFrame(
-            JSON.parse(ev.data),
-            ev.ageMs,
-            Date.now(),
-          );
+          const raw = JSON.parse(ev.data);
+          const summary = generationSummaryFromFrame(raw);
+          if (summary && typeof raw.startedAt === "string") {
+            const id = "generation_" + raw.startedAt;
+            // A continuation shares the admitted turn's id and publishes a
+            // new cumulative average. Replace its earlier caption at the tail.
+            applyStreamItems((prev) => [
+              ...prev.filter((it) => it.id !== id),
+              {
+                id,
+                type: "system_notice",
+                level: "notice",
+                message: "Generation complete",
+                generation: summary,
+                createdAtUtc: new Date(eventNow()).toISOString(),
+              },
+            ]);
+          }
+          const progress = turnProgressFromFrame(raw, ev.ageMs, Date.now());
           if (progress) {
             onTurnProgress?.(progress);
           }

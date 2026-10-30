@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SwarmView } from "./SwarmView";
+import { stylesPartial, stylesSource } from "../../stylesSource";
 
 const info = {
   swarm: true,
@@ -502,10 +503,7 @@ describe("SwarmView", () => {
     });
 
     expect(viewport).toHaveClass("is-panning");
-    const css = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
-      "utf8",
-    );
+    const css = stylesSource();
     expect(css).toContain(
       ".swarm-graph-viewport.is-panning .swarm-graph-camera",
     );
@@ -659,10 +657,7 @@ describe("SwarmView", () => {
     expect(mapNode("middle")).toHaveClass("is-route-relay");
     expect(mapNode("other")).not.toHaveClass("is-route-relay");
 
-    const css = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
-      "utf8",
-    );
+    const css = stylesSource();
     expect(css).toContain(
       ".swarm-node-relay.is-route-relay:not(.is-current) .swarm-node-ring",
     );
@@ -683,10 +678,7 @@ describe("SwarmView", () => {
   });
 
   it("drops camera transition while panning and sizes controls for touch", () => {
-    const css = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
-      "utf8",
-    );
+    const css = stylesSource();
     expect(css).toContain(
       ".swarm-graph-viewport.is-panning .swarm-graph-camera",
     );
@@ -1101,13 +1093,15 @@ describe("SwarmView", () => {
   // A media query adds no specificity, so the rules that switch the motion off
   // have to name the same state classes that switched it on.
   it("switches every animation off under reduced motion", () => {
-    const css = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
-      "utf8",
-    );
-    const block = css.slice(
-      css.lastIndexOf("@media (prefers-reduced-motion: reduce)"),
-    );
+    const css = stylesPartial("screens/swarm-map");
+    const start = css.indexOf("@media (prefers-reduced-motion: reduce)");
+    expect(start).toBeGreaterThan(-1);
+    let end = css.indexOf("{", start) + 1;
+    for (let depth = 1; depth > 0 && end < css.length; end++) {
+      if (css[end] === "{") depth++;
+      else if (css[end] === "}") depth--;
+    }
+    const block = css.slice(start, end);
     expect(block).toContain(".swarm-node-halo.is-running");
     expect(block).toContain(".swarm-node-halo.is-waiting");
     expect(block).toContain(".swarm-edge.is-busy");
@@ -1117,10 +1111,7 @@ describe("SwarmView", () => {
   // Below 1200px the shell's backdrop rises to 60 and #/swarm opens it, so a
   // dock under it hands every tap to the backdrop, which closes the screen.
   it("takes taps on a phone: the dock sits above the backdrop and below the top bar", () => {
-    const css = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
-      "utf8",
-    );
+    const css = stylesSource();
     const mobileBackdrop =
       /@media \(max-width: 1199px\) \{[^@]*?\.backdrop \{\s*z-index: (\d+)/.exec(
         css,
@@ -1143,10 +1134,7 @@ describe("SwarmView", () => {
   // reader stopped at 1350px, and the map inside kept to 1100px of it, which
   // left bare strips on both sides of a wide screen (issue #401).
   it("opens in a dock as wide as the documentation reader's, and the map fills it", () => {
-    const css = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
-      "utf8",
-    );
+    const css = stylesSource();
     const top = (selector: string) =>
       new RegExp(`^\\${selector}\\s*\\{([^}]*)\\}`, "m").exec(css)?.[1] ?? "";
     for (const dock of [".swarm-dock-cluster", ".docs-dock-cluster"]) {

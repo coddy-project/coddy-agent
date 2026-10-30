@@ -1,0 +1,843 @@
+// Tool call rows: the call, its diff, the thinking rows, inline previews and
+// the cards of shared files.
+
+@use "../abstracts" as *;
+
+.tool-block {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--coddy-surface-inset);
+  border: 1px solid mix-text(8%);
+  border-radius: 12px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  font-family: $coddy-mono-ui;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* Tool output is always raw text (no Markdown); subtle grey monospace.
+   Uses theme tokens so the Light theme gets readable dark text (the dark values
+   match the previous hardcoded rgba, so dark is unchanged). */
+.tool-block.tool-result-raw {
+  color: var(--coddy-surface-code-fg);
+  background: var(--coddy-surface-sunken);
+}
+
+.tool-result-viewport {
+  overflow-x: auto;
+}
+
+.tool-result-viewport--tall {
+  /* Matches .tool-block: 12px font, line-height 1.45 (+ vertical padding two sides). Tiny slack so row 20 (often "...") is not clipped by sub-pixel rounding. */
+  max-height: calc(12px * 1.45 * 20 + 26px);
+}
+
+.tool-result-pre {
+  margin: 0;
+  font: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tool-result-viewport--clip {
+  overflow-y: hidden;
+}
+
+.tool-result-viewport--scroll {
+  overflow-y: auto;
+}
+
+.tool-result-toggle-row {
+  display: flex;
+  margin: 0 0 6px;
+}
+
+.tool-overflow-toggle {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  justify-content: center;
+  margin: -1px 0 0 8px;
+  border: 1px solid mix-text(10%);
+  border-top: 0;
+  border-radius: 0 0 9px 9px;
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-glass-panel-bg));
+  padding: 3px 12px 4px;
+  font: inherit;
+  font-size: 10.5px;
+  line-height: 1.2;
+  color: mix-text(48%);
+  cursor: pointer;
+  text-align: left;
+  vertical-align: baseline;
+}
+
+.tool-overflow-toggle:hover:not(:disabled) {
+  color: mix-text(78%);
+  background: color-mix(in srgb, var(--text) 7%, var(--coddy-glass-panel-bg));
+}
+
+.tool-overflow-toggle:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+/* ── Diff rows (shared by the permission tool previews) ─────────────── */
+
+.diff-hunk-header {
+  display: block;
+  width: 100%;
+  padding: 2px 10px;
+  font-family: $coddy-mono-ui;
+  font-size: 11px;
+  color: mix-text(45%);
+  background: var(--diff-hunk-bg);
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-sizing: border-box;
+}
+
+.diff-line {
+  display: flex;
+  align-items: baseline;
+  font-family: $coddy-mono-ui;
+  font-size: 11.5px;
+  line-height: 1.55;
+  min-height: 0;
+}
+
+.diff-line--add {
+  background: var(--diff-add-bg);
+}
+
+.diff-line--del {
+  background: var(--diff-del-bg);
+}
+
+.diff-gutter {
+  display: flex;
+  flex-shrink: 0;
+  align-items: baseline;
+  gap: 0;
+  border-right: 1px solid mix-text(8%);
+  user-select: none;
+}
+
+.diff-no {
+  display: inline-block;
+  min-width: 3ch;
+  padding: 0 5px;
+  text-align: right;
+  font-size: 11px;
+  color: mix-text(28%);
+  box-sizing: border-box;
+}
+
+.diff-line--add .diff-no {
+  color: var(--diff-add-no);
+}
+
+.diff-line--del .diff-no {
+  color: var(--diff-del-no);
+}
+
+.diff-sign {
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+  font-size: 11.5px;
+  color: mix-text(38%);
+  user-select: none;
+  padding: 0 1px;
+}
+
+.diff-line--add .diff-sign {
+  color: var(--diff-add-no);
+}
+
+.diff-line--del .diff-sign {
+  color: var(--diff-del-no);
+}
+
+.diff-content {
+  flex: 1 1 auto;
+  padding: 0 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  color: mix-text(86%);
+  min-width: 0;
+}
+
+/* ── End diff rows ──────────────────────────────────────────────────── */
+
+.thinking-row {
+  max-width: 720px;
+  width: 100%;
+  align-self: stretch;
+  box-sizing: border-box;
+}
+
+.thinking-details {
+  margin: 0;
+  padding-inline: 0;
+}
+
+/* Closed <details> must not reserve space for the body (args/result) in any engine. */
+.thinking-details:not([open]) > :not(summary) {
+  display: none !important;
+}
+
+.thinking-details > summary {
+  list-style: none;
+  appearance: none;
+  -webkit-appearance: none;
+  margin-inline: 0;
+  padding-inline: 0;
+}
+
+.thinking-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.thinking-summary {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0;
+  width: 100%;
+  box-sizing: border-box;
+  cursor: pointer;
+  color: mix-text(48%);
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 2px 0;
+}
+
+.thinking-left {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+  /* Same inset as .msg-assistant prose; chevron sits in the band to the left */
+  padding-left: 14px;
+  gap: 0 6px;
+}
+
+/* The app's one chevron (<Chevron />, DESIGN.md "Chevron"): the transcript row's
+   fold marker and every disclosure, submenu and dropdown are the same component,
+   so none of them can drift into a glyph or a triangle of its own. The mark is an
+   SVG whose ink mirrors about the centre of its viewBox; as the text "›" its ink
+   sat wherever the platform's font happened to put it in the line box, and the
+   same CSS placed it differently on every machine. Nothing here may put a chevron
+   back into `content`. */
+.coddy-chevron {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  opacity: 0.7;
+  transition: transform 140ms ease;
+}
+
+.coddy-chevron > svg {
+  display: block;
+  flex: 0 0 auto;
+}
+
+.coddy-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.coddy-chevron--down {
+  transform: rotate(90deg);
+}
+
+.coddy-chevron--down.is-open {
+  transform: rotate(-90deg);
+}
+
+/* A back control (the settings list forms' "< LLM providers"). */
+.coddy-chevron--left {
+  transform: rotate(180deg);
+}
+
+/* Centred on the first line - half the label's 20px line box - never on the height
+   of .thinking-left. A tool row's box is taller than its label's line (the 12px target
+   and duration sit lower on the shared baseline) and a phone wraps a chip onto a second
+   line; centred on the box, the chevron sank below the label on exactly those rows.
+   Placed after .coddy-chevron: the transcript row's chevron carries both classes and
+   these declarations win on order, not on weight.
+   DESIGN.md (Chevron), toolRowBaselineCss.test.ts. */
+.thinking-chevron {
+  position: absolute;
+  left: 0;
+  top: 10px;
+  width: 16px;
+  height: 14px;
+  transform: translateY(-50%) rotate(0deg);
+}
+
+.thinking-details[open] .thinking-chevron {
+  transform: translateY(-50%) rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coddy-chevron {
+    transition: none;
+  }
+}
+
+.thinking-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  color: mix-text(56%);
+  letter-spacing: 0.02em;
+  line-height: 20px;
+}
+
+.thinking-dur {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  font-size: 12px;
+  line-height: 20px;
+  color: mix-text(40%);
+  user-select: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* What the reasoning cost, after the duration and in the same type, apart
+   from it by the gap of .thinking-left alone: the count the live line and the
+   Tasks panel show, the exact number in its title. */
+.thinking-tokens {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  font-size: 12px;
+  line-height: 20px;
+  color: mix-text(40%);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reasoning the provider kept to itself: the body says so instead of a text. */
+.thinking-body--hidden {
+  font-size: 13px;
+  color: mix-text(52%);
+}
+
+.thinking-body {
+  margin: 8px 0 0 12px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  border: 1px solid mix-text(8%);
+  background: var(--coddy-surface-muted);
+  font-size: 14px;
+  line-height: 1.5;
+  color: mix-text(68%);
+}
+
+/* Match assistant message prose size (.msg); quieter than primary answer */
+.thinking-body .md {
+  font-size: 14px;
+  line-height: 1.55;
+  color: mix-text(68%);
+}
+
+.thinking-body .md :where(a) {
+  color: rgba(167, 139, 250, 0.72);
+}
+
+.thinking-body .md :where(blockquote) {
+  color: mix-text(62%);
+}
+
+.thinking-body .md :where(th) {
+  color: mix-text(78%);
+}
+
+.thinking-body .md-inline-code {
+  color: var(--coddy-md-inline-code-fg);
+}
+
+/* The pictures a tool call returned (read on an image file, an MCP tool) stand under
+   its row, open or closed, at the inset of the row's label: the preview is the
+   point, so it is not folded into the details. They hang close under the row
+   they belong to, and below them the transcript's own gap between rows is the
+   whole space, as after any other row. A card has the size and the manner of a
+   sent attachment, and a click opens the original enlarged. */
+.tool-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 0 14px;
+}
+
+.tool-image-card {
+  display: block;
+  width: 128px;
+  height: 96px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid mix-text(14%);
+  background: mix-text(6%);
+  cursor: zoom-in;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.tool-image-card:hover,
+.tool-image-card:focus-visible {
+  border-color: mix-text(28%);
+  background: mix-text(12%);
+}
+
+.tool-image-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+/* Verified shared files render as compact cubes in assistant answers
+   (DESIGN.md, Shared file cards). */
+.tool-artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 0 14px;
+  min-width: 0;
+}
+
+.tool-artifact-card {
+  /* The badge's numbers place the actions trigger too, so the two stay level
+     and mirror each other across the card whatever size either takes. */
+  --artifact-badge-inset: 10px;
+  --artifact-badge-size: 28px;
+  --artifact-trigger-size: 28px;
+  position: relative;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  width: 134px;
+  height: 140px;
+  box-sizing: border-box;
+  /* Clips a thumbnail to the corners; the actions menu is portalled out of
+     the card for that reason. */
+  overflow: hidden;
+  padding: 12px;
+  border: 1px solid mix-text(14%);
+  border-radius: 12px;
+  background: mix-text(5%);
+}
+
+.tool-artifact-icon {
+  display: grid;
+  place-items: center;
+  color: mix-text(68%);
+}
+
+.tool-artifact-info {
+  display: grid;
+  min-width: 0;
+  grid-row: 1 / -1;
+  grid-template-rows: 1fr auto;
+}
+
+.tool-artifact-name {
+  align-self: end;
+  margin-bottom: 4px;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.tool-artifact-meta {
+  align-self: end;
+  color: mix-text(58%);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.tool-artifact-meta--error {
+  color: var(--coddy-danger, #ef4444);
+}
+
+.inline-artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 100%;
+  margin: 12px 0 16px;
+}
+
+/* The 16px are for the paragraph after the cards; cards that end the answer
+   keep none. */
+.inline-artifacts:last-child {
+  margin-bottom: 0;
+}
+
+.inline-artifact-card {
+  display: grid;
+}
+
+.tool-artifact-card {
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    transform 140ms ease;
+}
+
+.tool-artifact-card:hover {
+  border-color: mix-text(30%);
+  background: mix-text(8%);
+  transform: translateY(-1px);
+}
+
+.inline-artifact-card .tool-artifact-info {
+  padding-top: 22px;
+}
+.inline-artifact-extension {
+  position: absolute;
+  top: var(--artifact-badge-inset);
+  left: var(--artifact-badge-inset);
+  display: grid;
+  place-items: center;
+  width: var(--artifact-badge-size);
+  height: var(--artifact-badge-size);
+  box-sizing: border-box;
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 46%, var(--coddy-blend-base));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg) 74%, transparent);
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  pointer-events: none;
+}
+.inline-artifact-image {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+/* A picture whose source is in the workspace opens in the Files window. */
+.inline-artifact-image--open {
+  cursor: pointer;
+}
+.inline-artifact-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+.inline-artifact-card:has(.inline-artifact-image) .tool-artifact-info {
+  position: relative;
+  z-index: 1;
+  padding: 32px 0 0;
+  pointer-events: none;
+  text-shadow: 0 1px 2px #000;
+}
+.inline-artifact-card:has(.inline-artifact-image) .tool-artifact-meta {
+  padding: 4px;
+  margin: 0 -4px -4px;
+  border-radius: 5px;
+  background: color-mix(in srgb, #000 56%, transparent);
+}
+/* The badge mirrored across the card: level with it and as far from the right
+   edge as the badge is from the left, centred on the badge's box when the
+   trigger is larger (a phone's touch target). The dots are an svg centred in
+   its viewBox; the "⋮" glyph sat wherever the platform's font put its ink. */
+.inline-artifact-menu-trigger {
+  position: absolute;
+  z-index: 2;
+  top: calc(
+    var(--artifact-badge-inset) +
+      (var(--artifact-badge-size) - var(--artifact-trigger-size)) / 2
+  );
+  right: calc(
+    var(--artifact-badge-inset) +
+      (var(--artifact-badge-size) - var(--artifact-trigger-size)) / 2
+  );
+  display: grid;
+  place-items: center;
+  width: var(--artifact-trigger-size);
+  height: var(--artifact-trigger-size);
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg) 74%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+}
+.tool-artifact-card:hover .inline-artifact-menu-trigger,
+.tool-artifact-card:focus-within .inline-artifact-menu-trigger,
+.inline-artifact-menu-trigger:focus-visible,
+.inline-artifact-menu-trigger[aria-expanded="true"] {
+  opacity: 1;
+}
+/* A screen without hover would never show it. */
+@media (hover: none) {
+  .inline-artifact-menu-trigger {
+    opacity: 1;
+  }
+}
+/* Portalled to the document and placed from the trigger
+   (placeArtifactMenu in ToolArtifactCards.tsx): the card clips what overflows
+   it, and a menu inside it was never seen. A window shorter than the menu
+   scrolls its items instead of cutting the last ones off. */
+.inline-artifact-menu {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  min-width: 180px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 4px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  background: var(--coddy-tip-bg);
+  box-shadow: var(--coddy-tip-shadow);
+}
+.inline-artifact-menu button {
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.inline-artifact-menu button:hover:not(:disabled),
+.inline-artifact-menu button:focus-visible {
+  background: mix-text(9%);
+}
+.inline-artifact-menu button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+/* Copy and its submenu beside the menu (placeArtifactSubmenu), the way a
+   desktop app nests the ways to copy; the chevron points to where it opens.
+   The item stays lit while its submenu shows. */
+.inline-artifact-menu .inline-artifact-menu-sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.inline-artifact-menu .inline-artifact-menu-sub[aria-expanded="true"] {
+  background: mix-text(9%);
+}
+.inline-artifact-menu-chevron {
+  color: mix-text(58%);
+}
+/* A phone's one list: the ways to copy under a Copy heading, set apart by
+   rules from the items around them. */
+.inline-artifact-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: mix-text(12%);
+}
+.inline-artifact-menu-group {
+  display: grid;
+}
+.inline-artifact-menu-label {
+  padding: 4px 9px 2px;
+  color: mix-text(58%);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* The whole card opens the file it was copied from in the Files window; the
+   actions trigger stands over it. A picture's thumbnail is that button itself
+   (.inline-artifact-image--open), and opens the copy in the lightbox only when
+   the source is gone (DESIGN.md, Shared file cards). */
+.tool-artifact-open {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.tool-artifact-open:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: -2px;
+}
+
+/* A source deleted from the workspace: the badge and the name step back, the
+   name is struck through, and the line under it says so. The copy can still
+   be downloaded from the menu. */
+.tool-artifact-card--deleted .inline-artifact-extension {
+  border-color: mix-text(22%);
+  color: mix-text(52%);
+}
+.tool-artifact-card--deleted .tool-artifact-name {
+  color: mix-text(62%);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--text) 45%, transparent);
+}
+.tool-artifact-card--deleted .inline-artifact-thumb {
+  opacity: 0.55;
+  filter: grayscale(1);
+}
+.tool-artifact-meta--deleted {
+  color: mix-text(74%);
+  font-weight: 600;
+}
+
+@media (max-width: 599px) {
+  .tool-artifact-card {
+    --artifact-trigger-size: 32px;
+    width: min(118px, calc(50vw - 28px));
+    height: 132px;
+  }
+
+  .inline-artifact-menu-trigger {
+    opacity: 1;
+  }
+}
+
+.coddy-tool-call-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin: 8px 0 0 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.coddy-tool-call-body--question {
+  display: block;
+  padding: 6px 12px;
+  border: 1px solid mix-text(8%);
+  border-radius: 12px;
+  background: var(--coddy-surface-muted);
+}
+
+.coddy-tool-call-body .tool-block:first-of-type {
+  margin-top: 0;
+}
+
+/* Flat tool foldout body (no nested bordered cubes inside thinking-body). */
+.coddy-tool-call-body .tool-block {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  border-radius: 0;
+  color: var(--coddy-surface-code-fg);
+}
+
+.coddy-tool-call-body .tool-block + .tool-block {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid mix-text(10%);
+}
+
+.coddy-tool-call-body .tool-block.tool-result-raw {
+  background: transparent;
+}
+
+.tool-call-result-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid mix-text(10%);
+  border-radius: 12px;
+  background: var(--coddy-surface-inset);
+}
+
+/* A structured invocation and its output read as one execution card. */
+.coddy-tool-call-body--connected-result
+  > .permission-preview
+  + .tool-call-result-card {
+  margin-top: -8px;
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+}
+
+.coddy-tool-call-body--connected-result
+  > .permission-preview
+  .permission-preview-bar--standalone {
+  border-radius: 12px 12px 0 0;
+}
+
+.coddy-tool-call-body--connected-result
+  > .permission-preview
+  .permission-preview-viewport {
+  border-radius: 0;
+  /* The output continues the same panel, so the viewport draws no closing edge. */
+  border-bottom: 0;
+}
+
+/* A command block carries its own 10px inset inside the card, so the output that
+   continues the panel adds none: one gap at the seam, not two stacked paddings.
+   Previews whose body runs edge to edge (a diff, a code panel) keep theirs. */
+.coddy-tool-call-body--connected-result
+  > .permission-preview:has(.permission-preview-shell)
+  + .tool-call-result-card
+  .tool-call-result-content {
+  padding-top: 0;
+}
+
+/* Output needs no label: it is the only thing under the call. A failure is said once,
+   on the summary row, where it is readable without expanding the card. */
+.tool-failed-marker {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--diff-del-no) 82%, var(--text));
+  font-size: 12px;
+}
+
+.tool-call-result-content {
+  min-width: 0;
+  padding: 10px 12px;
+  box-sizing: border-box;
+  color: var(--coddy-surface-code-fg);
+  font-family: $coddy-mono-ui;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.coddy-tool-call-body > .tool-result-toggle-row {
+  align-self: flex-start;
+  margin: -8px 0 2px;
+}
+
+.coddy-tool-call-body > .tool-call-result-card + .tool-result-toggle-row {
+  margin-top: -8px;
+}
