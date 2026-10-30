@@ -186,7 +186,11 @@
   gap: 10px;
 }
 
+/* The head stands inside the scroller's 12px: it reaches back over them, so its
+   divider spans the panel and the title and the close control keep the meter's
+   edges. */
 .context-breakdown-head {
+  margin: 0 -12px;
   padding: 10px 12px;
 }
 
@@ -200,7 +204,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 12px 0;
+  padding: 10px 0 0;
 }
 
 .context-breakdown-used {
@@ -248,7 +252,7 @@ html:not([data-theme="light"]) .context-breakdown-error {
   flex-wrap: wrap;
   gap: 6px;
   color: color-mix(in srgb, var(--text) 75%, transparent);
-  margin: 4px 14px 10px;
+  margin: 4px 0 10px;
 }
 
 .context-breakdown-summary-sep {

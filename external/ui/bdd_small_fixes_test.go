@@ -12,6 +12,9 @@ import (
 // the stylesheet, so each step runs the Vitest test that renders or reads them.
 func TestWebUISmallFixesFeature(t *testing.T) {
 	steps := []struct{ step, file, name string }{
+		{`^the head and the usage of the context window keep the edges of its bar$`,
+			"src/ui/chat/contextBreakdownPopoverCss.test.ts",
+			"the head and the usage keep the meter's edges, and the divider spans the panel"},
 		{`^the Russian dictionary keeps the project's wording$`,
 			"src/ui/i18n/ruWording.test.ts",
 			"the Russian dictionary keeps the project's wording"},

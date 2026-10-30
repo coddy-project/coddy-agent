@@ -30,6 +30,9 @@ Feature: Five small fixes of the web UI
     Then a read with an offset and a limit shows the lines next to the path
     And a read of the whole file shows the path alone
 
+  Scenario: The context window keeps one pair of edges
+    Then the head and the usage of the context window keep the edges of its bar
+
   Scenario: Archiving from History keeps the list where it was
     Then an archived row leaves History at once and the list is not read again
     And a refused archive puts the row back where it stood, with a note on it
