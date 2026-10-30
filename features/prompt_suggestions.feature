@@ -15,3 +15,10 @@ Feature: Optional follow-up prompt suggestions
     Then neither surface offers a suggestion
     And no suggestion model call was made
     And the recorded conversation is unchanged
+
+  Scenario: A suggestion is available after the first completed reply
+    Given a conversation with its first completed reply
+    When two surfaces request its next prompt
+    Then both surfaces offer "run the tests"
+    And only one suggestion model call was made
+    And the recorded conversation is unchanged

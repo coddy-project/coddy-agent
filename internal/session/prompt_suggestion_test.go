@@ -192,6 +192,8 @@ func TestValidatePromptSuggestionAcceptsPlainLines(t *testing.T) {
 	for _, in := range []string{
 		"run the tests",
 		"yes",
+		"да",
+		"продолжай",
 		"push it",
 		"/resume",
 		"  try it out  ",
