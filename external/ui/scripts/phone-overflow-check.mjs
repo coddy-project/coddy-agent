@@ -46,7 +46,7 @@ if (BROWSER_PATH && ENGINE !== "chromium") {
 // The verification widths of the grid: the phones the issue names (Galaxy S21,
 // iPhone 13 mini, Honor X9d, a large phone), a phone's upper edge, the tablet
 // tier's edges and an iPad, and a desktop window.
-const WIDTHS = [360, 375, 393, 430, 599, 600, 834, 1199, 1280];
+const WIDTHS = [360, 375, 390, 393, 430, 599, 600, 834, 1199, 1280];
 const LANGS = ["ru", "en"];
 // Built-in tools with a short label: their rows keep one line at every width.
 const SHORT_LABEL_ROWS = [
@@ -156,12 +156,25 @@ async function probe(page) {
         };
       },
     );
+    const tasks = column.querySelector(
+      '[data-testid="typing-dots-turn-tasks"]',
+    );
+    const time = column.querySelector(
+      '[data-testid="typing-dots-turn-elapsed"]',
+    );
     return {
       pageOverflow:
         document.documentElement.scrollWidth -
         document.documentElement.clientWidth,
       offenders: out.map((o) => o.what),
       rows,
+      taskCount: tasks?.textContent,
+      countSharesNumbersLine:
+        !!tasks &&
+        !!time &&
+        Math.abs(
+          tasks.getBoundingClientRect().top - time.getBoundingClientRect().top,
+        ) < 1,
     };
   }, SHORT_LABEL_ROWS);
 }
@@ -396,7 +409,12 @@ try {
       await page.evaluate(async () => {
         await document.fonts.ready;
         await Promise.all(
-          document.getAnimations().map((a) => a.finished.catch(() => {})),
+          document
+            .getAnimations()
+            .filter(
+              (a) => a.effect?.getComputedTiming().iterations !== Infinity,
+            )
+            .map((a) => a.finished.catch(() => {})),
         );
       });
 
@@ -407,6 +425,23 @@ try {
         await page.close();
         continue;
       }
+      const taskLabel =
+        width <= 599
+          ? lang === "ru"
+            ? "1 задача"
+            : "1 task"
+          : lang === "ru"
+            ? "Выполняется 1 задача"
+            : "1 running task";
+      check(
+        `${at} the task label follows the phone tier`,
+        got.taskCount === taskLabel,
+        got.taskCount,
+      );
+      check(
+        `${at} the task count stays beside the turn's numbers`,
+        got.countSharesNumbersLine,
+      );
       check(
         `${at} the page does not scroll sideways`,
         got.pageOverflow <= 0,

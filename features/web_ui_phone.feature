@@ -46,6 +46,9 @@ Feature: The web UI on a phone
     Then a tool row named after an MCP tool wraps its label inside the row and moves its target and duration under it together
     And a long link or identifier in an answer breaks instead of widening the page
 
+  Scenario: The running task count fits the phone's live line
+    Then on a phone the live line shows a short plural task count and still opens the Tasks panel
+
   Scenario: The on-screen keyboard opens when the reader asks for it
     Then on a touch-only device opening the start screen or a chat leaves the composer unfocused
     And a narrow desktop window still focuses the composer
