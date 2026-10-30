@@ -10,7 +10,8 @@ export type SectionKind =
   | "subagents"
   | "appearance"
   | "sessions"
-  | "status";
+  | "status"
+  | "extensions";
 
 /** The MCP servers tab: its id stays the old key's, the address #/settings/mcp_servers. */
 export const MCP_SECTION_ID = "mcp_servers";
@@ -36,6 +37,7 @@ export type SectionDescriptor = {
  * sections keep their server-provided title and description.
  */
 const SECTION_LABEL_KEYS = {
+  extensions: "extensions.title",
   appearance: "settings.section.appearance.label",
   sessions_manager: "settings.section.sessions_manager.label",
   status: "settings.section.status.label",
@@ -69,6 +71,7 @@ const SECTION_LABEL_KEYS = {
  * switch re-renders the tiles.
  */
 const SECTION_DESC_KEYS = {
+  extensions: "extensions.description",
   appearance: "settings.section.appearance.desc",
   sessions_manager: "settings.section.sessions_manager.desc",
   status: "settings.section.status.desc",
@@ -185,7 +188,15 @@ export function deriveSettingsSections(
   // sessions the Sessions tab manages and the status route exist only on an
   // agent.
   const relay = opts.relay === true || schema?.["x-coddy-relay"] === true;
-  const head = relay ? [appearance] : [appearance, sessionsManager, status];
+  const extensions: SectionDescriptor = {
+    id: "extensions",
+    label: labelFor("extensions"),
+    description: translate(SECTION_DESC_KEYS.extensions),
+    kind: "extensions",
+  };
+  const head = relay
+    ? [appearance]
+    : [appearance, extensions, sessionsManager, status];
   if (!schema || schema.type !== "object" || !schema.properties) {
     return head;
   }

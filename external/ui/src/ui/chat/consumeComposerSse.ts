@@ -16,6 +16,7 @@ import { normalizeTodoPlanSnapshot } from "./todoToolPreview";
 import { todoPlanFromPlanFrame } from "./todoChecklist";
 import type { TodoPlanEntry } from "./todoToolPreview";
 import { parseSSEBlocks } from "./sse";
+import type { IncomingFrame } from "../extensions/incomingStream";
 import { queuedUserMessageItem } from "./queuedUserMessage";
 import { sessionMessageFiles } from "./sessionMessageFiles";
 import { parseToolArtifacts } from "./toolArtifacts";
@@ -114,6 +115,7 @@ function reasoningDurationCacheKey(text: string): string {
  * the whole turn on top of what it already shows.
  */
 export type ComposerStreamCursor = {
+  extensionStreamId?: string;
   /** Frames consumed: the relay sequence of the last one. */
   frames: number;
   /** The open assistant text segment. */
@@ -126,6 +128,18 @@ export type ComposerStreamCursor = {
 };
 
 export type ConsumeComposerSseParams = {
+  /** Browser extension middleware, shared by fresh and resumed turn readers. */
+  incoming?:
+    | {
+        sessionId: string;
+        transport: "post" | "relay";
+        process: (frame: IncomingFrame) => string;
+        observe?: (
+          frame: IncomingFrame & { sequence: string; streamId?: string },
+        ) => void;
+        ready?: Promise<void>;
+      }
+    | undefined;
   reader: ReadableStreamDefaultReader<Uint8Array>;
   dec: TextDecoder;
   carry: { buf: string };
@@ -205,6 +219,19 @@ export type ConsumeComposerSseResult = {
 export async function consumeComposerSseReader(
   p: ConsumeComposerSseParams,
 ): Promise<ConsumeComposerSseResult> {
+  const incomingReady = p.incoming?.ready;
+  if (incomingReady) {
+    // Initial module loading must finish before a fast POST or replay is read.
+    // A broken server or an uncooperative activation cannot hold a reader forever.
+    await new Promise<void>((resolve) => {
+      const timer = window.setTimeout(resolve, 11000);
+      const finish = () => {
+        window.clearTimeout(timer);
+        resolve();
+      };
+      void incomingReady.then(finish, finish);
+    });
+  }
   const {
     reader,
     dec,
@@ -228,6 +255,17 @@ export async function consumeComposerSseReader(
     onSettingsOnly,
     cursor,
   } = p;
+  const transformIncoming = (raw: ReturnType<typeof parseSSEBlocks>[number]) =>
+    p.incoming
+      ? {
+          ...raw,
+          data: p.incoming.process({
+            ...raw,
+            sessionId: p.incoming.sessionId,
+            transport: p.incoming.transport,
+          }),
+        }
+      : raw;
 
   // Streaming assistant segmentation. Text before any tool/thinking stays in
   // one bubble; when text resumes AFTER a tool call or thinking row we open a
@@ -471,10 +509,15 @@ export async function consumeComposerSseReader(
   let pendingWhitespace = "";
   let currentSegmentHasText = resuming ? cursor.segmentHasText : false;
   // A relay frame names its sequence; a POST frame is counted.
+  let currentFrames = cursor?.frames ?? 0;
+  const extensionStreamId =
+    cursor?.extensionStreamId ??
+    (p.incoming?.observe ? newId("extension_stream") : "");
+  if (cursor) cursor.extensionStreamId = extensionStreamId;
   const countFrame = (id: string) => {
-    if (!cursor) return;
     const seq = id ? Number(id) : NaN;
-    cursor.frames = Number.isInteger(seq) && seq > 0 ? seq : cursor.frames + 1;
+    currentFrames = Number.isInteger(seq) && seq > 0 ? seq : currentFrames + 1;
+    if (cursor) cursor.frames = currentFrames;
   };
   // Run after every batch of frames, before the next read: an abort lands only
   // on a read, so the cursor then holds the state after the last counted frame.
@@ -541,6 +584,25 @@ export async function consumeComposerSseReader(
       flushToolQueue();
       syncCursor();
     };
+  // The two frame loops below share this preamble: run the extension
+  // processors, count the frame and publish it for observation. Keeping it in
+  // one place is what stops the tail loop from drifting off the main one.
+  const dispatch = (raw: ReturnType<typeof parseSSEBlocks>[number]) => {
+    const ev = transformIncoming(raw);
+    countFrame(ev.id);
+    p.incoming?.observe?.({
+      ...raw,
+      sessionId: p.incoming.sessionId,
+      transport: p.incoming.transport,
+      sequence: ev.id || String(currentFrames),
+      streamId: extensionStreamId,
+    });
+    frameAt = typeof ev.ageMs === "number" ? Date.now() - ev.ageMs : null;
+    if (ev.id) {
+      lastEventId = ev.id;
+    }
+    return ev;
+  };
   while (true) {
     const step = await reader.read();
     if (step.done) {
@@ -550,12 +612,8 @@ export async function consumeComposerSseReader(
       dec.decode(step.value, { stream: true }),
       carry,
     );
-    for (const ev of events) {
-      countFrame(ev.id);
-      frameAt = typeof ev.ageMs === "number" ? Date.now() - ev.ageMs : null;
-      if (ev.id) {
-        lastEventId = ev.id;
-      }
+    for (const raw of events) {
+      const ev = dispatch(raw);
       if (ev.data === "[DONE]") {
         sawDone = true;
         break;
@@ -985,11 +1043,8 @@ export async function consumeComposerSseReader(
 
   if (carry.buf.trim()) {
     const tailEvents = parseSSEBlocks("\n\n", carry);
-    for (const ev of tailEvents) {
-      frameAt = typeof ev.ageMs === "number" ? Date.now() - ev.ageMs : null;
-      if (ev.id) {
-        lastEventId = ev.id;
-      }
+    for (const raw of tailEvents) {
+      const ev = dispatch(raw);
       if (ev.data === "[DONE]") continue;
       if (ev.event === "desync") {
         desynced = true;

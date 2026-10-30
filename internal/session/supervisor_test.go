@@ -1133,7 +1133,9 @@ func gitRun(t *testing.T, dir string, args ...string) string {
 		t.Skip("git is unavailable")
 	}
 	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.email=coddy@test", "-c", "user.name=coddy", "-c", "commit.gpgsign=false", "-c", "core.autocrlf=false"}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
+	// Git for Windows understands /dev/null, while recent versions reject NUL
+	// as a config path. Keep the same isolation as the shared gitwstest fixture.
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)

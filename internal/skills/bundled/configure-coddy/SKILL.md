@@ -88,6 +88,8 @@ Fields behind a build tag are parsed and ignored by binaries built without it; p
 
 Maintenance contract: this catalog and the command examples must be updated in the same change as any `internal/config` schema edit, together with `internal/config/config.schema.json` (embedded into the binary; `coddy -t` checks a file against it) and https://coddy.dev/docs/reference/config (see the workflow rules).
 
+UI extensions store their scalar variables under `extension_values.<extension-id>.<field-id>` in config.yaml. For example, stage `set extension_values.workflow-tools.accent=blue` and use the ordinary config commit flow. Fields registered by enabled JavaScript extensions appear inside existing Settings sections and use the same save transaction. Values are ordinary readable configuration, with at most 128 fields per extension and 256 KiB in total. See https://coddy.dev/docs/features/extensions.
+
 ## MCP servers
 
 MCP servers are not part of config.yaml, and no `config_set` path reaches them. They are declared in two Cursor-compatible JSON files:

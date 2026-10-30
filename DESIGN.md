@@ -1601,6 +1601,102 @@ The web UI installs as an app and shows system notifications while it is in the 
   **`/#/s/<id>`**) and opens the chat through the same path as a History pick, only when the notice
   belongs to the environment the tab shows.
 
+### JavaScript extensions
+
+Extensions observe app hash navigation (`tabChanged`), completed model calls
+(`stepEnded`, the raw `token_usage` frame) and completed whole turns (`turnEnded`,
+the app's shared server-events connection). Callbacks are observational and may
+be asynchronous. A failing listener is removed; other listeners and the host
+continue. No new global connection is opened for extensions.
+
+`theme.get()` hands a frozen snapshot of the active appearance - the theme id,
+its `light`/`dark` mode and the colours of the tokens an extension paints with
+(`bg`, `text`, `muted`, `accent`, `danger`, `link`, `border`, `surface`),
+resolved to computed colours through a probe element the way the browser
+panel's colours are (`browserPanel/bridge.ts`). `theme.onChange` notifies on a
+`data-theme` switch with the same delivery rules as the lifecycle events:
+frozen copies, by extension id in ascending ASCII order then registration
+order, a failing listener removed and reported in Settings, everything disposed
+by the lifetime signal. Extension styles run in the app's document and take the
+theme's CSS variables directly. Contract: `extensions/theme.test.ts`,
+`features/ui_extension_theme.feature`.
+
+`ui.registerToolRenderer` selects an MCP call by exact server/tool names or
+wildcards, with specificity, extension id and registration order as precedence.
+The extension mounts its own DOM and may update it as the call changes. The host
+keeps Original tool details underneath; prompts stay host-owned. Errors remove
+the renderer and restore the next match or the normal card. Disposal follows
+the extension and the transcript window's mounted rows.
+
+`settings.registerField` appends typed scalar controls to existing Settings
+sections, grouped by extension id, through the ordinary form and its draft.
+Values persist under `extension_values.<extension-id>.<field-id>` in config.yaml.
+`settings.get` reads saved values or registered defaults; `settings.set` uses
+the ordinary authenticated, revision-aware config transaction and cache refresh.
+Disabling an extension removes controls while retaining their saved values.
+
+`coddy.net.fetch(url, options)` sends buffered HTTP(S) requests from the selected
+Coddy server, including loopback and private targets. The SDK uses the normal
+authenticated environment route and the exact enabled package digest. Target
+credentials are explicit; browser cookies and Coddy's bearer stay on the outer
+request. JSON carries target status, headers and base64 bytes, so target HTML
+and cookies do not become responses of the application origin. Redirects are
+returned without following them. Calls are bounded to 30 seconds, 4 MiB upload
+and 8 MiB download. The server cancels in-flight calls on disable/removal through
+its routes; the SDK also binds them to its lifetime and the caller's signal.
+Settings' risk warning names access to local and external services from the server.
+Incoming `transform` callbacks stay synchronous; network data can feed a cache
+read by those callbacks. See the feature guide for the complete network contract.
+
+The Extensions entry of the navigation opens Settings → Extensions before any
+extension contributes controls. With contributions, it offers a native select
+of registered pages and menu actions plus Manage extensions. On a phone it
+folds into More with the other optional entries.
+
+Settings → Extensions is a synthetic, schema-independent section on agents.
+It shows the risk statement, Install ZIP and Refresh, then package cards with
+name, version, description, enabled state, SHA-256, switch and remove actions.
+Enabling uses the shared confirmation dialog and reloads the page. Installation
+always leaves the package disabled. The host stores packages; no settings live
+in the YAML form's draft. The section is searchable by its tab title.
+
+Extension pages mount into a native modal dialog with a title, Close and an
+extension-owned body. The dialog traps focus and answers Escape. Styles use
+theme tokens. Registrations have update/remove handles, all ids are namespaced,
+and the lifetime owns an abort signal. Disabling, removing or changing evaluated
+code requires a full reload; environment switches do the same after evaluation.
+The implementation and initial API are in ui/extensions; the user contract is
+docs/features/extensions.md. This phase adds pages, menu actions and incoming
+turn-stream processors from the [expanded extension proposal](https://gist.github.com/hijera/95b016e1721608e8c3974fe3b80e29dc).
+
+`coddy.stream.registerIncoming({id, transform})` registers a synchronous payload
+processor before the turn reader applies an SSE frame. Both the POST reader and
+the composer relay reader use this chain, including the EOF tail. The callback
+receives the data string and frozen context (`sessionId`, `transport`, `event`,
+`id`, optional `ageMs`). It returns a replacement string, or `undefined` to observe
+without replacing. JSON input requires JSON output. A processor can enrich JSON,
+rewrite assistant deltas or tool results, and keep state in its extension.
+The reader waits up to 11 seconds for initial extension loading, then continues
+with the registered processors if loading fails or exceeds that bound. Extensions
+that activate later do not receive frames already consumed.
+
+Processors run by extension id in ascending ASCII order, then registration order
+within an extension, so parallel module activation cannot reorder the chain.
+Each sees its predecessor's output. Throws, asynchronous callbacks and invalid
+results remove that processor, show the error in Settings → Extensions and pass
+its input to the next processor. Processing does not await extension promises;
+callbacks must finish promptly on the browser thread. A remove handle or the
+extension's abort signal revokes a registration before the next frame.
+
+The callback cannot replace transport metadata or generate `[DONE]`; the existing
+`[DONE]`, `desync` and frames without data bypass processors. This preserves the reader's cursor
+and termination. Payload schemas still apply, including tool ids, permission ids
+and versions the host uses. The SDK is not a sandbox for approved origin code.
+Transforms affect live browser consumption only; REST history reconciliation can
+replace them with the server's original data. They do not change stored history,
+LLM context, outgoing requests or the shared `/coddy/events` connection. There is
+no second events reader and no interception of authentication or asset fetches.
+
 ## States
 
 - Idle composer: bordered textarea.

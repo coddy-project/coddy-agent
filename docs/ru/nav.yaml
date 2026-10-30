@@ -220,6 +220,12 @@ pages:
     en:
       title: "Subagents"
       summary: "spawn_agent, definition files, the built-ins, project trust receipts, capability narrowing, child sessions."
+  features/extensions.md:
+    title: "Расширения на JavaScript"
+    summary: "ZIP-пакеты, страницы и действия меню, включение с подтверждением, хеши пакетов и перезагрузка браузера."
+    en:
+      title: "JavaScript extensions"
+      summary: "Operator-installed ZIP bundles, pages and menu actions, explicit enabling, package digests and browser reloads."
   features/hooks.md:
     title: "Хуки"
     summary: "Хуки жизненного цикла в формате hooks.json из Claude Code, события, матчеры, данные на stdin, коды выхода и JSON-ответы, доверие к проекту."
@@ -448,6 +454,12 @@ pages:
     en:
       title: "Working with remote nodes"
       summary: "Driving a node behind a relay from the console, an editor and the browser, what runs where, and which credential opens what."
+  tutorials/first-extension.md:
+    title: "Ваше первое расширение на JavaScript"
+    summary: "Расширение со счётчиком из двух файлов, упаковка ZIP, включение в настройках и вызов локального API через серверный прокси."
+    en:
+      title: "Your first JavaScript extension"
+      summary: "A two-file counter extension, ZIP packaging, enabling it in Settings and calling a local API through the server proxy."
   tutorials/swarm-android-nodes.md:
     title: "Телефоны на Android как узлы роя"
     summary: "Телефон с Coddy в Termux подключается к релею на ноутбуке или сервере, и им управляют из веб-интерфейса и консоли релея, без открытого порта на телефоне."

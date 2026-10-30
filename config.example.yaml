@@ -792,3 +792,9 @@ logger:
 #   host: "127.0.0.1"                # empty: 127.0.0.1; set a token before binding wider
 #   port: 12347                      # 0: 12347
 #   token: "${CODDY_METRICS_TOKEN}"  # a scrape must send it as a bearer token
+# Extension-owned scalar values, edited by fields registered in Settings.
+# Values are plain configuration, scoped by extension id; they are not secrets.
+# extension_values:
+#   workflow-tools:
+#     accent: "blue"
+#     show-events: true

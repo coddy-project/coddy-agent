@@ -15,6 +15,7 @@ import { I18nProvider } from "./ui/i18n/I18nProvider";
 import { getEnv, installRemoteFetchShim } from "./ui/env/remoteEnv";
 import { AuthGate } from "./ui/auth/AuthGate";
 import { EnvScope } from "./ui/env/EnvScope";
+import { ExtensionsProvider } from "./ui/extensions/ExtensionsProvider";
 import { startActiveHealthMonitor } from "./ui/env/activeHealth";
 import { initTelegramMiniApp } from "./ui/telegram/miniApp";
 import { registerServiceWorker } from "./ui/pwa/serviceWorker";
@@ -48,7 +49,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <ConfirmProvider>
         <AuthGate>
           <EnvScope>
-            <App />
+            <ExtensionsProvider>
+              <App />
+            </ExtensionsProvider>
           </EnvScope>
         </AuthGate>
         <ImageMenuHost />

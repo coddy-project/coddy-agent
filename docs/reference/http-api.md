@@ -6,6 +6,27 @@ It is not a command of its own. **`coddy serve`** runs it whenever **`httpserver
 
 The bundled SPA is included only when you also set the **`ui`** tag (for example **`make build TAGS="http ui"`** or **`go build -tags=http,ui`**). With **http** only, **`GET /`** returns **404** with a plain-text hint.
 
+## UI extension management
+
+Extension-owned scalar settings use the normal configuration routes below,
+under `extension_values.<extension-id>.<field-id>`. Registrations and their UI
+metadata live in the browser; values persist in config.yaml. They are ordinary
+readable configuration, with at most 128 fields per extension and 256 KiB total.
+
+The [JavaScript extensions guide](../features/extensions.md) describes package contents and the risk of enabling UI code. All routes use the ordinary API authentication policy:
+
+| Method and route | Behavior |
+| --- | --- |
+| `GET /coddy/extensions` | `{items: [...]}` with manifests, enabled state, package `sha256` and `entry_sha256`. |
+| `POST /coddy/extensions` | Raw `application/zip` body, at most 8 MiB. Returns the disabled entry with `201`; `400` invalid package, `409` existing id, `413` oversized body. |
+| `PUT /coddy/extensions/{id}` | JSON `{sha256, enabled, accept_risk}`. Enabling requires `accept_risk: true`; `409` if the package digest changed. Returns the current entry. |
+| `DELETE /coddy/extensions/{id}` | Removes the package, `204`. Reload affected browsers to revoke code already executed. |
+| `GET /coddy/extensions/{id}/assets/{file}?sha256=...` | Bytes from the exact enabled bundle, fetched as attachments with `no-store` and a sandbox CSP; `409` for a disabled or changed bundle. |
+| `POST /coddy/extensions/{id}/fetch` | `application/json` `{sha256, url, method?, headers?, body?}` with optional base64 `body`. Performs HTTP(S) from the server for the exact enabled digest, including local/private targets; returns `200` with target `{status, status_text, headers, body}` (base64 bytes, header arrays), even for target HTTP errors or redirects. No automatic credentials, cookies or redirect following. Limits: 6 MiB JSON, 4 MiB request bytes, 8 MiB response bytes, 32/64 KiB request/response headers, 30 seconds. `400` invalid request or forbidden headers, `409` unavailable package or cancelled call, `413` oversized request, `415` wrong content type, `502` target/read/size failure, `504` timeout. |
+
+Unknown ids or assets return `404`. Invalid ids return `400`. Storage errors return `500`.
+The fetch route returns `409` for any unavailable package. Disable/removal through the same server cancels active proxy calls. The [network API contract](../features/extensions.md#server-side-http-requests) covers supported methods, headers and cancellation.
+
 ## OpenAPI and Swagger UI
 
 Specs are regenerated on each request so they stay aligned with handlers.

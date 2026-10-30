@@ -1,0 +1,7 @@
+.ext-hello { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; color: var(--text); }
+.ext-hello h2, .ext-hello p { margin: 0; }
+.ext-hello button { background: var(--accent); color: var(--bg); border: 0; border-radius: 8px; padding: 10px 16px; cursor: pointer; font: inherit; }
+.ext-hello-theme-box { display: flex; flex-direction: column; gap: 6px; }
+.ext-hello-theme { color: var(--muted); font-size: 12px; }
+.ext-hello-swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.ext-hello-swatch { width: 18px; height: 18px; border-radius: 5px; border: 1px solid var(--coddy-glass-panel-border); }

@@ -1,0 +1,122 @@
+.extensions-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.extensions-section p {
+  margin: 0;
+}
+.extensions-risk {
+  padding: 12px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  color: var(--text);
+  background: var(--coddy-surface-subtle);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.extensions-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.extension-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 12px;
+  min-width: 0;
+}
+.extension-card code {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.extension-card details {
+  font-size: 12px;
+}
+.extension-card summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+.extension-card summary::-webkit-details-marker {
+  display: none;
+}
+.extension-card details[open] > summary .coddy-chevron {
+  transform: rotate(90deg);
+}
+.extension-window {
+  width: min(850px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  box-sizing: border-box;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 14px;
+  padding: 20px;
+}
+.extension-window::backdrop {
+  background: color-mix(in srgb, var(--bg) 75%, transparent);
+}
+.extension-window > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.extension-window-body {
+  min-height: 120px;
+  overflow-wrap: anywhere;
+}
+.extension-menu-host {
+  min-width: 0;
+  position: relative;
+}
+.extension-menu-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.extension-menu-host:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.extension-menu-select option {
+  background: var(--bg);
+  color: var(--text);
+}
+.extension-tool-view {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.extension-tool-original {
+  margin-top: 8px;
+}
+.extension-tool-original > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+.coddy-tool-call-row.extension-tool-call {
+  display: block;
+}
+
+.extension-tool-original > summary::-webkit-details-marker {
+  display: none;
+}
+.extension-tool-original[open] > summary .coddy-chevron {
+  transform: rotate(90deg);
+}

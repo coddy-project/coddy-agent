@@ -979,6 +979,7 @@ func toIfaceOrder(keys []string) []interface{} {
 // sections of its own. They still round-trip through GET/PUT /coddy/config,
 // so hiding one here never drops it from the saved document.
 //
+//	extension_values - SDK-owned variables rendered by registered fields inside existing sections.
 //	httpserver - the surface the UI itself is served from; editing it there
 //	             would let the page cut its own connection.
 //	mcp        - project_trust is edited in the MCP servers tab (POST
@@ -995,12 +996,13 @@ func toIfaceOrder(keys []string) []interface{} {
 //	revision   - not a setting: it names the configuration a GET document was
 //	             read from (ConfigJSON.Revision) and travels back with the PUT.
 var uiHiddenConfigKeys = map[string]struct{}{
-	"httpserver": {},
-	"mcp":        {},
-	"swarm":      {},
-	"rules":      {},
-	"ui":         {},
-	"revision":   {},
+	"extension_values": {},
+	"httpserver":       {},
+	"mcp":              {},
+	"swarm":            {},
+	"rules":            {},
+	"ui":               {},
+	"revision":         {},
 }
 
 // UISchemaCoversConfigJSONFields checks that UI schema properties match ConfigJSON

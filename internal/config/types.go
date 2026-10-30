@@ -3,7 +3,8 @@ package config
 
 // Config is the root configuration struct.
 type Config struct {
-	Paths Paths `yaml:"-"`
+	Paths           Paths                     `yaml:"-"`
+	ExtensionValues map[string]map[string]any `yaml:"extension_values,omitempty"`
 
 	Providers    []ProviderConfig `yaml:"providers"`
 	Models       []ModelEntry     `yaml:"models"`
