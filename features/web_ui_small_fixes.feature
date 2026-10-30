@@ -32,6 +32,17 @@ Feature: Five small fixes of the web UI
 
   Scenario: The context window keeps one pair of edges
     Then the head and the usage of the context window keep the edges of its bar
+    And the title of the context window is spelled like the head of every other window
+
+  Scenario: The context window says how full it is over the bar and when it compacts at its foot
+    Then the percent and the tokens stand over the bar and compaction at the foot of the context window
+
+  Scenario: Every head takes one height
+    Then every head of a window, a panel or a popover takes one height
+
+  Scenario: A touch leaves no tooltip behind
+    Then a tooltip opens on hover only where there is a real pointer
+    And a tooltip opens by focus only for a keyboard
 
   Scenario: Archiving from History keeps the list where it was
     Then an archived row leaves History at once and the list is not read again

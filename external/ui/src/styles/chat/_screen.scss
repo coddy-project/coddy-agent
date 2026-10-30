@@ -305,7 +305,14 @@
   box-shadow: var(--coddy-tip-shadow);
 }
 
-.chat-view-tip-host:hover .chat-view-tip,
+/* Only where there is a real pointer: a touch leaves :hover behind (see
+   ui/tooltipTouchCss.test.ts), and a keyboard's focus says what it is on. */
+@media (hover: hover) {
+  .chat-view-tip-host:hover .chat-view-tip {
+    opacity: 1;
+  }
+}
+
 .chat-view-tip-host:has(.chat-view-btn:focus-visible) .chat-view-tip {
   opacity: 1;
 }

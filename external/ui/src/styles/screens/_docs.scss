@@ -69,7 +69,8 @@
   grid-template-areas: "title search actions";
   column-gap: 32px;
   align-items: center;
-  padding: 14px var(--docs-inline) 12px;
+  min-height: var(--coddy-panel-head-height);
+  padding: 0 var(--docs-inline);
   background: color-mix(in srgb, var(--bg) 82%, transparent);
   border-bottom: 1px solid mix-text(6%);
 }

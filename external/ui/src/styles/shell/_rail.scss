@@ -216,14 +216,22 @@
   box-shadow: var(--coddy-tip-shadow);
 }
 
-.rail-tip-host:hover .rail-tip,
-.rail-tip-host:focus-within .rail-tip {
+/* Only where there is a real pointer: a touch leaves :hover behind (see
+   ui/tooltipTouchCss.test.ts), and a tap focuses its button, so focus opens a tip
+   for a keyboard alone. */
+@media (hover: hover) {
+  .rail-tip-host:hover .rail-tip {
+    opacity: 1;
+  }
+}
+
+.rail-tip-host:has(:focus-visible) .rail-tip {
   opacity: 1;
 }
 
 .rail-tip-host:has(.is-active) .rail-tip,
 .rail-tip-host:has(.is-active):hover .rail-tip,
-.rail-tip-host:has(.is-active):focus-within .rail-tip {
+.rail-tip-host:has(.is-active):has(:focus-visible) .rail-tip {
   opacity: 0;
 }
 

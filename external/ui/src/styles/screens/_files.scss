@@ -45,7 +45,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 14px 12px 12px;
+  min-height: var(--coddy-panel-head-height);
+  padding: 0 14px 0 12px;
   background: color-mix(in srgb, var(--bg) 82%, transparent);
   border-bottom: 1px solid mix-text(6%);
 }

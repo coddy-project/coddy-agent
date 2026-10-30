@@ -285,13 +285,21 @@
   outline: none;
 }
 
-.composer-context-tip-host:hover .rail-tip,
-.composer-context-tip-host:focus-within .rail-tip {
+/* Only where there is a real pointer: a touch leaves :hover behind (see
+   ui/tooltipTouchCss.test.ts), and a tap focuses the host, so focus opens the tip
+   for a keyboard alone. */
+@media (hover: hover) {
+  .composer-context-tip-host:hover .rail-tip {
+    opacity: 1;
+  }
+}
+
+.composer-context-tip-host:focus-visible .rail-tip {
   opacity: 1;
 }
 
 .composer-context-tip-host.composer-context-tip-suppressed:hover .rail-tip,
-.composer-context-tip-host.composer-context-tip-suppressed:focus-within
+.composer-context-tip-host.composer-context-tip-suppressed:focus-visible
   .rail-tip {
   opacity: 0;
   visibility: hidden;

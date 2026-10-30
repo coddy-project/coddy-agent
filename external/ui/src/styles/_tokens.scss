@@ -25,6 +25,9 @@
      where it is 10px), from the bar to the header, and around the expand
      control of an expanded composer. */
   --coddy-top-rhythm: 14px;
+  /* The head of every window, panel and popover, its rule included: a window
+     opened over a panel shows both heads side by side. */
+  --coddy-panel-head-height: 58px;
   /* The docked composer's wrap above its card (18px on a desktop): the expand
      control and the jump stand on the card, not on the wrap, so they subtract
      it. */

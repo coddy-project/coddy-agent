@@ -654,9 +654,11 @@ async function openPage({
   theme = "dark",
   from = "",
   using = browser,
+  touch = false,
 } = {}) {
   const context = await using.newContext({
     viewport: { width, height },
+    ...(touch ? { hasTouch: true, isMobile: ENGINE === "chromium" } : {}),
     deviceScaleFactor: 1,
     colorScheme: theme === "light" ? "light" : "dark",
     locale: "en-US",
@@ -1821,6 +1823,43 @@ async function scenarioNoEdits() {
   await c.context.close();
 }
 
+/**
+ * Real touches: :hover stays where a touch landed, and on a phone the close
+ * control of the Tasks panel lies right over the Tasks button of the header. A
+ * tooltip opened by :hover used to stay up after the tap and come back once the
+ * panel had gone.
+ */
+async function scenarioTouch(sid) {
+  const t = await openPage({ width: 390, height: 844, touch: true });
+  const { page, context } = t;
+  await page.goto(`${RELAY}/#/s/${sid}`);
+  const tasks = page.getByTestId("chat-views-tasks");
+  await tasks.waitFor({ timeout: 15000 });
+  const tip = () =>
+    tasks.evaluate(
+      (b) =>
+        getComputedStyle(b.parentElement.querySelector(".chat-view-tip"))
+          .opacity,
+    );
+  await tasks.tap();
+  await page.getByTestId("bgtasks-panel").waitFor();
+  await page.waitForTimeout(300);
+  check("a tap on a view button leaves no tooltip up", (await tip()) === "0");
+  await page.getByTestId("bgtasks-panel-close").tap();
+  await until(
+    "the Tasks panel gone",
+    async () => (await page.getByTestId("bgtasks-panel").count()) === 0,
+    3000,
+  );
+  check("the first tap on the panel's close control closes it", true);
+  await page.waitForTimeout(300);
+  check(
+    "no tooltip comes back when the panel has gone from over the button",
+    (await tip()) === "0",
+  );
+  await context.close();
+}
+
 async function scenarioPhone(sid) {
   const p = await openPage({ width: 390, height: 844 });
   await p.page.goto(`${RELAY}/#/s/${sid}/files?path=src%2Fmain.go&line=7`);
@@ -2201,6 +2240,22 @@ async function scenarioWidths(sid) {
             b.besideTitle,
           ]),
         ),
+      );
+      await w.page.getByTestId("chat-views-tasks").click();
+      const taskHead = await w.page
+        .locator(".bgtasks-panel .sessions-head")
+        .boundingBox();
+      await w.page.getByTestId("bgtasks-panel-close").click();
+      await w.page.keyboard.press("Control+Shift+F");
+      await win.waitFor();
+      const fileHead = await win.locator(".files-header").boundingBox();
+      await w.page.keyboard.press("Escape");
+      await until("the window put away", async () => (await win.count()) === 0);
+      check(
+        `${lang} ${width}px: the heads of the Tasks panel and the Files window are one height`,
+        Math.round(taskHead.height) === 58 &&
+          Math.round(fileHead.height) === 58,
+        JSON.stringify([taskHead.height, fileHead.height]),
       );
       const iconRow = await iconOffsets(w.page);
       check(
@@ -3431,6 +3486,7 @@ try {
   await scenarioDocsClose();
   const sid = await scenarioViews();
   await scenarioPhone(sid);
+  await scenarioTouch(sid);
   await scenarioLongFile(sid);
   await scenarioTabStrip(sid);
   await scenarioManyEdits(sid);

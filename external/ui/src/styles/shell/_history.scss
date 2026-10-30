@@ -116,7 +116,8 @@
   color: mix-text(72%);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  padding: 14px 14px 10px;
+  min-height: var(--coddy-panel-head-height);
+  padding: 0 14px;
   font-size: 12px;
   font-weight: 700;
   display: flex;

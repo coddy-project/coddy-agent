@@ -211,9 +211,11 @@ test("on the desktop the header uses the page's own columns", () => {
 // out of its own right padding instead, so the scrollbar stands in the margin
 // and the columns of the header and the page stay one.
 test("the header keeps one inset on both sides and the body pays for the scrollbar", () => {
-  const symmetric = /padding:\s*\d+px var\(--docs-inline\) \d+px;/;
-  expect(rule(".docs-header")).toMatch(symmetric);
-  expect(mediaRule("max-width: 1199px", ".docs-header")).toMatch(symmetric);
+  expect(rule(".docs-header")).toMatch(/padding:\s*0 var\(--docs-inline\);/);
+  // Two rows on the stacked shell, so they carry a padding above and below.
+  expect(mediaRule("max-width: 1199px", ".docs-header")).toMatch(
+    /padding:\s*\d+px var\(--docs-inline\) \d+px;/,
+  );
   expect(rule(".docs-header")).not.toMatch(/--docs-scrollbar/);
   expect(mediaRule("max-width: 1199px", ".docs-header")).not.toMatch(
     /--docs-scrollbar/,

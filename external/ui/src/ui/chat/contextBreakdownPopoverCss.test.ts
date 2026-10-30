@@ -3,7 +3,7 @@ import { stylesSource } from "../../stylesSource";
 
 const css = stylesSource();
 
-test("context breakdown uses the shared drawer head divider and a two-sided usage row", () => {
+test("context breakdown uses the shared drawer head divider and a two-sided row over the bar", () => {
   expect(css).toMatch(/\.context-breakdown-head\s*\{[^}]*padding:/s);
   expect(css).toMatch(/\.sessions-head\s*\{[^}]*border-bottom:/s);
   expect(css).toMatch(
@@ -16,8 +16,8 @@ test("context breakdown uses the shared drawer head divider and a two-sided usag
 
 // The head and the usage row stand inside the scroller, which already keeps
 // 12px from the panel's edges: a padding of their own put the title, the close
-// control and the usage 24px in and the token count 26px, against the meter's
-// 12px, and stopped the divider short of the edges.
+// control and the usage 24px in, against the meter's 12px, and stopped the
+// divider short of the edges.
 test("the head and the usage keep the meter's edges, and the divider spans the panel", () => {
   const body = (selector: string) => {
     const at = css.indexOf(`\n${selector} {`);
@@ -29,7 +29,19 @@ test("the head and the usage keep the meter's edges, and the divider spans the p
   );
   const head = body(".context-breakdown-head");
   expect(head).toContain("margin: 0 -12px");
-  expect(head).toContain("padding: 10px 12px");
-  expect(body(".context-breakdown-usage-row")).toContain("padding: 10px 0 0");
-  expect(body(".context-breakdown-summary")).toContain("margin: 4px 0 10px");
+  expect(head).toContain("padding: 0 12px");
+  // The row and the foot add no side padding of their own, or the foot's divider
+  // reaches back over the scroller's as the head's does.
+  expect(body(".context-breakdown-usage-row")).toContain("padding: 12px 0 8px");
+  const foot = body(".context-breakdown-compaction");
+  expect(foot).toContain("margin: 12px -12px 0");
+  expect(foot).toContain("padding: 10px 12px 0");
+});
+
+test("the title of the context window is spelled like the head of every other window", () => {
+  const at = css.indexOf("\n.context-breakdown-title {");
+  expect(at).toBeGreaterThanOrEqual(0);
+  // 12px bold capitals come from .sessions-head, which the head carries.
+  expect(css.slice(at, css.indexOf("}", at))).not.toContain("text-transform");
+  expect(css).toMatch(/\.sessions-head\s*\{[^}]*text-transform:\s*uppercase;/s);
 });
