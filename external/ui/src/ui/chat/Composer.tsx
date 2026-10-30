@@ -396,7 +396,7 @@ type PickerFloatRect = {
   maxH: number;
 };
 
-// Outline treatment per session mode (styles.scss .composer-tab.mode-*); anything
+// Outline treatment per session mode (styles/composer/_field.scss .composer-tab.mode-*); anything
 // unknown falls back to the agent look.
 const MODE_TAB_CLASS: Record<string, string> = {
   agent: "mode-agent",

@@ -46,6 +46,7 @@ function inline(path: string, seen: Set<string>, files: string[]): string {
   seen.add(path);
   files.push(path);
   return readable(path).replace(useRule, (_, url: string) => {
+    if (url.startsWith("sass:")) return ""; // Sass's own modules: no file
     const target = resolveUse(path, url);
     return seen.has(target) ? "" : inline(target, seen, files);
   });

@@ -50,7 +50,7 @@
     );
   }
 
-  /* The docked composer keeps its bottom on the keyboard inset (styles.scss). */
+  /* The docked composer keeps its bottom on the keyboard inset (styles/shell/_stacked.scss). */
   html[data-telegram-mini-app="true"] .chat-bottom:has(.composer-wrap-docked) {
     padding-bottom: max(
       12px,
@@ -126,7 +126,7 @@
 }
 
 @media (max-width: 599px) {
-  /* The folder dialog of a phone ends 14px above the bottom (styles.scss). */
+  /* The folder dialog of a phone ends 14px above the bottom (styles/composer/_workspace.scss). */
   html[data-telegram-mini-app="true"] .workspace-modal {
     bottom: calc(14px + var(--coddy-telegram-lift, 0px));
   }

@@ -1,12 +1,12 @@
 /*
  * The layout grid (DESIGN.md, "Layout grid"): four tiers by viewport width.
  *
- *   phone    ..599   the stacked shell, narrowed by the phone block of styles.scss
+ *   phone    ..599   the stacked shell, narrowed by the phone block (styles/shell/_phone.scss)
  *   tablet   600..1199  the stacked shell: top bar, document scroll, docked composer
  *   desktop  1200..1919 the rail on the left, one inner scrollport
  *   wide     1920..     the desktop, and the rail may widen to icons plus labels
  *
- * Every width query in styles.scss and in the code uses these edges;
+ * Every width query of the stylesheet and in the code uses these edges;
  * layoutGridCss.test.ts fails on any other one that DESIGN.md does not list.
  */
 
@@ -19,7 +19,7 @@ export const PHONE_MAX_WIDTH_PX = 599;
 /** Pass to matchMedia or @media for the phone tier. */
 export const phoneMaxWidthMediaQuery = `(max-width: ${PHONE_MAX_WIDTH_PX}px)`;
 
-/** Viewports at most this width use stacked top nav and document scroll (see styles.scss). */
+/** Viewports at most this width use stacked top nav and document scroll (see styles/shell/_stacked.scss). */
 export const SHELL_STACK_MAX_WIDTH_PX = 1199;
 
 /** Pass to matchMedia for chat scroll shell behavior (align with CSS media queries). */

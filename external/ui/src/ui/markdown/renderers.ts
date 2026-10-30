@@ -22,7 +22,7 @@ export function loadMermaid(): Promise<MermaidApi> {
 
 export function loadKatex(): Promise<KatexApi> {
   // KaTeX's stylesheet is imported by MathFormula.tsx: with one stylesheet for
-  // the whole SPA it ships in styles.scss either way, and its fonts still load
+  // the whole SPA it ships in styles.css either way, and its fonts still load
   // only when a formula needs them.
   katexPromise ??= import("katex").then((k) => k.default);
   katexPromise.catch(() => {

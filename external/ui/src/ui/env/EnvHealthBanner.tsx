@@ -73,7 +73,7 @@ export function EnvHealthBanner() {
 
   // On the stacked shell the rail is a bar fixed at the top of the page, and
   // this alert hangs under it; its height moves the page down so it covers
-  // nothing (styles.scss, the stacked shell's --coddy-mobile-top-inset).
+  // nothing (styles/shell/_stacked.scss, --coddy-mobile-top-inset).
   useLayoutEffect(() => {
     const el = ref.current;
     if (!show || !el) {

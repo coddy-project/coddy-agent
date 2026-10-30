@@ -45,6 +45,22 @@ describe("styles.scss and its partials", () => {
     expect(orphans.map((path) => relative(stylesDir, path))).toEqual([]);
   });
 
+  // Sass emits a module where it is first used, so a partial that used another
+  // partial with rules would move those rules up the cascade, whatever the
+  // entry says.
+  it("lets a partial use only the Sass helpers, so the entry alone sets the order", () => {
+    for (const path of scssFiles(stylesDir)) {
+      const uses = [...code(path).matchAll(/^@use "([^"]+)"/gm)].map(
+        (m) => m[1]!,
+      );
+      for (const url of uses) {
+        expect(url, relative(stylesDir, path)).toMatch(
+          /^sass:|(^|\/)abstracts$/,
+        );
+      }
+    }
+  });
+
   it("names every partial once in the entry", () => {
     const uses = [
       ...readFileSync(stylesEntryPath, "utf8").matchAll(/^@use "([^"]+)"/gm),

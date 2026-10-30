@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -43,9 +42,9 @@ func TestSyntaxThemesFeature(t *testing.T) {
 				if err != nil {
 					return fmt.Errorf("theme %s has no palette file: %w", theme, err)
 				}
-				block := regexp.MustCompile(`\[data-theme="` + regexp.QuoteMeta(theme) + `"\]\s*\{[^}]*\}`).FindString(string(palette))
+				// A theme file holds one rule, its palette (stylesModules.test.ts).
 				for _, role := range roles {
-					if !strings.Contains(block, "--syntax-"+role+":") {
+					if !strings.Contains(string(palette), "--syntax-"+role+":") {
 						return fmt.Errorf("theme %s is missing syntax color %s", theme, role)
 					}
 				}

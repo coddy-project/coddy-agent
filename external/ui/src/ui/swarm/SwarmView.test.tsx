@@ -1097,7 +1097,7 @@ describe("SwarmView", () => {
     const start = css.indexOf("@media (prefers-reduced-motion: reduce)");
     expect(start).toBeGreaterThan(-1);
     let end = css.indexOf("{", start) + 1;
-    for (let depth = 1; depth > 0; end++) {
+    for (let depth = 1; depth > 0 && end < css.length; end++) {
       if (css[end] === "{") depth++;
       else if (css[end] === "}") depth--;
     }
