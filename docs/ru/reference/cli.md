@@ -343,7 +343,7 @@ Usage of update:
   -no-notes
     	do not print what changed after the update (also CODDY_UPDATE_NOTES=0)
   -no-restart
-    	Windows only: install the update but do not start Coddy again
+    	no effect, kept for scripts: coddy update never starts Coddy
   -repo string
     	GitHub repository owner/name for releases (default "coddy-project/coddy-agent")
   -version string
