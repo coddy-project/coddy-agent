@@ -47,6 +47,7 @@ func (s *webSearchFeatureState) install() {
 	bingSearchFunc = pick(EngineBing)
 	googleSearchFunc = pick(EngineGoogle)
 	searxngSearchFunc = pick(EngineSearXNG)
+	deepseekSearchFunc = pick(EngineDeepSeek)
 }
 
 func (s *webSearchFeatureState) theOperatorConfiguredTheSearchEngines(list string) error {
@@ -208,7 +209,7 @@ func (s *webSearchFeatureState) theFailureNamesEngineAndItsReason(engine, reason
 
 func initializeWebSearchScenario(sc *godog.ScenarioContext) {
 	s := &webSearchFeatureState{}
-	oldBrave, oldBing, oldGoogle, oldSearx := braveSearchFunc, bingSearchFunc, googleSearchFunc, searxngSearchFunc
+	oldBrave, oldBing, oldGoogle, oldSearx, oldDeep := braveSearchFunc, bingSearchFunc, googleSearchFunc, searxngSearchFunc, deepseekSearchFunc
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
 		s.reset()
 		return ctx, nil
@@ -216,6 +217,7 @@ func initializeWebSearchScenario(sc *godog.ScenarioContext) {
 	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
 		braveSearchFunc, bingSearchFunc = oldBrave, oldBing
 		googleSearchFunc, searxngSearchFunc = oldGoogle, oldSearx
+		deepseekSearchFunc = oldDeep
 		searchCache.reset()
 		return ctx, nil
 	})

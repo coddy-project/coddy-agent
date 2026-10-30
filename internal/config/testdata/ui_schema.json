@@ -1715,6 +1715,11 @@
               "title": "Cache TTL (s)",
               "type": "integer"
             },
+            "deepseek_api_key": {
+              "description": "The deepseek engine asks DeepSeek's Search API, which has no public page to scrape, so this key is required for the engine to work. Leave empty to read DEEPSEEK_API_KEY from the environment or ~/.coddy/.env.",
+              "title": "DeepSeek Search API key",
+              "type": "string"
+            },
             "engine_timeout_seconds": {
               "description": "Seconds one engine may take before it is reported as unavailable (default 8).",
               "title": "Engine timeout (s)",
@@ -1729,7 +1734,8 @@
                   "bing",
                   "ddg",
                   "google",
-                  "searxng"
+                  "searxng",
+                  "deepseek"
                 ],
                 "type": "string"
               },
@@ -1767,7 +1773,8 @@
             "snippet_chars",
             "cache_ttl_seconds",
             "searxng_url",
-            "brave_api_key"
+            "brave_api_key",
+            "deepseek_api_key"
           ]
         }
       },
