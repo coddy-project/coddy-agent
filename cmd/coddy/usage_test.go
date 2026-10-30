@@ -223,6 +223,26 @@ func TestPackagingFilesCarryTheDryRunFlag(t *testing.T) {
 	}
 }
 
+// TestPackagingFilesCarryTheAddExtensionFlag ties --add-extension to the same
+// three files. The flag is how an embedding ships extension packages with the
+// binary, and it is on serve alone, so each file carries it once.
+func TestPackagingFilesCarryTheAddExtensionFlag(t *testing.T) {
+	var buf bytes.Buffer
+	printUsage(&buf)
+	if !strings.Contains(buf.String(), "--add-extension") {
+		t.Error("usage does not mention --add-extension")
+	}
+	if !strings.Contains(readRepoFile(t, "../../packaging/completions/coddy.bash"), "--add-extension") {
+		t.Error("packaging/completions/coddy.bash does not offer --add-extension for serve")
+	}
+	if !strings.Contains(readRepoFile(t, "../../packaging/completions/coddy.zsh"), "--add-extension") {
+		t.Error("packaging/completions/coddy.zsh does not offer --add-extension for serve")
+	}
+	if !strings.Contains(readRepoFile(t, "../../packaging/man/coddy.1"), `\-\-add\-extension`) {
+		t.Error("packaging/man/coddy.1 does not document --add-extension")
+	}
+}
+
 // TestServiceVerbsTakeNoArguments pins the argument handling of `serve install`
 // and `serve uninstall`: --help answers without touching systemd, and a stray
 // argument is refused rather than read as something it is not.

@@ -23,6 +23,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/dryrun"
+	"github.com/EvilFreelancer/coddy-agent/internal/extensions"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/serve"
@@ -93,6 +94,10 @@ func runServe(args []string) error {
 	daemon := fs.Bool("daemon", false, "run in the background under a dispatcher that restarts the process if it dies (see `coddy serve status|stop|restart`)")
 	fs.BoolVar(daemon, "d", false, "alias of --daemon")
 
+	// Extension packages an embedding ships beside the binary, installed and
+	// enabled before any surface serves (serve_extensions.go).
+	addExt := addExtensionFlag(fs)
+
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
 	testConfig := config.AddCheckFlag(fs)
@@ -114,6 +119,9 @@ func runServe(args []string) error {
 	if fs.NArg() > 0 {
 		return fmt.Errorf("coddy serve: unknown verb %q (the verbs are %s; serve itself takes flags only)", fs.Arg(0), serveVerbList)
 	}
+	// A package path is resolved where the operator typed it, before anything
+	// records the flags for a daemon to replay from its own directory.
+	*addExt = absolutePackagePaths(*addExt)
 
 	cli := config.CLIPaths{
 		Home:   strings.TrimSpace(*homeDir),
@@ -274,6 +282,12 @@ func runServe(args []string) error {
 		return nil
 	}
 
+	// The named packages are installed and enabled before anything serves.
+	// The named file is the operator's approval of that exact package, so
+	// this is the one install path that prompts for nothing; every problem is
+	// a warning and the server runs over what did work.
+	installStartupExtensions(extensions.NewStore(cfg.Paths.Home), *addExt, os.Stderr)
+
 	if err := rt.Init(serve.Options{
 		CLI:                cli,
 		AdjustConfig:       applyProcessOverrides,
@@ -387,6 +401,15 @@ func typedServeFlags(fs *flag.FlagSet) []string {
 	var out []string
 	fs.Visit(func(f *flag.Flag) {
 		if f.Name == "d" || f.Name == "daemon" {
+			return
+		}
+		// A repeatable flag goes back as one occurrence per value: the flag
+		// package visits a flag once however often the operator typed it, and
+		// a comma inside a path is not a separator.
+		if l, ok := f.Value.(*stringList); ok {
+			for _, v := range *l {
+				out = append(out, "-"+f.Name+"="+v)
+			}
 			return
 		}
 		out = append(out, "-"+f.Name+"="+f.Value.String())
