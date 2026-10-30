@@ -16,6 +16,8 @@ export type SubagentTranscriptMeta = {
   taskId: string;
   /** Effective model of the child session, returned at the top level of messages. */
   model?: string;
+  /** Effective reasoning level of that model; absent when it has no levels. */
+  reasoning?: string;
   /**
    * Set when the transcript belongs to the scheduler: the job the run (or the
    * job session itself) belongs to, and how a run was triggered.
@@ -40,6 +42,7 @@ export type SubagentTranscriptPayload = {
   schedulerJob?: { jobId?: unknown; workspace?: unknown } | null;
   readOnly?: unknown;
   model?: unknown;
+  selectedReasoning?: unknown;
 };
 
 function str(v: unknown): string {
@@ -63,11 +66,13 @@ export function parseSubagentTranscriptMeta(
     return null;
   }
   const model = str(payload?.model);
+  const reasoning = str(payload?.selectedReasoning);
   const meta: SubagentTranscriptMeta = {
     parentSessionId: str(block?.parentSessionId),
     name: str(block?.name),
     taskId: str(block?.taskId),
     ...(model ? { model } : {}),
+    ...(reasoning ? { reasoning } : {}),
   };
   const sched = block?.scheduler;
   if (sched && typeof sched === "object" && str(sched.jobId)) {

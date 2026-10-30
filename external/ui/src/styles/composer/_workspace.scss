@@ -472,7 +472,7 @@ html:not([data-theme="light"]) .workspace-branch-warning {
 }
 
 .workspace-modal-path:focus {
-  border-color: rgba(147, 51, 234, 0.45);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 /* The dialog's only scrollport. `min-height: 0` is what turns a column flex
@@ -609,7 +609,7 @@ html:not([data-theme="light"]) .workspace-branch-warning {
 }
 
 .workspace-modal-new-name:focus {
-  border-color: rgba(147, 51, 234, 0.45);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .workspace-modal-actions {
@@ -635,7 +635,7 @@ html:not([data-theme="light"]) .workspace-branch-warning {
 .workspace-modal-btn--primary {
   border-color: var(--accent);
   background: var(--accent);
-  color: #fff;
+  color: var(--coddy-on-accent-fg);
 }
 
 /* New folder leads the footer: a square as tall as the buttons beside it,

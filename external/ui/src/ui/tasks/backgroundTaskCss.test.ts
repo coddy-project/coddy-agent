@@ -264,14 +264,8 @@ test("the whole summary of a card is its click surface, and Stop stands above it
   expect(stop).toContain("z-index: 1");
 });
 
-test("the child transcript action is an expanded-card tab attached below output", () => {
-  const transcript = ruleBody(".bgtask-card-transcript {");
-  expect(transcript).toContain("margin-top: -8px");
-  expect(transcript).toContain("var(--accent)");
-
-  // The folded summary has no transcript row; only a running preview server keeps
-  // its address there.
-  expect(css).not.toContain(".bgtask-card-transcript-row");
+test("the way into a task stands on a row of its own in the folded summary", () => {
+  expect(ruleBody("\n.bgtask-card-transcript {")).toContain("var(--accent)");
   expect(ruleBody(".bgtask-card-address-row {")).toContain("100%");
 
   // An address is as long as it is: it wraps whole instead of trailing off in an
@@ -333,20 +327,18 @@ test("the header's view buttons are styled from theme tokens, mark a live sessio
   expect(tip).toContain("var(--coddy-tip-fg)");
 });
 
-// The views are icons at every width, the way a phone always showed them:
-// Files the icon alone in a square of the top bar's size, Background tasks the
-// dot and the counts, and the word only while there are no counts yet. The
-// full name is in the tooltip.
+// The views are icons at every width, the way a phone always showed them: Files
+// the icon alone in a square of the top bar's size, Background tasks the dot in
+// the same square, and the counts next to the dot once there are tasks. The full
+// name is in the tooltip.
 test("the view buttons are icons at every width, in squares of the top bar's sizes", () => {
   const button = ruleBody(".chat-view-btn {");
   expect(button).toContain("height: 36px");
   const square = ruleBody(".chat-view-btn--icon {");
   expect(square).toContain("width: 36px");
   expect(square).toContain("padding: 0");
-  expect(ruleBody(".chat-view-label {")).toContain("display: none");
-  expect(
-    ruleBody(".chat-view-btn--tasks:not(.has-tasks) .chat-view-label {"),
-  ).toContain("display: inline");
+  expect(css).not.toContain(".chat-view-label");
+  expect(css).not.toContain(".has-tasks");
   const stacked = css.slice(
     css.indexOf(`@media (max-width: 1199px) {\n  .chat-view-btn {`),
   );
@@ -365,15 +357,18 @@ test("no opener is left under the transcript", () => {
   expect(css).not.toContain(".bgtask-chip");
 });
 
-test("on a phone the phrase keeps the first line and the turn's numbers become its caption", () => {
+test("on a phone the turn's numbers keep the first line and the phrase goes under them", () => {
   const phone = css.slice(
     css.indexOf(`@media ${phoneMaxWidthMediaQuery} {\n  .typing-dots {`),
   );
-  const block = phone.slice(0, 900);
-  expect(block).toMatch(/\.typing-dots-status-text \{\s*order: 1;/);
+  const block = phone.slice(0, phone.indexOf(".msg-copy-icon-btn"));
+  // The numbers come first in the markup and take a row of their own, which is
+  // where the finished line keeps them: only the phrase goes when the turn ends.
+  expect(block).toMatch(/\.typing-dots-turn \{\s*flex-basis: 100%;/);
   expect(block).toMatch(
-    /\.typing-dots-turn \{\s*order: 3;\s*flex-basis: 100%;/,
+    /\.typing-dots-status-text,\s*\.typing-dots-status-time \{\s*font-size: 11px;/,
   );
+  expect(block).not.toContain("order:");
 });
 
 test("the tasks segment of the live line is a bare accent control, its separator drawn by the wrapper", () => {
@@ -432,7 +427,90 @@ test("the active live line eases checklist spacing changes only without reduced 
 // The empty slot the live line leaves between turns is transparent and still.
 test("the live line's slot shows nothing and does not move", () => {
   expect(ruleBody(".typing-dots-slot {")).toMatch(/opacity: 0;/);
-  expect(ruleBody(".typing-dots-slot .typing-dots-dot {")).toMatch(
+  expect(ruleBody(".typing-dots-slot .coddy-work-indicator-c {")).toMatch(
     /animation: none;/,
+  );
+});
+
+test("the Coddy work indicator animates its outer contour at the folder icon's scale", () => {
+  const indicator = ruleBody(".coddy-work-indicator {");
+  expect(indicator).toContain("width: 14px");
+  expect(indicator).toContain("height: 14px");
+  expect(indicator).toContain("flex: none");
+  // mix-text() mixes the theme's --text token.
+  expect(indicator).toContain("mix-text(72%)");
+  expect(indicator).not.toMatch(/animation:|transform:|background:/);
+  const outer = ruleBody("\n.coddy-work-indicator-c {");
+  expect(outer).toContain("coddy-work-orbit 2.2s linear infinite");
+  expect(outer).toContain("coddy-work-arc 2.2s ease-in-out infinite");
+  expect(ruleBody(".coddy-work-indicator-ring {")).not.toMatch(
+    /animation:|transform:/,
+  );
+  const at = css.indexOf("@keyframes coddy-work-arc {");
+  expect(at).toBeGreaterThan(-1);
+  const arc = css.slice(at, css.indexOf("\n}", at) + 2);
+  expect(arc).toMatch(/0%\s*\{[^}]*stroke-dasharray:\s*8 92;/);
+  expect(arc).toMatch(/50%\s*\{[^}]*stroke-dasharray:\s*88 12;/);
+  expect(arc).toMatch(/100%\s*\{[^}]*stroke-dasharray:\s*8 92;/);
+  expect(arc).toContain("stroke-dashoffset: -100;");
+  expect(ruleBody("@keyframes coddy-work-orbit {")).toContain("rotate(90deg)");
+  expect(css).not.toContain("coddy-work-indicator-glint");
+  expect(css).not.toContain("typing-dot-bounce");
+  expect(css).not.toContain(".typing-dots-dot");
+});
+
+test("reduced motion leaves the Coddy work indicator still", () => {
+  const reduced = [
+    ...css.matchAll(
+      /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/g,
+    ),
+  ]
+    .map((match) => match[1])
+    .join("\n");
+  expect(reduced).toMatch(/\.coddy-work-indicator-c \{\s*animation: none;/);
+});
+
+test("the transcript link is text above the card's click surface, with no tab around it", () => {
+  const link = ruleBody("\n.bgtask-card-transcript {");
+  expect(link).toMatch(/position: relative;/);
+  expect(link).toMatch(/z-index: 1;/);
+  expect(link).toMatch(/border: none;/);
+  expect(link).toMatch(/background: none;/);
+  expect(link).toMatch(/padding: 0;/);
+  expect(link).not.toMatch(/margin-top: -|border-radius/);
+});
+
+test("the way into a task keeps the card's rhythm on a phone", () => {
+  // Its tap area is invisible: min-height on the link itself left uneven gaps.
+  const phone = css.slice(
+    css.indexOf(".bgtask-stop-icon.composer-icon {\n    width: 30px"),
+  );
+  expect(phone).toMatch(
+    /\.bgtask-card-transcript::after,\s+\.bgtask-card-link::after \{/,
+  );
+  expect(ruleBody(".bgtask-card-transcript::after,")).toContain(
+    "inset: -7px -6px;",
+  );
+});
+
+test("usage that drops under the status starts where the status starts", () => {
+  expect(ruleBody("\n.bgtask-card-meta {")).toContain(
+    "justify-content: space-between",
+  );
+  expect(ruleBody("\n.bgtask-card-usage {")).not.toContain("margin-left");
+});
+
+test("the mark of a finished turn's line stands still", () => {
+  expect(
+    ruleBody(".typing-dots--finished .coddy-work-indicator-c {"),
+  ).toContain("animation: none");
+});
+
+test("the finished line keeps the live line's two rows on a phone", () => {
+  // The numbers and the phrase under them: without this room the page moves when
+  // the turn ends.
+  const phone = css.slice(css.indexOf("Centre the 14px mark"));
+  expect(phone.replace(/\s+/g, " ")).toContain(
+    ".typing-dots-status--finished { min-height: calc(12px * 1.3 + 2px + 11px * 1.3);",
   );
 });

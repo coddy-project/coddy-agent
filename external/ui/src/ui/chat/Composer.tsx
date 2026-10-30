@@ -18,6 +18,7 @@ import { useComposerFieldHeight } from "./useComposerFieldHeight";
 import { useT } from "../i18n/I18nProvider";
 import { ImageLightbox } from "../components/ImageLightbox";
 import { markupSupported } from "../markup/markupSupport";
+import { inMemoryCopy } from "./attachmentCopy";
 import { MarkupEditIcon } from "../markup/markupIcons";
 
 /**
@@ -680,22 +681,52 @@ export function Composer(props: {
       mountedRef.current = false;
     };
   }, []);
+  /**
+   * Attaches files at once, in the order they came, and trades each for a copy
+   * in memory as soon as it is read (attachmentCopy.ts): the original may be a
+   * temporary file its tool is about to delete. A file removed or sent by then
+   * is left alone, and one that cannot be read leaves the others where they are.
+   */
+  const attachFiles = (files: File[]) => {
+    setAttachedFiles((prev) => [...prev, ...files]);
+    for (const file of files) {
+      inMemoryCopy(file).then(
+        (copy) => {
+          if (copy === file) return;
+          setAttachedFiles((prev) => prev.map((f) => (f === file ? copy : f)));
+          setMarkup((open) =>
+            open?.file === file ? { ...open, file: copy } : open,
+          );
+        },
+        () => {
+          setAttachedFiles((prev) => prev.filter((f) => f !== file));
+          setMarkup((open) => (open?.file === file ? null : open));
+          showAttachHint(t("composer.attachCopyFailed", { name: file.name }));
+        },
+      );
+    }
+  };
   const openMarkup = (file: File, attached: boolean) => {
     // Without the editor a pasted picture is attached as it is, as in a
     // browser that cannot draw; an attached one stays as it was.
     const attachAsIs = () => {
-      if (!attached) setAttachedFiles((prev) => [...prev, file]);
+      if (!attached) attachFiles([file]);
     };
     if (markupPendingRef.current || markup) {
       attachAsIs();
       return;
     }
     markupPendingRef.current = true;
-    loadImageMarkup().then(
-      () => {
+    // A pasted picture is copied before the editor arrives; an attached one
+    // already is, and Done finds it among the attachments by this very file.
+    Promise.all([
+      attached ? Promise.resolve(file) : inMemoryCopy(file),
+      loadImageMarkup(),
+    ]).then(
+      ([held]) => {
         markupPendingRef.current = false;
-        if (mountedRef.current) setMarkup({ file, attached });
-        else attachAsIs();
+        if (mountedRef.current) setMarkup({ file: held, attached });
+        else if (!attached) setAttachedFiles((prev) => [...prev, held]);
       },
       () => {
         markupPendingRef.current = false;
@@ -799,16 +830,19 @@ export function Composer(props: {
   const idleSendDisabled =
     goalTooLong ||
     (props.value.trim() === "" && sendableAttachedFiles.length === 0);
-  const showAttachHint = useCallback(() => {
-    setAttachHint(t("composer.attachUnsupportedModel"));
-    if (attachHintTimerRef.current !== null) {
-      window.clearTimeout(attachHintTimerRef.current);
-    }
-    attachHintTimerRef.current = window.setTimeout(() => {
-      setAttachHint(null);
-      attachHintTimerRef.current = null;
-    }, 4000);
-  }, [t]);
+  const showAttachHint = useCallback(
+    (message?: string) => {
+      setAttachHint(message ?? t("composer.attachUnsupportedModel"));
+      if (attachHintTimerRef.current !== null) {
+        window.clearTimeout(attachHintTimerRef.current);
+      }
+      attachHintTimerRef.current = window.setTimeout(() => {
+        setAttachHint(null);
+        attachHintTimerRef.current = null;
+      }, 4000);
+    },
+    [t],
+  );
   useEffect(
     () => () => {
       if (attachHintTimerRef.current !== null) {
@@ -3169,7 +3203,7 @@ export function Composer(props: {
               showAttachHint();
               return;
             }
-            setAttachedFiles((prev) => [...prev, ...files]);
+            attachFiles(files);
           }}
         >
           {(props.editingFiles && props.editingFiles.length > 0) ||
@@ -3381,7 +3415,7 @@ export function Composer(props: {
                     openMarkup(only, false);
                     return;
                   }
-                  setAttachedFiles((prev) => [...prev, ...pasted]);
+                  attachFiles(pasted);
                 }}
                 onCompositionStart={() => {
                   compositionEndedAtRef.current = null;
@@ -3726,7 +3760,7 @@ export function Composer(props: {
                       // updates queued - as it does all through a turn.
                       const files = Array.from(ev.target.files ?? []);
                       if (files.length === 0) return;
-                      setAttachedFiles((prev) => [...prev, ...files]);
+                      attachFiles(files);
                       ev.target.value = "";
                     }}
                   />

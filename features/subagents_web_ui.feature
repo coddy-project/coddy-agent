@@ -13,6 +13,10 @@ Feature: Subagents in the web UI
   Scenario: The Subagents settings tab lists the workspace's definitions
     Then the Subagents settings tab lists the definitions of the session workspace with their scope, description and file
 
+  Scenario: A child's transcript names the model it runs on and how hard it thinks
+    Then the notice of a child's transcript shows the reasoning level in parentheses after the model
+    And a model with levels and none chosen says the provider's default applies
+
   Scenario: A background subagent's prompt is answered in its parent chat
     Then a background subagent's prompt waits at the end of its parent chat
     And the parent chat answers that prompt against the child session

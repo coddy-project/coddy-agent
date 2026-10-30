@@ -26,6 +26,23 @@ import { navSlots, splitNavItems, type NavItemId } from "./navOverflow";
 import { EnvironmentSwitcher } from "./EnvironmentSwitcher";
 import { useEscapeCloses } from "../components/useEscapeCloses";
 
+function IconPlus(props: { className?: string }) {
+  return (
+    <svg
+      className={props.className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      aria-hidden
+    >
+      <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function IconBook(props: { className?: string }) {
   return (
     <svg
@@ -314,6 +331,7 @@ export function NavRail(props: {
     // answer does not depend on how many icons are showing.
     const measure = () => {
       const brand = pill.querySelector<HTMLElement>(".rail-brand");
+      const plus = pill.querySelector<HTMLElement>(".rail-new-chat");
       const hit = middle.querySelector<HTMLElement>(".rail-hit");
       const slot = hit ? hit.getBoundingClientRect().width : 0;
       if (pill.clientWidth <= 0 || slot <= 0) {
@@ -325,8 +343,12 @@ export function NavRail(props: {
         pill.clientWidth -
         px(pillStyle.paddingLeft) -
         px(pillStyle.paddingRight);
+      const gap = px(pillStyle.columnGap);
       const available =
-        inner - px(pillStyle.columnGap) - (brand ? brand.scrollWidth : 0);
+        inner -
+        gap -
+        (brand ? brand.scrollWidth : 0) -
+        (plus ? plus.getBoundingClientRect().width + gap : 0);
       setSlots(
         navSlots(available, slot, px(getComputedStyle(middle).columnGap)),
       );
@@ -398,6 +420,32 @@ export function NavRail(props: {
   const navBtnCls = pillWide
     ? "rail-hit rail-nav-hit rail-nav-hit-wide"
     : "rail-hit rail-hit-icon rail-nav-hit rail-nav-hit-narrow";
+  // Where the rail has labels it is a row like the others; elsewhere an icon
+  // beside the name, which leads to the same place and says nothing about it.
+  const newChat = (
+    <div className="rail-tip-host rail-new-chat-host">
+      <a
+        href={appNavHrefHome()}
+        className={`${navBtnCls} rail-new-chat`}
+        aria-label={t("nav.newChatTooltip")}
+        data-testid="nav-new-chat"
+        onClick={(ev) => sameTabInAppNavClick(ev, props.onNewChat)}
+      >
+        <span className="rail-nav-icon">
+          <IconPlus className="rail-svg rail-nav-hit-svg" />
+        </span>
+        {pillWide ? (
+          <span className="rail-nav-label">{t("nav.newChatTooltip")}</span>
+        ) : null}
+      </a>
+      {pillWide ? null : (
+        <span className="rail-tip" role="tooltip">
+          {t("nav.newChatTooltip")}
+        </span>
+      )}
+    </div>
+  );
+
   const navLinkCls = pillWide
     ? "rail-hit rail-nav-hit rail-nav-hit-wide rail-link"
     : "rail-hit rail-hit-link rail-nav-hit rail-nav-hit-narrow rail-link";
@@ -465,10 +513,8 @@ export function NavRail(props: {
                     <span className="rail-brand-sub">{t("nav.brandSub")}</span>
                   </span>
                 </a>
-                <span className="rail-tip" role="tooltip">
-                  {t("nav.newChatTooltip")}
-                </span>
               </div>
+              {newChat}
             </>
           )
         ) : (
@@ -485,13 +531,12 @@ export function NavRail(props: {
                 <span className="rail-brand-sub">{t("nav.brandSub")}</span>
               </span>
             </a>
-            <span className="rail-tip" role="tooltip">
-              {t("nav.newChatTooltip")}
-            </span>
           </div>
         )}
+        {props.canWidenRail ? null : newChat}
 
         <div ref={middleRef} className="rail-middle">
+          {pillWide ? newChat : null}
           {inBar("history") ? (
             <div className="rail-tip-host">
               <a

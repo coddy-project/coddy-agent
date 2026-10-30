@@ -55,8 +55,11 @@ func (s *generationSpeed) add(tokens int, now time.Time) {
 		s.boundaries[n%len(s.boundaries)] = previous.Add(time.Duration(float64(now.Sub(previous)) * fraction))
 	}
 	s.callTokens, s.last = tokens, now
+	// The 200-token window speaks until the 500-token one is full: most model
+	// calls of an agent stop short of 500 tokens, and the speed must not leave
+	// the line between the two.
 	window, step := 200, 50
-	if tokens > 200 {
+	if tokens >= 500 {
 		window, step = 500, 100
 	}
 	if tokens < window {

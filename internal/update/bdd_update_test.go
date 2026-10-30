@@ -389,16 +389,7 @@ func (s *updateFeatureState) printsNoReleaseNotes() error {
 }
 
 func (s *updateFeatureState) coddyPreparesTheWindowsUpdate() error {
-	return s.prepareWindowsUpdate(false)
-}
-
-func (s *updateFeatureState) coddyPreparesTheWindowsUpdateWithoutRestart() error {
-	return s.prepareWindowsUpdate(true)
-}
-
-func (s *updateFeatureState) prepareWindowsUpdate(noRestart bool) error {
 	opts := s.options()
-	opts.NoRestart = noRestart
 	opts.windowsInstaller = func(req windowsUpdateRequest) error {
 		s.scheduled = &req
 		return nil
@@ -440,22 +431,9 @@ func (s *updateFeatureState) updateIsReady() error {
 	return s.reports("Update downloaded")
 }
 
-func (s *updateFeatureState) helperWillLeaveCoddyStopped() error {
-	if err := s.helperWasScheduled(); err != nil {
-		return err
-	}
-	if s.scheduled.Restart {
-		return fmt.Errorf("helper restart = true, want the update installed without one")
-	}
-	return nil
-}
-
-func (s *updateFeatureState) helperWillRestartCoddy() error {
-	if err := s.helperWasScheduled(); err != nil {
-		return err
-	}
-	if !s.scheduled.Restart {
-		return fmt.Errorf("helper restart = false")
+func (s *updateFeatureState) doesNotPromiseARestart() error {
+	if got := s.out.String(); strings.Contains(got, "restart") {
+		return fmt.Errorf("output promises a restart: %q", got)
 	}
 	return nil
 }
@@ -501,7 +479,6 @@ func TestUpdateFeature(t *testing.T) {
 			sc.Step(`^Coddy links the full changelog between the two versions on GitHub$`, s.linksTheFullChangelog)
 			sc.Step(`^Coddy prints no release notes$`, s.printsNoReleaseNotes)
 			sc.Step(`^Coddy prepares the Windows update$`, s.coddyPreparesTheWindowsUpdate)
-			sc.Step(`^Coddy prepares the Windows update with --no-restart$`, s.coddyPreparesTheWindowsUpdateWithoutRestart)
 			sc.Step(`^the installed executable is the one from the release$`, s.installedExecutableIsFromTheRelease)
 			sc.Step(`^Coddy reports the release it installed$`, s.reportsTheInstalledRelease)
 			sc.Step(`^Coddy reports that it verified the archive against the published checksums$`, s.reportsAVerifiedArchive)
@@ -509,8 +486,8 @@ func TestUpdateFeature(t *testing.T) {
 			sc.Step(`^the man page and the shell completions are the ones from the release$`, s.extrasAreFromTheRelease)
 			sc.Step(`^Coddy reports that it refreshed the man page and the shell completions$`, s.reportsRefreshedExtras)
 			sc.Step(`^it reports that the update is ready$`, s.updateIsReady)
-			sc.Step(`^it schedules a helper that will restart Coddy$`, s.helperWillRestartCoddy)
-			sc.Step(`^it schedules a helper that will leave Coddy stopped$`, s.helperWillLeaveCoddyStopped)
+			sc.Step(`^it schedules a helper that will install the release$`, s.helperWasScheduled)
+			sc.Step(`^it does not say that Coddy will start again$`, s.doesNotPromiseARestart)
 		},
 		Options: &godog.Options{
 			Format: "progress",

@@ -10,3 +10,12 @@ Feature: Seeing an attached image in the web UI
     And removing a preview card in the composer drops the attachment and opens nothing
     And an image in the sent bubble opens the full-size asset
     And a bubble sent before the full-size asset existed opens its preview instead
+
+  Scenario: Pictures from a screenshot tool outlive its temporary files
+    Then a dropped file is replaced by a copy held in memory
+    And files dropped one after another keep their order whichever is read first
+    And a file that cannot be read leaves the others and says which it was
+
+  Scenario: A queued picture is a picture as soon as the agent reads it
+    Then the row of a queued picture opens it from the session's assets at once
+    And a server file with nothing to show yet keeps the picture the row has

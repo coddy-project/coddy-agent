@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Stop with a queued continuation</title>
+    <link rel="stylesheet" href="diagram.css" />
+    <style>
+      .flow {
+        grid-template-columns: 1fr 1fr;
+        gap: 48px 44px;
+      }
+      .stage {
+        min-height: 302px;
+      }
+      .stage h2 {
+        margin-bottom: 12px;
+      }
+      .stage .note {
+        margin: 12px 0 0;
+      }
+      .rows .box {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .limits {
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+      }
+    </style>
+  </head>
+  <body style="--width: 1280px">
+    <h1>Stop with a queued continuation</h1>
+    <p class="lead">
+      An accepted <code>continue_queue: true</code> request interrupts one child run inside the admitted turn.
+    </p>
+
+    <div class="cols flow">
+      <section class="panel stage" id="eligible">
+        <h2>1. Eligible ordinary profile prompt</h2>
+        <div class="box core b">agent / plan / ask <small>running in this process, with waiting messages</small></div>
+        <div class="stack rows" style="margin-top: 12px">
+          <div class="box amber"><code>ID A · steer</code><span>text</span></div>
+          <div class="box amber"><code>ID B · after_turn</code><span>text + retained image</span></div>
+          <div class="box amber"><code>ID C · steer</code><span>duplicate text allowed</span></div>
+        </div>
+        <p class="note">FIFO order, original message IDs and per-message images stay together.</p>
+      </section>
+
+      <section class="panel stage" id="reserve">
+        <h2>2. Reserve and interrupt</h2>
+        <div class="box blue b"><code>TryInterruptQueuedTurn</code><small>under the queue lock</small></div>
+        <div class="box blue" style="margin-top: 12px">
+          Reserve all waiting messages at the acceptance cutoff
+          <small>one batch, including both steer and after_turn</small>
+        </div>
+        <div class="box core" style="margin-top: 12px">
+          Cancel the current child context
+          <small>keep the root context and admission active</small>
+        </div>
+        <p class="note"><code>queueContinued: true</code> acknowledges acceptance, not a finished answer.</p>
+      </section>
+
+      <section class="panel stage" id="append">
+        <h2>3. Unwind, then commit the input</h2>
+        <div class="box core">Old runner finishes <small>persist partial assistant output and tool results</small></div>
+        <div class="box blue" style="margin-top: 12px">
+          <code>TakeQueuedPromptBatch</code>
+          <small>claim the batch once; a claim alone does not consume it</small>
+        </div>
+        <div class="box blue" style="margin-top: 12px">
+          <code>BeginQueuedPromptRead</code>
+          <small>guard the append against full Stop</small>
+        </div>
+        <p class="note">If the guard accepts, append EACH user row once, in FIFO order, with no cancellation checks between rows.</p>
+      </section>
+
+      <section class="panel stage" id="answer">
+        <h2>4. Fresh child answers the batch</h2>
+        <div class="box green b">Same admission, root context and turn generation</div>
+        <div class="stack rows" style="margin-top: 12px">
+          <div class="box green"><code>user A</code><span>text</span></div>
+          <div class="box green"><code>user B</code><span>text + image</span></div>
+          <div class="box green"><code>user C</code><span>duplicate text preserved</span></div>
+        </div>
+        <div class="box core" style="margin-top: 12px">assistant answer from the fresh child run</div>
+        <p class="note">One transcript writer. No synthetic user prompt and no joined message. Later queue arrivals follow the existing boundary rules.</p>
+      </section>
+    </div>
+
+    <div class="sep"></div>
+    <div class="cols limits">
+      <div class="box core">
+        Full root cancellation takes precedence
+        <small>A second Stop before the batch is read, deletion or shutdown stops continuation. Unread accepted rows remain in the closed queue where the session survives; no automatic restart.</small>
+      </div>
+      <div class="box core">
+        Default or unsupported cancellation stays unchanged
+        <small>Without an accepted continuation, full cancellation drops unread steer messages and keeps after_turn messages idle.</small>
+      </div>
+    </div>
+    <div class="footer">
+      <p>Queue state lives only in process memory. Retained unread messages do not survive a process restart.</p>
+    </div>
+
+    <script src="diagram.js"></script>
+    <script>
+      wires([
+        { from: "#eligible", to: "#reserve", color: "blue", route: "straight" },
+        { from: "#reserve", to: "#append", color: "blue", fromSide: "bottom", toSide: "top" },
+        { from: "#append", to: "#answer", color: "green", route: "straight" },
+      ]);
+    </script>
+  </body>
+</html>

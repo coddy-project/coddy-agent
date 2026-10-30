@@ -258,3 +258,11 @@ func TestServeRefusesAnUnknownVerb(t *testing.T) {
 		}
 	}
 }
+
+// Scripts written when a Windows update started Coddy again pass --no-restart.
+// The flag has nothing left to turn off, but it must not start failing them.
+func TestUpdateStillAcceptsNoRestart(t *testing.T) {
+	if err := runUpdate([]string{"--no-restart", "--help"}); err != nil {
+		t.Fatalf("coddy update --no-restart: %v", err)
+	}
+}

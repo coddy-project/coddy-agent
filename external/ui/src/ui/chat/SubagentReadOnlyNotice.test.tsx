@@ -39,6 +39,60 @@ test("states the child session's effective model", () => {
   );
 });
 
+test("the effective reasoning level follows the model in parentheses", () => {
+  render(
+    <SubagentReadOnlyNotice
+      meta={{ ...meta, model: "codex/gpt-6.1-sol", reasoning: "high" }}
+    />,
+  );
+
+  expect(screen.getByTestId("subagent-readonly-notice")).toHaveTextContent(
+    "Effective model: codex/gpt-6.1-sol (High)",
+  );
+});
+
+test("a model without reasoning levels gets no parentheses", () => {
+  render(
+    <SubagentReadOnlyNotice
+      meta={{ ...meta, model: "neuraldeep/qwen3.8-27b", reasoning: "" }}
+    />,
+  );
+
+  const notice = screen.getByTestId("subagent-readonly-notice");
+  expect(notice).toHaveTextContent("Effective model: neuraldeep/qwen3.8-27b");
+  expect(notice.textContent).not.toContain("(");
+});
+
+test("a model with levels and none chosen says the provider's default applies", () => {
+  render(
+    <SubagentReadOnlyNotice
+      meta={{ ...meta, model: "codex/gpt-6.1-sol" }}
+      reasoningLevels={["low", "high"]}
+    />,
+  );
+
+  expect(screen.getByTestId("subagent-readonly-notice")).toHaveTextContent(
+    "Effective model: codex/gpt-6.1-sol (Default)",
+  );
+});
+
+test("a scheduled run's notice names the reasoning level too", () => {
+  render(
+    <SubagentReadOnlyNotice
+      meta={{
+        ...meta,
+        model: "codex/gpt-6.1-sol",
+        reasoning: "medium",
+        scheduler: { jobId: "nightly", trigger: "cron" },
+      }}
+    />,
+  );
+
+  expect(screen.getByTestId("subagent-readonly-notice")).toHaveTextContent(
+    "Effective model: codex/gpt-6.1-sol (Medium)",
+  );
+});
+
 test("a modifier click falls through to the href", () => {
   const onOpenSession = vi.fn();
   render(<SubagentReadOnlyNotice meta={meta} onOpenSession={onOpenSession} />);

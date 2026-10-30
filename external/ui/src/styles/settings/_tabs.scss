@@ -171,25 +171,25 @@
    the changes are not saved. The fill and the ring are the state; under
    reduced motion only the breathing stops. */
 .settings-btn-primary.is-dirty {
-  color: #fff;
-  border-color: rgba(147, 51, 234, 0.95);
-  background: rgba(147, 51, 234, 0.82);
-  box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.3);
+  color: var(--coddy-on-accent-fg);
+  border-color: color-mix(in srgb, var(--accent) 95%, transparent);
+  background: color-mix(in srgb, var(--accent) 82%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
   animation: settings-save-attention 1.8s ease-in-out infinite;
 }
 
 .settings-btn-primary.is-dirty:hover:not(:disabled) {
-  background: rgba(147, 51, 234, 0.95);
-  border-color: rgba(147, 51, 234, 1);
+  background: color-mix(in srgb, var(--accent) 95%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 100%, transparent);
 }
 
 @keyframes settings-save-attention {
   0%,
   100% {
-    box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.3);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
   }
   50% {
-    box-shadow: 0 0 0 6px rgba(147, 51, 234, 0.12);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 12%, transparent);
   }
 }
 
@@ -200,7 +200,7 @@
   font-size: 12px;
   font-weight: 600;
   line-height: 1.35;
-  color: color-mix(in srgb, rgb(147, 51, 234) 70%, var(--text));
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
 }
 
 @keyframes settings-save-pop {

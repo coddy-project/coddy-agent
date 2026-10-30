@@ -58,10 +58,5 @@ Feature: Coddy self-update
     Given a newer Windows Coddy release is available
     When Coddy prepares the Windows update
     Then it reports that the update is ready
-    And it schedules a helper that will restart Coddy
-
-  Scenario: Installing a Windows update without starting Coddy again
-    Given a newer Windows Coddy release is available
-    When Coddy prepares the Windows update with --no-restart
-    Then it reports that the update is ready
-    And it schedules a helper that will leave Coddy stopped
+    And it schedules a helper that will install the release
+    And it does not say that Coddy will start again

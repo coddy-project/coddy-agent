@@ -108,7 +108,7 @@ textarea#composer.composer-ta-masked {
 }
 
 textarea#composer.composer-ta-masked::selection {
-  background: rgba(147, 51, 234, 0.18);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .composer-code-editing {
@@ -282,7 +282,7 @@ textarea#composer {
 }
 
 .composer-tab.mode-llm {
-  border-color: rgba(147, 51, 234, 0.35);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 /* The permission chip (#292). Ask is the quiet default; a session that no
@@ -375,7 +375,7 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 
 .composer-goal:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.35);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .composer-goal-icon {

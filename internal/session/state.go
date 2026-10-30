@@ -349,6 +349,10 @@ type State struct {
 	queueMu   sync.Mutex
 	queue     []QueuedMessage
 	queueOpen bool
+	// queueInterrupt owns an opt-in child-run handoff; retained IDs protect
+	// its unread rows from the legacy close's steer discard.
+	queueInterrupt *queuedTurnInterrupt
+	queueRetained  map[string]bool
 	// queueVersion counts the changes, so a client told about the queue down
 	// two different connections can tell which answer is the newer one.
 	queueVersion uint64

@@ -18,6 +18,18 @@ func TestSpawnAgentCardFeature(t *testing.T) {
 				return runVitestScenario("src/ui/messages/SpawnAgentCard.test.tsx",
 					"spawn_agent displays identity and bottom model/reasoning/timeout metadata")
 			})
+			sc.Step(`^a prompt that fits has no More control$`, func() error {
+				return runVitestScenario("src/ui/messages/SpawnAgentCard.test.tsx",
+					"a prompt that fits has no More control")
+			})
+			sc.Step(`^the More control follows the prompt's overflow as the card resizes$`, func() error {
+				return runVitestScenario("src/ui/messages/SpawnAgentCard.test.tsx",
+					"the More control follows the prompt's overflow as the card resizes")
+			})
+			sc.Step(`^the card of a spawn does not lead to the transcript$`, func() error {
+				return runVitestScenario("src/ui/messages/SpawnAgentCard.test.tsx",
+					"the card of a spawn does not lead to the transcript: the task's card does")
+			})
 		},
 		Options: &godog.Options{
 			Format:   "pretty",
