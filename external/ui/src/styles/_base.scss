@@ -14,8 +14,12 @@ body,
 }
 
 /* The grain masks the rings the browser's ordered dither draws in the glows
-   on a high-contrast screen (issue #622). */
+   on a high-contrast screen (issue #622). A phone's browser keeps the sizes the
+   stylesheet sets: iOS Safari otherwise enlarges the text of what it takes for a
+   wide block, such as the rows of a diff. */
 html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   color-scheme: dark;
   background:
     var(--coddy-grain),

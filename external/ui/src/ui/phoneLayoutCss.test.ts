@@ -306,3 +306,11 @@ describe("the environment banner on the stacked shell", () => {
     );
   });
 });
+
+// iOS Safari enlarges the text of what it takes for a wide block by itself: a diff
+// written at 11.5px read at about 16px on an iPhone, its line numbers left at 11px.
+test("the browser does not resize the text the stylesheet sets", () => {
+  const html = /(?:^|\n)html \{([^}]*)\}/.exec(stylesSource())?.[1] ?? "";
+  expect(html).toContain("-webkit-text-size-adjust: 100%;");
+  expect(html).toContain("text-size-adjust: 100%;");
+});
