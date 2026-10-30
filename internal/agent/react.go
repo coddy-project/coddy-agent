@@ -2363,12 +2363,18 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		requiresPerm = env.PermissionMode != config.PermModeBypass
 	} else if filesystemWriteTool(tc.Name) {
 		switch env.PermissionMode {
-		case config.PermModeBypass, config.PermModeAcceptEdits:
+		case config.PermModeBypass:
+			requiresPerm = false
+		case config.PermModeAcceptEdits:
+			// accept_edits approves the edits of the project. A write into
+			// the agent's home (hooks.json, mcp.json, config.yaml, the trust
+			// receipts) or anywhere outside the workspace reaches what
+			// config_commit asks about, so it asks too.
 			keys := permission.WriteGrantKeys(tc.Name, tc.InputJSON, env.CWD)
 			if permission.AllWriteKeysGranted(sessWriteGrants, keys) {
 				requiresPerm = false
 			} else {
-				requiresPerm = false // auto-approve
+				requiresPerm = !a.writeStaysInWorkspace(tc, env.CWD)
 			}
 		default: // ask
 			keys := permission.WriteGrantKeys(tc.Name, tc.InputJSON, env.CWD)
@@ -3390,6 +3396,31 @@ func filesystemWriteTool(name string) bool {
 	default:
 		return false
 	}
+}
+
+// writeStaysInWorkspace reports whether every path a filesystem write names
+// lies inside the session's workspace (its working directory and the
+// additionalDirectories it carries) and outside the agent's home, links
+// resolved. A call whose paths cannot be read is not.
+func (a *Agent) writeStaysInWorkspace(tc llm.ToolCall, cwd string) bool {
+	paths := fstools.ToolCallPaths(tc.Name, tc.InputJSON, cwd)
+	if len(paths) == 0 {
+		return false
+	}
+	var additional []string
+	if st := sessionStatePtr(a.state); st != nil {
+		additional = st.GetAdditionalDirectories()
+	}
+	home := ""
+	if a.cfg != nil {
+		home = a.cfg.Paths.Home
+	}
+	for _, p := range paths {
+		if !session.PathInWorkspace(p, cwd, home, additional) {
+			return false
+		}
+	}
+	return true
 }
 
 // configWriteTool names the tools that write the agent's own configuration.
