@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -60,6 +61,10 @@ func New(cfg *config.Config, log *slog.Logger) (*Server, error) {
 		uuid:      uuid[:32],
 		startedAt: time.Now(),
 		hostName:  swarmdto.HostNodeName(),
+	}
+	// A name stays bound to its node across a restart of the relay.
+	if home := strings.TrimSpace(cfg.Paths.Home); home != "" {
+		s.registry.SetBindingsFile(filepath.Join(home, "swarm-names.json"))
 	}
 	s.routes()
 	// An advertised address is somebody else's claim about where to dial, so
@@ -146,6 +151,7 @@ func (s *Server) seedUpstreams() error {
 			Token:        up.Token,
 			Version:      "configured",
 		}
+		s.registry.unbind(up.Name)
 		if _, err := s.registry.RegisterWithDial(req, netx.Options{
 			Proxy:              up.Dial.Proxy,
 			CAFile:             up.Dial.CAFile,
