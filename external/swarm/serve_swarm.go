@@ -58,7 +58,9 @@ func Serve(ctx context.Context, opts Options) error {
 			return gerr
 		}
 		srv.SetExtraAuthTokens([]string{generated})
-		log.Warn("swarm: no client token configured, generated one for this run", "token", generated)
+		// The value goes to stderr only: a log file and the journal outlive the
+		// run and are read by more people than the one who started it.
+		log.Warn("swarm: no client token configured, generated one for this run and printed it to stderr")
 		fmt.Fprintf(os.Stderr, "swarm: generated client token for this run: %s\n", generated)
 	}
 	if !cfg.Swarm.RegistrationOpen() {

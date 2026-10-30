@@ -386,7 +386,8 @@ token secret.
 
 Binding off loopback without a client token **refuses to start** (`swarm.allow_insecure`
 overrides). On loopback one is generated for the run rather than left absent, because an open
-relay lends its authority to every local process.
+relay lends its authority to every local process. The generated value is printed to stderr only,
+never to the log.
 
 A node's name is proven by a **per-lease secret** the relay mints, not by the shared pairing
 token: a fleet credential must not let one node claim another's name, redirect its traffic, or

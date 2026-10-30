@@ -2,6 +2,9 @@ package webauth
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -593,5 +596,39 @@ func TestReplayGuard(t *testing.T) {
 	}
 	if !g.Use("a", now.Add(3*time.Hour), now.Add(2*time.Hour)) {
 		t.Fatal("an expired entry was not forgotten")
+	}
+}
+
+// With a file the record outlives the guard: a second guard over the same
+// file, as after a restart, refuses a launch the first one took, and the
+// file holds digests rather than the launch hashes.
+func TestReplayGuardSurvivesARestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "telegram-launches.json")
+	now := time.Unix(1000, 0)
+	var first ReplayGuard
+	first.SetFile(path)
+	if !first.Use("launch-hash", now.Add(time.Hour), now) {
+		t.Fatal("a new launch was refused")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "launch-hash") {
+		t.Fatalf("the file keeps the launch hash itself: %s", data)
+	}
+	if runtime.GOOS != "windows" {
+		if st, err := os.Stat(path); err != nil || st.Mode().Perm() != 0o600 {
+			t.Fatalf("file mode = %v, %v; want 0600", st.Mode().Perm(), err)
+		}
+	}
+
+	var second ReplayGuard
+	second.SetFile(path)
+	if second.Use("launch-hash", now.Add(time.Hour), now.Add(time.Minute)) {
+		t.Fatal("a launch used before the restart was accepted again")
+	}
+	if !second.Use("launch-hash", now.Add(3*time.Hour), now.Add(2*time.Hour)) {
+		t.Fatal("an expired entry from the file was not forgotten")
 	}
 }
