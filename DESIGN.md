@@ -1601,6 +1601,18 @@ the app's shared server-events connection). Callbacks are observational and may
 be asynchronous. A failing listener is removed; other listeners and the host
 continue. No new global connection is opened for extensions.
 
+`theme.get()` hands a frozen snapshot of the active appearance - the theme id,
+its `light`/`dark` mode and the colours of the tokens an extension paints with
+(`bg`, `text`, `muted`, `accent`, `danger`, `link`, `border`, `surface`),
+resolved to computed colours through a probe element the way the browser
+panel's colours are (`browserPanel/bridge.ts`). `theme.onChange` notifies on a
+`data-theme` switch with the same delivery rules as the lifecycle events:
+frozen copies, by extension id in ascending ASCII order then registration
+order, a failing listener removed and reported in Settings, everything disposed
+by the lifetime signal. Extension styles run in the app's document and take the
+theme's CSS variables directly. Contract: `extensions/theme.test.ts`,
+`features/ui_extension_theme.feature`.
+
 `ui.registerToolRenderer` selects an MCP call by exact server/tool names or
 wildcards, with specificity, extension id and registration order as precedence.
 The extension mounts its own DOM and may update it as the call changes. The host

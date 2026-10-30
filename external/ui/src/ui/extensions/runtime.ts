@@ -12,6 +12,7 @@ import {
 } from "./contributions";
 import { ExtensionEvents, type ExtensionEventAPI } from "./events";
 import { extensionSettings, type ExtensionSettingsAPI } from "./settings";
+import { ExtensionThemes, type ExtensionThemeAPI } from "./theme";
 import { knownSectionLabel } from "../settings/settingsSections";
 import {
   IncomingStream,
@@ -49,6 +50,7 @@ export type ExtensionAPI = {
   assets: { text: (path: string) => Promise<string> };
   net: ExtensionNetwork;
   events: ExtensionEventAPI;
+  theme: ExtensionThemeAPI;
   settings: ExtensionSettingsAPI;
   stream: {
     registerIncoming: (registration: IncomingRegistration) => IncomingHandle;
@@ -98,6 +100,9 @@ export class ExtensionRuntime {
     this.publish({ renderers: this.renderers.rows }),
   );
   readonly events = new ExtensionEvents((owner, message) =>
+    this.reportError(owner, message),
+  );
+  readonly themes = new ExtensionThemes((owner, message) =>
     this.reportError(owner, message),
   );
   reportError(owner: string, message: string) {
@@ -318,6 +323,7 @@ export class ExtensionRuntime {
         on: (type, listener) =>
           this.events.on(entry.id, controller.signal, type, listener),
       },
+      theme: this.themes.api(entry.id, controller.signal),
       settings: extensionSettings(
         entry.id,
         controller.signal,
