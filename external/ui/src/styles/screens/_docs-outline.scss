@@ -91,7 +91,7 @@
   }
   /* No outline under the actions any more: they take their own width. */
   .docs-header {
-    grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) auto;
+    grid-template-columns: minmax(224px, 254px) minmax(0, 1fr) auto;
   }
   .docs-outline {
     display: none;
@@ -111,17 +111,19 @@
     margin-inline: 0;
   }
   .docs-view {
-    --docs-inline: 16px;
+    --docs-inline: var(--coddy-panel-head-inline);
     --docs-top: 14px;
     --docs-bottom: 28px;
   }
   /* Two rows: the title with the actions, then the search under them, across
-     the sheet like the page below it. */
+     the sheet like the page below it. The first row is an ordinary head, so the
+     close control stands where every other window has it. */
   .docs-header {
     grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: calc(var(--coddy-panel-head-height) - 1px) auto;
     grid-template-areas: "title actions" "search search";
-    row-gap: 10px;
-    padding: 12px var(--docs-inline) 10px;
+    row-gap: 0;
+    padding: 0 var(--coddy-panel-head-inline) 10px;
   }
   .docs-header-search {
     max-width: none;

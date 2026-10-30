@@ -37,8 +37,8 @@
 }
 
 .mode-item.is-selected {
-  background: rgba(147, 51, 234, 0.12);
-  border: 1px solid rgba(147, 51, 234, 0.25);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
 /* Model selector menu: filter input, vendor groups, and a ~5-row scroll cap.
@@ -73,7 +73,7 @@
 }
 
 .mode-menu-filter:focus {
-  border-color: rgba(147, 51, 234, 0.45);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 /* Cap the visible list at ~5 rows on desktop (~35px each); the rest scrolls.

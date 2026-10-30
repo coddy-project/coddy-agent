@@ -2817,9 +2817,10 @@ describe("settings search index matches the drawing", () => {
     const inside = await appearance(AGENT_TELEGRAM);
     expect(inside.drawn.map((d) => d.anchor)).not.toContain(anchor);
     expect(inside.expected.map((e) => e.anchor)).not.toContain(anchor);
-    // Theme and language are still there.
+    // Theme, the simplified mode and language are still there.
     expect(inside.drawn.map((d) => d.anchor)).toEqual([
       landmarkAnchor("appearance", "theme"),
+      landmarkAnchor("appearance", "simple"),
       landmarkAnchor("appearance", "language"),
     ]);
     expect(drawingDifferences(inside.expected, inside.drawn)).toEqual({

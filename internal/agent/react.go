@@ -272,100 +272,110 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	a.state.ClearMemoryCopilotBlock()
 	userText := contentBlocksToText(prompt)
 
-	// The built-in /compact, /plugin, /export and /worktree commands are operator input:
-	// they run deterministically, outside the tool set and the permission
-	// gate. A child's prompt is written by the parent model, so for a subagent
-	// the same text is an ordinary task and never reaches the built-ins. They
-	// read what the operator typed, never the attachments that came with it:
-	// data piped into a one-shot run is not a /export target or /plugin
-	// arguments.
-	if a.subagent == nil {
-		typed := typedText(prompt)
-		// The built-in /compact command compacts history instead of running the
-		// ReAct loop. The command text is persisted (so it shows in the transcript
-		// like any other message) by runCompactCommand itself.
-		if args, ok := parseCompactCommand(typed); ok {
-			return a.runCompactCommand(ctx, args, userText)
+	if queued, batch := session.TakeQueuedPromptBatch(ctx, a.state.GetID()); batch {
+		if !session.BeginQueuedPromptRead(ctx, a.state.GetID()) {
+			return string(acp.StopReasonCancelled), nil
 		}
-		// The built-in /plugin command manages skill plugins and marketplaces
-		// deterministically, without an LLM turn; the command text is persisted too.
-		if args, ok := parsePluginCommand(typed); ok {
-			return a.runPluginCommand(ctx, args, userText)
+		a.appendQueuedMessages(nil, queued)
+	} else {
+		// The built-in /compact, /plugin, /export and /worktree commands are operator input:
+		// they run deterministically, outside the tool set and the permission
+		// gate. A child's prompt is written by the parent model, so for a subagent
+		// the same text is an ordinary task and never reaches the built-ins. They
+		// read what the operator typed, never the attachments that came with it:
+		// data piped into a one-shot run is not a /export target or /plugin
+		// arguments.
+		if a.subagent == nil {
+			typed := typedText(prompt)
+			// The built-in /compact command compacts history instead of running the
+			// ReAct loop. The command text is persisted (so it shows in the transcript
+			// like any other message) by runCompactCommand itself.
+			if args, ok := parseCompactCommand(typed); ok {
+				return a.runCompactCommand(ctx, args, userText)
+			}
+			// The built-in /plugin command manages skill plugins and marketplaces
+			// deterministically, without an LLM turn; the command text is persisted too.
+			if args, ok := parsePluginCommand(typed); ok {
+				return a.runPluginCommand(ctx, args, userText)
+			}
+			// The built-in /export command writes the transcript to a file in the
+			// workspace; the command text is persisted after the export is built.
+			if args, ok := parseExportCommand(typed); ok {
+				return a.runExportCommand(ctx, args, userText)
+			}
+			// The built-in /worktree command moves the chat between the main
+			// checkout and a worktree, as worktree_open and worktree_exit do.
+			if c, ok := parseWorktreeCommand(typed); ok {
+				return a.runWorktreeCommand(ctx, c, userText)
+			}
 		}
-		// The built-in /export command writes the transcript to a file in the
-		// workspace; the command text is persisted after the export is built.
-		if args, ok := parseExportCommand(typed); ok {
-			return a.runExportCommand(ctx, args, userText)
+		// The bodies of the skills the prompt invokes as /name, and the rules its
+		// mentioned paths activate, ride in this message (mentions.go), never in
+		// the system prompt and never added per request.
+		for _, inv := range invokedSkills(typedText(prompt), a.state.GetSkills()) {
+			a.applySkillSettings(ctx, inv.name, inv.skill)
 		}
-		// The built-in /worktree command moves the chat between the main
-		// checkout and a worktree, as worktree_open and worktree_exit do.
-		if c, ok := parseWorktreeCommand(typed); ok {
-			return a.runWorktreeCommand(ctx, c, userText)
+		if extra := invokedSkillBlocks(typedText(prompt), a.state.GetSkills(), a.managedSkillsDir()); len(extra) > 0 {
+			prompt = append(append([]acp.ContentBlock(nil), prompt...), extra...)
+			userText = contentBlocksToText(prompt)
 		}
-	}
-	// The bodies of the skills the prompt invokes as /name, and the rules its
-	// mentioned paths activate, ride in this message (mentions.go), never in
-	// the system prompt and never added per request.
-	for _, inv := range invokedSkills(typedText(prompt), a.state.GetSkills()) {
-		a.applySkillSettings(ctx, inv.name, inv.skill)
-	}
-	if extra := invokedSkillBlocks(typedText(prompt), a.state.GetSkills(), a.managedSkillsDir()); len(extra) > 0 {
-		prompt = append(append([]acp.ContentBlock(nil), prompt...), extra...)
-		userText = contentBlocksToText(prompt)
-	}
-	if withRules := a.attachActivatedRules(prompt); len(withRules) != len(prompt) {
-		prompt = withRules
-		userText = contentBlocksToText(prompt)
-	}
-	// UserPromptSubmit hooks see the prompt before it becomes a message: a
-	// rejected prompt is never added, and the turn ends with the reason. The
-	// attachments that came with it are dropped too, so they do not leak into
-	// the next prompt.
-	if reason, rejected := a.runUserPromptHooks(ctx, mode, userText); rejected {
-		a.state.TakePendingImageParts()
-		return string(acp.StopReasonRefused), fmt.Errorf("prompt rejected by hook: %s", reason)
-	}
-	imageParts := a.state.TakePendingImageParts()
-	messageContent := userText
-	if note := filePathsNote(imageParts); note != "" {
-		messageContent = userText + "\n\n" + note
-	}
-	// A turn finished background tasks started opens with the wake. The pool
-	// marks the tasks that woke the agent first, so a surface that reads its
-	// task list again on the wake finds the mark; the clients hear the wake
-	// before the message is persisted, like every frame a message describes;
-	// and the message keeps the marker, so no surface shows the instruction
-	// as something the operator typed, after a reload either.
-	wake := a.takeTurnWake()
-	if wake != nil {
-		a.markWokeTasks(wake)
-		_ = a.server.SendSessionUpdate(a.state.GetID(), session.BackgroundWakeUpdate(wake))
-	}
-	// A goal turn the supervisor started opens with its marker the same way:
-	// the clients show a one-line row, never the instruction text.
-	goalTurn := a.takeTurnGoal()
-	if goalTurn != nil {
-		_ = a.server.SendSessionUpdate(a.state.GetID(), session.GoalTurnUpdate(goalTurn))
-	}
-	// A prompt the turn boundary started from the queue was typed into no
-	// client's view of this run, unlike an ordinary prompt, which its surface
-	// shows the moment it is sent. It is announced the way a steer read is
-	// (message_queue.go), before it is persisted, so a live transcript shows
-	// the operator's message above the answer to it.
-	if wake == nil && goalTurn == nil && session.PromptEcho(ctx, a.state.GetID()) {
-		_ = a.server.SendSessionUpdate(a.state.GetID(), acp.MessageChunkUpdate{
-			SessionUpdate: acp.UpdateTypeUserMessageChunk,
-			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: messageContent},
+		if withRules := a.attachActivatedRules(prompt); len(withRules) != len(prompt) {
+			prompt = withRules
+			userText = contentBlocksToText(prompt)
+		}
+		// UserPromptSubmit hooks see the prompt before it becomes a message: a
+		// rejected prompt is never added, and the turn ends with the reason. The
+		// attachments that came with it are dropped too, so they do not leak into
+		// the next prompt.
+		if reason, rejected := a.runUserPromptHooks(ctx, mode, userText); rejected {
+			a.state.TakePendingImageParts()
+			return string(acp.StopReasonRefused), fmt.Errorf("prompt rejected by hook: %s", reason)
+		}
+		imageParts := a.state.TakePendingImageParts()
+		messageContent := userText
+		if note := filePathsNote(imageParts); note != "" {
+			messageContent = userText + "\n\n" + note
+		}
+		// A turn finished background tasks started opens with the wake. The pool
+		// marks the tasks that woke the agent first, so a surface that reads its
+		// task list again on the wake finds the mark; the clients hear the wake
+		// before the message is persisted, like every frame a message describes;
+		// and the message keeps the marker, so no surface shows the instruction
+		// as something the operator typed, after a reload either.
+		wake := a.takeTurnWake()
+		if wake != nil {
+			a.markWokeTasks(wake)
+			_ = a.server.SendSessionUpdate(a.state.GetID(), session.BackgroundWakeUpdate(wake))
+		}
+		// A goal turn the supervisor started opens with its marker the same way:
+		// the clients show a one-line row, never the instruction text.
+		goalTurn := a.takeTurnGoal()
+		if goalTurn != nil {
+			_ = a.server.SendSessionUpdate(a.state.GetID(), session.GoalTurnUpdate(goalTurn))
+		}
+		// A prompt the turn boundary started from the queue was typed into no
+		// client's view of this run, unlike an ordinary prompt, which its surface
+		// shows the moment it is sent. It is announced the way a steer read is
+		// (message_queue.go), before it is persisted, so a live transcript shows
+		// the operator's message above the answer to it.
+		if !session.BeginQueuedPromptRead(ctx, a.state.GetID()) {
+			return string(acp.StopReasonCancelled), nil
+		}
+		if wake == nil && goalTurn == nil && session.PromptEcho(ctx, a.state.GetID()) {
+			_ = a.server.SendSessionUpdate(a.state.GetID(), acp.MessageChunkUpdate{
+				SessionUpdate: acp.UpdateTypeUserMessageChunk,
+				Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: messageContent},
+			})
+		}
+		a.state.AddMessage(llm.Message{
+			Role:           llm.RoleUser,
+			Content:        messageContent,
+			ImageParts:     imageParts,
+			CreatedAt:      time.Now().UTC().Format(time.RFC3339),
+			BackgroundWake: wake,
+			GoalTurn:       goalTurn,
 		})
 	}
-	a.state.AddMessage(llm.Message{
-		Role:           llm.RoleUser,
-		Content:        messageContent,
-		ImageParts:     imageParts,
-		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
-		BackgroundWake: wake,
-		GoalTurn:       goalTurn,
-	})
 	a.setHookTurn(session.CountUserTurns(a.state.GetMessages()))
 	// The turn's clock is announced before anything slow happens - the memory
 	// run below, the first model call - so a surface counts from the start.
@@ -1421,7 +1431,9 @@ func (a *Agent) runReActLoop(
 				err := a.waitForLimitReset(ctx, sessionID, reset)
 				limitWait.Charge(time.Since(waitStart))
 				if err != nil {
-					if a.state.IsUserCancelledTurn() {
+					// A queue interrupt ends this run; the admitted turn owns
+					// its continuation, just as full Stop owns cancellation.
+					if a.state.IsUserCancelledTurn() || session.IsQueuedTurnInterrupt(ctx, a.state.GetID()) {
 						return string(acp.StopReasonCancelled), nil
 					}
 					// A shutdown or a deadline, not the user: the turn ends with
@@ -1462,7 +1474,9 @@ func (a *Agent) runReActLoop(
 				select {
 				case <-ctx.Done():
 					timer.Stop()
-					if a.state.IsUserCancelledTurn() {
+					// Leave queued continuation to the admitted turn rather
+					// than surfacing the failure this run was recovering from.
+					if a.state.IsUserCancelledTurn() || session.IsQueuedTurnInterrupt(ctx, a.state.GetID()) {
 						return string(acp.StopReasonCancelled), nil
 					}
 					// A deadline or a shutdown, not the user: the turn ends
@@ -1542,7 +1556,7 @@ func (a *Agent) runReActLoop(
 				// If output was already streamed, treat as a clean user-stop regardless.
 				hasAnyOutput := response != nil && (strings.TrimSpace(response.Content) != "" ||
 					len(response.ToolCalls) > 0 || strings.TrimSpace(reasoningBuf.String()) != "")
-				if hasAnyOutput || a.state.IsUserCancelledTurn() {
+				if hasAnyOutput || a.state.IsUserCancelledTurn() || session.IsQueuedTurnInterrupt(ctx, a.state.GetID()) {
 					return string(acp.StopReasonCancelled), nil
 				}
 				// Stream was interrupted before producing any output and the user did not stop it
@@ -1581,8 +1595,9 @@ func (a *Agent) runReActLoop(
 						// The user's Stop ends the turn as a stop. A deadline or
 						// a shutdown does not: the turn ends with the refusal it
 						// was recovering from and says what cut the compaction
-						// short, as a provider recovery does.
-						if a.state.IsUserCancelledTurn() {
+						// short, as a provider recovery does. A queue interrupt
+						// leaves the continuation to the admitted turn.
+						if a.state.IsUserCancelledTurn() || session.IsQueuedTurnInterrupt(ctx, a.state.GetID()) {
 							return string(acp.StopReasonCancelled), nil
 						}
 						return string(acp.StopReasonRefused), fmt.Errorf("%w (the compaction after the refusal was interrupted: %v)",

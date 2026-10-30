@@ -27,7 +27,7 @@ func TestGenerationSummaryReplacesContinuedTurnAndPersists(t *testing.T) {
 		t.Fatalf("continued turn summaries were appended instead of replaced: %+v", rows)
 	}
 	if rows[0].Message != "Follow-up accepted" || rows[1].UserTurnIndex != 2 ||
-		rows[1].Generation == nil || *rows[1].Generation != (GenerationSummary{OutputTokens: 300, TokensPerSecond: 75}) ||
+		rows[1].Generation == nil || rows[1].Generation.OutputTokens != 300 || rows[1].Generation.TokensPerSecond != 75 ||
 		rows[2].Generation == nil || rows[2].Generation.TokensPerSecond != 20 {
 		t.Fatalf("summary lost its latest value or transcript position: %+v", rows)
 	}
@@ -43,5 +43,22 @@ func TestGenerationSummaryReplacesContinuedTurnAndPersists(t *testing.T) {
 	}
 	if !reflect.DeepEqual(snapshot.UILog, rows) {
 		t.Fatalf("saved summary changed on reload: %+v, want %+v", snapshot.UILog, rows)
+	}
+}
+
+func TestGenerationSummaryKeepsHowLongTheTurnRan(t *testing.T) {
+	st := &State{ID: "sess_elapsed"}
+	started := time.Now().Add(-81 * time.Second)
+	st.AppendGenerationSummary(started, 1, 500, 9.8)
+	rows := st.GetUILog()
+	if len(rows) != 1 || rows[0].Generation == nil {
+		t.Fatalf("rows = %+v", rows)
+	}
+	got := rows[0].Generation.ElapsedMs
+	if got < 81_000 || got > 90_000 {
+		t.Fatalf("elapsed = %d ms, want about 81 s", got)
+	}
+	if replay := rows[0].GenerationProgress(); replay.ElapsedMs != got {
+		t.Fatalf("replay elapsed = %d, want %d", replay.ElapsedMs, got)
 	}
 }

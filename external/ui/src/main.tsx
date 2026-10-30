@@ -8,6 +8,7 @@ import "./styles.scss";
 import { App } from "./ui/App";
 import { ConfirmProvider } from "./ui/components/useConfirm";
 import { ImageMenuHost } from "./ui/components/ImageMenu";
+import { bootstrapUiSimpleFromCookie } from "./ui/theme/uiSimple";
 import { bootstrapUiThemeFromCookie } from "./ui/theme/uiTheme";
 import { bootstrapUiLocaleFromUrlOrCookie } from "./ui/i18n/uiLocale";
 import { initLocale } from "./ui/i18n/i18n";
@@ -30,6 +31,7 @@ installRemoteFetchShim();
 // Begin probing the active environment's reachability (issue #60) so a dead remote is visible.
 startActiveHealthMonitor();
 bootstrapUiThemeFromCookie();
+bootstrapUiSimpleFromCookie();
 // After the theme: inside Telegram the theme follows Telegram's until the user
 // picks one. Outside Telegram this does nothing.
 initTelegramMiniApp();

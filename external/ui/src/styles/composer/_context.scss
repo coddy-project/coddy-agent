@@ -178,59 +178,99 @@
   );
 }
 
-.context-breakdown-menu--sheet .context-breakdown-summary {
-  font-size: 13px;
-}
-
 .context-breakdown-menu--sheet .context-breakdown-legend {
   gap: 10px;
 }
 
+/* The head stands inside the scroller's 12px: it reaches back over them, so its
+   divider spans the panel and the title and the close control keep the meter's
+   edges. */
 .context-breakdown-head {
-  padding: 10px 12px;
+  margin: 0 -12px;
+  padding: 0 12px;
 }
 
 .context-breakdown-title {
   min-width: 0;
-  text-transform: none;
 }
 
+/* Right over the bar: how much is used, and at the end what that comes to. */
 .context-breakdown-usage-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0 8px;
+}
+
+.context-breakdown-used {
+  font-size: 14px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.context-breakdown-tokens {
+  flex: none;
+  font-size: 13px;
+  color: mix-text(55%);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Under the legend: when compaction starts by itself, and the way to start it
+   now. Its divider reaches over the scroller's padding, as the head's does. */
+.context-breakdown-compaction {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  margin: 12px -12px 0;
   padding: 10px 12px 0;
+  border-top: 1px solid mix-text(6%);
 }
 
-.context-breakdown-used {
-  color: color-mix(in srgb, var(--text) 75%, transparent);
+.context-breakdown-compact-at {
+  min-width: 0;
+  color: mix-text(65%);
   font-variant-numeric: tabular-nums;
 }
 
 .context-breakdown-compact {
-  border: 0;
-  background: transparent;
-  color: var(--accent);
+  flex: none;
+  padding: 4px 10px;
+  border: 1px solid mix-text(14%);
+  border-radius: 10px;
+  background: mix-text(5%);
+  color: var(--text);
   font: inherit;
   font-size: 12px;
-  padding: 2px 0;
+  white-space: nowrap;
   cursor: pointer;
-  text-decoration: underline;
+}
+
+.context-breakdown-compact:hover:not(:disabled) {
+  border-color: mix-text(24%);
+  background: mix-text(9%);
+}
+
+.context-breakdown-compact:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .context-breakdown-compact:disabled {
   cursor: default;
   opacity: 0.55;
-  text-decoration: none;
 }
 
 .context-breakdown-error {
+  margin: 8px 0 0;
   color: #dc2626;
   font-size: 12px;
 }
 
 .context-breakdown-note {
+  margin: 8px 0 0;
   color: color-mix(in srgb, var(--text) 65%, transparent);
   font-size: 12px;
 }
@@ -241,18 +281,6 @@ html:not([data-theme="light"]) .context-breakdown-error {
 
 .context-breakdown-close {
   flex: 0 0 auto;
-}
-
-.context-breakdown-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  color: color-mix(in srgb, var(--text) 75%, transparent);
-  margin: 4px 14px 10px;
-}
-
-.context-breakdown-summary-sep {
-  opacity: 0.5;
 }
 
 .context-breakdown-empty {

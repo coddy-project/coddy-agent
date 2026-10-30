@@ -37,3 +37,26 @@ test("a plain message has no chips, and an empty or broken frame no row", () => 
   expect(queuedUserMessageItem(frame("   "), "u4", "t")).toBeNull();
   expect(queuedUserMessageItem("{not json", "u5", "t")).toBeNull();
 });
+
+test("a picture read with a known session opens from the session's assets at once", () => {
+  const item = queuedUserMessageItem(
+    frame(
+      "look\n\n<coddy_session_assets>Uploaded files:\n- /tmp/assets/shot 1.png\n- /tmp/assets/shot_1.png (shot.png)\n</coddy_session_assets>",
+    ),
+    "u6",
+    "t",
+    "sess_a",
+  );
+  expect(item?.files).toEqual([
+    {
+      name: "shot 1.png",
+      mimeType: "application/octet-stream",
+      url: "/coddy/sessions/sess_a/assets/shot%201.png",
+    },
+    {
+      name: "shot.png",
+      mimeType: "application/octet-stream",
+      url: "/coddy/sessions/sess_a/assets/shot_1.png",
+    },
+  ]);
+});

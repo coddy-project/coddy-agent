@@ -136,6 +136,7 @@ class Backend {
    *  by hand. */
   replayTurn = false;
   turnFrames = new Map<string, string[]>();
+  turnFrameRevs = new Map<string, number[]>();
   override?: (request: Request) => Response | Promise<Response> | undefined;
   /** Connections the browser keeps open to this host, shared by every tab of
    *  the profile: six over HTTP/1.1. A stream holds one until it closes or is
@@ -218,6 +219,7 @@ class Backend {
       );
       this.posts.push({ sid, stream });
       this.turnFrames.set(sid, []);
+      this.turnFrameRevs.set(sid, []);
       return stream.response;
     }
     if (path.startsWith("/coddy/sessions?"))
@@ -266,8 +268,15 @@ class Backend {
             new Headers(init.headers).get("Last-Event-ID") ?? "0",
           );
           const frames = this.turnFrames.get(sid) ?? [];
+          const since = new URL(path, "http://localhost").searchParams.get(
+            "since_rev",
+          );
+          const revisions = this.turnFrameRevs.get(sid) ?? [];
           frames.forEach((frame, i) => {
-            if (i + 1 > after) stream.raw(`id: ${i + 1}\n${frame}`);
+            if (i + 1 <= after) return;
+            if (!after && since !== null && (revisions[i] ?? 0) < Number(since))
+              return;
+            stream.raw(`id: ${i + 1}\n${frame}`);
           });
         }
         return stream.response;
@@ -339,6 +348,9 @@ class Backend {
     const frames = this.turnFrames.get(sid) ?? [];
     frames.push(frame);
     this.turnFrames.set(sid, frames);
+    const revisions = this.turnFrameRevs.get(sid) ?? [];
+    revisions.push(this.messagesRev.get(sid) ?? 0);
+    this.turnFrameRevs.set(sid, revisions);
     const post = this.posts.filter((p) => p.sid === sid).at(-1);
     if (post && !post.stream.signal?.aborted) post.stream.raw(frame);
     for (const r of this.relays)
@@ -660,6 +672,153 @@ test.each(["worker", "locks"] as const)(
   },
 );
 
+test.each([
+  ["post", false],
+  ["relay", false],
+  ["post", true],
+  ["relay", true],
+] as const)(
+  "a continued Stop resumes the %s partial row and delivers three queued messages including duplicates (persisted snapshot %s)",
+  async (transport, persisted) => {
+    backend.replayTurn = true;
+    if (persisted) backend.messagesRev.set(A, backend.messages.get(A)!.length);
+    const cancel = deferred<Response>();
+    backend.override = (r) =>
+      r.path.endsWith("/cancel") ? cancel.promise : undefined;
+    if (transport === "relay") backend.activity.set(A, true);
+    await mount();
+    if (transport === "post") await send("Own A turn");
+    else await waitFor(() => expect(backend.relays).toHaveLength(1));
+    if (persisted) backend.messagesRev.set(A, backend.messages.get(A)!.length);
+    const stream = (transport === "post" ? backend.posts : backend.relays)[0]!
+      .stream;
+    await act(async () => backend.emitText(A, "Partial answer A"));
+    const partial = await screen.findByText("Partial answer A");
+    const rowId = partial.closest("[data-row-id]")!.getAttribute("data-row-id");
+    const queued = [
+      "First follow-up",
+      "Duplicate follow-up",
+      "Duplicate follow-up",
+    ];
+    for (const [index, text] of queued.entries()) {
+      fireEvent.change(composer(), { target: { value: text } });
+      fireEvent.click(
+        screen.getByRole("button", { name: "Queue this message" }),
+      );
+      await waitFor(() =>
+        expect(backend.count(`/coddy/sessions/${A}/queue`, "POST")).toBe(
+          index + 1,
+        ),
+      );
+    }
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("composer-queue")).getAllByText(
+          "Duplicate follow-up",
+        ),
+      ).toHaveLength(2),
+    );
+    fireEvent.click(stop());
+    expect(stream.signal!.aborted).toBe(true);
+    await waitFor(() =>
+      expect(backend.count(`/coddy/sessions/${A}/cancel`, "POST")).toBe(1),
+    );
+    const request = backend.requests.find((r) => r.path.endsWith("/cancel"))!;
+    expect(new Headers(request.init.headers).get("Content-Type")).toBe(
+      "application/json",
+    );
+    expect(JSON.parse(String(request.init.body))).toEqual({
+      continue_queue: true,
+    });
+    const relayCount = backend.relays.length;
+    const activityReads = backend.count(`/coddy/sessions/${A}/activity`);
+    const messageReads = backend.count(`/coddy/sessions/${A}/messages`);
+    const persist = (role: string, content: string) => {
+      if (!persisted) return;
+      backend.messages.get(A)!.push({ role, content });
+      backend.messagesRev.set(A, backend.messages.get(A)!.length);
+    };
+    await act(async () => {
+      // The server consumes the queue while the released reader is absent.
+      // No turn-start event is needed: this admission stays active.
+      backend.queue(A, { messages: [], version: 10 });
+      backend.emitText(A, " goes on");
+      persist("assistant", "Partial answer A goes on");
+      for (const text of queued) {
+        backend.emit(A, "user_message", { content: { text } });
+        persist("user", text);
+      }
+      backend.emitText(A, "Reply to all three follow-ups");
+      persist("assistant", "Reply to all three follow-ups");
+    });
+    expect(screen.queryByTestId("composer-queue")).not.toBeInTheDocument();
+    expect(backend.relays).toHaveLength(relayCount);
+    await act(async () => {
+      cancel.resolve(
+        json({
+          object: "coddy.session_cancelled",
+          sessionId: A,
+          queueContinued: true,
+        }),
+      );
+    });
+    await waitFor(() => expect(backend.relays).toHaveLength(relayCount + 1));
+    expect(backend.count(`/coddy/sessions/${A}/messages`)).toBeGreaterThan(
+      messageReads,
+    );
+    expect(backend.count(`/coddy/sessions/${A}/activity`)).toBeGreaterThan(
+      activityReads,
+    );
+    const rejoin = backend.requests
+      .filter((r) => r.path.startsWith(`/coddy/sessions/${A}/composer-stream`))
+      .at(-1)!;
+    expect(new Headers(rejoin.init.headers).get("Last-Event-ID")).toBe("1");
+    const resumed = await screen.findByText("Partial answer A goes on");
+    expect(resumed.closest("[data-row-id]")!.getAttribute("data-row-id")).toBe(
+      rowId,
+    );
+    expect(screen.getAllByText(/Partial answer A/)).toHaveLength(1);
+    expect(
+      await screen.findAllByText("Reply to all three follow-ups"),
+    ).toHaveLength(1);
+    expect(screen.getAllByText("First follow-up")).toHaveLength(1);
+    expect(screen.getAllByText("Duplicate follow-up")).toHaveLength(2);
+    expect(backend.count("/v1/responses", "POST")).toBe(
+      transport === "post" ? 1 : 0,
+    );
+    expect(backend.count(`/coddy/sessions/${A}/queue`, "POST")).toBe(3);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(stop()).toBeEnabled();
+  },
+);
+
+test.each([
+  "{}",
+  '{"queueContinued":false}',
+  '{"queueContinued":"true"}',
+  "null",
+  "not JSON",
+])("a Stop acknowledgement %s retains full-cancel behavior", async (body) => {
+  backend.override = (r) =>
+    r.path.endsWith("/cancel") ? new Response(body) : undefined;
+  await mount();
+  await send("Stop without a continuation");
+  const reads = backend.count(`/coddy/sessions/${A}/activity`);
+  fireEvent.click(stop());
+  await waitFor(() =>
+    expect(backend.count(`/coddy/sessions/${A}/activity`)).toBeGreaterThan(
+      reads,
+    ),
+  );
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  expect(backend.posts[0]!.stream.signal!.aborted).toBe(true);
+  expect(backend.relays).toHaveLength(0);
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(stop()).toBeEnabled();
+});
+
 test("a failed cancel rejoins the running turn and offers a visible retryable Stop error", async () => {
   backend.override = (r) =>
     r.path.endsWith("/cancel")
@@ -948,34 +1107,37 @@ test("Stop releases its own stream at once, targets its original session and pre
   expect(stop()).toBeEnabled(); // An acknowledgement is not a released turn.
 });
 
-test("a late Stop acknowledgement and old POST completion cannot reset a newer stream", async () => {
-  const cancel = deferred<Response>();
-  backend.abortPostReads = false;
-  backend.override = (r) =>
-    r.path.endsWith("/cancel") ? cancel.promise : undefined;
-  await mount();
-  await send("First turn");
-  fireEvent.click(stop());
-  await act(async () => {
-    backend.turn(A, false);
-  });
-  await waitFor(() =>
-    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument(),
-  );
-  await send("Second turn");
-  await waitFor(() => expect(backend.posts).toHaveLength(2));
-  await act(async () => {
-    backend.posts[1]!.stream.text("New stream text");
-  });
-  await act(async () => {
-    cancel.resolve(json({}));
-    backend.posts[0]!.stream.fail(new DOMException("Aborted", "AbortError"));
-  });
-  expect(backend.posts[1]!.stream.signal!.aborted).toBe(false);
-  expect(stop()).toBeEnabled();
-  expect(screen.getByText("New stream text")).toBeInTheDocument();
-  expect(backend.relays).toHaveLength(0); // An own POST must not also be watched.
-});
+test.each([false, true])(
+  "a late Stop acknowledgement and old POST completion cannot reset a newer stream (continued %s)",
+  async (continued) => {
+    const cancel = deferred<Response>();
+    backend.abortPostReads = false;
+    backend.override = (r) =>
+      r.path.endsWith("/cancel") ? cancel.promise : undefined;
+    await mount();
+    await send("First turn");
+    fireEvent.click(stop());
+    await act(async () => {
+      backend.turn(A, false);
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument(),
+    );
+    await send("Second turn");
+    await waitFor(() => expect(backend.posts).toHaveLength(2));
+    await act(async () => {
+      backend.posts[1]!.stream.text("New stream text");
+    });
+    await act(async () => {
+      cancel.resolve(json(continued ? { queueContinued: true } : {}));
+      backend.posts[0]!.stream.fail(new DOMException("Aborted", "AbortError"));
+    });
+    expect(backend.posts[1]!.stream.signal!.aborted).toBe(false);
+    expect(stop()).toBeEnabled();
+    expect(screen.getByText("New stream text")).toBeInTheDocument();
+    expect(backend.relays).toHaveLength(0); // An own POST must not also be watched.
+  },
+);
 
 test("a rejected queue request never restores its draft into another session", async () => {
   const queued = deferred<Response>();
@@ -1602,6 +1764,29 @@ test.each(["turn_started", "ready"])(
     expect(stop()).toBeEnabled();
   },
 );
+
+test("ready during a continued Stop recovers an unpersisted partial answer only once", async () => {
+  backend.replayTurn = true;
+  backend.messagesRev.set(A, 3);
+  const cancel = deferred<Response>();
+  backend.override = (r) =>
+    r.path.endsWith("/cancel") ? cancel.promise : undefined;
+  await mount();
+  await send("Own A turn");
+  await act(async () => backend.emitText(A, "Partial answer A"));
+  await screen.findByText("Partial answer A");
+  fireEvent.click(stop());
+  expect(backend.posts[0]!.stream.signal!.aborted).toBe(true);
+  await act(async () => backend.events[0]!.frame("ready", {}));
+  await act(async () => cancel.resolve(json({ queueContinued: true })));
+  await waitFor(() => expect(backend.relays).toHaveLength(1));
+  await act(async () => backend.emitText(A, " continues"));
+  await screen.findByText("Partial answer A continues");
+  expect(screen.getAllByText(/Partial answer A/)).toHaveLength(1);
+  expect(backend.count("/v1/responses", "POST")).toBe(1);
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(stop()).toBeEnabled();
+});
 
 test("a hung Stop times out, keeps the turn watched and becomes retryable", async () => {
   await mount();

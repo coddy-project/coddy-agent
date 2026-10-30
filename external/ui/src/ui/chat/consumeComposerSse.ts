@@ -130,6 +130,8 @@ export type ConsumeComposerSseParams = {
   dec: TextDecoder;
   carry: { buf: string };
   assistantId: string;
+  /** The session this stream reads: a queued picture's row opens from its assets. */
+  sessionId?: string;
   /** Kept up to date while the stream is read. With `frames` above zero the
    *  reader resumes in that cursor's segment instead of `assistantId`. */
   cursor?: ComposerStreamCursor;
@@ -210,6 +212,7 @@ export async function consumeComposerSseReader(
     dec,
     carry,
     assistantId,
+    sessionId,
     applyStreamItems,
     setTokenUsage,
     setContextUsage,
@@ -772,6 +775,7 @@ export async function consumeComposerSseReader(
           ev.data,
           newId("u"),
           new Date().toISOString(),
+          sessionId,
         );
         if (item) {
           applyStreamItems((prev) => [...prev, item]);
@@ -1070,6 +1074,7 @@ export async function consumeComposerSseReader(
           ev.data,
           newId("u"),
           new Date().toISOString(),
+          sessionId,
         );
         if (item) {
           applyStreamItems((prev) => [...prev, item]);

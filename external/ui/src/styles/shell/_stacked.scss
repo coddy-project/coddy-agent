@@ -231,7 +231,9 @@
     position: sticky !important;
     top: var(--coddy-mobile-title-sticky-top);
     z-index: 37;
-    padding-bottom: var(--coddy-mobile-chat-stack-gap);
+    /* The same room as above the title at rest: the stack gap and the bar's 4px
+       of slack (--coddy-mobile-title-sticky-top). */
+    padding-bottom: calc(var(--coddy-mobile-chat-stack-gap) + 4px);
     flex-shrink: 0;
   }
 
@@ -273,5 +275,14 @@
     width: auto;
     top: calc(var(--coddy-mobile-top-inset) + 6px);
     bottom: 14px;
+  }
+}
+
+/* History ends 30% above the foot of the screen: the backdrop under it is where a
+   tap returns to the conversation, and a drawer down to the foot left none. */
+@media (max-width: 1199px) {
+  .sessions.drawer {
+    bottom: 30vh;
+    bottom: 30dvh;
   }
 }

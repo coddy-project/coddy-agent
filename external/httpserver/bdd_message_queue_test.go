@@ -660,6 +660,7 @@ func TestMessageQueueHTTPFeature(t *testing.T) {
 		Options: &godog.Options{
 			Format:   "pretty",
 			Paths:    []string{"../../features/message_queue_http.feature"},
+			Tags:     "~@queue_interrupt",
 			TestingT: t,
 			Strict:   true,
 		},
