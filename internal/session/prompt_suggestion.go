@@ -102,9 +102,10 @@ const (
 	// instruction asks for, enforced on whatever comes back.
 	promptSuggestionMaxRunes = 100
 	promptSuggestionMaxWords = 12
-	// promptSuggestionMaxTokens keeps the side call's answer a line, whatever
-	// the model row's own bound is.
-	promptSuggestionMaxTokens = 64
+	// The total output budget includes reasoning tokens on models such as
+	// beam-free. The validator bounds the visible suggestion separately;
+	// 64 tokens can be exhausted before the model produces any visible text.
+	promptSuggestionMaxTokens = 1024
 	// promptSuggestionCacheFor is how long one turn's answer stays reusable.
 	promptSuggestionCacheFor = 5 * time.Minute
 )
@@ -140,7 +141,12 @@ var (
 	promptSuggestionFormattingRe = regexp.MustCompile(`[\n*]`)
 	promptSuggestionEvaluativeRe = regexp.MustCompile(`(?i)\b(thanks|thank you|looks good|sounds good|that works|that worked|that's all|nice|great|perfect|makes sense|awesome|excellent)\b`)
 	promptSuggestionAgentVoiceRe = regexp.MustCompile(`(?i)^(let me|i'll|i've|i'm|i can|i would|i think|i notice|here's|here is|here are|that's|this is|this will|you can|you should|you could|sure,|of course|certainly)`)
-	promptSuggestionAllowOneWord = map[string]bool{"yes": true, "yeah": true, "yep": true, "yea": true, "yup": true, "sure": true, "ok": true, "okay": true, "push": true, "commit": true, "deploy": true, "stop": true, "continue": true, "check": true, "exit": true, "quit": true, "no": true}
+	promptSuggestionAllowOneWord = map[string]bool{
+		"yes": true, "yeah": true, "yep": true, "yea": true, "yup": true, "sure": true, "ok": true, "okay": true,
+		"push": true, "commit": true, "deploy": true, "stop": true, "continue": true, "check": true, "exit": true, "quit": true, "no": true,
+		"да": true, "ага": true, "угу": true, "ок": true, "окей": true, "нет": true,
+		"запушь": true, "коммит": true, "закоммить": true, "стоп": true, "продолжай": true, "продолжить": true, "проверь": true, "выйти": true,
+	}
 )
 
 // cleanPromptSuggestion strips the wrappers and lead-in labels a model may put
@@ -401,13 +407,13 @@ func (m *Manager) GeneratePromptSuggestion(ctx context.Context, sessionID string
 	messages = MessagesForLLM(messages)
 	assistant := 0
 	for _, msg := range messages {
-		if msg.Role == llm.RoleAssistant {
+		if msg.Role == llm.RoleAssistant && strings.TrimSpace(msg.Content) != "" && len(msg.ToolCalls) == 0 {
 			assistant++
 		}
 	}
-	if assistant < 2 {
-		// Too little conversation to predict from (Claude Code's
-		// early_conversation).
+	if assistant == 0 {
+		// A single completed reply is enough context. Waiting for two
+		// assistant messages hides suggestions after the first ordinary turn.
 		return "", errPromptSuggestionSuppressed
 	}
 

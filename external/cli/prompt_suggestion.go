@@ -78,6 +78,9 @@ func (a *App) applySuggestion(gen uint64, sessionID, text string, err error) {
 	}
 	a.suggestionCancel = nil
 	if err != nil || strings.TrimSpace(text) == "" {
+		if err != nil && !session.IsPromptSuggestionSuppressed(err) && a.log != nil {
+			a.log.Debug("prompt suggestion unavailable", "session", sessionID, "error", err)
+		}
 		// Suppressed, failed, or late: the empty editor stays empty.
 		return
 	}

@@ -21,6 +21,12 @@ func TestPromptSuggestionsFeature(t *testing.T) {
 		Name:    "prompt-suggestions",
 		Options: &godog.Options{Format: "progress", Paths: []string{"../../features/prompt_suggestions.feature"}, TestingT: t},
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
+			sc.Step(`^a conversation with its first completed reply$`, func() error {
+				mgr, state, calls = newSuggestionTestManager(t, answerSuggestion)
+				state.ReplaceMessagesWithoutPersist(state.GetMessages()[:2])
+				before, answers = state.GetMessages(), nil
+				return nil
+			})
 			sc.Step(`^a finished conversation with prompt suggestions (unset|disabled)$`, func(setting string) error {
 				mgr, state, calls = newSuggestionTestManager(t, answerSuggestion)
 				if setting == "disabled" {

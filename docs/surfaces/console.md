@@ -322,7 +322,11 @@ throttle with immediate renders after keystrokes.
 
 ## Commands and keys
 
-After a turn, the empty editor can show a dim suggestion for the next prompt.
+Suggestions are available from the first completed reply. After a turn, the empty
+editor can show a dim suggestion for the next prompt, including a one-word reply
+in Russian such as "продолжай".
+The suggestion call reserves up to 1024 output tokens, including reasoning, so
+reasoning models such as OpenCode's `beam-free` can finish before producing the hint.
 **Tab** or **Right** copies it into the draft; typing hides it. Suggestions use an
 extra call to the session's model without tools or transcript entries. They are
 enabled by default; set `agent.prompt_suggestions: false` in `config.yaml` to
