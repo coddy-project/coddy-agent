@@ -162,7 +162,7 @@ func (m *Manager) runSupervisedTurn(ctx context.Context, st *State, prompt []acp
 				return string(acp.StopReasonEndTurn), nil
 			}
 			first = kickoff.marker
-		} else if cmd, attachments := goalCommandOf(prompt); cmd.Kind != GoalCommandNone {
+		} else if cmd, attachments := goalCommandOf(prompt); cmd.Kind != GoalCommandNone && !hasQueuedPromptBatch(ctx, st.GetID()) {
 			var notice string
 			var err error
 			prompt, first, notice, err = m.applyGoalCommand(st, cmd, attachments, opts)
@@ -191,6 +191,14 @@ func (m *Manager) runSupervisedTurn(ctx context.Context, st *State, prompt []acp
 		}
 		run.persist = false
 		run.implicit = GoalState{Objective: objective, Status: GoalActive}
+	}
+	if c, _ := ctx.Value(interruptRunKey{}).(*queuedTurnInterrupt); c != nil {
+		if previous := c.supervisor; previous != nil && previous.persist == run.persist &&
+			(!previous.persist || previous.goalID == st.GetGoal().ID) {
+			run = previous
+		} else {
+			c.supervisor = run
+		}
 	}
 	return run.loop(ctx, prompt, first)
 }

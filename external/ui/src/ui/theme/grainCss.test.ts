@@ -42,5 +42,6 @@ test("the dark themes share one grain tile and the light theme has none", () => 
     /^:root, \[data-theme="dark"\] \{.*--coddy-grain: url\("data:image\/png;base64,[A-Za-z0-9+/=]+"\);/,
   );
   expect(rule('[data-theme="light"]')).toContain("--coddy-grain: none;");
-  expect(css.match(/--coddy-grain:/g)).toHaveLength(2);
+  // Those two and the simplified mode, which clears it in every theme.
+  expect(css.match(/--coddy-grain:/g)).toHaveLength(3);
 });

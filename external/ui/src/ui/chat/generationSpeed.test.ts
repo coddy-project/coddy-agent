@@ -32,3 +32,21 @@ test("only completed measured turns produce a summary", () => {
     }),
   ).toBeNull();
 });
+
+test("a completed frame carries how long the turn ran", () => {
+  expect(
+    generationSummaryFromFrame({
+      completed: true,
+      outputTokens: 500,
+      tokensPerSecond: 9.8,
+      elapsedMs: 81_000,
+    }),
+  ).toEqual({ outputTokens: 500, tokensPerSecond: 9.8, elapsedMs: 81_000 });
+  expect(
+    generationSummaryFromFrame({
+      completed: true,
+      outputTokens: 500,
+      tokensPerSecond: 9.8,
+    }),
+  ).toEqual({ outputTokens: 500, tokensPerSecond: 9.8 });
+});

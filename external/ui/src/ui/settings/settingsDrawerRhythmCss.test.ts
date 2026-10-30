@@ -37,7 +37,10 @@ function ruleBody(source: string, selector: string): string {
 const INSET = /14px/;
 
 test("the drawer head and its lead pane set one inline inset", () => {
-  expect(ruleBody(css, ".sessions-head {")).toMatch(/padding:\s*14px\s+14px/);
+  expect(ruleBody(css, ".sessions-head {")).toMatch(
+    /padding:\s*0\s+var\(--coddy-panel-head-inline\)/,
+  );
+  expect(css).toMatch(/--coddy-panel-head-inline:\s*14px;/);
   expect(ruleBody(css, ".settings.drawer .settings-lead-pane {")).toMatch(
     /padding:\s*8px\s+14px/,
   );

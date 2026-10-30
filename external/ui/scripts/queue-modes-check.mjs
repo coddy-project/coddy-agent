@@ -512,6 +512,77 @@ async function sessionIdOf(page) {
   );
 }
 
+/**
+ * Records the transcript's height on every frame of a turn and fails when it
+ * changes after the answer's last word: the finished line takes the live line's
+ * place, and no row or empty slot appears beside it.
+ */
+async function turnEndMovesNothing(page, width, prompt) {
+  await page.setViewportSize({ width, height: 844 });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => {
+    const frames = (window.__turnEndFrames = []);
+    const tick = () => {
+      const inner = document.querySelector(".messages-inner");
+      if (inner) {
+        const answers = inner.querySelectorAll(".md");
+        const last = answers[answers.length - 1];
+        // The turn's clock, from the top of the column: the numbers stay where
+        // they stand when the turn ends, and only the phrase goes.
+        const clocks = inner.querySelectorAll(".typing-dots-turn-time");
+        const clock = clocks[clocks.length - 1]?.getBoundingClientRect();
+        const box = inner.getBoundingClientRect();
+        frames.push({
+          clock: clock ? `${clock.left - box.left},${clock.top - box.top}` : "",
+          height: inner.getBoundingClientRect().height,
+          answers: answers.length,
+          answer: last ? last.getBoundingClientRect().height : 0,
+          stopped: !inner.querySelector("[data-testid=typing-dots]"),
+        });
+      }
+      window.__turnEndFrame = requestAnimationFrame(tick);
+    };
+    tick();
+  });
+  await composer(page).fill(prompt);
+  await composer(page).press("Enter");
+  await until(
+    "the finished line",
+    () =>
+      page.evaluate(
+        () =>
+          !document.querySelector("[data-testid=typing-dots]") &&
+          document
+            .querySelector(".messages-inner")
+            ?.lastElementChild?.matches("[data-testid=generation-summary]"),
+      ),
+    30000,
+  );
+  await page.waitForTimeout(800);
+  const frames = await page.evaluate(() => {
+    cancelAnimationFrame(window.__turnEndFrame);
+    return window.__turnEndFrames;
+  });
+  let end = frames.length - 1;
+  while (
+    end > 0 &&
+    frames[end].answer === frames[end - 1].answer &&
+    frames[end].answers === frames[end - 1].answers
+  ) {
+    end--;
+  }
+  const heights = [...new Set(frames.slice(end).map((f) => f.height))];
+  const clocks = [...new Set(frames.slice(end).map((f) => f.clock))];
+  check(
+    `the end of a turn moves nothing at ${width}px, the numbers included`,
+    heights.length === 1 &&
+      clocks.length === 1 &&
+      clocks[0] !== "" &&
+      frames.some((f) => !f.stopped),
+    `${heights.join(", ")} | ${clocks.join(" ")}`,
+  );
+}
+
 // ---------------------------------------------------------------- scenario
 
 async function scenario() {
@@ -811,17 +882,69 @@ async function scenario() {
     (await thumbLoaded(b.page)) > 0,
   );
 
-  // Stop keeps what waits for after the turn, without starting it.
+  // The browser's Stop continues with what waits: the message enters the
+  // transcript and the same admitted turn answers it.
   await composer(a.page).fill("Start the second task");
   await composer(a.page).press("Enter");
   await until("the second turn running", () => model.holds.length === 1, 30000);
+  await composer(a.page).fill("Continued after stop");
+  await composer(a.page).press("Tab");
+  await until(
+    "the row Stop continues with",
+    async () => (await queueRows(a.page)).length === 1,
+  );
+  await a.page.locator("#btn-send").click();
+  await until(
+    "the queued message answered after Stop",
+    async () =>
+      (await transcript(a.page)).some((row) =>
+        row.includes("Answer to: Continued after stop"),
+      ),
+    30000,
+  );
+  model.release();
+  await until(
+    "the continued turn ended",
+    async () => {
+      const act = await viaMount(`/coddy/sessions/${sid}/activity`);
+      return act.json && act.json.turnActive === false;
+    },
+    30000,
+  );
+  rows = await transcript(a.page);
+  q = await viaMount(`/coddy/sessions/${sid}/queue`);
+  const continuedAt = rows.findIndex((r) =>
+    r.startsWith("user:Continued after stop"),
+  );
+  const answeredAt = rows.findIndex(
+    (r) =>
+      r.startsWith("assistant:") &&
+      r.includes("Answer to: Continued after stop"),
+  );
+  check(
+    "Stop puts the queued message above its answer",
+    continuedAt >= 0 && continuedAt < answeredAt,
+    `${continuedAt} < ${answeredAt}`,
+  );
+  check(
+    "and leaves nothing waiting",
+    (await queueRows(a.page)).length === 0 &&
+      (q.json?.messages || []).length === 0,
+    q.raw.slice(0, 200),
+  );
+
+  // A client that does not ask for the continuation (the console, an editor,
+  // any API client) still stops: what waits for after the turn stays, unstarted.
+  await composer(a.page).fill("Start the second task");
+  await composer(a.page).press("Enter");
+  await until("the third turn running", () => model.holds.length === 1, 30000);
   await composer(a.page).fill("Deferred after stop");
   await composer(a.page).press("Tab");
   await until(
     "the deferred row",
     async () => (await queueRows(a.page)).length === 1,
   );
-  await a.page.locator("#btn-send").click();
+  await viaMount(`/coddy/sessions/${sid}/cancel`, { method: "POST" });
   await until(
     "the turn stopped",
     async () => {
@@ -837,7 +960,7 @@ async function scenario() {
   });
   q = await viaMount(`/coddy/sessions/${sid}/queue`);
   check(
-    "Stop keeps an after-turn message waiting",
+    "a plain cancel keeps an after-turn message waiting",
     rows[0]?.mode === "After turn" &&
       q.json?.messages?.[0]?.mode === "after_turn",
     q.raw.slice(0, 200),
@@ -865,6 +988,12 @@ async function scenario() {
     order[0] === "Next task" && order.includes("Deferred after stop"),
     order.join(" | "),
   );
+
+  // The end of a turn moves nothing: the live line stops where it stands.
+  for (const width of [1280, 390]) {
+    await turnEndMovesNothing(a.page, width, `The end of a turn at ${width}`);
+  }
+  await a.page.setViewportSize({ width: 1280, height: 820 });
 
   // The preference lives in Settings.
   await a.page.goto(`${RELAY}/#/settings/agent`);

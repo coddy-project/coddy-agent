@@ -1,20 +1,30 @@
-import { useId, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { SpawnAgentDetails } from "../chat/spawnAgentDisplay";
 import { useT } from "../i18n/I18nProvider";
-import type { BackgroundTask } from "../tasks/types";
 import "./SpawnAgentCard.css";
 
-export function SpawnAgentCard(props: {
-  details: SpawnAgentDetails;
-  backgroundTask?: BackgroundTask | undefined;
-  onOpenSession?: (sessionId: string) => void;
-}) {
+/**
+ * What a spawn_agent call asked for. The way into the child's transcript is the
+ * task's card in the Tasks panel, on the folded card and nowhere else.
+ */
+export function SpawnAgentCard(props: { details: SpawnAgentDetails }) {
   const { t } = useT();
   const [promptExpanded, setPromptExpanded] = useState(false);
+  // More is offered only for what the collapsed box actually cuts off.
+  const [promptOverflows, setPromptOverflows] = useState(false);
   const promptRef = useRef<HTMLDivElement | null>(null);
-  const childSessionId =
-    props.backgroundTask?.agent?.session_id?.trim() || null;
   const promptId = useId();
+
+  useLayoutEffect(() => {
+    const el = promptRef.current;
+    if (!el || promptExpanded) return;
+    const measure = () => setPromptOverflows(el.scrollHeight > el.clientHeight);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [props.details.prompt, promptExpanded]);
 
   const collapsePrompt = () => {
     if (promptRef.current) {
@@ -66,21 +76,23 @@ export function SpawnAgentCard(props: {
       >
         {props.details.prompt}
       </div>
-      <button
-        type="button"
-        className="tool-overflow-toggle spawn-agent-prompt-toggle"
-        aria-controls={promptId}
-        aria-expanded={promptExpanded}
-        onClick={() => {
-          if (promptExpanded) {
-            collapsePrompt();
-          } else {
-            setPromptExpanded(true);
-          }
-        }}
-      >
-        {promptExpanded ? t("messages.toolLess") : t("messages.toolMore")}
-      </button>
+      {promptOverflows || promptExpanded ? (
+        <button
+          type="button"
+          className="tool-overflow-toggle spawn-agent-prompt-toggle"
+          aria-controls={promptId}
+          aria-expanded={promptExpanded}
+          onClick={() => {
+            if (promptExpanded) {
+              collapsePrompt();
+            } else {
+              setPromptExpanded(true);
+            }
+          }}
+        >
+          {promptExpanded ? t("messages.toolLess") : t("messages.toolMore")}
+        </button>
+      ) : null}
       {props.details.model || props.details.timeoutSeconds !== undefined ? (
         <div className="spawn-agent-meta" data-testid="spawn-agent-meta">
           {props.details.model ? (
@@ -106,26 +118,6 @@ export function SpawnAgentCard(props: {
             </div>
           ) : null}
         </div>
-      ) : null}
-      {props.backgroundTask ? (
-        <button
-          type="button"
-          className="spawn-agent-transcript"
-          data-testid="spawn-agent-open-transcript"
-          disabled={childSessionId === null}
-          title={
-            childSessionId === null
-              ? t("tasks.openTranscriptUnavailable")
-              : undefined
-          }
-          onClick={() => {
-            if (childSessionId !== null) {
-              props.onOpenSession?.(childSessionId);
-            }
-          }}
-        >
-          {t("tasks.openTranscript")}
-        </button>
       ) : null}
     </section>
   );

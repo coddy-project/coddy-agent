@@ -2004,7 +2004,9 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 
 	ranRunner = true
 	MarkTurnRan(turnCtx)
-	stopReason, err := m.runSupervisedTurn(turnCtx, state, hydrated, sender, opts)
+	queueBudget := &queuedRunBudget{}
+	turnCtx = context.WithValue(turnCtx, queuedRunBudgetKey{}, queueBudget)
+	stopReason, err := m.runInterruptibleTurn(turnCtx, state, hydrated, sender, opts)
 	if err != nil {
 		state.TakeTurnStopNotice()
 		if errors.Is(err, context.Canceled) {
@@ -2037,12 +2039,12 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	// fresh Agent.Run with its own budget, so without a cap one admission
 	// could hold the session's turn lock indefinitely. The cap covers a full
 	// queue of after_turn messages.
-	for runs := 0; stopReason == string(acp.StopReasonEndTurn) && turnCtx.Err() == nil; runs++ {
-		if runs >= maxQueuedFollowUpRuns {
+	for stopReason == string(acp.StopReasonEndTurn) && turnCtx.Err() == nil {
+		if queueBudget.runs >= maxQueuedFollowUpRuns {
 			left := state.CloseMessageQueue()
 			if len(left) > 0 || len(state.QueuedMessages()) > 0 {
 				m.log.Warn("message queue follow-ups capped; unread steer messages dropped",
-					"session_id", params.SessionID, "runs", runs, "dropped", len(left))
+					"session_id", params.SessionID, "runs", queueBudget.runs, "dropped", len(left))
 			}
 			break
 		}
@@ -2050,6 +2052,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		if !more {
 			break
 		}
+		queueBudget.runs++
 		var images []llm.ImagePart
 		for _, q := range queued {
 			for _, p := range q.ImageParts {
@@ -2065,8 +2068,9 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		// No client typed this prompt into its view of the turn, so the run
 		// announces it (PromptEcho) before it answers it.
 		rev := state.MessagesRev()
-		stopReason, err = m.runSupervisedTurn(withPromptEcho(turnCtx, params.SessionID), state, state.ResolveQueuedMentions(QueuedPromptBlocks(queued)), sender, opts)
-		if turnCtx.Err() != nil && state.MessagesRev() == rev {
+		queuedCtx, receipt := withQueuedPromptReceipt(withPromptEcho(turnCtx, params.SessionID), state, queued, false)
+		stopReason, err = m.runInterruptibleTurn(queuedCtx, state, state.ResolveQueuedMentions(QueuedPromptBlocks(queued)), sender, opts)
+		if turnCtx.Err() != nil && state.MessagesRev() == rev && !receipt.transferred.Load() {
 			// Stopped before the prompt entered the conversation: nothing read
 			// it. An after_turn message waits again, as Stop promises, and the
 			// images it was to carry are not left for the next prompt.

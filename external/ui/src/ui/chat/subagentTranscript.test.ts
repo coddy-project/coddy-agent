@@ -93,3 +93,20 @@ describe("parseSubagentTranscriptMeta", () => {
     });
   });
 });
+
+test("reads the child's effective reasoning level next to its model", () => {
+  expect(
+    parseSubagentTranscriptMeta({
+      readOnly: true,
+      model: "codex/gpt-6.1-sol",
+      selectedReasoning: " high ",
+    }),
+  ).toMatchObject({ model: "codex/gpt-6.1-sol", reasoning: "high" });
+  expect(
+    parseSubagentTranscriptMeta({
+      readOnly: true,
+      model: "local/qwen",
+      selectedReasoning: "",
+    }),
+  ).not.toHaveProperty("reasoning");
+});

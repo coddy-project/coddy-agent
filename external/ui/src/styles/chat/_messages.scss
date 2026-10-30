@@ -21,8 +21,10 @@
   align-items: flex-end;
 }
 
+/* One gap above a follow-up: the footer of the prompt before it already stands
+   between two bubbles. */
 .msg-user-stack--followup {
-  padding-top: calc(var(--user-foot-height) + var(--user-foot-gap));
+  padding-top: var(--user-foot-gap);
 }
 
 .msg-user-files {
@@ -138,16 +140,27 @@
   flex-direction: column;
 }
 
-@keyframes typing-dot-bounce {
-  0%,
-  60%,
-  100% {
-    transform: translateY(0);
-    opacity: 0.5;
+@keyframes coddy-work-orbit {
+  from {
+    transform: rotate(90deg);
   }
-  30% {
-    transform: translateY(-5px);
-    opacity: 1;
+  to {
+    transform: rotate(450deg);
+  }
+}
+
+@keyframes coddy-work-arc {
+  0% {
+    stroke-dasharray: 8 92;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 88 12;
+    stroke-dashoffset: -20;
+  }
+  100% {
+    stroke-dasharray: 8 92;
+    stroke-dashoffset: -100;
   }
 }
 
@@ -180,37 +193,37 @@
   pointer-events: none;
 }
 
-.typing-dots-slot .typing-dots-dot {
+.typing-dots-slot .coddy-work-indicator-c {
   animation: none;
 }
 
-.typing-dots-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: mix-text(45%);
-  animation: typing-dot-bounce 1.1s ease-in-out infinite;
-  flex-shrink: 0;
+.coddy-work-indicator {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: mix-text(72%);
 }
 
-.typing-dots-dot:nth-child(2) {
-  animation-delay: 0.18s;
+.coddy-work-indicator-ring {
+  opacity: 0.35;
 }
 
-.typing-dots-dot:nth-child(3) {
-  animation-delay: 0.36s;
+.coddy-work-indicator-c {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation:
+    coddy-work-orbit 2.2s linear infinite,
+    coddy-work-arc 2.2s ease-in-out infinite;
 }
 
-/* The dots also stand at the tail while background tasks outlive a turn, which can
-   be minutes of bouncing. Still three dots, just no movement. */
+/* Tasks can outlive a turn by minutes; reduced motion keeps the same still mark. */
 @media (prefers-reduced-motion: reduce) {
-  .typing-dots-dot {
+  .coddy-work-indicator-c {
     animation: none;
   }
 }
 
-/* Live status label. It MUST stay after the three .typing-dots-dot spans - the
-   :nth-child rules above carry the bounce stagger. */
+/* The live status label follows the work indicator. */
 .typing-dots-status {
   display: inline-flex;
   align-items: baseline;
@@ -273,6 +286,20 @@
   content: none;
 }
 
+/* A finished turn keeps the line: the mark at rest, its numbers can be copied,
+   and no phrase follows the last of them. */
+.typing-dots--finished .coddy-work-indicator-c {
+  animation: none;
+}
+
+.typing-dots-status--finished {
+  user-select: text;
+}
+
+.typing-dots-status--finished .typing-dots-turn-item:last-child::after {
+  content: none;
+}
+
 .typing-dots-status-text {
   display: inline-flex;
   align-items: baseline;
@@ -312,17 +339,19 @@
   margin: 0 5px;
 }
 
-/* Phone: the numbers and a long phrase do not fit one line. The phrase - what the
-   agent is doing - keeps the first line next to the dots, and the turn's numbers move
-   under it as a caption, so the row never breaks wherever it happens to run out. */
+/* Phone: the numbers and a long phrase do not fit one line. The turn's numbers
+   keep the first line next to the indicator, which is where the finished line
+   keeps them when the turn ends, and the phrase - what the agent is doing - goes
+   under them with its counter, so the row never breaks wherever it happens to run
+   out. With tasks running the numbers can outgrow a phone: they wrap between items. */
 @media (max-width: 599px) {
   .typing-dots {
     align-items: flex-start;
   }
 
-  /* Centre the 7px dots on the first text line (12px x 1.3). */
-  .typing-dots-dot {
-    margin-top: 4px;
+  /* Centre the 14px mark on the first text line (12px x 1.3). */
+  .coddy-work-indicator {
+    margin-top: 0.8px;
   }
 
   .typing-dots-status {
@@ -331,18 +360,20 @@
     row-gap: 2px;
   }
 
-  .typing-dots-status-text {
-    order: 1;
-  }
-
-  .typing-dots-status-time {
-    order: 2;
-  }
-
   .typing-dots-turn {
-    order: 3;
     flex-basis: 100%;
+    flex-wrap: wrap;
+  }
+
+  .typing-dots-status-text,
+  .typing-dots-status-time {
     font-size: 11px;
+  }
+
+  /* The live line has two rows here, the numbers and the phrase under them. The
+     finished one keeps that room, so the page stays put when the turn ends. */
+  .typing-dots-status--finished {
+    min-height: calc(12px * 1.3 + 2px + 11px * 1.3);
   }
 
   /* Nothing follows the last number on its line, so it closes with no dot. */
@@ -377,7 +408,7 @@
 }
 
 .msg-copy-icon-btn:focus-visible {
-  outline: 2px solid rgba(147, 51, 234, 0.45);
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
   outline-offset: 2px;
 }
 
