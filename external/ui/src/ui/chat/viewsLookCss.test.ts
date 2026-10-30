@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
 /**
  * How the views of a chat mark what is on show: a pressed toggle and the
@@ -10,7 +9,7 @@ import { expect, test } from "vitest";
  * takes it, in any theme.
  */
 
-const css = readFileSync(join(__dirname, "..", "..", "styles.scss"), "utf8");
+const css = stylesSource();
 
 /**
  * A declaration block on one line: Prettier breaks a long value over several,

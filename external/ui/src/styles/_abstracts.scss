@@ -1,0 +1,69 @@
+// The Sass helpers every partial shares: the font stacks, the composite
+// values Prettier would split over lines, and mix-text(). No CSS of its own.
+
+// The monospace stack every code-ish surface and the theme fonts share. An SCSS
+// variable, not a custom property: it compiles back to the literal stack.
+$coddy-mono:
+  ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+  "Courier New", monospace;
+
+// The opacity ladder of the surfaces: text mixed into the panel blend base. It
+// must stay a runtime color-mix() (Sass cannot fold CSS variables), and this
+// function is the one place that names the blend base for every strength used
+// below. stylesCompile.test.ts holds the expansion to the color-mix() form.
+@function mix-text($pct) {
+  @return color-mix(in srgb, var(--text) $pct, var(--coddy-blend-base));
+}
+
+// The interface sans stack: the body and the form fields share it.
+$coddy-sans:
+  system-ui,
+  -apple-system,
+  Segoe UI,
+  sans-serif;
+
+// The shorter monospace stack of the UI chrome (status footers, file bodies).
+// The desktop-only families of $coddy-mono stay out of it.
+$coddy-mono-ui: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+// The lift a 34px float control gets: enough to stand off the transcript
+// without the diffuse cast the full panel token carries. One per canvas.
+$float-lift:
+  0 3px 10px rgba(0, 0, 0, 0.32),
+  0 1px 2px rgba(0, 0, 0, 0.24);
+$float-lift-light:
+  0 3px 10px rgba(15, 23, 42, 0.14),
+  0 1px 2px rgba(15, 23, 42, 0.08);
+
+// A bottom sheet: the glass panel's corners at the top, square where it meets
+// the edge of the screen.
+$sheet-corners: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius)
+  0 0;
+
+// The three-column page of the documentation reader and the settings lists.
+$docs-columns: minmax(210px, 240px) minmax(0, 1fr) minmax(170px, 210px);
+
+// The wide slot of a dock cluster: the drawer beside it, then 8px of air.
+$dock-wide-width: min(
+  480px,
+  calc(
+    100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) -
+      16px - min(
+        320px,
+        calc(
+          100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) -
+            16px
+        )
+      ) -
+      8px
+  )
+);
+
+// The tab strip fades at both edges: 28px of ramp at each end.
+$tab-fade-both: linear-gradient(
+  to right,
+  transparent,
+  #000 28px,
+  #000 calc(100% - 28px),
+  transparent
+);

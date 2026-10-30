@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
 /**
  * The active count of History and Scheduler sits over the item's icon in
@@ -10,7 +9,7 @@ import { expect, test } from "vitest";
  * the label and the More menu's stood after the text.
  */
 
-const css = readFileSync(join(__dirname, "..", "..", "styles.scss"), "utf8");
+const css = stylesSource();
 
 function ruleBody(selector: string): string {
   const idx = css.indexOf(`\n${selector} {`);

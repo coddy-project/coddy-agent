@@ -14,6 +14,7 @@ import {
   noteSettingsConfigSaved,
   resetSettingsConfigForTests,
 } from "./settingsConfigStore";
+import { stylesSource } from "../../stylesSource";
 
 beforeEach(() => {
   initLocale("en");
@@ -422,10 +423,7 @@ test("the subagent settings sit in their own fieldset above the definitions", as
   const { readFileSync } = await import("node:fs");
   const { dirname, join } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
-  const css = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
-    "utf8",
-  );
+  const css = stylesSource();
   const rule = /^\.settings-subagents-section\s*\{([^}]*)\}/m.exec(css);
   expect(rule?.[1]).toMatch(/gap:\s*12px/);
 });

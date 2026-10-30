@@ -1,15 +1,8 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
-
-const cssPath = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../styles.scss",
-);
+import { stylesSource } from "../../stylesSource";
 
 function cssText(): string {
-  return readFileSync(cssPath, "utf8");
+  return stylesSource();
 }
 
 // The row leads with its switch, not an icon: no rule sizes or dims a leading

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
 /**
  * The filters of the session management table sit on a row of their own under
@@ -9,7 +10,7 @@ import { expect, test } from "vitest";
  * (DESIGN.md, Sessions tab, Filters row).
  */
 
-const css = readFileSync(join(__dirname, "..", "..", "styles.scss"), "utf8");
+const css = stylesSource();
 const tsx = readFileSync(join(__dirname, "SessionsManager.tsx"), "utf8");
 
 function squash(body: string): string {

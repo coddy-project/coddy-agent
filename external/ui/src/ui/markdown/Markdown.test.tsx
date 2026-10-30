@@ -1,6 +1,4 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import {
   act,
   cleanup,
@@ -12,13 +10,7 @@ import {
 import { afterEach, expect, test, vi } from "vitest";
 import { pageWithoutClipboardApi, selectedOnce } from "../clipboardTestKit";
 import { Markdown } from "./Markdown";
-
-const stylesPath = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "..",
-  "styles.scss",
-);
+import { stylesSource } from "../../stylesSource";
 
 afterEach(() => cleanup());
 
@@ -130,7 +122,7 @@ test("coddy-skill links render as chip spans", () => {
 });
 
 test("fenced code block wrapper keeps symmetric vertical margin in styles", () => {
-  const css = readFileSync(stylesPath, "utf8");
+  const css = stylesSource();
   const m = /\.md-code\s*\{[^}]*\}/.exec(css);
   expect(m).not.toBeNull();
   expect(m![0]).toMatch(/margin:\s*12px\s+0/);
@@ -213,7 +205,7 @@ test("inline code uses native title tooltip for Copy", () => {
 });
 
 test("inline code styles use grey fill without border in css", () => {
-  const css = readFileSync(stylesPath, "utf8");
+  const css = stylesSource();
   expect(css).toMatch(/--coddy-md-inline-code-fg:/);
   expect(css).toMatch(/--coddy-md-inline-code-bg:/);
   expect(css).not.toMatch(/--coddy-md-inline-code-bd:/);
@@ -262,7 +254,7 @@ test("images are loaded lazily and fit the column", () => {
     <Markdown text="![shot](https://raw.githubusercontent.com/x/y/main/a.png)" />,
   );
   expect(container.querySelector("img")?.getAttribute("loading")).toBe("lazy");
-  const css = readFileSync(stylesPath, "utf8");
+  const css = stylesSource();
   expect(css).toMatch(/\.md img\s*\{[^}]*max-width:\s*100%/);
 });
 

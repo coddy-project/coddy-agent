@@ -1,0 +1,190 @@
+// Settings on the stacked shell: the tab strip and the section header.
+
+@use "../abstracts" as *;
+
+@media (max-width: 1199px) {
+  .settings-tabs-layout {
+    flex-direction: column;
+  }
+  .settings-nav-wrap {
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: stretch;
+    border-right: none;
+    border-bottom: 1px solid mix-text(6%);
+  }
+  .settings-nav {
+    flex: 1 1 auto;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    /* No scrollbar on the strip — paging is done with the edge arrows. */
+    scrollbar-width: none;
+  }
+  .settings-nav::-webkit-scrollbar {
+    display: none;
+  }
+  .settings-nav-item {
+    flex: 0 0 auto;
+  }
+  .settings-nav-arrow {
+    display: inline-grid;
+    place-items: center;
+    flex: 0 0 auto;
+    width: 34px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font-size: 1.2rem;
+    line-height: 1;
+    cursor: pointer;
+    transition:
+      background 120ms ease,
+      opacity 120ms ease;
+  }
+  .settings-nav-arrow:hover:not(:disabled) {
+    background: mix-text(8%);
+  }
+  .settings-nav-arrow:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+  .settings-nav-arrow-left {
+    border-right: 1px solid mix-text(6%);
+  }
+  .settings-nav-arrow-right {
+    border-left: 1px solid mix-text(6%);
+  }
+
+  /* Mobile section picker: 2-wide tile grid (title + short description),
+     styled after the Scheduler job rows. */
+  .settings-tile-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    /* Same inline inset as the head and the lead pane above: the drawer has one
+       edge, and the tiles used to hug it while the text stood 14px in. The
+       top keeps the same 14px off the head's rule. */
+    padding: 14px 14px 12px;
+    align-content: start;
+    overflow-y: auto;
+    /* Fill the stack so the footer (reload/save) stays pinned at the bottom. */
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .settings-tile {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    text-align: left;
+    padding: 10px 12px;
+    border-radius: 14px;
+    border: 1px solid mix-text(8%);
+    background: mix-text(3%);
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    box-sizing: border-box;
+    transition:
+      background 120ms ease,
+      border-color 120ms ease;
+  }
+  .settings-tile:hover,
+  .settings-tile:focus-visible {
+    background: mix-text(8%);
+    border-color: mix-text(16%);
+  }
+  .settings-tile-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: mix-text(95%);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .settings-tile-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+  }
+  /* The title stops short of the number. */
+  .settings-tile:has(.settings-tile-badge) .settings-tile-title {
+    padding-right: 26px;
+  }
+  .settings-tile-desc {
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.3;
+    color: mix-text(52%);
+    /* Up to two lines, then ellipsis; full text lives in the title tooltip. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+  .settings-mobile-detail,
+  .settings-grid-view {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+  /* The search stands over the tiles, on the drawer's 14px inset. */
+  .settings-grid-search {
+    flex: 0 0 auto;
+    padding: 14px 14px 0;
+  }
+
+  /* On the wide layout the content panel sits against the section rail, so its
+     own 8px is the seam; on the narrow shell the drawer edge is the reference. */
+  .settings.drawer .settings-scroll {
+    padding-inline: 14px;
+  }
+
+  .settings.drawer .settings-footer-actions {
+    padding-inline: 14px;
+  }
+}
+
+/* Mobile section-detail header: back-arrow icon + section name in the SETTINGS
+   bar (rendered only on the mobile section-detail view). */
+.settings.drawer .settings-head-titlegroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings.drawer .settings-head-back {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid mix-text(10%);
+  background: rgba(20, 20, 22, 0.35);
+  color: mix-text(85%);
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.settings.drawer .settings-head-back:hover {
+  background: mix-text(10%);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.settings.drawer .settings-head-section {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

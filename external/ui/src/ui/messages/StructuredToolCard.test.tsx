@@ -10,6 +10,7 @@ import {
 } from "@testing-library/react";
 import { ToolCallMessage } from "./ToolCallMessage";
 import { setLocale } from "../i18n/i18n";
+import { stylesSource } from "../../stylesSource";
 
 afterEach(() => {
   cleanup();
@@ -553,10 +554,7 @@ test("a structured card's bar wraps instead of clipping", async () => {
   const { readFileSync } = await import("node:fs");
   const { dirname, join } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
-  const css = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
-    "utf8",
-  );
+  const css = stylesSource();
   const rule = css.match(
     /^\.structured-tool-card \.permission-preview-location \{[^}]*\}/m,
   );

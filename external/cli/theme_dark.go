@@ -3,8 +3,8 @@
 package cli
 
 // darkColors maps theme roles to the coddy dark palette
-// (external/ui/src/styles.scss default theme), with tool/status tints kept in
-// pi's neutral family where coddy has no equivalent.
+// (external/ui/src/styles/themes/_dark.scss, the default theme), with
+// tool/status tints kept in pi's neutral family where coddy has no equivalent.
 var darkColors = map[string]string{
 	roleAccent:       "#9333ea",
 	roleBorder:       "#a585c9",

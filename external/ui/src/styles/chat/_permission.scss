@@ -1,0 +1,296 @@
+// The permission card of a tool call.
+
+@use "../abstracts" as *;
+
+.message-row-permission {
+  margin: 10px 0 14px;
+  align-self: stretch;
+  width: 100%;
+  max-width: 720px;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.subagent-permissions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.permission-prompt-frame {
+  width: 100%;
+  min-width: 0;
+}
+
+.permission-prompt-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 12px;
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  padding: 12px 14px;
+  box-sizing: border-box;
+  box-shadow: 0 8px 26px
+    color-mix(in srgb, var(--coddy-blend-base) 22%, transparent);
+}
+
+.permission-prompt-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.permission-prompt-icon {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid mix-text(12%);
+  background: mix-text(6%);
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  color: mix-text(70%);
+}
+
+.permission-prompt-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: 0;
+  text-transform: none;
+  color: mix-text(88%);
+}
+
+.permission-prompt-tool-badge {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 9%, var(--coddy-blend-base));
+  color: mix-text(62%);
+  padding: 3px 8px;
+  font-family: $coddy-mono-ui;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.permission-preview {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.permission-preview-bar {
+  position: relative;
+  border: 1px solid mix-text(10%);
+  border-radius: 12px 12px 0 0;
+  background: color-mix(in srgb, var(--text) 5%, var(--coddy-surface-inset));
+  min-height: 34px;
+  padding: 6px 8px 6px 12px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.permission-preview-bar--standalone {
+  border-radius: 12px;
+}
+
+.permission-preview-location {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: mix-text(70%);
+  font-family: $coddy-mono-ui;
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.permission-preview-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  color: mix-text(38%);
+  font-family: $coddy-mono-ui;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.permission-preview-meta span + span::before {
+  content: "·";
+  margin-right: 6px;
+  color: mix-text(22%);
+}
+
+.permission-preview-bar .md-copy {
+  position: static;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  padding: 4px;
+  font-size: 10px;
+  color: mix-text(55%);
+  background: transparent;
+}
+
+/* run_command reads as input: the command sits in its own inset panel inside the
+   card, behind a shell prompt, rather than as loose body text under the header. */
+.permission-preview-shell {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  margin: 10px 12px;
+  padding: 8px 10px;
+  border: 1px solid mix-text(11%);
+  border-radius: 10px;
+  background: mix-text(4%);
+}
+
+/* The copy control belongs to the command line itself, so it sits in the block's
+   last column instead of floating over the card header. */
+.permission-preview-shell .md-copy {
+  position: static;
+  align-self: start;
+  flex: 0 0 auto;
+  margin: -2px -2px 0 0;
+  padding: 4px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.permission-preview-shell .md-copy:hover {
+  border-color: mix-text(14%);
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-glass-panel-bg));
+}
+
+.permission-preview-shell-prompt {
+  color: var(--accent);
+  font-family: $coddy-mono-ui;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+  user-select: none;
+}
+
+.permission-preview-shell-code {
+  margin: 0;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-family: $coddy-mono-ui;
+  font-size: 12px;
+  line-height: 1.5;
+  color: mix-text(88%);
+}
+
+.permission-preview-viewport {
+  position: relative;
+  min-width: 0;
+  max-height: 190px;
+  overflow: hidden;
+  border: 1px solid mix-text(10%);
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  background: var(--coddy-surface-inset);
+}
+
+.permission-preview-viewport--scroll {
+  overflow-y: auto;
+}
+
+/* No header bar above it (the call's arguments name nothing), so the body is the
+   whole card and closes its own top edge. */
+.permission-preview-viewport--headless {
+  border-top: 1px solid mix-text(10%);
+  border-radius: 12px;
+}
+
+.permission-preview-viewport--static {
+  max-height: none;
+  overflow: visible;
+}
+
+.permission-preview-code {
+  margin: 0;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-family: $coddy-mono-ui;
+  font-size: 12px;
+  line-height: 1.5;
+  color: mix-text(85%);
+}
+
+.permission-preview-diff {
+  min-width: 0;
+}
+
+.permission-preview-diff .diff-line {
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.permission-preview-diff .diff-gutter {
+  background: color-mix(in srgb, var(--text) 3%, var(--coddy-surface-inset));
+}
+
+.permission-preview-diff .diff-no {
+  min-width: 4ch;
+  color: mix-text(44%);
+  font-variant-numeric: tabular-nums;
+}
+
+.permission-preview-diff .diff-line--add .diff-no {
+  color: color-mix(in srgb, var(--diff-add-no) 86%, var(--text));
+}
+
+.permission-preview-diff .diff-line--del .diff-no {
+  color: color-mix(in srgb, var(--diff-del-no) 86%, var(--text));
+}
+
+.permission-preview-diff .diff-hunk-header {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.permission-preview-move {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 11px 12px;
+  color: mix-text(42%);
+}
+
+.permission-preview-move code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: mix-text(82%);
+  font-family: $coddy-mono-ui;
+  font-size: 11.5px;
+}

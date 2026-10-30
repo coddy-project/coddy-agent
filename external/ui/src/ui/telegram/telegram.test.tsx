@@ -39,6 +39,7 @@ import {
   initTelegramMiniApp,
   isDarkColor,
 } from "./miniApp";
+import { stylesSource } from "../../stylesSource";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -753,7 +754,7 @@ describe("telegram.css", () => {
     /\/\*[\s\S]*?\*\//g,
     "",
   );
-  const styles = readFileSync(join(here, "../../styles.scss"), "utf8");
+  const styles = stylesSource();
   const indexHtml = readFileSync(join(here, "../../index.html"), "utf8");
 
   test("every rule is scoped to a Mini App and to the stacked shell", () => {

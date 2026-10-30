@@ -4,7 +4,9 @@ package ui
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -14,11 +16,22 @@ import (
 
 // Rendering and clipboard behavior are covered by Markdown.test.tsx. This
 // contract keeps every appearance wired to the shared syntax token styles.
+// A theme's palette is its own file under src/styles/themes; the token styles
+// may sit in any partial of the stylesheet.
 func TestSyntaxThemesFeature(t *testing.T) {
-	css, err := os.ReadFile("src/styles.scss")
+	var all strings.Builder
+	err := filepath.WalkDir("src/styles", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || filepath.Ext(path) != ".scss" {
+			return err
+		}
+		b, err := os.ReadFile(path)
+		all.Write(b)
+		return err
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	css := all.String()
 	var theme string
 	roles := []string{"comment", "keyword", "string", "number", "title", "attribute", "type", "meta", "deletion"}
 	suite := godog.TestSuite{
@@ -26,7 +39,11 @@ func TestSyntaxThemesFeature(t *testing.T) {
 		ScenarioInitializer: func(ctx *godog.ScenarioContext) {
 			ctx.Step(`^the UI theme is "([^"]+)"$`, func(value string) { theme = value })
 			ctx.Step(`^code syntax colors are supplied by that theme$`, func() error {
-				block := regexp.MustCompile(`\[data-theme="` + regexp.QuoteMeta(theme) + `"\]\s*\{[^}]*\}`).FindString(string(css))
+				palette, err := os.ReadFile(filepath.Join("src", "styles", "themes", "_"+theme+".scss"))
+				if err != nil {
+					return fmt.Errorf("theme %s has no palette file: %w", theme, err)
+				}
+				block := regexp.MustCompile(`\[data-theme="` + regexp.QuoteMeta(theme) + `"\]\s*\{[^}]*\}`).FindString(string(palette))
 				for _, role := range roles {
 					if !strings.Contains(block, "--syntax-"+role+":") {
 						return fmt.Errorf("theme %s is missing syntax color %s", theme, role)
@@ -36,7 +53,7 @@ func TestSyntaxThemesFeature(t *testing.T) {
 			})
 			ctx.Step(`^code token styles use the theme palette$`, func() error {
 				for _, role := range roles {
-					if !strings.Contains(string(css), "color: var(--syntax-"+role+")") {
+					if !strings.Contains(css, "color: var(--syntax-"+role+")") {
 						return fmt.Errorf("syntax color %s is unused", role)
 					}
 				}

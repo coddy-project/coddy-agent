@@ -1,12 +1,7 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
-const css = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
-  "utf8",
-);
+const css = stylesSource();
 
 // Prettier breaks long values over lines; compare rule bodies squashed.
 const squash = (s: string) => s.replace(/\s+/g, " ").trim();

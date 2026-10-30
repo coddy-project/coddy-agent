@@ -167,7 +167,7 @@ CLI_E2E_COLS=148 CHROME=/path/to/chromium python3 examples/cli/capture_tool_prog
 
 The layout replicates the pi coding agent's TUI (pi-mono `b1efcf7d7`,
 v0.84.2, MIT, Mario Zechner — see the attribution note below) with colors
-from the coddy SPA palette (`external/ui/src/styles.scss`); this document is
+from the coddy SPA palette (`external/ui/src/styles/themes/`); this document is
 the visual contract for the coddy console.
 
 Top to bottom:

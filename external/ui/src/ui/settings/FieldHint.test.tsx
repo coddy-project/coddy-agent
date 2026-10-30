@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   act,
   cleanup,
@@ -11,6 +8,7 @@ import {
 import { afterEach, expect, test, vi } from "vitest";
 import { FieldHint, FieldLabel, LegendWithHint } from "./FieldHint";
 import { OpenRailScreen } from "../nav/railEscape.fakes";
+import { stylesSource } from "../../stylesSource";
 
 afterEach(cleanup);
 
@@ -144,10 +142,7 @@ test("a fieldset legend carries its description the same way", () => {
 // Placement and layering are CSS jsdom cannot lay out: pin the rules that keep
 // the tip over every panel and fixed to the viewport.
 test("the tip is fixed, layered over every panel and never takes the pointer", () => {
-  const css = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
-    "utf8",
-  );
+  const css = stylesSource();
   const rule = css.match(/^\.field-hint-tip\s*\{([^}]*)\}/m);
   expect(rule).not.toBeNull();
   expect(rule![1]).toMatch(/position:\s*fixed/);

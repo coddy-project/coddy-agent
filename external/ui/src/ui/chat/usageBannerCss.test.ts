@@ -1,12 +1,7 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
-const css = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
-  "utf8",
-);
+const css = stylesSource();
 
 function rule(selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -31,14 +26,10 @@ const THEMES = [
   "rose-pine",
 ];
 
-/**
- * The declarations of one theme's block. A value may carry a Sass
- * interpolation (`#{mix-text(12%)}`), whose braces a `[^}]*` would stop at, so
- * the body admits an interpolated fragment.
- */
+/** The declarations of one theme's block. */
 function themeBody(theme: string): string {
   const m = new RegExp(
-    `\\[data-theme="${theme}"\\][^{]*\\{((?:[^{}]|#\\{[^}]*\\})*)\\}`,
+    `\\[data-theme="${theme}"\\][^{]*\\{([^}]*)\\}`,
     "s",
   ).exec(css);
   expect(m, theme).not.toBeNull();

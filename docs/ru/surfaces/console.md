@@ -75,7 +75,7 @@ CLI_E2E_COLS=148 CHROME=/path/to/chromium python3 examples/cli/capture_tool_prog
 
 ## Визуальная модель
 
-Раскладка повторяет TUI агента для программирования pi (pi-mono `b1efcf7d7`, v0.84.2, MIT, Mario Zechner - см. раздел об авторстве ниже) с цветами из палитры веб-интерфейса coddy (`external/ui/src/styles.scss`); этот документ служит визуальным контрактом консоли coddy.
+Раскладка повторяет TUI агента для программирования pi (pi-mono `b1efcf7d7`, v0.84.2, MIT, Mario Zechner - см. раздел об авторстве ниже) с цветами из палитры веб-интерфейса coddy (`external/ui/src/styles/themes/`); этот документ служит визуальным контрактом консоли coddy.
 
 Сверху вниз:
 
@@ -415,4 +415,4 @@ coddy hooks untrust <file> [--cwd DIR]
 
 Модель отрисовки TUI и визуальный дизайн перенесены из [`pi-mono`](https://github.com/badlogic/pi-mono), а именно из `packages/tui` и интерактивного режима `packages/coding-agent` (MIT License, Copyright (c) 2025 Mario Zechner), коммит `b1efcf7d7`. Реализация на Go в `external/cli/tui` написана заново и независимо по документированному поведению.
 
-<!-- docsgen:source sha256=1d3d2cf8c3c28faa -->
+<!-- docsgen:source sha256=4090d73a2de0f33e -->

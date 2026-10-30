@@ -1,0 +1,237 @@
+// The documentation reader's heading anchors, its outline and its pager.
+
+@use "../abstracts" as *;
+
+/* A heading scrolled to by its anchor keeps the gap the page starts with. */
+.docs-article h1,
+.docs-article h2,
+.docs-article h3,
+.docs-article h4 {
+  scroll-margin-top: var(--docs-top);
+}
+
+/* The "#" after a section heading, GitHub style: the address of the
+   section, shown while the heading is pointed at. */
+.docs-heading-anchor {
+  margin-left: 8px;
+  font-weight: 400;
+  color: mix-text(40%);
+  text-decoration: none;
+  opacity: 0;
+  user-select: none;
+  transition: opacity 0.12s;
+}
+
+.docs-article :is(h2, h3, h4):hover .docs-heading-anchor,
+.docs-heading-anchor:focus-visible {
+  opacity: 1;
+}
+
+.docs-heading-anchor:hover {
+  color: var(--accent);
+}
+
+.docs-pager {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 40px;
+  padding-top: 18px;
+  border-top: 1px solid mix-text(9%);
+}
+
+.docs-pager-link {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-surface-subtle);
+  color: var(--text);
+  text-decoration: none;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.docs-pager-link:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.docs-pager-next {
+  grid-column: 2;
+  text-align: right;
+}
+
+.docs-pager-dir {
+  font-size: 12px;
+  color: mix-text(55%);
+}
+
+.docs-pager-title {
+  font-weight: 500;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-article.is-loading,
+  .docs-ask,
+  .docs-pager-link,
+  .docs-heading-anchor {
+    transition: none;
+  }
+}
+
+/* The outline goes first when the window narrows; the contents fold into a
+   button above the page on the stacked shell. */
+@media (max-width: 1279px) {
+  .docs-layout {
+    grid-template-columns: minmax(210px, 240px) minmax(0, 1fr);
+  }
+  /* No outline under the actions any more: they take their own width. */
+  .docs-header {
+    grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) auto;
+  }
+  .docs-outline {
+    display: none;
+  }
+}
+
+@media (max-width: 1199px) {
+  /* Below the top bar the stacked shell puts the rail in, and above the
+     shell's backdrop, which rises to 60 on this shell (as Settings does). */
+  .docs-dock-cluster {
+    z-index: 70;
+    left: max(8px, env(safe-area-inset-left, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+    top: calc(var(--coddy-mobile-top-inset) + 6px);
+    bottom: 8px;
+    width: auto;
+    margin-inline: 0;
+  }
+  .docs-view {
+    --docs-inline: 16px;
+    --docs-top: 14px;
+    --docs-bottom: 28px;
+  }
+  /* Two rows: the title with the actions, then the search under them, across
+     the sheet like the page below it. */
+  .docs-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "title actions" "search search";
+    row-gap: 10px;
+    padding: 12px var(--docs-inline) 10px;
+  }
+  .docs-header-search {
+    max-width: none;
+  }
+  .docs-search-kbd {
+    display: none;
+  }
+  .docs-subtitle {
+    display: none;
+  }
+  /* The page has the sheet to itself: one column across it, the Contents
+     button, then On this page folded the same way, then the page. The search
+     above stretches with it, so nothing leaves an empty strip beside it. */
+  .docs-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "toc" "outline" "page";
+    gap: 12px;
+  }
+  .docs-sidebar {
+    grid-area: toc;
+  }
+  .docs-article {
+    grid-area: page;
+    max-width: none;
+  }
+  .docs-outline {
+    display: block;
+    grid-area: outline;
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+  .docs-outline-title {
+    display: none;
+  }
+  .docs-outline ul {
+    display: none;
+    margin-top: 10px;
+  }
+  .docs-outline.is-open ul {
+    display: flex;
+  }
+  .docs-sidebar {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    padding: 0;
+    margin: 0;
+  }
+  .docs-toc-toggle,
+  .docs-outline-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    box-sizing: border-box;
+    font: inherit;
+    font-size: 14px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--coddy-glass-panel-border);
+    background: var(--coddy-surface-subtle);
+    color: var(--text);
+    cursor: pointer;
+  }
+  .docs-toc {
+    display: none;
+    margin-top: 10px;
+  }
+  .docs-sidebar.is-open .docs-toc {
+    display: block;
+  }
+  .docs-article .md {
+    font-size: 15px;
+  }
+  .docs-article .md :where(h1) {
+    font-size: 24px;
+  }
+  .docs-pager {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .docs-pager-next {
+    grid-column: 1;
+  }
+}
+
+/* A tablet wide enough for both puts On this page beside the page, where the
+   desktop has it and where the sheet would otherwise be empty. The page takes
+   the rest of the width; the outline keeps the desktop's column, at least what
+   the header's actions need in Russian (about 182px). The contents stay folded
+   above the page, and the search keeps the full width of the header. */
+@media (min-width: 900px) and (max-width: 1199px) {
+  .docs-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(190px, 210px);
+    grid-template-areas: "toc outline" "page outline";
+    column-gap: 32px;
+  }
+  .docs-outline {
+    position: sticky;
+    max-height: calc(100cqh - 2 * var(--docs-top));
+    overflow: auto;
+  }
+  .docs-outline-toggle {
+    display: none;
+  }
+  .docs-outline-title {
+    display: block;
+  }
+  .docs-outline ul {
+    display: flex;
+    margin-top: 0;
+  }
+}

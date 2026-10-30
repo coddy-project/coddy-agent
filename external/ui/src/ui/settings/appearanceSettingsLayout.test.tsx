@@ -4,6 +4,7 @@ import { Settings } from "./Settings";
 import { resetSettingsConfigForTests } from "./settingsConfigStore";
 import { I18nProvider } from "../i18n/I18nProvider";
 import { initLocale, setLocale } from "../i18n/i18n";
+import { stylesSource } from "../../stylesSource";
 
 afterEach(() => {
   cleanup();
@@ -96,10 +97,7 @@ test("the settings drawer holds three theme cards a row", async () => {
   const { readFileSync } = await import("node:fs");
   const { dirname, join } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
-  const css = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
-    "utf8",
-  );
+  const css = stylesSource();
   const drawer = /^\.settings\.drawer\s*\{\s*width:\s*min\(\s*(\d+)px/m.exec(
     css,
   );

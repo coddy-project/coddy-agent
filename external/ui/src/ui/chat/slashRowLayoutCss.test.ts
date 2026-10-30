@@ -13,9 +13,10 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
 const dir = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(dir, "../../styles.scss"), "utf8");
+const css = stylesSource();
 const composer = readFileSync(join(dir, "Composer.tsx"), "utf8");
 
 test("slash row button is a single block, not a 2-column grid", () => {

@@ -1,16 +1,11 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
 // The look of a save and of the first open (issue #359, DESIGN.md, Settings
 // drawer: Saving and Loading). jsdom computes no styles, so the contract is
 // held on the stylesheet itself.
 
-const css = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../../styles.scss"),
-  "utf8",
-);
+const css = stylesSource();
 
 /** The body of the first rule whose selector list starts with selector. */
 function ruleBody(selector: string): string {

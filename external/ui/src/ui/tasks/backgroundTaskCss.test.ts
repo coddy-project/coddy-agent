@@ -1,10 +1,10 @@
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 
 import { phoneMaxWidthMediaQuery } from "../shellBreakpoint";
+import { stylesSource } from "../../stylesSource";
 
-const css = readFileSync(join(__dirname, "..", "..", "styles.scss"), "utf8");
+const css = stylesSource();
 
 function ruleBody(selector: string): string {
   const idx = css.indexOf(selector);

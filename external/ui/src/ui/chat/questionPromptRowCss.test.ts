@@ -1,12 +1,5 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
-
-const cssPath = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../styles.scss",
-);
+import { stylesSource } from "../../stylesSource";
 
 function ruleBodies(css: string, selector: string): string[] {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -20,7 +13,7 @@ function ruleBodies(css: string, selector: string): string[] {
 // padding-left of its own and no padding on the right, which set the card in from
 // the left edge only.
 test("the question row is flush with the column on both sides, like the permission row", () => {
-  const css = readFileSync(cssPath, "utf8");
+  const css = stylesSource();
   for (const selector of [".message-row-question", ".message-row-permission"]) {
     const bodies = ruleBodies(css, selector);
     expect(bodies.length, selector).toBeGreaterThan(0);

@@ -1,0 +1,90 @@
+// The zoom controls of every surface that zooms.
+
+@use "../abstracts" as *;
+
+/* ----- Zoom -----
+   The zoom controls of every surface that zooms - the picture viewer, the
+   canvas, the swarm map - one glass group at the top right: minus, the level
+   (the percentage, or the fit glyph while fitted; a click fits), plus.
+   DESIGN.md, Zoom. */
+/* Opaque, never a backdrop-filter: over a board that moves, a blur behind
+   the group is drawn again on every frame of a pan or a zoom, which cost the
+   canvas a hundred milliseconds a frame. */
+.zoom-controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 5%, var(--bg));
+  box-shadow: 0 3px 10px color-mix(in srgb, #000 20%, transparent);
+}
+
+.zoom-controls--inline {
+  position: static;
+  flex: none;
+}
+
+.zoom-control {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  color: mix-text(78%);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background-color 0.14s ease,
+    color 0.14s ease;
+}
+
+.zoom-control--level {
+  width: auto;
+  min-width: 48px;
+  padding: 0 6px;
+  white-space: nowrap;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.zoom-control:hover:not(:disabled),
+.zoom-control:focus-visible {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.zoom-control:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.zoom-control svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (max-width: 1199px) {
+  .zoom-control {
+    width: 40px;
+    height: 40px;
+  }
+
+  .zoom-control--level {
+    width: auto;
+    min-width: 56px;
+  }
+}

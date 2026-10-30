@@ -1,13 +1,12 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
 /**
  * The canvas's fields take the focus as the app's other fields do: their own
  * border in the accent, never the browser's blue ring around them.
  */
 
-const css = readFileSync(join(__dirname, "..", "..", "styles.scss"), "utf8");
+const css = stylesSource();
 
 function squash(body: string): string {
   return body
