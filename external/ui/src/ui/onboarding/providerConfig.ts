@@ -167,7 +167,13 @@ export function providerModelRef(
 ): string {
   const raw = modelId.trim();
   if (!raw) return preset.defaultModel;
-  return raw.includes("/") ? raw : `${preset.providerName}/${raw}`;
+  // Only a ref that already names this provider is qualified; a slash in a
+  // bare id ("openai/gpt-4o" on the compatible preset) is part of the model
+  // id the provider lists, and SplitModelRef reads the first segment as the
+  // provider, so the prefix must still be added.
+  return raw.startsWith(`${preset.providerName}/`)
+    ? raw
+    : `${preset.providerName}/${raw}`;
 }
 
 export function buildOnboardingConfig(input: {
@@ -199,12 +205,25 @@ export function buildOnboardingConfig(input: {
     delete provider.api_key;
     delete provider.api_key_command;
   } else {
-    provider.api_key =
-      input.apiKey.trim() ||
-      String(existingProvider?.api_key || "") ||
-      preset.envKey ||
-      "";
-    delete provider.api_key_command;
+    const typed = input.apiKey.trim();
+    if (typed) {
+      // An explicit key replaces a credential helper.
+      provider.api_key = typed;
+      delete provider.api_key_command;
+    } else if (
+      !existingProvider?.api_key &&
+      !existingProvider?.api_key_command
+    ) {
+      // Nothing typed and nothing stored: leave the credential out so the
+      // conventional NAME_API_KEY variable applies. Never save preset.envKey
+      // ("${OPENAI_API_KEY}") as a literal key - the save escapes "$", so it
+      // would come back as a placeholder string and every request would send
+      // that string as the bearer token.
+      delete provider.api_key;
+      delete provider.api_key_command;
+    }
+    // Nothing typed and the row already carries a key or a helper: it keeps
+    // what the spread above copied.
   }
   if (preset.providerType === "codex" || preset.providerType === "devin") {
     delete provider.api_base;
@@ -228,10 +247,12 @@ export function buildOnboardingConfig(input: {
   const modelRow: Record<string, unknown> = { ...existingModel, model };
   modelRow.max_tokens =
     listed?.catalog?.max_tokens ?? existingModel?.max_tokens ?? 8192;
+  // A listed model's own window wins; preset.maxContextTokens is the window of
+  // the preset's default model and only a fallback for a model nothing listed.
   const contextWindow =
-    preset.maxContextTokens ||
     listed?.context_window ||
-    listed?.catalog?.context_window;
+    listed?.catalog?.context_window ||
+    preset.maxContextTokens;
   if (contextWindow) modelRow.max_context_tokens = contextWindow;
   modelRow.multimodal = listed?.catalog
     ? listed.catalog.multimodal === true
