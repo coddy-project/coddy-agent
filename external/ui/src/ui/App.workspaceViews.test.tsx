@@ -33,6 +33,7 @@ vi.mock("./chat/ChatScreen", () => ({
     onOpenEdits?: () => void;
     onOpenFiles?: () => void;
     onOpenTerminal?: () => void;
+    terminal?: React.ReactNode;
   }) => (
     <div data-testid="chat-screen-stub">
       <button
@@ -63,6 +64,7 @@ vi.mock("./chat/ChatScreen", () => ({
       >
         Open terminal
       </button>
+      {props.terminal}
     </div>
   ),
 }));
@@ -233,6 +235,7 @@ test("the terminal opens under the chat and keeps the chat mounted", async () =>
   fireEvent.click(await screen.findByTestId("open-terminal"));
   const terminal = await screen.findByTestId("terminal-panel");
   expect(screen.getByTestId("chat-screen-stub")).toBeTruthy();
+  expect(terminal.closest('[data-testid="chat-screen-stub"]')).toBeTruthy();
   expect(within(terminal).getByRole("textbox")).toBeTruthy();
   fireEvent.click(within(terminal).getByLabelText(t("terminal.close")));
   await waitFor(() =>

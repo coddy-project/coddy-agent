@@ -8146,6 +8146,16 @@ export function App() {
             filesOpen={filesOpen}
             onOpenTerminal={() => setTerminalOpen((open) => !open)}
             terminalOpen={terminalOpen}
+            terminal={
+              terminalOpen && sessionId.trim() ? (
+                <TerminalPanel
+                  key={`terminal:${sessionId}`}
+                  sessionId={sessionId}
+                  workspacePath={workspaceCtx?.path || chatWorkspace}
+                  onClose={() => setTerminalOpen(false)}
+                />
+              ) : null
+            }
             backgroundTasks={backgroundTasks}
             onOpenBackgroundTasks={openTasksFromNav}
             onBackgroundTasksChanged={() => {
@@ -8407,14 +8417,6 @@ export function App() {
             onFetchToolCallFull={handleFetchToolCallFull}
           />
         )}
-        {terminalOpen && sessionId.trim() && !atSwarmRoot ? (
-          <TerminalPanel
-            key={`terminal:${sessionId}`}
-            sessionId={sessionId}
-            workspacePath={workspaceCtx?.path || chatWorkspace}
-            onClose={() => setTerminalOpen(false)}
-          />
-        ) : null}
       </div>
     </div>
   );

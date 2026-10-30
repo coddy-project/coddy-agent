@@ -1303,8 +1303,11 @@ the composer included.
 ## Terminal under the chat
 
 The **Terminal** icon in the chat header opens a resizable shell panel directly
-under the conversation. The panel is centred in the same 920px column as the
-title, transcript and composer, including while Files is open beside the chat. The shell
+above the composer. The two belong to one measured bottom block in the same 920px
+column as the title and transcript, including while Files is open beside the chat.
+The transcript reserves their combined height, so on tablet and phone the fixed
+composer cannot cover the terminal; the terminal is also capped to 36svh there
+(30svh on a phone). The shell
 starts in that chat's workspace and belongs to the chat: hiding and
 reopening it keeps `cd`, environment changes and the output already printed. Enter
 runs a command from the prompt, with no separate Run button. Up and Down walk the

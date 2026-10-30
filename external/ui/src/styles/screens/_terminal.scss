@@ -20,6 +20,14 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+/* The terminal and composer are one measured bottom block. Their outer edges
+   must line up so opening the terminal does not make a second, narrower stripe. */
+.chat-bottom-inner > .terminal-panel {
+  width: 100%;
+  max-width: none;
+  margin: 0 0 8px;
+}
+
 .terminal-resize {
   position: absolute;
   z-index: 2;
@@ -147,27 +155,16 @@
   font-size: 11px;
 }
 
-@media (min-width: 1200px) {
-  /* Tasks reserves only the part of its right-hand band that would overlap
-     the 920px conversation stripe. Give the terminal that same remaining
-     column, so opening both panels cannot put the shell under the drawer. */
-  .shell-main.shell-tasks-open > .terminal-panel {
-    width: auto;
-    max-width: none;
-    margin-left: max(
-      14px,
-      calc((100% - var(--coddy-tasks-reserve) - 920px) / 2)
-    );
-    margin-right: calc(
-      var(--coddy-tasks-reserve) +
-        max(14px, calc((100% - var(--coddy-tasks-reserve) - 920px) / 2))
-    );
+@media (max-width: 1199px) {
+  .terminal-panel {
+    min-height: 160px;
+    max-height: min(360px, 36svh);
   }
 }
 
-@media (max-width: 1199px) {
+@media (max-width: 599px) {
   .terminal-panel {
-    margin-bottom: 8px;
-    max-height: 52vh;
+    min-height: 140px;
+    max-height: 30svh;
   }
 }

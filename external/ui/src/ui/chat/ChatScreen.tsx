@@ -210,6 +210,9 @@ export function ChatScreen(props: {
   filesOpen?: boolean;
   onOpenTerminal?: () => void;
   terminalOpen?: boolean;
+  /** Terminal docked immediately above the composer. Keeping it in the same
+   * measured block makes the transcript reserve both surfaces on every shell. */
+  terminal?: ReactNode;
   /** Re-read the task rows: a background subagent's prompt was answered here. */
   onBackgroundTasksChanged?: () => void;
   /** Roots this session works in - its own directory, then its worktrees -
@@ -1190,6 +1193,7 @@ export function ChatScreen(props: {
 
           <div className="chat-bottom">
             <div className="chat-bottom-inner" ref={composerHostRef}>
+              {props.terminal}
               <ScrollToBottomButton
                 visible={showScrollToBottom && !composerExpanded}
                 onClick={jumpToNewestMessage}

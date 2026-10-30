@@ -11,24 +11,18 @@ test("the terminal uses the same centred width as the conversation", () => {
   expect(block).toMatch(/box-sizing:\s*border-box/);
 });
 
-test("the terminal stays centred in the chat column beside Files", () => {
+test("the terminal and composer share one full-width measured block", () => {
   const block =
-    /^\s*\.shell-main\.shell-files-open > \.terminal-panel\s*\{([^}]+)\}/m.exec(
-      css,
-    )?.[1] ?? "";
-  expect(block).toContain("var(--coddy-files-panel-band)");
-  expect(block).toContain("920px");
+    /^\.chat-bottom-inner > \.terminal-panel\s*\{([^}]+)\}/m.exec(css)?.[1] ??
+    "";
+  expect(block).toMatch(/width:\s*100%/);
+  expect(block).toMatch(/max-width:\s*none/);
+  expect(block).toMatch(/margin:\s*0 0 8px/);
 });
 
-test("the terminal gives the Tasks panel the same room as the chat", () => {
-  const block =
-    /^\s*\.shell-main\.shell-tasks-open > \.terminal-panel\s*\{([^}]+)\}/m.exec(
-      css,
-    )?.[1] ?? "";
-  expect(block).toContain("var(--coddy-tasks-reserve)");
-  expect(block).toContain("920px");
-  expect(block).toMatch(/margin-left:\s*max\(/);
-  expect(block).toMatch(/margin-right:\s*calc\(/);
+test("the adaptive terminal cannot consume the whole viewport", () => {
+  expect(css).toMatch(/max-height:\s*min\(360px, 36svh\)/);
+  expect(css).toMatch(/max-height:\s*30svh/);
 });
 
 test("the command line has no separate Run button", () => {
