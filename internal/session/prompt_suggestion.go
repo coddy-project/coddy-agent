@@ -21,9 +21,10 @@ import (
 // and nothing it says reaches the transcript; the one line it answers with is
 // cleaned, validated, and handed to the surface that asked (the console's
 // empty editor, the web composer), which shows it dim and lets Tab or Right
-// take it into the input. The shape follows Claude Code's "prompt suggestions"
-// (its cli.js): predict, never propose; stay silent when the next step is not
-// obvious; back off when suggestions keep going unused.
+// take it into the input. Adapted from Claude Code's prompt suggestions:
+// predict, never propose; stay silent when the next step is not obvious;
+// back off when suggestions keep going unused. The 2.1.314 source comparison
+// and Coddy's deliberate differences are in docs/plans/prompt-suggestions-comparison.md.
 
 // promptSuggestionInstruction is the side call's system prompt, in the shape
 // Claude Code ships. It predicts the operator's next message instead of
@@ -83,7 +84,8 @@ func promptSuggestionUserMessage(history []llm.Message) string {
 	return b.String()
 }
 
-// Back-off and window knobs, at Claude Code's values.
+// Back-off thresholds follow Claude Code 2.1.314. History, output and cache
+// bounds below are Coddy's choices, not limits of the upstream generator.
 const (
 	// promptSuggestionBackOffAfter is the run of unused suggestions that puts
 	// the feature in its quiet mode.
@@ -130,11 +132,11 @@ var (
 	// The separator after a lead-in label is a colon, ASCII or fullwidth.
 	promptSuggestionLabelRe = regexp.MustCompile(`(?i)^\s*(suggested\s+(response|reply|input|prompt)|suggestion|response|reply|answer|output|result)\s*[:：]\s*`)
 
-	// Validator: the refusal categories, in the order Claude Code checks them.
+	// Refusal categories adapted from Claude Code; language handling differs.
 	promptSuggestionDoneRe       = regexp.MustCompile(`(?i)^\P{L}*(done|完了|完成了?|完了しました|완료됐습니다?)\P{L}*$`)
 	promptSuggestionMetaTextRe   = regexp.MustCompile(`(?i)(nothing found|^nothing to suggest|^no suggestion|silence is|stays? silent|staying silent)`)
 	promptSuggestionSilenceRe    = regexp.MustCompile(`(?i)^\W*silence\W*$`)
-	promptSuggestionWrappedRe    = regexp.MustCompile(`^(\(.*\)|\[.*\]|（.*）|【.*】)$`)
+	promptSuggestionWrappedRe    = regexp.MustCompile(`^(\(.*\)|\[.*\]|（.*）|［.*］|【.*】|〔.*〕)$`)
 	promptSuggestionErrorRe      = regexp.MustCompile(`(?i)^(api error:|prompt is too long|request timed out|invalid api key|image was too large)`)
 	promptSuggestionLabelLineRe  = regexp.MustCompile(`^\w+:\s`)
 	promptSuggestionSentencesRe  = regexp.MustCompile(`[.!?]\s+[A-Z]|[。！？]\s*\p{L}`)

@@ -215,6 +215,8 @@ func TestValidatePromptSuggestionRefusesCategories(t *testing.T) {
 		{"Nothing to suggest here", "meta_text"},
 		{"Silence is golden", "meta_text"},
 		{"(nothing here)", "meta_wrapped"},
+		{"［nothing here］", "meta_wrapped"},
+		{"〔nothing here〕", "meta_wrapped"},
 		{"api error: boom", "error_message"},
 		{"Label: run the tests", "prefixed_label"},
 		{"run", "too_few_words"},
