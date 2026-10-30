@@ -1,0 +1,498 @@
+// The shell and the nav rail: the column on a desktop, the top bar on the
+// stacked shell.
+
+@use "../abstracts" as *;
+
+/* Mobile-first shell */
+.shell {
+  height: 100vh;
+  height: 100svh;
+  height: 100dvh;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+  /* Narrow default; overwritten at runtime via NavRail ResizeObserver when column width changes */
+  --rail-shell-track-width: calc(
+    var(--rail-pill-track) + var(--rail-column-pad-end)
+  );
+  /* The width of the docks that open over the chat - the documentation reader
+     and the swarm map - which share one look (issue #401). */
+  --coddy-dock-width: min(
+    1350px,
+    calc(
+      100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 14px
+    )
+  );
+}
+
+.shell-main {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.shell-main > .main {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Nav rail column */
+.rail-column {
+  position: relative;
+  height: 100vh;
+  height: 100dvh;
+  padding: 14px 8px 14px 0;
+  display: flex;
+  justify-content: stretch;
+  min-height: 0;
+  /* Above backdrop (40) so rail stays unscrimmed and clickable while drawers are open;
+     below drawers (50) so panels don't hide behind the rail. */
+  z-index: 45;
+}
+
+.rail-pill {
+  width: 74px;
+  align-self: stretch;
+  border-radius: 999px;
+  padding: 12px 10px;
+  background: var(--nav);
+  border: 1px solid mix-text(8%);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 0;
+  flex: 1;
+  /* Visible so .rail-tip (positioned right of icons) is not clipped. */
+  overflow: visible;
+  transition:
+    width 180ms ease,
+    padding 180ms ease,
+    border-radius 180ms ease;
+}
+
+.rail-pill.is-wide {
+  width: fit-content;
+  max-width: min(320px, calc(100vw - 24px));
+  align-items: flex-start;
+  padding: 14px 10px;
+}
+
+@media (min-width: 761px) {
+  .rail-pill {
+    border-radius: 0 20px 20px 0;
+  }
+
+  .rail-pill:not(.is-wide) {
+    width: 76px;
+  }
+}
+
+.rail-header-wide {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  flex-shrink: 0;
+  align-self: stretch;
+}
+
+.rail-row-toggle {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.rail-toggle-width {
+  box-sizing: border-box;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: mix-text(78%);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.rail-toggle-width:hover {
+  color: var(--accent);
+  border-color: mix-text(6%);
+  background: mix-text(4%);
+}
+
+.rail-tip-host {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.rail-pill.is-wide .rail-tip-host {
+  align-items: stretch;
+}
+
+.rail-middle {
+  flex: 1 1 auto;
+  align-self: stretch;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-height: 0;
+}
+
+.rail-pill.is-wide .rail-middle {
+  align-items: stretch;
+}
+
+@media (min-width: 761px) {
+  .rail-pill:not(.is-wide) .rail-middle {
+    align-items: center;
+  }
+
+  .rail-pill:not(.is-wide) .rail-tip-host {
+    align-self: stretch;
+    width: 100%;
+    max-width: 100%;
+  }
+}
+
+.rail-link-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.rail-pill.is-wide .rail-link-stack {
+  align-items: stretch;
+}
+
+.rail-spacer-between {
+  flex: 1 1 auto;
+  min-height: 16px;
+  width: 100%;
+}
+
+.rail-tip {
+  position: absolute;
+  /*
+    Align left edge with sessions.drawer: .rail-tip-host is only as wide as the hit area when
+    .rail-middle uses align-items center, so 100% is the inner content width (~track - 2*pad).
+    Outer pill right edge matches drawer math (track + pad + gutter). +1px accounts for pill border on the content box edge.
+  */
+  left: calc(
+    100% + var(--rail-pill-pad-inline) + var(--rail-column-pad-end) +
+      var(--nav-floating-gutter) + 1px
+  );
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: var(--coddy-tip-bg);
+  border: 1px solid var(--coddy-tip-border);
+  color: var(--coddy-tip-fg);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+  z-index: 80;
+  box-shadow: var(--coddy-tip-shadow);
+}
+
+.rail-tip-host:hover .rail-tip,
+.rail-tip-host:focus-within .rail-tip {
+  opacity: 1;
+}
+
+.rail-tip-host:has(.is-active) .rail-tip,
+.rail-tip-host:has(.is-active):hover .rail-tip,
+.rail-tip-host:has(.is-active):focus-within .rail-tip {
+  opacity: 0;
+}
+
+.rail-pill.is-wide .rail-tip {
+  display: none;
+}
+
+.rail-hit {
+  border: 1px solid transparent;
+  background: transparent;
+  color: mix-text(82%);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  transition:
+    color 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease;
+}
+
+.rail-nav-hit-wide {
+  display: grid;
+  /* Same track width as .rail-toggle-width so icons stack with collapse control */
+  grid-template-columns: 44px minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: center;
+  justify-items: start;
+  width: 100%;
+  max-width: 100%;
+  min-height: 44px;
+  padding-block: 8px;
+  padding-inline: 0 10px;
+  border-radius: 12px;
+  box-sizing: border-box;
+}
+
+.rail-nav-hit-narrow.rail-hit-icon {
+  padding: 0;
+}
+
+.rail-nav-hit {
+  position: relative;
+}
+
+/* The environment item of the rail (EnvironmentSwitcher.tsx): the host's
+   icon - a laptop for this browser's server, two chevrons for another host -
+   with the reachability dot on its lower right corner, ringed in the rail's
+   ground so it reads over the glyph. */
+.rail-env-icon {
+  position: relative;
+  display: inline-flex;
+  /* The wrapper, not the svg inside it, is what the wide rail's grid places:
+     centred in the icon track like every other item's icon. */
+  justify-self: center;
+}
+
+.rail-env-status {
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 0 0 1.5px var(--coddy-canvas-gradient-top);
+}
+
+/* The icon of History and Scheduler with the active count on its top right
+   corner. The count is placed from the icon in every shape of the rail -
+   icon-only, labelled and the rows of the More menu - never from the row,
+   which in the labelled rail is as wide as its label. */
+.rail-nav-icon {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  /* The wrapper, not the svg inside it, is what the wide rail's grid places:
+     centred in the icon track like every other item's icon. */
+  justify-self: center;
+}
+
+.rail-active-count {
+  position: absolute;
+  top: -11px;
+  right: -11px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--coddy-on-accent-fg);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 1px var(--coddy-canvas-gradient-top);
+}
+
+.rail-nav-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: mix-text(86%);
+  line-height: 1.25;
+  white-space: nowrap;
+  justify-self: start;
+  min-width: 0;
+  transition: color 140ms ease;
+}
+
+/* The environment item names the machine the page runs on (issue #357): a
+   long host name is cut to the rail's width, and the whole of it is in the
+   tooltip. */
+.rail-env-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rail-nav-hit-svg {
+  justify-self: center;
+}
+
+@media (min-width: 761px) {
+  .rail-hit-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+  }
+
+  .rail-hit-link {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+  }
+
+  .rail-nav-hit-wide.rail-hit-icon,
+  .rail-nav-hit-wide.rail-hit-link {
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    min-height: 44px;
+  }
+
+  .rail-hit:hover {
+    color: var(--accent);
+    border-color: transparent;
+    text-shadow: 0 0 18px rgba(147, 51, 234, 0.45);
+  }
+
+  .rail-nav-hit-wide:hover {
+    border-color: mix-text(6%);
+    background: mix-text(4%);
+  }
+
+  .rail-nav-hit-wide:hover .rail-nav-label {
+    color: var(--accent);
+  }
+
+  .rail-hit.is-active {
+    color: var(--accent);
+    border-color: rgba(147, 51, 234, 0.45);
+    box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.12);
+  }
+
+  .rail-nav-hit-wide.is-active {
+    border-color: rgba(147, 51, 234, 0.45);
+    background: rgba(147, 51, 234, 0.08);
+  }
+
+  .rail-nav-hit-wide.is-active .rail-nav-label {
+    color: var(--accent);
+  }
+}
+
+@media (max-width: 1199px) {
+  .rail-tip {
+    display: none;
+  }
+
+  .rail-hit:active {
+    background: mix-text(6%);
+  }
+}
+
+.rail-svg,
+.rail-toggle-svg {
+  display: block;
+  flex-shrink: 0;
+  shape-rendering: geometricPrecision;
+}
+
+.rail-link {
+  color: inherit;
+}
+
+.rail-brand {
+  width: 100%;
+  padding: 8px 6px 4px;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  color: mix-text(90%);
+}
+
+a.rail-brand {
+  text-decoration: none;
+  box-sizing: border-box;
+}
+
+.rail-brand-header {
+  flex: 1 1 auto;
+  flex-shrink: 1;
+  min-width: 0;
+  width: auto;
+  padding: 6px 4px;
+  justify-items: unset;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  text-align: left;
+  overflow: hidden;
+}
+
+.rail-brand-text-header-single {
+  display: inline;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: mix-text(92%);
+  vertical-align: middle;
+}
+
+.rail-brand-header-agent {
+  font-weight: 500;
+  font-size: 12px;
+  opacity: 0.68;
+  color: mix-text(75%);
+}
+
+@media (min-width: 761px) {
+  .rail-pill.is-wide .rail-brand-header {
+    padding-right: 14px;
+  }
+}
+
+.rail-brand-text {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  white-space: normal;
+  line-height: 1.05;
+  text-align: inherit;
+}
+
+.rail-brand-title {
+  font-size: 13px;
+  opacity: 0.92;
+  color: mix-text(92%);
+}
+
+.rail-brand-sub {
+  font-size: 12px;
+  opacity: 0.62;
+  color: mix-text(62%);
+}
+
+.nav-toggle {
+  display: inline-grid;
+}

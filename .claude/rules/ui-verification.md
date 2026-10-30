@@ -13,7 +13,7 @@ Before you tell the user that a UI change is complete or merge-ready:
 3. Run **`browser_evaluate`** to compare **`getBoundingClientRect()`** edges for **`.chat-header`**, **`.messages-inner`** first child, and **`.composer-card`** (left and right should match within about **1px** after shared column padding; a user message keeps to the right, so a first row that is one is compared by its right edge).
 4. If anything is off, fix CSS and re-check before reporting done.
 
-This is required for changes to **`external/ui/src/styles.css`**, **`ChatScreen`**, **`Composer`**, or nav layout.
+This is required for changes to the stylesheet (**`external/ui/src/styles.scss`** and **`styles/`**), **`ChatScreen`**, **`Composer`**, or nav layout.
 
 ## Safari and other WebKit reports
 

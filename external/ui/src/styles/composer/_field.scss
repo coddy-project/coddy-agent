@@ -1,0 +1,444 @@
+// The composer's field: skill chips, the textarea and its mirror, the tabs,
+// the goal mark and the improve-prompt wand.
+
+@use "../abstracts" as *;
+
+.md .coddy-skill-chip {
+  display: inline-flex;
+  align-items: baseline;
+  padding: 0 8px;
+  margin: 0 1px;
+  border-radius: 999px;
+  font-family: var(--coddy-skill-chip-font);
+  font-weight: 600;
+  font-size: 0.88em;
+  color: var(--coddy-skill-chip-text);
+  background: var(--coddy-skill-chip-bg);
+  border: 1px solid var(--coddy-skill-chip-bd);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.composer-wrap-docked .composer-card {
+  position: relative;
+  /* Soft halo above and below the rounded card (follows radius, avoids hard strip on borders) */
+  box-shadow:
+    var(--coddy-glass-panel-shadow),
+    0 12px 34px rgba(0, 0, 0, 0.5),
+    0 -14px 40px rgba(11, 11, 12, 0.38),
+    0 -4px 18px rgba(11, 11, 12, 0.32),
+    0 0 1px rgba(11, 11, 12, 0.2);
+}
+
+textarea#composer::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+[data-theme="light"] textarea#composer::placeholder {
+  color: #52525b;
+}
+
+/* The field follows its text (chat/useComposerFieldHeight.ts): the script sets
+   its height between the floor these rows and this minimum give it and a
+   ceiling of eight lines or 40% of the visible viewport, or, expanded, to the
+   whole chat under its header. No max-height here: a cap in the stylesheet
+   would cut the expanded field short. */
+textarea#composer {
+  resize: none;
+  width: 100%;
+  min-height: 76px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  /* 9px on top puts the middle of the first line (15px type, 1.5 line height)
+     on the middle of the improve-prompt wand in the corner. */
+  padding: 9px 44px 10px 16px;
+  outline: none;
+}
+
+.composer-stack {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+/* The mirror draws the text the masked textarea above it hides, so their
+   text boxes must be the same width to the fraction of a pixel, or the two
+   wrap a line at different words and the caret stands away from the text.
+   The textarea keeps a stable scrollbar gutter; the mirror reserves its own
+   the same way instead of a width measured in script, which offsetWidth and
+   clientWidth round to whole pixels and which goes stale when the page zoom
+   or the screen density changes - a classic scrollbar keeps its device
+   pixels, so it takes 13.6 CSS pixels at 110% and 8.6 at 175%. */
+.composer-mirror {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  scrollbar-gutter: stable;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.composer-mirror-inner {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 9px 44px 10px 16px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  color: var(--text);
+}
+
+textarea#composer.composer-ta-masked {
+  position: relative;
+  z-index: 1;
+  color: transparent;
+  caret-color: var(--text);
+}
+
+@supports (-webkit-text-fill-color: transparent) {
+  textarea#composer.composer-ta-masked {
+    -webkit-text-fill-color: transparent;
+  }
+}
+
+textarea#composer.composer-ta-masked::selection {
+  background: rgba(147, 51, 234, 0.18);
+}
+
+.composer-code-editing {
+  border-radius: 8px;
+  background: mix-text(4%);
+  box-shadow: inset 0 0 0 1px mix-text(12%);
+}
+
+.composer-code-editing .composer-mirror-inner,
+.composer-code-editing textarea#composer {
+  font-family: $coddy-mono-ui;
+}
+
+.msg-user-token {
+  display: inline;
+  margin: 0;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  background: none;
+  cursor: copy;
+}
+
+.msg-user-token--mention,
+.msg-user-body .coddy-skill-chip {
+  border-radius: 4px;
+  color: var(--coddy-skill-chip-text);
+  background: var(--coddy-skill-chip-bg);
+  box-shadow: 0 0 0 1px var(--coddy-skill-chip-bd);
+}
+
+.msg-user-body .coddy-skill-chip {
+  cursor: copy;
+}
+
+.composer-mirror-inner,
+textarea#composer {
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.5;
+  letter-spacing: normal;
+  font-weight: 400;
+  font-style: normal;
+  font-variant-numeric: normal;
+}
+
+/* The improve-prompt wand stands in the field's top right corner rather than in
+   a row of its own, so the field (and its placeholder) starts at the top of the
+   card; the textarea and its mirror keep 44px clear on the right for it. Its
+   right edge is the line git's count on the plate above ends on. 8px under
+   the seam reads as deep as the 12px to the card's edge: the seam is lighter
+   than the edge, and the same 12px above looked deeper. */
+.composer-enhance-btn {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: mix-text(68%);
+  background: var(--coddy-surface-muted);
+  border: 1px solid mix-text(12%);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.composer-enhance-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-surface-muted));
+  border-color: mix-text(30%);
+}
+
+.composer-enhance-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.composer-enhance-icon {
+  display: block;
+  transform-origin: center;
+}
+
+.composer-enhance-icon.is-spinning {
+  animation: session-spin 0.8s linear infinite;
+}
+
+.composer-enhance-err {
+  padding: 0 12px 8px;
+  color: rgba(251, 113, 133, 0.95);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* Match textarea glyph metrics only: no extra horizontal padding/border (those widen the mirror vs the field and shift the caret). */
+.composer-skill-chip-inline,
+.composer-at-chip-inline {
+  display: inline;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 4px;
+  font-family: inherit;
+  font-weight: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  vertical-align: baseline;
+  color: var(--coddy-skill-chip-text);
+  background: var(--coddy-skill-chip-bg);
+  box-shadow: 0 0 0 1px var(--coddy-skill-chip-bd);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.composer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid mix-text(8%);
+}
+
+.composer-tabs {
+  display: flex;
+  gap: 10px;
+  /* Lets the turn-overrides line give way on a narrow shell instead of
+     running past the card; the selector chips keep their size. */
+  min-width: 0;
+}
+
+.composer-tabs > .mode {
+  flex: none;
+}
+
+.mode {
+  position: relative;
+}
+
+.composer-tab {
+  color: mix-text(75%);
+  background: var(--coddy-surface-muted);
+  border: 1px solid mix-text(12%);
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.composer-tab.mode-btn {
+  text-transform: none;
+}
+
+.composer-tab.mode-agent {
+  border-color: mix-text(18%);
+}
+
+.composer-tab.mode-plan {
+  border-color: rgba(249, 115, 22, 0.65);
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.12);
+}
+
+.composer-tab.mode-ask {
+  border-color: rgba(34, 197, 94, 0.65);
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
+}
+
+.composer-tab.mode-llm {
+  border-color: rgba(147, 51, 234, 0.35);
+}
+
+/* The permission chip (#292). Ask is the quiet default; a session that no
+   longer asks says so from the composer, bypass in the danger tone. */
+.composer-tab.mode-permission.perm-accept_edits {
+  border-color: rgba(234, 179, 8, 0.6);
+}
+
+.composer-tab.mode-permission.perm-bypass,
+.mode-item.perm-item.perm-bypass {
+  color: #b91c1c;
+}
+
+.composer-tab.mode-permission.perm-bypass {
+  border-color: rgba(239, 68, 68, 0.7);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.14);
+}
+
+html:not([data-theme="light"]) .composer-tab.mode-permission.perm-bypass,
+html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
+  color: #f87171;
+}
+
+/* What --once / --count=N changed for the next turns, next to the selectors. */
+.composer-overrides {
+  align-self: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 240px;
+  overflow: hidden;
+  font-size: 11px;
+  color: mix-text(62%);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Session goal (DESIGN.md, Session goal): one tone per status, from the
+   theme's own tokens - the accent while the supervisor works, the muted text
+   while it waits on a pause or a spent budget, the danger tone when it needs
+   the operator (there is no per-theme warning token), the done green of the
+   todo list once the goal is met. */
+.goal-tone-active {
+  --goal-tone: var(--accent);
+}
+
+.goal-tone-muted {
+  --goal-tone: var(--muted);
+}
+
+.goal-tone-alert {
+  --goal-tone: var(--coddy-danger);
+}
+
+.goal-tone-done {
+  --goal-tone: var(--coddy-todo-completed);
+}
+
+/* The goal mark: the target in the status's tone on the plate over the card,
+   left of git's count, a 24px button: the improve-prompt wand's size, so
+   the two read as a pair. Its tip is the context ring's: the
+   status, then the objective, above the mark. */
+.composer-goal-tip-host {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+}
+
+.composer-goal {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--goal-tone);
+  cursor: pointer;
+}
+
+.composer-goal:hover,
+.composer-goal[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.composer-goal:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.35);
+}
+
+.composer-goal-icon {
+  flex: none;
+}
+
+/* On the plate the mark goes to the right edge, and git's count, when there
+   is one, follows it 8px away instead of taking the free room itself. */
+.workspace-bar > .composer-goal-tip-host {
+  flex: none;
+  margin-left: auto;
+  /* The 24px mark takes no more height than the plate's 22px row had. */
+  margin-block: -1px;
+}
+
+.workspace-bar > .composer-goal-tip-host + .workspace-bar-edits {
+  margin-left: -6px;
+}
+
+/* Near the plate's right edge the tip ends at the mark instead of centring
+   on it, so it stays over the card. */
+.workspace-bar .composer-goal-tip-host .composer-goal-tip.rail-tip {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+@media (hover: hover) {
+  .composer-goal-tip-host:hover .rail-tip {
+    opacity: 1;
+  }
+}
+
+.composer-goal:focus-visible + .rail-tip {
+  opacity: 1;
+}
+
+.composer-goal-tip-host .composer-goal-tip.rail-tip {
+  left: 50%;
+  right: auto;
+  top: auto;
+  bottom: calc(100% + 12px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  white-space: normal;
+  width: max-content;
+  min-width: 180px;
+  max-width: min(320px, calc(100vw - 32px));
+  padding: 10px 14px;
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+  box-shadow: var(--coddy-tip-shadow);
+}
+
+.composer-goal-tip-status {
+  color: var(--goal-tone);
+  font-weight: 600;
+}
+
+.composer-goal-tip-objective {
+  overflow-wrap: anywhere;
+}

@@ -1,0 +1,370 @@
+// The Skills tab: installed skills and the marketplaces.
+
+@use "../abstracts" as *;
+
+/* Installed skills list (folded into the Skills tab) */
+.settings-skills-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-skills-installed-label {
+  margin-top: 4px;
+}
+
+.skills-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Installed skills stack with no rule between them, like every list of the
+   drawer: the rows' own padding is the rhythm. */
+.skills-list-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+/* Dim the name of a disabled skill but keep its on/off switch crisp. The
+   switch leads the row, where an icon used to stand. */
+.skills-list-item.is-disabled .skills-list-item-text {
+  opacity: 0.5;
+}
+
+.skills-list-item-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.skills-list-item-name {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.skills-list-item-desc {
+  font-size: 0.78rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Theme-aware on/off switch for enabling/disabling a skill. Sized to sit level
+   with the 40px icon buttons (Update / Delete) in the same row. */
+.skill-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 28%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 6%, transparent);
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.skill-switch[aria-checked="true"] {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.skill-switch:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.skill-switch:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.skill-switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  transition: transform 0.18s cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+
+.skill-switch[aria-checked="true"] .skill-switch-thumb {
+  transform: translateX(16px);
+}
+
+.skills-list-item-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+  color: var(--muted);
+  background: mix-text(10%);
+}
+
+/* Version tag next to a skill name (monospace so semver reads cleanly). */
+.skills-list-item-version {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+  color: var(--muted);
+}
+
+/* Per-skill Update action (icon + label), only shown when an update exists. */
+/* Per-skill icon actions (Update / Delete) keep their square icon-button size
+   from .settings-btn-icon; only the flex placement is set here. */
+.skills-update-btn {
+  flex: 0 0 auto;
+}
+
+/* "Installed skills" heading row with the Refresh action on the right. */
+/* Footer of the Marketplaces box: the add form; the check of every row is
+   the refresh icon of the legend. */
+.skills-sources-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* The add form: the address grows, the scope picker and Add keep their
+   size. */
+.skills-marketplace-add {
+  display: flex;
+  flex: 1 1 320px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.skills-marketplace-add > .settings-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  min-height: 40px;
+}
+
+.skills-marketplace-add > .skills-marketplace-scope {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.skills-marketplace-add > button {
+  flex: 0 0 auto;
+}
+
+/* A fieldset is as wide as its min-content unless told otherwise, and the
+   add form and the long addresses of this box would widen it past the panel
+   on a phone. */
+.skills-marketplaces-box {
+  min-inline-size: 0;
+  max-width: 100%;
+}
+
+/* The marketplaces list: one row per declared source or marketplace, laid
+   out like an MCP server row (text, then the 40px icon controls). */
+.skills-marketplaces {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.skills-marketplace-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.skills-marketplace-head > button {
+  flex: 0 0 auto;
+}
+
+.skills-marketplace-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.skills-marketplace-key {
+  font-family: var(--mono, ui-monospace, monospace);
+  overflow-wrap: anywhere;
+}
+
+.skills-marketplace-source {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.74rem;
+  overflow-wrap: anywhere;
+}
+
+/* A project entry the trust gate holds back reads dimmed, its shield amber
+   (.settings-btn-approve) and the note under it says why. */
+.skills-marketplace.is-held .skills-marketplace-text {
+  opacity: 0.65;
+}
+
+.skills-marketplace-note {
+  margin: 0 0 6px;
+  font-size: 0.78rem;
+  color: color-mix(in srgb, var(--text) 72%, transparent);
+  overflow-wrap: anywhere;
+}
+
+/* Update all: under the install search of the installed list, at its right
+   edge, there only while a check found newer versions. */
+.skills-update-all {
+  display: flex;
+  justify-content: flex-end;
+  margin: 8px 0 0;
+}
+
+.skills-update-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.skills-update-all-btn > svg {
+  flex-shrink: 0;
+}
+
+/* Full-width source input in the Remote skill sources editor (the field flexes,
+   but a bare <input> is content-width unless told to fill). */
+.settings-array-row-field > .settings-input {
+  width: 100%;
+}
+
+/* Inputs in array rows (dirs / sources) match the 40px icon buttons beside
+   them, so field and buttons line up instead of the input sitting short. */
+.settings-array-row .settings-input {
+  box-sizing: border-box;
+  min-height: 40px;
+}
+
+/* Trailing action buttons in a skill row never shrink, so the Update / switch /
+   Delete controls keep a consistent size regardless of description length. */
+.skills-list-item > button {
+  flex: 0 0 auto;
+}
+
+/* Briefly flash a just-installed skill so it's easy to spot after the list
+   re-sorts alphabetically (it may otherwise land far below the fold). */
+.skills-list-item.is-just-installed {
+  border-radius: 8px;
+  animation: skills-just-installed 2.4s ease-out;
+}
+
+@keyframes skills-just-installed {
+  0%,
+  35% {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* Transient success state on a Sync button (checkmark flash after a sync). */
+.settings-btn.is-synced {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* A <fieldset> defaults to min-inline-size: min-content, so a skill row with a
+   long nowrap description would widen the box past its container and force a
+   horizontal scrollbar. Let the box shrink so descriptions ellipsize instead. */
+.skills-installed-box {
+  min-inline-size: 0;
+}
+
+/* Install control at the top of the Installed skills box: a filter input over a
+   floating dropdown of installable marketplace plugins, each with a
+   Download/install. The results float (absolute) so they never reflow the
+   installed list beneath them. */
+.skills-install {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.skills-install-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 40px;
+}
+
+.skills-install-results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: var(--coddy-glass-panel-radius);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+}
+
+.skills-install-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.skills-install-result:hover {
+  background: mix-text(7%);
+}
+
+.skills-install-result-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.skills-install-result > button {
+  flex: 0 0 auto;
+}
+
+.skills-install-empty {
+  padding: 8px;
+}
+
+/* MCP servers tab (Cursor-style server list with per-tool switches). Reuses
+   the skills list typography (.skills-list-item-name/-desc/-badge) so the two
+   management tabs stay visually consistent. */
+.settings-mcp-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}

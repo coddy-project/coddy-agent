@@ -1,0 +1,624 @@
+// Pictures in rendered Markdown, the documentation reader and the search
+// results it shares with Settings.
+
+@use "../abstracts" as *;
+
+/* ---- Images in rendered Markdown ---- */
+
+/* A screenshot of the documentation is wider than the column it is read in. */
+.md img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+
+/* ---- Documentation reader (ui/docs/DocsView.tsx) ---- */
+
+/* The same glass dock the swarm screen sits in, but a sheet rather than a
+   floor: it grows no wider than its three columns (240 + 780 + 210, two 32px
+   gaps, 28px either side = 1350px) and stays centred in the space right of
+   the rail, so a wide window neither frames the page in empty glass nor
+   pushes the outline away from the text. The sheet itself does not scroll:
+   its body under the header does (.docs-body). */
+.docs-dock-cluster {
+  position: fixed;
+  top: 14px;
+  bottom: 14px;
+  left: calc(var(--rail-shell-track-width) + var(--nav-floating-gutter));
+  right: 14px;
+  width: var(--coddy-dock-width);
+  margin-inline: auto;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+}
+
+.docs-view {
+  --docs-inline: 28px;
+  --docs-top: 18px;
+  --docs-bottom: 40px;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  color: var(--text);
+}
+
+/* The header is laid on the columns of the page - the same three tracks as
+   .docs-layout: the title over the contents, the search over the text, the
+   actions over the outline. With a column of its own for the actions (as wide
+   as their content), the search ran on into the outline's column. It does not
+   scroll: the page scrolls in the body under it, so the scrollbar starts below
+   the search, not beside it. Its insets are the same on both sides, as in
+   every other panel head: the close button stands as far from the right edge
+   as the title from the left. The body gives a classic scrollbar's width
+   (--docs-scrollbar, measured by DocsView) out of its own right padding, so
+   the scrollbar stands in the margin and the two sets of columns stay one. */
+.docs-header {
+  flex: none;
+  position: relative;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: $docs-columns;
+  grid-template-areas: "title search actions";
+  column-gap: 32px;
+  align-items: center;
+  padding: 14px var(--docs-inline) 12px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  border-bottom: 1px solid mix-text(6%);
+}
+
+.docs-title-block {
+  grid-area: title;
+  min-width: 0;
+}
+
+/* Spelled like the head of every other panel (.sessions-head: History,
+   Scheduler, Tasks): small capitals in a 72% text tint. */
+.docs-title {
+  margin: 0;
+  color: mix-text(72%);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.docs-subtitle {
+  margin: 2px 0 0;
+  color: mix-text(52%);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+/* The search sits over the text column and is as wide as the text. */
+.docs-header-search {
+  grid-area: search;
+  position: relative;
+  width: 100%;
+  max-width: 780px;
+}
+
+.docs-header-actions {
+  grid-area: actions;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* A pill, the accent's own action: it starts a conversation. As tall as the
+   close control beside it (.sessions-close, 30px). */
+.docs-ask {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.docs-ask:hover,
+.docs-ask:focus-visible {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+.docs-ask:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.docs-error {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--coddy-surface-muted);
+  border: 1px solid var(--coddy-glass-panel-border);
+  color: color-mix(in srgb, var(--diff-del-no) 70%, var(--text));
+  font-size: 13px;
+}
+
+/* What scrolls: everything under the header. A size container, so the
+   sticky contents and outline can be as tall as the scrollport (100cqh)
+   whatever height the header takes. */
+.docs-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  /* The scrollbar's room is kept from the first frame, so the text does not
+     move when a page grows tall enough to scroll. The scrollbar stands in the
+     right margin: the padding there gives up its width, and the text ends as
+     far from the right edge as it starts from the left, under the header's
+     columns. */
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  container-type: size;
+  padding: 0 max(0px, calc(var(--docs-inline) - var(--docs-scrollbar, 0px))) 0
+    var(--docs-inline);
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+.docs-body > .docs-error {
+  margin-top: var(--docs-top);
+}
+
+/* Contents, page, and the sections of the page: the page column keeps a
+   reading measure, the two sides take what is left. */
+.docs-layout {
+  box-sizing: border-box;
+  padding: var(--docs-top) 0 var(--docs-bottom);
+  display: grid;
+  grid-template-columns: $docs-columns;
+  gap: 32px;
+  align-items: start;
+}
+
+/* The padding keeps the focus ring of a page inside the scrolling column
+   instead of clipped by it. */
+.docs-sidebar {
+  padding: 3px 6px 3px 3px;
+  margin: -3px -6px -3px -3px;
+}
+
+.docs-sidebar,
+.docs-outline {
+  position: sticky;
+  top: var(--docs-top);
+  max-height: calc(100vh - 140px);
+  max-height: calc(100cqh - 2 * var(--docs-top));
+  overflow: auto;
+  font-size: 13px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 20%, transparent) transparent;
+}
+
+.docs-sidebar::-webkit-scrollbar,
+.docs-outline::-webkit-scrollbar,
+.docs-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.docs-sidebar::-webkit-scrollbar-thumb,
+.docs-outline::-webkit-scrollbar-thumb,
+.docs-body::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 20%, transparent);
+  border-radius: 999px;
+}
+
+/* The field of the swarm screen's search, with the "/" that focuses it. The
+   settings search field shares it. */
+.docs-search,
+.settings-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--coddy-surface-field);
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 8px 36px 8px 12px;
+  font: inherit;
+  font-size: 14px;
+}
+
+.docs-search:focus-visible,
+.settings-search-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.docs-search-kbd,
+.settings-search-kbd {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  min-width: 18px;
+  padding: 1px 5px;
+  box-sizing: border-box;
+  border-radius: 5px;
+  border: 1px solid mix-text(16%);
+  color: mix-text(52%);
+  font: 11px/1.4 $coddy-mono-ui;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* The results hang under the field, in the menus' glass. */
+.docs-search-results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: min(62vh, 560px);
+  overflow: auto;
+  padding: 6px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  /* Opaque: the header around it already blurs, and a blur nested in a blur
+     sees nothing behind it, so a tinted glass here lets the page show
+     through. The canvas colour with a faint text tint on top instead. */
+  background:
+    linear-gradient(
+      color-mix(in srgb, var(--text) 5%, transparent),
+      color-mix(in srgb, var(--text) 5%, transparent)
+    ),
+    var(--bg);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  scrollbar-width: thin;
+}
+
+.docs-search-results .docs-empty {
+  margin: 6px 8px;
+}
+
+.docs-toc-toggle {
+  display: none;
+}
+
+.docs-toc-group + .docs-toc-group {
+  margin-top: 16px;
+}
+
+.docs-toc-group-title,
+.docs-outline-title {
+  margin: 0 0 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: mix-text(52%);
+}
+
+.docs-toc ul,
+.docs-outline ul,
+.docs-hits,
+.settings-hits {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* The pages of a group sit to the right of its title (12px past the 10px the
+   title is set in), so the title reads as the heading of the list under it
+   and not as one more page of it. */
+.docs-toc-group > ul {
+  padding-left: 12px;
+}
+
+/* A page of the contents reads like a Settings tab: the same radius, tint
+   and accent frame for the one being read. */
+.docs-toc-page {
+  display: block;
+  padding: 5px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: mix-text(78%);
+  text-decoration: none;
+  line-height: 1.35;
+}
+
+.docs-toc-page:hover:not(.is-active) {
+  background: mix-text(6%);
+  color: var(--text);
+}
+
+.docs-toc-page.is-active {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.docs-toc-page:focus-visible,
+.docs-outline a:focus-visible,
+.docs-hit:focus-visible,
+.settings-hit:focus-visible,
+.docs-pager-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The fold the outline turns into on a narrow stacked shell; the desktop
+   and a wide tablet show the outline itself. */
+.docs-outline-toggle {
+  display: none;
+}
+
+/* On this page: a thin rule on the left, the section being read on it. */
+.docs-outline ul {
+  gap: 0;
+  border-left: 1px solid mix-text(10%);
+}
+
+.docs-outline a {
+  display: block;
+  margin-left: -1px;
+  padding: 4px 10px;
+  border-left: 2px solid transparent;
+  color: mix-text(62%);
+  text-decoration: none;
+  line-height: 1.35;
+}
+
+.docs-outline a:hover {
+  color: var(--text);
+}
+
+.docs-outline-l3 a {
+  padding-left: 22px;
+  font-size: 12px;
+}
+
+.docs-outline a.is-active {
+  color: var(--text);
+  border-left-color: var(--accent);
+}
+
+.docs-hit,
+.settings-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.docs-hit:hover,
+.settings-hit:hover {
+  background: mix-text(6%);
+}
+
+.docs-hit.is-selected,
+.settings-hit.is-selected {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+.docs-hit-title,
+.settings-hit-title {
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.docs-hit-heading {
+  font-weight: 400;
+  color: mix-text(68%);
+}
+
+.docs-hit-snippet,
+.settings-hit-where,
+.settings-hit-desc {
+  font-size: 12px;
+  line-height: 1.45;
+  color: mix-text(58%);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.docs-hit-snippet mark,
+.settings-hit mark {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  color: var(--text);
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.docs-empty,
+.settings-search-empty {
+  margin: 0 0 0 10px;
+  font-size: 13px;
+  color: mix-text(58%);
+}
+
+/* The settings search reuses the documentation search's field and result rows. */
+.settings-search-box {
+  position: relative;
+}
+
+.settings-nav-search {
+  flex: 0 0 auto;
+  padding: 8px 8px 0;
+}
+
+.settings-hit {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-hit-title,
+.settings-hit-key {
+  overflow-wrap: anywhere;
+}
+
+/* Where the setting is, then its config key on a line of its own: plain lines,
+   not the clamped snippet of the documentation hit. */
+.settings-hit-where {
+  display: block;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+
+.settings-hit-key {
+  display: block;
+  font: 11.5px/1.4 $coddy-mono-ui;
+}
+
+.settings-hit-desc {
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.settings-search-more {
+  margin: 6px 10px 0;
+  font-size: 12px;
+  color: mix-text(58%);
+}
+
+/* A result row is at least 44px tall under a finger. */
+@media (any-hover: none) and (any-pointer: coarse) {
+  .settings-hit {
+    min-height: 44px;
+  }
+}
+
+.docs-article {
+  min-width: 0;
+  max-width: 780px;
+  padding-top: 4px;
+}
+
+/* The page on screen while the next one loads. */
+.docs-article.is-loading {
+  opacity: 0.55;
+  transition: opacity 0.15s;
+}
+
+.docs-ask:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.docs-breadcrumb {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: mix-text(55%);
+}
+
+.docs-site-link {
+  flex: 0 0 auto;
+  color: inherit;
+  text-decoration: none;
+}
+
+.docs-site-link:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+/* Reading, not chatting: a larger body, air between blocks, headings that
+   divide the page. Scoped here so the transcript keeps its own density. */
+.docs-article .md {
+  font-size: 15px;
+  line-height: 1.68;
+}
+
+.docs-article .md :where(p + p) {
+  margin-top: 12px;
+}
+
+.docs-article .md :where(p, ul, ol, .md-code, .md-table-scroll, blockquote) {
+  margin-bottom: 14px;
+}
+
+.docs-article .md :where(h1) {
+  margin: 4px 0 16px;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.docs-article .md :where(h2) {
+  margin: 36px 0 12px;
+  padding-bottom: 8px;
+  font-size: 20px;
+  font-weight: 600;
+  border-bottom: 1px solid mix-text(9%);
+}
+
+.docs-article .md :where(h3) {
+  margin: 28px 0 10px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.docs-article .md :where(h4) {
+  margin: 22px 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.docs-article .md :where(a) {
+  color: color-mix(in srgb, var(--accent) 72%, var(--text));
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  text-underline-offset: 2px;
+}
+
+.docs-article .md :where(a:hover) {
+  text-decoration-color: currentColor;
+}
+
+.docs-article .md img {
+  display: block;
+  margin: 14px 0 6px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  cursor: zoom-in;
+}
+
+/* A recording of the documentation, fetched from GitHub when it plays. */
+.md video.md-video {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 14px 0 6px;
+  border-radius: 10px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: #000;
+}

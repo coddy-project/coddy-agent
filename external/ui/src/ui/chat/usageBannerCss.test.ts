@@ -1,12 +1,7 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
-const css = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
-  "utf8",
-);
+const css = stylesSource();
 
 function rule(selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -31,6 +26,16 @@ const THEMES = [
   "rose-pine",
 ];
 
+/** The declarations of one theme's block. */
+function themeBody(theme: string): string {
+  const m = new RegExp(
+    `\\[data-theme="${theme}"\\][^{]*\\{([^}]*)\\}`,
+    "s",
+  ).exec(css);
+  expect(m, theme).not.toBeNull();
+  return m![1]!;
+}
+
 // The banner stands in .chat-bottom, over the transcript that scrolls under
 // the docked composer, so a translucent plate lets the chat read through the
 // notice. Its tint is mixed into the theme's canvas colour instead, which is
@@ -47,12 +52,7 @@ test.each([".usage-banner", ".usage-banner--error"])(
 
 test("every theme's canvas colour is opaque, so the banner mixed into it is too", () => {
   for (const theme of THEMES) {
-    const block = new RegExp(
-      `\\[data-theme="${theme}"\\][^{]*\\{([^}]*)\\}`,
-      "s",
-    ).exec(css);
-    expect(block, theme).not.toBeNull();
-    const bg = /(?:^|[;\s])--bg:\s*([^;]+);/.exec(block![1]!);
+    const bg = /(?:^|[;\s])--bg:\s*([^;]+);/.exec(themeBody(theme));
     expect(bg?.[1]?.trim(), `${theme} --bg`).toMatch(/^#[0-9a-f]{6}$/i);
   }
 });
@@ -72,10 +72,6 @@ test("the banner names only tokens the themes define", () => {
 // --coddy-blend-base, which every theme has to define for it to paint.
 test("every theme defines the blend base the hover wash is mixed into", () => {
   for (const theme of THEMES) {
-    const block = new RegExp(
-      `\\[data-theme="${theme}"\\][^{]*\\{([^}]*)\\}`,
-      "s",
-    ).exec(css);
-    expect(block?.[1], theme).toMatch(/--coddy-blend-base:\s*[^;]+;/);
+    expect(themeBody(theme), theme).toMatch(/--coddy-blend-base:\s*[^;]+;/);
   }
 });

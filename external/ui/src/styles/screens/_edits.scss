@@ -1,0 +1,343 @@
+// The edits window and its diffs (.dv-*).
+
+@use "../abstracts" as *;
+
+/* ---------------------------------------------------------------------------
+   Edits window (EditsView.tsx) - every changed file's diff in one scrollable
+   document, in the frame, head and tree of the Files window (.files-*). What
+   is its own: the totals under the title, git's letter beside a file of the
+   tree, and the diffs (.dv-*).
+   Chromium 104 baseline: no :has(), no @container, marker classes instead.
+   --------------------------------------------------------------------------- */
+
+/* The folder, then git's count of the edits, on the subtitle line. Where
+   the line is short (a phone gives it 40% of the width) the folder's name
+   takes the ellipsis and the count stays whole. */
+.edits-window .files-subtitle {
+  display: flex;
+  align-items: baseline;
+}
+
+.edits-folder {
+  min-width: 0;
+  margin-right: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.edits-totals {
+  flex: none;
+  display: inline-flex;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Git's short status at the right end of a file's row: A, M or D. */
+.edits-tree-status {
+  flex: none;
+  margin-left: auto;
+  padding-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: mix-text(55%);
+}
+
+.edits-tree-status--added {
+  color: var(--diff-add-no);
+}
+
+.edits-tree-status--deleted {
+  color: var(--diff-del-no);
+}
+
+/* A menu item that destroys work reads in the colour of a deletion. */
+.files-menu-item--danger:not(:disabled) {
+  color: var(--diff-del-no);
+}
+
+/* Icon buttons of a file's head in the diffs. */
+.dv-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  color: mix-text(66%);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.dv-icon-btn:hover {
+  background: mix-text(8%);
+  color: var(--text);
+}
+
+.dv-icon-btn--danger:hover:not(:disabled) {
+  color: var(--diff-del-no);
+}
+
+.dv-icon-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* The diffs keep from the edges of their column what the tree's column keeps
+   (the filter's 10px), and the files stand as far apart. */
+.dv-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+/* It takes the focus as the window opens, for the keys that scroll it; the
+   frame around the window already says where the focus is. */
+.dv-scroll:focus {
+  outline: none;
+}
+
+/* Notices ------------------------------------------------------------------- */
+
+.dv-note {
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: mix-text(62%);
+}
+
+.dv-note--error {
+  color: var(--coddy-danger, #e5534b);
+}
+
+.dv-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+  padding: 9px 12px;
+  font-size: 12px;
+  color: mix-text(74%);
+  border: 1px solid mix-text(12%);
+  border-radius: 10px;
+  background: mix-text(4%);
+}
+
+/* One file ------------------------------------------------------------------ */
+
+.dv-file {
+  margin-bottom: 10px;
+  border: 1px solid mix-text(11%);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+/* The card's 1px border, then 33px with the head's own line: as tall as the
+   filter beside it, the card starting where the filter does. */
+.dv-file-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  box-sizing: border-box;
+  height: 33px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 4px;
+  background: mix-text(5%);
+  border-bottom: 1px solid mix-text(10%);
+}
+
+.dv-file-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 2px 4px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.dv-file-badge {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: mix-text(34%);
+}
+
+.dv-file-badge--added {
+  background: var(--diff-add-no);
+}
+
+.dv-file-badge--deleted {
+  background: var(--diff-del-no);
+}
+
+.dv-file-path {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  font-size: 12.5px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.dv-file-dir {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: mix-text(46%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dv-file-name {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+.dv-file-stat {
+  display: inline-flex;
+  gap: 7px;
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dv-file-stat--binary {
+  color: mix-text(46%);
+}
+
+/* Copy and discard, always in sight, between the name and git's counts,
+   which close the row at its right end. */
+.dv-file-actions {
+  display: inline-flex;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.dv-file-body {
+  overflow-x: auto;
+}
+
+/* Diff rows ----------------------------------------------------------------- */
+
+.dv-diff {
+  display: flex;
+  flex-direction: column;
+  min-width: max-content;
+  font-family: $coddy-mono-ui;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.dv-line {
+  display: flex;
+  align-items: baseline;
+}
+
+.dv-line--add {
+  background: var(--diff-add-bg);
+}
+
+.dv-line--del {
+  background: var(--diff-del-bg);
+}
+
+/* Every number cell of a file is as wide as its widest number, never as its
+   own: --dv-num-digits comes with the diff (lineNumberDigits), and the content
+   box holds that many digits of the monospace stack. A cell sized by its
+   number put the code of a removal or an addition (one cell blank) and of a
+   row of shorter numbers a few pixels left of the context around it. */
+.dv-num {
+  flex: 0 0 auto;
+  width: calc(var(--dv-num-digits) * 1ch);
+  padding: 0 6px;
+  text-align: right;
+  font-size: 11px;
+  color: mix-text(28%);
+  user-select: none;
+  box-sizing: content-box;
+}
+
+.dv-line--add .dv-num {
+  color: var(--diff-add-no);
+}
+
+.dv-line--del .dv-num {
+  color: var(--diff-del-no);
+}
+
+.dv-code {
+  flex: 1 1 auto;
+  padding: 0 10px 0 6px;
+  white-space: pre;
+}
+
+/* The jump between hunks. Deliberately wordless: the reference UI writes
+   "N unmodified lines" here, which is a number the reader cannot act on. */
+.dv-gap {
+  height: 10px;
+  border-top: 1px dashed mix-text(16%);
+  border-bottom: 1px dashed mix-text(16%);
+  background: mix-text(3%);
+}
+
+/* Unified scrolls sideways the way a terminal diff does. Split cannot: a long
+   line would paint over the other column, so inside a column it wraps instead.
+   The pair stays one flex row, so the two sides stay level however tall it gets. */
+.dv-diff--split {
+  min-width: 0;
+}
+
+.dv-diff--split .dv-code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.dv-split-row {
+  display: flex;
+  align-items: stretch;
+}
+
+.dv-side {
+  display: flex;
+  align-items: baseline;
+  flex: 1 1 50%;
+  min-width: 0;
+  overflow: hidden;
+  border-right: 1px solid mix-text(8%);
+}
+
+.dv-side--add {
+  background: var(--diff-add-bg);
+}
+
+.dv-side--del {
+  background: var(--diff-del-bg);
+}
+
+.dv-side--empty {
+  background: mix-text(4%);
+}
+
+.dv-side--add .dv-num {
+  color: var(--diff-add-no);
+}
+
+.dv-side--del .dv-num {
+  color: var(--diff-del-no);
+}

@@ -1,17 +1,10 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
 import { PHONE_MAX_WIDTH_PX } from "../shellBreakpoint";
-
-const cssPath = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../styles.css",
-);
+import { stylesSource } from "../../stylesSource";
 
 function cssText(): string {
-  return readFileSync(cssPath, "utf8");
+  return stylesSource();
 }
 
 test("patch previews expose a stable, readable line-number gutter", () => {
