@@ -121,6 +121,9 @@ func TestWebUIPhoneFeature(t *testing.T) {
 			sc.Step(`^the shared image, canvas and swarm zoom controls stay compact at every viewport$`, func() error {
 				return runVitestScenario("src/ui/docs/docsReaderCss.test.ts", "shared zoom controls stay compact at every viewport")
 			})
+			sc.Step(`^the swarm layout buttons keep the zoom button height at every viewport$`, func() error {
+				return runVitestScenario("src/ui/swarm/swarmGraphCss.test.ts", "swarm graph canvas sizing layout buttons keep the zoom button height at every viewport")
+			})
 			sc.Step(`^a long link or identifier in an answer breaks instead of widening the page$`, func() error {
 				if err := runVitestScenario(wrap, "an answer never widens the transcript a long link or word in the prose breaks where it has to"); err != nil {
 					return err

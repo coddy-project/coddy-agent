@@ -1456,8 +1456,8 @@ is the screen: there is no list of nodes under it, because everything the list d
   across both axes even in the fitted view, and a two-finger pinch zooms around the pinch midpoint;
   a drag or pinch never also enters a node. When the canvas has focus, **`+`** / **`=`** zoom in,
   **`-`** zooms out and **`0`** fits. Zoom never goes below the fitted view or above three times
-  that scale, and panning remains clamped so the graph cannot vanish completely. The controls are
-  **40px** touch targets on the stacked shell. A polling update fits an untouched graph to its new
+  that scale, and panning remains clamped so the graph cannot vanish completely. The Tree/Graph buttons match the zoom controls' **28px** height at every viewport width;
+  their width stays **40px** on the stacked shell. A polling update fits an untouched graph to its new
   bounds, but preserves a manually panned or zoomed camera (clamping it only if the bounds moved);
   Fit explicitly resets that manual view.
 - **Search, not filter.** The box goes to the relay, which fans out, so a query reaches machines

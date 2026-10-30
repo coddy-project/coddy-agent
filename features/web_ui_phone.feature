@@ -52,6 +52,7 @@ Feature: The web UI on a phone
 
   Scenario: Zoom controls remain compact on a phone
     Then the shared image, canvas and swarm zoom controls stay compact at every viewport
+    And the swarm layout buttons keep the zoom button height at every viewport
 
   Scenario: The running task count fits the phone's live line
     Then on a phone the live line shows a short plural task count and still opens the Tasks panel

@@ -2011,9 +2011,9 @@ Guide: `docs/operate/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
   or Graph is browser-only state in localStorage key `coddy_swarm_layout`; a
   saved legacy `star` value migrates to Graph, and an absent, blocked or invalid
   value selects Tree. No server configuration changes.
-- The map starts fitted. Its Tree/Graph selector and its zoom controls -
+- The map starts fitted. The buttons of its Tree/Graph selector and zoom controls -
   **Zoom out**, the level and **Zoom in**, the same controls as the picture
-  viewer's and a `.canvas` board's - use 28px square buttons at every width; the level shows the zoom as a percentage once the operator zooms or pans,
+  viewer's and a `.canvas` board's - have a 28px height at every viewport width; the level shows the zoom as a percentage once the operator zooms or pans,
   the fit glyph while the map is fitted, and a click on it fits the graph. Wheel zoom follows the pointer, drag pans in both axes even when fitted,
   two-finger pinch zooms, and drag/pinch gestures do not open nodes. When
   focused, **`+`** / **`=`**, **`-`** and **`0`** zoom in, zoom out and fit. Fit,
@@ -2022,6 +2022,10 @@ Guide: `docs/operate/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
   changed bounds.
 - Built with `-tags "swarm ui"` the relay serves this SPA at its own address;
   without the `ui` tag its root explains how to rebuild.
+
+![Swarm layout and zoom buttons at 390 px](../assets/web-ui/swarm-layout-controls-compact-dark-390.png)
+
+*Layout and zoom buttons have the same height.*
 
 ## Documentation screen
 
