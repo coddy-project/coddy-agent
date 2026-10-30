@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, startTransition } from "react";
 
 import { PermissionToolPreview } from "./PermissionPromptPreview";
+import { ExtensionPermissionPreview } from "../extensions/ExtensionPermissionPreview";
 import {
   buildPermissionToolPreview,
   type PermissionToolCallContext,
@@ -94,6 +95,7 @@ export function PermissionPromptSection(props: PermissionPromptSectionProps) {
           </code>
         </div>
         <PermissionToolPreview preview={preview} />
+        <ExtensionPermissionPreview payload={payload} />
         <div className="permission-prompt-actions">
           {payload.options.map((opt) => {
             const isReject = opt.optionId === "reject";

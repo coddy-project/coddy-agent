@@ -14,6 +14,7 @@ export const SESSION_PREF_COOKIES = {
   status: "coddy_sessions_status",
   origin: "coddy_sessions_origin",
   sort: "coddy_sessions_sort",
+  project: "coddy_sessions_project",
 } as const;
 
 export type SessionPrefCookie =

@@ -29,17 +29,38 @@ var ErrInvalid = errors.New("invalid extension")
 var ErrUnavailable = errors.New("extension unavailable or digest changed")
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
 var filePattern = regexp.MustCompile(`^[a-zA-Z0-9_./-]+$`)
+var scopePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)*$`)
+
+// The permission vocabulary is closed: a manifest only declares these scopes,
+// and until a later phase enforces them the declaration rides along with the
+// package record beside ui.
+var knownScopes = map[string]bool{
+	"ui.page":               true,
+	"ui.alter":              true,
+	"sessions.read":         true,
+	"sessions.assets.write": true,
+	"sessions.title":        true,
+	"sessions.prompt":       true,
+	"workspace.switch":      true,
+	"events.publish":        true,
+	"kv":                    true,
+	"config.read":           true,
+	"llm.complete":          true,
+}
+
 var locks sync.Map
 
 type Manifest struct {
-	API         int    `json:"api"`
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Version     string `json:"version"`
-	Description string `json:"description,omitempty"`
+	API         int      `json:"api"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Version     string   `json:"version"`
+	Description string   `json:"description,omitempty"`
+	Permissions []string `json:"permissions,omitempty"`
 	UI          struct {
-		Entry  string   `json:"entry"`
-		Styles []string `json:"styles,omitempty"`
+		Entry        string   `json:"entry"`
+		Styles       []string `json:"styles,omitempty"`
+		CompatStyles []string `json:"compat_styles,omitempty"`
 	} `json:"ui"`
 }
 
@@ -138,12 +159,28 @@ func parse(data []byte) (*bundle, error) {
 	if m.API != 1 || !validID(m.ID) || strings.TrimSpace(m.Name) == "" || len(m.Name) > 120 || strings.TrimSpace(m.Version) == "" || len(m.Version) > 64 || len(m.Description) > 2000 {
 		return bad("expected api 1, an id (up to 32 lowercase letters, digits and hyphens), name and version")
 	}
+	if len(m.Permissions) > 32 {
+		return bad("too many permissions")
+	}
+	for _, scope := range m.Permissions {
+		if len(scope) > 64 || !scopePattern.MatchString(scope) {
+			return bad("permissions must be dotted lowercase scope names")
+		}
+		if !knownScopes[scope] {
+			return bad("permissions must name known scopes")
+		}
+	}
 	if !validPath(m.UI.Entry) || !strings.HasSuffix(m.UI.Entry, ".js") || len(b.files[m.UI.Entry]) == 0 {
 		return bad("ui.entry must name a nonempty .js file")
 	}
 	for _, style := range m.UI.Styles {
 		if !validPath(style) || !strings.HasSuffix(style, ".css") || b.files[style] == nil {
 			return bad("ui.styles must name CSS files in the archive")
+		}
+	}
+	for _, style := range m.UI.CompatStyles {
+		if !validPath(style) || !strings.HasSuffix(style, ".css") || b.files[style] == nil {
+			return bad("ui.compat_styles must name CSS files in the archive")
 		}
 	}
 	b.entry = Entry{Manifest: m, SHA256: b.SHA256, EntrySHA256: digest(b.files[m.UI.Entry])}

@@ -1,0 +1,6 @@
+.ext-theme-lab { display: flex; flex-direction: column; gap: 12px; color: var(--text); }
+.ext-theme-lab-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px; }
+.ext-theme-lab-row label { font-size: 13px; }
+.ext-theme-lab-row input[type="range"] { width: 150px; }
+.ext-theme-lab-swatch { width: 18px; height: 18px; border-radius: 5px; border: 1px solid var(--coddy-glass-panel-border); }
+.ext-theme-lab-note { margin: 0; color: var(--muted); font-size: 12px; }

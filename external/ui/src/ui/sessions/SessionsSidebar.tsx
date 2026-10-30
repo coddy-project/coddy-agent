@@ -7,6 +7,17 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useT } from "../i18n/I18nProvider";
+import { ExtensionAnchor } from "../extensions/ExtensionAnchor";
+import {
+  applyExtensionSessionFilters,
+  ExtensionSessionFilterBar,
+  useExtensionSessionFilters,
+} from "../extensions/ExtensionSessionFilters";
+import {
+  applyProjectFilter,
+  DEFAULT_PROJECT_FILTER,
+  type SessionProjectFilter,
+} from "./projectFilter";
 import { appNavHrefDraft, appNavHrefSession } from "../scheduler/hashRoute";
 import { isClientDraftSessionId } from "./draftSessions";
 import { sameTabInAppNavClick } from "../nav/sameTabInAppNav";
@@ -168,6 +179,11 @@ export function SessionsSidebar(props: {
   /** What the shell asked the server to order the listing by. */
   sortKey?: SessionSortKey;
   onSortKeyChange?: (key: SessionSortKey) => void;
+  /** Folder the listing is narrowed to by default ("project" filter). */
+  projectPath?: string;
+  /** Which projects the listing shows; "project" while a folder is known. */
+  projectFilter?: SessionProjectFilter;
+  onProjectFilterChange?: (value: SessionProjectFilter) => void;
   /** Local plus every configured remote, for the environment section. */
   environments?: SessionsEnvironmentOption[];
   /** Starts a new chat already pointed at a folder, from its group heading. */
@@ -229,6 +245,19 @@ export function SessionsSidebar(props: {
   const filtersRef = useRef<HTMLButtonElement>(null);
   const archiveFilter: SessionArchiveFilter = props.archiveFilter ?? "exclude";
   const sortKey: SessionSortKey = props.sortKey ?? "updated";
+  const projectFilter: SessionProjectFilter =
+    props.projectFilter ?? DEFAULT_PROJECT_FILTER;
+  // What the listing shows: the operator's project first, then every
+  // registered extension filter narrowing it further.
+  const extensionFilters = useExtensionSessionFilters();
+  const visibleSessions = useMemo(() => {
+    const rows = applyProjectFilter(
+      props.sessions,
+      projectFilter,
+      props.projectPath,
+    );
+    return applyExtensionSessionFilters(rows, extensionFilters);
+  }, [props.sessions, projectFilter, props.projectPath, extensionFilters]);
 
   // Collapsed headings are keyed by group, so a group that comes and goes with
   // a search, drawer close, or route change keeps the state the operator gave it.
@@ -237,8 +266,8 @@ export function SessionsSidebar(props: {
   );
 
   const groups = useMemo(
-    () => groupSessions(props.sessions, groupMode, props.now),
-    [props.sessions, groupMode, props.now],
+    () => groupSessions(visibleSessions, groupMode, props.now),
+    [visibleSessions, groupMode, props.now],
   );
 
   // What the label picker offers: the words this history already files under,
@@ -840,10 +869,18 @@ export function SessionsSidebar(props: {
         >
           <IconFilters />
         </button>
+        <ExtensionSessionFilterBar />
+        <ExtensionAnchor name="sessions.toolbar" />
         <SessionsFilterMenu
           open={filtersOpen}
           onClose={() => setFiltersOpen(false)}
           anchor={filtersAnchor}
+          {...(props.onProjectFilterChange && props.projectPath
+            ? {
+                projectFilter,
+                onProjectFilterChange: props.onProjectFilterChange,
+              }
+            : {})}
           archiveFilter={archiveFilter}
           onArchiveFilterChange={(value) =>
             props.onArchiveFilterChange?.(value)

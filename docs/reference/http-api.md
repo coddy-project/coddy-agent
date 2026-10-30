@@ -17,7 +17,7 @@ The [JavaScript extensions guide](../features/extensions.md) describes package c
 
 | Method and route | Behavior |
 | --- | --- |
-| `GET /coddy/extensions` | `{items: [...]}` with manifests, enabled state, package `sha256` and `entry_sha256`. |
+| `GET /coddy/extensions` | `{items: [...]}` with manifests (including declared `permissions` and `ui.compat_styles`), enabled state, package `sha256` and `entry_sha256`. |
 | `POST /coddy/extensions` | Raw `application/zip` body, at most 8 MiB. Returns the disabled entry with `201`; `400` invalid package, `409` existing id, `413` oversized body. |
 | `PUT /coddy/extensions/{id}` | JSON `{sha256, enabled, accept_risk}`. Enabling requires `accept_risk: true`; `409` if the package digest changed. Returns the current entry. |
 | `DELETE /coddy/extensions/{id}` | Removes the package, `204`. Reload affected browsers to revoke code already executed. |

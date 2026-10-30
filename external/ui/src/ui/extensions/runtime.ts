@@ -5,7 +5,9 @@ import {
   Contributions,
   validateField,
   validateRenderer,
-  type SettingsField,
+  validateSection,
+  type AnySettingsField,
+  type SettingsSection,
   type ToolRenderer,
   type Owned,
   type ContributionHandle,
@@ -19,6 +21,26 @@ import {
   type IncomingRegistration,
   type IncomingHandle,
 } from "./incomingStream";
+import {
+  FrameObserver,
+  type FrameHandle,
+  type FrameListener,
+} from "./frameObserver";
+import {
+  validateMessageRenderer,
+  type MessageRenderer,
+} from "./messageRenderers";
+import {
+  validatePermissionPreview,
+  type PermissionPreview,
+} from "./permissionPreviews";
+import { validatePanel, type Panel, type RuntimePanel } from "./panels";
+import { AnchorRegistry, isExtensionAnchorName } from "./anchors";
+import { validateSessionFilter, type SessionFilter } from "./sessionFilters";
+import { ExtensionI18n, type ExtensionI18nAPI } from "./extensionI18n";
+import { extensionHost, type ExtensionHostAPI } from "./hostChannel";
+import { engineInfo } from "./compat";
+import { readAppliedUiLocale } from "../i18n/uiLocale";
 
 export type ExtensionEntry = {
   api: number;
@@ -29,7 +51,10 @@ export type ExtensionEntry = {
   sha256: string;
   entry_sha256: string;
   enabled: boolean;
-  ui: { entry: string; styles?: string[] };
+  /** Manifest permissions this package declares. Enablement remains the gate;
+   * the declaration is the vocabulary a later phase enforces. */
+  permissions?: readonly string[];
+  ui: { entry: string; styles?: string[]; compat_styles?: string[] };
 };
 
 export type ExtensionPage = {
@@ -52,8 +77,16 @@ export type ExtensionAPI = {
   events: ExtensionEventAPI;
   theme: ExtensionThemeAPI;
   settings: ExtensionSettingsAPI;
+  i18n: ExtensionI18nAPI;
+  host: ExtensionHostAPI;
   stream: {
     registerIncoming: (registration: IncomingRegistration) => IncomingHandle;
+    /** Observes every frame of the live stream, including kinds the host does
+     * not parse. Read-only: a listener cannot rewrite or stop a frame. */
+    onFrame: (registration: {
+      id: string;
+      listener: FrameListener;
+    }) => FrameHandle;
   };
   ui: {
     registerPage: (page: ExtensionPage) => Handle<ExtensionPage>;
@@ -62,6 +95,31 @@ export type ExtensionAPI = {
     registerToolRenderer: (
       renderer: ToolRenderer,
     ) => ContributionHandle<ToolRenderer>;
+    /** Draws transcript rows: matched host item types and `ext_frame` rows of
+     * live frames the host has no row for. */
+    registerMessageRenderer: (
+      renderer: MessageRenderer,
+    ) => ContributionHandle<MessageRenderer>;
+    /** Decorates the host's permission card; the prompt stays host-controlled. */
+    registerPermissionPreview: (
+      preview: PermissionPreview,
+    ) => ContributionHandle<PermissionPreview>;
+    registerPanel: (panel: Panel) => Handle<Panel>;
+    openPanel: (id: string) => void;
+    registerSessionFilter: (
+      filter: SessionFilter,
+    ) => ContributionHandle<SessionFilter>;
+    /** A named anchor box of the host surface, or null while its surface is
+     * closed. `onAnchor` covers anchors that mount later. */
+    anchor: (name: string) => HTMLElement | null;
+    onAnchor: (
+      name: string,
+      listener: (element: HTMLElement | null) => void,
+    ) => { remove: () => void };
+    /** Compatibility stylesheet layered over the host's on a legacy engine
+     * (Chromium 110 and below, the JCEF panels of older IDEs). */
+    addCompatStyles: (css: string) => { remove: () => void };
+    engine: () => ReturnType<typeof engineInfo>;
   };
 };
 export type RuntimePage = ExtensionPage & {
@@ -73,8 +131,13 @@ export type RuntimeMenu = MenuItem & { key: string; owner: string };
 export type RuntimeSnapshot = {
   pages: RuntimePage[];
   menu: RuntimeMenu[];
-  fields: Owned<SettingsField>[];
+  panels: RuntimePanel[];
+  fields: Owned<AnySettingsField>[];
+  sections: Owned<SettingsSection>[];
   renderers: Owned<ToolRenderer>[];
+  messageRenderers: Owned<MessageRenderer>[];
+  permissionPreviews: Owned<PermissionPreview>[];
+  sessionFilters: Owned<SessionFilter>[];
   errors: Record<string, string>;
 };
 
@@ -89,21 +152,46 @@ export class ExtensionRuntime {
   private state: RuntimeSnapshot = {
     pages: [],
     menu: [],
+    panels: [],
     fields: [],
+    sections: [],
     renderers: [],
+    messageRenderers: [],
+    permissionPreviews: [],
+    sessionFilters: [],
     errors: {},
   };
-  readonly fields = new Contributions<SettingsField>(() =>
+  readonly fields = new Contributions<AnySettingsField>(() =>
     this.publish({ fields: this.fields.rows }),
+  );
+  readonly sections = new Contributions<SettingsSection>(() =>
+    this.publish({ sections: this.sections.rows }),
   );
   readonly renderers = new Contributions<ToolRenderer>(() =>
     this.publish({ renderers: this.renderers.rows }),
+  );
+  readonly messageRenderers = new Contributions<MessageRenderer>(() =>
+    this.publish({ messageRenderers: this.messageRenderers.rows }),
+  );
+  readonly permissionPreviews = new Contributions<PermissionPreview>(() =>
+    this.publish({ permissionPreviews: this.permissionPreviews.rows }),
+  );
+  readonly sessionFilters = new Contributions<SessionFilter>(() =>
+    this.publish({ sessionFilters: this.sessionFilters.rows }),
   );
   readonly events = new ExtensionEvents((owner, message) =>
     this.reportError(owner, message),
   );
   readonly themes = new ExtensionThemes((owner, message) =>
     this.reportError(owner, message),
+  );
+  readonly frames = new FrameObserver((owner, message) =>
+    this.reportError(owner, message),
+  );
+  readonly anchors = new AnchorRegistry();
+  readonly i18n = new ExtensionI18n(
+    () => readAppliedUiLocale(),
+    (owner, message) => this.reportError(owner, message),
   );
   reportError(owner: string, message: string) {
     this.publish({ errors: { ...this.state.errors, [owner]: message } });
@@ -112,9 +200,18 @@ export class ExtensionRuntime {
     this.renderers.remove(key);
     this.reportError(owner, String(error));
   }
+  failMessageRenderer(key: string, owner: string, error: unknown) {
+    this.messageRenderers.remove(key);
+    this.reportError(owner, String(error));
+  }
+  failPermissionPreview(key: string, owner: string, error: unknown) {
+    this.permissionPreviews.remove(key);
+    this.reportError(owner, String(error));
+  }
   private evaluated = false;
   private evaluatedDigests = new Map<string, string>();
   private failed = new Map<string, string>();
+  private compatStyles = new Map<string, HTMLStyleElement[]>();
   readonly incoming = new IncomingStream((owner, message) => {
     this.publish({ errors: { ...this.state.errors, [owner]: message } });
   });
@@ -125,6 +222,7 @@ export class ExtensionRuntime {
     ): Promise<{ activate: (api: ExtensionAPI) => unknown }> =>
       import(/* @vite-ignore */ url),
     private reload = () => window.location.reload(),
+    private openPanel: (panel: RuntimePanel) => void = () => {},
   ) {}
   snapshot = () => this.state;
   subscribe = (fn: () => void) => {
@@ -149,9 +247,12 @@ export class ExtensionRuntime {
         console.error(e);
       }
     }
+    for (const style of this.compatStyles.get(id) ?? []) style.remove();
+    this.compatStyles.delete(id);
     this.publish({
       pages: this.state.pages.filter((p) => p.owner !== id),
       menu: this.state.menu.filter((p) => p.owner !== id),
+      panels: this.state.panels.filter((p) => p.owner !== id),
     });
   }
   stop() {
@@ -246,21 +347,11 @@ export class ExtensionRuntime {
     };
     const assetText = async (path: string) =>
       new TextDecoder().decode(await assetBytes(path));
-    const register = <T extends ExtensionPage | MenuItem>(
-      kind: "pages" | "menu",
+    const register = <T extends ExtensionPage | MenuItem | Panel>(
+      kind: "pages" | "menu" | "panels",
       value: T,
+      valid: (row: T) => void,
     ): Handle<T> => {
-      const valid = (row: Partial<ExtensionPage & MenuItem>) => {
-        if (!/^[a-z][a-z0-9-]{0,63}$/.test(row.id ?? "") || !row.title?.trim())
-          throw new Error("A control needs an id and title");
-        if (
-          kind === "pages" &&
-          typeof (row as ExtensionPage).mount !== "function"
-        )
-          throw new Error("A page needs a mount function");
-        if (kind === "menu" && typeof (row as MenuItem).onSelect !== "function")
-          throw new Error("A menu item needs an onSelect function");
-      };
       if (!active()) throw new Error("Extension disposed");
       valid(value);
       const key = `${entry.id}/${value.id}`;
@@ -269,15 +360,17 @@ export class ExtensionRuntime {
       const row = { ...value, key, owner: entry.id, api };
       if (kind === "pages")
         this.publish({ pages: [...this.state.pages, row as RuntimePage] });
-      else this.publish({ menu: [...this.state.menu, row as RuntimeMenu] });
+      else if (kind === "menu")
+        this.publish({ menu: [...this.state.menu, row as RuntimeMenu] });
+      else
+        this.publish({ panels: [...this.state.panels, row as RuntimePanel] });
       let removed = false;
       return {
         update: (patch) => {
           if (!active() || removed) return;
-          const current =
-            kind === "pages"
-              ? this.state.pages.find((p) => p.key === key)
-              : this.state.menu.find((p) => p.key === key);
+          const current = this.state[kind].find((r) => r.key === key) as
+            | (T & { key: string; owner: string; api: ExtensionAPI })
+            | undefined;
           if (!current) return;
           const next = {
             ...current,
@@ -288,27 +381,16 @@ export class ExtensionRuntime {
             api,
           };
           valid(next as unknown as T);
-          if (kind === "pages")
-            this.publish({
-              pages: this.state.pages.map((p) =>
-                p.key === key ? (next as RuntimePage) : p,
-              ),
-            });
-          else
-            this.publish({
-              menu: this.state.menu.map((p) =>
-                p.key === key ? (next as RuntimeMenu) : p,
-              ),
-            });
+          this.publish({
+            [kind]: this.state[kind].map((r) => (r.key === key ? next : r)),
+          } as Partial<RuntimeSnapshot>);
         },
         remove: () => {
           if (!active() || removed) return;
           removed = true;
-          this.publish(
-            kind === "pages"
-              ? { pages: this.state.pages.filter((p) => p.key !== key) }
-              : { menu: this.state.menu.filter((p) => p.key !== key) },
-          );
+          this.publish({
+            [kind]: this.state[kind].filter((r) => r.key !== key),
+          } as Partial<RuntimeSnapshot>);
         },
       };
     };
@@ -328,7 +410,12 @@ export class ExtensionRuntime {
         entry.id,
         controller.signal,
         (field) => {
-          if (!knownSectionLabel(field.section))
+          if (
+            !knownSectionLabel(field.section) &&
+            !this.sections.rows.some(
+              (row) => row.owner === entry.id && row.id === field.section,
+            )
+          )
             throw new Error("Unknown settings section");
           if (
             this.fields.rows.filter((row) => row.owner === entry.id).length >=
@@ -337,12 +424,21 @@ export class ExtensionRuntime {
             throw new Error("Too many extension fields");
           return this.fields.register(entry.id, api, field, (value) => {
             validateField(value);
-            if (!knownSectionLabel(value.section))
+            if (
+              !knownSectionLabel(value.section) &&
+              !this.sections.rows.some(
+                (row) => row.owner === entry.id && row.id === value.section,
+              )
+            )
               throw new Error("Unknown settings section");
           });
         },
+        (section) =>
+          this.sections.register(entry.id, api, section, validateSection),
         () => this.fields.rows.filter((row) => row.owner === entry.id),
       ),
+      i18n: this.i18n.api(entry.id, controller.signal),
+      host: extensionHost(),
       stream: {
         registerIncoming: ({ id, transform }) => {
           if (!active()) throw new Error("Extension disposed");
@@ -353,12 +449,68 @@ export class ExtensionRuntime {
             transform,
           );
         },
+        onFrame: ({ id, listener }) => {
+          if (!active()) throw new Error("Extension disposed");
+          return this.frames.register(
+            entry.id,
+            id,
+            controller.signal,
+            listener,
+          );
+        },
       },
       ui: {
         registerToolRenderer: (renderer) =>
           this.renderers.register(entry.id, api, renderer, validateRenderer),
-        registerPage: (page) => register("pages", page),
-        registerMenuItem: (item) => register("menu", item),
+        registerMessageRenderer: (renderer) => {
+          if (!active()) throw new Error("Extension disposed");
+          return this.messageRenderers.register(
+            entry.id,
+            api,
+            renderer,
+            validateMessageRenderer,
+          );
+        },
+        registerPermissionPreview: (preview) => {
+          if (!active()) throw new Error("Extension disposed");
+          return this.permissionPreviews.register(
+            entry.id,
+            api,
+            preview,
+            validatePermissionPreview,
+          );
+        },
+        registerSessionFilter: (filter) => {
+          if (!active()) throw new Error("Extension disposed");
+          return this.sessionFilters.register(
+            entry.id,
+            api,
+            filter,
+            validateSessionFilter,
+          );
+        },
+        registerPage: (page) =>
+          register("pages", page, (row) => {
+            if (
+              !/^[a-z][a-z0-9-]{0,63}$/.test(row.id) ||
+              !row.title?.trim() ||
+              typeof row.mount !== "function"
+            )
+              throw new Error("A page needs an id, title and mount function");
+          }),
+        registerMenuItem: (item) =>
+          register("menu", item, (row) => {
+            if (
+              !/^[a-z][a-z0-9-]{0,63}$/.test(row.id) ||
+              !row.title?.trim() ||
+              typeof row.onSelect !== "function"
+            )
+              throw new Error("A menu item needs an id, title and onSelect");
+          }),
+        registerPanel: (panel) =>
+          register("panels", panel, (row) =>
+            validatePanel(row as unknown as Panel),
+          ),
         openPage: (id) => {
           if (!active()) return;
           const page = this.state.pages.find(
@@ -366,6 +518,53 @@ export class ExtensionRuntime {
           );
           if (page) this.open(page);
         },
+        openPanel: (id) => {
+          if (!active()) return;
+          const panel = this.state.panels.find(
+            (p) => p.key === `${entry.id}/${id}`,
+          );
+          if (panel) this.openPanel(panel);
+        },
+        anchor: (name) => {
+          if (!active()) return null;
+          return isExtensionAnchorName(name) ? this.anchors.get(name) : null;
+        },
+        onAnchor: (name, listener) => {
+          if (!active()) throw new Error("Extension disposed");
+          return this.anchors.on(name, controller.signal, listener);
+        },
+        addCompatStyles: (css) => {
+          if (!active()) throw new Error("Extension disposed");
+          if (typeof css !== "string" || !css.trim())
+            throw new Error("Compat styles must be a stylesheet text");
+          const remove = () => {
+            const list = this.compatStyles.get(entry.id) ?? [];
+            for (const style of list) {
+              if (style.textContent === css) {
+                style.remove();
+                this.compatStyles.set(
+                  entry.id,
+                  list.filter((s) => s !== style),
+                );
+                break;
+              }
+            }
+            controller.signal.removeEventListener("abort", remove);
+          };
+          if (engineInfo().tier === "legacy") {
+            const style = document.createElement("style");
+            style.dataset.extCompat = entry.id;
+            style.textContent = css;
+            document.head.append(style);
+            this.compatStyles.set(entry.id, [
+              ...(this.compatStyles.get(entry.id) ?? []),
+              style,
+            ]);
+          }
+          controller.signal.addEventListener("abort", remove, { once: true });
+          return { remove };
+        },
+        engine: () => engineInfo(),
       },
     };
     const timer = window.setTimeout(() => {
@@ -395,6 +594,22 @@ export class ExtensionRuntime {
         style.textContent = css;
         document.head.append(style);
         life.dispose.push(() => style.remove());
+      }
+      // Compat styles are the overlay of a legacy engine only: on a modern
+      // one the ordinary stylesheet already draws what they would correct.
+      if (engineInfo().tier === "legacy") {
+        for (const path of entry.ui.compat_styles ?? []) {
+          const css = await assetText(path);
+          if (!active()) return;
+          const style = document.createElement("style");
+          style.dataset.extCompat = entry.id;
+          style.textContent = css;
+          document.head.append(style);
+          this.compatStyles.set(entry.id, [
+            ...(this.compatStyles.get(entry.id) ?? []),
+            style,
+          ]);
+        }
       }
       if (!active()) return;
       const url = URL.createObjectURL(

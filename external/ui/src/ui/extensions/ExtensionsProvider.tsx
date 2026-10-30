@@ -14,8 +14,11 @@ import {
   type ExtensionEntry,
   type RuntimePage,
 } from "./runtime";
+import type { RuntimePanel } from "./panels";
 import { useT } from "../i18n/I18nProvider";
 import { PanePortal } from "../components/PanePortal";
+import { ExtensionPanelHost } from "./ExtensionPanelHost";
+import { readAppliedUiLocale, subscribeUiLocale } from "../i18n/uiLocale";
 import "./extensions.css";
 import { parseAppHash } from "../scheduler/hashRoute";
 
@@ -48,7 +51,10 @@ export function ExtensionsProvider({ children }: { children: ReactNode }) {
   const [entries, setEntries] = useState<ExtensionEntry[]>([]);
   const [error, setError] = useState("");
   const [page, setPage] = useState<RuntimePage | null>(null);
-  const [runtime] = useState(() => new ExtensionRuntime(setPage));
+  const [panel, setPanel] = useState<RuntimePanel | null>(null);
+  const [runtime] = useState(
+    () => new ExtensionRuntime(setPage, undefined, undefined, setPanel),
+  );
   const [startup] = useState(() => {
     let resolve!: () => void;
     const ready = new Promise<void>((done) => {
@@ -61,6 +67,13 @@ export function ExtensionsProvider({ children }: { children: ReactNode }) {
   // same packages keeps the array it has: a new one would re-render every
   // consumer of the context, the whole App among them.
   const listed = useRef("");
+  useEffect(() => {
+    // Extension dictionaries follow the host locale; applyUiLocale is the
+    // single write point, so one subscription covers every switch.
+    return subscribeUiLocale(() =>
+      runtime.i18n.notifyLocale(readAppliedUiLocale()),
+    );
+  }, [runtime]);
   useEffect(() => {
     let previous = window.location.hash;
     const changed = () => {
@@ -120,6 +133,7 @@ export function ExtensionsProvider({ children }: { children: ReactNode }) {
   }, [refresh, runtime]);
   const snapshot = useSyncExternalStore(runtime.subscribe, runtime.snapshot);
   const livePage = page && snapshot.pages.find((p) => p.key === page.key);
+  const livePanel = panel && snapshot.panels.find((p) => p.key === panel.key);
   const value = useMemo(
     () => ({ entries, error, refresh, runtime, ready: startup.ready }),
     [entries, error, refresh, runtime, startup.ready],
@@ -129,6 +143,9 @@ export function ExtensionsProvider({ children }: { children: ReactNode }) {
       {children}
       {livePage ? (
         <ExtensionWindow page={livePage} onClose={() => setPage(null)} />
+      ) : null}
+      {livePanel ? (
+        <ExtensionPanelHost panel={livePanel} onClose={() => setPanel(null)} />
       ) : null}
     </Context.Provider>
   );

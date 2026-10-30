@@ -104,6 +104,19 @@ export type TranscriptItem =
       createdAtUtc?: string;
     }
   | {
+      /**
+       * A live stream frame the host has no row of its own for, kept for a
+       * registered extension message renderer. Never persisted: a later
+       * history read replaces it with the server's own rows.
+       */
+      id: string;
+      type: "ext_frame";
+      /** SSE event name of the frame. */
+      event: string;
+      /** The frame payload after the incoming processors. */
+      data: string;
+    }
+  | {
       id: string;
       type: "thinking";
       status: "in_progress" | "completed";

@@ -14,6 +14,11 @@ import {
   type SectionDescriptor,
 } from "./settingsSections";
 import { SettingsNav } from "./SettingsNav";
+import { ExtensionAnchor } from "../extensions/ExtensionAnchor";
+import {
+  extensionSectionId,
+  useExtensionSettingsSections,
+} from "../extensions/ExtensionSections";
 import {
   createSettingsSearch,
   SettingsSearchField,
@@ -351,9 +356,19 @@ export function Settings(props: {
   );
 
   const relay = props.relay === true;
+  // Sections an extension registered stand after the host's own, in the
+  // weight their manifest-like registration asked for.
+  const extensionSections = useExtensionSettingsSections();
   const sections = useMemo(
-    () => deriveSettingsSections(schema, { relay }),
-    [schema, locale, relay],
+    () => [
+      ...deriveSettingsSections(schema, { relay }),
+      ...extensionSections.map((s) => ({
+        id: extensionSectionId(s.owner, s.id),
+        label: s.title,
+        kind: "ext_section" as const,
+      })),
+    ],
+    [schema, locale, relay, extensionSections],
   );
   // A tab the address names that is not among the tabs yet: the schema that
   // describes it is on its way. It shows as a skeleton rather than as another
@@ -1036,6 +1051,7 @@ export function Settings(props: {
         )}
 
         <div className="scheduler-drawer-footer settings-footer-actions">
+          <ExtensionAnchor name="settings.footer" />
           <span
             className="settings-save-status"
             data-testid="settings-save-status"

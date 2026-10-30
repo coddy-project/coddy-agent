@@ -30,6 +30,32 @@ import {
 } from "./sessionSettings";
 import { t } from "../i18n/i18n";
 
+/** SSE event names the host turns into rows or callbacks of its own. A frame
+ * of any other name (and a default-data text frame) is offered to the
+ * extensions' message renderers as one `ext_frame` row. */
+export const KNOWN_STREAM_EVENTS: ReadonlySet<string> = new Set([
+  "",
+  "desync",
+  "error",
+  "token_usage",
+  "coddy_meta",
+  "turn_progress",
+  "plan",
+  "usage_update",
+  "provider_usage",
+  "background_wake",
+  "goal_turn",
+  "user_message",
+  "session_settings",
+  "session_goal",
+  "message_queue",
+  "memory_run",
+  "permission",
+  "question",
+  "tool_call",
+  "tool_call_update",
+]);
+
 export type ContextUsageUpdate = {
   used: number;
   size: number;
@@ -137,6 +163,13 @@ export type ConsumeComposerSseParams = {
         observe?: (
           frame: IncomingFrame & { sequence: string; streamId?: string },
         ) => void;
+        /** A frame of an event the host has no row for: the host keeps it as
+         * one `ext_frame` transcript item when a message renderer draws it. */
+        onExtFrame?: (frame: {
+          event: string;
+          data: string;
+          id: string;
+        }) => void;
         ready?: Promise<void>;
       }
     | undefined;
@@ -597,6 +630,19 @@ export async function consumeComposerSseReader(
       sequence: ev.id || String(currentFrames),
       streamId: extensionStreamId,
     });
+    // A frame the host has no row for is offered to the extensions' message
+    // renderers; the host keeps the ones a renderer draws (see `ext_frame`).
+    if (
+      p.incoming?.onExtFrame &&
+      ev.data &&
+      ev.data !== "[DONE]" &&
+      !KNOWN_STREAM_EVENTS.has(ev.event)
+    )
+      p.incoming.onExtFrame({
+        event: ev.event,
+        data: ev.data,
+        id: ev.id || String(currentFrames),
+      });
     frameAt = typeof ev.ageMs === "number" ? Date.now() - ev.ageMs : null;
     if (ev.id) {
       lastEventId = ev.id;

@@ -38,6 +38,12 @@ Usage:
         the swarm relay, the cron scheduler)
   coddy serve -d | --daemon (the same, in the background under a dispatcher
         that starts it again if it dies)
+  coddy serve --add-extension ZIP (install and enable an extension package before
+        the server serves; repeat for several. The named file is the operator's
+        approval of that exact package, enabled with no prompt; the same id
+        with a different digest is skipped with a warning and never replaced;
+        a missing or invalid file warns and the startup continues, and the
+        server runs with exit code 0 even when every file fails)
   coddy serve install (Linux: run coddy serve as a systemd user service in
         ~/Coddy - installs the unit when the package did not, enables and
         starts it)
@@ -189,6 +195,8 @@ Usage of serve (runs every subsystem enabled in config.yaml):
     	bind address for the HTTP API (default httpserver.host, else 127.0.0.1)
   -P string
     	listen port for the HTTP API (default httpserver.port, else 12345)
+  -add-extension ZIP
+    	install and enable this extension package ZIP before the server serves; repeatable. The named file is the operator's approval of that exact package and is enabled with no prompt: the same id and SHA-256 already installed and enabled is left as it is, the same id with a different digest is skipped with a warning and never replaced, and a missing or invalid file warns and the startup continues (the server runs, exit code 0, even when every file fails)
   -auth-token string
     	bearer token required on /v1/* and /coddy/* (else CODDY_HTTP_TOKEN, else httpserver.auth_token). Empty = no auth
   -config string

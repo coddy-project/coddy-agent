@@ -58,6 +58,7 @@ import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import { isNoLiveTurnRelayError } from "./chat/composerStreamError";
 import { subscribeSharedServerEvents } from "./chat/sharedServerEvents";
 import { useExtensions } from "./extensions/ExtensionsProvider";
+import { selectMessageRenderer } from "./extensions/messageRenderers";
 import { readOpening, type OpeningRead } from "./chat/openingRead";
 import {
   isNewerSettings,
@@ -233,6 +234,11 @@ import {
   SESSION_PREF_COOKIES,
   writeSessionPref,
 } from "./sessions/sessionPrefs";
+import {
+  DEFAULT_PROJECT_FILTER,
+  isSessionProjectFilter,
+  type SessionProjectFilter,
+} from "./sessions/projectFilter";
 import {
   isClientDraftSessionId,
   mergeSessionsWithDrafts,
@@ -1422,6 +1428,14 @@ export function App() {
       () =>
         readSessionPref(SESSION_PREF_COOKIES.status, isSessionArchiveFilter) ??
         DEFAULT_ARCHIVE_FILTER,
+    );
+  // The listing opens on the project the operator is working in; the filter
+  // menu takes it back to every project, and that answer survives a reload.
+  const [sessionsProjectFilter, setSessionsProjectFilter] =
+    useState<SessionProjectFilter>(
+      () =>
+        readSessionPref(SESSION_PREF_COOKIES.project, isSessionProjectFilter) ??
+        DEFAULT_PROJECT_FILTER,
     );
   // The filter on screen now, for an archive request that settles after the
   // operator changed it (see runArchiveSession).
@@ -5150,7 +5164,35 @@ export function App() {
             sessionId: key,
             transport: "relay",
             process: extensions.runtime.incoming.process,
-            observe: extensions.runtime.events.observe,
+            observe: (
+              frame: Parameters<typeof extensions.runtime.events.observe>[0],
+            ) => {
+              extensions.runtime.events.observe(frame);
+              extensions.runtime.frames.observe(frame);
+            },
+            onExtFrame: (frame: {
+              event: string;
+              data: string;
+              id: string;
+            }) => {
+              if (
+                !selectMessageRenderer(
+                  extensions.runtime.snapshot().messageRenderers,
+                  "ext_frame",
+                  frame.event,
+                )
+              )
+                return;
+              applyStreamItems((prev) => [
+                ...prev,
+                {
+                  id: newId("ext"),
+                  type: "ext_frame" as const,
+                  event: frame.event,
+                  data: frame.data,
+                },
+              ]);
+            },
             ready: extensions.ready,
           }) ||
           undefined,
@@ -5939,7 +5981,35 @@ export function App() {
             sessionId: streamKey,
             transport: "post",
             process: extensions.runtime.incoming.process,
-            observe: extensions.runtime.events.observe,
+            observe: (
+              frame: Parameters<typeof extensions.runtime.events.observe>[0],
+            ) => {
+              extensions.runtime.events.observe(frame);
+              extensions.runtime.frames.observe(frame);
+            },
+            onExtFrame: (frame: {
+              event: string;
+              data: string;
+              id: string;
+            }) => {
+              if (
+                !selectMessageRenderer(
+                  extensions.runtime.snapshot().messageRenderers,
+                  "ext_frame",
+                  frame.event,
+                )
+              )
+                return;
+              applyStreamItems((prev) => [
+                ...prev,
+                {
+                  id: newId("ext"),
+                  type: "ext_frame" as const,
+                  event: frame.event,
+                  data: frame.data,
+                },
+              ]);
+            },
             ready: extensions.ready,
           }) ||
           undefined,
@@ -7434,6 +7504,12 @@ export function App() {
     onArchiveFilterChange: (value: SessionArchiveFilter) => {
       setSessionsArchiveFilter(value);
       writeSessionPref(SESSION_PREF_COOKIES.status, value);
+    },
+    projectPath: chatWorkspace,
+    projectFilter: sessionsProjectFilter,
+    onProjectFilterChange: (value: SessionProjectFilter) => {
+      setSessionsProjectFilter(value);
+      writeSessionPref(SESSION_PREF_COOKIES.project, value);
     },
     environments: sessionEnvironments,
     sortKey: sessionsSortKey,

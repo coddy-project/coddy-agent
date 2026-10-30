@@ -84,6 +84,115 @@ func TestArchiveValidation(t *testing.T) {
 	}
 }
 
+func TestManifestPermissions(t *testing.T) {
+	all := `"ui.page","ui.alter","sessions.read","sessions.assets.write","sessions.title","sessions.prompt","workspace.switch","events.publish","kv","config.read","llm.complete"`
+	tooMany := "[" + strings.Repeat(`"kv",`, 32) + `"kv"` + "]"
+	overlong := "[" + strings.Repeat("a", 65) + "]"
+	for _, tc := range []struct {
+		name  string
+		array string // raw JSON array, empty for an absent key
+		ok    bool
+	}{
+		{name: "every known scope", array: "[" + all + "]", ok: true},
+		{name: "absent", ok: true},
+		{name: "empty", array: "[]", ok: true},
+		{name: "unknown scope", array: `["sessions.delete"]`},
+		{name: "malformed scope", array: `["sessions..read"]`},
+		{name: "uppercase scope", array: `["UI.Page"]`},
+		{name: "empty scope", array: `[""]`},
+		{name: "scope over 64 characters", array: overlong},
+		{name: "more than 32 scopes", array: tooMany},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manifest := `{"api":1,"id":"demo","name":"Demo","version":"1","ui":{"entry":"main.js"}}`
+			if tc.array != "" {
+				manifest = `{"api":1,"id":"demo","name":"Demo","version":"1","permissions":` + tc.array + `,"ui":{"entry":"main.js"}}`
+			}
+			files := map[string]string{"manifest.json": manifest, "main.js": "export {}"}
+			_, err := NewStore(t.TempDir()).Install(archive(t, files))
+			if tc.ok && err != nil {
+				t.Fatal(err)
+			}
+			if !tc.ok && err == nil {
+				t.Fatal("invalid permissions accepted")
+			}
+		})
+	}
+}
+
+func TestManifestStyles(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		field string
+		array string
+		ok    bool
+	}{
+		{name: "styles of the archive", field: "styles", array: `["style.css"]`, ok: true},
+		{name: "compat_styles of the archive", field: "compat_styles", array: `["legacy.css"]`, ok: true},
+		{name: "missing style", field: "styles", array: `["missing.css"]`},
+		{name: "missing compat style", field: "compat_styles", array: `["missing.css"]`},
+		{name: "non-CSS style", field: "styles", array: `["main.js"]`},
+		{name: "non-CSS compat style", field: "compat_styles", array: `["main.js"]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manifest := `{"api":1,"id":"demo","name":"Demo","version":"1","ui":{"entry":"main.js","` + tc.field + `":` + tc.array + `}}`
+			files := map[string]string{"manifest.json": manifest, "main.js": "export {}", "style.css": ".demo {}", "legacy.css": ".legacy {}"}
+			_, err := NewStore(t.TempDir()).Install(archive(t, files))
+			if tc.ok && err != nil {
+				t.Fatal(err)
+			}
+			if !tc.ok && err == nil {
+				t.Fatal("invalid stylesheet accepted")
+			}
+		})
+	}
+}
+
+func TestEntryJSONRoundTrip(t *testing.T) {
+	home := t.TempDir()
+	s := NewStore(home)
+	files := map[string]string{
+		"manifest.json": `{"api":1,"id":"demo","name":"Demo","version":"1","permissions":["ui.page","sessions.read"],"ui":{"entry":"main.js","styles":["style.css"],"compat_styles":["legacy.css"]}}`,
+		"main.js":       "export {}", "style.css": ".demo {}", "legacy.css": ".legacy {}",
+	}
+	row, err := s.Install(archive(t, files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(row.Permissions, ",") != "ui.page,sessions.read" {
+		t.Fatalf("permissions: %v", row.Permissions)
+	}
+	if strings.Join(row.UI.CompatStyles, ",") != "legacy.css" {
+		t.Fatalf("compat styles: %v", row.UI.CompatStyles)
+	}
+	// The declaration is stored with the package record: a fresh store lists it
+	// again, beside ui.
+	rows, err := NewStore(home).List()
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("list: %v %v", rows, err)
+	}
+	if strings.Join(rows[0].Permissions, ",") != "ui.page,sessions.read" || strings.Join(rows[0].UI.CompatStyles, ",") != "legacy.css" {
+		t.Fatalf("listed: %#v", rows[0])
+	}
+	// The JSON the HTTP API returns round-trips through the entry struct.
+	data, err := json.Marshal(row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"permissions":["ui.page","sessions.read"]`, `"compat_styles":["legacy.css"]`} {
+		if !strings.Contains(string(data), field) {
+			t.Fatalf("wire shape: %s", data)
+		}
+	}
+	var back Entry
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(back.Permissions, ",") != "ui.page,sessions.read" || strings.Join(back.UI.CompatStyles, ",") != "legacy.css" {
+		t.Fatalf("round trip: %#v", back)
+	}
+}
+
 func TestChangedBytesNeedApproval(t *testing.T) {
 	home := t.TempDir()
 	s := NewStore(home)

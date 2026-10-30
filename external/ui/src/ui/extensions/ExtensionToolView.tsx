@@ -53,7 +53,11 @@ function RegisteredTool(
     props.runtime.subscribe,
     props.runtime.snapshot,
   );
-  const parsed = parseMcpToolName(props.title || props.kind || "");
+  // A built-in call (no `server__tool` spelling) matches renderers by its own
+  // name with an empty server, so a renderer can take a host tool over.
+  const name = props.title || props.kind || "";
+  const parsed =
+    parseMcpToolName(name) ?? (name ? { server: "", tool: name } : null);
   const renderer = parsed
     ? selectRenderer(renderers, parsed.server, parsed.tool)
     : undefined;
@@ -63,7 +67,7 @@ function RegisteredTool(
         ? Object.freeze({
             sessionId: props.sessionId ?? "",
             toolCallId: props.toolCallId,
-            name: props.title || props.kind || "",
+            name,
             server: parsed.server,
             tool: parsed.tool,
             status: props.status,

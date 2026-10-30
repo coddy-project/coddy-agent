@@ -21,15 +21,21 @@ test("SDK settings reads defaults and writes only its owner with a revision", as
   });
   vi.stubGlobal("fetch", fetcher);
   const controller = new AbortController();
-  const api = extensionSettings("demo", controller.signal, vi.fn(), () => [
-    {
-      id: "badge",
-      section: "agent",
-      title: "Badge",
-      type: "string",
-      default: "DEFAULT",
-    },
-  ]);
+  const api = extensionSettings(
+    "demo",
+    controller.signal,
+    vi.fn(),
+    vi.fn(),
+    () => [
+      {
+        id: "badge",
+        section: "agent",
+        title: "Badge",
+        type: "string",
+        default: "DEFAULT",
+      },
+    ],
+  );
   expect(await api.get("badge")).toBe("DEFAULT");
   await api.set("badge", "CUSTOM");
   expect(doc).toEqual({

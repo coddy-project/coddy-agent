@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ExtensionAnchor } from "../extensions/ExtensionAnchor";
 import { useT } from "../i18n/I18nProvider";
 import { countTasks } from "../tasks/taskStatus";
 import type { BackgroundTask } from "../tasks/types";
@@ -176,6 +177,7 @@ function HeaderViews(props: {
       aria-label={t("chat.views.label")}
       data-testid="chat-views"
     >
+      <ExtensionAnchor name="chat.header" />
       {views.map((view) => (
         <span key={view.id} className="chat-view-tip-host">
           <button

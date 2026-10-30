@@ -25,6 +25,7 @@ import {
 import { navSlots, splitNavItems, type NavItemId } from "./navOverflow";
 import { EnvironmentSwitcher } from "./EnvironmentSwitcher";
 import { ExtensionMenu } from "../extensions/ExtensionMenu";
+import { ExtensionAnchor } from "../extensions/ExtensionAnchor";
 import { useExtensions } from "../extensions/ExtensionsProvider";
 import { useEscapeCloses } from "../components/useEscapeCloses";
 
@@ -624,6 +625,7 @@ export function NavRail(props: {
           {inBar("extensions") ? (
             <ExtensionMenu className={navBtnCls} wide={pillWide} />
           ) : null}
+          <ExtensionAnchor name="nav.rail" />
           {inBar("settings") ? (
             <div className="rail-tip-host">
               <a
