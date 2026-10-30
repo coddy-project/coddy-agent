@@ -13,19 +13,20 @@ import (
 
 func literalSecretFields(c *Config) map[string]*string {
 	return map[string]*string{
-		"providers.api_key":              &c.Providers[0].APIKey,
-		"httpserver.auth_token":          &c.HTTPServer.AuthToken,
-		"httpserver.remotes.token":       &c.HTTPServer.Remotes[0].Token,
-		"gateways.telegram.token":        &c.Gateways.Telegram.Token,
-		"gateways.pachca.token":          &c.Gateways.Pachca.Token,
-		"metrics.token":                  &c.Metrics.Token,
-		"browser.token":                  &c.Browser.Token,
-		"swarm.auth_token":               &c.Swarm.AuthToken,
-		"swarm.pairing_tokens":           &c.Swarm.PairingTokens[0],
-		"swarm.upstreams.token":          &c.Swarm.Upstreams[0].Token,
-		"swarm.join.pairing_token":       &c.Swarm.Join[0].PairingToken,
-		"swarm.join.token":               &c.Swarm.Join[0].Token,
-		"tools.web_search.brave_api_key": &c.Tools.WebSearch.BraveAPIKey,
+		"providers.api_key":                 &c.Providers[0].APIKey,
+		"httpserver.auth_token":             &c.HTTPServer.AuthToken,
+		"httpserver.remotes.token":          &c.HTTPServer.Remotes[0].Token,
+		"gateways.telegram.token":           &c.Gateways.Telegram.Token,
+		"gateways.pachca.token":             &c.Gateways.Pachca.Token,
+		"metrics.token":                     &c.Metrics.Token,
+		"browser.token":                     &c.Browser.Token,
+		"swarm.auth_token":                  &c.Swarm.AuthToken,
+		"swarm.pairing_tokens":              &c.Swarm.PairingTokens[0],
+		"swarm.upstreams.token":             &c.Swarm.Upstreams[0].Token,
+		"swarm.join.pairing_token":          &c.Swarm.Join[0].PairingToken,
+		"swarm.join.token":                  &c.Swarm.Join[0].Token,
+		"tools.web_search.brave_api_key":    &c.Tools.WebSearch.BraveAPIKey,
+		"tools.web_search.deepseek_api_key": &c.Tools.WebSearch.DeepSeekAPIKey,
 	}
 }
 

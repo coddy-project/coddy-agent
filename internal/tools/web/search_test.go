@@ -14,10 +14,11 @@ import (
 // empties the cache, so one case cannot answer the next.
 func stubEngines(t *testing.T) {
 	t.Helper()
-	oldBrave, oldBing, oldDDG, oldGoogle, oldSearx := braveSearchFunc, bingSearchFunc, ddgSearchFunc, googleSearchFunc, searxngSearchFunc
+	oldBrave, oldBing, oldDDG, oldGoogle, oldSearx, oldDeep := braveSearchFunc, bingSearchFunc, ddgSearchFunc, googleSearchFunc, searxngSearchFunc, deepseekSearchFunc
 	t.Cleanup(func() {
 		braveSearchFunc, bingSearchFunc = oldBrave, oldBing
 		ddgSearchFunc, googleSearchFunc, searxngSearchFunc = oldDDG, oldGoogle, oldSearx
+		deepseekSearchFunc = oldDeep
 		searchCache.reset()
 	})
 	searchCache.reset()
@@ -25,6 +26,7 @@ func stubEngines(t *testing.T) {
 	bingSearchFunc = func(context.Context, Query, Settings) ([]Result, error) { return nil, nil }
 	googleSearchFunc = func(context.Context, Query, Settings) ([]Result, error) { return nil, nil }
 	searxngSearchFunc = func(context.Context, Query, Settings) ([]Result, error) { return nil, nil }
+	deepseekSearchFunc = func(context.Context, Query, Settings) ([]Result, error) { return nil, nil }
 }
 
 // envWith returns a tool environment carrying the given engine list, with the

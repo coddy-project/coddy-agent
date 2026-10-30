@@ -69,6 +69,10 @@ func cacheKey(engine string, q Query, s Settings) string {
 	if strings.TrimSpace(s.BraveAPIKey) != "" {
 		b.WriteString("keyed")
 	}
+	b.WriteByte('\n')
+	if strings.TrimSpace(s.DeepSeekAPIKey) != "" {
+		b.WriteString("deepseek-keyed")
+	}
 	return b.String()
 }
 
