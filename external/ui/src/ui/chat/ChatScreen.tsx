@@ -208,6 +208,8 @@ export function ChatScreen(props: {
   onOpenFiles?: () => void;
   /** The Files window is open. */
   filesOpen?: boolean;
+  onOpenTerminal?: () => void;
+  terminalOpen?: boolean;
   /** Re-read the task rows: a background subagent's prompt was answered here. */
   onBackgroundTasksChanged?: () => void;
   /** Roots this session works in - its own directory, then its worktrees -
@@ -767,12 +769,14 @@ export function ChatScreen(props: {
     props.sessionId &&
     props.workspaceLocked &&
     workspaceCtx &&
-    (workspaceCtx.is_git_repo || hasGoal)
+    (workspaceCtx.is_git_repo || hasGoal || !!props.onOpenTerminal)
       ? (goalMark: ReactNode) => (
           <WorkspaceBar
             context={workspaceCtx}
             workingCopy={workingCopy}
             onOpenEdits={props.onOpenEdits}
+            onToggleTerminal={props.onOpenTerminal}
+            terminalOpen={props.terminalOpen === true}
             goal={goalMark}
           />
         )
@@ -1121,6 +1125,12 @@ export function ChatScreen(props: {
                           ? {
                               onOpenFiles: openFiles,
                               filesOpen: props.filesOpen === true,
+                              ...(props.onOpenTerminal
+                                ? {
+                                    onOpenTerminal: props.onOpenTerminal,
+                                    terminalOpen: props.terminalOpen === true,
+                                  }
+                                : {}),
                             }
                           : {}),
                       }

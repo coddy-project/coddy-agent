@@ -848,6 +848,19 @@ body {
   min-height: 0;
 }
 
+/* A workspace surface may live beside the conversation without replacing it. */
+@media (min-width: 800px) {
+  .shell-main.shell-files-open {
+    --coddy-files-panel-width: min(720px, 46vw);
+    --coddy-files-panel-band: calc(var(--coddy-files-panel-width) + 26px);
+  }
+
+  .shell-main.shell-files-open > .main,
+  .shell-main.shell-files-open > .terminal-panel {
+    margin-right: var(--coddy-files-panel-band);
+  }
+}
+
 /* Nav rail column */
 .rail-column {
   position: relative;
@@ -6742,6 +6755,38 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   border-color: color-mix(in srgb, var(--text) 34%, transparent);
   background: color-mix(in srgb, var(--text) 9%, transparent);
   outline: none;
+}
+
+/* The terminal is a first-class chat action, not only an icon in the title:
+   it sits on the composer's plate, stays in view while Files is beside the
+   chat, and says what it opens. */
+.workspace-bar-terminal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  border-radius: 7px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 74%, var(--coddy-blend-base));
+  font: inherit;
+  line-height: 15px;
+  cursor: pointer;
+}
+
+.workspace-bar-terminal:hover,
+.workspace-bar-terminal:focus-visible,
+.workspace-bar-terminal[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+  color: var(--text);
+  outline: none;
+}
+
+.workspace-bar-terminal + .workspace-bar-edits {
+  margin-left: 0;
 }
 
 .workspace-chip-icon {
@@ -18423,12 +18468,10 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   color: var(--diff-del-no);
 }
 
-/* ── Files window ─────────────────────────────────────────────────────────
-   The session's workspace in a window over the chat, framed the way the
-   documentation reader is (.docs-dock-cluster): the same glass sheet right of
-   the rail, no wider than the dock width, centred in what is left. Expanded,
-   it takes the whole window, the rail included. Inside: a header, then the
-   tree beside the open files. DESIGN.md, Workspace files window. */
+/* ── Files workspace panel ────────────────────────────────────────────────
+   On desktop it gives the chat room and stays beside it, so opening a path
+   never takes the conversation away. On stacked layouts it remains a sheet
+   because two columns do not fit, but the chat stays mounted underneath. */
 .files-dock-cluster {
   position: fixed;
   top: 14px;
@@ -18451,11 +18494,181 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   color: var(--text);
 }
 
+@media (min-width: 800px) {
+  .files-dock-cluster {
+    left: auto;
+    width: var(--coddy-files-panel-width, min(720px, 46vw));
+    margin-inline: 0;
+  }
+}
+
 .files-dock-cluster.is-expanded {
   left: 14px;
   width: auto;
   margin-inline: 0;
   z-index: 55;
+}
+
+/* ── Integrated terminal ───────────────────────────────────────────────── */
+.terminal-panel {
+  position: relative;
+  flex: 0 0 auto;
+  min-height: 180px;
+  max-height: min(560px, 72vh);
+  margin: 0 14px 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: #e8e8ea;
+  background: #111114;
+  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+  border-radius: 14px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.terminal-resize {
+  position: absolute;
+  z-index: 2;
+  top: -5px;
+  left: 0;
+  right: 0;
+  height: 11px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.terminal-resize::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 5px;
+  width: 42px;
+  height: 3px;
+  border-radius: 999px;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.terminal-head,
+.terminal-input-row {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  background: #19191e;
+}
+
+.terminal-head {
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12px;
+}
+
+.terminal-title-row,
+.terminal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.terminal-status {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: #73737c;
+}
+
+.terminal-status[data-running="true"] {
+  background: #35c76f;
+  box-shadow: 0 0 0 3px rgba(53, 199, 111, 0.12);
+}
+
+.terminal-shell {
+  max-width: 34vw;
+  overflow: hidden;
+  color: #85858f;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-actions button,
+.terminal-input-row button {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #d7d7dc;
+  font: inherit;
+  cursor: pointer;
+}
+
+.terminal-actions button {
+  min-height: 28px;
+  padding: 4px 9px;
+}
+
+.terminal-actions .terminal-close {
+  width: 28px;
+  padding: 0;
+  font-size: 18px;
+}
+
+.terminal-output {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  color: #d8d8dd;
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.terminal-input-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  color: #8d7cff;
+}
+
+.terminal-input-row input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #f2f2f4;
+  font: inherit;
+  font-size: 13px;
+}
+
+.terminal-input-row button {
+  padding: 5px 11px;
+}
+
+.terminal-input-row button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.terminal-error {
+  padding: 5px 12px;
+  color: #ff9b9b;
+  background: rgba(190, 40, 40, 0.16);
+  font-size: 11px;
+}
+
+@media (max-width: 1199px) {
+  .terminal-panel {
+    margin: 0 8px 8px;
+    max-height: 52vh;
+  }
 }
 
 /* The head of the window: the tree switch and the title on the left, the
@@ -19840,7 +20053,7 @@ a.canvas-node-url {
 /* The stacked shell: below the top bar, above the shell's backdrop (which
    rises to 60 there), inset like the documentation sheet. The tree keeps its
    column while it fits beside the file. */
-@media (max-width: 1199px) {
+@media (max-width: 799px) {
   /* 72: over the dock (70), which the window leaves open under it. */
   .files-dock-cluster,
   .files-dock-cluster.is-expanded {

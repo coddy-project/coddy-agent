@@ -151,6 +151,11 @@ type Server struct {
 	opencodeAuthLogins   map[string]*codexAuthLoginAttempt
 
 	permissionResumeWG sync.WaitGroup
+	// terminals are the interactive shells opened under chats in the web UI.
+	// They belong to this HTTP server (not to the model's background task pool)
+	// and are stopped when the surface drains.
+	terminalMu sync.Mutex
+	terminals  map[string]*terminalSession
 	// bgWG counts background goroutines owned by this server (codex auth login
 	// waits, background task snapshots); Drain waits for them.
 	bgWG sync.WaitGroup
@@ -159,6 +164,7 @@ type Server struct {
 // Drain waits for all background goroutines to finish.
 // Call after closing the HTTP server and before tearing down any session directories.
 func (s *Server) Drain() {
+	s.closeTerminals()
 	if s.removeUsageObserver != nil {
 		s.removeUsageObserver()
 	}
@@ -231,6 +237,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		tgSessions:           webauth.NewSessionStore(),
 		browserSessions:      webauth.NewSessionStore(),
 		loginThrottle:        &webauth.Throttle{},
+		terminals:            make(map[string]*terminalSession),
 	}
 	s.cfgAt.Store(cfg)
 	// A board changes from a tool call of any surface's turn or from a route

@@ -23,6 +23,9 @@ export function ChatHeader(props: {
   onOpenFiles?: () => void;
   /** The files window is open. */
   filesOpen?: boolean;
+  /** Opens the terminal under the chat. */
+  onOpenTerminal?: () => void;
+  terminalOpen?: boolean;
 }) {
   const { t } = useT();
   const [editing, setEditing] = useState(false);
@@ -108,13 +111,17 @@ export function ChatHeader(props: {
           tasksOpen={props.tasksOpen === true}
           {...(props.onOpenFiles ? { onOpenFiles: props.onOpenFiles } : {})}
           filesOpen={props.filesOpen === true}
+          {...(props.onOpenTerminal
+            ? { onOpenTerminal: props.onOpenTerminal }
+            : {})}
+          terminalOpen={props.terminalOpen === true}
         />
       ) : null}
     </header>
   );
 }
 
-type ViewId = "tasks" | "files";
+type ViewId = "tasks" | "files" | "terminal";
 
 /**
  * The views of a chat in its header - its files, its background tasks - as a
@@ -136,6 +143,8 @@ function HeaderViews(props: {
   tasksOpen: boolean;
   onOpenFiles?: () => void;
   filesOpen: boolean;
+  onOpenTerminal?: () => void;
+  terminalOpen: boolean;
 }) {
   const { t } = useT();
   const { running, total } = countTasks(props.tasks);
@@ -159,6 +168,15 @@ function HeaderViews(props: {
       name: t("chat.views.filesTitle", { key: filesShortcutLabel() }),
       pressed: props.filesOpen,
       run: props.onOpenFiles,
+    });
+  }
+  if (props.onOpenTerminal) {
+    views.push({
+      id: "terminal",
+      label: t("terminal.title"),
+      name: t("terminal.open"),
+      pressed: props.terminalOpen,
+      run: props.onOpenTerminal,
     });
   }
   views.push({
@@ -206,8 +224,10 @@ function HeaderViews(props: {
                   className={`bgtask-dot ${live ? "bgtask-dot--running" : "bgtask-dot--muted"}`}
                   aria-hidden="true"
                 />
-              ) : (
+              ) : view.id === "files" ? (
                 <FilesIcon />
+              ) : (
+                <TerminalIcon />
               )}
               {view.id === "tasks" ? (
                 <span className="chat-view-label" aria-hidden="true">
@@ -251,6 +271,26 @@ function FilesIcon() {
   return (
     <svg {...common}>
       <path d="M1.75 4.25c0-.83.67-1.5 1.5-1.5h3l1.5 1.75h5c.83 0 1.5.67 1.5 1.5v6.25c0 .83-.67 1.5-1.5 1.5h-9.5c-.83 0-1.5-.67-1.5-1.5z" />
+    </svg>
+  );
+}
+
+function TerminalIcon() {
+  return (
+    <svg
+      className="chat-view-icon"
+      width="18"
+      height="18"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="1.75" y="2.25" width="12.5" height="11.5" rx="1.5" />
+      <path d="m4.25 5 2.25 2-2.25 2M8 10h3.25" />
     </svg>
   );
 }

@@ -20,8 +20,8 @@ import { forgetOpenFiles } from "./files/FilesView";
 /**
  * The views of a session are buttons of the chat header: its background tasks
  * open in the dock beside the chat, without a tab strip; its edits open in a
- * window of their own, and its files in a window over the chat, the way the
- * documentation does, each with an address of its own.
+ * window of their own, and its files in a workspace panel beside the chat,
+ * each with an address of its own.
  */
 
 vi.mock("./chat/ChatScreen", () => ({
@@ -29,6 +29,7 @@ vi.mock("./chat/ChatScreen", () => ({
     onOpenBackgroundTasks?: () => void;
     onOpenEdits?: () => void;
     onOpenFiles?: () => void;
+    onOpenTerminal?: () => void;
   }) => (
     <div data-testid="chat-screen-stub">
       <button
@@ -51,6 +52,13 @@ vi.mock("./chat/ChatScreen", () => ({
         onClick={() => props.onOpenFiles?.()}
       >
         Open files
+      </button>
+      <button
+        type="button"
+        data-testid="open-terminal"
+        onClick={() => props.onOpenTerminal?.()}
+      >
+        Open terminal
       </button>
     </div>
   ),
@@ -97,6 +105,14 @@ async function baseFetch(input: RequestInfo | URL, init?: RequestInit) {
         },
       ],
       totals: { files: 1, additions: 1, deletions: 0 },
+    });
+  }
+  if (path === `/coddy/sessions/${SID}/terminal`) {
+    return json({
+      object: "coddy.terminal",
+      shell: "/bin/bash",
+      output: "",
+      running: true,
     });
   }
   if (path.includes("/workspace/tree")) {
@@ -209,11 +225,25 @@ test("the background tasks open in the dock with no tab strip", async () => {
   expect(document.querySelector('[role="tablist"]')).toBeNull();
 });
 
-test("the files open in a window over the chat, not in the dock, and Escape closes it", async () => {
+test("the terminal opens under the chat and keeps the chat mounted", async () => {
+  mountAt(`#/s/${SID}`);
+  fireEvent.click(await screen.findByTestId("open-terminal"));
+  const terminal = await screen.findByTestId("terminal-panel");
+  expect(screen.getByTestId("chat-screen-stub")).toBeTruthy();
+  expect(within(terminal).getByRole("textbox")).toBeTruthy();
+  fireEvent.click(within(terminal).getByLabelText(t("terminal.close")));
+  await waitFor(() =>
+    expect(screen.queryByTestId("terminal-panel")).toBeNull(),
+  );
+});
+
+test("the files open beside the live chat, not in the tasks dock, and Escape closes them", async () => {
   mountAt(`#/s/${SID}`);
   fireEvent.click(await screen.findByTestId("open-files"));
   const win = await screen.findByTestId("files-view");
-  expect(win.getAttribute("role")).toBe("dialog");
+  expect(win.getAttribute("role")).toBe("complementary");
+  expect(screen.getByTestId("chat-screen-stub")).toBeTruthy();
+  expect(document.querySelector(".backdrop.is-open")).toBeNull();
   expect(screen.queryByTestId("changes-panel")).toBeNull();
   expect(screen.queryByTestId("bgtasks-panel")).toBeNull();
   await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}/files`));
@@ -269,11 +299,13 @@ test("Ctrl+Shift+F opens the files window, and closes it", async () => {
   await waitFor(() => expect(screen.queryByTestId("files-view")).toBeNull());
 });
 
-test("a click beside the files window closes it and gives the address back to the chat", async () => {
+test("the chat stays interactive beside files until their own close button is used", async () => {
   mountAt(`#/s/${SID}`);
   fireEvent.click(await screen.findByTestId("open-files"));
   await screen.findByTestId("files-view");
-  fireEvent.click(document.querySelector(".backdrop.is-open")!);
+  fireEvent.click(screen.getByTestId("chat-screen-stub"));
+  expect(screen.getByTestId("files-view")).toBeTruthy();
+  fireEvent.click(screen.getByTestId("files-close"));
   await waitFor(() => expect(screen.queryByTestId("files-view")).toBeNull());
   await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}`));
 });

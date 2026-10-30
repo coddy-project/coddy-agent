@@ -284,6 +284,7 @@ import {
 } from "./scheduler/hashRoute";
 import { DocsView } from "./docs/DocsView";
 import { FilesView, type CanvasFocus } from "./files/FilesView";
+import { TerminalPanel } from "./terminal/TerminalPanel";
 import type { CanvasPrompt } from "./canvas/CanvasBoard";
 import { onOpenCanvas } from "./canvas/canvasBus";
 import { useFilesWindowKey } from "./files/filesWindowKey";
@@ -1314,11 +1315,12 @@ export function App() {
   const { open: tasksOpen, setOpen: setTasksOpen } = useRightDock(
     initialRoute.branch === "session" && initialRoute.tasksOpen,
   );
-  // The Files window over the chat: open, and on which file and line. It is not
-  // a face of the dock, whose tasks stay as they were under it.
+  // The Files panel beside the chat: open, and on which file and line. It is
+  // not a face of the tasks dock.
   const [filesOpen, setFilesOpen] = useState(
     initialRoute.branch === "session" && initialRoute.filesOpen === true,
   );
+  const [terminalOpen, setTerminalOpen] = useState(false);
   // Bumps on every request to show a file, so the same path asked for again
   // (its tab closed meanwhile) opens again.
   const [fileOpenSeq, setFileOpenSeq] = useState(0);
@@ -6785,7 +6787,7 @@ export function App() {
     }
   }, [sessionId, sessionsOpen]);
 
-  /** Opens the Files window over the chat. Without a path it opens on the
+  /** Opens the Files panel beside the chat. Without a path it opens on the
    *  files it had open; with one, on that file and line. */
   const openFilesWindow = useCallback(
     (path?: string, line?: number) => {
@@ -6797,7 +6799,7 @@ export function App() {
       setSettingsRoute(false);
       setDocsRoute(null);
       setSwarmRoute(false);
-      // One window over the chat at a time: the files take the edits' place.
+      // Files and edits share the document surface: files take the edits' place.
       setChangesViewerOpen(false);
       setFilePath(path || "");
       setFileLine(line || 1);
@@ -7277,9 +7279,9 @@ export function App() {
     return byId;
   }, [canvasPrompts, transcriptItems]);
 
-  // A window over the chat - the files, the edits or the canvas - is one more
-  // layer the shell's backdrop covers the chat under.
-  const chatWindowOpen = (filesOpen || changesViewerOpen) && !!sessionId.trim();
+  // Files are a workspace panel beside the live chat, not a modal layer over
+  // it. Edits remain a window and therefore still own the shell backdrop.
+  const chatWindowOpen = changesViewerOpen && !!sessionId.trim();
   const shellBackdropOpen =
     chatWindowOpen ||
     sessionsOpen ||
@@ -7288,9 +7290,12 @@ export function App() {
     swarmRoute ||
     docsRoute !== null;
 
-  // A window over the dock (FilesView, EditsView) takes Escape itself, and the
-  // backdrop covers it, so the dock waits for the next one.
-  useRightDockEscape(dockOpen && !shellBackdropOpen, closeTasksDrawer);
+  // Files and Edits take Escape before the tasks dock. Edits also own the
+  // backdrop; Files stay beside the chat without one.
+  useRightDockEscape(
+    dockOpen && !shellBackdropOpen && !filesOpen,
+    closeTasksDrawer,
+  );
 
   const filteredSchedulerJobs = useMemo(() => {
     const q = schedulerFilterQ.trim().toLowerCase();
@@ -7842,6 +7847,8 @@ export function App() {
           "shell-main",
           sessionsOpen ? "shell-history-open" : "",
           dockOpen ? "shell-tasks-open" : "",
+          filesOpen ? "shell-files-open" : "",
+          terminalOpen ? "shell-terminal-open" : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -8135,6 +8142,8 @@ export function App() {
               filesOpen ? closeFilesWindow() : openFilesWindow()
             }
             filesOpen={filesOpen}
+            onOpenTerminal={() => setTerminalOpen((open) => !open)}
+            terminalOpen={terminalOpen}
             backgroundTasks={backgroundTasks}
             onOpenBackgroundTasks={openTasksFromNav}
             onBackgroundTasksChanged={() => {
@@ -8396,6 +8405,14 @@ export function App() {
             onFetchToolCallFull={handleFetchToolCallFull}
           />
         )}
+        {terminalOpen && sessionId.trim() && !atSwarmRoot ? (
+          <TerminalPanel
+            key={`terminal:${sessionId}`}
+            sessionId={sessionId}
+            workspacePath={workspaceCtx?.path || chatWorkspace}
+            onClose={() => setTerminalOpen(false)}
+          />
+        ) : null}
       </div>
     </div>
   );

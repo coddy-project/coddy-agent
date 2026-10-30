@@ -1264,9 +1264,9 @@ A held project hooks file surfaces in the transcript as a **notice-level system 
 
 ## Views of a chat
 
-A chat has three views beside the conversation: its **files**, its **background
-tasks** and its **edits**. Files and background tasks are a row of buttons at the top
-of the chat: **Files**, and **Tasks** at the right edge. They are icons at every
+A chat has four workspace views beside the conversation: its **files**, its
+**terminal**, its **background tasks** and its **edits**. Files, Terminal and Tasks
+are a row of buttons at the top of the chat, with Tasks at the right edge. They are icons at every
 width, as a phone always showed them: Files is its icon alone, in a square the size of
 the top bar's buttons. Tasks is the control the header always had: a dot and, once the
 chat has tasks, how many run out of how many there are, the dot lit while work is in
@@ -1274,8 +1274,8 @@ flight; before the first task the dot stands beside the word Tasks. Every button
 its full name in a tooltip, the Files one with its key. A
 button opens its view, and pressed again puts it away; the button of the view on show brightens, its
 text, border and ground, the way a pointed-at one does, and the accent is kept for
-tasks that run. The background tasks open in the dock beside the chat, the files in a window
-over the chat. The edits have no button in the header: git's count on [the plate over
+tasks that run. The background tasks open in the dock beside the chat, files in a
+right-hand workspace panel, and the terminal under the chat. The edits have no button in the header: git's count on [the plate over
 the composer](#the-plate-over-the-composer) opens them. Each icon beside a word (the
 Tasks dot, the repository and the branch on the plate) sits on
 the middle of its lowercase letters, not of the capitals: the words are mostly
@@ -1288,6 +1288,17 @@ lowercase, and centred on the line the icon reads a pixel high.
 On a phone: [390 px](../assets/views-toolbar-dark-390.png). `Ctrl+Shift+F`
 (`Cmd+Shift+F` on a Mac) opens and closes the Files window from anywhere in a chat,
 the composer included.
+
+## Terminal under the chat
+
+The labelled **Terminal** button on the plate over the composer opens a resizable
+shell panel directly under the conversation; the header icon opens the same panel.
+The labelled button remains in reach while Files is open beside the chat. The shell
+starts in that chat's workspace and belongs to the chat: hiding and
+reopening it keeps `cd`, environment changes and the output already printed. Enter
+runs a command; Up and Down walk the commands entered in this browser. **Restart**
+stops that shell and starts a clean one. The server stops every integrated shell when
+its HTTP surface shuts down.
 
 ## Canvas
 
@@ -1311,14 +1322,15 @@ under a moving board is drawn again on every frame. The guide is
 
 ## Workspace files
 
-The **Files** window shows the session's workspace over the chat, the way the
-documentation reader does: the tree on the left, the files opened from it as tabs on
-the right. Open it with the **Files** button of the chat header, with `Ctrl+Shift+F`,
+The **Files** panel shows the session's workspace beside the live chat on a desktop:
+the tree on the left, the files opened from it as tabs on the right. Opening a file
+does not hide, dim or unmount the conversation, and the composer remains usable. On
+a phone or tablet the panel becomes an inset sheet because two columns do not fit;
+the chat remains mounted underneath. Open it with the **Files** button of the chat header, with `Ctrl+Shift+F`,
 or by clicking a workspace mention in a sent message, a file tool's path, the card of a shared file or a path an answer names. Its address keeps the file and an
 optional line, `#/s/<id>/files?path=notes/readme.md&line=15`, so a reload opens it
-there. Escape or the close button returns to the chat and gives the focus back to
-what opened the window; whatever the dock showed stays under it, on a phone or a
-tablet too, and a click beside the window closes it the same way. Reopened, the window
+there. Escape or the close button puts it away and gives focus back to what opened
+it; clicking or typing in the chat leaves the panel open. Reopened, the panel
 shows the files it had open, each at its line, and the address names the one on show.
 
 A path an answer names opens the same way. Written as inline code (`internal/foo.go:12`), as the target of a link or in the prose (internal/foo.go), it becomes a link once the server says it is a file of the chat's workspace (**`POST /coddy/sessions/{id}/workspace/stat`**). The link opens the file in a tab, on the line when the path names one (`:12`, `#L12`), and its address is the window's own, so a middle click opens the file in a new browser tab. A path in prose needs a folder and an extension, since prose is full of words with a slash; inline code may be a name alone (`README.md`, `Makefile`). A folder, a path outside the workspace, a name the workspace does not have and every path of an answer still arriving stay as they were, and such inline code still copies itself on a click. Paths are asked about only in a chat; the documentation and a canvas card show them as text.
@@ -1329,7 +1341,7 @@ A path an answer names opens the same way. Written as inline code (`internal/foo
 
 ![The Files window: the workspace tree beside two open files, README.md on show as its source with numbered lines](../assets/workspace-files-window-dark-1280.png)
 
-*The Files window over a chat: folders first in the tree, the open files as tabs*
+*The Files panel beside a chat: folders first in the tree, the open files as tabs*
 
 Additional captures: [Light theme, 1280 px](../assets/workspace-files-window-light-1280.png)
 and [phone, 390 px](../assets/workspace-files-window-dark-390.png).

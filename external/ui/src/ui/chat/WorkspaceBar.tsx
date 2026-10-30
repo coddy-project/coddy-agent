@@ -40,6 +40,8 @@ export function WorkspaceBar(props: {
   context: WorkspaceContext;
   workingCopy?: WorkingCopy | undefined;
   onOpenEdits?: (() => void) | undefined;
+  onToggleTerminal?: (() => void) | undefined;
+  terminalOpen?: boolean | undefined;
   pick?: WorkspacePick | undefined;
   goal?: ReactNode;
 }) {
@@ -98,6 +100,20 @@ export function WorkspaceBar(props: {
         </>
       )}
       {props.goal}
+      {props.onToggleTerminal ? (
+        <button
+          type="button"
+          className="workspace-bar-terminal"
+          aria-label={t("terminal.open")}
+          aria-pressed={props.terminalOpen === true}
+          title={t("terminal.open")}
+          data-testid="workspace-bar-terminal"
+          onClick={props.onToggleTerminal}
+        >
+          <TerminalIcon />
+          <span>{t("terminal.title")}</span>
+        </button>
+      ) : null}
       {showEdits && totals ? (
         <button
           type="button"
@@ -116,5 +132,25 @@ export function WorkspaceBar(props: {
         </button>
       ) : null}
     </div>
+  );
+}
+
+function TerminalIcon() {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="1.75" y="2.25" width="12.5" height="11.5" rx="2" />
+      <path d="m4.25 5.25 2.25 2-2.25 2" />
+      <path d="M8.25 9.25h3.25" />
+    </svg>
   );
 }
