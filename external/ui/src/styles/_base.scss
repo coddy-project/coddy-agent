@@ -18,8 +18,6 @@ body,
    stylesheet sets: iOS Safari otherwise enlarges the text of what it takes for a
    wide block, such as the rows of a diff. */
 html {
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
   color-scheme: dark;
   background:
     var(--coddy-grain),
@@ -40,6 +38,8 @@ html {
     );
   background-color: var(--coddy-canvas-gradient-bottom);
   background-attachment: fixed;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 html[data-theme="light"] {
