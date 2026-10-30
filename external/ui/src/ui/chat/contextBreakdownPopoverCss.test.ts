@@ -1,11 +1,7 @@
 import { expect, test } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { stylesSource } from "../../stylesSource";
 
-const css = readFileSync(
-  resolve(import.meta.dirname, "../../styles.css"),
-  "utf8",
-);
+const css = stylesSource();
 
 test("context breakdown uses the shared drawer head divider and a two-sided usage row", () => {
   expect(css).toMatch(/\.context-breakdown-head\s*\{[^}]*padding:/s);

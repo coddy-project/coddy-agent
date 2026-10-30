@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   cleanup,
   fireEvent,
@@ -11,6 +8,7 @@ import {
 import { afterEach, expect, test, vi } from "vitest";
 import { ProviderModelList } from "./ProviderModelList";
 import { AUTO_FETCH_DEBOUNCE_MS } from "./useProviderModels";
+import { stylesSource } from "../../stylesSource";
 
 afterEach(() => {
   cleanup();
@@ -471,10 +469,7 @@ test("connection edits wait for the refresh icon; a new id fetches once it settl
 // width every <fieldset> defaults to, the id may shrink and ellipsizes, and
 // the toggle never squeezes.
 test("the list is contained: the box may shrink, the id ellipsizes, the toggle never squeezes", () => {
-  const css = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
-    "utf8",
-  );
+  const css = stylesSource();
   const rule = (selector: string) => {
     const m = css.match(
       new RegExp(

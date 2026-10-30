@@ -23,7 +23,7 @@ function walk(dir: string, out: string[] = []): string[] {
 
 test("every var() without a fallback names a custom property that is defined", () => {
   const files = walk(src);
-  const css = files.filter((f) => f.endsWith(".css"));
+  const css = files.filter((f) => /\.(css|scss)$/.test(f));
   const code = files.filter(
     (f) =>
       /\.(tsx?|mjs)$/.test(f) &&

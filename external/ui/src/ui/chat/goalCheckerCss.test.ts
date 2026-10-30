@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
 /**
  * The goal menu's numbers - continuations, checks, time worked, tokens, the
@@ -10,7 +9,7 @@ import { expect, test } from "vitest";
  * (DESIGN.md, Session goal in the composer).
  */
 
-const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf8");
+const css = stylesSource();
 
 function squash(body: string): string {
   return body

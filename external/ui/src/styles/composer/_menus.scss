@@ -1,0 +1,306 @@
+// The Mode, Model and Reasoning menus and the environment menu.
+
+@use "../abstracts" as *;
+
+.mode-menu {
+  position: absolute;
+  left: 0;
+  min-width: 160px;
+  padding: 6px;
+  border-radius: var(--coddy-glass-panel-radius);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  z-index: 90;
+}
+
+.mode-menu.opens-down {
+  top: calc(100% + 8px);
+}
+
+.mode-menu.opens-up {
+  bottom: calc(100% + 8px);
+}
+
+.mode-item {
+  width: 100%;
+  text-align: left;
+  border-radius: 12px;
+  border: 0;
+  background: transparent;
+  color: mix-text(86%);
+  cursor: pointer;
+  padding: 10px 10px;
+  font-size: 13px;
+}
+
+.mode-item:hover {
+  background: mix-text(6%);
+}
+
+.mode-item.is-selected {
+  background: rgba(147, 51, 234, 0.12);
+  border: 1px solid rgba(147, 51, 234, 0.25);
+}
+
+/* Model selector menu: filter input, vendor groups, and a ~5-row scroll cap.
+ * The filter input stays pinned above the scroll so it never scrolls away. */
+.mode-menu--llm {
+  min-width: 220px;
+  max-width: min(360px, calc(100vw - 24px));
+}
+
+/* Fixed desktop dropdown width so filtering down to a few rows does not shrink
+ * the panel (shrink-to-fit would otherwise resize it between min/max-width).
+ * The mobile sheet keeps its own full-width sizing below. */
+.mode-menu--portal.mode-menu--llm {
+  width: min(360px, calc(100vw - 24px));
+}
+
+.mode-menu-filter {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 2px 0 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: mix-text(4%);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+
+.mode-menu-filter::placeholder {
+  color: mix-text(45%);
+}
+
+.mode-menu-filter:focus {
+  border-color: rgba(147, 51, 234, 0.45);
+}
+
+/* Cap the visible list at ~5 rows on desktop (~35px each); the rest scrolls.
+ * Padding/margin offset keeps the is-selected border from being clipped. */
+.mode-menu-scroll {
+  max-height: min(175px, 50vh);
+  overflow-y: auto;
+  padding: 1px;
+  margin: -1px;
+}
+
+.mode-menu-group-label {
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: mix-text(50%);
+}
+
+.mode-menu-group + .mode-menu-group {
+  margin-top: 2px;
+}
+
+.mode-menu--env {
+  min-width: 240px;
+  max-width: min(340px, calc(100vw - 24px));
+  /* The anchored menu gets the room it has as max-height (EnvironmentSwitcher);
+     past that it scrolls rather than running off the window. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.mode-menu--sheet.mode-menu--env {
+  max-height: 80vh;
+}
+
+.mode-menu--portal.mode-menu--env {
+  width: min(300px, calc(100vw - 24px));
+}
+
+/* Menu rows: [status dot] [name] … [host]. */
+.mode-env-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mode-env-name {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mode-env-sub {
+  margin-left: auto;
+  font-size: 0.85em;
+  opacity: 0.5;
+  white-space: nowrap;
+}
+
+/* One remote in the menu: its row, then why it is red when it is (issue #401),
+   then the agents of a relay that let this browser in. Hints and agents start
+   under the name, past the row's padding, the dot and the gap (10 + 8 + 8). */
+.mode-env-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: -4px 0 4px;
+  padding: 0 10px 0 26px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: mix-text(62%);
+}
+
+.mode-env-hint-action {
+  flex: none;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid mix-text(22%);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.mode-env-hint-action:hover {
+  background: mix-text(8%);
+}
+
+.mode-env-nodes {
+  display: flex;
+  flex-direction: column;
+  margin: -2px 0 4px;
+  padding-left: 16px;
+}
+
+.mode-env-item.mode-env-node {
+  padding-top: 7px;
+  padding-bottom: 7px;
+  font-size: 12.5px;
+}
+
+/* Reachability dots: green up, red down, amber while probing (local is always up). */
+.env-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: color-mix(in srgb, var(--text) 35%, transparent);
+}
+.env-status[data-state="up"],
+.env-status[data-state="local"] {
+  background: #22c55e;
+}
+.env-status[data-state="down"] {
+  background: #ef4444;
+}
+.env-status[data-state="checking"] {
+  background: #f59e0b;
+}
+
+/* Persistent alert when the active remote environment is unreachable/unauthorized (issue #60). */
+.env-health-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: 7px 14px;
+  font-size: 12.5px;
+  color: #fff;
+  background: color-mix(in srgb, #ef4444 88%, #000);
+  border-bottom: 1px solid color-mix(in srgb, #ef4444 60%, #000);
+}
+.env-health-banner code {
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.env-health-banner-btn {
+  flex: none;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: transparent;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.env-health-banner-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.mode-menu-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px 8px;
+}
+
+.mode-menu-form-title {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.mode-menu-form-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.mode-menu-form-actions .mode-item {
+  flex: 1;
+  justify-content: center;
+  text-align: center;
+}
+
+.mode-menu-empty {
+  padding: 12px 10px;
+  font-size: 13px;
+  color: mix-text(55%);
+}
+
+/* Long ids never blow out the menu width; full id stays in the row title. */
+.mode-menu--llm .mode-item {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Mobile/narrow shells: mode/model/reasoning menus become a full-width bottom
+ * sheet (same family as the slash/at picker sheet), not a cramped dropdown. */
+.mode-menu--sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: auto;
+  margin: 0 auto;
+  width: auto;
+  min-width: 0;
+  max-width: min(560px, 100vw);
+  border-radius: $sheet-corners;
+  z-index: 101;
+}
+
+/* In the sheet, drop the desktop 360px cap and the row ellipsis so the full
+ * width is used and names can breathe. */
+.mode-menu--sheet.mode-menu--llm {
+  min-width: 0;
+  max-width: min(560px, 100vw);
+}
+
+.mode-menu--sheet .mode-menu-scroll {
+  max-height: 46vh;
+}
+
+/* Sheet variant dims the chat behind it like the slash/at picker sheet. */
+.mode-menu-backdrop--scrim {
+  background: var(--coddy-overlay-scrim-bg);
+}

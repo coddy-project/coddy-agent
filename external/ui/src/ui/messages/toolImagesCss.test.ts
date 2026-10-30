@@ -1,14 +1,11 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
-const dir = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(dir, "../../styles.css"), "utf8");
+const css = stylesSource();
 
 function ruleBody(selector: string): string {
   const idx = css.indexOf(selector);
-  expect(idx, `${selector} is missing from styles.css`).toBeGreaterThan(-1);
+  expect(idx, `${selector} is missing from styles.scss`).toBeGreaterThan(-1);
   const open = css.indexOf("{", idx);
   const close = css.indexOf("}", open);
   return css.slice(open + 1, close);

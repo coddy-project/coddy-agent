@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
 /**
  * How the views of a chat mark what is on show: a pressed toggle and the
@@ -10,7 +9,7 @@ import { expect, test } from "vitest";
  * takes it, in any theme.
  */
 
-const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf8");
+const css = stylesSource();
 
 /**
  * A declaration block on one line: Prettier breaks a long value over several,
@@ -27,7 +26,7 @@ function squash(body: string): string {
 /** The body of the last rule whose selector list ends with `selector {`. */
 function ruleBody(selector: string): string {
   const idx = css.lastIndexOf(`${selector} {`);
-  expect(idx, `${selector} is missing from styles.css`).toBeGreaterThan(-1);
+  expect(idx, `${selector} is missing from styles.scss`).toBeGreaterThan(-1);
   const open = css.indexOf("{", idx);
   return squash(css.slice(open + 1, css.indexOf("}", open)));
 }
@@ -37,7 +36,7 @@ test.each([".files-icon-btn.is-active", ".files-tree-row.is-active"])(
   (selector) => {
     const body = ruleBody(selector);
     expect(body).not.toContain("var(--accent)");
-    expect(body).toMatch(/background: color-mix\(in srgb, var\(--text\)/);
+    expect(body).toMatch(/background: mix-text\(/);
   },
 );
 
@@ -45,15 +44,16 @@ test("a pressed toggle and the active row of the tree carry a light outline too"
   // The edits window is headed with the Files window's controls, not toggles of its own.
   expect(css).not.toContain(".dv-icon-btn.is-active");
   expect(ruleBody(".files-icon-btn.is-active")).toMatch(
-    /border-color: color-mix\(in srgb, var\(--text\)/,
+    /border-color: mix-text\(/,
   );
   expect(ruleBody(".files-tree-row.is-active")).toMatch(
-    /box-shadow: inset 0 0 0 1px color-mix\(in srgb, var\(--text\)/,
+    /box-shadow: inset 0 0 0 1px mix-text\(/,
   );
 });
 
 test("git's count on the plate is framed as a button, and its frame brightens on hover", () => {
   const rest = ruleBody(".workspace-bar-edits");
+  // Both states mix into transparent rather than the panel blend base.
   expect(rest).toMatch(/border: 1px solid color-mix\(in srgb, var\(--text\)/);
   expect(rest).not.toContain("var(--accent)");
   const hover = ruleBody(".workspace-bar-edits:focus-visible");

@@ -1,0 +1,38 @@
+// Tokens that are the same in every theme: corners, the mono fonts, a layer,
+// the rail's metrics and the top rhythm. A theme file declares none of them
+// (stylesModules.test.ts), so a new theme cannot drift on them.
+
+:root {
+  --radius: 14px;
+  /* Match composer-card and History drawer corners */
+  --coddy-glass-panel-radius: 18px;
+  --coddy-md-inline-code-font:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  --coddy-skill-chip-font:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
+  /* Slash skills UI must stay below History (backdrop 40, drawer 50; mobile 60/70). */
+  --coddy-z-slash-command: 38;
+  /* Narrow nav column: outer edge = pill + trailing column padding before chat/drawer */
+  --rail-column-pad-end: 8px;
+  --nav-floating-gutter: 2px;
+  --rail-pill-track: 74px;
+  /* Matches .rail-pill horizontal padding (box-sizing border-box width includes this) */
+  --rail-pill-pad-inline: 10px;
+  /* One step of the top rhythm, the same in every theme: from the window's
+     edge to the chat header on a desktop (to the top bar on the stacked shell,
+     where it is 10px), from the bar to the header, and around the expand
+     control of an expanded composer. */
+  --coddy-top-rhythm: 14px;
+  /* The docked composer's wrap above its card (18px on a desktop): the expand
+     control and the jump stand on the card, not on the wrap, so they subtract
+     it. */
+  --coddy-composer-wrap-pad: 14px;
+}
+
+@media (min-width: 761px) {
+  :root {
+    --rail-pill-track: 76px;
+  }
+}

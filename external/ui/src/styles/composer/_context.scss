@@ -1,0 +1,331 @@
+// The provider usage pill and banner, the context ring and its breakdown
+// popover.
+
+@use "../abstracts" as *;
+
+/* Provider account usage: the pill left of the context ring and the notice
+   above the composer (DESIGN.md, Context popover usage section and usage banner).
+   The notice stands in .chat-bottom, over the transcript that scrolls under the
+   docked composer, so its plate is opaque: the tone's tint is mixed into the
+   theme's canvas colour (--bg, a solid colour in every theme) rather than laid
+   over whatever scrolls behind it. */
+.usage-banner {
+  display: flex;
+  box-sizing: border-box;
+  max-width: 100%;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  background: color-mix(in srgb, #f59e0b 10%, var(--bg));
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.usage-banner--error {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: color-mix(in srgb, #ef4444 10%, var(--bg));
+}
+
+.usage-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.usage-banner-dismiss {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  margin: -4px 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.usage-banner-dismiss:hover {
+  background: mix-text(6%);
+  color: var(--text);
+}
+
+@media (max-width: 1199px) {
+  /* A touch target on a narrow shell: 44 px of hit area, the same visual size. */
+  .usage-banner-dismiss {
+    width: 44px;
+    height: 44px;
+    margin: -10px -10px -10px 0;
+  }
+}
+
+.context-ring {
+  position: relative;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: none;
+}
+
+.context-ring svg {
+  display: block;
+}
+
+.context-ring-inner {
+  fill: none;
+  stroke: var(--coddy-context-ring-inner);
+  stroke-width: 2.15;
+  stroke-linecap: round;
+}
+
+.context-ring-fg {
+  fill: none;
+  stroke: var(--coddy-context-ring-fg);
+  stroke-width: 3.25;
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: 14px 14px;
+  transition: stroke-dashoffset 160ms ease;
+}
+
+.composer-context-tip-host {
+  cursor: pointer;
+}
+
+/* Context breakdown: same shell as slash / @ pickers (portal desktop, sheet mobile) */
+.context-breakdown-menu {
+  --ctx-seg-system: rgba(148, 163, 184, 0.85);
+  --ctx-seg-tools: rgba(168, 85, 247, 0.9);
+  --ctx-seg-rules: rgba(34, 197, 94, 0.9);
+  --ctx-seg-skills: rgba(249, 115, 22, 0.9);
+  --ctx-seg-mcp: rgba(236, 72, 153, 0.88);
+  --ctx-seg-subagents: rgba(56, 189, 248, 0.88);
+  --ctx-seg-conversation: rgba(59, 130, 246, 0.92);
+  position: relative;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.context-breakdown-menu-scroll {
+  position: relative;
+  z-index: 1;
+  padding: 0 12px 12px;
+  min-height: 0;
+}
+
+.context-breakdown-menu--portal {
+  position: fixed;
+  z-index: var(--coddy-z-slash-command);
+  box-sizing: border-box;
+}
+
+.context-breakdown-menu--sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0 auto;
+  max-width: min(520px, calc(100vw - 28px));
+  border-radius: $sheet-corners;
+  z-index: 41;
+}
+
+.context-breakdown-menu--sheet .slash-menu-surface {
+  border-radius: $sheet-corners;
+}
+
+.context-breakdown-menu--sheet .context-breakdown-menu-scroll {
+  min-height: min(38vh, 360px);
+  max-height: 46vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+}
+
+.context-breakdown-menu--sheet.context-breakdown-menu--above-composer
+  .context-breakdown-menu-scroll {
+  min-height: 0;
+  max-height: min(
+    36vh,
+    calc(100dvh - var(--context-sheet-bottom, 120px) - 16px)
+  );
+}
+
+.slash-menu--sheet.slash-menu--above-composer {
+  max-height: min(
+    42vh,
+    calc(100dvh - var(--context-sheet-bottom, 120px) - 16px),
+    var(--slash-sheet-room, 100dvh)
+  );
+}
+
+/* --slash-sheet-room: the height of an expanded field, which the picker
+   opens inside of (Composer.tsx, measureSheetBottom). */
+.slash-menu--sheet.slash-menu--above-composer .slash-menu-scroll {
+  max-height: min(
+    40vh,
+    calc(100dvh - var(--context-sheet-bottom, 120px) - 24px),
+    calc(var(--slash-sheet-room, 100dvh) - 8px)
+  );
+}
+
+.context-breakdown-menu--sheet .context-breakdown-summary {
+  font-size: 13px;
+}
+
+.context-breakdown-menu--sheet .context-breakdown-legend {
+  gap: 10px;
+}
+
+.context-breakdown-head {
+  padding: 10px 12px;
+}
+
+.context-breakdown-title {
+  min-width: 0;
+  text-transform: none;
+}
+
+.context-breakdown-usage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px 0;
+}
+
+.context-breakdown-used {
+  color: color-mix(in srgb, var(--text) 75%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+.context-breakdown-compact {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.context-breakdown-compact:disabled {
+  cursor: default;
+  opacity: 0.55;
+  text-decoration: none;
+}
+
+.context-breakdown-error {
+  color: #dc2626;
+  font-size: 12px;
+}
+
+.context-breakdown-note {
+  color: color-mix(in srgb, var(--text) 65%, transparent);
+  font-size: 12px;
+}
+
+html:not([data-theme="light"]) .context-breakdown-error {
+  color: #f87171;
+}
+
+.context-breakdown-close {
+  flex: 0 0 auto;
+}
+
+.context-breakdown-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: color-mix(in srgb, var(--text) 75%, transparent);
+  margin: 4px 14px 10px;
+}
+
+.context-breakdown-summary-sep {
+  opacity: 0.5;
+}
+
+.context-breakdown-empty {
+  margin: 0 0 10px;
+  color: color-mix(in srgb, var(--text) 60%, transparent);
+}
+
+.context-meter-track {
+  display: block;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  margin-bottom: 12px;
+}
+
+.context-meter-fill {
+  display: flex;
+  height: 100%;
+  min-width: 2px;
+  border-radius: 999px 0 0 999px;
+  overflow: hidden;
+}
+
+.context-meter-seg {
+  min-width: 1px;
+  height: 100%;
+}
+
+.context-breakdown-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  margin-bottom: 12px;
+}
+
+.context-breakdown-seg {
+  min-width: 2px;
+  height: 100%;
+}
+
+.context-breakdown-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.context-breakdown-legend li {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.context-breakdown-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.context-breakdown-label {
+  color: color-mix(in srgb, var(--text) 85%, transparent);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.context-breakdown-value {
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--text) 70%, transparent);
+}

@@ -1,0 +1,546 @@
+// Message rows of the transcript and the typing indicator.
+
+@use "../abstracts" as *;
+
+.msg {
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.msg-user-stack {
+  --user-foot-height: 28px;
+  --user-foot-gap: 6px;
+  align-self: flex-end;
+  max-width: min(680px, 86%);
+  width: fit-content;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.msg-user-stack--followup {
+  padding-top: calc(var(--user-foot-height) + var(--user-foot-gap));
+}
+
+.msg-user-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+  justify-content: flex-end;
+}
+
+.msg-user-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: 130px;
+  min-height: 36px;
+  background: mix-text(6%);
+  border: 1px solid mix-text(14%);
+  border-radius: 10px;
+  padding: 5px 10px;
+  font-size: 11px;
+  color: mix-text(75%);
+  cursor: default;
+  box-sizing: border-box;
+}
+
+.msg-user-file-chip-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  color: mix-text(50%);
+}
+
+.msg-user-file-chip-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A sent image is a preview card like the composer's: the picture fills it and
+   a click opens the full-size asset (the optimistic blob until the server
+   snapshot brings the durable thumbnail and the original's address). */
+.msg-user-file-card {
+  display: block;
+  position: relative;
+  width: 128px;
+  height: 96px;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.msg-user-file-card:hover,
+.msg-user-file-card:focus-within {
+  border-color: mix-text(28%);
+  background: mix-text(12%);
+}
+
+.msg-user-file-card-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+
+.msg-user-file-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.msg-user-foot {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: var(--user-foot-gap);
+  min-height: var(--user-foot-height);
+  width: 100%;
+  align-self: stretch;
+  /* Mirror of the inset under assistant and system rows: the copy control and
+     the time keep the message card's horizontal padding from the bubble edge. */
+  padding-right: 14px;
+  box-sizing: border-box;
+}
+
+.msg-user-time {
+  font-size: 12px;
+  line-height: 1.3;
+  color: mix-text(50%);
+  user-select: none;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.msg-assistant-stack {
+  align-self: stretch;
+  width: 100%;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+}
+
+@keyframes coddy-work-orbit {
+  from {
+    transform: rotate(90deg);
+  }
+  to {
+    transform: rotate(450deg);
+  }
+}
+
+@keyframes coddy-work-arc {
+  0% {
+    stroke-dasharray: 8 92;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 88 12;
+    stroke-dashoffset: -20;
+  }
+  100% {
+    stroke-dasharray: 8 92;
+    stroke-dashoffset: -100;
+  }
+}
+
+.typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  /* By default, two row gaps above it - the column's and this padding - and
+     the same two between it and the composer (chat/composerReserve.ts). */
+  padding: var(--coddy-transcript-row-gap, 10px) 14px 0;
+  /* Blockified as a flex item of the column .msg-assistant-stack; without this its
+     min-content width follows the unbreakable phrase in the status label and pushes
+     the row past .messages-inner. */
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Without a checklist, reduce the working line's top gap by 4px.
+   Keep its bottom padding at zero, as it is under a checklist. */
+.messages-inner:not(:has(> .message-row-todo))
+  > .msg-assistant-stack:not(.typing-dots-slot)
+  > .typing-dots {
+  padding-top: calc(var(--coddy-transcript-row-gap, 10px) - 4px);
+}
+
+/* Between turns the live line's room stays, transparent and still: the line
+   coming and going moved the transcript over it as each step ended. */
+.typing-dots-slot {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.typing-dots-slot .coddy-work-indicator-c {
+  animation: none;
+}
+
+.coddy-work-indicator {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: mix-text(72%);
+}
+
+.coddy-work-indicator-ring {
+  opacity: 0.35;
+}
+
+.coddy-work-indicator-c {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation:
+    coddy-work-orbit 2.2s linear infinite,
+    coddy-work-arc 2.2s ease-in-out infinite;
+}
+
+/* Tasks can outlive a turn by minutes; reduced motion keeps the same still mark. */
+@media (prefers-reduced-motion: reduce) {
+  .coddy-work-indicator-c {
+    animation: none;
+  }
+}
+
+/* The live status label follows the work indicator. */
+.typing-dots-status {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+  margin-left: 3px;
+  font-size: 13px;
+  line-height: 1.3;
+  color: mix-text(55%);
+  user-select: none;
+}
+
+/* The turn's own numbers lead the line: its clock, the tokens generated in it, the
+   background tasks running right now. Each item is closed by a middle dot, so the
+   phrase that follows reads as the last segment: "2m 05s · 1.2k tokens · Reading a
+   file". */
+.typing-dots-turn {
+  display: inline-flex;
+  align-items: baseline;
+  flex: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.typing-dots-turn-item::after {
+  content: "\00b7";
+  margin: 0 5px;
+  color: mix-text(42%);
+}
+
+.typing-dots-turn-time {
+  color: mix-text(72%);
+}
+
+/* The running-tasks segment opens the Tasks panel. It is text in a line of text, so
+   it carries no chrome of its own - the accent says it is the one live control. */
+.typing-dots-turn-tasks {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+  cursor: pointer;
+  user-select: none;
+}
+
+.typing-dots-turn-tasks:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.typing-dots-turn-tasks:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* The turn has ended and only background tasks are still running: the count is the
+   whole line, so it closes with no middle dot - nothing follows it to separate. */
+.typing-dots-status--tasks-only .typing-dots-turn-item::after {
+  content: none;
+}
+
+.typing-dots-status-text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  /* Lets the flex child shrink below its content size, which is what enables the
+     ellipsis on the phrase below. */
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* The phrase is the only thing the line says about the step - it never names what the
+   step acts on - so it is also the only thing that can give ground. The turn's numbers
+   and the counter are flex: none, and a phrase too long for the row ellipsizes instead
+   of wrapping it onto a second line. */
+.typing-dots-status-verb {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A drawn-out wait reads as more prominent, not as an error: there is no per-theme
+   warning token, and a slow model is not a failure. */
+.typing-dots-status--slow .typing-dots-status-verb {
+  color: mix-text(78%);
+}
+
+.typing-dots-status-time {
+  flex: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: mix-text(42%);
+}
+
+.typing-dots-status-time::before {
+  content: "\00b7";
+  margin: 0 5px;
+}
+
+/* Phone: the numbers and a long phrase do not fit one line. The phrase - what the
+   agent is doing - keeps the first line next to the indicator, and the turn's numbers move
+   under it as a caption, so the row never breaks wherever it happens to run out. */
+@media (max-width: 599px) {
+  .typing-dots {
+    align-items: flex-start;
+  }
+
+  /* Centre the 14px mark on the first text line (12px x 1.3). */
+  .coddy-work-indicator {
+    margin-top: 0.8px;
+  }
+
+  .typing-dots-status {
+    font-size: 12px;
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+
+  .typing-dots-status-text {
+    order: 1;
+  }
+
+  .typing-dots-status-time {
+    order: 2;
+  }
+
+  .typing-dots-turn {
+    order: 3;
+    flex-basis: 100%;
+    font-size: 11px;
+  }
+
+  /* Nothing follows the last number on its line, so it closes with no dot. */
+  .typing-dots-turn-item:last-child::after {
+    content: none;
+  }
+}
+
+.msg-copy-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 4px;
+  margin: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: mix-text(45%);
+  cursor: pointer;
+  line-height: 0;
+}
+
+.msg-copy-icon-btn:hover:not(:disabled),
+.msg-copy-icon-btn:focus-visible:not(:disabled) {
+  color: rgba(167, 139, 250, 0.95);
+  background: transparent;
+}
+
+.msg-copy-icon-btn:focus-visible {
+  outline: 2px solid rgba(147, 51, 234, 0.45);
+  outline-offset: 2px;
+}
+
+.msg-copy-icon-btn:active:not(:disabled) {
+  color: rgba(196, 181, 253, 0.9);
+}
+
+.msg-copy-icon-btn__glyph {
+  display: block;
+  flex-shrink: 0;
+}
+
+.msg-copy-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.msg-user {
+  background: var(--coddy-bubble-user-bg);
+  color: var(--coddy-bubble-user-fg);
+  border: 1px solid mix-text(6%);
+  align-self: flex-end;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+  position: relative;
+}
+
+/* Message editing: the prompt loaded into the composer is outlined in the
+   accent colour, and every row after it is faded, because sending the edit
+   removes exactly those rows. The rows are siblings under .messages-inner
+   (each row root is a direct child), so a general sibling selector reaches
+   them without the rows knowing about the edit. See DESIGN.md, Message
+   editing. */
+.msg-user-stack--editing .msg-user {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.msg-user-stack--editing ~ * {
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
+}
+
+/* User turns are plain text (no Markdown); preserve composer line breaks. */
+.msg-user-body {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+}
+
+/* A passage the prompt quotes (Markdown "> " lines, taken from the transcript
+   with Quote - issue #342): a block of its own with a bar on its left, in a
+   quieter tint than what the reader wrote under it. */
+.msg-user-quote {
+  margin: 0;
+  padding: 1px 0 1px 10px;
+  border-left: 2px solid mix-text(26%);
+  color: mix-text(72%);
+}
+
+.msg-user-quote + .msg-user-quote,
+.msg-user-quote + .msg-user-text,
+.msg-user-text + .msg-user-quote {
+  margin-top: 8px;
+}
+
+.msg-assistant {
+  padding: 0px 14px;
+  background: transparent;
+  border: none;
+  align-self: stretch;
+  width: 100%;
+  max-width: none;
+  box-shadow: none;
+}
+
+.msg-system-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.msg-system {
+  align-self: flex-start;
+  background: rgba(40, 18, 18, 0.55);
+  border: 1px solid rgba(255, 120, 120, 0.25);
+  margin-bottom: 2px;
+}
+
+.msg-system-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 168, 168, 0.85);
+  margin-bottom: 6px;
+}
+
+.msg-system-body {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: $coddy-mono-ui;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(248, 220, 220, 0.92);
+}
+
+.msg-system-foot {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  min-height: 28px;
+  box-sizing: border-box;
+  /* The row sits below the bordered card, not inside it: inset it by the
+     card's horizontal padding so the copy control lines up with the one
+     under an assistant row, which inherits that padding from its card. */
+  padding-left: 14px;
+}
+
+.msg-system-time {
+  font-size: 12px;
+  line-height: 1.3;
+  color: rgba(255, 168, 168, 0.55);
+  user-select: none;
+  white-space: nowrap;
+  cursor: help;
+}
+
+/* Notice level: information the operator should see once (a held hooks
+   file, for example). Same shape as the error row, calmer palette, no
+   retry control. */
+.msg-system.msg-system-notice {
+  background: rgba(18, 30, 42, 0.55);
+  border-color: rgba(120, 180, 255, 0.25);
+}
+
+.msg-system-notice .msg-system-label {
+  color: rgba(168, 208, 255, 0.85);
+}
+
+.msg-system-notice .msg-system-body {
+  color: rgba(222, 236, 250, 0.92);
+}
+
+.msg-system-stack-notice .msg-system-time {
+  color: rgba(168, 208, 255, 0.55);
+}

@@ -323,7 +323,7 @@ Mobile layout
 
 Phone layout (**`max-width: 599px`**)
 
-The shell has four tiers by the width of the window: a **phone** up to **599px**, a **tablet** from **600** to **1199px**, a **desktop** from **1200px** and a **wide** screen from **1920px** (the table is **Layout grid** in **`DESIGN.md`**). Tablets and desktops fit every control already; a phone does not, so the narrowest tier gets its own block at the end of **`styles.css`**, and nothing in it applies above **599px**. **599px** is the edge the mobile platforms use for their compact window class: every phone in portrait is under it (Galaxy S21 at 360, iPhone 13 mini at 375, Honor X9d at 393), the smallest tablet in portrait is over it.
+The shell has four tiers by the width of the window: a **phone** up to **599px**, a **tablet** from **600** to **1199px**, a **desktop** from **1200px** and a **wide** screen from **1920px** (the table is **Layout grid** in **`DESIGN.md`**). Tablets and desktops fit every control already; a phone does not, so the narrowest tier gets its own block, **`styles/shell/_phone.scss`**, and nothing in it applies above **599px**. **599px** is the edge the mobile platforms use for their compact window class: every phone in portrait is under it (Galaxy S21 at 360, iPhone 13 mini at 375, Honor X9d at 393), the smallest tablet in portrait is over it.
 
 ![A chat on a 375 px phone: a tool row named after an MCP tool wraps inside the transcript, and a long link breaks](../assets/phone-transcript-mcp-row-dark-375.png)
 
@@ -784,7 +784,7 @@ Context ring and breakdown popover
 Shape and glyphs
 
 - The control sits to the **right** of the context ring (**`.composer-icon`** on **`Composer.tsx`**).
-- The hit target is a **perfect circle**: equal **width** and **height**, **`border-radius: 50%`**, **`box-sizing: border-box`** (currently **42×42px** in **`styles.css`**). Do **not** ship a rounded square or squircle for this control unless the visual spec explicitly changes again.
+- The hit target is a **perfect circle**: equal **width** and **height**, **`border-radius: 50%`**, **`box-sizing: border-box`** (currently **42×42px** in **`styles/composer/_send.scss`**). Do **not** ship a rounded square or squircle for this control unless the visual spec explicitly changes again.
 - **Play** (**idle**, draft non-empty): an SVG triangle, **17x17px**, inside **`composer-send-glyph`**, its path set right of centre for optical balance.
 - **Stop** (**while the session has an active turn, draft empty**): filled square **`.composer-stop-square`** (**14x14px**, centered in the **42px** circle). Stays in **`composer-bar-actions`** on the right, next to the context ring, even when this tab has no stream reader.
 - **Queue** (**while the session has an active turn, draft or attachment present**): the **play** glyph returns on an accent fill (**`.composer-run-icon--queue`**, **`data-queue="true"`**). Emptying the field and attachments brings **Stop** back. See **Composer message queue** below.
@@ -1133,7 +1133,7 @@ Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklis
 | List merge | **`App.tsx`** **`loadMessages`** merges **`GET /coddy/sessions/{id}/tool-calls`** rows into **`resultText`**, **`resultWasTruncated`**, timing |
 | Full text | First result **More…**, or automatic incomplete-args recovery for restored **`apply_patch`** / **`write`** / **`write_file`** / **`edit`** cards in any status - **`GET /coddy/sessions/{id}/tool-calls/{toolCallId}`**, using JSON **`result`** and **`args`** (same object includes **`meta`**). Transcript reconciles never replace complete args with the truncated 200-char **`argsPreview`** (**`pickRicherToolArgs`**), so live cards keep full previews across permission answers |
 | Pictures | **`ToolImagePreviews.tsx`** under the row, outside the **`details`**: **`.tool-images`**, one **`button.tool-image-card`** per picture (**`data-testid="tool-image-open"`**, thumbnail **`tool-image-thumb`**) that opens **`ImageLightbox`**; only on a completed call, from **`images`** of the row (**`_meta.coddy.images`** live, the tool row's **`files`** after a reload) |
-| CSS | **`styles.css`**: **`.coddy-tool-call-row`**, transparent **`.coddy-tool-call-body`**, shared **`.permission-preview*`**, **`.tool-call-result-card`**, **`thinking-details:not([open])` body hidden**, **`.tool-images`** / **`.tool-image-card`**, plus result viewport / toggle classes above |
+| CSS | **`styles/chat/_tool-rows.scss`**: transparent **`.coddy-tool-call-body`**, **`.tool-call-result-card`**, **`thinking-details:not([open])` body hidden**, **`.tool-images`** / **`.tool-image-card`**, plus result viewport / toggle classes above; shared **`.permission-preview*`** in **`_permission.scss`** and **`_tool-cards.scss`** beside it |
 
 - `assistant_message`
   - Final assistant output text for the turn, after tool calls.
@@ -1671,7 +1671,7 @@ Automated checks:
 - `vue` fences highlight component markup and ordinary `<script>` / `<style>` contents as JavaScript / CSS. Vue interpolations and `lang="ts"`, SCSS, or other preprocessors do not have dedicated Vue-aware parsing.
 - `postcss` fences use the CSS highlighter, including selectors, properties, numbers, and comments. Plugin-specific PostCSS syntax may remain uncolored.
 - Label fences with the language (for example `js`, `css`, `html`, `json`, `ts`, `python`, or `go`) to enable highlighting. Unlabelled or unsupported languages stay plain text. Highlighting also works while an answer is streaming.
-- Code colors follow all seven appearance themes immediately when switching themes. Each theme defines the shared `--syntax-*` palette in `external/ui/src/styles.css`; no separate syntax-theme setting is needed.
+- Code colors follow all seven appearance themes immediately when switching themes. Each theme defines the shared `--syntax-*` palette in its file under `external/ui/src/styles/themes/`; no separate syntax-theme setting is needed.
 - Each code block has a copy button that copies only that block content.
 - Mermaid and SVG fences are drawn as pictures and LaTeX as formulas: see [Diagrams and formulas](#diagrams-and-formulas).
 
