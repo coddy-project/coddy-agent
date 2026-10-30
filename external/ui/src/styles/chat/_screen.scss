@@ -196,7 +196,8 @@
 
 /* The look of the top bar's buttons around an 18px icon: 36px high in a
    desktop header, the top bar's own 42px on a tablet and 40px on a phone
-   (further down). Files is a square of that size around its icon. */
+   (further down). Files is a square of that size around its icon, and so is
+   Tasks around its dot until the chat has tasks to count. */
 .chat-view-btn {
   position: relative;
   flex: none;
@@ -248,11 +249,10 @@
   outline-offset: 2px;
 }
 
-/* The tasks dot, the word and the counts are one line of text, and the dot
-   sits on it with vertical-align: middle - the middle of the lowercase
-   letters, in whatever font the engine draws. Centred on the line box instead,
-   a glyph reads a pixel high beside mostly lowercase words, by an amount that
-   differs per font. The Files icon stands alone, centred in its square. */
+/* The tasks dot and the counts are one line of text, and the dot sits on it
+   with vertical-align: middle, in whatever font the engine draws. Centred on
+   the line box instead, a glyph reads a pixel high beside the text, by an amount
+   that differs per font. In a square the icon or the dot stands alone, centred. */
 .chat-view-face {
   display: block;
   white-space: nowrap;
@@ -263,6 +263,10 @@
   margin-left: 7px;
 }
 
+.chat-view-btn--icon .chat-view-face {
+  display: flex;
+}
+
 .chat-view-icon {
   display: block;
 }
@@ -270,17 +274,6 @@
 .chat-view-face .bgtask-dot {
   display: inline-block;
   vertical-align: middle;
-}
-
-/* The names are in the tooltip; the word stays for Background tasks only
-   until there are counts to show. */
-.chat-view-label {
-  display: none;
-  line-height: 1;
-}
-
-.chat-view-btn--tasks:not(.has-tasks) .chat-view-label {
-  display: inline;
 }
 
 /* running / total beside the dot. Tabular digits, so a count that changes

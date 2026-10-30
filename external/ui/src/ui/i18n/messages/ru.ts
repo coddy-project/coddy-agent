@@ -2490,7 +2490,6 @@ export const messagesRu: Record<string, string> = {
   "tasks.running.many": "Выполняется {count} задач",
   "tasks.running.other": "Выполняется {count} задачи",
   "tasks.openAria": "Открыть фоновые задачи: {label}",
-  "tasks.header.label": "Задачи",
   "tasks.header.counts": "{running} / {total}",
   "tasks.header.aria": "Фоновые задачи: выполняется {running}, всего {total}",
   "tasks.header.ariaEmpty": "Фоновые задачи: пока нет",

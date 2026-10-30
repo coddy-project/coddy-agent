@@ -527,7 +527,13 @@ async function turnEndMovesNothing(page, width, prompt) {
       if (inner) {
         const answers = inner.querySelectorAll(".md");
         const last = answers[answers.length - 1];
+        // The turn's clock, from the top of the column: the numbers stay where
+        // they stand when the turn ends, and only the phrase goes.
+        const clocks = inner.querySelectorAll(".typing-dots-turn-time");
+        const clock = clocks[clocks.length - 1]?.getBoundingClientRect();
+        const box = inner.getBoundingClientRect();
         frames.push({
+          clock: clock ? `${clock.left - box.left},${clock.top - box.top}` : "",
           height: inner.getBoundingClientRect().height,
           answers: answers.length,
           answer: last ? last.getBoundingClientRect().height : 0,
@@ -566,10 +572,14 @@ async function turnEndMovesNothing(page, width, prompt) {
     end--;
   }
   const heights = [...new Set(frames.slice(end).map((f) => f.height))];
+  const clocks = [...new Set(frames.slice(end).map((f) => f.clock))];
   check(
-    `the end of a turn moves nothing at ${width}px`,
-    heights.length === 1 && frames.some((f) => !f.stopped),
-    heights.join(", "),
+    `the end of a turn moves nothing at ${width}px, the numbers included`,
+    heights.length === 1 &&
+      clocks.length === 1 &&
+      clocks[0] !== "" &&
+      frames.some((f) => !f.stopped),
+    `${heights.join(", ")} | ${clocks.join(" ")}`,
   );
 }
 

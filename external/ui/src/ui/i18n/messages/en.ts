@@ -2398,7 +2398,6 @@ export const messagesEn: Record<string, string> = {
   "tasks.running.one": "{count} running task",
   "tasks.running.other": "{count} running tasks",
   "tasks.openAria": "Open background tasks: {label}",
-  "tasks.header.label": "Tasks",
   "tasks.header.counts": "{running} / {total}",
   "tasks.header.aria": "Background tasks: {running} running, {total} in total",
   "tasks.header.ariaEmpty": "Background tasks: none yet",

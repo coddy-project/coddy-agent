@@ -47,6 +47,10 @@ func TestTurnProgressWebUIFeature(t *testing.T) {
 				return runVitestScenario("src/ui/messages/SystemNoticeMessage.test.tsx",
 					"a finished turn keeps the live line without its phrase, the time on hover")
 			})
+			sc.Step(`^on a phone the turn's numbers keep the first line and the phrase goes under them$`, func() error {
+				return runVitestScenario("src/ui/tasks/backgroundTaskCss.test.ts",
+					"on a phone the turn's numbers keep the first line and the phrase goes under them")
+			})
 			sc.Step(`^a completed generation caption follows the answer and is not duplicated by replay$`, func() error {
 				return runVitestScenario("src/ui/chat/consumeComposerSse.order.test.ts",
 					"a completed generation caption follows the answer and is not duplicated by replay")
@@ -84,8 +88,8 @@ func TestBackgroundTasksWebUIFeature(t *testing.T) {
 	suite := godog.TestSuite{
 		Name: "background_tasks_web_ui",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
-			sc.Step(`^the tasks control is in the header of a chat that never ran a task, without counts$`, func() error {
-				return runVitestScenario(header, "the tasks control is in the header of a chat that never ran a task, without counts")
+			sc.Step(`^the tasks control of a chat that never ran a task is a square with its dot$`, func() error {
+				return runVitestScenario(header, "the tasks control of a chat that never ran a task is a square with its dot, the name in the tooltip")
 			})
 			sc.Step(`^with tasks the header control says how many are running out of how many there are$`, func() error {
 				return runVitestScenario(header, "with tasks the control says how many are running out of how many there are")

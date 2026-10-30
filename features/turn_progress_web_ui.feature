@@ -26,6 +26,9 @@ Feature: The progress of a running turn in the web UI
     And a finished turn keeps the live line without its phrase, the time on hover
     And the live line stands until the turn is released, then simply stops
 
+  Scenario: On a phone the numbers lead the line, so the end of a turn leaves them where they stand
+    Then on a phone the turn's numbers keep the first line and the phrase goes under them
+
   Scenario: The line of a running turn carries what the server reported
     Then the live line of a running turn carries the server's clock and token count
     And a turn_progress frame reaches the tab on its own clock

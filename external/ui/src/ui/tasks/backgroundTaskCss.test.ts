@@ -327,20 +327,18 @@ test("the header's view buttons are styled from theme tokens, mark a live sessio
   expect(tip).toContain("var(--coddy-tip-fg)");
 });
 
-// The views are icons at every width, the way a phone always showed them:
-// Files the icon alone in a square of the top bar's size, Background tasks the
-// dot and the counts, and the word only while there are no counts yet. The
-// full name is in the tooltip.
+// The views are icons at every width, the way a phone always showed them: Files
+// the icon alone in a square of the top bar's size, Background tasks the dot in
+// the same square, and the counts next to the dot once there are tasks. The full
+// name is in the tooltip.
 test("the view buttons are icons at every width, in squares of the top bar's sizes", () => {
   const button = ruleBody(".chat-view-btn {");
   expect(button).toContain("height: 36px");
   const square = ruleBody(".chat-view-btn--icon {");
   expect(square).toContain("width: 36px");
   expect(square).toContain("padding: 0");
-  expect(ruleBody(".chat-view-label {")).toContain("display: none");
-  expect(
-    ruleBody(".chat-view-btn--tasks:not(.has-tasks) .chat-view-label {"),
-  ).toContain("display: inline");
+  expect(css).not.toContain(".chat-view-label");
+  expect(css).not.toContain(".has-tasks");
   const stacked = css.slice(
     css.indexOf(`@media (max-width: 1199px) {\n  .chat-view-btn {`),
   );
@@ -359,15 +357,18 @@ test("no opener is left under the transcript", () => {
   expect(css).not.toContain(".bgtask-chip");
 });
 
-test("on a phone the phrase keeps the first line and the turn's numbers become its caption", () => {
+test("on a phone the turn's numbers keep the first line and the phrase goes under them", () => {
   const phone = css.slice(
     css.indexOf(`@media ${phoneMaxWidthMediaQuery} {\n  .typing-dots {`),
   );
-  const block = phone.slice(0, 900);
-  expect(block).toMatch(/\.typing-dots-status-text \{\s*order: 1;/);
+  const block = phone.slice(0, phone.indexOf(".msg-copy-icon-btn"));
+  // The numbers come first in the markup and take a row of their own, which is
+  // where the finished line keeps them: only the phrase goes when the turn ends.
+  expect(block).toMatch(/\.typing-dots-turn \{\s*flex-basis: 100%;/);
   expect(block).toMatch(
-    /\.typing-dots-turn \{\s*order: 3;\s*flex-basis: 100%;/,
+    /\.typing-dots-status-text,\s*\.typing-dots-status-time \{\s*font-size: 11px;/,
   );
+  expect(block).not.toContain("order:");
 });
 
 test("the tasks segment of the live line is a bare accent control, its separator drawn by the wrapper", () => {
@@ -506,7 +507,7 @@ test("the mark of a finished turn's line stands still", () => {
 });
 
 test("the finished line keeps the live line's two rows on a phone", () => {
-  // The phrase and the numbers under it: without this room the page moves when
+  // The numbers and the phrase under them: without this room the page moves when
   // the turn ends.
   const phone = css.slice(css.indexOf("Centre the 14px mark"));
   expect(phone.replace(/\s+/g, " ")).toContain(

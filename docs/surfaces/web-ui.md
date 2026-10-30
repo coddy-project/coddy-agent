@@ -1044,7 +1044,7 @@ The indicator replaces the three bouncing dots with a 14px SVG (`coddy-work-indi
 - When the turn has ended and background tasks it started are still running, the indicator stays at the tail of the transcript with the count and nothing else (`1 running task`): no clock and no tokens, because there is no turn to time. It opens the same panel, and it goes as soon as the last task finishes.
 - Between turns an empty, transparent slot remains at the tail of the transcript. Without a todo checklist, the active line reduces its top padding by 4px, leaving 16px under the preceding row on desktop and 20px on the stacked shell. Its bottom padding stays at zero, so the gap to the composer matches the line under a checklist. The idle slot and the line under a checklist keep their existing spacing.
 - The clock and the tokens are the server's: the agent publishes `turn_progress` on the turn stream ([HTTP API](../reference/http-api.md)) and keeps the same numbers behind `GET /coddy/sessions/{id}/activity`, which a reloaded tab reads, so the clock carries on where it was. `chat/turnProgress.ts` folds the two sources: a reading names its turn by the server's `startedAt` and is dated by the turn's age on the server's clock, so the newer reading wins whichever way it came - an activity answer read before the stream's last frame and delivered after it is dropped, and an answer a throttled tab handles seconds late is still the same turn. The tab drops the numbers when the turn ends and on any activity read that finds the session idle, so the next turn never opens on the previous turn's clock. A server that predates `turn_progress` leaves the clock counting from the turn's user message, without tokens.
-- The phrase of the current step, and a step counter when the step runs something other than the model - a tool call, the memory run (`2m 05s · 1.2k tokens · Running a command · 45s`). Waiting, thinking and writing are covered by the turn clock. On a phone the line takes two rows: the phrase next to the indicator, the turn's numbers under it as a caption.
+- The phrase of the current step, and a step counter when the step runs something other than the model - a tool call, the memory run (`2m 05s · 1.2k tokens · Running a command · 45s`). Waiting, thinking and writing are covered by the turn clock. On a phone the line takes two rows: the turn's numbers next to the indicator and the phrase under them, so the numbers stay where they stand when the turn ends.
 - **The line carries the phase and nothing the step acts on.** No path, no command, no pattern, no url: what a step acts on is named once, on the transcript row above the line. So every phrase is complete on its own - `Running a command`, never `Running` waiting for a command to follow it - and a phrase that reads as a fragment fails the dictionary check in every locale (`external/ui/src/ui/i18n/statusPhrases.test.ts`). A phrase too long for the row ellipsizes rather than wrapping it.
 - Priority: unresolved permission prompt → unresolved question prompt → running tool call (an `in_progress` call beats a later announced `pending` one) → in-progress thinking (`Thinking…`) → a memory run in flight (`Working with memory`, from the `memory_run` events of the stream; the run itself is an invisible `memory_run` item of the turn, nothing renders it) → answer text as the turn's newest row (`Writing the answer`) → waiting on the model. The line always carries a phrase beside the indicator.
 - The two prompt states render **no** step counter: nothing is running while the operator decides. The turn clock keeps counting.
@@ -1225,7 +1225,7 @@ The panel is docked **inside the session**, to the right of the transcript (`.bg
 - **The card is one control and opens in place.** The opener button is stretched over the card's summary, so a click anywhere expands it and the summary tints under the pointer; Stop is a sibling above that surface and never toggles the card. The open card shows the command with a copy control (neither an agent run nor a preview server has a shell behind it, and nothing is shown there), the error unless it only repeats the exit code (`taskErrorText`), the output in a box with its own scroll, and once the task has finished a foot with the outcome and the exit code (`Failed · Exit code 2`; no exit code for an agent run or a preview server: the pool's code for them is synthetic). How long the task ran and the way into the task are the summary's and are not said again inside the card. Any number of cards are open at once, each reading its own output through the panel's `loadOutput` (again every 2.5 s while its task runs, once more when it ends); there is no detail pane. Which cards are open is the panel's state, not the address: the route is `#/s/<id>/tasks`, and a link that still names a task (`#/s/<id>/tasks/<task_id>`) opens that card through the panel's `focus` prop, after which the address drops the id. The pointer names its chat and is good for one use (`onFocusHonoured`): every session numbers its tasks from `bg_1` and the panel unmounts with the drawer, so a pointer the shell kept would open a card again on the next opening, in whichever chat is on screen.
 - **Finished N** is a counter; expanding it shows the same cards, capped at 40 rendered with a note naming what stays on disk - a card that is open is shown wherever it stands, so a link to an early task of a long session does not open a card nobody can see - and an open card whose task has just ended opens the section with it. **Clear** drops the finished history for the session.
 - Ordering is purely by start time, newest first, among the live cards and inside the finished history alike.
-- The **opener** is the **Tasks** button at the right edge of the sticky chat header (`chat-views-tasks`), not a nav rail entry. It is rendered from the first message (the dot and `Tasks`), shows the dot and `running / total` in place of the word once the chat has tasks (`1 / 3`) at every width, and is a toggle with `aria-pressed`. While a turn runs the live status line names the running tasks and opens the same panel. Both count through `countTasks` (`tasks/taskStatus.ts`), which leaves out system tasks such as the memory run of a turn. Nothing is rendered under the transcript.
+- The **opener** is the **Tasks** button at the right edge of the sticky chat header (`chat-views-tasks`), not a nav rail entry. It is rendered from the first message as a square with the dot, shows `running / total` next to the dot once the chat has tasks (`1 / 3`) at every width, and is a toggle with `aria-pressed`. While a turn runs the live status line names the running tasks and opens the same panel. Both count through `countTasks` (`tasks/taskStatus.ts`), which leaves out system tasks such as the memory run of a turn. Nothing is rendered under the transcript.
 - On `max-width: 1199px` the panel takes the screen, the cards take more padding, Stop grows to 30px and the output box to 46vh.
 - A transcript `run_command` row that started a task reads like any other command row: the label says it is a background run (*running a command in the background*) and the duration slot carries the task's ticking clock instead of the call's meaningless `0ms`. The outcome is **not** on the row - status, estimate, exit code and error are read on the task's card in this panel. Expanding the row keeps the clock and adds no task controls: Stop is on the task's card. Driven by the same poll.
 - An agent task is read without opening its card: the model, the tokens, the elapsed time and **Show transcript** are all on the folded card. Opening it adds only the child's live progress log, which ends with the `=== subagent report ===` block. A preview server reads the same way - its address is on the folded card - and opening it adds only the request log.
@@ -1235,7 +1235,7 @@ Automated checks:
 - **external/ui/src/ui/tasks/taskStatus.test.ts** (timing, progress, overdue, poll cadence, start-time ordering, grouping, agent task helpers)
 - **external/ui/src/ui/tasks/BackgroundTasksPanel.test.tsx** (one card shape for every task, the tag and the title, the card as one control with Stop apart, expanding in place with the command, copy, output and foot, several cards open at once, a card the shell points at, output re-read while a task runs, the finished counter, Clear, Show transcript on the folded card and said once, empty and error states)
 - **external/ui/src/ui/tasks/api.test.ts** (paths, headers, offline degradation)
-- **external/ui/src/ui/chat/ChatHeader.test.tsx** (the view buttons: Files and Tasks in that order and no Edits button, Tasks with the dot and `running / total` without system tasks, the Files icon alone in its square and the tooltips, `aria-pressed`), **external/ui/src/ui/changes/workingCopy.test.tsx** (one read of git's report per chat, read again on the server's word, a finished tool call and the page's focus) and **ChatScreen.test.tsx** (the toggle, the count on the plate only while git reports changes, nothing under the transcript)
+- **external/ui/src/ui/chat/ChatHeader.test.tsx** (the view buttons: Files and Tasks in that order and no Edits button, Tasks a square with the dot and then the dot and `running / total` without system tasks, the Files icon alone in its square and the tooltips, `aria-pressed`), **external/ui/src/ui/changes/workingCopy.test.tsx** (one read of git's report per chat, read again on the server's word, a finished tool call and the page's focus) and **ChatScreen.test.tsx** (the toggle, the count on the plate only while git reports changes, nothing under the transcript)
 - **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (panel docking, the tag, the stretched click surface with Stop above it, the hover tint, the bounded output box, the header control, the live line on a phone, reduced motion)
 - **external/ui/src/ui/messages/ToolCallMessage.test.tsx** (the background row: its label, the task clock in the duration slot, and that no outcome leaks onto the row)
 
@@ -1290,9 +1290,9 @@ A chat has three views beside the conversation: its **files**, its **background
 tasks** and its **edits**. Files and background tasks are a row of buttons at the top
 of the chat: **Files**, and **Tasks** at the right edge. They are icons at every
 width, as a phone always showed them: Files is its icon alone, in a square the size of
-the top bar's buttons. Tasks is the control the header always had: a dot and, once the
-chat has tasks, how many run out of how many there are, the dot lit while work is in
-flight; before the first task the dot stands beside the word Tasks. Every button has
+the top bar's buttons. Tasks is a dot in the same square until the chat has tasks; then
+the button widens and shows how many run out of how many there are next to the dot,
+which is lit while work is in flight. Every button has
 its full name in a tooltip, the Files one with its key. A
 button opens its view, and pressed again puts it away; the button of the view on show brightens, its
 text, border and ground, the way a pointed-at one does, and the accent is kept for
@@ -2241,7 +2241,7 @@ asks for a bearer token and a **`coddy serve --swarm`** relay that mounts it wit
 own client token, and drives a browser through the relay's mount only. It checks:
 
 - **the view buttons** show Files and Tasks in that order beside the title and no
-  Edits button, Files an 18px icon alone in a 36px square on a desktop, Tasks the dot,
+  Edits button, Files an 18px icon and Tasks the dot, each alone in a 36px square on a desktop,
   the tooltip in the window on hover (the Files one with its key), the pressed one for
   the view on show, brighter and not in the accent, which a second press puts away;
 - **the plate over the composer** names the repository and the branch, is joined to
@@ -2273,7 +2273,7 @@ own client token, and drives a browser through the relay's mount only. It checks
   answers a range with no header, a forged one is refused by the node, and
   **Download** saves the file under its name;
 - **on a phone** the window fits the screen, shows a file opened by its address
-  without the tree, Files is a 40 px icon beside the title, Tasks the dot and its word,
+  without the tree, Files and Tasks are 40 px squares beside the title, an icon and a dot,
   and the plate stays joined to the composer card with the count at its right edge;
 - **from another origin** (the node's own web UI with the relay as its environment)
   the window reads through the relay, a `HEAD` with `If-None-Match` passes the
@@ -2285,7 +2285,7 @@ own client token, and drives a browser through the relay's mount only. It checks
   no inherited `CODDY_*` variable and an explicit `--cwd`;
 - **at every tier of the grid** (600 to 1920 px), in English and in Russian, the
   window fits the viewport with the tree beside the file, and the view buttons sit
-  beside the title in one row, Files a square and the Tasks word whole, at the top bar's height.
+  beside the title in one row, two squares the height of the top bar's buttons.
 
 ```bash
 make build TAGS="http ui swarm"
