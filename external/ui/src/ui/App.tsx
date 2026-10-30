@@ -18,6 +18,10 @@ import {
 } from "react";
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
+import {
+  fetchPromptSuggestion,
+  reportPromptSuggestionOutcome,
+} from "./chat/promptSuggestion";
 import { useStableHandler } from "./components/useStableHandler";
 import type { QueuedMessage, QueueMode } from "./chat/Composer";
 import { normalizeClipboardImageFile } from "./chat/clipboardImageFile";
@@ -575,6 +579,16 @@ export function App() {
     const row = readClientDraftSessions().find((r) => r.localId === id);
     return row?.draftText || "";
   });
+  // The follow-up prompt suggestion of the finished turn of the viewed
+  // session (chat/promptSuggestion.ts): shown dim in the empty composer,
+  // taken with Tab, and settled - taken, retyped, or ignored - when the
+  // operator sends. acceptedRef holds that Tab already took it, so a send
+  // that edits it afterwards still counts as accepted.
+  const [promptSuggestion, setPromptSuggestion] = useState<{
+    sid: string;
+    text: string;
+  } | null>(null);
+  const promptSuggestionAcceptedRef = useRef(false);
   // The files attached in the composer. Held here, not in the composer, so a
   // send the server never took can put them back next to the text.
   const [composerFiles, setComposerFiles] = useState<File[]>([]);
@@ -1120,8 +1134,11 @@ export function App() {
       };
     },
     onReconcile: (sid, active, wasActive) => {
-      if (active) void attachViewedComposer(sid);
-      else if (wasActive) reconcileEndedTurn(sid);
+      if (active) {
+        void attachViewedComposer(sid);
+        // A turn running again retires the suggestion of the turn before it.
+        setPromptSuggestion((cur) => (cur && cur.sid === sid ? null : cur));
+      } else if (wasActive) reconcileEndedTurn(sid);
     },
   });
   const generating =
@@ -1162,6 +1179,15 @@ export function App() {
     // worktree_exit, /worktree). Read here, where the end of a turn is known
     // whether or not the events stream told this tab about it.
     if (viewing) void refreshWorkspaceContext(sid);
+    // The turn ended: ask once what the operator might type next and offer
+    // it dim in the empty composer of the session this tab still views. A
+    // turn with nothing to suggest clears what an older turn left.
+    void (async () => {
+      const text = await fetchPromptSuggestion(sid);
+      if (viewedSessionIdRef.current.trim() !== sid) return;
+      promptSuggestionAcceptedRef.current = false;
+      setPromptSuggestion(text ? { sid, text } : null);
+    })();
   }
 
   async function attachViewedComposer(sid: string) {
@@ -8480,6 +8506,14 @@ export function App() {
               )
             }
             generating={generating}
+            promptSuggestion={
+              promptSuggestion && promptSuggestion.sid === sessionId.trim()
+                ? promptSuggestion.text
+                : null
+            }
+            onPromptSuggestionAccepted={() => {
+              promptSuggestionAcceptedRef.current = true;
+            }}
             {...(!generating && lastUserText.trim() && !subagentTranscript
               ? { onRetryLast: handleRetryLast }
               : {})}
@@ -8599,6 +8633,20 @@ export function App() {
               // A subagent transcript is read-only: the server answers 409.
               if (subagentTranscript) {
                 return;
+              }
+              // What became of the offered suggestion: taken with Tab,
+              // retyped by hand, or ignored - reported to the back-off.
+              {
+                const sid = sessionId.trim();
+                if (promptSuggestion && promptSuggestion.sid === sid) {
+                  const accepted =
+                    promptSuggestionAcceptedRef.current ||
+                    text.trim().toLowerCase() ===
+                      promptSuggestion.text.trim().toLowerCase();
+                  void reportPromptSuggestionOutcome(sid, accepted);
+                }
+                setPromptSuggestion(null);
+                promptSuggestionAcceptedRef.current = false;
               }
               if (
                 sessionId.trim() &&

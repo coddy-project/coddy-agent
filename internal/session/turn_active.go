@@ -78,6 +78,9 @@ func (m *Manager) markTurnActive(sessionID string) func() {
 	}
 	m.activeTurnMu.Unlock()
 	if first {
+		// A session running again has no use for a prompt suggestion still
+		// being predicted over the conversation as it was before this turn.
+		m.CancelPromptSuggestion(id)
 		m.publishTurnEventAt(id, TurnPhaseStarted, startedAt)
 	}
 
