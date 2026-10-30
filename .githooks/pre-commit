@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Universal pre-commit gate: run the linter (and Prettier over the SPA when the
-# commit stages SPA sources) before every commit.
+# commit stages SPA sources) and compare the models catalog with models.dev
+# before every commit.
 #
 # Enable once per clone:   make hooks     (or: git config core.hooksPath .githooks)
 # Emergency bypass:        git commit --no-verify
 #
 # Runs the shared gate only when the commit touches code, so docs-only commits
 # stay fast: they get the documentation check alone (nav map, links, assets,
-# generated pages), without the linter. Scope follows CODDY_HOOK_TESTS /
-# CODDY_HOOK_LINT / CODDY_HOOK_DOCS (see scripts/checks.sh).
+# generated pages), without the linter and the catalog's download. Scope follows
+# CODDY_HOOK_TESTS / CODDY_HOOK_LINT / CODDY_HOOK_DOCS / CODDY_HOOK_MODELS (see
+# scripts/checks.sh).
 set -uo pipefail
 
 root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
@@ -36,8 +38,8 @@ if [ "$code_changed" -eq 0 ] && [ "$docs_changed" -eq 0 ]; then
 fi
 
 if [ "$code_changed" -eq 0 ]; then
-  # Documentation only: the docs check, not the linter.
-  CODDY_HOOK_LINT=0 exec "$root/scripts/checks.sh"
+  # Documentation only: the docs check, not the linter or the catalog.
+  CODDY_HOOK_LINT=0 CODDY_HOOK_MODELS=0 exec "$root/scripts/checks.sh"
 fi
 
 exec "$root/scripts/checks.sh"

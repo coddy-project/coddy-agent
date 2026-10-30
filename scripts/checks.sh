@@ -21,6 +21,13 @@
 #                                      (the CLI reference needs a full-tag build and is left
 #                                      to `make docs-check` in CI)
 #
+#   CODDY_HOOK_MODELS 0|1              (default: 1)   compare the staged models catalog
+#                                      (internal/llm/models/models.json) with models.dev and fail
+#                                      while it is behind, naming the models; models.dev out of
+#                                      reach or slower than 20 s is a warning. The pre-commit hook
+#                                      runs it for a commit that touches code, not for one that
+#                                      only touches the documentation
+#
 #   CODDY_HOOK_FORMAT 0|1              (default: 1)   when the commit stages SPA sources
 #                                      (external/ui: .ts, .tsx, .js, .jsx, .mjs, .cjs, .css, .scss,
 #                                      .json, .html; package-lock.json and build output aside),
@@ -40,7 +47,10 @@ log() { printf 'checks: %s\n' "$*" >&2; }
 # the hooks it runs. When this gate is invoked from .githooks/pre-commit they
 # leak into every `git` a test shells out to (e.g. internal/gitws's worktree
 # tests) and point it at the wrong repo/index. Strip them so any test we run
-# sees a pristine git environment, exactly as if run from a normal shell.
+# sees a pristine git environment, exactly as if run from a normal shell. The
+# index goes aside first: under `git commit -a` it is a temporary one, and what
+# the commit will hold is what the models check has to read.
+hook_index="${GIT_INDEX_FILE:-}"
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR \
       GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_INDEX_VERSION \
       GIT_NAMESPACE GIT_REFLOG_ACTION
@@ -138,8 +148,27 @@ if [ "$docs" = "1" ]; then
   fi
 fi
 
+# --- models catalog: the copy this commit holds against models.dev ---
+# Last, so what to do is the last thing the gate says. The staged copy is what
+# counts: a refresh that was run and not staged would never reach a commit.
+models="${CODDY_HOOK_MODELS:-1}"
+if [ "$models" = "1" ]; then
+  catalog="internal/llm/models/models.json"
+  staged=$(mktemp)
+  (
+    [ -z "$hook_index" ] || export GIT_INDEX_FILE="$hook_index"
+    git show ":$catalog"
+  ) >"$staged" 2>/dev/null
+  log "models: go run ./cmd/modelsgen -check (the staged catalog against models.dev)"
+  if ! go run ./cmd/modelsgen -check -unreachable-ok -timeout 20s -out "$staged"; then
+    status=1
+    log "models: run 'make models-catalog', then 'git add $catalog', and commit again"
+  fi
+  rm -f "$staged"
+fi
+
 if [ "$status" -eq 0 ]; then
-  log "PASS (lint=$lint, format=$format_ran, tests=$tests, docs=$docs_ran)"
+  log "PASS (lint=$lint, format=$format_ran, tests=$tests, docs=$docs_ran, models=$models)"
 else
   log "FAIL — fix the reported issues before committing (bypass once: git commit --no-verify)."
 fi
