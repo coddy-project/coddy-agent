@@ -39,6 +39,20 @@ network. Binding a non-loopback address without a token logs a startup warning u
 
 Without a token the surface is unauthenticated; run behind appropriate network controls.
 
+While no credential is configured, the server still narrows what a browser on another site can
+reach when it is bound to loopback, which is how `coddy serve` starts by default. A request that
+arrived on a loopback address is refused when:
+
+- its `Host` is not a loopback name (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`): `421`;
+- it changes state (any method but `GET`, `HEAD` and `OPTIONS`) and carries an `Origin` that is
+  neither the server's own nor one `httpserver.cors` admits: `403`.
+
+Programs that are not browsers send no `Origin` and dial a loopback name, so `coddy --remote`,
+scripts and the bundled web UI are not affected. To reach a loopback server by another host name,
+or to call it from a page of another origin, configure a credential or list the origin in
+`httpserver.cors`. With a token or the sign-in configured the auth gate decides instead, and a
+server bound to another interface is left to it as well.
+
 ### Web UI sign-in (optional)
 
 A bearer token protects the API but gives a browser no way in: the SPA shows `Unauthorized (401)`

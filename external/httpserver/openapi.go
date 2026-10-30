@@ -3616,7 +3616,7 @@ func openAPISpec() map[string]interface{} {
 				"bearerAuth": map[string]interface{}{
 					"type":        "http",
 					"scheme":      "bearer",
-					"description": "Optional. When httpserver.auth_token (or --auth-token / CODDY_HTTP_TOKEN) is set, every /v1/* and /coddy/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true. The three /coddy/auth/* routes are always reachable without it.",
+					"description": "Optional. When httpserver.auth_token (or --auth-token / CODDY_HTTP_TOKEN) is set, every /v1/* and /coddy/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true. The three /coddy/auth/* routes are always reachable without it. While no credential is configured, a request that arrived on a loopback address is answered with 421 when its Host is not a loopback name and with 403 when it changes state (any method but GET, HEAD and OPTIONS) and carries an Origin that is neither the server's own nor one httpserver.cors admits.",
 				},
 				"cookieAuth": map[string]interface{}{
 					"type": "apiKey",
