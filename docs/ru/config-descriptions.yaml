@@ -228,8 +228,8 @@ tools:
   en: "Filesystem and shell policy for built-in tools."
   ru: "Политика файловой системы и оболочки для встроенных инструментов."
 tools.command_allowlist:
-  en: "Commands that never require permission. Exact or prefix match (prefix + space + any args). \"*\" allows all commands."
-  ru: "Команды, которым никогда не нужно разрешение. Точное совпадение или совпадение по префиксу (префикс + пробел + любые аргументы). \"*\" разрешает все команды."
+  en: "Commands that never require permission. An entry covers its command exactly or with arguments after a space; a line of several commands (&&, ||, ;, &, a pipe, a newline) runs without a prompt only when each of them is covered, and command substitution or a redirection always asks. On PowerShell and cmd.exe an entry covers only a command without operators. \"*\" allows all commands."
+  ru: "Команды, которым никогда не нужно разрешение. Запись покрывает свою команду в точности или с аргументами через пробел; строка из нескольких команд (&&, ||, ;, &, пайплайн, перевод строки) выполняется без запроса, только если покрыта каждая из них, а строка с подстановкой команды или перенаправлением спрашивает всегда. В PowerShell и cmd.exe запись покрывает только команду без операторов. \"*\" разрешает все команды."
 tools.ssh_connect_timeout:
   en: "TCP dial timeout for SSH connections (ssh_run_command tool), in seconds."
   ru: "Тайм-аут TCP-подключения для SSH-соединений (инструмент ssh_run_command), в секундах."

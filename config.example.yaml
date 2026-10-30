@@ -380,7 +380,9 @@ tools:
   # file on the next start.
 
   # Commands that never require user permission.
-  # Supports exact match and prefix match (prefix + space + any args).
+  # Supports exact match and prefix match (prefix + space + any args). A line of
+  # several commands (&&, ||, ;, &, a pipe) runs without asking only when each of
+  # them is listed; command substitution and redirections always ask.
   # Use "*" to allow all commands without asking (disables permission for commands entirely).
   command_allowlist:
     - "go build"

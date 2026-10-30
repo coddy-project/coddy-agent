@@ -164,7 +164,7 @@ Filesystem and shell policy for built-in tools.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `tools.command_allowlist` | list of strings |  | Commands that never require permission. Exact or prefix match (prefix + space + any args). "*" allows all commands. |
+| `tools.command_allowlist` | list of strings |  | Commands that never require permission. An entry covers its command exactly or with arguments after a space; a line of several commands (&&, \|\|, ;, &, a pipe, a newline) runs without a prompt only when each of them is covered, and command substitution or a redirection always asks. On PowerShell and cmd.exe an entry covers only a command without operators. "*" allows all commands. |
 | `tools.ssh_connect_timeout` | integer | 30 | TCP dial timeout for SSH connections (ssh_run_command tool), in seconds. |
 | `tools.output_limits` | object |  | Maximum lines each tool result or error may return into the LLM context. Every enabled limit also applies a 64 KiB per-call byte safety ceiling so a huge single line cannot bypass it. 0 disables both limits for that tool. Unset fields fall back to the built-in defaults. |
 | `tools.output_limits.read` | integer or null | 1000 | Max lines for a read file page or directory listing. |

