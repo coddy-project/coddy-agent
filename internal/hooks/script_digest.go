@@ -10,9 +10,9 @@ import (
 	"strings"
 )
 
-// projectDirVars are the variables the runner sets to the workspace, as a
-// command line may name a script through them.
-var projectDirVars = []string{"CODDY_PROJECT_DIR", "CLAUDE_PROJECT_DIR"}
+// projectDirVars are the workspace variables set by the runner or its shell.
+// A command line may name a script through them.
+var projectDirVars = []string{"CODDY_PROJECT_DIR", "CLAUDE_PROJECT_DIR", "PWD"}
 
 // digestWithScripts is the digest a receipt of a project hooks file binds:
 // the file's own bytes and, when its commands name files of the workspace -
@@ -156,8 +156,19 @@ func withCdFolders(words []string) []string {
 			out = append(out, folder)
 			continue
 		}
-		if folder != "" && !filepath.IsAbs(word) && !strings.HasPrefix(word, "-") && !strings.Contains(word, "$") {
-			out = append(out, filepath.Join(folder, word))
+		if folder != "" {
+			fromFolder := os.Expand(word, func(name string) string {
+				if name == "PWD" {
+					return folder
+				}
+				return "${" + name + "}"
+			})
+			if fromFolder != word {
+				out = append(out, fromFolder)
+			}
+			if !filepath.IsAbs(word) && !strings.HasPrefix(word, "-") && !strings.Contains(word, "$") {
+				out = append(out, filepath.Join(folder, word))
+			}
 		}
 	}
 	return out
@@ -172,10 +183,14 @@ func scriptState(tok, workspace string) (rel, state string) {
 	if tok == "" || strings.HasPrefix(tok, "-") {
 		return "", ""
 	}
-	for _, v := range projectDirVars {
-		tok = strings.ReplaceAll(tok, "${"+v+"}", workspace)
-		tok = strings.ReplaceAll(tok, "$"+v, workspace)
-	}
+	tok = os.Expand(tok, func(name string) string {
+		for _, v := range projectDirVars {
+			if name == v {
+				return workspace
+			}
+		}
+		return "${" + name + "}"
+	})
 	if strings.Contains(tok, "$") {
 		return "", ""
 	}

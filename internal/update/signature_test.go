@@ -18,6 +18,39 @@ const signedAssetName = "coddy_2.0.0_linux_amd64.tar.gz"
 
 var signedAssetBody = []byte("the archive")
 
+func TestReleaseBuildCarriesSigningKeys(t *testing.T) {
+	if len(releaseSigningKeys) == 0 {
+		t.Fatal("the release build has no signing keys")
+	}
+	for _, key := range releaseSigningKeys {
+		if _, err := minisig.ParsePublicKey(key); err != nil {
+			t.Fatalf("the release build carries an invalid key: %v", err)
+		}
+	}
+}
+
+func TestSigningStartsAfterTheLastUnsignedRelease(t *testing.T) {
+	if signatureRequired(DefaultRepo, "1.3.67") {
+		t.Fatal("release 1.3.67 was published before signing and must remain compatible")
+	}
+	if !signatureRequired(DefaultRepo, "1.3.68") {
+		t.Fatal("the next release must require a signature")
+	}
+}
+
+func TestMissingSigningKeysCannotDisableVerification(t *testing.T) {
+	keys := releaseSigningKeys
+	releaseSigningKeys = nil
+	t.Cleanup(func() { releaseSigningKeys = keys })
+	if !signatureRequired(DefaultRepo, firstSignedRelease) {
+		t.Fatal("removing the signing keys disabled mandatory verification")
+	}
+	rel, client := signedRelease(t, firstSignedRelease, nil)
+	if err := verifyAssetChecksum(context.Background(), client, DefaultRepo, rel, signedAssetName, signedAssetBody, &bytes.Buffer{}); err == nil {
+		t.Fatal("an official release was accepted without any signing keys")
+	}
+}
+
 // signedRelease serves a digest list of signedAssetBody and, when signature is
 // not nil, its signature.
 func signedRelease(t *testing.T, tag string, signature []byte) (*ghRelease, *http.Client) {

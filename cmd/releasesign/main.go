@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/minisig"
+	"github.com/EvilFreelancer/coddy-agent/internal/update"
 )
 
 func main() {
@@ -61,6 +62,9 @@ func sign(tag, path, secret string) error {
 	signature, err := minisig.Sign(secret, message, minisig.ReleaseComment(tag))
 	if err != nil {
 		return err
+	}
+	if err := update.VerifyReleaseSignature(tag, message, signature); err != nil {
+		return fmt.Errorf("verify the release signing key: %w", err)
 	}
 	return os.WriteFile(path+".minisig", signature, 0o644)
 }

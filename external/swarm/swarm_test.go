@@ -175,10 +175,10 @@ func TestDeleteIsTheTakeoverPath(t *testing.T) {
 	if _, err := r.Register(directRequest("nas02")); err != nil {
 		t.Fatal(err)
 	}
-	if !r.Delete("nas02") {
+	if deleted, err := r.Delete("nas02"); err != nil || !deleted {
 		t.Fatal("Delete reported no such node")
 	}
-	if r.Delete("nas02") {
+	if deleted, err := r.Delete("nas02"); err != nil || deleted {
 		t.Fatal("Delete reported success twice")
 	}
 	if _, err := r.Register(directRequest("nas02")); err != nil {

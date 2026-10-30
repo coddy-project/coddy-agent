@@ -8,10 +8,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"log/slog"
+	"fmt"
 	"os"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
 // A name a node registered stays bound to the lease secret it was given
@@ -22,28 +22,28 @@ import (
 // secret, and only DELETE /swarm/nodes/{node} or an operator-configured
 // upstream of the same name lets it go.
 
-// SetBindingsFile names the file the registry keeps its name bindings in and
-// reads what it holds. A missing or unreadable file is an empty set.
-func (r *Registry) SetBindingsFile(path string) {
+// SetBindingsFile loads the persistent bindings; only a missing file is empty.
+func (r *Registry) SetBindingsFile(path string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.bindingsFile = path
-	r.bindings = map[string]string{}
+	stored := map[string]string{}
 	data, err := os.ReadFile(path)
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			slog.Default().Warn("swarm: the name bindings cannot be read, every name is free until its node returns", "file", path, "error", err)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("swarm: read name bindings: %w", err)
+	}
+	if err == nil {
+		if err = json.Unmarshal(data, &stored); err != nil || stored == nil {
+			return fmt.Errorf("swarm: invalid name bindings file %q", path)
 		}
-		return
+		for name, digest := range stored {
+			decoded, err := hex.DecodeString(digest)
+			if name == "" || err != nil || len(decoded) != sha256.Size || hex.EncodeToString(decoded) != digest {
+				return fmt.Errorf("swarm: invalid name binding in %q", path)
+			}
+		}
 	}
-	var stored map[string]string
-	if err := json.Unmarshal(data, &stored); err != nil {
-		slog.Default().Warn("swarm: the name bindings cannot be read, every name is free until its node returns", "file", path, "error", err)
-		return
-	}
-	for name, digest := range stored {
-		r.bindings[name] = digest
-	}
+	r.bindingsFile, r.bindings = path, stored
+	return nil
 }
 
 func secretDigest(secret string) string {
@@ -64,45 +64,69 @@ func (r *Registry) boundSecretLocked(name, secret string) (bound, matches bool) 
 	return true, subtle.ConstantTimeCompare([]byte(digest), []byte(secretDigest(secret))) == 1
 }
 
-func (r *Registry) bindLocked(name, secret string) {
+var ErrBindingsPersistence = errors.New("swarm: name bindings persistence failed")
+
+func (r *Registry) bindLocked(name, secret string) error {
 	if r.bindings == nil {
-		return
+		return nil
 	}
 	digest := secretDigest(secret)
-	if r.bindings[name] == digest {
-		return
+	old, had := r.bindings[name]
+	if had && old == digest {
+		return nil
 	}
 	r.bindings[name] = digest
-	r.saveBindingsLocked()
+	if err := r.saveBindingsLocked(); err != nil {
+		if !errors.Is(err, platform.ErrWriteNotDurable) {
+			if had {
+				r.bindings[name] = old
+			} else {
+				delete(r.bindings, name)
+			}
+		}
+		return err
+	}
+	return nil
 }
 
-func (r *Registry) unbindLocked(name string) {
-	if _, ok := r.bindings[name]; !ok {
-		return
+func (r *Registry) unbindLocked(name string) error {
+	old, ok := r.bindings[name]
+	if !ok {
+		return nil
 	}
 	delete(r.bindings, name)
-	r.saveBindingsLocked()
+	if err := r.saveBindingsLocked(); err != nil {
+		if !errors.Is(err, platform.ErrWriteNotDurable) {
+			r.bindings[name] = old
+		}
+		return err
+	}
+	return nil
 }
 
-// unbind frees a name for an operator-configured upstream: the operator's
-// configuration outranks a node that held the name before.
-func (r *Registry) unbind(name string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.unbindLocked(name)
-}
-
-// saveBindingsLocked writes the bindings, readable by the owner only. A failed
-// write keeps them in memory for this run.
-func (r *Registry) saveBindingsLocked() {
+func (r *Registry) saveBindingsLocked() error {
 	if r.bindingsFile == "" {
-		return
+		return nil
 	}
 	data, err := json.Marshal(r.bindings)
-	if err == nil {
-		err = config.AtomicWriteFile(r.bindingsFile, data, 0o600)
-	}
 	if err != nil {
-		slog.Default().Warn("swarm: the name bindings were not saved and hold for this run only", "file", r.bindingsFile, "error", err)
+		return fmt.Errorf("%w: %v", ErrBindingsPersistence, err)
 	}
+	report, err := platform.WritePrivateFileReplacing(r.bindingsFile, data)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrBindingsPersistence, err)
+	}
+	if report.DirSyncErr != nil {
+		r.bindingsDurabilityPending = true
+		return fmt.Errorf("%w: %w: %v", ErrBindingsPersistence, platform.ErrWriteNotDurable, report.DirSyncErr)
+	}
+	r.bindingsDurabilityPending = false
+	return nil
+}
+
+func (r *Registry) ensureBindingsDurableLocked() error {
+	if r.bindingsDurabilityPending {
+		return r.saveBindingsLocked()
+	}
+	return nil
 }

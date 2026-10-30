@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,14 +20,15 @@ const (
 	signatureAssetName = checksumAssetName + ".minisig"
 	// firstSignedRelease is the first release of DefaultRepo that had to be
 	// signed.
-	firstSignedRelease = "1.3.67"
+	firstSignedRelease = "1.3.68"
 )
 
 // releaseSigningKeys are the public keys a release of DefaultRepo is signed by
 // (docs/contributing/build.md, Signing releases). A new key goes in front of the
 // old one, so a build reads the releases of both while the key changes hands.
-// While there is none, no signature is checked.
-var releaseSigningKeys = []string{}
+var releaseSigningKeys = []string{
+	"RWSLolQA8N9GQFw9asOjHG/nEX+oFoPyxf2gulCoDnQFS41gspb5hV46",
+}
 
 // verifyAssetChecksum compares a downloaded archive against the digest the
 // release publishes for it, and the list of digests against its signature. The
@@ -74,7 +76,7 @@ func verifyAssetChecksum(ctx context.Context, client *http.Client, repo string, 
 // on, so taking the signature away does not take the check away; before that it
 // is reported, since those releases were published without one.
 func verifyChecksumSignature(ctx context.Context, client *http.Client, repo string, rel *ghRelease, list []byte, out io.Writer) error {
-	if repo != DefaultRepo || len(releaseSigningKeys) == 0 {
+	if repo != DefaultRepo {
 		return nil
 	}
 	asset, err := pickAsset(rel, signatureAssetName)
@@ -89,6 +91,21 @@ func verifyChecksumSignature(ctx context.Context, client *http.Client, repo stri
 	if err != nil {
 		return fmt.Errorf("download %s: %w", signatureAssetName, err)
 	}
+	if err := VerifyReleaseSignature(rel.TagName, list, signature); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(out, "Verified the signature of %s.\n", checksumAssetName)
+	return nil
+}
+
+// VerifyReleaseSignature authenticates a digest list and its release tag with
+// the keys this build trusts. The release signer uses the same check before it
+// publishes a signature, so a misconfigured CI secret cannot produce a release
+// that the updater refuses.
+func VerifyReleaseSignature(tag string, list, signature []byte) error {
+	if len(releaseSigningKeys) == 0 {
+		return errors.New("this build carries no release signing keys")
+	}
 	var lastErr error
 	for _, line := range releaseSigningKeys {
 		key, err := minisig.ParsePublicKey(line)
@@ -100,18 +117,17 @@ func verifyChecksumSignature(ctx context.Context, client *http.Client, repo stri
 			lastErr = err
 			continue
 		}
-		if want := minisig.ReleaseComment(rel.TagName); comment != want {
-			return fmt.Errorf("%s of release %s is signed for %q", checksumAssetName, rel.TagName, comment)
+		if want := minisig.ReleaseComment(tag); comment != want {
+			return fmt.Errorf("%s of release %s is signed for %q", checksumAssetName, tag, comment)
 		}
-		_, _ = fmt.Fprintf(out, "Verified the signature of %s.\n", checksumAssetName)
 		return nil
 	}
-	return fmt.Errorf("%s of release %s: %w", checksumAssetName, rel.TagName, lastErr)
+	return fmt.Errorf("%s of release %s: %w", checksumAssetName, tag, lastErr)
 }
 
 // signatureRequired reports whether this repository's release has to be signed.
 func signatureRequired(repo, tag string) bool {
-	return repo == DefaultRepo && len(releaseSigningKeys) > 0 && CompareSemver(tag, firstSignedRelease) >= 0
+	return repo == DefaultRepo && CompareSemver(tag, firstSignedRelease) >= 0
 }
 
 // findChecksum reads the sha256sum output format: a hex digest, whitespace, and

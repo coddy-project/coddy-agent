@@ -11,15 +11,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"log/slog"
+	"fmt"
 	"net/url"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
 // TelegramLaunch is what a verified launch says.
@@ -127,14 +128,18 @@ func (g *ReplayGuard) SetFile(path string) {
 	g.loaded = false
 }
 
-// Use records key until until and reports whether it was new.
-func (g *ReplayGuard) Use(key string, until, now time.Time) bool {
+// Use records key until until and reports whether it was new. An error
+// means the durable record could not be read or written: the caller must
+// refuse the launch, since it cannot prove it stays used.
+func (g *ReplayGuard) Use(key string, until, now time.Time) (bool, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.seen == nil {
 		g.seen = make(map[string]time.Time)
 	}
-	g.loadLocked()
+	if err := g.loadLocked(); err != nil {
+		return false, err
+	}
 	for k, exp := range g.seen {
 		if now.After(exp) {
 			delete(g.seen, k)
@@ -143,72 +148,73 @@ func (g *ReplayGuard) Use(key string, until, now time.Time) bool {
 	sum := sha256.Sum256([]byte(key))
 	digest := hex.EncodeToString(sum[:])
 	if _, ok := g.seen[digest]; ok {
-		return false
+		return false, nil
 	}
 	g.seen[digest] = until
-	g.saveLocked()
-	return true
+	if err := g.saveLocked(); err != nil {
+		if !errors.Is(err, platform.ErrWriteNotDurable) {
+			delete(g.seen, digest)
+		}
+		return false, err
+	}
+	return true, nil
 }
 
-// loadLocked merges the file's record into memory once. A missing or
-// unreadable file is an empty record: the guard then works as it did
-// without one.
-func (g *ReplayGuard) loadLocked() {
+// loadLocked merges the file's record into memory once. A file that is not
+// there yet is an empty record; one that cannot be read or parsed is an
+// error, since treating it as empty would accept a launch already spent
+// before a restart. A failure is not remembered, so the next call tries
+// the read again.
+func (g *ReplayGuard) loadLocked() error {
 	if g.loaded || g.path == "" {
-		return
+		return nil
 	}
-	g.loaded = true
 	data, err := os.ReadFile(g.path)
 	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			slog.Default().Warn("telegram: the record of used launches cannot be read, a launch used before a restart is accepted again within its hour", "file", g.path, "error", err)
+		if errors.Is(err, os.ErrNotExist) {
+			g.loaded = true
+			return nil
 		}
-		return
+		return fmt.Errorf("telegram: the record of used launches cannot be read: %w", err)
 	}
 	var stored map[string]time.Time
 	if err := json.Unmarshal(data, &stored); err != nil {
-		slog.Default().Warn("telegram: the record of used launches cannot be read, a launch used before a restart is accepted again within its hour", "file", g.path, "error", err)
-		return
+		return fmt.Errorf("telegram: the record of used launches cannot be read: %w", err)
 	}
+	if stored == nil {
+		return errors.New("telegram: the record of used launches must be an object")
+	}
+	for key, expiry := range stored {
+		decoded, err := hex.DecodeString(key)
+		if err != nil || len(decoded) != sha256.Size || hex.EncodeToString(decoded) != key || expiry.IsZero() {
+			return errors.New("telegram: invalid entry in the record of used launches")
+		}
+	}
+	g.loaded = true
 	for k, exp := range stored {
 		if cur, ok := g.seen[k]; !ok || exp.After(cur) {
 			g.seen[k] = exp
 		}
 	}
+	return nil
 }
 
-// saveLocked writes the record next to where it will be read, through a
-// temporary file, readable by the owner only. A failed write keeps the
-// record in memory.
-func (g *ReplayGuard) saveLocked() {
+// saveLocked writes the record next to where it will be read, readable by
+// the owner only. A durability error may follow a committed replacement.
+func (g *ReplayGuard) saveLocked() error {
 	if g.path == "" {
-		return
+		return nil
 	}
-	if err := g.writeRecordLocked(); err != nil {
-		slog.Default().Warn("telegram: the record of used launches was not saved, a restart forgets them", "file", g.path, "error", err)
-	}
-}
-
-func (g *ReplayGuard) writeRecordLocked() error {
 	data, err := json.Marshal(g.seen)
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(g.path), filepath.Base(g.path)+".*")
+	report, err := platform.WritePrivateFileReplacing(g.path, data)
 	if err != nil {
-		return err
+		return fmt.Errorf("telegram: the record of used launches was not saved: %w", err)
 	}
-	_, werr := tmp.Write(data)
-	cerr := tmp.Close()
-	err = errors.Join(werr, cerr)
-	if err == nil {
-		err = os.Chmod(tmp.Name(), 0o600)
+	if report.DirSyncErr != nil {
+		return fmt.Errorf("telegram: the record of used launches: %w: %v", platform.ErrWriteNotDurable, report.DirSyncErr)
 	}
-	if err == nil {
-		err = os.Rename(tmp.Name(), g.path)
-	}
-	if err != nil {
-		_ = os.Remove(tmp.Name())
-	}
-	return err
+	return nil
 }

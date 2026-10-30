@@ -127,8 +127,7 @@ func (r *Runner) matching(ev Event) []bound {
 		if !src.Runnable() {
 			continue
 		}
-		if !src.stillApproved() {
-			r.logger().Warn("a script of an approved hooks file changed during the turn: its hooks do not run until it is approved again", "file", src.Display)
+		if !r.approved(src) {
 			continue
 		}
 		for _, g := range src.Definition.Events[ev.Name] {
@@ -144,6 +143,14 @@ func (r *Runner) matching(ev Event) []bound {
 		}
 	}
 	return out
+}
+
+func (r *Runner) approved(src *Source) bool {
+	if src.stillApproved() {
+		return true
+	}
+	r.logger().Warn("a script of an approved hooks file changed during the turn: its hooks do not run until it is approved again", "file", src.Display)
+	return false
 }
 
 // subjectMatches applies the matcher to the event's subject: tool events
@@ -180,13 +187,16 @@ func (r *Runner) Run(ctx context.Context, ev Event) Outcome {
 			out.Errors = append(out.Errors, fmt.Sprintf("hook in %s: encode payload: %v", b.source.Display, err))
 			continue
 		}
-		out.Ran++
 		if b.handler.Async {
+			out.Ran++
 			// Detached hooks queue behind a process-wide cap, so a chatty
 			// event cannot fork an unbounded number of processes at once.
 			go func(b bound, payload []byte) {
 				asyncSlots <- struct{}{}
 				defer func() { <-asyncSlots }()
+				if !r.approved(b.source) {
+					return
+				}
 				res := r.exec(context.WithoutCancel(ctx), ev.Name, b.handler, payload)
 				if msg := res.failure(b.source.Display); msg != "" {
 					r.logger().Warn("async hook failed", "event", ev.Name, "error", msg)
@@ -194,6 +204,10 @@ func (r *Runner) Run(ctx context.Context, ev Event) Outcome {
 			}(b, payload)
 			continue
 		}
+		if !r.approved(b.source) {
+			continue
+		}
+		out.Ran++
 		res := r.exec(ctx, ev.Name, b.handler, payload)
 		r.merge(&out, ev, b, res, fields)
 	}

@@ -380,6 +380,8 @@ gh workflow run "Release binaries" --ref X.Y.Z -f tag=X.Y.Z
 
 The workflow signs **`SHA256SUMS`** with the secret key in the repository secret **`RELEASE_SIGNING_KEY`** through **`cmd/releasesign`**, and **`coddy update`** checks the signature against the public keys in **`releaseSigningKeys`** (**`internal/update/checksum.go`**). The signature is in minisign's format, so **`minisign -Vm SHA256SUMS -P <public key>`** verifies it, and its trusted comment names the tag, so a signed list of an old release does not pass for a new one. A release from **`firstSignedRelease`** on is refused without a valid signature.
 
+The official release job stops before uploading assets if the secret is missing or its key is not trusted by the updater. The signing command verifies the signature against the shipped public keys before writing **`SHA256SUMS.minisig`**. An empty list of public keys does not turn off mandatory verification. A fork without the secret may publish unsigned releases; the official updater does not authenticate another repository's releases.
+
 To make a key, run the first command, put the public key it prints into **`releaseSigningKeys`**, then store the secret:
 
 ```bash

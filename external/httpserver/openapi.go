@@ -1707,7 +1707,7 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Sign a Telegram Mini App in with its launch data (the bot's admins only)",
 					"description": "Public: the way through the gate for the web UI opened as the Telegram bot's Mini App. `init_data` is the launch data Telegram signed with the bot's token (`tgWebAppData`); the server checks the signature as Telegram documents for Mini Apps, refuses launch data older than an hour or used before, and signs in only a user listed in `gateways.telegram.admins`. " +
 						"On success sets an HttpOnly, SameSite=Strict `" + tgSessionCookieBaseName + "_<host digest>` cookie that opens what the sign-in form's cookie opens, also behind a token-only gate; it ends when the bot's token changes, the bot is disabled or the person is no longer an admin. " +
-						"**400** without an enabled Telegram bot with a token, **401** for bad, stale or replayed launch data, **403** for somebody who is not an admin or a cross-site attempt.",
+						"**400** without an enabled Telegram bot with a token, **401** for bad, stale or replayed launch data, **403** for somebody who is not an admin or a cross-site attempt, **500** when the record of used launches cannot be read or durably written; a launch may already be spent if the write committed before durability failed, so retry with a new Mini App launch.",
 					"operationId": "authTelegram",
 					"security":    []interface{}{map[string]interface{}{}},
 					"requestBody": map[string]interface{}{
@@ -1742,6 +1742,7 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"401": errorResponseRef(),
 						"403": errorResponseRef(),
+						"500": errorResponseRef(),
 					},
 				},
 			},

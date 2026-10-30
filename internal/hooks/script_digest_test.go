@@ -40,6 +40,8 @@ func TestApprovalCoversTheScriptsAHookRuns(t *testing.T) {
 		"relative path":        ".coddy/hooks/check.sh",
 		"interpreter and path": "python3 .coddy/hooks/check.sh --strict",
 		"project dir variable": `"$CLAUDE_PROJECT_DIR"/.coddy/hooks/check.sh`,
+		"working directory":    `sh "$PWD/.coddy/hooks/check.sh"`,
+		"braced directory":     `sh "${PWD}/.coddy/hooks/check.sh"`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
@@ -210,6 +212,7 @@ func TestApprovalCoversQuotesEscapesAndCd(t *testing.T) {
 		"an escaped blank":            {"to ol/check.sh", `sh ./to\ ol/check.sh`},
 		"single quotes":               {"to ol/check.sh", `sh './to ol/check.sh'`},
 		"after a cd":                  {"tool/check.sh", `cd tool && ./check.sh`},
+		"PWD after a cd":              {"tool/check.sh", `cd tool && sh "$PWD/check.sh"`},
 		"after a quoted cd":           {"to ol/check.sh", `cd "to ol" && sh check.sh`},
 		"a backslash of a path":       {"tool/check.sh", `sh tool\check.sh --windows-spelling`},
 	} {

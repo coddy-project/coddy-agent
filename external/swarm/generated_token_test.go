@@ -22,7 +22,9 @@ func TestGeneratedTokenStaysOutOfTheLogs(t *testing.T) {
 			home := t.TempDir()
 			var logged, stderr bytes.Buffer
 			log := slog.New(slog.NewTextHandler(&logged, nil))
-			announceGeneratedToken(home, "s3cret-token", log, &stderr, terminal)
+			if written, err := announceGeneratedToken(home, "s3cret-token", log, &stderr, terminal); err != nil || !written {
+				t.Fatalf("delivery: written=%v, err=%v", written, err)
+			}
 
 			if strings.Contains(logged.String(), "s3cret-token") {
 				t.Fatalf("the log holds the token: %s", logged.String())

@@ -17,8 +17,8 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/httpx"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	swarmdto "github.com/EvilFreelancer/coddy-agent/internal/swarm"
 )
 
@@ -36,16 +36,28 @@ const generatedTokenFile = "swarm-token"
 // goes to an owner-only file, and to stderr only when that is a terminal: a
 // relay in the background has its stderr in logs/serve.log, and under systemd in
 // the journal, which outlive the run and have more readers than the operator.
-func announceGeneratedToken(home, token string, log *slog.Logger, stderr io.Writer, terminal bool) {
+func announceGeneratedToken(home, token string, log *slog.Logger, stderr io.Writer, terminal bool) (bool, error) {
 	path := filepath.Join(home, generatedTokenFile)
-	if err := config.AtomicWriteFile(path, []byte(token+"\n"), 0o600); err != nil {
-		log.Warn("swarm: no client token configured, and the generated one could not be saved; set swarm.auth_token", "file", path, "error", err)
-	} else {
+	report, fileErr := platform.WritePrivateFileReplacing(path, []byte(token+"\n"))
+	written := fileErr == nil
+	if written {
 		log.Warn("swarm: no client token configured, generated one for this run", "file", path)
+		if report.DirSyncErr != nil {
+			log.Warn("swarm: token file written but directory sync failed", "error", report.DirSyncErr)
+		}
+	} else {
+		log.Warn("swarm: generated token file could not be saved", "file", path, "error", fileErr)
 	}
+	delivered := false
 	if terminal {
-		_, _ = fmt.Fprintf(stderr, "swarm: generated client token for this run: %s\n", token)
+		text := fmt.Sprintf("swarm: generated client token for this run: %s\n", token)
+		n, err := io.WriteString(stderr, text)
+		delivered = err == nil && n == len(text)
 	}
+	if !written && !delivered {
+		return false, fmt.Errorf("swarm: generated client token could not be delivered; set swarm.auth_token")
+	}
+	return written, nil
 }
 
 // Serve runs the relay until ctx is cancelled.
@@ -84,8 +96,13 @@ func Serve(ctx context.Context, opts Options) error {
 			return gerr
 		}
 		srv.SetExtraAuthTokens([]string{generated})
-		announceGeneratedToken(opts.Home, generated, log, os.Stderr, term.IsTerminal(int(os.Stderr.Fd())))
-		defer func() { _ = os.Remove(filepath.Join(opts.Home, generatedTokenFile)) }()
+		written, err := announceGeneratedToken(opts.Home, generated, log, os.Stderr, term.IsTerminal(int(os.Stderr.Fd())))
+		if err != nil {
+			return err
+		}
+		if written {
+			defer func() { _ = os.Remove(filepath.Join(opts.Home, generatedTokenFile)) }()
+		}
 	}
 	if !cfg.Swarm.RegistrationOpen() {
 		log.Warn("swarm: registration is closed, no node can join (set swarm.pairing_tokens or --swarm-pairing-token)")

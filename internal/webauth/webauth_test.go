@@ -591,11 +591,14 @@ func TestVerifyTelegramInitData(t *testing.T) {
 func TestReplayGuard(t *testing.T) {
 	var g ReplayGuard
 	now := time.Unix(1000, 0)
-	if !g.Use("a", now.Add(time.Hour), now) || g.Use("a", now.Add(time.Hour), now) {
-		t.Fatal("a launch was accepted twice")
+	if ok, err := g.Use("a", now.Add(time.Hour), now); !ok || err != nil {
+		t.Fatalf("a new launch: %v, %v", ok, err)
 	}
-	if !g.Use("a", now.Add(3*time.Hour), now.Add(2*time.Hour)) {
-		t.Fatal("an expired entry was not forgotten")
+	if ok, err := g.Use("a", now.Add(time.Hour), now); ok || err != nil {
+		t.Fatalf("a launch was accepted twice: %v, %v", ok, err)
+	}
+	if ok, err := g.Use("a", now.Add(3*time.Hour), now.Add(2*time.Hour)); !ok || err != nil {
+		t.Fatalf("an expired entry was not forgotten: %v, %v", ok, err)
 	}
 }
 
@@ -607,8 +610,8 @@ func TestReplayGuardSurvivesARestart(t *testing.T) {
 	now := time.Unix(1000, 0)
 	var first ReplayGuard
 	first.SetFile(path)
-	if !first.Use("launch-hash", now.Add(time.Hour), now) {
-		t.Fatal("a new launch was refused")
+	if ok, err := first.Use("launch-hash", now.Add(time.Hour), now); !ok || err != nil {
+		t.Fatalf("a new launch was refused: %v, %v", ok, err)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -625,10 +628,57 @@ func TestReplayGuardSurvivesARestart(t *testing.T) {
 
 	var second ReplayGuard
 	second.SetFile(path)
-	if second.Use("launch-hash", now.Add(time.Hour), now.Add(time.Minute)) {
-		t.Fatal("a launch used before the restart was accepted again")
+	if ok, err := second.Use("launch-hash", now.Add(time.Hour), now.Add(time.Minute)); ok || err != nil {
+		t.Fatalf("a launch used before the restart was accepted again: %v, %v", ok, err)
 	}
-	if !second.Use("launch-hash", now.Add(3*time.Hour), now.Add(2*time.Hour)) {
-		t.Fatal("an expired entry from the file was not forgotten")
+	if ok, err := second.Use("launch-hash", now.Add(3*time.Hour), now.Add(2*time.Hour)); !ok || err != nil {
+		t.Fatalf("an expired entry from the file was not forgotten: %v, %v", ok, err)
+	}
+}
+
+// A record that exists and cannot be read or parsed is not an empty one:
+// the launch is refused rather than spent twice after a restart.
+func TestReplayGuardRefusesADamagedRecord(t *testing.T) {
+	now := time.Unix(1000, 0)
+	for name, write := range map[string]func(string) error{
+		"malformed":  func(path string) error { return os.WriteFile(path, []byte("{"), 0o600) },
+		"null":       func(path string) error { return os.WriteFile(path, []byte("null"), 0o600) },
+		"unreadable": func(path string) error { return os.Mkdir(path, 0o700) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "telegram-launches.json")
+			if err := write(path); err != nil {
+				t.Fatal(err)
+			}
+			var g ReplayGuard
+			g.SetFile(path)
+			if ok, err := g.Use("launch-hash", now.Add(time.Hour), now); ok || err == nil {
+				t.Fatalf("a damaged record accepted a launch: %v, %v", ok, err)
+			}
+		})
+	}
+}
+
+// A record that cannot be written spends nothing: the launch is refused,
+// and once the record writes again the same launch can still be taken.
+func TestReplayGuardReportsAFailedSave(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "missing", "telegram-launches.json")
+	now := time.Unix(1000, 0)
+	var g ReplayGuard
+	g.SetFile(path)
+	if ok, err := g.Use("launch-hash", now.Add(time.Hour), now); ok || err == nil {
+		t.Fatalf("an unwritable record accepted a launch: %v, %v", ok, err)
+	}
+	if err := os.Mkdir(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := g.Use("launch-hash", now.Add(time.Hour), now); !ok || err != nil {
+		t.Fatalf("a retry after the record wrote again was refused: %v, %v", ok, err)
+	}
+	var restart ReplayGuard
+	restart.SetFile(path)
+	if ok, err := restart.Use("launch-hash", now.Add(time.Hour), now.Add(time.Minute)); ok || err != nil {
+		t.Fatalf("a launch used before the restart was accepted again: %v, %v", ok, err)
 	}
 }

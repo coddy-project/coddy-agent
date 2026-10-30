@@ -389,7 +389,7 @@ overrides). On loopback one is generated for the run rather than left absent, be
 relay lends its authority to every local process. The generated value goes to
 `${CODDY_HOME}/swarm-token`, readable by the owner only and removed when the relay stops, and to stderr
 when that is a terminal. It never goes to the log, and a relay in the background or under systemd,
-whose stderr is a log, does not print it.
+whose stderr is a log, does not print it. If neither the file nor a terminal receives the token, the relay refuses to start.
 
 A node's name is proven by a **per-lease secret** the relay mints, not by the shared pairing
 token: a fleet credential must not let one node claim another's name, redirect its traffic, or
@@ -399,7 +399,7 @@ the same name at once. The relay keeps a digest of each name's secret in
 or a settings save rebuilds the relay, or after the node was offline past the grace period - and
 only the node with the secret takes it back. `DELETE /swarm/nodes/{node}` is the administrative
 takeover path and frees the name, with or without a live lease, which is also the way back for a node
-that lost its secret; an entry of `swarm.upstreams` with the same name takes it over.
+that lost its secret; an entry of `swarm.upstreams` with the same name takes it over. The relay refuses to start if the bindings file is unreadable or malformed. A registration or deletion is acknowledged only after the current bindings snapshot is durable. A storage failure returns HTTP `500`. A failure before the bindings file is replaced leaves the name unchanged; after replacement, a directory synchronization failure can leave the change applied even though its durability is unconfirmed.
 
 An advertised URL is an **SSRF boundary**. Only `http(s)`, with no credentials, query or
 fragment; the host is then resolved and every address checked. Link-local, multicast,

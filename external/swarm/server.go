@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -64,7 +65,9 @@ func New(cfg *config.Config, log *slog.Logger) (*Server, error) {
 	}
 	// A name stays bound to its node across a restart of the relay.
 	if home := strings.TrimSpace(cfg.Paths.Home); home != "" {
-		s.registry.SetBindingsFile(filepath.Join(home, "swarm-names.json"))
+		if err := s.registry.SetBindingsFile(filepath.Join(home, "swarm-names.json")); err != nil {
+			return nil, err
+		}
 	}
 	s.routes()
 	// An advertised address is somebody else's claim about where to dial, so
@@ -151,15 +154,13 @@ func (s *Server) seedUpstreams() error {
 			Token:        up.Token,
 			Version:      "configured",
 		}
-		s.registry.unbind(up.Name)
-		if _, err := s.registry.RegisterWithDial(req, netx.Options{
+		if _, err := s.registry.registerWithDial(req, netx.Options{
 			Proxy:              up.Dial.Proxy,
 			CAFile:             up.Dial.CAFile,
 			InsecureSkipVerify: up.Dial.InsecureSkipVerify,
-		}); err != nil {
+		}, true); err != nil {
 			return fmt.Errorf("swarm.upstreams %q: %w", up.Name, err)
 		}
-		s.registry.Pin(up.Name)
 	}
 	return nil
 }
@@ -213,6 +214,10 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	case err == ErrNameBound:
 		writeError(w, http.StatusConflict, fmt.Sprintf("node name %q is bound to another lease secret; its node takes it back with that secret, and DELETE /swarm/nodes/{node} frees it", req.Name))
 		return
+	case errors.Is(err, ErrBindingsPersistence):
+		s.log.Error("swarm: failed to save name bindings", "error", err)
+		writeError(w, http.StatusInternalServerError, "name bindings could not be saved")
+		return
 	case err != nil:
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -229,7 +234,13 @@ func (s *Server) handleUnregister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !s.registry.Delete(name) {
+	deleted, err := s.registry.Delete(name)
+	if err != nil {
+		s.log.Error("swarm: failed to save name bindings", "error", err)
+		writeError(w, http.StatusInternalServerError, "name bindings could not be saved")
+		return
+	}
+	if !deleted {
 		writeError(w, http.StatusNotFound, fmt.Sprintf("unknown node %q", name))
 		return
 	}

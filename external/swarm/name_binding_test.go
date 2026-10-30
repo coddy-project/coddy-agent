@@ -19,7 +19,9 @@ import (
 func TestANameStaysBoundToItsSecretAcrossARestart(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "swarm-names.json")
 	first, _ := newTestRegistry(t, time.Minute)
-	first.SetBindingsFile(file)
+	if err := first.SetBindingsFile(file); err != nil {
+		t.Fatal(err)
+	}
 	res, err := first.Register(directRequest("nas02"))
 	if err != nil {
 		t.Fatal(err)
@@ -39,7 +41,9 @@ func TestANameStaysBoundToItsSecretAcrossARestart(t *testing.T) {
 
 	// The relay restarts: a new registry over the same file, no leases.
 	second, _ := newTestRegistry(t, time.Minute)
-	second.SetBindingsFile(file)
+	if err := second.SetBindingsFile(file); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := second.Register(directRequest("nas02")); !errors.Is(err, ErrNameBound) {
 		t.Fatalf("a registration without the secret took a bound name: %v", err)
 	}
@@ -58,11 +62,13 @@ func TestANameStaysBoundToItsSecretAcrossARestart(t *testing.T) {
 		t.Fatal("the owner's secret changed on its return")
 	}
 
-	if !second.Delete("nas02") {
+	if deleted, err := second.Delete("nas02"); err != nil || !deleted {
 		t.Fatal("the administrative delete found no lease")
 	}
 	third, _ := newTestRegistry(t, time.Minute)
-	third.SetBindingsFile(file)
+	if err := third.SetBindingsFile(file); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := third.Register(directRequest("nas02")); err != nil {
 		t.Fatalf("a deleted name is still bound: %v", err)
 	}
@@ -71,7 +77,9 @@ func TestANameStaysBoundToItsSecretAcrossARestart(t *testing.T) {
 // A lease reaped after the grace period leaves the binding behind.
 func TestAReapedLeaseKeepsItsName(t *testing.T) {
 	r, clock := newTestRegistry(t, time.Minute)
-	r.SetBindingsFile(filepath.Join(t.TempDir(), "swarm-names.json"))
+	if err := r.SetBindingsFile(filepath.Join(t.TempDir(), "swarm-names.json")); err != nil {
+		t.Fatal(err)
+	}
 	res, err := r.Register(directRequest("nas02"))
 	if err != nil {
 		t.Fatal(err)
@@ -95,17 +103,21 @@ func TestAReapedLeaseKeepsItsName(t *testing.T) {
 func TestDeleteFreesABoundNameThatHasNoLease(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "swarm-names.json")
 	first, _ := newTestRegistry(t, time.Minute)
-	first.SetBindingsFile(file)
+	if err := first.SetBindingsFile(file); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := first.Register(directRequest("nas02")); err != nil {
 		t.Fatal(err)
 	}
 
 	second, _ := newTestRegistry(t, time.Minute)
-	second.SetBindingsFile(file)
-	if !second.Delete("nas02") {
+	if err := second.SetBindingsFile(file); err != nil {
+		t.Fatal(err)
+	}
+	if deleted, err := second.Delete("nas02"); err != nil || !deleted {
 		t.Fatal("the administrative delete did not find a name bound on disk")
 	}
-	if second.Delete("nas02") {
+	if deleted, err := second.Delete("nas02"); err != nil || deleted {
 		t.Fatal("a second delete still found the name")
 	}
 	if _, err := second.Register(directRequest("nas02")); err != nil {

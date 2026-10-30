@@ -132,8 +132,23 @@ async function probe(page) {
         // A read of part of a file: the path takes the ellipsis, the range is whole.
         const range = row.querySelector(".tool-summary-target-range");
         const rb = range?.getBoundingClientRect();
+        const labelNode = row.querySelector(".thinking-label")?.firstChild;
+        let lastWord = null;
+        if (labelNode?.nodeType === Node.TEXT_NODE && labelNode.textContent) {
+          const text = labelNode.textContent;
+          const word = document.createRange();
+          word.setStart(labelNode, text.lastIndexOf(" ") + 1);
+          word.setEnd(labelNode, text.length);
+          lastWord = word.getBoundingClientRect();
+        }
         return {
           id,
+          durationFollowsLastWord:
+            !!lastWord &&
+            !!dur &&
+            Math.abs(dur.bottom - lastWord.bottom) < 4 &&
+            dur.left >= lastWord.right &&
+            dur.left - lastWord.right < 12,
           durInside:
             !dur ||
             (dur.right <= head.right + 0.5 && dur.left >= head.left - 0.5),
@@ -444,6 +459,12 @@ try {
         }
         if (row.shortLabel) {
           check(`${at} ${row.id} stays on one line`, row.oneLine);
+        }
+        if (width === 393 && row.id === "tool-details-tc-targetless") {
+          check(
+            `${at} duration follows the last word`,
+            row.durationFollowsLastWord,
+          );
         }
         if (row.hasRange) {
           check(`${at} ${row.id} shows its whole line range`, row.rangeWhole);

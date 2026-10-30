@@ -68,6 +68,15 @@ function Fixture() {
       }}
     >
       <div className="messages-inner">
+        <ToolCallMessage
+          toolCallId="tc-targetless"
+          title="mcp__playwright__browser_run_code_unsafe"
+          status="completed"
+          argsText="{}"
+          resultText="ok"
+          durationMs={6000}
+          onFetchToolCallFull={async () => {}}
+        />
         <UserMessage content={`search ${"x".repeat(80)}`} />
         <ToolCallMessage
           toolCallId="tc-mcp-search"
