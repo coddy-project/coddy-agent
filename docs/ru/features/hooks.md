@@ -163,13 +163,17 @@ Coddy читает файлы, перечисленные в `hooks.files`, на
     "permissionDecision": "deny",
     "permissionDecisionReason": "why",
     "updatedInput": { "command": "echo replaced" },
-    "additionalContext": "a note the model reads next to the result"
+    "additionalContext": "a note the model reads next to the result",
+    "handled": true,
+    "toolResult": "the result of a call the handler performed itself",
+    "toolError": "its failure text instead, when that call failed"
   }
 }
 ```
 
 - `continue: false` завершает ход после текущей пачки вызовов инструментов, а `stopReason` показывается пользователю. На `PreToolUse` вызов к тому же запрещается, на `UserPromptSubmit` промпт отклоняется, на `PreCompact` сжатие контекста запрещается, на `Stop` ход просто завершается;
 - `PreToolUse` - `permissionDecision` принимает значение `deny` (вызов не выполняется, причина уходит модели как результат инструмента `blocked by hook: <reason>`), `allow` (запрос разрешения пропускается) или `ask` (запрос показывается принудительно, даже в `bypass`, в боте мессенджера и при запуске плана, где вызов иначе одобрили бы без вопроса; если ответить некому, в вызове отказывают). `updatedInput` заменяет весь объект аргументов до выполнения вызова, и карточка вызова инструмента показывает переписанные аргументы. `decision: "block"` (или `"deny"`) верхнего уровня с `reason` - устаревшая запись запрета;
+- `PreToolUse` `handled` - обработчик, который выполняет вызов сам, отвечает `"handled": true` с `toolResult` (результат инструмента для модели) или `toolError` (текст ошибки, если вызов не удался). Запрос разрешения и локальное выполнение пропускаются - вызов уже произошёл - и `PostToolUse` запускается как для локального вызова. Так внешний исполнитель берёт вызов на себя: редактор, который выполняет `write`/`edit`/`apply_patch` через свою модель документа, песочница, удалённый хост. `deny` и `block` от любого обработчика сильнее `handled`, а если `handled` сообщили несколько обработчиков, за вызов отвечает первый;
 - `PostToolUse` - `decision: "block"` с `reason` дописывает к результату инструмента `Hook feedback: <reason>`; инструмент уже отработал, ничего не откатывается;
 - на трёх событиях инструментов `additionalContext` дописывается к результату инструмента как `Hook context: ...`;
 - `UserPromptSubmit` - `decision: "block"` с `reason` (или выход с кодом 2) отклоняет промпт. Он не попадает в транскрипт, модель не вызывается, а ход завершается с `prompt rejected by hook: <reason>`, и веб-интерфейс показывает это строкой ошибки. `additionalContext` и обычный stdout становятся частью уровня хода в **блоке контекста хуков** (см. ниже);
@@ -374,6 +378,7 @@ exit 0
 - фильтр `if` игнорируется;
 - подходящие хуки запускаются последовательно, а не параллельно, поэтому цепочка `updatedInput` детерминирована;
 - `allow` от `PreToolUse` пропускает запрос разрешения Coddy; правил запрета, которым он мог бы подчиняться, нет;
+- `handled`, `toolResult` и `toolError` в Claude Code отсутствуют - с их помощью обработчик `PreToolUse` выполняет вызов во внешнем исполнителе и отвечает за него;
 - файлы проекта одобряются вне чата распиской, привязанной к хешу, и никогда - запросом в чате.
 
 ## Тестирование
@@ -382,4 +387,4 @@ exit 0
 - юнит-тесты - `internal/hooks/hooks_test.go` (формат файла, матчеры, области загрузчика, контракт раннера), `internal/hooks/trust_test.go` (расписки, каталог), `internal/config/hooks_test.go`, `cmd/coddy/hooks_test.go`;
 - сквозные тесты с настоящей моделью на каждом интерфейсе, подключённые к трём раннерам, - `examples/acp/acp_e2e_hooks.py` (ACP через stdio; `coddy hooks list` и `coddy hooks trust` между ходами), `examples/httpserver/http_e2e_hooks.py` (`GET /coddy/hooks` с ожидающим одобрения файлом проекта, строка `notice` в `uiLog`, `POST /coddy/hooks/trust`, второй ход, который запускает одобренный хук, `POST /coddy/hooks/untrust`) и `examples/cli/cli_e2e_hooks.py` (консольный TUI с теми же хуками-регистраторами, уведомление в `ui_log.json` сессии, одобрение через CLI). Каждый из них записывает входные данные всех `PreToolUse` и `PostToolUse` настоящего вызова `run_command` через хуки пользовательской области, проверяет, что хук проектной области остаётся неодобренным, одобряет его и проверяет, что следующий ход той же сессии его запускает.
 
-<!-- docsgen:source sha256=c4a1abb43745a12d -->
+<!-- docsgen:source sha256=77715d80b567eb16 -->

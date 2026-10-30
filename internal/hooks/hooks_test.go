@@ -358,6 +358,62 @@ func TestRunnerMostRestrictiveDecisionWins(t *testing.T) {
 	}
 }
 
+func TestRunnerHandledAnswersForTheCall(t *testing.T) {
+	r := newRunner(t, userSource(preToolUse("*", hooktest.Handler("handle", "done in the sandbox"))))
+	out := r.Run(context.Background(), commandEvent("echo hi"))
+	if !out.Handled || out.ToolResult != "done in the sandbox" || out.ToolError != "" {
+		t.Fatalf("outcome = %+v", out)
+	}
+	if out.Decision != "" || out.Blocked() {
+		t.Fatalf("handled carries no decision of its own, got %+v", out)
+	}
+}
+
+func TestRunnerHandledErrorCarriesTheFailure(t *testing.T) {
+	r := newRunner(t, userSource(preToolUse("*", hooktest.Handler("handle-error", "conflict: buffer changed"))))
+	out := r.Run(context.Background(), commandEvent("echo hi"))
+	if !out.Handled || out.ToolError != "conflict: buffer changed" {
+		t.Fatalf("outcome = %+v", out)
+	}
+}
+
+func TestRunnerFirstHandledAnswersForTheCall(t *testing.T) {
+	r := newRunner(t, userSource(preToolUse("*",
+		hooktest.Handler("handle", "first"),
+		hooktest.Handler("handle", "second"),
+	)))
+	out := r.Run(context.Background(), commandEvent("echo hi"))
+	if !out.Handled || out.ToolResult != "first" || out.Ran != 2 {
+		t.Fatalf("the first handled answer must win and later hooks still run, got %+v", out)
+	}
+}
+
+func TestRunnerDenyStillWinsOverHandled(t *testing.T) {
+	r := newRunner(t, userSource(preToolUse("*",
+		hooktest.Handler("deny", "echo"),
+		hooktest.Handler("handle", "done elsewhere"),
+	)))
+	out := r.Run(context.Background(), commandEvent("echo hi"))
+	if !out.Blocked() || out.Decision != hooks.DecisionDeny {
+		t.Fatalf("deny must win over handled, got %+v", out)
+	}
+	if !out.Handled || out.ToolResult != "done elsewhere" {
+		t.Fatalf("the handled answer must still be recorded, got %+v", out)
+	}
+}
+
+func TestRunnerHandledIsPreToolUseOnly(t *testing.T) {
+	r := newRunner(t, userSource(hooktest.Entry{
+		Event:    hooks.EventPostToolUse,
+		Matcher:  "*",
+		Handlers: []hooks.Handler{hooktest.Handler("handle", "nope")},
+	}))
+	out := r.Run(context.Background(), hooks.ToolEvent(hooks.EventPostToolUse, "run_command", map[string]interface{}{"command": "echo hi"}, "call-1"))
+	if out.Handled {
+		t.Fatalf("PostToolUse must not handle a call, got %+v", out)
+	}
+}
+
 func TestRunnerNonZeroExitIsNotBlockingUnlessFailClosed(t *testing.T) {
 	r := newRunner(t, userSource(preToolUse("*", hooktest.Handler("fail", "3"))))
 	out := r.Run(context.Background(), commandEvent("echo hi"))

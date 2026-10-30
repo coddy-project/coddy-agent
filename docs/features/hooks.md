@@ -163,13 +163,17 @@ JSON fields:
     "permissionDecision": "deny",
     "permissionDecisionReason": "why",
     "updatedInput": { "command": "echo replaced" },
-    "additionalContext": "a note the model reads next to the result"
+    "additionalContext": "a note the model reads next to the result",
+    "handled": true,
+    "toolResult": "the result of a call the handler performed itself",
+    "toolError": "its failure text instead, when that call failed"
   }
 }
 ```
 
 - `continue: false` ends the turn after the current tool batch; `stopReason` is shown to the user. On `PreToolUse` the call is denied as well; on `UserPromptSubmit` the prompt is rejected; on `PreCompact` the compaction is vetoed; on `Stop` the turn simply ends.
 - `PreToolUse`: `permissionDecision` is `deny` (the call is not executed; the reason goes to the model as the tool result `blocked by hook: <reason>`), `allow` (the permission prompt is skipped) or `ask` (the prompt is forced, even in `bypass`, in a messenger bot and in a plan run, which would otherwise approve the call without asking; where nobody can answer, the call is refused). `updatedInput` replaces the whole argument object before the call runs; the tool call card shows the rewritten arguments. A top-level `decision: "block"` (or `"deny"`) with `reason` is the legacy spelling of deny.
+- `PreToolUse` `handled`: a handler that performs the call itself answers `"handled": true` with `toolResult` (the tool's result for the model) or `toolError` (its failure text when the call failed). The permission prompt and the local run are skipped - the call already happened - and `PostToolUse` runs as for a local call. This is how an external executor takes a call over: an editor applying `write`/`edit`/`apply_patch` through its document model, a sandbox, a remote host. `deny` and `block` from any handler win over `handled`, and where several handlers report it, the first answers for the call.
 - `PostToolUse`: `decision: "block"` with `reason` appends `Hook feedback: <reason>` to the tool result; the tool already ran, nothing is undone.
 - `additionalContext` is appended to the tool result as `Hook context: ...` on the three tool events.
 - `UserPromptSubmit`: `decision: "block"` with `reason` (or exit 2) rejects the prompt: it is not added to the transcript, the model is not called, and the turn ends with `prompt rejected by hook: <reason>`, which the SPA shows as an error row. `additionalContext` and plain stdout become the turn's part of the **hook context block** (below).
@@ -374,6 +378,7 @@ Shell-form commands go through the shell `run_command` detected (pwsh, PowerShel
 - The `if` filter is ignored.
 - Matching hooks run sequentially rather than in parallel, so `updatedInput` chains deterministically.
 - A `PreToolUse` `allow` skips Coddy's permission prompt; there are no deny rules it could be subordinate to.
+- `handled`, `toolResult` and `toolError` have no Claude Code counterpart: they let a `PreToolUse` handler execute the call externally and answer for it.
 - Project files are approved out of band by a digest-bound receipt, never by an in-chat prompt.
 
 ## Testing
