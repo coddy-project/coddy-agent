@@ -15,6 +15,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 // restTimeout bounds plain REST calls; streaming requests manage their own
@@ -339,7 +340,8 @@ type messageRow struct {
 }
 
 type messagesResponse struct {
-	Messages []messageRow `json:"messages"`
+	Messages []messageRow         `json:"messages"`
+	UILog    []session.UILogEntry `json:"uiLog,omitempty"`
 	// MessagesRev is the revision of the history these messages were read at:
 	// a follower of the session's running turn passes it back as since_rev,
 	// so the relay leaves out what the transcript already holds.

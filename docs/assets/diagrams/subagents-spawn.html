@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>What happens on spawn_agent</title>
+    <link rel="stylesheet" href="diagram.css" />
+    <style>
+      .top {
+        grid-template-columns: 350px 528px 1fr;
+        gap: 32px;
+      }
+      .bottom {
+        grid-template-columns: 400px 1fr 290px;
+        gap: 32px;
+      }
+      .src {
+        display: grid;
+        grid-template-columns: 1fr;
+        row-gap: 6px;
+      }
+      .src .box {
+        grid-column: 1;
+        padding: 5px 12px;
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .src .bracket {
+        grid-column: 2;
+      }
+      .scope {
+        font-size: 12px;
+        font-weight: 600;
+        opacity: 0.8;
+      }
+      .checks {
+        display: grid;
+        grid-template-columns: 318px 1fr;
+        column-gap: 14px;
+        row-gap: 7px;
+        align-items: center;
+      }
+      .checks .box {
+        padding: 6px 12px;
+      }
+      .checks .no {
+        font-size: 12.5px;
+        line-height: 1.25;
+        color: var(--red-line);
+      }
+      .checks .no.ok {
+        color: var(--green-line);
+      }
+      .checks .num {
+        display: inline-block;
+        width: 24px;
+        font-weight: 700;
+        opacity: 0.7;
+      }
+      .ops {
+        display: grid;
+        grid-template-columns: 22px 1fr;
+        column-gap: 6px;
+        row-gap: 5px;
+        align-items: center;
+      }
+      .ops .op {
+        font-weight: 700;
+        font-size: 17px;
+        text-align: center;
+        color: var(--ink-2);
+      }
+      .ops .box {
+        padding: 4px 11px;
+      }
+      .tree {
+        font-family: "Noto Sans Mono", "DejaVu Sans Mono", monospace;
+        font-size: 12.5px;
+        line-height: 1.6;
+        white-space: pre;
+        color: var(--ink);
+      }
+      .tree .c {
+        font-family: "Noto Sans", Arial, sans-serif;
+        color: var(--muted);
+      }
+      .pair {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+      .relay {
+        display: grid;
+        grid-template-columns: 140px 1fr;
+        column-gap: 40px;
+        row-gap: 10px;
+        align-items: center;
+      }
+      .relay .box {
+        padding: 7px 12px;
+      }
+      .mini {
+        font-size: 13px;
+        margin: 0;
+        padding-left: 16px;
+      }
+      .mini li {
+        margin: 2px 0;
+      }
+      .call {
+        font-family: "Noto Sans Mono", "DejaVu Sans Mono", monospace;
+        font-size: 12.5px;
+        line-height: 1.45;
+      }
+    </style>
+  </head>
+  <body style="--width: 1400px">
+    <h1>What happens on spawn_agent</h1>
+    <p class="lead">
+      Every step can refuse with a tool error that names its key; only past the last one does a child session
+      start, as a task of the parent's background pool.
+    </p>
+
+    <div class="cols top">
+      <div>
+        <h2>1. Which definition</h2>
+        <p class="note muted" style="margin: -6px 0 8px">Lowest priority first; a later folder takes over a name. Project scope means at or under the workspace.</p>
+        <div class="src">
+          <div class="box core">general, explore, crossreview <span class="scope">builtin</span></div>
+          <div class="box green"><code>~/.agents/agents</code> <span class="scope">user</span></div>
+          <div class="box amber"><code>${CWD}/.agents/agents</code> <span class="scope">project</span></div>
+          <div class="box green"><code>${CODDY_HOME}/agents</code> <span class="scope">user</span></div>
+          <div class="box amber"><code>${CWD}/.coddy/agents</code> <span class="scope">project</span></div>
+          <div class="box"><span>each <code>subagents.dirs</code> entry</span> <span class="scope">either</span></div>
+        </div>
+        <div class="box blue b" id="def" style="margin-top: 12px">
+          One immutable Definition
+          <small>name, scope, path, SHA-256 digest; the file is read once and every later step decides on this
+            value</small>
+        </div>
+
+        <div class="panel" id="trust" style="margin-top: 18px">
+          <div class="title">Project files: <code>subagents.project_trust</code></div>
+          <div class="stack">
+            <div class="box gray"><b>deny</b>: project folders are never read</div>
+            <div class="box amber" id="t-ask"><b>ask</b> (default): needs a receipt</div>
+            <div class="box green"><b>allow</b>: trusted like user scope</div>
+          </div>
+          <p class="note" style="margin: 8px 0 0">
+            A receipt in <code>&lt;home&gt;/subagents-trust.json</code> binds project, name and digest.
+          </p>
+        </div>
+      </div>
+
+      <div>
+        <h2>2. Checks, in the order the runtime makes them</h2>
+        <div class="checks">
+          <div class="box blue"><span class="num">1</span>the turn's mode is not <code>ask</code></div>
+          <div class="no">refused: ask mode delegates nothing</div>
+          <div class="box blue">
+            <span class="num">2</span>depth below <code>subagents.max_depth</code>
+            <small style="padding-left: 24px">or at it, with a <code>spawns</code> allowlist</small>
+          </div>
+          <div class="no">refused: max_depth reached</div>
+          <div class="box blue"><span class="num">3</span>prompt at most 32 KiB</div>
+          <div class="no">refused with the size</div>
+          <div class="box blue"><span class="num">4</span><code>resume</code> names a finished run (panel 6)</div>
+          <div class="no">refused: still running, not found</div>
+          <div class="box blue" id="s-lookup"><span class="num">5</span>the name is found, on the allowlist</div>
+          <div class="no">refused with the visible names</div>
+          <div class="box blue" id="s-trust"><span class="num">6</span><code>subagents.Decide</code>: trusted</div>
+          <div class="no">refused: needs approval, with the commands</div>
+          <div class="box blue" id="s-narrow">
+            <span class="num">7</span>narrow the child (panel 3)
+            <small style="padding-left: 24px">mode, permission mode, tools, model, reasoning</small>
+          </div>
+          <div class="no">refused when no tool is left</div>
+          <div class="box amber" id="s-hook">
+            <span class="num">8</span><code>SubagentStart</code> hooks of the parent
+          </div>
+          <div class="no">refused by a hook; or its context is put in front of the task</div>
+          <div class="box purple">
+            <span class="num">9</span><code>Limiter</code>: <code>subagents.max_concurrent</code>
+            <small style="padding-left: 24px">process-wide, default 4, re-read on every spawn</small>
+          </div>
+          <div class="no">refused, never queued: wait with background_wait</div>
+          <div class="box blue"><span class="num">10</span>a worktree, for <code>isolation: worktree</code></div>
+          <div class="no">refused outside a git repository</div>
+          <div class="box core" id="s-launch">
+            <span class="num">11</span><code>Pool.Launch</code>: task of kind <code>agent</code>
+            <small style="padding-left: 24px">under the parent session</small>
+          </div>
+          <div class="no">refused: <code>tools.background.max_concurrent</code> of the parent, or the pool draining</div>
+        </div>
+      </div>
+
+      <div>
+        <h2>3. What the child may do</h2>
+        <div class="ops" id="narrow">
+          <div></div>
+          <div class="box">tools the parent can call now, MCP included</div>
+          <div class="op">∩</div>
+          <div class="box">the child mode's set</div>
+          <div class="op">∩</div>
+          <div class="box amber">definition <code>tools</code> (empty: all)</div>
+          <div class="op">−</div>
+          <div class="box amber">definition <code>disallowed_tools</code></div>
+          <div class="op">−</div>
+          <div class="box red">
+            mandatory exclusions
+            <small><code>question</code>, <code>config_*</code>, <code>plan_exit</code>, <code>switch_model</code>,
+              <code>worktree_*</code>; <code>spawn_agent</code> at the cap</small>
+          </div>
+          <div class="op">=</div>
+          <div class="box blue b">effective set <small><code>subagents.EffectiveTools</code>, then the child model's
+              toolset</small></div>
+        </div>
+        <p class="note" style="margin: 8px 0 10px">
+          Checked twice: the model is shown only this set, and each call is checked again before the gate.
+        </p>
+        <div class="stack">
+          <div class="box">
+            <b>Permission mode</b>: the stricter of the parent's and the definition's
+            <small><code>ask</code> &lt; <code>accept_edits</code> &lt; <code>bypass</code>; never wider</small>
+          </div>
+          <div class="box">
+            <b>Mode</b>: a plan parent forces plan; an agent parent lets the definition pick
+          </div>
+          <div class="box">
+            <b>Depth</b>: at <code>max_depth: 1</code> children cannot spawn
+            <small><code>spawns</code> (builtin, user scope) adds one level for the names it lists:
+              <code>crossreview</code> spawns <code>explore</code></small>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <div class="cols bottom">
+      <div>
+        <h2>4. The run</h2>
+        <div class="panel" id="run" style="padding: 12px 14px">
+          <div class="tree">&lt;sessions root&gt;/sess_&lt;parent&gt;/
+  background/bg_3/       <span class="c">the task, kind agent</span>
+  subagents/sess_9f1c…/  <span class="c">the child, an ordinary sess_ id</span>
+    session.json         <span class="c">subagentRun, parentSessionId</span></div>
+        </div>
+        <div class="pair" style="margin-top: 10px">
+          <div class="box green" id="fg">
+            <b>foreground</b> (default)
+            <small>the tool call blocks; the result is <code>&lt;subagent status turns&gt;</code> with the report</small>
+          </div>
+          <div class="box green" id="bg">
+            <b>background</b>
+            <small>returns <code>bg_3</code> at once; <code>notify_on_finish</code> (on by default) wakes the
+              parent where a waker runs</small>
+          </div>
+        </div>
+        <div class="box amber" style="margin-top: 10px">
+          <code>SubagentStop</code> hooks see status and report
+        </div>
+        <div class="box gray" style="margin-top: 8px; color: var(--ink-2)">
+          Retired: its tasks stopped, MCP closed, an empty worktree removed; the transcript stays read-only
+        </div>
+      </div>
+
+      <div>
+        <h2>5. A child's permission prompt</h2>
+        <div class="relay">
+          <div class="box core" id="ask" style="grid-row: 1 / span 2">
+            the child's gated tool call
+            <small>stamped with the child's own mode</small>
+          </div>
+          <div class="box green" id="live">
+            <b>spawning turn still running</b>: the parent's client
+            <small>under the parent session, titled <code>[subagent &lt;name&gt;]</code>, allow or reject only; one
+              prompt per parent at a time</small>
+          </div>
+          <div class="box purple" id="broker">
+            <b>turn ended</b>: <code>DetachedPermissionBroker</code>
+            <small>a prompt still on screen when the turn ends moves here too</small>
+          </div>
+        </div>
+        <div class="stack" style="margin: 12px 0 0 204px">
+          <div class="box" id="b-cli"><b>console</b>: its permission modal</div>
+          <div class="box purple" id="b-serve">
+            <b><code>coddy serve</code></b>: <code>serve.Runtime</code> asks every surface at once
+            <small>web chat, <code>--remote</code> console, Telegram or Pachca chat; the first answer wins, the
+              other copies go</small>
+          </div>
+          <div class="box red" id="b-none">
+            <b>no broker</b> (<code>coddy acp</code>, print mode, scheduler): refused at once, with a reason
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h2>6. <code>resume</code> a finished run</h2>
+        <div class="box call">{"agent": "general",<br />&nbsp;"resume": "bg_5",<br />&nbsp;"prompt": "Go on from where
+          you stopped."}</div>
+        <ul class="mini" style="margin-top: 10px">
+          <li>decided like a new spawn, against the definition as it is now; no earlier grant carries over;</li>
+          <li>the child session is reopened from its bundle, the prompt is its next message, the run is a new task
+            <code>bg_…</code> on the same <code>sess_…</code>;</li>
+          <li>a call left without a result is answered as having no recorded result;</li>
+          <li>refused for a run still in flight, another agent name, a moved workspace, a transcript not on disk,
+            the memory child.</li>
+        </ul>
+      </div>
+    </div>
+
+    <script src="diagram.js"></script>
+    <script>
+      wires([
+        { from: "#def", to: "#s-lookup", toSide: "left" },
+        { from: "#s-trust", to: "#t-ask", fromSide: "left", toSide: "right", color: "amber", dash: true },
+        { from: "#ask", to: "#live", fromShift: -0.25 },
+        { from: "#ask", to: "#broker", fromShift: 0.25, color: "purple" },
+        { from: "#broker", to: "#b-none", fromSide: "bottom", toSide: "left", color: "red", fromShift: -0.46 },
+        { from: "#broker", to: "#b-serve", fromSide: "bottom", toSide: "left", color: "purple", fromShift: -0.46 },
+        { from: "#broker", to: "#b-cli", fromSide: "bottom", toSide: "left", color: "purple", fromShift: -0.46 },
+      ]);
+    </script>
+  </body>
+</html>

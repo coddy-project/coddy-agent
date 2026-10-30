@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Compaction as a chain of summary blocks</title>
+    <link rel="stylesheet" href="diagram.css" />
+    <style>
+      .top {
+        grid-template-columns: 330px 410px 1fr;
+        gap: 36px;
+      }
+      .disk {
+        display: grid;
+        grid-template-columns: 74px 1fr;
+        column-gap: 10px;
+        row-gap: 6px;
+      }
+      .disk .box {
+        grid-column: 2;
+        padding: 5px 12px;
+      }
+      .disk .bracket {
+        grid-column: 1;
+      }
+      .reads {
+        display: grid;
+        grid-template-columns: 1fr 104px;
+        column-gap: 10px;
+        row-gap: 6px;
+      }
+      .reads .box {
+        grid-column: 1;
+        padding: 5px 12px;
+      }
+      .reads .bracket {
+        grid-column: 2;
+      }
+      .req .box {
+        margin: 4px 0 4px 10px;
+        padding: 5px 12px;
+      }
+      .merge {
+        display: grid;
+        grid-template-columns: repeat(4, 112px) 150px 112px 112px 240px;
+        column-gap: 10px;
+        row-gap: 8px;
+        align-items: stretch;
+      }
+      .merge .box {
+        padding: 9px 12px;
+      }
+    </style>
+  </head>
+  <body style="--width: 1280px">
+    <h1>Compaction as a chain of summary blocks</h1>
+    <p class="lead">
+      Each compaction appends one summary block after the blocks before it. Earlier blocks are never rewritten, so
+      every request keeps its cached prefix.
+    </p>
+
+    <div class="cols top">
+      <div>
+        <h2>1. Transcript on disk (insert-only)</h2>
+        <div class="disk">
+          <div class="bracket left blue" style="grid-row: 1 / span 4">covered by B1</div>
+          <div class="box gray">user: question 1</div>
+          <div class="box gray">assistant: answer 1</div>
+          <div class="box gray">user: question 2</div>
+          <div class="box gray">assistant: answer 2</div>
+          <div class="box blue b" id="d-b1">B1 summary block</div>
+          <div class="bracket left blue" style="grid-row: 6 / span 4">covered by B2</div>
+          <div class="box gray">user: question 3</div>
+          <div class="box gray">assistant: answer 3</div>
+          <div class="box gray">user: question 4</div>
+          <div class="box gray">assistant: answer 4</div>
+          <div class="box blue b" id="d-b2">B2 summary block</div>
+          <div class="bracket left green" style="grid-row: 11 / span 4">verbatim tail</div>
+          <div class="box green">user: question 5</div>
+          <div class="box green">assistant: answer 5</div>
+          <div class="box green">user: question 6</div>
+          <div class="box green">assistant: answer 6</div>
+        </div>
+        <p class="note italic" style="margin: 12px 0 0">
+          Gray rows stay in <code>messages.json</code> for the transcript, rewind and export. The model no longer reads
+          them.
+        </p>
+      </div>
+
+      <div>
+        <h2>2. What the model reads</h2>
+        <div class="reads">
+          <div class="box core">system prompt</div>
+          <div></div>
+          <div class="box blue b" id="r-b1">B1 The earlier conversation was compacted...</div>
+          <div class="bracket right blue" style="grid-row: 2 / span 2">oldest first: later blocks continue earlier ones</div>
+          <div class="box blue b" id="r-b2">B2 The conversation after the summary above...</div>
+          <div class="box green">user: question 5</div>
+          <div class="box green">assistant: answer 5</div>
+          <div class="box green">user: question 6</div>
+          <div class="box green">assistant: answer 6</div>
+          <div class="box dashed" style="border-color: var(--blue-line); color: var(--blue-ink)">
+            B3 is appended here by the next compaction
+          </div>
+        </div>
+        <p class="note" style="margin: 16px 0 8px">
+          Between two compactions every request opens with the same bytes up to the end of the last block, and a
+          compaction only appends after it, so the provider's prompt cache survives.
+        </p>
+        <p class="note red" style="margin: 0">
+          Before the chain, the next summary retold B1 together with the tail and replaced it: early details wore
+          away, and the cache broke from the first message on.
+        </p>
+      </div>
+
+      <div>
+        <h2>3. Writing the next block (B3)</h2>
+        <div class="panel req" id="req">
+          <div class="title">summarizer request</div>
+          <div class="tag">&lt;earlier-summaries&gt;</div>
+          <div class="box blue">B1</div>
+          <div class="box blue">B2</div>
+          <div class="tag">&lt;/earlier-summaries&gt;</div>
+          <p class="note blue" style="margin: 2px 0 8px 10px; font-style: italic">
+            read-only context: never retold, at most half of a pass, the newest kept when they do not all fit
+          </p>
+          <div class="tag green">&lt;transcript&gt;</div>
+          <div class="box green">q5, a5: the tail before the new boundary</div>
+          <div class="tag green">&lt;/transcript&gt;</div>
+        </div>
+        <div class="box blue b" id="b3" style="margin-top: 34px">B3 inserted at the boundary, before q6</div>
+        <p class="note" style="margin: 10px 0 8px">
+          q6 and a6 stay verbatim (<code>keep_recent_turns</code>).
+        </p>
+        <p class="note" style="margin: 0 0 8px">
+          Inside one long turn the first block starts with the turn's prompt verbatim; later blocks of that turn do
+          not repeat it.
+        </p>
+        <div class="box amber">prompt (verbatim) + summary of the earlier steps</div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <h2>4. Merge when the chain outgrows a third of the session model's window</h2>
+    <p class="note" style="margin: -4px 0 14px; font-size: 14px">
+      The earliest blocks are retold as one row M. M has no <code>compaction_block</code> flag, so the chain starts
+      anew at M, and it is inserted right after the last block it replaces. As many blocks go as bring the chain down
+      to half of that share, M counted as long as the longest row it retells. The gap between the two marks keeps
+      merges rare, because a merge does move the cached prefix.
+    </p>
+    <div class="merge">
+      <div class="bracket over green" style="grid-column: 5 / span 4; grid-row: 1">
+        what the model reads after the merge: M, B5, B6, then the tail
+      </div>
+      <div class="box blue faded b" style="grid-row: 2">B1</div>
+      <div class="box blue faded b" style="grid-row: 2">B2</div>
+      <div class="box blue faded b" style="grid-row: 2">B3</div>
+      <div class="box blue faded b" style="grid-row: 2">B4</div>
+      <div class="box purple b" style="grid-row: 2">M = B1..B4</div>
+      <div class="box blue b" style="grid-row: 2">B5</div>
+      <div class="box blue b" style="grid-row: 2">B6</div>
+      <div class="box green" style="grid-row: 2">verbatim tail</div>
+      <div class="bracket under purple" style="grid-column: 1 / span 4; grid-row: 3">
+        retold into M; the rows stay on disk, the model stops reading them
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>
+        The newest block is never merged. Blocks of the turn in progress go last, only when the earlier ones are not
+        enough; M then keeps the turn's prompt in front, so the prompt appears once. A failed merge leaves the chain as
+        it was.
+      </p>
+      <p>
+        A session compacted before the chain existed has one plain summary row: it is read as the root of a chain, and
+        the next compaction appends a block after it.
+      </p>
+    </div>
+
+    <script src="diagram.js"></script>
+    <script>
+      wires([
+        { from: "#d-b1", to: "#r-b1", route: "straight" },
+        { from: "#d-b2", to: "#r-b2", route: "straight" },
+        { from: "#req", to: "#b3", fromSide: "bottom", toSide: "top" },
+      ]);
+    </script>
+  </body>
+</html>

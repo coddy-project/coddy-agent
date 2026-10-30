@@ -64,10 +64,8 @@ func TestNewProviderAnthropicHonorsBaseURL(t *testing.T) {
 		mu.Lock()
 		hit = true
 		mu.Unlock()
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"id":"msg_1","type":"message","role":"assistant","model":"claude-test",`+
-			`"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn",`+
-			`"usage":{"input_tokens":1,"output_tokens":1}}`)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, anthropicTextAnswerSSE("ok"))
 	}))
 	defer srv.Close()
 

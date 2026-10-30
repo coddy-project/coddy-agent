@@ -540,8 +540,14 @@ func TestToolOpensAFreshPortAfterStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := urlInResult.FindString(out)
-	if strings.Contains(out, "already running") || first == second {
+	// A new server, a task of its own: the system may hand it the port the
+	// stopped one freed, so the address alone does not tell the two apart.
+	if strings.Contains(out, "already running") || !strings.Contains(out, "background task ") ||
+		strings.Contains(out, "background task "+tasks[0].ID+".") {
 		t.Fatalf("a stopped server was reported as running: %q", out)
+	}
+	if first == "" || second == "" {
+		t.Fatalf("no address in the results: %q, %q", first, second)
 	}
 	if _, err := get(second); err != nil {
 		t.Fatalf("the new address does not answer: %v", err)

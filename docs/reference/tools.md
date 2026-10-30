@@ -15,6 +15,12 @@ The Permission column uses the classes the gate in `internal/agent/react.go` app
 
 ## Files
 
+The browser tool is offered in Agent mode when `browser.enable` is true, in a binary built with the `browser` tag. It reaches the browsers connected to this server, to the server of this machine (under its `browser.serve_remote`) and to the servers of `browser.remotes`.
+
+| Tool | Purpose | Arguments (short) | Permission | Modes |
+|---|---|---|---|---|
+| `browser` | Work in the user's browser through the Coddy for Browser extension: list the connected browsers and the tabs in reach, open, read and act on a tab, move files between a page and the workspace ([Coddy for Browser](../features/browser.md)) | `action`, `browser_id`, `tab_id`, `params`, `path` | always, plus the website approval in the extension | agent |
+
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
 | `read` | Read a file as text with an optional 1-based line range, or list a directory; text in another encoding (UTF-16, a legacy code page) is converted to UTF-8. A PNG, JPEG, GIF or WebP file (told by its content) is shown to a model with `models[].multimodal: true` as a picture, up to 3.75 MB and 8000 pixels a side and only a file whole to its end, a GIF as its first frame, and the web UI and a Telegram chat show it too ([Images](../features/images.md)); any other binary file (a PDF, an archive), and a picture for a model without `multimodal`, is refused with its type and size | `path`, `offset`, `limit`, `recursive`, `show_hidden`, `keep` | none | agent, plan, ask |
@@ -30,6 +36,8 @@ The Permission column uses the classes the gate in `internal/agent/react.go` app
 | `touch` | Create an empty file or refresh its modification time | `path`, `create_parents` | write | agent |
 | `rm` | Remove a file, or a whole tree with `recursive` | `path`, `recursive` | write | agent |
 | `mv` | Move or rename; destination parents are created | `src`, `dst` | write | agent |
+
+`write`, `edit`, `apply_patch` and the copy `mv` makes across disks replace a file atomically: the new content goes into a temporary file in the same folder, which takes the place of the target once it is written and flushed. A write that fails half way (a full disk) leaves the file as it was, and the error the model reads says so. A killed process leaves either the old content or all of the new, and one killed before the rename leaves a temporary file named `<name>.<random>~` beside the file. The new file keeps the permissions of the old one (its mode, its POSIX ACL on Linux, its DACL, its hidden, system and not-indexed attributes and its creation time on Windows), while its owner becomes the user Coddy runs as. A symlink is written through: the link stays and the file it points to changes. A file with several hard links becomes a new file under the name that was written, the other names keep the old content, and the result line says so. A named pipe or a device is written in place, and so is a link to a file that does not exist yet, which has no old content to keep.
 
 ## Shell and background tasks
 

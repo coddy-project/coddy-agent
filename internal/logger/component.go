@@ -28,6 +28,9 @@ const (
 	ComponentSession         = "session"
 	ComponentAgent           = "agent"
 	ComponentScheduler       = "scheduler"
+	// ComponentBrowser is the extension listener of Coddy for Browser: its
+	// connections, its tab lists and the Stop a user presses.
+	ComponentBrowser = "browser"
 	// ComponentProviderACP is the acp provider: the local ACP agents it
 	// starts, their sessions and what they report on stderr.
 	ComponentProviderACP = "provider.acp"

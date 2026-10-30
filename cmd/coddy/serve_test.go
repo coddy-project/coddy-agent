@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/EvilFreelancer/coddy-agent/external/browser"
 	"github.com/EvilFreelancer/coddy-agent/external/gateway"
 	"github.com/EvilFreelancer/coddy-agent/external/httpserver"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -268,5 +269,64 @@ func TestServeBannerListsTheExporter(t *testing.T) {
 	}
 	if !strings.Contains(got, "  httpserver  http://127.0.0.1:12345  (no auth)\n") {
 		t.Errorf("the surface line is gone:\n%s", got)
+	}
+}
+
+func TestServeBannerListsBrowserWithoutKey(t *testing.T) {
+	cfg := &config.Config{Browser: config.BrowserConfig{Enable: true, Token: strings.Repeat("s", 32)}}
+	var out bytes.Buffer
+	printServeBanner(&out, cfg, []serve.Subsystem{{Kind: serve.KindBrowser}}, "127.0.0.1:12345", "", false, false)
+	if !strings.Contains(out.String(), "browser     ws://127.0.0.1:12345/browser/v1/connect  (extension key)") || strings.Contains(out.String(), cfg.Browser.Token) {
+		t.Fatalf("browser endpoint or key handling: %s", out.String())
+	}
+	cfg.Browser.ServeRemote = true
+	out.Reset()
+	printServeBanner(&out, cfg, []serve.Subsystem{{Kind: serve.KindBrowser}}, "127.0.0.1:12345", "", false, false)
+	if !strings.Contains(out.String(), "served to other processes at /coddy/browser/v1") {
+		t.Fatalf("serve_remote is not named: %s", out.String())
+	}
+}
+
+// Coddy for Browser is a subsystem in every build: a binary without the
+// browser tag refuses browser.enable naming the tag, and one with it rides the
+// HTTP server as an auxiliary subsystem that never keeps the process up alone.
+func TestServeRunsTheBrowserBesideTheHTTPServer(t *testing.T) {
+	all := subsystems(&serve.Runtime{}, subsystemDeps{metrics: newMetricsWiring(&serve.Runtime{})})
+	var sub serve.Subsystem
+	for _, s := range all {
+		if s.Kind == serve.KindBrowser {
+			sub = s
+		}
+	}
+	if sub.ConfigKey != "browser.enable" || sub.BuildTag != "browser" || !sub.Auxiliary || sub.Available != browser.Available || sub.RestartKey != nil {
+		t.Fatalf("browser descriptor: %+v", sub)
+	}
+	c := &config.Config{}
+	if sub.Enabled(c) {
+		t.Fatal("the browser enabled by an empty config")
+	}
+	// A process that only uses the browsers of other servers runs no
+	// endpoint; a binary without the module refuses that too, by name.
+	c.Browser = config.BrowserConfig{Enable: true, Remotes: []string{"home"}}
+	if sub.Enabled(c) != !browser.Available {
+		t.Fatalf("remotes alone: enabled %v in a binary where the module is available=%v", sub.Enabled(c), browser.Available)
+	}
+	c.Browser = config.BrowserConfig{Enable: true, Token: strings.Repeat("k", 32)}
+	if !sub.Enabled(c) {
+		t.Fatal("browser.enable does not enable the subsystem")
+	}
+	off := false
+	c.HTTPServer.Enabled = &off
+	_, err := serve.Resolve(c, all)
+	if browser.Available {
+		var nothing *serve.ErrNothingEnabled
+		if !errors.As(err, &nothing) {
+			t.Fatalf("the browser alone: %v, want ErrNothingEnabled", err)
+		}
+	} else {
+		var notBuilt *serve.ErrNotBuilt
+		if !errors.As(err, &notBuilt) || notBuilt.BuildTag != "browser" || notBuilt.ConfigKey != "browser.enable" {
+			t.Fatalf("browser in a binary without the tag: %v, want ErrNotBuilt naming the tag", err)
+		}
 	}
 }

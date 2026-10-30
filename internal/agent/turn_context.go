@@ -29,7 +29,9 @@ const (
 
 // buildTurnContext renders the block appended after the history on every
 // request of a turn: the wall clock, the live todo checklist, the memory
-// subagent's report for this turn and the background tasks still running. A
+// subagent's report for this turn, the background tasks still running and
+// what the surface running the turn adds (the tab of Coddy for Browser's
+// side panel). A
 // rule a tool call activates is not in it: that rides in the call's result,
 // written once, where it is not sent again on every later step
 // (rules_activation.go). A volatile template under prompts.dir prints the clock
@@ -40,7 +42,7 @@ func (a *Agent) buildTurnContext(frozen *systemPromptBuild) string {
 	if frozen != nil && frozen.Volatile {
 		// No template prints these two, so a volatile one gets them here too.
 		var sections []string
-		for _, section := range []string{a.gitWorkspaceSection(), a.memoryTurnContextSection(), a.backgroundTasksSection()} {
+		for _, section := range []string{a.gitWorkspaceSection(), a.memoryTurnContextSection(), a.backgroundTasksSection(), a.surfaceTurnContextSection()} {
 			if section != "" {
 				sections = append(sections, section)
 			}
@@ -76,8 +78,22 @@ func (a *Agent) buildTurnContext(frozen *systemPromptBuild) string {
 		parts = append(parts, section)
 	}
 
+	if section := a.surfaceTurnContextSection(); section != "" {
+		parts = append(parts, section)
+	}
+
 	return turnContextOpenTag + "\n" + turnContextPreamble + "\n\n" +
 		strings.Join(parts, "\n\n") + "\n" + turnContextCloseTag
+}
+
+// surfaceTurnContextSection is what the surface running the turn wants the
+// model to know that moves from turn to turn (session.PromptRunOpts).
+func (a *Agent) surfaceTurnContextSection() string {
+	st := sessionStatePtr(a.state)
+	if st == nil {
+		return ""
+	}
+	return st.GetSurfaceTurnContext()
 }
 
 // gitWorkspaceSection stays stable while the cwd stays put. It gives the

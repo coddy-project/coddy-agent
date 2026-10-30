@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -33,8 +34,8 @@ func (s *anthropicEmptyAssistantState) givenConversation() error {
 		s.calls++
 		s.messages = request.Messages
 		s.mu.Unlock()
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","model":"test-model","content":[{"type":"text","text":"done"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, anthropicTextAnswerSSE("done"))
 	}))
 	s.provider = newAnthropicProvider("test-model", "key", s.server.URL, nil, 8192, 0, "high")
 	return nil

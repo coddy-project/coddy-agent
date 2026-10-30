@@ -668,7 +668,7 @@ func TestReplayShowsAnInTurnRowFromItsPreambleOn(t *testing.T) {
 	)
 	rec := &chunkRecorder{}
 	m := &Manager{server: rec}
-	if err := m.replayConversation("sess", msgs, ""); err != nil {
+	if err := m.replayConversation("sess", msgs, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(rec.users) != 4 {

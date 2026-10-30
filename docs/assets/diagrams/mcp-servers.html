@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>The life of a configured MCP server</title>
+    <link rel="stylesheet" href="diagram.css" />
+    <style>
+      .top {
+        grid-template-columns: 360px 400px 1fr;
+        gap: 44px;
+      }
+      .bottom {
+        grid-template-columns: 1fr 1fr;
+        gap: 44px;
+      }
+      .stack .box {
+        padding: 7px 12px;
+      }
+      .vals {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        column-gap: 10px;
+        row-gap: 4px;
+        font-size: 13px;
+        margin-top: 4px;
+      }
+      .vals code {
+        white-space: nowrap;
+      }
+      .policy {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+      .policy .box {
+        padding: 6px 10px;
+        font-size: 14px;
+      }
+      .pool {
+        display: grid;
+        grid-template-columns: 1fr 128px;
+        column-gap: 34px;
+        row-gap: 8px;
+        align-items: center;
+      }
+      .pool .box.purple {
+        grid-column: 1;
+      }
+      .leases {
+        grid-column: 2;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .leases .box {
+        padding: 4px 9px;
+        font-size: 13px;
+      }
+      .life {
+        margin: 12px 0 0;
+        padding-left: 18px;
+        font-size: 13.5px;
+        color: var(--ink-2);
+      }
+      .life li {
+        margin-bottom: 4px;
+      }
+      .flow {
+        display: grid;
+        grid-template-columns: 210px 1fr;
+        column-gap: 34px;
+        row-gap: 8px;
+        align-items: center;
+      }
+      .flow .box {
+        padding: 6px 11px;
+      }
+      .req .box {
+        margin: 4px 0;
+        padding: 6px 11px;
+      }
+      .res {
+        display: grid;
+        grid-template-columns: 200px 1fr;
+        column-gap: 34px;
+        row-gap: 8px;
+        align-items: center;
+        margin-top: 14px;
+      }
+      .res .box {
+        padding: 6px 11px;
+      }
+    </style>
+  </head>
+  <body style="--width: 1400px">
+    <h1>The life of a configured MCP server</h1>
+    <p class="lead">
+      Where a server is declared, what lets it start, and how one running server serves every session that needs it.
+    </p>
+
+    <div class="cols top">
+      <div>
+        <h2>1. Where servers are declared</h2>
+        <div class="stack">
+          <div class="box gray" id="c-yaml">
+            <b>config.yaml</b> declares no server
+            <span class="sub">an old <code>mcp_servers</code> list moves into the home file</span>
+          </div>
+          <div class="box amber b" id="c-home" style="margin-top: 26px">
+            &lt;home&gt;/mcp.json
+            <span class="sub">scope <code>global</code>: written by the operator, never gated, watched for edits</span>
+          </div>
+          <div class="box amber b" id="c-proj">
+            &lt;workspace&gt;/.coddy/mcp.json
+            <span class="sub">scope <code>local</code>: comes with the checkout; a name it shares overrides the global
+              entry</span>
+          </div>
+          <div class="box amber b" id="c-acp">
+            ACP client, <code>session/new</code>
+            <span class="sub">no file and no trust gate: straight to the pool (3)</span>
+          </div>
+        </div>
+        <div class="panel" style="margin-top: 16px">
+          <div class="title">Values resolve as the server starts</div>
+          <div class="note muted" style="margin: -4px 0 4px"><code>config.ExpandMCPValue</code>, in every file</div>
+          <div class="vals">
+            <code>${CWD}</code><span>the session's workspace</span>
+            <code>${NAME}</code><span>that variable of the Coddy process, also <code>${env:NAME}</code> and
+              <code>${NAME:-default}</code></span>
+            <code>$${</code><span>a literal <code>${</code>; any other <code>$</code> is literal</span>
+          </div>
+          <p class="note italic" style="margin: 8px 0 0">The file keeps the reference, never the token.</p>
+        </div>
+      </div>
+
+      <div>
+        <h2>2. Trust gate for project declarations</h2>
+        <div class="stack">
+          <div class="box blue b" id="g-merged">
+            merged list for the workspace
+            <span class="sub">switches applied, a broken file skipped with a warning</span>
+          </div>
+          <div class="box core b" id="g-gate" style="margin-top: 22px">
+            TrustGate.Acquire
+            <span class="sub">checks, then takes a lease from the pool with nothing in between, also when another session
+              started the server</span>
+          </div>
+          <div class="note" style="margin: 6px 0 2px">
+            Project entries follow <code>mcp.project_trust</code>:
+          </div>
+          <div class="policy">
+            <div class="box green b">allow<span class="sub">every project server starts</span></div>
+            <div class="box amber b" id="g-ask">ask (default)<span class="sub">starts on a matching receipt, else held</span></div>
+            <div class="box red b">deny<span class="sub">none starts, nothing to approve</span></div>
+          </div>
+          <div class="box blue b" id="g-store" style="margin-top: 22px">
+            &lt;home&gt;/mcp-trust.json
+            <span class="sub">receipts keyed by project (<code>TrustWorkspace</code>: a linked git worktree uses its
+              main checkout), name and a SHA-256 digest of transport, command, args, env, url and headers. An edit
+              withdraws the approval, a switch does not.</span>
+          </div>
+          <div class="box amber" id="g-person" style="margin-top: 26px">
+            <b>The operator approves</b>
+            <span class="sub"><code>coddy mcp trust &lt;name&gt;</code>, Settings -&gt; MCP servers or the console's
+              <code>/mcp</code>, each after showing the whole declaration; never from a chat</span>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h2>3. One running server per resolved declaration</h2>
+        <p class="note" style="margin: -4px 0 10px">
+          <code>pool.go</code>: one connection per <code>PoolKey</code> - name, transport, the resolved command
+          line and env (or URL and headers), the bound workspace.
+        </p>
+        <div class="pool">
+          <div class="box purple b" id="p-global">
+            global, no <code>${CWD}</code>: one per process
+            <span class="sub"><code>Keep</code> starts it with <code>coddy serve</code>, the console and
+              <code>coddy acp</code>, and holds it with no lease</span>
+          </div>
+          <div></div>
+          <div class="box purple b" id="p-proj">
+            project, no <code>${CWD}</code>: one per project
+            <span class="sub">keyed by <code>TrustWorkspace</code>, so a main checkout and its worktrees share it</span>
+          </div>
+          <div class="leases" style="grid-row: 2 / span 2">
+            <div class="box green" id="l1">session in the main checkout</div>
+            <div class="box green" id="l2">session in a worktree</div>
+            <div class="box green" id="l3">a subagent of either</div>
+          </div>
+          <div class="box purple b" id="p-cwd">
+            names <code>${CWD}</code>: one per workspace
+            <span class="sub">global or project, never started ahead of a session</span>
+          </div>
+          <div class="box purple b" id="p-acp">
+            ACP client server
+            <span class="sub">no gate; one for the sessions that send the same declaration</span>
+          </div>
+          <div></div>
+        </div>
+        <ul class="life">
+          <li>
+            Nothing holds it: it runs on for <code>mcp.idle_timeout_seconds</code> (300 by default, <code>0</code> stops it
+            at once) for the next session to find.
+          </li>
+          <li>Switched off, approval withdrawn, removed or redeclared: it stops as soon as no session holds it.</li>
+          <li>
+            A stdio server runs in a process group of its own: a stop closes stdin, waits 2&nbsp;s, then ends the group,
+            the child of <code>npx</code> or <code>uvx</code> included.
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <div class="cols bottom">
+      <div>
+        <h2>4. A session dials, and its next turn repairs</h2>
+        <div class="flow">
+          <div class="box core b" id="f-dial" style="grid-row: 1 / span 3">
+            dial every admitted server at once
+            <span class="sub">each under its own 20&nbsp;s bound: the session waits for its slowest server, not the sum</span>
+          </div>
+          <div class="box green" id="f-ok"><b>answered</b>: <code>tools/list</code>, its tools join the session</div>
+          <div class="box amber" id="f-retry">
+            <b>no answer in 20&nbsp;s</b>: one more try when the next turn starts
+            <span class="sub">a first <code>npx -y</code> can install past the bound; the retry starts from the
+              cache</span>
+          </div>
+          <div class="box red" id="f-down" style="margin-top: 14px">
+            <b>no answer again</b>: down until an edit, its switch, a new trust policy or a new session
+          </div>
+          <div class="box gray" id="f-ended" style="grid-column: 1; color: var(--ink-2)">
+            connection ended
+            <span class="sub">process exited, remote dropped, 404 for its session</span>
+          </div>
+          <div class="box blue" id="f-park">
+            <b>parked</b>, started again when the next turn begins: one new process for every session that held it
+          </div>
+          <div class="box amber" id="f-watch" style="grid-column: 1">
+            <b>&lt;home&gt;/mcp.json edited</b>
+            <span class="sub">by anyone; polled every 2&nbsp;s</span>
+          </div>
+          <div class="box blue" id="f-reload">
+            <b>ReloadMCPDeclarations</b> refreshes only the servers whose declaration or switch moved; the rest keep
+            running. A file that does not read stops none.
+          </div>
+        </div>
+        <p class="note" style="margin: 12px 0 0">
+          A turn in flight keeps the tool list it handed the model, and a change lands when it releases its lock. A
+          project <code>.coddy/mcp.json</code> is not watched: it reaches a session when it starts, switches to that
+          workspace, or the server is saved, switched or approved through <code>/mcp</code> or Settings.
+        </p>
+      </div>
+
+      <div>
+        <h2>5. What the model is given</h2>
+        <div class="panel req" id="req">
+          <div class="title">tools array of every request</div>
+          <div class="box core">built-in tools of the mode</div>
+          <div class="box green" id="t-mcp">
+            <code>server__tool</code> for every enabled tool
+            <span class="sub">the server's <code>inputSchema</code>, the description prefixed with
+              <code>[server]</code>; in <code>agent</code> and <code>plan</code> mode</span>
+          </div>
+          <div class="box red">
+            <code>ask</code> mode: no MCP tools at all
+          </div>
+        </div>
+        <p class="note" style="margin: 10px 0 0">
+          <code>disabledTools</code>: hidden, refused at dispatch, re-read every turn. No permission prompt guards a
+          call: the gate decides what starts, the switches what may be called.
+        </p>
+        <div class="res">
+          <div class="box amber b" id="r-call" style="grid-row: 1 / span 3">
+            blocks of a call's result
+          </div>
+          <div class="box green" id="r-text">
+            <b>text</b>, embedded resource text, resource links: the tool result
+          </div>
+          <div class="box blue" id="r-img">
+            <b>images</b>: kept with the call, shown to a model that reads images
+          </div>
+          <div class="box gray" id="r-file" style="color: var(--ink-2)">
+            <b>audio, other binary</b>: a file in the session's <code>assets/</code>, named in the result; no model is
+            sent it
+          </div>
+        </div>
+        <p class="note italic" style="margin: 8px 0 0">
+          At most 20 files, and 20 MB of pictures and files together, per call.
+        </p>
+      </div>
+    </div>
+
+    <script src="diagram.js"></script>
+    <script>
+      wires([
+        { from: "#c-yaml", to: "#c-home", fromSide: "bottom", toSide: "top", color: "gray", dash: true, label: "moved on load", labelShift: [62, 9] },
+        { from: "#c-home", to: "#g-merged", color: "amber" },
+        { from: "#c-proj", to: "#g-merged", color: "amber", toShift: 0.25 },
+        { from: "#g-merged", to: "#g-gate", fromSide: "bottom", toSide: "top", color: "ink" },
+        { from: "#g-gate", to: "#p-global", color: "green" },
+        { from: "#g-gate", to: "#p-proj", color: "green", fromShift: 0.2 },
+        { from: "#g-gate", to: "#p-cwd", color: "green", fromShift: 0.4 },
+        { from: "#g-person", to: "#g-store", fromSide: "top", toSide: "bottom", color: "amber", label: "records", labelShift: [30, 8] },
+        { from: "#l1", to: "#p-proj", toSide: "right", fromSide: "left", color: "green", toShift: -0.2 },
+        { from: "#l2", to: "#p-proj", toSide: "right", fromSide: "left", color: "green", toShift: 0.1 },
+        { from: "#l3", to: "#p-proj", toSide: "right", fromSide: "left", color: "green", toShift: 0.35 },
+        { from: "#f-dial", to: "#f-ok", color: "green", fromShift: -0.3 },
+        { from: "#f-dial", to: "#f-retry", color: "amber" },
+        { from: "#f-retry", to: "#f-down", fromSide: "bottom", toSide: "top", color: "red", fromShift: -0.3, toShift: -0.3 },
+        { from: "#f-ended", to: "#f-park", color: "blue" },
+        { from: "#f-watch", to: "#f-reload", color: "blue" },
+        { from: "#r-call", to: "#r-text", color: "green", fromShift: -0.3 },
+        { from: "#r-call", to: "#r-img", color: "blue" },
+        { from: "#r-call", to: "#r-file", color: "gray", fromShift: 0.3 },
+      ]);
+    </script>
+  </body>
+</html>

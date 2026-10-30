@@ -52,6 +52,7 @@ func TestListModelsReadsTheReportedContextWindow(t *testing.T) {
 			{"id":"vllm","max_model_len":32768},
 			{"id":"lmstudio","max_context_length":"8192"},
 			{"id":"generic","context_window":1000000},
+			{"id":"coddy","max_context_tokens":32768},
 			{"id":"limit-wins","limit":{"context":4096},"context_length":8192},
 			{"id":"embedding-without-limit","limit":{"output":512}},
 			{"id":"odd-shapes","limit":131072,"context_length":"128k","max_model_len":null},
@@ -71,6 +72,7 @@ func TestListModelsReadsTheReportedContextWindow(t *testing.T) {
 		"vllm":                    32768,
 		"lmstudio":                8192,
 		"generic":                 1000000,
+		"coddy":                   32768,
 		"limit-wins":              4096,
 		"embedding-without-limit": 0,
 		"odd-shapes":              0,
@@ -99,7 +101,7 @@ func TestListModelsAnthropic(t *testing.T) {
 			t.Errorf("missing anthropic-version header")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":[{"id":"claude-3-5-sonnet","display_name":"Claude 3.5 Sonnet"}]}`))
+		_, _ = w.Write([]byte(`{"data":[{"id":"claude-3-5-sonnet","display_name":"Claude 3.5 Sonnet","max_input_tokens":200000,"max_tokens":8192}]}`))
 	}))
 	defer srv.Close()
 
@@ -112,6 +114,9 @@ func TestListModelsAnthropic(t *testing.T) {
 	}
 	if got[0].Name != "Claude 3.5 Sonnet" {
 		t.Errorf("display_name not used as name: %q", got[0].Name)
+	}
+	if got[0].ContextWindow != 200000 {
+		t.Errorf("context window = %d, want max_input_tokens 200000", got[0].ContextWindow)
 	}
 }
 

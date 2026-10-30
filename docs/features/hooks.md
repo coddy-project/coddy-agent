@@ -6,6 +6,9 @@ Hooks run with your permissions, before any permission prompt, on every matching
 
 Definitions use the file shape of Claude Code, and the event names, payload fields and answer fields follow it too, so a hook written for Claude Code (or Codex, which uses the same shape) works in Coddy unchanged for the covered events. The design record with the comparison of six agents is `docs/plans/hooks.md`.
 
+![Hook events on the timeline of a session and a turn, which files run, one hook process with its exit codes, and how several hooks on one event merge](../assets/diagrams/hooks-lifecycle.png)
+*Where each event fires and what its hook can decide, which files Coddy reads hooks from, how one hook process answers, and how the answers of several hooks merge.*
+
 ## Definition files
 
 Coddy reads the files listed in `hooks.files`, lowest priority first. The default list:
@@ -77,7 +80,7 @@ Tool events compare the matcher with the tool name. Coddy's own names are the on
 | Event | Fires | Matcher subject | Can block |
 |---|---|---|---|
 | `SessionStart` | `session/new` (`startup`), `session/load` or a reopen (`resume`), and a workspace switch — `POST /coddy/sessions/{id}/workspace`, folder pick, worktree jump or in-place branch checkout — (`workspace`), synchronously, before the session is returned | source | no; context only |
-| `UserPromptSubmit` | when the user submits a prompt, after the built-in `/compact` and `/plugin` commands are recognised and before the prompt becomes a message | none | yes: the prompt is rejected |
+| `UserPromptSubmit` | when the user submits a prompt, after the built-in `/compact`, `/plugin`, `/export` and `/worktree` commands are recognised and before the prompt becomes a message | none | yes: the prompt is rejected |
 | `PreToolUse` | before a tool call runs, after the mode and subagent checks and before the permission prompt, whatever the permission mode; it runs again when a permission that was persisted over HTTP is resumed, on the arguments the prompt showed (a deny still denies; a hook that changes those arguments again cancels the call, because the answer covered what the user saw). The arguments the prompt shows are persisted first, and a write that fails cancels the call instead of prompting; a resume whose persisted arguments are missing or unreadable fails and keeps the pending prompt for a retry, while a refusal needs nothing from the bundle | tool name | yes: deny, or force or skip the prompt |
 | `PostToolUse` | after a tool returned without error | tool name | no; feedback and context only |
 | `PostToolUseFailure` | after a tool returned an error (not after a permission denial or a hook denial) | tool name | no; context only |

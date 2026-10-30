@@ -82,7 +82,7 @@ Named model entries the agent and UI can select.
 | `models[].model` | string |  | "provider_name/api_model_id": the first path segment must match a providers[].name; the remainder is sent to the LLM API (may itself contain slashes). |
 | `models[].max_tokens` | integer |  | Upper bound on completion tokens per assistant message. A codex model never sends it (the Codex backend rejects max_output_tokens), so there it bounds nothing, and coddy -t and --dry-run warn about such a value. |
 | `models[].temperature` | number |  | Sampling temperature (0 = deterministic; higher = more random). |
-| `models[].max_context_tokens` | integer | 0 | Context window of the model in tokens: what the web UI context ring, the console context percentage and the automatic compaction trigger measure against. 0 reads it from the provider's model listing when the provider reports one (the NeuralDeep hub, vLLM, OpenRouter, LM Studio), else 128000. |
+| `models[].max_context_tokens` | integer | 0 | Context window of the model in tokens: what the web UI context ring, the console context percentage and the automatic compaction trigger measure against. 0 reads it from the provider's model listing when the provider reports one (the NeuralDeep hub, Anthropic, the Codex and Devin catalogs, vLLM, OpenRouter, LM Studio), else 128000. |
 | `models[].multimodal` | boolean | false | Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file instead of refusing it as binary. |
 | `models[].reasoning_levels` | list of strings or null |  | Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, and Claude extended-thinking models -> low,medium,high), the vendor an aggregator puts in front of it left out (qwen/qwen3.8-flash reads as qwen3.8-flash). An explicit empty list hides the selector. Settings fills this field from GET /coddy/config/reasoning-levels behind its Fetch reasoning levels button. |
 | `models[].reasoning_default` | string |  | Reasoning level pre-selected for new chats; must be one of the resolved levels, otherwise ignored. |
@@ -426,6 +426,17 @@ Messenger bot adapters (used only by binaries built with -tags gateway, or -tags
 | `gateways.pachca.chats[].isolation` | string, one of `individual`, `shared`, `admin` |  | Per-chat session isolation override. |
 | `gateways.pachca.chats[].access` | string |  | Per-chat access override: "all", "admins", or "group:<name>". |
 
+### `browser`
+
+Coddy for Browser: the extension connects to the HTTP server, lets chats work in the user's browser through the browser tool and shows the web UI in its side panel; chats of other Coddy processes and of the swarm reach the browser through this server. Needs a binary built with the browser tag; off by default. See https://coddy.dev/docs/features/browser.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `browser.enable` | boolean | false | Offer the browser tool to the chats of this process. Needs browser.token, browser.remotes or both. |
+| `browser.token` | string | "" | The extension key, at least 32 characters, independent of the HTTP API's credentials. With it the HTTP server accepts the extension (/browser/v1/connect), and it also signs the extension's side panel into the web UI, so keep it as secret as the API's token. Write-only. Use an environment reference to keep it out of YAML. |
+| `browser.serve_remote` | boolean | false | Let other Coddy processes drive the browsers connected here: a console or an editor on this machine, a node of the swarm. They call /coddy/browser/v1 with this server's API credential, and the extension asks the person before the first action of each such chat. Needs browser.token. |
+| `browser.remotes` | list of strings | [] | Coddy servers whose browsers the chats of this process may use, besides its own: a name of httpserver.remotes, or a server address such as a node mount of a swarm relay (https://relay:8443/swarm/nodes/home), whose token is found like --remote's. That server needs browser.serve_remote. |
+
 ### `decisions`
 
 Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer. See https://coddy.dev/docs/features/decisions.
@@ -551,7 +562,7 @@ models:
     stream: false
 ```
 
-**Non-streaming models.** `stream: false` changes one thing: coddy sends a single blocking `POST /chat/completions` instead of asking for SSE, and hands the finished answer to the rest of the runtime in one piece. Everything downstream is unchanged, so the transcript, tool calls, and session bundle look the same; what differs is that nothing appears until the model is done, and the thinking row shows no live duration. Two consequences are worth knowing before turning it on. Pressing **Stop** during a blocking call loses the whole answer, because the server has sent nothing yet, whereas a streamed turn keeps the tokens that already arrived. And a client asking for an SSE stream still gets one - the switch governs the connection to the LLM, not the connection to the client - which is why a streaming HTTP response now carries a keepalive comment every 15 s so proxies do not drop a turn that stays silent for minutes.
+**Non-streaming models.** `stream: false` changes one thing: coddy sends a single blocking `POST /chat/completions` instead of asking for SSE, and hands the finished answer to the rest of the runtime in one piece. For an Anthropic model the request is `POST /v1/messages` without `stream`. Its deadline grows with `max_tokens` (an hour per 128000 tokens, from ten minutes to an hour), so the client sends it whatever `max_tokens` is. Everything downstream is unchanged, so the transcript, tool calls, and session bundle look the same; what differs is that nothing appears until the model is done, and the thinking row shows no live duration. Two consequences are worth knowing before turning it on. Pressing **Stop** during a blocking call loses the whole answer, because the server has sent nothing yet, whereas a streamed turn keeps the tokens that already arrived. And a client asking for an SSE stream still gets one - the switch governs the connection to the LLM, not the connection to the client - which is why a streaming HTTP response now carries a keepalive comment every 15 s so proxies do not drop a turn that stays silent for minutes.
 
 The switch is rejected for `type: codex` providers. The Codex Responses backend has no blocking mode, so honoring the key there would mean streaming anyway and only pretending not to.
 

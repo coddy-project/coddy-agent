@@ -1118,7 +1118,7 @@ func (a *Agent) runReActLoop(
 			stopFirstTokenTimer()
 			streamedAny = true
 			reasoningBuf.WriteString(d)
-			a.progress.streamed(d)
+			a.progress.streamed(d, now)
 			// The clock measures wall time between the first reasoning delta and the
 			// first answer text. A blocking response replays both back to back once
 			// generation has already finished, so the only honest reading is none:
@@ -1139,7 +1139,7 @@ func (a *Agent) runReActLoop(
 			if markReasonEnd && strings.TrimSpace(delta) != "" {
 				maybeMarkReasonEnd(now)
 			}
-			a.progress.streamed(delta)
+			a.progress.streamed(delta, now)
 			_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 				SessionUpdate: acp.UpdateTypeAgentMessageChunk,
 				Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: delta},
@@ -1189,7 +1189,9 @@ func (a *Agent) runReActLoop(
 		callStart := time.Now()
 		var firstChunkAt time.Time
 		var chunkCount int
-		a.progress.beginCall()
+		// Blocking replies have no delta timing; an ACP agent's call can
+		// contain its own tool waits with no inner model-call boundaries.
+		a.progress.beginCall(transport.streaming && !transport.agent)
 		inputProgress := make(map[string]*toolInputProgress)
 		// The calls this stream has announced. ACP draws a row for every
 		// tool_call, so a call announced by name is not announced again when it
@@ -1197,10 +1199,18 @@ func (a *Agent) runReActLoop(
 		announced := make(map[string]bool)
 		agentTools := a.newAgentToolRows(sessionID)
 		a.stepAgentTools = agentTools
+		// The calls of this response get ids no other call of the session
+		// carries, before the stream announces any of them (tool_call_ids.go).
+		callSessionDir := ""
+		if st := sessionStatePtr(a.state); st != nil {
+			callSessionDir = st.GetPersistedSessionDir()
+		}
+		callIDs := newToolCallIDs(messages, callSessionDir)
 		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
 			}
+			chunk = callIDs.chunk(chunk)
 			now := time.Now()
 			chunkCount++
 			if firstChunkAt.IsZero() {
@@ -1247,7 +1257,7 @@ func (a *Agent) runReActLoop(
 					inputProgress[tc.ID] = p
 				}
 				p.add(tc.InputJSON)
-				a.progress.streamed(tc.InputJSON)
+				a.progress.streamed(tc.InputJSON, now)
 				if u := p.update(tc.ID, now, false); u != nil {
 					_ = a.server.SendSessionUpdate(sessionID, *u)
 				}
@@ -1257,13 +1267,13 @@ func (a *Agent) runReActLoop(
 				// Reconcile the fallback estimate once, never count fragments twice.
 				p := inputProgress[tc.ID]
 				if p == nil {
-					a.progress.streamed(tc.Name + tc.InputJSON)
+					a.progress.streamed(tc.Name+tc.InputJSON, now)
 				} else {
 					missing := utf8.RuneCountInString(tc.InputJSON) - p.argumentRunes
 					if missing > 0 {
-						a.progress.streamedRunes(missing)
+						a.progress.streamedRunes(missing, now)
 					}
-					a.progress.streamed(tc.Name)
+					a.progress.streamed(tc.Name, now)
 					if u := p.update(tc.ID, now, true); u != nil {
 						_ = a.server.SendSessionUpdate(sessionID, *u)
 					}
@@ -1301,6 +1311,9 @@ func (a *Agent) runReActLoop(
 				})
 			}
 		})
+		if response != nil {
+			response.ToolCalls = callIDs.calls(response.ToolCalls)
+		}
 		// The agent's calls the stream left open end with it.
 		switch {
 		case streamErr == nil:
@@ -1327,6 +1340,13 @@ func (a *Agent) runReActLoop(
 		}
 		stopFirstTokenTimer()
 		streamCancel()
+		// Settle even an interrupted call before retries, tools or permission
+		// waits can add their time to the generation measurement.
+		outputTokens := 0
+		if response != nil {
+			outputTokens = response.OutputTokens
+		}
+		a.progress.finishCall(outputTokens)
 		attemptsAfter := retryAllowance.Snapshot()
 		a.logLLMCall(callStart, firstChunkAt, chunkCount, response, streamErr, callReason, llm.RetrySnapshot{
 			Attempts:         attemptsAfter.Attempts - attemptsBefore.Attempts,
@@ -1606,7 +1626,6 @@ func (a *Agent) runReActLoop(
 			CachedInputTokens: response.CachedInputTokens,
 			ReasoningTokens:   response.ReasoningTokens,
 		})
-		a.progress.finishCall(response.OutputTokens)
 
 		if sd != "" {
 			now := time.Now().UTC()

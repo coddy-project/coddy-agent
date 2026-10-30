@@ -26,31 +26,37 @@ Reference: https://arxiv.org/abs/2210.03629
 
 Templates are **`internal/prompts/agent.md`**, **`plan.md`**, and **`ask.md`** (embedded by default or overridden via **`prompts.dir`**). They use Go **`text/template`**.
 
+![The request Coddy sends the model, top to bottom: the tool definitions, the blocks of the system message, the history and the turn context, each marked with what changes it](../assets/diagrams/system-prompt.png)
+*Every block of the request with the events that render it again: when none of them happens, the system message is the same bytes on every request of the session, and only the turn context after the history changes on every step.*
+
 Rendered order matches the markdown files roughly as follows:
 
 ```
-[Identity line — see "Agent identity" below; absent when the template opens with it]
-[Intro + Mode + How to work / How to plan]
+You are Coddy, an AI coding agent ...   identity line, see "Agent identity" below
 Working directory: {{.CWD}}
-
-{{if .Tools}}
+{{.SubagentRole}}                       ## Your role as a subagent, in a child session only
+## Mode: Agent | Plan | Ask             capabilities, how to work, how to plan
+                                        (plan mode lists {{.DiscardedPlans}} here)
+{{.Subagents}}                          the subagent catalog, when the session may spawn
 ## Available tools
-{{.Tools}}
-{{end}}
-
-{{if .Skills}} ... skill catalog + always-active/glob-matched bodies
-          (invoked /name bodies are injected into the user message instead) ... {{end}}
-
-{{if .Memory}}
+{{.Tools}}                              MCP tools among them, as server__tool
+{{.Skills}}                             ## Slash commands: the skill catalog and the load_skill hint;
+                                        a /name body rides in the user message, load_skill returns one
+{{.PlanContext}}                        agent mode: the plan an approved turn implements
+{{.Rules}}                              AGENTS.md and DESIGN.md of the agent home, then of the
+                                        workspace, then the rules that always apply
+## Project instructions
+{{.Instructions}}                       the files of instructions.files
 ## Session memory
-{{.Memory}}
-{{end}}
+{{.Memory}}                             the session's notes
 
-<environment_context>
+<environment_context>                   appended outside the template
 <os>...</os>
 <arch>...</arch>
 <shell>...</shell>
 </environment_context>
+## Hook context                         appended: SessionStart and this turn's UserPromptSubmit
+...                                     appended: the surface block of the web UI or a messenger
 ```
 
 The environment block is appended outside the configurable template so OS and shell facts cannot be accidentally omitted by a custom prompt.

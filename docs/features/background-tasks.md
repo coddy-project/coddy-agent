@@ -2,6 +2,9 @@
 
 `run_command` normally blocks the whole turn until the command exits, which makes the agent sit idle through builds, test suites, installs and batch downloads. A backgrounded call hands the command to a **session-scoped task pool** and returns a task id immediately, so the agent keeps working and collects the result later.
 
+![The background task pool: three ways a task starts, the task kinds and statuses, the tools the model follows it with, and how a finished task wakes the agent through the surface that owns the session](../assets/diagrams/background-tasks.png)
+*`Pool.Start`, `Pool.Adopt` and `Pool.Launch` share one scheduling path, and a task that ends with `notify_on_finish` starts the next turn unless the model has already collected its result.*
+
 ## Model-facing surface
 
 | Tool | Purpose |
@@ -37,7 +40,7 @@ Every process that runs turns attaches one waker to its task pool, under one **k
 |---|---|
 | bare `coddy` (the console) | in the console, on its own UI goroutine, like a typed prompt: a gated tool opens the permission modal |
 | `coddy acp` | through the manager, with the editor as the sender: the updates land in the thread the editor has open, and a gated tool is asked there |
-| `coddy serve` | the surface that owns the session - the Telegram chat bound to it - or else the HTTP server, or, with neither up, the manager itself (see below) |
+| `coddy serve` | the surface that owns the session - the Telegram or Pachca chat bound to it - or else the HTTP server, or, with neither up, the manager itself (see below) |
 | `coddy -p`, a subagent, a scheduled run | nowhere: nothing will start the turn |
 
 **The tool only promises what will happen.** `run_command` and `spawn_agent` ask the pool whether a waker is subscribed (`Pool.CanWake`) and whether the session can take a turn at all. Where it can, the result says *You will be woken with the outcome when it finishes* and the task records `notify_on_finish`; where it cannot, the result says that nothing will wake the model and names `background_list`, `background_wait` and `background_output` instead, and the task records no wake it would not get. A child's or a scheduled run's transcript is sealed when its turn returns, so a task started there never wakes anything.
@@ -62,7 +65,7 @@ The text-only surfaces have no task list beside the chat, so a line says what wo
 
 The process owns the waker (`serve.Runtime`), whichever surfaces are enabled, and a woken turn goes to the surface that should run it:
 
-1. **The Telegram chat bound to the session.** The turn runs exactly like a message the person sent: the chat's own sender, mirrored into the HTTP relay so a browser watching the session follows it. The chat receives the line about the wake and then the answer, whether or not the HTTP server is running. Permission semantics are the chat's: the chat's agent is allowed what it asks, a subagent is asked about in the chat.
+1. **The Telegram or Pachca chat bound to the session.** The turn runs exactly like a message the person sent: the chat's own sender, mirrored into the HTTP relay so a browser watching the session follows it. The chat receives the line about the wake and then the answer, whether or not the HTTP server is running. Permission semantics are the chat's: the chat's agent is allowed what it asks, a subagent is asked about in the chat.
 2. **The HTTP server.** The turn runs through the session's composer relay, so the web UI and a console attached over `--remote` follow it. Its permission prompts are **asked**, not refused: the prompt goes to the relay and is persisted as the session's pending prompt, the web UI shows it (and restores it after a reload), a following console shows it in its modal, and the first answer through `POST /coddy/sessions/{id}/permission` settles it. It waits the way the prompt of a browser turn whose tab was closed waits. A question inside a woken turn is still refused: nothing persists one for a client that arrives later.
 3. **Nobody.** With neither surface up - a `coddy serve` running only its scheduler, or a bot whose chat has moved to another session - the runtime still runs the turn it promised, through the manager, and the transcript keeps the outcome for whoever opens the session next. A gated tool call inside it is **denied** unless the session runs in `bypass`: no surface can answer.
 
@@ -257,7 +260,7 @@ It is also the one kind of task with no hard limit. A page the operator asked to
 
 ## System tasks
 
-A task the runtime starts on its own behalf, today the memory subagent of a user turn ([Long-term memory](memory.md)), is a `kind: agent` task whose `agent` object carries `system: true`. It is admitted past `tools.background.max_concurrent` and never counted toward it, because that cap bounds the work the model starts and a run per turn would refuse the model's next command; the model-facing tools (`background_list`, `background_output`, `background_wait`, `background_stop`) omit it and refuse its id, while the REST rows and the Tasks panel show it, its card tagged `memory`. Drain stops it like any task, after a grace for a run that is still persisting.
+A task the runtime starts on its own behalf, the memory subagent of a user turn ([Long-term memory](memory.md)) or the verifier of the [session supervisor](session-supervisor.md), is a `kind: agent` task whose `agent` object carries `system: true`. It is admitted past `tools.background.max_concurrent` and never counted toward it, because that cap bounds the work the model starts and a run per turn would refuse the model's next command; the model-facing tools (`background_list`, `background_output`, `background_wait`, `background_stop`) omit it and refuse its id, while the REST rows and the Tasks panel show it, its card tagged `memory`. Drain stops it like any task, after a grace for a run that is still persisting.
 
 ## Subagent runs
 

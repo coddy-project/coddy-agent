@@ -10,6 +10,20 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+test("shows generation speed immediately after the running token count", () => {
+  render(
+    <TypingDotsMessage
+      statusKind="writing"
+      turnStartedAtMs={Date.now() - 5000}
+      turnTokens={500}
+      tokensPerSecond={9.8}
+    />,
+  );
+  expect(screen.getByTestId("typing-dots-turn-tokens")).toHaveTextContent(
+    "500 tokens · 9.8 tok/s",
+  );
+});
+
 test("renders three dots when generating", () => {
   render(<TypingDotsMessage />);
   const dots = document.querySelectorAll(".typing-dots-dot");

@@ -148,6 +148,12 @@ func TestPromptCacheCallObserverLeavesRequestsAlone(t *testing.T) {
 			f := newRetryBudgetFixture(t, nil, 10, "tool", "answer")
 			// One workspace for both runs: the system prompt names it.
 			f.st.CWD, f.st.SessionDir = cwd, sessionDir
+			// Each run is a new session on the same bundle path. The record the
+			// first run left under tool_calls/ would hold its call id, and the
+			// second run's call would be renamed (tool_call_ids.go).
+			if err := os.RemoveAll(filepath.Join(sessionDir, "tool_calls")); err != nil {
+				t.Fatal(err)
+			}
 			f.st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "Earlier question."})
 			f.st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "Earlier answer."})
 			var ticks atomic.Int64
@@ -274,11 +280,13 @@ func newWireCapture(t *testing.T, kind string) (*httptest.Server, func() [][]byt
 			_, _ = io.WriteString(w, "data: [DONE]\n\n")
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
 		if kind == "anthropic" {
-			_, _ = io.WriteString(w, `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"done"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
+			// Complete reads the Messages API from a stream.
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, anthropicAnswerSSE("done"))
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"done"}}]}`)
 	}))
 	t.Cleanup(srv.Close)

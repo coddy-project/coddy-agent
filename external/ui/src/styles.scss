@@ -11263,8 +11263,10 @@ html:not([data-theme="light"]) .settings.drawer {
 }
 
 /* The refresh icon beside the legend: the (i)'s metrics, so the legend line
-   reads the same as every other fieldset's. */
-.provider-models-refresh {
+   reads the same as every other fieldset's. The provider's Models list and
+   the Marketplaces of the Skills tab carry it. */
+.provider-models-refresh,
+.settings-legend-action {
   flex: 0 0 auto;
   display: inline-grid;
   place-items: center;
@@ -11279,23 +11281,29 @@ html:not([data-theme="light"]) .settings.drawer {
   transition: color 120ms ease;
 }
 
-.provider-models-refresh svg {
+.provider-models-refresh svg,
+.settings-legend-action svg {
   display: block;
   width: 13px;
   height: 13px;
 }
 
 .provider-models-refresh:hover:not(:disabled),
-.provider-models-refresh:focus-visible {
+.provider-models-refresh:focus-visible,
+.settings-legend-action:hover:not(:disabled),
+.settings-legend-action:focus-visible,
+.settings-legend-action.is-synced {
   color: var(--accent);
 }
 
-.provider-models-refresh:focus-visible {
+.provider-models-refresh:focus-visible,
+.settings-legend-action:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
   outline-offset: 1px;
 }
 
-.provider-models-refresh:disabled {
+.provider-models-refresh:disabled,
+.settings-legend-action:disabled {
   cursor: default;
 }
 
@@ -11645,8 +11653,8 @@ html:not([data-theme="light"]) .settings.drawer {
 }
 
 /* "Installed skills" heading row with the Refresh action on the right. */
-/* Footer of the Marketplaces box: the add form on the left, Sync all on the
-   right, on one level; on a narrow box Sync all drops under the form. */
+/* Footer of the Marketplaces box: the add form; the check of every row is
+   the refresh icon of the legend. */
 .skills-sources-footer {
   display: flex;
   flex-wrap: wrap;
@@ -11738,13 +11746,21 @@ html:not([data-theme="light"]) .settings.drawer {
   overflow-wrap: anywhere;
 }
 
-.skills-sync-all-btn {
+/* Update all: under the install search of the installed list, at its right
+   edge, there only while a check found newer versions. */
+.skills-update-all {
+  display: flex;
+  justify-content: flex-end;
+  margin: 8px 0 0;
+}
+
+.skills-update-all-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.skills-sync-all-btn > svg {
+.skills-update-all-btn > svg {
   flex-shrink: 0;
 }
 

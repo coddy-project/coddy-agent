@@ -883,12 +883,13 @@ func TestResilientProviderFailsFastPastTheRetryBudget(t *testing.T) {
 
 // The caller's RetryBudget bounds the whole call, so the sleeps already taken
 // count, and the request after a pause keeps a quarter of a small budget as
-// headroom: three pauses of 100 ms under a 350 ms budget are slept twice
-// (263 ms and then 158 ms left) and then reported as a reset (53 ms left),
-// with the third request never repeated.
+// headroom: pauses of 200 ms under a 700 ms budget are slept twice (525 ms
+// and then 325 ms left) and then reported as a reset (125 ms left), with the
+// third request never repeated. Each side of a decision keeps over 100 ms of
+// slack, so a slow sleep on a loaded runner does not move it.
 func TestResilientProviderBudgetCountsTheTimeAlreadySlept(t *testing.T) {
 	var calls atomic.Int32
-	cause := retryHTTPError(t, "openai", 429, map[string]string{"Retry-After-Ms": "100"})
+	cause := retryHTTPError(t, "openai", 429, map[string]string{"Retry-After-Ms": "200"})
 	inner := &stubProvider{
 		streamFn: func(context.Context, []Message, []ToolDefinition, func(StreamChunk)) (*Response, error) {
 			calls.Add(1)
@@ -898,8 +899,8 @@ func TestResilientProviderBudgetCountsTheTimeAlreadySlept(t *testing.T) {
 	p := wrapResilient(inner, ResilientOptions{
 		RetryMax:       5,
 		RetryBase:      5 * time.Millisecond,
-		RetryMaxDelay:  100 * time.Millisecond,
-		RetryBudget:    350 * time.Millisecond,
+		RetryMaxDelay:  200 * time.Millisecond,
+		RetryBudget:    700 * time.Millisecond,
 		RetryBudgetSet: true,
 	})
 	before := time.Now()
@@ -911,8 +912,8 @@ func TestResilientProviderBudgetCountsTheTimeAlreadySlept(t *testing.T) {
 	if calls.Load() != 3 {
 		t.Fatalf("calls=%d want 3 (two sleeps inside the budget, then the verdict)", calls.Load())
 	}
-	if took := time.Since(before); took < 200*time.Millisecond || took > 400*time.Millisecond {
-		t.Fatalf("the wrapper slept %v, want about 200 ms", took)
+	if took := time.Since(before); took < 400*time.Millisecond || took > 800*time.Millisecond {
+		t.Fatalf("the wrapper slept %v, want about 400 ms", took)
 	}
 }
 

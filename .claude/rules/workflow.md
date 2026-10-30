@@ -53,7 +53,7 @@ When adding or changing behavior (including words like feature, add, implement, 
    that asserts the observable outcome (red). Edge cases go in unit tests, not the spec.
 2. Run the narrowest test scope that proves the failure is real.
 3. Implement the smallest change that makes the test pass (green).
-4. Run **`make test`** - the express run: **`test-agent-rules`**, **`ui-build`**, **`ui-test`**, then one **`go test`** over the whole tree with every optional module compiled in (**`http,ui,scheduler,memory,cli,gateway,swarm,metrics`**). Everything must pass. Do **not** walk the tag combinations locally: that matrix (**`make test-matrix`**) runs on GitHub Actions for every pull request, one job per combination. When the change moved a build-tag boundary (a **`_stub.go`**, an **`Available`** const, a **`//go:build`** line), run that one combination by hand - **`go test -tags=<set> ./...`** - and leave the rest to CI.
+4. Run **`make test`** - the express run: **`test-agent-rules`**, **`ui-build`**, **`ui-test`**, then one **`go test`** over the whole tree with every optional module compiled in (**`http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser`**). Everything must pass. Do **not** walk the tag combinations locally: that matrix (**`make test-matrix`**) runs on GitHub Actions for every pull request, one job per combination. When the change moved a build-tag boundary (a **`_stub.go`**, an **`Available`** const, a **`//go:build`** line), run that one combination by hand - **`go test -tags=<set> ./...`** - and leave the rest to CI.
 5. **UI screenshots in the PR** - if the change touches the SPA (**`external/ui/**`**: `.tsx`, `styles.scss`, rendered markup), attach screenshots of **every** changed surface to the PR description. Per edit, not one image per PR.
    - Screenshot the **running build** you already verified per the **UI verification rule** (**`npx vite`** in **`external/ui`**, browser tools). Never a mockup, a hand-drawn approximation, or a re-used older image.
    - One image per affected **view and state** - a new dialog needs open *and* the surface it returns to; a changed row needs the row in each state the edit reaches.
@@ -82,6 +82,15 @@ When adding or changing behavior (including words like feature, add, implement, 
    ```
 
    `llms.txt` and `llms-full.txt` are **not kept in this repository** - a concatenation of every page conflicts in every branch that touches one - so `make site-docs` is the only thing that writes them, straight into the site checkout. `llms.txt` names pages by their path on `main`, so the site commit follows the merge of the coddy-agent change, not the other way round. Links that leave the repository - the binary, the schema, the skill, the site, posts - use the **`coddy.dev/docs/<slug>`** form, never a GitHub path.
+
+   **The models catalog.** **`internal/llm/models/models.json`** is what the settings screen fills a model's window, `max_tokens` and `multimodal` from: one line per model id of Coddy's providers (OpenAI, Anthropic, OpenCode), built from [models.dev](https://models.dev) and embedded into the binary, so neither a build nor a running Coddy asks models.dev anything. It is published nowhere. When you publish the site after a merge, also look whether its sources moved:
+
+   ```bash
+   make models-catalog-check  # exit 1 when a model's numbers or image flag moved; names the models
+   make models-catalog        # rewrite models.json; it changes only when those values do
+   ```
+
+   A refresh is a change of its own (`chore(models): refresh the models catalog`), never folded into an unrelated pull request: its diff is the list of models that moved. The publication of the documentation does not wait for it.
 
 9. **Documentation, examples, comments and bundled instructions** - a rename or a behavior
    change is not finished when `docs/` reads correctly. Nothing in the build catches the old
@@ -130,8 +139,17 @@ When adding or changing behavior (including words like feature, add, implement, 
       several and at the top level of **`docs/assets/`** otherwise, with a one-line italic caption. A demo video goes to **`docs/assets/video/`** (H.264, 1280 px wide, no audio, under 4 MB)
       and is embedded on the page as a GitHub attachment URL on a line of its own (uploaded through a comment box
       and posted, see the Videos section of **`docs/contributing/documentation.md`**), with the repository copy linked under it.
+    - **Diagrams** - a page that describes a module whose work spans several parts (a pipeline of
+      steps, a lifecycle, an invariant such as the provider's prompt cache, data that crosses packages
+      or processes) shows it with a diagram next to the prose, in the style of the compaction chain:
+      numbered panels, real names, short notes that say why, English labels. The source is an HTML page
+      under **`docs/assets/diagrams/`** on the shared **`diagram.css`** and **`diagram.js`**; **`make diagrams`**
+      renders it into the PNG of the same name, which the page embeds, and both are committed. A change to
+      the behaviour a diagram shows edits its source and renders it again in the same pull request; no
+      Mermaid fences for documentation diagrams. See the Diagrams section of
+      **`docs/contributing/documentation.md`**.
     - **Assets** - every file under **`docs/assets/`** is referenced by a page, the README, **`DESIGN.md`**
-      or the **`Dockerfile`**; **`make docs-check`** fails on one that is not, so a screenshot leaves
+      or the **`Dockerfile`** (a diagram's HTML source counts through its PNG); **`make docs-check`** fails on one that is not, so a screenshot leaves
       together with the feature it showed. Screenshots that only prove a pull request go to the pull
       request (drag and drop, or the orphan **`screenshots`** branch), never under **`docs/assets/`**.
     - **Generated pages** - **`make docs`** regenerates **`docs/README.md`**,

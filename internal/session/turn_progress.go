@@ -13,7 +13,23 @@ type TurnProgress struct {
 	// calls plus an estimate of what the call in flight has streamed.
 	OutputTokens int
 	// Estimated says an estimate is part of OutputTokens.
-	Estimated bool
+	Estimated        bool
+	TokensPerSecond  *float64
+	GenerationTokens int
+	GenerationTime   time.Duration
+}
+
+// SetTurnGeneration records the progress and generation measurement together,
+// so an activity read cannot pair a new count with an older speed.
+func (s *State) SetTurnGeneration(tokens int, estimated bool, speed *float64, generationTokens int, generationTime time.Duration) {
+	s.progressMu.Lock()
+	defer s.progressMu.Unlock()
+	if !s.progressSet {
+		return
+	}
+	s.progress.OutputTokens, s.progress.Estimated = tokens, estimated
+	s.progress.TokensPerSecond = speed
+	s.progress.GenerationTokens, s.progress.GenerationTime = generationTokens, generationTime
 }
 
 // BeginTurnProgress opens the progress of a turn admitted at startedAt. A

@@ -50,8 +50,9 @@ files), and the pages the map lists from the repository root (`CONTRIBUTING.md`,
 - **Generated blocks** keep their `<!-- docsgen:NAME:start -->` / `<!-- docsgen:NAME:end -->`
   markers; `make docs` fills them.
 - **Captions and alt text**: the italic caption under a screenshot and the alt text of every image
-  are translated; the image file is the English one. `make docs-check` reports an alt text of more
-  than one word with no Cyrillic letter in it.
+  are translated; the image file is the English one. A diagram (`docs/assets/diagrams/`) keeps its
+  English labels, and the Russian page translates only its alt text and caption. `make docs-check`
+  reports an alt text of more than one word with no Cyrillic letter in it.
 - **The stamp**: the last line, `<!-- docsgen:source sha256=<16 hex> -->`, is the digest of the
   English page the translation follows. docsgen writes it; never edit it by hand.
 
@@ -115,6 +116,9 @@ Glossary (English - Russian):
 - workspace - рабочая папка; background task - фоновая задача;
 - scheduler - планировщик; job - задание; run (of a job or a task) - запуск;
 - swarm - рой; node - узел; relay - релей; ring - кольцо;
+- runtime - рантайм (never "среда выполнения"); pipeline - пайплайн (never "конвейер"), a shell
+  pipeline `a | b` included; a pipe that carries data into stdin ("data piped into coddy") - канал;
+  a relay of any kind (the swarm's, the composer's, the permission relay) - релей (never "ретранслятор");
 - memory - память; compaction - сжатие контекста; context window - окно контекста;
 - reasoning - рассуждение; reasoning level - уровень рассуждения;
 - provider - провайдер; model - модель; environment - окружение; remote mode - удалённый режим;

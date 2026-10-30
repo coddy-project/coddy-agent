@@ -1,0 +1,397 @@
+/*
+ * The shared style of the documentation diagrams. Every diagram is one HTML
+ * page in this folder that links this file and diagram.js, and
+ * scripts/render-diagrams.sh renders it into the PNG of the same name.
+ *
+ * Colours carry meaning across every diagram, so a reader who has seen one
+ * reads the next:
+ *   core    - what Coddy sends or runs on its own (the system prompt, a process),
+ *             light gray with ordinary text, so it frames the picture without
+ *             drawing the eye; gray below is fainter and greys its text out
+ *   blue    - what Coddy writes or derives (summary rows, decisions, state)
+ *   green   - what is kept as it is (verbatim messages, approved, running)
+ *   gray    - what is on disk but out of play (covered rows, skipped folders)
+ *   amber   - what comes from the person or the outside (a prompt, a file, a hook)
+ *   purple  - what replaces several things with one (a merge, a shared connection)
+ *   red     - what is refused, failed or the old behaviour
+ */
+
+:root {
+  --ink: #111827;
+  --ink-2: #374151;
+  --muted: #6b7280;
+  --faint: #9ca3af;
+  --rule: #e5e7eb;
+  --panel: #f9fafb;
+
+  --blue-bg: #dbeafe;
+  --blue-line: #2563eb;
+  --blue-ink: #1e3a8a;
+  --green-bg: #dcfce7;
+  --green-line: #16a34a;
+  --green-ink: #14532d;
+  --gray-bg: #f9fafb;
+  --gray-line: #d1d5db;
+  --gray-ink: #9ca3af;
+  --amber-bg: #fef3c7;
+  --amber-line: #d97706;
+  --amber-ink: #78350f;
+  --purple-bg: #ede9fe;
+  --purple-line: #7c3aed;
+  --purple-ink: #4c1d95;
+  --red-bg: #fee2e2;
+  --red-line: #dc2626;
+  --red-ink: #991b1b;
+  --core-bg: #eef0f3;
+  --core-line: #9ca3af;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: #ffffff;
+}
+
+body {
+  width: var(--width, 1200px);
+  padding: 36px 44px 32px;
+  font-family: "Noto Sans", "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.35;
+  color: var(--ink);
+  position: relative;
+}
+
+code,
+.mono {
+  font-family: "Noto Sans Mono", "JetBrains Mono", "DejaVu Sans Mono", monospace;
+  font-size: 0.92em;
+}
+
+h1 {
+  margin: 0 0 6px;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.lead {
+  margin: 0 0 26px;
+  font-size: 15.5px;
+  color: var(--ink-2);
+}
+
+h2 {
+  margin: 0 0 14px;
+  font-size: 19px;
+  font-weight: 700;
+}
+
+h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.cols {
+  display: grid;
+  gap: 40px;
+  align-items: start;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sep {
+  height: 1px;
+  background: var(--rule);
+  margin: 26px 0 22px;
+}
+
+.box {
+  border: 1.5px solid var(--gray-line);
+  border-radius: 9px;
+  padding: 7px 13px;
+  background: #ffffff;
+  position: relative;
+}
+
+.box.b {
+  font-weight: 600;
+}
+
+.box small,
+.box .sub {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 400;
+  margin-top: 2px;
+  opacity: 0.85;
+}
+
+.box.core {
+  background: var(--core-bg);
+  border-color: var(--core-line);
+  color: var(--ink);
+}
+.box.blue {
+  background: var(--blue-bg);
+  border-color: var(--blue-line);
+  color: var(--blue-ink);
+}
+.box.green {
+  background: var(--green-bg);
+  border-color: var(--green-line);
+  color: var(--green-ink);
+}
+.box.gray {
+  background: var(--gray-bg);
+  border-color: var(--gray-line);
+  color: var(--gray-ink);
+}
+.box.amber {
+  background: var(--amber-bg);
+  border-color: var(--amber-line);
+  color: var(--amber-ink);
+}
+.box.purple {
+  background: var(--purple-bg);
+  border-color: var(--purple-line);
+  color: var(--purple-ink);
+}
+.box.red {
+  background: var(--red-bg);
+  border-color: var(--red-line);
+  color: var(--red-ink);
+}
+.box.dashed {
+  border-style: dashed;
+  background: #ffffff;
+}
+.box.faded {
+  opacity: 0.55;
+}
+
+/* A container that groups boxes: a request, a process, a folder. */
+.panel {
+  border: 1.5px solid var(--rule);
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 14px 16px;
+}
+
+.panel > .title {
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.tag {
+  font-family: "Noto Sans Mono", "DejaVu Sans Mono", monospace;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--blue-line);
+}
+.tag.green {
+  color: var(--green-line);
+}
+
+.note {
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.note.muted {
+  color: var(--muted);
+}
+.note.italic {
+  font-style: italic;
+  color: var(--muted);
+}
+.note.red {
+  color: var(--red-line);
+}
+.note.blue {
+  color: var(--blue-line);
+}
+.note.green {
+  color: var(--green-line);
+}
+.note.purple {
+  color: var(--purple-line);
+}
+
+.label {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.label.blue {
+  color: var(--blue-line);
+}
+.label.green {
+  color: var(--green-line);
+}
+.label.purple {
+  color: var(--purple-line);
+}
+.label.amber {
+  color: var(--amber-line);
+}
+.label.red {
+  color: var(--red-line);
+}
+.label.muted {
+  color: var(--muted);
+}
+
+/*
+ * A bracket that marks a run of boxes: put it in a grid cell beside them.
+ * .bracket.left draws [ with its label on the left, .right draws ] with the
+ * label on the right, .under draws a horizontal bracket with the label below.
+ */
+.bracket {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.bracket::after {
+  content: "";
+  align-self: stretch;
+  width: 9px;
+  border: 2px solid currentColor;
+  border-right: none;
+  border-radius: 2px 0 0 2px;
+}
+.bracket.right {
+  flex-direction: row-reverse;
+}
+.bracket.right::after {
+  border-right: 2px solid currentColor;
+  border-left: none;
+  border-radius: 0 2px 2px 0;
+}
+.bracket.left {
+  justify-content: flex-end;
+  text-align: right;
+}
+.bracket.under,
+.bracket.over {
+  flex-direction: column;
+  gap: 6px;
+  text-align: center;
+}
+.bracket.under::after,
+.bracket.over::after {
+  width: auto;
+  height: 9px;
+  border: 2px solid currentColor;
+  border-top: none;
+  border-radius: 0 0 2px 2px;
+  order: -1;
+}
+.bracket.over::after {
+  border-top: 2px solid currentColor;
+  border-bottom: none;
+  border-radius: 2px 2px 0 0;
+  order: 1;
+}
+.bracket.blue {
+  color: var(--blue-line);
+}
+.bracket.green {
+  color: var(--green-line);
+}
+.bracket.purple {
+  color: var(--purple-line);
+}
+.bracket.amber {
+  color: var(--amber-line);
+}
+.bracket.muted {
+  color: var(--muted);
+}
+
+/* Arrows drawn by diagram.js sit in this layer over the whole page. */
+svg.wires {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+svg.wires text {
+  font-family: "Noto Sans", "Inter", Arial, sans-serif;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.legend span::before {
+  content: "";
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1.5px solid var(--gray-line);
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+.legend .core::before {
+  background: var(--core-bg);
+  border-color: var(--core-line);
+}
+.legend .blue::before {
+  background: var(--blue-bg);
+  border-color: var(--blue-line);
+}
+.legend .green::before {
+  background: var(--green-bg);
+  border-color: var(--green-line);
+}
+.legend .gray::before {
+  background: var(--gray-bg);
+  border-color: var(--gray-line);
+}
+.legend .amber::before {
+  background: var(--amber-bg);
+  border-color: var(--amber-line);
+}
+.legend .purple::before {
+  background: var(--purple-bg);
+  border-color: var(--purple-line);
+}
+.legend .red::before {
+  background: var(--red-bg);
+  border-color: var(--red-line);
+}
+
+.footer {
+  margin-top: 22px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.footer p {
+  margin: 0 0 4px;
+}
