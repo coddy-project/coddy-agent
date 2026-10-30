@@ -60,7 +60,7 @@ func TestIsTemporaryHelper(t *testing.T) {
 	}
 }
 
-func TestInstallWindowsUpdateRestoresPreviousBinaryWhenRestartFails(t *testing.T) {
+func TestInstallWindowsUpdateRestoresPreviousBinaryWhenTheNewBuildCannotStart(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	target := filepath.Join(dir, "coddy.exe")
@@ -74,12 +74,11 @@ func TestInstallWindowsUpdateRestoresPreviousBinaryWhenRestartFails(t *testing.T
 
 	var out bytes.Buffer
 	err := installWindowsUpdate(windowsUpdateRequest{
-		Restart:    true,
 		StagedPath: staged,
 		TargetPath: target,
 	}, "", &out)
 	if err == nil {
-		t.Fatal("expected restart failure")
+		t.Fatal("expected a failure to start the new build")
 	}
 	if !strings.Contains(err.Error(), "restored the previous version") {
 		t.Fatalf("error = %v", err)
@@ -192,7 +191,6 @@ func TestInstallWindowsUpdateCleansUpWhenTheSwapFails(t *testing.T) {
 
 	var out bytes.Buffer
 	err := installWindowsUpdate(windowsUpdateRequest{
-		Restart:    true,
 		StagedPath: staged,
 		TargetPath: target,
 	}, "", &out)
@@ -229,30 +227,70 @@ func TestWaitForParentExitIgnoresARecycledPID(t *testing.T) {
 	}
 }
 
-func TestRunHelperAnswersTheRestartProbe(t *testing.T) {
+func TestRunHelperAnswersTheHandoffProbe(t *testing.T) {
 	t.Parallel()
 	// The probe is how a helper asks whether the build it just installed
 	// understands the handoff, so it has to succeed and do nothing else.
-	handled, err := RunHelper([]string{restartAfterUpdateCommand, "--probe"}, io.Discard)
+	handled, err := RunHelper([]string{afterUpdateCommand, "--probe"}, io.Discard)
 	if !handled || err != nil {
 		t.Fatalf("RunHelper(probe) = (%v, %v), want (true, nil)", handled, err)
 	}
 }
 
-func TestHelperArgsCarryTheRestartDecision(t *testing.T) {
-	t.Parallel()
-	req := windowsUpdateRequest{ParentPID: 42, StagedPath: "staged", TargetPath: "target"}
+// A helper of an older release asks the build it installed to start again by
+// leaving --no-restart out. That build is this one, so the first update to it
+// must not open the console either.
+func TestAfterUpdateNeverStartsCoddy(t *testing.T) {
+	restore := startProcess
+	t.Cleanup(func() { startProcess = restore })
+	var started []string
+	startProcess = func(target string, args ...string) error {
+		started = append(started, target)
+		return nil
+	}
 
-	if got := helperArgs(req, 7); slices.Contains(got, "--restart") {
-		t.Fatalf("args = %v, want no restart flag", got)
+	for _, extra := range [][]string{nil, {"--no-restart"}} {
+		helper, err := os.CreateTemp("", helperPrefix+"*.exe")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := helper.Close(); err != nil {
+			t.Fatal(err)
+		}
+		args := append([]string{afterUpdateCommand, "--helper", helper.Name()}, extra...)
+		var out bytes.Buffer
+		if handled, err := RunHelper(args, &out); !handled || err != nil {
+			t.Fatalf("RunHelper(%v) = (%v, %v), want (true, nil)", args, handled, err)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("RunHelper(%v) said %q, want nothing", args, out.String())
+		}
+		if _, err := os.Stat(helper.Name()); !os.IsNotExist(err) {
+			t.Fatalf("helper survived %v (stat err %v)", args, err)
+		}
 	}
-	req.Restart = true
-	got := helperArgs(req, 7)
-	if !slices.Contains(got, "--restart") {
-		t.Fatalf("args = %v, want a restart flag", got)
+	if len(started) != 0 {
+		t.Fatalf("started %v, want nothing", started)
 	}
+}
+
+// A release older than the handoff fails to parse the probe. It ran, which is
+// all the helper needs to know, so that must not roll the install back.
+func TestHandoffProbeTakesAFailingAnswerForAnOlderRelease(t *testing.T) {
+	t.Parallel()
+	// reg.exe is on every Windows and refuses an unknown operation with status 1.
+	older := filepath.Join(os.Getenv("SystemRoot"), "System32", "reg.exe")
+	handoff, err := installedBuildTakesHandoff(older)
+	if err != nil || handoff {
+		t.Fatalf("installedBuildTakesHandoff = (%v, %v), want (false, nil)", handoff, err)
+	}
+}
+
+func TestHelperArgsNameTheRequest(t *testing.T) {
+	t.Parallel()
+	got := helperArgs(windowsUpdateRequest{ParentPID: 42, StagedPath: "staged", TargetPath: "target"}, 7)
 	// The helper parses these back into the request it acts on, so a rename
-	// here has to travel with the flag names above.
+	// here has to travel with the flag names of runWindowsUpdateHelper.
 	for _, want := range []string{applyUpdateCommand, "--parent-pid", "42", "--parent-started", "7", "--source", "staged", "--target", "target"} {
 		if !slices.Contains(got, want) {
 			t.Fatalf("args = %v, missing %q", got, want)

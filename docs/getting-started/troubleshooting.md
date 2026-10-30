@@ -379,7 +379,7 @@ A build from source that stops at the first `FROM` with `failed to parse platfor
   make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
   ```
 
-- **Updates from scripts.** `coddy update -y --no-restart` installs without starting Coddy again, for a CI step with no console to run in.
+- **Updates from scripts.** `coddy update -y` installs without asking and does not start Coddy, so it fits a CI step with no console.
 - **Editing `config.yaml`.** Windows line endings and the byte order mark Notepad writes are read and dropped, and a save puts the file's line endings back, so editing the file in any Windows editor is safe. The exception is the encoding: a file saved as **Unicode** (UTF-16) rather than **UTF-8** is refused by name - `the file is UTF-16 LE text, not UTF-8` - and has to be re-saved. Notepad's Save As dialog has the encoding next to the Save button; most other editors call the right one "UTF-8 without BOM".
 - **Editors.** Configure ACP clients with the absolute `coddy.exe` path (see the first section).
 
