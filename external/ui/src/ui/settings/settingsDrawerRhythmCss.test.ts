@@ -1,12 +1,7 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
-const css = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
-  "utf8",
-);
+const css = stylesSource();
 
 /** Every `@media (max-width: 1199px)` block, joined: the narrow shell is split
  *  across several of them, and a rule may live in any one. */

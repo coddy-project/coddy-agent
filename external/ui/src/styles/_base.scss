@@ -1,0 +1,103 @@
+// The page itself: box sizing, html and body, the canvas and its grain.
+
+@use "abstracts" as *;
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  min-height: 100%;
+}
+
+/* The grain masks the rings the browser's ordered dither draws in the glows
+   on a high-contrast screen (issue #622). */
+html {
+  color-scheme: dark;
+  background:
+    var(--coddy-grain),
+    radial-gradient(
+      1200px 600px at 30% 10%,
+      var(--coddy-canvas-glow-purple),
+      transparent 55%
+    ),
+    radial-gradient(
+      900px 500px at 80% 70%,
+      var(--coddy-canvas-glow-indigo),
+      transparent 50%
+    ),
+    linear-gradient(
+      180deg,
+      var(--coddy-canvas-gradient-top),
+      var(--coddy-canvas-gradient-bottom)
+    );
+  background-color: var(--coddy-canvas-gradient-bottom);
+  background-attachment: fixed;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+}
+
+/* The glass panels blur the grain away and leave one-level steps. */
+html :is(.chat-header, .rail-pill, .composer-card) {
+  background-image: var(--coddy-grain);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  color: var(--text);
+  font-family: $coddy-sans;
+  background: transparent;
+}
+
+/* Desktop chat shell: single inner scrollport; narrow viewports use body scroll + sticky chrome (see max-width: 1199px) */
+@media (min-width: 1200px) {
+  body {
+    overflow: hidden;
+  }
+}
+
+/* Stacked nav + document scroll: phones, tablets, and sub-xl desktops */
+@media (max-width: 1199px) {
+  /* Break the desktop height:100% / 100vh chain so body scroll drives content under the sticky rail */
+  /* Do not set overflow-x on html/body: any non-visible horizontal overflow on ancestors breaks position:sticky for mobile chat chrome. */
+  html {
+    height: auto !important;
+    min-height: 100svh;
+  }
+
+  body {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    height: auto !important;
+    min-height: 100svh;
+  }
+
+  #root {
+    min-height: 100svh;
+    height: auto;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

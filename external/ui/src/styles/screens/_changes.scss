@@ -1,0 +1,43 @@
+// The edit counts and buttons the plate and the edits window share.
+
+@use "../abstracts" as *;
+
+/* ── Edits: what git reports for the chat's folder ─────────────────────────
+   Their one view is the edits window further down (.dv-*); these are the
+   colours of the counts and the buttons it shares with the bar over the
+   composer. */
+
+.changes-add {
+  color: var(--diff-add-no);
+}
+
+.changes-del {
+  color: var(--diff-del-no);
+}
+
+.changes-action {
+  min-height: 26px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 0.5px solid var(--coddy-glass-panel-border);
+  background: transparent;
+  color: mix-text(70%);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.changes-action:hover:not(:disabled) {
+  color: var(--text);
+  border-color: mix-text(24%);
+}
+
+.changes-action:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.changes-action--danger:hover:not(:disabled) {
+  border-color: var(--diff-del-no);
+  color: var(--diff-del-no);
+}

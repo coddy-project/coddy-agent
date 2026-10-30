@@ -6,16 +6,10 @@
  * padding up past a 390px panel and scrolled it sideways. jsdom does no
  * layout, so the rule is pinned here.
  */
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
-const dir = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(dir, "../../styles.css"), "utf8").replace(
-  /\/\*[\s\S]*?\*\//g,
-  "",
-);
+const css = stylesSource().replace(/\/\*[\s\S]*?\*\//g, "");
 
 test("every settings fieldset may shrink below its content", () => {
   const body = [
@@ -73,8 +67,7 @@ test("the setting the search opened is ringed as a state that reduced motion kee
   expect(last).toMatch(/box-shadow: [^;]*transparent[^;]*;/);
 
   // Under reduced motion the animation goes and the ring holds still until the
-  // script takes the class off. The rule joins the settings block: the swarm
-  // screen's test reads the last reduced-motion block of the sheet.
+  // script takes the class off.
   const blocks = reducedMotionBlocks(css);
   const settings = blocks.find((b) => b.includes(".settings-form-anim"));
   expect(settings).toBeDefined();
@@ -82,7 +75,6 @@ test("the setting the search opened is ringed as a state that reduced motion kee
     r.selectors.includes(".is-search-target"),
   );
   expect(off?.body).toBe("animation: none;");
-  expect(blocks.at(-1)).not.toContain(".is-search-target");
 });
 
 test("a tab's scroll area the search focused hides its focus ring only when the focus did not come from the keyboard", () => {

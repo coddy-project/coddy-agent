@@ -8,13 +8,10 @@
  * their own, so an 8px dot and a 16px permission/question marker leave title
  * and tags at the same edge with deliberate breathing room.
  */
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
-const dir = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(dir, "../../styles.css"), "utf8");
+const css = stylesSource();
 
 function rule(selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

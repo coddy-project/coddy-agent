@@ -12,7 +12,7 @@
  */
 import { useEffect } from "react";
 import ReactDOM from "react-dom/client";
-import "./styles.css";
+import "./styles.scss";
 import { AssistantMessage } from "./ui/messages/AssistantMessage";
 import { ToolCallMessage } from "./ui/messages/ToolCallMessage";
 import { UserMessage } from "./ui/messages/UserMessage";
