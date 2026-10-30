@@ -9,9 +9,23 @@
     --coddy-files-panel-band: calc(var(--coddy-files-panel-width) + 26px);
   }
 
-  .shell-main.shell-files-open > .main,
-  .shell-main.shell-files-open > .terminal-panel {
+  .shell-main.shell-files-open > .main {
     margin-right: var(--coddy-files-panel-band);
+  }
+
+  /* Centre the terminal in the same 920px conversation column after Files
+     takes its band from the right side of the shell. */
+  .shell-main.shell-files-open > .terminal-panel {
+    width: auto;
+    max-width: none;
+    margin-left: max(
+      14px,
+      calc((100% - var(--coddy-files-panel-band) - 920px) / 2)
+    );
+    margin-right: calc(
+      var(--coddy-files-panel-band) +
+        max(14px, calc((100% - var(--coddy-files-panel-band) - 920px) / 2))
+    );
   }
 }
 

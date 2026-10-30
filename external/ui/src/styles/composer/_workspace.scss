@@ -209,10 +209,6 @@
 /* Git's count, at the right edge: the digits in the diff colours inside a
    light frame, so it reads as a button; pointed at, the frame and the ground
    brighten. Never the accent. */
-.workspace-bar-terminal + .workspace-bar-edits {
-  margin-left: 0;
-}
-
 .workspace-bar-edits {
   display: inline-flex;
   align-items: center;
@@ -235,34 +231,6 @@
 .workspace-bar-edits:focus-visible {
   border-color: color-mix(in srgb, var(--text) 34%, transparent);
   background: color-mix(in srgb, var(--text) 9%, transparent);
-  outline: none;
-}
-
-/* The terminal is a first-class chat action, not only an icon in the title:
-   it sits on the composer's plate, stays in view while Files is beside the
-   chat, and says what it opens. */
-.workspace-bar-terminal {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: none;
-  margin-left: auto;
-  padding: 2px 8px;
-  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
-  border-radius: 7px;
-  background: transparent;
-  color: mix-text(74%);
-  font: inherit;
-  line-height: 15px;
-  cursor: pointer;
-}
-
-.workspace-bar-terminal:hover,
-.workspace-bar-terminal:focus-visible,
-.workspace-bar-terminal[aria-pressed="true"] {
-  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
-  background: color-mix(in srgb, var(--accent) 11%, transparent);
-  color: var(--text);
   outline: none;
 }
 

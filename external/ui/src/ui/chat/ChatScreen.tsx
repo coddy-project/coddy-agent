@@ -769,14 +769,12 @@ export function ChatScreen(props: {
     props.sessionId &&
     props.workspaceLocked &&
     workspaceCtx &&
-    (workspaceCtx.is_git_repo || hasGoal || !!props.onOpenTerminal)
+    (workspaceCtx.is_git_repo || hasGoal)
       ? (goalMark: ReactNode) => (
           <WorkspaceBar
             context={workspaceCtx}
             workingCopy={workingCopy}
             onOpenEdits={props.onOpenEdits}
-            onToggleTerminal={props.onOpenTerminal}
-            terminalOpen={props.terminalOpen === true}
             goal={goalMark}
           />
         )

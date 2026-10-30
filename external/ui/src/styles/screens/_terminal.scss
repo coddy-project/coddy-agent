@@ -5,7 +5,10 @@
   flex: 0 0 auto;
   min-height: 180px;
   max-height: min(560px, 72vh);
-  margin: 0 14px 14px;
+  width: calc(100% - 28px);
+  max-width: 920px;
+  margin: 0 auto 14px;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -156,7 +159,7 @@
 
 @media (max-width: 1199px) {
   .terminal-panel {
-    margin: 0 8px 8px;
+    margin-bottom: 8px;
     max-height: 52vh;
   }
 }

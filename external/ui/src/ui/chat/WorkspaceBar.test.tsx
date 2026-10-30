@@ -110,27 +110,6 @@ test("what git reports, at the right edge, opens the edits", () => {
   expect(onOpenEdits).toHaveBeenCalledTimes(1);
 });
 
-test("the labelled terminal action toggles the panel under the chat", () => {
-  const onToggleTerminal = vi.fn();
-  render(
-    <WorkspaceBar
-      context={repo}
-      workingCopy={copy(0)}
-      onToggleTerminal={onToggleTerminal}
-      terminalOpen
-    />,
-  );
-  const terminal = screen.getByTestId("workspace-bar-terminal");
-  expect(terminal).toHaveTextContent("Terminal");
-  expect(terminal).toHaveAttribute("aria-pressed", "true");
-  expect(terminal).toHaveAttribute(
-    "aria-label",
-    "Open terminal under the chat",
-  );
-  fireEvent.click(terminal);
-  expect(onToggleTerminal).toHaveBeenCalledTimes(1);
-});
-
 test("a folder in no repository has a name and nothing else", () => {
   const plain: WorkspaceContext = {
     path: "/tmp/demo",

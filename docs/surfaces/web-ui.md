@@ -1301,9 +1301,9 @@ the composer included.
 
 ## Terminal under the chat
 
-The labelled **Terminal** button on the plate over the composer opens a resizable
-shell panel directly under the conversation; the header icon opens the same panel.
-The labelled button remains in reach while Files is open beside the chat. The shell
+The **Terminal** icon in the chat header opens a resizable shell panel directly
+under the conversation. The panel is centred in the same 920px column as the
+title, transcript and composer, including while Files is open beside the chat. The shell
 starts in that chat's workspace and belongs to the chat: hiding and
 reopening it keeps `cd`, environment changes and the output already printed. Enter
 runs a command; Up and Down walk the commands entered in this browser. **Restart**
