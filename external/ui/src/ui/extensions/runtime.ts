@@ -438,7 +438,12 @@ export class ExtensionRuntime {
         () => this.fields.rows.filter((row) => row.owner === entry.id),
       ),
       i18n: this.i18n.api(entry.id, controller.signal),
-      host: extensionHost(),
+      host: extensionHost(
+        entry.id,
+        entry.sha256,
+        controller.signal,
+        (type, data) => this.events.emitCustom(entry.id, type, data),
+      ),
       stream: {
         registerIncoming: ({ id, transform }) => {
           if (!active()) throw new Error("Extension disposed");

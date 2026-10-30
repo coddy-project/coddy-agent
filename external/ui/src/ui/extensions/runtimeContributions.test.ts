@@ -242,6 +242,38 @@ describe("the widened extension API", () => {
     });
   });
 
+  test("fireEvent publishes a host event and delivers it locally", async () => {
+    setup();
+    let api!: ExtensionAPI;
+    const runtime = new ExtensionRuntime(vi.fn(), async () => ({
+      activate(value) {
+        api = value;
+      },
+    }));
+    await runtime.reconcile([entry]);
+    const seen: unknown[] = [];
+    api.events.on("ext.demo.ping", (event) => {
+      seen.push(event);
+    });
+    await api.host.fireEvent({ type: "ping", data: { n: 1 } });
+    expect(fetch).toHaveBeenCalledWith(
+      "/coddy/extensions/demo/events",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(seen).toMatchObject([
+      { extension: "demo", type: "ping", data: { n: 1 } },
+    ]);
+    expect(Object.isFrozen(seen[0])).toBe(true);
+    await expect(api.host.fireEvent({ type: "Bad Type" })).rejects.toThrow(
+      /event type/,
+    );
+    const cyclic: { self?: unknown } = {};
+    cyclic.self = cyclic;
+    await expect(
+      api.host.fireEvent({ type: "ping", data: cyclic }),
+    ).rejects.toThrow(/JSON value/);
+  });
+
   test("anchors and the host channel answer through the API", async () => {
     setup();
     const { api, runtime } = await activateOne(() => {});

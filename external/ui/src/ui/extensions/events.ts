@@ -11,13 +11,31 @@ export type ExtensionEventMap = {
   };
   turnEnded: { sessionId: string; at: string };
 };
+/** An event an extension published through `host.fireEvent`. */
+export type ExtensionCustomEvent = Readonly<{
+  extension: string;
+  type: string;
+  data: unknown;
+}>;
+export type ExtensionEventType = keyof ExtensionEventMap | `ext.${string}`;
 export type EventHandle = { remove: () => void };
 export type ExtensionEventAPI = {
-  on: <K extends keyof ExtensionEventMap>(
+  on: <K extends ExtensionEventType>(
     type: K,
-    listener: (event: Readonly<ExtensionEventMap[K]>) => unknown,
+    listener: (
+      event: Readonly<
+        K extends keyof ExtensionEventMap
+          ? ExtensionEventMap[K]
+          : ExtensionCustomEvent
+      >,
+    ) => unknown,
   ) => EventHandle;
 };
+
+/** Custom event names: `ext.<extension id>.<type>`, one per published type. */
+export function isCustomEventType(name: string) {
+  return /^ext\.[a-z][a-z0-9-]{0,63}\.[a-z][a-z0-9-]{0,63}$/.test(name);
+}
 
 function freeze<T>(value: T): T {
   if (value && typeof value === "object") {
@@ -31,7 +49,7 @@ function freeze<T>(value: T): T {
 export class ExtensionEvents {
   private listeners = new Set<{
     owner: string;
-    type: keyof ExtensionEventMap;
+    type: string;
     signal: AbortSignal;
     run: (event: never) => unknown;
     remove: () => void;
@@ -39,17 +57,19 @@ export class ExtensionEvents {
   private seen = new Set<string>();
   private starts = new Map<string, string>();
   constructor(private report: (owner: string, message: string) => void) {}
-  on<K extends keyof ExtensionEventMap>(
+  on<K extends ExtensionEventType>(
     owner: string,
     signal: AbortSignal,
     type: K,
-    listener: (event: Readonly<ExtensionEventMap[K]>) => unknown,
+    listener: (event: never) => unknown,
   ): EventHandle {
     if (signal.aborted) throw new Error("Extension disposed");
     if (
-      !["tabChanged", "stepEnded", "turnEnded"].includes(type) ||
-      typeof listener !== "function"
+      !["tabChanged", "stepEnded", "turnEnded"].includes(type) &&
+      !isCustomEventType(type)
     )
+      throw new Error("Invalid extension event listener");
+    if (typeof listener !== "function")
       throw new Error("Invalid extension event listener");
     const row = {
       owner,
@@ -69,7 +89,23 @@ export class ExtensionEvents {
     type: K,
     payload: ExtensionEventMap[K],
   ) {
-    const event = freeze(structuredClone(payload));
+    this.deliver(type, freeze(structuredClone(payload)));
+  }
+  /** Delivers one extension-published event to its `ext.<owner>.<type>`
+   * listeners, the same isolation rules as the lifecycle events. */
+  emitCustom(owner: string, type: string, data: unknown) {
+    this.deliver(
+      `ext.${owner}.${type}`,
+      freeze(
+        structuredClone({
+          extension: owner,
+          type,
+          data,
+        }),
+      ),
+    );
+  }
+  private deliver(type: string, event: unknown) {
     for (const row of [...this.listeners].sort((a, b) =>
       a.owner < b.owner ? -1 : a.owner > b.owner ? 1 : 0,
     )) {

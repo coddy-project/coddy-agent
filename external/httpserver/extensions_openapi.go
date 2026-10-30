@@ -46,4 +46,10 @@ func mergeExtensionsOpenAPI(doc map[string]interface{}) {
 		"requestBody": map[string]any{"required": true, "content": map[string]any{"application/json": map[string]any{"schema": request}}},
 		"responses":   map[string]any{"200": response("Target response, including target HTTP errors and unfollowed redirects", result), "400": errResponse, "401": errResponse, "403": errResponse, "409": errResponse, "413": errResponse, "415": errResponse, "502": errResponse, "504": errResponse},
 	}}
+	paths["/coddy/extensions/{id}/events"] = map[string]any{"post": map[string]any{
+		"operationId": "publishUIExtensionEvent", "summary": "Publish one host event for an approved UI extension", "parameters": params,
+		"description": "Requires the exact enabled package digest. JSON `{sha256, type, data}` with a lowercase event type (`^[a-z][a-z0-9-]{0,63}$`) and one JSON value. Publishes `event: extension_event` on GET /coddy/events (`{object: coddy.extension_event, extension, type, data}`) for hook handlers and an IDE bridge to answer; the SDK also delivers it to the extension's own `ext.<id>.<type>` listeners. Body up to 64 KiB.",
+		"requestBody": map[string]any{"required": true, "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"type": "object", "required": []any{"sha256", "type"}, "properties": map[string]any{"sha256": str, "type": str, "data": map[string]any{"description": "One JSON value delivered with the event"}}}}}},
+		"responses":   map[string]any{"204": map[string]any{"description": "Event published"}, "400": errResponse, "401": errResponse, "403": errResponse, "409": errResponse},
+	}}
 }

@@ -33,7 +33,8 @@ var scopePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)*$`)
 
 // The permission vocabulary is closed: a manifest only declares these scopes,
 // and until a later phase enforces them the declaration rides along with the
-// package record beside ui.
+// package record beside ui. `ide.actions` is reserved for the IDE bridge that
+// answers host events with editor actions.
 var knownScopes = map[string]bool{
 	"ui.page":               true,
 	"ui.alter":              true,
@@ -43,6 +44,7 @@ var knownScopes = map[string]bool{
 	"sessions.prompt":       true,
 	"workspace.switch":      true,
 	"events.publish":        true,
+	"ide.actions":           true,
 	"kv":                    true,
 	"config.read":           true,
 	"llm.complete":          true,
