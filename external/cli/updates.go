@@ -82,6 +82,13 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		}
 		a.followSessionFolder()
 		a.flushPromptsAfterTurn()
+		// A turn that ended well and left nothing queued may offer the
+		// operator its prediction of the next message (prompt_suggestion.go):
+		// a queued prompt has already started a turn by now, which retires
+		// the attempt on its own.
+		if u.err == nil && u.stop != "cancelled" {
+			a.startSuggestion(u.sessionID)
+		}
 		return
 	case wakeTurn:
 		// A finished background task asks for a turn nobody typed; the
@@ -102,6 +109,7 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		a.applyTaskStopped(u)
 		return
 	case configReloaded:
+		a.clearSuggestion()
 		// The process configuration changed for every session, so the header
 		// and footer always re-read it; the option set is per session and is
 		// adopted only when the committing turn belongs to the visible one.
@@ -127,6 +135,9 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		// (providers[].usage_limits_panel): a cache read brings the line up
 		// or takes it down without waiting for the next turn.
 		a.refreshUsage(usageProviderOf(a.modelID), false)
+		return
+	case remote.ConfigReloadedUpdate:
+		a.clearSuggestion()
 		return
 	case gateWithdrawn:
 		a.dropAbandonedGate()
@@ -210,9 +221,16 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		a.queue.ApplyControl(u)
 	case remote.ActivityUpdate:
 		if u.Revision >= a.remoteActivityRevision {
+			wasActive := a.remoteTurnActive
 			a.remoteActivityRevision = u.Revision
 			a.remoteTurnActive = u.TurnActive
+			if u.TurnActive && !wasActive {
+				a.clearSuggestion()
+			}
 			a.flushPromptsAfterTurn()
+			if !u.TurnActive && a.suggestionWaiting {
+				a.startSuggestion(a.sessionID)
+			}
 		}
 	case remote.FollowUpdate:
 		a.applyFollow(u)
@@ -486,6 +504,7 @@ func intFromAny(v interface{}) int {
 func (a *App) applyFollow(u remote.FollowUpdate) {
 	a.curAssistant = nil
 	if u.Active {
+		a.clearSuggestion()
 		if !a.turnActive {
 			a.stepStatus = newWaitingStatus()
 			a.stepBlocked = ""
@@ -502,6 +521,7 @@ func (a *App) applyFollow(u remote.FollowUpdate) {
 	}
 	a.dropAbandonedGate()
 	a.refreshTasks()
+	a.startSuggestion(a.sessionID)
 }
 
 // followSessionFolder lists the context of the folder the session works in

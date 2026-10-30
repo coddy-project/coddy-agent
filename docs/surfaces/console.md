@@ -322,6 +322,39 @@ throttle with immediate renders after keystrokes.
 
 ## Commands and keys
 
+Suggestions are available from the first completed reply. After a turn, the empty
+editor can show a dim suggestion for the next prompt, including a one-word reply
+in Russian such as "продолжай".
+The suggestion call reserves up to 1024 output tokens, including reasoning, so
+reasoning models such as OpenCode's `beam-free` can finish before producing the hint.
+**Tab** or **Right** copies it into the draft; typing hides it. Suggestions use an
+extra call to the session's model without tools or transcript entries. They are
+enabled by default; set `agent.prompt_suggestions: false` in `config.yaml` to
+disable them, or use **Settings → ReAct loop → Prompt suggestions** in the web UI.
+With `--remote`, the console fetches the hint from the server and reports whether
+it was accepted. The server's `agent.prompt_suggestions` and
+`agent.prompt_suggestions_context` control generation; no local model or provider
+credentials are needed. Tab and Right work the same way. A new remote turn,
+server configuration reload or reconnect retires an obsolete hint and cancels a
+pending request. If the server does not provide the suggestion route, the editor
+continues without a hint. Update both the server and console to use this feature.
+
+![A dim suggestion in a remote console](../assets/cli-tui/remote-suggestion-hint-dark-1280.png)
+
+*A dim hint from the server, dark theme, 1280px. [Narrow view at 390px](../assets/cli-tui/remote-suggestion-hint-dark-390.png).*
+
+![The remote suggestion accepted into the draft](../assets/cli-tui/remote-suggestion-accepted-dark-1280.png)
+
+*The hint accepted with Tab into an editable draft, dark theme, 1280px. [Accepted with Right at 390px](../assets/cli-tui/remote-suggestion-accepted-dark-390.png).*
+
+For comparison, `agent.prompt_suggestions_context` accepts `recent` (default) or
+`full`. `recent` selects up to 12 whole user/assistant text messages, scanning from
+newest to oldest. It includes the entire message that takes the total past 10000
+Unicode characters, then stops; messages are sent in chronological order. `full`
+uses all user/assistant text messages. Both use the same model and suggestion
+instruction without tools or the main system prompt. This compares history size;
+it does not reproduce Claude Code's native context fork.
+
 Slash commands: the settings commands `/model`, `/reasoning` (`/effort`),
 `/think`, `/nothink`, `/toolset`, `/agent`, `/plan`, `/ask` and `/permissions`, each with
 `--once` or `--count=N` for the next turns only

@@ -596,6 +596,13 @@ export const messagesEn: Record<string, string> = {
     "Loop stream repeat cycles",
   "settings.schema.agent.loop_stream_repeat_cycles.desc":
     "Identical back-to-back output cycles inside one streamed response before it is cut (0 disables the check).",
+  "settings.schema.agent.prompt_suggestions.label": "Prompt suggestions",
+  "settings.schema.agent.prompt_suggestions_context.label":
+    "Suggestion context",
+  "settings.schema.agent.prompt_suggestions_context.desc":
+    "recent uses up to 12 whole text messages, including the one that exceeds 10000 characters in total. full uses the entire text conversation for comparison.",
+  "settings.schema.agent.prompt_suggestions.desc":
+    "Suggest the next prompt in the empty composer after a turn. Uses an extra model call; Tab or Right accepts the suggestion. Turn off to stop generating suggestions.",
   "settings.schema.agent.loop_nudge_max.label": "Loop nudge max",
   "settings.schema.agent.loop_nudge_max.desc":
     "How many times one turn may be nudged back on track before the loop guard stops it.",

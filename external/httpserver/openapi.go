@@ -1305,6 +1305,71 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/sessions/{id}/prompt-suggestion": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Predicted next prompt for a session",
+					"description": "After a turn ends, predicts what the operator might type next over the session's recorded conversation: one hidden side call to the session's model with no tools, nothing written to the transcript (the same call the console makes for its dim composer hint). The answer is cleaned and validated - 2-12 words, one line, never the assistant's own voice - and empty when the turn has nothing to offer (too little conversation, the model stayed silent, the back-off of ignored suggestions). Enabled by **`agent.prompt_suggestions`** (default on).",
+					"operationId": "coddySessionPromptSuggestion",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Suggestion payload (empty text when there is none)",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string", "example": "coddy.prompt_suggestion"},
+											"sessionId": map[string]string{"type": "string"},
+											"text":      map[string]string{"type": "string"},
+										},
+										"required": []string{"object", "sessionId", "text"},
+									},
+								},
+							},
+						},
+						"404": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/prompt-suggestion/outcome": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Report what became of a shown suggestion",
+					"description": "Feeds the suggestion back-off: **accepted** (taken into the composer, or retyped by hand) resets the unused streak, ignored grows it; past 20 unused in a row only every 10th turn offers one.",
+					"operationId": "coddySessionPromptSuggestionOutcome",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"accepted": map[string]string{"type": "boolean"},
+									},
+									"required": []string{"accepted"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Outcome recorded"},
+						"400": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/sessions/{id}/queue": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Follow-ups queued for the running turn",

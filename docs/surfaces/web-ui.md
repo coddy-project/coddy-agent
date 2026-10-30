@@ -197,6 +197,37 @@ Clear the field to use the session model for summarization.
 
 ## Settings: boolean switch fields
 
+**ReAct loop → Prompt suggestions** controls the dim next-prompt hint in an empty composer.
+It is enabled by default. After a turn, Coddy asks the session's model for a suggestion
+without tools or transcript entries; this uses an extra model call. **Tab** or **Right**
+copies the suggestion into the draft. The suggestion stays as the placeholder while
+you edit. Clearing the draft shows the same suggestion again, including after accepting
+and editing it. Sending a message, starting another turn or switching context retires it.
+Set `agent.prompt_suggestions: false`
+in `config.yaml`, or turn the switch off and save, to stop generating suggestions in both
+the web UI and consoles connected to this server, including `--remote` clients.
+The change applies without restarting Coddy.
+
+**ReAct loop → Suggestion context** selects `recent` (default) or `full`, backed by
+`agent.prompt_suggestions_context`. `recent` reads user/assistant text from newest
+to oldest, up to 12 whole messages. The message that takes the total past 10000
+Unicode characters is included whole and ends the selection. `full` reads all
+user/assistant text messages. The same model, instruction and output budget are
+used in both modes, without tools or the main system prompt. Switch modes and
+save to compare subsequent suggestions; this is not Claude Code's native context fork.
+
+![Suggestion context set to full](../assets/web-ui/prompt-suggestion-context-full-dark-1280.png)
+
+*Suggestion context set to `full`, dark theme, 1280px. [Narrow view at 390px](../assets/web-ui/prompt-suggestion-context-full-dark-390.png).*
+
+![The same suggestion after editing and clearing the draft](../assets/web-ui/prompt-suggestion-restored-dark-1280.png)
+
+*The same suggestion after editing and clearing the draft, dark theme, 1280px. [Narrow view at 390px](../assets/web-ui/prompt-suggestion-restored-dark-390.png).*
+
+![Prompt suggestions enabled in ReAct loop settings](../assets/web-ui/prompt-suggestions-on-dark-1280.png)
+
+*Prompt suggestions enabled by default in ReAct loop settings, dark theme, 1280px.*
+
 - Every on/off option in the settings forms renders through the shared **`SwitchField`** (**`external/ui/src/ui/settings/SwitchField.tsx`**): the **`Switch`** control and a label cell on one two-column grid (**`.settings-switch-field`**). This covers the schema-driven booleans of **`SchemaForm`** (for example **Logical models → Multimodal** and **Stream responses**, **Tools and permissions → Background tasks → Enabled**, the **Gateways → Telegram** flags) and the **Skills → Skill auto-discovery** row.
 - The label sits level with the switch (vertical centres match within 1px, 8px gap), and the field's description is the (i) right after the label, as on every other field.
 - The label is a real **`<label for>`**: clicking the text toggles the switch; clicking the (i) only opens the description. The switch is named by that label (**`aria-labelledby`**); when the visible text is state copy (**Enabled** / **Disabled**) the row passes an explicit **`ariaLabel`**, which takes precedence.
