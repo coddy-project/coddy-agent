@@ -7,8 +7,8 @@ import (
 )
 
 // Issue #646: an entry covers its own command with any arguments, never a
-// second command written after it. Every refusal below was allowed by the
-// bare prefix match, since each command starts with an entry and a space.
+// second command written after it. Every refusal below that starts with an
+// entry and a space was allowed by the bare prefix match.
 func TestCommandAllowedOnAPOSIXShellMatchesEveryCommandOfTheLine(t *testing.T) {
 	env := &Env{
 		Shell:            platform.ShellBash,
@@ -46,6 +46,13 @@ func TestCommandAllowedOnAPOSIXShellMatchesEveryCommandOfTheLine(t *testing.T) {
 		{"backticks", "echo `rm -rf ~`", false},
 		{"command substitution in double quotes", `echo "$(rm -rf ~)"`, false},
 		{"backticks in double quotes", "echo \"`rm -rf ~`\"", false},
+		// bash evaluates a substring offset as arithmetic, and arithmetic runs
+		// the command substitution in an array subscript of W's value, which
+		// the first expansion assigns: neither expansion holds a bare $(.
+		{"arithmetic of a braced expansion", `echo ${W:=a[\$\(touch\ p\)]} ${PWD:W}`, false},
+		{"arithmetic of a braced expansion in double quotes", `echo "${W:=a[\$(touch p)]}" "${PWD:W}"`, false},
+		{"old-style arithmetic", `echo "${W:=a[\$(touch p)]}" $[W]`, false},
+		{"a braced variable", "go test ${PKG}", false},
 		{"output redirection", "git status > ~/.bashrc", false},
 		{"append redirection", "echo x >> ~/.bashrc", false},
 		{"stderr duplication", "go test ./... 2>&1", false},

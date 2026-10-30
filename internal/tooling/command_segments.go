@@ -41,10 +41,13 @@ func plainSegment(cmd string) ([]string, bool) {
 // the shell reads them: single quotes take everything literally, double quotes
 // and a backslash protect an operator. It refuses what runs or writes
 // something no single segment shows: command substitution ($(...), backticks,
-// also inside double quotes), process substitution and every redirection
-// (< and >), subshell and arithmetic parentheses, ANSI-C $'...' strings, whose
-// backslash escapes a quote, and comments, whose text the shell skips while a
-// quote in it would hide the next line from this reader.
+// also inside double quotes), ${...} and $[...] expansions, whose arithmetic
+// runs a command named in an array subscript of a variable's value (also one
+// the same line assigns, as ${W:=a[\$(cmd)]} ${PWD:W} does), process
+// substitution and every redirection (< and >), subshell and arithmetic
+// parentheses, ANSI-C $'...' strings, whose backslash escapes a quote, and
+// comments, whose text the shell skips while a quote in it would hide the next
+// line from this reader. A plain $NAME only substitutes a value.
 func posixSegments(cmd string) ([]string, bool) {
 	const (
 		normal = iota
@@ -70,6 +73,12 @@ func posixSegments(cmd string) ([]string, bool) {
 		return 0
 	}
 
+	// expands reports whether $ followed by n starts an expansion that can run
+	// a command: $(...), $((...)), ${...} or $[...].
+	expands := func(n byte) bool {
+		return n == '(' || n == '{' || n == '['
+	}
+
 	state := normal
 	for i := 0; i < len(cmd); i++ {
 		c := cmd[i]
@@ -81,7 +90,7 @@ func posixSegments(cmd string) ([]string, bool) {
 			}
 		case double:
 			switch {
-			case c == '`' || (c == '$' && next(i) == '('):
+			case c == '`' || (c == '$' && expands(next(i))):
 				return nil, false
 			case c == '\\' && i+1 < len(cmd):
 				cur.WriteByte(c)
@@ -98,7 +107,7 @@ func posixSegments(cmd string) ([]string, bool) {
 			case '`', '<', '>', '(', ')':
 				return nil, false
 			case '$':
-				if n := next(i); n == '(' || n == '\'' {
+				if n := next(i); expands(n) || n == '\'' {
 					return nil, false
 				}
 				cur.WriteByte(c)

@@ -310,7 +310,7 @@ type State struct {
 	// the configuration, only on the wire that opened this session.
 	sessionMCPDecls []config.MCPServerConfig
 
-	// PermissionCommandGrants are session-scoped shell commands approved via "allow always" (same matching rules as tools.command_allowlist).
+	// PermissionCommandGrants are session-scoped shell commands approved via "allow always", matched more strictly than tools.command_allowlist (see permission.CommandAllowedWithSession).
 	PermissionCommandGrants []string
 	// PermissionWriteGrants are keys "toolName|absolutePath" for filesystem tools approved via "allow always".
 	PermissionWriteGrants []string
