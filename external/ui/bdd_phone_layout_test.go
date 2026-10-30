@@ -19,6 +19,9 @@ func TestWebUIPhoneFeature(t *testing.T) {
 	suite := godog.TestSuite{
 		Name: "web_ui_phone",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
+			sc.Step(`^on a phone the live line shows a short plural task count and still opens the Tasks panel$`, func() error {
+				return runVitestScenario("src/ui/messages/TurnTasksSegment.phone.test.tsx", "phone task counts live uses a compact count and keeps the panel action")
+			})
 			sc.Step(`^in a narrow desktop window Enter sends the draft$`, func() error {
 				return runVitestScenario(composer, "a narrow desktop window: Enter sends")
 			})
