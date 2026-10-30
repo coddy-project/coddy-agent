@@ -113,6 +113,22 @@ func Pull(dir string) error {
 	return err
 }
 
+// IsRepo reports what Describe(dir).IsGitRepo reports, with the one git run
+// that decides it instead of Describe's five: callers that only need to know
+// whether dir is inside a repository (the change list, asked after every tool
+// call) take this.
+func IsRepo(dir string) bool {
+	path := dir
+	if abs, err := filepath.Abs(dir); err == nil {
+		path = abs
+	}
+	if !GitAvailable() {
+		return builtinDescribe(Info{Path: path}).IsGitRepo
+	}
+	toplevel, err := runGit(path, "rev-parse", "--show-toplevel")
+	return err == nil && toplevel != ""
+}
+
 // Describe inspects dir. It never fails on plain folders: a non-repo dir
 // yields Info{IsGitRepo: false}.
 func Describe(dir string) Info {
