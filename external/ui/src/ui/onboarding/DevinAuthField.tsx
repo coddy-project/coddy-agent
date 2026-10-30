@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
+import { responseError } from "../settings/apiError";
 import { FieldLabel } from "../settings/FieldHint";
 import type { OverrideTexts } from "../settings/settingsSections";
 
@@ -16,16 +17,6 @@ type DeviceLogin = {
   connected?: boolean;
   error?: string;
 };
-
-async function responseError(response: Response): Promise<string> {
-  try {
-    const body = (await response.json()) as { error?: unknown };
-    if (typeof body.error === "string" && body.error.trim()) return body.error;
-  } catch {
-    // The status is enough when a proxy did not answer with JSON.
-  }
-  return `HTTP ${response.status}`;
-}
 
 export function DevinAuthField(props: {
   providerName: string;
@@ -177,15 +168,24 @@ export function DevinAuthField(props: {
   const submitPaste = async () => {
     if (!login?.login_id || !paste.trim()) return;
     setError("");
-    const response = await fetch(
-      `${endpoint}/device/${encodeURIComponent(login.login_id)}/paste`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: paste.trim() }),
-      },
-    );
-    if (!response.ok) setError(await responseError(response));
+    setLoading(true);
+    try {
+      const response = await fetch(
+        `${endpoint}/device/${encodeURIComponent(login.login_id)}/paste`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: paste.trim() }),
+        },
+      );
+      if (!response.ok) setError(await responseError(response));
+    } catch (err) {
+      // A dropped connection must show why the paste did not arrive, not
+      // leave the field silent with an unhandled rejection.
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -234,7 +234,7 @@ export function DevinAuthField(props: {
           <button
             type="button"
             className="settings-btn"
-            disabled={!paste.trim()}
+            disabled={!paste.trim() || loading}
             onClick={() => void submitPaste()}
             data-testid="devin-paste-submit"
           >
