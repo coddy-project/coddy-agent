@@ -91,7 +91,7 @@ _coddy() {
             fi
             ;;
         update)
-            COMPREPLY=($(compgen -W "--check -y --yes --version --repo --no-restart --no-notes" -- "${cur}"))
+            COMPREPLY=($(compgen -W "--check -y --yes --version --repo --no-notes" -- "${cur}"))
             ;;
         help)
             # `coddy help <command>` names a command of its own.
