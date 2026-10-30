@@ -386,8 +386,10 @@ token secret.
 
 Binding off loopback without a client token **refuses to start** (`swarm.allow_insecure`
 overrides). On loopback one is generated for the run rather than left absent, because an open
-relay lends its authority to every local process. The generated value is printed to stderr only,
-never to the log.
+relay lends its authority to every local process. The generated value goes to
+`${CODDY_HOME}/swarm-token`, readable by the owner only and removed when the relay stops, and to stderr
+when that is a terminal. It never goes to the log, and a relay in the background or under systemd,
+whose stderr is a log, does not print it.
 
 A node's name is proven by a **per-lease secret** the relay mints, not by the shared pairing
 token: a fleet credential must not let one node claim another's name, redirect its traffic, or
@@ -396,7 +398,8 @@ the same name at once. The relay keeps a digest of each name's secret in
 `${CODDY_HOME}/swarm-names.json`, so the name stays bound when the lease is gone - after a restart
 or a settings save rebuilds the relay, or after the node was offline past the grace period - and
 only the node with the secret takes it back. `DELETE /swarm/nodes/{node}` is the administrative
-takeover path and frees the name; an entry of `swarm.upstreams` with the same name takes it over.
+takeover path and frees the name, with or without a live lease, which is also the way back for a node
+that lost its secret; an entry of `swarm.upstreams` with the same name takes it over.
 
 An advertised URL is an **SSRF boundary**. Only `http(s)`, with no credentials, query or
 fragment; the host is then resolved and every address checked. Link-local, multicast,

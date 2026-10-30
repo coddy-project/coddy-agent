@@ -2369,7 +2369,9 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			// accept_edits approves the edits of the project. A write into
 			// the agent's home (hooks.json, mcp.json, config.yaml, the trust
 			// receipts) or anywhere outside the workspace reaches what
-			// config_commit asks about, so it asks too.
+			// config_commit asks about, and one into git's own directory
+			// (hooks, core.sshCommand) runs at the next git command, so they
+			// ask too.
 			keys := permission.WriteGrantKeys(tc.Name, tc.InputJSON, env.CWD)
 			if permission.AllWriteKeysGranted(sessWriteGrants, keys) {
 				requiresPerm = false
@@ -3400,8 +3402,8 @@ func filesystemWriteTool(name string) bool {
 
 // writeStaysInWorkspace reports whether every path a filesystem write names
 // lies inside the session's workspace (its working directory and the
-// additionalDirectories it carries) and outside the agent's home, links
-// resolved. A call whose paths cannot be read is not.
+// additionalDirectories it carries), outside the agent's home and outside git's
+// own directory, links resolved. A call whose paths cannot be read is not.
 func (a *Agent) writeStaysInWorkspace(tc llm.ToolCall, cwd string) bool {
 	paths := fstools.ToolCallPaths(tc.Name, tc.InputJSON, cwd)
 	if len(paths) == 0 {
@@ -3416,7 +3418,7 @@ func (a *Agent) writeStaysInWorkspace(tc llm.ToolCall, cwd string) bool {
 		home = a.cfg.Paths.Home
 	}
 	for _, p := range paths {
-		if !session.PathInWorkspace(p, cwd, home, additional) {
+		if !session.PathInWorkspace(p, cwd, home, additional) || session.PathInGitDir(p) {
 			return false
 		}
 	}

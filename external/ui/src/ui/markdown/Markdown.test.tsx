@@ -386,6 +386,20 @@ test("a picture from another site waits for a click", () => {
   );
 });
 
+// A badge is a picture inside a link: the click on the gate loads the picture
+// and leaves the link alone.
+test("a picture from another site inside a link loads without following it", () => {
+  const { container } = render(
+    <Markdown text="[![badge](https://attacker.example/b.png)](https://example.com/)" />,
+  );
+  const gate = screen.getByTestId("md-remote-media");
+  // fireEvent returns false when a listener called preventDefault.
+  expect(fireEvent.click(gate)).toBe(false);
+  expect(container.querySelector("img")?.getAttribute("src")).toBe(
+    "https://attacker.example/b.png",
+  );
+});
+
 test("a video from another site waits for a click", () => {
   const { container } = render(
     <Markdown text="![clip](https://attacker.example/clip.mp4)" />,

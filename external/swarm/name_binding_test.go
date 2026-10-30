@@ -89,3 +89,26 @@ func TestAReapedLeaseKeepsItsName(t *testing.T) {
 		t.Fatalf("the owner could not take its name back: %v", err)
 	}
 }
+
+// After a restart a name has a binding and no lease, and the administrative
+// delete still frees it: that is the way back for a node that lost its secret.
+func TestDeleteFreesABoundNameThatHasNoLease(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "swarm-names.json")
+	first, _ := newTestRegistry(t, time.Minute)
+	first.SetBindingsFile(file)
+	if _, err := first.Register(directRequest("nas02")); err != nil {
+		t.Fatal(err)
+	}
+
+	second, _ := newTestRegistry(t, time.Minute)
+	second.SetBindingsFile(file)
+	if !second.Delete("nas02") {
+		t.Fatal("the administrative delete did not find a name bound on disk")
+	}
+	if second.Delete("nas02") {
+		t.Fatal("a second delete still found the name")
+	}
+	if _, err := second.Register(directRequest("nas02")); err != nil {
+		t.Fatalf("a deleted name is still bound: %v", err)
+	}
+}

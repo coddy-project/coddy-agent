@@ -7,8 +7,11 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"os"
-	"path/filepath"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
 // A name a node registered stays bound to the lease secret it was given
@@ -28,13 +31,18 @@ func (r *Registry) SetBindingsFile(path string) {
 	r.bindings = map[string]string{}
 	data, err := os.ReadFile(path)
 	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			slog.Default().Warn("swarm: the name bindings cannot be read, every name is free until its node returns", "file", path, "error", err)
+		}
 		return
 	}
 	var stored map[string]string
-	if json.Unmarshal(data, &stored) == nil {
-		for name, digest := range stored {
-			r.bindings[name] = digest
-		}
+	if err := json.Unmarshal(data, &stored); err != nil {
+		slog.Default().Warn("swarm: the name bindings cannot be read, every name is free until its node returns", "file", path, "error", err)
+		return
+	}
+	for name, digest := range stored {
+		r.bindings[name] = digest
 	}
 }
 
@@ -84,23 +92,17 @@ func (r *Registry) unbind(name string) {
 	r.unbindLocked(name)
 }
 
-// saveBindingsLocked writes the bindings through a temporary file, readable
-// by the owner only. A failed write keeps them in memory for this run.
+// saveBindingsLocked writes the bindings, readable by the owner only. A failed
+// write keeps them in memory for this run.
 func (r *Registry) saveBindingsLocked() {
 	if r.bindingsFile == "" {
 		return
 	}
 	data, err := json.Marshal(r.bindings)
-	if err != nil {
-		return
+	if err == nil {
+		err = config.AtomicWriteFile(r.bindingsFile, data, 0o600)
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(r.bindingsFile), filepath.Base(r.bindingsFile)+".*")
 	if err != nil {
-		return
-	}
-	_, werr := tmp.Write(data)
-	cerr := tmp.Close()
-	if werr != nil || cerr != nil || os.Chmod(tmp.Name(), 0o600) != nil || os.Rename(tmp.Name(), r.bindingsFile) != nil {
-		_ = os.Remove(tmp.Name())
+		slog.Default().Warn("swarm: the name bindings were not saved and hold for this run only", "file", r.bindingsFile, "error", err)
 	}
 }

@@ -118,10 +118,7 @@ stays in `config.yaml`, unused, until the file is repaired; a save from Settings
 as it is. The block ends where the parser puts the next key, so a comment at column 0 among
 the items, a list written without indentation or a flow list closed at column 0 goes whole. A
 key inside a flow mapping (`{mcp_servers: [...], ...}` on one line) is not a block of lines:
-its servers move, the key stays, and the log asks to delete it by hand. A `config.yaml` read
-from the workspace because the home has none is never rewritten and its servers never move:
-that file may have come with a checkout, and its servers would become yours in every
-workspace. `coddy -t` reports a leftover key as a warning saying where the servers go and
+its servers move, the key stays, and the log asks to delete it by hand. `coddy -t` reports a leftover key as a warning saying where the servers go and
 writes nothing. The **MCP servers** tab of the web
 settings keeps its address, `#/settings/mcp_servers`.
 

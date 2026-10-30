@@ -96,7 +96,12 @@ function RemoteMediaGate(props: {
       type="button"
       className="md-remote-media"
       data-testid="md-remote-media"
-      onClick={() => setShown(true)}
+      // A badge is a picture inside a link: load it, leave the link alone.
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setShown(true);
+      }}
       title={label}
     >
       {props.alt ? (

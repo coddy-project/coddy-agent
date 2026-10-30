@@ -29,9 +29,9 @@ func writeConfig(t *testing.T, dir, body string) string {
 	return path
 }
 
-// A config.yaml read because the home has none may have come with a
-// checkout: it cannot trust the checkout's own hooks, servers, subagents,
-// skill sources or jobs, and cannot let commands run without a question.
+// A config.yaml in the working directory may have come with a checkout: it
+// cannot trust the checkout's own hooks, servers, subagents, skill sources or
+// jobs, and cannot let commands run without a question.
 func TestAWorkspaceConfigCannotLoosenTrust(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	if err := os.MkdirAll(home, 0o755); err != nil {
@@ -43,9 +43,6 @@ func TestAWorkspaceConfigCannotLoosenTrust(t *testing.T) {
 	cfg, err := LoadFromCLI(CLIPaths{Home: home, CWD: project})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if !cfg.Paths.ConfigFromWorkspace {
-		t.Fatalf("paths = %+v, want the workspace's file marked as such", cfg.Paths)
 	}
 	for key, got := range map[string]string{
 		"mcp.project_trust":       cfg.MCP.ProjectTrust,
@@ -60,24 +57,6 @@ func TestAWorkspaceConfigCannotLoosenTrust(t *testing.T) {
 	}
 	if len(cfg.Tools.CommandAllowlist) != 0 {
 		t.Errorf("tools.command_allowlist = %q from the workspace's config.yaml, want none", cfg.Tools.CommandAllowlist)
-	}
-}
-
-// deny only narrows, so a workspace file may still ask for it.
-func TestAWorkspaceConfigMayTightenTrust(t *testing.T) {
-	home := filepath.Join(t.TempDir(), "home")
-	if err := os.MkdirAll(home, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	project := t.TempDir()
-	writeConfig(t, project, "hooks:\n  project_trust: deny\nmcp:\n  project_trust: deny\n")
-
-	cfg, err := LoadFromCLI(CLIPaths{Home: home, CWD: project})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Hooks.ProjectTrust != ProjectTrustDeny || cfg.MCP.ProjectTrust != ProjectTrustDeny {
-		t.Fatalf("hooks %q, mcp %q, want deny kept", cfg.Hooks.ProjectTrust, cfg.MCP.ProjectTrust)
 	}
 }
 

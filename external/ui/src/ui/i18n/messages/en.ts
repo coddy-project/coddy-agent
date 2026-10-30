@@ -1633,7 +1633,8 @@ export const messagesEn: Record<string, string> = {
   "composer.permissionAcceptEdits": "Accept edits",
   "composer.permissionBypass": "Bypass",
   "composer.permissionAskHint": "Ask before commands and file writes",
-  "composer.permissionAcceptEditsHint": "File writes pass, commands still ask",
+  "composer.permissionAcceptEditsHint":
+    "Writes in the workspace pass, the rest still asks",
   "composer.permissionBypassHint": "Nothing asks for approval",
   "composer.overridesTitle": "Changed for the next turns:\n{list}",
   "composer.overrideThisTurn": "{value} this turn",

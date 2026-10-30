@@ -442,17 +442,22 @@ func (r *Registry) Pin(name string) {
 	r.unbindLocked(name)
 }
 
-// Delete removes a lease outright. This is the administrative takeover path for
-// a name whose owner is gone but whose lease has not expired yet.
+// Delete removes a lease and the name's binding outright. This is the
+// administrative takeover path for a name whose owner is gone, whether its lease
+// has not expired yet or is long gone. It reports whether there was anything to
+// remove.
 func (r *Registry) Delete(name string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	l, ok := r.nodes[name]
-	if !ok {
+	l, held := r.nodes[name]
+	_, bound := r.bindings[name]
+	if !held && !bound {
 		return false
 	}
-	l.closeTransportLocked()
-	delete(r.nodes, name)
+	if held {
+		l.closeTransportLocked()
+		delete(r.nodes, name)
+	}
 	r.unbindLocked(name)
 	return true
 }

@@ -46,7 +46,9 @@ type Source struct {
 	// path otherwise.
 	Display string
 	Scope   Scope
-	// Digest is sha256 over the file bytes; a receipt is bound to it.
+	// Digest is sha256 over the file bytes and, for a project file whose
+	// commands name files of the workspace, their content (script_digest.go); a
+	// receipt is bound to it.
 	Digest string
 	// Definition is the parsed content; nil when Err is set.
 	Definition *Definition

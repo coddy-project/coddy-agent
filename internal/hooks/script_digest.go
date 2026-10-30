@@ -10,9 +10,6 @@ import (
 	"strings"
 )
 
-// maxDigestScripts bounds how many scripts one hooks file's digest reads.
-const maxDigestScripts = 32
-
 // projectDirVars are the variables the runner sets to the workspace, as a
 // command line may name a script through them.
 var projectDirVars = []string{"CODDY_PROJECT_DIR", "CLAUDE_PROJECT_DIR"}
@@ -36,9 +33,6 @@ func digestWithScripts(data []byte, def *Definition, cwd string) string {
 		for _, g := range groups {
 			for _, h := range g.Handlers {
 				for _, tok := range handlerTokens(h) {
-					if len(scripts) >= maxDigestScripts {
-						break
-					}
 					rel, state := scriptState(tok, workspace)
 					if rel != "" {
 						scripts[rel] = state
@@ -64,8 +58,8 @@ func digestWithScripts(data []byte, def *Definition, cwd string) string {
 }
 
 // handlerTokens are the words of a handler's command lines that may name a
-// file: the shell form split on blanks with its quotes dropped, the exec
-// form's executable and arguments as given.
+// file it runs: the shell form through shellWords, the exec form's executable
+// and arguments as given.
 func handlerTokens(h Handler) []string {
 	var out []string
 	for _, line := range []string{h.Command, h.CommandWindows} {
@@ -76,13 +70,38 @@ func handlerTokens(h Handler) []string {
 			out = append(out, line)
 			continue
 		}
-		// Quotes join a word, as `"$CLAUDE_PROJECT_DIR"/hooks/x.sh` does;
-		// the shell's separators split one.
-		clean := strings.NewReplacer(`"`, "", `'`, "", ";", " ", "&", " ", "|", " ").Replace(line)
-		out = append(out, strings.Fields(clean)...)
+		out = append(out, shellWords(line)...)
 	}
 	if h.ExecForm {
 		out = append(out, h.Args...)
+	}
+	return out
+}
+
+// shellSpelling joins a word where quotes do, as in
+// `"$CLAUDE_PROJECT_DIR"/hooks/x.sh`, and splits one where the shell or a
+// `--name=value` option does. An output redirection stays a word of its own.
+var shellSpelling = strings.NewReplacer(
+	`"`, "", `'`, "",
+	";", " ", "&", " ", "|", " ", "(", " ", ")", " ", "`", " ", "<", " ", "=", " ",
+	">", " > ",
+)
+
+// shellWords are the words of a shell line, without the one after an output
+// redirection: a file the command writes is no script it runs, and a log that
+// grows with every run must not withdraw the approval after every run.
+func shellWords(line string) []string {
+	var out []string
+	output := false
+	for _, word := range strings.Fields(shellSpelling.Replace(line)) {
+		switch {
+		case word == ">":
+			output = true
+		case output:
+			output = false
+		default:
+			out = append(out, word)
+		}
 	}
 	return out
 }

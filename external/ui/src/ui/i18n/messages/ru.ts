@@ -1688,7 +1688,7 @@ export const messagesRu: Record<string, string> = {
   "composer.permissionBypass": "Без вопросов",
   "composer.permissionAskHint": "Спрашивать перед командами и записью файлов",
   "composer.permissionAcceptEditsHint":
-    "Запись файлов без вопросов, команды спрашивают",
+    "Запись в рабочей папке без вопросов, остальное спрашивает",
   "composer.permissionBypassHint": "Ничего не спрашивать",
   "composer.overridesTitle": "Изменено на ближайшие ходы:\n{list}",
   "composer.overrideThisTurn": "{value} на этот ход",

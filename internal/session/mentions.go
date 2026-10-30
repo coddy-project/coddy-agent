@@ -1056,6 +1056,18 @@ func PathInWorkspace(p, cwd, home string, additionalDirs []string) bool {
 	return false
 }
 
+// PathInGitDir reports whether p, links resolved, lies in a folder named .git:
+// its hooks and config run commands at the next git command, whatever the file
+// looks like.
+func PathInGitDir(p string) bool {
+	for _, segment := range strings.Split(filepath.ToSlash(realPath(p)), "/") {
+		if strings.EqualFold(segment, ".git") {
+			return true
+		}
+	}
+	return false
+}
+
 // realPath resolves the symbolic links of the longest existing prefix of p.
 func realPath(p string) string {
 	p = filepath.Clean(p)

@@ -2,7 +2,7 @@
 
 package httpserver
 
-// Godog harness for features/loopback_request_guard.feature: what a server
+// Godog harness for features/open_server_guard.feature: what a server
 // without a credential answers on loopback, over its real HTTP surface. A stub
 // runner, no LLM.
 
@@ -20,65 +20,65 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
-type loopbackGuardState struct {
+type openGuardState struct {
 	t      *testing.T
 	ts     *httptest.Server
 	status int
 }
 
-func (s *loopbackGuardState) serverWithoutCredential() error {
-	s.ts = newLoopbackGuardServer(s.t, config.HTTPServerConfig{})
+func (s *openGuardState) serverWithoutCredential() error {
+	s.ts = newOpenGuardServer(s.t, config.HTTPServerConfig{})
 	return nil
 }
 
-func (s *loopbackGuardState) serverWithToken(token string) error {
-	s.ts = newLoopbackGuardServer(s.t, config.HTTPServerConfig{AuthToken: token})
+func (s *openGuardState) serverWithToken(token string) error {
+	s.ts = newOpenGuardServer(s.t, config.HTTPServerConfig{AuthToken: token})
 	return nil
 }
 
-func (s *loopbackGuardState) port() string {
+func (s *openGuardState) port() string {
 	u := strings.TrimPrefix(s.ts.URL, "http://")
 	return u[strings.LastIndex(u, ":"):]
 }
 
-func (s *loopbackGuardState) postWithoutOrigin(path string) error {
-	s.status = loopbackGuardDo(s.t, s.ts, http.MethodPost, path, "", "")
+func (s *openGuardState) postWithoutOrigin(path string) error {
+	s.status = openGuardDo(s.t, s.ts, http.MethodPost, path, "", "")
 	return nil
 }
 
-func (s *loopbackGuardState) postFromOwnOrigin(path string) error {
-	s.status = loopbackGuardDo(s.t, s.ts, http.MethodPost, path, "", s.ts.URL)
+func (s *openGuardState) postFromOwnOrigin(path string) error {
+	s.status = openGuardDo(s.t, s.ts, http.MethodPost, path, "", s.ts.URL)
 	return nil
 }
 
-func (s *loopbackGuardState) postFromPage(origin, path string) error {
-	s.status = loopbackGuardDo(s.t, s.ts, http.MethodPost, path, "", origin)
+func (s *openGuardState) postFromPage(origin, path string) error {
+	s.status = openGuardDo(s.t, s.ts, http.MethodPost, path, "", origin)
 	return nil
 }
 
-func (s *loopbackGuardState) getByName(host, path string) error {
-	s.status = loopbackGuardDo(s.t, s.ts, http.MethodGet, path, host+s.port(), "")
+func (s *openGuardState) getByName(host, path string) error {
+	s.status = openGuardDo(s.t, s.ts, http.MethodGet, path, host+s.port(), "")
 	return nil
 }
 
-func (s *loopbackGuardState) passes() error {
+func (s *openGuardState) passes() error {
 	if s.status == http.StatusMisdirectedRequest || s.status == http.StatusForbidden {
 		return fmt.Errorf("status %d, want the request to reach the route", s.status)
 	}
 	return nil
 }
 
-func (s *loopbackGuardState) refusedWith(code int) error {
+func (s *openGuardState) refusedWith(code int) error {
 	if s.status != code {
 		return fmt.Errorf("status %d, want %d", s.status, code)
 	}
 	return nil
 }
 
-func TestLoopbackGuardFeature(t *testing.T) {
-	st := &loopbackGuardState{t: t}
+func TestOpenServerGuardFeature(t *testing.T) {
+	st := &openGuardState{t: t}
 	suite := godog.TestSuite{
-		Name: "loopback-guard",
+		Name: "open-server-guard",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Step(`^a coddy HTTP server on loopback without a credential$`, st.serverWithoutCredential)
 			sc.Step(`^a coddy HTTP server on loopback with token "([^"]*)"$`, st.serverWithToken)
@@ -99,13 +99,13 @@ func TestLoopbackGuardFeature(t *testing.T) {
 		},
 		Options: &godog.Options{
 			Format:   "pretty",
-			Paths:    []string{"../../features/loopback_request_guard.feature"},
+			Paths:    []string{"../../features/open_server_guard.feature"},
 			TestingT: t,
 			Output:   os.Stdout,
 			Strict:   true,
 		},
 	}
 	if suite.Run() != 0 {
-		t.Fatal("loopback guard feature failed")
+		t.Fatal("open server guard feature failed")
 	}
 }

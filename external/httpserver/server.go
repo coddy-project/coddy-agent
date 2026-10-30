@@ -426,11 +426,11 @@ func (s *Server) redirectDocsTrailingSlash(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, "/docs/", http.StatusFound)
 }
 
-// Handler returns the root HTTP handler: CORS wraps the loopback guard wraps the auth gate wraps
-// the route mux. CORS and the auth gate are no-ops unless configured; the loopback guard applies
-// only while no credential is configured and the request arrived on loopback (loopback_guard.go).
+// Handler returns the root HTTP handler: CORS wraps the open-server guard wraps the auth gate
+// wraps the route mux. CORS and the auth gate are no-ops unless configured; the guard applies only
+// while no credential is configured (open_server_guard.go).
 func (s *Server) Handler() http.Handler {
-	return s.corsMiddleware(s.loopbackGuard(s.authGate(s.mux)))
+	return s.corsMiddleware(s.openServerGuard(s.authGate(s.mux)))
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {

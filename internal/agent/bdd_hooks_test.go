@@ -398,9 +398,9 @@ func (s *hooksFeatureState) trustPolicyIs(policy string) error {
 	return nil
 }
 
-// workspaceConfigTrusts writes the policy into the workspace's config.yaml
-// and takes whatever the loader makes of it, the way a process started in
-// that folder with no config.yaml in its home does.
+// workspaceConfigTrusts writes the policy into the workspace's config.yaml and
+// takes whatever the loader makes of it, the way a process started in that
+// folder with no config.yaml in its home does.
 func (s *hooksFeatureState) workspaceConfigTrusts(policy string) error {
 	if err := os.WriteFile(filepath.Join(s.cwd, "config.yaml"), []byte("hooks:\n  project_trust: "+policy+"\n"), 0o644); err != nil {
 		return err
@@ -408,9 +408,6 @@ func (s *hooksFeatureState) workspaceConfigTrusts(policy string) error {
 	cfg, err := config.LoadFromCLI(config.CLIPaths{Home: s.home, CWD: s.cwd})
 	if err != nil {
 		return err
-	}
-	if !cfg.Paths.ConfigFromWorkspace {
-		return fmt.Errorf("the loader read %s, want the workspace's config.yaml", cfg.Paths.ConfigPath)
 	}
 	s.trustPolicy = cfg.Hooks.ProjectTrust
 	return nil

@@ -74,15 +74,6 @@ func migrateLegacyKeys(paths Paths, data []byte) []byte {
 	if len(moves) == 0 {
 		return data
 	}
-	if paths.ConfigFromWorkspace {
-		// A config.yaml found in the workspace may have come with a checkout:
-		// moving its servers or sources into the home files would make them
-		// the operator's own, ungated in every workspace. It is read as it is.
-		for _, m := range moves {
-			slog.Default().Warn("config: the workspace's config.yaml, read because the Coddy home has none, still has a key that left config.yaml; it is not used and not moved out of a file that may have come with a checkout", "key", m.path, "config", paths.ConfigPath, "home", paths.Home)
-		}
-		return data
-	}
 	if !configPathWriteMu.TryLock() {
 		return data
 	}
@@ -454,7 +445,7 @@ func rewriteConfigKeepingBackup(path string, old, next []byte) error {
 	if err := os.WriteFile(backup, old, perm); err != nil {
 		return fmt.Errorf("backup %s: %w", backup, err)
 	}
-	return atomicWriteFile(path, next, perm)
+	return AtomicWriteFile(path, next, perm)
 }
 
 // cutKeyBlocks cuts mapping keys out of raw YAML text, each with its block

@@ -73,6 +73,10 @@ func TestAcceptEditsAutoApprovesOnlyWorkspaceWrites(t *testing.T) {
 		{"outside the workspace", config.PermModeAcceptEdits, "write", write(filepath.Join(outside, "d.txt")), 1},
 		{"climbing out with ..", config.PermModeAcceptEdits, "write", write(filepath.Join("..", "elsewhere", "e.txt")), 1},
 		{"move out of the project", config.PermModeAcceptEdits, "mv", map[string]string{"src": "notes.txt", "dst": filepath.Join(outside, "f.txt")}, 1},
+		{"git's own directory", config.PermModeAcceptEdits, "write", write(filepath.Join(".git", "hooks", "pre-commit")), 1},
+		{"git's own directory of an additional root", config.PermModeAcceptEdits, "write", write(filepath.Join(extra, ".git", "config")), 1},
+		{"a file named like git's folder", config.PermModeAcceptEdits, "write", write(filepath.Join(".github", "workflows", "ci.yaml")), 0},
+		{"a move into git's own directory", config.PermModeAcceptEdits, "mv", map[string]string{"src": "notes.txt", "dst": filepath.Join(".git", "hooks", "post-merge")}, 1},
 		{"bypass writes the home", config.PermModeBypass, "write", write(filepath.Join(home, "g.json")), 0},
 		{"ask still asks in the project", config.PermModeAsk, "write", write("h.txt"), 1},
 	}

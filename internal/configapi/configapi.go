@@ -214,11 +214,7 @@ func (b *Backend) validatePost(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err = b.scope(body, b.served(body, c))
 	if err == nil {
-		var next *config.Config
-		next, err = config.ParseConfigJSONPreservingSecrets(body, c.Paths, c)
-		if err == nil {
-			err = config.RefuseWorkspaceLoosening(next)
-		}
+		_, err = config.ParseConfigJSONPreservingSecrets(body, c.Paths, c)
 	}
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -263,9 +259,6 @@ func (b *Backend) configPut(w http.ResponseWriter, r *http.Request) {
 			return fmt.Errorf("%w: %s", errParse, err.Error())
 		}
 		newCfg, err := config.ParseConfigJSONPreservingSecrets(doc, paths, c)
-		if err == nil {
-			err = config.RefuseWorkspaceLoosening(newCfg)
-		}
 		if err != nil {
 			return fmt.Errorf("%w: %s", errParse, err.Error())
 		}

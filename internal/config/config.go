@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,10 +19,16 @@ func LoadFromCLI(cli CLIPaths) (*Config, error) {
 }
 
 // resolveConfigFile resolves the paths and picks the file the loader reads: an
-// explicit --config, else <home>/config.yaml, else <cwd>/config.yaml when the
-// home has none. <home>/.env is loaded first so ${VAR} references in the file
-// see its values; the process environment always takes precedence over .env.
-// Check uses the same resolution, so -t reports on the file a start would load.
+// explicit --config, else <home>/config.yaml. <home>/.env is loaded first so
+// ${VAR} references in the file see its values; the process environment always
+// takes precedence over .env. Check uses the same resolution, so -t reports on
+// the file a start would load.
+//
+// A config.yaml in the working directory is never picked by itself: the file
+// may have come with a checkout, and a config runs commands
+// (providers[].api_key_command, providers[].acp.command) and says where keys,
+// prompts and this machine's agent go (providers[].api_base, swarm.join,
+// gateways). Opening a checkout must not grant any of that.
 func resolveConfigFile(cli CLIPaths) (Paths, error) {
 	paths, err := Resolve(cli)
 	if err != nil {
@@ -29,15 +36,25 @@ func resolveConfigFile(cli CLIPaths) (Paths, error) {
 	}
 	loadDotEnv(paths.Home)
 	if strings.TrimSpace(cli.Config) == "" {
-		if _, err := os.Stat(paths.ConfigPath); errors.Is(err, os.ErrNotExist) {
-			cwdCfg := filepath.Join(paths.CWD, defaultConfigName)
-			if _, err := os.Stat(cwdCfg); err == nil {
-				paths.ConfigPath = cwdCfg
-				paths.ConfigFromWorkspace = true
-			}
+		if path := unreadWorkspaceConfig(paths); path != "" {
+			slog.Default().Warn("config: a config.yaml in the working directory is not read, since it may have come with a checkout and a config can run commands; name it with --config or move it to the Coddy home", "file", path, "home", paths.Home)
 		}
 	}
 	return paths, nil
+}
+
+// unreadWorkspaceConfig names the config.yaml of the working directory when
+// that is the file somebody may have meant: the loader has no file of its own
+// to read and this one is there.
+func unreadWorkspaceConfig(paths Paths) string {
+	if _, err := os.Stat(paths.ConfigPath); !errors.Is(err, os.ErrNotExist) {
+		return ""
+	}
+	path := filepath.Join(paths.CWD, defaultConfigName)
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	return path
 }
 
 // Load reads config from the given path, or resolves $CODDY_HOME/config.yaml (and optional $CWD/config.yaml).
@@ -82,13 +99,11 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 	if err != nil {
 		rec, rerr := tryRecoverFromBackup(paths)
 		if rerr == nil && rec != nil {
-			dropWorkspaceLoosening(rec)
 			return rec, nil
 		}
 		return nil, fmt.Errorf("config %s: %w", paths.ConfigPath, err)
 	}
 	_ = WriteBackup(paths.ConfigPath, originalData)
-	dropWorkspaceLoosening(cfg)
 	return cfg, nil
 }
 

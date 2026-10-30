@@ -996,4 +996,11 @@ func TestReadWorkspaceUTF8RefusesLinksOutOfTheWorkspace(t *testing.T) {
 	if err != nil || got != "inside\n" {
 		t.Fatalf("a link inside the workspace: %q, %v", got, err)
 	}
+	// os.Root takes no absolute link, even one that stays inside.
+	if err := os.Symlink(filepath.Join(root, "docs", "guide.md"), filepath.Join(root, "absolute.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := session.ReadWorkspaceUTF8(root, "absolute.md"); !errors.Is(err, session.ErrPathTraversal) {
+		t.Fatalf("an absolute link: err = %v, want ErrPathTraversal", err)
+	}
 }
