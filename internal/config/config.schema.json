@@ -517,7 +517,7 @@
       "properties": {
         "command_allowlist": {
           "type": "array",
-          "description": "Commands that never require permission. Exact or prefix match (prefix + space + any args). \"*\" allows all commands.",
+          "description": "Commands that never require permission. An entry covers its command exactly or with arguments after a space; a line of several commands (&&, ||, ;, &, a pipe, a newline) runs without a prompt only when each of them is covered, and command substitution or a redirection always asks. On PowerShell and cmd.exe an entry covers only a command without operators. \"*\" allows all commands.",
           "items": {
             "type": "string"
           }
