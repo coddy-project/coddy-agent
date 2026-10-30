@@ -102,6 +102,7 @@ These are read by the compose files and the `Dockerfile`, not by the binary. Ins
 |---|---|---|---|
 | `CODDY_IMAGE` | `docker-compose.yml` | The image to run; default `ghcr.io/coddy-project/coddy-agent:latest`. | [Docker](../getting-started/docker.md#docker-compose) |
 | `CODDY_COMMAND` | `docker-compose.yml`, `docker-compose.dev.yml` | The command line of the container; default `serve -H 0.0.0.0 -P 12345`. | [Docker](../getting-started/docker.md#docker-compose) |
+| `CODDY_HTTP_BIND` | both compose files | The host address the port is published on; `127.0.0.1` by default, `0.0.0.0` opens it to the network. | [Docker](../getting-started/docker.md#docker-compose) |
 | `CODDY_HTTP_PORT` | both compose files | The host port published onto the container's 12345. | [Docker](../getting-started/docker.md#docker-compose) |
 | `CODDY_CONFIG`, `CODDY_CWD`, `CODDY_HOME` | both compose files | On the host, the paths mounted as the config file, the workspace and the state directory (defaults `./config.yaml`, `./workspace`, `./coddy_home`). | [Docker](../getting-started/docker.md#docker-compose) |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `TELEGRAM_BOT_TOKEN` | both compose files | Passed through from the host into the container, empty when unset. | [Docker](../getting-started/docker.md#docker-compose) |

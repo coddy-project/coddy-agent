@@ -102,6 +102,7 @@ MCP-серверы, запущенные через stdio, получают ок
 |---|---|---|---|
 | `CODDY_IMAGE` | `docker-compose.yml` | Образ для запуска; по умолчанию `ghcr.io/coddy-project/coddy-agent:latest`. | [Docker](../getting-started/docker.md#docker-compose) |
 | `CODDY_COMMAND` | `docker-compose.yml`, `docker-compose.dev.yml` | Командная строка контейнера; по умолчанию `serve -H 0.0.0.0 -P 12345`. | [Docker](../getting-started/docker.md#docker-compose) |
+| `CODDY_HTTP_BIND` | оба compose-файла | Адрес хоста, на котором публикуется порт; по умолчанию `127.0.0.1`, `0.0.0.0` открывает его в сеть. | [Docker](../getting-started/docker.md#docker-compose) |
 | `CODDY_HTTP_PORT` | оба compose-файла | Порт хоста, который пробрасывается на порт 12345 контейнера. | [Docker](../getting-started/docker.md#docker-compose) |
 | `CODDY_CONFIG`, `CODDY_CWD`, `CODDY_HOME` | оба compose-файла | Пути на хосте, которые монтируются как файл конфигурации, рабочая папка и каталог состояния (по умолчанию `./config.yaml`, `./workspace`, `./coddy_home`). | [Docker](../getting-started/docker.md#docker-compose) |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `TELEGRAM_BOT_TOKEN` | оба compose-файла | Передаются с хоста в контейнер; пустые, если не заданы. | [Docker](../getting-started/docker.md#docker-compose) |
@@ -127,4 +128,4 @@ MCP-серверы, запущенные через stdio, получают ок
 | `SEC_SCANNERS`, `SEC_FAIL_TRIVY`, `SEC_FAIL_SEMGREP`, `SEC_FAIL_GOVULNCHECK`, `GOVULNCHECK_TAGS`, `SEC_DOCKER`, `SEMGREP_CONFIGS` | `scripts/security-scan.sh` | Какие сканеры AppSec запускает `make security`, где проходит порог (`CRITICAL` для находок trivy об уязвимостях и секретах, выключен для semgrep, вызов уязвимой функции для govulncheck), с какими тегами сборки govulncheck загружает код, разрешён ли закреплённый запасной вариант через docker и какие наборы правил из реестра загружает semgrep. | [Сканирование AppSec](../contributing/security-scanning.md) |
 | `SEMGREP_APP_TOKEN` | `scripts/security-scan.sh`, передаётся semgrep | Необязательный токен реестра Semgrep. Снимает ограничения частоты для анонимных запросов и включает правила Pro. Пул-реквестам из форков он недоступен. | [Сканирование AppSec](../contributing/security-scanning.md) |
 
-<!-- docsgen:source sha256=785c5f6ff1528889 -->
+<!-- docsgen:source sha256=72f4bd84ee93949d -->
