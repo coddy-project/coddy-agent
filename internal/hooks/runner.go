@@ -127,6 +127,10 @@ func (r *Runner) matching(ev Event) []bound {
 		if !src.Runnable() {
 			continue
 		}
+		if !src.stillApproved() {
+			r.logger().Warn("a script of an approved hooks file changed during the turn: its hooks do not run until it is approved again", "file", src.Display)
+			continue
+		}
 		for _, g := range src.Definition.Events[ev.Name] {
 			if !subjectMatches(ev, g.Matcher) {
 				continue

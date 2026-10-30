@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// LoadFromCLI resolves paths, optionally falls back to $CWD/config.yaml when $CODDY_HOME/config.yaml is missing, and loads YAML.
+// LoadFromCLI resolves paths and loads the YAML of --config, else of $CODDY_HOME/config.yaml.
 func LoadFromCLI(cli CLIPaths) (*Config, error) {
 	paths, err := resolveConfigFile(cli)
 	if err != nil {
@@ -57,7 +57,7 @@ func unreadWorkspaceConfig(paths Paths) string {
 	return path
 }
 
-// Load reads config from the given path, or resolves $CODDY_HOME/config.yaml (and optional $CWD/config.yaml).
+// Load reads config from the given path, or resolves $CODDY_HOME/config.yaml.
 // If path is non-empty, that file must exist. If path is empty, resolution uses env and $CODDY_HOME/config.yaml.
 func Load(path string) (*Config, error) {
 	return LoadFromCLI(CLIPaths{Config: strings.TrimSpace(path)})

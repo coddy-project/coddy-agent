@@ -19,7 +19,12 @@ import { copyText } from "../clipboard";
 import { useT } from "../i18n/I18nProvider";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
 import { docsHrefFromCoddyLink } from "../scheduler/hashRoute";
-import { DiagramBlock, MarkdownStreamingContext } from "./DiagramBlock";
+import {
+  DiagramBlock,
+  MarkdownStreamingContext,
+  RemoteMediaContext,
+  type RemoteMedia,
+} from "./DiagramBlock";
 import {
   FileLink,
   FileReferenceLink,
@@ -51,10 +56,6 @@ const REHYPE_PLUGINS = [rehypeHighlightShared];
 /** A video file where Markdown has an image: the documentation embeds its
  *  recordings this way, fetched from GitHub when they play. */
 const VIDEO_SRC = /\.(mp4|webm|mov)(?:[?#]|$)/i;
-
-/** Whether Markdown may fetch a picture or a video from another site as it
- *  renders: "click" waits for the reader, "load" fetches at once. */
-export type RemoteMedia = "click" | "load";
 
 /** The host of a picture's address when it is on another site, else null:
  *  a relative address, the page's own origin, data: and blob: load at once. */
@@ -407,7 +408,13 @@ export const Markdown = memo(function Markdown(props: {
           remoteMedia === "click" && p.src ? remoteMediaHost(p.src) : null;
         if (!host) return media;
         return (
-          <RemoteMediaGate host={host} alt={p.alt || ""} video={video}>
+          <RemoteMediaGate
+            // A click loads this address, not whatever comes to stand here.
+            key={p.src}
+            host={host}
+            alt={p.alt || ""}
+            video={video}
+          >
             {media}
           </RemoteMediaGate>
         );
@@ -429,18 +436,20 @@ export const Markdown = memo(function Markdown(props: {
 
   return (
     <MarkdownStreamingContext.Provider value={props.streaming === true}>
-      <div className="md">
-        <ReactMarkdown
-          remarkPlugins={
-            props.breaks ? REMARK_PLUGINS_WITH_BREAKS : REMARK_PLUGINS
-          }
-          rehypePlugins={REHYPE_PLUGINS}
-          components={components}
-          urlTransform={urlTransform}
-        >
-          {normalizeMathDelimiters(props.text)}
-        </ReactMarkdown>
-      </div>
+      <RemoteMediaContext.Provider value={remoteMedia}>
+        <div className="md">
+          <ReactMarkdown
+            remarkPlugins={
+              props.breaks ? REMARK_PLUGINS_WITH_BREAKS : REMARK_PLUGINS
+            }
+            rehypePlugins={REHYPE_PLUGINS}
+            components={components}
+            urlTransform={urlTransform}
+          >
+            {normalizeMathDelimiters(props.text)}
+          </ReactMarkdown>
+        </div>
+      </RemoteMediaContext.Provider>
     </MarkdownStreamingContext.Provider>
   );
 });

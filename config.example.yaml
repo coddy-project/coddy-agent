@@ -560,8 +560,9 @@ tools:
 #     password_hash: "$$argon2id$$v=19$$m=19456,t=2,p=1$$..."
 #     session_ttl_hours: 720   # 0 = the browser drops the cookie on close; the server still expires its record after 30 days
 #   public_docs: false      # when auth is on, keep /docs and /openapi.* reachable without a token
-#   allow_insecure: false   # silence the warnings about a server without a credential: a non-loopback
-#                           # bind, and cors.allow_loopback or "*" (and their --dry-run findings)
+#   allow_insecure: false   # a server without a credential is open on purpose: silences the warnings about
+#                           # one (a non-loopback bind, cors.allow_loopback or "*", their --dry-run findings)
+#                           # and turns off the refusal of a foreign Host on loopback and of a cross-origin write
 #   # CORS lets a browser UI on another origin call this API (needed when the UI points here as a
 #   # remote). Bearer auth still applies. allowed_origins accepts exact origins or a single "*";
 #   # allow_loopback admits every page served from the browser's own machine (localhost,

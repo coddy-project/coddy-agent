@@ -27,7 +27,7 @@ Give ACP clients the absolute path of the binary instead of relying on `PATH` (`
 
 **Symptom.** A command exits with `load config: ...`, `coddy -t` prints lines that start with the file path, or a setting you wrote has no effect.
 
-**Cause.** The loader reads `$CODDY_HOME/config.yaml` (`~/.coddy` by default), falls back to `config.yaml` in the current directory when that file is missing, and runs on built-in defaults when neither exists, so a file edited in the wrong place changes nothing. It decodes leniently: an unknown or misspelled key (`enabled` for `enable`) is ignored rather than rejected, and a value of the wrong shape surfaces later as odd behaviour. A file that fails to parse is recovered from `config.yaml.bak` on a normal load; the check below does not do that, so it reports the file on disk.
+**Cause.** The loader reads `--config` or `$CODDY_HOME/config.yaml` (`~/.coddy` by default) and runs on built-in defaults when that file is missing. A `config.yaml` in the current directory is not read unless you name it, so a file edited in the wrong place changes nothing. It decodes leniently: an unknown or misspelled key (`enabled` for `enable`) is ignored rather than rejected, and a value of the wrong shape surfaces later as odd behaviour. A file that fails to parse is recovered from `config.yaml.bak` on a normal load; the check below does not do that, so it reports the file on disk.
 
 **Fix.** Run the check the way the failing command would load the file; `--config PATH` and `--home DIR` select it as for a start:
 

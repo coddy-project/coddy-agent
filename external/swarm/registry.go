@@ -36,6 +36,10 @@ var (
 	// prove it owns it. A shared pairing token is not that proof: it authorises
 	// joining the swarm, not claiming somebody else's identity in it.
 	ErrNameTaken = errors.New("node name is held by a live lease")
+	// ErrNameBound means no lease holds the name but it stays bound to another
+	// secret: only its owner or DELETE /swarm/nodes/{node} frees it, and no wait
+	// does.
+	ErrNameBound = errors.New("node name is bound to another lease secret")
 	// ErrUnknownNode means no lease by that name exists.
 	ErrUnknownNode = errors.New("unknown node")
 	// ErrLeaseSecret means the presented secret does not match the lease.
@@ -271,7 +275,7 @@ func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Opti
 	var secret string
 	if bound, matches := r.boundSecretLocked(req.Name, req.LeaseSecret); bound {
 		if !matches {
-			return swarmdto.RegisterResponse{}, ErrNameTaken
+			return swarmdto.RegisterResponse{}, ErrNameBound
 		}
 		secret = req.LeaseSecret
 	} else {

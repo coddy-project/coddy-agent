@@ -16,7 +16,7 @@ import (
 
 // runOneWrite runs a turn whose model makes one filesystem call and reports
 // how many permission prompts the client saw.
-func runOneWrite(t *testing.T, mode, cwd, home string, additional []string, tool string, args map[string]string) int {
+func runOneWrite(t *testing.T, mode, cwd, home string, additional []string, tool string, args any) int {
 	t.Helper()
 	raw, err := json.Marshal(args)
 	if err != nil {
@@ -128,5 +128,104 @@ func TestAcceptEditsFollowsLinksOutOfTheWorkspace(t *testing.T) {
 		map[string]string{"path": filepath.Join("settings", "hooks.json"), "content": "x"})
 	if got != 1 {
 		t.Fatalf("permission prompts = %d, want 1 for a write through a link into the home", got)
+	}
+}
+
+// A link whose target does not exist yet leads where a write through it creates
+// the file: into the agent's home or a git hook, which ask.
+func TestAcceptEditsFollowsADanglingLink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating a symbolic link needs a privilege the Windows runner may not have")
+	}
+	root := t.TempDir()
+	cwd := filepath.Join(root, "project")
+	home := filepath.Join(root, "coddy-home")
+	for _, d := range []string{filepath.Join(cwd, ".git", "hooks"), home} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	links := map[string]string{
+		"to-home.txt":   filepath.Join(home, "hooks.json"),
+		"to-hook.txt":   filepath.Join(".git", "hooks", "post-commit"),
+		"to-link.txt":   "to-home.txt",
+		"in-folder.txt": filepath.Join("..", "coddy-home", "mcp.json"),
+	}
+	for name, target := range links {
+		if err := os.Symlink(target, filepath.Join(cwd, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name := range links {
+		t.Run(name, func(t *testing.T) {
+			got := runOneWrite(t, config.PermModeAcceptEdits, cwd, home, nil, "write",
+				map[string]string{"path": name, "content": "x"})
+			if got != 1 {
+				t.Fatalf("permission prompts = %d, want 1 for a write through a dangling link", got)
+			}
+		})
+	}
+	// A dangling link that stays in the project is an edit of the project.
+	if err := os.Symlink(filepath.Join("docs", "new.md"), filepath.Join(cwd, "stays.md")); err != nil {
+		t.Fatal(err)
+	}
+	if got := runOneWrite(t, config.PermModeAcceptEdits, cwd, home, nil, "write",
+		map[string]string{"path": "stays.md", "content": "x"}); got != 0 {
+		t.Fatalf("permission prompts = %d, want 0 for a link that stays in the project", got)
+	}
+}
+
+// A .git that is a link is git's own directory all the same. Git's tree format
+// cannot ship one, an unpacked archive can.
+func TestAcceptEditsKnowsAGitDirThatIsALink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating a symbolic link needs a privilege the Windows runner may not have")
+	}
+	root := t.TempDir()
+	cwd := filepath.Join(root, "project")
+	home := filepath.Join(root, "coddy-home")
+	for _, d := range []string{filepath.Join(cwd, ".gitdir", "hooks"), home} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(".gitdir", filepath.Join(cwd, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	if got := runOneWrite(t, config.PermModeAcceptEdits, cwd, home, nil, "write",
+		map[string]string{"path": filepath.Join(".git", "hooks", "post-commit"), "content": "x"}); got != 1 {
+		t.Fatalf("permission prompts = %d, want 1", got)
+	}
+}
+
+// A removal or a move takes its whole tree: one that holds the home or a .git
+// entry asks, an ordinary folder of the project does not.
+func TestAcceptEditsLooksInsideARemovedTree(t *testing.T) {
+	rm := func(p string) map[string]any { return map[string]any{"path": p, "recursive": true} }
+	cases := []struct {
+		name, tool string
+		args       any
+		prompts    int
+	}{
+		{"the project itself", "rm", rm("."), 1},
+		{"a folder holding a nested checkout", "rm", rm("vendor"), 1},
+		{"a folder holding the home", "rm", rm("tools"), 1},
+		{"a move of a folder holding a nested checkout", "mv", map[string]string{"src": "vendor", "dst": "third_party"}, 1},
+		{"an ordinary folder", "rm", rm("build"), 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// The scripted client approves, so a case removes what it names.
+			cwd := filepath.Join(t.TempDir(), "project")
+			home := filepath.Join(cwd, "tools", "coddy-home")
+			for _, d := range []string{filepath.Join(cwd, "vendor", "lib", ".git"), filepath.Join(cwd, "build", "out"), home} {
+				if err := os.MkdirAll(d, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := runOneWrite(t, config.PermModeAcceptEdits, cwd, home, nil, tc.tool, tc.args); got != tc.prompts {
+				t.Fatalf("permission prompts = %d, want %d", got, tc.prompts)
+			}
+		})
 	}
 }

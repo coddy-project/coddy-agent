@@ -1,11 +1,13 @@
 package hooks_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -197,6 +199,103 @@ func TestADigestCoversEveryScriptInAStableOrder(t *testing.T) {
 			t.Fatalf("%s-19.sh was edited and still runs under the old approval", event)
 		}
 		writeFile(t, filepath.Join(cwd, "tool", event+"-19.sh"), "#!/bin/sh\nexit 0\n")
+	}
+}
+
+// Quotes, escapes and a literal cd are read as the shell reads them.
+func TestApprovalCoversQuotesEscapesAndCd(t *testing.T) {
+	for name, c := range map[string]struct{ script, command string }{
+		"a quoted path with a blank":  {"to ol/check.sh", `sh "./to ol/check.sh"`},
+		"a project dir in the quotes": {"to ol/check.sh", `"$CLAUDE_PROJECT_DIR/to ol/check.sh"`},
+		"an escaped blank":            {"to ol/check.sh", `sh ./to\ ol/check.sh`},
+		"single quotes":               {"to ol/check.sh", `sh './to ol/check.sh'`},
+		"after a cd":                  {"tool/check.sh", `cd tool && ./check.sh`},
+		"after a quoted cd":           {"to ol/check.sh", `cd "to ol" && sh check.sh`},
+		"a backslash of a path":       {"tool/check.sh", `sh tool\check.sh --windows-spelling`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if name == "a backslash of a path" && filepath.Separator != '\\' {
+				t.Skip("a backslash is a path separator on Windows only")
+			}
+			root := t.TempDir()
+			home := filepath.Join(root, "home")
+			cwd := filepath.Join(root, "work")
+			writeFile(t, filepath.Join(cwd, c.script), "#!/bin/sh\nexit 0\n")
+			body := `{"hooks":{"PreToolUse":[{"matcher":"run_command","hooks":[{"type":"command","command":` + quoteJSON(c.command) + `}]}]}}`
+			writeFile(t, filepath.Join(cwd, ".coddy", "hooks.json"), body)
+			store := hooks.NewTrustStore(home)
+			if err := store.Approve(hooks.CanonicalWorkspace(cwd), loadProject(t, store, cwd, home)); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(cwd, c.script), "#!/bin/sh\necho changed\n")
+			if loadProject(t, store, cwd, home).Runnable() {
+				t.Fatal("an edited script still runs under the old approval")
+			}
+		})
+	}
+}
+
+// The definitions are read once per turn and a model can rewrite a script
+// during it: the new content does not run under the old approval.
+func TestAScriptRewrittenDuringATurnDoesNotRun(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the hook here is a POSIX shell line")
+	}
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	cwd := filepath.Join(root, "work")
+	marker := filepath.Join(root, "ran")
+	writeFile(t, filepath.Join(cwd, "check.sh"), "#!/bin/sh\nexit 0\n")
+	body := `{"hooks":{"PreToolUse":[{"matcher":"run_command","hooks":[{"type":"command","command":"sh ./check.sh"}]}]}}`
+	writeFile(t, filepath.Join(cwd, ".coddy", "hooks.json"), body)
+	store := hooks.NewTrustStore(home)
+	if err := store.Approve(hooks.CanonicalWorkspace(cwd), loadProject(t, store, cwd, home)); err != nil {
+		t.Fatal(err)
+	}
+	src := loadProject(t, store, cwd, home)
+	if !src.Runnable() {
+		t.Fatal("the approved file does not run")
+	}
+	runner := &hooks.Runner{Sources: []*hooks.Source{src}, Session: hooks.Session{ID: "s", CWD: cwd}}
+	event := hooks.Event{Name: hooks.EventPreToolUse, Subject: "run_command"}
+	if out := runner.Run(context.Background(), event); out.Ran != 1 {
+		t.Fatalf("the approved hook ran %d times, want 1", out.Ran)
+	}
+
+	writeFile(t, filepath.Join(cwd, "check.sh"), "#!/bin/sh\ntouch "+marker+"\n")
+	if out := runner.Run(context.Background(), event); out.Ran != 0 {
+		t.Fatalf("the rewritten script ran under the old approval: %+v", out)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("the rewritten script left its file: %v", err)
+	}
+	// Putting the script back does not bring it back inside this load.
+	writeFile(t, filepath.Join(cwd, "check.sh"), "#!/bin/sh\nexit 0\n")
+	if out := runner.Run(context.Background(), event); out.Ran != 0 {
+		t.Fatalf("a withdrawn source ran again in the same load: %+v", out)
+	}
+	if !loadProject(t, store, cwd, home).Runnable() {
+		t.Fatal("the next load of the approved content does not run")
+	}
+}
+
+// A source the policy or the operator trusts is not bound to a digest.
+func TestAScriptOfAFileTrustedByPolicyMayChange(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the hook here is a POSIX shell line")
+	}
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	cwd := filepath.Join(root, "work")
+	writeFile(t, filepath.Join(cwd, "check.sh"), "#!/bin/sh\nexit 0\n")
+	body := `{"hooks":{"PreToolUse":[{"matcher":"run_command","hooks":[{"type":"command","command":"sh ./check.sh"}]}]}}`
+	writeFile(t, filepath.Join(cwd, ".coddy", "hooks.json"), body)
+	sources := hooks.NewLoader([]string{"${CWD}/.coddy/hooks.json"}, "allow").Load(cwd, home)
+	runner := &hooks.Runner{Sources: sources, Session: hooks.Session{ID: "s", CWD: cwd}}
+	writeFile(t, filepath.Join(cwd, "check.sh"), "#!/bin/sh\necho changed\n")
+	event := hooks.Event{Name: hooks.EventPreToolUse, Subject: "run_command"}
+	if out := runner.Run(context.Background(), event); out.Ran != 1 {
+		t.Fatalf("a hook of a file trusted by policy ran %d times, want 1", out.Ran)
 	}
 }
 

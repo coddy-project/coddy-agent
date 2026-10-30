@@ -1056,25 +1056,67 @@ func PathInWorkspace(p, cwd, home string, additionalDirs []string) bool {
 	return false
 }
 
-// PathInGitDir reports whether p, links resolved, lies in a folder named .git:
-// its hooks and config run commands at the next git command, whatever the file
-// looks like.
+// PathInGitDir reports whether p lies in a folder named .git, as written or
+// with its links resolved: its hooks and config run commands at the next git
+// command, whatever the file looks like.
 func PathInGitDir(p string) bool {
-	for _, segment := range strings.Split(filepath.ToSlash(realPath(p)), "/") {
-		if strings.EqualFold(segment, ".git") {
-			return true
+	for _, form := range []string{filepath.Clean(p), realPath(p)} {
+		for _, segment := range strings.Split(filepath.ToSlash(form), "/") {
+			if strings.EqualFold(segment, ".git") {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-// realPath resolves the symbolic links of the longest existing prefix of p.
+// TreeHoldsGitDirOrHome reports whether removing or moving the folder p would
+// take a .git entry or the agent's home with it. A file, or a path that does
+// not exist, holds neither.
+func TreeHoldsGitDirOrHome(p, home string) bool {
+	abs := realPath(p)
+	if info, err := os.Stat(abs); err != nil || !info.IsDir() {
+		return false
+	}
+	if h := strings.TrimSpace(home); h != "" && pathWithin(abs, realPath(h)) {
+		return true
+	}
+	found := false
+	_ = filepath.WalkDir(abs, func(path string, _ fs.DirEntry, err error) error {
+		if err != nil {
+			return nil //nolint:nilerr // an unreadable folder: the removal meets it too
+		}
+		if strings.EqualFold(filepath.Base(path), ".git") {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
+}
+
+// maxLinkHops bounds how many dangling links realPath follows, so a cycle ends.
+const maxLinkHops = 40
+
+// realPath resolves the symbolic links of the longest existing prefix of p. A
+// link whose target does not exist yet is followed by hand: a write through it
+// creates that target, so the target is where the path leads.
 func realPath(p string) string {
+	return realPathHops(p, 0)
+}
+
+func realPathHops(p string, hops int) string {
 	p = filepath.Clean(p)
 	rest := ""
 	for cur := p; ; {
 		if r, err := filepath.EvalSymlinks(cur); err == nil {
 			return filepath.Join(r, rest)
+		}
+		if target, err := os.Readlink(cur); err == nil && hops < maxLinkHops {
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(realPathHops(filepath.Dir(cur), hops+1), target)
+			}
+			return realPathHops(filepath.Join(target, rest), hops+1)
 		}
 		parent := filepath.Dir(cur)
 		if parent == cur {

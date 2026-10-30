@@ -40,12 +40,12 @@ func TestANameStaysBoundToItsSecretAcrossARestart(t *testing.T) {
 	// The relay restarts: a new registry over the same file, no leases.
 	second, _ := newTestRegistry(t, time.Minute)
 	second.SetBindingsFile(file)
-	if _, err := second.Register(directRequest("nas02")); !errors.Is(err, ErrNameTaken) {
+	if _, err := second.Register(directRequest("nas02")); !errors.Is(err, ErrNameBound) {
 		t.Fatalf("a registration without the secret took a bound name: %v", err)
 	}
 	wrong := directRequest("nas02")
 	wrong.LeaseSecret = "not-the-secret"
-	if _, err := second.Register(wrong); !errors.Is(err, ErrNameTaken) {
+	if _, err := second.Register(wrong); !errors.Is(err, ErrNameBound) {
 		t.Fatalf("a wrong secret took a bound name: %v", err)
 	}
 	owner := directRequest("nas02")
@@ -80,7 +80,7 @@ func TestAReapedLeaseKeepsItsName(t *testing.T) {
 	if r.Len() != 0 {
 		t.Fatal("the lease was not reaped")
 	}
-	if _, err := r.Register(directRequest("nas02")); !errors.Is(err, ErrNameTaken) {
+	if _, err := r.Register(directRequest("nas02")); !errors.Is(err, ErrNameBound) {
 		t.Fatalf("a reaped name went to the first comer: %v", err)
 	}
 	owner := directRequest("nas02")

@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -159,10 +160,14 @@ func (g *ReplayGuard) loadLocked() {
 	g.loaded = true
 	data, err := os.ReadFile(g.path)
 	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			slog.Default().Warn("telegram: the record of used launches cannot be read, a launch used before a restart is accepted again within its hour", "file", g.path, "error", err)
+		}
 		return
 	}
 	var stored map[string]time.Time
-	if json.Unmarshal(data, &stored) != nil {
+	if err := json.Unmarshal(data, &stored); err != nil {
+		slog.Default().Warn("telegram: the record of used launches cannot be read, a launch used before a restart is accepted again within its hour", "file", g.path, "error", err)
 		return
 	}
 	for k, exp := range stored {
@@ -179,17 +184,31 @@ func (g *ReplayGuard) saveLocked() {
 	if g.path == "" {
 		return
 	}
+	if err := g.writeRecordLocked(); err != nil {
+		slog.Default().Warn("telegram: the record of used launches was not saved, a restart forgets them", "file", g.path, "error", err)
+	}
+}
+
+func (g *ReplayGuard) writeRecordLocked() error {
 	data, err := json.Marshal(g.seen)
 	if err != nil {
-		return
+		return err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(g.path), filepath.Base(g.path)+".*")
 	if err != nil {
-		return
+		return err
 	}
 	_, werr := tmp.Write(data)
 	cerr := tmp.Close()
-	if werr != nil || cerr != nil || os.Chmod(tmp.Name(), 0o600) != nil || os.Rename(tmp.Name(), g.path) != nil {
+	err = errors.Join(werr, cerr)
+	if err == nil {
+		err = os.Chmod(tmp.Name(), 0o600)
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), g.path)
+	}
+	if err != nil {
 		_ = os.Remove(tmp.Name())
 	}
+	return err
 }

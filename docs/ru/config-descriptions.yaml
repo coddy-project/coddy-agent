@@ -555,8 +555,8 @@ httpserver.public_docs:
   en: "When auth is enabled, keep /docs and /openapi.* reachable without a token."
   ru: "Если аутентификация включена, оставлять /docs и /openapi.* доступными без токена."
 httpserver.allow_insecure:
-  en: "Silence the two startup warnings about a server without authentication - a non-loopback bind, and CORS that admits pages nobody listed (allow_loopback or \"*\") - and the --dry-run findings that mirror them."
-  ru: "Подавляет два предупреждения при запуске о сервере без аутентификации - о привязке не к loopback и о CORS, который пускает никем не перечисленные страницы (allow_loopback или \"*\"), - и соответствующие им находки --dry-run."
+  en: "Say that a server without authentication is open on purpose: silences the two startup warnings about it - a non-loopback bind, and CORS that admits pages nobody listed (allow_loopback or \"*\") - and the --dry-run findings that mirror them, and turns off the refusal of a foreign Host on loopback and of a cross-origin write."
+  ru: "Говорит, что сервер без аутентификации открыт сознательно. Подавляет два предупреждения при запуске о таком сервере - о привязке не к loopback и о CORS, который пускает никем не перечисленные страницы (allow_loopback или \"*\") - и соответствующие находки --dry-run, а также отключает отказ чужому Host на loopback и межсайтовой записи."
 httpserver.cors:
   en: "Cross-origin access so a browser UI on another origin can call this API (e.g. the bundled UI pointed at a remote server). Bearer auth still applies: CORS decides whether a browser shows a page the answer, never whether the server gives one."
   ru: "Кросс-доменный доступ, чтобы браузерный интерфейс с другого origin мог вызывать этот API (например, встроенный интерфейс, направленный на удалённый сервер). Bearer-аутентификация продолжает действовать - CORS решает только, покажет ли браузер ответ странице; отдаёт ли сервер ответ, от CORS не зависит."

@@ -210,6 +210,9 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		// token authorises joining, never impersonating.
 		writeError(w, http.StatusConflict, fmt.Sprintf("node name %q is held by a live lease", req.Name))
 		return
+	case err == ErrNameBound:
+		writeError(w, http.StatusConflict, fmt.Sprintf("node name %q is bound to another lease secret; its node takes it back with that secret, and DELETE /swarm/nodes/{node} frees it", req.Name))
+		return
 	case err != nil:
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

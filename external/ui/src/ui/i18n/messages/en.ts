@@ -2575,6 +2575,9 @@ export const messagesEn: Record<string, string> = {
   "markdown.figure.downloadSource": "Download the source (.mmd)",
   "markdown.figure.downloadSvg": "Download as SVG (.svg)",
   "markdown.figure.open": "Open the picture",
+  "markdown.figure.draw": "Draw the diagram",
+  "markdown.figure.drawHint":
+    "It can fetch pictures from other sites as it is drawn",
   "markdown.remoteMedia.loadImage": "Load the picture from {host}",
   "markdown.remoteMedia.loadVideo": "Load the video from {host}",
   "markdown.figure.rendering": "Drawing…",

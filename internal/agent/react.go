@@ -3417,8 +3417,13 @@ func (a *Agent) writeStaysInWorkspace(tc llm.ToolCall, cwd string) bool {
 	if a.cfg != nil {
 		home = a.cfg.Paths.Home
 	}
-	for _, p := range paths {
+	for i, p := range paths {
 		if !session.PathInWorkspace(p, cwd, home, additional) || session.PathInGitDir(p) {
+			return false
+		}
+		// The source of a move and the target of a removal take their whole
+		// tree with them.
+		if (tc.Name == "rm" || (tc.Name == "mv" && i == 0)) && session.TreeHoldsGitDirOrHome(p, home) {
 			return false
 		}
 	}

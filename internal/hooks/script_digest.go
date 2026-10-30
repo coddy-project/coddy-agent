@@ -78,29 +78,86 @@ func handlerTokens(h Handler) []string {
 	return out
 }
 
-// shellSpelling joins a word where quotes do, as in
-// `"$CLAUDE_PROJECT_DIR"/hooks/x.sh`, and splits one where the shell or a
-// `--name=value` option does. An output redirection stays a word of its own.
-var shellSpelling = strings.NewReplacer(
-	`"`, "", `'`, "",
-	";", " ", "&", " ", "|", " ", "(", " ", ")", " ", "`", " ", "<", " ", "=", " ",
-	">", " > ",
-)
-
-// shellWords are the words of a shell line, without the one after an output
-// redirection: a file the command writes is no script it runs, and a log that
-// grows with every run must not withdraw the approval after every run.
+// shellWords are the words of a shell line that may name a file it runs: a
+// quoted or escaped blank stays in its word, the shell's separators and a
+// `--name=value` option split one, and the word after an output redirection is
+// left out, since a file the command writes is no script it runs and a log that
+// grows with every run must not withdraw the approval after every run. After a
+// literal `cd` a relative word is also read from that folder. A backslash is an
+// escape on a POSIX shell and part of a path on Windows, so the line is read
+// both ways: a word that names nothing costs nothing.
 func shellWords(line string) []string {
-	var out []string
-	output := false
-	for _, word := range strings.Fields(shellSpelling.Replace(line)) {
-		switch {
-		case word == ">":
-			output = true
-		case output:
+	out := splitShell(line, true)
+	if strings.Contains(line, `\`) {
+		out = append(out, splitShell(line, false)...)
+	}
+	return out
+}
+
+func splitShell(line string, escapes bool) []string {
+	var words []string
+	var cur strings.Builder
+	var quote byte
+	started, output := false, false
+	flush := func() {
+		if !started {
+			return
+		}
+		if output {
 			output = false
+		} else {
+			words = append(words, cur.String())
+		}
+		cur.Reset()
+		started = false
+	}
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case quote != 0 && c == quote:
+			quote = 0
+		case quote == '"' && escapes && c == '\\' && i+1 < len(line) && strings.IndexByte(`"\$`+"`", line[i+1]) >= 0:
+			i++
+			cur.WriteByte(line[i])
+		case quote != 0:
+			cur.WriteByte(c)
+		case c == '"' || c == '\'':
+			quote = c
+			started = true
+		case escapes && c == '\\' && i+1 < len(line):
+			i++
+			cur.WriteByte(line[i])
+			started = true
+		case c == '>':
+			flush()
+			output = true
+		case strings.IndexByte(" \t\r\n;&|()`<=", c) >= 0:
+			flush()
 		default:
-			out = append(out, word)
+			cur.WriteByte(c)
+			started = true
+		}
+	}
+	flush()
+	return withCdFolders(words)
+}
+
+// withCdFolders adds, for every word after a literal `cd`, the same word read
+// from that folder.
+func withCdFolders(words []string) []string {
+	var out []string
+	folder := ""
+	for i := 0; i < len(words); i++ {
+		word := words[i]
+		out = append(out, word)
+		if word == "cd" && i+1 < len(words) {
+			i++
+			folder = words[i]
+			out = append(out, folder)
+			continue
+		}
+		if folder != "" && !filepath.IsAbs(word) && !strings.HasPrefix(word, "-") && !strings.Contains(word, "$") {
+			out = append(out, filepath.Join(folder, word))
 		}
 	}
 	return out
