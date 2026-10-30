@@ -1,19 +1,12 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterEach, expect, test } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SwitchField } from "./SwitchField";
+import { stylesSource } from "../../stylesSource";
 
 afterEach(cleanup);
 
-const cssPath = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../styles.css",
-);
-
 function cssText(): string {
-  return readFileSync(cssPath, "utf8");
+  return stylesSource();
 }
 
 // The label names the switch: a settings form never needs to duplicate it in

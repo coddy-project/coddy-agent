@@ -1,0 +1,46 @@
+// The Settings drawer's glass shell.
+
+@use "../abstracts" as *;
+
+/* Settings drawer (#/settings) - same glass shell as History / Scheduler drawers.
+   The lead pane is the status band: it renders only while a failed read or a
+   failed save needs saying, so nothing stands between the head and the tabs
+   otherwise. A save that went through says so on the Save button alone. */
+.settings.drawer .settings-lead-pane {
+  flex-shrink: 0;
+  padding: 8px 14px 10px;
+  border-bottom: 1px solid mix-text(6%);
+}
+
+.settings.drawer .settings-stack {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.settings.drawer .settings-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 8px 12px;
+  box-sizing: border-box;
+}
+
+/* A tab hidden under the search results: no rule of the scroller may override it. */
+.settings-scroll[hidden] {
+  display: none;
+}
+
+.settings.drawer .settings-footer-actions {
+  flex-shrink: 0;
+}
+
+.settings-lead-pane .settings-error {
+  margin-top: 0;
+}
+
+.settings-lead-pane > :last-child {
+  margin-bottom: 0;
+}

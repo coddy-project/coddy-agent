@@ -11,7 +11,7 @@
  * four digits, and a context row whose old and new numbers differ in length.
  */
 import ReactDOM from "react-dom/client";
-import "./styles.css";
+import "./styles.scss";
 import { DiffFileSection } from "./ui/changes/DiffFileSection";
 import type { ChangedFile } from "./ui/changes/types";
 import { I18nProvider } from "./ui/i18n/I18nProvider";

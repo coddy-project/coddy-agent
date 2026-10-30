@@ -1,0 +1,91 @@
+// The web UI's stylesheet. Vite compiles it into styles.css (vite.config.ts).
+//
+// This file is the order of the cascade and nothing else: Sass emits a
+// partial's CSS where it is first used, so the list below is the order the
+// browser reads the rules in, and a rule that overrides another of the same
+// specificity goes in a partial below the one it overrides. The partials hold
+// contiguous runs of the stylesheet as it grew, so a surface can span more
+// than one of them. The source-reading tests see the whole stylesheet as one
+// text, the partials inlined in this order (stylesSource.ts).
+
+// Theme palettes; the dark one is the default (:root).
+@use "styles/themes/dark";
+@use "styles/themes/light";
+@use "styles/themes/midnight";
+@use "styles/themes/solarized-dark";
+@use "styles/themes/monokai";
+@use "styles/themes/nord";
+@use "styles/themes/rose-pine";
+
+// What every theme shares, and the page itself.
+@use "styles/tokens";
+@use "styles/base";
+
+// The shell, the History drawer and the chat screen.
+@use "styles/shell/rail";
+@use "styles/shell/history";
+@use "styles/chat/screen";
+@use "styles/chat/messages";
+@use "styles/chat/tool-rows";
+@use "styles/chat/markdown";
+
+// The composer.
+@use "styles/composer/card";
+@use "styles/composer/pickers";
+@use "styles/composer/field";
+@use "styles/composer/menus";
+@use "styles/composer/workspace";
+@use "styles/components/confirm-dialog";
+@use "styles/composer/attachments";
+@use "styles/composer/context";
+@use "styles/composer/goal";
+@use "styles/composer/usage";
+@use "styles/composer/send";
+
+// The stacked shell, the Scheduler and the Settings drawers.
+@use "styles/shell/stacked";
+@use "styles/screens/scheduler";
+@use "styles/settings/drawer";
+@use "styles/settings/system";
+@use "styles/settings/fields";
+@use "styles/settings/tabs";
+@use "styles/settings/providers";
+@use "styles/settings/skills";
+@use "styles/settings/mcp";
+@use "styles/settings/narrow";
+
+// Transcript cards.
+@use "styles/chat/permission";
+@use "styles/chat/todo";
+@use "styles/chat/tool-cards";
+@use "styles/chat/question";
+@use "styles/chat/plan";
+
+// The light theme's overrides of the components above.
+@use "styles/themes/light-overrides";
+
+// Docked screens: Settings, Background tasks, the documentation, Swarm.
+@use "styles/settings/dock";
+@use "styles/screens/tasks";
+@use "styles/screens/docs";
+@use "styles/components/lightbox";
+@use "styles/chat/references";
+@use "styles/screens/docs-outline";
+@use "styles/screens/swarm";
+@use "styles/components/zoom";
+@use "styles/screens/swarm-map";
+
+// The sign-in screen and the sessions table of Settings.
+@use "styles/screens/auth";
+@use "styles/settings/sessions-table";
+
+// The phone tier, after the stacked-shell rules it narrows.
+@use "styles/shell/phone";
+
+// The windows over the chat: Files, the canvas, the edits.
+@use "styles/screens/changes";
+@use "styles/screens/terminal";
+@use "styles/screens/files";
+@use "styles/screens/canvas";
+@use "styles/screens/files-narrow";
+@use "styles/screens/edits";

@@ -85,6 +85,28 @@ func TestFileStoreRoundTripPermissionGrants(t *testing.T) {
 	}
 }
 
+func TestFileStoreRoundTripGenerationSummary(t *testing.T) {
+	store := &FileStore{Root: t.TempDir()}
+	id := "sess_generation"
+	dir, err := store.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &State{ID: id, SessionDir: dir, CWD: t.TempDir(), Mode: ModeAgent}
+	state.AppendGenerationSummary(time.Now(), 1, 500, 9.8)
+	if err := store.Save(state); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.UILog) != 1 || snapshot.UILog[0].Generation == nil ||
+		snapshot.UILog[0].Generation.OutputTokens != 500 || snapshot.UILog[0].Generation.TokensPerSecond != 9.8 {
+		t.Fatalf("summary did not survive reload: %+v", snapshot.UILog)
+	}
+}
+
 func TestFileStoreRoundTripMessages(t *testing.T) {
 	root := t.TempDir()
 	fs := &FileStore{Root: root}

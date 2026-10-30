@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
 /**
  * The environment item of the wide rail stands on the same column as every
@@ -11,11 +10,11 @@ import { expect, test } from "vitest";
  * of the track, off the column of Docs and Settings above it.
  */
 
-const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf8");
+const css = stylesSource();
 
 function ruleBody(selector: string): string {
   const idx = css.indexOf(`${selector} {`);
-  expect(idx, `${selector} is missing from styles.css`).toBeGreaterThan(-1);
+  expect(idx, `${selector} is missing from styles.scss`).toBeGreaterThan(-1);
   const open = css.indexOf("{", idx);
   return css.slice(open + 1, css.indexOf("}", open)).replace(/\s+/g, " ");
 }

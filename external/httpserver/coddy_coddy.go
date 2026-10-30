@@ -1419,6 +1419,9 @@ func (s *Server) addTurnProgress(out map[string]interface{}, id string) {
 		if progress, running := st.TurnProgress(); running {
 			out["turnOutputTokens"] = progress.OutputTokens
 			out["turnTokensEstimated"] = progress.Estimated
+			if progress.TokensPerSecond != nil {
+				out["turnTokensPerSecond"] = *progress.TokensPerSecond
+			}
 		}
 	}
 }
@@ -1902,13 +1905,17 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 	if u := page.UILog(msgs, session.VisibleUILog(msgs, st.GetUILog())); len(u) > 0 {
 		rows := make([]map[string]interface{}, 0, len(u))
 		for _, e := range u {
-			rows = append(rows, map[string]interface{}{
+			row := map[string]interface{}{
 				"id":            e.ID,
 				"level":         e.Level,
 				"message":       e.Message,
 				"userTurnIndex": e.UserTurnIndex,
 				"createdAt":     e.CreatedAt,
-			})
+			}
+			if e.Generation != nil {
+				row["generation"] = e.Generation
+			}
+			rows = append(rows, row)
 		}
 		out["uiLog"] = rows
 	}

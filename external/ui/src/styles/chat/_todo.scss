@@ -1,0 +1,303 @@
+// The todo checklist card.
+
+@use "../abstracts" as *;
+
+/* Todo tool previews use the active theme's accent for pending work and a
+   theme-specific success token for completion. The marks stay semantic even
+   when a theme's accent is not blue. */
+.todo-tool-preview-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.todo-tool-preview-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px 12px;
+  color: mix-text(82%);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.todo-tool-preview-row + .todo-tool-preview-row {
+  border-top: 1px solid mix-text(7%);
+}
+
+.todo-tool-preview-mark {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  margin-top: 1px;
+  border: 2px solid mix-text(25%);
+  border-radius: 5px;
+  box-sizing: border-box;
+  color: var(--coddy-on-accent-fg);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.todo-tool-preview-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.todo-tool-preview-row--pending .todo-tool-preview-mark,
+.todo-tool-preview-mark--pending {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.todo-tool-preview-row--in_progress .todo-tool-preview-mark,
+.todo-tool-preview-mark--in_progress {
+  border-color: var(--accent);
+  border-radius: 50%;
+  background: linear-gradient(
+    90deg,
+    var(--accent) 50%,
+    color-mix(in srgb, var(--accent) 10%, transparent) 50%
+  );
+}
+
+.todo-tool-preview-row--completed .todo-tool-preview-mark,
+.todo-tool-preview-mark--completed {
+  border-color: var(--coddy-todo-completed);
+  background: var(--coddy-todo-completed);
+}
+
+.todo-tool-preview-row--completed .todo-tool-preview-content {
+  color: mix-text(57%);
+}
+
+.todo-tool-preview-row--failed .todo-tool-preview-mark,
+.todo-tool-preview-mark--failed {
+  border-color: var(--diff-del-no);
+  background: color-mix(in srgb, var(--diff-del-no) 14%, transparent);
+  color: var(--diff-del-no);
+}
+
+.todo-tool-preview-row--cancelled .todo-tool-preview-mark,
+.todo-tool-preview-mark--cancelled {
+  color: mix-text(46%);
+}
+
+.todo-tool-preview-status {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* The todo checklist under the transcript (DESIGN.md "Todo checklist under
+   the transcript"): a quiet card at the newest end of the conversation, a head
+   that folds it, one line per item with the mark the todo tool rows use. A
+   folded row and a leaving card close by their grid row, so the height they
+   give back can move; every movement is in the motion block below. */
+.message-row-todo {
+  display: grid;
+  grid-template-rows: 1fr;
+  margin-top: 6px;
+  align-self: flex-start;
+  width: fit-content;
+  min-width: min(320px, 100%);
+  max-width: 720px;
+  box-sizing: border-box;
+}
+
+/* A phone gives the card its whole column, as it does every card. */
+@media (max-width: 599px) {
+  .message-row-todo {
+    align-self: stretch;
+    width: 100%;
+  }
+}
+
+.message-row-todo.is-leaving {
+  grid-template-rows: 0fr;
+  margin-top: calc(-1 * var(--coddy-transcript-row-gap, 10px));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.todo-checklist-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.todo-checklist {
+  padding: 4px 14px 8px;
+  border: 1px solid mix-text(10%);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--text) 2%, transparent);
+  box-sizing: border-box;
+}
+
+.todo-checklist:has(> .todo-checklist-head[aria-expanded="false"]) {
+  padding-bottom: 6px;
+}
+
+.todo-checklist-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 6px 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: mix-text(62%);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.todo-checklist-head:hover {
+  color: var(--text);
+}
+
+.todo-checklist-head:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+
+.todo-checklist-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.todo-checklist-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.todo-checklist-row {
+  display: grid;
+  grid-template-rows: 1fr;
+  min-width: 0;
+  padding: 4px 0;
+}
+
+.todo-checklist-row.is-folded {
+  grid-template-rows: 0fr;
+  padding-block: 0;
+  opacity: 0;
+}
+
+.todo-checklist-row-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+/* An item in progress: the accent ring with a dot in it, still. A spinning
+   ring and a band running through the text drew the eye from the answer. */
+.todo-checklist .todo-tool-preview-mark--in_progress {
+  border-color: var(--accent);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent) 0 3px, transparent 3.5px);
+}
+
+.todo-checklist-glyph {
+  display: inline-block;
+}
+
+.todo-checklist-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.todo-checklist-row--completed .todo-checklist-content,
+.todo-checklist-row--cancelled .todo-checklist-content {
+  color: mix-text(57%);
+}
+
+/* The motion of the list, drawn only for a reader who did not ask for less:
+   the card comes in and leaves by its height, a folded row closes the same
+   way, a status changes its mark in place and pops the new glyph in, and the
+   item in progress spins and shimmers while a turn runs. With reduced motion
+   every state is there at once and the item in progress keeps the still
+   half-filled mark of the todo rows. */
+@media (prefers-reduced-motion: no-preference) {
+  .messages-inner > .msg-assistant-stack:not(.typing-dots-slot) > .typing-dots {
+    transition: padding-top 0.24s ease;
+  }
+
+  .todo-checklist {
+    transition: padding-bottom 0.22s ease;
+  }
+
+  .message-row-todo {
+    animation: todo-checklist-in 0.22s ease-out backwards;
+    transition:
+      grid-template-rows 0.24s ease,
+      margin-top 0.24s ease,
+      opacity 0.2s ease;
+  }
+
+  .todo-checklist-row {
+    animation: todo-checklist-row-in 0.22s ease-out backwards;
+    transition:
+      grid-template-rows 0.22s ease,
+      padding 0.22s ease,
+      opacity 0.18s ease;
+  }
+
+  .todo-checklist .todo-tool-preview-mark {
+    transition:
+      background-color 0.25s ease,
+      border-color 0.25s ease,
+      border-radius 0.25s ease,
+      color 0.25s ease;
+  }
+
+  .todo-checklist-glyph {
+    animation: todo-checklist-glyph-in 0.24s cubic-bezier(0.2, 0.8, 0.3, 1.4)
+      both;
+  }
+
+  .todo-checklist-content {
+    transition: color 0.25s ease;
+  }
+}
+
+@keyframes todo-checklist-in {
+  from {
+    grid-template-rows: 0fr;
+    margin-top: calc(-1 * var(--coddy-transcript-row-gap, 10px));
+    opacity: 0;
+  }
+}
+
+@keyframes todo-checklist-row-in {
+  from {
+    grid-template-rows: 0fr;
+    padding-block: 0;
+    opacity: 0;
+  }
+}
+
+@keyframes todo-checklist-glyph-in {
+  from {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+}

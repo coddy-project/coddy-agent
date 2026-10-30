@@ -1,0 +1,430 @@
+// Settings -> System: the status of the installation.
+
+@use "../abstracts" as *;
+
+/* Settings -> System (SystemSection.tsx): what this installation is, how it
+   runs and what needs attention. The ok and error tones are the theme's own
+   green and red (--coddy-todo-completed, --coddy-danger), drawn a quarter
+   towards --system-lift so they read on their bands in every preset: white on
+   every dark canvas, the text on the light one. The warn tone is the app's
+   amber, as the usage meter's, lifted on every dark canvas and darkened on the
+   light one to read on its band. Quiet text is --text at 80%, as the settings
+   rail mixes it: --muted is too dim on some presets. */
+.settings.drawer {
+  --system-lift: var(--text);
+  --system-warn: #92400e;
+  --system-ok: color-mix(
+    in srgb,
+    var(--coddy-todo-completed) 75%,
+    var(--system-lift)
+  );
+  --system-ok-bg: color-mix(
+    in srgb,
+    var(--coddy-todo-completed) 18%,
+    transparent
+  );
+  --system-error: color-mix(
+    in srgb,
+    var(--coddy-danger) 75%,
+    var(--system-lift)
+  );
+  --system-error-bg: color-mix(in srgb, var(--coddy-danger) 16%, transparent);
+  --system-quiet: #{mix-text(80%)};
+}
+
+html:not([data-theme="light"]) .settings.drawer {
+  --system-lift: #ffffff;
+  --system-warn: #fbbf24;
+}
+
+.system-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 4px 6px 8px;
+  font-size: 0.9rem;
+}
+
+/* The app's notices: a quiet frame like a settings fieldset for every state
+   (a 404, a refusal, an offline node, a stale or a partial reading, all
+   clear), and for problems the composer's usage banner, its amber border and
+   ground with the text in --text. */
+.system-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 12px;
+  background: var(--coddy-surface-fieldset);
+  color: var(--system-quiet);
+}
+
+.system-summary[data-state="problems"] {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: color-mix(in srgb, #f59e0b 10%, var(--bg));
+  color: var(--text);
+}
+
+/* Nothing to say (a clear page, or the first read on its way): the region
+   stays in the page, so what comes next is announced, with no frame and
+   without the gap the section puts after it. */
+.system-summary:empty {
+  margin-bottom: -16px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.system-summary p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.system-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* An information notice, as the composer's edit banner draws one: the accent
+   in its frame, the text a step back. */
+.system-restart {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 55%, var(--coddy-glass-panel-border));
+  border-radius: 12px;
+  background: var(--coddy-surface-fieldset);
+  color: mix-text(78%);
+  overflow-wrap: anywhere;
+}
+
+.system-restart[data-tone="error"] {
+  border-color: var(--system-error);
+}
+
+.system-restart a,
+.system-foot a,
+.system-kv a {
+  color: var(--coddy-link-action);
+}
+
+.system-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+/* A refresh that failed: the last values stay on screen, greyed. The summary
+   above them keeps its colour, since it is what says so. */
+.system-section.is-stale .system-blocks {
+  opacity: 0.55;
+}
+
+.system-block {
+  min-width: 0;
+}
+
+.system-block-title,
+.system-h {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--system-quiet);
+}
+
+/* The four blocks the settings search finds wear the Appearance sheet's label
+   class (the drawing is read back through it), which comes later in the sheet
+   and uppercases: the page's own heading look stands over it. */
+.system-block > .system-block-title {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.system-block-title:focus-visible,
+.system-h:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 3px;
+}
+
+.system-muted {
+  margin: 0;
+  color: var(--system-quiet);
+}
+
+.system-warn {
+  color: var(--system-warn);
+}
+
+.system-relay {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.system-kv {
+  display: grid;
+  grid-template-columns: minmax(0, 150px) minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.system-kv dt {
+  color: var(--system-quiet);
+}
+
+.system-kv dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.system-code {
+  font-family: var(--coddy-md-inline-code-font);
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+
+.system-kv dd > * + * {
+  margin-left: 8px;
+}
+
+.system-pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.system-pill[data-state="running"] {
+  background: var(--system-ok-bg);
+  color: var(--system-ok);
+}
+
+.system-pill[data-state="stopped"] {
+  background: var(--system-error-bg);
+  color: var(--system-error);
+}
+
+/* Big enough for a finger, whatever the row around it. */
+.system-copy {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  vertical-align: middle;
+}
+
+/* The meter keeps a width of its own and the free-space text wraps beside it,
+   so a long text (the Russian one) never squeezes the meter to a sliver. */
+.system-disk {
+  display: grid;
+  grid-template-columns: minmax(0, 150px) minmax(96px, 1fr) minmax(
+      0,
+      max-content
+    );
+  gap: 8px 12px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.system-meter {
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.system-meter > i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.system-meter[data-tone="warn"] > i {
+  background: var(--system-warn);
+}
+
+.system-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+/* The title keeps at least its longest word and the value wraps into the room
+   left beside it, so the two never run into each other. */
+.system-chart {
+  display: grid;
+  grid-template-columns: minmax(min-content, 1fr) minmax(0, max-content);
+  grid-template-areas: "title value" "plot plot" "legend legend";
+  gap: 4px 8px;
+  min-width: 0;
+  padding: 8px 10px 6px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 12px;
+  background: var(--coddy-surface-fieldset);
+}
+
+.system-chart > b {
+  grid-area: title;
+  font-size: 0.8rem;
+}
+
+.system-chart-value {
+  grid-area: value;
+  color: var(--system-quiet);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.system-plot {
+  grid-area: plot;
+  position: relative;
+  min-width: 0;
+  height: 46px;
+}
+
+.system-plot > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.system-spark polyline {
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.system-spark--accent {
+  stroke: var(--accent);
+}
+
+.system-spark--error {
+  stroke: var(--system-error);
+}
+
+.system-spark--ok {
+  stroke: var(--system-ok);
+}
+
+.system-spark--muted {
+  stroke: var(--system-quiet);
+}
+
+.system-spark--muted polyline {
+  stroke-dasharray: 3 2;
+}
+
+.system-chart-legend {
+  grid-area: legend;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  font-size: 0.72rem;
+  color: var(--system-quiet);
+}
+
+.system-chart-legend > span::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+  background: var(--accent);
+}
+
+.system-chart-legend > .system-key--error::before {
+  background: var(--system-error);
+}
+
+.system-chart-legend > .system-key--ok::before {
+  background: var(--system-ok);
+}
+
+.system-chart-legend > .system-key--muted::before {
+  background: var(--system-quiet);
+}
+
+.system-table-wrap {
+  overflow-x: auto;
+}
+
+.system-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.system-table th {
+  font-weight: 400;
+  text-align: left;
+  color: var(--system-quiet);
+}
+
+.system-table th,
+.system-table td {
+  padding: 2px 12px 2px 0;
+}
+
+.system-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding-top: 10px;
+  border-top: 1px solid mix-text(8%);
+  color: var(--system-quiet);
+}
+
+/* A phone: each chart is one line (name, plot, value) and the legend is left to
+   the colours, which the name and the value already say. */
+@media (max-width: 599px) {
+  .system-chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .system-chart {
+    grid-template-columns: 5.5rem minmax(0, 1fr) 6.5rem;
+    grid-template-areas: "title plot value";
+    align-items: center;
+    padding: 2px 0;
+    border: 0;
+    background: none;
+  }
+  .system-plot {
+    height: 20px;
+  }
+  .system-chart-value {
+    text-align: right;
+  }
+  .system-chart-legend {
+    display: none;
+  }
+  .system-kv {
+    grid-template-columns: minmax(0, 40%) minmax(0, 1fr);
+  }
+  .system-kv dd {
+    text-align: right;
+  }
+  .system-disk {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .system-disk > .system-meter {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}

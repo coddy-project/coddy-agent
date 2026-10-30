@@ -57,6 +57,7 @@ func (s *Server) terminalFor(sid, cwd string) (*terminalSession, error) {
 	}
 	shell := platform.CurrentShell()
 	cmd := exec.Command(shell.Path) //nolint:gosec // an authenticated terminal intentionally starts the host shell
+	platform.AdaptCommand(cmd)
 	cmd.Dir = cwd
 	cmd.Env = append(os.Environ(), "TERM=dumb", "NO_COLOR=1")
 	platform.DetachProcessGroup(cmd)

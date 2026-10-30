@@ -17,6 +17,29 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
+func TestReplayRestoresGenerationSummaryBetweenTurns(t *testing.T) {
+	h, err := NewHandler(Options{BaseURL: "http://127.0.0.1:1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &collectSender{}
+	h.SetServer(sender)
+	h.replayMessages("sess_1", []messageRow{
+		{Role: "user", Content: "hello"}, {Role: "assistant", Content: "done"},
+		{Role: "user", Content: "next"},
+	}, []session.UILogEntry{{ID: "generation_2026-10-24T10:00:00Z", UserTurnIndex: 1,
+		Generation: &session.GenerationSummary{OutputTokens: 500, TokensPerSecond: 9.8}}})
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+	if len(sender.updates) != 4 {
+		t.Fatalf("replay updates: %+v", sender.updates)
+	}
+	u, ok := sender.updates[2].(acp.TurnProgressUpdate)
+	if !ok || !u.Completed || u.TokensPerSecond == nil || *u.TokensPerSecond != 9.8 || u.OutputTokens != 500 {
+		t.Fatalf("missing saved average between turns: %+v", sender.updates)
+	}
+}
+
 // followSender is collectSender that also takes the backend-local control
 // updates the console opts into.
 type followSender struct {
@@ -185,7 +208,7 @@ func TestReplayShowsAWakeInsteadOfAUserMessage(t *testing.T) {
 			Tasks: []llm.BackgroundWakeTask{{ID: "bg_3", Kind: "command", Label: "make test", Status: "failed", ExitCode: &two, DurationMs: 90_000}},
 		}},
 		{Role: "assistant", Content: "The tests failed."},
-	})
+	}, nil)
 	sender.mu.Lock()
 	defer sender.mu.Unlock()
 	var users []string
@@ -226,7 +249,7 @@ func TestReplayShowsAnInTurnSummaryFromItsPreambleOn(t *testing.T) {
 		{Role: "user", CompactionSummary: true, Content: session.NewInTurnCompactionSummaryMessage(prompt, "the worker read two files", "m").Content},
 		{Role: "assistant", Content: "continuing"},
 		{Role: "user", CompactionSummary: true, Content: session.NewCompactionSummaryMessage("an older turn", "m").Content},
-	})
+	}, nil)
 	sender.mu.Lock()
 	defer sender.mu.Unlock()
 	var users []string
@@ -503,7 +526,7 @@ func TestReplayDrawsTheAgentsToolRows(t *testing.T) {
 	]`), &rows); err != nil {
 		t.Fatal(err)
 	}
-	h.replayMessages("sess_1", rows)
+	h.replayMessages("sess_1", rows, nil)
 	sender.mu.Lock()
 	defer sender.mu.Unlock()
 	var seq []string

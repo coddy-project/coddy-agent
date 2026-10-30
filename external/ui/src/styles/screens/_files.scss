@@ -1,0 +1,667 @@
+// The Files window.
+
+@use "../abstracts" as *;
+
+/* A workspace surface may live beside the conversation without replacing it. */
+@media (min-width: 800px) {
+  .shell-main.shell-files-open {
+    --coddy-files-panel-width: min(720px, 46vw);
+    --coddy-files-panel-band: calc(var(--coddy-files-panel-width) + 26px);
+  }
+
+  .shell-main.shell-files-open > .main,
+  .shell-main.shell-files-open > .terminal-panel {
+    margin-right: var(--coddy-files-panel-band);
+  }
+}
+
+/* ── Files workspace panel ────────────────────────────────────────────────
+   On desktop it gives the chat room and stays beside it, so opening a path
+   never takes the conversation away. On narrow layouts it remains a sheet
+   because two columns do not fit, but the chat stays mounted underneath. */
+.files-dock-cluster {
+  position: fixed;
+  top: 14px;
+  bottom: 14px;
+  left: calc(var(--rail-shell-track-width) + var(--nav-floating-gutter));
+  right: 14px;
+  width: var(--coddy-dock-width);
+  margin-inline: auto;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  color: var(--text);
+}
+
+@media (min-width: 800px) {
+  .files-dock-cluster {
+    left: auto;
+    width: var(--coddy-files-panel-width, min(720px, 46vw));
+    margin-inline: 0;
+  }
+}
+
+.files-dock-cluster.is-expanded {
+  left: 14px;
+  width: auto;
+  margin-inline: 0;
+  z-index: 55;
+}
+
+/* The head of the window: the tree switch and the title on the left, the
+   window's own controls on the right, on one line at every width. */
+.files-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 12px 12px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  border-bottom: 1px solid mix-text(6%);
+}
+
+.files-title-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.files-title-text {
+  min-width: 0;
+}
+
+/* Spelled like the documentation's title: small capitals in a 72% text tint. */
+.files-title {
+  margin: 0;
+  color: mix-text(72%);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.files-subtitle {
+  margin: 2px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: mix-text(52%);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.files-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+/* A square control as tall as the close button beside it (30px). */
+.files-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: mix-text(70%);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.files-icon-btn:hover,
+.files-icon-btn:focus-visible {
+  background: mix-text(8%);
+  color: var(--text);
+}
+
+/* A pressed toggle brightens - text, border and ground - like the view
+   buttons of the chat header; the accent is the mark of work in flight. */
+.files-icon-btn.is-active {
+  background: mix-text(9%);
+  border-color: mix-text(22%);
+  color: var(--text);
+}
+
+.files-icon-btn:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.files-more-host {
+  position: relative;
+}
+
+/* The window's menu hangs from its button inside the window, so it is never
+   clipped by the sheet and needs no portal. */
+.files-more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: auto;
+  z-index: 101;
+  min-width: 210px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.files-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.files-menu-check {
+  flex: 0 0 14px;
+  text-align: center;
+  color: var(--accent);
+}
+
+.files-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: mix-text(10%);
+}
+
+/* Tree and open files, side by side; the tree folds away for the width. */
+.files-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.files-layout.has-tree {
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+}
+
+.files-sidebar {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid mix-text(6%);
+}
+
+.files-filter {
+  position: relative;
+  flex: none;
+  padding: 10px 10px 8px;
+}
+
+.files-filter-icon {
+  position: absolute;
+  left: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-top: 1px;
+  color: mix-text(50%);
+  pointer-events: none;
+}
+
+.files-filter input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 34px;
+  padding: 0 10px 0 32px;
+  border-radius: 10px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: mix-text(4%);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.files-filter input:focus {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--coddy-blend-base));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.files-filter input::-webkit-search-cancel-button {
+  cursor: pointer;
+}
+
+/* As wide as the filter over it: a row's edges, the marked one's included,
+   are the filter's (.files-filter's side padding). */
+.files-tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0 10px 12px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+.files-tree-level {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* A top-level row's glyph stands where the filter's magnifier does and its
+   name starts where the filter's text does (files/treeGeometry.ts): 10px of
+   the tree plus 10px of the row is the magnifier's 20px, and 16px of glyph
+   plus a 7px gap brings the name to the text's 43px. Nested rows indent by an
+   inline padding from the same module. */
+.files-tree-row,
+.files-tree-more {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 28px;
+  padding: 3px 8px 3px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: mix-text(86%);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.files-tree-row:hover:not(:disabled),
+.files-tree-more:hover {
+  background: mix-text(6%);
+}
+
+/* The file on show: a brighter row with a light outline, not the accent. */
+.files-tree-row.is-active {
+  background: mix-text(9%);
+  box-shadow: inset 0 0 0 1px mix-text(18%);
+  color: var(--text);
+}
+
+.files-tree-row:disabled {
+  cursor: default;
+  color: mix-text(55%);
+}
+
+.files-tree-row:focus-visible,
+.files-tree-more:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
+}
+
+.files-tree-glyph {
+  flex: 0 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: mix-text(55%);
+}
+
+.files-tree-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-hit .files-tree-name {
+  direction: rtl;
+  text-align: left;
+}
+
+.files-tree-link {
+  flex: none;
+  font-size: 11px;
+  color: mix-text(50%);
+}
+
+.files-tree-more {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+/* The open files: a strip of tabs over the file on show. */
+.files-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The strip of open files stands as far under the head as the filter beside
+   it. Tabs that do not fit scroll sideways with no scrollbar and no arrows:
+   the wheel and a swipe move it (FilesView.tsx, TabStrip). */
+.files-tabs-bar {
+  position: relative;
+  flex: none;
+  padding: 10px 0 0;
+  border-bottom: 1px solid mix-text(6%);
+}
+
+.files-tabs {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 8px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.files-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* An end that has more tabs fades out, the strip's only sign of them. */
+.files-tabs.has-more-left {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 28px);
+  mask-image: linear-gradient(to right, transparent, #000 28px);
+}
+
+.files-tabs.has-more-right {
+  -webkit-mask-image: linear-gradient(to left, transparent, #000 28px);
+  mask-image: linear-gradient(to left, transparent, #000 28px);
+}
+
+.files-tabs.has-more-left.has-more-right {
+  -webkit-mask-image: $tab-fade-both;
+  mask-image: $tab-fade-both;
+}
+
+/* 33px and the strip's 1px line under it: as tall as the filter beside it, so
+   the line the file starts under is level with the filter's bottom edge. */
+.files-tab {
+  flex: none;
+  box-sizing: border-box;
+  height: 33px;
+  display: flex;
+  align-items: center;
+  max-width: 240px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 9px 9px 0 0;
+  color: mix-text(62%);
+}
+
+.files-tab:hover {
+  background: mix-text(4%);
+}
+
+.files-tab.is-active {
+  background: mix-text(7%);
+  border-color: mix-text(9%);
+  color: var(--text);
+}
+
+.files-tab-name {
+  align-self: stretch;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 4px 0 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.files-tab-dir {
+  color: mix-text(45%);
+  font-size: 11px;
+}
+
+.files-tab-close {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-right: 5px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.files-tab-close:hover,
+.files-tab-close:focus-visible,
+.files-tab.is-active .files-tab-close {
+  opacity: 1;
+}
+
+.files-tab-close:hover {
+  background: mix-text(10%);
+}
+
+/* No file open: a quiet note in the middle of the space the files will take. */
+.files-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+}
+
+.files-empty-icon {
+  color: mix-text(45%);
+  margin-bottom: 6px;
+}
+
+.files-empty-title {
+  margin: 0;
+  font-size: 15px;
+  color: mix-text(88%);
+}
+
+.files-empty-hint {
+  margin: 0;
+  max-width: 360px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: mix-text(55%);
+}
+
+/* One open file: its body alone, the tab above names it. */
+.files-file {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.files-file-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 16px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+.files-note {
+  margin: 12px 14px;
+  font-size: 13px;
+  color: mix-text(60%);
+}
+
+.files-changed {
+  margin: 10px 14px 0;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+/* A line's number and its text are one line box: the block sets the font,
+   the size and the line height, and both take them. The stack is the diffs'
+   (.dv-diff); the code element inherits it instead of the browser's own
+   monospace, whose size and line height would set the text apart from its
+   number. */
+.files-code {
+  padding-top: 8px;
+  font-family: $coddy-mono-ui;
+  font-size: 12px;
+  line-height: 1.6;
+  min-width: 100%;
+  width: max-content;
+}
+
+.files-code > div {
+  display: flex;
+}
+
+.files-code code {
+  font: inherit;
+  white-space: pre;
+  flex: 1;
+  min-width: 0;
+  padding-right: 14px;
+}
+
+.files-code--wrap {
+  width: 100%;
+}
+
+.files-code--wrap code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.files-line-no {
+  flex: 0 0 52px;
+  color: mix-text(38%);
+  text-align: right;
+  padding-right: 14px;
+  user-select: none;
+}
+
+.files-image {
+  display: block;
+  padding: 12px;
+  overflow: auto;
+  background: repeating-conic-gradient(
+      rgb(127 127 127 / 8%) 0% 25%,
+      transparent 0% 50%
+    )
+    50% / 16px 16px;
+}
+
+.files-image img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 8px auto;
+}
+
+.files-image--full img {
+  max-width: none;
+}
+
+.files-file-body audio,
+.files-file-body video {
+  display: block;
+  max-width: calc(100% - 28px);
+  margin: 14px;
+}
+
+/* A PDF in the browser's own viewer and an HTML page in its sandbox fill the
+   body: the frame scrolls its document, the body around it does not. */
+.files-file-body--frame {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+.files-file-body--frame > .files-pdf,
+.files-file-body--frame > .files-html {
+  display: block;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+}
+
+/* The menu a right click opens on a picture of the app (ImageMenu.tsx): over
+   every panel, the full-screen viewer (400) included, at the pointer; under
+   the settings field tips (1000), which stay the top layer. */
+.mode-menu.mode-menu--portal.image-menu {
+  z-index: 900;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+}
+
+.image-menu-notice {
+  position: fixed;
+  z-index: 900;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  color: var(--text);
+  font-size: 12px;
+  pointer-events: none;
+  transform: translate(8px, 8px);
+}
+
+/* A page draws on the canvas a browser tab gives it, whatever the theme. */
+.files-html {
+  background: #fff;
+  color-scheme: light;
+}
+
+.files-image > button,
+.files-action {
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 8px;
+  background: mix-text(4%);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+/* A file path in a permission preview opens the file in the window. */
+.files-open-path {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.files-open-path:hover {
+  text-decoration: underline;
+}

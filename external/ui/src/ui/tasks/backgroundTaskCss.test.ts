@@ -1,27 +1,28 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { expect, test } from "vitest";
 
 import { phoneMaxWidthMediaQuery } from "../shellBreakpoint";
+import { stylesSource } from "../../stylesSource";
 
-const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf8");
+const css = stylesSource();
 
 function ruleBody(selector: string): string {
   const idx = css.indexOf(selector);
-  expect(idx, `${selector} is missing from styles.css`).toBeGreaterThan(-1);
+  expect(idx, `${selector} is missing from styles.scss`).toBeGreaterThan(-1);
   const open = css.indexOf("{", idx);
   const close = css.indexOf("}", open);
   return css.slice(open + 1, close);
 }
 
 test("task colors are derived from theme tokens, not hardcoded greys", () => {
+  // mix-text() mixes the theme's --text token; both spellings name it.
+  const fromText = /mix-text\(|var\(--text\)/;
   for (const selector of [
     ".bgtask-card-label {",
     ".bgtask-card-meta {",
     ".bgtask-card-foot {",
     ".bgtask-card-output-head {",
   ]) {
-    expect(ruleBody(selector)).toContain("var(--text)");
+    expect(ruleBody(selector)).toMatch(fromText);
   }
 });
 
@@ -283,7 +284,9 @@ test("the child transcript action is an expanded-card tab attached below output"
 });
 
 test("a card answers the pointer with a tint from the theme", () => {
-  expect(ruleBody(".bgtask-card-summary:hover {")).toContain("var(--text)");
+  expect(ruleBody(".bgtask-card-summary:hover {")).toMatch(
+    /mix-text\(|var\(--text\)/,
+  );
 });
 
 test("the output of an open card scrolls inside a box of its own height", () => {
@@ -311,7 +314,7 @@ test("the header's view buttons are styled from theme tokens, mark a live sessio
   // The title is the flexible child of the header; the row keeps its size.
   expect(row).toContain("flex: none");
   const button = ruleBody(".chat-view-btn {");
-  expect(button).toContain("var(--text)");
+  expect(button).toMatch(/mix-text\(|var\(--text\)/);
   expect(button).toContain("height: 36px");
   // The accent says that work runs in the background, nothing else.
   expect(ruleBody(".chat-view-btn.is-running {")).toContain("var(--accent)");
@@ -321,8 +324,8 @@ test("the header's view buttons are styled from theme tokens, mark a live sessio
   const pressed = ruleBody(".chat-view-btn.is-active {");
   expect(pressed).not.toContain("var(--accent)");
   expect(pressed).toMatch(/color: var\(--text\)/);
-  expect(pressed).toMatch(/border-color: color-mix\(in srgb, var\(--text\)/);
-  expect(pressed).toMatch(/background: color-mix\(in srgb, var\(--text\)/);
+  expect(pressed).toMatch(/border-color: mix-text\(/);
+  expect(pressed).toMatch(/background: mix-text\(/);
   expect(css).toMatch(/\.chat-view-btn:hover,\n\.chat-view-btn\.is-active \{/);
   // The tooltip is the rail's: the same tokens.
   const tip = ruleBody(".chat-view-tip {");

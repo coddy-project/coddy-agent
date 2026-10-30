@@ -2662,6 +2662,7 @@ export const messagesRu: Record<string, string> = {
   "status.turnTokens.few": "{shown} токена",
   "status.turnTokens.many": "{shown} токенов",
   "status.turnTokens.other": "{shown} токена",
+  "status.generationSpeed": "{speed} т/с",
   "messages.toolArtifacts": "Переданные файлы",
   "messages.openArtifactImage": "Открыть {fileName}",
   "messages.artifactActions": "Действия для {fileName}",

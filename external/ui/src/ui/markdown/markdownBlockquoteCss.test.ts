@@ -1,15 +1,8 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
-
-const cssPath = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../styles.css",
-);
+import { stylesSource } from "../../stylesSource";
 
 function cssText(): string {
-  return readFileSync(cssPath, "utf8");
+  return stylesSource();
 }
 
 // Regression: blockquote text used a hardcoded near-white color
@@ -24,5 +17,5 @@ test("markdown blockquote text color is theme-aware (readable on light)", () => 
   // Must not hardcode the near-white color that vanishes on the light canvas.
   expect(block![0]).not.toMatch(/color:\s*rgba\(\s*229,\s*231,\s*235/);
   // Must derive from the theme --text token so it flips with the theme.
-  expect(block![0]).toMatch(/color:\s*color-mix\(in srgb,\s*var\(--text\)/);
+  expect(block![0]).toMatch(/color:\s*mix-text\(/);
 });

@@ -10,7 +10,7 @@
  */
 import { useState } from "react";
 import ReactDOM from "react-dom/client";
-import "./styles.css";
+import "./styles.scss";
 import { Composer } from "./ui/chat/Composer";
 import { I18nProvider } from "./ui/i18n/I18nProvider";
 import { initLocale } from "./ui/i18n/i18n";

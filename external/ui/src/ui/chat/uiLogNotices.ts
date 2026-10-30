@@ -1,4 +1,5 @@
 import type { TranscriptItem } from "./types";
+import type { GenerationSummary } from "./generationSpeed";
 
 /** One `uiLog` row as `GET /coddy/sessions/{id}/messages` returns it. */
 export type RawUiLogRow = {
@@ -7,6 +8,7 @@ export type RawUiLogRow = {
   message?: string;
   userTurnIndex?: number;
   createdAt?: string;
+  generation?: GenerationSummary;
 };
 
 type SystemNotice = Extract<TranscriptItem, { type: "system_notice" }>;
@@ -64,7 +66,14 @@ export function uiLogNoticeFeed(
     pending.push({
       turn,
       order,
-      item: { id, type: "system_notice", level, message, createdAtUtc },
+      item: {
+        id,
+        type: "system_notice",
+        level,
+        message,
+        createdAtUtc,
+        ...(raw.generation ? { generation: raw.generation } : {}),
+      },
     });
   });
   pending.sort(
