@@ -11,9 +11,14 @@ _coddy() {
     # The one-shot flags of the console, after `coddy` and after `coddy cli`.
     local prompt_flags="-p --prompt -i --prompt-file --no-stdin --ephemeral"
 
-    # -i reads the prompt from a file (or - for stdin).
+    # -i reads the prompt from a file (or - for stdin); --add-extension takes
+    # the path of an extension package.
     case "${prev}" in
         -i|--prompt-file)
+            COMPREPLY=($(compgen -f -- "${cur}"))
+            return
+            ;;
+        --add-extension)
             COMPREPLY=($(compgen -f -- "${cur}"))
             return
             ;;
@@ -108,7 +113,7 @@ _coddy() {
             COMPREPLY=($(compgen -W "-c --continue ${prompt_flags} --model --mode --permission-mode --session-id --cwd --remote --remote-token" -- "${cur}"))
             ;;
         serve)
-            COMPREPLY=($(compgen -W "install uninstall status stop restart set-password --user -d --daemon -t --test-config --dry-run --config --home --cwd --sessions-dir --session-id --log-level --log-output --log-file --log-format -H --host -P --port --auth-token --http --gateway --swarm --scheduler --swarm-host --swarm-port --swarm-auth-token --swarm-pairing-token --swarm-allow-insecure" -- "${cur}"))
+            COMPREPLY=($(compgen -W "install uninstall status stop restart set-password --user -d --daemon -t --test-config --dry-run --config --home --cwd --sessions-dir --session-id --add-extension --log-level --log-output --log-file --log-format -H --host -P --port --auth-token --http --gateway --swarm --scheduler --swarm-host --swarm-port --swarm-auth-token --swarm-pairing-token --swarm-allow-insecure" -- "${cur}"))
             ;;
     esac
 }

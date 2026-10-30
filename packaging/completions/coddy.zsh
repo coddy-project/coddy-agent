@@ -135,6 +135,7 @@ _coddy() {
                         '--home[agent state directory]:directory:_files -/' \
                         '--cwd[default session working directory]:directory:_files -/' \
                         '--sessions-dir[sessions root]:directory:_files -/' \
+                        '*--add-extension[install and enable this extension package at startup (repeatable)]:package:_files' \
                         '--log-level[level, or a spec such as info,gateway.telegram=debug]:level:(debug info warn error)' \
                         '-H[bind address for the HTTP API]:host:' \
                         '-P[listen port for the HTTP API]:port:' \
