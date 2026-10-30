@@ -406,4 +406,4 @@ coddy acp --log-level debug
 
 Те же настройки можно сохранить в разделе `logger` файла `config.yaml` (`level`, `levels`, `outputs`, `file`, `format`). Справка - [Конфигурация](configuration.md), [`logger`](../reference/config.md#logger).
 
-<!-- docsgen:source sha256=acee517b8de8c4c0 -->
+<!-- docsgen:source sha256=138c476c2a2f5b4e -->

@@ -136,7 +136,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
-	if err := verifyAssetChecksum(ctx, client, rel, asset.Name, data, out); err != nil {
+	if err := verifyAssetChecksum(ctx, client, opts.Repo, rel, asset.Name, data, out); err != nil {
 		return err
 	}
 	if opts.GOOS == "windows" {

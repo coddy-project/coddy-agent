@@ -382,4 +382,4 @@ exit 0
 - юнит-тесты - `internal/hooks/hooks_test.go` (формат файла, матчеры, области загрузчика, контракт раннера), `internal/hooks/trust_test.go` (расписки, каталог), `internal/config/hooks_test.go`, `cmd/coddy/hooks_test.go`;
 - сквозные тесты с настоящей моделью на каждом интерфейсе, подключённые к трём раннерам, - `examples/acp/acp_e2e_hooks.py` (ACP через stdio; `coddy hooks list` и `coddy hooks trust` между ходами), `examples/httpserver/http_e2e_hooks.py` (`GET /coddy/hooks` с ожидающим одобрения файлом проекта, строка `notice` в `uiLog`, `POST /coddy/hooks/trust`, второй ход, который запускает одобренный хук, `POST /coddy/hooks/untrust`) и `examples/cli/cli_e2e_hooks.py` (консольный TUI с теми же хуками-регистраторами, уведомление в `ui_log.json` сессии, одобрение через CLI). Каждый из них записывает входные данные всех `PreToolUse` и `PostToolUse` настоящего вызова `run_command` через хуки пользовательской области, проверяет, что хук проектной области остаётся неодобренным, одобряет его и проверяет, что следующий ход той же сессии его запускает.
 
-<!-- docsgen:source sha256=e2cec17b74fd3f0e -->
+<!-- docsgen:source sha256=918079c5d01f6b6f -->

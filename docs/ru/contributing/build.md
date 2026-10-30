@@ -254,6 +254,7 @@ go build -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser ...
 | **`coddy_X.Y.Z_linux_amd64.rpm`**, **`coddy_X.Y.Z_linux_arm64.rpm`** | Fedora, RHEL, openSUSE и производные |
 | **`coddy.rb`** | Homebrew cask для архивов macOS этого тега; тот же файл коммитится в тап [coddy-project/homebrew-coddy-agent](https://github.com/coddy-project/homebrew-coddy-agent) |
 | **`SHA256SUMS`** | Контрольные суммы всех архивов и пакетов выше |
+| **`SHA256SUMS.minisig`** | Подпись этого списка ([Подпись релизов](#подпись-релизов)) |
 
 Архивы **`.tar.gz`** содержат рядом с бинарником man-страницу и автодополнения оболочек; пакеты оборачивают бинарники Linux, которые только что собрало то же задание, а не компилируют свои, поэтому в **`.deb`**, **`.rpm`** и **`.tar.gz`** одного тега лежат побайтно одинаковые исполняемые файлы.
 
@@ -262,6 +263,21 @@ go build -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser ...
 ```bash
 gh workflow run "Release binaries" --ref X.Y.Z -f tag=X.Y.Z
 ```
+
+### Подпись релизов
+
+Workflow подписывает **`SHA256SUMS`** секретным ключом из секрета репозитория **`RELEASE_SIGNING_KEY`** через **`cmd/releasesign`**, а **`coddy update`** проверяет подпись открытыми ключами из **`releaseSigningKeys`** (**`internal/update/checksum.go`**). Подпись сделана в формате minisign, поэтому её проверяет **`minisign -Vm SHA256SUMS -P <public key>`**, а доверенный комментарий называет тег, поэтому подписанный список старого релиза не пройдёт за новый. Релиз начиная с **`firstSignedRelease`** без верной подписи отклоняется.
+
+Чтобы создать ключ, выполните первую команду, добавьте напечатанный ею открытый ключ в **`releaseSigningKeys`** и сохраните секрет:
+
+```bash
+go run ./cmd/releasesign keygen coddy-release-signing.key
+gh secret set RELEASE_SIGNING_KEY --repo coddy-project/coddy-agent < coddy-release-signing.key
+```
+
+GitHub не отдаёт секрет обратно, поэтому храните файл отдельно от сети или считайте, что потерянный ключ заменяется, а не восстанавливается. Чтобы заменить ключ, выпустите его открытую часть перед старым ключом в релизе, подписанном старым ключом, и переключите секрет, когда у тех, кто обновляется, уже будет эта сборка. Бинарник доверяет только тем ключам, которые несёт сам.
+
+Подпись останавливает того, кто может загружать файлы в релиз. Это может утёкший токен или взломанный шаг другой джобы. Того, кто может запустить workflow этого репозитория с секретом, она не останавливает.
 
 ## Сканирование AppSec
 
@@ -275,4 +291,4 @@ go install github.com/EvilFreelancer/coddy-agent/cmd/coddy@latest
 
 Так компилируется то, что модуль собирает по умолчанию, **без** ваших локальных **`TAGS`**. Чтобы получить известный набор возможностей (HTTP, веб-интерфейс, планировщик, память, консоль, шлюз мессенджеров), клонируйте репозиторий и используйте **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"`** (или **`go build -tags=...`**, как выше).
 
-<!-- docsgen:source sha256=6c83173fa95aaf08 -->
+<!-- docsgen:source sha256=4095ca861f92c7fa -->
