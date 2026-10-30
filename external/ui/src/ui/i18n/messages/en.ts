@@ -1015,6 +1015,8 @@ export const messagesEn: Record<string, string> = {
   "onboarding.showKey": "Show",
   "onboarding.hideKey": "Hide",
   "onboarding.apiBase": "API base URL",
+  "onboarding.apiBaseRequired":
+    "Enter the API base URL before testing or saving this provider.",
   "onboarding.proxy": "Proxy URL",
   "onboarding.proxyHint":
     "Model discovery, sign-in and chat requests use this route.",
@@ -1029,7 +1031,6 @@ export const messagesEn: Record<string, string> = {
   "onboarding.validationFailed": "The configuration is invalid.",
   "onboarding.saveFailed": "Could not save the configuration ({status}).",
   "onboarding.saveFailedGeneric": "Could not save the configuration.",
-  "onboarding.connectionFailed": "Could not fetch models from this provider.",
   "onboarding.testOk": "The provider answered with a model catalog.",
   "onboarding.skip": "Skip for now",
   "onboarding.test": "Test connection",

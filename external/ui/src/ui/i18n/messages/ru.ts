@@ -1040,6 +1040,8 @@ export const messagesRu: Record<string, string> = {
   "onboarding.showKey": "Показать",
   "onboarding.hideKey": "Скрыть",
   "onboarding.apiBase": "Базовый URL API",
+  "onboarding.apiBaseRequired":
+    "Введите базовый URL API, прежде чем проверять или сохранять этого провайдера.",
   "onboarding.proxy": "URL прокси",
   "onboarding.proxyHint":
     "Этот маршрут используется для получения моделей, входа и запросов чата.",
@@ -1054,7 +1056,6 @@ export const messagesRu: Record<string, string> = {
   "onboarding.validationFailed": "Конфигурация недействительна.",
   "onboarding.saveFailed": "Не удалось сохранить конфигурацию ({status}).",
   "onboarding.saveFailedGeneric": "Не удалось сохранить конфигурацию.",
-  "onboarding.connectionFailed": "Не удалось получить модели провайдера.",
   "onboarding.testOk": "Провайдер ответил каталогом моделей.",
   "onboarding.skip": "Пропустить пока",
   "onboarding.test": "Проверить соединение",

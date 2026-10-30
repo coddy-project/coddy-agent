@@ -54,6 +54,9 @@ export function ProviderPickerDialog(props: {
     [selected],
   );
   const effectiveApiBase = apiBase.trim() || preset.apiBase || "";
+  // The compatible preset has no endpoint of its own: without a typed api_base
+  // the row would save keyless with no destination, so Test and Save wait.
+  const apiBaseMissing = preset.id === "compatible" && !effectiveApiBase;
   const keyless =
     preset.providerType === "codex" ||
     (managedLogin &&
@@ -115,7 +118,7 @@ export function ProviderPickerDialog(props: {
     setTestOk(false);
     setManagedLogin(false);
     setApiBase(preset.apiBase || "");
-    setApiKey(preset.id === "ollama" ? "~" : "");
+    setApiKey("");
     setModelId(
       ["neuraldeep", "codex", "opencode", "devin"].includes(preset.id)
         ? preset.defaultModel
@@ -386,6 +389,14 @@ export function ProviderPickerDialog(props: {
                 placeholder="https://api.example.com/v1"
                 data-testid="provider-api-base"
               />
+              {apiBaseMissing ? (
+                <span
+                  className="provider-picker-hint"
+                  data-testid="provider-api-base-required"
+                >
+                  {t("onboarding.apiBaseRequired")}
+                </span>
+              ) : null}
             </label>
           ) : null}
 
@@ -424,7 +435,7 @@ export function ProviderPickerDialog(props: {
                 type="button"
                 className="provider-picker-ghost-btn"
                 onClick={() => void testConnection()}
-                disabled={busy || modelsLoading}
+                disabled={busy || modelsLoading || apiBaseMissing}
                 data-testid="provider-fetch-models"
               >
                 {modelsLoading
@@ -480,7 +491,7 @@ export function ProviderPickerDialog(props: {
             type="button"
             className="provider-picker-secondary"
             onClick={() => void testConnection()}
-            disabled={busy || modelsLoading}
+            disabled={busy || modelsLoading || apiBaseMissing}
             data-testid="provider-test"
           >
             {t("onboarding.test")}
@@ -489,7 +500,7 @@ export function ProviderPickerDialog(props: {
             type="button"
             className="provider-picker-primary"
             onClick={() => void save()}
-            disabled={busy}
+            disabled={busy || apiBaseMissing}
             data-testid="provider-save"
           >
             {t("onboarding.save")}

@@ -257,4 +257,22 @@ describe("ProviderPickerDialog", () => {
       max_turns: 40,
     });
   });
+
+  it("keeps the compatible preset unsaved until it has an API base", () => {
+    renderPicker();
+    fireEvent.click(screen.getByTestId("provider-card-compatible"));
+    const save = screen.getByTestId("provider-save") as HTMLButtonElement;
+    const test = screen.getByTestId("provider-test") as HTMLButtonElement;
+    // No endpoint of its own: Test and Save wait for a typed api_base, so a
+    // keyless row with no destination cannot be written.
+    expect(save.disabled).toBe(true);
+    expect(test.disabled).toBe(true);
+    expect(screen.getByTestId("provider-api-base-required")).toBeTruthy();
+    fireEvent.change(screen.getByTestId("provider-api-base"), {
+      target: { value: "https://api.deepseek.example/v1" },
+    });
+    expect(save.disabled).toBe(false);
+    expect(test.disabled).toBe(false);
+    expect(screen.queryByTestId("provider-api-base-required")).toBeNull();
+  });
 });

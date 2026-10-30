@@ -276,7 +276,10 @@ export function buildOnboardingConfig(input: {
     agent: {
       ...object(baseDoc.agent),
       model,
-      max_turns: object(baseDoc.agent).max_turns ?? 35,
+      // The served document always carries max_turns; the fallback follows
+      // AgentDefaultMaxTurns so a document without the field keeps the cap
+      // every other path defaults to.
+      max_turns: object(baseDoc.agent).max_turns ?? 165,
     },
   };
 }

@@ -74,7 +74,7 @@ describe("buildOnboardingConfig", () => {
       expect(provider.proxy).toBe("socks5h://127.0.0.1:1080");
       expect(doc.agent).toEqual({
         model: `${id}/${id === "devin" ? "claude-sonnet-5" : "gpt-5.5"}`,
-        max_turns: 35,
+        max_turns: 165,
       });
     },
   );
@@ -95,10 +95,10 @@ describe("buildOnboardingConfig", () => {
     );
   });
 
-  it("keeps Ollama on ordinary generation settings", () => {
+  it("saves Ollama keyless on its local endpoint", () => {
     const doc = buildOnboardingConfig({
       preset: preset("ollama"),
-      apiKey: "~",
+      apiKey: "",
       apiBase: "http://127.0.0.1:11434/v1",
       proxy: "",
       modelId: "",
@@ -106,6 +106,11 @@ describe("buildOnboardingConfig", () => {
       catalog: [],
       managedLogin: false,
     });
+    // A local api_base needs no key, and no fake credential is written.
+    const provider = (doc.providers as Record<string, unknown>[])[0]!;
+    expect(provider.api_key).toBeUndefined();
+    expect(provider.api_key_command).toBeUndefined();
+    expect(provider.api_base).toBe("http://127.0.0.1:11434/v1");
     expect(doc.models).toEqual([
       expect.objectContaining({
         model: "local/llama3.2",
