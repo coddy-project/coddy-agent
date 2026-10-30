@@ -173,7 +173,12 @@ describe("extension lifetime", () => {
     const load = vi.fn(() => new Promise<never>(() => {}));
     const runtime = new ExtensionRuntime(vi.fn(), load);
     const work = runtime.reconcile([entry]);
-    for (let i = 0; i < 100 && load.mock.calls.length === 0; i++) {
+    // The chain before the module import runs on the real event loop, and a
+    // loaded machine can spend more than a fixed number of turns on the digest:
+    // wait for the import on the wall clock, which the faked activation timer
+    // (setTimeout, Date) does not touch.
+    const deadline = performance.now() + 10_000;
+    while (load.mock.calls.length === 0 && performance.now() < deadline) {
       await new Promise((done) => setImmediate(done));
     }
     expect(load).toHaveBeenCalledOnce();
