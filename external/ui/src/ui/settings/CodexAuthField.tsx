@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { FieldLabel } from "./FieldHint";
 import type { OverrideTexts } from "./settingsSections";
 import { useT } from "../i18n/I18nProvider";
@@ -41,6 +41,7 @@ export function CodexAuthField(props: {
   proxy?: string;
   /** The account's name and description (primary). */
   texts: OverrideTexts;
+  onConnectedChange?: (connected: boolean) => void;
 }) {
   const providerName = props.providerName.trim();
   const endpoint = `/coddy/providers/${encodeURIComponent(providerName)}/codex-auth`;
@@ -48,6 +49,11 @@ export function CodexAuthField(props: {
   const [login, setLogin] = useState<DeviceLogin | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const onConnectedChange = props.onConnectedChange;
+
+  useLayoutEffect(() => {
+    onConnectedChange?.(status.connected);
+  }, [status.connected, onConnectedChange]);
 
   useEffect(() => {
     setLogin(null);

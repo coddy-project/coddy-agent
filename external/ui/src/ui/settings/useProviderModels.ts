@@ -142,8 +142,9 @@ function normalize(rows: ModelsResponse["models"]): FetchedModel[] {
  *
  * Every call takes a ticket; a newer call, `reset` and unmounting invalidate
  * the older ones, and an answer whose ticket is stale resolves to `null` and
- * touches no state. That is what keeps a slow answer for the provider the
- * operator has since switched away from off the list of the one they picked.
+ * touches no state. A failed request resolves to an empty list, with `error`
+ * and `errorRef` carrying the reason. That keeps a slow answer for the provider
+ * the operator has since switched away from off the list of the one they picked.
  */
 export function useProviderModels() {
   const [loading, setLoading] = useState(false);
@@ -152,6 +153,7 @@ export function useProviderModels() {
   const [fetched, setFetched] = useState(false);
   const ticket = useRef(0);
   const mounted = useRef(true);
+  const errorRef = useRef("");
 
   useEffect(() => {
     mounted.current = true;
@@ -166,6 +168,7 @@ export function useProviderModels() {
     setLoading(false);
     setModels([]);
     setError("");
+    errorRef.current = "";
     setFetched(false);
   }, []);
 
@@ -181,6 +184,7 @@ export function useProviderModels() {
       const live = () => mounted.current && ticket.current === mine;
       setLoading(true);
       setError("");
+      errorRef.current = "";
 
       let list: FetchedModel[] = [];
       let failure = "";
@@ -206,6 +210,7 @@ export function useProviderModels() {
       if (!live()) {
         return null;
       }
+      errorRef.current = failure;
       setModels(list);
       setError(failure);
       setLoading(false);
@@ -215,7 +220,7 @@ export function useProviderModels() {
     [],
   );
 
-  return { loading, models, error, fetched, fetchModels, reset };
+  return { loading, models, error, errorRef, fetched, fetchModels, reset };
 }
 
 /**

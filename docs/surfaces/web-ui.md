@@ -39,6 +39,30 @@ https://github.com/user-attachments/assets/604d01bb-b730-4ca5-9955-a7a593891054
 - **Persistence:** switching theme writes the cookie and sets **`document.documentElement.dataset.theme`**; reload must keep the chosen theme.
 - **CSS contract:** **`--text`** and **`--bg`** on **`[data-theme="light"]`** are **`#18181b`** and **`#f8f8fa`**; glass panels use **`rgba(255, 255, 255, 0.9)`** (not dark tint). Dark defaults remain on **`:root`** / **`[data-theme="dark"]`**.
 
+## First-run onboarding
+
+![The provider picker, with OpenCode and Devin among its eight presets](../assets/web-ui/onboarding-provider-dark-1280.png)
+
+*The provider picker on a fresh Coddy home (Dark, 1280 px).*
+
+- **When it opens.** `GET /coddy/onboarding/status` is read once per page load. The picker opens when config.yaml is absent, no providers or models are configured, `agent.model` is empty, or that model's provider has no usable credential source. A keyless provider the agent does not use only appears in the informational `missing_api_keys` list and does not reopen the picker. A local OpenAI-compatible endpoint with its own `api_base` can be ready without a key. The status check never runs `api_key_command` or calls a provider.
+- **Provider presets.** OpenAI, Anthropic, Ollama, OpenAI-compatible, NeuralDeep, Codex, OpenCode and Devin. Each preset carries a provider name, type, recommended model and, where relevant, an endpoint and environment-variable key placeholder. OpenCode offers the Go and Console gateways plus the existing device login; Devin offers browser PKCE sign-in and a callback-address field for a browser that cannot reach the Coddy machine. Both also accept an explicit key, which wins over the stored login.
+- **Models and connection checks.** The model combobox reads `POST /coddy/providers/models` with the row as it stands in the form, including an unsaved provider and a login that only exists on the server. Picking a listed model carries its context window, catalog `max_tokens` and image support into the model entry. **Test connection** only fetches the catalog; it does not write the config. Manual model entry remains available after a probe failure.
+- **Saving.** Validate and PUT go through the ordinary `/coddy/config` flow. The selected provider and model are merged into the document read when the dialog opened: other providers, models and `agent.max_turns` are preserved. A managed NeuralDeep, OpenCode or Devin login leaves `api_key` and `api_key_command` out of the saved row so an old key cannot shadow it; Codex never writes either field. The app then refreshes its model metadata.
+
+![The first step of the guided tour](../assets/web-ui/onboarding-tour-dark-1280.png)
+
+*The guided tour spotlighting Settings (Dark, 1280 px).*
+
+- **Guided tour.** Save or Skip starts a coach-mark tour once per browser, recorded in localStorage as `coddy.tourSeen`. Steps point at Settings, the workspace chip, History, Scheduler when present, the model selector, the composer and Send. Missing anchors are skipped, the spotlight follows resize and scroll, and Back, Next, Skip and Escape are supported.
+- **Restart.** **Settings → Appearance → Restart onboarding** closes the drawer, clears the tour flag and opens the provider picker again. It is not offered on a swarm relay, whose settings have no agent onboarding.
+
+![Restart onboarding in Settings → Appearance](../assets/web-ui/onboarding-restart-dark-1280.png)
+
+*Restart onboarding below the notification settings (Dark, 1280 px).*
+
+Automated checks: `features/onboarding_status.feature` with `external/httpserver/bdd_onboarding_test.go` and `onboarding_http_test.go`; `devin_auth_http_test.go` for the callback, callback paste, proxy and cancellation paths; the onboarding Vitest suites for the picker, non-destructive config merge, localized copy and tour.
+
 ## Session goal
 
 When the session has a goal, a target mark sits on the plate over the composer, left of git's `+A −D` count, in the colour of the goal's status (in work, paused, needs you, done, budget used up); pointing at it shows the status and the objective. It appears only once `/goal` has set a goal, and a chat outside a git repository then gets the plate too, naming the folder. It opens the goal menu: the whole objective, the status and its reason, the supervisor's last check with a **verified** mark when the read-only verifier confirmed it, the requirement checklist, the continuations, checks, active time and tokens, then the model that checks it (**Checked by**) with the reasoning level of the check beside it (**Reasoning**: the level `/goal -r` chose, else the model's default level; no Reasoning for a model without levels), and the actions as icons, named in their tips: **Pause**, **Resume**, **Edit** (sends `/goal <new objective>` with the same checker, which replaces the goal and starts work) and **Clear** (asks first). A bare `/goal` sent from the composer opens the same menu and sends nothing; with no goal it offers a field to set one. The turns the supervisor starts show as one-line goal rows, not as your messages, live and after a reload. **Settings → Session goal** edits the `supervisor` keys. See [Session goal and supervisor](../features/session-supervisor.md).

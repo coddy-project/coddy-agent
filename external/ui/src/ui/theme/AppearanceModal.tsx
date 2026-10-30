@@ -171,7 +171,9 @@ export function AppearanceLanguagePicker() {
  * can be embedded as a Settings tab. Theme selection applies immediately and is
  * client-side only (no config save). The language picker sits right under it,
  * and the switch of system notifications under that. */
-export function AppearanceThemePicker() {
+export function AppearanceThemePicker(props: {
+  onRestartOnboarding?: (() => void) | undefined;
+}) {
   const { t } = useT();
   const current = useSyncExternalStore(
     subscribeTheme,
@@ -209,6 +211,19 @@ export function AppearanceThemePicker() {
       </div>
       <AppearanceLanguagePicker />
       <NotificationsSetting />
+      {props.onRestartOnboarding ? (
+        <div className="appearance-onboarding">
+          <p className="settings-field-desc">{t("onboarding.restartHint")}</p>
+          <button
+            type="button"
+            className="settings-btn"
+            data-testid="settings-restart-onboarding"
+            onClick={props.onRestartOnboarding}
+          >
+            {t("onboarding.restart")}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

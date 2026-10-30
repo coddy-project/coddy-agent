@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { FieldLabel } from "./FieldHint";
 import type { OverrideTexts } from "./settingsSections";
 import { useT } from "../i18n/I18nProvider";
@@ -50,6 +50,7 @@ export function OpenCodeAuthField(props: {
   proxy?: string;
   hasExplicitKey: boolean;
   texts: OverrideTexts;
+  onConnectedChange?: (connected: boolean) => void;
 }) {
   const { t } = useT();
   const name = props.providerName.trim();
@@ -60,6 +61,11 @@ export function OpenCodeAuthField(props: {
   const [error, setError] = useState("");
   const generation = useRef(0);
   const deviceRef = useRef<HTMLDivElement | null>(null);
+  const onConnectedChange = props.onConnectedChange;
+
+  useLayoutEffect(() => {
+    onConnectedChange?.(status.connected);
+  }, [status.connected, onConnectedChange]);
 
   useEffect(() => {
     const mine = ++generation.current;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { FieldLabel } from "./FieldHint";
 import type { OverrideTexts } from "./settingsSections";
 import { useT } from "../i18n/I18nProvider";
@@ -59,6 +59,7 @@ export function NeuralDeepAuthField(props: {
   proxy?: string;
   /** The account's name and description (second); primary is the endpoint's. */
   texts: OverrideTexts;
+  onConnectedChange?: (connected: boolean) => void;
 }) {
   const providerName = props.providerName.trim();
   const apiBase = props.apiBase.trim();
@@ -239,6 +240,10 @@ export function NeuralDeepAuthField(props: {
     !!status.endpoint_hub &&
     status.hub.replace(/\/+$/, "").toLowerCase() !==
       status.endpoint_hub.replace(/\/+$/, "").toLowerCase();
+  const onConnectedChange = props.onConnectedChange;
+  useLayoutEffect(() => {
+    onConnectedChange?.(status.connected && !hubMismatch);
+  }, [status.connected, hubMismatch, onConnectedChange]);
 
   return (
     <div className="settings-row" data-testid="neuraldeep-auth-field">

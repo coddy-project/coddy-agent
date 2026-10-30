@@ -553,6 +553,7 @@ export function SettingsSection(props: {
   /** Workspace of the viewed session; the Subagents tab asks about it. */
   workspacePath?: string | undefined;
   onSessionTagsChanged?: (id: string, tags: string[]) => void;
+  onRestartOnboarding?: (() => void) | undefined;
 }) {
   const {
     section,
@@ -589,7 +590,9 @@ export function SettingsSection(props: {
     setDoc({ ...doc, [key]: value });
 
   if (section.kind === "appearance") {
-    return <AppearanceThemePicker />;
+    return (
+      <AppearanceThemePicker onRestartOnboarding={props.onRestartOnboarding} />
+    );
   }
 
   // The session table is API-driven (/coddy/sessions): it reads and removes

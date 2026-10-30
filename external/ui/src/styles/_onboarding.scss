@@ -1,0 +1,309 @@
+.provider-picker-host {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  pointer-events: none;
+}
+
+.provider-picker-host .backdrop {
+  z-index: 0;
+  background: var(--coddy-overlay-scrim-bg);
+}
+
+.provider-picker-panel {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+  width: min(760px, 100%);
+  max-height: min(88vh, 780px);
+  overflow: auto;
+  border-radius: var(--coddy-glass-panel-radius, 18px);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  background: var(--coddy-tip-bg);
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  padding: 24px;
+}
+
+.provider-picker-head h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.provider-picker-lead {
+  margin: 0 0 16px;
+  font-size: 14px;
+  opacity: 0.85;
+}
+
+.provider-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.provider-picker-card {
+  text-align: left;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  background: var(--coddy-surface-muted);
+  color: var(--text);
+  padding: 12px 14px;
+  cursor: pointer;
+}
+
+.provider-picker-card--active {
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.provider-picker-card-title {
+  display: block;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.provider-picker-card-desc {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.provider-picker-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.provider-picker-form > .settings-row,
+.provider-picker-proxy > .settings-row {
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  border-radius: 10px;
+  background: var(--coddy-surface-muted);
+}
+
+.provider-picker-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.provider-picker-input {
+  font: inherit;
+  font-size: 14px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  background: var(--coddy-surface-field);
+  padding: 8px 10px;
+  color: inherit;
+}
+
+.provider-picker-key-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.provider-picker-key-row .provider-picker-input,
+.provider-picker-key-row .settings-combobox {
+  flex: 1;
+  min-width: 0;
+}
+
+.provider-picker-key-row .settings-combobox-input {
+  font-size: 14px;
+  border-radius: 10px;
+  background: var(--coddy-surface-field);
+}
+
+.provider-picker-form .settings-combobox-list {
+  max-height: 200px;
+}
+
+.provider-picker-ghost-btn {
+  font: inherit;
+  font-size: 12px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.85;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.provider-picker-hint {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.provider-picker-error {
+  font-size: 13px;
+  color: var(--coddy-danger);
+}
+
+.provider-picker-ok {
+  font-size: 13px;
+  color: var(--coddy-todo-completed);
+}
+
+.provider-picker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.provider-picker-primary,
+.provider-picker-secondary {
+  font: inherit;
+  font-size: 13px;
+  border-radius: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.provider-picker-primary {
+  border: none;
+  background: var(--accent);
+  color: var(--coddy-on-accent-fg);
+}
+
+.provider-picker-secondary {
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  background: transparent;
+  color: inherit;
+}
+
+.appearance-onboarding {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+}
+
+.appearance-onboarding p {
+  margin: 0;
+}
+
+.tour-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  pointer-events: auto;
+}
+
+.tour-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--coddy-overlay-scrim-bg);
+}
+
+.tour-spotlight {
+  position: fixed;
+  border-radius: 10px;
+  box-shadow: 0 0 0 9999px var(--coddy-overlay-scrim-bg);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  pointer-events: none;
+  transition:
+    top 0.15s ease,
+    left 0.15s ease,
+    width 0.15s ease,
+    height 0.15s ease;
+}
+
+.tour-bubble {
+  position: fixed;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  border-radius: var(--coddy-glass-panel-radius, 18px);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  background: var(--coddy-tip-bg);
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  padding: 16px;
+  pointer-events: auto;
+}
+
+.tour-counter {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-bottom: 6px;
+}
+
+.tour-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.tour-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  opacity: 0.88;
+}
+
+.tour-bubble-actions,
+.tour-bubble-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tour-bubble-actions {
+  justify-content: space-between;
+  margin-top: 16px;
+}
+
+.tour-btn {
+  font: inherit;
+  font-size: 13px;
+  border-radius: 10px;
+  padding: 7px 14px;
+  cursor: pointer;
+}
+
+.tour-btn-primary {
+  border: none;
+  background: var(--accent);
+  color: var(--coddy-on-accent-fg);
+}
+
+.tour-btn-ghost {
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  background: transparent;
+  color: inherit;
+}
+
+@media (max-width: 599px) {
+  .provider-picker-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-picker-panel {
+    padding: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-spotlight {
+    transition: none;
+  }
+}
