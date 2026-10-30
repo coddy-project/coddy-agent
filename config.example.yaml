@@ -223,6 +223,12 @@ agent:
   # wait_for_limit_reset_max_ms: 14400000  # total per turn (4 h), the retry wrapper's sleeps on a limit
   #                                          # included; under 60 s it also bounds ordinary 429 retries;
   #                                          # a longer pause ends the turn; 0 never waits
+  # Follow-up prompt suggestions: after a turn ends, a hidden side call to the
+  # session's model (no tools, nothing kept in the transcript) predicts what
+  # you might type next and shows it dim in the empty composer; Tab or Right
+  # takes it into the input. Ignored suggestions back off: after 20 unused in
+  # a row only every 10th turn offers one.
+  # prompt_suggestions: true
 
 # Session goal and supervisor: /goal <objective> starts work on a goal, and a
 # second model checks every turn against it, continues unfinished work and

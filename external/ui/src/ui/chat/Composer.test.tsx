@@ -3508,3 +3508,46 @@ test("the pencil on an attached picture marks it up in place", async () => {
     restore();
   }
 });
+
+test("the prompt suggestion shows dim and Tab takes it into the draft", () => {
+  const onChange = vi.fn();
+  const onAccepted = vi.fn();
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={onChange}
+      onSend={() => {}}
+      promptSuggestion="run the tests"
+      onPromptSuggestionAccepted={onAccepted}
+    />,
+  );
+  const ta = document.getElementById("composer") as HTMLTextAreaElement;
+  expect(ta.placeholder).toBe("run the tests");
+  fireEvent.keyDown(ta, { key: "Tab" });
+  expect(onChange).toHaveBeenCalledWith("run the tests");
+  expect(onAccepted).toHaveBeenCalledTimes(1);
+});
+
+test("a draft hides the prompt suggestion from Tab", () => {
+  const onChange = vi.fn();
+  render(
+    <Composer
+      value="already typing"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={onChange}
+      onSend={() => {}}
+      promptSuggestion="run the tests"
+    />,
+  );
+  const ta = document.getElementById("composer") as HTMLTextAreaElement;
+  expect(ta.placeholder).not.toBe("run the tests");
+  fireEvent.keyDown(ta, { key: "Tab" });
+  expect(onChange).not.toHaveBeenCalledWith("run the tests");
+});

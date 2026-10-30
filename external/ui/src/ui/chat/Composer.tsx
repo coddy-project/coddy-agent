@@ -535,6 +535,14 @@ export function Composer(props: {
   /** files is non-empty only when the user attached files via the file picker. */
   onSend: (text: string, files?: File[]) => void;
   generating?: boolean;
+  /**
+   * The follow-up prompt suggestion of the finished turn: shown dim in the
+   * empty field, taken with Tab (or ArrowRight) into the draft. Cleared by
+   * the app when a turn starts or the session changes.
+   */
+  promptSuggestion?: string | null;
+  /** Fires when Tab or ArrowRight took the suggestion into the draft. */
+  onPromptSuggestionAccepted?: () => void;
   onStop?: () => void;
   /**
    * `/docs [page or words]` opens the documentation reader here instead of
@@ -3305,8 +3313,13 @@ export function Composer(props: {
                 placeholder={
                   props.generating
                     ? t("composer.placeholderQueue")
-                    : props.isEmpty
-                      ? t("composer.placeholderEmpty")
+                    : !props.value.trim()
+                      ? (props.promptSuggestion ??
+                        t(
+                          props.isEmpty
+                            ? "composer.placeholderEmpty"
+                            : "composer.placeholderFollowUp",
+                        ))
                       : t("composer.placeholderFollowUp")
                 }
                 autoComplete="off"
@@ -3555,6 +3568,26 @@ export function Composer(props: {
                     if (pick) {
                       applySlashChoice(pick);
                     }
+                    return;
+                  }
+                  // The follow-up prompt suggestion of the finished turn:
+                  // Tab (and ArrowRight on the empty field) takes it into
+                  // the draft, the way the console's editor does. Open
+                  // pickers keep Tab for their own rows above.
+                  if (
+                    (ev.key === "Tab" || ev.key === "ArrowRight") &&
+                    !ev.shiftKey &&
+                    !ev.ctrlKey &&
+                    !ev.altKey &&
+                    !ev.metaKey &&
+                    !props.generating &&
+                    !props.value.trim() &&
+                    !(slashOpen || atOpen || atRangeOpen || argOpen) &&
+                    props.promptSuggestion
+                  ) {
+                    ev.preventDefault();
+                    props.onChange(props.promptSuggestion);
+                    props.onPromptSuggestionAccepted?.();
                     return;
                   }
                   // Tab belongs to an open picker even when it lists nothing:

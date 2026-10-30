@@ -82,6 +82,13 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		}
 		a.followSessionFolder()
 		a.flushPromptsAfterTurn()
+		// A turn that ended well and left nothing queued may offer the
+		// operator its prediction of the next message (prompt_suggestion.go):
+		// a queued prompt has already started a turn by now, which retires
+		// the attempt on its own.
+		if u.err == nil && u.stop != "cancelled" {
+			a.startSuggestion(u.sessionID)
+		}
 		return
 	case wakeTurn:
 		// A finished background task asks for a turn nobody typed; the

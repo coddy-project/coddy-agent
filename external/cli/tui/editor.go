@@ -21,7 +21,8 @@ const (
 
 // EditorTheme styles the editor chrome.
 type EditorTheme struct {
-	BorderColor func(string) string
+	BorderColor      func(string) string
+	PlaceholderColor func(string) string
 }
 
 // AutocompleteItem is one suggestion row.
@@ -93,11 +94,20 @@ type Editor struct {
 	acLayout    SelectListLayout
 	requestSync func()
 
+	// placeholder is the dim text an empty editor shows instead of nothing:
+	// the follow-up prompt suggestion of the turn that just ended. Tab or
+	// Right takes it into the buffer; typing leaves it in place so submit can
+	// still compare what was sent with what was suggested.
+	placeholder string
+
 	OnSubmit func(text string)
 	// OnAlternateSubmit handles Tab when a turn is running and no completion is open.
 	// It returns true only when the editor should submit instead of completing.
 	OnAlternateSubmit func(text string) bool
 	OnChange          func(text string)
+	// OnPlaceholderAccepted fires once when Tab or Right took the placeholder
+	// into the buffer.
+	OnPlaceholderAccepted func(text string)
 	// OnUnhandled receives key sequences the editor did not consume.
 	OnUnhandled func(data []byte)
 }
@@ -129,6 +139,27 @@ func (e *Editor) SetFocused(focused bool) { e.focused = focused }
 // SetBorderColor swaps the border styling function. The console uses it to
 // mark the buffer while it holds a local shell command.
 func (e *Editor) SetBorderColor(fn func(string) string) { e.theme.BorderColor = fn }
+
+// SetPlaceholder shows text dim in the empty editor ("" shows nothing). The
+// placeholder never enters the buffer until it is accepted.
+func (e *Editor) SetPlaceholder(text string) { e.placeholder = text }
+
+// Placeholder returns the dim text the empty editor shows.
+func (e *Editor) Placeholder() string { return e.placeholder }
+
+// acceptPlaceholder takes the placeholder into the buffer, as Tab and Right
+// do on the empty editor.
+func (e *Editor) acceptPlaceholder() bool {
+	if e.placeholder == "" || !e.IsEmpty() {
+		return false
+	}
+	text := e.placeholder
+	e.SetText(text)
+	if e.OnPlaceholderAccepted != nil {
+		e.OnPlaceholderAccepted(text)
+	}
+	return true
+}
 
 // PendingText returns the buffer exactly as submit would deliver it: paste
 // markers expanded and the text trimmed. A caller that styles the editor by
@@ -229,6 +260,12 @@ func (e *Editor) HandleInput(data []byte) {
 				e.clearAfterSubmit()
 				return
 			}
+			// An empty editor with a placeholder (the prompt suggestion of the
+			// finished turn) takes Tab before completion is asked for: there is
+			// no word under a cursor that sits on nothing.
+			if e.acceptPlaceholder() {
+				return
+			}
 			e.refreshAutocomplete(true)
 			if !e.acOpen {
 				e.insertText("\t")
@@ -256,6 +293,12 @@ func (e *Editor) HandleInput(data []byte) {
 			e.moveLeft()
 			return
 		case "right", "ctrl+f":
+			// Right at the start of an empty editor takes the placeholder,
+			// the way it takes inline ghost text elsewhere; any other Right
+			// moves the cursor.
+			if e.acceptPlaceholder() {
+				return
+			}
 			e.moveRight()
 			return
 		case "alt+left", "ctrl+left", "alt+b":
@@ -952,11 +995,31 @@ func (e *Editor) Render(width int) []string {
 	}
 
 	pad := strings.Repeat(" ", paddingX)
+	placeholderColor := e.theme.PlaceholderColor
+	if placeholderColor == nil {
+		placeholderColor = func(s string) string { return s }
+	}
 	for vi := e.scrollOffset; vi < visibleEnd; vi++ {
 		v := vm[vi]
 		line := e.lines[v.logical]
 		segment := line[v.startCol:v.endCol]
 		out := segment
+		if e.placeholder != "" && e.IsEmpty() {
+			// The empty editor shows the suggestion dim, in front of the
+			// cursor marker, cut to the width the content wraps at.
+			ph := TruncateToWidth(e.placeholder, layoutWidth, "…")
+			if e.focusedCursorOn(vm, vi, cursorVis) {
+				marker := ""
+				if e.focused {
+					marker = CursorMarker
+				}
+				out = marker + placeholderColor(ph)
+			} else {
+				out = placeholderColor(ph)
+			}
+			result = append(result, pad+out)
+			continue
+		}
 		if e.focusedCursorOn(vm, vi, cursorVis) {
 			rel := e.cursorCol - v.startCol
 			rel = max(0, min(rel, len(segment)))

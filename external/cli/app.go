@@ -161,6 +161,13 @@ type App struct {
 	curShell      *shellBox
 	lastShell     *shellBox
 
+	// The follow-up prompt suggestion (prompt_suggestion.go): the suggestion
+	// on screen, its generation (a turn's late answer is dropped), and the
+	// cancel of a prediction still running. UI-goroutine state only.
+	suggestion       *activeSuggestion
+	suggestionGen    uint64
+	suggestionCancel context.CancelFunc
+
 	sessionID string
 	modeID    string
 	modelID   string
@@ -305,7 +312,7 @@ func (a *App) buildTree() {
 	a.plan = newPlanWidget(a.theme)
 	a.queue = newQueueWidget(a.theme)
 	a.queuePreference = session.QueueMode(a.config().Agent.QueueMode)
-	a.editor = tui.NewEditor(a.term, tui.EditorTheme{BorderColor: a.theme.FgFn(roleBorderMuted)}, 0)
+	a.editor = tui.NewEditor(a.term, tui.EditorTheme{BorderColor: a.theme.FgFn(roleBorderMuted), PlaceholderColor: a.theme.FgFn(roleDim)}, 0)
 	a.editor.OnSubmit = a.onSubmit
 	a.editor.OnAlternateSubmit = func(text string) bool {
 		if text == "" || (!a.turnActive && !a.remoteTurnActive) {
@@ -315,6 +322,7 @@ func (a *App) buildTree() {
 		return true
 	}
 	a.editor.OnChange = a.onEditorChange
+	a.editor.OnPlaceholderAccepted = func(string) { a.suggestionAccepted() }
 	a.editorWrap = &tui.Container{}
 	a.editorWrap.AddChild(a.editor)
 	a.foot = newFooter(a.theme, a.config().Paths.CWD)
@@ -452,6 +460,7 @@ func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOpt
 		a.remoteTurnActive, a.remoteActivityRevision = false, 0
 		a.queue.Reset()
 		a.resetGoal()
+		a.clearSuggestion()
 	}
 	a.sessionID = id
 	if switched {
@@ -932,6 +941,9 @@ func (a *App) onSubmit(text string) {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
+	// The suggestion's life ends here: what was sent is compared with it and
+	// the outcome reported, whether it was taken, retyped, or ignored.
+	a.settleSuggestion(text)
 	// The address a Devin sign-in waits for is no prompt, nor history.
 	if a.feedLoginPaste(text) {
 		return
@@ -990,6 +1002,8 @@ func (a *App) startTurnWorker(params acp.SessionPromptParams, opts *session.Prom
 	a.turnSpeed = nil
 	a.startSpinner()
 	a.turnActive = true
+	// A turn running again retires the suggestion of the turn before it.
+	a.clearSuggestion()
 	// A running turn is when tasks appear: read them on the fast cadence.
 	a.armTasksPoll()
 	sessionID := params.SessionID
@@ -1520,6 +1534,7 @@ func (a *App) resetTranscript() {
 	a.lastToolID = ""
 	a.foot.ResetTokens()
 	a.resetGoal()
+	a.clearSuggestion()
 }
 
 // newSession starts a fresh session (used by /new). Switches serialize: a

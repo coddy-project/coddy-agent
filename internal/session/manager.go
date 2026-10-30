@@ -119,6 +119,10 @@ type Manager struct {
 	turnObserverMu  sync.Mutex
 	turnObservers   map[int]func(TurnEvent)
 	turnObserverSeq int
+	// promptSuggestionSide tracks the follow-up prompt suggestion calls in
+	// flight and their last answers (prompt_suggestion.go): one call per
+	// session at a time, one cached answer per conversation revision.
+	promptSuggestionSide promptSuggestionSide
 	// queueObservers fan every message queue change out to the surfaces that
 	// have clients of their own (manager_queue.go).
 	queueObserverMu  sync.Mutex
