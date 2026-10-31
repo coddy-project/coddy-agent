@@ -45,7 +45,7 @@ export function ExtensionPanelHost({
         role="dialog"
         aria-label={panel.title}
       >
-        {panel.placement !== "drawer" ? (
+        {panel.placement === "full" ? (
           <div
             className="extension-panel-scrim"
             onClick={onClose}

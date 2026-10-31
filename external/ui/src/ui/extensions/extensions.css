@@ -169,6 +169,8 @@
   justify-content: stretch;
 }
 .extension-panel--full .extension-panel-box {
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 24px;
   border-radius: 12px;
 }

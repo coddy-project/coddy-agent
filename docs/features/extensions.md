@@ -50,7 +50,7 @@ The id uses lowercase ASCII letters, digits and hyphens, starts with a letter an
 
 `ui.entry` names one prebuilt ES module exporting `activate(coddy)`. Bundle dependencies into that file: relative imports have no base inside its blob URL. HTML and CSS may be embedded as strings in the module, or shipped as files in the ZIP. `ui.styles` lists CSS files loaded with the extension; use an extension-specific class prefix to avoid changing unrelated UI.
 
-The optional top-level `permissions` lists the scopes the package declares: `ui.page`, `ui.alter`, `sessions.read`, `sessions.assets.write`, `sessions.title`, `sessions.prompt`, `workspace.switch`, `events.publish`, `ide.actions`, `kv`, `config.read` and `llm.complete`. The vocabulary is closed - at most 32 dotted lowercase names, and an unknown one is refused at install. Enablement stays the authority gate: the declaration is the vocabulary a later phase enforces, and nothing checks the code against it today.
+The optional top-level `permissions` lists the scopes the package declares: `ui.page`, `ui.alter`, `sessions.read`, `sessions.assets.write`, `sessions.title`, `sessions.prompt`, `workspace.switch`, `events.publish`, `ide.actions`, `kv`, `config.read`, `config.write` and `llm.complete`. The vocabulary is closed - at most 32 dotted lowercase names, and an unknown one is refused at install. Enablement stays the authority gate: the declaration is the vocabulary a later phase enforces, and nothing checks the code against it today.
 
 The optional `ui.compat_styles` lists CSS files of the ZIP that load only on a legacy engine, layered over the ordinary styles. A modern engine never applies them; both are covered under the engine tier below.
 
@@ -93,7 +93,8 @@ export function activate(coddy) {
 | `coddy.theme.get()` | The active theme: its id, `light`/`dark` mode and the resolved colours an extension paints with. A frozen snapshot. |
 | `coddy.theme.onChange(listener)` | Observe every theme switch; the listener gets the new frozen snapshot. Returns a `remove()` handle. |
 | `coddy.theme.getEffects()`, `coddy.theme.onEffectsChange(listener)` | Reduced motion and the engine tier. The listener hears changes only; its first read is the baseline. |
-| `coddy.theme.override(colors)` | Override theme colour tokens with CSS colours until the handle removes them. Returns an `update`/`remove` handle. |
+| `coddy.theme.tokens()` | Every theme token of the active theme - name to computed value. The app paints from this whole layer, not only from the eight colours of the snapshot. |
+| `coddy.theme.override(colors)` | Override theme tokens with CSS values until the handle removes them - the eight colour names, or any `--token` of `tokens()`. Returns an `update`/`remove` handle. |
 | `coddy.ui.registerToolRenderer({id, server?, tool?, mount})` | Replace the presentation of matching MCP and built-in tool calls; original details remain available. |
 | `coddy.ui.registerMessageRenderer({id, match, mount})` | Draw transcript rows: matched host item types and `ext_frame` rows of frames the host has no row for. |
 | `coddy.ui.registerPermissionPreview({id, tool?, mount})` | Add a view under the host's own preview on a permission card. The prompt stays the host's. |
@@ -113,6 +114,8 @@ export function activate(coddy) {
 | `coddy.stream.onFrame({id, listener})` | Observe every frame of the live turn stream, including kinds the host does not parse. Read-only. Returns a `remove()` handle. |
 | `coddy.i18n.locale()`, `coddy.i18n.t(key, vars?)` | The active host locale, and a lookup of this extension's own strings under `ext.<id>.`. |
 | `coddy.i18n.registerMessages(locale, dict)`, `coddy.i18n.onChange(fn)` | Register one locale's strings and observe host locale changes. Both return a `remove()` handle. |
+| `coddy.config.get(path?)` | The whole configuration document, or one dot path of it (`providers.0.name`). |
+| `coddy.config.set(path, value)` | Writes one dot path - an object key, an array index, or `+` to append to an array - through the settings save transaction: a minimal write over the file as it is, comments preserved, the result installed. Requires the `config.write` scope. |
 | `coddy.React` | The host's React instance for authors who need it. The page mount contract also works with plain DOM code. |
 
 `activate` may return a cleanup function or a promise for one. The host gives activation 10 seconds. Failed activation removes its registrations, requests, styles and blob URL; the error appears in Settings. The host does not retry failed code on its own; the list refresh leaves a failed package alone. **Refresh** in **Settings → Extensions** asks again, and only for what failed before any code ran - a module whose code has already been evaluated still needs a page reload. Closing a page calls its mount cleanup. Disposal removes everything the extension holds: registrations, styles, compat styles and theme overrides. The first effects snapshot an extension reads is the baseline its `onEffectsChange` listeners are registered against; they hear a change, never the state the world was already in. Cleanup is cooperative and cannot revoke arbitrary same-origin JavaScript.
@@ -260,9 +263,9 @@ const watched = coddy.theme.onChange(paint);
 
 `coddy.theme.getEffects()` returns a frozen `{reducedMotion, engine}` snapshot. `reducedMotion` is on when `prefers-reduced-motion` asks for it or the host root carries `data-effects="reduced"`; `engine` is the engine tier. `coddy.theme.onEffectsChange(listener)` returns a `remove()` handle and hands over the new snapshot only when it changes - the first read is the baseline listeners are registered against.
 
-`coddy.theme.override(colors)` overrides the theme tokens live and returns a handle with `update(colors)` and `remove()`. `colors` is a partial map of the eight colour names - `bg`, `text`, `muted`, `accent`, `danger`, `link`, `border` and `surface` - to CSS colour strings; a value carrying `;`, `{`, `}` or `url(` is refused. The override holds until the handle removes it, disposal removes it too, and a later registration of another extension wins the shared tokens.
+`coddy.theme.override(colors)` overrides theme tokens live and returns a handle with `update(colors)` and `remove()`. `colors` maps a token name - the eight colour names (`bg`, `text`, `muted`, `accent`, `danger`, `link`, `border` and `surface`) or any `--token` of `coddy.theme.tokens()` - to a CSS value. A value carrying `;`, `{`, `}` or `url(` is refused, and a value for one of the eight colour names must parse as a CSS colour. The override holds until the handle removes it, disposal removes it too, and a later registration of another extension wins the shared tokens. `coddy.theme.tokens()` returns the whole active token layer, name to computed value: the app paints from it, so overriding every colour token recolours the whole app.
 
-The [Theme Lab example](../../examples/extensions/theme-lab/main.js) opens a slide-over panel of lightness sliders that repaint the app in real time; its manifest declares `"permissions": ["ui.page"]`. From `examples/extensions/theme-lab`, package it with the following command.
+The [Theme Lab example](../../examples/extensions/theme-lab/main.js) opens a slide-over panel with hue, saturation and lightness sliders that shift every colour token of the theme at once and a colour input per token, repainting the app in real time; its manifest declares `"permissions": ["ui.page"]`. The [NeuralDeep Setup example](../../examples/extensions/neuraldeep-onboarding/main.js) is an onboarding dialog of the same shape: it asks for a key, shows where to get one, and writes the `neuraldeep` provider and its `neuraldeep/qwen3.6-35b-a3b` model through `coddy.config.set`. From `examples/extensions/theme-lab`, package it with the following command.
 
 ```sh
 python -m zipfile -c theme-lab.zip manifest.json main.js style.css

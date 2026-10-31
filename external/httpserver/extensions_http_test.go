@@ -6,6 +6,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -262,5 +263,71 @@ func TestUIExtensionRequest(t *testing.T) {
 	// A request id nothing knows is a 404.
 	if w = request("POST", "/coddy/extensions/demo/requests/deadbeef", []byte(`{"nonce":"x","data":null}`)); w.Code != 404 {
 		t.Fatalf("unknown request: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestUIExtensionConfigRoute(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Paths.Home = t.TempDir()
+	s := &Server{mux: http.NewServeMux()}
+	s.cfgAt.Store(cfg)
+	s.registerExtensionRoutes()
+	request := func(method, path string, body []byte) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest(method, path, bytes.NewReader(body))
+		w := httptest.NewRecorder()
+		s.authGate(s.mux).ServeHTTP(w, r)
+		return w
+	}
+	var b bytes.Buffer
+	z := zip.NewWriter(&b)
+	for name, body := range map[string]string{"manifest.json": `{"api":1,"id":"demo","name":"Demo","version":"1","ui":{"entry":"main.js"}}`, "main.js": "export function activate() {}"} {
+		f, err := z.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = f.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	w := request("POST", "/coddy/extensions", b.Bytes())
+	if w.Code != 201 {
+		t.Fatalf("install: %d %s", w.Code, w.Body)
+	}
+	var row extensions.Entry
+	if err := json.Unmarshal(w.Body.Bytes(), &row); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`{"sha256":"` + row.SHA256 + `","path":"providers.+","value":{"name":"neuraldeep"}}`)
+	// A disabled package writes nothing.
+	if w = request("POST", "/coddy/extensions/demo/config", body); w.Code != 409 {
+		t.Fatalf("disabled write: %d %s", w.Code, w.Body)
+	}
+	if w = request("PUT", "/coddy/extensions/demo", []byte(`{"enabled":true,"sha256":"`+row.SHA256+`","accept_risk":true}`)); w.Code != 200 {
+		t.Fatalf("enable: %d %s", w.Code, w.Body)
+	}
+	// Without the configuration editor the route says so.
+	if w = request("POST", "/coddy/extensions/demo/config", body); w.Code != 503 {
+		t.Fatalf("no editor: %d %s", w.Code, w.Body)
+	}
+	var applied []string
+	s.configApplyPath = func(path string, value json.RawMessage) error {
+		applied = append(applied, path+"="+string(value))
+		return nil
+	}
+	if w = request("POST", "/coddy/extensions/demo/config", body); w.Code != 204 {
+		t.Fatalf("write: %d %s", w.Code, w.Body)
+	}
+	if len(applied) != 1 || applied[0] != `providers.+={"name":"neuraldeep"}` {
+		t.Fatalf("applied: %#v", applied)
+	}
+	s.configApplyPath = func(string, json.RawMessage) error {
+		return errors.New("parse failed: bad path")
+	}
+	if w = request("POST", "/coddy/extensions/demo/config", body); w.Code != 500 {
+		t.Fatalf("editor failure: %d %s", w.Code, w.Body)
 	}
 }

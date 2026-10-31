@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/configapi"
 	"github.com/EvilFreelancer/coddy-agent/internal/extensions"
 )
 
@@ -343,6 +344,47 @@ func (s *Server) registerExtensionRoutes() {
 		default:
 			http.Error(w, errorJSON("request already answered"), http.StatusConflict)
 		}
+	})
+	s.mux.HandleFunc("POST /coddy/extensions/{id}/config", func(w http.ResponseWriter, r *http.Request) {
+		// One config path, written through the settings save transaction:
+		// a minimal write over the file as it is, comments preserved.
+		id := r.PathValue("id")
+		var body struct {
+			SHA256 string          `json:"sha256"`
+			Path   string          `json:"path"`
+			Value  json.RawMessage `json:"value"`
+		}
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&body); err != nil {
+			http.Error(w, errorJSON("expected sha256, path and value"), http.StatusBadRequest)
+			return
+		}
+		if err := dec.Decode(new(any)); err != io.EOF {
+			http.Error(w, errorJSON("expected one JSON object"), http.StatusBadRequest)
+			return
+		}
+		if err := store().CheckEnabled(id, body.SHA256); err != nil {
+			fail(w, err)
+			return
+		}
+		if s.configApplyPath == nil {
+			http.Error(w, errorJSON("the configuration editor is not available"), http.StatusServiceUnavailable)
+			return
+		}
+		value := body.Value
+		if len(value) == 0 {
+			value = json.RawMessage("null")
+		}
+		if err := s.configApplyPath(body.Path, value); err != nil {
+			code := http.StatusInternalServerError
+			if configapi.ConfigBadRequest(err) {
+				code = http.StatusBadRequest
+			}
+			http.Error(w, errorJSON(err.Error()), code)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 	s.mux.HandleFunc("GET /coddy/extensions/{id}/assets/{file...}", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("file")

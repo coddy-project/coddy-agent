@@ -25,6 +25,7 @@ func (s *Server) registerConfigRoutes() {
 		Log:       s.log,
 	}
 	backend.Register(s.mux)
+	s.configApplyPath = backend.ApplyPath
 }
 
 // SetUnbuiltSections names the settings sections the form must not offer

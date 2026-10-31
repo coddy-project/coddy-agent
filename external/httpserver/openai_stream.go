@@ -303,7 +303,10 @@ func (f *openAIStreamFilter) emitChunk(delta map[string]any, finish any) error {
 }
 
 func (f *openAIStreamFilter) emit(frame string) error {
-	_, err := f.ResponseWriter.Write([]byte(frame + "\n\n")) //nolint:gosec // G705: this writer emits text/event-stream frames, never an HTML document.
+	// G705: this writer emits text/event-stream frames, never an HTML
+	// document. nolintlint rides along because gosec's taint analysis flags
+	// the write only on some runs, and the directive must stay for them.
+	_, err := f.ResponseWriter.Write([]byte(frame + "\n\n")) //nolint:gosec,nolintlint // G705: SSE frames, never an HTML document; see the note above.
 	return err
 }
 

@@ -47,6 +47,7 @@ var knownScopes = map[string]bool{
 	"ide.actions":           true,
 	"kv":                    true,
 	"config.read":           true,
+	"config.write":          true,
 	"llm.complete":          true,
 }
 
