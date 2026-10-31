@@ -230,8 +230,3 @@
 .composer-run-icon--queue {
   background: color-mix(in srgb, var(--accent) 82%, var(--coddy-blend-base));
 }
-
-html[data-smooth-backdrop="true"] .composer-card {
-  background: var(--coddy-smooth-glass, none) no-repeat fixed
-    var(--coddy-glass-panel-bg);
-}

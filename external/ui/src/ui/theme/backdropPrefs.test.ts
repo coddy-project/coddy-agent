@@ -1,28 +1,21 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { waitFor } from "@testing-library/react";
-import * as canvasBackdrop from "./canvasBackdrop";
 import { setUiSimple } from "./uiSimple";
 import {
   backdropSnapshot,
   clearWallpaper,
   followBackdrop,
-  setSmoothBackdrop,
   setWallpaper,
   setWallpaperDim,
-  SMOOTH_BACKDROP_COOKIE,
   WALLPAPER_DIM_COOKIE,
-  WALLPAPER_MAX_BYTES,
+  WALLPAPER_DIM_DEFAULT,
 } from "./backdropPrefs";
 
 afterEach(async () => {
   setUiSimple(false);
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  setSmoothBackdrop(false);
   await clearWallpaper();
-  for (const name of [SMOOTH_BACKDROP_COOKIE, WALLPAPER_DIM_COOKIE]) {
-    document.cookie = `${name}=; Path=/; Max-Age=0`;
-  }
+  document.cookie = `${WALLPAPER_DIM_COOKIE}=; Path=/; Max-Age=0`;
 });
 
 /** A picture of the given size as createImageBitmap would read it. */
@@ -40,69 +33,12 @@ function pictureOf(width: number, height: number) {
   return new Blob(["x"], { type: "image/png" });
 }
 
-describe("smooth gradients", () => {
-  test("simplified mode suspends the painter and restores the saved choice when off", async () => {
-    const stopCanvas = vi.fn();
-    const startCanvas = vi
-      .spyOn(canvasBackdrop, "followCanvasBackdrop")
-      .mockReturnValue(stopCanvas);
-    setSmoothBackdrop(true);
-    const stop = followBackdrop(document);
-    try {
-      await waitFor(() => expect(startCanvas).toHaveBeenCalledTimes(1));
-      setUiSimple(true);
-      await Promise.resolve();
-      expect(stopCanvas).toHaveBeenCalledTimes(1);
-      expect(document.documentElement.dataset.smoothBackdrop).toBeUndefined();
-      expect(backdropSnapshot().smooth).toBe(true);
-      expect(document.cookie).toContain(`${SMOOTH_BACKDROP_COOKIE}=on`);
-      setUiSimple(false);
-      await Promise.resolve();
-      await waitFor(() => expect(startCanvas).toHaveBeenCalledTimes(2));
-      expect(document.documentElement.dataset.smoothBackdrop).toBe("true");
-    } finally {
-      stop();
-    }
-  });
-
-  test("a page loaded in simplified mode does not start the saved painter", () => {
-    const startCanvas = vi
-      .spyOn(canvasBackdrop, "followCanvasBackdrop")
-      .mockReturnValue(vi.fn());
-    setUiSimple(true);
-    setSmoothBackdrop(true);
-    const stop = followBackdrop(document);
-    try {
-      expect(startCanvas).not.toHaveBeenCalled();
-      expect(backdropSnapshot().smooth).toBe(true);
-    } finally {
-      stop();
-    }
-  });
-
-  test("the switch is remembered in a cookie", () => {
-    setSmoothBackdrop(true);
-    expect(document.cookie).toContain(`${SMOOTH_BACKDROP_COOKIE}=on`);
-    expect(backdropSnapshot().smooth).toBe(true);
-    setSmoothBackdrop(false);
-    expect(document.cookie).not.toContain(SMOOTH_BACKDROP_COOKIE);
-    expect(backdropSnapshot().smooth).toBe(false);
-  });
-
-  test("<html> is marked only while the canvas runs", () => {
-    // A browser without a 2D context (jsdom has none): the canvas cannot
-    // start, so the panels keep their own glass and nothing is marked.
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
-    const stop = followBackdrop(document);
-    setSmoothBackdrop(true);
-    expect(document.querySelector("canvas.canvas-backdrop")).toBeNull();
-    expect(document.documentElement.dataset.smoothBackdrop).toBeUndefined();
-    stop();
-  });
+test("the backdrop store holds only wallpaper choices", () => {
+  expect(Object.keys(backdropSnapshot()).sort()).toEqual(["dim", "wallpaper"]);
 });
 
 describe("wallpaper", () => {
-  test("a picture of at least 1280x720 becomes the wallpaper", async () => {
+  test("a readable picture becomes the wallpaper", async () => {
     const result = await setWallpaper(pictureOf(1920, 1080));
     expect(result).toEqual({ refusal: null, width: 1920, height: 1080 });
     expect(backdropSnapshot().wallpaper).toBe("blob:picture");
@@ -110,21 +46,36 @@ describe("wallpaper", () => {
     expect(backdropSnapshot().wallpaper).toBeNull();
   });
 
-  test("a picture under the minimum size is refused with both sizes", async () => {
-    expect(await setWallpaper(pictureOf(800, 600))).toEqual({
-      refusal: "too-small",
-      width: 800,
-      height: 600,
+  test.each([
+    [1, 1],
+    [600, 1600],
+    [100000, 1],
+    [8192, 4096],
+  ])(
+    "a readable %sx%s picture becomes the wallpaper without a geometry limit",
+    async (width, height) => {
+      expect(await setWallpaper(pictureOf(width, height))).toEqual({
+        refusal: null,
+        width,
+        height,
+      });
+      expect(backdropSnapshot().wallpaper).toBe("blob:picture");
+    },
+  );
+
+  test("a readable picture larger than 20 MiB becomes the wallpaper", async () => {
+    pictureOf(1920, 1080);
+    const file = new Blob([new Uint8Array(20 * 1024 * 1024 + 1)], {
+      type: "image/png",
     });
-    expect(backdropSnapshot().wallpaper).toBeNull();
+    expect((await setWallpaper(file)).refusal).toBeNull();
+    expect(backdropSnapshot().wallpaper).toBe("blob:picture");
   });
 
-  test("a file that is not a picture or is too large is refused", async () => {
+  test("a file that is not a picture is refused", async () => {
     expect(
       (await setWallpaper(new Blob(["x"], { type: "text/plain" }))).refusal,
     ).toBe("not-image");
-    const big = { type: "image/png", size: WALLPAPER_MAX_BYTES + 1 } as Blob;
-    expect((await setWallpaper(big)).refusal).toBe("too-large");
     expect(backdropSnapshot().wallpaper).toBeNull();
   });
 
@@ -158,5 +109,78 @@ describe("wallpaper", () => {
     expect(backdropSnapshot()).not.toHaveProperty("credit");
     await clearWallpaper();
     expect(backdropSnapshot()).not.toHaveProperty("credit");
+  });
+});
+
+test("non-finite dimming uses the default instead of writing NaN", () => {
+  setWallpaperDim(NaN);
+  expect(backdropSnapshot().dim).toBe(WALLPAPER_DIM_DEFAULT);
+  expect(document.cookie).toContain(
+    `${WALLPAPER_DIM_COOKIE}=${WALLPAPER_DIM_DEFAULT}`,
+  );
+});
+
+test("high-resolution pictures are accepted and the validation bitmap is closed", async () => {
+  const file = pictureOf(8192, 4096);
+  const close = vi.fn();
+  vi.stubGlobal("createImageBitmap", async () => ({
+    width: 8192,
+    height: 4096,
+    close,
+  }));
+  expect((await setWallpaper(file)).refusal).toBeNull();
+  expect(close).toHaveBeenCalledOnce();
+  expect(backdropSnapshot().wallpaper).toBe("blob:picture");
+});
+
+describe("image element fallback validation", () => {
+  function fallback(width?: number, height?: number) {
+    const file = pictureOf(1920, 1080);
+    vi.stubGlobal("createImageBitmap", undefined);
+    vi.stubGlobal(
+      "Image",
+      class {
+        naturalWidth = width;
+        naturalHeight = height;
+        onload?: () => void;
+        onerror?: () => void;
+        set src(value: string) {
+          if (value)
+            queueMicrotask(() =>
+              width === undefined ? this.onerror?.() : this.onload?.(),
+            );
+        }
+      },
+    );
+    return file;
+  }
+  test("a valid picture is decoded without createImageBitmap", async () => {
+    expect(await setWallpaper(fallback(1920, 1080))).toEqual({
+      refusal: null,
+      width: 1920,
+      height: 1080,
+    });
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:picture");
+  });
+  test("a small picture is accepted without createImageBitmap", async () => {
+    expect(await setWallpaper(fallback(800, 600))).toEqual({
+      refusal: null,
+      width: 800,
+      height: 600,
+    });
+    expect(backdropSnapshot().wallpaper).toBe("blob:picture");
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:picture");
+  });
+  test("a corrupt picture is refused without createImageBitmap", async () => {
+    expect((await setWallpaper(fallback())).refusal).toBe("unreadable");
+    expect(backdropSnapshot().wallpaper).toBeNull();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:picture");
+  });
+  test("a missing decoder never bypasses image validation", async () => {
+    const file = pictureOf(1920, 1080);
+    vi.stubGlobal("createImageBitmap", undefined);
+    vi.stubGlobal("Image", undefined);
+    expect((await setWallpaper(file)).refusal).toBe("unreadable");
+    expect(backdropSnapshot().wallpaper).toBeNull();
   });
 });

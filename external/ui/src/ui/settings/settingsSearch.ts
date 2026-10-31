@@ -314,17 +314,11 @@ function landmark(
 export const SETTINGS_LANDMARKS: readonly SettingsLandmark[] = [
   landmark("appearance", "theme", "appearanceTheme", "before"),
   landmark("appearance", "simple", "appearanceSimple", "before"),
+  landmark("appearance", "wallpaper", "appearanceWallpaper", "before"),
   landmark("appearance", "language", "appearanceLanguage", "before"),
   landmark("appearance", "notifications", "appearanceNotifications", "before", {
     shown: notificationsShown,
   }),
-  landmark(
-    "appearance",
-    "smooth-backdrop",
-    "appearanceSmoothBackdrop",
-    "before",
-  ),
-  landmark("appearance", "wallpaper", "appearanceWallpaper", "before"),
   landmark("sessions_manager", "manage", "sessionsManage", "after"),
   // The four blocks the System tab always draws; the charts and the provider
   // rows depend on the build and have no anchor, and no value of the status

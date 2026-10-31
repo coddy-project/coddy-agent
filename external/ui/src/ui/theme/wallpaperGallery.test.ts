@@ -4,7 +4,6 @@ import {
   readGalleryPhoto,
   galleryPhotoUrl,
 } from "./wallpaperGallery";
-import { WALLPAPER_MAX_BYTES } from "./backdropPrefs";
 import { setEnv } from "../env/remoteEnv";
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -41,7 +40,7 @@ describe("server wallpaper gallery", () => {
     "image/gif",
     "image/webp",
     "image/avif",
-  ])("a %s selection is read as bounded image bytes", async (type) => {
+  ])("a %s selection is read as image bytes", async (type) => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -79,41 +78,63 @@ describe("server wallpaper gallery", () => {
     },
   );
   test.each([true, false])(
-    "a response larger than 20 MiB is cancelled (declared %s)",
+    "a response larger than 20 MiB is accepted (declared %s)",
     async (declared) => {
+      const size = 20 * 1024 * 1024 + 1;
       const cancel = vi.fn(async () => {});
       const reader = {
         read: vi
           .fn()
           .mockResolvedValueOnce({
-            value: new Uint8Array(WALLPAPER_MAX_BYTES),
+            value: new Uint8Array(size - 1),
             done: false,
           })
-          .mockResolvedValueOnce({ value: new Uint8Array([1]), done: false }),
+          .mockResolvedValueOnce({ value: new Uint8Array([1]), done: false })
+          .mockResolvedValueOnce({ done: true }),
         cancel,
         releaseLock: vi.fn(),
       };
-      const headers = new Headers({
-        "Content-Type": "image/png",
-        ...(declared
-          ? { "Content-Length": String(WALLPAPER_MAX_BYTES + 1) }
-          : {}),
-      });
       vi.stubGlobal(
         "fetch",
         vi.fn(async () => ({
           ok: true,
-          headers,
+          headers: new Headers({
+            "Content-Type": "image/png",
+            ...(declared ? { "Content-Length": String(size) } : {}),
+          }),
           body: { cancel, getReader: () => reader },
         })),
       );
-      await expect(
-        readGalleryPhoto({ name: "a.png" }, new AbortController().signal),
-      ).rejects.toThrow();
-      expect(cancel).toHaveBeenCalled();
-      if (declared) expect(reader.read).not.toHaveBeenCalled();
+      const blob = await readGalleryPhoto(
+        { name: "a.png" },
+        new AbortController().signal,
+      );
+      expect(blob.size).toBe(size);
+      expect(cancel).not.toHaveBeenCalled();
+      expect(reader.releaseLock).toHaveBeenCalledOnce();
     },
   );
+  test("a gallery listing larger than 20 MiB is accepted", async () => {
+    const json = JSON.stringify({
+      wallpapers: [{ name: "a.png" }],
+      padding: " ".repeat(20 * 1024 * 1024),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(json, {
+            headers: {
+              "Content-Type": "application/json",
+              "Content-Length": String(json.length),
+            },
+          }),
+      ),
+    );
+    expect(await readGallery(new AbortController().signal)).toEqual([
+      { name: "a.png" },
+    ]);
+  });
   test("a malformed listing is an error, not an empty gallery", async () => {
     vi.stubGlobal(
       "fetch",

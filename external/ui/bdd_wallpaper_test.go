@@ -9,7 +9,7 @@ import (
 )
 
 // The wallpaper is a client-side choice kept in the browser: the block of
-// Settings, the store and the painter are read by the Vitest tests each step
+// Settings, the store and the stylesheet are read by the Vitest tests each step
 // runs.
 func TestWebUIWallpaperFeature(t *testing.T) {
 	steps := []struct{ step, file, name string }{
@@ -18,35 +18,50 @@ func TestWebUIWallpaperFeature(t *testing.T) {
 			"Settings → Appearance → Wallpaper a chosen picture shows its preview, the dimming and Remove"},
 		{`^the picture becomes the wallpaper and Remove takes it away$`,
 			"src/ui/theme/backdropPrefs.test.ts",
-			"wallpaper a picture of at least 1280x720 becomes the wallpaper"},
+			"wallpaper a readable picture becomes the wallpaper"},
 		{`^the page carries the wallpaper and its dimming while one is set$`,
 			"src/ui/theme/backdropPrefs.test.ts",
 			"wallpaper <html> carries the wallpaper and its dimming while one is set"},
 		{`^the wallpaper covers the viewport, dimmed toward the theme's canvas colour$`,
-			"src/ui/theme/smoothBackdropCss.test.ts",
+			"src/ui/theme/wallpaperCss.test.ts",
 			"a wallpaper covers the viewport, dimmed toward the theme's canvas colour"},
-		{`^a picture under 1280x720 is refused and the message names its size$`,
+		{`^a small picture shows its preview without a size refusal$`,
 			"src/ui/theme/BackdropSettings.test.tsx",
-			"Settings → Appearance → Wallpaper a picture under 1280x720 is refused and the message names its size"},
-		{`^a file that is not a picture or is too large is refused$`,
+			"Settings → Appearance → Wallpaper a small picture shows its preview without a size refusal"},
+		{`^a readable picture larger than 20 MiB becomes the wallpaper$`,
 			"src/ui/theme/backdropPrefs.test.ts",
-			"wallpaper a file that is not a picture or is too large is refused"},
+			"wallpaper a readable picture larger than 20 MiB becomes the wallpaper"},
+		{`^a gallery thumbnail larger than 20 MiB is displayed$`,
+			"src/ui/theme/BackdropSettings.test.tsx",
+			"Settings → Appearance → Wallpaper → Gallery a gallery thumbnail larger than 20 MiB is displayed"},
+		{`^a wallpaper remains visible in simplified mode$`,
+			"src/ui/theme/wallpaperCss.test.ts",
+			"a wallpaper remains visible in simplified mode"},
 		{`^dimming is kept in a cookie and bounded to 0\.\.90$`,
 			"src/ui/theme/backdropPrefs.test.ts",
 			"wallpaper dimming is kept in a cookie and bounded to 0..90"},
-		{`^each panel's image over a wallpaper is blurred the way its own glass is$`,
-			"src/ui/theme/smoothBackdropCss.test.ts",
-			"over a wallpaper each panel's image is blurred the way its own glass is"},
-		{`^the blur keeps the tone and smooths a step$`,
-			"src/ui/theme/canvasBackdrop.test.ts",
-			"wallpaper filters boxBlur keeps the mean, smooths a step and leaves its input alone"},
-		{`^the panel's saturation leaves grey alone$`,
-			"src/ui/theme/canvasBackdrop.test.ts",
-			"wallpaper filters saturateField leaves grey alone and pushes a colour away from it"},
+		{`^Appearance offers wallpaper without a gradient control$`,
+			"src/ui/theme/BackdropSettings.test.tsx",
+			"Appearance offers wallpaper without a gradient control in en"},
+		{`^the backdrop store holds only wallpaper choices$`,
+			"src/ui/theme/backdropPrefs.test.ts",
+			"the backdrop store holds only wallpaper choices"},
+		{`^wallpaper leaves the native gradients, grain and panel glass in place without a backdrop canvas$`,
+			"src/ui/theme/wallpaperCss.test.ts",
+			"wallpaper leaves the native gradients, grain and panel glass in place without a backdrop canvas"},
 	}
 	suite := godog.TestSuite{
 		Name: "web_ui_wallpaper",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
+			sc.Step(`^readable pictures of any geometry can become the wallpaper$`, func() error {
+				for _, geometry := range []string{"1x1", "600x1600", "100000x1", "8192x4096"} {
+					name := "wallpaper a readable " + geometry + " picture becomes the wallpaper without a geometry limit"
+					if err := runVitestScenario("src/ui/theme/backdropPrefs.test.ts", name); err != nil {
+						return err
+					}
+				}
+				return nil
+			})
 			for _, s := range steps {
 				file, name := s.file, s.name
 				sc.Step(s.step, func() error { return runVitestScenario(file, name) })

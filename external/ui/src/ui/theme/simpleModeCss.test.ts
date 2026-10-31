@@ -87,6 +87,8 @@ test("every gradient of the stylesheet is cleared by the mode or draws a mark", 
     ".todo-checklist .todo-tool-preview-mark--in_progress",
     // The checkerboard that shows a picture's transparency.
     ".files-image",
+    // A chosen wallpaper and its flat dimming tint remain in simplified mode.
+    'html[data-wallpaper="true"], html[data-wallpaper="true"][data-simple="on"]',
   ]);
   // Fades along the edge of a strip of tabs: the mask rule of the blanket.
   const masks = new Set([
@@ -95,9 +97,8 @@ test("every gradient of the stylesheet is cleared by the mode or draws a mark", 
     ".files-tabs.has-more-right",
     ".files-tabs.has-more-left.has-more-right",
   ]);
-  // Both root backgrounds have the same specificity as the mode's root rule,
-  // which comes last and replaces the entire background, wallpaper included.
-  const canvases = new Set(["html", 'html[data-wallpaper="true"]']);
+  // The default canvas loses its glows; an explicitly chosen wallpaper stays.
+  const canvases = new Set(["html"]);
   const cleared = [...selectors].filter(
     (s) => !marks.has(s) && !masks.has(s) && !canvases.has(s),
   );

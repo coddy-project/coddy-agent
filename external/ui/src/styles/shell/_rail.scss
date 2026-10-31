@@ -539,7 +539,3 @@ a.rail-brand {
 .nav-toggle {
   display: inline-grid;
 }
-
-html[data-smooth-backdrop="true"] .rail-pill {
-  background: var(--coddy-smooth-nav, none) no-repeat fixed var(--nav);
-}

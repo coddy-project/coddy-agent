@@ -172,7 +172,7 @@ export function AppearanceLanguagePicker() {
 /** AppearanceThemePicker renders just the theme swatch grid (no panel chrome) so it
  * can be embedded as a Settings tab. Theme selection applies immediately and is
  * client-side only (no config save). Below the grid: the simplified mode,
- * language, system notifications, smooth gradients and the wallpaper. */
+ * wallpaper, language and system notifications. */
 export function AppearanceThemePicker() {
   const { t } = useT();
   const current = useSyncExternalStore(
@@ -210,9 +210,9 @@ export function AppearanceThemePicker() {
         </div>
       </div>
       <SimpleModeSetting />
+      <BackdropSettings />
       <AppearanceLanguagePicker />
       <NotificationsSetting />
-      <BackdropSettings />
     </div>
   );
 }

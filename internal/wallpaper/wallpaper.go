@@ -2,10 +2,9 @@
 package wallpaper
 
 import (
-	"bytes"
 	"errors"
 	"image"
-	"image/gif"
+	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
@@ -19,23 +18,17 @@ import (
 	_ "golang.org/x/image/webp"
 )
 
-const (
-	// MaxBytes bounds both the file size and the bytes read from an opened file.
-	MaxBytes = 20 << 20
-	// MaxPixels bounds a decoded image, or the sum of all GIF frame areas.
-	MaxPixels = 16 << 20
-	MinWidth  = 1280
-	MinHeight = 720
-)
-
 // Entry is a gallery item. It deliberately contains no filesystem path.
 type Entry struct {
 	Name string `json:"name"`
 }
 
-// Image contains the validated original bytes and their detected media type.
+// Image owns an open original file, positioned at its start, and its metadata.
+// The caller must close File after use. Only the image header is recognized;
+// decoding the pixels is the browser's responsibility.
 type Image struct {
-	Bytes       []byte
+	File        *os.File
+	Size        int64
 	ContentType string
 }
 
@@ -43,11 +36,11 @@ var (
 	ErrInvalidName  = errors.New("invalid wallpaper name")
 	ErrNotFound     = errors.New("wallpaper not found")
 	ErrInvalidImage = errors.New("invalid wallpaper image")
-	ErrTooLarge     = errors.New("wallpaper exceeds the byte limit")
 	ErrUnavailable  = errors.New("wallpaper gallery unavailable")
 )
 
-// List returns valid pictures directly inside home/wallpapers, sorted by name.
+// List returns pictures with recognized raster headers directly inside
+// home/wallpapers, sorted by name.
 // Only a missing wallpapers directory is an empty gallery; other I/O failures
 // are errors, including a directory that is a link or a non-directory.
 func List(home string) ([]Entry, error) {
@@ -73,11 +66,15 @@ func List(home string) ([]Entry, error) {
 		if !validName(entry.Name()) {
 			continue
 		}
-		if _, err := readImage(root, entry.Name()); err != nil {
+		picture, err := readImage(root, entry.Name())
+		if err != nil {
 			if errors.Is(err, ErrUnavailable) {
 				return nil, err
 			}
 			continue
+		}
+		if err := picture.File.Close(); err != nil {
+			return nil, ErrUnavailable
 		}
 		rows = append(rows, Entry{Name: entry.Name()})
 	}
@@ -85,8 +82,9 @@ func List(home string) ([]Entry, error) {
 	return rows, nil
 }
 
-// Read opens and validates a named picture. Names are single visible path
-// components on every supported platform, never an absolute or relative path.
+// Read opens a regular file and recognizes its raster header without decoding
+// pixels or limiting its size or geometry. The caller owns the returned file.
+// Names are single visible path components on every supported platform.
 func Read(home, name string) (Image, error) {
 	if !validName(name) {
 		return Image{}, ErrInvalidName
@@ -149,29 +147,20 @@ func readImage(root *os.Root, name string) (Image, error) {
 	if !before.Mode().IsRegular() {
 		return Image{}, ErrNotFound
 	}
-	if before.Size() > MaxBytes {
-		return Image{}, ErrTooLarge
-	}
 	file, opened, err := openChecked(root, name, before)
 	if err != nil {
 		return Image{}, err
 	}
-	defer func() { _ = file.Close() }()
-	if opened.Size() > MaxBytes {
-		return Image{}, ErrTooLarge
-	}
-	raw, err := io.ReadAll(io.LimitReader(file, MaxBytes+1))
+	contentType, err := recognize(file)
 	if err != nil {
-		return Image{}, ErrUnavailable
-	}
-	if len(raw) > MaxBytes {
-		return Image{}, ErrTooLarge
-	}
-	contentType, err := validate(raw)
-	if err != nil {
+		_ = file.Close()
 		return Image{}, err
 	}
-	return Image{Bytes: raw, ContentType: contentType}, nil
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		_ = file.Close()
+		return Image{}, ErrUnavailable
+	}
+	return Image{File: file, Size: opened.Size(), ContentType: contentType}, nil
 }
 
 func openChecked(root *os.Root, name string, before fs.FileInfo) (*os.File, fs.FileInfo, error) {
@@ -207,41 +196,39 @@ func openChecked(root *os.Root, name string, before fs.FileInfo) (*os.File, fs.F
 	return file, opened, nil
 }
 
-func validDimensions(w, h int) bool {
-	return w >= MinWidth && h >= MinHeight && w <= MaxPixels/h
+// headerReader preserves storage errors even if a decoder rewrites its error.
+type headerReader struct {
+	reader io.Reader
+	err    error
 }
 
-func validate(raw []byte) (string, error) {
-	cfg, format, err := image.DecodeConfig(bytes.NewReader(raw))
-	if err != nil || !validDimensions(cfg.Width, cfg.Height) {
+func (r *headerReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	if err != nil && !errors.Is(err, io.EOF) {
+		r.err = err
+	}
+	return n, err
+}
+
+func recognize(reader io.Reader) (string, error) {
+	header := &headerReader{reader: reader}
+	_, format, err := image.DecodeConfig(header)
+	if header.err != nil {
+		return "", ErrUnavailable
+	}
+	if err != nil {
 		return "", ErrInvalidImage
 	}
-	contentType := ""
 	switch format {
 	case "png":
-		contentType = "image/png"
+		return "image/png", nil
 	case "jpeg":
-		contentType = "image/jpeg"
+		return "image/jpeg", nil
 	case "webp":
-		contentType = "image/webp"
+		return "image/webp", nil
 	case "gif":
-		if err := checkGIFBudget(raw); err != nil {
-			return "", err
-		}
-		if _, err := gif.DecodeAll(bytes.NewReader(raw)); err != nil {
-			return "", ErrInvalidImage
-		}
 		return "image/gif", nil
 	default:
 		return "", ErrInvalidImage
 	}
-	decoded, decodedFormat, err := image.Decode(bytes.NewReader(raw))
-	if err != nil || decodedFormat != format {
-		return "", ErrInvalidImage
-	}
-	bounds := decoded.Bounds()
-	if bounds.Dx() != cfg.Width || bounds.Dy() != cfg.Height {
-		return "", ErrInvalidImage
-	}
-	return contentType, nil
 }

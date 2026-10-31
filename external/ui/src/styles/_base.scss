@@ -51,39 +51,10 @@ html :is(.chat-header, .rail-pill, .composer-card) {
   background-image: var(--coddy-grain);
 }
 
-/* Smooth gradients (Settings → Appearance, ui/theme/backdropPrefs.ts): the
-   same backdrop painted with random dither (ui/theme/canvasBackdrop.ts); the
-   html background above shows until it is painted. A browser blur would wipe
-   the dither out, so the title bar, the rail and the composer show the
-   backdrop with their tint baked in instead of blurring it: an image of their
-   own box, fixed to the viewport where they stand (its place and size come
-   with it in the custom property), over their plain tint. Their soft shadows go too: a blurred shadow
-   ends in a hard one-level edge where the browser cuts its tail off. */
-.canvas-backdrop {
-  position: fixed;
-  inset: 0;
-  width: 100vw;
-  height: 100vh;
-  z-index: -1;
-  pointer-events: none;
-}
-
-html[data-smooth-backdrop="true"] :is(.chat-header, .rail-pill, .composer-card),
-html[data-smooth-backdrop="true"] .composer-wrap-docked .composer-card {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  box-shadow: none;
-}
-
-html[data-smooth-backdrop="true"]
-  .chat-bottom:has(.composer-wrap-docked)::before {
-  display: none;
-}
-
 /* A wallpaper the person chose (Settings → Appearance), dimmed toward the
-   theme's canvas colour so text on the glass stays readable. With smooth
-   gradients on, the canvas paints it too (ui/theme/canvasBackdrop.ts). */
-html[data-wallpaper="true"] {
+   theme's canvas colour so text on the glass stays readable. */
+html[data-wallpaper="true"],
+html[data-wallpaper="true"][data-simple="on"] {
   background:
     linear-gradient(
       color-mix(

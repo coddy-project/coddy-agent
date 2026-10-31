@@ -27,17 +27,13 @@ export const messagesRu: Record<string, string> = {
     "Уведомлениям нужно защищённое соединение. Откройте Coddy по https или на localhost.",
   "appearance.notifications.unsupported":
     "Этот браузер не показывает уведомления веб-страниц.",
-  "appearance.smoothBackdropLabel": "Градиенты",
-  "appearance.smoothBackdrop.toggle": "Плавные градиенты",
-  "appearance.smoothBackdrop.hint":
-    "Рисует свечение фона и стекло заголовка, боковой панели и поля ввода без колец и ступенек, которые видны на некоторых контрастных мониторах. Панели перестают размывать то, что под ними, и теряют мягкие тени. Настройка хранится в этом браузере.",
   "appearance.wallpaperLabel": "Обои",
   "appearance.wallpaper.choose": "Выбрать картинку",
   "appearance.wallpaper.gallery": "Галерея",
   "appearance.wallpaper.remove": "Убрать",
   "appearance.wallpaper.dim": "Затемнение: {value}%",
   "appearance.wallpaper.hint":
-    "Картинка с этого компьютера или из галереи сервера, не меньше 1280x720, под интерфейсом вместо свечения. Хранится в этом браузере и не загружается на сервер.",
+    "Картинка с этого компьютера или из галереи сервера заполняет фон по центру. Если пропорции не совпадают, края обрезаются. Хранится в этом браузере и не загружается на сервер.",
   "appearance.wallpaper.galleryHint":
     "Картинки из CODDY_HOME/wallpapers на сервере (по умолчанию ~/.coddy/wallpapers). Выбранная картинка хранится в этом браузере.",
   "appearance.wallpaper.gallery.loading": "Загрузка обоев…",
@@ -45,9 +41,8 @@ export const messagesRu: Record<string, string> = {
   "appearance.wallpaper.gallery.error":
     "Не удалось загрузить галерею сервера. Закройте и откройте её, чтобы попробовать снова.",
   "appearance.wallpaper.notImage": "Этот файл не картинка.",
-  "appearance.wallpaper.tooLarge": "Картинка больше 20 МБ.",
-  "appearance.wallpaper.tooSmall":
-    "Картинка {width}x{height}, а для обоев нужно не меньше {minWidth}x{minHeight}.",
+  "appearance.wallpaper.storage":
+    "Не удалось прочитать или изменить обои в хранилище браузера. Попробуйте ещё раз.",
   "appearance.wallpaper.unreadable": "Браузер не может прочитать эту картинку.",
   "appearance.wallpaper.offline":
     "Не удалось загрузить картинку. Попробуйте ещё раз.",

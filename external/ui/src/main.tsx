@@ -39,8 +39,8 @@ initTelegramMiniApp();
 initLocale(bootstrapUiLocaleFromUrlOrCookie());
 // The installed app's title bar takes the theme's colour (ui/pwa/themeColor.ts).
 followThemeColor();
-// The page backdrop chosen in Settings → Appearance: smooth gradients, a
-// wallpaper (ui/theme/backdropPrefs.ts).
+// The browser-local wallpaper chosen in Settings → Appearance
+// (ui/theme/backdropPrefs.ts).
 followBackdrop();
 // In the side panel of Coddy for Browser the panel's strip takes the theme's
 // colours too (ui/browserPanel/bridge.ts), and the panel may open the chat that

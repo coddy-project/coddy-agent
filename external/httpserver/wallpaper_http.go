@@ -4,6 +4,7 @@ package httpserver
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -34,11 +35,18 @@ func (s *Server) wallpaperGet(w http.ResponseWriter, r *http.Request) {
 		writeWallpaperError(w, err)
 		return
 	}
+	defer func() {
+		if err := picture.File.Close(); err != nil {
+			s.log.Warn("close wallpaper", "error", err)
+		}
+	}()
 	w.Header().Set("Content-Type", picture.ContentType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Length", strconv.Itoa(len(picture.Bytes)))
+	w.Header().Set("Content-Length", strconv.FormatInt(picture.Size, 10))
 	if r.Method != http.MethodHead {
-		_, _ = w.Write(picture.Bytes)
+		if _, err := io.CopyN(w, picture.File, picture.Size); err != nil {
+			s.log.Warn("stream wallpaper", "error", err)
+		}
 	}
 }
 
@@ -49,8 +57,6 @@ func writeWallpaperError(w http.ResponseWriter, err error) {
 		status, message = http.StatusBadRequest, "invalid wallpaper name"
 	case errors.Is(err, wallpaper.ErrNotFound):
 		status, message = http.StatusNotFound, "wallpaper not found"
-	case errors.Is(err, wallpaper.ErrTooLarge):
-		status, message = http.StatusRequestEntityTooLarge, "wallpaper exceeds 20 MiB"
 	case errors.Is(err, wallpaper.ErrInvalidImage):
 		status, message = http.StatusUnsupportedMediaType, "invalid or unsupported wallpaper image"
 	}

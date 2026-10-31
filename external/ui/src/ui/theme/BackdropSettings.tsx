@@ -3,17 +3,13 @@ import { onEnvironmentSwitch } from "../env/remoteEnv";
 import { acquireObjectUrl, RASTER_IMAGE_TYPE } from "../files/objectUrl";
 import { useT } from "../i18n/I18nProvider";
 import { FieldHint } from "../settings/FieldHint";
-import { SwitchField } from "../settings/SwitchField";
 import { SETTINGS_TEXTS, landmarkAnchor } from "../settings/settingsSections";
 import {
   backdropSnapshot,
   clearWallpaper,
-  setSmoothBackdrop,
   setWallpaper,
   setWallpaperDim,
   subscribeBackdrop,
-  WALLPAPER_MIN_HEIGHT,
-  WALLPAPER_MIN_WIDTH,
   type BackdropState,
 } from "./backdropPrefs";
 import {
@@ -26,7 +22,6 @@ import {
 } from "./wallpaperGallery";
 
 const SERVER_SNAPSHOT: BackdropState = {
-  smooth: false,
   wallpaper: null,
   dim: 0,
 };
@@ -35,13 +30,12 @@ type Refusal = NonNullable<GalleryResult["refusal"]>;
 
 const REFUSAL_KEY: Record<Refusal, string> = {
   "not-image": "appearance.wallpaper.notImage",
-  "too-large": "appearance.wallpaper.tooLarge",
-  "too-small": "appearance.wallpaper.tooSmall",
   unreadable: "appearance.wallpaper.unreadable",
+  storage: "appearance.wallpaper.storage",
   offline: "appearance.wallpaper.offline",
 };
 
-/** A thumbnail owns its authenticated, bounded raster read while the gallery is open. */
+/** A thumbnail owns its authenticated raster read while the gallery is open. */
 function GalleryThumbnail({ photo }: { photo: GalleryPhoto }) {
   const { t } = useT();
   const [src, setSrc] = useState<string>();
@@ -49,6 +43,7 @@ function GalleryThumbnail({ photo }: { photo: GalleryPhoto }) {
   useEffect(() => {
     const lease = acquireObjectUrl(galleryPhotoUrl(photo), {
       accept: RASTER_IMAGE_TYPE,
+      cap: Number.POSITIVE_INFINITY,
     });
     let active = true;
     void lease.promise.then(
@@ -162,36 +157,27 @@ export function BackdropSettings() {
     }
   };
 
-  const refusal = result?.refusal ?? null;
+  const removeWallpaper = async () => {
+    cancelSelection();
+    const abort = new AbortController();
+    selection.current = abort;
+    setResult(null);
+    const next = await clearWallpaper();
+    if (!abort.signal.aborted) setResult(next);
+  };
+
+  const refusal = result?.refusal ?? (state.storageError ? "storage" : null);
   const size = result && "width" in result ? result : null;
   const status = refusal
     ? t(REFUSAL_KEY[refusal], {
         width: String(size?.width ?? ""),
         height: String(size?.height ?? ""),
-        minWidth: String(WALLPAPER_MIN_WIDTH),
-        minHeight: String(WALLPAPER_MIN_HEIGHT),
       })
     : null;
   const wallpaperLabel = t(SETTINGS_TEXTS.appearanceWallpaper.label);
 
   return (
     <>
-      <div
-        className="appearance-backdrop-block"
-        data-testid="appearance-smooth-backdrop"
-        data-settings-anchor={landmarkAnchor("appearance", "smooth-backdrop")}
-      >
-        <p className="appearance-section-label">
-          {t(SETTINGS_TEXTS.appearanceSmoothBackdrop.label)}
-        </p>
-        <SwitchField
-          checked={state.smooth}
-          onChange={setSmoothBackdrop}
-          label={t("appearance.smoothBackdrop.toggle")}
-          description={t("appearance.smoothBackdrop.hint")}
-          dataTestId="appearance-smooth-backdrop-switch"
-        />
-      </div>
       <div
         className="appearance-backdrop-block"
         data-testid="appearance-wallpaper"
@@ -242,11 +228,7 @@ export function BackdropSettings() {
               type="button"
               className="settings-btn settings-btn-danger"
               data-testid="appearance-wallpaper-remove"
-              onClick={() => {
-                cancelSelection();
-                setResult(null);
-                void clearWallpaper();
-              }}
+              onClick={() => void removeWallpaper()}
             >
               {t("appearance.wallpaper.remove")}
             </button>

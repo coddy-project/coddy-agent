@@ -959,8 +959,3 @@
 .subagent-readonly-link:hover {
   background: color-mix(in srgb, var(--accent) 18%, var(--coddy-blend-base));
 }
-
-html[data-smooth-backdrop="true"] .chat-header {
-  background: var(--coddy-smooth-header, none) no-repeat fixed
-    var(--coddy-chat-header-bg);
-}

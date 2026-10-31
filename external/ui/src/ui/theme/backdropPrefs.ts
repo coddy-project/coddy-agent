@@ -1,28 +1,11 @@
 /**
- * The page backdrop choices of Settings → Appearance, kept in this browser
- * only, like the theme:
- *
- * - smooth gradients (cookie `coddy_ui_smooth_backdrop`): the glows, the glass
- *   of the title bar, the rail and the composer painted with random dither on
- *   a canvas (canvasBackdrop.ts), for screens that show the browser's own
- *   gradients as rings;
- * - a wallpaper: a picture the person chose, or one from the server gallery
- *   (wallpaperGallery.ts), kept in IndexedDB (never sent to
- *   the server), shown under the app instead of the glows and dimmed toward
- *   the theme's canvas colour by `coddy_ui_wallpaper_dim` percent.
- *
- * followBackdrop applies them to <html> and follows every change. Smooth
- * gradients cover the wallpaper too: the picture itself has its own grain,
- * but the glass blurs it into smooth ramps that band like the glows.
+ * Browser-local wallpaper choices for Settings → Appearance. A picture from
+ * this computer or the server gallery is kept in IndexedDB, never uploaded,
+ * and dimmed toward the theme's canvas colour by `coddy_ui_wallpaper_dim`.
+ * followBackdrop applies the picture and dimming to <html> through CSS.
  */
-export const SMOOTH_BACKDROP_COOKIE = "coddy_ui_smooth_backdrop";
 export const WALLPAPER_DIM_COOKIE = "coddy_ui_wallpaper_dim";
 export const WALLPAPER_DIM_DEFAULT = 40;
-/** Larger files are refused: IndexedDB quotas differ and the page holds it in memory. */
-export const WALLPAPER_MAX_BYTES = 20 * 1024 * 1024;
-/** Smaller pictures are refused: stretched over a screen they turn to mush. */
-export const WALLPAPER_MIN_WIDTH = 1280;
-export const WALLPAPER_MIN_HEIGHT = 720;
 
 const MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 const DB_NAME = "coddy-ui";
@@ -58,11 +41,12 @@ function writeCookie(name: string, value: string | null): void {
 }
 
 export interface BackdropState {
-  smooth: boolean;
   /** Object URL of the wallpaper, or null when there is none. */
   wallpaper: string | null;
   /** 0..90, percent of the theme's canvas colour laid over the wallpaper. */
   dim: number;
+  /** Last storage failure, including a failed startup read. */
+  storageError?: Error;
 }
 
 function readDim(): number {
@@ -74,7 +58,6 @@ function readDim(): number {
 }
 
 let state: BackdropState = {
-  smooth: readCookie(SMOOTH_BACKDROP_COOKIE) === "on",
   wallpaper: null,
   dim: readDim(),
 };
@@ -95,13 +78,10 @@ export function backdropSnapshot(): BackdropState {
   return state;
 }
 
-export function setSmoothBackdrop(on: boolean): void {
-  writeCookie(SMOOTH_BACKDROP_COOKIE, on ? "on" : null);
-  publish({ ...state, smooth: on });
-}
-
 export function setWallpaperDim(dim: number): void {
-  const v = Math.min(90, Math.max(0, Math.round(dim)));
+  const v = Number.isFinite(dim)
+    ? Math.min(90, Math.max(0, Math.round(dim)))
+    : WALLPAPER_DIM_DEFAULT;
   writeCookie(WALLPAPER_DIM_COOKIE, String(v));
   publish({ ...state, dim: v });
 }
@@ -110,56 +90,143 @@ function openDb(): Promise<IDBDatabase | null> {
   if (typeof indexedDB === "undefined") {
     return Promise.resolve(null);
   }
-  return new Promise((resolve) => {
-    try {
-      const req = indexedDB.open(DB_NAME, 1);
-      req.onupgradeneeded = () => req.result.createObjectStore(DB_STORE);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(null);
-    } catch {
-      resolve(null);
-    }
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    let failed = false;
+    req.onupgradeneeded = () => {
+      if (failed) req.transaction?.abort();
+      else req.result.createObjectStore(DB_STORE);
+    };
+    req.onsuccess = () => {
+      // A blocked open cannot be cancelled; close it if it eventually succeeds.
+      if (failed) req.result.close();
+      else resolve(req.result);
+    };
+    req.onblocked = () => {
+      failed = true;
+      reject(new Error("Wallpaper storage is blocked by another page"));
+    };
+    req.onerror = () => {
+      failed = true;
+      reject(req.error ?? new Error("Could not open wallpaper storage"));
+    };
   });
 }
 
 async function dbRequest<T>(
   mode: IDBTransactionMode,
   run: (store: IDBObjectStore) => IDBRequest<T>,
+  signal?: AbortSignal,
 ): Promise<T | null> {
   const db = await openDb();
-  if (!db) {
-    return null;
+  if (!db) return null;
+  let cleanup: (() => void) | undefined;
+  try {
+    signal?.throwIfAborted();
+    return await new Promise<T>((resolve, reject) => {
+      const tx = db.transaction(DB_STORE, mode);
+      let failure: DOMException | Error | null = null;
+      const abort = () => {
+        try {
+          tx.abort();
+        } catch (error) {
+          reject(error);
+        }
+      };
+      tx.onabort = () => {
+        reject(
+          failure ?? tx.error ?? new Error("Wallpaper transaction aborted"),
+        );
+      };
+      tx.onerror = () => {
+        failure = tx.error ?? new Error("Wallpaper transaction failed");
+      };
+      const req = run(tx.objectStore(DB_STORE));
+      req.onerror = () => {
+        failure = req.error ?? new Error("Wallpaper storage request failed");
+      };
+      // Request success is not durable: the transaction can still abort.
+      tx.oncomplete = () => {
+        if (failure) reject(failure);
+        else resolve(req.result);
+      };
+      signal?.addEventListener("abort", abort, { once: true });
+      cleanup = () => signal?.removeEventListener("abort", abort);
+      if (signal?.aborted) abort();
+    });
+  } finally {
+    cleanup?.();
+    db.close();
   }
-  return new Promise((resolve) => {
-    try {
-      const req = run(db.transaction(DB_STORE, mode).objectStore(DB_STORE));
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(null);
-    } catch {
-      resolve(null);
-    }
-  });
 }
-
-// The kept picture itself, for the canvas to decode.
-let wallpaperBlob: Blob | null = null;
 
 function showWallpaper(blob: Blob | null): void {
-  wallpaperBlob = blob;
-  if (state.wallpaper) {
-    URL.revokeObjectURL(state.wallpaper);
-  }
-  publish({
-    ...state,
-    wallpaper: blob ? URL.createObjectURL(blob) : null,
-  });
+  const wallpaper = blob ? URL.createObjectURL(blob) : null;
+  if (state.wallpaper) URL.revokeObjectURL(state.wallpaper);
+  publish({ wallpaper, dim: state.dim });
 }
 
-export type WallpaperRefusal =
-  | "not-image"
-  | "too-large"
-  | "too-small"
-  | "unreadable";
+let generation = 0;
+let activeMutation: AbortController | null = null;
+let writes: Promise<WallpaperResult> = Promise.resolve({ refusal: null });
+
+function beginMutation(signal?: AbortSignal) {
+  const ownGeneration = ++generation;
+  activeMutation?.abort();
+  const controller = new AbortController();
+  activeMutation = controller;
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
+  return {
+    signal: controller.signal,
+    current: () => generation === ownGeneration && !controller.signal.aborted,
+    finish: () => {
+      signal?.removeEventListener("abort", abort);
+      if (activeMutation === controller) activeMutation = null;
+    },
+  };
+}
+
+function storageFailure(error: unknown): WallpaperResult {
+  publish({
+    ...state,
+    storageError: error instanceof Error ? error : new Error(String(error)),
+  });
+  return { refusal: "storage" };
+}
+
+function persistWallpaper(
+  blob: Blob | null,
+  mutation: ReturnType<typeof beginMutation>,
+) {
+  writes = writes.then(async () => {
+    if (!mutation.current()) return { refusal: null };
+    try {
+      if (blob) {
+        await dbRequest(
+          "readwrite",
+          (store) => store.put(blob, DB_KEY),
+          mutation.signal,
+        );
+      } else {
+        await dbRequest(
+          "readwrite",
+          (store) => store.delete(DB_KEY),
+          mutation.signal,
+        );
+      }
+      if (mutation.current()) showWallpaper(blob);
+      return { refusal: null };
+    } catch (error) {
+      // Cancellation is intentional; a real failure remains visible and retryable.
+      return mutation.current() ? storageFailure(error) : { refusal: null };
+    }
+  });
+  return writes;
+}
+
+export type WallpaperRefusal = "not-image" | "unreadable" | "storage";
 
 export interface WallpaperResult {
   refusal: WallpaperRefusal | null;
@@ -168,137 +235,110 @@ export interface WallpaperResult {
   height?: number;
 }
 
-/** pictureSize decodes the picture for its size; null where it cannot be decoded. */
+/** Decode using the browser, including engines without createImageBitmap. */
 async function pictureSize(
   file: Blob,
-): Promise<{ width: number; height: number } | null | undefined> {
-  if (typeof createImageBitmap !== "function") {
-    return undefined; // nothing to measure with (tests): take it as it is
+  signal: AbortSignal,
+): Promise<{ width: number; height: number } | null> {
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bitmap = await createImageBitmap(file);
+      try {
+        return { width: bitmap.width, height: bitmap.height };
+      } finally {
+        bitmap.close();
+      }
+    } catch {
+      return null;
+    }
   }
+  if (typeof Image !== "function" || signal.aborted) return null;
+  const url = URL.createObjectURL(file);
   try {
-    const bitmap = await createImageBitmap(file);
-    const size = { width: bitmap.width, height: bitmap.height };
-    bitmap.close();
-    return size;
-  } catch {
-    return null;
+    return await new Promise((resolve) => {
+      const image = new Image();
+      const finish = (size: { width: number; height: number } | null) => {
+        image.onload = image.onerror = null;
+        signal.removeEventListener("abort", abort);
+        image.src = "";
+        resolve(size);
+      };
+      const abort = () => finish(null);
+      image.onload = () =>
+        finish({ width: image.naturalWidth, height: image.naturalHeight });
+      image.onerror = () => finish(null);
+      signal.addEventListener("abort", abort, { once: true });
+      image.src = url;
+      if (signal.aborted) abort();
+    });
+  } finally {
+    URL.revokeObjectURL(url);
   }
 }
 
-/**
- * setWallpaper keeps the picture in this browser and shows it, unless it is
- * not a picture, too large, or smaller than WALLPAPER_MIN_WIDTH x
- * WALLPAPER_MIN_HEIGHT. When IndexedDB is not available it is shown for the
- * life of the page only.
- */
+async function validatePicture(
+  file: Blob,
+  signal: AbortSignal,
+): Promise<WallpaperResult> {
+  if (!file.type.startsWith("image/")) return { refusal: "not-image" };
+  const size = await pictureSize(file, signal);
+  if (!size) return { refusal: "unreadable" };
+  return { refusal: null, ...size };
+}
+
+/** Validate before persisting; absent IndexedDB keeps a page-lifetime picture only. */
 export async function setWallpaper(
   file: Blob,
   signal?: AbortSignal,
 ): Promise<WallpaperResult> {
-  if (!file.type.startsWith("image/")) {
-    return { refusal: "not-image" };
+  const mutation = beginMutation(signal);
+  try {
+    if (!mutation.current()) return { refusal: null };
+    const validated = await validatePicture(file, mutation.signal);
+    if (!mutation.current()) return { refusal: null };
+    if (validated.refusal) return validated;
+    const persisted = await persistWallpaper(file, mutation);
+    return persisted.refusal ? persisted : validated;
+  } finally {
+    mutation.finish();
   }
-  if (file.size > WALLPAPER_MAX_BYTES) {
-    return { refusal: "too-large" };
-  }
-  const size = await pictureSize(file);
-  if (size === null) {
-    return { refusal: "unreadable" };
-  }
-  if (
-    size &&
-    (size.width < WALLPAPER_MIN_WIDTH || size.height < WALLPAPER_MIN_HEIGHT)
-  ) {
-    return { refusal: "too-small", ...size };
-  }
-  if (signal?.aborted) return { refusal: null };
-  await dbRequest("readwrite", (store) => store.put(file, DB_KEY));
-  if (signal?.aborted) return { refusal: null };
-  showWallpaper(file);
-  return { refusal: null, ...size };
 }
 
-export async function clearWallpaper(): Promise<void> {
-  await dbRequest("readwrite", (store) => store.delete(DB_KEY));
-  showWallpaper(null);
+export async function clearWallpaper(): Promise<WallpaperResult> {
+  const mutation = beginMutation();
+  try {
+    return await persistWallpaper(null, mutation);
+  } finally {
+    mutation.finish();
+  }
 }
 
-/** loadWallpaper reads the kept picture once at start. */
+/** A startup read never replaces a choice made since it began. */
 export async function loadWallpaper(): Promise<void> {
-  const blob = await dbRequest<unknown>("readonly", (store) =>
-    store.get(DB_KEY),
-  );
-  if (blob instanceof Blob) {
+  // Only bootstrap may restore storage; a user choice has priority from its start.
+  if (generation !== 0) return;
+  const ownGeneration = generation;
+  try {
+    const blob = await dbRequest<unknown>("readonly", (store) =>
+      store.get(DB_KEY),
+    );
+    if (generation !== ownGeneration || blob == null) return;
+    if (!(blob instanceof Blob)) throw new Error("Invalid saved wallpaper");
+    const result = await validatePicture(blob, new AbortController().signal);
+    if (generation !== ownGeneration) return;
+    if (result.refusal)
+      throw new Error(`Invalid saved wallpaper: ${result.refusal}`);
     showWallpaper(blob);
+  } catch (error) {
+    if (generation === ownGeneration) storageFailure(error);
   }
 }
 
-/** How long the canvas waits after a change, so a dragged dimming slider repaints once. */
-const CANVAS_SETTLE_MS = 150;
-
-/**
- * followBackdrop applies the choices to <html> now and on every change:
- * `data-wallpaper` with `--coddy-wallpaper` and `--coddy-wallpaper-dim`, and,
- * with smooth gradients on, `data-smooth-backdrop` with the canvas running
- * over the glows or over the wallpaper. Returns the teardown.
- */
+/** Applies the wallpaper and dimming to <html> now and on every change. */
 export function followBackdrop(doc: Document = document): () => void {
   const root = doc.documentElement;
-  let stopCanvas: (() => void) | null = null;
-  let canvasKey: string | null = null;
-  let settle: ReturnType<typeof setTimeout> | undefined;
-
-  const stop = () => {
-    stopCanvas?.();
-    stopCanvas = null;
-  };
-
-  const startCanvas = async (key: string) => {
-    let painter: typeof import("./canvasBackdrop");
-    try {
-      painter = await import("./canvasBackdrop");
-    } catch {
-      // A missing chunk leaves the CSS backdrop and ordinary glass in place.
-      if (key === canvasKey) {
-        stop();
-        delete root.dataset.smoothBackdrop;
-      }
-      return;
-    }
-    if (key !== canvasKey) return;
-    const blob = wallpaperBlob;
-    const { wallpaper, dim } = state;
-    let picture: ImageBitmap | null = null;
-    if (wallpaper && blob && typeof createImageBitmap === "function") {
-      try {
-        picture = await createImageBitmap(blob);
-      } catch {
-        picture = null;
-      }
-    }
-    if (key !== canvasKey) {
-      picture?.close();
-      return; // overtaken by a newer choice
-    }
-    stop();
-    if (wallpaper && !picture) {
-      delete root.dataset.smoothBackdrop;
-      return; // the picture cannot be decoded: leave the CSS wallpaper
-    }
-    stopCanvas = painter.followCanvasBackdrop(
-      doc,
-      picture ? { picture, dim: dim / 100 } : undefined,
-    );
-    // Mark <html> only when the canvas runs: the panels' rules expect its images.
-    if (stopCanvas) {
-      root.dataset.smoothBackdrop = "true";
-    } else {
-      delete root.dataset.smoothBackdrop;
-    }
-  };
-
   const apply = () => {
-    const { smooth, wallpaper, dim } = state;
+    const { wallpaper, dim } = state;
     if (wallpaper) {
       root.dataset.wallpaper = "true";
       root.style.setProperty("--coddy-wallpaper", `url("${wallpaper}")`);
@@ -308,43 +348,15 @@ export function followBackdrop(doc: Document = document): () => void {
       root.style.removeProperty("--coddy-wallpaper");
       root.style.removeProperty("--coddy-wallpaper-dim");
     }
-    const key =
-      smooth && root.dataset.simple !== "on"
-        ? wallpaper
-          ? `${wallpaper}|${dim}`
-          : "glows"
-        : null;
-    if (key === canvasKey) {
-      return;
-    }
-    const first = canvasKey === null;
-    canvasKey = key;
-    clearTimeout(settle);
-    if (key === null) {
-      stop();
-      delete root.dataset.smoothBackdrop;
-      return;
-    }
-    if (first) {
-      void startCanvas(key);
-    } else {
-      settle = setTimeout(() => void startCanvas(key), CANVAS_SETTLE_MS);
-    }
   };
 
   apply();
   const unsubscribe = subscribeBackdrop(apply);
-  // Simplified mode keeps the choices but stops the canvas and its observers.
-  const mode = new MutationObserver(apply);
-  mode.observe(root, { attributes: true, attributeFilter: ["data-simple"] });
   void loadWallpaper();
   return () => {
     unsubscribe();
-    mode.disconnect();
-    clearTimeout(settle);
-    canvasKey = null;
-    stop();
-    delete root.dataset.smoothBackdrop;
     delete root.dataset.wallpaper;
+    root.style.removeProperty("--coddy-wallpaper");
+    root.style.removeProperty("--coddy-wallpaper-dim");
   };
 }

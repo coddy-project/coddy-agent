@@ -11,8 +11,7 @@ import { AppearanceThemePicker } from "./AppearanceModal";
 import {
   backdropSnapshot,
   clearWallpaper,
-  setSmoothBackdrop,
-  SMOOTH_BACKDROP_COOKIE,
+  setWallpaper,
 } from "./backdropPrefs";
 import { initLocale } from "../i18n/i18n";
 import { connectRemote, setEnv } from "../env/remoteEnv";
@@ -26,38 +25,27 @@ afterEach(async () => {
   cleanup();
   vi.unstubAllGlobals();
   await clearWallpaper();
-  setSmoothBackdrop(false);
-  document.cookie = `${SMOOTH_BACKDROP_COOKIE}=; Path=/; Max-Age=0`;
 });
 
-function theSwitch(): HTMLElement {
-  return screen.getByTestId("appearance-smooth-backdrop-switch");
-}
-
-describe("Settings → Appearance → Gradients", () => {
-  test("the smooth gradients switch stands under the notifications, off", () => {
+test.each(["en", "ru"] as const)(
+  "Appearance offers wallpaper without a gradient control in %s",
+  (locale) => {
+    initLocale(locale);
     render(<AppearanceThemePicker />);
-    const notifications = screen.getByTestId("appearance-notifications");
-    const gradients = screen.getByTestId("appearance-smooth-backdrop");
+    expect(screen.queryByTestId("appearance-smooth-backdrop")).toBeNull();
     expect(
-      notifications.compareDocumentPosition(gradients) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(screen.getByText("Gradients")).toBeInTheDocument();
-    expect(theSwitch()).not.toBeChecked();
-  });
-
-  test("turning it on is remembered in this browser", () => {
-    render(<AppearanceThemePicker />);
-    fireEvent.click(theSwitch());
-    expect(theSwitch()).toBeChecked();
-    expect(backdropSnapshot().smooth).toBe(true);
-    expect(document.cookie).toContain(`${SMOOTH_BACKDROP_COOKIE}=on`);
-    fireEvent.click(theSwitch());
-    expect(theSwitch()).not.toBeChecked();
-    expect(document.cookie).not.toContain(SMOOTH_BACKDROP_COOKIE);
-  });
-});
+      screen.queryByRole("switch", {
+        name: /Smooth gradients|Плавные градиенты/,
+      }),
+    ).toBeNull();
+    expect(
+      screen.getByTestId("appearance-wallpaper-choose"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("appearance-wallpaper-gallery"),
+    ).toBeInTheDocument();
+  },
+);
 
 describe("Settings → Appearance → Wallpaper", () => {
   function choose(width: number, height: number) {
@@ -79,10 +67,17 @@ describe("Settings → Appearance → Wallpaper", () => {
 
   test("a chosen picture shows its preview, the dimming and Remove", async () => {
     render(<AppearanceThemePicker />);
-    const gradients = screen.getByTestId("appearance-smooth-backdrop");
+    const theme = document.querySelector(
+      '[data-settings-anchor="landmark:appearance:theme"]',
+    )!;
     const wallpaper = screen.getByTestId("appearance-wallpaper");
+    const language = screen.getByTestId("appearance-language-picker");
     expect(
-      gradients.compareDocumentPosition(wallpaper) &
+      theme.compareDocumentPosition(wallpaper) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      wallpaper.compareDocumentPosition(language) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(screen.queryByTestId("appearance-wallpaper-remove")).toBeNull();
@@ -99,17 +94,16 @@ describe("Settings → Appearance → Wallpaper", () => {
     );
   });
 
-  test("a picture under 1280x720 is refused and the message names its size", async () => {
+  test("a small picture shows its preview without a size refusal", async () => {
     render(<AppearanceThemePicker />);
-    choose(800, 600);
+    choose(1, 1);
     await waitFor(() =>
       expect(
-        screen.getByTestId("appearance-wallpaper-status"),
-      ).toHaveTextContent(
-        "The picture is 800x600: a wallpaper needs at least 1280x720.",
-      ),
+        screen.getByTestId("appearance-wallpaper-preview"),
+      ).toHaveAttribute("src", "blob:picture"),
     );
-    expect(backdropSnapshot().wallpaper).toBeNull();
+    expect(screen.queryByTestId("appearance-wallpaper-status")).toBeNull();
+    expect(backdropSnapshot().wallpaper).toBe("blob:picture");
   });
 });
 
@@ -157,6 +151,28 @@ describe("Settings → Appearance → Wallpaper → Gallery", () => {
     expect(screen.queryByTestId("appearance-wallpaper-shuffle")).toBeNull();
     expect(document.querySelector('img[src^="https://"]')).toBeNull();
   });
+  test("a gallery thumbnail larger than 20 MiB is displayed", async () => {
+    render(<AppearanceThemePicker />);
+    pictures();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: RequestInfo | URL) =>
+        String(url).endsWith("/coddy/wallpapers")
+          ? Response.json({ wallpapers: [{ name }] })
+          : new Response(new Uint8Array(20 * 1024 * 1024 + 1), {
+              headers: {
+                "Content-Type": "image/png",
+                "Content-Length": String(20 * 1024 * 1024 + 1),
+              },
+            }),
+      ),
+    );
+    const photo = await open();
+    await waitFor(() =>
+      expect(photo.querySelector("img")).toHaveAttribute("src", "blob:photo"),
+    );
+  });
+
   test("a picked server picture becomes the browser wallpaper without credits", async () => {
     pictures();
     const fetch = server();
@@ -238,6 +254,12 @@ describe("Settings → Appearance → Wallpaper → Gallery", () => {
       const fetch = server();
       const view = render(<AppearanceThemePicker />);
       const button = await open();
+      await waitFor(() =>
+        expect(button.querySelector("img")).toHaveAttribute(
+          "src",
+          "blob:photo",
+        ),
+      );
       let resolve!: (response: Response) => void;
       fetch.mockImplementationOnce(
         () =>
@@ -345,4 +367,82 @@ describe("Settings → Appearance → Wallpaper → Gallery", () => {
     await act(async () => resolve(Response.json({ wallpapers: [{ name }] })));
     expect(screen.queryByRole("button", { name })).toBeNull();
   });
+});
+
+describe("wallpaper storage errors", () => {
+  function denyStorage() {
+    vi.stubGlobal("indexedDB", {
+      open: () => {
+        throw new Error("Storage denied");
+      },
+    });
+  }
+  test.each(["en", "ru"] as const)(
+    "failed replacement and removal keep the preview in %s",
+    async (locale) => {
+      initLocale(locale);
+      vi.stubGlobal("createImageBitmap", async () => ({
+        width: 1920,
+        height: 1080,
+        close() {},
+      }));
+      Object.assign(URL, {
+        createObjectURL: vi.fn(() => "blob:kept"),
+        revokeObjectURL: vi.fn(),
+      });
+      await setWallpaper(new Blob(["kept"], { type: "image/png" }));
+      render(<AppearanceThemePicker />);
+      denyStorage();
+      fireEvent.change(screen.getByTestId("appearance-wallpaper-input"), {
+        target: {
+          files: [new File(["new"], "new.png", { type: "image/png" })],
+        },
+      });
+      const text =
+        locale === "en"
+          ? "Browser storage could not read or change"
+          : "Не удалось прочитать или изменить обои";
+      await waitFor(() =>
+        expect(
+          screen.getByTestId("appearance-wallpaper-status"),
+        ).toHaveTextContent(text),
+      );
+      expect(
+        screen.getByTestId("appearance-wallpaper-preview"),
+      ).toHaveAttribute("src", "blob:kept");
+      fireEvent.click(screen.getByTestId("appearance-wallpaper-remove"));
+      await waitFor(() =>
+        expect(
+          screen.getByTestId("appearance-wallpaper-status"),
+        ).toHaveTextContent(text),
+      );
+      expect(
+        screen.getByTestId("appearance-wallpaper-preview"),
+      ).toHaveAttribute("src", "blob:kept");
+    },
+  );
+
+  test.each(["en", "ru"] as const)(
+    "a stored error is visible when Appearance opens in %s",
+    async (locale) => {
+      initLocale(locale);
+      vi.stubGlobal("createImageBitmap", async () => ({
+        width: 1920,
+        height: 1080,
+        close() {},
+      }));
+      denyStorage();
+      await act(async () => {
+        await setWallpaper(new Blob(["picture"], { type: "image/png" }));
+      });
+      render(<AppearanceThemePicker />);
+      expect(
+        screen.getByTestId("appearance-wallpaper-status"),
+      ).toHaveTextContent(
+        locale === "en"
+          ? "Browser storage could not read or change"
+          : "Не удалось прочитать или изменить обои",
+      );
+    },
+  );
 });

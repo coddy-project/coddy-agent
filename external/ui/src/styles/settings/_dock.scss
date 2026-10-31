@@ -166,8 +166,8 @@
   margin: 8px 0 0;
 }
 
-/* The page backdrop (ui/theme/BackdropSettings.tsx): smooth gradients, then
-   the wallpaper with its preview, buttons, gallery and dimming. */
+/* The wallpaper (ui/theme/BackdropSettings.tsx): preview, buttons, gallery
+   and dimming. */
 .appearance-backdrop-block {
   margin-top: 22px;
 }
@@ -227,10 +227,6 @@
 .appearance-wallpaper-thumb.is-loading {
   opacity: 1;
   outline: 2px solid var(--accent);
-}
-
-.appearance-wallpaper-shuffle {
-  margin-top: 8px;
 }
 
 .appearance-wallpaper-dim {
