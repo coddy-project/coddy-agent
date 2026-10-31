@@ -105,6 +105,7 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 		r.Register(SwitchModelTool(cfg))
 	}
 	registerSchedulerTools(r, cfg)
+	registerBrowserTools(r, cfg)
 	return r
 }
 

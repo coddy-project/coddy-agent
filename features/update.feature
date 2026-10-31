@@ -24,6 +24,12 @@ Feature: Coddy self-update
     When Coddy installs the update
     Then Coddy reports that it verified the archive against the published checksums
 
+  Scenario: Verifying the published checksums against their signature
+    Given a newer Coddy release with a signed digest list is available
+    When Coddy installs the update
+    Then Coddy reports that it verified the signature of the checksums
+    And the installed executable is the one from the release
+
   Scenario: Resuming a download the server cut short
     Given a newer Coddy release is available
     And the download server drops the first connection halfway
@@ -58,10 +64,5 @@ Feature: Coddy self-update
     Given a newer Windows Coddy release is available
     When Coddy prepares the Windows update
     Then it reports that the update is ready
-    And it schedules a helper that will restart Coddy
-
-  Scenario: Installing a Windows update without starting Coddy again
-    Given a newer Windows Coddy release is available
-    When Coddy prepares the Windows update with --no-restart
-    Then it reports that the update is ready
-    And it schedules a helper that will leave Coddy stopped
+    And it schedules a helper that will install the release
+    And it does not say that Coddy will start again

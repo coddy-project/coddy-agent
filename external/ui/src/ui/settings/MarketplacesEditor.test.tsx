@@ -31,7 +31,8 @@ afterEach(() => {
 });
 
 const SYSTEM: MarketplaceEntry = {
-  kind: "source",
+  kind: "marketplace",
+  name: "rpa-skills",
   source: "EvilFreelancer/rpa-skills",
   origin: "system",
   gated: false,
@@ -132,12 +133,12 @@ test("lists every declaration with its kind and the file it comes from", async (
   expect(calls[0]?.url).toBe("/coddy/skills/sources");
   expect(calls[0]?.headers["X-Coddy-Session-ID"]).toBe("sess_view");
 
-  const system = screen.getByTestId(
-    "skills-marketplace-EvilFreelancer/rpa-skills",
-  );
-  expect(system).toHaveTextContent("all plugins");
+  // The built-in catalog is named by its name, its address under it.
+  const system = screen.getByTestId("skills-marketplace-rpa-skills");
+  expect(system).toHaveTextContent("catalog");
+  expect(system).toHaveTextContent("EvilFreelancer/rpa-skills");
   expect(
-    screen.getByTestId("skills-marketplace-origin-EvilFreelancer/rpa-skills"),
+    screen.getByTestId("skills-marketplace-origin-rpa-skills"),
   ).toHaveTextContent("built in");
 
   // A marketplace is named by its name and shows the address under it.
@@ -159,13 +160,13 @@ test("lists every declaration with its kind and the file it comes from", async (
 test("the built-in marketplace is always trusted and cannot be removed", async () => {
   stubApi(listing([SYSTEM]));
   renderEditor();
-  const key = "EvilFreelancer/rpa-skills";
+  const key = "rpa-skills";
   const shield = await screen.findByTestId(`skills-marketplace-trust-${key}`);
   expect(shield).toBeDisabled();
   expect(shield).toHaveClass("is-trusted");
   expect(shield).toHaveAttribute(
     "aria-label",
-    "EvilFreelancer/rpa-skills is built into Coddy and always trusted",
+    "rpa-skills is built into Coddy and always trusted",
   );
   const remove = screen.getByTestId(`skills-marketplace-remove-${key}`);
   expect(remove).toBeDisabled();
@@ -173,8 +174,9 @@ test("the built-in marketplace is always trusted and cannot be removed", async (
     "title",
     "Built into Coddy: always in effect, always trusted, not removable",
   );
-  // It syncs like any other.
+  // It is checked for updates like any other row; no row installs anything.
   expect(screen.getByTestId(`skills-marketplace-sync-${key}`)).toBeEnabled();
+  expect(screen.queryByTestId(`skills-marketplace-install-${key}`)).toBeNull();
 });
 
 test("a project entry waits for its approval: a note, no sync, and the shield", async () => {
@@ -196,7 +198,7 @@ test("a project entry waits for its approval: a note, no sync, and the shield", 
   expect(shield).toHaveClass("settings-btn-approve");
   expect(shield).toHaveAttribute(
     "title",
-    "Approve syncing team/data-skills in this workspace",
+    "Approve team/data-skills for this workspace",
   );
 });
 
@@ -290,7 +292,12 @@ test("adding declares the entry where the operator chose", async () => {
   await screen.findByTestId("skills-marketplace-team/new-skills");
   const post = calls.find((c) => c.method === "POST");
   expect(post?.url).toBe("/coddy/skills/sources");
-  expect(post?.body).toEqual({ source: "team/new-skills", scope: "local" });
+  // A source is installed as it is added: nothing installs it later.
+  expect(post?.body).toEqual({
+    source: "team/new-skills",
+    scope: "local",
+    sync: true,
+  });
   expect(post?.headers["X-Coddy-Session-ID"]).toBe("sess_view");
   expect(input).toHaveValue("");
 });
@@ -314,13 +321,37 @@ test("removing names the entry by its key", async () => {
   expect(del?.url).toBe("/coddy/skills/sources?source=shop&origin=home");
 });
 
-test("sync of one entry and sync of all refresh the installed list", async () => {
-  const calls = stubApi(listing([SYSTEM, HOME_CATALOG]));
+test("checking one entry and checking all refresh the installed list", async () => {
+  const calls = stubApi(listing([SYSTEM, HOME_CATALOG]), (call) =>
+    call.url === "/coddy/skills/sync"
+      ? {
+          ok: true,
+          status: 200,
+          body: {
+            ok: true,
+            read: ["rpa-skills", "shop"],
+            updates: [
+              { name: "rpa-feat", latest: "1.0.2", update_available: true },
+              { name: "demo", latest: "2.0.0", update_available: true },
+            ],
+          },
+        }
+      : {
+          ok: true,
+          status: 200,
+          body: { ok: true, read: ["shop"], updates: [] },
+        },
+  );
   const onSynced = renderEditor();
-  fireEvent.click(await screen.findByTestId("skills-marketplace-sync-shop"));
+  const check = await screen.findByTestId("skills-marketplace-sync-shop");
+  expect(check).toHaveAttribute("title", "Check shop for updates");
+  fireEvent.click(check);
   await waitFor(() => expect(onSynced).toHaveBeenCalledTimes(1));
   expect(calls.find((c) => c.method === "POST")?.url).toBe(
     "/coddy/skills/sync?source=shop",
+  );
+  expect(await screen.findByTestId("skills-check-status")).toHaveTextContent(
+    "Every skill installed from shop is up to date.",
   );
   await waitFor(() =>
     expect(screen.getByTestId("skills-marketplace-sync-shop")).toHaveClass(
@@ -328,10 +359,22 @@ test("sync of one entry and sync of all refresh the installed list", async () =>
     ),
   );
 
-  fireEvent.click(screen.getByTestId("skills-sync-all"));
+  // The check of every row is the refresh icon of the heading.
+  const all = screen.getByTestId("skills-sync-all");
+  expect(all.closest("legend")).not.toBeNull();
+  expect(all).toHaveAttribute(
+    "aria-label",
+    "Check every marketplace for updates",
+  );
+  fireEvent.click(all);
   await waitFor(() => expect(onSynced).toHaveBeenCalledTimes(2));
   expect(calls.filter((c) => c.method === "POST")[1]?.url).toBe(
     "/coddy/skills/sync",
+  );
+  await waitFor(() =>
+    expect(screen.getByTestId("skills-check-status")).toHaveTextContent(
+      "2 updates available: install them in the list below.",
+    ),
   );
 });
 
@@ -381,6 +424,7 @@ test("a draft chat is no session: no header, and only your file can be written",
     expect(calls.find((c) => c.method === "POST")?.body).toEqual({
       source: "team/new-skills",
       scope: "global",
+      sync: true,
     }),
   );
 });
@@ -392,7 +436,7 @@ test("a failed refresh after a sync never leaves Sync disabled", async () => {
   const onSynced = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
   renderEditor("sess_view", onSynced);
   fireEvent.click(await screen.findByTestId("skills-sync-all"));
-  await screen.findByText("Sync failed");
+  await screen.findByText("Check failed");
   expect(screen.getByTestId("skills-sync-all")).toBeEnabled();
   expect(screen.getByTestId("skills-marketplace-sync-shop")).toBeEnabled();
 });
@@ -441,4 +485,93 @@ test("removing a row names its file", async () => {
       "/coddy/skills/sources?source=team%2Fdata-skills&origin=project",
     ),
   );
+});
+
+// A check that could not read a list names it and claims no "up to date",
+// and the line it leaves follows the installed list's count afterwards, so it
+// stays true once the updates are installed.
+test("a check that could not read a list says so, and the line follows the count", async () => {
+  stubApi(listing([SYSTEM, HOME_CATALOG]), (call) =>
+    call.url === "/coddy/skills/sync"
+      ? {
+          ok: true,
+          status: 200,
+          body: {
+            ok: true,
+            read: ["shop"],
+            updates: [],
+            failed: [{ source: "rpa-skills", error: "clone failed" }],
+          },
+        }
+      : {
+          ok: true,
+          status: 200,
+          body: {
+            ok: true,
+            read: ["shop"],
+            updates: [{ name: "demo", update_available: true }],
+          },
+        },
+  );
+  const onSynced = vi.fn();
+  const { rerender } = render(
+    <MarketplacesEditor
+      activeSessionId="sess_view"
+      onSynced={onSynced}
+      updateCount={0}
+    />,
+  );
+  fireEvent.click(await screen.findByTestId("skills-sync-all"));
+  expect(await screen.findByTestId("skills-check-unread")).toHaveTextContent(
+    "Could not read rpa-skills.",
+  );
+  expect(screen.queryByTestId("skills-check-status")).toBeNull();
+
+  fireEvent.click(screen.getByTestId("skills-marketplace-sync-shop"));
+  await waitFor(() => expect(onSynced).toHaveBeenCalledTimes(2));
+  rerender(
+    <MarketplacesEditor
+      activeSessionId="sess_view"
+      onSynced={onSynced}
+      updateCount={1}
+    />,
+  );
+  expect(await screen.findByTestId("skills-check-status")).toHaveTextContent(
+    "1 update available",
+  );
+  // shop read well says nothing about rpa-skills, which stays unread.
+  expect(screen.getByTestId("skills-check-unread")).toHaveTextContent(
+    "Could not read rpa-skills.",
+  );
+  // The installed list updated it: the line says so, for shop only.
+  rerender(
+    <MarketplacesEditor
+      activeSessionId="sess_view"
+      onSynced={onSynced}
+      updateCount={0}
+    />,
+  );
+  expect(screen.getByTestId("skills-check-status")).toHaveTextContent(
+    "Every skill installed from shop is up to date.",
+  );
+});
+
+// Adding what the list has already installs nothing, and the list says so.
+test("adding a source the list has already says nothing was installed", async () => {
+  stubApi(listing([SYSTEM]), (call) =>
+    call.url === "/coddy/skills/sources"
+      ? { ok: true, status: 200, body: { ok: true, added: false } }
+      : undefined,
+  );
+  const onSynced = renderEditor();
+  fireEvent.change(await screen.findByTestId("skills-marketplace-input"), {
+    target: { value: "EvilFreelancer/rpa-skills" },
+  });
+  fireEvent.click(screen.getByTestId("skills-marketplace-add"));
+  expect(
+    await screen.findByText(
+      "EvilFreelancer/rpa-skills is in the list already, so nothing was installed.",
+    ),
+  ).toBeTruthy();
+  await waitFor(() => expect(onSynced).toHaveBeenCalled());
 });

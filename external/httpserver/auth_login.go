@@ -141,16 +141,17 @@ func (s *Server) registerAuthRoutes() {
 	s.mux.HandleFunc("POST /coddy/auth/logout", s.coddyAuthLogoutPost)
 	s.mux.HandleFunc("GET /coddy/auth/me", s.coddyAuthMeGet)
 	s.mux.HandleFunc("POST /coddy/auth/telegram", s.coddyAuthTelegramPost)
+	s.mux.HandleFunc("POST /coddy/auth/browser", s.coddyAuthBrowserPost)
 }
 
-// isAuthRoutePattern reports the three routes the gate lets through unauthenticated.
+// isAuthRoutePattern reports the routes the gate lets through unauthenticated.
 //
 // They have to be reachable by a browser that has nothing yet: one says whether
 // a form is needed, one is the form, and one ends a session that may already be
 // invalid. None of them returns anything about the machine behind the gate.
 func isAuthRoutePattern(pattern string) bool {
 	switch pattern {
-	case "POST /coddy/auth/login", "POST /coddy/auth/logout", "GET /coddy/auth/me", "POST /coddy/auth/telegram":
+	case "POST /coddy/auth/login", "POST /coddy/auth/logout", "GET /coddy/auth/me", "POST /coddy/auth/telegram", "POST /coddy/auth/browser":
 		return true
 	}
 	return false
@@ -238,11 +239,19 @@ func (s *Server) coddyAuthMeGet(w http.ResponseWriter, r *http.Request) {
 	// its launch data can sign it in (an admin's only).
 	_, _, tgOK := s.telegramBot()
 	out["telegram_login"] = tgOK && auth.enabled
+	// browser_login tells a page opened in the side panel of Coddy for
+	// Browser that its ticket can sign it in.
+	_, browserOK := s.browserPanelKey()
+	out["browser_login"] = browserOK && auth.enabled
 	if sess, ok := s.sessionFromRequest(r, pol); ok {
 		out["authenticated"] = true
 		out["user"] = sess.User
 		out["expires_at"] = sess.ExpiresAt.UTC().Format(time.RFC3339)
 	} else if sess, ok := s.telegramSessionFromRequest(r); ok {
+		out["authenticated"] = true
+		out["user"] = sess.User
+		out["expires_at"] = sess.ExpiresAt.UTC().Format(time.RFC3339)
+	} else if sess, ok := s.browserSessionFromRequest(r); ok {
 		out["authenticated"] = true
 		out["user"] = sess.User
 		out["expires_at"] = sess.ExpiresAt.UTC().Format(time.RFC3339)
@@ -354,6 +363,7 @@ func (s *Server) coddyAuthLogoutPost(w http.ResponseWriter, r *http.Request) {
 		s.sessions.Revoke(c.Value)
 	}
 	s.clearTelegramSession(w, r)
+	s.clearBrowserSession(w, r)
 	// Clear the cookie whatever happened, so a browser holding a session this
 	// server no longer knows about stops sending it.
 	clear := sessionCookie(r, "", 0) //nolint:gosec // G124: sessionCookie sets HttpOnly and SameSite=Strict, and Secure whenever the request came over TLS

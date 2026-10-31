@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -845,8 +846,10 @@ func TestDocMentionIsBoundedWithTheWayToReadTheRest(t *testing.T) {
 }
 
 // A restricted turn (a messenger user who is not the bot's admin) attaches
-// files of its working directory only: a mention of anything outside it, or
-// of the agent's home, stays plain text.
+// files of its workspace only: a mention of anything outside it, or of the
+// agent's home, stays plain text. The workspace is the working directory plus
+// the additionalDirectories the session carries, so a file under one of those
+// roots attaches too.
 func TestConfinedTurnMentionsStayInsideTheWorkspace(t *testing.T) {
 	root := t.TempDir()
 	m, sid := mentionTestManager(t, root)
@@ -858,10 +861,19 @@ func TestConfinedTurnMentionsStayInsideTheWorkspace(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(st.GetCWD(), "note.txt"), []byte("plain note"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	extra := filepath.Join(t.TempDir(), "extra")
+	if err := os.MkdirAll(extra, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(extra, "shared.txt"), []byte("shared root note"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	st.SetTurnRestriction(&session.TurnRestriction{ConfineToWorkspace: true})
 	defer st.SetTurnRestriction(nil)
-	scope := session.MentionScope{Confined: true, ConfineHome: m.Cfg().Paths.Home}
-	blocks := m.ResolvePromptMentions(context.Background(), st, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "@" + outside + " and @note.txt"}}, scope)
+	st.SetAdditionalDirectories([]string{extra})
+	defer st.SetAdditionalDirectories(nil)
+	scope := session.MentionScope{Confined: true, ConfineHome: m.Cfg().Paths.Home, WorkspaceRoots: st.GetAdditionalDirectories()}
+	blocks := m.ResolvePromptMentions(context.Background(), st, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "@" + outside + " and @note.txt and @" + filepath.Join(extra, "shared.txt")}}, scope)
 	var texts []string
 	for _, b := range blocks {
 		if b.Resource != nil {
@@ -872,8 +884,34 @@ func TestConfinedTurnMentionsStayInsideTheWorkspace(t *testing.T) {
 	if strings.Contains(joined, "top secret") || !strings.Contains(joined, "plain note") {
 		t.Fatalf("attachments of a confined turn: %q", texts)
 	}
-	if !session.PathInWorkspace("note.txt", st.GetCWD(), "") || session.PathInWorkspace("../x", st.GetCWD(), "") {
+	if !strings.Contains(joined, "shared root note") {
+		t.Fatalf("a confined turn did not attach a file of its additional directory: %q", texts)
+	}
+	if !session.PathInWorkspace("note.txt", st.GetCWD(), "", nil) || session.PathInWorkspace("../x", st.GetCWD(), "", nil) {
 		t.Fatal("PathInWorkspace misread a relative path")
+	}
+}
+
+// PathInWorkspace treats the additionalDirectories as part of the workspace:
+// a path under one of them is inside, a path outside every root is not, and
+// the agent's home stays out even when a root is named under it.
+func TestPathInWorkspaceCountsAdditionalDirectories(t *testing.T) {
+	cwd := t.TempDir()
+	extra := filepath.Join(t.TempDir(), "extra")
+	home := t.TempDir()
+	if err := os.MkdirAll(extra, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	roots := []string{extra}
+	in := filepath.Join(extra, "nested", "file.txt")
+	if !session.PathInWorkspace(in, cwd, "", roots) {
+		t.Fatalf("%s must count as inside through its additional directory", in)
+	}
+	if session.PathInWorkspace(filepath.Join(t.TempDir(), "elsewhere.txt"), cwd, "", roots) {
+		t.Fatal("a path outside cwd and every additional directory counted as inside")
+	}
+	if session.PathInWorkspace(filepath.Join(home, "state.json"), cwd, home, []string{filepath.Join(home, "opened")}) {
+		t.Fatal("the agent's home must stay outside the workspace even under an additional directory named in it")
 	}
 }
 
@@ -916,5 +954,53 @@ func TestConfinedTurnRuleMentionsStayInsideTheWorkspace(t *testing.T) {
 	got := attach(session.MentionScope{Confined: true, ConfineHome: home})
 	if strings.Contains(got, "HOME RULE BODY") || !strings.Contains(got, "LOCAL RULE BODY") {
 		t.Fatalf("rule attachments of a confined turn: %q", got)
+	}
+}
+
+// A link inside the workspace is read when it stays inside, and refused as a
+// traversal when it leads out: the lexical check alone would read through it.
+func TestReadWorkspaceUTF8RefusesLinksOutOfTheWorkspace(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating a symbolic link needs a privilege the Windows runner may not have")
+	}
+	dir := t.TempDir()
+	root := filepath.Join(dir, "project")
+	outside := filepath.Join(dir, "outside")
+	for _, d := range []string{filepath.Join(root, "docs"), outside} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("outside\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "docs", "guide.md"), []byte("inside\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(root, "leak.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("docs", "guide.md"), filepath.Join(root, "guide.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, rel := range []string{"leak.txt", "linked/secret.txt"} {
+		if _, _, err := session.ReadWorkspaceUTF8(root, rel); !errors.Is(err, session.ErrPathTraversal) {
+			t.Fatalf("%s: err = %v, want ErrPathTraversal", rel, err)
+		}
+	}
+	got, _, err := session.ReadWorkspaceUTF8(root, "guide.md")
+	if err != nil || got != "inside\n" {
+		t.Fatalf("a link inside the workspace: %q, %v", got, err)
+	}
+	// os.Root takes no absolute link, even one that stays inside.
+	if err := os.Symlink(filepath.Join(root, "docs", "guide.md"), filepath.Join(root, "absolute.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := session.ReadWorkspaceUTF8(root, "absolute.md"); !errors.Is(err, session.ErrPathTraversal) {
+		t.Fatalf("an absolute link: err = %v, want ErrPathTraversal", err)
 	}
 }

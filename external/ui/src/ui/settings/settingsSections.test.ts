@@ -7,6 +7,20 @@ afterEach(() => {
   initLocale("en");
 });
 
+test("the browser section is named in the active locale", () => {
+  initLocale("ru");
+  expect(knownSectionLabel("browser")).toBe("Браузер");
+  const sections = deriveSettingsSections({
+    type: "object",
+    properties: {
+      browser: { type: "object", title: "Browser", properties: {} },
+    },
+  });
+  expect(sections.find((s) => s.id === "browser")?.description).toBe(
+    "Coddy for Browser, ключ и кто им пользуется",
+  );
+});
+
 // Mirrors the top-level shape + order produced by Go UISchemaMap().
 const rootSchema: JsonSchema = {
   type: "object",

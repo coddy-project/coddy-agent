@@ -1,13 +1,12 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
 /**
  * The canvas's fields take the focus as the app's other fields do: their own
  * border in the accent, never the browser's blue ring around them.
  */
 
-const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf8");
+const css = stylesSource();
 
 function squash(body: string): string {
   return body
@@ -18,7 +17,7 @@ function squash(body: string): string {
 
 function ruleBody(selector: string): string {
   const idx = css.indexOf(selector);
-  expect(idx, `${selector} is missing from styles.css`).toBeGreaterThan(-1);
+  expect(idx, `${selector} is missing from styles.scss`).toBeGreaterThan(-1);
   const open = css.indexOf("{", idx);
   return squash(css.slice(open + 1, css.indexOf("}", open)));
 }

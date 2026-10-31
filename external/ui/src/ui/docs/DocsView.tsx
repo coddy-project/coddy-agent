@@ -163,7 +163,7 @@ export function DocsView(props: {
 
   // The header is laid on the columns of the page, but only the body scrolls:
   // a classic scrollbar takes its width out of the body alone. The body gives
-  // that width out of its right padding (--docs-scrollbar in styles.css), so
+  // that width out of its right padding (--docs-scrollbar in styles/screens/_docs.scss), so
   // the text ends where the search does and the header keeps the same inset
   // on both sides. The scrollbar comes and goes with the page's height, which
   // the layout's width follows.
@@ -579,7 +579,13 @@ export function DocsView(props: {
                 </p>
                 {/* A fresh tree per page: the heading links added to it are
                   never left on a heading of the next page. */}
-                <Markdown key={shown.slug} text={shown.markdown} />
+                <Markdown
+                  key={shown.slug}
+                  text={shown.markdown}
+                  // The documentation ships with Coddy; its screenshots and
+                  // videos live in the release on GitHub.
+                  remoteMedia="load"
+                />
                 <nav className="docs-pager" aria-label={t("docs.pager.label")}>
                   {shown.prev ? (
                     <a

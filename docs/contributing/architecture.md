@@ -247,7 +247,7 @@ The pages of **`docs/nav.yaml`** are embedded by **`docs/embed.go`** (package **
 
 ### Config (`internal/config`)
 
-YAML-based configuration. Resolution uses **`CODDY_HOME`** (default **`~/.coddy`**), **`CODDY_CWD`**, **`CODDY_CONFIG`**, optional **`config.yaml`** in the process working directory when **`$CODDY_HOME/config.yaml`** is absent, and CLI flags (see **`docs/getting-started/configuration.md`** and **`README.md`**).
+YAML-based configuration. Resolution uses **`CODDY_HOME`** (default **`~/.coddy`**), **`CODDY_CWD`**, **`CODDY_CONFIG`** and CLI flags (see **`docs/getting-started/configuration.md`** and **`README.md`**).
 
 ## Session Modes
 

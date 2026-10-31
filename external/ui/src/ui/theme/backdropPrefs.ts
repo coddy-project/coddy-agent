@@ -15,8 +15,6 @@
  * gradients cover the wallpaper too: the picture itself has its own grain,
  * but the glass blurs it into smooth ramps that band like the glows.
  */
-import { followCanvasBackdrop } from "./canvasBackdrop";
-
 export const SMOOTH_BACKDROP_COOKIE = "coddy_ui_smooth_backdrop";
 export const WALLPAPER_DIM_COOKIE = "coddy_ui_wallpaper_dim";
 export const WALLPAPER_DIM_DEFAULT = 40;
@@ -282,6 +280,18 @@ export function followBackdrop(doc: Document = document): () => void {
   };
 
   const startCanvas = async (key: string) => {
+    let painter: typeof import("./canvasBackdrop");
+    try {
+      painter = await import("./canvasBackdrop");
+    } catch {
+      // A missing chunk leaves the CSS backdrop and ordinary glass in place.
+      if (key === canvasKey) {
+        stop();
+        delete root.dataset.smoothBackdrop;
+      }
+      return;
+    }
+    if (key !== canvasKey) return;
     const blob = wallpaperBlob;
     const { wallpaper, dim } = state;
     let picture: ImageBitmap | null = null;
@@ -301,7 +311,7 @@ export function followBackdrop(doc: Document = document): () => void {
       delete root.dataset.smoothBackdrop;
       return; // the picture cannot be decoded: leave the CSS wallpaper
     }
-    stopCanvas = followCanvasBackdrop(
+    stopCanvas = painter.followCanvasBackdrop(
       doc,
       picture ? { picture, dim: dim / 100 } : undefined,
     );
@@ -324,7 +334,12 @@ export function followBackdrop(doc: Document = document): () => void {
       root.style.removeProperty("--coddy-wallpaper");
       root.style.removeProperty("--coddy-wallpaper-dim");
     }
-    const key = smooth ? (wallpaper ? `${wallpaper}|${dim}` : "glows") : null;
+    const key =
+      smooth && root.dataset.simple !== "on"
+        ? wallpaper
+          ? `${wallpaper}|${dim}`
+          : "glows"
+        : null;
     if (key === canvasKey) {
       return;
     }
@@ -345,9 +360,13 @@ export function followBackdrop(doc: Document = document): () => void {
 
   apply();
   const unsubscribe = subscribeBackdrop(apply);
+  // Simplified mode keeps the choices but stops the canvas and its observers.
+  const mode = new MutationObserver(apply);
+  mode.observe(root, { attributes: true, attributeFilter: ["data-simple"] });
   void loadWallpaper();
   return () => {
     unsubscribe();
+    mode.disconnect();
     clearTimeout(settle);
     canvasKey = null;
     stop();

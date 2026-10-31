@@ -22,7 +22,9 @@ type Handler interface {
 	HandleInitialize(ctx context.Context, params InitializeParams) (*InitializeResult, error)
 	HandleSessionNew(ctx context.Context, params SessionNewParams) (*SessionNewResult, error)
 	HandleSessionLoad(ctx context.Context, params SessionLoadParams) (*SessionLoadResult, error)
+	HandleSessionResume(ctx context.Context, params SessionResumeParams) (*SessionResumeResult, error)
 	HandleSessionList(ctx context.Context, params SessionListParams) (*SessionListResult, error)
+	HandleSessionDelete(ctx context.Context, params SessionDeleteParams) (*SessionDeleteResult, error)
 	HandleSessionPrompt(ctx context.Context, params SessionPromptParams) (*SessionPromptResult, error)
 	HandleSessionSetMode(ctx context.Context, params SessionSetModeParams) error
 	HandleSessionSetConfigOption(ctx context.Context, params SessionSetConfigOptionParams) (*SessionSetConfigOptionResult, error)
@@ -42,22 +44,38 @@ type Server struct {
 	mu      sync.Mutex // protects writer
 
 	// Pending permission and question RPC responses from the client.
-	pendingPerms  map[interface{}]chan *PermissionResult
-	pendingQuests map[interface{}]chan *QuestionResult
-	pendingRPCMu  sync.Mutex
+	pendingPerms   map[interface{}]chan *PermissionResult
+	pendingQuests  map[interface{}]chan *QuestionResult
+	pendingElicits map[interface{}]chan *CreateElicitationResult
+	pendingRPCMu   sync.Mutex
+
+	// elicitationForm records what the client said it can render in
+	// initialize's clientCapabilities.elicitation. A question is asked as an
+	// elicitation/create when the client advertised the form mode, and as the
+	// Coddy-only session/request_question when it did not.
+	elicitationForm atomic.Bool
 
 	nextID atomic.Int64
 	log    *slog.Logger
 }
 
-// NewServer creates a new ACP server.
+// NewServer creates a new ACP server that writes its protocol messages to
+// standard output.
 func NewServer(handler Handler, log *slog.Logger) *Server {
+	return NewServerWithWriter(handler, log, os.Stdout)
+}
+
+// NewServerWithWriter creates an ACP server that writes its protocol messages
+// to w. It is what a test drives the wire through, since the server's own
+// output stream is not otherwise reachable.
+func NewServerWithWriter(handler Handler, log *slog.Logger, w io.Writer) *Server {
 	return &Server{
-		handler:       handler,
-		writer:        json.NewEncoder(os.Stdout),
-		pendingPerms:  make(map[interface{}]chan *PermissionResult),
-		pendingQuests: make(map[interface{}]chan *QuestionResult),
-		log:           log,
+		handler:        handler,
+		writer:         json.NewEncoder(w),
+		pendingPerms:   make(map[interface{}]chan *PermissionResult),
+		pendingQuests:  make(map[interface{}]chan *QuestionResult),
+		pendingElicits: make(map[interface{}]chan *CreateElicitationResult),
+		log:            log,
 	}
 }
 
@@ -172,6 +190,11 @@ func (s *Server) handleSessionReady(method string, params json.RawMessage, resul
 		if err := unmarshalParams(params, &loaded); err == nil {
 			sessionID = loaded.SessionID
 		}
+	case "session/resume":
+		var resumed SessionResumeParams
+		if err := unmarshalParams(params, &resumed); err == nil {
+			sessionID = resumed.SessionID
+		}
 	}
 	if sessionID != "" {
 		ready.HandleSessionReady(sessionID)
@@ -207,15 +230,21 @@ func (s *Server) handleResponse(raw map[string]json.RawMessage) error {
 
 	s.pendingRPCMu.Lock()
 	qch, qOK := s.pendingQuests[id]
+	ech, eOK := s.pendingElicits[id]
 	ch, ok := s.pendingPerms[id]
 	s.pendingRPCMu.Unlock()
 
-	if !qOK && !ok {
+	if !qOK && !ok && !eOK {
 		s.log.Warn("received unexpected response", "id", id)
 		return nil
 	}
 
 	if errRaw, ok := raw["error"]; ok {
+		if eOK {
+			// The client refused the elicitation outright: nobody answered.
+			ech <- &CreateElicitationResult{Action: ElicitationCancel}
+			return nil
+		}
 		if qOK {
 			_ = errRaw
 			qch <- &QuestionResult{}
@@ -233,6 +262,15 @@ func (s *Server) handleResponse(raw map[string]json.RawMessage) error {
 	}
 
 	if resultRaw, ok := raw["result"]; ok {
+		if eOK {
+			var result CreateElicitationResult
+			if err := json.Unmarshal(resultRaw, &result); err != nil {
+				ech <- &CreateElicitationResult{Action: ElicitationCancel}
+				return nil
+			}
+			ech <- &result
+			return nil
+		}
 		if qOK {
 			var result QuestionResult
 			if err := json.Unmarshal(resultRaw, &result); err != nil {
@@ -276,6 +314,10 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		if err := unmarshalParams(params, &p); err != nil {
 			return nil, &RPCError{Code: ErrInvalidParams, Message: err.Error()}
 		}
+		// Remember what the client can render before answering, so a question
+		// asked in the very first turn already knows whether to go out as an
+		// elicitation or as session/request_question.
+		s.elicitationForm.Store(p.ClientCapabilities.Elicitation != nil && p.ClientCapabilities.Elicitation.Form != nil)
 		result, err := s.handler.HandleInitialize(ctx, p)
 		if err != nil {
 			return nil, &RPCError{Code: ErrInternalError, Message: err.Error()}
@@ -304,6 +346,17 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		}
 		return loadRes, nil
 
+	case "session/resume":
+		var p SessionResumeParams
+		if err := unmarshalParams(params, &p); err != nil {
+			return nil, &RPCError{Code: ErrInvalidParams, Message: err.Error()}
+		}
+		resumeRes, err := s.handler.HandleSessionResume(ctx, p)
+		if err != nil {
+			return nil, &RPCError{Code: ErrInternalError, Message: err.Error()}
+		}
+		return resumeRes, nil
+
 	case "session/list":
 		var p SessionListParams
 		if err := unmarshalParams(params, &p); err != nil {
@@ -314,6 +367,17 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 			return nil, &RPCError{Code: ErrInternalError, Message: err.Error()}
 		}
 		return listRes, nil
+
+	case "session/delete":
+		var p SessionDeleteParams
+		if err := unmarshalParams(params, &p); err != nil {
+			return nil, &RPCError{Code: ErrInvalidParams, Message: err.Error()}
+		}
+		deleteRes, err := s.handler.HandleSessionDelete(ctx, p)
+		if err != nil {
+			return nil, &RPCError{Code: ErrInternalError, Message: err.Error()}
+		}
+		return deleteRes, nil
 
 	case "session/prompt":
 		var p SessionPromptParams
@@ -406,8 +470,25 @@ func (s *Server) RequestPermission(ctx context.Context, params PermissionRequest
 	}
 }
 
-// RequestQuestion sends a session/request_question request and waits for the response.
+// RequestQuestion asks the user the question tool's questions and waits for
+// the answers. It goes out as elicitation/create - the standard way, which the
+// editors that implement elicitation render as a form - when the client said
+// in initialize that it renders form elicitation, and as the Coddy-only
+// session/request_question when it did not.
 func (s *Server) RequestQuestion(ctx context.Context, params QuestionRequestParams) (*QuestionResult, error) {
+	if !s.elicitationForm.Load() {
+		return s.requestQuestionDirect(ctx, params)
+	}
+	res, err := s.RequestElicitation(ctx, QuestionElicitation(params))
+	if err != nil {
+		return nil, err
+	}
+	return ElicitationAnswers(params.Questions, res), nil
+}
+
+// requestQuestionDirect is the session/request_question fallback of
+// RequestQuestion, for a client that never advertised elicitation.
+func (s *Server) requestQuestionDirect(ctx context.Context, params QuestionRequestParams) (*QuestionResult, error) {
 	id := s.nextID.Add(1)
 	ch := make(chan *QuestionResult, 1)
 
@@ -436,6 +517,41 @@ func (s *Server) RequestQuestion(ctx context.Context, params QuestionRequestPara
 		return result, nil
 	case <-ctx.Done():
 		return &QuestionResult{}, nil
+	}
+}
+
+// RequestElicitation sends an elicitation/create request and waits for the
+// user's answer. A cancelled request answers with the cancel outcome rather
+// than an error: nobody was asked, and the caller reports that as no answer.
+func (s *Server) RequestElicitation(ctx context.Context, params CreateElicitationRequest) (*CreateElicitationResult, error) {
+	id := s.nextID.Add(1)
+	ch := make(chan *CreateElicitationResult, 1)
+
+	s.pendingRPCMu.Lock()
+	s.pendingElicits[float64(id)] = ch
+	s.pendingRPCMu.Unlock()
+
+	defer func() {
+		s.pendingRPCMu.Lock()
+		delete(s.pendingElicits, float64(id))
+		s.pendingRPCMu.Unlock()
+	}()
+
+	msg := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  "elicitation/create",
+		"params":  params,
+	}
+	if err := s.writeJSON(msg); err != nil {
+		return nil, err
+	}
+
+	select {
+	case result := <-ch:
+		return result, nil
+	case <-ctx.Done():
+		return &CreateElicitationResult{Action: ElicitationCancel}, nil
 	}
 }
 

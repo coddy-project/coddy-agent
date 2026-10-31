@@ -87,8 +87,8 @@ func (m *Manager) configuredTarget(gate *mcp.TrustGate, srv mcp.ManagedServer, c
 	}
 }
 
-// configuredTargets lists the enabled configured servers (config.yaml merged
-// with the two mcp.json levels) that the trust gate admits for cwd, and the
+// configuredTargets lists the enabled configured servers (<home>/mcp.json
+// merged with the project's .coddy/mcp.json) that the trust gate admits for cwd, and the
 // ones it holds. The gate is evaluated here and again inside Connect, so a
 // project-local .coddy/mcp.json stays cold until its exact declaration is
 // approved, whichever path reaches the spawn.

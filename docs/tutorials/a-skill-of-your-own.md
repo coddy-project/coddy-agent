@@ -42,4 +42,4 @@ A skill is a `SKILL.md` file with a frontmatter and a body of instructions; it b
    coddy skills enable release-notes
    ```
 
-6. **Share it.** Publish the directory in a GitHub repository. Others install it with `coddy skills add owner/repo` followed by `coddy skills sync`, or through `coddy plugin install owner/repo`, and a listing on [skills.sh](https://skills.sh) makes it findable with `npx skills find`.
+6. **Share it.** Publish the directory in a GitHub repository. Others install it with `coddy plugin install owner/repo`, and `coddy plugin update` brings them the version you raise later, and a listing on [skills.sh](https://skills.sh) makes it findable with `npx skills find`.

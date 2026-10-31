@@ -1,4 +1,5 @@
 import {
+  Fragment,
   type ReactElement,
   memo,
   useCallback,
@@ -265,8 +266,6 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   backgroundTask?: BackgroundTask | undefined;
   /** Shared clock from the shell so every ticker advances together. */
   backgroundNowMs?: number | undefined;
-  /** Opens a child session in the current SPA shell. */
-  onOpenSession?: (sessionId: string) => void;
   /** Roots this session works in - its own directory, then its worktrees -
    *  deepest match first when the row spells a path. */
   pathRoots?: readonly string[] | undefined;
@@ -790,9 +789,19 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
         >
           <span className="thinking-left">
             <Chevron className="thinking-chevron" />
-            <span className="thinking-head">
+            <span
+              className={
+                summaryTarget
+                  ? "thinking-head"
+                  : "thinking-head thinking-head--targetless"
+              }
+            >
               <span className="thinking-label">{displayLabel}</span>
-              {trailElements.length > 0 ? (
+              {!summaryTarget ? (
+                trailElements.map((element, index) => (
+                  <Fragment key={index}> {element}</Fragment>
+                ))
+              ) : trailElements.length > 0 ? (
                 <span
                   className={
                     status === "failed"
@@ -832,17 +841,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                 toolStatus={status}
               />
             ) : null}
-            {spawnAgent ? (
-              <SpawnAgentCard
-                details={spawnAgent}
-                {...(props.backgroundTask
-                  ? { backgroundTask: props.backgroundTask }
-                  : {})}
-                {...(props.onOpenSession
-                  ? { onOpenSession: props.onOpenSession }
-                  : {})}
-              />
-            ) : null}
+            {spawnAgent ? <SpawnAgentCard details={spawnAgent} /> : null}
             {schedulerCard ? (
               <SchedulerToolCard readout={schedulerCard} status={status} />
             ) : null}

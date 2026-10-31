@@ -860,7 +860,7 @@ test("context popover percent follows breakdown not cumulative tokenUsage pct", 
     />,
   );
   fireEvent.click(screen.getByTestId("composer-context-ring-host"));
-  expect(screen.getByText(/18\.6% [Uu]sed/)).toBeTruthy();
+  expect(screen.getByText("19% used")).toBeTruthy();
   const fg = document.querySelector(
     ".context-ring-fg",
   ) as SVGCircleElement | null;

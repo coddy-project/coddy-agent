@@ -55,16 +55,20 @@ function task(over: Partial<BackgroundTask>): BackgroundTask {
   };
 }
 
-test("the tasks control is in the header of a chat that never ran a task, without counts", () => {
+test("the tasks control of a chat that never ran a task is a square with its dot, the name in the tooltip", () => {
   const onOpenTasks = vi.fn();
   render(<ChatHeader title="Hello" tasks={[]} onOpenTasks={onOpenTasks} />);
   const control = screen.getByTestId("chat-views-tasks");
   expect(control).not.toHaveClass("is-running");
-  // The dot the control always had, and its word.
+  // The same square as Files around its icon: the dot, and no word beside it.
+  expect(control).toHaveClass("chat-view-btn--icon");
   expect(control.querySelector(".bgtask-dot--muted")).toBeTruthy();
-  expect(control.querySelector(".chat-view-label")?.textContent).toBe("Tasks");
+  expect(control.textContent).toBe("");
   expect(screen.queryByTestId("chat-views-tasks-count")).toBeNull();
   expect(control.getAttribute("aria-label")).toBe("Background tasks: none yet");
+  expect(
+    control.parentElement?.querySelector(".chat-view-tip")?.textContent,
+  ).toBe("Background tasks: none yet");
   fireEvent.click(control);
   expect(onOpenTasks).toHaveBeenCalledTimes(1);
 });
@@ -89,6 +93,8 @@ test("with tasks the control says how many are running out of how many there are
   );
   const control = screen.getByTestId("chat-views-tasks");
   expect(control).toHaveClass("is-running");
+  // The digits stand next to the dot, so the control is a square no longer.
+  expect(control).not.toHaveClass("chat-view-btn--icon");
   expect(control.querySelector(".bgtask-dot--running")).toBeTruthy();
   expect(screen.getByTestId("chat-views-tasks-count").textContent).toBe(
     "1 / 3",
@@ -163,7 +169,7 @@ test("the header shows files and background tasks as buttons in a row", () => {
   // word kept for a chat with no tasks yet. The names are in the tooltips.
   expect(buttons[0]!.querySelector("svg.chat-view-icon")).toBeTruthy();
   expect(buttons[0]).toHaveClass("chat-view-btn--icon");
-  expect(buttons[0]!.querySelector(".chat-view-label")).toBeNull();
+  expect(buttons[0]!.textContent).toBe("");
   expect(buttons[1]!.querySelector("svg")).toBeNull();
   expect(buttons[1]!.querySelector(".bgtask-dot")).toBeTruthy();
   expect(buttons[1]).not.toHaveClass("chat-view-btn--icon");

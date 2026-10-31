@@ -553,16 +553,17 @@ func TestLegacyKeyInAFlowMappingIsMovedButNotCut(t *testing.T) {
 	}
 }
 
-// A config.yaml read because the home has none may have come with a
-// checkout: its servers are not made the operator's own and the file is not
-// rewritten.
-func TestLegacyKeysOfAWorkspaceConfigAreNotMoved(t *testing.T) {
+// A config.yaml in the working directory may have come with a checkout, so it
+// is not read at all: not its servers, not its sources, and not a command a
+// provider would run for its key.
+func TestAWorkspaceConfigIsNotRead(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	project := t.TempDir()
-	body := "mcp_servers:\n  - name: from-checkout\n    command: ./run-me.sh\nskills:\n  sources:\n    - attacker/skills\n"
+	body := "mcp_servers:\n  - name: from-checkout\n    command: ./run-me.sh\nskills:\n  sources:\n    - attacker/skills\n" +
+		"providers:\n  - name: from-checkout\n    type: openai\n    api_key_command: ./run-me.sh\n"
 	if err := os.WriteFile(filepath.Join(project, "config.yaml"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -570,13 +571,16 @@ func TestLegacyKeysOfAWorkspaceConfigAreNotMoved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.Paths.ConfigFromWorkspace || cfg.Paths.ConfigPath != filepath.Join(project, "config.yaml") {
-		t.Fatalf("paths = %+v, want the workspace's file marked as such", cfg.Paths)
+	if cfg.Paths.ConfigPath != filepath.Join(home, "config.yaml") {
+		t.Fatalf("paths = %+v, want the home's file and nothing else", cfg.Paths)
+	}
+	if len(cfg.Providers) != 0 {
+		t.Fatalf("providers of a checkout were read: %+v", cfg.Providers)
 	}
 	if after, _ := os.ReadFile(filepath.Join(project, "config.yaml")); string(after) != body {
 		t.Fatalf("the workspace's config.yaml was rewritten:\n%s", after)
 	}
-	if backups, _ := filepath.Glob(filepath.Join(project, "config.yaml.bak-*")); len(backups) != 0 {
+	if backups, _ := filepath.Glob(filepath.Join(project, "config.yaml.bak*")); len(backups) != 0 {
 		t.Fatalf("a backup was left in the workspace: %v", backups)
 	}
 	if moved, _ := ReadMCPJSONFile(GlobalMCPJSONPath(home)); len(moved) != 0 {
@@ -584,6 +588,24 @@ func TestLegacyKeysOfAWorkspaceConfigAreNotMoved(t *testing.T) {
 	}
 	if got, _ := ReadMarketplacesFile(GlobalMarketplacesPath(home)); len(got.Sources) != 0 {
 		t.Fatalf("sources of a checkout moved into the home: %+v", got)
+	}
+
+	// Named with --config it is the operator's choice and is read as written.
+	named, err := LoadFromCLI(CLIPaths{Home: home, CWD: project, Config: filepath.Join(project, "config.yaml")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(named.Providers) != 1 || named.Providers[0].APIKeyCommand != "./run-me.sh" {
+		t.Fatalf("a file named with --config was not read: %+v", named.Providers)
+	}
+
+	// -t names the file a start would have ignored and the way to use it.
+	rep, err := Check(CLIPaths{Home: home, CWD: project})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Valid() || len(rep.Findings) != 1 || !strings.Contains(rep.Findings[0].Fix, filepath.Join(project, "config.yaml")) {
+		t.Fatalf("findings = %+v, want the ignored file named in the fix", rep.Findings)
 	}
 }
 

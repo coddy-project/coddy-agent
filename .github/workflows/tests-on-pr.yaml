@@ -149,10 +149,24 @@ jobs:
       # The message queue (issue #364) through the same kind of stand: the
       # first-use question, steer and after-turn messages with an image, a mode
       # switched and a message taken back through the relay's mount, the
-      # deferred prompt answered above its answer, and a Stop that keeps it.
+      # deferred prompt answered above its answer, the browser's Stop continuing
+      # with what waits, and a plain cancel that keeps it.
       - name: Drive the message queue through a swarm relay
         if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
         run: CODDY_BIN="$PWD/build/coddy" npm --prefix external/ui run check:queue
+
+      # Pictures from a screenshot tool: files on disk dropped and pasted, then
+      # deleted the way the tool deletes them, followed to the model byte for
+      # byte, and a queued picture's row while the model is still answering it.
+      - name: Follow attachments from disk to the model in a browser
+        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        run: CODDY_BIN="$PWD/build/coddy" npm --prefix external/ui run check:attachments
+
+      # The simplified mode: the computed style of every element, in every theme
+      # at three widths, has no soft shadow, blur, gradient, mask or animation.
+      - name: Walk the simplified mode through every theme in a browser
+        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        run: CODDY_BIN="$PWD/build/coddy" npm --prefix external/ui run check:simple
 
       # The views of a chat through the same kind of stand, the node asking for
       # a token of its own: the header's views menu, the edits and the
@@ -392,7 +406,7 @@ jobs:
 
       - name: Check native Windows fixture regressions
         run: >-
-          go test -p=4 -tags='http,ui,scheduler,memory,cli,gateway,swarm,metrics'
+          go test -p=4 -tags='http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser'
           ./internal/gitws ./external/httpserver
           -run '^(TestDescribeRepo|TestFileTransportHonorsWindowsDrive|TestSkillsMarketplaceFeature|TestWorkspaceFoldersListsOnlyDirectorySymlinksAndResolvesNavigation)$'
 
@@ -402,7 +416,7 @@ jobs:
       # go test's default of 10 minutes per package failed both on a runner
       # half again slower than usual; a hang still ends the run.
       - name: Run the complete Go suite
-        run: go test -p=4 -timeout=30m -tags='http,ui,scheduler,memory,cli,gateway,swarm,metrics' ./...
+        run: go test -p=4 -timeout=30m -tags='http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser' ./...
 
   # The console is a raw-mode terminal program, and nothing above runs it on
   # macOS, where bare `coddy` opens on a Terminal.app pty. A hang there was
@@ -462,7 +476,7 @@ jobs:
           cache: true
 
       - name: Build deb and rpm
-        run: make deb rpm PKG_TAGS="http scheduler memory cli gateway swarm metrics"
+        run: make deb rpm PKG_TAGS="http scheduler memory cli gateway swarm metrics browser"
 
       # The unit is rendered by internal/serve and held to the source file by a
       # Go test; this checks that both package formats carry that file byte for

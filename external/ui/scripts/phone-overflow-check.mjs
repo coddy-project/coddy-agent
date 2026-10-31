@@ -46,7 +46,7 @@ if (BROWSER_PATH && ENGINE !== "chromium") {
 // The verification widths of the grid: the phones the issue names (Galaxy S21,
 // iPhone 13 mini, Honor X9d, a large phone), a phone's upper edge, the tablet
 // tier's edges and an iPad, and a desktop window.
-const WIDTHS = [360, 375, 393, 430, 599, 600, 834, 1199, 1280];
+const WIDTHS = [360, 375, 390, 393, 430, 599, 600, 834, 1199, 1280];
 const LANGS = ["ru", "en"];
 // Built-in tools with a short label: their rows keep one line at every width.
 const SHORT_LABEL_ROWS = [
@@ -132,8 +132,23 @@ async function probe(page) {
         // A read of part of a file: the path takes the ellipsis, the range is whole.
         const range = row.querySelector(".tool-summary-target-range");
         const rb = range?.getBoundingClientRect();
+        const labelNode = row.querySelector(".thinking-label")?.firstChild;
+        let lastWord = null;
+        if (labelNode?.nodeType === Node.TEXT_NODE && labelNode.textContent) {
+          const text = labelNode.textContent;
+          const word = document.createRange();
+          word.setStart(labelNode, text.lastIndexOf(" ") + 1);
+          word.setEnd(labelNode, text.length);
+          lastWord = word.getBoundingClientRect();
+        }
         return {
           id,
+          durationFollowsLastWord:
+            !!lastWord &&
+            !!dur &&
+            Math.abs(dur.bottom - lastWord.bottom) < 4 &&
+            dur.left >= lastWord.right &&
+            dur.left - lastWord.right < 12,
           durInside:
             !dur ||
             (dur.right <= head.right + 0.5 && dur.left >= head.left - 0.5),
@@ -156,12 +171,25 @@ async function probe(page) {
         };
       },
     );
+    const tasks = column.querySelector(
+      '[data-testid="typing-dots-turn-tasks"]',
+    );
+    const time = column.querySelector(
+      '[data-testid="typing-dots-turn-elapsed"]',
+    );
     return {
       pageOverflow:
         document.documentElement.scrollWidth -
         document.documentElement.clientWidth,
       offenders: out.map((o) => o.what),
       rows,
+      taskCount: tasks?.textContent,
+      countSharesNumbersLine:
+        !!tasks &&
+        !!time &&
+        Math.abs(
+          tasks.getBoundingClientRect().top - time.getBoundingClientRect().top,
+        ) < 1,
     };
   }, SHORT_LABEL_ROWS);
 }
@@ -396,7 +424,12 @@ try {
       await page.evaluate(async () => {
         await document.fonts.ready;
         await Promise.all(
-          document.getAnimations().map((a) => a.finished.catch(() => {})),
+          document
+            .getAnimations()
+            .filter(
+              (a) => a.effect?.getComputedTiming().iterations !== Infinity,
+            )
+            .map((a) => a.finished.catch(() => {})),
         );
       });
 
@@ -407,6 +440,23 @@ try {
         await page.close();
         continue;
       }
+      const taskLabel =
+        width <= 599
+          ? lang === "ru"
+            ? "1 задача"
+            : "1 task"
+          : lang === "ru"
+            ? "Выполняется 1 задача"
+            : "1 running task";
+      check(
+        `${at} the task label follows the phone tier`,
+        got.taskCount === taskLabel,
+        got.taskCount,
+      );
+      check(
+        `${at} the task count stays beside the turn's numbers`,
+        got.countSharesNumbersLine,
+      );
       check(
         `${at} the page does not scroll sideways`,
         got.pageOverflow <= 0,
@@ -444,6 +494,12 @@ try {
         }
         if (row.shortLabel) {
           check(`${at} ${row.id} stays on one line`, row.oneLine);
+        }
+        if (width === 393 && row.id === "tool-details-tc-targetless") {
+          check(
+            `${at} duration follows the last word`,
+            row.durationFollowsLastWord,
+          );
         }
         if (row.hasRange) {
           check(`${at} ${row.id} shows its whole line range`, row.rangeWhole);

@@ -80,7 +80,7 @@ function memoryKey(sessionId: string): string {
 }
 
 /** The last segment of the workspace folder, the way the window names it. */
-/** A phone shows the tree or a file, one at a time (styles.css, Files window). */
+/** A phone shows the tree or a file, one at a time (styles/screens/_files-narrow.scss). */
 function onPhone(): boolean {
   return (
     typeof window !== "undefined" &&

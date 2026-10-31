@@ -430,6 +430,37 @@ func (s *Server) coddySessionCancelGeneration(w http.ResponseWriter, r *http.Req
 		http.Error(w, `{"error":{"message":"X-Coddy-Session-ID does not match path id"}}`, http.StatusBadRequest)
 		return
 	}
+	var body struct {
+		ContinueQueue json.RawMessage `json:"continue_queue"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
+	if err := decoder.Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, `{"error":{"message":"invalid JSON body"}}`, http.StatusBadRequest)
+		return
+	}
+	if err := decoder.Decode(new(interface{})); !errors.Is(err, io.EOF) {
+		http.Error(w, `{"error":{"message":"invalid JSON body"}}`, http.StatusBadRequest)
+		return
+	}
+	continueQueue := false
+	if body.ContinueQueue != nil {
+		switch strings.TrimSpace(string(body.ContinueQueue)) {
+		case "true":
+			continueQueue = true
+		case "false":
+		default:
+			http.Error(w, `{"error":{"message":"continue_queue must be a boolean"}}`, http.StatusBadRequest)
+			return
+		}
+	}
+	// An accepted interrupt keeps the root admission alive. A disk marker
+	// or ordinary cancellation here would cancel the replacement run too.
+	if continueQueue && s.mgr.TryInterruptQueuedTurn(id) {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"object": "coddy.session_cancelled", "id": id, "queueContinued": true,
+		})
+		return
+	}
 	_ = s.mgr.WriteCrossProcessCancelRequest(id)
 	if s.mgr.SessionByID(id) == nil {
 		fs := s.mgr.FileStore()
@@ -1416,6 +1447,9 @@ func (s *Server) addTurnProgress(out map[string]interface{}, id string) {
 		if progress, running := st.TurnProgress(); running {
 			out["turnOutputTokens"] = progress.OutputTokens
 			out["turnTokensEstimated"] = progress.Estimated
+			if progress.TokensPerSecond != nil {
+				out["turnTokensPerSecond"] = *progress.TokensPerSecond
+			}
 		}
 	}
 }
@@ -1899,13 +1933,17 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 	if u := page.UILog(msgs, session.VisibleUILog(msgs, st.GetUILog())); len(u) > 0 {
 		rows := make([]map[string]interface{}, 0, len(u))
 		for _, e := range u {
-			rows = append(rows, map[string]interface{}{
+			row := map[string]interface{}{
 				"id":            e.ID,
 				"level":         e.Level,
 				"message":       e.Message,
 				"userTurnIndex": e.UserTurnIndex,
 				"createdAt":     e.CreatedAt,
-			})
+			}
+			if e.Generation != nil {
+				row["generation"] = e.Generation
+			}
+			rows = append(rows, row)
 		}
 		out["uiLog"] = rows
 	}

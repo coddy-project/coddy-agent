@@ -45,7 +45,7 @@ Compose V2 подмешивает необязательный **`docker-compose
 |---------|-----------------|-------------|
 | **Образ** | **`${CODDY_IMAGE:-ghcr.io/coddy-project/coddy-agent:latest}`** | **`coddy-agent:${CODDY_VERSION:-dev}`** (собирается локально) |
 | **Команда** | **`CMD`** образа - **`serve -H 0.0.0.0 -P 12345`**, переопределяется через **`CODDY_COMMAND`** | То же |
-| **Опубликованный порт** | **`${CODDY_HTTP_PORT:-12345}:12345`** | То же |
+| **Опубликованный порт** | **`${CODDY_HTTP_BIND:-127.0.0.1}:${CODDY_HTTP_PORT:-12345}:12345`** - только loopback хоста | То же |
 | **Рабочая папка** | **`/workspace`** (**`CODDY_CWD`**) | То же |
 
 **Проверка состояния** - **`coddy --version`** каждые 5 с (контейнер становится "healthy", как только бинарник отвечает; готовность HTTP проверяется отдельно - выполните **`curl /v1/models`** после **`up`**).
@@ -122,6 +122,13 @@ docker compose up -d
 # UI: http://127.0.0.1:8080/
 ```
 
+Оба файла публикуют порт только на loopback хоста, поэтому API доступен с этой машины и больше ниоткуда. Без токена или входа по паролю любой, кто дотянется до порта, получает весь API - ключи провайдеров, рабочую папку, агента, - поэтому задайте **`httpserver.auth_token`** или настройте вход по паролю ([Аутентификация](../reference/http-api.md#аутентификация-необязательно)), прежде чем открыть порт для сети через **`CODDY_HTTP_BIND`**.
+
+```bash
+export CODDY_HTTP_BIND=0.0.0.0
+docker compose up -d
+```
+
 **Сборка из исходников** (dev-файл compose).
 
 ```bash
@@ -162,7 +169,7 @@ docker compose -f docker-compose.dev.yml logs -f coddy   # expect: "telegram bot
 
 Примечания:
 
-- **опубликованный образ GHCR содержит тег `gateway`** (CI [`docker-build-push.yaml`](../../../.github/workflows/docker-build-push.yaml) задаёт **`BUILD_TAGS=http,scheduler,ui,memory,cli,gateway,swarm,metrics`**), поэтому **`docker-compose.yml`** с **`CODDY_COMMAND=gateway`** работает на стандартном образе, и собственный **`CODDY_IMAGE`** не нужен;
+- **опубликованный образ GHCR содержит тег `gateway`** (CI [`docker-build-push.yaml`](../../../.github/workflows/docker-build-push.yaml) задаёт **`BUILD_TAGS=http,scheduler,ui,memory,cli,gateway,swarm,metrics,browser`**), поэтому **`docker-compose.yml`** с **`CODDY_COMMAND=gateway`** работает на стандартном образе, и собственный **`CODDY_IMAGE`** не нужен;
 - токен бота читается из **`TELEGRAM_BOT_TOKEN`** (его пробрасывают оба файла compose) или из **`$CODDY_HOME/.env`**; не кладите его в git;
 - если ваш **`gateways.telegram.proxy`** указывает на прокси на самом хосте (например, **`socks5://127.0.0.1:7890`**), изнутри контейнера он недоступен - используйте **`host.docker.internal`** или добавьте **`network_mode: host`** в **`docker-compose.override.yml`**;
 - режим шлюза не использует входящий порт (Telegram long-polling), поэтому проброшенный **`12345`** просто остаётся незанятым.
@@ -255,7 +262,7 @@ docker compose logs -f coddy
 
 ## Что входит в образ по умолчанию
 
-**`ARG BUILD_TAGS`** в **`Dockerfile`** по умолчанию равен **`http,scheduler,ui,memory,gateway,cli,swarm,metrics`** (через запятую, в том же значении, что и **`go build -tags=`**) - это набор, который несут бинарники релиза.
+**`ARG BUILD_TAGS`** в **`Dockerfile`** по умолчанию равен **`http,scheduler,ui,memory,gateway,cli,swarm,metrics,browser`** (через запятую, в том же значении, что и **`go build -tags=`**) - это набор, который несут бинарники релиза.
 
 - **`http`** - **`coddy serve`** и REST-шлюз (см. **[docs/reference/http-api.md](../reference/http-api.md)**);
 - **`ui`** - встроенное SPA на **`/`** (нужен **`http`**);
@@ -264,7 +271,8 @@ docker compose logs -f coddy
 - **`gateway`** - боты Telegram и Pachca (**[docs/surfaces/gateway.md](../surfaces/gateway.md)**), каждый под своим ключом **`enable`**;
 - **`cli`** - интерактивная консоль (**[docs/surfaces/console.md](../surfaces/console.md)**) для **`docker run -it ... coddy`**;
 - **`swarm`** - релей, который объединяет узлы (**[docs/operate/swarm.md](../operate/swarm.md)**), под **`swarm.enable`**;
-- **`metrics`** - экспортёр Prometheus (**[docs/operate/monitoring.md](../operate/monitoring.md)**), выключенный, пока не задан **`metrics.enable`**. Он слушает loopback, до которого не дотянется опубликованный порт контейнера: чтобы снимать метрики снаружи контейнера, задайте **`metrics.host`** равным **`0.0.0.0`** вместе с **`metrics.token`** и опубликуйте **`metrics.port`** (по умолчанию 12347).
+- **`metrics`** - экспортёр Prometheus (**[docs/operate/monitoring.md](../operate/monitoring.md)**), выключенный, пока не задан **`metrics.enable`**. Он слушает loopback, до которого не дотянется опубликованный порт контейнера: чтобы снимать метрики снаружи контейнера, задайте **`metrics.host`** равным **`0.0.0.0`** вместе с **`metrics.token`** и опубликуйте **`metrics.port`** (по умолчанию 12347);
+- **`browser`** - эндпоинт расширения [Coddy for Browser](../features/browser.md) на HTTP-сервере и инструмент `browser`, выключенные, пока не заданы **`browser.enable`** и **`browser.token`**. Расширение подключается к опубликованному HTTP-порту, по адресу веб-интерфейса. Если браузер работает не на машине контейнера, перед сервером нужен HTTPS-прокси, потому что простой HTTP расширение принимает только для сервера на той же машине, что и браузер.
 
 Чтобы собрать образ **без** памяти или встроенного интерфейса, переопределите **`BUILD_TAGS`** (например, **`http,scheduler,ui`** или **`http,scheduler`**) через **`docker compose` `args`** или **`docker build --build-arg`**.
 
@@ -297,4 +305,4 @@ make check-image IMAGE_PLATFORMS=linux/arm64
 
 Скрипт создаёт временный **`config.yaml`**, поднимает **`coddy`** через **`docker-compose.dev.yml`**, ждёт **`/v1/models`** и запускает **`examples/httpserver/http_smoke_gateway.py`**.
 
-<!-- docsgen:source sha256=7e13d13a3b043711 -->
+<!-- docsgen:source sha256=94fc4fb0caed62ae -->

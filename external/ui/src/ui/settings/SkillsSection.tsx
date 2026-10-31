@@ -7,6 +7,7 @@ import {
   type SchemaFormGroup,
 } from "./SchemaForm";
 import { LegendWithHint } from "./FieldHint";
+import { IconDownload } from "./icons";
 import { MarketplacesEditor } from "./MarketplacesEditor";
 import { sessionHeaders } from "./marketplaces";
 import { Switch } from "./Switch";
@@ -92,15 +93,25 @@ type AvailablePlugin = {
   installed: boolean;
 };
 
+// The plugins the marketplaces in effect offer, and the marketplaces and
+// sources that could not be read, so the search can say why it finds nothing.
 async function fetchAvailable(
   sessionId: string | undefined,
-): Promise<AvailablePlugin[]> {
+): Promise<{ items: AvailablePlugin[]; unread: string[] }> {
   const res = await fetch("/coddy/skills/available", {
     headers: sessionHeaders(sessionId),
   });
-  if (!res.ok) return [];
-  const data = (await res.json()) as { items?: AvailablePlugin[] };
-  return data.items ?? [];
+  if (!res.ok) return { items: [], unread: [] };
+  const data = (await res.json()) as {
+    items?: AvailablePlugin[];
+    failed?: Array<{ source?: string }>;
+  };
+  return {
+    items: data.items ?? [],
+    unread: (data.failed ?? [])
+      .map((f) => f.source ?? "")
+      .filter((s) => s !== ""),
+  };
 }
 
 async function apiSend(
@@ -108,7 +119,7 @@ async function apiSend(
   method: "POST" | "DELETE",
   body?: unknown,
   sessionId?: string | undefined,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; body?: unknown }> {
   const init: RequestInit = {
     method,
     headers: sessionHeaders(sessionId, body !== undefined),
@@ -123,38 +134,23 @@ async function apiSend(
       return { ok: false, error: `HTTP ${res.status}` };
     }
   }
-  return { ok: true };
-}
-
-// Download-to-tray glyph for the "download update" action.
-function IconDownload() {
-  return (
-    <svg
-      width="15"
-      height="15"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.9"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M12 3v12" />
-      <polyline points="7 10 12 15 17 10" />
-      <path d="M5 21h14" />
-    </svg>
-  );
+  try {
+    return { ok: true, body: await res.json() };
+  } catch {
+    return { ok: true };
+  }
 }
 
 /**
  * SkillsSection is the combined Skills tab: the schema-driven `skills` editor
  * (extra directories, the project marketplace trust policy), the marketplaces
  * list (MarketplacesEditor, API-driven: ~/.coddy/marketplaces.json and the
- * workspace's .coddy/marketplaces.json, with a per-entry and a Sync-all
- * button and the trust shield), and the installed-skills list with versions,
+ * workspace's .coddy/marketplaces.json, with a per-entry and a check-all
+ * button that read the lists and install nothing, the install button of a
+ * source and the trust shield), and the installed-skills list with versions,
  * an iOS-style enable switch, a Download-update action when a newer version
- * exists, and a Delete action (disabled for bundled read-only skills).
+ * exists, an Update-all action over every such skill, and a Delete action
+ * (disabled for bundled read-only skills).
  */
 export function SkillsSection(props: {
   schema: JsonSchema;
@@ -166,7 +162,7 @@ export function SkillsSection(props: {
 }) {
   const { schema, value, onChange } = props;
   const workspacePath = props.workspacePath;
-  const { t } = useT();
+  const { t, tp } = useT();
   const [installed, setInstalled] = useState<InstalledSkill[]>([]);
   const [updates, setUpdates] = useState<Record<string, SkillUpdate>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -175,6 +171,10 @@ export function SkillsSection(props: {
   const [loading, setLoading] = useState(false);
   // Marketplace browse/install control.
   const [available, setAvailable] = useState<AvailablePlugin[] | null>(null);
+  const [availableUnread, setAvailableUnread] = useState<string[]>([]);
+  // The results float under the search, which sits low in the scrolled panel:
+  // they are brought into view when they open, or they open out of sight.
+  const installResultsRef = useRef<HTMLUListElement | null>(null);
   const [availableLoading, setAvailableLoading] = useState(false);
   const [installQuery, setInstallQuery] = useState("");
   const [installBusy, setInstallBusy] = useState<Record<string, boolean>>({});
@@ -276,13 +276,84 @@ export function SkillsSection(props: {
       if (!res.ok) {
         setError(res.error || translate("skills.error.update"));
       } else {
-        setStatus(translate("skills.status.updated", { name: skill.name }));
+        // "Updated" only for what was written; a source that could not be
+        // read is the error, and a copy already the newest is up to date.
+        const answer = (res.body ?? {}) as {
+          updated?: string[];
+          current?: string[];
+          failed?: Array<{ source?: string; error?: string }>;
+        };
+        const failed = answer.failed ?? [];
+        if (failed.length > 0) {
+          setError(
+            failed.map((f) => `${f.source ?? ""}: ${f.error ?? ""}`).join("; "),
+          );
+        }
+        if ((answer.updated?.length ?? 0) > 0) {
+          setStatus(translate("skills.status.updated", { name: skill.name }));
+        } else if (failed.length === 0) {
+          setStatus(t("skills.status.upToDate"));
+        }
         await loadInstalled();
         await refreshUpdates();
       }
       setBusy((p) => ({ ...p, [skill.name]: false }));
     })();
   };
+
+  // Installs the newer version of every skill that has one: the skills
+  // installed from a marketplace or a source, and those of the standard
+  // delivery. Nothing that is not installed is installed.
+  const [updatingAll, setUpdatingAll] = useState(false);
+  const onUpdateAll = () => {
+    setUpdatingAll(true);
+    setError(null);
+    setStatus(null);
+    void (async () => {
+      try {
+        const res = await fetch("/coddy/skills/update", {
+          method: "POST",
+          headers: sessionHeaders(sessionId),
+        });
+        let body: {
+          updated?: string[];
+          failed?: Array<{ source?: string; error?: string }>;
+          error?: { message?: string };
+        } = {};
+        try {
+          body = (await res.json()) as typeof body;
+        } catch {
+          // An answer without a body reports through the status alone.
+        }
+        if (!res.ok) {
+          setError(body.error?.message || translate("skills.error.update"));
+        } else {
+          const n = body.updated?.length ?? 0;
+          const failed = body.failed ?? [];
+          // Up to date only when nothing failed either: a source that could
+          // not be read is no proof of the newest version.
+          if (failed.length > 0) {
+            setError(
+              failed
+                .map((f) => `${f.source ?? ""}: ${f.error ?? ""}`)
+                .join("; "),
+            );
+          }
+          if (n > 0) setStatus(tp("skills.status.updatedAll", n));
+          else if (failed.length === 0) setStatus(t("skills.status.upToDate"));
+        }
+        await loadInstalled();
+        await refreshUpdates();
+      } catch {
+        setError(translate("skills.error.update"));
+      } finally {
+        setUpdatingAll(false);
+      }
+    })();
+  };
+  const updateCount = Object.values(updates).filter(
+    (u) => u.update_available,
+  ).length;
 
   // After a sync of the marketplaces: refresh the list and re-check versions.
   const onSynced = useCallback(async () => {
@@ -297,7 +368,9 @@ export function SkillsSection(props: {
   const loadAvailable = async (force = false) => {
     if (available !== null && !force) return;
     setAvailableLoading(true);
-    setAvailable(await fetchAvailable(sessionId));
+    const got = await fetchAvailable(sessionId);
+    setAvailable(got.items);
+    setAvailableUnread(got.unread);
     setAvailableLoading(false);
   };
 
@@ -342,6 +415,12 @@ export function SkillsSection(props: {
   // The results hang under the box while a search is typed: Escape takes them
   // away, clearing the search, before the drawer hears the key.
   useEscapeCloses(installQ !== "", () => setInstallQuery(""));
+  const installOpen = installQ !== "";
+  useEffect(() => {
+    if (!installOpen) return;
+    // "nearest" moves nothing when the results are in view already.
+    installResultsRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [installOpen, availableLoading, installMatches.length]);
 
   const fieldOverride: FieldOverride = ({ path }) => {
     // Auto-discovery is rendered as its own fieldset at the top of the section
@@ -402,6 +481,7 @@ export function SkillsSection(props: {
       <MarketplacesEditor
         activeSessionId={props.activeSessionId}
         onSynced={onSynced}
+        updateCount={updateCount}
       />
 
       <fieldset
@@ -428,9 +508,20 @@ export function SkillsSection(props: {
           />
           {installQ ? (
             <ul
+              ref={installResultsRef}
               className="skills-install-results"
               data-testid="skills-install-results"
             >
+              {availableUnread.length > 0 && !availableLoading ? (
+                <li
+                  className="skills-install-empty settings-error"
+                  data-testid="skills-install-unread"
+                >
+                  {t("skills.sources.check.unread", {
+                    sources: availableUnread.join(", "),
+                  })}
+                </li>
+              ) : null}
               {availableLoading && available === null ? (
                 <li className="skills-install-empty settings-muted">
                   {t("skills.install.loadingMarketplaces")}
@@ -489,6 +580,22 @@ export function SkillsSection(props: {
             </ul>
           ) : null}
         </div>
+
+        {updateCount > 0 ? (
+          <div className="skills-update-all">
+            <button
+              type="button"
+              className="settings-btn settings-btn-primary skills-update-all-btn"
+              disabled={updatingAll}
+              onClick={onUpdateAll}
+              title={t("skills.updateAll.title")}
+              data-testid="skills-update-all"
+            >
+              <IconDownload />
+              <span>{tp("skills.updateAll", updateCount)}</span>
+            </button>
+          </div>
+        ) : null}
 
         {error ? <p className="settings-error">{error}</p> : null}
         {status ? <p className="settings-muted">{status}</p> : null}

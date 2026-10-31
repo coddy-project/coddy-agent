@@ -1,17 +1,19 @@
 // First: it reads Telegram's launch parameters out of the address before
 // anything else can see or rewrite the fragment (ui/telegram/launch.ts).
 import "./ui/telegram/capture";
+import "./ui/browserPanel/capture";
 import React from "react";
 import ReactDOM from "react-dom/client";
-import "./styles.css";
+import "./styles.scss";
 import { App } from "./ui/App";
 import { ConfirmProvider } from "./ui/components/useConfirm";
 import { ImageMenuHost } from "./ui/components/ImageMenu";
+import { bootstrapUiSimpleFromCookie } from "./ui/theme/uiSimple";
 import { bootstrapUiThemeFromCookie } from "./ui/theme/uiTheme";
 import { bootstrapUiLocaleFromUrlOrCookie } from "./ui/i18n/uiLocale";
 import { initLocale } from "./ui/i18n/i18n";
 import { I18nProvider } from "./ui/i18n/I18nProvider";
-import { installRemoteFetchShim } from "./ui/env/remoteEnv";
+import { getEnv, installRemoteFetchShim } from "./ui/env/remoteEnv";
 import { AuthGate } from "./ui/auth/AuthGate";
 import { EnvScope } from "./ui/env/EnvScope";
 import { startActiveHealthMonitor } from "./ui/env/activeHealth";
@@ -19,6 +21,10 @@ import { initTelegramMiniApp } from "./ui/telegram/miniApp";
 import { registerServiceWorker } from "./ui/pwa/serviceWorker";
 import { followThemeColor } from "./ui/pwa/themeColor";
 import { followBackdrop } from "./ui/theme/backdropPrefs";
+import {
+  startPanelNavigation,
+  startPanelTheme,
+} from "./ui/browserPanel/bridge";
 
 // Route API calls to the selected remote environment (no-op in local mode). Must run before the
 // app issues any fetch so remote sessions/config/streaming all target the chosen backend.
@@ -26,6 +32,7 @@ installRemoteFetchShim();
 // Begin probing the active environment's reachability (issue #60) so a dead remote is visible.
 startActiveHealthMonitor();
 bootstrapUiThemeFromCookie();
+bootstrapUiSimpleFromCookie();
 // After the theme: inside Telegram the theme follows Telegram's until the user
 // picks one. Outside Telegram this does nothing.
 initTelegramMiniApp();
@@ -35,6 +42,11 @@ followThemeColor();
 // The page backdrop chosen in Settings → Appearance: smooth gradients, a
 // wallpaper (ui/theme/backdropPrefs.ts).
 followBackdrop();
+// In the side panel of Coddy for Browser the panel's strip takes the theme's
+// colours too (ui/browserPanel/bridge.ts), and the panel may open the chat that
+// holds the person's tab. Outside the panel this does nothing.
+startPanelTheme();
+startPanelNavigation(() => getEnv().mode === "local");
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

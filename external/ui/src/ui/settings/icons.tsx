@@ -27,6 +27,27 @@ export function IconSync(props: { className?: string | undefined }) {
   );
 }
 
+/** Arrow into a tray: download, install or update an item. */
+export function IconDownload() {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M12 3v12" />
+      <polyline points="7 10 12 15 17 10" />
+      <path d="M5 21h14" />
+    </svg>
+  );
+}
+
 /** Checkmark: done, or already present. */
 export function IconCheck() {
   return (

@@ -29,6 +29,7 @@ type Config struct {
 	HTTPServer HTTPServerConfig `yaml:"httpserver"`
 	Swarm      SwarmConfig      `yaml:"swarm"`
 	Metrics    MetricsConfig    `yaml:"metrics"`
+	Browser    BrowserConfig    `yaml:"browser"`
 	UI         UIConfig         `yaml:"ui"`
 	Scheduler  SchedulerConfig  `yaml:"scheduler"`
 	Gateways   GatewayConfig    `yaml:"gateways"`

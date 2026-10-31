@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>How one compaction runs</title>
+    <link rel="stylesheet" href="diagram.css" />
+    <style>
+      .grid3 {
+        grid-template-columns: 360px 520px 1fr;
+        gap: 36px;
+      }
+      .panel {
+        padding: 12px 14px;
+      }
+      .panel .title {
+        margin-bottom: 2px;
+      }
+      .panel .why {
+        font-size: 12.5px;
+        color: var(--muted);
+        margin: 0 0 8px;
+      }
+      .trig {
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+      }
+      .trig .box {
+        padding: 6px 12px;
+      }
+      .steps {
+        display: grid;
+        grid-template-columns: 318px 1fr;
+        column-gap: 14px;
+        row-gap: 7px;
+        align-items: center;
+      }
+      .steps .box {
+        padding: 6px 12px;
+      }
+      .steps .head {
+        grid-column: 1;
+        padding: 8px 12px;
+      }
+      .steps .no {
+        font-size: 12.5px;
+        line-height: 1.25;
+        color: var(--red-line);
+      }
+      .steps .num {
+        display: inline-block;
+        width: 22px;
+        font-weight: 700;
+        opacity: 0.7;
+      }
+      .cut {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .mini {
+        font-size: 13px;
+        margin: 0;
+        padding-left: 16px;
+        color: var(--ink-2);
+      }
+      .mini li {
+        margin: 3px 0;
+      }
+      .chain {
+        display: grid;
+        grid-template-columns: 0.8fr 1.3fr 1.2fr 1fr;
+        column-gap: 16px;
+        align-items: stretch;
+      }
+      .chain .box {
+        padding: 6px 9px;
+        font-size: 13.5px;
+      }
+      .pass {
+        display: grid;
+        grid-template-columns: 1fr 150px;
+        column-gap: 28px;
+        align-items: center;
+      }
+      .req .box {
+        margin: 3px 0 3px 10px;
+        padding: 4px 10px;
+        font-size: 13.5px;
+      }
+      .line {
+        font-family: "Noto Sans Mono", "DejaVu Sans Mono", monospace;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body style="--width: 1400px">
+    <h1>How one compaction runs</h1>
+    <p class="lead">
+      Every trigger ends in <code>CompactSession</code>: it cuts at a boundary, lets hooks veto, folds the head through a
+      chain of summarizers in passes and inserts one summary row there.
+    </p>
+
+    <div class="cols grid3">
+      <div>
+        <h2>1. What starts it</h2>
+        <div class="panel" id="manual">
+          <div class="title">manual: folds whatever exists</div>
+          <p class="why">trigger <code>manual</code>, down to no kept turn</p>
+          <div class="trig">
+            <div class="box amber">
+              <code>/compact [-m id] [-r level] [text]</code>
+              <small>console, ACP, web composer, <code>/v1/responses</code></small>
+            </div>
+            <div class="box amber">
+              the Context popover's button
+              <small><code>POST /coddy/sessions/{id}/compact</code></small>
+            </div>
+            <div class="box amber">
+              the model calls <code>compact_context</code>
+              <small>agent and plan mode; the call itself stays</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" id="auto" style="margin-top: 14px">
+          <div class="title">automatic: needs <code>compaction.auto_enable</code></div>
+          <p class="why">trigger <code>auto</code>, for all three</p>
+          <div class="trig">
+            <div class="box core" id="t-threshold">
+              threshold reached
+              <small><code>threshold_percent</code> (80) of the window, checked before every model call</small>
+            </div>
+            <div class="box core" id="t-inturn" style="margin-top: 22px">
+              fold inside the long turn
+              <small>only this turn is left: its earlier steps</small>
+            </div>
+            <div class="box red" id="t-refused" style="margin-top: 8px">
+              provider: the request is too large
+              <small><code>context_length_exceeded</code>, nothing streamed</small>
+            </div>
+            <div class="box core" id="t-recovery" style="margin-top: 20px">
+              recovery: fold, ask the same step again
+              <small>once per step, under the limit the refusal reveals</small>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h2>2. <code>CompactSession</code>, step by step</h2>
+        <div class="steps">
+          <div class="box core b head" id="cs">
+            CompactSession(ctx, opts)
+            <small>internal/agent/compact.go</small>
+          </div>
+          <div></div>
+          <div class="box blue"><span class="num">1</span><code>compaction.enable</code> is on</div>
+          <div class="no">off: Compaction is disabled in the configuration</div>
+          <div class="box blue">
+            <span class="num">2</span>the <code>--model</code> and <code>--reasoning</code> asked for exist
+          </div>
+          <div class="no">Nothing was compacted, with the configured ids</div>
+          <div class="box blue" id="s-cut"><span class="num">3</span>a boundary to cut at (panel 3)</div>
+          <div class="no">Nothing to compact, no hooks</div>
+          <div class="box amber"><span class="num">4</span><code>PreCompact</code> hooks, matcher <code>manual</code> or <code>auto</code></div>
+          <div class="no">vetoed: <code>/compact</code> reports it, the threshold goes on, a recovery ends the turn</div>
+          <div class="box blue"><span class="num">5</span>the head to fold (panel 4)</div>
+          <div></div>
+          <div class="box core"><span class="num">6</span>summarizer chain, folding in passes (panel 5)</div>
+          <div class="no">every model failed: the same three outcomes as a veto</div>
+          <div class="box blue b">
+            <span class="num">7</span>one summary row at the boundary
+            <small>the rows before it stay as written</small>
+          </div>
+          <div></div>
+          <div class="box purple">
+            <span class="num">8</span>merge the chain if it is too long
+            <small>over a third of the session's window: the earliest rows retold as one (compaction chain diagram)</small>
+          </div>
+          <div class="no">failed: the chain stays as it was, the compaction is done</div>
+          <div class="box green"><span class="num">9</span>after the row is in (panel 6)</div>
+          <div></div>
+        </div>
+        <p class="note" style="margin: 12px 0 0">
+          Each compaction draws one <code>compact_context</code> row that follows the passes; the model's own call
+          reuses the row of that call.
+        </p>
+      </div>
+
+      <div>
+        <h2 id="h-cut">3. Where the cut goes</h2>
+        <div class="cut">
+          <div class="box blue b">
+            between turns
+            <small>at the <code>keep_recent_turns</code>-th latest user message (2): from it on, everything stays verbatim</small>
+          </div>
+          <ul class="mini">
+            <li>nothing there: fewer kept turns, down to 0 for a manual one and 1 for an automatic one;</li>
+            <li>automatically only up to the turn's opening prompt, never at a follow-up.</li>
+          </ul>
+          <div class="box blue b">
+            inside the turn
+            <small>at a step: one assistant message with its tool results, so a parallel batch is never split</small>
+          </div>
+          <ul class="mini">
+            <li>keeps the latest steps that fit, at most 4, aiming the request at half the threshold share (40% at 80);</li>
+            <li>the latest step stays; a recovery may keep none, and first tries the cut between turns;</li>
+            <li>the row opens with the turn's prompt verbatim;</li>
+            <li>a fold that stays over the threshold ends the automatic folds of the turn.</li>
+          </ul>
+          <div class="box red">
+            nothing to compact
+            <small>no boundary, nothing new since the last summary row, or only <code>/compact</code> commands; the
+              threshold then tries the fold inside the turn</small>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <div class="cols grid3">
+      <div>
+        <h2>4. What the summarizer reads</h2>
+        <div class="trig">
+          <div class="box blue">
+            rows after the last summary row, up to the cut
+            <small>earlier summary rows are not retold</small>
+          </div>
+          <div class="box blue">
+            result eviction applied
+            <small>moved-past pages, searches, listings as placeholders</small>
+          </div>
+          <div class="box blue">
+            repeated lines dropped
+            <small>a line of 32+ characters seen before; the first copy stays</small>
+          </div>
+          <div class="panel req" style="margin-top: 4px">
+            <div class="tag">&lt;earlier-summaries&gt;</div>
+            <div class="box blue" style="margin-bottom: 6px">the chain's rows: read-only, half a pass at most</div>
+            <div class="tag green">&lt;transcript&gt;</div>
+            <div class="box green">the head, tool calls as labelled lines</div>
+            <p class="note" style="margin: 6px 0 0; font-size: 12.5px">
+              + the words after <code>/compact</code>, the session goal
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h2>5. Summarizer chain, then passes</h2>
+        <div class="chain">
+          <div class="box core" id="c1"><code>--model</code><small>of this call</small></div>
+          <div class="box core" id="c2"><code>compaction.model</code><small>else the session's model</small></div>
+          <div class="box core" id="c3"><code>fallback_models</code><small>in order</small></div>
+          <div class="box core" id="c4">session's model<small>the last resort</small></div>
+        </div>
+        <p class="note muted" style="margin: 8px 0 14px">
+          A model already in the chain is not tried twice; an entry that names nothing configured, or an ACP agent, is skipped.
+        </p>
+        <div class="pass">
+          <div class="panel req" id="onepass" style="padding: 10px 12px">
+            <div class="title" style="font-size: 14px">one pass</div>
+            <div class="tag">&lt;summary-so-far&gt;</div>
+            <div class="box blue">what the passes before wrote</div>
+            <div class="tag green">&lt;transcript&gt;</div>
+            <div class="box green">the next run of the head</div>
+          </div>
+          <div class="box blue b" id="onesum">one summary that covers both</div>
+        </div>
+        <ul class="mini" style="margin-top: 10px">
+          <li>a pass: at most 55% of the first summarizer's window;</li>
+          <li>too large: half the run, up to 3 times per model;</li>
+          <li>a key, an outage or a limit: the next model at once;</li>
+          <li>at most 64 passes; the row shows <i>pass 3 of 7</i>, the HTTP route <code>steps</code>.</li>
+        </ul>
+      </div>
+
+      <div>
+        <h2>6. After the row is in</h2>
+        <div class="trig">
+          <div class="box green">
+            standing rules read again
+            <small>a new rules generation: <code>AGENTS.md</code>, <code>DESIGN.md</code>, rules and
+              <code>instructions.files</code> edited since reach the next system prompt</small>
+          </div>
+          <div class="box blue">
+            context estimated again
+            <small><code>usage_update</code>: the context ring and the footer fall</small>
+          </div>
+          <div class="box amber">
+            <code>PostCompact</code> hooks get the summary
+            <small>its first 4000 bytes; they cannot undo it</small>
+          </div>
+          <div class="box green">
+            the row closes with one line
+            <small class="line">Context compacted: 14 message(s) summarized, 6 kept verbatim.</small>
+          </div>
+        </div>
+        <p class="note" style="margin: 10px 0 0">
+          A turn in progress rebuilds its next request from the shorter transcript and goes on.
+        </p>
+      </div>
+    </div>
+
+    <div class="legend" style="margin-top: 24px">
+      <span class="core">Coddy runs it</span>
+      <span class="amber">from the person, the model or a hook</span>
+      <span class="blue">what Coddy decides or writes</span>
+      <span class="purple">several rows retold as one</span>
+      <span class="green">kept or done</span>
+      <span class="red">refused, nothing compacted</span>
+    </div>
+
+    <script src="diagram.js"></script>
+    <script>
+      wires([
+        { from: "#manual", to: "#cs", color: "ink" },
+        { from: "#auto", to: "#cs", color: "ink", fromShift: -0.3 },
+        { from: "#t-threshold", to: "#t-inturn", fromSide: "bottom", toSide: "top", color: "ink", label: "nothing earlier to fold", labelShift: [74, 4] },
+        { from: "#t-refused", to: "#t-recovery", fromSide: "bottom", toSide: "top", color: "red" },
+        { from: "#c1", to: "#c2", route: "straight", color: "ink" },
+        { from: "#c2", to: "#c3", route: "straight", color: "ink" },
+        { from: "#c3", to: "#c4", route: "straight", color: "ink" },
+        { from: "#onepass", to: "#onesum", route: "straight" },
+      ]);
+    </script>
+  </body>
+</html>

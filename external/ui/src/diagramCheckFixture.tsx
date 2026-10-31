@@ -12,7 +12,7 @@
  * mounts one answer of CASES instead of the whole page.
  */
 import ReactDOM from "react-dom/client";
-import "./styles.css";
+import "./styles.scss";
 import { AssistantMessage } from "./ui/messages/AssistantMessage";
 import { I18nProvider } from "./ui/i18n/I18nProvider";
 import { initLocale } from "./ui/i18n/i18n";

@@ -8,6 +8,7 @@
 
 import { getEnv, localFetch, onLocalApiUnauthorized } from "../env/remoteEnv";
 import { telegramLaunch } from "../telegram/launch";
+import { takeBrowserPanelTicket } from "../browserPanel/launch";
 
 export type AuthState = {
   /** A password form is configured and this browser has not passed it. */
@@ -74,6 +75,7 @@ export function resetAuthStateForTests(): void {
   telegramTried = false;
   telegramRefused = false;
   telegramProblem = "";
+  browserPanelTried = false;
   setAuthState(initial);
 }
 
@@ -83,6 +85,7 @@ type AuthMeResponse = {
   authenticated?: boolean;
   user?: string;
   telegram_login?: boolean;
+  browser_login?: boolean;
 };
 
 // telegramTried keeps the Mini App sign-in to one attempt per page: Telegram
@@ -90,6 +93,30 @@ type AuthMeResponse = {
 let telegramTried = false;
 let telegramRefused = false;
 let telegramProblem: AuthState["telegramProblem"] = "";
+
+// browserPanelTried keeps the side panel's sign-in to one attempt per page:
+// its ticket is good once.
+let browserPanelTried = false;
+
+/**
+ * signInWithBrowserPanel posts the ticket the side panel of Coddy for Browser
+ * loaded this frame with. It reports whether a session was opened.
+ */
+async function signInWithBrowserPanel(ticket: string): Promise<boolean> {
+  try {
+    const res = await localFetch("/coddy/auth/browser", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ ticket }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * signInWithTelegram posts the Mini App's launch data. It reports whether a
@@ -156,6 +183,21 @@ async function readAuthState(): Promise<AuthState> {
       }
     }
   }
+  // Opened in the side panel of Coddy for Browser: the panel's ticket signs
+  // the frame in, the extension key standing for the password.
+  if (
+    next.wantsBrowserPanel &&
+    !next.state.authenticated &&
+    !browserPanelTried
+  ) {
+    const ticket = takeBrowserPanelTicket();
+    if (ticket) {
+      browserPanelTried = true;
+      if (await signInWithBrowserPanel(ticket)) {
+        next = await askAuthMe();
+      }
+    }
+  }
   const state = {
     ...next.state,
     telegramRefused: telegramRefused && !next.state.authenticated,
@@ -168,6 +210,7 @@ async function readAuthState(): Promise<AuthState> {
 async function askAuthMe(): Promise<{
   state: AuthState;
   wantsTelegram: boolean;
+  wantsBrowserPanel: boolean;
 }> {
   try {
     const res = await localFetch("/coddy/auth/me", {
@@ -186,12 +229,17 @@ async function askAuthMe(): Promise<{
           loaded: true,
         },
         wantsTelegram: body.telegram_login === true,
+        wantsBrowserPanel: body.browser_login === true,
       };
     }
   } catch {
     /* treated as "no sign-in", see above */
   }
-  return { state: { ...initial, loaded: true }, wantsTelegram: false };
+  return {
+    state: { ...initial, loaded: true },
+    wantsTelegram: false,
+    wantsBrowserPanel: false,
+  };
 }
 
 export type SignInResult = { ok: boolean; status: number; error?: string };

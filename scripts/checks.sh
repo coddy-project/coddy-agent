@@ -22,7 +22,7 @@
 #                                      to `make docs-check` in CI)
 #
 #   CODDY_HOOK_FORMAT 0|1              (default: 1)   when the commit stages SPA sources
-#                                      (external/ui: .ts, .tsx, .js, .jsx, .mjs, .cjs, .css,
+#                                      (external/ui: .ts, .tsx, .js, .jsx, .mjs, .cjs, .css, .scss,
 #                                      .json, .html; package-lock.json and build output aside),
 #                                      check the whole SPA with Prettier (`prettier --check .`,
 #                                      what `make ui-format-check` and CI run): the tree is
@@ -88,8 +88,8 @@ if [ "$format" = "1" ]; then
     case "$f" in
       external/ui/package-lock.json) continue ;;
       external/ui/*.ts | external/ui/*.tsx | external/ui/*.js | external/ui/*.jsx | \
-      external/ui/*.mjs | external/ui/*.cjs | external/ui/*.css | external/ui/*.json | \
-      external/ui/*.html)
+      external/ui/*.mjs | external/ui/*.cjs | external/ui/*.css | external/ui/*.scss | \
+      external/ui/*.json | external/ui/*.html)
         [ -f "$f" ] && fmt_files+=("${f#external/ui/}") ;;
     esac
   done < <(git diff --cached --name-only -z --diff-filter=ACMR 2>/dev/null)

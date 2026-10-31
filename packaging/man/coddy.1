@@ -204,16 +204,19 @@ a git URL, or a marketplace URL and declares it in
 or with
 .B \-\-project
 in the workspace's
-.IR .coddy/marketplaces.json .
+.IR .coddy/marketplaces.json ;
+.B sync
+reads the marketplace lists and reports newer versions, as
+.B "plugin marketplace update"
+does, and installs nothing.
 .TP
 .B "plugin marketplace add | list | update | remove | trust | untrust"
 Manage skill marketplaces.
 .B add
 reads a marketplace and installs none of its plugins;
 .B update
-refreshes it and the plugins installed from it
-.RB ( sync
-is an alias);
+reads the plugin lists again and reports the installed skills that have a
+newer version, installing nothing;
 .B trust
 and
 .B untrust
@@ -222,14 +225,17 @@ approve or withdraw an entry of the workspace's
 under
 .BR skills.project_trust " ask".
 .TP
-.B "plugin install | remove | enable | disable"
+.B "plugin install | update | remove | enable | disable"
 Manage installed plugins.
 .B install
 takes
 .I plugin@marketplace
 for one plugin of an added marketplace, or an
 .IR owner/repo ,
-a git URL or a marketplace URL to install every skill it publishes.
+a git URL or a marketplace URL to install every skill it publishes;
+.B update
+installs the newer versions of installed skills, or of the one it names,
+and never installs a skill that is not installed.
 .TP
 .B "mcp list | trust | untrust"
 List merged MCP servers and approve or revoke project\-local
@@ -446,7 +452,7 @@ server instead of a local agent.
 downloads the release assets published on GitHub, verifies them against the
 release
 .I SHA256SUMS
-list, and replaces the executable it is running. The man page and the shell
+list and its signature, and replaces the executable it is running. The man page and the shell
 completions the installer put beside it, under the
 .I share
 directory of the same prefix, are refreshed with it, so Tab completion never
@@ -468,7 +474,9 @@ Install a specific release tag instead of the latest.
 Take releases from another GitHub repository.
 .TP
 .B \-\-no\-restart
-Windows only: install the update but do not start Coddy again.
+No effect, kept for scripts:
+.B coddy update
+never starts Coddy.
 .TP
 .B \-\-no\-notes
 Do not report what changed after the install. The environment variable

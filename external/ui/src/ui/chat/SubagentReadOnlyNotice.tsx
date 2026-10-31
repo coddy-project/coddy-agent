@@ -8,6 +8,28 @@ import type { SubagentTranscriptMeta } from "./subagentTranscript";
 import { schedulerJobRef } from "../scheduler/types";
 
 /**
+ * The model as the notice names it: its effective reasoning level follows in
+ * parentheses, capitalized as the composer's selector shows it. A model that
+ * offers levels and has none chosen leaves the choice to its provider, which the
+ * notice says rather than naming a level; a model without levels has none.
+ */
+function modelWithReasoning(
+  meta: SubagentTranscriptMeta,
+  offered: readonly string[] | undefined,
+  providerDefault: string,
+): string {
+  const model = meta.model?.trim() ?? "";
+  const level = meta.reasoning?.trim() ?? "";
+  if (!model) return "";
+  if (level) {
+    return `${model} (${level.slice(0, 1).toUpperCase()}${level.slice(1)})`;
+  }
+  return offered && offered.length > 0
+    ? `${model} (${providerDefault})`
+    : model;
+}
+
+/**
  * Stands in for the composer on a read-only transcript. A child session is
  * the record of one delegated run and the server refuses prompts against it
  * (409), so the SPA offers nothing to type into and points back at the parent
@@ -19,11 +41,17 @@ export function SubagentReadOnlyNotice(props: {
   meta: SubagentTranscriptMeta;
   /** Same-tab open of the parent chat; modifier clicks fall through to the href. */
   onOpenSession?: (sessionId: string) => void;
+  /** The levels the child's model offers, where the model list is known. */
+  reasoningLevels?: readonly string[] | undefined;
 }) {
   const { t } = useT();
   const name = props.meta.name.trim();
   const parent = props.meta.parentSessionId.trim();
-  const model = props.meta.model?.trim();
+  const model = modelWithReasoning(
+    props.meta,
+    props.reasoningLevels,
+    t("chat.subagentReadOnly.reasoningDefault"),
+  );
   const onOpen = props.onOpenSession;
   const sched = props.meta.scheduler;
 

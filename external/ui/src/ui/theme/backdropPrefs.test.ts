@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { waitFor } from "@testing-library/react";
+import * as canvasBackdrop from "./canvasBackdrop";
+import { setUiSimple } from "./uiSimple";
 import {
   backdropSnapshot,
   clearWallpaper,
@@ -12,6 +15,7 @@ import {
 } from "./backdropPrefs";
 
 afterEach(async () => {
+  setUiSimple(false);
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   setSmoothBackdrop(false);
@@ -37,6 +41,45 @@ function pictureOf(width: number, height: number) {
 }
 
 describe("smooth gradients", () => {
+  test("simplified mode suspends the painter and restores the saved choice when off", async () => {
+    const stopCanvas = vi.fn();
+    const startCanvas = vi
+      .spyOn(canvasBackdrop, "followCanvasBackdrop")
+      .mockReturnValue(stopCanvas);
+    setSmoothBackdrop(true);
+    const stop = followBackdrop(document);
+    try {
+      await waitFor(() => expect(startCanvas).toHaveBeenCalledTimes(1));
+      setUiSimple(true);
+      await Promise.resolve();
+      expect(stopCanvas).toHaveBeenCalledTimes(1);
+      expect(document.documentElement.dataset.smoothBackdrop).toBeUndefined();
+      expect(backdropSnapshot().smooth).toBe(true);
+      expect(document.cookie).toContain(`${SMOOTH_BACKDROP_COOKIE}=on`);
+      setUiSimple(false);
+      await Promise.resolve();
+      await waitFor(() => expect(startCanvas).toHaveBeenCalledTimes(2));
+      expect(document.documentElement.dataset.smoothBackdrop).toBe("true");
+    } finally {
+      stop();
+    }
+  });
+
+  test("a page loaded in simplified mode does not start the saved painter", () => {
+    const startCanvas = vi
+      .spyOn(canvasBackdrop, "followCanvasBackdrop")
+      .mockReturnValue(vi.fn());
+    setUiSimple(true);
+    setSmoothBackdrop(true);
+    const stop = followBackdrop(document);
+    try {
+      expect(startCanvas).not.toHaveBeenCalled();
+      expect(backdropSnapshot().smooth).toBe(true);
+    } finally {
+      stop();
+    }
+  });
+
   test("the switch is remembered in a cookie", () => {
     setSmoothBackdrop(true);
     expect(document.cookie).toContain(`${SMOOTH_BACKDROP_COOKIE}=on`);

@@ -33,9 +33,11 @@ type HTTPServerConfig struct {
 	Login HTTPLoginConfig `yaml:"login"`
 	// PublicDocs keeps /docs and /openapi.* reachable without a token even when auth is enabled.
 	PublicDocs bool `yaml:"public_docs"`
-	// AllowInsecure silences the two startup warnings about a server without
-	// authentication - a non-loopback bind, and CORS that admits pages nobody
-	// listed (allow_loopback or "*") - and the --dry-run findings that mirror them.
+	// AllowInsecure says a server without authentication is open on purpose. It
+	// silences the two startup warnings about one - a non-loopback bind, and CORS
+	// that admits pages nobody listed (allow_loopback or "*") - and the --dry-run
+	// findings that mirror them, and turns off the open-server guard of
+	// external/httpserver.
 	AllowInsecure bool `yaml:"allow_insecure"`
 	// CORS controls cross-origin access so a browser UI on another origin can call this API.
 	CORS HTTPCORSConfig `yaml:"cors"`

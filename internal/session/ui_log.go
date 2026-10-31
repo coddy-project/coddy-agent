@@ -4,9 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
@@ -32,7 +34,50 @@ type UILogEntry struct {
 	// itself: who made it (SettingsChange.Source). It is empty on every other
 	// row, and on the settings notices of a session saved before only the
 	// agent's changes were noted (VisibleUILog).
-	Source string `json:"source,omitempty"`
+	Source     string             `json:"source,omitempty"`
+	Generation *GenerationSummary `json:"generation,omitempty"`
+}
+
+// GenerationSummary is UI-only metadata, kept out of the model's history.
+type GenerationSummary struct {
+	OutputTokens    int     `json:"outputTokens"`
+	TokensPerSecond float64 `json:"tokensPerSecond"`
+	// ElapsedMs is how long the turn had run when it ended, the clock its live
+	// line showed; absent on a row saved before it was kept.
+	ElapsedMs int64 `json:"elapsedMs,omitempty"`
+}
+
+// GenerationProgress replays a saved average through the same event as live
+// completion. Callers only use it for entries with a Generation summary.
+func (row UILogEntry) GenerationProgress() acp.TurnProgressUpdate {
+	return acp.TurnProgressUpdate{
+		SessionUpdate:   acp.UpdateTypeTurnProgress,
+		StartedAt:       strings.TrimPrefix(row.ID, "generation_"),
+		ElapsedMs:       row.Generation.ElapsedMs,
+		OutputTokens:    row.Generation.OutputTokens,
+		TokensPerSecond: &row.Generation.TokensPerSecond,
+		Completed:       true,
+	}
+}
+
+// AppendGenerationSummary replaces a continued run's cumulative summary and
+// places it after the latest answer. Several Agent.Run calls can share one
+// admitted turn, identified by startedAt.
+func (s *State) AppendGenerationSummary(startedAt time.Time, turn, tokens int, speed float64) {
+	id := "generation_" + startedAt.UTC().Format(time.RFC3339Nano)
+	s.mu.Lock()
+	s.UILog = slices.DeleteFunc(s.UILog, func(row UILogEntry) bool { return row.ID == id })
+	s.UILog = append(s.UILog, UILogEntry{
+		ID: id, Level: UILogLevelNotice, Message: "Generation complete",
+		UserTurnIndex: max(1, turn), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		Generation: &GenerationSummary{
+			OutputTokens:    tokens,
+			TokensPerSecond: speed,
+			ElapsedMs:       max(0, time.Since(startedAt).Milliseconds()),
+		},
+	})
+	s.mu.Unlock()
+	s.touchPersist()
 }
 
 // CountUserTurns counts llm.RoleUser messages in order (matches memory copilot turn index).

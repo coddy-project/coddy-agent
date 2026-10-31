@@ -1,6 +1,6 @@
 /**
  * Paints the page backdrop (the two glows over the canvas gradient that the
- * `html` rule of styles.css draws) into a fixed <canvas> under the app, with
+ * `html` rule of styles/_base.scss draws) into a fixed <canvas> under the app, with
  * random dither.
  *
  * The glows span only a few dozen of a channel's 256 levels, so each level is
@@ -44,9 +44,19 @@ const TOKENS = {
   indigo: "--coddy-canvas-glow-indigo",
 } as const;
 
-/** parseCssColor reads the hex and rgb()/rgba() spellings the theme tokens use. */
+/** Reads the theme's hex, rgb()/rgba() and sRGB mixes with transparent. */
 export function parseCssColor(raw: string): Rgba | null {
   const s = raw.trim().toLowerCase();
+  const mix =
+    /^color-mix\(\s*in srgb,\s*(.+)\s+([\d.]+)%,\s*transparent\s*\)$/.exec(s);
+  if (mix) {
+    const color = parseCssColor(mix[1]!);
+    const weight = Number(mix[2]) / 100;
+    if (!color || !Number.isFinite(weight) || weight < 0 || weight > 1) {
+      return null;
+    }
+    return [color[0], color[1], color[2], color[3] * weight];
+  }
   const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(s);
   const digits = hex?.[1];
   if (digits) {
@@ -471,7 +481,7 @@ const PANEL_DELAY_MS = 100;
  * them, the tint token each one is drawn with, and the custom property its
  * painted image goes to. A browser blur would wipe the dither out and band
  * again, so in this mode a panel shows the backdrop with its tint baked in
- * instead (styles.css, `html[data-smooth-backdrop]`). Each image covers only
+ * instead (styles/, `html[data-smooth-backdrop]`). Each image covers only
  * its panel's box, fixed to the viewport where the panel stands. Over a
  * wallpaper the panel's own `backdrop-filter` (a literal here, or the token
  * it names) is applied to the picture first; over the glows it is left out,

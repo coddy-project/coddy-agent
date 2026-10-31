@@ -1,25 +1,44 @@
 /*
  * The layout grid (DESIGN.md, "Layout grid"): four tiers by viewport width.
  *
- *   phone    ..599   the stacked shell, narrowed by the phone block of styles.css
+ *   phone    ..599   the stacked shell, narrowed by the phone block (styles/shell/_phone.scss)
  *   tablet   600..1199  the stacked shell: top bar, document scroll, docked composer
  *   desktop  1200..1919 the rail on the left, one inner scrollport
  *   wide     1920..     the desktop, and the rail may widen to icons plus labels
  *
- * Every width query in styles.css and in the code uses these edges;
+ * Every width query of the stylesheet and in the code uses these edges;
  * layoutGridCss.test.ts fails on any other one that DESIGN.md does not list.
  */
 
 /**
  * Viewports at most this width are phones: the compact window class, 360 to
- * 430 CSS px in portrait. The phone block at the end of styles.css applies here.
+ * 430 CSS px in portrait. The phone block (styles/shell/_phone.scss) applies here.
  */
 export const PHONE_MAX_WIDTH_PX = 599;
 
 /** Pass to matchMedia or @media for the phone tier. */
 export const phoneMaxWidthMediaQuery = `(max-width: ${PHONE_MAX_WIDTH_PX}px)`;
 
-/** Viewports at most this width use stacked top nav and document scroll (see styles.css). */
+/** useSyncExternalStore subscription for the phone tier, not the whole stacked shell. */
+export function subscribePhone(cb: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const mq = window.matchMedia(phoneMaxWidthMediaQuery);
+  mq.addEventListener("change", cb);
+  return () => mq.removeEventListener("change", cb);
+}
+
+export function snapshotPhone(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia(phoneMaxWidthMediaQuery).matches
+  );
+}
+
+export function serverSnapshotPhone(): boolean {
+  return false;
+}
+
+/** Viewports at most this width use stacked top nav and document scroll (see styles/shell/_stacked.scss). */
 export const SHELL_STACK_MAX_WIDTH_PX = 1199;
 
 /** Pass to matchMedia for chat scroll shell behavior (align with CSS media queries). */

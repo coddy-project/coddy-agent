@@ -1,0 +1,106 @@
+// Light-theme overrides of the components above. They stay in the cascade
+// after the rules they override, not with the light palette.
+
+@use "../abstracts" as *;
+
+[data-theme="light"] .settings-error {
+  color: #b91c1c;
+}
+
+[data-theme="light"] .msg-system {
+  background: rgba(253, 240, 240, 0.92);
+  border-color: rgba(220, 38, 38, 0.2);
+}
+
+[data-theme="light"] .msg-system-label {
+  color: #b91c1c;
+}
+
+[data-theme="light"] .msg-system-body {
+  color: #991b1b;
+}
+
+/* Without this the dark-theme pink (rgba(255,168,168,...)) shows as a salmon
+   timestamp on the light canvas; keep it a muted member of the error family. */
+[data-theme="light"] .msg-system-time {
+  color: rgba(185, 28, 28, 0.6);
+}
+
+[data-theme="light"] .msg-system.msg-system-notice {
+  background: rgba(239, 246, 255, 0.92);
+  border-color: rgba(37, 99, 235, 0.2);
+}
+
+[data-theme="light"] .msg-system-notice .msg-system-label {
+  color: #1d4ed8;
+}
+
+[data-theme="light"] .msg-system-notice .msg-system-body {
+  color: #1e3a8a;
+}
+
+[data-theme="light"] .msg-system-stack-notice .msg-system-time {
+  color: rgba(29, 78, 216, 0.6);
+}
+
+[data-theme="light"] .composer-wrap-docked .composer-card,
+[data-theme="light"] .hero-composer .composer-card {
+  box-shadow:
+    var(--coddy-glass-panel-shadow),
+    0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+@media (max-width: 1199px) {
+  [data-theme="light"] .rail-hit-icon,
+  [data-theme="light"] .rail-hit-link {
+    background: var(--coddy-surface-muted);
+    border-color: mix-text(10%);
+  }
+}
+
+[data-theme="light"] label.question-prompt-row.question-prompt-row--active,
+[data-theme="light"] button.question-prompt-row.question-prompt-row--active {
+  background: rgba(124, 58, 237, 0.1);
+  border-color: rgba(124, 58, 237, 0.38);
+}
+
+[data-theme="light"]
+  label.question-prompt-row.question-prompt-row--active
+  .question-prompt-bubble,
+[data-theme="light"]
+  button.question-prompt-row.question-prompt-row--active
+  .question-prompt-bubble {
+  background: var(--accent);
+  border-color: rgba(124, 58, 237, 0.5);
+  color: #ffffff;
+}
+
+[data-theme="light"] .question-prompt-card {
+  box-shadow: var(--coddy-glass-panel-shadow);
+}
+
+[data-theme="light"] .plan-document-eye.is-on {
+  color: #ea580c;
+  border-color: rgba(234, 88, 12, 0.45);
+  background: rgba(255, 237, 213, 0.95);
+}
+
+[data-theme="light"] .msg-user .md {
+  color: var(--coddy-bubble-user-fg);
+}
+
+[data-theme="light"] .msg-user .md :where(a) {
+  color: var(--coddy-link);
+}
+
+[data-theme="light"] .composer-send-stop {
+  background: rgba(220, 38, 38, 0.92);
+  border-color: rgba(185, 28, 28, 0.45);
+  color: #ffffff;
+}
+
+[data-theme="light"] .composer-send-play {
+  background: var(--accent);
+  border-color: rgba(109, 40, 217, 0.55);
+  color: #ffffff;
+}

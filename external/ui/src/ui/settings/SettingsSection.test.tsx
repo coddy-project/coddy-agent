@@ -1898,6 +1898,96 @@ test("a model added from the provider list carries the context window the provid
   ]);
 });
 
+// For a model the provider reports no window for, the models catalog's window,
+// max_tokens and image support arrive together, written into
+// max_context_tokens, max_tokens and multimodal.
+test("a model added from the provider list carries the catalog's window, max_tokens and image support", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        models: [
+          {
+            id: "m1",
+            catalog: {
+              context_window: 200000,
+              max_tokens: 40000,
+              multimodal: true,
+            },
+          },
+        ],
+      }),
+    })),
+  );
+  const schema: JsonSchema = {
+    type: "object",
+    properties: {
+      providers: rootSchema.properties!.providers!,
+      models: {
+        type: "array",
+        title: "Logical models",
+        items: {
+          type: "object",
+          properties: {
+            model: { type: "string", title: "Model id" },
+            max_context_tokens: {
+              type: "integer",
+              title: "Context window (tokens)",
+            },
+            max_tokens: { type: "integer", title: "Max tokens" },
+            multimodal: { type: "boolean", title: "Multimodal" },
+            reasoning_levels: {
+              type: "array",
+              title: "Reasoning levels",
+              items: { type: "string" },
+            },
+          },
+          "x-coddy-property-order": [
+            "model",
+            "max_context_tokens",
+            "max_tokens",
+            "multimodal",
+            "reasoning_levels",
+          ],
+        },
+      },
+    },
+  };
+  let latest: Record<string, unknown> = {};
+  function Seeded() {
+    const [doc, setDoc] = React.useState<Record<string, unknown>>({
+      providers: [{ name: "demo", type: "openai" }],
+      models: [],
+    });
+    return (
+      <SettingsSection
+        section={providersSection}
+        schema={schema}
+        doc={doc}
+        setDoc={(next) => {
+          latest = next;
+          setDoc(next);
+        }}
+      />
+    );
+  }
+
+  render(<Seeded />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByTestId("provider-model-toggle-m1"));
+
+  expect(latest.models).toEqual([
+    {
+      model: "demo/m1",
+      max_context_tokens: 200000,
+      max_tokens: 40000,
+      multimodal: true,
+    },
+  ]);
+});
+
 // The provider form is three blocks: Provider settings, Advanced settings
 // (folded until its legend is clicked: the credential command, the proxy and
 // the timeout) and the Models list.
@@ -2727,9 +2817,10 @@ describe("settings search index matches the drawing", () => {
     const inside = await appearance(AGENT_TELEGRAM);
     expect(inside.drawn.map((d) => d.anchor)).not.toContain(anchor);
     expect(inside.expected.map((e) => e.anchor)).not.toContain(anchor);
-    // Theme, language, smooth gradients and the wallpaper are still there.
+    // Theme, simplified mode, language, smooth gradients and wallpaper remain.
     expect(inside.drawn.map((d) => d.anchor)).toEqual([
       landmarkAnchor("appearance", "theme"),
+      landmarkAnchor("appearance", "simple"),
       landmarkAnchor("appearance", "language"),
       landmarkAnchor("appearance", "smooth-backdrop"),
       landmarkAnchor("appearance", "wallpaper"),

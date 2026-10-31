@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/EvilFreelancer/coddy-agent/external/browser"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -91,6 +92,11 @@ type Server struct {
 	// App (auth_telegram.go), and tgReplay the launches already used.
 	tgSessions *webauth.SessionStore
 	tgReplay   webauth.ReplayGuard
+	// browserSessions holds the side panels of Coddy for Browser signed in
+	// by a ticket of the extension's endpoint (auth_browser.go), and
+	// browserEndpoint is that endpoint on this server's mux.
+	browserSessions *webauth.SessionStore
+	browserEndpoint browser.Mounted
 	// loginThrottle slows repeated wrong passwords per source address.
 	loginThrottle *webauth.Throttle
 	// served remembers the configurations GET /coddy/config handed out, so a
@@ -174,6 +180,11 @@ func (s *Server) Drain() {
 	if s.removeConfigObserver != nil {
 		s.removeConfigObserver()
 	}
+	// The endpoint's sockets outlive the HTTP server's shutdown, which does
+	// not reach a connection a WebSocket took over.
+	if s.browserEndpoint.Close != nil {
+		s.browserEndpoint.Close()
+	}
 	s.cancelCodexAuthLogins()
 	s.cancelNeuralDeepAuthLogins()
 	s.cancelOpenCodeAuthLogins("")
@@ -218,9 +229,14 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		served:               configapi.NewRevisions(),
 		sessions:             webauth.NewSessionStore(),
 		tgSessions:           webauth.NewSessionStore(),
+		browserSessions:      webauth.NewSessionStore(),
 		loginThrottle:        &webauth.Throttle{},
 	}
 	s.cfgAt.Store(cfg)
+	// A Mini App launch signs one browser in once, across restarts too.
+	if cfg != nil && strings.TrimSpace(cfg.Paths.Home) != "" {
+		s.tgReplay.SetFile(filepath.Join(cfg.Paths.Home, "telegram-launches.json"))
+	}
 	// A board changes from a tool call of any surface's turn or from a route
 	// of this server; either way the web UI reads it again on the event.
 	s.removeCanvasObserver = canvas.OnChange(s.publishCanvasChanged)
@@ -252,6 +268,19 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	// is the process's decision: `coddy serve` offers this server to its
 	// runtime (Serve), a test attaches the server's own waker.
 	bgtask.Default().SetDraining(false)
+	// Coddy for Browser: the extension's socket and file transfers, with
+	// the extension key of the live configuration (auth_browser.go), and the
+	// API the chats of other Coddy processes reach the browsers through,
+	// behind this server's own gate.
+	s.browserEndpoint = browser.Mount(s.mux, browser.MountOptions{
+		Key: func() string { return browserEndpointKey(s.activeCfg()) },
+		ServeRemote: func() bool {
+			cfg := s.activeCfg()
+			return browserEndpointKey(cfg) != "" && cfg.Browser.ServeRemote
+		},
+		Mgr: mgr,
+		Log: log,
+	})
 	s.mux.HandleFunc("GET /v1/models", s.handleModels)
 	s.mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
 	s.mux.HandleFunc("POST /v1/responses", s.handleResponsesCreate)
@@ -289,7 +318,12 @@ func (s *Server) ReplaceConfig(c *config.Config) {
 	if c == nil {
 		return
 	}
-	s.cfgAt.Store(c)
+	prev := s.cfgAt.Swap(c)
+	// An extension connected with a key the configuration no longer holds
+	// is disconnected; it comes back with the new one, or not at all.
+	if prev != nil && browserEndpointKey(prev) != browserEndpointKey(c) && s.browserEndpoint.Disconnect != nil {
+		s.browserEndpoint.Disconnect()
+	}
 	s.invalidateSlashCache()
 	s.publishConfigReloaded()
 }
@@ -392,11 +426,11 @@ func (s *Server) redirectDocsTrailingSlash(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, "/docs/", http.StatusFound)
 }
 
-// Handler returns the root HTTP handler: CORS wraps the auth gate wraps the route mux. Both
-// middlewares are no-ops unless configured, so unauthenticated, same-origin deployments are
-// unchanged.
+// Handler returns the root HTTP handler: CORS wraps the open-server guard wraps the auth gate
+// wraps the route mux. CORS and the auth gate are no-ops unless configured; the guard applies only
+// while no credential is configured (open_server_guard.go).
 func (s *Server) Handler() http.Handler {
-	return s.corsMiddleware(s.authGate(s.mux))
+	return s.corsMiddleware(s.openServerGuard(s.authGate(s.mux)))
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
@@ -410,6 +444,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		Created          int64    `json:"created"`
 		OwnedBy          string   `json:"owned_by"`
 		MaxContextTokens int      `json:"max_context_tokens,omitempty"`
+		ContextLength    int      `json:"context_length,omitempty"`
 		Multimodal       bool     `json:"multimodal,omitempty"`
 		ReasoningLevels  []string `json:"reasoning_levels,omitempty"`
 		ReasoningDefault string   `json:"reasoning_default,omitempty"`
@@ -431,7 +466,9 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	if cfg != nil {
 		// max_context_tokens is the window the composer ring draws against,
 		// so it is the one the session's compaction trigger measures against
-		// (session.Manager.ContextWindow). A model without the key reads its
+		// (session.Manager.ContextWindow). context_length repeats it under
+		// OpenRouter's spelling, the one OpenAI-compatible clients read,
+		// another Coddy's provider included (issue #575). A model without the key reads its
 		// provider's listing: wait a bounded moment for one never read.
 		refs := make([]string, 0, len(cfg.Models))
 		for i := range cfg.Models {
@@ -452,6 +489,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 			Created:          0,
 			OwnedBy:          ownedByCoddySession,
 			MaxContextTokens: profileWindow,
+			ContextLength:    profileWindow,
 		})
 	}
 	if cfg != nil {
@@ -465,12 +503,14 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 			if mid == "" {
 				continue
 			}
+			window := s.contextWindowFor(cfg, mid)
 			out.Data = append(out.Data, modelObj{
 				ID:               mid,
 				Object:           "model",
 				Created:          0,
 				OwnedBy:          ent.ProviderName(),
-				MaxContextTokens: s.contextWindowFor(cfg, mid),
+				MaxContextTokens: window,
+				ContextLength:    window,
 				Multimodal:       ent.Multimodal,
 				ReasoningLevels:  cfg.ReasoningChoicesFor(ent),
 				ReasoningDefault: cfg.DefaultReasoningLevelFor(ent),
@@ -1353,6 +1393,17 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		wireBridgeSession(bridge, st)
 		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, SurfaceSystemPrompt: surfacePromptFromHTTP(body.Metadata), Lang: langFromHTTP(body.Metadata)}
+		// A turn from the side panel of Coddy for Browser names the tab it
+		// is written from: the chat's browser tool acts there by default,
+		// for this turn alone.
+		sessionDir := strings.TrimSpace(st.GetPersistedSessionDir())
+		if panel, err := s.browserPanelTurn(body.Metadata, sessionDir); err != nil {
+			s.log.Warn("browser panel turn not recorded", "session", sid, "err", err)
+		} else if panel.SystemPrompt != "" {
+			promptOpts.SurfaceSystemPrompt = strings.TrimSpace(promptOpts.SurfaceSystemPrompt + "\n\n" + panel.SystemPrompt)
+			promptOpts.SurfaceTurnContext = panel.TurnContext
+			defer func() { _ = browser.ClearPanelTurn(sessionDir) }()
+		}
 		promptParams := acp.SessionPromptParams{
 			SessionID: sid,
 			Prompt:    promptBlocks,

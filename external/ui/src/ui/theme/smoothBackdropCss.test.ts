@@ -1,13 +1,8 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { stylesSource } from "../../stylesSource";
 import { expect, test } from "vitest";
 import { BACKDROP_PANELS } from "./canvasBackdrop";
 
-const css = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
-  "utf8",
-);
+const css = stylesSource();
 
 // Prettier breaks long values over lines; compare rule bodies squashed.
 const squash = (s: string) => s.replace(/\s+/g, " ").trim();

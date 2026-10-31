@@ -10,7 +10,7 @@ Nothing agent-side is console-specific — the TUI is a fourth `UpdateSender`
 next to ACP, HTTP, and the Telegram gateway.
 
 Build: `make build TAGS=cli` (or any tag set including `cli`; the recommended
-full binary is `make build TAGS="http ui scheduler memory cli gateway swarm metrics"`). In builds
+full binary is `make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"`). In builds
 without the tag, `coddy cli` explains how to rebuild and bare `coddy` keeps
 printing usage.
 
@@ -167,7 +167,7 @@ CLI_E2E_COLS=148 CHROME=/path/to/chromium python3 examples/cli/capture_tool_prog
 
 The layout replicates the pi coding agent's TUI (pi-mono `b1efcf7d7`,
 v0.84.2, MIT, Mario Zechner — see the attribution note below) with colors
-from the coddy SPA palette (`external/ui/src/styles.css`); this document is
+from the coddy SPA palette (`external/ui/src/styles/themes/`); this document is
 the visual contract for the coddy console.
 
 Top to bottom:
@@ -201,6 +201,7 @@ Top to bottom:
   received, cut at the first of 10 written lines or 600 characters with
   `... (ctrl+o for the whole prompt)`. The child's report lands below it as
   the box body, so the task and the answer read as one block.
+- Generation speed follows the output token count, for example `1.2k tokens · 9.8 tok/s`. Each model call starts a fresh window: 200 tokens with a 50-token step, then 500 tokens with a 100-token step once the call has written 500. While streaming, speed appears at the call's 200th token and stays for the rest of the call, so a call shorter than that shows it only in the finished line. It refreshes every five seconds, including a partial step; a stalled stream keeps the last value. The measurement includes text, reasoning and tool arguments, from the first output delta to the last, and excludes tool execution, permission waits and time to the first token. Live token counts are estimates. When the turn finishes, is cancelled or fails, a caption is saved only if at least one model call has a measurable generation interval. It pairs total output tokens from all calls with the average across measured calls only; reopening the session restores it. Blocking (non-streaming) providers and ACP agent models have no measurable per-model streaming boundaries, so their live output counts have no speed. A streamed call delivered in a single output chunk has no measurable generation interval either: neither its tokens nor its time contribute to the speed average, but its output still counts toward the turn total. With no measurable call interval, live output counters still work, but no speed or persisted generation caption is produced. Speeds below 2 use two decimal places, below 10 one, and 10 or more none.
 - **Status**: braille spinner `⠋⠙⠹...` at 80 ms with a live status line while a
   turn runs. The line leads with the turn's own numbers: how long the turn has
   been running, how many tokens the model has generated in it, how many
@@ -309,6 +310,10 @@ Top to bottom:
   says so, and no request goes to the hub for that row; a configuration
   reload re-reads the cache, so a switched panel follows without a restart.
   Design record: `docs/plans/neuraldeep-usage.md`.
+
+![Completed turn with output tokens and average generation speed in the native console](../assets/generation-speed/generation-speed-console-completed-dark-1280.png)
+
+*The native console keeps the completed turn's output count and average generation speed above the editor*
 
 Rendering is pi's inline main-screen model: line-diff against the previous
 frame, synchronized output (`ESC[?2026h/l`), per-line SGR + OSC 8 reset, a

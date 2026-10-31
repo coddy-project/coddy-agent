@@ -6,9 +6,9 @@
 // client attached to the outermost one can drive an agent only the innermost
 // one can see.
 //
-// It deliberately stores nothing. The registry lives in memory and is rebuilt
-// by the nodes themselves through heartbeats or, for a node that dialled out,
-// by the connection it holds open.
+// Live leases stay in memory and are rebuilt by the nodes through heartbeats
+// or the connections they hold open. Name bindings persist lease-secret digests
+// so a relay restart does not free a node's identity.
 package swarm
 
 import (
@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/netx"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	swarmdto "github.com/EvilFreelancer/coddy-agent/internal/swarm"
 )
 
@@ -36,6 +37,10 @@ var (
 	// prove it owns it. A shared pairing token is not that proof: it authorises
 	// joining the swarm, not claiming somebody else's identity in it.
 	ErrNameTaken = errors.New("node name is held by a live lease")
+	// ErrNameBound means no lease holds the name but it stays bound to another
+	// secret: only its owner or DELETE /swarm/nodes/{node} frees it, and no wait
+	// does.
+	ErrNameBound = errors.New("node name is bound to another lease secret")
 	// ErrUnknownNode means no lease by that name exists.
 	ErrUnknownNode = errors.New("unknown node")
 	// ErrLeaseSecret means the presented secret does not match the lease.
@@ -58,12 +63,13 @@ type NodeTransport interface {
 
 // lease is one registration. The credential fields never leave this struct.
 type lease struct {
-	info      swarmdto.NodeInfo
-	token     string
-	secret    string
-	advertise *url.URL
-	transport NodeTransport
-	expiresAt time.Time
+	info           swarmdto.NodeInfo
+	token          string
+	secret         string
+	advertise      *url.URL
+	transport      NodeTransport
+	expiresAt      time.Time
+	awaitingTunnel bool
 	// pinned marks a lease the operator asserted in configuration. Nothing
 	// refreshes it, so nothing may expire it either.
 	pinned bool
@@ -97,6 +103,12 @@ type Registry struct {
 	// instead of sleeping and hoping.
 	now       func() time.Time
 	newSecret func() (string, error)
+
+	// bindings maps a name to the digest of its lease secret, kept past the
+	// lease (name_bindings.go); nil until SetBindingsFile turns them on.
+	bindings                  map[string]string
+	bindingsFile              string
+	bindingsDurabilityPending bool
 }
 
 // NewRegistry returns an empty registry whose leases live for ttl without a
@@ -163,6 +175,10 @@ func (r *Registry) Register(req swarmdto.RegisterRequest) (swarmdto.RegisterResp
 // certificate authority. A node that registers itself cannot supply those - it
 // would be asking the relay to trust an authority of its choosing.
 func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Options) (swarmdto.RegisterResponse, error) {
+	return r.registerWithDial(req, dial, false)
+}
+
+func (r *Registry) registerWithDial(req swarmdto.RegisterRequest, dial netx.Options, configured bool) (swarmdto.RegisterResponse, error) {
 	if err := req.Validate(); err != nil {
 		return swarmdto.RegisterResponse{}, err
 	}
@@ -194,6 +210,9 @@ func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Opti
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if err := r.ensureBindingsDurableLocked(); err != nil {
+		return swarmdto.RegisterResponse{}, err
+	}
 	r.reapLocked()
 
 	now := r.now()
@@ -220,6 +239,7 @@ func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Opti
 			existing.dial = effectiveDial
 		}
 
+		previousTransport := existing.info.Transport
 		existing.info.Generation++
 		existing.info.Kind = req.Kind
 		existing.info.Transport = req.Transport
@@ -239,12 +259,16 @@ func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Opti
 			// the swap cannot leave the lease without a route.
 			existing.closeTransportLocked()
 			existing.transport = replacement
+			existing.awaitingTunnel = false
 			existing.expiresAt = now.Add(r.ttl)
 		default:
+			if previousTransport == swarmdto.TransportDirect {
+				existing.awaitingTunnel = true
+			}
 			// A tunnel lease follows its connection, not a clock. Putting it
 			// back on the clock here would let a dead tunnel read as online for
 			// a whole TTL, and would advertise a node with no way to reach it.
-			if existing.transport != nil && existing.transport.Alive() {
+			if previousTransport == swarmdto.TransportTunnel && existing.transport != nil && existing.transport.Alive() {
 				existing.expiresAt = time.Time{}
 			} else {
 				// No live connection yet: the lease is held on the clock only
@@ -261,9 +285,20 @@ func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Opti
 		}, nil
 	}
 
-	secret, err := r.newSecret()
-	if err != nil {
-		return swarmdto.RegisterResponse{}, err
+	// No live lease: a name still bound to a secret goes back to its owner
+	// only, with the secret it was given.
+	var secret string
+	if bound, matches := r.boundSecretLocked(req.Name, req.LeaseSecret); bound && !configured {
+		if !matches {
+			return swarmdto.RegisterResponse{}, ErrNameBound
+		}
+		secret = req.LeaseSecret
+	} else {
+		fresh, err := r.newSecret()
+		if err != nil {
+			return swarmdto.RegisterResponse{}, err
+		}
+		secret = fresh
 	}
 	l := &lease{
 		info: swarmdto.NodeInfo{
@@ -289,6 +324,17 @@ func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Opti
 			return swarmdto.RegisterResponse{}, terr
 		}
 		l.transport = t
+	}
+	var persistErr error
+	if configured {
+		persistErr = r.unbindLocked(req.Name)
+		l.pinned = true
+	} else {
+		persistErr = r.bindLocked(req.Name, secret)
+	}
+	if err := persistErr; err != nil {
+		l.closeTransportLocked()
+		return swarmdto.RegisterResponse{}, err
 	}
 	r.nodes[req.Name] = l
 	return swarmdto.RegisterResponse{
@@ -319,6 +365,7 @@ func (r *Registry) AttachTransport(name, secret string, t NodeTransport) error {
 	// once instead of hanging until some timeout notices.
 	l.closeTransportLocked()
 	l.transport = t
+	l.awaitingTunnel = false
 	l.info.Transport = swarmdto.TransportTunnel
 	l.info.URL = ""
 	l.advertise = nil
@@ -414,26 +461,56 @@ func (r *Registry) Online() []Node {
 // expire. This is how a node listed in the configuration differs from one that
 // registered itself — the operator said it exists, and only the operator can
 // say it no longer does.
-func (r *Registry) Pin(name string) {
+func (r *Registry) Pin(name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if err := r.ensureBindingsDurableLocked(); err != nil {
+		return err
+	}
+	if err := r.unbindLocked(name); err != nil {
+		if errors.Is(err, platform.ErrWriteNotDurable) {
+			if l, ok := r.nodes[name]; ok {
+				l.closeTransportLocked()
+				delete(r.nodes, name)
+			}
+		}
+		return err
+	}
 	if l, ok := r.nodes[name]; ok {
 		l.pinned = true
 	}
+	// A pinned lease is the operator's and lives as long as the process: its
+	// name needs no binding to outlive it.
+	return nil
 }
 
-// Delete removes a lease outright. This is the administrative takeover path for
-// a name whose owner is gone but whose lease has not expired yet.
-func (r *Registry) Delete(name string) bool {
+// Delete removes a lease and the name's binding outright. This is the
+// administrative takeover path for a name whose owner is gone, whether its lease
+// has not expired yet or is long gone. It reports whether there was anything to
+// remove.
+func (r *Registry) Delete(name string) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	l, ok := r.nodes[name]
-	if !ok {
-		return false
+	if err := r.ensureBindingsDurableLocked(); err != nil {
+		return false, err
 	}
-	l.closeTransportLocked()
-	delete(r.nodes, name)
-	return true
+	l, held := r.nodes[name]
+	_, bound := r.bindings[name]
+	if !held && !bound {
+		return false, nil
+	}
+	if err := r.unbindLocked(name); err != nil {
+		if errors.Is(err, platform.ErrWriteNotDurable) && held {
+			l.closeTransportLocked()
+			delete(r.nodes, name)
+		}
+		return false, err
+	}
+	if held {
+		l.closeTransportLocked()
+		delete(r.nodes, name)
+	}
+	return true, nil
 }
 
 // Len reports how many leases are known, offline ones included.
@@ -479,6 +556,9 @@ func (l *lease) offlineLocked(now time.Time) {
 func (l *lease) onlineAt(now time.Time) bool {
 	if l.pinned {
 		return true
+	}
+	if l.awaitingTunnel {
+		return false
 	}
 	if l.expiresAt.IsZero() {
 		return l.transport != nil && l.transport.Alive()

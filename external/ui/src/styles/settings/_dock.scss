@@ -1,0 +1,305 @@
+// The Settings dock cluster and the Appearance sheet.
+
+@use "../abstracts" as *;
+
+/* ── Appearance modal ──────────────────────────────────────────────────────── */
+
+/* Settings dock cluster — mirrors .scheduler-dock-cluster */
+.settings-dock-cluster {
+  position: fixed;
+  top: 14px;
+  bottom: 14px;
+  left: calc(var(--rail-shell-track-width) + var(--nav-floating-gutter));
+  z-index: 50;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.settings-dock-cluster > * {
+  pointer-events: auto;
+}
+
+/* Settings drawer inside dock — override fixed positioning to participate in flex flow */
+.settings-dock-cluster .settings.drawer {
+  position: relative;
+  left: auto;
+  top: auto;
+  bottom: auto;
+  flex: 0 0 auto;
+  height: 100%;
+  max-height: none;
+}
+
+/* On mobile the rail is a full-width top bar, so the desktop left offset would be
+   equal to the viewport width and push the cluster off-screen. Reset the cluster
+   to cover the full viewport and restore fixed positioning on the inner drawer so
+   the standard mobile drawer placement rule (top-inset / safe-area margins) applies. */
+@media (max-width: 1199px) {
+  .settings-dock-cluster {
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 70;
+  }
+  .settings-dock-cluster .settings.drawer {
+    position: fixed;
+    left: max(10px, env(safe-area-inset-left, 0px));
+    right: max(10px, env(safe-area-inset-right, 0px));
+    top: calc(var(--coddy-mobile-top-inset) + 6px);
+    bottom: 14px;
+    width: auto;
+    height: auto;
+    pointer-events: auto;
+  }
+}
+
+.appearance-sheet-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.appearance-section-label {
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.appearance-swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.appearance-swatch {
+  display: flex;
+  flex-direction: column;
+  border: 2px solid mix-text(8%);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  padding: 0;
+  background: transparent;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.appearance-swatch:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.appearance-swatch.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.appearance-swatch-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 10px 8px;
+  height: 72px;
+  box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+}
+
+.appearance-swatch-bar {
+  height: 5px;
+  width: 100%;
+  border-radius: 3px;
+}
+
+.appearance-swatch-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+
+.appearance-swatch-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.appearance-swatch-lines > span {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.appearance-swatch-label {
+  display: block;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-top: 1px solid rgba(127, 127, 127, 0.12);
+}
+
+.appearance-simple-block,
+.appearance-lang-block {
+  margin-top: 22px;
+}
+
+/* System notifications (ui/pwa/NotificationsSetting.tsx): the switch under
+   the language picker, then a line saying why it cannot be turned on here. */
+.appearance-notify-block {
+  margin-top: 22px;
+}
+
+.appearance-notify-status {
+  margin: 8px 0 0;
+}
+
+/* The page backdrop (ui/theme/BackdropSettings.tsx): smooth gradients, then
+   the wallpaper with its preview, buttons, gallery and dimming. */
+.appearance-backdrop-block {
+  margin-top: 22px;
+}
+
+.appearance-backdrop-status {
+  margin: 8px 0 0;
+}
+
+.appearance-wallpaper-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.appearance-wallpaper-preview {
+  width: 64px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--coddy-glass-panel-border);
+}
+
+.appearance-wallpaper-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.appearance-wallpaper-thumb {
+  padding: 0;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 6px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  background: var(--coddy-surface-muted);
+  cursor: pointer;
+}
+
+.appearance-wallpaper-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.appearance-wallpaper-thumb:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--text) 45%, transparent);
+}
+
+.appearance-wallpaper-thumb:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.appearance-wallpaper-thumb.is-loading {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+}
+
+.appearance-wallpaper-shuffle {
+  margin-top: 8px;
+}
+
+.appearance-wallpaper-dim {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.appearance-wallpaper-dim input[type="range"] {
+  accent-color: var(--accent);
+}
+
+.appearance-language-select-wrap {
+  position: relative;
+}
+
+.appearance-language-select-wrap::after {
+  content: "";
+  position: absolute;
+  right: 15px;
+  top: calc(50% - 4px);
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
+.appearance-language-select {
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 8px 40px 8px 12px;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--text);
+  background: var(--coddy-surface-field);
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.appearance-language-select:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.appearance-language-select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.appearance-language-select option {
+  color: var(--text);
+  background: var(--coddy-surface-field);
+}
+
+.settings-appearance-swatch-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}

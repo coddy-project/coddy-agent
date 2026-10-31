@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Background tasks and the wake</title>
+    <link rel="stylesheet" href="diagram.css" />
+    <style>
+      .top {
+        grid-template-columns: 1fr 430px;
+        gap: 48px;
+      }
+      .in {
+        display: grid;
+        grid-template-columns: 312px 1fr;
+        column-gap: 44px;
+        row-gap: 10px;
+        align-items: stretch;
+      }
+      .in .box {
+        padding: 7px 12px;
+      }
+      .in .start {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .start ul {
+        margin: 6px 0 0;
+        padding-left: 18px;
+        font-size: 13.5px;
+        font-weight: 400;
+      }
+      .start li {
+        margin: 3px 0;
+      }
+      .kinds {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+        margin-top: 16px;
+      }
+      .kinds .box {
+        padding: 6px 11px;
+      }
+      .states {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin-top: 14px;
+        font-size: 13.5px;
+      }
+      .states .box {
+        padding: 3px 10px;
+        font-size: 13.5px;
+      }
+      .states .arrow {
+        color: var(--muted);
+        font-weight: 700;
+      }
+      .tools {
+        display: grid;
+        grid-template-columns: 1fr;
+        row-gap: 6px;
+      }
+      .tools .box {
+        padding: 5px 11px;
+      }
+      .ctx {
+        font-family: "Noto Sans Mono", "DejaVu Sans Mono", monospace;
+        font-size: 12px;
+        line-height: 1.4;
+        background: #ffffff;
+        border: 1.5px solid var(--core-line);
+        border-radius: 9px;
+        padding: 8px 11px;
+        color: var(--ink);
+      }
+      .wake {
+        display: grid;
+        grid-template-columns: 232px 274px 1fr 262px;
+        column-gap: 30px;
+        align-items: start;
+      }
+      .wake .box {
+        padding: 7px 12px;
+      }
+      .ranked {
+        display: grid;
+        grid-template-columns: 1fr;
+        row-gap: 7px;
+      }
+      .ranked .box {
+        padding: 6px 11px;
+      }
+      .rank {
+        display: inline-block;
+        min-width: 18px;
+        font-weight: 700;
+      }
+      .see {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+      }
+      .see .box {
+        padding: 7px 12px;
+      }
+    </style>
+  </head>
+  <body style="--width: 1360px">
+    <h1>Background tasks: one pool, three ways in, a wake on the way out</h1>
+    <p class="lead">
+      Work that outlives a tool call runs in the session-scoped task pool of the process (<code>internal/bgtask</code>).
+      The model follows it with the background tools, and a task that ends can start the next turn on its own.
+    </p>
+
+    <div class="cols top">
+      <div>
+        <h2>1. Three ways in, one scheduling path</h2>
+        <div class="in">
+          <div class="box amber" id="src-bg" style="grid-column: 1; grid-row: 1">
+            <code>run_command</code> with <code>background: true</code>
+            <span class="sub"><code>Pool.Start</code>: the command runner starts the shell command</span>
+          </div>
+          <div class="box amber" id="src-adopt" style="grid-column: 1; grid-row: 2">
+            a foreground <code>run_command</code> still running at its timeout (30 s by default)
+            <span class="sub"
+              ><code>Pool.Adopt</code>: the same process, never killed and run again; its output so far goes in
+              first, its limit is <code>max_timeout_seconds</code></span
+            >
+          </div>
+          <div class="box amber" id="src-launch" style="grid-column: 1; grid-row: 3">
+            <code>spawn_agent</code>, a scheduled run, the memory run; <code>preview_server</code>
+            <span class="sub"
+              ><code>Pool.Launch</code>: the callback is handed the task id and its output sink first</span
+            >
+          </div>
+          <div class="box core start" id="start" style="grid-column: 2; grid-row: 1 / span 3">
+            <b><code>Pool.start</code></b>
+            <ul>
+              <li>
+                admission first: <code>ErrDraining</code> while the process stops, <code>ErrPoolFull</code> at
+                <code>max_concurrent</code> (5) running per session; a system task is never counted
+              </li>
+              <li>an id <code>bg_N</code>, and <code>background/bg_N/meta.json</code> and <code>output.log</code> in the session bundle</li>
+              <li>
+                a hard limit: <code>timeout_seconds</code>, else 3 × <code>expected_seconds</code> but at least 60 s,
+                else 900 s; at most 3600 s
+              </li>
+              <li>
+                output into a 256 KiB window in memory and the whole log on disk; escape sequences are stripped when it
+                is read
+              </li>
+              <li>supervised to the end: exit, timeout or Stop, the record written, then the watchers told</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="kinds">
+          <div class="box blue">
+            <b><code>command</code></b>
+            <span class="sub">a shell process group with a pid and an exit code; card tag <code>shell</code></span>
+          </div>
+          <div class="box blue">
+            <b><code>agent</code></b>
+            <span class="sub"
+              >a child session, <code>agent {name, session_id}</code> on the row; no pid, Stop cancels the child</span
+            >
+          </div>
+          <div class="box blue">
+            <b><code>server</code></b>
+            <span class="sub">goroutines of Coddy with a <code>url</code>; no hard limit unless the call names one</span>
+          </div>
+        </div>
+
+        <div class="states">
+          <span class="label muted">status</span>
+          <span class="box green">running</span>
+          <span class="arrow">→ ends as</span>
+          <span class="box green">succeeded</span>
+          <span class="box red">failed</span>
+          <span class="box red">timed_out</span>
+          <span class="box gray" style="color: var(--ink-2)">stopped</span>
+          <span class="note muted" style="margin-left: 8px">
+            <span class="box gray dashed" style="color: var(--ink-2)">orphaned</span> read back for a task an earlier
+            process left running
+          </span>
+        </div>
+      </div>
+
+      <div>
+        <h2>2. How the model follows a task</h2>
+        <p class="note" style="margin: 0 0 6px">
+          Every request ends with the turn context block, which lists what still runs:
+        </p>
+        <div class="ctx" id="ctx">
+          ## Background tasks<br />
+          - bg_3 [running] make test (elapsed 2m5s, estimated 5m) wakes you when it ends<br />
+          - bg_4 [running] preview site at http://127.0.0.1:41231/ (elapsed 9m)
+        </div>
+        <p class="note italic" style="margin: 6px 0 14px">
+          One line per running task, worded as <code>background_list</code> words it; system tasks are left out.
+        </p>
+        <div class="tools">
+          <div class="box core"><code>background_list</code><span class="sub">every task of the session, and processes still alive from an earlier run</span></div>
+          <div class="box core"><code>background_output</code><span class="sub">the last 100 lines by default, also while the task runs</span></div>
+          <div class="box core"><code>background_wait</code><span class="sub">blocks 60 s by default, 300 s at most</span></div>
+          <div class="box core"><code>background_stop</code><span class="sub">ends the process group, or cancels the child</span></div>
+          <div class="box core"><code>background_reap</code><span class="sub">kills what outlived the coddy run that started it</span></div>
+        </div>
+        <p class="note blue" style="margin: 10px 0 0">
+          Reading a finished task's output, a wait that returns it and a stop collect its result
+          (<code>AcknowledgeResult</code>): that task wakes nobody.
+        </p>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <h2>3. The wake: a finished task starts the next turn</h2>
+    <div class="wake">
+      <div>
+        <div class="box green b" id="ended">
+          a task ends
+          <span class="sub"
+            >with <code>notify_on_finish</code>: on by default, recorded only when <code>Pool.CanWake</code> (a waker is
+            subscribed) and the session can take a turn</span
+          >
+        </div>
+        <p class="note red" style="margin: 8px 0 0">
+          Never recorded for the tasks of a subagent or a scheduled run, under <code>coddy -p</code>, or for a preview
+          server; <code>run_command</code> and <code>spawn_agent</code> then tell the model nothing will wake it.
+        </p>
+      </div>
+
+      <div class="box core" id="waker">
+        <b><code>BackgroundWaker</code></b>
+        <span class="sub">subscribed as <code>agent.background_waker</code>, one per process</span>
+        <ul style="margin: 6px 0 0; padding-left: 18px; font-size: 13.5px">
+          <li>waits 750 ms, so tasks ending together cost one turn</li>
+          <li>skips results the model collected</li>
+          <li>a session mid-turn: retry after 1 s, doubling to 15 s, for up to 30 min</li>
+          <li>at most 50 woken turns per session in a process; none while it drains</li>
+        </ul>
+      </div>
+
+      <div>
+        <div class="panel" id="who" style="padding: 12px 14px">
+          <div class="title">who runs the turn under <code>coddy serve</code> (<code>serve.Runtime</code>)</div>
+          <div class="ranked">
+            <div class="box amber">
+              <span class="rank">1</span>the chat bound to the session
+              <span class="sub"
+                >Telegram or Pachca: runs like a message the person sent there; Telegram first posts a line about the
+                wake</span
+              >
+            </div>
+            <div class="box blue">
+              <span class="rank">2</span>the HTTP server
+              <span class="sub"
+                >through the session's composer relay; a permission prompt waits, persisted, for the web UI or a
+                <code>--remote</code> console</span
+              >
+            </div>
+            <div class="box gray" style="color: var(--ink-2)">
+              <span class="rank">3</span>nobody up: the session manager
+              <span class="sub">the outcome stays in the transcript; a gated tool is denied unless the mode is <code>bypass</code></span>
+            </div>
+          </div>
+          <p class="note muted" style="margin: 8px 0 0">
+            The console runs it on its own UI goroutine, <code>coddy acp</code> through the manager.
+          </p>
+        </div>
+      </div>
+
+      <div class="box blue" id="turn">
+        <b>the woken turn</b>
+        <ul style="margin: 6px 0 0; padding-left: 18px; font-size: 13.5px">
+          <li>
+            opens with a plain outcome: id, status, exit code, runtime, error, <code>background_output</code>, and
+            <code>resume</code> for a subagent that did not finish
+          </li>
+          <li>
+            a <code>background_wake</code> update first, then the message, persisted with the
+            <code>background_wake</code> marker: no surface shows it as typed
+          </li>
+          <li>each task's record gets <code>woke_agent</code></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <h2>4. Where a person sees it</h2>
+    <div class="see">
+      <div class="box green">
+        <b>Tasks panel</b> of the web UI
+        <span class="sub"
+          >polls the task rows every 2.5 s while a task runs, 15 s otherwise; a bell marks a task that wakes, or woke,
+          the agent</span
+        >
+      </div>
+      <div class="box green">
+        <b><code>/tasks</code></b> in the console
+        <span class="sub">the same rows, newest first: <code>wakes the agent</code>, <code>woke the agent</code></span>
+      </div>
+      <div class="box green">
+        <b><code>GET /coddy/events</code></b>
+        <span class="sub"
+          ><code>background_wake</code> with the tasks, so a console attached over <code>--remote</code> follows the
+          turn</span
+        >
+      </div>
+      <div class="box green">
+        <b>REST</b> under <code>/coddy/sessions/{id}/</code>
+        <span class="sub"
+          ><code>GET background-tasks</code>, one task with <code>?tail=N</code>, <code>POST .../stop</code>;
+          <code>DELETE</code> clears the finished ones</span
+        >
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>
+        <code>tools.background.enable: false</code> drops the <code>background</code> option, the five tools and the
+        turn context section. Subagent runs count against the same limits, and <code>subagents.max_concurrent</code>
+        caps the child runs of the whole process.
+      </p>
+    </div>
+
+    <script src="diagram.js"></script>
+    <script>
+      wires([
+        { from: "#src-bg", to: "#start", toShift: -0.3, color: "amber" },
+        { from: "#src-adopt", to: "#start", color: "amber" },
+        { from: "#src-launch", to: "#start", toShift: 0.3, color: "amber" },
+        { from: "#ended", to: "#waker", color: "green" },
+        { from: "#waker", to: "#who", color: "ink" },
+        { from: "#who", to: "#turn", color: "blue" },
+      ]);
+    </script>
+  </body>
+</html>

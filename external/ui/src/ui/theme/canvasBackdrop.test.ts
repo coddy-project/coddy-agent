@@ -1,7 +1,6 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { stylesPartial, stylesSource } from "../../stylesSource";
 import { describe, expect, test } from "vitest";
+import { UI_THEME_IDS } from "./themeCookie";
 import {
   type BackdropColors,
   boxBlur,
@@ -14,12 +13,20 @@ import {
   parseCssColor,
 } from "./canvasBackdrop";
 
-const css = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
-  "utf8",
-);
+const css = stylesSource();
 
 describe("parseCssColor", () => {
+  test("reads the palette's sRGB mix with transparent after variables are resolved", () => {
+    expect(
+      parseCssColor("color-mix(in srgb, #7c3aed 7%, transparent)"),
+    ).toEqual([124, 58, 237, 0.07]);
+    expect(
+      parseCssColor(
+        "color-mix(in srgb, rgba(10, 20, 30, 0.5) 40%, transparent)",
+      ),
+    ).toEqual([10, 20, 30, 0.2]);
+  });
+
   test("reads hex and rgb()/rgba() spellings", () => {
     expect(parseCssColor("#0f0f10")).toEqual([15, 15, 16, 1]);
     expect(parseCssColor(" #FFF ")).toEqual([255, 255, 255, 1]);
@@ -43,12 +50,17 @@ test("every theme spells the four backdrop tokens in a form the painter reads", 
     "--coddy-canvas-glow-purple",
     "--coddy-canvas-glow-indigo",
   ];
-  for (const token of tokens) {
-    const values = [...css.matchAll(new RegExp(`${token}:\\s*([^;]+);`, "g"))];
-    // the default block plus one per theme
-    expect(values.length).toBeGreaterThanOrEqual(7);
-    for (const [, value = ""] of values) {
-      expect(parseCssColor(value), `${token}: ${value}`).not.toBeNull();
+  for (const theme of UI_THEME_IDS) {
+    const palette = stylesPartial(`themes/${theme}`);
+    const accent = palette.match(/--accent:\s*([^;]+);/)?.[1] ?? "";
+    for (const token of tokens) {
+      const value =
+        palette.match(new RegExp(`${token}:\\s*([^;]+);`))?.[1] ?? "";
+      // getComputedStyle resolves custom-property references in the browser.
+      expect(
+        parseCssColor(value.replaceAll("var(--accent)", accent)),
+        `${theme} ${token}: ${value}`,
+      ).not.toBeNull();
     }
   }
 });

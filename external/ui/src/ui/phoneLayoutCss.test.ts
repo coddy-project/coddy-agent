@@ -7,12 +7,13 @@ import {
   PHONE_MAX_WIDTH_PX,
   SHELL_STACK_MAX_WIDTH_PX,
 } from "./shellBreakpoint";
+import { stylesSource } from "../stylesSource";
 
 // jsdom does no layout, so the phone layout is pinned here by its rules; the
 // live check at 360-430px (docs/surfaces/web-ui.md, Phone layout) measures it.
 
 const dir = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(dir, "../styles.css"), "utf8");
+const css = stylesSource();
 const indexHtml = readFileSync(join(dir, "../index.html"), "utf8");
 
 type Block = { prelude: string; body: string; children: Block[] };
@@ -102,6 +103,39 @@ describe("the start screen never widens the page", () => {
   });
 });
 
+describe("the History drawer on the stacked shell", () => {
+  // It ran to the foot of the screen, and with the backdrop all covered there was
+  // nowhere to tap to get back to the conversation.
+  test("ends 30% above the foot of the screen, over the backdrop that closes it", () => {
+    const stacked = stylesSource();
+    expect(stacked.replace(/\s+/g, " ")).toContain(
+      "@media (max-width: 1199px) { .sessions.drawer { bottom: 30vh; bottom: 30dvh; } }",
+    );
+  });
+});
+
+describe("the heading of a group in History", () => {
+  test("is a fold target across its whole row, and the plus has a larger box", () => {
+    const css = stylesSource().replace(/\s+/g, " ");
+    const rule = (selector: string) => {
+      const at = css.indexOf(` ${selector} {`);
+      expect(at, selector).toBeGreaterThanOrEqual(0);
+      return css.slice(at, css.indexOf("}", at));
+    };
+    const head = rule(".session-group-head");
+    expect(head).toContain("flex: 1 1 auto");
+    expect(head).not.toContain("margin-right: auto");
+    const plus = rule(".session-group-new");
+    expect(plus).toContain("width: 34px");
+    expect(plus).toContain("height: 32px");
+  });
+
+  test("a session's title reads a little stronger than the text around it", () => {
+    const css = stylesSource().replace(/\s+/g, " ");
+    expect(css).toMatch(/ \.session-title \{[^}]*color: mix-text\(98%\)/);
+  });
+});
+
 describe("phone top bar", () => {
   test("the brand is what gives way: it may shrink and clips, the icons never slide over it", () => {
     // The narrow rail wraps the brand in a tip host, and that host is the
@@ -116,8 +150,13 @@ describe("phone top bar", () => {
     expectDecl(declarations(phone, ".rail-middle"), "flex", /^1 0 auto$/);
   });
 
-  test("the brand drops its second word and the icons pack tighter", () => {
-    expectDecl(declarations(phone, ".rail-brand-sub"), "display", /^none$/);
+  test("the brand takes two lines as in the narrow rail, and the icons pack tighter", () => {
+    const text = declarations(phone, ".rail-brand-text");
+    expectDecl(text, "display", /^grid$/);
+    expectDecl(text, "justify-items", /^center$/);
+    expectDecl(text, "gap", /^2px$/);
+    expectDecl(declarations(phone, ".rail-brand-title"), "font-size", /^13px$/);
+    expectDecl(declarations(phone, ".rail-brand-sub"), "font-size", /^12px$/);
     expectDecl(declarations(phone, ".rail-middle"), "gap", /^4px$/);
     expectDecl(declarations(phone, ".rail-hit-icon"), "width", /^40px$/);
     expectDecl(declarations(phone, ".rail-hit-icon"), "height", /^40px$/);
@@ -304,4 +343,12 @@ describe("the environment banner on the stacked shell", () => {
       /^calc\(78px \+ env\(safe-area-inset-top, 0px\)\)$/,
     );
   });
+});
+
+// iOS Safari enlarges the text of what it takes for a wide block by itself: a diff
+// written at 11.5px read at about 16px on an iPhone, its line numbers left at 11px.
+test("the browser does not resize the text the stylesheet sets", () => {
+  const html = /(?:^|\n)html \{([^}]*)\}/.exec(stylesSource())?.[1] ?? "";
+  expect(html).toContain("-webkit-text-size-adjust: 100%;");
+  expect(html).toContain("text-size-adjust: 100%;");
 });

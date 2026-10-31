@@ -1,0 +1,550 @@
+// Rendered Markdown (.md): prose, code blocks, tables and the syntax
+// colours of every view that colours code.
+
+@use "../abstracts" as *;
+
+/* A long link, path or identifier breaks where it has to rather than widening the
+   transcript. Tables keep their width (max-content) and scroll in their own box. */
+.md {
+  color: mix-text(90%);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.md :where(p) {
+  margin: 0;
+}
+
+.md :where(p + p) {
+  margin-top: 10px;
+}
+
+.md :where(h1, h2, h3) {
+  margin: 14px 0 10px;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.md :where(h1) {
+  font-size: 20px;
+}
+
+.md :where(h2) {
+  font-size: 16px;
+  opacity: 0.98;
+}
+
+.md :where(h3) {
+  font-size: 14px;
+  opacity: 0.95;
+}
+
+.md :where(ul, ol) {
+  margin: 10px 0 10px 18px;
+  padding: 0;
+}
+
+/* A message ending in a list ends where one ending in a paragraph does: what
+   follows it, the live line or the finished one, keeps its distance. */
+.md > :where(ul, ol):last-child,
+.md > :where(ul, ol):last-child > :where(li:last-child) {
+  margin-bottom: 0;
+}
+
+/* The markers hang in the margin: 18px holds one digit and its dot, and every
+   further digit of the list's last number (Markdown.tsx) takes one more 1ch, or
+   the number sticks out of the text column on the left. */
+.md :where(ol) {
+  margin-left: calc(18px + (var(--md-ol-digits, 1) - 1) * 1ch);
+}
+
+.md :where(li) {
+  margin: 6px 0;
+}
+
+.md :where(li > p) {
+  margin: 0;
+}
+
+.md :where(blockquote) {
+  margin: 12px 0;
+  padding: 8px 12px;
+  border-left: 3px solid rgba(167, 139, 250, 0.55);
+  background: var(--coddy-surface-subtle);
+  border-radius: 12px;
+  color: mix-text(88%);
+}
+
+.md :where(hr) {
+  border: 0;
+  height: 1px;
+  background: mix-text(12%);
+  margin: 14px 0;
+}
+
+.md :where(a) {
+  color: rgba(167, 139, 250, 0.95);
+}
+
+.md-table-scroll {
+  display: block;
+  max-width: 100%;
+  margin: 12px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 14px;
+  border: 1px solid mix-text(10%);
+  background: var(--coddy-surface-muted);
+}
+
+.md-table-scroll table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+  background: transparent;
+}
+
+.md-table-scroll :where(th, td),
+.md :where(th, td) {
+  padding: 10px 12px;
+  border-right: 1px solid mix-text(8%);
+  border-bottom: 1px solid mix-text(8%);
+  vertical-align: top;
+}
+
+.md-table-scroll :where(th),
+.md :where(th) {
+  text-align: left;
+  font-weight: 650;
+  color: mix-text(90%);
+  background: mix-text(4%);
+}
+
+.md-table-scroll :where(tr:last-child td),
+.md :where(tr:last-child td) {
+  border-bottom: 0;
+}
+
+.md-table-scroll :where(td:last-child, th:last-child),
+.md :where(td:last-child, th:last-child) {
+  border-right: 0;
+}
+
+.md-table-scroll :where(tbody tr:hover td),
+.md :where(tbody tr:hover td) {
+  background: mix-text(3%);
+}
+
+.md :where(code:not(.md-inline-code)) {
+  font-family: $coddy-mono-ui;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  border: 1px solid mix-text(8%);
+  background: var(--coddy-surface-raised);
+}
+
+/* An 18px chip: a 14px line box and 3px + 1px of padding put the middle of the text
+   10px under the top edge. At most a line wide, so a long identifier wraps inside the
+   chip, 14px a line, instead of running out of the transcript. */
+.md-inline-code {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: baseline;
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-family: var(--coddy-md-inline-code-font);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 14px;
+  letter-spacing: 0;
+  color: var(--coddy-md-inline-code-fg);
+  border: none;
+  border-radius: 6px;
+  background: var(--coddy-md-inline-code-bg);
+  padding: 3px 7px 1px;
+  margin: 0 0.06em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
+}
+
+.md-inline-code:hover,
+.md-inline-code:focus-visible {
+  color: var(--coddy-md-inline-code-fg);
+  background: color-mix(
+    in srgb,
+    var(--coddy-md-inline-code-bg) 70%,
+    rgba(255, 255, 255, 0.16)
+  );
+  outline: none;
+}
+
+.md-inline-code:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+.md-inline-code:active {
+  background: color-mix(
+    in srgb,
+    var(--coddy-md-inline-code-bg) 55%,
+    rgba(255, 255, 255, 0.2)
+  );
+}
+
+[data-theme="light"] .md-inline-code:hover,
+[data-theme="light"] .md-inline-code:focus-visible {
+  background: color-mix(
+    in srgb,
+    var(--coddy-md-inline-code-bg) 65%,
+    rgba(0, 0, 0, 0.08)
+  );
+}
+
+[data-theme="light"] .md-inline-code:active {
+  background: color-mix(
+    in srgb,
+    var(--coddy-md-inline-code-bg) 50%,
+    rgba(0, 0, 0, 0.1)
+  );
+}
+
+.md :where(pre) {
+  margin: 0;
+}
+
+.md-code {
+  position: relative;
+  margin: 12px 0;
+}
+
+/* The block sets its own line box (the code's 12px at 1.5), so a line is
+   18px wherever the block is read - a chat bubble, a documentation page -
+   and the copy button below can sit on the middle of the first line. */
+.md-code pre {
+  white-space: pre;
+  overflow: auto;
+  border-radius: 14px;
+  border: 1px solid mix-text(8%);
+  background: var(--coddy-surface-inset);
+  padding: 6px 12px 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.md-code pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Token colors inherit the active appearance without re-highlighting code.
+   Every view that colours code takes them: the chat's code blocks, an open
+   file of the Files window and a diff of the edits window. */
+:is(.md-code, .files-code, .dv-code) .hljs,
+:is(.md-code, .files-code, .dv-code) .hljs-subst {
+  color: var(--text);
+}
+
+:is(.md-code, .files-code, .dv-code) .hljs-comment,
+:is(.md-code, .files-code, .dv-code) .hljs-quote {
+  color: var(--syntax-comment);
+}
+
+:is(.md-code, .files-code, .dv-code) .hljs-keyword,
+:is(.md-code, .files-code, .dv-code) .hljs-name,
+:is(.md-code, .files-code, .dv-code) .hljs-selector-tag,
+:is(.md-code, .files-code, .dv-code) .hljs-doctag {
+  color: var(--syntax-keyword);
+}
+
+:is(.md-code, .files-code, .dv-code) .hljs-string,
+:is(.md-code, .files-code, .dv-code) .hljs-regexp,
+:is(.md-code, .files-code, .dv-code) .hljs-addition {
+  color: var(--syntax-string);
+}
+
+:is(.md-code, .files-code, .dv-code) .hljs-number,
+:is(.md-code, .files-code, .dv-code) .hljs-literal,
+:is(.md-code, .files-code, .dv-code) .hljs-symbol,
+:is(.md-code, .files-code, .dv-code) .hljs-bullet {
+  color: var(--syntax-number);
+}
+
+:is(.md-code, .files-code, .dv-code) .hljs-title,
+:is(.md-code, .files-code, .dv-code) .hljs-section {
+  color: var(--syntax-title);
+}
+
+:is(.md-code, .files-code, .dv-code) .hljs-attr,
+:is(.md-code, .files-code, .dv-code) .hljs-property,
+:is(.md-code, .files-code, .dv-code) .hljs-attribute,
+:is(.md-code, .files-code, .dv-code) .hljs-selector-id,
+:is(.md-code, .files-code, .dv-code) .hljs-selector-class,
+:is(.md-code, .files-code, .dv-code) .hljs-selector-attr,
+:is(.md-code, .files-code, .dv-code) .hljs-selector-pseudo {
+  color: var(--syntax-attribute);
+}
+
+:is(.md-code, .files-code, .dv-code) .hljs-type,
+:is(.md-code, .files-code, .dv-code) .hljs-built_in,
+:is(.md-code, .files-code, .dv-code) .hljs-builtin-name {
+  color: var(--syntax-type);
+}
+
+:is(.md-code, .files-code, .dv-code) .hljs-meta,
+:is(.md-code, .files-code, .dv-code) .hljs-operator,
+:is(.md-code, .files-code, .dv-code) .hljs-variable,
+:is(.md-code, .files-code, .dv-code) .hljs-template-tag,
+:is(.md-code, .files-code, .dv-code) .hljs-template-variable {
+  color: var(--syntax-meta);
+}
+
+:is(.md-code, .files-code, .dv-code) .hljs-deletion {
+  color: var(--syntax-deletion);
+}
+
+:is(.md-code, .files-code, .dv-code) .hljs-emphasis {
+  font-style: italic;
+}
+
+:is(.md-code, .files-code, .dv-code) .hljs-strong {
+  font-weight: 700;
+}
+
+/* Centred on the first line of the block: 1px border + 6px padding + half an
+   18px line = 16px, less half the 26px button. A one-line block has it in
+   its middle. The z-index keeps it tappable: iOS Safari hit-tests a scrolling
+   (overflow: auto) pre above an earlier absolutely positioned sibling that has
+   none, so the painted button never got the tap. */
+.md-copy {
+  position: absolute;
+  z-index: 1;
+  top: 3px;
+  right: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid mix-text(14%);
+  /* Theme-aware glass: dark frosted on dark themes, frosted white on light
+     (was hardcoded dark rgba, which read as a dark blob on the light theme). */
+  background: var(--coddy-glass-panel-bg);
+  color: mix-text(62%);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 0;
+  padding: 5px;
+}
+
+.md-copy:hover {
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-glass-panel-bg));
+  color: mix-text(90%);
+}
+
+.md-copy:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.md-copy:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.md-copy__glyph {
+  display: block;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+}
+
+/* Pictures and formulas in Markdown (DESIGN.md, "Diagrams and formulas"): a
+   Mermaid or SVG fence and a display formula are drawn, with a head row that
+   switches to the source and copies or downloads it. The frame is the code
+   block's, so a picture sits in the transcript like the code it came from. */
+.md-figure {
+  margin: 12px 0;
+  min-width: 0;
+  max-width: 100%;
+  border-radius: 14px;
+  border: 1px solid mix-text(8%);
+  background: var(--coddy-surface-inset);
+  overflow: hidden;
+}
+
+.md-figure-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 5px 5px 5px 12px;
+  border-bottom: 1px solid mix-text(6%);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.md-figure-label {
+  color: mix-text(62%);
+  font-weight: 500;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.md-figure-status {
+  color: mix-text(48%);
+}
+
+.md-figure-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+/* The head's buttons line up in the row instead of floating over the code. */
+.md-figure-actions .md-copy {
+  position: static;
+}
+
+/* The formats a figure saves as, named by extension (MMD, SVG): text
+   buttons in the copy button's chrome. */
+.md-figure-format {
+  line-height: 14px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 5px 6px;
+}
+
+/* The source switch: an icon button, lit while the source is shown. */
+.md-figure-source-toggle[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--text);
+}
+
+/* The picture is a button that opens the image viewer. It is never wider than
+   the transcript and never taller than most of a screen; the <img> keeps its
+   proportions under both caps. */
+.md-figure-picture {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  border: 0;
+  margin: 0;
+  padding: 12px;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.md-figure-picture img {
+  display: block;
+  max-width: 100%;
+  max-height: min(70vh, 640px);
+  width: auto;
+  height: auto;
+}
+
+.md-figure-picture:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* A figure's source: the copy button in the top right corner of the text, as
+   on a code block, and a box that scrolls once the text is longer than about
+   twenty lines. */
+.md-figure-source {
+  position: relative;
+}
+
+/* Clear of the scrollbar a long source grows. */
+.md-figure-source > .md-copy {
+  right: 14px;
+}
+
+.md-figure-code {
+  margin: 0;
+  white-space: pre;
+  overflow: auto;
+  max-height: calc(20 * 18px + 12px);
+  padding: 6px 40px 6px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.md-figure-code code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.md-figure-error {
+  margin: 0;
+  padding: 6px 12px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--coddy-danger);
+  border-bottom: 1px solid mix-text(6%);
+  overflow-wrap: anywhere;
+}
+
+/* A display formula scrolls sideways when it is wider than the transcript. */
+.md-math-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 12px;
+}
+
+.md-math-display .katex-display {
+  margin: 8px 0;
+}
+
+/* An inline formula copies its source on a click, like inline code. */
+.md-math-inline {
+  cursor: copy;
+  border-radius: 4px;
+}
+
+.md-math-inline:hover,
+.md-math-inline.is-copied {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.md-math-inline:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.md-math-inline .katex {
+  font-size: 1.1em;
+}
+
+code.md-math-pending {
+  font-family: var(--coddy-md-inline-code-font);
+  font-size: 0.92em;
+  color: var(--coddy-md-inline-code-fg);
+}
+
+.token-bar {
+  color: mix-text(60%);
+  font-size: 12px;
+  margin-top: 8px;
+  padding: 0 2px;
+}

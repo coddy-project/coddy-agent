@@ -74,13 +74,13 @@ func probeSource(ctx context.Context, managedDir, src string) SourceStatus {
 			st.Error = err.Error()
 			return st
 		}
-		if mfPath := findMarketplaceFile(clone); mfPath != "" {
-			mf, err := parseMarketplace(mfPath)
-			if err != nil {
-				st.Standard = "invalid"
-				st.Error = err.Error()
-				return st
-			}
+		mf, _, err := loadMarketplace(clone)
+		if err != nil {
+			st.Standard = "invalid"
+			st.Error = err.Error()
+			return st
+		}
+		if mf != nil {
 			st.Valid = true
 			st.Standard = "marketplace"
 			st.Name = mf.Name
@@ -137,6 +137,14 @@ func RunPluginCommandWith(ctx context.Context, cfg *config.Config, cwd string, a
 			return pluginInstallFromMarketplace(ctx, cfg, cwd, plugin, market)
 		}
 		return pluginInstall(ctx, cfg, cwd, args[1])
+	case "update", "upgrade":
+		// No argument: every installed skill a newer version is published
+		// for. With one: that skill or plugin.
+		name := ""
+		if len(args) >= 2 {
+			name = args[1]
+		}
+		return pluginUpdate(ctx, cfg, cwd, name)
 	case "remove", "uninstall":
 		if len(args) < 2 {
 			return "", fmt.Errorf("usage: plugin remove <name>")
@@ -190,16 +198,14 @@ func runPluginMarketplace(ctx context.Context, cfg *config.Config, cwd string, a
 			return "", fmt.Errorf("usage: plugin marketplace remove <marketplace | owner/repo | git-url | marketplace-url>")
 		}
 		return pluginMarketplaceRemove(cfg, cwd, args[1])
-	case "sync", "update":
-		// No argument: every source and marketplace in effect. With one: only it.
+	case "update":
+		// No argument: every marketplace and source in effect. With one: only
+		// it. Either way the lists are read and nothing is installed.
+		key := ""
 		if len(args) >= 2 {
-			return pluginMarketplaceUpdate(ctx, cfg, cwd, args[1])
+			key = args[1]
 		}
-		res, err := Sync(ctx, cfg, cwd)
-		if err != nil {
-			return "", err
-		}
-		return "Synced all marketplaces. " + formatSyncLine(res), nil
+		return pluginMarketplaceUpdate(ctx, cfg, cwd, key)
 	case "trust", "untrust":
 		if len(args) < 2 {
 			return "", fmt.Errorf("usage: plugin marketplace %s <marketplace | source>", args[0])
@@ -226,7 +232,7 @@ func pluginMarketplaceAdd(ctx context.Context, cfg *config.Config, cwd, source s
 	}
 	how := fmt.Sprintf("Install one with `plugin install <plugin>@%s`; `plugin marketplace list %s` names them.", m.Name, m.Name)
 	if isWholeSource(cfg, cwd, m.Source) {
-		how = "It is one of Coddy's sources as well, so every plugin it lists is installed and kept in sync."
+		how += fmt.Sprintf(" It is declared as a source as well: `plugin install %s` installs every plugin it lists.", m.Source)
 	}
 	if refreshed {
 		return fmt.Sprintf("Marketplace %q is already added; its list is refreshed: %d plugin(s). %s", m.Name, len(m.Plugins), how), nil
@@ -247,16 +253,75 @@ func pluginInstallFromMarketplace(ctx context.Context, cfg *config.Config, cwd, 
 	return fmt.Sprintf("Installed %s@%s. %s", plugin, market, formatSyncLine(res)), nil
 }
 
-// pluginMarketplaceUpdate refreshes one marketplace or source (UpdateSource).
+// pluginMarketplaceUpdate reads the list of one marketplace or source, or of
+// every one in effect for an empty key, and names the installed skills a
+// newer version is published for (RefreshIndex). It installs nothing.
 func pluginMarketplaceUpdate(ctx context.Context, cfg *config.Config, cwd, key string) (string, error) {
-	res, m, err := UpdateSource(ctx, cfg, cwd, key)
+	res, err := RefreshIndex(ctx, cfg, cwd, key)
 	if err != nil {
 		return "", err
 	}
-	if m != nil {
-		return fmt.Sprintf("Updated marketplace %q: %d plugin(s) listed. %s", m.Name, len(m.Plugins), formatSyncLine(res)), nil
+	var b strings.Builder
+	switch {
+	case res.Marketplace != nil:
+		fmt.Fprintf(&b, "Read marketplace %q: %d plugin(s) listed.", res.Marketplace.Name, len(res.Marketplace.Plugins))
+	case key != "" && len(res.Read) > 0:
+		fmt.Fprintf(&b, "Read %s.", res.Read[0])
+	case key != "":
+		fmt.Fprintf(&b, "Could not read %s.", key)
+	default:
+		fmt.Fprintf(&b, "Read %d marketplace(s) and source(s).", len(res.Read))
 	}
-	return fmt.Sprintf("Synced marketplace %q. %s", key, formatSyncLine(res)), nil
+	switch n := len(res.Updates); {
+	case n == 0 && len(res.Failed) > 0:
+		b.WriteString(" No newer version was found in what could be read.")
+	case n > 0:
+		noun := "updates"
+		if n == 1 {
+			noun = "update"
+		}
+		fmt.Fprintf(&b, "\n%d %s available:", n, noun)
+		for _, u := range res.Updates {
+			from := u.Version
+			if from == "" {
+				from = "(no version)"
+			}
+			fmt.Fprintf(&b, "\n  - %s %s -> %s", u.Name, from, u.Latest)
+		}
+		b.WriteString("\nInstall them with `plugin update`, or one with `plugin update <name>`.")
+	case key != "":
+		b.WriteString(" Every skill installed from it is up to date.")
+	default:
+		b.WriteString(" Every installed skill is up to date.")
+	}
+	writeProblems(&b, res.Failed, res.Held)
+	return b.String(), nil
+}
+
+// pluginUpdate installs the newer versions of installed skills: every one a
+// newer version is published for, or the skill or plugin name names
+// (UpdateSkills). Nothing updated and something failed is an error, so a
+// script sees it in the exit status.
+func pluginUpdate(ctx context.Context, cfg *config.Config, cwd, name string) (string, error) {
+	res, err := UpdateSkills(ctx, cfg, cwd, name)
+	if err != nil {
+		return "", err
+	}
+	changed := len(res.Added) + len(res.Updated)
+	switch {
+	case changed == 0 && len(res.Failed) > 0 && name != "":
+		return "", fmt.Errorf("update %s: %s", name, res.Failed[0].Error)
+	case changed == 0 && len(res.Failed) > 0:
+		return "", fmt.Errorf("update failed: %s%s", res.Failed[0].Error, moreFailures(res.Failed))
+	case changed == 0 && len(res.Failed) == 0 && name != "":
+		return fmt.Sprintf("%s is up to date.", name), nil
+	case changed == 0 && len(res.Failed) == 0:
+		return "Every installed skill is up to date.", nil
+	case name != "":
+		return fmt.Sprintf("Updated %s. %s", name, formatSyncLine(res)), nil
+	default:
+		return fmt.Sprintf("Updated %d skill(s). %s", changed, formatSyncLine(res)), nil
+	}
 }
 
 // pluginMarketplaceRemove takes the marketplaces and sources key names out of
@@ -284,12 +349,14 @@ func pluginMarketplaceTrust(cfg *config.Config, cwd, key string) (string, error)
 	if err != nil {
 		return "", err
 	}
-	what := "source, every plugin of it installed and kept in sync"
+	what := "source, installed whole"
+	how := fmt.Sprintf("`plugin install %s` installs every plugin it publishes into %s", d.Source, cfg.Skills.ManagedDir(cfg.Paths.Home))
 	if d.Kind == KindMarketplace {
 		what = fmt.Sprintf("marketplace %q, plugins installed one by one", d.Name)
+		how = fmt.Sprintf("`plugin install <plugin>@%s` installs one of its plugins into %s", d.Name, cfg.Skills.ManagedDir(cfg.Paths.Home))
 	}
-	return fmt.Sprintf("Approved %s for %s:\n  declared by: %s\n  reads from:  %s\n  digest:      %s\nThe next sync installs what it brings into %s; rewriting the entry asks again.",
-		what, cwd, d.Path, d.Source, d.Fingerprint, cfg.Skills.ManagedDir(cfg.Paths.Home)), nil
+	return fmt.Sprintf("Approved %s for %s:\n  declared by: %s\n  reads from:  %s\n  digest:      %s\n%s; rewriting the entry asks again.",
+		what, cwd, d.Path, d.Source, d.Fingerprint, how), nil
 }
 
 // pluginMarketplaceUntrust withdraws the approval of a project entry.
@@ -345,24 +412,16 @@ func pluginMarketplaceShow(cfg *config.Config, cwd, key string) (string, error) 
 	return b.String(), nil
 }
 
-// pluginInstall declares the source in the operator's file when new and
-// (re-)syncs it, so install also updates an already-installed source in one
-// step. Only this source is synced: installing one marketplace neither
-// refreshes the others nor fails on them.
+// pluginInstall installs every plugin a source publishes (InstallSource),
+// declaring it in the operator's file when no file of cwd declares it in
+// effect. Only this source is read: installing one neither reads the others
+// nor fails on them.
 func pluginInstall(ctx context.Context, cfg *config.Config, cwd, source string) (string, error) {
-	added, err := AddSource(cfg, cwd, source, ScopeGlobal)
+	res, _, err := InstallSource(ctx, cfg, cwd, source)
 	if err != nil {
 		return "", err
 	}
-	res, err := SyncSource(ctx, cfg, source)
-	if err != nil {
-		return "", err
-	}
-	verb := "Updated"
-	if added {
-		verb = "Installed"
-	}
-	return fmt.Sprintf("%s %q. %s", verb, source, formatSyncLine(res)), nil
+	return fmt.Sprintf("Installed %q. %s", source, formatSyncLine(res)), nil
 }
 
 func pluginMarketplaceList(ctx context.Context, cfg *config.Config, cwd string) string {
@@ -387,7 +446,7 @@ func pluginMarketplaceList(ctx context.Context, cfg *config.Config, cwd string) 
 		}
 	}
 	if len(statuses) > 0 {
-		fmt.Fprintf(&b, "%d source(s), every plugin installed and kept in sync:\n", len(statuses))
+		fmt.Fprintf(&b, "%d source(s), installed whole with `plugin install <source>`:\n", len(statuses))
 		for _, st := range statuses {
 			origin := OriginHome
 			for _, d := range decls {
@@ -496,12 +555,13 @@ func pluginUsage() string {
 		"plugin commands:",
 		"  plugin marketplace add <owner/repo|url>     add a marketplace and read its plugin list (installs nothing)",
 		"  plugin marketplace list [<marketplace>]     list marketplaces and sources, or the plugins of one marketplace",
-		"  plugin marketplace update [<marketplace>]   refresh marketplaces and what is installed from them (alias: sync)",
+		"  plugin marketplace update [<marketplace>]   read the plugin lists again and report newer versions (installs nothing)",
 		"  plugin marketplace remove <marketplace>     remove a marketplace or a source",
 		"  plugin marketplace trust <marketplace>      approve a project marketplace or source for this workspace (terminal only)",
 		"  plugin marketplace untrust <marketplace>    withdraw that approval",
 		"  plugin install <plugin>@<marketplace>       install one plugin of an added marketplace",
-		"  plugin install <owner/repo|url>             install every skill a source publishes and keep them in sync",
+		"  plugin install <owner/repo|url>             install every skill a source publishes",
+		"  plugin update [<name>]                      install the newer versions of installed skills, or of one",
 		"  plugin remove <name>                        remove an installed skill",
 		"  plugin enable <name>                        enable a skill",
 		"  plugin disable <name>                       disable a skill",
@@ -515,17 +575,31 @@ func formatSyncLine(res *SyncResult) string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "%d added, %d updated, %d failed.", len(res.Added), len(res.Updated), len(res.Failed))
-	for _, f := range res.Failed {
-		fmt.Fprintf(&b, "\n  ! %s: %s", f.Source, firstLine(f.Error))
+	writeProblems(&b, res.Failed, res.Held)
+	return b.String()
+}
+
+// writeProblems lists what failed and the project entries the trust gate held
+// back, one line each.
+func writeProblems(b *strings.Builder, failed []SyncFailure, heldBack []Declaration) {
+	for _, f := range failed {
+		fmt.Fprintf(b, "\n  ! %s: %s", f.Source, firstLine(f.Error))
 	}
-	for _, d := range res.Held {
+	for _, d := range heldBack {
 		if d.State == StateDenied {
-			fmt.Fprintf(&b, "\n  ? %s: declared by %s, switched off by skills.project_trust: deny", d.Key(), d.Path)
+			fmt.Fprintf(b, "\n  ? %s: declared by %s, switched off by skills.project_trust: deny", d.Key(), d.Path)
 			continue
 		}
-		fmt.Fprintf(&b, "\n  ? %s: declared by %s, not approved for this workspace (`coddy plugin marketplace trust %s`)", d.Key(), d.Path, d.Key())
+		fmt.Fprintf(b, "\n  ? %s: declared by %s, not approved for this workspace (`coddy plugin marketplace trust %s`)", d.Key(), d.Path, d.Key())
 	}
-	return b.String()
+}
+
+// moreFailures names how many failures follow the first one.
+func moreFailures(failed []SyncFailure) string {
+	if len(failed) < 2 {
+		return ""
+	}
+	return fmt.Sprintf(" (and %d more)", len(failed)-1)
 }
 
 func trimTokens(args []string) []string {

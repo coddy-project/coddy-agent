@@ -58,6 +58,10 @@ func newPromptEventsServer(t *testing.T) *promptEventsServer {
 					return
 				}
 			}
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/models":
+			_, _ = fmt.Fprint(w, `{"data":[{"id":"stub","owned_by":"coddy","default":true}]}`)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/messages"):
+			_, _ = fmt.Fprint(w, `{"messages":[],"messagesRev":1}`)
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/permission"):
 			body, _ := io.ReadAll(r.Body)
 			var in struct {
@@ -345,6 +349,47 @@ func TestAPromptAskedBeforeTheSessionWasOpenedIsShownOnOpen(t *testing.T) {
 	case <-sender.asked:
 	case <-time.After(promptWait):
 		t.Fatal("opening the session did not show its waiting prompt")
+	}
+	select {
+	case a := <-srv.answers:
+		if a.sessionID != "sess_child" || a.optionID != "allow" {
+			t.Fatalf("posted %+v", a)
+		}
+	case <-time.After(promptWait):
+		t.Fatal("the answer was never posted")
+	}
+}
+
+// session/resume leaves the transcript out, not the prompts a background
+// subagent of the session is waiting on: a client that resumes the session is
+// shown the prompt the server announced before it opened it, as a load does.
+func TestAPromptAskedBeforeTheSessionWasResumedIsShownOnResume(t *testing.T) {
+	srv := newPromptEventsServer(t)
+	sender := newAskingSender(false)
+	h := startPromptHandler(t, srv, sender)
+
+	srv.frames <- askedFrame("sess_later", "sess_child", "call_1", "writer")
+	deadline := time.Now().Add(promptWait)
+	for {
+		h.detachedMu.Lock()
+		_, recorded := h.detached[detachedPromptKey("sess_child", "call_1")]
+		h.detachedMu.Unlock()
+		if recorded {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the announced prompt was never recorded")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if _, err := h.HandleSessionResume(context.Background(), acp.SessionResumeParams{SessionID: "sess_later", CWD: "/work"}); err != nil {
+		t.Fatalf("HandleSessionResume: %v", err)
+	}
+	select {
+	case <-sender.asked:
+	case <-time.After(promptWait):
+		t.Fatal("resuming the session did not show its waiting prompt")
 	}
 	select {
 	case a := <-srv.answers:

@@ -14,6 +14,16 @@ func TestTurnProgressWebUIFeature(t *testing.T) {
 	suite := godog.TestSuite{
 		Name: "turn_progress_web_ui",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
+			sc.Step(`^the working line shows a decorative Coddy logo instead of bouncing dots$`, func() error {
+				return runVitestScenario(dots, "renders the Coddy work indicator when generating")
+			})
+			sc.Step(`^its outer contour rotates, grows and shrinks, and reduced motion keeps it still$`, func() error {
+				const file = "src/ui/tasks/backgroundTaskCss.test.ts"
+				if err := runVitestScenario(file, "the Coddy work indicator animates its outer contour at the folder icon's scale"); err != nil {
+					return err
+				}
+				return runVitestScenario(file, "reduced motion leaves the Coddy work indicator still")
+			})
 			sc.Step(`^the active live line eases checklist spacing changes only without reduced motion$`, func() error {
 				return runVitestScenario("src/ui/tasks/backgroundTaskCss.test.ts", "the active live line eases checklist spacing changes only without reduced motion")
 			})
@@ -25,6 +35,25 @@ func TestTurnProgressWebUIFeature(t *testing.T) {
 			})
 			sc.Step(`^the live line shows the generated tokens once there are any, shortened past a thousand$`, func() error {
 				return runVitestScenario(dots, "generated tokens appear once there are any, shortened past a thousand")
+			})
+			sc.Step(`^the live line shows generation speed immediately after the running token count$`, func() error {
+				return runVitestScenario(dots, "shows generation speed immediately after the running token count")
+			})
+			sc.Step(`^the live line stands until the turn is released, then simply stops$`, func() error {
+				return runVitestScenario("src/ui/messages/MessageList.finishedLine.test.tsx",
+					"the live line stands until the turn is released, then simply stops")
+			})
+			sc.Step(`^a finished turn keeps the live line without its phrase, the time on hover$`, func() error {
+				return runVitestScenario("src/ui/messages/SystemNoticeMessage.test.tsx",
+					"a finished turn keeps the live line without its phrase, the time on hover")
+			})
+			sc.Step(`^on a phone the turn's numbers keep the first line and the phrase goes under them$`, func() error {
+				return runVitestScenario("src/ui/tasks/backgroundTaskCss.test.ts",
+					"on a phone the turn's numbers keep the first line and the phrase goes under them")
+			})
+			sc.Step(`^a completed generation caption follows the answer and is not duplicated by replay$`, func() error {
+				return runVitestScenario("src/ui/chat/consumeComposerSse.order.test.ts",
+					"a completed generation caption follows the answer and is not duplicated by replay")
 			})
 			sc.Step(`^the live line of a running turn carries the server's clock and token count$`, func() error {
 				return runVitestScenario(screen, "the live line of a running turn carries the server's clock and token count")
@@ -59,8 +88,8 @@ func TestBackgroundTasksWebUIFeature(t *testing.T) {
 	suite := godog.TestSuite{
 		Name: "background_tasks_web_ui",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
-			sc.Step(`^the tasks control is in the header of a chat that never ran a task, without counts$`, func() error {
-				return runVitestScenario(header, "the tasks control is in the header of a chat that never ran a task, without counts")
+			sc.Step(`^the tasks control of a chat that never ran a task is a square with its dot$`, func() error {
+				return runVitestScenario(header, "the tasks control of a chat that never ran a task is a square with its dot, the name in the tooltip")
 			})
 			sc.Step(`^with tasks the header control says how many are running out of how many there are$`, func() error {
 				return runVitestScenario(header, "with tasks the control says how many are running out of how many there are")
@@ -95,8 +124,11 @@ func TestBackgroundTasksWebUIFeature(t *testing.T) {
 			sc.Step(`^an open command card shows the command with a copy control, the output and how it ended$`, func() error {
 				return runVitestScenario(panel, "an expanded command card shows the command with a copy control, the output and how it ended")
 			})
-			sc.Step(`^an open subagent card offers the child transcript and shows the run's log$`, func() error {
-				return runVitestScenario(panel, "an expanded subagent card opens the child transcript and shows the run's log, not a command")
+			sc.Step(`^an open subagent card shows the run's log$`, func() error {
+				return runVitestScenario(panel, "an expanded subagent card shows the run's log, not a command")
+			})
+			sc.Step(`^a folded subagent card links to the child transcript as plain text$`, func() error {
+				return runVitestScenario(panel, "a folded subagent card links to its child transcript as plain text")
 			})
 			sc.Step(`^any number of cards stay open at once, each with its own output$`, func() error {
 				return runVitestScenario(panel, "any number of cards stay open side by side, each with its own output")

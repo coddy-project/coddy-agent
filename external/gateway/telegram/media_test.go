@@ -415,10 +415,14 @@ func TestGroupPhotoNeedsAMentionInTheCaption(t *testing.T) {
 }
 
 // sendAlbum dispatches n photos of one album the way the poll does, the
-// caption on item captionAt.
+// caption on item captionAt. Telegram hands the items of an album over in one
+// batch of updates, so they are all uploaded to the fake first and dispatched
+// back to back: an upload between two items would leave a gap the album's wait
+// can run out in on a loaded machine, splitting the album in two turns.
 func sendAlbum(t *testing.T, b *Bot, f *fakeAPI, base tgfake.IncomingMessage, n, captionAt int, caption string) [][]byte {
 	t.Helper()
 	var sent [][]byte
+	var msgs []*tgbotapi.Message
 	for i := 0; i < n; i++ {
 		pic := solidPNG(4+i, 4, color.NRGBA{R: uint8(20 * i), A: 255})
 		sent = append(sent, pic)
@@ -428,7 +432,10 @@ func sendAlbum(t *testing.T, b *Bot, f *fakeAPI, base tgfake.IncomingMessage, n,
 		} else {
 			in.Mention = false
 		}
-		b.dispatch(context.Background(), f.api, mustMedia(t, f, in))
+		msgs = append(msgs, mustMedia(t, f, in))
+	}
+	for _, msg := range msgs {
+		b.dispatch(context.Background(), f.api, msg)
 	}
 	return sent
 }

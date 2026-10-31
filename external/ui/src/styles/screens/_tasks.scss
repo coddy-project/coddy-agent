@@ -1,0 +1,589 @@
+// The Background tasks drawer.
+
+@use "../abstracts" as *;
+
+/* ── Background tasks drawer ───────────────────────────────────────────────
+   Commands the agent left running. The panel reuses the scheduler dock cluster
+   for placement (including the phone insets), so only the row and detail chrome
+   is defined here. Every color is derived from theme tokens: the drawer has to
+   read correctly in all seven themes without per-theme overrides. */
+
+.bgtask-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Status dot, same vocabulary as the MCP server rows. */
+.bgtask-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 30%, transparent);
+}
+
+.bgtask-dot--running {
+  background: var(--accent);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--accent) 60%, transparent);
+  animation: bgtask-pulse 1.8s ease-in-out infinite;
+}
+
+.bgtask-dot--success {
+  background: #34c759;
+  box-shadow: 0 0 5px color-mix(in srgb, #34c759 60%, transparent);
+}
+
+.bgtask-dot--danger {
+  background: #ff453a;
+  box-shadow: 0 0 5px color-mix(in srgb, #ff453a 60%, transparent);
+}
+
+.bgtask-dot--warning {
+  background: #ff9f0a;
+}
+
+.bgtask-dot--muted {
+  background: color-mix(in srgb, var(--text) 24%, transparent);
+}
+
+@keyframes bgtask-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bgtask-dot--running {
+    animation: none;
+  }
+}
+
+/* Progress toward the model's own estimate. Drawn only while running and only
+   when an estimate exists, so the bar never implies knowledge we do not have. */
+.bgtask-progress {
+  position: relative;
+  height: 3px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: mix-text(12%);
+}
+
+.bgtask-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.6s linear;
+}
+
+/* Stop sits on the title row of a card and is sized to it: at the composer's 34px it
+   outweighed the title and pushed the row's height around. It stands above the card's
+   stretched opener (see .bgtask-card-open), so it keeps working on its own. */
+.bgtask-stop-icon.composer-icon {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
+}
+
+.bgtask-stop-icon.composer-icon .composer-stop-square {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+/* ── Background tasks panel (docked inside the session) ────────────────────
+   The panel belongs to the chat that started the tasks, so it sits beside the
+   transcript rather than floating over the shell like History or Scheduler.
+   That placement is the answer to "which session spawned this process": the
+   panel is part of the session. */
+
+.bgtasks-panel {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  bottom: 14px;
+  width: min(380px, calc(100vw - 32px));
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  box-sizing: border-box;
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  overflow: hidden;
+}
+
+/* The chat column gives up only the width the panel actually takes from it.
+   While the centred transcript stripe still clears the panel nothing moves:
+   opening the drawer on a wide window must not slide the text sideways. Once
+   the stripe would run under the panel the reserve grows to exactly that
+   overlap, and it stops at the panel's own band so a narrow window does not
+   leave a dead strip between the column and the panel either. */
+@media (min-width: 1200px) {
+  .shell-main.shell-tasks-open {
+    /* What the panel takes off the end edge: its width and the inset it keeps
+       from the viewport (see .bgtasks-panel), plus the gap the column keeps
+       from it. */
+    --coddy-tasks-panel-band: calc(min(380px, 100vw - 32px) + 14px + 12px);
+    /* 920px is the transcript stripe (.messages-inner max-width); the stripe is
+       centred in what is left, so covering the band costs twice it. */
+    --coddy-tasks-reserve: clamp(
+      0px,
+      calc(920px + 2 * var(--coddy-tasks-panel-band) - 100%),
+      var(--coddy-tasks-panel-band)
+    );
+  }
+
+  .shell-main.shell-tasks-open #messages {
+    padding-right: var(--coddy-tasks-reserve);
+  }
+
+  /* .chat-bottom pads both inline edges by the scrollbar gutter, which the
+     scroller spends on a real scrollbar on both of its own edges. Overriding
+     only the end edge would move the composer off the transcript's centre
+     line, so the gutter is paid back here. */
+  .shell-main.shell-tasks-open .chat-bottom {
+    padding-right: calc(
+      var(--coddy-tasks-reserve) + var(--coddy-chat-scrollbar-gutter)
+    );
+  }
+}
+
+.bgtasks-panel-head {
+  flex: 0 0 auto;
+}
+
+.bgtasks-panel .bgtask-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 0 12px 12px;
+  gap: 0;
+}
+
+.bgtask-section-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  /* Same 10px step the first live card keeps from the panel head, so with no
+     live task the counter sits exactly where that card would have. */
+  padding: 10px 2px 4px;
+}
+
+/* Following a card, 8px of that step is already under it. */
+.bgtask-card + .bgtask-section-row {
+  padding-top: 2px;
+}
+
+/* The empty note, the loading line and a list error are rows of this list like
+   the cards are: the same step under the head, and the list's own inline
+   padding rather than a second one on top of it. */
+.bgtasks-panel .bgtask-list > .sessions-empty {
+  padding: 10px 2px 4px;
+}
+
+.bgtask-section-toggle,
+.bgtask-section-action {
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  color: mix-text(58%);
+  cursor: pointer;
+  padding: 4px 0;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bgtask-section-toggle:hover,
+.bgtask-section-action:hover {
+  color: var(--text);
+}
+
+/* One card for every task - a shell command, a subagent run, the memory run of a
+   turn, running or finished. Same parts in the same place: status dot, a tag that says
+   what stands behind the task, the title, a meta line, and the body once it is open. */
+.bgtask-card {
+  border-radius: 12px;
+  border: 0.5px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-surface-raised);
+  margin-bottom: 8px;
+  overflow: hidden;
+  /* The list is a flex column with a scroll of its own; a card that clips its
+     overflow would otherwise be squeezed flat when an open one needs the room. */
+  flex: none;
+}
+
+/* The live cards carry no heading any more, and the heading is what used to
+   hold them off the panel title. The first card pays that air back so the list
+   does not start flush against the head. */
+.bgtasks-panel .bgtask-list > .bgtask-card:first-child {
+  margin-top: 10px;
+}
+
+/* The summary is the card's click surface: the opener button inside it is stretched
+   over the whole of it, so a click anywhere but Stop expands the card. */
+.bgtask-card-summary {
+  position: relative;
+  padding: 10px 12px;
+  transition: background-color 0.12s ease;
+}
+
+.bgtask-card-summary:hover {
+  background: mix-text(5%);
+}
+
+.bgtask-card.is-open .bgtask-card-summary {
+  background: mix-text(3%);
+}
+
+.bgtask-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 24px;
+}
+
+.bgtask-card-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+}
+
+.bgtask-card-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.bgtask-card-open:focus-visible {
+  outline: none;
+}
+
+.bgtask-card-open:focus-visible::after {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 12px;
+}
+
+/* A task that wakes the agent when it ends (notify_on_finish), or that woke it: a
+   bell right after the title, which gives way before it does. */
+.bgtask-notify {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+}
+
+/* What stands behind the task: the agent's name, "memory", "shell". It leads the
+   title, so a column of cards reads by kind at a glance. */
+.bgtask-tag {
+  flex: 0 0 auto;
+  max-width: 45%;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+  background: color-mix(in srgb, var(--accent) 14%, var(--coddy-blend-base));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bgtask-card-label {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: mix-text(95%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bgtask-card.is-finished .bgtask-card-label {
+  color: mix-text(82%);
+}
+
+/* Under the title, indented to it: past the dot (9px) and the gap (8px). */
+/* The meta line: how the task is going on the left; for an agent run, the model it
+   runs on and the tokens its calls spent on the right, the way a table of agents
+   reads Model and Tokens across. When the two do not fit side by side the usage
+   drops under the status whole, still at the right edge, rather than cutting the
+   model's name; only a name too long for a line of its own is clipped. */
+.bgtask-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  /* Beside the status the usage stands at the right edge; on a line of its own,
+     when the two do not fit, it starts under the status like everything else. */
+  justify-content: space-between;
+  gap: 1px 12px;
+  min-width: 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: mix-text(52%);
+  padding: 3px 0 0 17px;
+}
+
+.bgtask-card-meta-line {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.bgtask-card-usage {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  white-space: nowrap;
+  color: mix-text(42%);
+}
+
+.bgtask-card-model {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The model's name is what gives way; the reasoning level and the tokens never
+   do. */
+.bgtask-card-usage-sep,
+.bgtask-card-reasoning,
+.bgtask-card-tokens {
+  flex: none;
+  white-space: pre;
+}
+
+/* A running preview server remains reachable from its folded card. */
+.bgtask-card-address-row {
+  flex: 1 0 100%;
+  display: flex;
+  margin-top: 4px;
+}
+
+.bgtask-card-link {
+  position: relative;
+  z-index: 1;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+/* An address is as long as it is, and the panel is narrow: it wraps onto a second
+   line whole rather than trailing off in an ellipsis that names no port. */
+.bgtask-card-link {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.bgtask-card-link:hover,
+.bgtask-card-link:focus-visible {
+  text-decoration: underline;
+}
+
+.bgtask-card.is-overdue .bgtask-card-meta {
+  color: color-mix(in srgb, #ff9f0a 70%, var(--text));
+}
+
+.bgtask-card .bgtask-progress {
+  margin: 8px 0 1px 17px;
+}
+
+.bgtask-card.is-overdue .bgtask-progress-fill {
+  background: #ff9f0a;
+}
+
+/* The open card: the command, the error, the output, the ending. It is outside the
+   stretched opener, so its text selects and its controls click. */
+.bgtask-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 0.5px solid mix-text(8%);
+}
+
+.bgtask-card-command {
+  position: relative;
+}
+
+.bgtask-card-command-text,
+.bgtask-card-output {
+  margin: 0;
+  border-radius: 10px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: mix-text(4%);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Room on the right for the copy control, which sits in the block's corner. */
+.bgtask-card-command-text {
+  padding: 8px 40px 8px 10px;
+  max-height: 92px;
+  overflow-y: auto;
+}
+
+.bgtask-card-command .md-copy {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+}
+
+.bgtask-card-error {
+  font-size: 12px;
+  color: color-mix(in srgb, #ff453a 75%, var(--text));
+}
+
+.bgtask-card-output-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: mix-text(50%);
+}
+
+.bgtask-card-truncated {
+  text-transform: none;
+  letter-spacing: 0;
+  color: color-mix(in srgb, #ff9f0a 70%, var(--text));
+}
+
+/* A box of its own height with its own scroll: a chatty task must not turn the
+   panel into one endless column. */
+.bgtask-card-output {
+  padding: 10px;
+  min-height: 56px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+/* The child transcript is reached from the folded card, as plain text with no
+   plate or tab around it; it stands above the card's stretched opener, so a click
+   opens the chat and never folds the card. */
+.bgtask-card-transcript {
+  position: relative;
+  z-index: 1;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.bgtask-card-transcript:hover,
+.bgtask-card-transcript:focus-visible {
+  text-decoration: underline;
+}
+
+/* A run whose child session is not known yet keeps the words in place until
+   the child transcript can be opened. */
+.bgtask-card-transcript[aria-disabled="true"] {
+  color: inherit;
+  opacity: 0.55;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.bgtask-card-foot {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: mix-text(58%);
+}
+
+/* Finished history: the same cards, behind the counter. */
+.bgtask-finished-list {
+  display: flex;
+  flex-direction: column;
+  padding-top: 4px;
+}
+
+.bgtask-finished-list .bgtask-dot {
+  box-shadow: none;
+}
+
+.bgtask-finished-more {
+  font-size: 11px;
+  color: mix-text(45%);
+  padding: 10px 2px 2px;
+}
+
+@media (max-width: 1199px) {
+  /* On a phone the panel takes the screen: there is no room to sit beside a
+     transcript, and the output is what the operator came for. */
+  .bgtasks-panel {
+    top: calc(var(--coddy-mobile-top-inset) + 6px);
+    left: max(10px, env(safe-area-inset-left, 0px));
+    right: max(10px, env(safe-area-inset-right, 0px));
+    bottom: max(14px, env(safe-area-inset-bottom, 0px));
+    width: auto;
+    z-index: 70;
+  }
+
+  /* A thumb needs more of a card to land on, and more of the output to read. */
+  .bgtask-card-summary {
+    padding: 12px;
+  }
+
+  .bgtask-stop-icon.composer-icon {
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    min-height: 30px;
+  }
+
+  /* A finger gets its room from an invisible area: a taller line would stand
+     apart from the meta above it and the card's edge below it. */
+  .bgtask-card-transcript::after,
+  .bgtask-card-link::after {
+    content: "";
+    position: absolute;
+    inset: -7px -6px;
+  }
+
+  .bgtask-card-output {
+    max-height: 46vh;
+  }
+}

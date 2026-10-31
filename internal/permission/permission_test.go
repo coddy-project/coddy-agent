@@ -9,6 +9,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
@@ -235,12 +236,18 @@ func TestAnAllowAlwaysGrantExtendsByArgumentsButNotByASecondCommand(t *testing.T
 	}
 }
 
-func TestConfigAllowlistKeepsItsDocumentedPrefixMeaning(t *testing.T) {
-	// The operator-authored allowlist is a deliberate policy statement and its
-	// semantics are unchanged by the session-grant hardening.
-	env := &tooling.Env{CommandAllowlist: []string{"go test"}}
-	if !CommandAllowedWithSession(env, nil, "go test ./... | tee /tmp/log") {
-		t.Fatal("a config allowlist entry keeps its prefix meaning")
+func TestConfigAllowlistCoversEachCommandOfTheLine(t *testing.T) {
+	// An operator-authored entry still covers its command with any arguments,
+	// and a pipeline only when every command in it is an entry too (#646).
+	env := &tooling.Env{Shell: platform.ShellBash, CommandAllowlist: []string{"go test", "tee"}}
+	if !CommandAllowedWithSession(env, nil, "go test -run TestFoo ./...") {
+		t.Fatal("a config allowlist entry keeps covering its arguments")
+	}
+	if !CommandAllowedWithSession(env, nil, "go test ./... | tee log.txt") {
+		t.Fatal("a pipeline of allowlisted commands runs without asking")
+	}
+	if CommandAllowedWithSession(env, nil, "go test ./... | sh") {
+		t.Fatal("a command piped into one the allowlist does not name must ask")
 	}
 	if !CommandAllowedWithSession(nil, []string{"curl"}, "curl https://example.com") {
 		t.Fatal("session grants must work without an env")

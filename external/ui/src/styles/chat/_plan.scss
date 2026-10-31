@@ -1,0 +1,329 @@
+// The plan document card.
+
+@use "../abstracts" as *;
+
+.plan-document-frame {
+  width: 100%;
+}
+
+.plan-document-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "head" "body" "actions";
+  column-gap: 12px;
+  row-gap: 0;
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  overflow: hidden;
+}
+
+.plan-document-card:not(.plan-document-card--expanded) {
+  grid-template-areas: "head" "actions";
+}
+
+.plan-document-card--expanded {
+  border-color: rgba(249, 115, 22, 0.28);
+}
+
+.plan-document-card--discarded {
+  opacity: 0.52;
+  filter: saturate(0.65);
+}
+
+.plan-document-card--discarded.plan-document-card--expanded {
+  border-color: mix-text(10%);
+  box-shadow: var(--coddy-glass-panel-shadow);
+}
+
+.plan-document-head {
+  grid-area: head;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid mix-text(6%);
+}
+
+.plan-document-card:not(.plan-document-card--expanded) .plan-document-head {
+  border-bottom: none;
+  padding-bottom: 10px;
+}
+
+.plan-document-head-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.plan-document-head-btn:hover .plan-document-title {
+  color: var(--text);
+}
+
+.plan-document-title {
+  margin: 0;
+  width: 100%;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: mix-text(94%);
+  transition: color 120ms ease;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.plan-document-card--expanded .plan-document-title {
+  -webkit-line-clamp: 3;
+}
+
+.plan-document-desc {
+  margin: 0;
+  width: 100%;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.plan-document-head-status {
+  padding: 0 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.plan-document-body {
+  grid-area: body;
+  padding: 0px;
+  min-width: 0;
+}
+
+.plan-document-pane {
+  position: relative;
+  border-radius: 0px;
+  border: 1px solid mix-text(10%);
+  background: var(--coddy-surface-raised);
+  overflow: visible;
+  box-sizing: border-box;
+}
+
+.plan-document-eye {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 9px;
+  background: var(--coddy-plan-eye-bg);
+  color: var(--coddy-plan-eye-fg);
+  cursor: pointer;
+  box-shadow: 0 2px 10px var(--coddy-surface-muted);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.plan-document-eye:hover {
+  color: mix-text(78%);
+  border-color: mix-text(20%);
+}
+
+.plan-document-eye.is-on {
+  color: rgba(249, 115, 22, 0.98);
+  border-color: rgba(249, 115, 22, 0.5);
+  background: rgba(249, 115, 22, 0.16);
+}
+
+.plan-document-eye-svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.plan-document-pane-inner {
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.plan-document-pane-inner--preview {
+  overflow: visible;
+}
+
+.plan-document-pane-inner--markdown {
+  display: block;
+  overflow: visible;
+  min-width: 0;
+}
+
+.plan-document-preview-pane {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.plan-document-preview-empty {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: mix-text(42%);
+  font-style: italic;
+}
+
+.plan-document-pane-inner--markdown .md-line-editor {
+  width: 100%;
+}
+
+.plan-document-foot {
+  grid-area: actions;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px 14px;
+}
+
+.plan-document-card:not(.plan-document-card--expanded) .plan-document-foot {
+  padding-top: 0;
+}
+
+.plan-document-foot .plan-document-run {
+  justify-content: center;
+  min-width: 0;
+}
+
+@media (min-width: 640px) {
+  .plan-document-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "head actions" "body body";
+  }
+
+  .plan-document-card:not(.plan-document-card--expanded) {
+    grid-template-areas: "head actions";
+    align-items: center;
+  }
+
+  .plan-document-card--expanded .plan-document-head {
+    align-self: center;
+    border-bottom: none;
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+
+  .plan-document-card--expanded .plan-document-foot {
+    align-self: center;
+  }
+
+  .plan-document-foot {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 14px 14px 14px 0;
+    min-width: 7.5rem;
+  }
+
+  .plan-document-card:not(.plan-document-card--expanded) .plan-document-foot {
+    padding: 14px 14px 14px 0;
+  }
+
+  .plan-document-foot .plan-document-run,
+  .plan-document-foot .plan-document-discard {
+    flex: none;
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+.plan-document-discard {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--coddy-ghost-btn-fg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.plan-document-discard:hover {
+  color: var(--text);
+  background: mix-text(4%);
+}
+
+.plan-document-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px 9px 16px;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  background: linear-gradient(
+    180deg,
+    rgba(249, 115, 22, 0.95) 0%,
+    rgba(234, 88, 12, 0.95) 100%
+  );
+  box-shadow: 0 1px 0 mix-text(12%) inset;
+}
+
+.plan-document-run:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.plan-document-run:disabled,
+.plan-document-discard:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.plan-document-run-ic {
+  font-size: 12px;
+  opacity: 0.9;
+  line-height: 1;
+}
+
+.plan-document-save-hint,
+.plan-document-save-error {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.plan-document-save-error {
+  color: #f87171;
+}

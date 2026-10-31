@@ -43,7 +43,7 @@ being removed may be the session's own working directory, which is gone after st
 2. Remove the worktree: `git -C <main checkout> worktree remove <worktree>`, then
    `git -C <main checkout> worktree prune`.
 3. Delete the local branch: `git -C <main checkout> branch -D <branch>`. It is `-D` and not `-d`
-   because a squash or rebase merge leaves the branch's own commits out of `main`, and `-d` refuses
+   because the squash merge leaves the branch's own commits out of `main`, and `-d` refuses
    such a branch; the ancestry check of step 1 is what makes `-D` safe.
 4. Delete the branch on origin. GitHub deletes the head branch of a merged pull request by itself
    (`delete_branch_on_merge` is on for this repository), so this step is usually a check that

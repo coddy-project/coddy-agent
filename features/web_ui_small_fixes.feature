@@ -30,6 +30,25 @@ Feature: Five small fixes of the web UI
     Then a read with an offset and a limit shows the lines next to the path
     And a read of the whole file shows the path alone
 
+  Scenario: The context window keeps one pair of edges
+    Then the head and the usage of the context window keep the edges of its bar
+    And the title of the context window is spelled like the head of every other window
+
+  Scenario: The context window says how full it is over the bar and when it compacts at its foot
+    Then the percent and the tokens stand over the bar and compaction at the foot of the context window
+
+  Scenario: Every head takes one height
+    Then every head of a window, a panel or a popover takes one height
+
+  Scenario: A touch leaves no tooltip behind
+    Then a tooltip opens on hover only where there is a real pointer
+    And a tooltip opens by focus only for a keyboard
+    And a tooltip of the composer card stands over the plate joined to it
+
+  Scenario: A plus beside the name starts a new chat
+    Then the plus beside the name starts a new chat from the wide rail
+    And the plus beside the name starts a new chat from the top bar and the narrow rail
+
   Scenario: Archiving from History keeps the list where it was
     Then an archived row leaves History at once and the list is not read again
     And a refused archive puts the row back where it stood, with a note on it

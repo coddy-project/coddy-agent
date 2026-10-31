@@ -1,0 +1,406 @@
+// The master-detail lists of providers and models, the model combobox.
+
+@use "../abstracts" as *;
+
+/* Master–detail (providers / models / mcp servers) */
+.settings-master,
+.settings-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* The lead line of a list section ("API credentials and transport selection
+   ...") belongs to the rows under it: 8px to the first row, not the 12px
+   column gap plus the paragraph's own margin. */
+.settings-master > .settings-field-desc {
+  margin: 0 0 -4px;
+}
+
+.settings-master-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Add sits in a flex column (`.settings-master`) which would stretch it full
+   width; keep it content-width like the fieldset Add in Tools and Permissions. */
+.settings-master-add {
+  align-self: flex-start;
+}
+
+.settings-master-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-master-item {
+  flex: 1 1 auto;
+  text-align: left;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-surface-fieldset);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-master-item:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.settings-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* The Sessions tab: the storage fieldset above the session table, 12px
+   apart like every block of the drawer. */
+.settings-sessions-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* The System tab: one form per folded-in section, each a fieldset (or a
+   block that names itself), on the drawer's 12px rhythm. */
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Logical-model field: provider select + fetch button row */
+.model-field-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.model-field-controls .settings-input,
+.model-field-controls .settings-combobox {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.model-field-controls .settings-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* Reasoning levels: the action row sits above the level list, so it keeps the
+   model-field control metrics but wraps instead of squeezing its buttons. */
+/* A button standing on its own in a field's column (the reasoning levels'
+   Add) keeps its own width instead of stretching across the field. */
+.settings-row > .settings-row-action {
+  align-self: flex-start;
+}
+
+.reasoning-levels-actions {
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.reasoning-levels-actions .settings-btn {
+  flex: 0 0 auto;
+}
+
+[data-testid="reasoning-levels-field"] .settings-array {
+  margin-top: 8px;
+}
+
+/* A logical model's context window: the number field beside the 40px icon
+   button that asks the provider, the input matching its height so the pair
+   reads as one row (ContextWindowField). */
+.context-window-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.context-window-controls > .settings-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  min-height: 40px;
+}
+
+.context-window-controls > .settings-btn {
+  flex: 0 0 auto;
+}
+
+/* Provider form: the models the provider advertises (ProviderModelList), the
+   last thing in the form. A compact list: the id, the context window right of
+   it, and the add / listed toggle right after, no separators; the refresh
+   icon rides in the legend. */
+.provider-models-box {
+  /* A <fieldset> defaults to min-inline-size: min-content, and a long id or
+     a long error would widen the form past a phone's panel. */
+  min-inline-size: 0;
+}
+
+/* The refresh icon beside the legend: the (i)'s metrics, so the legend line
+   reads the same as every other fieldset's. The provider's Models list and
+   the Marketplaces of the Skills tab carry it. */
+.provider-models-refresh,
+.settings-legend-action {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: mix-text(50%);
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+
+.provider-models-refresh svg,
+.settings-legend-action svg {
+  display: block;
+  width: 13px;
+  height: 13px;
+}
+
+.provider-models-refresh:hover:not(:disabled),
+.provider-models-refresh:focus-visible,
+.settings-legend-action:hover:not(:disabled),
+.settings-legend-action:focus-visible,
+.settings-legend-action.is-synced {
+  color: var(--accent);
+}
+
+.provider-models-refresh:focus-visible,
+.settings-legend-action:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+}
+
+.provider-models-refresh:disabled,
+.settings-legend-action:disabled {
+  cursor: default;
+}
+
+.provider-models-status {
+  margin: 2px 0 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* An error keeps the .settings-error colour, not its margin or size. */
+.provider-models-status.settings-error {
+  margin: 2px 0 0;
+  font-size: 0.8rem;
+}
+
+.provider-models-filter {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 36px;
+  margin: 2px 0 6px;
+}
+
+.provider-models-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  /* About twelve rows, then the list scrolls inside the form. */
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+/* A row is as wide as what it holds - the id, the window, the toggle - so
+   the hover lights that, not the whole width of the box. Its 6px of padding
+   hangs left of the box's content edge, so the id starts on the line the
+   legend and the labels start on. */
+.provider-models-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  max-width: calc(100% + 6px);
+  min-width: 0;
+  box-sizing: border-box;
+  margin-left: -6px;
+  padding: 3px 4px 3px 6px;
+  border-radius: 8px;
+}
+
+.provider-models-item:hover {
+  background: mix-text(5%);
+}
+
+.provider-models-item-id {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono, $coddy-mono-ui);
+  font-size: 12.5px;
+  color: mix-text(88%);
+}
+
+.provider-models-item-ctx {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* The toggle right after the id: a plus while the model is not in Logical
+   models, an accent check once it is; the check takes it out again. */
+.provider-models-toggle {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: mix-text(45%);
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
+}
+
+.provider-models-toggle svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+.provider-models-toggle:hover,
+.provider-models-toggle:focus-visible {
+  color: var(--text);
+  background: mix-text(8%);
+}
+
+.provider-models-toggle.is-listed {
+  color: var(--accent);
+}
+
+.provider-models-toggle.is-listed:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.provider-models-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+}
+
+/* An id Logical models lists that the provider no longer advertises: amber,
+   the reason in the row's tooltip. */
+.provider-models-item.is-stale .provider-models-item-id {
+  color: color-mix(in srgb, #f59e0b 85%, var(--text));
+}
+
+.provider-models-empty {
+  padding: 6px;
+  font-size: 0.85rem;
+}
+
+/* Editable combobox (replaces every plain <select> in settings) */
+.settings-combobox {
+  position: relative;
+  width: 100%;
+}
+
+.settings-combobox-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding-right: 28px;
+}
+
+.settings-combobox-toggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  line-height: 1;
+  padding: 4px;
+}
+
+.settings-combobox-toggle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.settings-combobox-list {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+.settings-combobox-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.settings-combobox-list::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 20%, transparent);
+  border-radius: 999px;
+}
+
+.settings-combobox-option {
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: mix-text(88%);
+}
+
+.settings-combobox-option.is-current {
+  color: var(--text);
+}
+
+.settings-combobox-option.is-highlight,
+.settings-combobox-option:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--text);
+}
