@@ -1063,13 +1063,7 @@ export function objectSectionGroups(
       {
         id: "turn",
         legend: translate("settings.group.agent.turn"),
-        paths: [
-          "model",
-          "max_turns",
-          "queue_mode",
-          "prompt_suggestions",
-          "prompt_suggestions_context",
-        ],
+        paths: ["model", "max_turns", "queue_mode", "prompt_suggestions"],
       },
       {
         id: "retries",

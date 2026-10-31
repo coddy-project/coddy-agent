@@ -92,16 +92,13 @@ type Agent struct {
 	// wait.
 	WaitForLimitReset bool `yaml:"wait_for_limit_reset"`
 	// PromptSuggestions toggles the follow-up prompt suggestions: after a
-	// turn ends, a hidden side call to the session's model (no tools, nothing
-	// written to the transcript) predicts what the operator might type next,
-	// shown dim in the empty composer; Tab or Right takes it into the input.
-	// A nil pointer means the default (true). Suggestions the operator keeps
-	// ignoring are shown more and more rarely (see the back-off counters in
+	// turn ends, a hidden side call forks the turn's provider context to predict
+	// what the operator might type next, shown dim in the empty composer; Tab or
+	// Right takes it into the input. No tool runs and nothing is written to the
+	// transcript. A nil pointer means the default (true). Suggestions the operator
+	// keeps ignoring are shown more and more rarely (see the back-off counters in
 	// internal/session/prompt_suggestion.go).
 	PromptSuggestions *bool `yaml:"prompt_suggestions"`
-	// PromptSuggestionsContext selects recent bounded text or the full text
-	// conversation for comparing prediction quality. Empty means recent.
-	PromptSuggestionsContext string `yaml:"prompt_suggestions_context,omitempty"`
 	// WaitForLimitResetMaxMS bounds that wait in milliseconds. A nil pointer
 	// means the default (four hours); a pause longer than this ends the turn
 	// at once, and an explicit 0 never waits.
@@ -139,13 +136,6 @@ func (c *Agent) EffectiveLLMRetryMax() int {
 // applied: on unless the configuration turns it off.
 func (c *Agent) EffectivePromptSuggestions() bool {
 	return c.PromptSuggestions == nil || *c.PromptSuggestions
-}
-
-func (c *Agent) EffectivePromptSuggestionsContext() string {
-	if c.PromptSuggestionsContext == "" {
-		return "recent"
-	}
-	return c.PromptSuggestionsContext
 }
 
 // EffectiveLLMFirstTokenTimeout returns llm_first_token_timeout_ms as a
@@ -219,9 +209,6 @@ func (c *Agent) ApplyDefaults() {
 func (c *Agent) Validate() error {
 	if c.QueueMode != "" && c.QueueMode != "steer" && c.QueueMode != "after_turn" {
 		return fmt.Errorf("agent.queue_mode: must be steer or after_turn")
-	}
-	if mode := c.EffectivePromptSuggestionsContext(); mode != "recent" && mode != "full" {
-		return fmt.Errorf("agent.prompt_suggestions_context: must be recent or full")
 	}
 	if c.MaxTurns < 0 {
 		return fmt.Errorf("agent.max_turns: must be >= 0")

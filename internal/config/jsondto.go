@@ -151,22 +151,21 @@ type ToolsetJSON struct {
 // llm_first_token_timeout_ms (0 disables the silence guard) and
 // llm_stream_idle_timeout_ms (0 disables the stall guard).
 type AgentJSON struct {
-	QueueMode                string `json:"queue_mode,omitempty"`
-	Model                    string `json:"model"`
-	MaxTurns                 *int   `json:"max_turns,omitempty"`
-	LLMRetryMax              *int   `json:"llm_retry_max,omitempty"`
-	LLMRetryBaseMS           int    `json:"llm_retry_base_ms,omitempty"`
-	LLMMinIntervalMS         int    `json:"llm_min_interval_ms,omitempty"`
-	LLMFirstTokenTimeoutMS   *int   `json:"llm_first_token_timeout_ms,omitempty"`
-	LLMStreamIdleTimeoutMS   *int   `json:"llm_stream_idle_timeout_ms,omitempty"`
-	LoopGuard                *bool  `json:"loop_guard,omitempty"`
-	LoopToolRepeatLimit      *int   `json:"loop_tool_repeat_limit,omitempty"`
-	LoopStreamRepeatCycles   *int   `json:"loop_stream_repeat_cycles,omitempty"`
-	LoopNudgeMax             *int   `json:"loop_nudge_max,omitempty"`
-	WaitForLimitReset        bool   `json:"wait_for_limit_reset,omitempty"`
-	WaitForLimitResetMaxMS   *int   `json:"wait_for_limit_reset_max_ms,omitempty"`
-	PromptSuggestions        *bool  `json:"prompt_suggestions,omitempty"`
-	PromptSuggestionsContext string `json:"prompt_suggestions_context,omitempty"`
+	QueueMode              string `json:"queue_mode,omitempty"`
+	Model                  string `json:"model"`
+	MaxTurns               *int   `json:"max_turns,omitempty"`
+	LLMRetryMax            *int   `json:"llm_retry_max,omitempty"`
+	LLMRetryBaseMS         int    `json:"llm_retry_base_ms,omitempty"`
+	LLMMinIntervalMS       int    `json:"llm_min_interval_ms,omitempty"`
+	LLMFirstTokenTimeoutMS *int   `json:"llm_first_token_timeout_ms,omitempty"`
+	LLMStreamIdleTimeoutMS *int   `json:"llm_stream_idle_timeout_ms,omitempty"`
+	LoopGuard              *bool  `json:"loop_guard,omitempty"`
+	LoopToolRepeatLimit    *int   `json:"loop_tool_repeat_limit,omitempty"`
+	LoopStreamRepeatCycles *int   `json:"loop_stream_repeat_cycles,omitempty"`
+	LoopNudgeMax           *int   `json:"loop_nudge_max,omitempty"`
+	WaitForLimitReset      bool   `json:"wait_for_limit_reset,omitempty"`
+	WaitForLimitResetMaxMS *int   `json:"wait_for_limit_reset_max_ms,omitempty"`
+	PromptSuggestions      *bool  `json:"prompt_suggestions,omitempty"`
 }
 
 // PromptsJSON mirrors Prompts for JSON APIs.
@@ -536,22 +535,21 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			DisallowedTools: append([]string(nil), ts.DisallowedTools...)})
 	}
 	out.Agent = AgentJSON{
-		QueueMode:                c.Agent.QueueMode,
-		Model:                    c.Agent.Model,
-		MaxTurns:                 intPtr(c.Agent.MaxTurns),
-		LLMRetryMax:              cloneIntPtr(c.Agent.LLMRetryMax),
-		LLMRetryBaseMS:           c.Agent.LLMRetryBaseMS,
-		LLMMinIntervalMS:         c.Agent.LLMMinIntervalMS,
-		LLMFirstTokenTimeoutMS:   cloneIntPtr(c.Agent.LLMFirstTokenTimeoutMS),
-		LLMStreamIdleTimeoutMS:   cloneIntPtr(c.Agent.LLMStreamIdleTimeoutMS),
-		LoopGuard:                cloneBoolPtr(c.Agent.LoopGuard),
-		LoopToolRepeatLimit:      cloneIntPtr(c.Agent.LoopToolRepeatLimit),
-		LoopStreamRepeatCycles:   cloneIntPtr(c.Agent.LoopStreamRepeatCycles),
-		LoopNudgeMax:             cloneIntPtr(c.Agent.LoopNudgeMax),
-		WaitForLimitReset:        c.Agent.WaitForLimitReset,
-		WaitForLimitResetMaxMS:   cloneIntPtr(c.Agent.WaitForLimitResetMaxMS),
-		PromptSuggestions:        cloneBoolPtr(c.Agent.PromptSuggestions),
-		PromptSuggestionsContext: c.Agent.PromptSuggestionsContext,
+		QueueMode:              c.Agent.QueueMode,
+		Model:                  c.Agent.Model,
+		MaxTurns:               intPtr(c.Agent.MaxTurns),
+		LLMRetryMax:            cloneIntPtr(c.Agent.LLMRetryMax),
+		LLMRetryBaseMS:         c.Agent.LLMRetryBaseMS,
+		LLMMinIntervalMS:       c.Agent.LLMMinIntervalMS,
+		LLMFirstTokenTimeoutMS: cloneIntPtr(c.Agent.LLMFirstTokenTimeoutMS),
+		LLMStreamIdleTimeoutMS: cloneIntPtr(c.Agent.LLMStreamIdleTimeoutMS),
+		LoopGuard:              cloneBoolPtr(c.Agent.LoopGuard),
+		LoopToolRepeatLimit:    cloneIntPtr(c.Agent.LoopToolRepeatLimit),
+		LoopStreamRepeatCycles: cloneIntPtr(c.Agent.LoopStreamRepeatCycles),
+		LoopNudgeMax:           cloneIntPtr(c.Agent.LoopNudgeMax),
+		WaitForLimitReset:      c.Agent.WaitForLimitReset,
+		WaitForLimitResetMaxMS: cloneIntPtr(c.Agent.WaitForLimitResetMaxMS),
+		PromptSuggestions:      cloneBoolPtr(c.Agent.PromptSuggestions),
 	}
 	out.Supervisor = c.Supervisor.clone()
 	out.Prompts = PromptsJSON{
@@ -793,21 +791,20 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			DisallowedTools: append([]string(nil), ts.DisallowedTools...)})
 	}
 	cfg.Agent = Agent{
-		QueueMode:                j.Agent.QueueMode,
-		Model:                    j.Agent.Model,
-		LLMRetryMax:              cloneIntPtr(j.Agent.LLMRetryMax),
-		LLMRetryBaseMS:           j.Agent.LLMRetryBaseMS,
-		LLMMinIntervalMS:         j.Agent.LLMMinIntervalMS,
-		LLMFirstTokenTimeoutMS:   cloneIntPtr(j.Agent.LLMFirstTokenTimeoutMS),
-		LLMStreamIdleTimeoutMS:   cloneIntPtr(j.Agent.LLMStreamIdleTimeoutMS),
-		LoopGuard:                cloneBoolPtr(j.Agent.LoopGuard),
-		LoopToolRepeatLimit:      cloneIntPtr(j.Agent.LoopToolRepeatLimit),
-		LoopStreamRepeatCycles:   cloneIntPtr(j.Agent.LoopStreamRepeatCycles),
-		LoopNudgeMax:             cloneIntPtr(j.Agent.LoopNudgeMax),
-		WaitForLimitReset:        j.Agent.WaitForLimitReset,
-		WaitForLimitResetMaxMS:   cloneIntPtr(j.Agent.WaitForLimitResetMaxMS),
-		PromptSuggestions:        cloneBoolPtr(j.Agent.PromptSuggestions),
-		PromptSuggestionsContext: j.Agent.PromptSuggestionsContext,
+		QueueMode:              j.Agent.QueueMode,
+		Model:                  j.Agent.Model,
+		LLMRetryMax:            cloneIntPtr(j.Agent.LLMRetryMax),
+		LLMRetryBaseMS:         j.Agent.LLMRetryBaseMS,
+		LLMMinIntervalMS:       j.Agent.LLMMinIntervalMS,
+		LLMFirstTokenTimeoutMS: cloneIntPtr(j.Agent.LLMFirstTokenTimeoutMS),
+		LLMStreamIdleTimeoutMS: cloneIntPtr(j.Agent.LLMStreamIdleTimeoutMS),
+		LoopGuard:              cloneBoolPtr(j.Agent.LoopGuard),
+		LoopToolRepeatLimit:    cloneIntPtr(j.Agent.LoopToolRepeatLimit),
+		LoopStreamRepeatCycles: cloneIntPtr(j.Agent.LoopStreamRepeatCycles),
+		LoopNudgeMax:           cloneIntPtr(j.Agent.LoopNudgeMax),
+		WaitForLimitReset:      j.Agent.WaitForLimitReset,
+		WaitForLimitResetMaxMS: cloneIntPtr(j.Agent.WaitForLimitResetMaxMS),
+		PromptSuggestions:      cloneBoolPtr(j.Agent.PromptSuggestions),
 	}
 	cfg.Supervisor = j.Supervisor.clone()
 	if j.Agent.MaxTurns != nil {

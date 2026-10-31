@@ -23,15 +23,10 @@ Feature: Optional follow-up prompt suggestions
     And only one suggestion model call was made
     And the recorded conversation is unchanged
 
-  Scenario Outline: Compare recent and full text context
-    Given a finished conversation using <mode> suggestion context
+  Scenario: The suggestion call forks the main agent context
+    Given a finished conversation with a main agent context
     When two surfaces request its next prompt
     Then both surfaces offer "run the tests"
-    And the prediction history <selection> the first request
+    And the prediction request inherits the complete main context
     And only one suggestion model call was made
     And the recorded conversation is unchanged
-
-    Examples:
-      | mode   | selection |
-      | recent | omits     |
-      | full   | includes  |

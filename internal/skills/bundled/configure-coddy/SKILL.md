@@ -49,12 +49,10 @@ Every `config_commit` snapshots the previous file to `config.yaml.prev` next to 
 ## Configuration areas
 
 `agent.prompt_suggestions` controls next-prompt suggestions in the console and web UI.
-It defaults to true and uses an extra model call after a turn. To disable it, stage
-`set agent.prompt_suggestions=false`; use `set agent.prompt_suggestions=true` to enable it again.
-`agent.prompt_suggestions_context` selects `recent` (default: up to 12 whole text
-messages, including the one that exceeds 10000 characters in total) or `full`
-(all user/assistant text messages). Use `set agent.prompt_suggestions_context=full`
-to compare predictions with the same model and instruction over a longer history.
+It defaults to true and uses an extra model call that forks the completed turn's
+provider context without executing tools or changing the transcript. To disable it,
+stage `set agent.prompt_suggestions=false`; use `set agent.prompt_suggestions=true`
+to enable it again.
 
 The active YAML file covers these areas (full field tables: `coddy_docs_read` with page `reference/config`, or a section such as `reference/config#providers`, read from the documentation built into this binary; the same page is public at https://coddy.dev/docs/reference/config):
 

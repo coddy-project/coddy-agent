@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
-	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -20,42 +19,47 @@ func TestPromptSuggestionsFeature(t *testing.T) {
 	var calls *atomic.Int32
 	var before []llm.Message
 	var answers []string
-	var history atomic.Value
+	var request atomic.Value
+	var mainContext []llm.Message
 	suite := godog.TestSuite{
 		Name:    "prompt-suggestions",
 		Options: &godog.Options{Format: "progress", Paths: []string{"../../features/prompt_suggestions.feature"}, TestingT: t},
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
-			sc.Step(`^a finished conversation using (recent|full) suggestion context$`, func(mode string) {
+			sc.Step(`^a finished conversation with a main agent context$`, func() {
 				mgr, state, calls = newSuggestionTestManager(t, func(w http.ResponseWriter, r *http.Request) {
-					var request struct {
-						Messages []llm.Message `json:"messages"`
-					}
-					if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					var captured suggestionRequest
+					if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
 						http.Error(w, "invalid request", http.StatusBadRequest)
 						return
 					}
-					history.Store(request.Messages[len(request.Messages)-1].Content)
+					request.Store(captured)
 					answerSuggestion(w, r)
 				})
-				mgr.activeCfg().Agent.PromptSuggestionsContext = mode
-				messages := []llm.Message{{Role: llm.RoleUser, Content: "FIRST_REQUEST_MARKER"}}
-				for range 8 {
-					messages = append(messages, llm.Message{Role: llm.RoleAssistant, Content: "completed one step"}, llm.Message{Role: llm.RoleUser, Content: "continue with the next step"})
+				mainContext = []llm.Message{
+					{Role: llm.RoleSystem, Content: "MAIN_SYSTEM_PROMPT"},
+					{Role: llm.RoleUser, Content: "FIRST_REQUEST_MARKER"},
+					{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "read", InputJSON: `{"path":"README.md"}`}}},
+					{Role: llm.RoleTool, ToolCallID: "call_1", Content: "TOOL_RESULT_MARKER"},
+					{Role: llm.RoleAssistant, Content: "completed the last step"},
 				}
-				messages = append(messages, llm.Message{Role: llm.RoleAssistant, Content: "completed the last step"})
-				state.ReplaceMessagesWithoutPersist(messages)
+				state.ReplaceMessagesWithoutPersist(mainContext[1:])
+				state.SetPromptSuggestionFork(mainContext, []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}})
 				before, answers = state.GetMessages(), nil
 			})
-			sc.Step(`^the prediction history (includes|omits) the first request$`, func(want string) error {
-				text, _ := history.Load().(string)
-				if strings.Contains(text, "FIRST_REQUEST_MARKER") != (want == "includes") {
-					return fmt.Errorf("prediction history must %s the first request", want)
+			sc.Step(`^the prediction request inherits the complete main context$`, func() error {
+				captured, _ := request.Load().(suggestionRequest)
+				if err := validateSuggestionMainContext(captured, mainContext); err != nil {
+					return err
+				}
+				if len(captured.Tools) != 1 || captured.Tools[0].Function.Name != "read" {
+					return fmt.Errorf("prediction tools = %#v, want the main agent tools", captured.Tools)
 				}
 				return nil
 			})
 			sc.Step(`^a conversation with its first completed reply$`, func() error {
 				mgr, state, calls = newSuggestionTestManager(t, answerSuggestion)
 				state.ReplaceMessagesWithoutPersist(state.GetMessages()[:2])
+				setSuggestionTestFork(state)
 				before, answers = state.GetMessages(), nil
 				return nil
 			})

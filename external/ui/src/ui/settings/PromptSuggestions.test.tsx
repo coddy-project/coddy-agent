@@ -43,37 +43,3 @@ test("prompt suggestions use the Russian label and preserve explicit false", asy
   });
   expect(toggle.getAttribute("aria-checked")).toBe("false");
 });
-
-test("suggestion context defaults to recent and saves both strategies", async () => {
-  const { server } = mountSettings({ section: "agent", config: { agent: {} } });
-  const context = await screen.findByRole("combobox", {
-    name: "Suggestion context",
-  });
-  expect((context as HTMLInputElement).value).toBe("recent");
-  for (const value of ["full", "recent"]) {
-    fireEvent.change(context, { target: { value } });
-    fireEvent.click(screen.getByTestId("settings-save"));
-    await waitFor(() =>
-      expect(server.config).toMatchObject({
-        agent: { prompt_suggestions_context: value },
-      }),
-    );
-    await waitFor(() =>
-      expect(screen.getByTestId("settings-save").className).toContain(
-        "is-saved",
-      ),
-    );
-  }
-});
-
-test("suggestion context has a Russian label and keeps full", async () => {
-  mountSettings({
-    section: "agent",
-    lang: "ru",
-    config: { agent: { prompt_suggestions_context: "full" } },
-  });
-  const context = await screen.findByRole("combobox", {
-    name: "Контекст подсказки",
-  });
-  expect((context as HTMLInputElement).value).toBe("full");
-});

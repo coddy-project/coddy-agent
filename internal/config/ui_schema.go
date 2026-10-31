@@ -531,7 +531,6 @@ func UISchemaMap() map[string]interface{} {
 					"How many times one turn may be nudged back on track before the loop guard stops it."),
 				"prompt_suggestions": boolPropDefault("Prompt suggestions",
 					"Suggest the next prompt in the empty composer after a turn. Uses an extra model call; Tab or Right accepts the suggestion. Turn off to stop generating suggestions.", true),
-				"prompt_suggestions_context": map[string]interface{}{"type": "string", "title": "Suggestion context", "description": "recent uses up to 12 whole text messages, including the one that exceeds 10000 characters in total. full uses the entire text conversation for comparison.", "enum": []interface{}{"recent", "full"}, "default": "recent"},
 				"wait_for_limit_reset": boolProp("Wait for limit reset",
 					"Wait for a hit usage limit to lift and re-issue the call instead of ending the turn with the provider's error; the turn and the client stream stay open meanwhile."),
 				"wait_for_limit_reset_max_ms": intProp("Wait for limit reset max ms",
@@ -540,7 +539,7 @@ func UISchemaMap() map[string]interface{} {
 			[]string{
 				"model", "queue_mode", "max_turns", "llm_retry_max", "llm_retry_base_ms", "llm_min_interval_ms",
 				"llm_first_token_timeout_ms", "llm_stream_idle_timeout_ms", "loop_guard", "loop_tool_repeat_limit", "loop_stream_repeat_cycles", "loop_nudge_max",
-				"prompt_suggestions", "prompt_suggestions_context", "wait_for_limit_reset", "wait_for_limit_reset_max_ms",
+				"prompt_suggestions", "wait_for_limit_reset", "wait_for_limit_reset_max_ms",
 			},
 			nil),
 		"tools": objectSchema("Tools and permissions", "Filesystem and shell policy for built-in tools.",
