@@ -455,7 +455,13 @@ messages: [
    (one of `step`, `empty_reissue`, `empty_nudge`, `output_limit_nudge`,
    `first_token_retry`, `provider_recovery`, `loop_guard`, `quota_reset_wait`,
    `stop_hook`, `queued_followup`, `context_overflow_recovery`), and
-   `retries_remaining` (budget slots left after this call).
+   `retries_remaining` (budget slots left after this call). Записи о завершении и расходе токенов
+   также содержат `session` и возрастающий в пределах процесса `call_id`.
+   При включённом debug для компонента агента `request_latency.go` записывает
+   связанные тайминги локальной работы, HTTP и запуска инструмента без
+   содержимого запроса. Границы этапов и ограниченное синтетическое сравнение
+   описаны в разделе
+   [Длинная сессия начинает работать медленнее](../getting-started/troubleshooting.md#a-long-session-becomes-slower).
 
    Two guards bound a streamed call that stops answering. The first-token guard
    (**`llm_first_token_timeout_ms`**, 90 s) cuts a call that produced nothing;
@@ -543,4 +549,4 @@ messages: [
 - Слишком длинный контекст - старые сообщения сжимаются в сводку, работа продолжается со сводкой;
 - Отмена - все операции прерываются, возвращается причина остановки `cancelled`.
 
-<!-- docsgen:source sha256=219e6637b45aeca2 -->
+<!-- docsgen:source sha256=bc8936937b57acc7 -->

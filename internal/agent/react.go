@@ -1035,7 +1035,10 @@ func (a *Agent) runReActLoop(
 		// may be smaller. A recovery may still be pending: the rebuild must
 		// preserve its local-only projection rather than resurrecting the
 		// empty assistant messages kept in the transcript.
+		latency := a.newRequestLatency(ctx)
+		contextStart := latency.clock()
 		a.refreshContextBreakdown(sys, turnCtx)
+		latency.addContext(contextStart)
 		if (turn > 0 || switched) && a.maybeAutoCompact(ctx) {
 			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
 			messages = a.buildMessages(sys.Content)
@@ -1043,7 +1046,9 @@ func (a *Agent) runReActLoop(
 			turnCtx = a.buildTurnContext(sys)
 			// The rebuilt estimate above was taken without the block; the call
 			// below sends it, so the accounting has to see it too.
+			contextStart = latency.clock()
 			a.refreshContextBreakdown(sys, turnCtx)
+			latency.addContext(contextStart)
 		}
 
 		// A switch that landed while this step waited for a window or
@@ -1163,7 +1168,10 @@ func (a *Agent) runReActLoop(
 		// later appends stay intact. The rules a tool call brought in are joined
 		// to its result only here, so an evicted result keeps them and every
 		// request replays them byte for byte.
+		projectionStart := latency.clock()
 		sendMessages := withTurnContext(withToolImages(withToolRules(a.prunedForLLM(messages)), a.modelReadsImages(), a.loadToolImage), turnCtx)
+		latency.projected(projectionStart)
+		pairingStart := latency.clock()
 		// Repair only the outbound projection. The persisted transcript remains
 		// unchanged; malformed IDs and misplaced/duplicate results are refused.
 		prevLen := len(sendMessages)
@@ -1183,6 +1191,7 @@ func (a *Agent) runReActLoop(
 				"tool-call pairing is invalid for session %s (%s); use /compact or start a new session",
 				a.state.GetID(), formatToolPairingIssues(issues))
 		}
+		latency.paired(pairingStart)
 		// The estimate the provider's incoming input_tokens is anchored to is
 		// taken here, while the breakdown still describes the prompt about to
 		// be sent - anything persisted or refreshed during the call must not
@@ -1216,12 +1225,14 @@ func (a *Agent) runReActLoop(
 			callSessionDir = st.GetPersistedSessionDir()
 		}
 		callIDs := newToolCallIDs(messages, callSessionDir)
+		streamCtx = latency.begin(streamCtx, transport.agent)
 		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
 			}
 			chunk = callIDs.chunk(chunk)
 			now := time.Now()
+			latency.chunk(chunk, now)
 			chunkCount++
 			if firstChunkAt.IsZero() {
 				firstChunkAt = now
@@ -1321,6 +1332,7 @@ func (a *Agent) runReActLoop(
 				})
 			}
 		})
+		latency.finish(ctx)
 		if response != nil {
 			response.ToolCalls = callIDs.calls(response.ToolCalls)
 		}
@@ -1358,7 +1370,7 @@ func (a *Agent) runReActLoop(
 		}
 		a.progress.finishCall(outputTokens)
 		attemptsAfter := retryAllowance.Snapshot()
-		a.logLLMCall(callStart, firstChunkAt, chunkCount, response, streamErr, callReason, llm.RetrySnapshot{
+		a.logLLMCall(ctx, latency, callStart, firstChunkAt, chunkCount, response, streamErr, callReason, llm.RetrySnapshot{
 			Attempts:         attemptsAfter.Attempts - attemptsBefore.Attempts,
 			TransportRetries: attemptsAfter.TransportRetries - attemptsBefore.TransportRetries,
 			Remaining:        attemptsAfter.Remaining,
@@ -1620,7 +1632,8 @@ func (a *Agent) runReActLoop(
 		// only stays affordable while this is most of the input, which is what
 		// the frozen system prompt and the trailing turn context block are for
 		// (turn_context.go); a provider that reports nothing leaves it at zero.
-		a.log.Debug("llm call usage",
+		a.log.DebugContext(ctx, "llm call usage",
+			"session", sessionID, "call_id", latency.callID(),
 			"input_tokens", response.InputTokens,
 			"cached_input_tokens", response.CachedInputTokens,
 			"output_tokens", response.OutputTokens)
@@ -1909,7 +1922,7 @@ func (a *Agent) runReActLoop(
 			// the paths the model aimed it at: the call may write the very
 			// AGENTS.md it would otherwise bring back.
 			callRules := a.toolCallRules(mode, tc, toolEnv.CWD)
-			result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), false)
+			result, execErr := a.executeToolCall(latency.dispatchContext(ctx), tc, toolEnv, mode, a.state.GetID(), false)
 			toolResultMsg := a.callResultMessage(tc, result, execErr, callRules)
 
 			messages = append(messages, toolResultMsg)
@@ -2014,11 +2027,12 @@ func (a *Agent) runReActLoop(
 // how long the first chunk took to arrive, how many chunks followed, and how
 // it ended. It is what -log-level debug shows for a call that hangs or is
 // cut, where the transcript alone shows nothing at all.
-func (a *Agent) logLLMCall(callStart, firstChunkAt time.Time, chunks int, response *llm.Response, err error, reason string, attempts llm.RetrySnapshot) {
-	if a.log == nil || !a.log.Enabled(context.Background(), slog.LevelDebug) {
+func (a *Agent) logLLMCall(ctx context.Context, latency *requestLatency, callStart, firstChunkAt time.Time, chunks int, response *llm.Response, err error, reason string, attempts llm.RetrySnapshot) {
+	if a.log == nil || !a.log.Enabled(ctx, slog.LevelDebug) {
 		return
 	}
 	attrs := []any{
+		"session", a.state.GetID(), "call_id", latency.callID(),
 		"duration", humanDuration(time.Since(callStart)),
 		"chunks", chunks,
 		"call_reason", reason,
@@ -2038,7 +2052,7 @@ func (a *Agent) logLLMCall(callStart, firstChunkAt time.Time, chunks int, respon
 	if err != nil {
 		attrs = append(attrs, "error", err.Error())
 	}
-	a.log.Debug("llm call finished", attrs...)
+	a.log.DebugContext(ctx, "llm call finished", attrs...)
 }
 
 // humanDuration rounds a duration for a message a person reads: whole
@@ -2196,6 +2210,7 @@ func loopAbortError(c loopAbortChannel) error {
 
 // executeToolCall runs a single tool call and reports updates to the client.
 func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string, skipPermission bool) (string, error) {
+	noteRequestToolDispatch(ctx)
 	// The permission mode is read on every call, not once per turn: the
 	// operator may have switched the session to bypass from the previous
 	// call's dialog, and the rest of the batch runs under that.

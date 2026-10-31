@@ -243,9 +243,34 @@ providers:
     timeout_ms: 3600000                # one hour for a stream: false model's whole request
 ```
 
-With `-log-level debug` the console writes one `llm call finished` line per model call to its log (`logs/cli.log` under the Coddy home; `coddy serve` logs it where `logger.outputs` points), with the call's duration, the time to the first chunk and the chunk count, which is where a slow deployment and a dead one part ways.
+With `-log-level debug` the console writes one `llm call finished` line per model call to its log (`logs/cli.log` under the Coddy home; `coddy serve` logs it where `logger.outputs` points), with the call's duration, the time to the first callback (`first_chunk`) and the callback count. A callback may contain usage metadata alone; it is not necessarily the model's first content.
 
 Field reference: [`agent`](../reference/config.md#agent), [`providers`](../reference/config.md#providers).
+
+## A long session becomes slower
+
+Enable the `agent` debug component to separate local work from the provider call, for example with `-log-level 'info,agent=debug'`. Each model call has a `session` and a process-monotonic `call_id`. The existing `llm call finished` and `llm call usage` records carry the same keys.
+
+The additional records contain timing metadata, never message bodies, URLs, headers, credentials or tool arguments:
+
+- `llm request latency` reports `context_refresh_ms`, `outbound_projection_ms` (eviction, rules, images and turn-context projection), `pairing_ms` and `model_call_ms`. Optional `first_meaningful_ms`, `first_reasoning_ms`, `first_text_ms` and `first_tool_ms` distinguish content from usage-only callbacks. Context refresh excludes initial system-prompt assembly and compaction itself;
+- `llm http request latency` reports at most eight HTTP requests per call, with `request_bytes` (ContentLength, `-1` when unknown), `start_ms`, `round_trip_ms` and observed transport milestones. `sdk_prepare_ms` measures Codex SDK/client preparation including JSON encoding, not pure serialization. `connection_ms` is connection acquisition time; `wrote_request_ms` and `first_byte_ms` are offsets from HTTP transport entry. `round_trip_ms` ends at response headers or a transport error, not the end of the streamed answer. Protocol, status and connection reuse appear only when observed;
+- `llm tool dispatch latency` reports `completion_to_dispatch_ms` from provider return to entry into the first executed tool call, before restriction, hook or permission checks. It includes intervening accounting, persistence, rule discovery and diagnostic logging, not tool execution or a permission wait.
+
+These intervals overlap; do not add them together. First-byte time includes client/network/server work and is not server inference time. Headers and stream metadata can arrive before model content. ACP and custom non-HTTP providers have no HTTP milestones. Without agent debug logging, no collector or additional records are created. Retries share the call's collector; totals and dropped-record counts remain visible past its eight-record cap.
+
+For a bounded live comparison, run the [synthetic Go example](../../examples/diagnostics/request-latency) from the repository root. It uses `config.LoadReadOnly` and the normal provider/authentication/proxy path, never a stored session. Choose a configured streaming model that offers both requested reasoning levels and has an explicit context window.
+
+```bash
+mkdir -p dist/request-latency
+go run ./examples/diagnostics/request-latency -live \
+  -config "$HOME/.coddy/config.yaml" -model codex/gpt-6.1-sol \
+  > dist/request-latency/live.jsonl
+```
+
+The fixed plan makes at most 12 calls. Context pairs follow short/long/long/short order with an immediate identical repeat each; reasoning stays `xhigh`. The final two pairs hold short context fixed and compare `high` with `xhigh`. Defaults are 64 KiB and 1,800,000 archive bytes, an 8 MiB total message-content budget, a 120 s call deadline and a 30-minute overall bound. For a smaller configured window, reduce `-short-bytes` and `-long-bytes`. The window check uses a two-bytes/token fixture estimate plus headroom, not a tokenizer. Provider refusal, an invalid answer or excessive visible output stops the run without retry.
+
+JSONL contains timing/token metadata and answer-validation results, never model text. Repeats observe cache reuse; they do not force a cache state. Compare actual input, cached, output and reasoning tokens, not fixture bytes alone. Reasoning levels use separate adapter instances, so Codex session headers may differ. Codex does not support the requested `-max-tokens` output cap; the example limits visible text/reasoning to 8192 bytes and cancels on excess, while hidden reasoning is bounded only by the deadline. This measures one synthetic model task, not the entire agent loop or the cause of a real session's cache behavior.
 
 ## A provider fails in the middle of a turn
 
