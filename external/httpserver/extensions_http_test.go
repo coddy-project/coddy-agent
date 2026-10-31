@@ -168,3 +168,99 @@ func TestUIExtensionEvents(t *testing.T) {
 		t.Fatalf("wrong digest: %d %s", w.Code, w.Body)
 	}
 }
+
+func TestUIExtensionRequest(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Paths.Home = t.TempDir()
+	s := &Server{mux: http.NewServeMux()}
+	s.cfgAt.Store(cfg)
+	s.events = newServerEventsHub()
+	s.registerExtensionRoutes()
+	request := func(method, path string, body []byte) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest(method, path, bytes.NewReader(body))
+		w := httptest.NewRecorder()
+		s.authGate(s.mux).ServeHTTP(w, r)
+		return w
+	}
+	var b bytes.Buffer
+	z := zip.NewWriter(&b)
+	for name, body := range map[string]string{"manifest.json": `{"api":1,"id":"demo","name":"Demo","version":"1","ui":{"entry":"main.js"}}`, "main.js": "export function activate() {}"} {
+		f, err := z.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = f.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	w := request("POST", "/coddy/extensions", b.Bytes())
+	if w.Code != 201 {
+		t.Fatalf("install: %d %s", w.Code, w.Body)
+	}
+	var row extensions.Entry
+	if err := json.Unmarshal(w.Body.Bytes(), &row); err != nil {
+		t.Fatal(err)
+	}
+	if w = request("PUT", "/coddy/extensions/demo", []byte(`{"enabled":true,"sha256":"`+row.SHA256+`","accept_risk":true}`)); w.Code != 200 {
+		t.Fatalf("enable: %d %s", w.Code, w.Body)
+	}
+	frames, unsubscribe := s.events.subscribe()
+	defer unsubscribe()
+	// A responder that has seen the frame answers with its nonce.
+	answered := make(chan struct{})
+	go func() {
+		defer close(answered)
+		frame := <-frames
+		body := bytes.TrimSuffix(bytes.TrimPrefix(frame, []byte("event: extension_request\ndata: ")), []byte("\n\n"))
+		var published struct {
+			RequestID string `json:"request_id"`
+			Nonce     string `json:"nonce"`
+			Type      string `json:"type"`
+		}
+		if err := json.Unmarshal(body, &published); err != nil {
+			t.Error(err)
+			return
+		}
+		if published.Type != "open-file" {
+			t.Errorf("type: %q", published.Type)
+		}
+		// A wrong nonce is refused before the real answer lands.
+		if w := request("POST", "/coddy/extensions/demo/requests/"+published.RequestID, []byte(`{"nonce":"nope","data":null}`)); w.Code != 403 {
+			t.Errorf("wrong nonce: %d", w.Code)
+		}
+		w := request("POST", "/coddy/extensions/demo/requests/"+published.RequestID, []byte(`{"nonce":"`+published.Nonce+`","data":{"opened":true}}`))
+		if w.Code != 204 {
+			t.Errorf("answer: %d %s", w.Code, w.Body)
+		}
+	}()
+	w = request("POST", "/coddy/extensions/demo/request", []byte(`{"sha256":"`+row.SHA256+`","type":"open-file","data":{"path":"a.ts"},"timeout_ms":5000}`))
+	<-answered
+	if w.Code != 200 {
+		t.Fatalf("request: %d %s", w.Code, w.Body)
+	}
+	var got struct {
+		Answered bool `json:"answered"`
+		Data     struct {
+			Opened bool `json:"opened"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.Answered || !got.Data.Opened {
+		t.Fatalf("answer round trip: %s", w.Body)
+	}
+	// Nobody answers: the request resolves unanswered at its timeout.
+	w = request("POST", "/coddy/extensions/demo/request", []byte(`{"sha256":"`+row.SHA256+`","type":"ping","timeout_ms":1}`))
+	if w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte(`"answered":false`)) {
+		t.Fatalf("timeout: %d %s", w.Code, w.Body)
+	}
+	// A request id nothing knows is a 404.
+	if w = request("POST", "/coddy/extensions/demo/requests/deadbeef", []byte(`{"nonce":"x","data":null}`)); w.Code != 404 {
+		t.Fatalf("unknown request: %d %s", w.Code, w.Body)
+	}
+}
