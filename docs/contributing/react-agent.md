@@ -455,7 +455,12 @@ messages: [
    (one of `step`, `empty_reissue`, `empty_nudge`, `output_limit_nudge`,
    `first_token_retry`, `provider_recovery`, `loop_guard`, `quota_reset_wait`,
    `stop_hook`, `queued_followup`, `context_overflow_recovery`), and
-   `retries_remaining` (budget slots left after this call).
+   `retries_remaining` (budget slots left after this call). Completion and usage
+   records also carry `session` and a process-monotonic `call_id`. With the agent
+   debug component enabled, `request_latency.go` emits correlated local, HTTP
+   and dispatch timings without request content. See
+   [A long session becomes slower](../getting-started/troubleshooting.md#a-long-session-becomes-slower)
+   for the stage boundaries and the bounded synthetic comparison.
 
    Two guards bound a streamed call that stops answering. The first-token guard
    (**`llm_first_token_timeout_ms`**, 90 s) cuts a call that produced nothing;

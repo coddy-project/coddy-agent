@@ -150,7 +150,7 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 	// The request is the one ResponseService.NewStreaming sends; only the
 	// frames are read by codexEventDecoder instead of the SDK decoder.
 	var raw *http.Response
-	reqErr := client.Post(ctx, "responses", params, &raw, option.WithJSONSet("stream", true))
+	reqErr := client.Post(withSDKPreparation(ctx), "responses", params, &raw, option.WithJSONSet("stream", true))
 	stream := ssestream.NewStream[responses.ResponseStreamEventUnion](newCodexEventDecoder(raw), reqErr)
 	defer func() { _ = stream.Close() }()
 
