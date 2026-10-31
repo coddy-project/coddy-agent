@@ -20,6 +20,19 @@ Feature: Operator hooks at the turn and session boundaries
     Then the model's system prompt contains "the release branch is frozen"
     And the transcript holds the user message "what should I work on" unchanged
 
+  Scenario: A FirstPrompt hook enriches the first message of a session
+    Given the operator's hooks.json has a FirstPrompt hook that adds the context "the working tree has unsaved buffers"
+    And an agent session
+    When the user sends the prompt "what is my working state"
+    Then the model's system prompt contains "the working tree has unsaved buffers"
+
+  Scenario: A FirstPrompt hook runs once per session
+    Given the operator's hooks.json has a FirstPrompt hook that adds the context "captured at the first message"
+    And an agent session
+    When the user sends the prompt "first question"
+    And the user sends the prompt "second question"
+    Then the model's system prompt does not contain "captured at the first message"
+
   Scenario: A Stop hook sends the agent back to work once
     Given the operator's hooks.json has a Stop hook that blocks with the reason "run the tests first" unless the stop hook is already active
     And an agent session

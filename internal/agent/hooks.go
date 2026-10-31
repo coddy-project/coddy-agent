@@ -283,26 +283,46 @@ const hookNotificationPermissionPrompt = "permission_prompt"
 // message, so the transcript says where it came from.
 const stopHookPrefix = session.StopHookPrefix
 
-// runUserPromptHooks fires UserPromptSubmit before the prompt becomes a
-// message. A rejected prompt is reported with its reason; context the hooks
-// hand over is kept for this turn's system prompt.
+// runUserPromptHooks fires FirstPrompt (once per session, for the first user
+// message) and UserPromptSubmit before the prompt becomes a message. A
+// rejected prompt is reported with its reason; context the hooks hand over is
+// kept for this turn's system prompt.
 func (a *Agent) runUserPromptHooks(ctx context.Context, mode, prompt string) (reason string, rejected bool) {
 	r := a.hooksFor(mode)
-	if r == nil || !r.HasHandlers(hooks.EventUserPromptSubmit) {
+	if r == nil {
 		return "", false
 	}
 	// The prompt is not a message yet; the payload counts it as the turn
 	// it is about to start.
+	first := session.CountUserTurns(a.state.GetMessages()) == 0
 	a.setHookTurn(session.CountUserTurns(a.state.GetMessages()) + 1)
-	out := r.Run(ctx, hooks.PromptEvent(prompt))
-	a.reportHookOutcome(hooks.EventUserPromptSubmit, out)
-	switch {
-	case out.Stop:
-		return stopReasonOr(out.StopReason), true
-	case out.Blocked():
-		return reasonOr(out.Reason, "rejected by a hook"), true
+	var contexts []string
+	// FirstPrompt is the context-enrichment hook: it runs once per session,
+	// at the moment the first message goes out (not at session creation, when
+	// the working state may not exist yet).
+	if first && r.HasHandlers(hooks.EventFirstPrompt) {
+		fout := r.Run(ctx, hooks.FirstPromptEvent(prompt))
+		a.reportHookOutcome(hooks.EventFirstPrompt, fout)
+		switch {
+		case fout.Stop:
+			return stopReasonOr(fout.StopReason), true
+		case fout.Blocked():
+			return reasonOr(fout.Reason, "rejected by a hook"), true
+		}
+		contexts = append(contexts, fout.Context...)
 	}
-	a.turnHookContext = strings.Join(out.Context, "\n")
+	if r.HasHandlers(hooks.EventUserPromptSubmit) {
+		out := r.Run(ctx, hooks.PromptEvent(prompt))
+		a.reportHookOutcome(hooks.EventUserPromptSubmit, out)
+		switch {
+		case out.Stop:
+			return stopReasonOr(out.StopReason), true
+		case out.Blocked():
+			return reasonOr(out.Reason, "rejected by a hook"), true
+		}
+		contexts = append(contexts, out.Context...)
+	}
+	a.turnHookContext = strings.Join(contexts, "\n")
 	return "", false
 }
 

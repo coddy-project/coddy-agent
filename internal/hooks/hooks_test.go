@@ -780,4 +780,12 @@ func TestQuestionAndTurnEndEvents(t *testing.T) {
 	if te.Name != hooks.EventTurnEnd || te.Fields["stop_reason"] != "end_turn" || te.Fields["last_assistant_message"] != "All done." {
 		t.Fatalf("turn-end event = %+v", te)
 	}
+
+	if !hooks.KnownEvent(hooks.EventFirstPrompt) {
+		t.Fatal("FirstPrompt must be listed as known")
+	}
+	fp := hooks.FirstPromptEvent("what is my working state")
+	if fp.Name != hooks.EventFirstPrompt || fp.Fields["prompt"] != "what is my working state" {
+		t.Fatalf("first-prompt event = %+v", fp)
+	}
 }

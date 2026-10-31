@@ -169,6 +169,12 @@ func NotificationEvent(kind, message string, fields map[string]interface{}) Even
 	return ev
 }
 
+// FirstPromptEvent builds the FirstPrompt event for the first prompt text of
+// a session - the same payload as UserPromptSubmit, one turn earlier in life.
+func FirstPromptEvent(prompt string) Event {
+	return Event{Name: EventFirstPrompt, Fields: map[string]interface{}{"prompt": prompt}}
+}
+
 // QuestionEvent builds the Question event: the question tool is about to ask
 // its questions. The payload carries the questions and their options verbatim
 // (the tool's own arguments), so a notification hook can show exactly what the

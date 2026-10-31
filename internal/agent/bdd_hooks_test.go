@@ -708,6 +708,23 @@ func (s *hooksFeatureState) systemPromptContains(text string) error {
 	return nil
 }
 
+func (s *hooksFeatureState) systemPromptLacks(text string) error {
+	s.provider.mu.Lock()
+	reqs := append([][]llm.Message(nil), s.provider.requests...)
+	s.provider.mu.Unlock()
+	if len(reqs) == 0 {
+		return fmt.Errorf("the model was never called")
+	}
+	last := reqs[len(reqs)-1]
+	if len(last) == 0 || last[0].Role != llm.RoleSystem {
+		return fmt.Errorf("the last request has no system message")
+	}
+	if strings.Contains(last[0].Content, text) {
+		return fmt.Errorf("system prompt unexpectedly carries %q", text)
+	}
+	return nil
+}
+
 func (s *hooksFeatureState) modelAnswersThenAnswers(first, second string) error {
 	return s.runPrompt("go", answerStep(first), answerStep(second))
 }
@@ -880,6 +897,7 @@ func initializeHooksTurnScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the transcript holds a user message "([^"]*)"$`, s.transcriptHoldsUser)
 	sc.Step(`^the transcript ends with the assistant answer "([^"]*)"$`, s.transcriptEndsWithAssistant)
 	sc.Step(`^the model's system prompt contains "([^"]*)"$`, s.systemPromptContains)
+	sc.Step(`^the model's system prompt does not contain "([^"]*)"$`, s.systemPromptLacks)
 	sc.Step(`^the turn ended with the stop reason "([^"]*)"$`, s.turnEndedWith)
 	sc.Step(`^the session bundle records the hook context "([^"]*)"$`, s.bundleRecordsHookContext)
 	sc.Step(`^the transcript was not compacted$`, s.transcriptNotCompacted)

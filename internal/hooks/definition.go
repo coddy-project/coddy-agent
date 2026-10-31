@@ -16,7 +16,12 @@ import (
 
 // Event names use the Claude Code spelling so a definition ports both ways.
 const (
-	EventSessionStart       = "SessionStart"
+	EventSessionStart = "SessionStart"
+	// EventFirstPrompt fires once per session, before the first user message
+	// becomes a message: the place to enrich the context with the working
+	// state (what is open in the editor, the state of the checkout) at the
+	// moment the first message goes out. Same contract as UserPromptSubmit.
+	EventFirstPrompt        = "FirstPrompt"
 	EventUserPromptSubmit   = "UserPromptSubmit"
 	EventPreToolUse         = "PreToolUse"
 	EventPostToolUse        = "PostToolUse"
@@ -39,6 +44,7 @@ const (
 // Events lists every event Coddy fires, in the order the catalog shows them.
 var Events = []string{
 	EventSessionStart,
+	EventFirstPrompt,
 	EventUserPromptSubmit,
 	EventPreToolUse,
 	EventPostToolUse,
