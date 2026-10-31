@@ -4,7 +4,6 @@ import { acquireObjectUrl, RASTER_IMAGE_TYPE } from "../files/objectUrl";
 import { useT } from "../i18n/I18nProvider";
 import { useConfirm, type ConfirmFn } from "../components/useConfirm";
 import { FieldHint } from "../settings/FieldHint";
-import { IconTrash } from "../settings/SchemaForm";
 import { SETTINGS_TEXTS, landmarkAnchor } from "../settings/settingsSections";
 import {
   backdropSnapshot,
@@ -111,7 +110,7 @@ function GalleryDeleteButton({
       data-testid={`appearance-wallpaper-delete-${photo.name}`}
       onClick={() => void onDelete(photo, confirm)}
     >
-      <IconTrash />
+      ×
     </button>
   );
 }

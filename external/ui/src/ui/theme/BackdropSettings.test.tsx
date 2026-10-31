@@ -683,6 +683,16 @@ test("gallery captions expose filenames once while delete stays separate", async
   ).toBe(false);
 });
 
+test("a delete control is a plain cross, not an icon plate", async () => {
+  server();
+  mount();
+  await tile();
+  const remove = screen.getByTestId("appearance-wallpaper-delete-a.png");
+  expect(remove.textContent).toBe("×");
+  expect(remove.querySelector("svg")).toBeNull();
+  expect(remove).toHaveAccessibleName("Delete a.png");
+});
+
 test("offscreen thumbnails fetch only after intersection and abort on unmount", async () => {
   const observers: Array<{
     callback: IntersectionObserverCallback;

@@ -3,6 +3,21 @@ import { expect, test } from "vitest";
 
 const css = stylesSource();
 const squash = (s: string) => s.replace(/\s+/g, " ").trim();
+const dock = stylesPartial("settings/dock");
+
+/** Every declaration the sheet writes for the delete control, at any state. */
+function deleteDeclarations(): string[] {
+  return [...dock.matchAll(/([^{}]*)\{([^}]*)\}/g)]
+    .filter(([, selector]) =>
+      (selector ?? "").includes(".appearance-wallpaper-delete"),
+    )
+    .flatMap(([, , body]) =>
+      squash(body ?? "")
+        .split(";")
+        .map((declaration) => declaration.trim())
+        .filter(Boolean),
+    );
+}
 
 test("a wallpaper covers the viewport, dimmed toward the theme's canvas colour", () => {
   const body = squash(
@@ -67,18 +82,92 @@ test("the compact wallpaper gallery keeps destructive controls beside selection"
   expect(dock).not.toContain(".appearance-wallpaper-preview");
 });
 
-test("wallpaper gallery uses two columns and a compact trash with a 40px hit area", () => {
-  const dock = stylesPartial("settings/dock");
-  expect(dock).toMatch(
-    /\.appearance-wallpaper-gallery\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/,
+test("wallpaper gallery keeps two columns and filenames", () => {
+  const flat = squash(dock);
+  expect(flat).toMatch(
+    /\.appearance-wallpaper-gallery \{ [^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/,
   );
-  expect(dock).toMatch(
-    /\.appearance-wallpaper-caption\s*\{[^}]*text-overflow:\s*ellipsis/,
+  expect(flat).toMatch(
+    /\.appearance-wallpaper-caption \{ [^}]*text-overflow: ellipsis/,
   );
-  expect(dock).toMatch(
-    /\.appearance-wallpaper-delete\s*\{[^}]*width:\s*30px;[^}]*height:\s*30px/,
+});
+
+// The delete control is the composer attachment's remove: a bare cross over the
+// picture, invisible until the pointer or the keyboard comes to it. A framed
+// trash plate over a thumbnail read as part of the picture and hid it.
+test("the wallpaper delete control is a bare cross with a 40px hit area", () => {
+  const flat = squash(dock);
+  expect(flat).toMatch(
+    /\.appearance-wallpaper-delete \{[^}]*width: 30px;[^}]*height: 30px/,
   );
-  expect(dock).toMatch(
-    /\.appearance-wallpaper-delete::after\s*\{[^}]*inset:\s*-5px/,
+  expect(flat).toMatch(
+    /\.appearance-wallpaper-delete::after \{ [^}]*inset: -5px/,
   );
+  // A light glyph with a hard dark edge stays legible over pictures in every theme.
+  expect(flat).toMatch(
+    /\.appearance-wallpaper-delete \{[^}]*font-size: 20px;[^}]*line-height: 1;/,
+  );
+  expect(flat).toMatch(
+    /\.appearance-wallpaper-delete \{[^}]*color: rgba\(255, 255, 255, 0\.82\);/,
+  );
+  expect(flat).toMatch(
+    /\.appearance-wallpaper-delete \{[^}]*-webkit-text-stroke: 0\.6px rgba\(0, 0, 0, 0\.8\);[^}]*paint-order: stroke fill;/,
+  );
+  expect(flat).toMatch(
+    /\.appearance-wallpaper-delete:hover, \.appearance-wallpaper-delete:focus-visible \{ color: #fff; \}/,
+  );
+  // No plate in any state: no ground, no frame, no shadow, no destructive red.
+  for (const declaration of deleteDeclarations()) {
+    const property = declaration.split(":")[0]!.trim();
+    const value = declaration.slice(property.length + 1).trim();
+    if (property.startsWith("background"))
+      expect(value, declaration).toBe("none");
+    if (/^border(?!-radius)/.test(property))
+      expect(value, declaration).toMatch(/^(0|none)$/);
+    if (property.startsWith("box-shadow"))
+      expect(value, declaration).toBe("none");
+    expect(declaration).not.toContain("--coddy-danger");
+  }
+  // It fades in and out, as the attachment's does; simplified mode drops this.
+  expect(flat).toMatch(
+    /\.appearance-wallpaper-delete \{[^}]*transition: [^;}]*opacity 0\.15s/,
+  );
+});
+
+// An invisible control that still takes pointer events would swallow the tap
+// that selects the thumbnail under it, on every tile at once.
+test("the wallpaper delete control is hidden until hovered, focused or tapped", () => {
+  const flat = squash(dock);
+  expect(flat).toMatch(
+    /\.appearance-wallpaper-delete \{[^}]*opacity: 0;[^}]*pointer-events: none;/,
+  );
+  // The hover reveal belongs to a pointer, so a touch does not leave it up.
+  const hoverReveal =
+    "@media (hover: hover) { .appearance-wallpaper-tile:hover .appearance-wallpaper-delete { opacity: 1; pointer-events: auto; }";
+  expect(flat).toContain(hoverReveal);
+  expect(
+    flat.match(
+      /\.appearance-wallpaper-tile:hover \.appearance-wallpaper-delete/g,
+    ),
+  ).toHaveLength(1);
+  // A keyboard reaches it without the tile's hover, and keeps its accent ring.
+  expect(flat).toContain(
+    ".appearance-wallpaper-delete:focus-visible { opacity: 1; pointer-events: auto; }",
+  );
+  expect(flat).toMatch(
+    /\.appearance-wallpaper-delete:focus-visible, \.appearance-wallpaper-thumb:focus-visible \{ outline: 2px solid var\(--accent\); outline-offset: 2px; \}/,
+  );
+  // A finger has no hover, so a tap's first press must find the cross there.
+  expect(flat).toContain(
+    "@media (hover: none) { .appearance-wallpaper-delete { opacity: 1; pointer-events: auto; }",
+  );
+  // Mouse focus on the tile would keep the cross up after the pointer leaves.
+  expect(flat).not.toContain(".appearance-wallpaper-tile:focus-within");
+  // The two reveals are gated by input capability and nothing else, so a touch
+  // never leaves the cross up and no width query decides it.
+  expect(flat.match(/@media \(hover: hover\)/g)).toHaveLength(1);
+  expect(flat.match(/@media \(hover: none\)/g)).toHaveLength(1);
+  expect(
+    flat.match(/\.appearance-wallpaper-delete \{ opacity: 1/g),
+  ).toHaveLength(2);
 });

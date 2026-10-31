@@ -248,11 +248,20 @@
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 1px solid var(--coddy-glass-panel-border);
-  border-radius: 5px;
-  background: var(--coddy-tip-bg);
-  color: var(--text);
+  border: 0;
+  background: none;
+  // Keep the glyph readable over light and dark pictures in every theme.
+  color: rgba(255, 255, 255, 0.82);
+  -webkit-text-stroke: 0.6px rgba(0, 0, 0, 0.8);
+  paint-order: stroke fill;
+  font-size: 20px;
+  line-height: 1;
   cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.15s ease,
+    color 0.15s ease;
 }
 
 .appearance-wallpaper-delete::after {
@@ -271,8 +280,32 @@
   padding: 4px 2px 0;
 }
 
-.appearance-wallpaper-delete:hover {
-  color: var(--coddy-danger);
+.appearance-wallpaper-delete:hover,
+.appearance-wallpaper-delete:focus-visible {
+  color: #fff;
+}
+
+/* The cross is the composer attachment's remove: nothing but the glyph, and the
+   pointer or the keyboard brings it out. Hidden at rest it is also inert, so an
+   invisible control never swallows the tap that picks the thumbnail under it. */
+@media (hover: hover) {
+  .appearance-wallpaper-tile:hover .appearance-wallpaper-delete {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.appearance-wallpaper-delete:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* A finger has no hover to wait for, so the cross simply stands there. */
+@media (hover: none) {
+  .appearance-wallpaper-delete {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .appearance-wallpaper-delete:focus-visible,
