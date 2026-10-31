@@ -335,6 +335,58 @@ func (s *hooksFeatureState) payloadCarriesCommand(command string) error {
 	return nil
 }
 
+func (s *hooksFeatureState) modelAsksTheQuestionWithOptions(question, opt1, opt2 string) error {
+	args, err := json.Marshal(map[string]interface{}{
+		"questions": []map[string]interface{}{
+			{
+				"question": question,
+				"options":  []map[string]string{{"label": opt1}, {"label": opt2}},
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	return s.runTurn(llm.ToolCall{ID: "call-1", Name: "question", InputJSON: string(args)})
+}
+
+func (s *hooksFeatureState) recordedQuestionCarries(event, question, option string) error {
+	payload, err := s.recordedPayload()
+	if err != nil {
+		return err
+	}
+	if payload["hook_event_name"] != event {
+		return fmt.Errorf("payload event %v, want %s", payload["hook_event_name"], event)
+	}
+	qs, _ := payload["questions"].([]interface{})
+	for _, q := range qs {
+		m, _ := q.(map[string]interface{})
+		if m["question"] != question {
+			continue
+		}
+		opts, _ := m["options"].([]interface{})
+		for _, o := range opts {
+			om, _ := o.(map[string]interface{})
+			if om["label"] == option {
+				return nil
+			}
+		}
+		return fmt.Errorf("question %q carries no option %q: %v", question, option, m["options"])
+	}
+	return fmt.Errorf("payload questions %v carry no question %q", payload["questions"], question)
+}
+
+func (s *hooksFeatureState) recordedPayloadHasField(event, field, value string) error {
+	payload, err := s.recordedPayload()
+	if err != nil {
+		return err
+	}
+	if payload["hook_event_name"] != event || fmt.Sprint(payload[field]) != value {
+		return fmt.Errorf("payload event %v %s=%v, want %s %s=%s", payload["hook_event_name"], field, payload[field], event, field, value)
+	}
+	return nil
+}
+
 func (s *hooksFeatureState) payloadCarriesError(fragment string) error {
 	payload, err := s.recordedPayload()
 	if err != nil {
@@ -386,6 +438,9 @@ func initializeHooksScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the recorded payload carries the session id and the workspace path$`, s.payloadCarriesSession)
 	sc.Step(`^the recorded payload carries the command "([^"]*)" as the tool input$`, s.payloadCarriesCommand)
 	sc.Step(`^the recorded payload carries an error mentioning "([^"]*)"$`, s.payloadCarriesError)
+	sc.Step(`^the model asks the question "([^"]*)" with the options "([^"]*)" and "([^"]*)"$`, s.modelAsksTheQuestionWithOptions)
+	sc.Step(`^the recorded payload is a "([^"]*)" event carrying "([^"]*)" with the option "([^"]*)"$`, s.recordedQuestionCarries)
+	sc.Step(`^the recorded payload is a "([^"]*)" event with "([^"]*)" "([^"]*)"$`, s.recordedPayloadHasField)
 }
 
 // ---- project-scope files and trust (features/hooks_project_trust.feature, @acp) ----

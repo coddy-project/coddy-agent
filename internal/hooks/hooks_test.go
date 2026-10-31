@@ -755,3 +755,29 @@ func TestTrustStoreSerialisesConcurrentProcesses(t *testing.T) {
 		t.Fatalf("temporary files left behind: %v", leftovers)
 	}
 }
+
+func TestQuestionAndTurnEndEvents(t *testing.T) {
+	if !hooks.KnownEvent(hooks.EventQuestion) || !hooks.KnownEvent(hooks.EventTurnEnd) {
+		t.Fatal("the new events must be listed as known")
+	}
+	q := hooks.QuestionEvent("call-1", map[string]interface{}{
+		"questions": []interface{}{map[string]interface{}{
+			"question": "Pick a stack",
+			"options":  []interface{}{map[string]interface{}{"label": "Go"}},
+		}},
+	})
+	if q.Name != hooks.EventQuestion || q.Subject != "question" {
+		t.Fatalf("question event = %+v", q)
+	}
+	if q.Fields["tool_use_id"] != "call-1" {
+		t.Fatalf("question fields = %v", q.Fields)
+	}
+	if _, ok := q.Fields["questions"]; !ok {
+		t.Fatalf("the questions must be lifted to the top level: %v", q.Fields)
+	}
+
+	te := hooks.TurnEndEvent("end_turn", "All done.")
+	if te.Name != hooks.EventTurnEnd || te.Fields["stop_reason"] != "end_turn" || te.Fields["last_assistant_message"] != "All done." {
+		t.Fatalf("turn-end event = %+v", te)
+	}
+}

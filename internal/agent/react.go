@@ -258,8 +258,14 @@ func (a *Agent) wireWorkspaceTool(env *tools.Env) {
 }
 
 // Run executes the ReAct loop and returns the stop reason.
-func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, error) {
+func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (turnStop string, turnErr error) {
 	mode := a.state.EffectiveMode()
+	// TurnEnd: the turn is over and the agent waits for the user's next
+	// message - the notification source ("the agent is done"). Registered
+	// early so it fires on every way out of the turn.
+	defer func() {
+		a.runTurnEndHooks(ctx, mode, turnStop, turnEndAssistantText(a.state))
+	}()
 	// A new user turn starts its account of time spent on usage limits
 	// (limit_wait.go); the built-ins below never touch it.
 	a.limitLedger = &limitWaitLedger{}
@@ -2529,6 +2535,12 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	var result string
 	var execErr error
 	started := time.Now()
+
+	// The question tool is about to ask its questions: the Question hooks are
+	// the notification source carrying them (and their options) outward.
+	if tc.Name == "question" {
+		a.runQuestionHooks(ctx, mode, tc)
+	}
 
 	// Check if it's an MCP tool (name contains __).
 	if idx := strings.Index(tc.Name, "__"); idx >= 0 {

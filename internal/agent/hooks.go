@@ -459,6 +459,44 @@ func (a *Agent) runNotificationHooks(ctx context.Context, mode, kind string, tc 
 	a.reportHookOutcome(hooks.EventNotification, out)
 }
 
+// turnEndAssistantText is the final assistant message of the transcript - what
+// a TurnEnd notification quotes. (Not lastAssistantText: react_test.go keeps
+// its own helper of that name.)
+func turnEndAssistantText(st SessionState) string {
+	msgs := st.GetMessages()
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == llm.RoleAssistant && strings.TrimSpace(msgs[i].Content) != "" {
+			return msgs[i].Content
+		}
+	}
+	return ""
+}
+
+// runQuestionHooks fires Question when the question tool is about to ask its
+// questions; the payload carries the questions and their options so a
+// notification hook can show exactly what the user is about to be asked. The
+// outcome is observational.
+func (a *Agent) runQuestionHooks(ctx context.Context, mode string, tc llm.ToolCall) {
+	r := a.hooksFor(mode)
+	if r == nil || !r.HasHandlers(hooks.EventQuestion) {
+		return
+	}
+	out := r.Run(ctx, hooks.QuestionEvent(tc.ID, hooks.ToolInput(tc.InputJSON)))
+	a.reportHookOutcome(hooks.EventQuestion, out)
+}
+
+// runTurnEndHooks fires TurnEnd when the turn finished and the agent waits for
+// the user's next message - the notification source for "the agent is done".
+// The outcome is observational.
+func (a *Agent) runTurnEndHooks(ctx context.Context, mode, stopReason, lastAssistant string) {
+	r := a.hooksFor(mode)
+	if r == nil || !r.HasHandlers(hooks.EventTurnEnd) {
+		return
+	}
+	out := r.Run(ctx, hooks.TurnEndEvent(stopReason, lastAssistant))
+	a.reportHookOutcome(hooks.EventTurnEnd, out)
+}
+
 // sameToolArgs reports whether two argument documents describe the same call.
 // The bundle stores arguments pretty-printed and a hook answers them compact,
 // so a byte comparison would read a formatting difference as a rewrite and

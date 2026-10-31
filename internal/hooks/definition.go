@@ -27,6 +27,13 @@ const (
 	EventPreCompact         = "PreCompact"
 	EventPostCompact        = "PostCompact"
 	EventNotification       = "Notification"
+	// EventQuestion fires when the question tool is about to ask; its payload
+	// carries the questions and their options, so a notification hook can show
+	// exactly what the user is about to be asked. Observational.
+	EventQuestion = "Question"
+	// EventTurnEnd fires when the turn finished and the agent waits for the
+	// user's next message. Observational - the notification source.
+	EventTurnEnd = "TurnEnd"
 )
 
 // Events lists every event Coddy fires, in the order the catalog shows them.
@@ -42,6 +49,8 @@ var Events = []string{
 	EventPreCompact,
 	EventPostCompact,
 	EventNotification,
+	EventQuestion,
+	EventTurnEnd,
 }
 
 // KnownEvent reports whether name is an event Coddy fires.

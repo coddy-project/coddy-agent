@@ -90,6 +90,8 @@ Tool events compare the matcher with the tool name. Coddy's own names are the on
 | `SubagentStart` | in the parent, when `spawn_agent` is about to start a child, after the definition and its trust were resolved | subagent name | yes: the spawn is refused |
 | `SubagentStop` | in the parent, when the child's turn ended, before its report reaches the parent | subagent name | no |
 | `Notification` | when a permission prompt is about to be sent to the client | notification type (`permission_prompt`) | no |
+| `Question` | when the question tool is about to ask its questions | `question` | no |
+| `TurnEnd` | when the turn finished and the agent waits for the user's next message | - | no |
 
 Every event also fires inside a child session for the child's own turn (tool calls, prompt, stop, compaction), with the `subagent` block in the payload naming the child; `SubagentStart` and `SubagentStop` fire in the parent's session.
 
@@ -136,6 +138,8 @@ One JSON object on stdin. The session fields come first, the event fields after 
 | `agent_name`, `agent_session_id`, `prompt`, `background` | `SubagentStart`: the definition name, the child session id, the task prompt and whether the run is detached |
 | `agent_name`, `agent_session_id`, `task_id`, `status`, `report`, `turns` | `SubagentStop`: the child's outcome (`end_turn`, `cancelled`, `failed`, ...), its final report (cut at 4,000 characters) and its assistant rounds |
 | `notification_type`, `message`, `tool_name`, `tool_input`, `tool_use_id` | `Notification`: `permission_prompt` with the prompt body and the call waiting for an answer |
+| `questions`, `tool_input`, `tool_use_id` | `Question`: the questions and their options verbatim (`questions[].question`, `questions[].options[].label`), so a notification hook can show exactly what the user is about to be asked |
+| `stop_reason`, `last_assistant_message` | `TurnEnd`: how the turn ended (`end_turn`, `cancelled`, ...) and the assistant's final text |
 
 The process also gets `CODDY_PROJECT_DIR` and `CLAUDE_PROJECT_DIR` (the session cwd), `CODDY_SESSION_ID`, `CODDY_HOOK_EVENT` and `CODDY_HOME` in its environment, on top of Coddy's own environment.
 
@@ -182,7 +186,7 @@ JSON fields:
 - `Stop`: a follow-up is submitted only while an iteration of the ReAct turn is left; on the last one the turn ends instead of leaving a dangling message.
 - `PreCompact`: `decision: "block"` with `reason` (or exit 2) vetoes the compaction: `/compact` fails with `compaction blocked by hook: <reason>`, an automatic compaction is skipped for that check and the turn continues uncompacted.
 - `SubagentStart`: `decision: "block"` with `reason` (or exit 2) refuses the spawn; the `spawn_agent` tool result reads `spawn of subagent "<name>" blocked by hook: <reason>` and no child session is created. `additionalContext` is prepended to the child's task prompt as `Hook context: ...`.
-- `SubagentStop` and `Notification` are observational: `systemMessage` and errors are reported, decisions are ignored. A hook that pings a chat or raises a desktop notification should carry `"async": true` so the permission prompt is not delayed by it.
+- `SubagentStop`, `Notification`, `Question` and `TurnEnd` are observational: `systemMessage` and errors are reported, decisions are ignored. `Question` and `TurnEnd` are the notification sources - a hook that raises a desktop notification when the agent asks something or finishes its work should subscribe to those two and carry `"async": true` so it never delays the question or the turn.
 
 The **hook context block** is a `## Hook context` section appended to the system prompt after the environment block (so a custom `prompts.dir` template carries it too): first the session-level text from `SessionStart`, then the turn-level text from `UserPromptSubmit`. The turn-level part is not persisted; the session-level part is.
 

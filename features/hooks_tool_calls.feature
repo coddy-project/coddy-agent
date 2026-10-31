@@ -43,6 +43,19 @@ Feature: Operator hooks around tool calls
     Then the tool result contains "rewritten-by-hook"
     And the tool result does not contain "original"
 
+  Scenario: A Question hook carries the questions and their options
+    Given the operator's hooks.json has a Question hook for "question" that records its stdin
+    And an agent session
+    When the model asks the question "Pick a stack" with the options "Go" and "Rust"
+    Then the recorded payload is a "Question" event carrying "Pick a stack" with the option "Go"
+    And the recorded payload carries the session id and the workspace path
+
+  Scenario: A TurnEnd hook fires when the turn is over
+    Given the operator's hooks.json has a TurnEnd hook for "*" that records its stdin
+    And an agent session
+    When the model runs the command "echo done"
+    Then the recorded payload is a "TurnEnd" event with "stop_reason" "end_turn"
+
   Scenario: A PostToolUse hook adds feedback to the tool result
     Given the operator's hooks.json has a PostToolUse hook for "run_command" that adds the context "remember to run the tests"
     And an agent session
