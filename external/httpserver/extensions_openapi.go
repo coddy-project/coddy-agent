@@ -52,4 +52,16 @@ func mergeExtensionsOpenAPI(doc map[string]interface{}) {
 		"requestBody": map[string]any{"required": true, "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"type": "object", "required": []any{"sha256", "type"}, "properties": map[string]any{"sha256": str, "type": str, "data": map[string]any{"description": "One JSON value delivered with the event"}}}}}},
 		"responses":   map[string]any{"204": map[string]any{"description": "Event published"}, "400": errResponse, "401": errResponse, "403": errResponse, "409": errResponse},
 	}}
+	paths["/coddy/extensions/{id}/request"] = map[string]any{"post": map[string]any{
+		"operationId": "requestForUIExtension", "summary": "Send one host request and wait for its answer", "parameters": params,
+		"description": "Requires the exact enabled package digest. JSON `{sha256, type, data?, timeout_ms?}` - the same event shape as /events plus an optional wait between 1 and 60000 ms (default 30000). Publishes `event: extension_request` on GET /coddy/events (`{object: coddy.extension_request, extension, request_id, nonce, type, data}`) and waits for whoever handles it to answer through POST /coddy/extensions/{id}/requests/{requestId}. Returns `{request_id, answered: true, data}` when answered and `{request_id, answered: false}` at the timeout.",
+		"requestBody": map[string]any{"required": true, "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"type": "object", "required": []any{"sha256", "type"}, "properties": map[string]any{"sha256": str, "type": str, "data": map[string]any{"description": "One JSON value carried with the request"}, "timeout_ms": map[string]any{"type": "integer", "description": "Wait for the answer, 1-60000 ms (default 30000)"}}}}}},
+		"responses":   map[string]any{"200": response("The answer, or answered false at the timeout", map[string]any{"type": "object", "properties": map[string]any{"request_id": str, "answered": map[string]any{"type": "boolean"}, "data": map[string]any{"description": "The responder's JSON value when answered"}}}), "400": errResponse, "401": errResponse, "403": errResponse, "409": errResponse},
+	}}
+	paths["/coddy/extensions/{id}/requests/{requestId}"] = map[string]any{"post": map[string]any{
+		"operationId": "answerUIExtensionRequest", "summary": "Answer one published host request", "parameters": append(append([]any{}, params...), map[string]any{"name": "requestId", "in": "path", "required": true, "schema": str}),
+		"description": "The answer channel of a hook handler or an IDE bridge. JSON `{nonce, data}` - the nonce comes with the published `extension_request` frame, so a caller that did not see the event cannot complete the request. One answer per request; a second is refused.",
+		"requestBody": map[string]any{"required": true, "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"type": "object", "required": []any{"nonce"}, "properties": map[string]any{"nonce": str, "data": map[string]any{"description": "One JSON value returned to the requester"}}}}}},
+		"responses":   map[string]any{"204": map[string]any{"description": "Answer delivered"}, "400": errResponse, "401": errResponse, "403": errResponse, "404": errResponse, "409": errResponse},
+	}}
 }

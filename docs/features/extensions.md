@@ -86,7 +86,7 @@ export function activate(coddy) {
 | --- | --- |
 | `coddy.api`, `coddy.id` | SDK version `1` and the owning extension id. |
 | `coddy.signal` | Aborted when the extension's lifetime ends. Pass it to listeners and requests. |
-| `coddy.host` | The reserved host channel: `host.api` is `1`, `await host.capabilities()` names the manifest permissions this build honours, and `await host.fireEvent({type, data})` publishes one host event - `extension_event` on the shared server stream for hook handlers and an IDE bridge to answer, and `ext.<id>.<type>` to this page's listeners. An event type matches `^[a-z][a-z0-9-]{0,63}$`, and `data` is one JSON value. |
+| `coddy.host` | The reserved host channel: `host.api` is `1`, `await host.capabilities()` names the manifest permissions this build honours, `await host.fireEvent({type, data})` publishes one host event - `extension_event` on the shared server stream so hook handlers and an IDE bridge can answer, and `ext.<id>.<type>` to this page's listeners - and `await host.request({type, data, timeoutMs})` sends one `extension_request` and resolves with the data whoever handles it answers, or `null` at the timeout. An event type matches `^[a-z][a-z0-9-]{0,63}$`, and `data` is one JSON value. |
 | `coddy.assets.text(path)` | Fetch a UTF-8 asset from the exact enabled package through the authenticated API. |
 | `coddy.net.fetch(url, options?)` | Send an HTTP(S) request from the Coddy server and receive a buffered `Response`. |
 | `coddy.events.on(type, listener)` | Observe `tabChanged`, `stepEnded` or `turnEnded`. Returns a `remove()` handle. |

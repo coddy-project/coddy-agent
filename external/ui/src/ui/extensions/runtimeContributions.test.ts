@@ -274,6 +274,56 @@ describe("the widened extension API", () => {
     ).rejects.toThrow(/JSON value/);
   });
 
+  test("request resolves with the answer and null when nobody answers", async () => {
+    setup();
+    let api!: ExtensionAPI;
+    const runtime = new ExtensionRuntime(vi.fn(), async () => ({
+      activate(value) {
+        api = value;
+      },
+    }));
+    await runtime.reconcile([entry]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ answered: true, data: { opened: true } }),
+            {
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+      ),
+    );
+    await expect(
+      api.host.request({
+        type: "open-file",
+        data: { path: "a.ts" },
+        timeoutMs: 5000,
+      }),
+    ).resolves.toEqual({ opened: true });
+    expect(fetch).toHaveBeenCalledWith(
+      "/coddy/extensions/demo/request",
+      expect.objectContaining({ method: "POST" }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ answered: false }), {
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+    await expect(api.host.request({ type: "ping" })).resolves.toBeNull();
+    await expect(api.host.request({ type: "Bad Type" })).rejects.toThrow(
+      /event type/,
+    );
+    await expect(
+      api.host.request({ type: "ping", timeoutMs: 0 }),
+    ).rejects.toThrow(/timeoutMs/);
+  });
+
   test("anchors and the host channel answer through the API", async () => {
     setup();
     const { api, runtime } = await activateOne(() => {});
