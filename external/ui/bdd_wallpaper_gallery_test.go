@@ -11,15 +11,27 @@ import (
 // The server gallery is read by the browser tests, with authenticated API bytes stubbed.
 func TestWebUIWallpaperGalleryFeature(t *testing.T) {
 	steps := []struct{ step, file, name string }{
-		{`^nothing is requested from the server gallery until it is opened$`,
+		{`^Appearance offers a compact always-visible gallery$`,
 			"src/ui/theme/BackdropSettings.test.tsx",
-			"Settings → Appearance → Wallpaper → Gallery nothing is requested from the server gallery until it is opened"},
-		{`^a picked server picture becomes the browser wallpaper without credits$`,
+			"Settings → Appearance → Wallpaper Appearance offers a compact always-visible gallery in en"},
+		{`^a selected thumbnail is marked without a duplicate preview$`,
 			"src/ui/theme/BackdropSettings.test.tsx",
-			"Settings → Appearance → Wallpaper → Gallery a picked server picture becomes the browser wallpaper without credits"},
-		{`^remote thumbnails and selections carry authentication only in headers$`,
+			"Settings → Appearance → Wallpaper a selected thumbnail is marked without a duplicate preview"},
+		{`^upload preserves an existing private background exactly and never uploads it automatically$`,
 			"src/ui/theme/BackdropSettings.test.tsx",
-			"Settings → Appearance → Wallpaper → Gallery remote thumbnails and selections carry authentication only in headers"},
+			"Settings → Appearance → Wallpaper upload preserves an existing private background exactly and never uploads it automatically"},
+		{`^a duplicate upload selects the existing server filename and the grid is sorted$`,
+			"src/ui/theme/BackdropSettings.test.tsx",
+			"Settings → Appearance → Wallpaper a duplicate upload selects the existing server filename and the grid is sorted"},
+		{`^confirmed deletion of a\.png clears only a matching background$`,
+			"src/ui/theme/BackdropSettings.test.tsx",
+			"wallpaper deletion confirmation confirmed deletion of a.png clears only a matching background"},
+		{`^confirmed deletion of z\.png clears only a matching background$`,
+			"src/ui/theme/BackdropSettings.test.tsx",
+			"wallpaper deletion confirmation confirmed deletion of z.png clears only a matching background"},
+		{`^remote uploads, thumbnails, selections and deletes use header authentication$`,
+			"src/ui/theme/BackdropSettings.test.tsx",
+			"wallpaper lifecycle and failures remote uploads, thumbnails, selections and deletes use header authentication"},
 	}
 	suite := godog.TestSuite{
 		Name: "web_ui_wallpaper_gallery",

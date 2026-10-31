@@ -166,9 +166,9 @@
   margin: 8px 0 0;
 }
 
-/* The wallpaper (ui/theme/BackdropSettings.tsx): preview, buttons, gallery
-   and dimming. */
+/* Server wallpapers and the browser-local selection and dimming. */
 .appearance-backdrop-block {
+  position: relative;
   margin-top: 22px;
 }
 
@@ -176,31 +176,42 @@
   margin: 8px 0 0;
 }
 
-.appearance-wallpaper-row {
+.appearance-wallpaper-heading {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  min-height: 40px;
+  padding-right: 92px;
+  margin-bottom: 8px;
 }
 
-.appearance-wallpaper-preview {
-  width: 64px;
-  height: 40px;
-  object-fit: cover;
-  border-radius: 6px;
-  border: 1px solid var(--coddy-glass-panel-border);
+.appearance-wallpaper-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  flex: 0 0 auto;
 }
 
 .appearance-wallpaper-gallery {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
-  margin-top: 10px;
+}
+
+.appearance-wallpaper-tile {
+  position: relative;
+  min-width: 0;
 }
 
 .appearance-wallpaper-thumb {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
   padding: 0;
-  border: 1px solid var(--coddy-glass-panel-border);
+  border: 2px solid var(--coddy-glass-panel-border);
   border-radius: 6px;
   overflow: hidden;
   aspect-ratio: 16 / 9;
@@ -215,18 +226,59 @@
   object-fit: cover;
 }
 
-.appearance-wallpaper-thumb:hover:not(:disabled) {
+.appearance-wallpaper-thumb:hover:not(.is-selected) {
   border-color: color-mix(in srgb, var(--text) 45%, transparent);
 }
 
-.appearance-wallpaper-thumb:disabled {
-  cursor: progress;
-  opacity: 0.6;
+.appearance-wallpaper-thumb.is-selected {
+  border-color: var(--accent);
 }
 
 .appearance-wallpaper-thumb.is-loading {
-  opacity: 1;
+  opacity: 0.6;
+}
+
+.appearance-wallpaper-delete {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 5px;
+  background: var(--coddy-tip-bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.appearance-wallpaper-delete::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+}
+
+.appearance-wallpaper-caption {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 2px 0;
+}
+
+.appearance-wallpaper-delete:hover {
+  color: var(--coddy-danger);
+}
+
+.appearance-wallpaper-delete:focus-visible,
+.appearance-wallpaper-thumb:focus-visible {
   outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .appearance-wallpaper-dim {

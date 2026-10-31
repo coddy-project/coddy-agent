@@ -41,3 +41,44 @@ test("wallpaper leaves the native gradients, grain and panel glass in place with
     "backdrop-filter: var(--coddy-glass-panel-backdrop)",
   );
 });
+
+test("the compact wallpaper gallery keeps destructive controls beside selection", () => {
+  const dock = stylesPartial("settings/dock");
+  const rule = (selector: string) =>
+    squash(
+      dock.match(
+        new RegExp(
+          selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + " \\{([^}]+)\\}",
+        ),
+      )?.[1] ?? "",
+    );
+  expect(rule(".appearance-wallpaper-heading")).toContain("display: flex;");
+  expect(rule(".appearance-wallpaper-actions")).toContain("margin-left: auto;");
+  expect(rule(".appearance-wallpaper-tile")).toContain("position: relative;");
+  expect(rule(".appearance-wallpaper-delete")).toContain("position: absolute;");
+  expect(rule(".appearance-wallpaper-delete")).toContain("top: 2px;");
+  expect(rule(".appearance-wallpaper-delete")).toContain("right: 2px;");
+  expect(rule(".appearance-wallpaper-delete")).toContain("width: 30px;");
+  expect(rule(".appearance-wallpaper-delete")).toContain("height: 30px;");
+  expect(rule(".appearance-wallpaper-thumb.is-selected")).toContain(
+    "border-color: var(--accent);",
+  );
+  expect(dock).toContain(".appearance-wallpaper-thumb:hover:not(.is-selected)");
+  expect(dock).not.toContain(".appearance-wallpaper-preview");
+});
+
+test("wallpaper gallery uses two columns and a compact trash with a 40px hit area", () => {
+  const dock = stylesPartial("settings/dock");
+  expect(dock).toMatch(
+    /\.appearance-wallpaper-gallery\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/,
+  );
+  expect(dock).toMatch(
+    /\.appearance-wallpaper-caption\s*\{[^}]*text-overflow:\s*ellipsis/,
+  );
+  expect(dock).toMatch(
+    /\.appearance-wallpaper-delete\s*\{[^}]*width:\s*30px;[^}]*height:\s*30px/,
+  );
+  expect(dock).toMatch(
+    /\.appearance-wallpaper-delete::after\s*\{[^}]*inset:\s*-5px/,
+  );
+});

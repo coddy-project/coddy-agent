@@ -8,41 +8,36 @@ import (
 	"github.com/cucumber/godog"
 )
 
-// The wallpaper is a client-side choice kept in the browser: the block of
-// Settings, the store and the stylesheet are read by the Vitest tests each step
-// runs.
+// The gallery controls, browser-local selection and stylesheet are exercised by Vitest.
 func TestWebUIWallpaperFeature(t *testing.T) {
 	steps := []struct{ step, file, name string }{
-		{`^a chosen picture shows its preview, the dimming and Remove$`,
+		{`^upload selects the actual returned name when no background is set$`,
 			"src/ui/theme/BackdropSettings.test.tsx",
-			"Settings → Appearance → Wallpaper a chosen picture shows its preview, the dimming and Remove"},
-		{`^the picture becomes the wallpaper and Remove takes it away$`,
-			"src/ui/theme/backdropPrefs.test.ts",
-			"wallpaper a readable picture becomes the wallpaper"},
+			"Settings → Appearance → Wallpaper upload selects the actual returned name when no background is set"},
+		{`^clear background keeps the server file and clears only the browser selection$`,
+			"src/ui/theme/BackdropSettings.test.tsx",
+			"Settings → Appearance → Wallpaper clear background keeps the server file and clears only the browser selection"},
 		{`^the page carries the wallpaper and its dimming while one is set$`,
 			"src/ui/theme/backdropPrefs.test.ts",
 			"wallpaper <html> carries the wallpaper and its dimming while one is set"},
 		{`^the wallpaper covers the viewport, dimmed toward the theme's canvas colour$`,
 			"src/ui/theme/wallpaperCss.test.ts",
 			"a wallpaper covers the viewport, dimmed toward the theme's canvas colour"},
-		{`^a small picture shows its preview without a size refusal$`,
-			"src/ui/theme/BackdropSettings.test.tsx",
-			"Settings → Appearance → Wallpaper a small picture shows its preview without a size refusal"},
 		{`^a readable picture larger than 20 MiB becomes the wallpaper$`,
 			"src/ui/theme/backdropPrefs.test.ts",
 			"wallpaper a readable picture larger than 20 MiB becomes the wallpaper"},
 		{`^a gallery thumbnail larger than 20 MiB is displayed$`,
 			"src/ui/theme/BackdropSettings.test.tsx",
-			"Settings → Appearance → Wallpaper → Gallery a gallery thumbnail larger than 20 MiB is displayed"},
+			"Settings → Appearance → Wallpaper a gallery thumbnail larger than 20 MiB is displayed"},
 		{`^a wallpaper remains visible in simplified mode$`,
 			"src/ui/theme/wallpaperCss.test.ts",
 			"a wallpaper remains visible in simplified mode"},
 		{`^dimming is kept in a cookie and bounded to 0\.\.90$`,
 			"src/ui/theme/backdropPrefs.test.ts",
 			"wallpaper dimming is kept in a cookie and bounded to 0..90"},
-		{`^Appearance offers wallpaper without a gradient control$`,
+		{`^Appearance offers a compact always-visible gallery$`,
 			"src/ui/theme/BackdropSettings.test.tsx",
-			"Appearance offers wallpaper without a gradient control in en"},
+			"Settings → Appearance → Wallpaper Appearance offers a compact always-visible gallery in en"},
 		{`^the backdrop store holds only wallpaper choices$`,
 			"src/ui/theme/backdropPrefs.test.ts",
 			"the backdrop store holds only wallpaper choices"},

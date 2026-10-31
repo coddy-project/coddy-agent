@@ -2,6 +2,7 @@
 package wallpaper
 
 import (
+	"context"
 	"errors"
 	"image"
 	_ "image/gif"
@@ -103,6 +104,10 @@ func validName(name string) bool {
 }
 
 func openGallery(home string) (*os.Root, error) {
+	return openGalleryMode(home, false)
+}
+
+func openGalleryMode(home string, create bool) (*os.Root, error) {
 	// An empty configuration must not accidentally expose the process cwd.
 	if home == "" {
 		return nil, ErrUnavailable
@@ -113,6 +118,12 @@ func openGallery(home string) (*os.Root, error) {
 	}
 	defer func() { _ = parent.Close() }()
 	before, err := parent.Lstat("wallpapers")
+	if errors.Is(err, fs.ErrNotExist) && create {
+		if err := parent.Mkdir("wallpapers", 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
+			return nil, ErrUnavailable
+		}
+		before, err = parent.Lstat("wallpapers")
+	}
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, ErrNotFound
 	}
@@ -137,6 +148,10 @@ func openGallery(home string) (*os.Root, error) {
 }
 
 func readImage(root *os.Root, name string) (Image, error) {
+	return readImageContext(context.Background(), root, name)
+}
+
+func readImageContext(ctx context.Context, root *os.Root, name string) (Image, error) {
 	before, err := root.Lstat(name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return Image{}, ErrNotFound
@@ -151,9 +166,12 @@ func readImage(root *os.Root, name string) (Image, error) {
 	if err != nil {
 		return Image{}, err
 	}
-	contentType, err := recognize(file)
+	contentType, err := recognize(contextReader{ctx, file})
 	if err != nil {
 		_ = file.Close()
+		if ctx.Err() != nil {
+			return Image{}, ctx.Err()
+		}
 		return Image{}, err
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {

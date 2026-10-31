@@ -3,6 +3,9 @@
 package wallpaper
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -69,5 +72,26 @@ func TestSpecialFilesDoNotBlock(t *testing.T) {
 	rows, err := List(home)
 	if err != nil || len(rows) != 0 {
 		t.Fatalf("FIFO listing: %v, %v", rows, err)
+	}
+}
+
+func TestMutationsRefuseFIFOAndPreserveCollision(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, "wallpapers")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Mkfifo(filepath.Join(dir, "pipe.png"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Delete(context.Background(), home, "pipe.png"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("FIFO delete: %v", err)
+	}
+	result, err := Upload(context.Background(), home, "pipe.png", bytes.NewReader(encodePicture(t, "png", 1, 1)))
+	if err != nil || result.Wallpaper.Name != "pipe-2.png" {
+		t.Fatalf("FIFO collision: %+v, %v", result, err)
+	}
+	if info, err := os.Lstat(filepath.Join(dir, "pipe.png")); err != nil || info.Mode()&os.ModeNamedPipe == 0 {
+		t.Fatalf("FIFO replaced: %v", err)
 	}
 }

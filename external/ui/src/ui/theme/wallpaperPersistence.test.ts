@@ -308,3 +308,156 @@ test("a saved high-resolution picture is restored without a pixel limit", async 
   expect(prefs.backdropSnapshot().storageError).toBeUndefined();
   expect(URL.createObjectURL).toHaveBeenCalledOnce();
 });
+
+test("gallery identity commits with the blob and survives reload", async () => {
+  const db = controlledDb();
+  let prefs = await import("./backdropPrefs");
+  const gallery = { scope: "https://node.test/mount", name: "a.png" };
+  const blob = picture("selected");
+  const selection = prefs.setWallpaper(blob, undefined, gallery);
+  await waitFor(() => expect(db.operations).toHaveLength(1));
+  expect(prefs.backdropSnapshot()).not.toHaveProperty("gallery");
+  db.commit(db.operations[0]!);
+  await selection;
+  expect(prefs.backdropSnapshot()).toHaveProperty("gallery", gallery);
+  expect(db.stored()).toEqual({ blob, gallery });
+  vi.resetModules();
+  prefs = await import("./backdropPrefs");
+  const startup = prefs.loadWallpaper();
+  await waitFor(() => expect(db.operations).toHaveLength(2));
+  db.commit(db.operations[1]!, db.stored());
+  await startup;
+  expect(prefs.backdropSnapshot()).toHaveProperty("gallery", gallery);
+  expect(prefs.backdropSnapshot().wallpaper).not.toBeNull();
+});
+
+test("legacy stored blobs remain private and are never uploaded", async () => {
+  const db = controlledDb();
+  const fetch = vi.fn();
+  vi.stubGlobal("fetch", fetch);
+  const prefs = await import("./backdropPrefs");
+  const startup = prefs.loadWallpaper();
+  await waitFor(() => expect(db.operations).toHaveLength(1));
+  db.commit(db.operations[0]!, picture("private"));
+  await startup;
+  expect(prefs.backdropSnapshot().wallpaper).not.toBeNull();
+  expect(prefs.backdropSnapshot()).not.toHaveProperty("gallery");
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+test("persisted gallery identity cannot contain URL credentials or query tokens", async () => {
+  const db = controlledDb();
+  const prefs = await import("./backdropPrefs");
+  const blob = picture("selected");
+  const selection = prefs.setWallpaper(blob, undefined, {
+    scope: "https://user:password@node.test/mount/?token=secret#private",
+    name: "a.png",
+  });
+  await waitFor(() => expect(db.operations).toHaveLength(1));
+  db.commit(db.operations[0]!);
+  await selection;
+  expect(db.stored()).toEqual({
+    blob,
+    gallery: { scope: "https://node.test/mount", name: "a.png" },
+  });
+});
+
+test("concurrent startup callers share one IndexedDB read", async () => {
+  const db = controlledDb();
+  const prefs = await import("./backdropPrefs");
+  const first = prefs.loadWallpaper();
+  const second = prefs.loadWallpaper();
+  await waitFor(() => expect(db.operations.length).toBeGreaterThan(0));
+  expect(db.operations).toHaveLength(1);
+  db.commit(db.operations[0]!, picture("saved"));
+  await Promise.all([first, second]);
+  expect(prefs.backdropSnapshot().wallpaper).not.toBeNull();
+});
+
+test.each(["saved", "empty", "failed"])(
+  "shared delayed startup resolves the %s storage state before an automatic choice",
+  async (outcome) => {
+    const db = controlledDb();
+    const prefs = await import("./backdropPrefs");
+    const initial = prefs.loadWallpaper();
+    const automatic = (async () => {
+      await prefs.loadWallpaper();
+      if (
+        !prefs.backdropSnapshot().wallpaper &&
+        !prefs.backdropSnapshot().storageError
+      ) {
+        await prefs.setWallpaper(picture("uploaded"));
+      }
+    })();
+    await waitFor(() => expect(db.operations).toHaveLength(1));
+    if (outcome === "failed") db.operations[0]!.transaction.onabort?.();
+    else
+      db.commit(
+        db.operations[0]!,
+        outcome === "saved" ? picture("saved") : undefined,
+      );
+    await initial;
+    if (outcome === "empty") {
+      await waitFor(() => expect(db.operations).toHaveLength(2));
+      db.commit(db.operations[1]!);
+    }
+    await automatic;
+    expect(
+      db.operations.filter((operation) => operation.kind === "get"),
+    ).toHaveLength(1);
+    expect(
+      db.operations.filter((operation) => operation.kind === "put"),
+    ).toHaveLength(outcome === "empty" ? 1 : 0);
+    expect(Boolean(prefs.backdropSnapshot().storageError)).toBe(
+      outcome === "failed",
+    );
+    expect(Boolean(prefs.backdropSnapshot().wallpaper)).toBe(
+      outcome !== "failed",
+    );
+  },
+);
+
+test("a deleted saved wallpaper is cleared after its pending startup restore", async () => {
+  const db = controlledDb();
+  const prefs = await import("./backdropPrefs");
+  const gallery = { scope: "https://node.test", name: "a.png" };
+  const startup = prefs.loadWallpaper();
+  const revision = prefs.wallpaperChoiceRevision();
+  const removal = prefs.clearDeletedWallpaper(gallery, revision);
+  await waitFor(() => expect(db.operations).toHaveLength(1));
+  db.commit(db.operations[0]!, { blob: picture("saved"), gallery });
+  await startup;
+  await waitFor(() => expect(db.operations).toHaveLength(2));
+  expect(db.operations[1]!.kind).toBe("delete");
+  db.commit(db.operations[1]!);
+  await removal;
+  expect(db.stored()).toBeUndefined();
+  expect(prefs.backdropSnapshot().wallpaper).toBeNull();
+});
+
+test.each(["before", "during"])(
+  "failed selection %s bootstrap preserves the saved picture",
+  async (when) => {
+    const db = controlledDb();
+    const prefs = await import("./backdropPrefs");
+    let startup: Promise<void>;
+    if (when === "before") {
+      expect(
+        (await prefs.setWallpaper(new Blob(["bad"], { type: "text/plain" })))
+          .refusal,
+      ).toBe("not-image");
+      startup = prefs.loadWallpaper();
+    } else {
+      startup = prefs.loadWallpaper();
+      await waitFor(() => expect(db.operations).toHaveLength(1));
+      expect(
+        (await prefs.setWallpaper(new Blob(["bad"], { type: "text/plain" })))
+          .refusal,
+      ).toBe("not-image");
+    }
+    await waitFor(() => expect(db.operations).toHaveLength(1));
+    db.commit(db.operations[0]!, picture("saved"));
+    await startup;
+    expect(prefs.backdropSnapshot().wallpaper).not.toBeNull();
+  },
+);

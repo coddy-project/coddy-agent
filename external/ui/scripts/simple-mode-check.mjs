@@ -395,9 +395,13 @@ async function theSwitch() {
       .map((b) => b.getAttribute("data-testid") || "grid")
       .join(),
   );
+  // The sheet's blocks stand in one fixed order under the grid, with nothing
+  // inserted between them: the mode switch, then the wallpaper, then the language.
   check(
-    "the switch stands between the theme grid and the language",
-    order.startsWith("grid,appearance-simple,appearance-language-picker"),
+    "the theme grid, the mode switch, the wallpaper and the language stand in that order",
+    order.startsWith(
+      "grid,appearance-simple,appearance-wallpaper,appearance-language-picker",
+    ),
     order,
   );
 

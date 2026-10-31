@@ -2,6 +2,7 @@ package wallpaper
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"hash/crc32"
@@ -388,5 +389,36 @@ func (failedHeaderReader) Read([]byte) (int, error) { return 0, errors.New("stor
 func TestHeaderIOErrorIsUnavailable(t *testing.T) {
 	if _, err := recognize(failedHeaderReader{}); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("I/O failure became invalid header: %v", err)
+	}
+}
+
+func TestAnimatedWebPHeaderIsRecognized(t *testing.T) {
+	base, err := os.ReadFile("testdata/solid.webp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := make([]byte, 30)
+	copy(raw, "RIFF")
+	copy(raw[8:], "WEBPVP8X")
+	binary.LittleEndian.PutUint32(raw[16:20], 10)
+	raw[20] = 2 // Animation flag; frame payloads remain the browser's concern.
+	raw[24], raw[25], raw[27], raw[28] = 0xff, 0x04, 0xcf, 0x02
+	raw = append(raw, []byte{'A', 'N', 'I', 'M', 6, 0, 0, 0, 0, 0, 0, 0, 0, 0}...)
+	frame := make([]byte, 24)
+	copy(frame, "ANMF")
+	binary.LittleEndian.PutUint32(frame[4:8], uint32(16+len(base)-12))
+	frame[14], frame[15], frame[17], frame[18] = 0xff, 0x04, 0xcf, 0x02
+	frame[20] = 10
+	raw = append(raw, frame...)
+	raw = append(raw, base[12:]...)
+	binary.LittleEndian.PutUint32(raw[4:8], uint32(len(raw)-8))
+	home := t.TempDir()
+	result, err := Upload(context.Background(), home, "animated.webp", bytes.NewReader(raw))
+	if err != nil || !result.Created {
+		t.Fatalf("animated upload: %+v %v", result, err)
+	}
+	picture, err := readTestImage(t, home, "animated.webp")
+	if err != nil || picture.ContentType != "image/webp" {
+		t.Fatalf("animated header: %+v %v", picture, err)
 	}
 }

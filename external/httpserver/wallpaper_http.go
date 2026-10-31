@@ -14,6 +14,8 @@ import (
 func (s *Server) registerWallpaperRoutes() {
 	s.mux.HandleFunc("GET /coddy/wallpapers", s.wallpapersGet)
 	s.mux.HandleFunc("GET /coddy/wallpapers/{name}", s.wallpaperGet)
+	s.mux.HandleFunc("POST /coddy/wallpapers/{name}", s.wallpaperPost)
+	s.mux.HandleFunc("DELETE /coddy/wallpapers/{name}", s.wallpaperDelete)
 }
 
 func (s *Server) wallpapersGet(w http.ResponseWriter, _ *http.Request) {
@@ -50,9 +52,34 @@ func (s *Server) wallpaperGet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) wallpaperPost(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	result, err := wallpaper.Upload(r.Context(), s.activeCfg().Paths.Home, r.PathValue("name"), r.Body)
+	if err != nil {
+		writeWallpaperError(w, err)
+		return
+	}
+	status := http.StatusOK
+	if result.Created {
+		status = http.StatusCreated
+	}
+	writeJSON(w, status, result)
+}
+
+func (s *Server) wallpaperDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if err := wallpaper.Delete(r.Context(), s.activeCfg().Paths.Home, r.PathValue("name")); err != nil {
+		writeWallpaperError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func writeWallpaperError(w http.ResponseWriter, err error) {
 	status, message := http.StatusInternalServerError, "wallpaper gallery unavailable"
 	switch {
+	case errors.Is(err, wallpaper.ErrUnavailable):
+		status, message = http.StatusInternalServerError, "wallpaper gallery unavailable"
 	case errors.Is(err, wallpaper.ErrInvalidName):
 		status, message = http.StatusBadRequest, "invalid wallpaper name"
 	case errors.Is(err, wallpaper.ErrNotFound):

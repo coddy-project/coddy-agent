@@ -143,3 +143,101 @@ describe("server wallpaper gallery", () => {
     await expect(readGallery(new AbortController().signal)).rejects.toThrow();
   });
 });
+
+describe("wallpaper gallery mutations", () => {
+  test.each([true, false])(
+    "upload sends raw bytes and uses the actual returned name (created %s)",
+    async (created) => {
+      const api = await import("./wallpaperGallery");
+      setEnv({
+        mode: "remote",
+        baseUrl: "https://node.test/mount",
+        token: "private",
+      });
+      const file = new File(["bytes"], "own #1.png", { type: "image/png" });
+      const fetch = vi.fn(
+        async (_url: RequestInfo | URL, _init?: RequestInit) =>
+          Response.json(
+            { wallpaper: { name: "existing.png" }, created },
+            { status: created ? 201 : 200 },
+          ),
+      );
+      vi.stubGlobal("fetch", fetch);
+      const signal = new AbortController().signal;
+      expect(await api.uploadGalleryPhoto(file, signal)).toEqual({
+        wallpaper: { name: "existing.png" },
+        created,
+      });
+      const [url, init] = fetch.mock.calls[0]!;
+      expect(url).toBe(
+        "https://node.test/mount/coddy/wallpapers/own%20%231.png",
+      );
+      expect(init?.method).toBe("POST");
+      expect(init?.body).toBe(file);
+      expect(init?.signal).toBe(signal);
+      expect(new Headers(init?.headers).get("Authorization")).toBe(
+        "Bearer private",
+      );
+    },
+  );
+  test("delete uses authenticated DELETE and requires 204", async () => {
+    const api = await import("./wallpaperGallery");
+    setEnv({
+      mode: "remote",
+      baseUrl: "https://node.test/mount",
+      token: "private",
+    });
+    const fetch = vi.fn(
+      async (_url: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(null, { status: 204 }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    await api.deleteGalleryPhoto(
+      { name: "a #.png" },
+      new AbortController().signal,
+    );
+    expect(fetch.mock.calls[0]![0]).toBe(
+      "https://node.test/mount/coddy/wallpapers/a%20%23.png",
+    );
+    expect(fetch.mock.calls[0]![1]?.method).toBe("DELETE");
+    expect(
+      new Headers(fetch.mock.calls[0]![1]?.headers).get("Authorization"),
+    ).toBe("Bearer private");
+    fetch.mockResolvedValueOnce(new Response(null, { status: 500 }));
+    await expect(
+      api.deleteGalleryPhoto({ name: "a.png" }, new AbortController().signal),
+    ).rejects.toThrow();
+  });
+  test("gallery scope drops credentials, query secrets and fragments", async () => {
+    const api = await import("./wallpaperGallery");
+    setEnv({
+      mode: "remote",
+      baseUrl: "https://user:password@node.test/mount/?token=secret#private",
+      token: "bearer",
+    });
+    expect(api.galleryEnvironmentScope()).toBe("https://node.test/mount");
+    setEnv({
+      mode: "remote",
+      baseUrl: "https://other.test/mount",
+      token: "bearer",
+    });
+    expect(api.galleryEnvironmentScope()).toBe("https://other.test/mount");
+  });
+  test.each([
+    { wallpaper: { name: "../bad.png" }, created: true },
+    { wallpaper: { name: "ok.png" }, created: "yes" },
+    { name: "ok.png" },
+  ])("malformed upload replies are refused", async (body) => {
+    const api = await import("./wallpaperGallery");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json(body, { status: 201 })),
+    );
+    await expect(
+      api.uploadGalleryPhoto(
+        new File(["x"], "a.png"),
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow();
+  });
+});
