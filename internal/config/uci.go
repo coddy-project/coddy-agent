@@ -548,7 +548,7 @@ func (r *ConfigCommitResult) rollbackLocked() error {
 	}
 	snapshot := PrevConfigPath(r.paths.ConfigPath)
 	if r.prevExisted {
-		restoreErr = errors.Join(restoreErr, atomicWriteFile(snapshot, r.prevSnapshot, 0o600))
+		restoreErr = errors.Join(restoreErr, AtomicWriteFile(snapshot, r.prevSnapshot, 0o600))
 	} else if err := os.Remove(snapshot); err != nil && !errors.Is(err, os.ErrNotExist) {
 		restoreErr = errors.Join(restoreErr, err)
 	}
@@ -625,7 +625,7 @@ func commitUCICommandsLocked(paths Paths, cmds []UCICommand) (*ConfigCommitResul
 	// The snapshot is written even for the first commit into a missing file
 	// (as an empty document), so config_rollback can always return to the
 	// pre-commit state.
-	if err := atomicWriteFile(PrevConfigPath(paths.ConfigPath), previous, 0o600); err != nil {
+	if err := AtomicWriteFile(PrevConfigPath(paths.ConfigPath), previous, 0o600); err != nil {
 		return nil, fmt.Errorf("snapshot config: %w", err)
 	}
 	if err := AtomicWriteConfigYAML(paths.ConfigPath, updated); err != nil {
@@ -689,7 +689,7 @@ func (r *ConfigRollbackResult) Rollback() error {
 func (r *ConfigRollbackResult) rollbackLocked() error {
 	var restoreErr error
 	restoreErr = errors.Join(restoreErr, AtomicWriteConfigYAML(r.paths.ConfigPath, r.replaced))
-	restoreErr = errors.Join(restoreErr, atomicWriteFile(r.SnapshotPath, r.restored, 0o600))
+	restoreErr = errors.Join(restoreErr, AtomicWriteFile(r.SnapshotPath, r.restored, 0o600))
 	return restoreErr
 }
 
@@ -756,7 +756,7 @@ func rollbackConfigFromSnapshotLocked(paths Paths) (*ConfigRollbackResult, error
 	if err := AtomicWriteConfigYAML(paths.ConfigPath, snapshot); err != nil {
 		return nil, fmt.Errorf("restore config: %w", err)
 	}
-	if err := atomicWriteFile(snapshotPath, current, 0o600); err != nil {
+	if err := AtomicWriteFile(snapshotPath, current, 0o600); err != nil {
 		if rbErr := AtomicWriteConfigYAML(paths.ConfigPath, current); rbErr != nil {
 			return nil, fmt.Errorf("swap snapshot: %w (restore failed: %v): %w", err, rbErr, ErrConfigStateUncertain)
 		}

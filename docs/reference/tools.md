@@ -7,7 +7,7 @@ The built-in tools the model can call, their arguments, permissions and the mode
 The Permission column uses the classes the gate in `internal/agent/react.go` applies under the session's permission mode (`ask` until another is chosen, `accept_edits`, `bypass`; see [Security and trust](../operate/security.md#permission-modes-and-prompts)):
 
 - `none`: never prompts;
-- `write`: the file-write class - prompts under `ask` unless the path was granted in this session, auto-approved under `accept_edits` and `bypass`;
+- `write`: the file-write class - prompts under `ask` unless the path was granted in this session, auto-approved under `bypass` and, inside the workspace, under `accept_edits`;
 - `command`: `run_command` - prompts unless the command is covered by `tools.command_allowlist` or a session grant (including the program-wide grants a prompt can store, see [Background tasks](../features/background-tasks.md#permissions)); `bypass` skips the prompt;
 - `config`: `config_commit` and `config_rollback` - prompts under `ask` and `accept_edits`, since a commit can start MCP processes and change the permission policy itself; only `bypass` skips it;
 - `http`: `http_request` - prompts under `ask` and `accept_edits` unless the destination is in `tools.http_request.allowlist` or was approved in this session and everything the request carries (local files, a proxy, an unchecked certificate, and under `ask` the file it saves) was approved with it; `bypass` skips it ([HTTP requests](../features/http-requests.md#permissions));

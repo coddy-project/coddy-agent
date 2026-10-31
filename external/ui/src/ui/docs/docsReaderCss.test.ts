@@ -75,6 +75,24 @@ test("the zoom level stays on one line", () => {
   expect(rule(".zoom-control--level")).toMatch(/white-space:\s*nowrap/);
 });
 
+test("shared zoom controls stay compact at every viewport", () => {
+  const controls = [
+    ...css.matchAll(/(?:^|\n)\s*\.zoom-control\s*\{([^}]+)\}/g),
+  ];
+  expect(controls.length).toBeGreaterThan(0);
+  for (const [, body] of controls) {
+    expect(px(body!, "width")).toBe(28);
+    expect(px(body!, "height")).toBe(28);
+  }
+  const levels = [
+    ...css.matchAll(/(?:^|\n)\s*\.zoom-control--level\s*\{([^}]+)\}/g),
+  ];
+  expect(levels.length).toBeGreaterThan(0);
+  for (const [, body] of levels) {
+    expect(px(body!, "min-width")).toBe(48);
+  }
+});
+
 // The page scrolls under the header, not with it: the scrollbar starts below
 // the search box instead of running up beside it.
 test("the reader scrolls its body, not the sheet the header sits in", () => {

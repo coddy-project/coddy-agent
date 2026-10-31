@@ -6,13 +6,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"golang.org/x/term"
+
 	"github.com/EvilFreelancer/coddy-agent/internal/httpx"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	swarmdto "github.com/EvilFreelancer/coddy-agent/internal/swarm"
 )
 
@@ -21,6 +27,38 @@ const Available = true
 
 // shutdownGrace bounds the wait for in-flight proxied requests on stop.
 const shutdownGrace = 10 * time.Second
+
+// generatedTokenFile is where a relay without a client token leaves the one it
+// generated for the run, under the coddy home and readable by the owner only.
+const generatedTokenFile = "swarm-token"
+
+// announceGeneratedToken tells the operator a generated client token. The value
+// goes to an owner-only file, and to stderr only when that is a terminal: a
+// relay in the background has its stderr in logs/serve.log, and under systemd in
+// the journal, which outlive the run and have more readers than the operator.
+func announceGeneratedToken(home, token string, log *slog.Logger, stderr io.Writer, terminal bool) (bool, error) {
+	path := filepath.Join(home, generatedTokenFile)
+	report, fileErr := platform.WritePrivateFileReplacing(path, []byte(token+"\n"))
+	written := fileErr == nil
+	if written {
+		log.Warn("swarm: no client token configured, generated one for this run", "file", path)
+		if report.DirSyncErr != nil {
+			log.Warn("swarm: token file written but directory sync failed", "error", report.DirSyncErr)
+		}
+	} else {
+		log.Warn("swarm: generated token file could not be saved", "file", path, "error", fileErr)
+	}
+	delivered := false
+	if terminal {
+		text := fmt.Sprintf("swarm: generated client token for this run: %s\n", token)
+		n, err := io.WriteString(stderr, text)
+		delivered = err == nil && n == len(text)
+	}
+	if !written && !delivered {
+		return false, fmt.Errorf("swarm: generated client token could not be delivered; set swarm.auth_token")
+	}
+	return written, nil
+}
 
 // Serve runs the relay until ctx is cancelled.
 func Serve(ctx context.Context, opts Options) error {
@@ -58,8 +96,13 @@ func Serve(ctx context.Context, opts Options) error {
 			return gerr
 		}
 		srv.SetExtraAuthTokens([]string{generated})
-		log.Warn("swarm: no client token configured, generated one for this run", "token", generated)
-		fmt.Fprintf(os.Stderr, "swarm: generated client token for this run: %s\n", generated)
+		written, err := announceGeneratedToken(opts.Home, generated, log, os.Stderr, term.IsTerminal(int(os.Stderr.Fd())))
+		if err != nil {
+			return err
+		}
+		if written {
+			defer func() { _ = os.Remove(filepath.Join(opts.Home, generatedTokenFile)) }()
+		}
 	}
 	if !cfg.Swarm.RegistrationOpen() {
 		log.Warn("swarm: registration is closed, no node can join (set swarm.pairing_tokens or --swarm-pairing-token)")

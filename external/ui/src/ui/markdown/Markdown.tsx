@@ -19,7 +19,12 @@ import { copyText } from "../clipboard";
 import { useT } from "../i18n/I18nProvider";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
 import { docsHrefFromCoddyLink } from "../scheduler/hashRoute";
-import { DiagramBlock, MarkdownStreamingContext } from "./DiagramBlock";
+import {
+  DiagramBlock,
+  MarkdownStreamingContext,
+  RemoteMediaContext,
+  type RemoteMedia,
+} from "./DiagramBlock";
 import {
   FileLink,
   FileReferenceLink,
@@ -51,6 +56,62 @@ const REHYPE_PLUGINS = [rehypeHighlightShared];
 /** A video file where Markdown has an image: the documentation embeds its
  *  recordings this way, fetched from GitHub when they play. */
 const VIDEO_SRC = /\.(mp4|webm|mov)(?:[?#]|$)/i;
+
+/** The host of a picture's address when it is on another site, else null:
+ *  a relative address, the page's own origin, data: and blob: load at once. */
+export function remoteMediaHost(src: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(src, window.location.href);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  return url.origin === window.location.origin ? null : url.host;
+}
+
+/**
+ * A picture or a video from another site, held until the reader asks for
+ * it: an answer that embeds one would otherwise make the browser fetch it as
+ * soon as the message renders, with whatever its address carries, and the
+ * model's text is not always the operator's (a README, a web page or a tool
+ * result can steer it).
+ */
+function RemoteMediaGate(props: {
+  host: string;
+  alt: string;
+  video: boolean;
+  children: ReactNode;
+}) {
+  const { t } = useT();
+  const [shown, setShown] = useState(false);
+  if (shown) return <>{props.children}</>;
+  const label = t(
+    props.video
+      ? "markdown.remoteMedia.loadVideo"
+      : "markdown.remoteMedia.loadImage",
+    { host: props.host },
+  );
+  return (
+    <button
+      type="button"
+      className="md-remote-media"
+      data-testid="md-remote-media"
+      // A badge is a picture inside a link: load it, leave the link alone.
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setShown(true);
+      }}
+      title={label}
+    >
+      {props.alt ? (
+        <span className="md-remote-media-alt">{props.alt}</span>
+      ) : null}
+      <span className="md-remote-media-action">{label}</span>
+    </button>
+  );
+}
 
 type CodeProps = {
   className?: string | undefined;
@@ -303,7 +364,11 @@ export const Markdown = memo(function Markdown(props: {
    *  card. Off, it is CommonMark's soft break, a space: the chat, the
    *  documentation and every other body keep that. */
   breaks?: boolean;
+  /** Pictures and videos from other sites: held behind a click by default;
+   *  the documentation shipped with Coddy loads its own at once. */
+  remoteMedia?: RemoteMedia;
 }) {
+  const remoteMedia = props.remoteMedia ?? "click";
   const components = useMemo(
     () => ({
       code: MarkdownCode,
@@ -319,12 +384,13 @@ export const Markdown = memo(function Markdown(props: {
           <MarkdownLink {...p} />
         </InsideLinkContext.Provider>
       ),
-      img: (p: ImgProps) =>
-        p.src && VIDEO_SRC.test(p.src) ? (
+      img: (p: ImgProps) => {
+        const video = !!p.src && VIDEO_SRC.test(p.src);
+        const media = video ? (
           <video
             className="md-video"
             // #t=0.1 shows a first frame before it plays, not a black box.
-            src={p.src.includes("#") ? p.src : `${p.src}#t=0.1`}
+            src={p.src!.includes("#") ? p.src : `${p.src}#t=0.1`}
             controls
             preload="metadata"
             playsInline
@@ -337,9 +403,24 @@ export const Markdown = memo(function Markdown(props: {
             {...(p.title ? { title: p.title } : {})}
             loading="lazy"
           />
-        ),
+        );
+        const host =
+          remoteMedia === "click" && p.src ? remoteMediaHost(p.src) : null;
+        if (!host) return media;
+        return (
+          <RemoteMediaGate
+            // A click loads this address, not whatever comes to stand here.
+            key={p.src}
+            host={host}
+            alt={p.alt || ""}
+            video={video}
+          >
+            {media}
+          </RemoteMediaGate>
+        );
+      },
     }),
-    [],
+    [remoteMedia],
   );
 
   const urlTransform = useCallback((url: string) => {
@@ -355,18 +436,20 @@ export const Markdown = memo(function Markdown(props: {
 
   return (
     <MarkdownStreamingContext.Provider value={props.streaming === true}>
-      <div className="md">
-        <ReactMarkdown
-          remarkPlugins={
-            props.breaks ? REMARK_PLUGINS_WITH_BREAKS : REMARK_PLUGINS
-          }
-          rehypePlugins={REHYPE_PLUGINS}
-          components={components}
-          urlTransform={urlTransform}
-        >
-          {normalizeMathDelimiters(props.text)}
-        </ReactMarkdown>
-      </div>
+      <RemoteMediaContext.Provider value={remoteMedia}>
+        <div className="md">
+          <ReactMarkdown
+            remarkPlugins={
+              props.breaks ? REMARK_PLUGINS_WITH_BREAKS : REMARK_PLUGINS
+            }
+            rehypePlugins={REHYPE_PLUGINS}
+            components={components}
+            urlTransform={urlTransform}
+          >
+            {normalizeMathDelimiters(props.text)}
+          </ReactMarkdown>
+        </div>
+      </RemoteMediaContext.Provider>
     </MarkdownStreamingContext.Provider>
   );
 });

@@ -1633,7 +1633,8 @@ export const messagesEn: Record<string, string> = {
   "composer.permissionAcceptEdits": "Accept edits",
   "composer.permissionBypass": "Bypass",
   "composer.permissionAskHint": "Ask before commands and file writes",
-  "composer.permissionAcceptEditsHint": "File writes pass, commands still ask",
+  "composer.permissionAcceptEditsHint":
+    "Writes in the workspace pass, the rest still asks",
   "composer.permissionBypassHint": "Nothing asks for approval",
   "composer.overridesTitle": "Changed for the next turns:\n{list}",
   "composer.overrideThisTurn": "{value} this turn",
@@ -2576,6 +2577,11 @@ export const messagesEn: Record<string, string> = {
   "markdown.figure.downloadSource": "Download the source (.mmd)",
   "markdown.figure.downloadSvg": "Download as SVG (.svg)",
   "markdown.figure.open": "Open the picture",
+  "markdown.figure.draw": "Draw the diagram",
+  "markdown.figure.drawHint":
+    "It can fetch pictures from other sites as it is drawn",
+  "markdown.remoteMedia.loadImage": "Load the picture from {host}",
+  "markdown.remoteMedia.loadVideo": "Load the video from {host}",
   "markdown.figure.rendering": "Drawing…",
   "markdown.figure.error": "Could not draw the picture: {message}",
   "markdown.figure.loadError":

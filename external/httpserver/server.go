@@ -233,6 +233,10 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		loginThrottle:        &webauth.Throttle{},
 	}
 	s.cfgAt.Store(cfg)
+	// A Mini App launch signs one browser in once, across restarts too.
+	if cfg != nil && strings.TrimSpace(cfg.Paths.Home) != "" {
+		s.tgReplay.SetFile(filepath.Join(cfg.Paths.Home, "telegram-launches.json"))
+	}
 	// A board changes from a tool call of any surface's turn or from a route
 	// of this server; either way the web UI reads it again on the event.
 	s.removeCanvasObserver = canvas.OnChange(s.publishCanvasChanged)
@@ -422,11 +426,11 @@ func (s *Server) redirectDocsTrailingSlash(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, "/docs/", http.StatusFound)
 }
 
-// Handler returns the root HTTP handler: CORS wraps the auth gate wraps the route mux. Both
-// middlewares are no-ops unless configured, so unauthenticated, same-origin deployments are
-// unchanged.
+// Handler returns the root HTTP handler: CORS wraps the open-server guard wraps the auth gate
+// wraps the route mux. CORS and the auth gate are no-ops unless configured; the guard applies only
+// while no credential is configured (open_server_guard.go).
 func (s *Server) Handler() http.Handler {
-	return s.corsMiddleware(s.authGate(s.mux))
+	return s.corsMiddleware(s.openServerGuard(s.authGate(s.mux)))
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {

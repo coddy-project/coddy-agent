@@ -112,6 +112,20 @@
   overflow-wrap: anywhere;
 }
 
+/* With no target, the duration can follow the last word on a wrapped line. */
+.thinking-head--targetless {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.thinking-head--targetless .thinking-label {
+  display: inline;
+}
+
+.thinking-head--targetless .thinking-dur {
+  display: inline-block;
+}
+
 /* The target, the failure marker and the duration (.thinking-trail) travel together:
    on the label's line while it has the room the group needs, under the label as a whole
    when it does not, so the duration never ends up alone on a line after a target cut to
