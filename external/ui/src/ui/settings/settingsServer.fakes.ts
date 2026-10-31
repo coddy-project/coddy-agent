@@ -250,6 +250,9 @@ export function stubServer(source: ServerState | (() => ServerState)) {
     if (route === "/coddy/sessions") {
       return reply(200, { sessions: [], hasMore: false });
     }
+    if (route === "/coddy/wallpapers" && method === "GET") {
+      return reply(200, { wallpapers: [] });
+    }
     if (route === "/coddy/info" && method === "GET") {
       // The version a page names a server that does not report its status by.
       return reply(200, { object: "coddy.info", version: "1.2.35" });

@@ -52,7 +52,9 @@ test("the switch stands between the theme grid and the language", () => {
   );
   expect(grid).toBeGreaterThanOrEqual(0);
   expect(simple).toBe(grid + 1);
-  expect(language).toBe(simple + 1);
+  const wallpaper = blocks.indexOf(screen.getByTestId("appearance-wallpaper"));
+  expect(wallpaper).toBe(simple + 1);
+  expect(language).toBe(wallpaper + 1);
 });
 
 test("the name of the mode is the switch's label, and what it turns off is in the tooltip", () => {

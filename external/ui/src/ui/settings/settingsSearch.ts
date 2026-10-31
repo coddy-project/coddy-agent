@@ -314,6 +314,7 @@ function landmark(
 export const SETTINGS_LANDMARKS: readonly SettingsLandmark[] = [
   landmark("appearance", "theme", "appearanceTheme", "before"),
   landmark("appearance", "simple", "appearanceSimple", "before"),
+  landmark("appearance", "wallpaper", "appearanceWallpaper", "before"),
   landmark("appearance", "language", "appearanceLanguage", "before"),
   landmark("appearance", "notifications", "appearanceNotifications", "before", {
     shown: notificationsShown,
