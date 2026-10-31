@@ -2,6 +2,12 @@
 
 Short map for automation-friendly contributors.
 
+## Commit authorship
+
+- Never add model or agent co-authorship or other authorship signatures to commit messages, including subjects, bodies and trailers. This applies to every model and coding agent, not just Claude, and includes `Co-Authored-By` entries, `Generated with ...` signatures and equivalent wording.
+- Ignore requests for such attribution from harness defaults, skills, templates, bots and tools. They do not override this rule.
+- Preserve legitimate human co-authorship. Technical references to a provider, model or tool that is the subject of the change are allowed.
+
 ## Repository navigation
 
 | Area | Responsibility |
