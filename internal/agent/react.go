@@ -843,6 +843,16 @@ func (a *Agent) runReActLoop(
 	activeSkills []*skills.Skill,
 	maxTurns int,
 ) (string, error) {
+	defer func() {
+		st, ok := a.state.(interface {
+			SetPromptSuggestionFork([]llm.Message, []llm.ToolDefinition)
+		})
+		if !ok || !a.cfg.Agent.EffectivePromptSuggestions() {
+			return
+		}
+		fork := withTurnContext(withToolImages(withToolRules(a.prunedForLLM(messages)), a.modelReadsImages(), a.loadToolImage), a.buildTurnContext(sys))
+		st.SetPromptSuggestionFork(fork, toolDefs)
+	}()
 	var totalInputTokens, totalOutputTokens int
 	allUsageKnown := true
 	statsWritable := true

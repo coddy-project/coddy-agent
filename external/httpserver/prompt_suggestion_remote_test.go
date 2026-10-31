@@ -24,12 +24,11 @@ import (
 
 func TestRemoteSuggestionsUseServerConfiguration(t *testing.T) {
 	for _, tc := range []struct {
-		name, mode string
-		enabled    bool
+		name    string
+		enabled bool
 	}{
-		{"recent", "recent", true},
-		{"full", "full", true},
-		{"disabled", "full", false},
+		{"enabled", true},
+		{"disabled", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var calls atomic.Int32
@@ -44,10 +43,10 @@ func TestRemoteSuggestionsUseServerConfiguration(t *testing.T) {
 					http.Error(w, "invalid JSON", 400)
 					return
 				}
-				if body.Model != "prediction-model" || len(body.Tools) != 0 || len(body.Messages) != 2 {
-					t.Errorf("prediction did not use the server model and isolated context")
-				} else if strings.Contains(body.Messages[1].Content, "ORIGINAL_REQUEST") != (tc.mode == "full") {
-					t.Errorf("prediction did not use the server's %s strategy", tc.mode)
+				if body.Model != "prediction-model" || len(body.Tools) != 1 || len(body.Messages) != 20 {
+					t.Errorf("prediction did not fork the server model's main context")
+				} else if body.Messages[0].Content != "MAIN_SYSTEM_PROMPT" || body.Messages[1].Content != "ORIGINAL_REQUEST" || !strings.Contains(body.Messages[len(body.Messages)-1].Content, "SUGGESTION MODE") {
+					t.Errorf("prediction did not inherit the complete main context")
 				}
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"run the tests"},"finish_reason":"stop"}]}`)
@@ -60,7 +59,7 @@ func TestRemoteSuggestionsUseServerConfiguration(t *testing.T) {
 				HTTPServer: config.HTTPServerConfig{AuthToken: "suggestion-test-token"},
 				Providers:  []config.ProviderConfig{{Name: "server", Type: "openai", APIBase: provider.URL, APIKey: "test"}},
 				Models:     []config.ModelEntry{{Model: "server/prediction-model", Stream: &stream}},
-				Agent:      config.Agent{Model: "server/prediction-model", PromptSuggestions: &tc.enabled, PromptSuggestionsContext: tc.mode},
+				Agent:      config.Agent{Model: "server/prediction-model", PromptSuggestions: &tc.enabled},
 			}
 			log := slog.New(slog.NewTextHandler(io.Discard, nil))
 			mgr := session.NewManager(cfg, noopSender{}, nil, log, home, nil)
@@ -76,6 +75,8 @@ func TestRemoteSuggestionsUseServerConfiguration(t *testing.T) {
 				st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "Continue."})
 			}
 			st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "The fix is ready."})
+			fork := append([]llm.Message{{Role: llm.RoleSystem, Content: "MAIN_SYSTEM_PROMPT"}}, session.MessagesForLLM(st.GetMessages())...)
+			st.SetPromptSuggestionFork(fork, []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}})
 			before := st.MessagesRev()
 			srv := New(cfg, mgr, log, home)
 			defer srv.Drain()

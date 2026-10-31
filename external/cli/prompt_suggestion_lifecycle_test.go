@@ -44,6 +44,8 @@ func newPromptSuggestionConsole(t *testing.T, providerURL string) (*App, *sessio
 	state := mgr.SessionByID(res.SessionID)
 	state.AddMessage(llm.Message{Role: llm.RoleUser, Content: "fix the bug and run the tests"})
 	state.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "Fixed the bug."})
+	fork := append([]llm.Message{{Role: llm.RoleSystem, Content: "MAIN_SYSTEM_PROMPT"}}, session.MessagesForLLM(state.GetMessages())...)
+	state.SetPromptSuggestionFork(fork, []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}})
 	return app, state
 }
 

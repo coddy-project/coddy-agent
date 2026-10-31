@@ -48,7 +48,13 @@ func newSuggestionTestManager(t *testing.T, respond func(http.ResponseWriter, *h
 	}
 	m := &Manager{sessions: map[string]*State{st.ID: st}}
 	m.cfgAt.Store(cfg)
+	setSuggestionTestFork(st)
 	return m, st, &calls
+}
+
+func setSuggestionTestFork(st *State) {
+	messages := append([]llm.Message{{Role: llm.RoleSystem, Content: "MAIN_SYSTEM_PROMPT"}}, MessagesForLLM(st.GetMessages())...)
+	st.SetPromptSuggestionFork(messages, []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}})
 }
 
 func answerSuggestion(w http.ResponseWriter, _ *http.Request) {
@@ -84,6 +90,7 @@ func TestPromptSuggestionCanceledCallDoesNotCacheNextRevision(t *testing.T) {
 	m.CancelPromptSuggestion(st.ID)
 	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "check another file"})
 	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "checked it"})
+	setSuggestionTestFork(st)
 	select {
 	case <-finished:
 	case <-ctx.Done():
@@ -271,52 +278,94 @@ func TestPromptSuggestionStoreRoundTrip(t *testing.T) {
 	}
 }
 
-func TestPromptSuggestionHistoryWindow(t *testing.T) {
-	t.Run("latest twelve text messages in chronological order", func(t *testing.T) {
-		var msgs []llm.Message
-		for i := 0; i < 18; i++ {
-			msgs = append(msgs,
-				llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("message %d", i)},
-				llm.Message{Role: llm.RoleTool, Content: "tool output"},
-				llm.Message{Role: llm.RoleUser, Content: " \n "},
-				llm.Message{Role: llm.RoleAssistant},
-			)
+type suggestionRequestMessage struct {
+	Role       llm.Role `json:"role"`
+	Content    string   `json:"content"`
+	ToolCallID string   `json:"tool_call_id"`
+	ToolCalls  []struct {
+		ID       string `json:"id"`
+		Function struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		} `json:"function"`
+	} `json:"tool_calls"`
+}
+
+type suggestionRequest struct {
+	Messages []suggestionRequestMessage `json:"messages"`
+	Tools    []struct {
+		Type     string `json:"type"`
+		Function struct {
+			Name        string      `json:"name"`
+			Description string      `json:"description"`
+			Parameters  interface{} `json:"parameters"`
+		} `json:"function"`
+	} `json:"tools"`
+}
+
+func validateSuggestionMainContext(captured suggestionRequest, mainContext []llm.Message) error {
+	if len(captured.Messages) != len(mainContext)+1 {
+		return fmt.Errorf("prediction holds %d messages, want %d", len(captured.Messages), len(mainContext)+1)
+	}
+	for i, want := range mainContext {
+		got := captured.Messages[i]
+		if got.Role != want.Role || got.Content != want.Content || got.ToolCallID != want.ToolCallID || len(got.ToolCalls) != len(want.ToolCalls) {
+			return fmt.Errorf("prediction message %d = %+v, want role/content/calls of %+v", i, got, want)
 		}
-		window := promptSuggestionHistoryWindow(msgs)
-		if len(window) != 12 || window[0].Content != "message 6" || window[11].Content != "message 17" {
-			t.Fatalf("unexpected history window: %+v", window)
+		for j, call := range want.ToolCalls {
+			wire := got.ToolCalls[j]
+			if wire.ID != call.ID || wire.Function.Name != call.Name || wire.Function.Arguments != call.InputJSON {
+				return fmt.Errorf("prediction tool call %d/%d = %+v, want %+v", i, j, wire, call)
+			}
 		}
+	}
+	last := captured.Messages[len(captured.Messages)-1]
+	if last.Role != llm.RoleUser || last.Content != promptSuggestionInstruction {
+		return fmt.Errorf("prediction instruction is not the trailing user message: %+v", last)
+	}
+	return nil
+}
+
+func TestPromptSuggestionUsesMainContextFork(t *testing.T) {
+	var captured suggestionRequest
+	m, st, _ := newSuggestionTestManager(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		answerSuggestion(w, r)
 	})
-	for _, tc := range []struct {
-		name      string
-		texts     []string
-		wantStart int
-	}{
-		{"crossing message is included whole", []string{"old", strings.Repeat("a", 6000), strings.Repeat("b", 5000)}, 1},
-		{"one oversized message", []string{"old", strings.Repeat("z", 15000)}, 1},
-		{"exactly ten thousand continues", []string{"older", "crossing", strings.Repeat("a", 5000), strings.Repeat("b", 5000)}, 1},
-		{"Unicode characters rather than bytes", []string{"older", strings.Repeat("я", 4000), strings.Repeat("界", 4000)}, 0},
-		{"whitespace stays in whole messages", []string{"  user text\n", "\nassistant text  "}, 0},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var msgs []llm.Message
-			for _, text := range tc.texts {
-				msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: text})
-			}
-			got := promptSuggestionHistoryWindow(msgs)
-			if !reflect.DeepEqual(got, msgs[tc.wantStart:]) {
-				t.Fatalf("messages were dropped or clipped: got %d, want %d", len(got), len(msgs)-tc.wantStart)
-			}
-		})
+	mainContext := []llm.Message{
+		{Role: llm.RoleSystem, Content: "MAIN_SYSTEM_PROMPT"},
+		{Role: llm.RoleUser, Content: "FIRST_REQUEST_MARKER"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "read", InputJSON: `{"path":"README.md"}`}}},
+		{Role: llm.RoleTool, ToolCallID: "call_1", Content: "TOOL_RESULT_MARKER"},
+		{Role: llm.RoleAssistant, Content: "completed the last step"},
+	}
+	tools := []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}}
+	st.ReplaceMessagesWithoutPersist(mainContext[1:])
+	st.SetPromptSuggestionFork(mainContext, tools)
+
+	text, err := m.GeneratePromptSuggestion(context.Background(), st.ID)
+	if err != nil || text != "run the tests" {
+		t.Fatalf("suggestion = %q, %v", text, err)
+	}
+	if err := validateSuggestionMainContext(captured, mainContext); err != nil {
+		t.Fatal(err)
+	}
+	if len(captured.Tools) != 1 || captured.Tools[0].Function.Name != tools[0].Name || captured.Tools[0].Function.Description != tools[0].Description || !reflect.DeepEqual(captured.Tools[0].Function.Parameters, tools[0].InputSchema) {
+		t.Fatalf("prediction tools = %#v, want %#v", captured.Tools, tools)
 	}
 }
 
-func TestPromptSuggestionFullHistory(t *testing.T) {
-	var msgs []llm.Message
-	for range 20 {
-		msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: strings.Repeat("я", 3000)})
+func TestPromptSuggestionRefusesStaleFork(t *testing.T) {
+	m, st, calls := newSuggestionTestManager(t, answerSuggestion)
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "a newer message"})
+	text, err := m.GeneratePromptSuggestion(context.Background(), st.ID)
+	if text != "" || !IsPromptSuggestionSuppressed(err) {
+		t.Fatalf("stale fork: text=%q err=%v", text, err)
 	}
-	if got := promptSuggestionHistory(msgs, false); !reflect.DeepEqual(got, msgs) {
-		t.Fatal("full history must keep every text message without clipping")
+	if calls.Load() != 0 {
+		t.Fatalf("stale fork reached the provider %d times", calls.Load())
 	}
 }
