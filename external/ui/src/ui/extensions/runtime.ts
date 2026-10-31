@@ -39,6 +39,7 @@ import { AnchorRegistry, isExtensionAnchorName } from "./anchors";
 import { validateSessionFilter, type SessionFilter } from "./sessionFilters";
 import { ExtensionI18n, type ExtensionI18nAPI } from "./extensionI18n";
 import { extensionHost, type ExtensionHostAPI } from "./hostChannel";
+import { extensionConfig, type ExtensionConfigAPI } from "./configApi";
 import { engineInfo } from "./compat";
 import { readAppliedUiLocale } from "../i18n/uiLocale";
 
@@ -79,6 +80,7 @@ export type ExtensionAPI = {
   settings: ExtensionSettingsAPI;
   i18n: ExtensionI18nAPI;
   host: ExtensionHostAPI;
+  config: ExtensionConfigAPI;
   stream: {
     registerIncoming: (registration: IncomingRegistration) => IncomingHandle;
     /** Observes every frame of the live stream, including kinds the host does
@@ -438,6 +440,7 @@ export class ExtensionRuntime {
         () => this.fields.rows.filter((row) => row.owner === entry.id),
       ),
       i18n: this.i18n.api(entry.id, controller.signal),
+      config: extensionConfig(entry.id, entry.sha256, controller.signal),
       host: extensionHost(
         entry.id,
         entry.sha256,

@@ -75,6 +75,11 @@ type Server struct {
 	// (Options.UnbuiltSections).
 	unbuiltSections []string
 
+	// configApplyPath writes one JSON path of the configuration document
+	// through the settings save transaction (configapi.Backend.ApplyPath),
+	// wired by registerConfigRoutes for the extensions config API.
+	configApplyPath func(path string, value json.RawMessage) error
+
 	// statusDoc builds the document GET /coddy/status answers, nil while the
 	// route is not registered (SetStatus).
 	statusDoc func() serve.StatusDocument

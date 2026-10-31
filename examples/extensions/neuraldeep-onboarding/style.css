@@ -1,0 +1,45 @@
+.ext-neuraldeep {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 420px;
+  margin: 10vh auto 0;
+  padding: 20px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 12px;
+  background: var(--coddy-glass-panel-bg, var(--bg));
+  color: var(--text);
+}
+.ext-neuraldeep p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.ext-neuraldeep a {
+  color: var(--coddy-link);
+  font-size: 13px;
+}
+.ext-neuraldeep-note {
+  color: var(--muted);
+  font-size: 12px !important;
+}
+.ext-neuraldeep-key {
+  padding: 8px 10px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 8px;
+  background: var(--coddy-surface-field);
+  color: var(--text);
+  font-size: 14px;
+}
+.ext-neuraldeep-actions {
+  display: flex;
+  gap: 8px;
+}
+.ext-neuraldeep h3 {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.ext-neuraldeep label {
+  font-size: 13px;
+}

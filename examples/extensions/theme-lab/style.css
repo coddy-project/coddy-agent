@@ -4,3 +4,6 @@
 .ext-theme-lab-row input[type="range"] { width: 150px; }
 .ext-theme-lab-swatch { width: 18px; height: 18px; border-radius: 5px; border: 1px solid var(--coddy-glass-panel-border); }
 .ext-theme-lab-note { margin: 0; color: var(--muted); font-size: 12px; }
+.ext-theme-lab h3 { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+.ext-theme-lab-token-row code { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.ext-theme-lab-token-row input[type="color"] { width: 42px; height: 24px; padding: 0; border: 1px solid var(--coddy-glass-panel-border); border-radius: 5px; background: none; }

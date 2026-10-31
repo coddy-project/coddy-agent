@@ -26,10 +26,11 @@ export type ExtensionEffects = Readonly<{
   engine: "modern" | "legacy";
 }>;
 
-/** Colour tokens an extension overrides for the life of its registration. */
-export type ExtensionThemeOverride = Readonly<
-  Partial<Record<ExtensionThemeColor, string>>
->;
+/** Theme tokens an extension overrides for the life of its registration:
+ * the eight colour names of the snapshot, or any theme token by its
+ * `--name` - the app repaints from the whole token layer, not only from
+ * the eight colours the snapshot resolves. */
+export type ExtensionThemeOverride = Readonly<Record<string, string>>;
 export type ThemeOverrideHandle = {
   update: (colors: ExtensionThemeOverride) => void;
   remove: () => void;
@@ -44,16 +45,32 @@ export type ExtensionThemeAPI = {
   onEffectsChange: (
     listener: (effects: ExtensionEffects) => unknown,
   ) => EventHandle;
-  /** Overrides theme tokens with CSS colours while the handle lives. A later
-   * registration of another extension wins the shared tokens. */
+  /** Every theme token of the active theme, name to computed value. */
+  tokens: () => Readonly<Record<string, string>>;
+  /** Overrides theme tokens while the handle lives. A later registration of
+   * another extension wins the shared tokens. */
   override: (colors: ExtensionThemeOverride) => ThemeOverrideHandle;
 };
 
-/** A colour an override may carry: a CSS colour, never a rule of its own. */
-export function validOverrideColor(value: string) {
+/** An override key: one of the eight colour names, or a `--token` name. */
+export function validOverrideKey(name: string) {
   return (
-    typeof value === "string" && !!value.trim() && !/[;{}]|url\(/i.test(value)
+    name in EXTENSION_THEME_COLOR_VARS ||
+    (/^--[a-z][a-z0-9-]{0,63}$/.test(name) && name.length <= 64)
   );
+}
+
+/** A value an override may carry: never a rule of its own, and one of the
+ * eight colour names must parse as a CSS colour. */
+export function validOverrideValue(key: string, value: string, doc?: Document) {
+  if (typeof value !== "string" || !value.trim() || /[;{}]|url\(/i.test(value))
+    return false;
+  if (!(key in EXTENSION_THEME_COLOR_VARS)) return true;
+  const root = doc ?? (typeof document === "undefined" ? null : document);
+  if (!root) return true;
+  const probe = root.createElement("span");
+  probe.style.color = value;
+  return probe.style.color !== "";
 }
 
 /** Where each colour of ExtensionTheme comes from in the web UI's tokens. */
@@ -101,6 +118,55 @@ export function readExtensionTheme(doc: Document = document): ExtensionTheme {
   });
 }
 
+/** The custom properties the app's own stylesheets declare on root-like
+ * selectors - the token layer the app repaints from. */
+export function discoverThemeTokens(doc: Document = document): string[] {
+  const names = new Set<string>();
+  const consider = (selector: string | undefined) =>
+    !!selector &&
+    (selector.includes(":root") ||
+      selector.includes("[data-theme") ||
+      /\bhtml\b/.test(selector));
+  for (const sheet of Array.from(doc.styleSheets)) {
+    let rules: CSSRuleList;
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      continue;
+    }
+    const walk = (list: CSSRuleList) => {
+      for (const rule of Array.from(list)) {
+        if (rule instanceof CSSStyleRule) {
+          if (!consider(rule.selectorText)) continue;
+          for (const name of Array.from(rule.style)) {
+            if (name.startsWith("--")) names.add(name);
+          }
+        }
+        const nested = (rule as unknown as { cssRules?: CSSRuleList }).cssRules;
+        if (nested && !(rule instanceof CSSStyleRule)) walk(nested);
+      }
+    };
+    walk(rules);
+  }
+  return [...names].sort();
+}
+
+/** Every theme token of the active theme, name to computed value. A token
+ * that computes to nothing is left out; the map is frozen like every payload
+ * an extension receives. */
+export function readExtensionThemeTokens(
+  doc: Document = document,
+): Readonly<Record<string, string>> {
+  const win = doc.defaultView ?? window;
+  const computed = win.getComputedStyle(doc.documentElement);
+  const out: Record<string, string> = {};
+  for (const name of discoverThemeTokens(doc)) {
+    const value = computed.getPropertyValue(name).trim();
+    if (value) out[name] = value;
+  }
+  return Object.freeze(out);
+}
+
 type ThemeRow = {
   owner: string;
   signal: AbortSignal;
@@ -141,10 +207,7 @@ class ThemeOverrides {
   }
   set(owner: string, colors: ExtensionThemeOverride) {
     for (const [name, value] of Object.entries(colors)) {
-      if (
-        !(name in EXTENSION_THEME_COLOR_VARS) ||
-        !validOverrideColor(String(value))
-      )
+      if (!validOverrideKey(name) || !validOverrideValue(name, String(value)))
         throw new Error("Invalid theme override");
     }
     this.colors.set(owner, colors);
@@ -160,10 +223,13 @@ class ThemeOverrides {
     const doc = this.root;
     if (!colors || !doc) return;
     const body = Object.entries(colors)
-      .map(
-        ([name, value]) =>
-          `${EXTENSION_THEME_COLOR_VARS[name as ExtensionThemeColor]}: ${value}`,
-      )
+      .map(([name, value]) => {
+        const token =
+          name in EXTENSION_THEME_COLOR_VARS
+            ? EXTENSION_THEME_COLOR_VARS[name as ExtensionThemeColor]
+            : name;
+        return `${token}: ${value}`;
+      })
       .join(";");
     let style = this.styles.get(owner);
     if (!style) {
@@ -172,7 +238,9 @@ class ThemeOverrides {
       doc.head.append(style);
       this.styles.set(owner, style);
     }
-    style.textContent = `:root{${body}}`;
+    // `html[data-theme]` out-specifies the theme layer's own root rules, so
+    // the override paints over whichever theme is applied.
+    style.textContent = `html[data-theme], :root{${body}}`;
   }
 }
 
@@ -206,6 +274,10 @@ export class ExtensionThemes {
         return this.readEffects();
       },
       onEffectsChange: (listener) => this.onEffects(owner, signal, listener),
+      tokens: () => {
+        if (signal.aborted) throw new Error("Extension disposed");
+        return readExtensionThemeTokens();
+      },
       override: (colors) => {
         if (signal.aborted) throw new Error("Extension disposed");
         this.overrides.set(owner, colors);

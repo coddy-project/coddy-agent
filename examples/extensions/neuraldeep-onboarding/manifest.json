@@ -1,0 +1,12 @@
+{
+  "api": 1,
+  "id": "neuraldeep-onboarding",
+  "name": "NeuralDeep Setup",
+  "version": "1.0.0",
+  "description": "Asks for a NeuralDeep key and configures the provider and its model.",
+  "permissions": ["ui.page", "config.write"],
+  "ui": {
+    "entry": "main.js",
+    "styles": ["style.css"]
+  }
+}

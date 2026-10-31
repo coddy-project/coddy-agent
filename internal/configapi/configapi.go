@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -242,57 +243,9 @@ func (b *Backend) configPut(w http.ResponseWriter, r *http.Request) {
 	// interleave and install runtime state that no longer matches the file.
 	var cfgPath string
 	txErr := config.WithConfigFileLock(func() error {
-		c := b.Live()
-		if c == nil {
-			return errUnavailable
-		}
-		paths := c.Paths
-		cfgPath = paths.ConfigPath
-		// What the client read: the configuration its document names by
-		// revision, or the live one for a document without it (another client,
-		// a script) or from further back than this process remembers. The
-		// sections a scoped backend does not serve are taken from it as they
-		// were, so the save below leaves them as the file has them.
-		served := b.served(body, c)
-		doc, err := b.scope(body, served)
-		if err != nil {
-			return fmt.Errorf("%w: %s", errParse, err.Error())
-		}
-		newCfg, err := config.ParseConfigJSONPreservingSecrets(doc, paths, c)
-		if err != nil {
-			return fmt.Errorf("%w: %s", errParse, err.Error())
-		}
-		// Rendered over the file that is there, so the operator's comments, the
-		// editor schema modeline and the spelling of every value the form did not
-		// change survive a save from the settings screen. A value sent back as it
-		// was served keeps what the file says now - not what this process made of
-		// it, and not what the client was shown before another save replaced it.
-		yb, err := config.MarshalConfigYAMLForEdit(newCfg, served, c, cfgPath)
-		if err != nil {
-			return errSerialize
-		}
-		if err := config.BackupCurrent(cfgPath); err != nil {
-			b.log().Error("coddy config backup", "error", err)
-			return errBackup
-		}
-		if err := config.AtomicWriteConfigYAML(cfgPath, yb); err != nil {
-			b.log().Error("coddy config write", "error", err)
-			return errWrite
-		}
-		reloaded, err := config.LoadWithPaths(paths)
-		if err == nil {
-			err = b.Install(reloaded)
-		}
-		if err != nil {
-			b.log().Error("coddy config reload after write", "error", err)
-			if bak, er2 := os.ReadFile(config.BackupPath(cfgPath)); er2 == nil {
-				if er3 := config.AtomicWriteConfigYAML(cfgPath, bak); er3 != nil {
-					b.log().Error("coddy config rollback", "error", er3)
-				}
-			}
-			return err
-		}
-		return nil
+		var err error
+		cfgPath, err = b.saveLocked(body)
+		return err
 	})
 	switch {
 	case errors.Is(txErr, errUnavailable):
@@ -327,6 +280,193 @@ func (b *Backend) configPut(w http.ResponseWriter, r *http.Request) {
 	b.log().Info("config updated", "path", cfgPath)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+}
+
+// saveLocked writes one configuration document through the transaction a
+// settings save runs under: a minimal write over the file as it is, backup,
+// reload, and installing the result, with the file rolled back when the
+// reload refuses it. The caller holds the process-wide config file lock.
+func (b *Backend) saveLocked(body []byte) (string, error) {
+	c := b.Live()
+	if c == nil {
+		return "", errUnavailable
+	}
+	paths := c.Paths
+	cfgPath := paths.ConfigPath
+	// What the client read: the configuration its document names by
+	// revision, or the live one for a document without it (another client,
+	// a script) or from further back than this process remembers. The
+	// sections a scoped backend does not serve are taken from it as they
+	// were, so the save below leaves them as the file has them.
+	served := b.served(body, c)
+	doc, err := b.scope(body, served)
+	if err != nil {
+		return cfgPath, fmt.Errorf("%w: %s", errParse, err.Error())
+	}
+	newCfg, err := config.ParseConfigJSONPreservingSecrets(doc, paths, c)
+	if err != nil {
+		return cfgPath, fmt.Errorf("%w: %s", errParse, err.Error())
+	}
+	// Rendered over the file that is there, so the operator's comments, the
+	// editor schema modeline and the spelling of every value the form did not
+	// change survive a save from the settings screen. A value sent back as it
+	// was served keeps what the file says now - not what this process made of
+	// it, and not what the client was shown before another save replaced it.
+	yb, err := config.MarshalConfigYAMLForEdit(newCfg, served, c, cfgPath)
+	if err != nil {
+		return cfgPath, errSerialize
+	}
+	if err := config.BackupCurrent(cfgPath); err != nil {
+		b.log().Error("coddy config backup", "error", err)
+		return cfgPath, errBackup
+	}
+	if err := config.AtomicWriteConfigYAML(cfgPath, yb); err != nil {
+		b.log().Error("coddy config write", "error", err)
+		return cfgPath, errWrite
+	}
+	reloaded, err := config.LoadWithPaths(paths)
+	if err == nil {
+		err = b.Install(reloaded)
+	}
+	if err != nil {
+		b.log().Error("coddy config reload after write", "error", err)
+		if bak, er2 := os.ReadFile(config.BackupPath(cfgPath)); er2 == nil {
+			if er3 := config.AtomicWriteConfigYAML(cfgPath, bak); er3 != nil {
+				b.log().Error("coddy config rollback", "error", er3)
+			}
+		}
+		return cfgPath, err
+	}
+	return cfgPath, nil
+}
+
+// ApplyPath writes one JSON path of the configuration document - an object
+// key, an array index, or `+` to append to an array - through the same
+// transaction a settings save runs under. An extension's config API stands
+// on it: one minimal write, comments preserved, install and rollback.
+func (b *Backend) ApplyPath(path string, value json.RawMessage) error {
+	if len(path) == 0 || len(path) > 512 {
+		return fmt.Errorf("%w: bad path", errParse)
+	}
+	segs := strings.Split(path, ".")
+	if len(segs) > 32 {
+		return fmt.Errorf("%w: bad path", errParse)
+	}
+	if len(b.Sections) > 0 && !containsString(b.Sections, segs[0]) {
+		return fmt.Errorf("%w: section %s is not served here", errParse, segs[0])
+	}
+	return config.WithConfigFileLock(func() error {
+		c := b.Live()
+		if c == nil {
+			return errUnavailable
+		}
+		raw, err := json.Marshal(config.ConfigToJSONDTO(c))
+		if err != nil {
+			return errSerialize
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			return errParse
+		}
+		var val any
+		if err := json.Unmarshal(value, &val); err != nil {
+			return fmt.Errorf("%w: %s", errParse, err.Error())
+		}
+		if _, err := setPath(doc, segs, val); err != nil {
+			return fmt.Errorf("%w: %s", errParse, err.Error())
+		}
+		body, err := json.Marshal(doc)
+		if err != nil {
+			return errSerialize
+		}
+		_, err = b.saveLocked(body)
+		return err
+	})
+}
+
+// setPath writes value at a dot path of a JSON document and returns the
+// (possibly reallocated) node it addressed. A missing intermediate key
+// becomes an object; `+` appends to an array; an index past the end extends
+// the array with nulls. Nothing else invents structure.
+func setPath(node any, segs []string, value any) (any, error) {
+	if len(segs) == 0 {
+		return nil, errors.New("empty path")
+	}
+	seg := segs[0]
+	rest := segs[1:]
+	switch current := node.(type) {
+	case map[string]any:
+		if seg == "" || seg == "+" {
+			return nil, fmt.Errorf("bad path segment %q", seg)
+		}
+		if len(rest) == 0 {
+			current[seg] = value
+			return current, nil
+		}
+		next, ok := current[seg]
+		if !ok || next == nil {
+			if rest[0] == "+" {
+				next = []any{}
+			} else {
+				next = map[string]any{}
+			}
+		}
+		updated, err := setPath(next, rest, value)
+		if err != nil {
+			return nil, err
+		}
+		current[seg] = updated
+		return current, nil
+	case []any:
+		if seg == "+" {
+			if len(rest) != 0 {
+				return nil, fmt.Errorf("%q must address the last segment", seg)
+			}
+			return append(current, value), nil
+		}
+		index, err := strconv.Atoi(seg)
+		if err != nil || index < 0 {
+			return nil, fmt.Errorf("bad array index %q", seg)
+		}
+		for len(current) <= index {
+			current = append(current, nil)
+		}
+		if len(rest) == 0 {
+			current[index] = value
+			return current, nil
+		}
+		next := current[index]
+		if next == nil {
+			if rest[0] == "+" {
+				next = []any{}
+			} else {
+				next = map[string]any{}
+			}
+		}
+		updated, err := setPath(next, rest, value)
+		if err != nil {
+			return nil, err
+		}
+		current[index] = updated
+		return current, nil
+	default:
+		return nil, fmt.Errorf("segment %q addresses a scalar", seg)
+	}
+}
+
+func containsString(list []string, want string) bool {
+	for _, item := range list {
+		if item == want {
+			return true
+		}
+	}
+	return false
+}
+
+// ConfigBadRequest reports a refusal the client sent a bad document for:
+// a path that addresses nothing writable, or a value that is not JSON.
+func ConfigBadRequest(err error) bool {
+	return errors.Is(err, errParse)
 }
 
 // WriteError answers with the error document of the configuration routes:
