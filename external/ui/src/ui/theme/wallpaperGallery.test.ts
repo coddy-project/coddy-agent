@@ -1,71 +1,124 @@
-import { describe, expect, test } from "vitest";
-import { WALLPAPER_MIN_WIDTH } from "./backdropPrefs";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import {
-  GALLERY,
-  GALLERY_SIZE,
+  readGallery,
+  readGalleryPhoto,
   galleryPhotoUrl,
-  shuffleGallery,
-  type GalleryPhoto,
 } from "./wallpaperGallery";
-import { WALLPAPER_POOL } from "./wallpaperPool";
-
-test("every gallery photo names its author and its Unsplash page", () => {
-  expect(GALLERY.length).toBeGreaterThan(0);
-  for (const photo of GALLERY) {
-    expect(photo.author).not.toBe("");
-    expect(photo.url).toMatch(/^https:\/\/unsplash\.com\/photos\//);
-  }
+import { WALLPAPER_MAX_BYTES } from "./backdropPrefs";
+import { setEnv } from "../env/remoteEnv";
+afterEach(() => {
+  vi.unstubAllGlobals();
+  setEnv({ mode: "local" });
 });
-
-test("a gallery photo is asked for at the screen's size, 16:9, never under the minimum", () => {
-  const photo = GALLERY[0]!;
-  expect(galleryPhotoUrl(photo, 1536, 1.25)).toBe(
-    `https://picsum.photos/id/${photo.id}/1920/1080`,
-  );
-  expect(galleryPhotoUrl(photo, 2560, 1)).toBe(
-    `https://picsum.photos/id/${photo.id}/2560/1440`,
-  );
-  expect(galleryPhotoUrl(photo, 3840, 2)).toBe(
-    `https://picsum.photos/id/${photo.id}/3840/2160`,
-  );
-  const width = Number(galleryPhotoUrl(photo, 800, 1).split("/").at(-2));
-  expect(width).toBeGreaterThanOrEqual(WALLPAPER_MIN_WIDTH);
-});
-
-describe("shuffleGallery", () => {
-  const ids = (photos: readonly GalleryPhoto[]) => photos.map((p) => p.id);
-
-  test("the pool's photos name their author and Unsplash page, the first batch among them", () => {
-    const pool = new Set(WALLPAPER_POOL.map(([id]) => id));
-    expect(pool.size).toBe(WALLPAPER_POOL.length);
-    expect(pool.size).toBeGreaterThanOrEqual(GALLERY_SIZE * 5);
-    for (const [id, author, unsplash] of WALLPAPER_POOL) {
-      expect(id).toMatch(/^\d+$/);
-      expect(author).not.toBe("");
-      expect(unsplash).toMatch(/^[\w-]+$/);
-    }
-    for (const photo of GALLERY) expect(pool.has(photo.id)).toBe(true);
-  });
-
-  test("a new batch is twelve pool photos not shown yet, until the pool runs out", async () => {
-    let shown = new Set(ids(GALLERY));
-    let current: readonly GalleryPhoto[] = GALLERY;
-    const rounds = Math.floor(
-      (WALLPAPER_POOL.length - GALLERY_SIZE) / GALLERY_SIZE,
+describe("server wallpaper gallery", () => {
+  test("file names are encoded as one API path segment", () => {
+    expect(galleryPhotoUrl({ name: "night #1%.png" })).toBe(
+      "/coddy/wallpapers/night%20%231%25.png",
     );
-    for (let round = 0; round < rounds; round++) {
-      const batch = await shuffleGallery(current);
-      expect(batch).toHaveLength(GALLERY_SIZE);
-      for (const photo of batch!) {
-        expect(shown.has(photo.id)).toBe(false);
-        expect(photo.url).toMatch(/^https:\/\/unsplash\.com\/photos\/[\w-]+$/);
-      }
-      shown = new Set([...shown, ...ids(batch!)]);
-      current = batch!;
-    }
-    // then it starts over, never repeating the batch on screen
-    const again = await shuffleGallery(current);
-    expect(again).toHaveLength(GALLERY_SIZE);
-    for (const photo of again!) expect(ids(current)).not.toContain(photo.id);
+  });
+  test("the server listing is read through the active environment", async () => {
+    setEnv({
+      mode: "remote",
+      baseUrl: "https://node.test/prefix",
+      token: "secret",
+    });
+    const fetch = vi.fn(async (_url: string, _init?: RequestInit) =>
+      Response.json({ wallpapers: [{ name: "a.png" }] }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const abort = new AbortController();
+    expect(await readGallery(abort.signal)).toEqual([{ name: "a.png" }]);
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe("https://node.test/prefix/coddy/wallpapers");
+    expect(new Headers(init?.headers).get("Authorization")).toBe(
+      "Bearer secret",
+    );
+    expect(init?.signal).toBe(abort.signal);
+  });
+  test.each([
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "image/avif",
+  ])("a %s selection is read as bounded image bytes", async (type) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(new Uint8Array([1, 2]), {
+            headers: { "Content-Type": type },
+          }),
+      ),
+    );
+    const blob = await readGalleryPhoto(
+      { name: "a.png" },
+      new AbortController().signal,
+    );
+    expect(blob.type).toBe(type);
+    expect(blob.size).toBe(2);
+  });
+  test.each(["image/svg+xml", "text/html", "application/octet-stream"])(
+    "%s is refused before reading its body",
+    async (type) => {
+      const cancel = vi.fn(async () => {});
+      const getReader = vi.fn();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => ({
+          ok: true,
+          headers: new Headers({ "Content-Type": type }),
+          body: { cancel, getReader },
+        })),
+      );
+      await expect(
+        readGalleryPhoto({ name: "a.png" }, new AbortController().signal),
+      ).rejects.toThrow();
+      expect(cancel).toHaveBeenCalled();
+      expect(getReader).not.toHaveBeenCalled();
+    },
+  );
+  test.each([true, false])(
+    "a response larger than 20 MiB is cancelled (declared %s)",
+    async (declared) => {
+      const cancel = vi.fn(async () => {});
+      const reader = {
+        read: vi
+          .fn()
+          .mockResolvedValueOnce({
+            value: new Uint8Array(WALLPAPER_MAX_BYTES),
+            done: false,
+          })
+          .mockResolvedValueOnce({ value: new Uint8Array([1]), done: false }),
+        cancel,
+        releaseLock: vi.fn(),
+      };
+      const headers = new Headers({
+        "Content-Type": "image/png",
+        ...(declared
+          ? { "Content-Length": String(WALLPAPER_MAX_BYTES + 1) }
+          : {}),
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => ({
+          ok: true,
+          headers,
+          body: { cancel, getReader: () => reader },
+        })),
+      );
+      await expect(
+        readGalleryPhoto({ name: "a.png" }, new AbortController().signal),
+      ).rejects.toThrow();
+      expect(cancel).toHaveBeenCalled();
+      if (declared) expect(reader.read).not.toHaveBeenCalled();
+    },
+  );
+  test("a malformed listing is an error, not an empty gallery", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ wallpapers: [{}] })),
+    );
+    await expect(readGallery(new AbortController().signal)).rejects.toThrow();
   });
 });

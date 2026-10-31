@@ -153,14 +153,10 @@ describe("wallpaper", () => {
     stop();
   });
 
-  test("a gallery photo keeps its author with it, and Remove forgets both", async () => {
-    const credit = {
-      author: "Tim de Groot",
-      url: "https://unsplash.com/photos/x",
-    };
-    await setWallpaper(pictureOf(1920, 1080), credit);
-    expect(backdropSnapshot().credit).toEqual(credit);
+  test("wallpaper state carries no external credit metadata", async () => {
+    await setWallpaper(pictureOf(1920, 1080));
+    expect(backdropSnapshot()).not.toHaveProperty("credit");
     await clearWallpaper();
-    expect(backdropSnapshot().credit).toBeNull();
+    expect(backdropSnapshot()).not.toHaveProperty("credit");
   });
 });

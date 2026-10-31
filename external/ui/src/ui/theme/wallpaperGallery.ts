@@ -1,174 +1,120 @@
-/**
- * A few dark Unsplash photographs offered as wallpapers in Settings →
- * Appearance, served by Lorem Picsum (picsum.photos: Unsplash photos by id,
- * any size, CORS open, no key). Nothing is fetched until the gallery is
- * opened; a picked photo is downloaded once at the screen's size and kept in
- * this browser like an uploaded one (backdropPrefs.ts), with its author.
- * Shuffle swaps the whole batch for twelve others of a larger hand-picked
- * pool (shuffleGallery, wallpaperPool.ts).
- */
-import {
-  setWallpaper,
-  type WallpaperCredit,
-  type WallpaperResult,
-} from "./backdropPrefs";
+import { resourceRequest } from "../files/api";
+import { RASTER_IMAGE_TYPE } from "../files/objectUrl";
+import { WALLPAPER_MAX_BYTES, type WallpaperResult } from "./backdropPrefs";
 
-export interface GalleryPhoto extends WallpaperCredit {
-  /** Lorem Picsum id. */
-  id: string;
-}
-
-export const GALLERY: readonly GalleryPhoto[] = [
-  {
-    id: "120",
-    author: "Guillaume",
-    url: "https://unsplash.com/photos/_DA3D5P71qs",
-  },
-  {
-    id: "149",
-    author: "Guillaume",
-    url: "https://unsplash.com/photos/revxuIor0nY",
-  },
-  {
-    id: "184",
-    author: "Tim de Groot",
-    url: "https://unsplash.com/photos/yNGQ830uFB4",
-  },
-  {
-    id: "249",
-    author: "Anders Jildén",
-    url: "https://unsplash.com/photos/nrLtvA05jk8",
-  },
-  {
-    id: "122",
-    author: "Vadim Sherbakov",
-    url: "https://unsplash.com/photos/xS_RzdD5CFE",
-  },
-  {
-    id: "83",
-    author: "Julie Geiger",
-    url: "https://unsplash.com/photos/dYshDcTI1Js",
-  },
-  {
-    id: "339",
-    author: "Tirza van Dijk",
-    url: "https://unsplash.com/photos/aGx7X1VmFIY",
-  },
-  {
-    id: "254",
-    author: "Pavel Voinov",
-    url: "https://unsplash.com/photos/adG2dX-ruJ4",
-  },
-  {
-    id: "377",
-    author: "Martin Staněk",
-    url: "https://unsplash.com/photos/8WClaa1CmZ0",
-  },
-  {
-    id: "352",
-    author: "Caleb George",
-    url: "https://unsplash.com/photos/URmkfvtK3Qw",
-  },
-  {
-    id: "329",
-    author: "Felipe Santana",
-    url: "https://unsplash.com/photos/-e_njRV9hRE",
-  },
-  {
-    id: "353",
-    author: "Forrest Cavale",
-    url: "https://unsplash.com/photos/qfmd9bu7IgA",
-  },
-];
-
-const PICSUM = "https://picsum.photos/id";
-
-export function galleryThumbUrl(photo: GalleryPhoto): string {
-  return `${PICSUM}/${photo.id}/320/180`;
-}
-
-/**
- * galleryPhotoUrl asks for the photo at the screen's size in device pixels,
- * 16:9, between 1920 and 3840 wide, so it is never under the minimum size.
- */
-export function galleryPhotoUrl(
-  photo: GalleryPhoto,
-  screenWidth: number,
-  scale: number,
-): string {
-  const width = Math.min(3840, Math.max(1920, Math.round(screenWidth * scale)));
-  const height = Math.round((width * 9) / 16);
-  return `${PICSUM}/${photo.id}/${width}/${height}`;
+export interface GalleryPhoto {
+  name: string;
 }
 
 export type GalleryResult = WallpaperResult | { refusal: "offline" };
 
-/** pickGalleryPhoto downloads the photo and makes it the wallpaper. */
-export async function pickGalleryPhoto(
-  photo: GalleryPhoto,
-): Promise<GalleryResult> {
-  const width = typeof screen === "undefined" ? 1920 : screen.width;
-  const scale = typeof devicePixelRatio === "number" ? devicePixelRatio : 1;
-  let blob: Blob;
-  try {
-    const res = await fetch(galleryPhotoUrl(photo, width, scale));
-    if (!res.ok) {
-      return { refusal: "offline" };
+export class GalleryReadError extends Error {
+  constructor(readonly refusal: "too-large" | "not-image") {
+    super(refusal);
+  }
+}
+
+export function galleryPhotoUrl(photo: GalleryPhoto): string {
+  return `/coddy/wallpapers/${encodeURIComponent(photo.name)}`;
+}
+
+/** Both the listing and image reads are bounded, including chunked responses. */
+async function readBytes(
+  path: string,
+  signal: AbortSignal,
+  accept: RegExp,
+): Promise<{ chunks: Uint8Array<ArrayBuffer>[]; type: string }> {
+  signal.throwIfAborted();
+  const res = await resourceRequest(path, { signal });
+  signal.throwIfAborted();
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (Number(res.headers.get("Content-Length")) > WALLPAPER_MAX_BYTES) {
+    await res.body?.cancel();
+    throw new GalleryReadError("too-large");
+  }
+  const type = res.headers.get("Content-Type") || "";
+  if (!accept.test(type)) {
+    await res.body?.cancel();
+    throw new GalleryReadError("not-image");
+  }
+  const chunks: Uint8Array<ArrayBuffer>[] = [];
+  if (res.body) {
+    const reader = res.body.getReader();
+    let size = 0;
+    try {
+      for (;;) {
+        signal.throwIfAborted();
+        const next = await reader.read();
+        signal.throwIfAborted();
+        if (next.done) break;
+        size += next.value.byteLength;
+        if (size > WALLPAPER_MAX_BYTES) {
+          await reader.cancel();
+          throw new GalleryReadError("too-large");
+        }
+        chunks.push(new Uint8Array(next.value));
+      }
+    } finally {
+      reader.releaseLock();
     }
-    blob = await res.blob();
-  } catch {
-    return { refusal: "offline" };
+  } else {
+    const bytes = await res.arrayBuffer();
+    signal.throwIfAborted();
+    if (bytes.byteLength > WALLPAPER_MAX_BYTES)
+      throw new GalleryReadError("too-large");
+    chunks.push(new Uint8Array(bytes));
   }
-  return setWallpaper(blob, { author: photo.author, url: photo.url });
+  return { chunks, type };
 }
 
-/** The size of every batch the gallery shows. */
-export const GALLERY_SIZE = 12;
-
-// Pool photos shown since the page loaded, so a shuffle brings photos not
-// seen yet until the pool runs out.
-const seen = new Set<string>();
-
-export interface ShuffleOptions {
-  random?: () => number;
+export async function readGallery(
+  signal: AbortSignal,
+): Promise<GalleryPhoto[]> {
+  const { chunks } = await readBytes(
+    "/coddy/wallpapers",
+    signal,
+    /^application\/json(?:;|$)/i,
+  );
+  const decoder = new TextDecoder();
+  const text =
+    chunks.map((chunk) => decoder.decode(chunk, { stream: true })).join("") +
+    decoder.decode();
+  const body: unknown = JSON.parse(text);
+  if (
+    !body ||
+    typeof body !== "object" ||
+    !("wallpapers" in body) ||
+    !Array.isArray(body.wallpapers)
+  ) {
+    throw new Error("Invalid wallpaper listing");
+  }
+  const names = new Set<string>();
+  return body.wallpapers.map((photo: unknown) => {
+    if (
+      !photo ||
+      typeof photo !== "object" ||
+      !("name" in photo) ||
+      typeof photo.name !== "string" ||
+      !photo.name ||
+      /[\\/\x00]/.test(photo.name) ||
+      names.has(photo.name)
+    ) {
+      throw new Error("Invalid wallpaper name");
+    }
+    names.add(photo.name);
+    return { name: photo.name };
+  });
 }
 
-/**
- * shuffleGallery draws a new batch of GALLERY_SIZE photos from the pool
- * (wallpaperPool.ts, loaded on the first shuffle), none of `current` and none
- * shown before on this page while the pool has enough of them left; then it
- * starts over. Nothing goes to the network but the pool's chunk, from the
- * server the page came from. Returns null when that chunk does not load.
- */
-export async function shuffleGallery(
-  current: readonly GalleryPhoto[],
-  options: ShuffleOptions = {},
-): Promise<GalleryPhoto[] | null> {
-  const random = options.random ?? Math.random;
-  let pool: readonly (readonly [string, string, string])[];
-  try {
-    pool = (await import("./wallpaperPool")).WALLPAPER_POOL;
-  } catch {
-    return null;
-  }
-  for (const photo of current) seen.add(photo.id);
-  let left = pool.filter(([id]) => !seen.has(id));
-  if (left.length < GALLERY_SIZE) {
-    seen.clear();
-    for (const photo of current) seen.add(photo.id);
-    left = pool.filter(([id]) => !seen.has(id));
-  }
-  // Fisher-Yates over what is left, then the first GALLERY_SIZE
-  const order = [...left];
-  for (let i = order.length - 1; i > 0; i--) {
-    const j = Math.floor(random() * (i + 1));
-    [order[i], order[j]] = [order[j]!, order[i]!];
-  }
-  const batch = order.slice(0, GALLERY_SIZE).map(([id, author, unsplash]) => ({
-    id,
-    author,
-    url: `https://unsplash.com/photos/${unsplash}`,
-  }));
-  for (const photo of batch) seen.add(photo.id);
-  return batch.length > 0 ? batch : null;
+/** Returns bytes, never applies them: the caller owns selection cancellation. */
+export async function readGalleryPhoto(
+  photo: GalleryPhoto,
+  signal: AbortSignal,
+): Promise<Blob> {
+  const { chunks, type } = await readBytes(
+    galleryPhotoUrl(photo),
+    signal,
+    RASTER_IMAGE_TYPE,
+  );
+  return new Blob(chunks, { type });
 }

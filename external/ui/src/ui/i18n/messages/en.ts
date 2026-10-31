@@ -39,23 +39,19 @@ export const messagesEn: Record<string, string> = {
   "appearance.wallpaper.remove": "Remove",
   "appearance.wallpaper.dim": "Dimming: {value}%",
   "appearance.wallpaper.hint":
-    "A picture from this computer, at least 1280x720, or a photo from the gallery, under the app instead of the glows. It is kept in this browser and never sent to the server.",
+    "A picture from this computer or the server gallery, at least 1280x720, under the app instead of the glows. It is kept in this browser and never uploaded.",
   "appearance.wallpaper.galleryHint":
-    "Photos from Unsplash, served by Lorem Picsum (picsum.photos). The gallery, Shuffle and a picked photo load from there over the internet; the photo is then kept in this browser.",
-  "appearance.wallpaper.photoLabel": "Photo {n} by {author}",
-  "appearance.wallpaper.shuffle": "Shuffle",
-  "appearance.wallpaper.shuffling": "Loading…",
-  "appearance.wallpaper.shuffleFailed":
-    "New photos did not load. Check the internet connection and try again.",
-  "appearance.wallpaper.creditPrefix": "Photo by",
-  "appearance.wallpaper.creditSuffix": " on Unsplash",
+    "Pictures from CODDY_HOME/wallpapers on the server (default ~/.coddy/wallpapers). The selected picture is kept in this browser.",
+  "appearance.wallpaper.gallery.loading": "Loading wallpapers…",
+  "appearance.wallpaper.gallery.empty": "No wallpapers in the server folder.",
+  "appearance.wallpaper.gallery.error":
+    "The server gallery could not be loaded. Close and reopen it to try again.",
   "appearance.wallpaper.notImage": "This file is not a picture.",
   "appearance.wallpaper.tooLarge": "The picture is larger than 20 MB.",
   "appearance.wallpaper.tooSmall":
     "The picture is {width}x{height}: a wallpaper needs at least {minWidth}x{minHeight}.",
   "appearance.wallpaper.unreadable": "The browser cannot read this picture.",
-  "appearance.wallpaper.offline":
-    "The photo did not load. Check the internet connection and try again.",
+  "appearance.wallpaper.offline": "The picture could not be loaded. Try again.",
 
   "notify.untitled": "Coddy",
   "notify.turnFinished": "The agent finished its turn.",

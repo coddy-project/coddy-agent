@@ -37,23 +37,20 @@ export const messagesRu: Record<string, string> = {
   "appearance.wallpaper.remove": "Убрать",
   "appearance.wallpaper.dim": "Затемнение: {value}%",
   "appearance.wallpaper.hint":
-    "Картинка с этого компьютера, не меньше 1280x720, или фото из галереи под интерфейсом вместо свечения. Хранится в этом браузере и не отправляется на сервер.",
+    "Картинка с этого компьютера или из галереи сервера, не меньше 1280x720, под интерфейсом вместо свечения. Хранится в этом браузере и не загружается на сервер.",
   "appearance.wallpaper.galleryHint":
-    "Фотографии с Unsplash через сервис Lorem Picsum (picsum.photos). Галерея, перемешивание и выбранное фото загружаются оттуда через интернет, затем фото хранится в этом браузере.",
-  "appearance.wallpaper.photoLabel": "Фото {n}, автор {author}",
-  "appearance.wallpaper.shuffle": "Перемешать",
-  "appearance.wallpaper.shuffling": "Загрузка…",
-  "appearance.wallpaper.shuffleFailed":
-    "Новые фото не загрузились. Проверьте подключение к интернету и попробуйте ещё раз.",
-  "appearance.wallpaper.creditPrefix": "Фото:",
-  "appearance.wallpaper.creditSuffix": ", Unsplash",
+    "Картинки из CODDY_HOME/wallpapers на сервере (по умолчанию ~/.coddy/wallpapers). Выбранная картинка хранится в этом браузере.",
+  "appearance.wallpaper.gallery.loading": "Загрузка обоев…",
+  "appearance.wallpaper.gallery.empty": "Нет обоев в папке на сервере.",
+  "appearance.wallpaper.gallery.error":
+    "Не удалось загрузить галерею сервера. Закройте и откройте её, чтобы попробовать снова.",
   "appearance.wallpaper.notImage": "Этот файл не картинка.",
   "appearance.wallpaper.tooLarge": "Картинка больше 20 МБ.",
   "appearance.wallpaper.tooSmall":
     "Картинка {width}x{height}, а для обоев нужно не меньше {minWidth}x{minHeight}.",
   "appearance.wallpaper.unreadable": "Браузер не может прочитать эту картинку.",
   "appearance.wallpaper.offline":
-    "Фото не загрузилось. Проверьте подключение к интернету и попробуйте ещё раз.",
+    "Не удалось загрузить картинку. Попробуйте ещё раз.",
 
   "notify.untitled": "Coddy",
   "notify.turnFinished": "Агент закончил ход.",

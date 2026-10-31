@@ -1,4 +1,6 @@
-import { useCallback, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { onEnvironmentSwitch } from "../env/remoteEnv";
+import { acquireObjectUrl, RASTER_IMAGE_TYPE } from "../files/objectUrl";
 import { useT } from "../i18n/I18nProvider";
 import { FieldHint } from "../settings/FieldHint";
 import { SwitchField } from "../settings/SwitchField";
@@ -15,10 +17,10 @@ import {
   type BackdropState,
 } from "./backdropPrefs";
 import {
-  GALLERY,
-  galleryThumbUrl,
-  pickGalleryPhoto,
-  shuffleGallery,
+  GalleryReadError,
+  galleryPhotoUrl,
+  readGallery,
+  readGalleryPhoto,
   type GalleryPhoto,
   type GalleryResult,
 } from "./wallpaperGallery";
@@ -26,7 +28,6 @@ import {
 const SERVER_SNAPSHOT: BackdropState = {
   smooth: false,
   wallpaper: null,
-  credit: null,
   dim: 0,
 };
 
@@ -40,13 +41,37 @@ const REFUSAL_KEY: Record<Refusal, string> = {
   offline: "appearance.wallpaper.offline",
 };
 
-/**
- * BackdropSettings is the page backdrop under the notifications in Settings →
- * Appearance: the smooth gradients switch and the wallpaper (a picture from
- * this computer or a photo of the gallery, its dimming, its removal). Both are
- * kept in this browser only (ui/theme/backdropPrefs.ts). The gallery's
- * thumbnails are requested only once it is opened.
- */
+/** A thumbnail owns its authenticated, bounded raster read while the gallery is open. */
+function GalleryThumbnail({ photo }: { photo: GalleryPhoto }) {
+  const { t } = useT();
+  const [src, setSrc] = useState<string>();
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    const lease = acquireObjectUrl(galleryPhotoUrl(photo), {
+      accept: RASTER_IMAGE_TYPE,
+    });
+    let active = true;
+    void lease.promise.then(
+      (url) => {
+        if (active) setSrc(url);
+      },
+      () => {
+        if (active) setFailed(true);
+      },
+    );
+    return () => {
+      active = false;
+      lease.release();
+    };
+  }, [photo.name]);
+  return failed ? (
+    <span>{t("appearance.wallpaper.offline")}</span>
+  ) : (
+    <img src={src} alt="" loading="lazy" />
+  );
+}
+
+/** Browser-local backdrop choices; the server gallery is read only while open. */
 export function BackdropSettings() {
   const { t } = useT();
   const state = useSyncExternalStore(
@@ -58,39 +83,84 @@ export function BackdropSettings() {
   const [result, setResult] = useState<GalleryResult | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [loadingId, setLoadingId] = useState<string | null>(null);
-  const [photos, setPhotos] = useState<readonly GalleryPhoto[]>(GALLERY);
-  const [shuffling, setShuffling] = useState(false);
-  const [shuffleFailed, setShuffleFailed] = useState(false);
+  const [photos, setPhotos] = useState<readonly GalleryPhoto[]>([]);
+  const [galleryStatus, setGalleryStatus] = useState<
+    "loading" | "empty" | "error" | null
+  >(null);
+  const selection = useRef<AbortController | null>(null);
+  const listing = useRef<AbortController | null>(null);
 
-  const pickFile = useCallback(async (file: File | undefined) => {
-    if (file) {
-      setResult(await setWallpaper(file));
-    }
+  const cancelSelection = () => {
+    selection.current?.abort();
+    selection.current = null;
+    setLoadingId(null);
+  };
+
+  useEffect(() => {
+    const stop = onEnvironmentSwitch(() => {
+      listing.current?.abort();
+      cancelSelection();
+      setGalleryOpen(false);
+      setPhotos([]);
+      setResult(null);
+    });
+    return () => {
+      stop();
+      listing.current?.abort();
+      selection.current?.abort();
+    };
   }, []);
 
-  const pickPhoto = useCallback(async (photo: GalleryPhoto) => {
-    setLoadingId(photo.id);
-    try {
-      setResult(await pickGalleryPhoto(photo));
-    } finally {
-      setLoadingId(null);
-    }
-  }, []);
-
-  const shuffle = useCallback(async () => {
-    setShuffling(true);
-    setShuffleFailed(false);
-    try {
-      const next = await shuffleGallery(photos);
-      if (next) {
+  useEffect(() => {
+    if (!galleryOpen) return;
+    const abort = new AbortController();
+    listing.current = abort;
+    setPhotos([]);
+    setGalleryStatus("loading");
+    void readGallery(abort.signal).then(
+      (next) => {
+        if (abort.signal.aborted) return;
         setPhotos(next);
-      } else {
-        setShuffleFailed(true);
+        setGalleryStatus(next.length ? null : "empty");
+      },
+      () => {
+        if (!abort.signal.aborted) setGalleryStatus("error");
+      },
+    );
+    return () => abort.abort();
+  }, [galleryOpen]);
+
+  const pickFile = async (file: File | undefined) => {
+    if (!file) return;
+    cancelSelection();
+    const abort = new AbortController();
+    selection.current = abort;
+    const next = await setWallpaper(file, abort.signal);
+    if (!abort.signal.aborted) setResult(next);
+  };
+
+  const pickPhoto = async (photo: GalleryPhoto) => {
+    cancelSelection();
+    const abort = new AbortController();
+    selection.current = abort;
+    setLoadingId(photo.name);
+    setResult(null);
+    try {
+      const blob = await readGalleryPhoto(photo, abort.signal);
+      if (abort.signal.aborted) return;
+      const next = await setWallpaper(blob, abort.signal);
+      if (!abort.signal.aborted) setResult(next);
+    } catch (error) {
+      if (!abort.signal.aborted) {
+        setResult({
+          refusal:
+            error instanceof GalleryReadError ? error.refusal : "offline",
+        });
       }
     } finally {
-      setShuffling(false);
+      if (!abort.signal.aborted) setLoadingId(null);
     }
-  }, [photos]);
+  };
 
   const refusal = result?.refusal ?? null;
   const size = result && "width" in result ? result : null;
@@ -157,7 +227,13 @@ export function BackdropSettings() {
             className="settings-btn"
             aria-expanded={galleryOpen}
             data-testid="appearance-wallpaper-gallery"
-            onClick={() => setGalleryOpen((open) => !open)}
+            onClick={() => {
+              if (galleryOpen) {
+                listing.current?.abort();
+                cancelSelection();
+              }
+              setGalleryOpen((open) => !open);
+            }}
           >
             {t("appearance.wallpaper.gallery")}
           </button>
@@ -167,6 +243,7 @@ export function BackdropSettings() {
               className="settings-btn settings-btn-danger"
               data-testid="appearance-wallpaper-remove"
               onClick={() => {
+                cancelSelection();
                 setResult(null);
                 void clearWallpaper();
               }}
@@ -186,65 +263,34 @@ export function BackdropSettings() {
             }}
           />
         </div>
-        {state.credit ? (
-          <p
-            className="settings-field-desc appearance-backdrop-status"
-            data-testid="appearance-wallpaper-credit"
-          >
-            {t("appearance.wallpaper.creditPrefix")}{" "}
-            <a href={state.credit.url} target="_blank" rel="noreferrer">
-              {state.credit.author}
-            </a>
-            {t("appearance.wallpaper.creditSuffix")}
-          </p>
-        ) : null}
         {galleryOpen ? (
           <>
             <div
               className="appearance-wallpaper-gallery"
               data-testid="appearance-wallpaper-grid"
             >
-              {photos.map((photo, index) => (
+              {photos.map((photo) => (
                 <button
-                  key={photo.id}
+                  key={photo.name}
                   type="button"
-                  className={`appearance-wallpaper-thumb${loadingId === photo.id ? " is-loading" : ""}`}
-                  title={photo.author}
-                  aria-label={t("appearance.wallpaper.photoLabel", {
-                    n: String(index + 1),
-                    author: photo.author,
-                  })}
-                  data-testid={`appearance-wallpaper-thumb-${photo.id}`}
+                  className={`appearance-wallpaper-thumb${loadingId === photo.name ? " is-loading" : ""}`}
+                  title={photo.name}
+                  aria-label={photo.name}
+                  data-testid={`appearance-wallpaper-thumb-${photo.name}`}
                   disabled={loadingId !== null}
                   onClick={() => void pickPhoto(photo)}
                 >
-                  <img src={galleryThumbUrl(photo)} alt="" loading="lazy" />
+                  <GalleryThumbnail photo={photo} />
                 </button>
               ))}
             </div>
-            <div className="appearance-wallpaper-row appearance-wallpaper-shuffle">
-              <button
-                type="button"
-                className="settings-btn"
-                disabled={shuffling}
-                aria-busy={shuffling}
-                data-testid="appearance-wallpaper-shuffle"
-                onClick={() => void shuffle()}
-              >
-                {t(
-                  shuffling
-                    ? "appearance.wallpaper.shuffling"
-                    : "appearance.wallpaper.shuffle",
-                )}
-              </button>
-            </div>
-            {shuffleFailed ? (
+            {galleryStatus ? (
               <p
                 className="settings-field-desc appearance-backdrop-status"
                 role="status"
-                data-testid="appearance-wallpaper-shuffle-status"
+                data-testid="appearance-wallpaper-gallery-status"
               >
-                {t("appearance.wallpaper.shuffleFailed")}
+                {t(`appearance.wallpaper.gallery.${galleryStatus}`)}
               </p>
             ) : null}
             <p className="settings-field-desc appearance-backdrop-status">

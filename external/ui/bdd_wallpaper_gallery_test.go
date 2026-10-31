@@ -8,38 +8,18 @@ import (
 	"github.com/cucumber/godog"
 )
 
-// The gallery lives in the browser: the block of Settings, the list of photos
-// and the store are read by the Vitest tests each step runs, with the network
-// stubbed.
+// The server gallery is read by the browser tests, with authenticated API bytes stubbed.
 func TestWebUIWallpaperGalleryFeature(t *testing.T) {
 	steps := []struct{ step, file, name string }{
-		{`^nothing is requested from the gallery until it is opened$`,
+		{`^nothing is requested from the server gallery until it is opened$`,
 			"src/ui/theme/BackdropSettings.test.tsx",
-			"Settings → Appearance → Wallpaper → Gallery nothing is requested from the gallery until it is opened"},
-		{`^every gallery photo names its author and its Unsplash page$`,
-			"src/ui/theme/wallpaperGallery.test.ts",
-			"every gallery photo names its author and its Unsplash page"},
-		{`^a picked photo becomes the wallpaper with its author's credit$`,
+			"Settings → Appearance → Wallpaper → Gallery nothing is requested from the server gallery until it is opened"},
+		{`^a picked server picture becomes the browser wallpaper without credits$`,
 			"src/ui/theme/BackdropSettings.test.tsx",
-			"Settings → Appearance → Wallpaper → Gallery a picked photo becomes the wallpaper with its author's credit"},
-		{`^the photo is asked for at the screen's size and never under the minimum$`,
-			"src/ui/theme/wallpaperGallery.test.ts",
-			"a gallery photo is asked for at the screen's size, 16:9, never under the minimum"},
-		{`^the author stays with the photo until it is removed$`,
-			"src/ui/theme/backdropPrefs.test.ts",
-			"wallpaper a gallery photo keeps its author with it, and Remove forgets both"},
-		{`^Shuffle swaps the whole batch for new photos$`,
+			"Settings → Appearance → Wallpaper → Gallery a picked server picture becomes the browser wallpaper without credits"},
+		{`^remote thumbnails and selections carry authentication only in headers$`,
 			"src/ui/theme/BackdropSettings.test.tsx",
-			"Settings → Appearance → Wallpaper → Gallery Shuffle swaps the whole batch for new photos"},
-		{`^a new batch is twelve pool photos not shown yet$`,
-			"src/ui/theme/wallpaperGallery.test.ts",
-			"shuffleGallery a new batch is twelve pool photos not shown yet, until the pool runs out"},
-		{`^a shuffle that fails says so and keeps the batch on screen$`,
-			"src/ui/theme/BackdropSettings.test.tsx",
-			"Settings → Appearance → Wallpaper → Gallery a shuffle that fails says so and keeps the batch on screen"},
-		{`^a photo that does not load says so$`,
-			"src/ui/theme/BackdropSettings.test.tsx",
-			"Settings → Appearance → Wallpaper → Gallery a photo that does not load says so"},
+			"Settings → Appearance → Wallpaper → Gallery remote thumbnails and selections carry authentication only in headers"},
 	}
 	suite := godog.TestSuite{
 		Name: "web_ui_wallpaper_gallery",

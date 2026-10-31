@@ -6,8 +6,8 @@
  *   of the title bar, the rail and the composer painted with random dither on
  *   a canvas (canvasBackdrop.ts), for screens that show the browser's own
  *   gradients as rings;
- * - a wallpaper: a picture the person chose, or a photo of the gallery
- *   (wallpaperGallery.ts) with its author, kept in IndexedDB (never sent to
+ * - a wallpaper: a picture the person chose, or one from the server gallery
+ *   (wallpaperGallery.ts), kept in IndexedDB (never sent to
  *   the server), shown under the app instead of the glows and dimmed toward
  *   the theme's canvas colour by `coddy_ui_wallpaper_dim` percent.
  *
@@ -28,7 +28,6 @@ const MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 const DB_NAME = "coddy-ui";
 const DB_STORE = "backdrop";
 const DB_KEY = "wallpaper";
-const DB_CREDIT_KEY = "wallpaper-credit";
 
 function readCookie(name: string): string | null {
   if (typeof document === "undefined") {
@@ -58,18 +57,10 @@ function writeCookie(name: string, value: string | null): void {
   document.cookie = `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${MAX_AGE_SECONDS}; SameSite=Lax${secure}`;
 }
 
-/** Who took a picture from the gallery, shown under its preview. */
-export interface WallpaperCredit {
-  author: string;
-  url: string;
-}
-
 export interface BackdropState {
   smooth: boolean;
   /** Object URL of the wallpaper, or null when there is none. */
   wallpaper: string | null;
-  /** The author of a gallery photo; null for a picture from this computer. */
-  credit: WallpaperCredit | null;
   /** 0..90, percent of the theme's canvas colour laid over the wallpaper. */
   dim: number;
 }
@@ -85,7 +76,6 @@ function readDim(): number {
 let state: BackdropState = {
   smooth: readCookie(SMOOTH_BACKDROP_COOKIE) === "on",
   wallpaper: null,
-  credit: null,
   dim: readDim(),
 };
 const listeners = new Set<() => void>();
@@ -154,10 +144,7 @@ async function dbRequest<T>(
 // The kept picture itself, for the canvas to decode.
 let wallpaperBlob: Blob | null = null;
 
-function showWallpaper(
-  blob: Blob | null,
-  credit: WallpaperCredit | null = null,
-): void {
+function showWallpaper(blob: Blob | null): void {
   wallpaperBlob = blob;
   if (state.wallpaper) {
     URL.revokeObjectURL(state.wallpaper);
@@ -165,7 +152,6 @@ function showWallpaper(
   publish({
     ...state,
     wallpaper: blob ? URL.createObjectURL(blob) : null,
-    credit: blob ? credit : null,
   });
 }
 
@@ -207,7 +193,7 @@ async function pictureSize(
  */
 export async function setWallpaper(
   file: Blob,
-  credit: WallpaperCredit | null = null,
+  signal?: AbortSignal,
 ): Promise<WallpaperResult> {
   if (!file.type.startsWith("image/")) {
     return { refusal: "not-image" };
@@ -225,25 +211,16 @@ export async function setWallpaper(
   ) {
     return { refusal: "too-small", ...size };
   }
+  if (signal?.aborted) return { refusal: null };
   await dbRequest("readwrite", (store) => store.put(file, DB_KEY));
-  await dbRequest("readwrite", (store) => store.put(credit, DB_CREDIT_KEY));
-  showWallpaper(file, credit);
+  if (signal?.aborted) return { refusal: null };
+  showWallpaper(file);
   return { refusal: null, ...size };
 }
 
 export async function clearWallpaper(): Promise<void> {
   await dbRequest("readwrite", (store) => store.delete(DB_KEY));
-  await dbRequest("readwrite", (store) => store.delete(DB_CREDIT_KEY));
   showWallpaper(null);
-}
-
-function isCredit(v: unknown): v is WallpaperCredit {
-  return (
-    typeof v === "object" &&
-    v !== null &&
-    typeof (v as WallpaperCredit).author === "string" &&
-    typeof (v as WallpaperCredit).url === "string"
-  );
 }
 
 /** loadWallpaper reads the kept picture once at start. */
@@ -252,10 +229,7 @@ export async function loadWallpaper(): Promise<void> {
     store.get(DB_KEY),
   );
   if (blob instanceof Blob) {
-    const credit = await dbRequest<unknown>("readonly", (store) =>
-      store.get(DB_CREDIT_KEY),
-    );
-    showWallpaper(blob, isCredit(credit) ? credit : null);
+    showWallpaper(blob);
   }
 }
 
