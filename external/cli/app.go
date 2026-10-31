@@ -122,6 +122,7 @@ type App struct {
 	// the background tasks running right now (tasks.go).
 	turnStartedAt time.Time
 	turnTokens    int
+	turnSpeed     *float64
 	runningTasks  int
 	// tasks is the last read of the session's background tasks, newest first;
 	// tasksReading says a read is in flight and tasksTimer stops the armed poll.
@@ -460,6 +461,7 @@ func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOpt
 		// and the line never pairs one session's clock with another's tokens.
 		a.resetTasks()
 		a.turnStartedAt, a.turnTokens = time.Time{}, 0
+		a.turnSpeed = nil
 	}
 	a.reasoning = ""
 	if modes != nil {
@@ -985,6 +987,7 @@ func (a *App) startTurnWorker(params acp.SessionPromptParams, opts *session.Prom
 	a.stepBlocked = ""
 	a.turnStartedAt = time.Now()
 	a.turnTokens = 0
+	a.turnSpeed = nil
 	a.startSpinner()
 	a.turnActive = true
 	// A running turn is when tasks appear: read them on the fast cadence.

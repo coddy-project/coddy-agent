@@ -11,7 +11,7 @@ live view of what the nodes told it.
 
 Built with `-tags swarm`, which is part of the shipped set (`FULL_TAGS` in the **Makefile**), so
 the release binaries, the Docker image, the Linux packages and the Homebrew formula all carry the
-relay. Build it yourself with `make build TAGS="http ui scheduler memory cli gateway swarm metrics"`.
+relay. Build it yourself with `make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"`.
 
 The relay is not a command of its own: `coddy serve` runs it when `swarm.enable` is true, next to
 whatever else the configuration enables. A binary built without the tag refuses `swarm.enable` at
@@ -153,6 +153,11 @@ origin twice. The same rule keeps a node's policy from opening a relay whose own
 Since the relay's answer is the only one, it carries what the web UI's Files window needs from
 another origin: `HEAD` among the methods, `Range` and `If-None-Match` among the request headers,
 and `ETag`, `Content-Range`, `Accept-Ranges` and `Content-Disposition` exposed to the page.
+
+The WebSocket of the [Coddy for Browser](../features/browser.md) extension (`/browser/v1/`) is not carried: a
+browser connects to the node on its own machine. A chat of another node reaches that browser through `/coddy/browser/v1`
+of the node's mount, which the prefix list carries like any other route
+([Chats of other Coddy processes](../features/browser.md#chats-of-other-coddy-processes)).
 
 A hand-written path is capped at the same hop budget the fan-out uses, so a client cannot
 walk a ring indefinitely by writing hops out one after another.
@@ -381,12 +386,20 @@ token secret.
 
 Binding off loopback without a client token **refuses to start** (`swarm.allow_insecure`
 overrides). On loopback one is generated for the run rather than left absent, because an open
-relay lends its authority to every local process.
+relay lends its authority to every local process. The generated value goes to
+`${CODDY_HOME}/swarm-token`, readable by the owner only and removed when the relay stops, and to stderr
+when that is a terminal. It never goes to the log, and a relay in the background or under systemd,
+whose stderr is a log, does not print it. If neither the file nor a terminal receives the token, the relay refuses to start.
 
 A node's name is proven by a **per-lease secret** the relay mints, not by the shared pairing
 token: a fleet credential must not let one node claim another's name, redirect its traffic, or
 read the prompts meant for it. The secret is stored under the coddy home so a restart reclaims
-the same name at once. `DELETE /swarm/nodes/{node}` is the administrative takeover path.
+the same name at once. The relay keeps a digest of each name's secret in
+`${CODDY_HOME}/swarm-names.json`, so the name stays bound when the lease is gone - after a restart
+or a settings save rebuilds the relay, or after the node was offline past the grace period - and
+only the node with the secret takes it back. `DELETE /swarm/nodes/{node}` is the administrative
+takeover path and frees the name, with or without a live lease, which is also the way back for a node
+that lost its secret; an entry of `swarm.upstreams` with the same name takes it over. The relay refuses to start if the bindings file is unreadable or malformed. A registration or deletion is acknowledged only after the current bindings snapshot is durable. A storage failure returns HTTP `500`. A failure before the bindings file is replaced leaves the name unchanged; after replacement, a directory synchronization failure can leave the change applied even though its durability is unconfirmed.
 
 An advertised URL is an **SSRF boundary**. Only `http(s)`, with no credentials, query or
 fragment; the host is then resolved and every address checked. Link-local, multicast,

@@ -1,0 +1,42 @@
+// Workspace files and documentation pages named in a message.
+
+/* A file of the chat's workspace an answer names, in prose, as inline code or
+   as a link: it opens in a tab of the Files window, and looks like a mention.
+   A long path wraps inside the transcript. */
+.md a.md-file-link {
+  color: color-mix(in srgb, var(--accent) 72%, var(--text));
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  text-underline-offset: 2px;
+}
+.md a.md-file-link:hover {
+  text-decoration-color: currentColor;
+}
+/* As inline code it stays a chip, in the link's colour, with no underline. */
+.md a.md-file-link:has(> .md-inline-code--file) {
+  text-decoration: none;
+}
+.md a.md-file-link > .md-inline-code--file {
+  color: inherit;
+}
+.md a.md-file-link:hover > .md-inline-code--file {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* A page of the documentation named in a sent message or an answer, as
+   @coddy:<page>#<section>: a link to the reader, in the colour the composer
+   gives a mention. */
+.coddy-doc-mention,
+.md a.md-docs-link {
+  color: color-mix(in srgb, var(--accent) 72%, var(--text));
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  text-underline-offset: 2px;
+}
+
+.coddy-doc-mention:hover,
+.md a.md-docs-link:hover {
+  text-decoration-color: currentColor;
+}

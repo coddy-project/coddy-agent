@@ -14,6 +14,7 @@ export type TurnProgress = {
   outputTokens: number;
   /** An estimate is part of `outputTokens`. */
   estimated: boolean;
+  tokensPerSecond?: number;
   /**
    * The server's name for the turn: its start on the SERVER's clock. Every reading of
    * one turn carries the same one, so it tells two turns apart where arrival times
@@ -113,6 +114,14 @@ export function turnProgressFromFrame(
   if (progress && f.phase === "preparing") {
     progress.phase = "preparing";
   }
+  if (
+    progress &&
+    typeof f.tokensPerSecond === "number" &&
+    Number.isFinite(f.tokensPerSecond) &&
+    f.tokensPerSecond > 0
+  ) {
+    progress.tokensPerSecond = f.tokensPerSecond;
+  }
   return progress;
 }
 
@@ -131,7 +140,7 @@ export function turnProgressFromActivity(
   if (a.turnElapsedMs === undefined && a.turnStartedAt === undefined) {
     return null;
   }
-  return build(
+  const progress = build(
     a.turnElapsedMs,
     a.turnStartedAt,
     a.turnOutputTokens,
@@ -139,6 +148,15 @@ export function turnProgressFromActivity(
     0,
     nowMs,
   );
+  if (
+    progress &&
+    typeof a.turnTokensPerSecond === "number" &&
+    Number.isFinite(a.turnTokensPerSecond) &&
+    a.turnTokensPerSecond > 0
+  ) {
+    progress.tokensPerSecond = a.turnTokensPerSecond;
+  }
+  return progress;
 }
 
 function sameTurn(prev: TurnProgress, next: TurnProgress): boolean {
@@ -188,6 +206,7 @@ export function mergeTurnProgress(
   if (
     prev.outputTokens === next.outputTokens &&
     prev.estimated === next.estimated &&
+    prev.tokensPerSecond === next.tokensPerSecond &&
     startedAtMs === prev.startedAtMs &&
     prev.phase === phase
   ) {

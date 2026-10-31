@@ -83,5 +83,5 @@ func WriteDefaultPermissionMode(home, mode string) error {
 	if err != nil {
 		return err
 	}
-	return atomicWriteFile(path, append(raw, '\n'), 0o600)
+	return AtomicWriteFile(path, append(raw, '\n'), 0o600)
 }

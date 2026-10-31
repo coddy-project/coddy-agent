@@ -23,13 +23,13 @@ import (
 // build has a helper that speaks them.
 var helperCommandsAvailable = true
 
-// renameFile, restartProbe, and startProcess are the seams the update tests
+// renameFile, handoffProbe, and startProcess are the seams the update tests
 // replace. Production always renames through the operating system and starts
 // the real executable.
 var (
 	renameFile   = os.Rename
-	restartProbe = targetUnderstandsRestartHandoff
-	startProcess = restartCoddy
+	handoffProbe = installedBuildTakesHandoff
+	startProcess = startInstalledBuild
 )
 
 // helperPrefix names the copies of Coddy that install an update from the system
@@ -52,7 +52,7 @@ func scheduleWindowsUpdate(req windowsUpdateRequest) error {
 	if err := validateWindowsUpdateRequest(req); err != nil {
 		return err
 	}
-	// A helper whose restart step could not delete it outlives its update.
+	// A helper that the installed build could not delete outlives its update.
 	// Sweeping here bounds the leak to one file instead of one per run.
 	sweepOrphanedHelpers()
 
@@ -81,21 +81,15 @@ func scheduleWindowsUpdate(req windowsUpdateRequest) error {
 	return nil
 }
 
-// helperArgs is the command line the helper parses back into the request. The
-// request is the only thing that decides whether Coddy starts again, so the
-// restart flag has to be conditional here rather than always present.
+// helperArgs is the command line the helper parses back into the request.
 func helperArgs(req windowsUpdateRequest, parentStarted int64) []string {
-	args := []string{
+	return []string{
 		applyUpdateCommand,
 		"--parent-pid", strconv.Itoa(req.ParentPID),
 		"--parent-started", strconv.FormatInt(parentStarted, 10),
 		"--source", req.StagedPath,
 		"--target", req.TargetPath,
 	}
-	if req.Restart {
-		args = append(args, "--restart")
-	}
-	return args
 }
 
 func runWindowsUpdateHelper(args []string, out io.Writer) error {
@@ -105,13 +99,11 @@ func runWindowsUpdateHelper(args []string, out io.Writer) error {
 	parentStarted := fs.Int64("parent-started", 0, "parent process creation time in nanoseconds")
 	source := fs.String("source", "", "staged executable")
 	target := fs.String("target", "", "installed executable")
-	restart := fs.Bool("restart", false, "restart Coddy after installing")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	req := windowsUpdateRequest{
 		ParentPID:  *parentPID,
-		Restart:    *restart,
 		StagedPath: strings.TrimSpace(*source),
 		TargetPath: strings.TrimSpace(*target),
 	}
@@ -130,12 +122,16 @@ func runWindowsUpdateHelper(args []string, out io.Writer) error {
 	return installWindowsUpdate(req, helperPath, out)
 }
 
-func runWindowsRestartAfterUpdate(args []string, out io.Writer) error {
-	fs := flag.NewFlagSet(restartAfterUpdateCommand, flag.ContinueOnError)
+// runWindowsAfterUpdate deletes the helper that just installed this build. It
+// never starts Coddy: a helper of an older release leaves out --no-restart and
+// means "start it again", and on a terminal that would open the console over
+// the shell `coddy update` already returned to.
+func runWindowsAfterUpdate(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet(afterUpdateCommand, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	helper := fs.String("helper", "", "temporary update helper")
 	probe := fs.Bool("probe", false, "exit successfully to report that this build understands the handoff")
-	noRestart := fs.Bool("no-restart", false, "delete the temporary helper without starting Coddy")
+	fs.Bool("no-restart", false, "accepted for the helpers that pass it: this command never starts Coddy")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -147,17 +143,6 @@ func runWindowsRestartAfterUpdate(args []string, out io.Writer) error {
 	if err := removeTemporaryHelper(strings.TrimSpace(*helper)); err != nil {
 		_, _ = fmt.Fprintf(out, "Could not remove temporary update helper: %v\n", err)
 	}
-	if *noRestart {
-		return nil
-	}
-	target, err := resolveExecutablePath()
-	if err != nil {
-		return err
-	}
-	if err := restartCoddy(target); err != nil {
-		return fmt.Errorf("restart Coddy after update: %w", err)
-	}
-	_, _ = fmt.Fprintln(out, "Coddy restarted.")
 	return nil
 }
 
@@ -284,54 +269,42 @@ func installWindowsUpdate(req windowsUpdateRequest, helperPath string, out io.Wr
 		return fmt.Errorf("install update: %w; current Coddy was preserved at %s", err, req.TargetPath)
 	}
 
-	if req.Restart {
-		_, _ = fmt.Fprintln(out, "Restarting Coddy...")
-		if err := restartUpdatedCoddy(req.TargetPath, helperPath); err != nil {
-			if restoreErr := restoreWindowsBackup(req.TargetPath, backup, out); restoreErr != nil {
-				return fmt.Errorf("restart updated Coddy: %w; restore previous Coddy: %v", err, restoreErr)
-			}
-			return fmt.Errorf("restart updated Coddy: %w; restored the previous version", err)
+	// Coddy does not start again here: `coddy update` has already returned to the
+	// shell, and a bare `coddy` on that terminal would open the console over it.
+	// Asking the new build about the handoff still proves that it runs at all, so
+	// a build that cannot start gives way to the previous one.
+	handoff, err := handoffProbe(req.TargetPath)
+	if err != nil {
+		if restoreErr := restoreWindowsBackup(req.TargetPath, backup, out); restoreErr != nil {
+			return fmt.Errorf("start updated Coddy: %w; restore previous Coddy: %v", err, restoreErr)
 		}
-	} else {
-		// Nobody is going to start Coddy again, but deleting this helper still
-		// takes a process that is not this one. The install already succeeded,
-		// so a helper that survives is litter, not a failure.
-		cleanUpAfterInstall(req.TargetPath, helperPath)
+		return fmt.Errorf("start updated Coddy: %w; restored the previous version", err)
+	}
+	// Deleting this helper takes a process that is not this one. The install
+	// already succeeded, so a helper that survives is litter, not a failure, and
+	// one an older release cannot delete waits for the next update to sweep it.
+	if handoff && helperPath != "" {
+		_ = startProcess(req.TargetPath, afterUpdateCommand, "--helper", helperPath, "--no-restart")
 	}
 	_, _ = fmt.Fprintln(out, "Coddy update installed successfully.")
 	return nil
 }
 
-// restartUpdatedCoddy starts the freshly installed executable. The preferred
-// route hands it the helper path so it can delete the helper this process still
-// runs from, which only builds carrying that handoff understand. Installing an
-// older release - `coddy update --version` walking backwards - is a normal
-// thing to do, so fall back to a plain restart and leave the helper for the
-// next update to sweep.
-func restartUpdatedCoddy(target, helperPath string) error {
-	if helperPath != "" && restartProbe(target) {
-		return startProcess(target, restartAfterUpdateCommand, "--helper", helperPath)
-	}
-	return startProcess(target)
-}
-
-// cleanUpAfterInstall asks the installed build to delete the helper without
-// starting Coddy, for the `--no-restart` install that has nothing else to hand
-// the job to. A release that predates the handoff leaves the helper for the
-// next update to sweep.
-func cleanUpAfterInstall(target, helperPath string) {
-	if helperPath == "" || !restartProbe(target) {
-		return
-	}
-	_ = startProcess(target, restartAfterUpdateCommand, "--helper", helperPath, "--no-restart")
-}
-
-func targetUnderstandsRestartHandoff(target string) bool {
+// installedBuildTakesHandoff asks the new build whether it can delete this
+// helper. A release that predates the handoff, which `coddy update --version`
+// walking backwards installs, answers by failing to parse the question: it ran,
+// so that is no error. An error means the file could not be started at all.
+func installedBuildTakesHandoff(target string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, target, restartAfterUpdateCommand, "--probe")
+	cmd := exec.CommandContext(ctx, target, afterUpdateCommand, "--probe")
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	return cmd.Run() == nil
+	err := cmd.Run()
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func copyWindowsBackup(target string) (string, error) {
@@ -404,7 +377,7 @@ func describeRenameFailure(err error, target string) error {
 	return err
 }
 
-func restartCoddy(target string, args ...string) error {
+func startInstalledBuild(target string, args ...string) error {
 	cmd := exec.Command(target, args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

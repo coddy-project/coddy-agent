@@ -30,6 +30,7 @@ import (
 	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
 	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 	"github.com/cucumber/godog"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
@@ -226,13 +227,19 @@ func (w *inboundWorld) chatWhoseModelReadsImages() error {
 
 // send delivers what the person sent the way the polling loop does.
 func (w *inboundWorld) send(in tgfake.IncomingMedia) error {
-	in.ChatID, in.UserID = inboundChatID, inboundUserID
-	msg, err := w.fake.userMedia(in)
+	msg, err := w.upload(in)
 	if err != nil {
 		return err
 	}
 	w.bot.dispatch(w.ctx, w.fake.api, msg)
 	return nil
+}
+
+// upload puts what the person sent into the fake's chat and returns the
+// message the poll reads back for it.
+func (w *inboundWorld) upload(in tgfake.IncomingMedia) (*tgbotapi.Message, error) {
+	in.ChatID, in.UserID = inboundChatID, inboundUserID
+	return w.fake.userMedia(in)
 }
 
 func (w *inboundWorld) personSendsPhoto(caption string) error {
@@ -247,7 +254,12 @@ func (w *inboundWorld) personSendsDocument(name, caption string) error {
 	return w.send(tgfake.IncomingMedia{Type: "document", Data: w.pdf, FileName: name, Caption: caption})
 }
 
+// personSendsAlbum uploads every item first and dispatches them back to
+// back, as the poll does with the one batch of updates an album arrives in:
+// an upload between two items could outlast the album's wait on a loaded
+// machine and split the album in two turns.
 func (w *inboundWorld) personSendsAlbum(n int, caption string) error {
+	var msgs []*tgbotapi.Message
 	for i := 0; i < n; i++ {
 		pic := solidPNG(8+i, 6, color.NRGBA{R: uint8(60 * (i + 1)), G: 40, B: 40, A: 255})
 		w.sent = append(w.sent, pic)
@@ -255,9 +267,14 @@ func (w *inboundWorld) personSendsAlbum(n int, caption string) error {
 		if i == 0 {
 			in.Caption = caption
 		}
-		if err := w.send(in); err != nil {
+		msg, err := w.upload(in)
+		if err != nil {
 			return err
 		}
+		msgs = append(msgs, msg)
+	}
+	for _, msg := range msgs {
+		w.bot.dispatch(w.ctx, w.fake.api, msg)
 	}
 	return nil
 }

@@ -233,6 +233,8 @@ export function FieldLabel(props: {
 export function LegendWithHint(props: {
   label: string;
   description?: ReactNode | undefined;
+  /** A control that acts on the whole fieldset (a refresh icon), after the (i). */
+  action?: ReactNode | undefined;
 }) {
   return (
     <legend>
@@ -241,6 +243,7 @@ export function LegendWithHint(props: {
         {props.description ? (
           <FieldHint text={props.description} label={props.label} />
         ) : null}
+        {props.action}
       </span>
     </legend>
   );

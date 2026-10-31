@@ -12,7 +12,7 @@ vulnerabilities:
     statement: >-
       golang.org/x/crypto v0.57.0 is the latest release and no fixed version
       exists. govulncheck over every shipped build tag
-      (-tags http,ui,scheduler,memory,cli,gateway,swarm,metrics) finds the
+      (-tags http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser) finds the
       vulnerable code in a module Coddy requires but in no package it
       imports, so the binary never calls it. Upgrade as soon as a fixed
       release ships.

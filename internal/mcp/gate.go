@@ -21,7 +21,7 @@ type TrustState string
 
 const (
 	// TrustStateAllowed means the declaration may start: it is operator
-	// authored (config.yaml or <home>/mcp.json), the policy is allow, or the
+	// authored (<home>/mcp.json), the policy is allow, or the
 	// operator approved this exact project declaration for this workspace.
 	TrustStateAllowed TrustState = "allowed"
 	// TrustStateNeedsApproval means a project-local declaration is waiting

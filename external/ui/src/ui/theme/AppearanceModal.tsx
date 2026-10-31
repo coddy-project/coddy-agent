@@ -12,7 +12,9 @@ import {
 import { isUiLocale, UI_LOCALES, UI_LOCALE_IDS } from "../i18n/locales";
 import { UI_THEME_IDS, LIGHT_THEMES, type UiThemeMode } from "./themeCookie";
 import { readAppliedUiTheme, setUiTheme } from "./uiTheme";
+import { SimpleModeSetting } from "./SimpleModeSetting";
 import { NotificationsSetting } from "../pwa/NotificationsSetting";
+import { BackdropSettings } from "./BackdropSettings";
 import { SETTINGS_TEXTS, landmarkAnchor } from "../settings/settingsSections";
 
 function subscribeTheme(onStoreChange: () => void): () => void {
@@ -101,7 +103,7 @@ function readLocaleChoice(): LocaleChoice {
   return stored === null ? "auto" : stored;
 }
 
-/** AppearanceLanguagePicker — language select under the theme grid.
+/** AppearanceLanguagePicker — language select under the switch of the simplified mode.
  * "Auto" resolves from navigator.language and stores no cookie; registered
  * locale choices persist `coddy_ui_lang`. Purely client-side (no config save). */
 export function AppearanceLanguagePicker() {
@@ -169,8 +171,8 @@ export function AppearanceLanguagePicker() {
 
 /** AppearanceThemePicker renders just the theme swatch grid (no panel chrome) so it
  * can be embedded as a Settings tab. Theme selection applies immediately and is
- * client-side only (no config save). The language picker sits right under it,
- * and the switch of system notifications under that. */
+ * client-side only (no config save). Below the grid: the simplified mode,
+ * wallpaper, language and system notifications. */
 export function AppearanceThemePicker() {
   const { t } = useT();
   const current = useSyncExternalStore(
@@ -207,6 +209,8 @@ export function AppearanceThemePicker() {
           ))}
         </div>
       </div>
+      <SimpleModeSetting />
+      <BackdropSettings />
       <AppearanceLanguagePicker />
       <NotificationsSetting />
     </div>

@@ -1,0 +1,266 @@
+// The Swarm screen: its dock, head and map frame.
+
+@use "../abstracts" as *;
+
+/* ---------------------------------------------------------------------------
+   Swarm: one screen for every node a relay can reach.
+
+   Colours come from the shared tokens, so the screen follows whichever theme is
+   active without a palette of its own.
+   --------------------------------------------------------------------------- */
+
+/* Docked like Settings: a fixed panel right of the rail with its own scroll, so
+   the chat underneath keeps its scroll position instead of the page growing. */
+
+.swarm-dock-cluster {
+  position: fixed;
+  top: 14px;
+  bottom: 14px;
+  left: calc(var(--rail-shell-track-width) + var(--nav-floating-gutter));
+  right: 14px;
+  /* As wide as the documentation reader, and centred the same way. */
+  width: var(--coddy-dock-width);
+  margin-inline: auto;
+  z-index: 50;
+  overflow: auto;
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+}
+
+@media (max-width: 1199px) {
+  /* Above the shell's backdrop, which rises to 60 on this shell and which
+     #/swarm opens, and below the top bar the stacked shell puts the rail in,
+     as the settings drawer and the documentation reader sit. */
+  .swarm-dock-cluster {
+    z-index: 70;
+    left: max(8px, env(safe-area-inset-left, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+    top: calc(var(--coddy-mobile-top-inset) + 6px);
+    bottom: 8px;
+    width: auto;
+    margin-inline: 0;
+  }
+}
+
+/* The map fills its dock: the dock is what sets the width (--coddy-dock-width). */
+.swarm-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 100%;
+  box-sizing: border-box;
+  padding: 14px var(--swarm-inline, 24px);
+  color: var(--text);
+}
+
+/* The head follows the documentation reader's own: the title block on the
+   left, the search centred, the actions at the right edge, and a hairline
+   under it that runs to the dock's edges. The band is pulled up over the
+   view's own top padding so it starts flush with the dock's top edge
+   instead of floating as a strip inside it. */
+.swarm-header {
+  position: relative;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: $docs-columns;
+  grid-template-areas: "title search actions";
+  column-gap: 32px;
+  align-items: center;
+  margin: -14px calc(-1 * var(--swarm-inline, 24px)) 0;
+  min-height: var(--coddy-panel-head-height);
+  padding: 0 var(--coddy-panel-head-inline);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  border-bottom: 1px solid mix-text(6%);
+}
+
+.swarm-title-block {
+  grid-area: title;
+  min-width: 0;
+}
+
+/* Spelled like the head of every other panel (.sessions-head, .docs-title):
+   small capitals in a muted tint, the screen's name rather than the relay's. */
+.swarm-title {
+  margin: 0;
+  color: mix-text(72%);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.swarm-subtitle {
+  margin: 2px 0 0;
+  color: mix-text(52%);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.swarm-header-actions {
+  grid-area: actions;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* The graph, the paragraph that says it in words, and the legend. Positioned,
+   because the summary is taken out of flow and has to hang off this box. It
+   grows to fill the dock's height. */
+.swarm-graph-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 10px;
+
+  /* Every --coddy-surface-* token is translucent on six of the seven themes.
+     A node painted in one shows the wires running behind it, and a label plate
+     knocks nothing out. These three flatten the same intent onto the canvas so
+     a card is a card and a plate hides what it covers. */
+  --swarm-ground: color-mix(in srgb, var(--text) 4%, var(--bg));
+  --swarm-plate: var(--bg);
+  --swarm-sunken: color-mix(in srgb, var(--text) 10%, var(--bg));
+
+  /* Work in flight is the accent, because that is the swarm doing what it is
+     for. Something waiting on a person is the one alarm hue every theme
+     declares, lifted against the text so it stays legible on all seven. */
+  --swarm-running: var(--accent);
+  --swarm-waiting: color-mix(in srgb, var(--diff-del-no) 62%, var(--text));
+}
+
+/* Light stacks a pale card on a grey canvas; every dark theme runs the other
+   way, so only the two plates flip. */
+html:not([data-theme="light"]) .swarm-graph-panel {
+  --swarm-plate: color-mix(in srgb, var(--text) 9%, var(--bg));
+  --swarm-sunken: var(--bg);
+}
+
+/* The SVG group keeps its node controls exposed. This paragraph supplements
+   its picture-level description and is the only copy that stays off canvas. */
+.swarm-graph-summary {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The graph itself, not the page, receives every navigation gesture. It
+   grows to fill the panel the dock leaves it. */
+.swarm-graph-viewport {
+  position: relative;
+  flex: 1;
+  min-height: 320px;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  touch-action: none;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: var(--coddy-glass-panel-radius, var(--radius));
+  background: var(--swarm-ground);
+  cursor: grab;
+  /* Dragging the canvas pans it; nothing in it is text to select. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.swarm-graph-viewport.is-panning {
+  cursor: grabbing;
+}
+
+.swarm-graph-viewport:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Absolutely placed rather than height:100%: a percentage on a replaced
+   element resolves against the parent's *specified* height, and the viewport
+   above gets its height from flex-grow, so the SVG would collapse to its
+   intrinsic 150px and show nothing below it. inset: 0 resolves against the
+   used height, which is definite for absolutely positioned boxes. */
+.swarm-graph {
+  position: absolute;
+  inset: 0;
+  display: block;
+  font-family: inherit;
+}
+
+.swarm-graph-camera {
+  transition: transform 0.12s ease-out;
+}
+
+/* A camera the code refits (mount, poll, resize) lands where it lands:
+   animating it only makes the map look like it reloads. */
+.swarm-graph-camera[data-instant="true"] {
+  transition: none;
+}
+
+.swarm-graph-viewport.is-panning .swarm-graph-camera {
+  transition: none;
+}
+
+.swarm-layout-control {
+  position: absolute;
+  z-index: 1;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: 0 3px 10px color-mix(in srgb, #000 20%, transparent);
+}
+
+.swarm-layout-control {
+  top: 10px;
+  left: 10px;
+}
+
+.swarm-canvas-control {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  color: mix-text(78%);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background-color 0.14s ease,
+    color 0.14s ease;
+}
+
+.swarm-canvas-control:hover,
+.swarm-canvas-control:focus-visible,
+.swarm-canvas-control[aria-pressed="true"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--coddy-blend-base));
+}
+
+.swarm-canvas-control svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (max-width: 1199px) {
+  .swarm-canvas-control {
+    width: 40px;
+  }
+}

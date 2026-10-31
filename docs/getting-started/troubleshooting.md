@@ -27,7 +27,7 @@ Give ACP clients the absolute path of the binary instead of relying on `PATH` (`
 
 **Symptom.** A command exits with `load config: ...`, `coddy -t` prints lines that start with the file path, or a setting you wrote has no effect.
 
-**Cause.** The loader reads `$CODDY_HOME/config.yaml` (`~/.coddy` by default), falls back to `config.yaml` in the current directory when that file is missing, and runs on built-in defaults when neither exists, so a file edited in the wrong place changes nothing. It decodes leniently: an unknown or misspelled key (`enabled` for `enable`) is ignored rather than rejected, and a value of the wrong shape surfaces later as odd behaviour. A file that fails to parse is recovered from `config.yaml.bak` on a normal load; the check below does not do that, so it reports the file on disk.
+**Cause.** The loader reads `--config` or `$CODDY_HOME/config.yaml` (`~/.coddy` by default) and runs on built-in defaults when that file is missing. A `config.yaml` in the current directory is not read unless you name it, so a file edited in the wrong place changes nothing. It decodes leniently: an unknown or misspelled key (`enabled` for `enable`) is ignored rather than rejected, and a value of the wrong shape surfaces later as odd behaviour. A file that fails to parse is recovered from `config.yaml.bak` on a normal load; the check below does not do that, so it reports the file on disk.
 
 **Fix.** Run the check the way the failing command would load the file; `--config PATH` and `--home DIR` select it as for a start:
 
@@ -85,7 +85,7 @@ For access from other machines bind wider and require a token: `coddy serve -H 0
 **Fix.** Use a release build - the GitHub Release archives, the `.deb` and `.rpm` packages and the Homebrew cask are built with every tag, and the Docker image ships the API, the web UI, the scheduler, the memory subagent, the console and the gateway - or build it yourself:
 
 ```bash
-make build TAGS="http ui scheduler memory cli gateway swarm metrics"
+make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
 ```
 
 `ui` needs Node.js and npm (the Makefile runs `ui-build` first). `coddy serve --dry-run` reports a surface this binary was not built with without starting anything. Tag reference: [Build from source](../contributing/build.md#build-tags-reference).
@@ -149,7 +149,7 @@ Both `trust` commands print what they are about to approve and record the receip
 
 ## A project marketplace is not synced
 
-**Symptom.** A source or marketplace the project declares in `.coddy/marketplaces.json` installs nothing: `coddy skills sync` ends with a line like `? team/skills: declared by <workspace>/.coddy/marketplaces.json, not approved for this workspace`, `plugin install <plugin>@<name>` says the marketplace is not approved, and Settings > Skills shows the row with a note and its **Sync** button disabled.
+**Symptom.** A source or marketplace the project declares in `.coddy/marketplaces.json` is not used: `coddy plugin marketplace update` ends with a line like `? team/skills: declared by <workspace>/.coddy/marketplaces.json, not approved for this workspace`, `plugin install <plugin>@<name>` says the marketplace is not approved, and Settings > Skills shows the row with a note and its check button disabled.
 
 **Cause.** That file arrives with the checkout and decides what is installed into `${CODDY_HOME}/skills`, so its entries follow `skills.project_trust`: under the default `ask` an entry takes effect only once you approve it for that workspace, and an approval is bound to the entry, so a checkout that rewrites it asks again. Under `deny` the entries are listed as switched off and never used.
 
@@ -158,8 +158,10 @@ Both `trust` commands print what they are about to approve and record the receip
 ```bash
 coddy plugin marketplace list            # what is declared, and what waits for approval
 coddy plugin marketplace trust <name>    # a marketplace by name, a source by its address
-coddy skills sync
+coddy plugin install <source>            # a source; a plugin of a marketplace: coddy plugin install <plugin>@<name>
 ```
+
+Approving installs nothing on its own: the install is the last command.
 
 `/plugin` in a chat cannot approve one. A checkout you already trust can run under `skills.project_trust: allow`. Guide: [Skills](../features/skills.md#project-marketplaces-and-trust).
 
@@ -241,9 +243,34 @@ providers:
     timeout_ms: 3600000                # one hour for a stream: false model's whole request
 ```
 
-With `-log-level debug` the console writes one `llm call finished` line per model call to its log (`logs/cli.log` under the Coddy home; `coddy serve` logs it where `logger.outputs` points), with the call's duration, the time to the first chunk and the chunk count, which is where a slow deployment and a dead one part ways.
+With `-log-level debug` the console writes one `llm call finished` line per model call to its log (`logs/cli.log` under the Coddy home; `coddy serve` logs it where `logger.outputs` points), with the call's duration, the time to the first callback (`first_chunk`) and the callback count. A callback may contain usage metadata alone; it is not necessarily the model's first content.
 
 Field reference: [`agent`](../reference/config.md#agent), [`providers`](../reference/config.md#providers).
+
+## A long session becomes slower
+
+Enable the `agent` debug component to separate local work from the provider call, for example with `-log-level 'info,agent=debug'`. Each model call has a `session` and a process-monotonic `call_id`. The existing `llm call finished` and `llm call usage` records carry the same keys.
+
+The additional records contain timing metadata, never message bodies, URLs, headers, credentials or tool arguments:
+
+- `llm request latency` reports `context_refresh_ms`, `outbound_projection_ms` (eviction, rules, images and turn-context projection), `pairing_ms` and `model_call_ms`. Optional `first_meaningful_ms`, `first_reasoning_ms`, `first_text_ms` and `first_tool_ms` distinguish content from usage-only callbacks. Context refresh excludes initial system-prompt assembly and compaction itself;
+- `llm http request latency` reports at most eight HTTP requests per call, with `request_bytes` (ContentLength, `-1` when unknown), `start_ms`, `round_trip_ms` and observed transport milestones. `sdk_prepare_ms` measures Codex SDK/client preparation including JSON encoding, not pure serialization. `connection_ms` is connection acquisition time; `wrote_request_ms` and `first_byte_ms` are offsets from HTTP transport entry. `round_trip_ms` ends at response headers or a transport error, not the end of the streamed answer. Protocol, status and connection reuse appear only when observed;
+- `llm tool dispatch latency` reports `completion_to_dispatch_ms` from provider return to entry into the first executed tool call, before restriction, hook or permission checks. It includes intervening accounting, persistence, rule discovery and diagnostic logging, not tool execution or a permission wait.
+
+These intervals overlap; do not add them together. First-byte time includes client/network/server work and is not server inference time. Headers and stream metadata can arrive before model content. ACP and custom non-HTTP providers have no HTTP milestones. Without agent debug logging, no collector or additional records are created. Retries share the call's collector; totals and dropped-record counts remain visible past its eight-record cap.
+
+For a bounded live comparison, run the [synthetic Go example](../../examples/diagnostics/request-latency) from the repository root. It uses `config.LoadReadOnly` and the normal provider/authentication/proxy path, never a stored session. Choose a configured streaming model that offers both requested reasoning levels and has an explicit context window.
+
+```bash
+mkdir -p dist/request-latency
+go run ./examples/diagnostics/request-latency -live \
+  -config "$HOME/.coddy/config.yaml" -model codex/gpt-6.1-sol \
+  > dist/request-latency/live.jsonl
+```
+
+The fixed plan makes at most 12 calls. Context pairs follow short/long/long/short order with an immediate identical repeat each; reasoning stays `xhigh`. The final two pairs hold short context fixed and compare `high` with `xhigh`. Defaults are 64 KiB and 1,800,000 archive bytes, an 8 MiB total message-content budget, a 120 s call deadline and a 30-minute overall bound. For a smaller configured window, reduce `-short-bytes` and `-long-bytes`. The window check uses a two-bytes/token fixture estimate plus headroom, not a tokenizer. Provider refusal, an invalid answer or excessive visible output stops the run without retry.
+
+JSONL contains timing/token metadata and answer-validation results, never model text. Repeats observe cache reuse; they do not force a cache state. Compare actual input, cached, output and reasoning tokens, not fixture bytes alone. Reasoning levels use separate adapter instances, so Codex session headers may differ. Codex does not support the requested `-max-tokens` output cap; the example limits visible text/reasoning to 8192 bytes and cancels on excess, while hidden reasoning is bounded only by the deadline. This measures one synthetic model task, not the entire agent loop or the cause of a real session's cache behavior.
 
 ## A provider fails in the middle of a turn
 
@@ -374,10 +401,10 @@ A build from source that stops at the first `FROM` with `failed to parse platfor
 
   ```bash
   (cd external/ui && npm install && npm run build:go)
-  make build TAGS="http ui scheduler memory cli gateway swarm metrics"
+  make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
   ```
 
-- **Updates from scripts.** `coddy update -y --no-restart` installs without starting Coddy again, for a CI step with no console to run in.
+- **Updates from scripts.** `coddy update -y` installs without asking and does not start Coddy, so it fits a CI step with no console.
 - **Editing `config.yaml`.** Windows line endings and the byte order mark Notepad writes are read and dropped, and a save puts the file's line endings back, so editing the file in any Windows editor is safe. The exception is the encoding: a file saved as **Unicode** (UTF-16) rather than **UTF-8** is refused by name - `the file is UTF-16 LE text, not UTF-8` - and has to be re-saved. Notepad's Save As dialog has the encoding next to the Save button; most other editors call the right one "UTF-8 without BOM".
 - **Editors.** Configure ACP clients with the absolute `coddy.exe` path (see the first section).
 

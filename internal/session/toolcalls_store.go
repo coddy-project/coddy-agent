@@ -164,6 +164,19 @@ func ReadToolCallResult(sessionDir, toolCallID string) (string, error) {
 	return string(b), nil
 }
 
+// ToolCallRecorded reports whether the bundle holds a record under the tool
+// call id: some call of the session went by it, even when the history no longer
+// carries the call (a compaction folded it away). internal/agent asks it before
+// it lets a new call keep the id its provider sent.
+func ToolCallRecorded(sessionDir, toolCallID string) bool {
+	dir, err := toolCallDir(sessionDir, toolCallID)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(dir)
+	return err == nil
+}
+
 func ListToolCalls(sessionDir string) ([]string, error) {
 	if strings.TrimSpace(sessionDir) == "" {
 		return nil, fmt.Errorf("session directory is empty")

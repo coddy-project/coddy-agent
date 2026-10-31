@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -340,6 +341,24 @@ func TestDecisionsGateTrustsAnAllowlistedCommand(t *testing.T) {
 				t.Fatalf("calls = %d prompts = %d, want neither", stand.calls.Load(), len(sender.prompts))
 			}
 		})
+	}
+}
+
+// Issue #646: an allowlist entry trusts its own command, not one chained
+// after it, so the line is checked and asked about like any other.
+func TestDecisionsGateChecksACommandChainedAfterAnAllowlistedOne(t *testing.T) {
+	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
+	ag, st, dir, sender := newDecisionsPromptAgent(t, config.PermModeAsk)
+	ag.cfg.Tools.CommandAllowlist = []string{"echo"}
+	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok && touch coddy-chained", false)
+	if strings.Contains(res, "coddy-shell-ok") {
+		t.Fatalf("the chained command ran without an approval: %q", res)
+	}
+	if stand.calls.Load() != 1 || len(sender.prompts) != 1 {
+		t.Fatalf("calls = %d prompts = %d, want the check and its prompt", stand.calls.Load(), len(sender.prompts))
+	}
+	if _, err := os.Stat(filepath.Join(dir, "coddy-chained")); !os.IsNotExist(err) {
+		t.Fatalf("the chained command left its file: %v", err)
 	}
 }
 

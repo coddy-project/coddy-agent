@@ -1,12 +1,7 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
-const css = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
-  "utf8",
-);
+const css = stylesSource();
 
 /**
  * A declaration block on one line: Prettier breaks a long value over several,
@@ -49,9 +44,12 @@ test("the reader sheet is no wider than its three columns", () => {
   const view = rule(".docs-view");
   expect(dock).toMatch(/width:\s*var\(--coddy-dock-width\)/);
   const sheet = Number(/--coddy-dock-width:\s*min\(\s*(\d+)px/.exec(css)?.[1]);
+  // The three columns are one value, named at the top of the stylesheet, so
+  // the layout and the sheet width cannot drift apart.
+  expect(layout).toMatch(/grid-template-columns:\s*\$docs-columns;/);
   const cols =
-    /grid-template-columns:\s*minmax\(\d+px,\s*(\d+)px\)\s*minmax\(0,\s*1fr\)\s*minmax\(\d+px,\s*(\d+)px\)/.exec(
-      layout,
+    /\$docs-columns:\s*minmax\(\d+px,\s*(\d+)px\)\s*minmax\(0,\s*1fr\)\s*minmax\(\d+px,\s*(\d+)px\)/.exec(
+      css,
     );
   const article = px(rule(".docs-article"), "max-width");
   const gap = px(layout, "gap");
@@ -75,6 +73,24 @@ test("a zoomed image in the lightbox keeps its width", () => {
 // button of the shared zoom controls.
 test("the zoom level stays on one line", () => {
   expect(rule(".zoom-control--level")).toMatch(/white-space:\s*nowrap/);
+});
+
+test("shared zoom controls stay compact at every viewport", () => {
+  const controls = [
+    ...css.matchAll(/(?:^|\n)\s*\.zoom-control\s*\{([^}]+)\}/g),
+  ];
+  expect(controls.length).toBeGreaterThan(0);
+  for (const [, body] of controls) {
+    expect(px(body!, "width")).toBe(28);
+    expect(px(body!, "height")).toBe(28);
+  }
+  const levels = [
+    ...css.matchAll(/(?:^|\n)\s*\.zoom-control--level\s*\{([^}]+)\}/g),
+  ];
+  expect(levels.length).toBeGreaterThan(0);
+  for (const [, body] of levels) {
+    expect(px(body!, "min-width")).toBe(48);
+  }
 });
 
 // The page scrolls under the header, not with it: the scrollbar starts below
@@ -197,13 +213,23 @@ test("the pages of the contents are indented under their group title", () => {
 // The header is laid on the columns of the page. With columns of its own (the
 // actions as wide as their content), the search ran past the text into the
 // On this page column beside it.
-test("on the desktop the header uses the page's own columns", () => {
-  const columns = (block: string) =>
-    /grid-template-columns:\s*([^;]+);/
-      .exec(block)?.[1]
-      ?.replace(/\s+/g, " ")
-      .trim();
-  expect(columns(rule(".docs-header"))).toBe(columns(rule(".docs-layout")));
+test("on the desktop the header stands over the page's own columns", () => {
+  const css = stylesSource();
+  const value = (name: string) =>
+    new RegExp(`\\$${name}:\\s*([^;]+);`).exec(css)?.[1]?.replace(/\s+/g, " ");
+  const tracks = (name: string) =>
+    [...(value(name) ?? "").matchAll(/minmax\((\d+)px, (\d+)px\)/g)].map(
+      (m) => [Number(m[1]), Number(m[2])],
+    );
+  expect(rule(".docs-layout")).toContain("$docs-columns");
+  expect(rule(".docs-header")).toContain("$docs-head-columns");
+  // The head's inset is 14px less than the page's on each side, and its outer
+  // tracks take that up, which keeps the search over the text.
+  const page = tracks("docs-columns");
+  const head = tracks("docs-head-columns");
+  expect(head).toEqual(page.map(([min, max]) => [min! + 14, max! + 14]));
+  expect(px(rule(".docs-view"), "--docs-inline")).toBe(28);
+  expect(css).toMatch(/--coddy-panel-head-inline:\s*14px;/);
 });
 
 // The header's insets are the same on both sides, as in every other panel
@@ -213,9 +239,13 @@ test("on the desktop the header uses the page's own columns", () => {
 // out of its own right padding instead, so the scrollbar stands in the margin
 // and the columns of the header and the page stay one.
 test("the header keeps one inset on both sides and the body pays for the scrollbar", () => {
-  const symmetric = /padding:\s*\d+px var\(--docs-inline\) \d+px;/;
-  expect(rule(".docs-header")).toMatch(symmetric);
-  expect(mediaRule("max-width: 1199px", ".docs-header")).toMatch(symmetric);
+  expect(rule(".docs-header")).toMatch(
+    /padding:\s*0 var\(--coddy-panel-head-inline\);/,
+  );
+  // Two rows on the stacked shell, so they carry a padding above and below.
+  expect(mediaRule("max-width: 1199px", ".docs-header")).toMatch(
+    /padding:\s*0 var\(--coddy-panel-head-inline\) 10px;/,
+  );
   expect(rule(".docs-header")).not.toMatch(/--docs-scrollbar/);
   expect(mediaRule("max-width: 1199px", ".docs-header")).not.toMatch(
     /--docs-scrollbar/,

@@ -47,6 +47,12 @@ pty (see the CLI section below):
 | **`skills_fixture/`** | Bundled skill for slash-command HTTP demo (copied into **`$CODDY_HOME/skills_fixture`** by **`test_httpserver.sh`**). |
 | **`agents_fixture/`** | Project-scope subagent definitions: **`.coddy/agents/marker-reporter.md`** (read-only, reports the `MARKER:` line of a named file), which each **`e2e_subagents`** script copies into its work dir and approves before the spawn, and **`.coddy/agents/echo-runner.md`** (`permission_mode: ask`, `background: true`, runs one named command), which the HTTP script approves for its detached-prompt phase. |
 
+## Request latency experiment
+
+`diagnostics/request-latency` is a Go example, not a Coddy subcommand. It compares synthetic context sizes and reasoning levels through the configured provider's normal proxy/authentication path. It requires `-live`, never reads session history, and stops on the first error without retry. The fixed plan is capped at 12 calls and an 8 MiB message-content budget. Run its offline tests with `go test ./examples/diagnostics/request-latency`.
+
+See [A long session becomes slower](../docs/getting-started/troubleshooting.md#a-long-session-becomes-slower) for the live command, timing definitions, context-window checks and Codex output-limit caveat. It is deliberately not part of the normal e2e runners or test suite's live work.
+
 ## Telegram offline stand
 
 ```bash

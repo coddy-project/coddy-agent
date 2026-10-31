@@ -20,7 +20,8 @@ func runUpdate(args []string) error {
 	fs.BoolVar(&yes, "yes", false, "install without confirmation (same as -y)")
 	version := fs.String("version", "", "install a specific release tag (X.Y.Z) instead of latest")
 	repo := fs.String("repo", update.DefaultRepo, "GitHub repository owner/name for releases")
-	noRestart := fs.Bool("no-restart", false, "Windows only: install the update but do not start Coddy again")
+	// Scripts written when a Windows update started Coddy again pass this flag.
+	fs.Bool("no-restart", false, "no effect, kept for scripts: coddy update never starts Coddy")
 	noNotes := fs.Bool("no-notes", false, "do not print what changed after the update (also "+update.NotesEnvVar+"=0)")
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of update:\n")
@@ -38,7 +39,6 @@ func runUpdate(args []string) error {
 		TargetVersion: strings.TrimSpace(*version),
 		CheckOnly:     *check,
 		Yes:           yes,
-		NoRestart:     *noRestart,
 		NoNotes:       *noNotes || update.NotesDisabledByEnv(),
 		Stdout:        os.Stdout,
 	})

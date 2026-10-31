@@ -2,12 +2,12 @@ Feature: The background tasks of a chat in the web UI
   Background tasks belong to one chat, so the way to their panel lives in that
   chat: a control at the right edge of the chat header. The header is sticky,
   so the control does not scroll away with the transcript, and it is there
-  from the first message, so the header does not jump when the first task
-  starts. It says how many tasks run out of how many the chat has, and it is
-  the first of the chat's view buttons in the header, next to Edits and Files.
+  from the first message, a square with its dot like the Files square next to
+  it. Once the chat has tasks it says how many run out of how many there are,
+  the digits next to the dot.
 
   Scenario: The control is there before any task has run
-    Then the tasks control is in the header of a chat that never ran a task, without counts
+    Then the tasks control of a chat that never ran a task is a square with its dot
 
   Scenario: The control counts the running tasks out of all of them
     Then with tasks the header control says how many are running out of how many there are
@@ -30,7 +30,8 @@ Feature: The background tasks of a chat in the web UI
   Scenario: A card opens in place
     Then a click on a card expands it in place and another folds it
     And an open command card shows the command with a copy control, the output and how it ended
-    And an open subagent card offers the child transcript and shows the run's log
+    And an open subagent card shows the run's log
+    And a folded subagent card links to the child transcript as plain text
     And any number of cards stay open at once, each with its own output
     And a card the shell points at opens on its own
 

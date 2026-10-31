@@ -28,7 +28,7 @@ Resolved locations use environment variables and flags (see README). In short:
 - **`CODDY_CODEX_BASE_URL`** - override for the Codex backend endpoint (default **`https://chatgpt.com/backend-api/codex`**). Process-level on purpose: **`api_base`** stays ignored for **`type: codex`**, so a settings document cannot redirect a ChatGPT OAuth token. Used by the executable specs and by self-hosted Codex gateways.
 - **`CODDY_DEVIN_CLI_CREDENTIALS`** - the Devin CLI **`credentials.toml`** read by **`type: devin`** providers when no Coddy-managed login exists. Default **`~/.local/share/devin/credentials.toml`** (or under **`$XDG_DATA_HOME`**). **`CODDY_DEVIN_API_SERVER_URL`**, **`CODDY_DEVIN_WEBAPP_URL`** and **`CODDY_DEVIN_API_URL`** move the Devin endpoints for the whole process, for stands and tests; see [Devin](../features/devin.md).
 
-If no **`--config`** is given, the loader uses **`$CODDY_HOME/config.yaml`** (default home **`~/.coddy`**). If that file is missing, it tries **`config.yaml`** in the process current working directory (**`$CWD`** at startup). If neither file exists, built-in defaults apply (no error).
+If no **`--config`** is given, the loader uses **`$CODDY_HOME/config.yaml`** (default home **`~/.coddy`**). If that file is missing, built-in defaults apply (no error). A **`config.yaml`** in the process current working directory is not read by itself: it may have come with a checkout, and a config can run commands (**`providers[].api_key_command`**, **`providers[].acp.command`**) and say where keys and prompts go (**`providers[].api_base`**, **`swarm.join`**). A start that finds one while the home has none says so in the log, and **`coddy -t`** names it. To use the file, name it with **`--config`** or **`CODDY_CONFIG`**, or move it to the home.
 
 When the primary file exists but is invalid (YAML parse or validation error), the loader automatically recovers from **`config.yaml.bak`** in the same directory (see **`internal/config/recovery.go`**). After every successful load the server writes **`config.yaml.bak`**. The HTTP **`PUT /coddy/config`** route (see **`docs/reference/http-api.md`**) also snapshots the current file to **`config.yaml.bak`** before overwriting, so a failed reload can be rolled back.
 
@@ -631,14 +631,12 @@ Values already in the process environment (e.g. set by the shell, Docker, system
 Any config value can reference environment variables using `${VAR_NAME}` syntax.
 The agent resolves these at startup.
 
-**Literal `$` in a value:** because expansion runs over the raw file, a value that must contain a
-literal dollar sign (e.g. a proxy or API-key secret like `$2y$10$…`) has to double it as `$$` — `$$`
-expands back to a single `$`, exactly like docker-compose / envsubst. Without this, fragments such as
-`$2y` or `$10` are treated as environment-variable references and resolve to empty strings, silently
-corrupting the secret. The Settings UI does this automatically for the `proxy` fields
-(`providers[].proxy` and `gateways.telegram.proxy`), which are always treated as literal URLs and do
-**not** support `${VAR}` references; for a literal `$` in `api_key` (which does support `${VAR}`),
-write `$$` by hand.
+**Literal `$` in a value.** In hand-written `config.yaml`, write `$$` for each literal dollar sign.
+For example, `$2y$10$…` is written as `$$2y$$10$$…`. Otherwise the loader treats fragments such as
+`$2y` and `$10` as environment references and changes the value. Settings treats API keys, tokens,
+proxy URLs and default HTTP header values as literal text and escapes their dollar signs when
+saving. Enter these values unchanged, without doubling `$`. To use an environment reference in a
+credential field, put it in YAML rather than in Settings.
 
 **A save keeps the references.** The loaded configuration holds what a reference resolved to, so the
 Settings UI works with the secret itself and with absolute paths. When it saves, a value written as

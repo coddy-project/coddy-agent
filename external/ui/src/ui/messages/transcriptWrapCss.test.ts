@@ -7,16 +7,10 @@
  * does no layout, so the rules are pinned here; the live check at every width of
  * the grid is external/ui/scripts/phone-overflow-check.mjs.
  */
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
-const dir = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(dir, "../../styles.css"), "utf8").replace(
-  /\/\*[\s\S]*?\*\//g,
-  "",
-);
+const css = stylesSource().replace(/\/\*[\s\S]*?\*\//g, "");
 
 /** Declarations of every top-level rule whose selector list is exactly `selector`. */
 function rule(selector: string): string {
@@ -42,6 +36,12 @@ function px(value: string | undefined): number {
 }
 
 describe("a tool row never widens the transcript", () => {
+  test("a targetless head lays its label and duration out as inline text", () => {
+    expect(decl(rule(".thinking-head--targetless"), "display")).toBe("block");
+    expect(
+      decl(rule(".thinking-head--targetless .thinking-label"), "display"),
+    ).toBe("inline");
+  });
   test("the label keeps its line while it fits, and wraps inside the row when it does not", () => {
     const label = rule(".thinking-head .thinking-label");
     // It never gives way to a sibling: a short label next to a long target

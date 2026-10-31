@@ -26,6 +26,13 @@ func (a *Agent) readQueuedMessages(messages *[]llm.Message) bool {
 	if len(queued) == 0 {
 		return false
 	}
+	a.appendQueuedMessages(messages, queued)
+	return true
+}
+
+// appendQueuedMessages commits an explicit batch the same way a mid-step
+// steer read does. The caller owns its receipt and commits the whole batch.
+func (a *Agent) appendQueuedMessages(messages *[]llm.Message, queued []session.QueuedMessage) {
 	sessionID := a.state.GetID()
 	for _, q := range queued {
 		images := make([]llm.ImagePart, 0, len(q.ImageParts))
@@ -50,7 +57,9 @@ func (a *Agent) readQueuedMessages(messages *[]llm.Message) bool {
 			CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 			FollowUp:   true,
 		}
-		*messages = append(*messages, msg)
+		if messages != nil {
+			*messages = append(*messages, msg)
+		}
 		// The frame goes out before the message is persisted, like every other
 		// frame a message describes: a client that reloads between the two reads
 		// the message in the transcript and is not replayed the frame on top of it.
@@ -62,5 +71,4 @@ func (a *Agent) readQueuedMessages(messages *[]llm.Message) bool {
 	}
 	a.log.Info("read queued messages", "session_id", sessionID, "messages", len(queued))
 	a.refreshConversationContextUsage(true)
-	return true
 }

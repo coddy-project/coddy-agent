@@ -26,6 +26,11 @@ const (
 // MountPath is the route prefix under which a relay proxies one node.
 const MountPath = "/swarm/nodes/"
 
+// TunnelHostSuffix ends the host name a relay addresses a tunnel's node by. The
+// .invalid domain is reserved never to resolve, so no browser can be made to
+// send it, which is what lets a node answer it on a loopback connection.
+const TunnelHostSuffix = ".swarm.invalid"
+
 // RegisterRequest is the document a node sends to join a relay. The same
 // document renews the lease, so a heartbeat is just a repeat carrying the
 // secret the relay minted the first time.

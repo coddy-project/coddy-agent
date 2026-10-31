@@ -19,7 +19,7 @@ Build with **`memory`** to link long-term memory (`external/memory`). Enable beh
 The **HTTP gateway**, **embedded SPA**, **scheduler**, **memory**, the **messenger gateway** (**`gateway`** — see [`docs/surfaces/gateway.md`](../surfaces/gateway.md)), and the **interactive console** (**`cli`**, bare **`coddy`** on a terminal — see [`docs/surfaces/console.md`](../surfaces/console.md)) are controlled by Go build tags. For a single binary that matches the default **Docker** image and includes every optional feature:
 
 ```bash
-make build TAGS="http ui scheduler memory cli gateway swarm metrics"
+make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
 ```
 
 Output: **`build/coddy`**.
@@ -30,7 +30,7 @@ Equivalent **`go build`** (after `ui-build` when you use **`ui`**, or use **`mak
 make ui-build   # only when using -tags=...,ui,... with http; Makefile runs this for you on `make build`
 VERSION="$(make -s print-version)"
 REVISION="$(make -s print-revision)"
-go build -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics \
+go build -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser \
   -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION} -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=${REVISION}" \
   -o build/coddy \
   ./cmd/coddy/
@@ -42,14 +42,14 @@ The [**Dockerfile**](../../Dockerfile) uses the same idea: comma-separated tags 
 
 **`make install`** copies **`build/coddy`** onto your **`PATH`**:
 
-- If **`build/coddy`** already exists (for example after **`make build TAGS="http ui scheduler memory cli gateway swarm metrics"`**), it is installed as-is without rebuilding.
-- If the binary is missing, **`make install`** runs **`make build TAGS="http ui scheduler memory cli gateway swarm metrics"`** first.
+- If **`build/coddy`** already exists (for example after **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"`**), it is installed as-is without rebuilding.
+- If the binary is missing, **`make install`** runs **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"`** first.
 
 - **root** - **`/usr/local/bin/coddy`**, man page in **`/usr/local/share/man/man1`**
 - **non-root** - **`~/.local/bin/coddy`** (ensure that directory is on **`PATH`**), man page in **`~/.local/share/man/man1`**
 
 ```bash
-make build TAGS="http ui scheduler memory cli gateway swarm metrics"
+make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
 make install
 ```
 
@@ -68,7 +68,7 @@ Output: **`dist/coddy_<version>_linux_<arch>.deb`** and **`.rpm`**. Knobs:
 | Variable | Default | What |
 |----------|---------|------|
 | **`PKG_ARCHS`** | host **`GOARCH`** | architectures to package, e.g. **`"amd64 arm64"`** |
-| **`PKG_TAGS`** | **`http ui scheduler memory cli gateway swarm metrics`** | build tags for the packaged binary |
+| **`PKG_TAGS`** | **`http ui scheduler memory cli gateway swarm metrics browser`** | build tags for the packaged binary |
 | **`DIST_DIR`** | **`dist`** | where the packages land |
 
 ```bash
@@ -234,7 +234,7 @@ Use this when you only need stdio ACP and want fewer dependencies and no **`npm`
 ## Android (Termux)
 
 ```bash
-make android TAGS="http ui scheduler memory cli gateway swarm metrics"   # build/coddy-android-arm64, -amd64
+make android TAGS="http ui scheduler memory cli gateway swarm metrics browser"   # build/coddy-android-arm64, -amd64
 make check-android                                              # go vet with GOOS=android, test files included
 ```
 
@@ -291,7 +291,7 @@ Manual one-liner aligned with **`make build`**:
 
 ```bash
 go build \
-  -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics \
+  -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser \
   -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(make -s print-version) -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=$(make -s print-revision)" \
   -o build/coddy \
   ./cmd/coddy/
@@ -302,13 +302,13 @@ go build \
 In **`Makefile`**, **`TAGS`** is **space-separated**:
 
 ```bash
-make build TAGS="http ui scheduler memory cli gateway swarm metrics"
+make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
 ```
 
 **`go build`** expects a **comma-separated** list (no spaces):
 
 ```bash
-go build -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics ...
+go build -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser ...
 ```
 
 Order does not matter for these tags.
@@ -327,7 +327,7 @@ Order does not matter for these tags.
 | **`swarm`** | Stateless relay that aggregates nodes, started by **`coddy serve`** under **`swarm.enable`** | [`docs/operate/swarm.md`](../operate/swarm.md) · [`external/swarm/`](../../external/swarm) |
 | **`metrics`** | Prometheus exporter, started by **`coddy serve`** under **`metrics.enable`** (off by default); serves **`/metrics`** on a port of its own | [`docs/operate/monitoring.md`](../operate/monitoring.md) · [`external/metrics/`](../../external/metrics) |
 
-**`make test`** is the express run: the whole tree once with every optional module compiled in (**`http,ui,scheduler,memory,cli,gateway,swarm,metrics`**). **`make test-matrix`** walks every combination (the **`TEST_TAG_SETS`** list in [`Makefile`](../../Makefile)); CI runs that matrix on every pull request, one job per combination. The `cli` job also starts the built binary and drives the console through a real pty (`examples/cli/cli_e2e_startup.py`), and the **Telegram stand (tgfake)** job runs the Telegram bot against the release binary of [tgfake](tgfake.md) (`examples/gateway/tg_e2e_offline.sh`; the binary it runs is built with `gateway metrics`, and the script scrapes the exporter after the chat). The **Docker image** job builds the runtime image for **`linux/amd64`** and **`linux/arm64`**, the platforms a release pushes, and checks that each variant carries a binary of its own platform (**`make check-image`**, see [Checking the platforms of the image](../getting-started/docker.md#checking-the-platforms-of-the-image)). **`make test-race`** runs the whole tree under the Go race detector with every tag but `ui`; CI runs it on every pull request in the **Race detector** job, and `GOFLAGS=-count=3 make test-race` repeats every test locally for a race that shows up rarely. Two groups can be run on their own: **`make test-cache`** is the prompt-cache group (the `features/prompt_cache_*.feature` specs and the `TestPromptCache*` tests, part of `make test`: what every request sends the provider, held byte for byte across a session), and **`make test-perf`** is the performance group (the benchmarks of the `perf_test.go` files, never part of `make test`: timings of the work a turn repeats and the context a session over this repository's own rules costs, as `system-tokens`, `request-tokens` and `duplicate-rules`).
+**`make test`** is the express run: the whole tree once with every optional module compiled in (**`http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser`**). **`make test-matrix`** walks every combination (the **`TEST_TAG_SETS`** list in [`Makefile`](../../Makefile)); CI runs that matrix on every pull request, one job per combination. The `cli` job also starts the built binary and drives the console through a real pty (`examples/cli/cli_e2e_startup.py`), and the **Telegram stand (tgfake)** job runs the Telegram bot against the release binary of [tgfake](tgfake.md) (`examples/gateway/tg_e2e_offline.sh`; the binary it runs is built with `gateway metrics`, and the script scrapes the exporter after the chat). The **Docker image** job builds the runtime image for **`linux/amd64`** and **`linux/arm64`**, the platforms a release pushes, and checks that each variant carries a binary of its own platform (**`make check-image`**, see [Checking the platforms of the image](../getting-started/docker.md#checking-the-platforms-of-the-image)). **`make test-race`** runs the whole tree under the Go race detector with every tag but `ui`; CI runs it on every pull request in the **Race detector** job, and `GOFLAGS=-count=3 make test-race` repeats every test locally for a race that shows up rarely. Two groups can be run on their own: **`make test-cache`** is the prompt-cache group (the `features/prompt_cache_*.feature` specs and the `TestPromptCache*` tests, part of `make test`: what every request sends the provider, held byte for byte across a session), and **`make test-perf`** is the performance group (the benchmarks of the `perf_test.go` files, never part of `make test`: timings of the work a turn repeats and the context a session over this repository's own rules costs, as `system-tokens`, `request-tokens` and `duplicate-rules`).
 
 On Windows, run Make through Git Bash. The build and install targets use Go's
 executable suffix (`coddy.exe`), including the binary that `make docs` runs.
@@ -364,6 +364,7 @@ On each SemVer git tag **`X.Y.Z`** that is on **`main`**, the [**Release binarie
 | **`coddy_X.Y.Z_linux_amd64.rpm`**, **`coddy_X.Y.Z_linux_arm64.rpm`** | Fedora, RHEL, openSUSE and derivatives |
 | **`coddy.rb`** | Homebrew cask for the macOS archives of this tag; the same file is committed to the tap [coddy-project/homebrew-coddy-agent](https://github.com/coddy-project/homebrew-coddy-agent) |
 | **`SHA256SUMS`** | Checksums for every archive and package above |
+| **`SHA256SUMS.minisig`** | The signature of that list ([Signing releases](#signing-releases)) |
 
 The **`.tar.gz`** archives carry the man page and the shell completions beside the binary; the
 packages wrap the Linux binaries the same job just built rather than compiling their own, so the
@@ -374,6 +375,23 @@ Tags match the full feature set: **`http`**, **`ui`**, **`scheduler`**, **`memor
 ```bash
 gh workflow run "Release binaries" --ref X.Y.Z -f tag=X.Y.Z
 ```
+
+### Signing releases
+
+The workflow signs **`SHA256SUMS`** with the secret key in the repository secret **`RELEASE_SIGNING_KEY`** through **`cmd/releasesign`**, and **`coddy update`** checks the signature against the public keys in **`releaseSigningKeys`** (**`internal/update/checksum.go`**). The signature is in minisign's format, so **`minisign -Vm SHA256SUMS -P <public key>`** verifies it, and its trusted comment names the tag, so a signed list of an old release does not pass for a new one. A release from **`firstSignedRelease`** on is refused without a valid signature.
+
+The official release job stops before uploading assets if the secret is missing or its key is not trusted by the updater. The signing command verifies the signature against the shipped public keys before writing **`SHA256SUMS.minisig`**. An empty list of public keys does not turn off mandatory verification. A fork without the secret may publish unsigned releases; the official updater does not authenticate another repository's releases.
+
+To make a key, run the first command, put the public key it prints into **`releaseSigningKeys`**, then store the secret:
+
+```bash
+go run ./cmd/releasesign keygen coddy-release-signing.key
+gh secret set RELEASE_SIGNING_KEY --repo coddy-project/coddy-agent < coddy-release-signing.key
+```
+
+GitHub does not give a secret back, so keep the file offline or accept that a lost key is replaced rather than recovered. To replace a key, ship its public key in front of the old one in a release signed by the old one, and switch the secret once the people who update have that build: a binary only trusts the keys it carries.
+
+The signature stops whoever can upload release assets, which is what a leaked token or a compromised step of another job can do. It does not stop whoever can run a workflow of this repository with the secret.
 
 ## AppSec scan
 
@@ -392,4 +410,4 @@ land in **`dist/security/`**. Runner, gate knobs and triage:
 go install github.com/EvilFreelancer/coddy-agent/cmd/coddy@latest
 ```
 
-That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory, console, messenger gateway), clone the repo and use **`make build TAGS="http ui scheduler memory cli gateway swarm metrics"`** (or **`go build -tags=...`** as above).
+That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory, console, messenger gateway), clone the repo and use **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"`** (or **`go build -tags=...`** as above).

@@ -127,7 +127,7 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 	// established and then fails on its first frame.
 	served := swarmdto.SpliceBuffered(conn, brw.Reader)
 
-	target, _ := url.Parse("http://" + node + ".swarm.invalid")
+	target, _ := url.Parse("http://" + node + swarmdto.TunnelHostSuffix)
 	cc, err := newTunnelClientConn(served, target.Host, tunnelReadIdleTimeout, tunnelPingTimeout)
 	if err != nil {
 		s.log.Warn("swarm tunnel handshake failed", "node", node, "error", err)

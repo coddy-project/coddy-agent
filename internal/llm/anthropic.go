@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -24,6 +25,18 @@ type anthropicProvider struct {
 	// tempSet sends temp even at zero: the caller asked for that value.
 	tempSet         bool
 	reasoningEffort string
+	// blocking is set for a model configured with stream: false: Complete
+	// then sends one non-streaming request instead of reading a stream.
+	blocking bool
+}
+
+// anthropicBlockingTimeout is the deadline of one non-streaming request that
+// may generate maxTokens tokens: the estimate anthropic-sdk-go makes itself
+// (an hour per 128000 tokens), between the ten minutes it gives any request
+// and an hour. Passing it keeps the client from refusing the request.
+func anthropicBlockingTimeout(maxTokens int64) time.Duration {
+	tokens := time.Duration(min(max(maxTokens, 0), 128000))
+	return max(time.Hour*tokens/128000, 10*time.Minute)
 }
 
 func newAnthropicProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *anthropicProvider {
@@ -109,13 +122,25 @@ func anthropicThinkingBudget(level string, maxTokens int) int64 {
 	return b
 }
 
+// Complete waits for the whole answer: a compaction summary, a goal check, the
+// turns of a model with stream: false. Sent as one blocking request it falls
+// under a limit of the client's own: anthropic-sdk-go refuses it before
+// sending once max_tokens promises more than ten minutes of generation (above
+// 21333 tokens, 8192 for Claude Opus 4 and 4.1), so a model configured with a
+// larger max_tokens could not compact. A streaming model reads the answer
+// from a stream, which has no such limit; a model the operator told not to
+// stream sends the one blocking request with a deadline sized to max_tokens,
+// and the API decides the rest.
 func (p *anthropicProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
+	if !p.blocking {
+		return p.Stream(ctx, messages, tools, nil)
+	}
 	system, msgs, err := p.splitMessages(messages)
 	if err != nil {
 		return nil, err
 	}
 	params := p.buildParams(system, msgs, tools)
-	resp, err := p.client.Messages.New(ctx, params)
+	resp, err := p.client.Messages.New(ctx, params, option.WithRequestTimeout(anthropicBlockingTimeout(params.MaxTokens)))
 	if err != nil {
 		return nil, fmt.Errorf("anthropic complete: %w", err)
 	}
@@ -154,7 +179,8 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 	toolUseMap := make(map[int64]*toolUseAccum)
 
 	// finalizeAnthropicToolUses returns every tool_use block started so far, in
-	// the order the model wrote them.
+	// the order the model wrote them. A call with no arguments streams no
+	// input at all and reads "{}", the object the non-streaming reader gets.
 	finalizeAnthropicToolUses := func() []ToolCall {
 		indexes := make([]int64, 0, len(toolUseMap))
 		for i := range toolUseMap {
@@ -164,15 +190,24 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		var out []ToolCall
 		for _, i := range indexes {
 			acc := toolUseMap[i]
-			out = append(out, ToolCall{ID: acc.id, Name: acc.name, InputJSON: acc.input})
+			input := acc.input
+			if strings.TrimSpace(input) == "" {
+				input = "{}"
+			}
+			out = append(out, ToolCall{ID: acc.id, Name: acc.name, InputJSON: input})
 		}
 		return out
 	}
 
 	// emitted flips once any chunk reached the caller; a truncated stream
 	// after that must not be retried, or the same deltas would stream twice.
+	// Complete passes no callback: nothing reaches a caller then, and a
+	// failure stays as safe to retry as one before the first event.
 	var emitted bool
 	emit := func(c StreamChunk) {
+		if onChunk == nil {
+			return
+		}
 		emitted = true
 		onChunk(c)
 	}

@@ -1,0 +1,22 @@
+# Merge these declarations into ~/.kimi-code/config.toml.
+#
+# Kimi Code runs them in every project, from the session's folder. Like the
+# Codex hook, each command runs the script of the checkout the session works
+# in. `|| exit 0` keeps a folder without the script from blocking: Python exits
+# 2 when it cannot open the script, and Kimi Code reads exit 2 as a refusal.
+
+[[hooks]]
+event = "UserPromptSubmit"
+command = "python3 \"$(git rev-parse --show-toplevel)/.kimi-code/hooks/attach_rules.py\" || exit 0"
+timeout = 10
+
+[[hooks]]
+event = "PreToolUse"
+matcher = "^(Edit|Write)$"
+command = "python3 \"$(git rev-parse --show-toplevel)/.kimi-code/hooks/attach_rules.py\" || exit 0"
+timeout = 10
+
+[[hooks]]
+event = "PostCompact"
+command = "python3 \"$(git rev-parse --show-toplevel)/.kimi-code/hooks/attach_rules.py\" || exit 0"
+timeout = 10

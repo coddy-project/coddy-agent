@@ -56,6 +56,7 @@ const SECTION_LABEL_KEYS = {
   scheduler: "settings.section.scheduler.label",
   logger: "settings.section.logger.label",
   metrics: "settings.section.metrics.label",
+  browser: "settings.section.browser.label",
   gateways: "settings.section.gateways.label",
   swarm: "settings.section.swarm.label",
 } as const;
@@ -88,6 +89,7 @@ const SECTION_DESC_KEYS = {
   scheduler: "settings.section.scheduler.desc",
   logger: "settings.section.logger.desc",
   metrics: "settings.section.metrics.desc",
+  browser: "settings.section.browser.desc",
   gateways: "settings.section.gateways.desc",
   swarm: "settings.section.swarm.desc",
 } as const;
@@ -321,8 +323,16 @@ export const SETTINGS_TEXTS = {
   },
   modelProvider: { label: "settings.field.provider" },
   appearanceTheme: { label: "appearance.themeLabel" },
+  appearanceSimple: {
+    label: "appearance.simpleLabel",
+    desc: "appearance.simple.hint",
+  },
   appearanceLanguage: { label: "appearance.languageLabel" },
   appearanceNotifications: { label: "appearance.notificationsLabel" },
+  appearanceWallpaper: {
+    label: "appearance.wallpaperLabel",
+    desc: "appearance.wallpaper.hint",
+  },
   sessionsManage: {
     label: "sessions.manage.legend",
     desc: "sessions.manage.lead",

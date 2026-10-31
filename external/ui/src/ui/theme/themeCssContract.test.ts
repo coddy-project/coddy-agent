@@ -1,16 +1,52 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
-
-const cssPath = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../styles.css",
-);
+import { stylesSource } from "../../stylesSource";
 
 function cssText(): string {
-  return readFileSync(cssPath, "utf8");
+  return stylesSource();
 }
+
+// The dark theme's accent written as a number painted the frames, rings and glows
+// of every other theme purple: a focused field, the active item of the rail, Save.
+test("no stylesheet but the dark palette names the dark theme's accent", () => {
+  const stylesDir = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../styles",
+  );
+  const named: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (entry.name.endsWith(".scss") && entry.name !== "_dark.scss") {
+        const text = readFileSync(path, "utf8");
+        if (/rgba?\(\s*147,\s*51,\s*234|#9333ea/i.test(text))
+          named.push(entry.name);
+      }
+    }
+  };
+  walk(stylesDir);
+  expect(named).toEqual([]);
+});
+
+// A light accent (Nord, Rose Pine) cannot carry white text: what stands on a strong
+// accent ground takes the colour each theme names for it.
+test("text on a strong accent ground takes the theme's colour for it", () => {
+  const css = cssText();
+  for (const selector of [
+    ".settings-btn-primary.is-dirty {",
+    ".workspace-modal-btn--primary {",
+    ".question-tool-offer-row--taken .question-prompt-bubble {",
+  ]) {
+    const at = css.indexOf(selector);
+    expect(at, selector).toBeGreaterThanOrEqual(0);
+    expect(css.slice(at, css.indexOf("}", at)), selector).toContain(
+      "color: var(--coddy-on-accent-fg)",
+    );
+  }
+});
 
 test("canvas background uses theme variables", () => {
   const css = cssText();
@@ -45,7 +81,7 @@ test("index.html bootstraps theme before paint", () => {
   expect(html).toContain("dataset.theme");
 });
 
-test("styles.css defines variable blocks for all 7 themes", () => {
+test("styles.scss defines variable blocks for all 7 themes", () => {
   const css = cssText();
   const themeSelectors = [
     '[data-theme="dark"]',
