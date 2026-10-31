@@ -112,6 +112,18 @@ func TestWebUIPhoneFeature(t *testing.T) {
 				}
 				return runVitestScenario(toolRow, "the target, the failure marker and the duration trail the label as one group")
 			})
+			sc.Step(`^a targetless tool row lays its label and duration out as inline text$`, func() error {
+				return runVitestScenario(wrap, "a tool row never widens the transcript a targetless head lays its label and duration out as inline text")
+			})
+			sc.Step(`^the targetless MCP row keeps its full name, failure marker and duration$`, func() error {
+				return runVitestScenario(toolRow, "targetless mcp__playwright__browser_run_code_unsafe uses inline flow")
+			})
+			sc.Step(`^the shared image, canvas and swarm zoom controls stay compact at every viewport$`, func() error {
+				return runVitestScenario("src/ui/docs/docsReaderCss.test.ts", "shared zoom controls stay compact at every viewport")
+			})
+			sc.Step(`^the swarm layout buttons keep the zoom button height at every viewport$`, func() error {
+				return runVitestScenario("src/ui/swarm/swarmGraphCss.test.ts", "swarm graph canvas sizing layout buttons keep the zoom button height at every viewport")
+			})
 			sc.Step(`^a long link or identifier in an answer breaks instead of widening the page$`, func() error {
 				if err := runVitestScenario(wrap, "an answer never widens the transcript a long link or word in the prose breaks where it has to"); err != nil {
 					return err

@@ -241,7 +241,7 @@ func (a *App) openPermissionSelector() {
 	}
 	items := []tui.SelectItem{
 		{Value: "ask", Label: "ask", Description: "Ask before commands and file writes"},
-		{Value: "accept_edits", Label: "accept_edits", Description: "File writes pass; commands still ask"},
+		{Value: "accept_edits", Label: "accept_edits", Description: "Writes in the workspace pass; the rest still asks"},
 		{Value: "bypass", Label: "bypass", Description: "Nothing asks for approval"},
 	}
 	sel := newSelectorModal(a.theme, "Permission mode", items, 4, a.screen.RequestRender)

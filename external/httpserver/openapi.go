@@ -1707,7 +1707,7 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Sign a Telegram Mini App in with its launch data (the bot's admins only)",
 					"description": "Public: the way through the gate for the web UI opened as the Telegram bot's Mini App. `init_data` is the launch data Telegram signed with the bot's token (`tgWebAppData`); the server checks the signature as Telegram documents for Mini Apps, refuses launch data older than an hour or used before, and signs in only a user listed in `gateways.telegram.admins`. " +
 						"On success sets an HttpOnly, SameSite=Strict `" + tgSessionCookieBaseName + "_<host digest>` cookie that opens what the sign-in form's cookie opens, also behind a token-only gate; it ends when the bot's token changes, the bot is disabled or the person is no longer an admin. " +
-						"**400** without an enabled Telegram bot with a token, **401** for bad, stale or replayed launch data, **403** for somebody who is not an admin or a cross-site attempt.",
+						"**400** without an enabled Telegram bot with a token, **401** for bad, stale or replayed launch data, **403** for somebody who is not an admin or a cross-site attempt, **500** when the record of used launches cannot be read or durably written; a launch may already be spent if the write committed before durability failed, so retry with a new Mini App launch.",
 					"operationId": "authTelegram",
 					"security":    []interface{}{map[string]interface{}{}},
 					"requestBody": map[string]interface{}{
@@ -1742,6 +1742,7 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"401": errorResponseRef(),
 						"403": errorResponseRef(),
+						"500": errorResponseRef(),
 					},
 				},
 			},
@@ -3616,7 +3617,7 @@ func openAPISpec() map[string]interface{} {
 				"bearerAuth": map[string]interface{}{
 					"type":        "http",
 					"scheme":      "bearer",
-					"description": "Optional. When httpserver.auth_token (or --auth-token / CODDY_HTTP_TOKEN) is set, every /v1/* and /coddy/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true. The three /coddy/auth/* routes are always reachable without it.",
+					"description": "Optional. When httpserver.auth_token (or --auth-token / CODDY_HTTP_TOKEN) is set, every /v1/* and /coddy/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true. The three /coddy/auth/* routes are always reachable without it. While no credential is configured and httpserver.allow_insecure is off, a request that arrived on a loopback address is answered with 421 when its Host is not a loopback name, and any request that changes state (any method but GET, HEAD and OPTIONS) with 403 when it carries an Origin that is neither the server's own nor one httpserver.cors admits.",
 				},
 				"cookieAuth": map[string]interface{}{
 					"type": "apiKey",

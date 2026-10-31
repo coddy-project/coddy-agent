@@ -76,15 +76,3 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-
-@media (max-width: 1199px) {
-  .zoom-control {
-    width: 40px;
-    height: 40px;
-  }
-
-  .zoom-control--level {
-    width: auto;
-    min-width: 56px;
-  }
-}

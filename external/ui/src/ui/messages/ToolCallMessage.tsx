@@ -1,4 +1,5 @@
 import {
+  Fragment,
   type ReactElement,
   memo,
   useCallback,
@@ -788,9 +789,19 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
         >
           <span className="thinking-left">
             <Chevron className="thinking-chevron" />
-            <span className="thinking-head">
+            <span
+              className={
+                summaryTarget
+                  ? "thinking-head"
+                  : "thinking-head thinking-head--targetless"
+              }
+            >
               <span className="thinking-label">{displayLabel}</span>
-              {trailElements.length > 0 ? (
+              {!summaryTarget ? (
+                trailElements.map((element, index) => (
+                  <Fragment key={index}> {element}</Fragment>
+                ))
+              ) : trailElements.length > 0 ? (
                 <span
                   className={
                     status === "failed"

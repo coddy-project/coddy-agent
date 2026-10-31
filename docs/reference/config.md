@@ -164,7 +164,7 @@ Filesystem and shell policy for built-in tools.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `tools.command_allowlist` | list of strings |  | Commands that never require permission. Exact or prefix match (prefix + space + any args). "*" allows all commands. |
+| `tools.command_allowlist` | list of strings |  | Commands that never require permission. An entry covers its command exactly or with arguments after a space; a line of several commands (&&, \|\|, ;, &, a pipe, a newline) runs without a prompt only when each of them is covered, and command substitution or a redirection always asks. On PowerShell and cmd.exe an entry covers only a command without operators. "*" allows all commands. |
 | `tools.ssh_connect_timeout` | integer | 30 | TCP dial timeout for SSH connections (ssh_run_command tool), in seconds. |
 | `tools.output_limits` | object |  | Maximum lines each tool result or error may return into the LLM context. Every enabled limit also applies a 64 KiB per-call byte safety ceiling so a huge single line cannot bypass it. 0 disables both limits for that tool. Unset fields fall back to the built-in defaults. |
 | `tools.output_limits.read` | integer or null | 1000 | Max lines for a read file page or directory listing. |
@@ -311,7 +311,7 @@ OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http
 | `httpserver.login.password_hash` | string | "" | argon2id hash of the password in PHC form ("$argon2id$v=19$m=...$..."), written by `coddy serve set-password`. Never echoed back by GET /coddy/config, and a save from the settings screen preserves it. Put a plaintext password in CODDY_HTTP_PASSWORD instead of here. |
 | `httpserver.login.session_ttl_hours` | integer | 0 | How long a browser stays signed in. 0 means the cookie is dropped when the browser closes; the server still expires the session itself after 30 days, because a record it keeps forever is not a session. |
 | `httpserver.public_docs` | boolean | false | When auth is enabled, keep /docs and /openapi.* reachable without a token. |
-| `httpserver.allow_insecure` | boolean | false | Silence the two startup warnings about a server without authentication - a non-loopback bind, and CORS that admits pages nobody listed (allow_loopback or "*") - and the --dry-run findings that mirror them. |
+| `httpserver.allow_insecure` | boolean | false | Say that a server without authentication is open on purpose: silences the two startup warnings about it - a non-loopback bind, and CORS that admits pages nobody listed (allow_loopback or "*") - and the --dry-run findings that mirror them, and turns off the refusal of a foreign Host on loopback and of a cross-origin write. |
 | `httpserver.cors` | object |  | Cross-origin access so a browser UI on another origin can call this API (e.g. the bundled UI pointed at a remote server). Bearer auth still applies: CORS decides whether a browser shows a page the answer, never whether the server gives one. |
 | `httpserver.cors.enable` | boolean | false | Handle CORS preflight and emit Access-Control-* headers for allowed origins. |
 | `httpserver.cors.allow_loopback` | boolean | false | Also allow any page served from the browser's own machine: an http or https origin whose host is localhost, a *.localhost name, 127.0.0.0/8 or [::1], on any port. The laptop case of a remote coddy serve, where the web UI comes from the laptop's own coddy serve and its port moves. Narrower than "*", and like "*" only as safe as the token or sign-in behind the API. |

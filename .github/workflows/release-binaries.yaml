@@ -201,6 +201,25 @@ jobs:
           (cd "$DIST" && sha256sum coddy_*.tar.gz coddy_*.zip coddy_*.deb coddy_*.rpm > SHA256SUMS)
           ls -la "$DIST"
 
+      # Official releases must be signed by a key the updater trusts. A missing
+      # or mismatched secret stops publication (docs/contributing/build.md,
+      # Signing releases). A fork without a secret may publish unsigned.
+      - name: Sign the digest list
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          TAG: ${{ steps.git_tag.outputs.tag }}
+        run: |
+          if [ -z "$RELEASE_SIGNING_KEY" ]; then
+            if [ "$GITHUB_REPOSITORY" = "coddy-project/coddy-agent" ]; then
+              echo "::error::RELEASE_SIGNING_KEY is not set; refusing to publish an unsigned release"
+              exit 1
+            fi
+            echo "::warning::RELEASE_SIGNING_KEY is not set: this release is not signed"
+          else
+            go run ./cmd/releasesign sign "$TAG" dist/SHA256SUMS
+          fi
+
       - name: Upload assets to GitHub Release
         if: steps.gate.outputs.skip != 'true'
         uses: softprops/action-gh-release@v3

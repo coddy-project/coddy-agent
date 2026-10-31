@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -953,5 +954,53 @@ func TestConfinedTurnRuleMentionsStayInsideTheWorkspace(t *testing.T) {
 	got := attach(session.MentionScope{Confined: true, ConfineHome: home})
 	if strings.Contains(got, "HOME RULE BODY") || !strings.Contains(got, "LOCAL RULE BODY") {
 		t.Fatalf("rule attachments of a confined turn: %q", got)
+	}
+}
+
+// A link inside the workspace is read when it stays inside, and refused as a
+// traversal when it leads out: the lexical check alone would read through it.
+func TestReadWorkspaceUTF8RefusesLinksOutOfTheWorkspace(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating a symbolic link needs a privilege the Windows runner may not have")
+	}
+	dir := t.TempDir()
+	root := filepath.Join(dir, "project")
+	outside := filepath.Join(dir, "outside")
+	for _, d := range []string{filepath.Join(root, "docs"), outside} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("outside\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "docs", "guide.md"), []byte("inside\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(root, "leak.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("docs", "guide.md"), filepath.Join(root, "guide.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, rel := range []string{"leak.txt", "linked/secret.txt"} {
+		if _, _, err := session.ReadWorkspaceUTF8(root, rel); !errors.Is(err, session.ErrPathTraversal) {
+			t.Fatalf("%s: err = %v, want ErrPathTraversal", rel, err)
+		}
+	}
+	got, _, err := session.ReadWorkspaceUTF8(root, "guide.md")
+	if err != nil || got != "inside\n" {
+		t.Fatalf("a link inside the workspace: %q, %v", got, err)
+	}
+	// os.Root takes no absolute link, even one that stays inside.
+	if err := os.Symlink(filepath.Join(root, "docs", "guide.md"), filepath.Join(root, "absolute.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := session.ReadWorkspaceUTF8(root, "absolute.md"); !errors.Is(err, session.ErrPathTraversal) {
+		t.Fatalf("an absolute link: err = %v, want ErrPathTraversal", err)
 	}
 }

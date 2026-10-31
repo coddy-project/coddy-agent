@@ -411,7 +411,9 @@ func TestCheckMissingFileIsAnError(t *testing.T) {
 	}
 }
 
-func TestCheckFallsBackToTheWorkingDirectoryConfig(t *testing.T) {
+// -t reports on the file a start would load, and a start does not read a
+// config.yaml in the working directory: the report says so and how to use it.
+func TestCheckNamesAWorkingDirectoryConfigItDoesNotRead(t *testing.T) {
 	home := t.TempDir()
 	cwd := t.TempDir()
 	cwdCfg := filepath.Join(cwd, "config.yaml")
@@ -422,11 +424,12 @@ func TestCheckFallsBackToTheWorkingDirectoryConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.File != cwdCfg {
-		t.Errorf("file %q, want the working directory fallback %q", rep.File, cwdCfg)
+	if want := filepath.Join(home, "config.yaml"); rep.File != want {
+		t.Errorf("file %q, want the home's %q", rep.File, want)
 	}
-	if !rep.Valid() {
-		t.Errorf("findings %+v", rep.Findings)
+	f := onlyError(t, rep)
+	if !strings.Contains(f.Fix, "--config "+cwdCfg) {
+		t.Errorf("fix %q should name the unread file", f.Fix)
 	}
 }
 
