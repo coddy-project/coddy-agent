@@ -864,7 +864,7 @@ func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, err
 		}
 		dir := filepath.Join(f.Root, ent.Name())
 		var descend bool
-		out, descend = f.appendBundleRow(out, dir, ent.Name(), cwdFilter, opts)
+		out, descend = f.appendBundleRow(out, dir, ent.Name(), cwdFilter, opts, false)
 		if opts.IncludeSubagents && descend {
 			out = f.appendChildRows(out, dir, cwdFilter, opts, 0)
 		}
@@ -892,10 +892,16 @@ func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, err
 // damaged transcript can affect the scan. descend is false for a print run or
 // a scheduler job session the options leave out, whose children stay out with
 // it.
-func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter string, opts ListOptions) (_ []SessionListEntry, descend bool) {
+func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter string, opts ListOptions, child bool) (_ []SessionListEntry, descend bool) {
 	meta, err := f.readListMetaAt(dir, id)
 	if err != nil {
 		return out, true
+	}
+	if child {
+		meta.SubagentRun = true
+		if strings.TrimSpace(meta.ParentSessionID) == "" {
+			meta.ParentSessionID = filepath.Base(filepath.Dir(filepath.Dir(dir)))
+		}
 	}
 	if IsPrintOrigin(meta.Origin) && !opts.admitsPrintRuns() {
 		return out, false
@@ -1048,7 +1054,7 @@ func (f *FileStore) appendChildRows(out []SessionListEntry, dir, cwdFilter strin
 		return out
 	}
 	for _, child := range f.childBundleDirs(dir) {
-		out, _ = f.appendBundleRow(out, child, filepath.Base(child), cwdFilter, opts)
+		out, _ = f.appendBundleRow(out, child, filepath.Base(child), cwdFilter, opts, true)
 		out = f.appendChildRows(out, child, cwdFilter, opts, depth+1)
 	}
 	return out

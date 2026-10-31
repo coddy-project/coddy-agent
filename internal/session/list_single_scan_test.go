@@ -13,7 +13,10 @@ func writeBundle(t *testing.T, dir string, meta map[string]any, messages int) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	b, _ := json.Marshal(meta)
+	b, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, sessionMetaFile), b, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +24,10 @@ func writeBundle(t *testing.T, dir string, meta map[string]any, messages int) {
 	for i := 0; i < messages; i++ {
 		msgs = append(msgs, map[string]string{"role": "user", "content": "hi"})
 	}
-	b, _ = json.Marshal(map[string]any{"version": 1, "messages": msgs})
+	b, err = json.Marshal(map[string]any{"version": 1, "messages": msgs})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, messagesFile), b, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -42,6 +48,8 @@ func TestWithoutSubagentRunsIsTheListingWithoutSubagents(t *testing.T) {
 	writeBundle(t, filepath.Join(root, "sess_parent"), map[string]any{"version": 1, "id": "sess_parent", "cwd": cwd, "updatedAt": at(14), "messageCount": 1}, 1)
 	writeBundle(t, filepath.Join(root, "sess_parent", ChildSessionsDirName, "sess_child"), map[string]any{"version": 1, "id": "sess_child", "cwd": cwd, "updatedAt": at(15), "subagentRun": true, "parentSessionId": "sess_parent", "messageCount": 1}, 1)
 	writeBundle(t, filepath.Join(root, "sess_parent", ChildSessionsDirName, "sess_unmarked"), map[string]any{"version": 1, "id": "sess_unmarked", "cwd": cwd, "updatedAt": at(16), "messageCount": 1}, 1)
+	writeBundle(t, filepath.Join(root, "sess_orphan", ChildSessionsDirName, "sess_orphan_child"), map[string]any{"version": 1, "id": "sess_orphan_child", "cwd": cwd, "updatedAt": at(16), "messageCount": 1}, 1)
+	writeBundle(t, filepath.Join(root, "sess_orphan", ChildSessionsDirName, "sess_orphan_child", ChildSessionsDirName, "sess_nested"), map[string]any{"version": 1, "id": "sess_nested", "cwd": cwd, "updatedAt": at(16), "messageCount": 1}, 1)
 	writeBundle(t, filepath.Join(root, "sess_same_time_a"), map[string]any{"version": 1, "id": "sess_same_time_a", "cwd": cwd, "updatedAt": at(17), "messageCount": 1}, 1)
 	writeBundle(t, filepath.Join(root, "sess_same_time_b"), map[string]any{"version": 1, "id": "sess_same_time_b", "cwd": cwd, "updatedAt": at(17), "messageCount": 1}, 1)
 
@@ -53,6 +61,20 @@ func TestWithoutSubagentRunsIsTheListingWithoutSubagents(t *testing.T) {
 	full, err := fs.ListSnapshotsWith(ListOptions{IncludeSubagents: true, IncludeEmpty: true})
 	if err != nil {
 		t.Fatal(err)
+	}
+	for id, parent := range map[string]string{"sess_unmarked": "sess_parent", "sess_orphan_child": "sess_orphan", "sess_nested": "sess_orphan_child"} {
+		found := false
+		for _, row := range full {
+			if row.SessionID == id {
+				found = true
+				if !row.SubagentRun || row.ParentSessionID != parent {
+					t.Errorf("%s: subagent=%v parent=%q, want true and %q", id, row.SubagentRun, row.ParentSessionID, parent)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("missing child %s", id)
+		}
 	}
 	if len(full) <= len(want) {
 		t.Fatalf("the fixture has no subagent rows: full %d, normal %d", len(full), len(want))

@@ -1131,26 +1131,11 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 	// History itself keeps their rows hidden. The plain History page is that
 	// scope without the child rows, so one scan serves both; a filtered page
 	// needs a scan of its own.
-	historyOpts := session.ListOptions{IncludeSubagents: true, IncludeEmpty: true}
-	historyRows, err := fs.ListSnapshotsWith(historyOpts)
+	rows, historyRows, err := listSessionRows(fs.ListSnapshotsWith, listOpts)
 	if err != nil {
-		s.log.Error("coddy sessions active count", "error", err)
+		s.log.Error("coddy sessions list", "error", err)
 		http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)
 		return
-	}
-	var rows []session.SessionListEntry
-	switch {
-	case isNormalHistoryList(listOpts):
-		rows = session.WithoutSubagentRuns(historyRows)
-	case reflect.DeepEqual(listOpts, historyOpts):
-		rows = append([]session.SessionListEntry(nil), historyRows...)
-	default:
-		rows, err = fs.ListSnapshotsWith(listOpts)
-		if err != nil {
-			s.log.Error("coddy sessions list", "error", err)
-			http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)
-			return
-		}
 	}
 	turnActive := func(id string) bool {
 		return s.mgr.SessionTurnActiveInProcess(id) || session.TurnLockHeld(fs.SessionPath(id))
@@ -1325,6 +1310,24 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+func listSessionRows(scan func(session.ListOptions) ([]session.SessionListEntry, error), listOpts session.ListOptions) ([]session.SessionListEntry, []session.SessionListEntry, error) {
+	historyOpts := session.ListOptions{IncludeSubagents: true, IncludeEmpty: true, Archived: session.ArchiveExclude}
+	historyRows, err := scan(historyOpts)
+	if err != nil {
+		return nil, nil, err
+	}
+	var rows []session.SessionListEntry
+	switch {
+	case isNormalHistoryList(listOpts):
+		rows = session.WithoutSubagentRuns(historyRows)
+	case reflect.DeepEqual(listOpts, historyOpts):
+		rows = append([]session.SessionListEntry(nil), historyRows...)
+	default:
+		rows, err = scan(listOpts)
+	}
+	return rows, historyRows, err
 }
 
 // isNormalHistoryList reports whether opts are the unfiltered History page:
