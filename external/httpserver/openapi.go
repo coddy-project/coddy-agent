@@ -4769,6 +4769,7 @@ func openAPISpec() map[string]interface{} {
 	mergeCanvasOpenAPI(doc)
 	mergeStatusOpenAPI(doc)
 	mergeOpenCodeAuthOpenAPI(doc)
+	mergeWallpaperOpenAPI(doc)
 	return doc
 }
 

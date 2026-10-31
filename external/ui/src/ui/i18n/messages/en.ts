@@ -29,6 +29,29 @@ export const messagesEn: Record<string, string> = {
     "Notifications need a secure connection. Open Coddy over https or on localhost.",
   "appearance.notifications.unsupported":
     "This browser shows no notifications from web pages.",
+  "appearance.wallpaper.upload": "Upload picture",
+  "appearance.wallpaper.clear": "Clear background",
+  "appearance.wallpaper.delete": "Delete {name}",
+  "appearance.wallpaper.deleteConfirm": 'Delete "{name}"?',
+  "appearance.wallpaper.yes": "Yes",
+  "appearance.wallpaper.no": "No",
+  "appearance.wallpaper.uploadError":
+    "The picture could not be uploaded. Try again.",
+  "appearance.wallpaper.deleteError":
+    "The picture could not be deleted. Try again.",
+  "appearance.wallpaperLabel": "Wallpaper",
+  "appearance.wallpaper.dim": "Dimming: {value}%",
+  "appearance.wallpaper.hint":
+    "Upload adds a picture to CODDY_HOME/wallpapers on the selected server. Duplicate bytes reuse the existing file. Choose a thumbnail to fill the background, centered and cropped to fit. Clear background keeps the server file; the trash deletes it.",
+  "appearance.wallpaper.gallery.loading": "Loading wallpapers…",
+  "appearance.wallpaper.gallery.empty": "No wallpapers in the server folder.",
+  "appearance.wallpaper.gallery.error":
+    "The server gallery could not be loaded. Reopen Appearance to try again.",
+  "appearance.wallpaper.notImage": "This file is not a picture.",
+  "appearance.wallpaper.storage":
+    "Browser storage could not read or change the saved wallpaper. Try again.",
+  "appearance.wallpaper.unreadable": "The browser cannot read this picture.",
+  "appearance.wallpaper.offline": "The picture could not be loaded. Try again.",
 
   "notify.untitled": "Coddy",
   "notify.turnFinished": "The agent finished its turn.",

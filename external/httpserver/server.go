@@ -289,6 +289,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	s.registerCoddyRoutes()
 	s.registerConfigRoutes()
 	s.registerProvidersRoutes()
+	s.registerWallpaperRoutes()
 	s.mux.HandleFunc("GET /openapi.yaml", s.handleOpenAPIYAML)
 	s.mux.HandleFunc("GET /openapi.json", s.handleOpenAPIJSON)
 	s.mux.HandleFunc("GET /docs", s.redirectDocsTrailingSlash)

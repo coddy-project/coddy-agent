@@ -20,6 +20,7 @@ import { startActiveHealthMonitor } from "./ui/env/activeHealth";
 import { initTelegramMiniApp } from "./ui/telegram/miniApp";
 import { registerServiceWorker } from "./ui/pwa/serviceWorker";
 import { followThemeColor } from "./ui/pwa/themeColor";
+import { followBackdrop } from "./ui/theme/backdropPrefs";
 import {
   startPanelNavigation,
   startPanelTheme,
@@ -38,6 +39,9 @@ initTelegramMiniApp();
 initLocale(bootstrapUiLocaleFromUrlOrCookie());
 // The installed app's title bar takes the theme's colour (ui/pwa/themeColor.ts).
 followThemeColor();
+// The browser-local wallpaper chosen in Settings → Appearance
+// (ui/theme/backdropPrefs.ts).
+followBackdrop();
 // In the side panel of Coddy for Browser the panel's strip takes the theme's
 // colours too (ui/browserPanel/bridge.ts), and the panel may open the chat that
 // holds the person's tab. Outside the panel this does nothing.
