@@ -33,7 +33,12 @@ func (*latencyScriptProvider) Complete(context.Context, []llm.Message, []llm.Too
 }
 func (p *latencyScriptProvider) Stream(_ context.Context, messages []llm.Message, definitions []llm.ToolDefinition, emit func(llm.StreamChunk)) (*llm.Response, error) {
 	p.calls++
-	p.seen = append(p.seen, append([]llm.Message(nil), messages...))
+	snapshot := append([]llm.Message(nil), messages...)
+	for i := range snapshot {
+		// CreatedAt is history UI/REST metadata, not sent by LLM providers.
+		snapshot[i].CreatedAt = ""
+	}
+	p.seen = append(p.seen, snapshot)
 	p.definitions = append(p.definitions, append([]llm.ToolDefinition(nil), definitions...))
 	emit(llm.StreamChunk{}) // Metadata/usage-only callback is not meaningful output.
 	if p.calls == 1 {
@@ -326,6 +331,23 @@ func TestRequestLatencyRespectsAgentComponent(t *testing.T) {
 				t.Fatalf("collector enabled=%v, want %v", d != nil, tc.enabled)
 			}
 		})
+	}
+}
+
+func TestRequestLatencyProviderSnapshotIgnoresOnlyHistoryTimestamp(t *testing.T) {
+	first, second := &latencyScriptProvider{}, &latencyScriptProvider{}
+	message := llm.Message{Role: llm.RoleUser, Content: "same", CreatedAt: "2026-01-01T00:00:00Z"}
+	_, _ = first.Stream(context.Background(), []llm.Message{message}, nil, func(llm.StreamChunk) {})
+	message.CreatedAt = "2026-01-01T00:00:01Z"
+	_, _ = second.Stream(context.Background(), []llm.Message{message}, nil, func(llm.StreamChunk) {})
+	if !reflect.DeepEqual(first.seen, second.seen) {
+		t.Fatal("history timestamps changed the request snapshot")
+	}
+	message.Content = "different"
+	third := &latencyScriptProvider{}
+	_, _ = third.Stream(context.Background(), []llm.Message{message}, nil, func(llm.StreamChunk) {})
+	if reflect.DeepEqual(first.seen, third.seen) {
+		t.Fatal("request snapshot hid a content change")
 	}
 }
 

@@ -495,20 +495,20 @@
 @keyframes hero-accent-cycle {
   0%,
   100% {
-    color: #a585c9;
-    text-shadow: 0 0 22px rgba(130, 105, 165, 0.22);
+    color: var(--coddy-hero-accent);
+    text-shadow: 0 0 22px var(--coddy-hero-accent-glow);
   }
   20% {
-    color: #6d94a3;
-    text-shadow: 0 0 20px rgba(85, 115, 128, 0.2);
+    color: color-mix(in srgb, var(--coddy-hero-accent) 85%, var(--text));
+    text-shadow: 0 0 20px var(--coddy-hero-accent-glow);
   }
   45% {
-    color: #b0809c;
-    text-shadow: 0 0 20px rgba(145, 105, 125, 0.2);
+    color: color-mix(in srgb, var(--coddy-hero-accent) 90%, black);
+    text-shadow: 0 0 20px var(--coddy-hero-accent-glow);
   }
   70% {
-    color: #9389b8;
-    text-shadow: 0 0 22px rgba(115, 105, 155, 0.21);
+    color: color-mix(in srgb, var(--coddy-hero-accent) 95%, var(--text));
+    text-shadow: 0 0 22px var(--coddy-hero-accent-glow);
   }
 }
 

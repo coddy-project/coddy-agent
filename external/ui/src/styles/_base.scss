@@ -51,6 +51,28 @@ html :is(.chat-header, .rail-pill, .composer-card) {
   background-image: var(--coddy-grain);
 }
 
+/* A wallpaper the person chose (Settings → Appearance), dimmed toward the
+   theme's canvas colour so text on the glass stays readable. */
+html[data-wallpaper="true"],
+html[data-wallpaper="true"][data-simple="on"] {
+  background:
+    linear-gradient(
+      color-mix(
+        in srgb,
+        var(--coddy-canvas-gradient-bottom) var(--coddy-wallpaper-dim, 40%),
+        transparent
+      ),
+      color-mix(
+        in srgb,
+        var(--coddy-canvas-gradient-bottom) var(--coddy-wallpaper-dim, 40%),
+        transparent
+      )
+    ),
+    var(--coddy-wallpaper) center / cover no-repeat;
+  background-color: var(--coddy-canvas-gradient-bottom);
+  background-attachment: fixed;
+}
+
 body {
   margin: 0;
   min-height: 100vh;

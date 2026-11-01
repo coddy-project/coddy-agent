@@ -27,6 +27,30 @@ export const messagesRu: Record<string, string> = {
     "Уведомлениям нужно защищённое соединение. Откройте Coddy по https или на localhost.",
   "appearance.notifications.unsupported":
     "Этот браузер не показывает уведомления веб-страниц.",
+  "appearance.wallpaper.upload": "Загрузить картинку",
+  "appearance.wallpaper.clear": "Убрать фон",
+  "appearance.wallpaper.delete": "Удалить {name}",
+  "appearance.wallpaper.deleteConfirm": 'Удалить "{name}"?',
+  "appearance.wallpaper.yes": "Да",
+  "appearance.wallpaper.no": "Нет",
+  "appearance.wallpaper.uploadError":
+    "Не удалось загрузить картинку на сервер. Попробуйте ещё раз.",
+  "appearance.wallpaper.deleteError":
+    "Не удалось удалить картинку. Попробуйте ещё раз.",
+  "appearance.wallpaperLabel": "Обои",
+  "appearance.wallpaper.dim": "Затемнение: {value}%",
+  "appearance.wallpaper.hint":
+    'Загрузка добавляет картинку в CODDY_HOME/wallpapers на выбранном сервере. Для одинаковых файлов используется уже загруженная картинка. Выберите миниатюру, чтобы заполнить фон по центру с обрезкой по краям. Кнопка "Убрать фон" сохраняет файл на сервере, а корзина удаляет его.',
+  "appearance.wallpaper.gallery.loading": "Загрузка обоев…",
+  "appearance.wallpaper.gallery.empty": "Нет обоев в папке на сервере.",
+  "appearance.wallpaper.gallery.error":
+    'Не удалось прочитать галерею сервера. Откройте вкладку "Оформление" ещё раз.',
+  "appearance.wallpaper.notImage": "Этот файл не картинка.",
+  "appearance.wallpaper.storage":
+    "Не удалось прочитать или изменить обои в хранилище браузера. Попробуйте ещё раз.",
+  "appearance.wallpaper.unreadable": "Браузер не может прочитать эту картинку.",
+  "appearance.wallpaper.offline":
+    "Не удалось загрузить картинку. Попробуйте ещё раз.",
 
   "notify.untitled": "Coddy",
   "notify.turnFinished": "Агент закончил ход.",
