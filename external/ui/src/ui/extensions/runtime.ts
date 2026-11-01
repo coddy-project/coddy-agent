@@ -40,6 +40,15 @@ import { validateSessionFilter, type SessionFilter } from "./sessionFilters";
 import { ExtensionI18n, type ExtensionI18nAPI } from "./extensionI18n";
 import { extensionHost, type ExtensionHostAPI } from "./hostChannel";
 import { extensionConfig, type ExtensionConfigAPI } from "./configApi";
+import {
+  HookSlotHost,
+  isHookName,
+  parseHookRef,
+  validateHookContribution,
+  type HookContribution,
+  type HookRef,
+  type HookSlotHandle,
+} from "./hooks";
 import { engineInfo } from "./compat";
 import { readAppliedUiLocale } from "../i18n/uiLocale";
 
@@ -61,6 +70,9 @@ export type ExtensionEntry = {
 export type ExtensionPage = {
   id: string;
   title: string;
+  /** Hook names this element offers to other extensions, each addressed as
+   * `<this extension id>/<name>` and rendered through `hooks.slot`. */
+  hooks?: string[];
   mount: (element: HTMLElement, api: ExtensionAPI) => void | (() => void);
 };
 export type MenuItem = { id: string; title: string; onSelect: () => void };
@@ -81,6 +93,17 @@ export type ExtensionAPI = {
   i18n: ExtensionI18nAPI;
   host: ExtensionHostAPI;
   config: ExtensionConfigAPI;
+  hooks: {
+    /** Fills a hook an interface element declared: `<owner>/<name>`. */
+    register: (
+      contribution: HookContribution,
+    ) => ContributionHandle<HookContribution>;
+    /** Renders the contributions of this element's hook into `element`;
+     * an empty slot draws nothing. */
+    slot: (name: string, element: HTMLElement) => HookSlotHandle;
+    /** Every hook the running registrations declare. */
+    list: () => readonly HookRef[];
+  };
   stream: {
     registerIncoming: (registration: IncomingRegistration) => IncomingHandle;
     /** Observes every frame of the live stream, including kinds the host does
@@ -140,6 +163,7 @@ export type RuntimeSnapshot = {
   messageRenderers: Owned<MessageRenderer>[];
   permissionPreviews: Owned<PermissionPreview>[];
   sessionFilters: Owned<SessionFilter>[];
+  hooks: Owned<HookContribution>[];
   errors: Record<string, string>;
 };
 
@@ -161,6 +185,7 @@ export class ExtensionRuntime {
     messageRenderers: [],
     permissionPreviews: [],
     sessionFilters: [],
+    hooks: [],
     errors: {},
   };
   readonly fields = new Contributions<AnySettingsField>(() =>
@@ -180,6 +205,17 @@ export class ExtensionRuntime {
   );
   readonly sessionFilters = new Contributions<SessionFilter>(() =>
     this.publish({ sessionFilters: this.sessionFilters.rows }),
+  );
+  readonly hookRows = new Contributions<HookContribution>(() => {
+    this.publish({ hooks: this.hookRows.rows });
+    this.hookSlots.refresh();
+  });
+  readonly hookSlots = new HookSlotHost(
+    () => this.hookRows.rows,
+    (key, owner, error) => {
+      this.hookRows.remove(key);
+      this.reportError(owner, String(error));
+    },
   );
   readonly events = new ExtensionEvents((owner, message) =>
     this.reportError(owner, message),
@@ -467,6 +503,42 @@ export class ExtensionRuntime {
           );
         },
       },
+      hooks: {
+        register: (contribution) => {
+          if (!active()) throw new Error("Extension disposed");
+          return this.hookRows.register(
+            entry.id,
+            api,
+            contribution,
+            validateHookContribution,
+          );
+        },
+        slot: (name, element) => {
+          if (!active()) throw new Error("Extension disposed");
+          if (!isHookName(name)) throw new Error("Unknown hook name");
+          return this.hookSlots.attach(
+            `${entry.id}/${name}`,
+            element,
+            controller.signal,
+          );
+        },
+        // What the running registrations declared: the slots a contribution
+        // can fill, as `<owner>/<name>`.
+        list: () => {
+          const refs: HookRef[] = [];
+          const declared = (owner: string, hooks?: string[]) => {
+            for (const name of hooks ?? []) {
+              const ref = parseHookRef(`${owner}/${name}`);
+              if (ref) refs.push(ref);
+            }
+          };
+          for (const panel of this.state.panels)
+            declared(panel.owner, panel.hooks);
+          for (const page of this.state.pages)
+            declared(page.owner, (page as ExtensionPage).hooks);
+          return refs;
+        },
+      },
       ui: {
         registerToolRenderer: (renderer) =>
           this.renderers.register(entry.id, api, renderer, validateRenderer),
@@ -505,6 +577,15 @@ export class ExtensionRuntime {
               typeof row.mount !== "function"
             )
               throw new Error("A page needs an id, title and mount function");
+            if (
+              (row as ExtensionPage).hooks !== undefined &&
+              ((row as ExtensionPage).hooks as string[]).some(
+                (name) => !/^[a-z][a-z0-9-]{0,63}$/.test(name),
+              )
+            )
+              throw new Error(
+                "A page hook name must match ^[a-z][a-z0-9-]{0,63}$",
+              );
           }),
         registerMenuItem: (item) =>
           register("menu", item, (row) => {

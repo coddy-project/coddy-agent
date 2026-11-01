@@ -23,6 +23,8 @@ The files must sit at the ZIP root. Bundle dependencies into `main.js`; relative
 | [stream-tools](stream-tools/main.js) | A synchronous incoming-stream processor and a page showing the last frame. |
 | [workflow-tools](workflow-tools/main.js) | Navigation/step/turn events, a custom `demo__status` MCP card, and fields in ReAct loop and MCP servers settings. |
 | [theme-lab](theme-lab/main.js) | Theme Lab repaints the whole app from its token layer: hue, saturation and lightness sliders shift every colour token at once, a colour input per token fine-tunes one, and Reset restores the theme. |
+| [ok-coddy](ok-coddy/main.js) | The OK, coddy mini-chat drawer after the coddy-duck-prototype: a rubber duck with twelve tricks, canned replies, a ticket toggle - and the `tricks`/`footer` hooks other extensions fill. |
+| [ok-coddy-addon](ok-coddy-addon/main.js) | Fills the OK, coddy panel's hooks: one more trick button and a footer note, without the panel knowing it exists. |
 | [neuraldeep-onboarding](neuraldeep-onboarding/main.js) | An onboarding dialog that asks for a NeuralDeep key (with the link where to get one) and, optionally, corporate proxy credentials, then writes the provider, its `proxy` and its `neuraldeep/qwen3.6-35b-a3b` model through the configuration API. |
 
 For a local API, replace ordinary browser fetch with the SDK helper.

@@ -1,0 +1,12 @@
+{
+  "api": 1,
+  "id": "ok-coddy",
+  "name": "ОК, кодди",
+  "version": "1.0.0",
+  "description": "A mini-chat with a rubber duck: the OK, coddy button beside the composer opens a drawer where the duck performs tricks and other extensions contribute.",
+  "permissions": ["ui.page"],
+  "ui": {
+    "entry": "main.js",
+    "styles": ["style.css"]
+  }
+}

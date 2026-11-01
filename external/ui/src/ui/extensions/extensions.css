@@ -126,7 +126,9 @@
 .extension-panel {
   position: fixed;
   inset: 0;
-  z-index: 900;
+  /* Above the composer's docked card and the app's highest layers (1000):
+     a panel is a surface opened over the chat, never under it. */
+  z-index: 1300;
   display: flex;
 }
 .extension-panel-scrim {
@@ -142,7 +144,9 @@
   min-width: 0;
   min-height: 0;
   padding: 12px;
-  background: var(--coddy-glass-panel-bg, var(--bg));
+  /* Solid: the glass token is translucent, and a panel over the chat would
+     let the composer read through its own body. */
+  background: var(--bg);
   border: 1px solid var(--coddy-glass-panel-border);
   color: var(--text);
 }

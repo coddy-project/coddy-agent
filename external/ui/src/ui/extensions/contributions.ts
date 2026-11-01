@@ -92,7 +92,6 @@ export class Contributions<T extends { id: string }> {
     if (this.rows.some((row) => row.key === key))
       throw new Error(`Duplicate contribution: ${key}`);
     this.rows = [...this.rows, { ...value, key, owner, api }];
-    this.notify();
     const remove = () => {
       if (this.removers.get(key) !== remove) return;
       this.removers.delete(key);
@@ -100,8 +99,12 @@ export class Contributions<T extends { id: string }> {
       api.signal.removeEventListener("abort", remove);
       this.notify();
     };
+    // The remover is in place before the notification: a listener that drops
+    // the contribution as it hears about it - a mount that fails on first
+    // render - must find it.
     this.removers.set(key, remove);
     api.signal.addEventListener("abort", remove, { once: true });
+    this.notify();
     return {
       remove,
       update: (patch) => {
