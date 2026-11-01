@@ -18,6 +18,11 @@ import type { RuntimePanel } from "./panels";
 import { useT } from "../i18n/I18nProvider";
 import { PanePortal } from "../components/PanePortal";
 import { ExtensionPanelHost } from "./ExtensionPanelHost";
+import {
+  ExtensionModalHost,
+  ExtensionOverlayHost,
+  ExtensionShellHost,
+} from "./ExtensionSurfaces";
 import { readAppliedUiLocale, subscribeUiLocale } from "../i18n/uiLocale";
 import "./extensions.css";
 import { parseAppHash } from "../scheduler/hashRoute";
@@ -46,6 +51,18 @@ type ExtensionsContext = {
 };
 const Context = createContext<ExtensionsContext | null>(null);
 export const useExtensions = () => useContext(Context);
+
+const noShellSubscribe = () => () => {};
+
+/** The shell takeover row while an extension holds the window. */
+export function useExtensionShell() {
+  const context = useExtensions();
+  return useSyncExternalStore(
+    context ? context.runtime.subscribe : noShellSubscribe,
+    context ? () => context.runtime.snapshot().shell : () => null,
+    () => null,
+  );
+}
 
 export function ExtensionsProvider({ children }: { children: ReactNode }) {
   const [entries, setEntries] = useState<ExtensionEntry[]>([]);
@@ -146,6 +163,29 @@ export function ExtensionsProvider({ children }: { children: ReactNode }) {
       ) : null}
       {livePanel ? (
         <ExtensionPanelHost panel={livePanel} onClose={() => setPanel(null)} />
+      ) : null}
+      {snapshot.modals.length ? (
+        <ExtensionModalHost
+          modal={snapshot.modals[snapshot.modals.length - 1]!}
+          onClose={() =>
+            runtime
+              .snapshot()
+              .modals.forEach((row) => runtime.closeSurface("modals", row.key))
+          }
+        />
+      ) : null}
+      {snapshot.overlays.map((overlay) => (
+        <ExtensionOverlayHost
+          key={overlay.key}
+          overlay={overlay}
+          onClose={() => runtime.closeSurface("overlays", overlay.key)}
+        />
+      ))}
+      {snapshot.shell ? (
+        <ExtensionShellHost
+          shell={snapshot.shell}
+          onRelease={() => runtime.closeSurface("shell", snapshot.shell!.key)}
+        />
       ) : null}
     </Context.Provider>
   );

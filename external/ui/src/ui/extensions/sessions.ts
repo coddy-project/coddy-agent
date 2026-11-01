@@ -79,6 +79,13 @@ export type ExtensionSessionsAPI = {
     model?: string;
     reasoning?: string;
   }) => Promise<SessionSendResult>;
+  /** Writes the listing's own fields of a session. */
+  rename: (sessionId: string, title: string) => Promise<void>;
+  setTags: (sessionId: string, tags: readonly string[]) => Promise<void>;
+  pin: (sessionId: string, pinned: boolean) => Promise<void>;
+  archive: (sessionId: string, archived: boolean) => Promise<void>;
+  /** Removes the session bundle from the listing. */
+  remove: (sessionId: string) => Promise<void>;
   /** Stops the running turn. */
   stop: (sessionId: string) => Promise<void>;
   /** Rewinds the session to before its last user prompt. */
@@ -190,6 +197,19 @@ export function extensionSessions(
     );
     return freezeRows<SessionSummary>(body.items ?? []);
   };
+  const patch = async (sessionId: string, body: Record<string, unknown>) => {
+    active();
+    const response = await call(
+      `/coddy/sessions/${encodeURIComponent(sessionId)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal,
+      },
+    );
+    if (!response.ok) throw new Error(`Session API: HTTP ${response.status}`);
+  };
   return {
     current() {
       const route = parseAppHash();
@@ -257,6 +277,26 @@ export function extensionSessions(
         /* Status is enough for non-JSON errors. */
       }
       return Object.freeze({ accepted: false, status: response.status, error });
+    },
+    async rename(sessionId, title) {
+      await patch(sessionId, { title });
+    },
+    async setTags(sessionId, tags) {
+      await patch(sessionId, { tags: [...tags] });
+    },
+    async pin(sessionId, pinned) {
+      await patch(sessionId, { pinned });
+    },
+    async archive(sessionId, archived) {
+      await patch(sessionId, { archived });
+    },
+    async remove(sessionId) {
+      active();
+      const response = await call(
+        `/coddy/sessions/${encodeURIComponent(sessionId)}`,
+        { method: "DELETE", signal },
+      );
+      if (!response.ok) throw new Error(`Session API: HTTP ${response.status}`);
     },
     async stop(sessionId) {
       active();

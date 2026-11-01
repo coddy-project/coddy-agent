@@ -40,6 +40,8 @@ export function activate(coddy) {
     tool: "tool: ",
     live: "live",
     modeNow: "mode: ",
+    bigDuck: "Big duck",
+    exit: "Exit",
     noSession: "Open a session and this mini-chat talks to it.",
     footer: "Mini-chat and duck from the OK, coddy prototype",
   });
@@ -65,6 +67,8 @@ export function activate(coddy) {
     tool: "инструмент: ",
     live: "вживую",
     modeNow: "режим: ",
+    bigDuck: "Большая утка",
+    exit: "Выход",
     noSession: "Откройте сессию - и мини-чат заговорит с ней.",
     footer: "Мини-чат и уточка из прототипа «ОК, кодди»",
   });
@@ -202,7 +206,41 @@ export function activate(coddy) {
     trickSlot.className = "ok-tray-hooks";
     trayBody.append(trickSlot);
     const slot = coddy.hooks.slot("tricks", trickSlot);
-    tray.append(trayHead, trayBody, autoBtn);
+    const big = document.createElement("button");
+    big.className = "settings-btn";
+    big.textContent = coddy.i18n.t("bigDuck");
+    big.addEventListener(
+      "click",
+      () => {
+        // The shell takeover: the duck gets the window until it is released.
+        const takeover = coddy.ui.takeOverShell({
+          id: "big-duck",
+          mount(element) {
+            const box = document.createElement("section");
+            box.className = "ok-big-duck";
+            box.tabIndex = -1;
+            const duck = duckSvg();
+            const exit = document.createElement("button");
+            exit.className = "settings-btn";
+            exit.textContent = coddy.i18n.t("exit");
+            const release = () => takeover.release();
+            exit.addEventListener("click", release, { signal: coddy.signal });
+            box.addEventListener(
+              "keydown",
+              (event) => {
+                if (event.key === "Escape") release();
+              },
+              { signal: coddy.signal },
+            );
+            box.append(duck, exit);
+            element.append(box);
+            box.focus();
+          },
+        });
+      },
+      { signal: coddy.signal },
+    );
+    tray.append(trayHead, trayBody, autoBtn, big);
 
     const ticketRow = document.createElement("label");
     ticketRow.className = "ok-ticket";
@@ -284,6 +322,16 @@ export function activate(coddy) {
             coddy.composer.setMode(next);
             line("note", coddy.i18n.t("modeNow") + next);
           },
+          { signal: coddy.signal },
+        );
+      }
+      if (label === "sessions") {
+        // The navigation API exists now: the rail's History answers it.
+        b.disabled = false;
+        b.title = coddy.i18n.t("live");
+        b.addEventListener(
+          "click",
+          () => coddy.nav.openScreen("history"),
           { signal: coddy.signal },
         );
       }

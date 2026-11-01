@@ -197,3 +197,16 @@
     animation: none;
   }
 }
+.ok-big-duck {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  height: 100%;
+  outline: none;
+}
+.ok-big-duck svg {
+  width: min(60vmin, 480px);
+  height: auto;
+}

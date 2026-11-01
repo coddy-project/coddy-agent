@@ -230,3 +230,23 @@
   gap: 6px;
   min-width: 0;
 }
+
+/* Free-floating overlays: only their own box takes pointer events. */
+.extension-overlay {
+  position: fixed;
+  z-index: 1250;
+  max-width: min(420px, 100vw);
+  pointer-events: none;
+}
+.extension-overlay > * {
+  pointer-events: auto;
+}
+/* The shell takeover: the host draws nothing of its own. */
+.extension-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  overflow: auto;
+  background: var(--bg);
+  color: var(--text);
+}
