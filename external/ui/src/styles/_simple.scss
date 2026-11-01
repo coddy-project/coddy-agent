@@ -1,0 +1,128 @@
+// The simplified mode (ui/theme/uiSimple.ts, Settings → Appearance), for a machine
+// the glass and the motion cost too much on: solid colours, and no soft shadow,
+// blur, gradient, mask or animation, in every theme. It comes last in the cascade
+// and takes each theme's own colours, so a new theme needs nothing here. A new
+// gradient in the stylesheet is cleared below or named as a mark in the test
+// (ui/theme/simpleModeCss.test.ts).
+
+@use "sass:list";
+@use "abstracts" as *;
+
+// A hard ring (no blur, no offset) that draws a state or is the mark itself. A
+// ring that only decorates goes with the shadows.
+$kept-rings: (
+  ":focus",
+  ":focus-visible",
+  ".is-search-target",
+  ".appearance-swatch.is-active",
+  ".markup-swatch.is-active",
+  ".markup-picture",
+  ".markup-tools",
+  ".skill-switch",
+  ".session-idle-dot",
+  ".session-error-dot.is-seen",
+  ".msg-user-stack--editing .msg-user",
+  ".msg-user-token--mention",
+  ".msg-user-body .coddy-skill-chip",
+  ".composer-skill-chip-inline",
+  ".composer-at-chip-inline",
+  ".composer-code-editing",
+  ".composer-card--dragover",
+  ".files-tree-row.is-active",
+  ".settings-btn-primary.is-saved",
+  ".settings-btn-primary.is-dirty",
+  ".canvas-frame"
+);
+
+html[data-simple="on"] {
+  --coddy-simple-canvas: var(--coddy-canvas-gradient-bottom);
+  --coddy-simple-surface: color-mix(
+    in srgb,
+    var(--text) 6%,
+    var(--coddy-simple-canvas)
+  );
+  /* With no blur behind them the panels are opaque, or the transcript that
+     scrolls under the header would read through it. */
+  --coddy-glass-panel-bg: var(--coddy-simple-surface);
+  --coddy-chat-header-bg: var(--coddy-simple-surface);
+  --nav: var(--coddy-simple-surface);
+  --sidebar: var(--coddy-simple-surface);
+  --coddy-plan-eye-bg: var(--coddy-simple-surface);
+  --coddy-tip-bg: var(--coddy-simple-surface);
+  --coddy-grain: none;
+  --coddy-glass-panel-backdrop: none;
+  /* A shadow that paints nothing, not "none": these tokens also stand in lists
+     with a ring (.composer-card--dragover). */
+  --coddy-glass-panel-shadow: 0 0 transparent;
+  --coddy-tip-shadow: 0 0 transparent;
+  --shadow: 0 0 transparent;
+  background: var(--coddy-simple-canvas);
+}
+
+html[data-simple="on"][data-theme="light"] {
+  --coddy-simple-surface: #ffffff;
+}
+
+html[data-simple="on"],
+html[data-simple="on"] *,
+html[data-simple="on"] *::before,
+html[data-simple="on"] *::after {
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  mask-image: none !important;
+  -webkit-mask-image: none !important;
+  transition: none !important;
+  /* The duration goes and not the animation: a row that fades in from nothing
+     still has to reach its end, and one that loops stops at its plain state. */
+  animation-duration: 0.01ms !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+}
+
+html[data-simple="on"] *:not(#{list.join($kept-rings, (), $separator: comma)}),
+html[data-simple="on"] *::before,
+html[data-simple="on"] *::after {
+  box-shadow: none !important;
+}
+
+/* The one kept ring that also carries a soft shadow. */
+html[data-simple="on"] .canvas-frame {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 14%, transparent) !important;
+}
+
+html[data-simple="on"] .canvas-frame.is-focused {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--text) 45%, transparent) !important;
+}
+
+/* The gradients of the stylesheet, each as a solid colour or nothing. */
+html[data-simple="on"] .hero-title-muted {
+  background: none;
+  color: mix-text(90%);
+  -webkit-text-fill-color: currentColor;
+}
+
+html[data-simple="on"] .chat-skeleton-bar,
+html[data-simple="on"] .naming-skeleton-bar,
+html[data-simple="on"] .settings-skeleton-bar {
+  background: mix-text(8%);
+}
+
+html[data-simple="on"] .chat-bottom:has(.composer-wrap-docked)::before,
+html[data-simple="on"] .permission-preview-fade {
+  background: none;
+}
+
+html[data-simple="on"] .plan-document-run {
+  background: #ea580c;
+}
+
+html[data-simple="on"] .docs-search-results,
+html[data-simple="on"] .swarm-search-results {
+  background: var(--coddy-simple-surface);
+}
+
+html[data-simple="on"] .canvas-board {
+  background-image: none;
+}

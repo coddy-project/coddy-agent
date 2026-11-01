@@ -32,16 +32,23 @@ type errorReply struct {
 // left for failures of Coddy's own, and 409 for a session that is busy or
 // read-only.
 func replyForError(err error) errorReply {
-	e := map[string]any{"message": err.Error()}
+	e := map[string]any{"message": "Internal server error", "type": "server_error", "code": nil, "param": nil}
 	reply := errorReply{status: http.StatusInternalServerError, body: map[string]any{"error": e}}
+	if llm.IsStreamTruncated(err) {
+		e["message"] = "Upstream stream truncated"
+		e["code"] = "stream_truncated"
+	}
 	if errors.Is(err, session.ErrSessionTurnBusy) || isSubagentReadOnly(err) {
 		reply.status = http.StatusConflict
+		e["message"] = "Session is busy or read-only"
+		e["type"] = "invalid_request_error"
 		return reply
 	}
 	if llm.IsACPUnsupported(err) {
 		// A request an acp model does not serve: the caller asked for the
 		// wrong thing, nothing failed upstream.
 		reply.status = http.StatusBadRequest
+		e["message"] = "Direct completions are not supported for an acp agent model"
 		e["type"] = "invalid_request_error"
 		return reply
 	}
@@ -56,11 +63,13 @@ func replyForError(err error) errorReply {
 	case errors.Is(err, context.DeadlineExceeded):
 		reply.status = http.StatusGatewayTimeout
 		e["type"] = "upstream_error"
+		e["message"] = "Upstream request timed out"
 		return reply
 	default:
 		return reply
 	}
 	e["type"] = "upstream_error"
+	e["message"] = "Upstream provider request failed"
 	e["upstream_status"] = upstream
 	// The pause a limit or a lane that is down for a while asked for.
 	if upstream == http.StatusTooManyRequests || upstream == http.StatusServiceUnavailable {

@@ -10,6 +10,7 @@ import {
 } from "@testing-library/react";
 import { ToolCallMessage } from "./ToolCallMessage";
 import { setLocale } from "../i18n/i18n";
+import { stylesSource } from "../../stylesSource";
 
 afterEach(() => {
   cleanup();
@@ -549,14 +550,8 @@ test("a plan preview cut inside its frontmatter stays text until the rest arrive
 
 // jsdom has no layout, so the wrap itself is held by the stylesheet: the bar of a
 // structured card must not end in an ellipsis the way the generic preview's does.
-test("a structured card's bar wraps instead of clipping", async () => {
-  const { readFileSync } = await import("node:fs");
-  const { dirname, join } = await import("node:path");
-  const { fileURLToPath } = await import("node:url");
-  const css = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
-    "utf8",
-  );
+test("a structured card's bar wraps instead of clipping", () => {
+  const css = stylesSource();
   const rule = css.match(
     /^\.structured-tool-card \.permission-preview-location \{[^}]*\}/m,
   );

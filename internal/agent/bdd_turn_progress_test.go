@@ -321,6 +321,30 @@ func initializeTurnProgressScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the last progress update carries (\d+) tokens and is (not an estimate|an estimate)$`, s.theLastUpdateCarries)
 	sc.Step(`^every progress update carries the same turn start$`, s.everyUpdateCarriesTheSameStart)
 	sc.Step(`^the session state holds the turn start and (\d+) output tokens$`, s.theStateHoldsTheProgress)
+	sc.Step(`^the completed progress reports an average generation speed$`, func() error {
+		updates, _ := s.sender.progress()
+		if len(updates) == 0 {
+			return fmt.Errorf("no progress updates")
+		}
+		last := updates[len(updates)-1]
+		if !last.Completed || last.TokensPerSecond == nil || *last.TokensPerSecond <= 0 {
+			return fmt.Errorf("completed progress has no generation speed: %+v", last)
+		}
+		return nil
+	})
+	sc.Step(`^the generation summary is kept outside the model history$`, func() error {
+		for _, row := range s.state.GetUILog() {
+			if row.Generation != nil && row.Generation.OutputTokens == 500 && row.Generation.TokensPerSecond > 0 {
+				for _, message := range s.state.GetMessages() {
+					if strings.Contains(message.Content, "Generation complete") {
+						return fmt.Errorf("generation summary leaked into the model history")
+					}
+				}
+				return nil
+			}
+		}
+		return fmt.Errorf("no persisted generation summary")
+	})
 }
 
 func TestTurnProgressFeature(t *testing.T) {

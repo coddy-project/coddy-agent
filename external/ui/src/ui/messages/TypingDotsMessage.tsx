@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import {
   formatElapsedSeconds,
@@ -6,8 +6,15 @@ import {
   waitingStatusKey,
   type LiveStatusKind,
 } from "../chat/liveStatus";
+import { CoddyWorkIndicator } from "./CoddyWorkIndicator";
 import { formatTurnTokens } from "../chat/turnProgress";
+import { formatGenerationSpeed } from "../chat/generationSpeed";
 import { useT } from "../i18n/I18nProvider";
+import {
+  subscribePhone,
+  snapshotPhone,
+  serverSnapshotPhone,
+} from "../shellBreakpoint";
 
 /** States that are blocked on the user, where a climbing step counter would be a lie. */
 function isBlockedOnUser(kind: LiveStatusKind | undefined): boolean {
@@ -26,7 +33,7 @@ function keyParamsIdentity(params: Record<string, string> | undefined): string {
 }
 
 function TypingDotsMessageImpl(props: {
-  /** Omit to render bare dots (no live status available). */
+  /** Omit to render the work indicator alone (no live status available). */
   statusKind?: LiveStatusKind;
   statusKey?: string;
   /** What the phrase's {slots} resolve to; only a phrase that names its call has any. */
@@ -43,6 +50,7 @@ function TypingDotsMessageImpl(props: {
   turnStartedAtMs?: number;
   /** Tokens the model has generated in this turn; the segment hides while there are none. */
   turnTokens?: number;
+  tokensPerSecond?: number;
   /** Background tasks running right now; the segment hides at zero. */
   runningTasks?: number;
   /** Opens the Tasks panel from the running-tasks segment. */
@@ -54,7 +62,7 @@ function TypingDotsMessageImpl(props: {
   tasksOnly?: boolean;
   /**
    * No turn runs and no task: keep an empty slot with the base line's padding
-   * and the phone's caption row. Only the active line without a checklist
+   * and the phone's second row. Only the active line without a checklist
    * reduces its top padding; the idle slot keeps its existing height.
    */
   idle?: boolean;
@@ -135,9 +143,7 @@ function TypingDotsMessageImpl(props: {
         aria-hidden="true"
       >
         <div className="typing-dots">
-          <span className="typing-dots-dot" />
-          <span className="typing-dots-dot" />
-          <span className="typing-dots-dot" />
+          <CoddyWorkIndicator />
           <span className="typing-dots-status">
             <span className="typing-dots-turn">
               <span className="typing-dots-turn-item">{"\u00a0"}</span>
@@ -156,31 +162,21 @@ function TypingDotsMessageImpl(props: {
     if (runningTasks === 0) {
       return null;
     }
-    const tasksLabel = tp("tasks.running", runningTasks);
     return (
       <div className="msg-assistant-stack" data-testid="typing-dots">
         {/* This line is the only thing on screen saying the work goes on after the
             turn ended, so it announces itself; the line during a turn does not,
             because a reader already knows the turn is running. */}
         <div className="typing-dots" aria-live="polite">
-          {/* The count node stays after the three dots for the same reason the status
-              node does below: :nth-child(2)/(3) carry the bounce stagger. */}
-          <span className="typing-dots-dot" aria-hidden="true" />
-          <span className="typing-dots-dot" aria-hidden="true" />
-          <span className="typing-dots-dot" aria-hidden="true" />
+          <CoddyWorkIndicator />
           <span
             className="typing-dots-status typing-dots-status--tasks-only"
             data-testid="typing-dots-status"
           >
             <span className="typing-dots-turn">
               <TurnTasksSegment
-                label={tasksLabel}
-                {...(props.onOpenTasks
-                  ? {
-                      onOpen: props.onOpenTasks,
-                      aria: t("tasks.openAria", { label: tasksLabel }),
-                    }
-                  : {})}
+                count={runningTasks}
+                {...(props.onOpenTasks ? { onOpen: props.onOpenTasks } : {})}
               />
             </span>
           </span>
@@ -197,9 +193,7 @@ function TypingDotsMessageImpl(props: {
           aria-label={t("messages.preparingResponse")}
           aria-live="polite"
         >
-          <span className="typing-dots-dot" aria-hidden="true" />
-          <span className="typing-dots-dot" aria-hidden="true" />
-          <span className="typing-dots-dot" aria-hidden="true" />
+          <CoddyWorkIndicator />
         </div>
       </div>
     );
@@ -237,11 +231,7 @@ function TypingDotsMessageImpl(props: {
   return (
     <div className="msg-assistant-stack" data-testid="typing-dots">
       <div className="typing-dots">
-        {/* The status node must stay after the three dots: :nth-child(2)/(3) carry the
-            bounce stagger, so prepending would silently break the animation. */}
-        <span className="typing-dots-dot" aria-hidden="true" />
-        <span className="typing-dots-dot" aria-hidden="true" />
-        <span className="typing-dots-dot" aria-hidden="true" />
+        <CoddyWorkIndicator />
         <span
           className={
             "typing-dots-status" + (slow ? " typing-dots-status--slow" : "")
@@ -266,19 +256,15 @@ function TypingDotsMessageImpl(props: {
                   {tp("status.turnTokens", turnTokens, {
                     shown: formatTurnTokens(turnTokens),
                   })}
+                  {typeof props.tokensPerSecond === "number"
+                    ? ` · ${t("status.generationSpeed", { speed: formatGenerationSpeed(props.tokensPerSecond) })}`
+                    : ""}
                 </span>
               ) : null}
               {runningTasks > 0 ? (
                 <TurnTasksSegment
-                  label={tp("tasks.running", runningTasks)}
-                  {...(props.onOpenTasks
-                    ? {
-                        onOpen: props.onOpenTasks,
-                        aria: t("tasks.openAria", {
-                          label: tp("tasks.running", runningTasks),
-                        }),
-                      }
-                    : {})}
+                  count={runningTasks}
+                  {...(props.onOpenTasks ? { onOpen: props.onOpenTasks } : {})}
                 />
               ) : null}
             </span>
@@ -309,18 +295,25 @@ function TypingDotsMessageImpl(props: {
 }
 
 /** The running-tasks segment: a button when the panel can be opened from here. */
-function TurnTasksSegment(props: {
-  label: string;
+export function TurnTasksSegment(props: {
+  count: number;
   onOpen?: () => void;
-  aria?: string;
 }) {
+  const { t, tp } = useT();
+  const phone = useSyncExternalStore(
+    subscribePhone,
+    snapshotPhone,
+    serverSnapshotPhone,
+  );
+  const fullLabel = tp("tasks.running", props.count);
+  const label = phone ? tp("tasks.runningCompact", props.count) : fullLabel;
   if (!props.onOpen) {
     return (
       <span
         className="typing-dots-turn-item"
         data-testid="typing-dots-turn-tasks"
       >
-        {props.label}
+        {label}
       </span>
     );
   }
@@ -332,10 +325,10 @@ function TurnTasksSegment(props: {
         type="button"
         className="typing-dots-turn-tasks"
         data-testid="typing-dots-turn-tasks"
-        {...(props.aria ? { "aria-label": props.aria } : {})}
+        aria-label={t("tasks.openAria", { label: fullLabel })}
         onClick={props.onOpen}
       >
-        {props.label}
+        {label}
       </button>
     </span>
   );

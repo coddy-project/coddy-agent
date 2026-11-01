@@ -7,6 +7,9 @@ Coddy reads standing instructions from two places and injects them into the syst
 
 Nothing has to be configured for either. The `AGENTS.md` and `DESIGN.md` documents come in three layers that are always read and that no setting turns off - yours, the workspace's, and those of the folders the agent works in ([AGENTS.md and DESIGN.md](#agentsmd-and-designmd)). The rules that always apply reach the model through **`{{.Rules}}`**, and a rule scoped to paths arrives with the tool result or the message that first touches a matching path. `instructions.files` is empty by default and only adds files below the documents, in **`{{.Instructions}}`**.
 
+![How rules and AGENTS.md reach the model: one project rule folder plus yours, the header that decides when a rule applies, where each part lands in a request, and the rules generation](../assets/diagrams/rules-context.png)
+*The system message holds only what always applies and stays the same for a rules generation; the rules a path or a mention brings ride in the conversation, once.*
+
 ## Prompt order
 
 From top to bottom in the rendered system message:
@@ -224,7 +227,7 @@ $EDITOR ~/.coddy/AGENTS.md
 
 Your pair is read first, so what you want is in front of the model before the checkout starts describing itself, and the project's own `AGENTS.md` and `DESIGN.md` follow below - they join, neither replaces the other. Write one of the two or both; the file that is not there costs nothing.
 
-Your rules are ordinary rule files and follow the same dialects, globs and activation modes as a project's - a `go.mdc` with `globs: **/*.go` under `~/.coddy/rules/` waits for a Go file in whichever project the session opened, because globs are anchored at the workspace, not at the folder the rule came from. `coddy rules list` shows them with source `user`, and names the folder under the table. Your folder is read next to whichever project folder the chain picked, never instead of it. The project still has the last word: when a project file and one of yours share a file name, the project's wins.
+Your rules are ordinary rule files and follow the same dialects, globs and activation modes as a project's - a `go.mdc` with `globs: **/*.go` under `~/.coddy/rules/` waits for a Go file in whichever project the session opened, because globs are anchored at the workspace, not at the folder the rule came from. `coddy rules list` shows them with source `user`, and names the folder under the table. Your folder is read next to whichever project folder the chain picked, never instead of it. The project still has the last word: when a project file and one of yours sit at the same path inside their rule folders, extension included, the project's wins.
 
 Nothing here is trusted differently from a project file: both are text that steers the model, and neither can run anything by itself (see [Security](../operate/security.md)). The difference is who wrote it - your own folder needs no trust receipt because nothing arrives in it with a `git clone`.
 

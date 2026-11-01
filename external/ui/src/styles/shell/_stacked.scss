@@ -1,0 +1,288 @@
+// The desktop main padding and the stacked shell (max-width: 1199px), where
+// the body is the scrollport.
+
+@use "../abstracts" as *;
+
+/* Desktop main padding (shell with side rail) */
+@media (min-width: 1200px) {
+  .main {
+    padding: 14px 0;
+  }
+
+  :root {
+    --coddy-composer-wrap-pad: 18px;
+  }
+}
+
+/* Stacked top rail: body is the scrollport */
+@media (max-width: 1199px) {
+  .nav-toggle {
+    display: none;
+  }
+  .sessions.dock {
+    display: none !important;
+  }
+  .backdrop {
+    z-index: 60;
+  }
+  /* Under the top bar (80), not behind it, and over the backdrop and the
+     drawers, which start below it anyway. */
+  .env-health-banner {
+    top: var(--coddy-mobile-bar-h);
+    z-index: 75;
+  }
+  .sessions.drawer,
+  .scheduler-jobs.drawer,
+  .settings.drawer {
+    z-index: 70;
+  }
+  /* The top bar the rail becomes, and under it the environment banner when
+     one is shown: the banner publishes its height on <html>
+     (EnvHealthBanner.tsx), so everything placed by the inset starts below
+     both. Declared on :root rather than .shell so a dialog portalled into
+     <body> (the folder browser) is placed by the same inset as the drawers. */
+  :root {
+    --coddy-top-rhythm: 10px;
+    --coddy-mobile-bar-h: calc(78px + env(safe-area-inset-top, 0px));
+    --coddy-mobile-top-inset: calc(
+      var(--coddy-mobile-bar-h) + var(--coddy-env-banner-h, 0px)
+    );
+  }
+  .shell {
+    /* Same rhythm as title row to first message (.messages-inner gap, sticky-head padding-bottom) */
+    --coddy-mobile-chat-stack-gap: 12px;
+    /* The title sits one step of the top rhythm under the pill, as the pill
+       sits one step under the window's edge: the bar's 78px are the pill's
+       64px with that step above them and 4px below. */
+    --coddy-mobile-title-sticky-top: calc(
+      var(--coddy-mobile-top-inset) - 4px + var(--coddy-top-rhythm)
+    );
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 100svh;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible;
+    grid-template-columns: unset;
+    grid-template-rows: unset;
+  }
+  /* Fixed: sticky was ineffective here while the shell/document chain still offset the rail on scroll (overflow/extra ancestors). */
+  .rail-column {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    flex: none !important;
+    align-self: stretch;
+    min-height: 78px;
+    height: auto;
+    padding: calc(var(--coddy-top-rhythm) + env(safe-area-inset-top, 0px)) 10px
+      0;
+    justify-content: stretch;
+    box-sizing: border-box;
+    background: transparent;
+    /* Above .backdrop (60) and drawers (70) so rail links stay clickable (DESIGN.md narrow-rail tooltips). */
+    z-index: 80;
+  }
+  .rail-middle {
+    flex: 1 1 auto;
+    flex-direction: row;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    width: auto;
+  }
+  .rail-spacer-between {
+    display: none !important;
+  }
+  .rail-link-stack {
+    flex-direction: row;
+    gap: 8px;
+    width: auto;
+  }
+  .rail-pill {
+    flex: none;
+    box-sizing: border-box;
+    height: 64px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 24px;
+  }
+  .rail-pill.is-wide {
+    width: 100%;
+    align-items: stretch;
+  }
+  /* Override the min-width:761px .rail-pill:not(.is-wide){width:76px} — same specificity but later in file wins */
+  .rail-pill:not(.is-wide) {
+    width: 100%;
+    max-width: 100%;
+  }
+  /* Override the min-width:761px .rail-pill:not(.is-wide) .rail-tip-host{width:100%} — match specificity (0,3,0) */
+  .rail-pill:not(.is-wide) .rail-tip-host {
+    width: auto;
+    max-width: none;
+    align-self: center;
+  }
+  .rail-header-wide {
+    width: auto;
+    max-width: none;
+  }
+  .rail-tip-host {
+    width: auto;
+    flex-shrink: 0;
+  }
+  .rail-hit-icon,
+  .rail-hit-link {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    border: 1px solid mix-text(8%);
+    background: rgba(20, 20, 22, 0.35);
+  }
+  .rail-brand {
+    flex-shrink: 0;
+    width: auto;
+    padding: 4px 8px;
+    align-items: center;
+    display: inline-flex;
+    justify-content: flex-start;
+  }
+  .rail-brand-text {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  .rail-brand-title {
+    font-size: 15px;
+  }
+  .rail-brand-sub {
+    font-size: 13px;
+  }
+  .rail-row-toggle {
+    display: none;
+  }
+  .shell-main {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: visible;
+    grid-row: unset;
+    padding-top: var(--coddy-mobile-top-inset);
+  }
+
+  .shell-main > .main.is-empty {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .shell-main > .main:not(.is-empty) {
+    flex: 1 1 auto;
+    min-height: min-content;
+  }
+
+  /* Let #messages apply top spacing so rail-to-title matches title-to-bubble (one 12px band). */
+  .main:not(.is-empty) {
+    padding-top: 0;
+    overflow: visible;
+  }
+
+  .main {
+    overflow: visible;
+  }
+
+  .messages-inner {
+    --coddy-transcript-row-gap: var(--coddy-mobile-chat-stack-gap);
+    gap: var(--coddy-transcript-row-gap);
+  }
+
+  .chat-stack {
+    flex: 1 1 auto;
+    min-height: min-content;
+    overflow: visible;
+    --coddy-chat-scrollbar-gutter: 0px;
+  }
+
+  /* Single scrollport is document; kill inner scroll from .chat-scroll desktop rules */
+  #messages.chat-scroll,
+  .chat-scroll {
+    flex: none;
+    min-height: unset;
+    overflow: visible !important;
+    overscroll-behavior: auto;
+    scrollbar-gutter: auto;
+    padding-top: var(--coddy-mobile-chat-stack-gap);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    max-height: none !important;
+  }
+
+  /* Sticks below the fixed top rail while the document scrolls ("New chat" row) */
+  .chat-scroll-sticky-head {
+    position: sticky !important;
+    top: var(--coddy-mobile-title-sticky-top);
+    z-index: 37;
+    /* The same room as above the title at rest: the stack gap and the bar's 4px
+       of slack (--coddy-mobile-title-sticky-top). */
+    padding-bottom: calc(var(--coddy-mobile-chat-stack-gap) + 4px);
+    flex-shrink: 0;
+  }
+
+  /* Fixed to the layout viewport's bottom, lifted above an on-screen keyboard
+     that overlays the page (ChatScreen sets the inset from visualViewport). */
+  .chat-bottom:has(.composer-wrap-docked) {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: var(--coddy-keyboard-inset, 0px);
+    z-index: 32;
+    padding-inline: 14px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+    margin-top: 0;
+    pointer-events: none;
+  }
+
+  .chat-bottom:has(.composer-wrap-docked) .chat-bottom-inner {
+    pointer-events: auto;
+  }
+
+  .chat-bottom:has(.composer-wrap-docked)::before {
+    display: none;
+  }
+
+  .chat-bottom-inner {
+    max-width: 920px;
+  }
+
+  .slash-menu--portal {
+    z-index: 45;
+  }
+
+  .sessions.drawer,
+  .scheduler-jobs.drawer,
+  .settings.drawer {
+    left: max(10px, env(safe-area-inset-left, 0px));
+    right: max(10px, env(safe-area-inset-right, 0px));
+    width: auto;
+    top: calc(var(--coddy-mobile-top-inset) + 6px);
+    bottom: 14px;
+  }
+}
+
+/* History ends 30% above the foot of the screen: the backdrop under it is where a
+   tap returns to the conversation, and a drawer down to the foot left none. */
+@media (max-width: 1199px) {
+  .sessions.drawer {
+    bottom: 30vh;
+    bottom: 30dvh;
+  }
+}

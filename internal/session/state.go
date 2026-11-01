@@ -242,6 +242,9 @@ type State struct {
 	// surfaceSystemPrompt is the block the surface running the current turn
 	// contributed to the system prompt; turn-scoped and never persisted.
 	surfaceSystemPrompt string
+	// surfaceTurnContext is the section the surface running the current turn
+	// contributed to the turn context block; turn-scoped and never persisted.
+	surfaceTurnContext string
 	// turnRestriction is what the surface running the current turn took away
 	// from it; turn-scoped and never persisted.
 	turnRestriction *TurnRestriction
@@ -307,7 +310,7 @@ type State struct {
 	// the configuration, only on the wire that opened this session.
 	sessionMCPDecls []config.MCPServerConfig
 
-	// PermissionCommandGrants are session-scoped shell commands approved via "allow always" (same matching rules as tools.command_allowlist).
+	// PermissionCommandGrants are session-scoped shell commands approved via "allow always", matched more strictly than tools.command_allowlist (see permission.CommandAllowedWithSession).
 	PermissionCommandGrants []string
 	// PermissionWriteGrants are keys "toolName|absolutePath" for filesystem tools approved via "allow always".
 	PermissionWriteGrants []string
@@ -346,6 +349,10 @@ type State struct {
 	queueMu   sync.Mutex
 	queue     []QueuedMessage
 	queueOpen bool
+	// queueInterrupt owns an opt-in child-run handoff; retained IDs protect
+	// its unread rows from the legacy close's steer discard.
+	queueInterrupt *queuedTurnInterrupt
+	queueRetained  map[string]bool
 	// queueVersion counts the changes, so a client told about the queue down
 	// two different connections can tell which answer is the newer one.
 	queueVersion uint64
@@ -1811,6 +1818,23 @@ func (s *State) GetTurnRestriction() *TurnRestriction {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.turnRestriction
+}
+
+// SetSurfaceTurnContext records the section the surface running the current
+// turn contributed to the turn context block; "" clears it. Turn-scoped like
+// SetSurfaceSystemPrompt.
+func (s *State) SetSurfaceTurnContext(section string) {
+	s.mu.Lock()
+	s.surfaceTurnContext = strings.TrimSpace(section)
+	s.mu.Unlock()
+}
+
+// GetSurfaceTurnContext returns that section, or "" when the turn came from a
+// surface that adds none.
+func (s *State) GetSurfaceTurnContext() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.surfaceTurnContext
 }
 
 // GetSurfaceSystemPrompt returns that block, or "" when the turn came from a

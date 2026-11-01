@@ -136,6 +136,46 @@ func findMarketplaceFile(root string) string {
 	return ""
 }
 
+// loadMarketplace reads the marketplace a repository root publishes: the
+// manifest findMarketplaceFile prefers, with the version of every plugin it
+// leaves without one taken from the same plugin in the other manifest. A
+// repository that publishes for several agents writes one manifest per agent,
+// and the Codex one (.agents/plugins) has no field for a version, so the
+// version a catalogue publishes is often only in its .claude-plugin
+// manifest. path is "" when the root has no manifest; mf is then nil too.
+func loadMarketplace(root string) (mf *Marketplace, path string, err error) {
+	path = findMarketplaceFile(root)
+	if path == "" {
+		return nil, "", nil
+	}
+	mf, err = parseMarketplace(path)
+	if err != nil {
+		return nil, path, err
+	}
+	for _, rel := range marketplaceFileNames {
+		other := filepath.Join(root, rel)
+		if other == path {
+			continue
+		}
+		if fi, err := os.Stat(other); err != nil || fi.IsDir() {
+			continue
+		}
+		alt, err := parseMarketplace(other)
+		if err != nil {
+			continue
+		}
+		for i := range mf.Plugins {
+			if strings.TrimSpace(mf.Plugins[i].Version) != "" {
+				continue
+			}
+			if p := alt.plugin(mf.Plugins[i].Name); p != nil {
+				mf.Plugins[i].Version = strings.TrimSpace(p.Version)
+			}
+		}
+	}
+	return mf, path, nil
+}
+
 // parseMarketplace reads and decodes a marketplace manifest file.
 func parseMarketplace(path string) (*Marketplace, error) {
 	data, err := os.ReadFile(path)

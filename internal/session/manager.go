@@ -1020,7 +1020,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 			live.SetAdditionalDirectories(params.AdditionalDirectories)
 		}
 		if opts.replay {
-			if err := m.replayConversation(params.SessionID, live.GetMessages(), live.GetPersistedSessionDir()); err != nil {
+			if err := m.replayConversation(params.SessionID, live.GetMessages(), live.GetPersistedSessionDir(), live.GetUILog()); err != nil {
 				m.log.Warn("replay conversation", "error", err)
 			}
 		}
@@ -1171,7 +1171,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		m.sendContextUsageUpdate(params.SessionID, st)
 
 		if opts.replay {
-			if err := m.replayConversation(params.SessionID, snap.Messages, snap.Dir); err != nil {
+			if err := m.replayConversation(params.SessionID, snap.Messages, snap.Dir, snap.UILog); err != nil {
 				m.log.Warn("replay conversation", "error", err)
 			}
 		}
@@ -1472,6 +1472,14 @@ type PromptRunOpts struct {
 	// another surface on the same session carries a different prefix - which
 	// costs that turn its cached prefix, deliberately.
 	SurfaceSystemPrompt string
+	// SurfaceTurnContext is what the surface running this turn wants the
+	// model to know that moves from turn to turn: a section of the turn
+	// context block, heading included, which rides after the history on every
+	// request of the turn instead of in the system message, so the cached
+	// prefix holds while it changes. The side panel of Coddy for Browser names
+	// the tab the person writes from here. Turn-scoped like
+	// SurfaceSystemPrompt, and never persisted.
+	SurfaceTurnContext string
 	// Restriction narrows what this turn may do: a surface that knows who
 	// wrote the message - a messenger bot and a user who is not its admin -
 	// says which tools are refused and that everything needing approval is
@@ -1885,6 +1893,10 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		state.SetSurfaceSystemPrompt(opts.SurfaceSystemPrompt)
 		defer state.SetSurfaceSystemPrompt("")
 	}
+	if opts != nil && strings.TrimSpace(opts.SurfaceTurnContext) != "" {
+		state.SetSurfaceTurnContext(opts.SurfaceTurnContext)
+		defer state.SetSurfaceTurnContext("")
+	}
 	if opts != nil && opts.Restriction != nil {
 		state.SetTurnRestriction(opts.Restriction)
 		defer state.SetTurnRestriction(nil)
@@ -1992,7 +2004,9 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 
 	ranRunner = true
 	MarkTurnRan(turnCtx)
-	stopReason, err := m.runSupervisedTurn(turnCtx, state, hydrated, sender, opts)
+	queueBudget := &queuedRunBudget{}
+	turnCtx = context.WithValue(turnCtx, queuedRunBudgetKey{}, queueBudget)
+	stopReason, err := m.runInterruptibleTurn(turnCtx, state, hydrated, sender, opts)
 	if err != nil {
 		state.TakeTurnStopNotice()
 		if errors.Is(err, context.Canceled) {
@@ -2025,12 +2039,12 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	// fresh Agent.Run with its own budget, so without a cap one admission
 	// could hold the session's turn lock indefinitely. The cap covers a full
 	// queue of after_turn messages.
-	for runs := 0; stopReason == string(acp.StopReasonEndTurn) && turnCtx.Err() == nil; runs++ {
-		if runs >= maxQueuedFollowUpRuns {
+	for stopReason == string(acp.StopReasonEndTurn) && turnCtx.Err() == nil {
+		if queueBudget.runs >= maxQueuedFollowUpRuns {
 			left := state.CloseMessageQueue()
 			if len(left) > 0 || len(state.QueuedMessages()) > 0 {
 				m.log.Warn("message queue follow-ups capped; unread steer messages dropped",
-					"session_id", params.SessionID, "runs", runs, "dropped", len(left))
+					"session_id", params.SessionID, "runs", queueBudget.runs, "dropped", len(left))
 			}
 			break
 		}
@@ -2038,6 +2052,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		if !more {
 			break
 		}
+		queueBudget.runs++
 		var images []llm.ImagePart
 		for _, q := range queued {
 			for _, p := range q.ImageParts {
@@ -2053,8 +2068,9 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		// No client typed this prompt into its view of the turn, so the run
 		// announces it (PromptEcho) before it answers it.
 		rev := state.MessagesRev()
-		stopReason, err = m.runSupervisedTurn(withPromptEcho(turnCtx, params.SessionID), state, state.ResolveQueuedMentions(QueuedPromptBlocks(queued)), sender, opts)
-		if turnCtx.Err() != nil && state.MessagesRev() == rev {
+		queuedCtx, receipt := withQueuedPromptReceipt(withPromptEcho(turnCtx, params.SessionID), state, queued, false)
+		stopReason, err = m.runInterruptibleTurn(queuedCtx, state, state.ResolveQueuedMentions(QueuedPromptBlocks(queued)), sender, opts)
+		if turnCtx.Err() != nil && state.MessagesRev() == rev && !receipt.transferred.Load() {
 			// Stopped before the prompt entered the conversation: nothing read
 			// it. An after_turn message waits again, as Stop promises, and the
 			// images it was to carry are not left for the next prompt.

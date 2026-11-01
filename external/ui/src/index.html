@@ -33,6 +33,9 @@
         document.documentElement.style.colorScheme = LIGHT[theme]
           ? "light"
           : "dark";
+        if (/(?:^|;\s*)coddy_ui_simple=1(?:;|$)/.test(document.cookie)) {
+          document.documentElement.dataset.simple = "on";
+        }
       })();
     </script>
   </head>

@@ -13,7 +13,7 @@ Before you tell the user that a UI change is complete or merge-ready:
 3. Run **`browser_evaluate`** to compare **`getBoundingClientRect()`** edges for **`.chat-header`**, **`.messages-inner`** first child, and **`.composer-card`** (left and right should match within about **1px** after shared column padding; a user message keeps to the right, so a first row that is one is compared by its right edge).
 4. If anything is off, fix CSS and re-check before reporting done.
 
-This is required for changes to **`external/ui/src/styles.css`**, **`ChatScreen`**, **`Composer`**, or nav layout.
+This is required for changes to the stylesheet (**`external/ui/src/styles.scss`** and **`styles/`**), **`ChatScreen`**, **`Composer`**, or nav layout.
 
 ## Safari and other WebKit reports
 
@@ -122,6 +122,21 @@ again in about one frame, a page leaving the canvas, a frame's address opened on
 Obsidian `.canvas` file opened in the window, and the window at every tier of the grid in English
 and in Russian. Run it once more with **`CODDY_ENGINE=webkit`** when the change touches the frames'
 scaling or the pointer handling of the board.
+
+## The attachments
+
+A screenshot tool hands the browser a file in a temporary folder and deletes it at the next capture,
+so a **`File`** held only by its path stops being readable: the picture cannot be shown or sent
+(**`DESIGN.md`**, *Composer attachments*). jsdom has no such files. When the change touches
+how files enter the composer, **`optimisticUserFiles`**, the reconciliation of a sent row or the row
+of a queued message, run **`external/ui/scripts/attachments-check.mjs`**
+(**`npm run check:attachments`**) against a binary built with **`TAGS="http ui"`**: it drops and pastes
+real files, deletes them, follows them to a scripted model byte for byte, and holds a picture's row
+while the model is still answering it.
+
+## The simplified mode
+
+The mode clears the glass of the whole stylesheet from one partial (**`DESIGN.md`**, *Simplified mode*), and what it leaves behind is a computed style jsdom does not have. When the change adds a shadow, a blur, a gradient, a mask, a transition, an animation or a translucent panel, or touches **`styles/_simple.scss`**, run **`external/ui/scripts/simple-mode-check.mjs`** (**`npm run check:simple`**) against a binary built with **`TAGS="http ui"`** (setup in **`docs/surfaces/web-ui.md`**, *Checking the simplified mode*): it reads every element of six screens in every theme at 1280, 800 and 390 px.
 
 ## The shared file cards
 

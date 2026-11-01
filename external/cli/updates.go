@@ -29,6 +29,7 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 			a.turnActive = false
 			a.turnStartedAt = time.Time{}
 			a.turnTokens = 0
+			a.turnSpeed = nil
 			// A goal command that changed nothing (already paused, no goal
 			// to clear) leaves no notice of its own to answer for.
 			a.goalEchoes = nil
@@ -268,7 +269,11 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		}
 		a.plan.SetEntries(entries)
 	case acp.TokenUsageUpdate:
-		a.foot.AddTokens(u.InputTokens, u.OutputTokens)
+		if (u.SessionUsageKnown != nil && !*u.SessionUsageKnown) || (u.UsageKnown != nil && !*u.UsageKnown) {
+			a.foot.tokensUnknown = true
+		} else {
+			a.foot.AddTokens(u.InputTokens, u.OutputTokens)
+		}
 	case acp.TurnProgressUpdate:
 		a.applyTurnProgress(u)
 	case acp.UsageUpdate:
@@ -489,6 +494,7 @@ func (a *App) applyFollow(u remote.FollowUpdate) {
 			a.stepStatus = newWaitingStatus()
 			a.stepBlocked = ""
 			a.turnStartedAt, a.turnTokens = time.Time{}, 0
+			a.turnSpeed = nil
 			a.startSpinner()
 		}
 		return
@@ -496,6 +502,7 @@ func (a *App) applyFollow(u remote.FollowUpdate) {
 	if !a.turnActive {
 		a.stopSpinner()
 		a.turnStartedAt, a.turnTokens = time.Time{}, 0
+		a.turnSpeed = nil
 	}
 	a.dropAbandonedGate()
 	a.refreshTasks()

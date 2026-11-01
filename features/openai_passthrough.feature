@@ -42,6 +42,6 @@ Feature: POST /v1/chat/completions passes a client's tools and images through to
 
   Scenario: The agent keeps its own tools
     Given a coddy server whose direct model is a recording stub with tool calling
-    When an OpenAI client streams "agent" with a "get_weather" tool
+    When an OpenAI client streams "agent" without client tools
     Then the upstream request offered coddy's own tools and not "get_weather"
     And the client assembles the answer "Hi."

@@ -92,9 +92,11 @@ func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State,
 		if err != nil {
 			return nil, err
 		}
-		if resp != nil && (resp.InputTokens > 0 || resp.OutputTokens > 0) {
+		if resp != nil && (resp.UsageKnown || (!resp.UsageIncomplete && (resp.InputTokens > 0 || resp.OutputTokens > 0))) {
+			known := true
 			_ = bridge.SendSessionUpdate(sessionID, acp.TokenUsageUpdate{
 				SessionUpdate:     acp.UpdateTypeTokenUsage,
+				UsageKnown:        &known,
 				InputTokens:       resp.InputTokens,
 				OutputTokens:      resp.OutputTokens,
 				TotalTokens:       resp.InputTokens + resp.OutputTokens,
@@ -131,8 +133,11 @@ func directAssistantMessage(resp *llm.Response, yamlSel string) llm.Message {
 // names, so a request may carry both only when they agree. reasoning_effort
 // must be a level the model offers, as GET /v1/models lists them; omitted,
 // null or empty, the model's reasoning_default applies.
-func directRequestOptions(cfg *config.Config, model string, req chatCompletionRequest) (llm.RequestOptions, error) {
+func directRequestOptions(cfg *config.Config, model string, req chatCompletionRequest, topP ...*float64) (llm.RequestOptions, error) {
 	opts := llm.RequestOptions{MaxTokens: req.MaxTokens, Temperature: req.Temperature}
+	if len(topP) > 0 {
+		opts.TopP = topP[0]
+	}
 	if req.MaxCompletionTokens != nil {
 		if req.MaxTokens != nil && *req.MaxTokens != *req.MaxCompletionTokens {
 			return llm.RequestOptions{}, fmt.Errorf("max_tokens (%d) and max_completion_tokens (%d) disagree", *req.MaxTokens, *req.MaxCompletionTokens)

@@ -41,12 +41,12 @@ Feature: Plugins published as zip archives
     Then the plugin command answers "Installed logika@neuraldeep. 1 added, 0 updated, 0 failed."
     And the skill "logika" is installed with its executable script "scripts/run.sh"
 
-  Scenario: A new archive of the plugin is offered as an update and installed by sync
+  Scenario: A new archive of the plugin is offered as an update and installed by plugin update
     Given an https marketplace "catalog" publishing the plugin "demo" as a zip archive with its sha256
     And I have run the plugin command "install" for the marketplace "catalog"
     When the marketplace "catalog" publishes a new archive of the plugin "demo"
     Then the update check offers the skill "demo" at the version of the new archive
-    When I run the plugin command "marketplace sync" for the marketplace "catalog"
+    When I run the plugin command "update demo"
     Then the plugin command answers "0 added, 1 updated, 0 failed."
     And the skill "demo" on disk comes from the new archive
     And the lock records the skill "demo" from the marketplace "catalog" at the version of its archive

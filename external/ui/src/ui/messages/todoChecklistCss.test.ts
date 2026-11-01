@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
 /**
  * The motion of the todo checklist under the transcript (DESIGN.md "Todo
@@ -10,7 +9,7 @@ import { expect, test } from "vitest";
  * who did not ask for less motion. Folding itself holds for every reader.
  */
 
-const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf8");
+const css = stylesSource();
 
 function squash(body: string): string {
   return body

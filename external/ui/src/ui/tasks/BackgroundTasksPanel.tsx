@@ -4,6 +4,8 @@ import { formatTurnTokens } from "../chat/turnProgress";
 import { BellIcon } from "../components/BellIcon";
 import { Chevron } from "../components/Chevron";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
+import { sameTabInAppNavClick } from "../nav/sameTabInAppNav";
+import { appNavHrefSession } from "../scheduler/hashRoute";
 import type { BackgroundTask } from "./types";
 import {
   agentTranscriptSessionId,
@@ -49,8 +51,8 @@ function IconStop() {
  *
  * What a task costs and where it leads is read without opening anything: the model and
  * the tokens an agent run has spent, how long it has run, and the one way in the card
- * has - the address for a preview server is on the folded card, while a subagent's
- * transcript action sits beneath its expanded output - and neither is repeated.
+ * has - the address of a preview server, the transcript of a subagent - as plain text
+ * on the folded card, and neither is repeated when the card opens.
  */
 function TaskCard(props: {
   task: BackgroundTask;
@@ -99,7 +101,7 @@ function TaskCard(props: {
     ...taskTimesTitle(task),
     serverUrl,
     [usage?.modelId || "", reasoning].filter(Boolean).join(" · "),
-    usage && usage.tokens > 0
+    usage && !usage.incomplete && usage.tokens > 0
       ? t("tasks.agentTokensTitle", {
           input: number.format(usage.inputTokens),
           output: number.format(usage.outputTokens),
@@ -213,12 +215,12 @@ function TaskCard(props: {
                   </span>
                 </>
               ) : null}
-              {usage.model && usage.tokens > 0 ? (
+              {usage.model && !usage.incomplete && usage.tokens > 0 ? (
                 <span className="bgtask-card-usage-sep" aria-hidden="true">
                   {" · "}
                 </span>
               ) : null}
-              {usage.tokens > 0 ? (
+              {!usage.incomplete && usage.tokens > 0 ? (
                 <span className="bgtask-card-tokens">
                   {tp("status.turnTokens", usage.tokens, {
                     shown: formatTurnTokens(usage.tokens),
@@ -243,6 +245,34 @@ function TaskCard(props: {
               </a>
             </span>
           ) : null}
+          {isAgentTask(task) ? (
+            <span className="bgtask-card-address-row">
+              {agentSid === null ? (
+                <span
+                  className="bgtask-card-transcript"
+                  data-testid={`bgtask-open-transcript-${task.id}`}
+                  aria-disabled="true"
+                  title={t("tasks.openTranscriptUnavailable")}
+                >
+                  {t("tasks.openTranscript")}
+                </span>
+              ) : (
+                <a
+                  className="bgtask-card-transcript"
+                  href={appNavHrefSession(agentSid)}
+                  data-testid={`bgtask-open-transcript-${task.id}`}
+                  aria-label={t("tasks.openTranscriptAria", { label: title })}
+                  onClick={(ev) =>
+                    sameTabInAppNavClick(ev, () =>
+                      props.onOpenSession(agentSid),
+                    )
+                  }
+                >
+                  {t("tasks.openTranscript")}
+                </a>
+              )}
+            </span>
+          ) : null}
         </div>
         {progress !== null ? (
           <div
@@ -260,13 +290,7 @@ function TaskCard(props: {
           </div>
         ) : null}
       </div>
-      {props.open ? (
-        <TaskCardBody
-          task={task}
-          output={props.output}
-          onOpenSession={props.onOpenSession}
-        />
-      ) : null}
+      {props.open ? <TaskCardBody task={task} output={props.output} /> : null}
     </div>
   );
 }
@@ -277,22 +301,15 @@ function TaskCard(props: {
  * nothing to put here for them), the error the run ended with unless it only repeats
  * the exit code, the captured output in a box of its own height, and - once the task
  * has finished - a foot that says how it ended and, for a command, with what exit
- * code. How long it ran remains in the summary; a subagent's transcript action is
- * attached below its output, while a preview server's address stays in the summary.
+ * code. How long it ran and the way into the task remain in the summary.
  */
-function TaskCardBody(props: {
-  task: BackgroundTask;
-  output: string;
-  onOpenSession: (sessionId: string) => void;
-}) {
+function TaskCardBody(props: { task: BackgroundTask; output: string }) {
   const { t } = useT();
   const task = props.task;
   const preRef = useRef<HTMLPreElement | null>(null);
   const [follow, setFollow] = useState(true);
   const agent = isAgentTask(task);
   const server = isServerTask(task);
-  const agentSid = agent ? agentTranscriptSessionId(task) : null;
-  const title = taskTitle(task);
 
   useEffect(() => {
     const el = preRef.current;
@@ -358,26 +375,6 @@ function TaskCardBody(props: {
       >
         {props.output.trim() ? props.output : t("tasks.noOutput")}
       </pre>
-
-      {agent ? (
-        <button
-          type="button"
-          className="bgtask-card-transcript"
-          data-testid={`bgtask-open-transcript-${task.id}`}
-          disabled={agentSid === null}
-          aria-label={t("tasks.openTranscriptAria", { label: title })}
-          title={
-            agentSid === null ? t("tasks.openTranscriptUnavailable") : undefined
-          }
-          onClick={() => {
-            if (agentSid !== null) {
-              props.onOpenSession(agentSid);
-            }
-          }}
-        >
-          {t("tasks.openTranscript")}
-        </button>
-      ) : null}
 
       {footParts.length > 0 ? (
         <div

@@ -396,7 +396,7 @@ type subagentSender struct {
 	// onUsage hears what the child's model calls have spent so far, whenever it
 	// changes: the launcher hands it to the task row (bgtask.Pool.SetAgentUsage).
 	// Set before the child starts and never changed.
-	onUsage func(inputTokens, outputTokens int)
+	onUsage func(inputTokens, outputTokens int, incomplete bool)
 
 	mu       sync.Mutex
 	line     strings.Builder
@@ -411,6 +411,7 @@ type subagentSender struct {
 // from the next by its start, and the output of the turns that ended is kept.
 type childUsage struct {
 	input      int
+	incomplete bool
 	outputDone int
 	turn       string
 	turnOutput int
@@ -430,7 +431,7 @@ func (s *subagentSender) SendSessionUpdate(_ string, update interface{}) error {
 	s.render(update)
 	s.mu.Unlock()
 	if changed && s.onUsage != nil {
-		s.onUsage(counted.input, counted.output())
+		s.onUsage(counted.input, counted.output(), counted.incomplete)
 	}
 	return nil
 }
@@ -440,7 +441,11 @@ func (s *subagentSender) count(update interface{}) (childUsage, bool) {
 	before := s.usage
 	switch u := update.(type) {
 	case acp.TokenUsageUpdate:
-		s.usage.input += max(0, u.InputTokens)
+		if u.UsageKnown == nil || *u.UsageKnown {
+			s.usage.input += max(0, u.InputTokens)
+		} else {
+			s.usage.incomplete = true
+		}
 	case acp.TurnProgressUpdate:
 		if u.StartedAt != s.usage.turn {
 			s.usage.outputDone += s.usage.turnOutput
@@ -450,7 +455,7 @@ func (s *subagentSender) count(update interface{}) (childUsage, bool) {
 	default:
 		return s.usage, false
 	}
-	return s.usage, s.usage.input != before.input || s.usage.output() != before.output()
+	return s.usage, s.usage.input != before.input || s.usage.output() != before.output() || s.usage.incomplete != before.incomplete
 }
 
 // render writes the update to the task log. Callers hold mu.
@@ -1269,7 +1274,9 @@ func (a *Agent) launchChildRun(ctx context.Context, rt SubagentRuntime, l childL
 			l.relay.taskID = taskID
 		}
 		run.sender = newSubagentSender(out, l.relay)
-		run.sender.onUsage = func(in, outTokens int) { pool.SetAgentUsage(parentID, taskID, in, outTokens) }
+		run.sender.onUsage = func(in, outTokens int, incomplete bool) {
+			pool.SetAgentUsageStatus(parentID, taskID, in, outTokens, incomplete)
+		}
 		verb := "starting"
 		if l.spec.Resume {
 			verb = "resuming"

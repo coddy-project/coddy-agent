@@ -7,7 +7,10 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { ContextBreakdownPopover } from "./ContextBreakdownPopover";
+import {
+  ContextBreakdownPopover,
+  formatContextTokens,
+} from "./ContextBreakdownPopover";
 import { OpenRailScreen } from "../nav/railEscape.fakes";
 
 const breakdown = {
@@ -26,7 +29,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("context action shows the threshold, posts compaction and holds progress", async () => {
+test("the foot names the threshold in percent and tokens, and its button compacts and holds progress", async () => {
   let finish: ((response: Response) => void) | undefined;
   const pending = new Promise<Response>((resolve) => {
     finish = resolve;
@@ -47,8 +50,11 @@ test("context action shows the threshold, posts compaction and holds progress", 
     />,
   );
 
+  expect(screen.getByTestId("context-breakdown-compaction")).toHaveTextContent(
+    "Auto-compact at 95% · 950",
+  );
   const action = screen.getByTestId("context-breakdown-compact");
-  expect(action).toHaveTextContent("Compact at 95%");
+  expect(action).toHaveTextContent("Compact now");
   fireEvent.click(action);
   expect(action).toBeDisabled();
   expect(action).toHaveTextContent("Compacting");
@@ -68,20 +74,25 @@ test("context action shows the threshold, posts compaction and holds progress", 
   expect(action).not.toBeDisabled();
 });
 
-test("context action says compact now when automation is disabled", () => {
+test("the foot says automatic compaction is off, and the button still compacts", () => {
   render(
     <ContextBreakdownPopover
       open
       onClose={() => {}}
       maxContextTokens={1000}
+      breakdown={breakdown}
       sessionId="sess_123"
       compactAvailable
       compactAutoEnabled={false}
     />,
   );
+  expect(screen.getByTestId("context-breakdown-compaction")).toHaveTextContent(
+    "Auto-compact is off",
+  );
   expect(screen.getByTestId("context-breakdown-compact")).toHaveTextContent(
     "Compact now",
   );
+  expect(screen.getByTestId("context-breakdown-compact")).toBeEnabled();
 });
 
 test("idle sheet keeps close and disabled compact controls visible", () => {
@@ -96,17 +107,20 @@ test("idle sheet keeps close and disabled compact controls visible", () => {
   );
   expect(screen.getByTestId("context-breakdown-close")).toBeVisible();
   const compact = screen.getByTestId("context-breakdown-compact");
-  expect(compact).toHaveTextContent("Compact at 80%");
+  expect(compact).toHaveTextContent("Compact now");
+  expect(screen.getByTestId("context-breakdown-compaction")).toHaveTextContent(
+    "Auto-compact at 80%",
+  );
   expect(compact).toBeDisabled();
 });
 
-test("context popover uses modal head chrome and keeps usage and compaction in one row", () => {
+test("context popover uses modal head chrome, the percent and the tokens over the bar and compaction at its foot", () => {
   render(
     <ContextBreakdownPopover
       open
       onClose={() => {}}
-      maxContextTokens={1000}
-      breakdown={breakdown}
+      maxContextTokens={1_000_000}
+      breakdown={{ ...breakdown, estimatedTotal: 540_612 }}
       sessionId="sess_123"
       compactAvailable
       compactAutoEnabled
@@ -120,11 +134,56 @@ test("context popover uses modal head chrome and keeps usage and compaction in o
   expect(screen.getByTestId("context-breakdown-close")).toHaveClass(
     "sessions-close",
   );
+  // The row stands right over the bar: the percent, then the tokens at its end.
   const usageRow = screen.getByTestId("context-breakdown-usage-row");
-  expect(usageRow).toHaveTextContent("50.0% Used");
-  expect(usageRow).toContainElement(
+  expect(usageRow.children[0]).toHaveTextContent("54% used");
+  expect(usageRow.children[1]).toHaveTextContent("540.6k / 1M");
+  expect(usageRow.children[1]).toHaveAttribute(
+    "title",
+    "~540,612 / 1,000,000 Tokens",
+  );
+  expect(usageRow.nextElementSibling).toBe(
+    screen.getByTestId("context-breakdown-bar"),
+  );
+  expect(usageRow).not.toContainElement(
     screen.getByTestId("context-breakdown-compact"),
   );
+  // Under the list: the threshold and what it comes to, then the button.
+  const foot = screen.getByTestId("context-breakdown-compaction");
+  expect(foot.children[0]).toHaveTextContent("Auto-compact at 80% · 800k");
+  expect(foot.children[1]).toBe(
+    screen.getByTestId("context-breakdown-compact"),
+  );
+  const legend = screen.getByTestId(
+    "context-breakdown-row-conversation",
+  ).parentElement!;
+  expect(legend.nextElementSibling).toBe(foot);
+});
+
+test("the tokens over the bar shorten without ever rounding up", () => {
+  expect(formatContextTokens(0)).toBe("0");
+  expect(formatContextTokens(999)).toBe("999");
+  expect(formatContextTokens(1000)).toBe("1k");
+  expect(formatContextTokens(45_898)).toBe("45.8k");
+  expect(formatContextTokens(131_072)).toBe("131k");
+  expect(formatContextTokens(540_612)).toBe("540.6k");
+  expect(formatContextTokens(999_999)).toBe("999.9k");
+  expect(formatContextTokens(1_000_000)).toBe("1M");
+  expect(formatContextTokens(1_250_000)).toBe("1.2M");
+});
+
+test("a sliver of use reads under one percent, never zero", () => {
+  render(
+    <ContextBreakdownPopover
+      open
+      onClose={() => {}}
+      maxContextTokens={1_000_000}
+      breakdown={{ ...breakdown, estimatedTotal: 500 }}
+    />,
+  );
+  expect(
+    screen.getByTestId("context-breakdown-usage-row").children[0],
+  ).toHaveTextContent("<1% used");
 });
 
 test("context action says nothing to compact when the endpoint folds nothing", async () => {

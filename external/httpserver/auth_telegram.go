@@ -136,8 +136,15 @@ func (s *Server) coddyAuthTelegramPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// One launch signs one browser in: a copy of the launch data replayed
-	// within its hour opens nothing.
-	if !s.tgReplay.Use(launch.Hash, launch.AuthDate.Add(telegramLaunchMaxAge+time.Minute), now) {
+	// within its hour opens nothing, and a launch the used-launch record
+	// cannot durably take signs nobody in.
+	used, err := s.tgReplay.Use(launch.Hash, launch.AuthDate.Add(telegramLaunchMaxAge+time.Minute), now)
+	if err != nil {
+		s.log.Error("telegram sign-in could not record the used launch", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "could not open a session"})
+		return
+	}
+	if !used {
 		writeJSON(w, http.StatusUnauthorized, map[string]interface{}{"error": "this Telegram launch was already used; open the Mini App again"})
 		return
 	}

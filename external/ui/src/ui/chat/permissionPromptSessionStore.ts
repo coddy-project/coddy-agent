@@ -2,10 +2,8 @@ import type {
   CoddyPermissionPayload,
   PermissionResolvedState,
 } from "./permissionTypes";
-import { restorePermissionPromptsForPendingTools } from "./restorePermissionPrompts";
 import { stablePermissionPromptItemId } from "./transcriptItemIds";
 import type { TranscriptItem } from "./types";
-import type { ToolsPermissionPolicy } from "./toolsPermissionPolicy";
 
 const STORAGE_PREFIX = "coddy_pp_v1:";
 
@@ -153,18 +151,6 @@ export function mergeStoredPermissionPromptsIntoTranscript(
   return out;
 }
 
-export function resolvedPermissionToolCallIds(
-  sessionId: string,
-): ReadonlySet<string> {
-  const records = loadPermissionPromptRecords(sessionId);
-  const out = new Set<string>();
-  for (const rec of records) {
-    if (rec.resolved) out.add(rec.toolCallId.trim());
-  }
-  return out;
-}
-
-/** Stored SSE rows, then pending tool_call synthesis (reload / server restart). */
 /** Session ids with unresolved rows in localStorage (sidebar ? after reload). */
 export function permissionPendingSessionIdsFromStorage(): ReadonlySet<string> {
   if (typeof window === "undefined") return new Set();
@@ -183,16 +169,19 @@ export function permissionPendingSessionIdsFromStorage(): ReadonlySet<string> {
   return out;
 }
 
+/**
+ * The prompts of a transcript read from the server: the ones settled without
+ * this tab are dropped, and the unanswered ones this browser saw on the stream
+ * (stored in localStorage) come back under their tool rows after a reload.
+ */
 export function mergePermissionPromptsIntoTranscript(
   merged: TranscriptItem[],
   sessionId: string,
-  policy: ToolsPermissionPolicy | null,
 ): TranscriptItem[] {
-  const withStored = mergeStoredPermissionPromptsIntoTranscript(
+  return mergeStoredPermissionPromptsIntoTranscript(
     dropSettledPermissionPrompts(merged, sessionId),
     sessionId,
   );
-  return restorePermissionPromptsForPendingTools(withStored, sessionId, policy);
 }
 
 /**

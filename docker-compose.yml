@@ -16,8 +16,11 @@ services:
     # The published GHCR image carries every surface, the messenger gateway
     # included (BUILD_TAGS in .github/workflows/docker-build-push.yaml).
     command: ${CODDY_COMMAND:-serve -H 0.0.0.0 -P 12345}
+    # Published on the host's loopback only: without httpserver.auth_token or
+    # the sign-in, anyone who reaches the port has the whole API. Set
+    # CODDY_HTTP_BIND=0.0.0.0 to open it to the network once a credential is set.
     ports:
-      - "${CODDY_HTTP_PORT:-12345}:12345"
+      - "${CODDY_HTTP_BIND:-127.0.0.1}:${CODDY_HTTP_PORT:-12345}:12345"
     working_dir: /workspace
     # The image runs as uid/gid 1000; set CODDY_UID / CODDY_GID to the owner of
     # the mounted folders when that is someone else (`id -u`, `id -g`).

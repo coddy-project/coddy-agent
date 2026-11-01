@@ -26,31 +26,37 @@ ReAct (Reasoning + Acting) - агентная парадигма, в котор�
 
 Шаблоны лежат в **`internal/prompts/agent.md`**, **`plan.md`** и **`ask.md`** (по умолчанию встроены, переопределяются через **`prompts.dir`**). Они используют Go **`text/template`**.
 
+![Запрос, который Coddy отправляет модели, сверху вниз: определения инструментов, блоки системного сообщения, история и блок контекста хода, у каждого помечено, что его меняет](../../assets/diagrams/system-prompt.png)
+*Каждый блок запроса и события, после которых его собирают заново. Если ни одного из них не было, системное сообщение остаётся теми же байтами на всех запросах сессии, и на каждом шаге меняется только блок контекста хода после истории.*
+
 После рендеринга порядок примерно повторяет markdown-файлы.
 
 ```
-[Identity line — see "Agent identity" below; absent when the template opens with it]
-[Intro + Mode + How to work / How to plan]
+You are Coddy, an AI coding agent ...   identity line, see "Agent identity" below
 Working directory: {{.CWD}}
-
-{{if .Tools}}
+{{.SubagentRole}}                       ## Your role as a subagent, in a child session only
+## Mode: Agent | Plan | Ask             capabilities, how to work, how to plan
+                                        (plan mode lists {{.DiscardedPlans}} here)
+{{.Subagents}}                          the subagent catalog, when the session may spawn
 ## Available tools
-{{.Tools}}
-{{end}}
-
-{{if .Skills}} ... skill catalog + always-active/glob-matched bodies
-          (invoked /name bodies are injected into the user message instead) ... {{end}}
-
-{{if .Memory}}
+{{.Tools}}                              MCP tools among them, as server__tool
+{{.Skills}}                             ## Slash commands: the skill catalog and the load_skill hint;
+                                        a /name body rides in the user message, load_skill returns one
+{{.PlanContext}}                        agent mode: the plan an approved turn implements
+{{.Rules}}                              AGENTS.md and DESIGN.md of the agent home, then of the
+                                        workspace, then the rules that always apply
+## Project instructions
+{{.Instructions}}                       the files of instructions.files
 ## Session memory
-{{.Memory}}
-{{end}}
+{{.Memory}}                             the session's notes
 
-<environment_context>
+<environment_context>                   appended outside the template
 <os>...</os>
 <arch>...</arch>
 <shell>...</shell>
 </environment_context>
+## Hook context                         appended: SessionStart and this turn's UserPromptSubmit
+...                                     appended: the surface block of the web UI or a messenger
 ```
 
 Блок окружения добавляется вне настраиваемого шаблона, поэтому собственный промпт не может случайно потерять сведения об ОС и оболочке.
@@ -449,7 +455,13 @@ messages: [
    (one of `step`, `empty_reissue`, `empty_nudge`, `output_limit_nudge`,
    `first_token_retry`, `provider_recovery`, `loop_guard`, `quota_reset_wait`,
    `stop_hook`, `queued_followup`, `context_overflow_recovery`), and
-   `retries_remaining` (budget slots left after this call).
+   `retries_remaining` (budget slots left after this call). Записи о завершении и расходе токенов
+   также содержат `session` и возрастающий в пределах процесса `call_id`.
+   При включённом debug для компонента агента `request_latency.go` записывает
+   связанные тайминги локальной работы, HTTP и запуска инструмента без
+   содержимого запроса. Границы этапов и ограниченное синтетическое сравнение
+   описаны в разделе
+   [Длинная сессия начинает работать медленнее](../getting-started/troubleshooting.md#a-long-session-becomes-slower).
 
    Two guards bound a streamed call that stops answering. The first-token guard
    (**`llm_first_token_timeout_ms`**, 90 s) cuts a call that produced nothing;
@@ -537,4 +549,4 @@ messages: [
 - Слишком длинный контекст - старые сообщения сжимаются в сводку, работа продолжается со сводкой;
 - Отмена - все операции прерываются, возвращается причина остановки `cancelled`.
 
-<!-- docsgen:source sha256=25408b02a15c41e0 -->
+<!-- docsgen:source sha256=bc8936937b57acc7 -->

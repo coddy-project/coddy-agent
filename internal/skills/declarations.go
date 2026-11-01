@@ -3,13 +3,19 @@ package skills
 // The skill marketplaces a workspace has. They are declared in two files of
 // one shape (config.MarketplacesFile): the operator's
 // <home>/marketplaces.json, and the project's .coddy/marketplaces.json, which
-// arrives with the checkout. Beside both sits the system source, always in
-// effect and always trusted. An entry is one of two kinds:
+// arrives with the checkout. Beside both sits the system catalogue,
+// rpa-skills, always in effect and always trusted. An entry is one of two
+// kinds:
 //
-//   - a source, installed whole: every plugin it publishes (or every skill of
-//     a repository without a marketplace.json) is installed and kept in sync;
+//   - a source, installed whole: `plugin install <source>` installs every
+//     plugin it publishes (or every skill of a repository without a
+//     marketplace.json);
 //   - a marketplace, a catalog: its plugins are installed one by one with
-//     `plugin install <plugin>@<name>`, and an update touches only those.
+//     `plugin install <plugin>@<name>`.
+//
+// Neither kind installs anything on its own: `plugin marketplace update`
+// reads their lists and reports newer versions, and `plugin update` updates
+// only what is installed (update.go).
 //
 // A project entry takes effect only as skills.project_trust allows: under ask
 // once the operator approved that exact entry for that workspace (a receipt
@@ -59,7 +65,7 @@ type Declaration struct {
 	Name   string `json:"name,omitempty"` // a marketplace's name
 	Source string `json:"source"`
 	Origin string `json:"origin"`
-	// Path is the file the entry is declared in; empty for the system source.
+	// Path is the file the entry is declared in; empty for a system marketplace.
 	Path string `json:"source_path,omitempty"`
 	// Gated says the workspace trust gate decides on the entry: a project one.
 	Gated   bool   `json:"gated"`
@@ -83,7 +89,7 @@ func (d Declaration) Key() string {
 var declarationsMu sync.Mutex
 
 // Declarations lists every source and marketplace declared for cwd, in the
-// order they take effect: the system source, the home file, the project file
+// order they take effect: the system marketplace, the home file, the project file
 // (with its state under skills.project_trust). An entry that repeats one
 // declared before it is left out: a project repeating the operator's source
 // adds nothing, and a marketplace name the operator's file declares already
@@ -100,8 +106,8 @@ func Declarations(cfg *config.Config, cwd string) (decls []Declaration, errs []e
 		}
 		decls = append(decls, d)
 	}
-	for _, s := range SystemSources {
-		add(Declaration{Kind: KindSource, Source: s, Origin: OriginSystem, Trusted: true, State: StateReady})
+	for _, m := range SystemSources {
+		add(Declaration{Kind: KindMarketplace, Name: m.Name, Source: m.Source, Origin: OriginSystem, Trusted: true, State: StateReady})
 	}
 	homePath := config.GlobalMarketplacesPath(cfg.Paths.Home)
 	home, err := config.ReadMarketplacesFile(homePath)
@@ -148,9 +154,13 @@ func Declarations(cfg *config.Config, cwd string) (decls []Declaration, errs []e
 }
 
 // declaredAlready reports whether d repeats an entry of decls: a source the
-// same source, a marketplace the same name or the same source.
+// same source, a marketplace the same name or the same source, and anything
+// the source of a system marketplace, which a file can only name redundantly.
 func declaredAlready(decls []Declaration, d Declaration) bool {
 	for _, e := range decls {
+		if e.Origin == OriginSystem && sameSource(e.Source, d.Source) {
+			return true
+		}
 		if e.Kind != d.Kind {
 			continue
 		}

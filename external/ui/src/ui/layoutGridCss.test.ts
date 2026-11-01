@@ -20,14 +20,14 @@ import {
 
 const dir = dirname(fileURLToPath(import.meta.url));
 
-/** Every stylesheet of the SPA: styles.css and the few a module imports itself (ui/telegram/telegram.css). */
+/** Every stylesheet of the SPA: styles.scss and the few a module imports itself (ui/telegram/telegram.css). */
 function stylesheets(root: string): string[] {
   const out: string[] = [];
   for (const name of readdirSync(root)) {
     const path = join(root, name);
     if (statSync(path).isDirectory()) {
       if (name !== "node_modules") out.push(...stylesheets(path));
-    } else if (name.endsWith(".css")) out.push(path);
+    } else if (/\.(css|scss)$/.test(name)) out.push(path);
   }
   return out;
 }

@@ -7,13 +7,19 @@ The built-in tools the model can call, their arguments, permissions and the mode
 The Permission column uses the classes the gate in `internal/agent/react.go` applies under the session's permission mode (`ask` until another is chosen, `accept_edits`, `bypass`; see [Security and trust](../operate/security.md#permission-modes-and-prompts)):
 
 - `none`: never prompts;
-- `write`: the file-write class - prompts under `ask` unless the path was granted in this session, auto-approved under `accept_edits` and `bypass`;
+- `write`: the file-write class - prompts under `ask` unless the path was granted in this session, auto-approved under `bypass` and, inside the workspace, under `accept_edits`;
 - `command`: `run_command` - prompts unless the command is covered by `tools.command_allowlist` or a session grant (including the program-wide grants a prompt can store, see [Background tasks](../features/background-tasks.md#permissions)); `bypass` skips the prompt;
 - `config`: `config_commit` and `config_rollback` - prompts under `ask` and `accept_edits`, since a commit can start MCP processes and change the permission policy itself; only `bypass` skips it;
 - `http`: `http_request` - prompts under `ask` and `accept_edits` unless the destination is in `tools.http_request.allowlist` or was approved in this session and everything the request carries (local files, a proxy, an unchecked certificate, and under `ask` the file it saves) was approved with it; `bypass` skips it ([HTTP requests](../features/http-requests.md#permissions));
 - `always`: tools that set `RequiresPermission` outside those classes - the permission mode does not change them, and only a PreToolUse hook answering `allow` skips the prompt.
 
 ## Files
+
+The browser tool is offered in Agent mode when `browser.enable` is true, in a binary built with the `browser` tag. It reaches the browsers connected to this server, to the server of this machine (under its `browser.serve_remote`) and to the servers of `browser.remotes`.
+
+| Tool | Purpose | Arguments (short) | Permission | Modes |
+|---|---|---|---|---|
+| `browser` | Work in the user's browser through the Coddy for Browser extension: list the connected browsers and the tabs in reach, open, read and act on a tab, move files between a page and the workspace ([Coddy for Browser](../features/browser.md)) | `action`, `browser_id`, `tab_id`, `params`, `path` | always, plus the website approval in the extension | agent |
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
@@ -30,6 +36,8 @@ The Permission column uses the classes the gate in `internal/agent/react.go` app
 | `touch` | Create an empty file or refresh its modification time | `path`, `create_parents` | write | agent |
 | `rm` | Remove a file, or a whole tree with `recursive` | `path`, `recursive` | write | agent |
 | `mv` | Move or rename; destination parents are created | `src`, `dst` | write | agent |
+
+`write`, `edit`, `apply_patch` and the copy `mv` makes across disks replace a file atomically: the new content goes into a temporary file in the same folder, which takes the place of the target once it is written and flushed. A write that fails half way (a full disk) leaves the file as it was, and the error the model reads says so. A killed process leaves either the old content or all of the new, and one killed before the rename leaves a temporary file named `<name>.<random>~` beside the file. The new file keeps the permissions of the old one (its mode, its POSIX ACL on Linux, its DACL, its hidden, system and not-indexed attributes and its creation time on Windows), while its owner becomes the user Coddy runs as. A symlink is written through: the link stays and the file it points to changes. A file with several hard links becomes a new file under the name that was written, the other names keep the old content, and the result line says so. A named pipe or a device is written in place, and so is a link to a file that does not exist yet, which has no old content to keep.
 
 ## Shell and background tasks
 

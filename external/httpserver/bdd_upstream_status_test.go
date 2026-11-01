@@ -36,6 +36,7 @@ type upstreamStatusState struct {
 	ts        *httptest.Server
 	status    int
 	body      string
+	logs      bytes.Buffer
 }
 
 func (s *upstreamStatusState) close() {
@@ -83,7 +84,7 @@ func (s *upstreamStatusState) providerAnswers(status int, message string) error 
 		Models:    []config.ModelEntry{model},
 		Agent:     config.Agent{Model: model.Model},
 	}
-	log := slog.Default()
+	log := slog.New(slog.NewTextHandler(&s.logs, nil))
 	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
 	mgr := session.NewManager(cfg, noopSender{}, nil, log, cwd, store)
 	s.srv = New(cfg, mgr, log, cwd)
@@ -121,8 +122,11 @@ func (s *upstreamStatusState) checkError(raw string, status int) error {
 	if got := e.Get("upstream_status").Int(); got != int64(status) {
 		return fmt.Errorf("upstream_status = %d, want %d: %s", got, status, raw)
 	}
-	if !strings.Contains(e.Get("message").String(), s.message) {
-		return fmt.Errorf("error message does not carry the provider's text %q: %s", s.message, raw)
+	if strings.Contains(e.Get("message").String(), s.message) || strings.Contains(raw, s.backendTS.URL) {
+		return fmt.Errorf("error exposes provider details: %s", raw)
+	}
+	if !strings.Contains(s.logs.String(), s.message) || !strings.Contains(s.logs.String(), s.backendTS.URL) {
+		return fmt.Errorf("server log does not contain provider diagnostics: %s", s.logs.String())
 	}
 	return nil
 }
@@ -153,8 +157,8 @@ func initializeUpstreamStatusScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^an OpenAI client posts "([^"]+)" without streaming$`, s.posts)
 	sc.Step(`^an OpenAI client streams "([^"]+)"$`, s.streams)
 	sc.Step(`^the answer is HTTP (\d+)$`, s.answerIs)
-	sc.Step(`^the error is an upstream_error with upstream_status (\d+) and the provider's message$`, s.blockingError)
-	sc.Step(`^the stream's error frame is an upstream_error with upstream_status (\d+) and the provider's message$`, s.streamedError)
+	sc.Step(`^the error is an upstream_error with upstream_status (\d+) and private diagnostics in the log$`, s.blockingError)
+	sc.Step(`^the stream's error frame is an upstream_error with upstream_status (\d+) and private diagnostics in the log$`, s.streamedError)
 }
 
 func TestUpstreamErrorStatusFeature(t *testing.T) {

@@ -68,6 +68,18 @@ function fmtInt(n: number | undefined): string {
   return Math.max(0, Math.trunc(n)).toLocaleString("en-US");
 }
 
+/**
+ * Tokens as the row over the bar and the foot show them: 540.6k, 131k, 1M. Like
+ * every shortened count of the transcript it never rounds up; the exact numbers
+ * are in the row's tooltip and the legend.
+ */
+export function formatContextTokens(tokens: number): string {
+  const n = Number.isFinite(tokens) ? Math.max(0, Math.trunc(tokens)) : 0;
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${Math.floor(n / 100) / 10}k`;
+  return `${Math.floor(n / 100_000) / 10}M`;
+}
+
 export type ContextPopoverFloatRect = {
   left: number;
   width: number;
@@ -244,6 +256,13 @@ export function ContextBreakdownPopover(props: {
   const fillPct =
     maxCtx > 0 ? Math.min(100, Math.max(0, (used / maxCtx) * 100)) : 0;
   const usedRows = displayRows.filter((r) => r.tokens > 0);
+  const percentUsed =
+    idle || fillPct === 0
+      ? "0"
+      : fillPct < 1
+        ? "<1"
+        : String(Math.round(fillPct));
+  const threshold = props.compactThreshold || 80;
   const sheetBottom =
     useSheet && typeof props.sheetBottomPx === "number"
       ? props.sheetBottomPx
@@ -273,49 +292,18 @@ export function ContextBreakdownPopover(props: {
         data-testid="context-breakdown-usage-row"
       >
         <span className="context-breakdown-used">
-          {t("chat.contextPercentUsed", {
-            percent: idle ? "0.0" : fillPct.toFixed(1),
-          })}
+          {t("chat.contextPercentUsed", { percent: percentUsed })}
         </span>
-        <button
-          type="button"
-          className="context-breakdown-compact"
-          onClick={() => void compactNow()}
-          disabled={
-            compacting || !props.sessionId || props.compactAvailable !== true
-          }
-          data-testid="context-breakdown-compact"
-        >
-          {compacting
-            ? t("chat.contextCompacting")
-            : props.compactAutoEnabled === false
-              ? t("chat.contextCompactNow")
-              : t("chat.contextCompactAt", {
-                  percent: String(props.compactThreshold || 80),
-                })}
-        </button>
-      </div>
-      {compactState === "error" ? (
-        <p role="alert" className="context-breakdown-error">
-          {t("chat.contextCompactError")}
-        </p>
-      ) : null}
-      {compactState === "nothing" ? (
-        <p className="context-breakdown-note">
-          {t("chat.contextCompactNothing")}
-        </p>
-      ) : null}
-      <div className="context-breakdown-summary">
-        <span>
-          {t("chat.contextTokensSummary", {
+        <span
+          className="context-breakdown-tokens"
+          title={t("chat.contextTokensSummary", {
             used: fmtInt(used),
             max: fmtInt(maxCtx),
           })}
+        >
+          {formatContextTokens(used)} / {formatContextTokens(maxCtx)}
         </span>
       </div>
-      {showEmptyState ? (
-        <p className="context-breakdown-empty">{t("chat.contextEmpty")}</p>
-      ) : null}
       <div
         className="context-meter-track"
         role="img"
@@ -348,6 +336,9 @@ export function ContextBreakdownPopover(props: {
             : null}
         </div>
       </div>
+      {showEmptyState ? (
+        <p className="context-breakdown-empty">{t("chat.contextEmpty")}</p>
+      ) : null}
       <ul className="context-breakdown-legend">
         {displayRows.map((r) => (
           <li key={r.key} data-testid={`context-breakdown-row-${r.key}`}>
@@ -360,6 +351,42 @@ export function ContextBreakdownPopover(props: {
           </li>
         ))}
       </ul>
+      <div
+        className="context-breakdown-compaction"
+        data-testid="context-breakdown-compaction"
+      >
+        <span className="context-breakdown-compact-at">
+          {props.compactAutoEnabled === false
+            ? t("chat.contextAutoCompactOff")
+            : t("chat.contextAutoCompactAt", {
+                percent: String(threshold),
+                tokens: formatContextTokens((maxCtx * threshold) / 100),
+              })}
+        </span>
+        <button
+          type="button"
+          className="context-breakdown-compact"
+          onClick={() => void compactNow()}
+          disabled={
+            compacting || !props.sessionId || props.compactAvailable !== true
+          }
+          data-testid="context-breakdown-compact"
+        >
+          {compacting
+            ? t("chat.contextCompacting")
+            : t("chat.contextCompactNow")}
+        </button>
+      </div>
+      {compactState === "error" ? (
+        <p role="alert" className="context-breakdown-error">
+          {t("chat.contextCompactError")}
+        </p>
+      ) : null}
+      {compactState === "nothing" ? (
+        <p className="context-breakdown-note">
+          {t("chat.contextCompactNothing")}
+        </p>
+      ) : null}
       <UsageSection usage={props.usage} modelId={props.modelId ?? ""} />
     </>
   );

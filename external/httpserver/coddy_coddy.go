@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -428,6 +429,37 @@ func (s *Server) coddySessionCancelGeneration(w http.ResponseWriter, r *http.Req
 	hdr := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))
 	if hdr != "" && hdr != id {
 		http.Error(w, `{"error":{"message":"X-Coddy-Session-ID does not match path id"}}`, http.StatusBadRequest)
+		return
+	}
+	var body struct {
+		ContinueQueue json.RawMessage `json:"continue_queue"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
+	if err := decoder.Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, `{"error":{"message":"invalid JSON body"}}`, http.StatusBadRequest)
+		return
+	}
+	if err := decoder.Decode(new(interface{})); !errors.Is(err, io.EOF) {
+		http.Error(w, `{"error":{"message":"invalid JSON body"}}`, http.StatusBadRequest)
+		return
+	}
+	continueQueue := false
+	if body.ContinueQueue != nil {
+		switch strings.TrimSpace(string(body.ContinueQueue)) {
+		case "true":
+			continueQueue = true
+		case "false":
+		default:
+			http.Error(w, `{"error":{"message":"continue_queue must be a boolean"}}`, http.StatusBadRequest)
+			return
+		}
+	}
+	// An accepted interrupt keeps the root admission alive. A disk marker
+	// or ordinary cancellation here would cancel the replacement run too.
+	if continueQueue && s.mgr.TryInterruptQueuedTurn(id) {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"object": "coddy.session_cancelled", "id": id, "queueContinued": true,
+		})
 		return
 	}
 	_ = s.mgr.WriteCrossProcessCancelRequest(id)
@@ -1125,23 +1157,16 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 		// the activity of a session is known.
 		IncludeEmpty: true,
 	}
-	rows, err := fs.ListSnapshotsWith(listOpts)
+	// The rail badge is global to History, not to the page or any filter the
+	// reader currently has open. Active child sessions contribute even though
+	// History itself keeps their rows hidden. The plain History page is that
+	// scope without the child rows, so one scan serves both; a filtered page
+	// needs a scan of its own.
+	rows, historyRows, err := listSessionRows(fs.ListSnapshotsWith, listOpts)
 	if err != nil {
 		s.log.Error("coddy sessions list", "error", err)
 		http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)
 		return
-	}
-	// The rail badge is global to History, not to the page or any filter the
-	// reader currently has open. Active child sessions contribute even though
-	// History itself keeps their rows hidden.
-	historyRows := rows
-	if !isNormalHistoryList(listOpts) || !listOpts.IncludeSubagents {
-		historyRows, err = fs.ListSnapshotsWith(session.ListOptions{IncludeSubagents: true, IncludeEmpty: true})
-		if err != nil {
-			s.log.Error("coddy sessions active count", "error", err)
-			http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)
-			return
-		}
 	}
 	turnActive := func(id string) bool {
 		return s.mgr.SessionTurnActiveInProcess(id) || session.TurnLockHeld(fs.SessionPath(id))
@@ -1318,9 +1343,27 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 
-// isNormalHistoryList reports whether opts are the unfiltered working History
-// scope used by active_count. Keeping it here makes the single-scan path
-// explicit without changing the badge semantics for filtered requests.
+func listSessionRows(scan func(session.ListOptions) ([]session.SessionListEntry, error), listOpts session.ListOptions) ([]session.SessionListEntry, []session.SessionListEntry, error) {
+	historyOpts := session.ListOptions{IncludeSubagents: true, IncludeEmpty: true, Archived: session.ArchiveExclude}
+	historyRows, err := scan(historyOpts)
+	if err != nil {
+		return nil, nil, err
+	}
+	var rows []session.SessionListEntry
+	switch {
+	case isNormalHistoryList(listOpts):
+		rows = session.WithoutSubagentRuns(historyRows)
+	case reflect.DeepEqual(listOpts, historyOpts):
+		rows = append([]session.SessionListEntry(nil), historyRows...)
+	default:
+		rows, err = scan(listOpts)
+	}
+	return rows, historyRows, err
+}
+
+// isNormalHistoryList reports whether opts are the unfiltered History page:
+// the active_count scope without its child rows, so the page is derived from
+// that one scan (session.WithoutSubagentRuns) instead of a second one.
 func isNormalHistoryList(opts session.ListOptions) bool {
 	return strings.TrimSpace(opts.CWD) == "" &&
 		!opts.IncludeSchedulerRuns &&
@@ -1334,12 +1377,23 @@ func isNormalHistoryList(opts session.ListOptions) bool {
 // coddySessionTokenUsage reads the provider token totals a session accumulated.
 // A bundle with no stats.json yet (a chat that never completed a model call)
 // reports zeroes rather than nothing, so every row of the table has the same
-// shape and sorts numerically.
+// shape and sorts numerically. A stats.json that exists but cannot be read -
+// corrupt JSON, a directory under that name - reports null instead: the usage
+// is unknown, not zero.
 func coddySessionTokenUsage(fs *session.FileStore, id string) map[string]int {
 	usage := map[string]int{"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
 	stats, err := session.ReadSessionStats(fs.SessionPath(id))
-	if err != nil || stats == nil {
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return usage
+		}
+		return nil
+	}
+	if stats == nil {
 		return usage
+	}
+	if stats.TokenUsageTotal.UsageKnown != nil && !*stats.TokenUsageTotal.UsageKnown {
+		return nil
 	}
 	usage["inputTokens"] = stats.TokenUsageTotal.InputTokens
 	usage["outputTokens"] = stats.TokenUsageTotal.OutputTokens
@@ -1416,6 +1470,9 @@ func (s *Server) addTurnProgress(out map[string]interface{}, id string) {
 		if progress, running := st.TurnProgress(); running {
 			out["turnOutputTokens"] = progress.OutputTokens
 			out["turnTokensEstimated"] = progress.Estimated
+			if progress.TokensPerSecond != nil {
+				out["turnTokensPerSecond"] = *progress.TokensPerSecond
+			}
 		}
 	}
 }
@@ -1899,13 +1956,17 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 	if u := page.UILog(msgs, session.VisibleUILog(msgs, st.GetUILog())); len(u) > 0 {
 		rows := make([]map[string]interface{}, 0, len(u))
 		for _, e := range u {
-			rows = append(rows, map[string]interface{}{
+			row := map[string]interface{}{
 				"id":            e.ID,
 				"level":         e.Level,
 				"message":       e.Message,
 				"userTurnIndex": e.UserTurnIndex,
 				"createdAt":     e.CreatedAt,
-			})
+			}
+			if e.Generation != nil {
+				row["generation"] = e.Generation
+			}
+			rows = append(rows, row)
 		}
 		out["uiLog"] = rows
 	}

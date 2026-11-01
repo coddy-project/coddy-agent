@@ -51,6 +51,96 @@ test("nav brand uses Coddy agent label (wide header row)", () => {
   expect(screen.getByTestId("nav-home")).toHaveTextContent("Coddy agent");
 });
 
+test("the name opens the start screen and has no tooltip, the plus has one", () => {
+  const onNewChat = vi.fn();
+  render(
+    <NavRail
+      onNewChat={onNewChat}
+      onOpenHistory={() => {}}
+      historyOpen={false}
+      onOpenScheduler={() => {}}
+      schedulerOpen={false}
+      onOpenSettings={() => {}}
+      settingsOpen={false}
+      canWidenRail={false}
+      railLabelsWide={false}
+      onToggleRailLabels={() => {}}
+    />,
+  );
+  const home = screen.getByTestId("nav-home");
+  expect(home.parentElement?.querySelector(".rail-tip")).toBeNull();
+  fireEvent.click(home);
+  expect(onNewChat).toHaveBeenCalledTimes(1);
+  const plus = screen.getByTestId("nav-new-chat");
+  expect(plus.parentElement?.querySelector(".rail-tip")?.textContent).toBe(
+    "New Chat",
+  );
+});
+
+describe("the plus beside the name", () => {
+  const rail = (over: Partial<Parameters<typeof NavRail>[0]>) => (
+    <NavRail
+      onNewChat={() => {}}
+      onOpenHistory={() => {}}
+      historyOpen={false}
+      onOpenScheduler={() => {}}
+      schedulerOpen={false}
+      onOpenSettings={() => {}}
+      settingsOpen={false}
+      canWidenRail={false}
+      railLabelsWide={false}
+      onToggleRailLabels={() => {}}
+      {...over}
+    />
+  );
+
+  it("is a labelled row at the head of the wide rail's list, as History is", () => {
+    render(rail({ canWidenRail: true, railLabelsWide: true }));
+    const plus = screen.getByTestId("nav-new-chat");
+    expect(plus).toHaveTextContent("New Chat");
+    expect(plus.closest(".rail-header-wide")).toBeNull();
+    expect(plus).toHaveClass("rail-nav-hit-wide");
+    expect(
+      plus.closest(".rail-tip-host")?.querySelector(".rail-tip"),
+    ).toBeNull();
+    const items = [
+      ...document.querySelectorAll(".rail-middle [data-testid^='nav-']"),
+    ].map((e) => e.getAttribute("data-testid"));
+    expect(items[0]).toBe("nav-new-chat");
+    expect(items[1]).toBe("nav-history");
+  });
+
+  it("is an icon alone with a tooltip where the rail has no labels", () => {
+    render(rail({ canWidenRail: true }));
+    const plus = screen.getByTestId("nav-new-chat");
+    expect(plus.textContent).toBe("");
+    expect(plus.parentElement?.querySelector(".rail-tip")?.textContent).toBe(
+      "New Chat",
+    );
+  });
+
+  it.each([
+    ["the top bar and the narrow rail", { canWidenRail: false }],
+    ["a narrow rail that can widen", { canWidenRail: true }],
+    ["the wide rail", { canWidenRail: true, railLabelsWide: true }],
+  ])("starts a new chat from %s", (_where, over) => {
+    const onNewChat = vi.fn();
+    render(rail({ ...over, onNewChat }));
+    const plus = screen.getByTestId("nav-new-chat");
+    expect(plus).toHaveAccessibleName("New Chat");
+    expect(plus.getAttribute("href")).toBe(
+      screen.getByTestId("nav-home").getAttribute("href"),
+    );
+    // Right after the name, ahead of every other item of the rail.
+    const items = [...document.querySelectorAll("[data-testid^='nav-']")].map(
+      (e) => e.getAttribute("data-testid"),
+    );
+    expect(items.indexOf("nav-new-chat")).toBe(items.indexOf("nav-home") + 1);
+    fireEvent.click(plus);
+    expect(onNewChat).toHaveBeenCalledTimes(1);
+  });
+});
+
 test("nav hides Scheduler when showScheduler is false", () => {
   render(
     <NavRail
@@ -248,6 +338,7 @@ describe("NavRail on a relay", () => {
     ).map((e) => e.getAttribute("data-testid"));
     expect(order).toEqual([
       "nav-home",
+      "nav-new-chat",
       "nav-history",
       "nav-scheduler",
       "nav-swarm",
@@ -396,6 +487,19 @@ describe("NavRail on a phone: the More menu", () => {
     while (restore.length) restore.pop()!();
   });
 
+  it("counts the plus beside the name when it decides what fits", () => {
+    signIn();
+    // 60 for the name and 40 for the plus leave 240: six items of 40 fit, and
+    // a bar that forgot the plus would keep them all at a width with no room.
+    stubLayout({ stacked: true, pill: 340 });
+    render(<NavRail {...base} onOpenDocs={() => {}} />);
+    expect(barIds()).toHaveLength(6);
+    cleanup();
+    stubLayout({ stacked: true, pill: 300 });
+    render(<NavRail {...base} onOpenDocs={() => {}} />);
+    expect(barIds().length).toBeLessThan(6);
+  });
+
   it("shows every item and no More button when they all fit", () => {
     signIn();
     stubLayout({ stacked: true, pill: 400 });
@@ -413,9 +517,9 @@ describe("NavRail on a phone: the More menu", () => {
 
   it("folds what does not fit behind More, sign-out last under a separator", () => {
     signIn();
-    // 220 - 60 for the brand = 160: four 40px slots, one of them the More
-    // button and one the environment, which never folds.
-    stubLayout({ stacked: true, pill: 220 });
+    // 260 - 60 for the brand - 40 for the plus = 160: four 40px slots, one of
+    // them the More button and one the environment, which never folds.
+    stubLayout({ stacked: true, pill: 260 });
     render(<NavRail {...base} onOpenDocs={() => {}} />);
     expect(barIds()).toEqual([
       "nav-history",
@@ -457,7 +561,7 @@ describe("NavRail on a phone: the More menu", () => {
   });
 
   it("with less room the rest folds, history and the environment never do", () => {
-    stubLayout({ stacked: true, pill: 140 });
+    stubLayout({ stacked: true, pill: 180 });
     render(<NavRail {...base} onOpenDocs={() => {}} />);
     // 80px: two slots, and still history, the environment and More.
     expect(barIds()).toEqual(["nav-history", "nav-environment", "nav-more"]);
@@ -470,7 +574,7 @@ describe("NavRail on a phone: the More menu", () => {
   });
 
   it("keeps the Scheduler active count when Scheduler is folded into More", () => {
-    stubLayout({ stacked: true, pill: 140 });
+    stubLayout({ stacked: true, pill: 180 });
     render(
       <NavRail {...base} schedulerActiveCount={2} onOpenDocs={() => {}} />,
     );

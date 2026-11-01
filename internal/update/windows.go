@@ -3,13 +3,15 @@ package update
 import "io"
 
 const (
-	applyUpdateCommand        = "__apply-update"
-	restartAfterUpdateCommand = "__restart-after-update"
+	applyUpdateCommand = "__apply-update"
+	// afterUpdateCommand deletes the helper once the new build is in place. It
+	// keeps the name older releases call it by: their helper hands over to the
+	// build it just installed, and that build may be this one.
+	afterUpdateCommand = "__restart-after-update"
 )
 
 type windowsUpdateRequest struct {
 	ParentPID  int
-	Restart    bool
 	StagedPath string
 	TargetPath string
 }
@@ -27,8 +29,8 @@ func RunHelper(args []string, out io.Writer) (bool, error) {
 	switch args[0] {
 	case applyUpdateCommand:
 		return true, runWindowsUpdateHelper(args[1:], out)
-	case restartAfterUpdateCommand:
-		return true, runWindowsRestartAfterUpdate(args[1:], out)
+	case afterUpdateCommand:
+		return true, runWindowsAfterUpdate(args[1:], out)
 	default:
 		return false, nil
 	}

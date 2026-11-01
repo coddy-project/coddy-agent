@@ -10,8 +10,11 @@ import type { TodoPlanEntry } from "./todoToolPreview";
 import type { BackgroundWakeTask } from "./backgroundWake";
 import type { GoalTurn } from "./goal";
 import type { ToolArtifact } from "./toolArtifacts";
+import type { GenerationSummary } from "./generationSpeed";
 
 export type TokenUsage = {
+  usageKnown?: boolean;
+  sessionUsageKnown?: boolean;
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
@@ -161,6 +164,7 @@ export type TranscriptItem =
   | {
       id: string;
       type: "system_notice";
+      generation?: GenerationSummary;
       /** error rows carry the retry control; notice rows are informational. */
       level: "error" | "notice";
       message: string;

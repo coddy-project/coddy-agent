@@ -414,6 +414,16 @@ export function mermaidThemeVariables(
   return vars;
 }
 
+/**
+ * Whether drawing this Mermaid text can fetch an address, which no setting
+ * stops: the shape data of a node (`A@{ img: "https://..." }`) is requested as
+ * the node is drawn. The data is YAML, so its key can be spelled in escapes and
+ * only its opening is a reliable sign.
+ */
+export function mermaidMayFetch(source: string): boolean {
+  return /@\s*\{/.test(source);
+}
+
 function mermaidConfig(p: DiagramPalette | null, dark: boolean) {
   return {
     startOnLoad: false,
@@ -421,6 +431,24 @@ function mermaidConfig(p: DiagramPalette | null, dark: boolean) {
     // Mermaid's own defaults, spelled out: a reply cannot ask for more.
     maxTextSize: 50000,
     maxEdges: 500,
+    // What a directive or a front matter in a reply may not set. A font, a theme
+    // or a stylesheet can name an address the browser fetches as the picture is
+    // put together, and HTML labels can hold an <img>. The first keys are
+    // Mermaid's own list, which this one replaces.
+    secure: [
+      "secure",
+      "securityLevel",
+      "startOnLoad",
+      "maxTextSize",
+      "suppressErrorRendering",
+      "maxEdges",
+      "themeCSS",
+      "fontFamily",
+      "altFontFamily",
+      "themeVariables",
+      "theme",
+      "htmlLabels",
+    ],
     // SVG text, not HTML in a foreignObject: the picture is drawn by an <img>
     // and downloaded as a file, and both read plain SVG best.
     htmlLabels: false,

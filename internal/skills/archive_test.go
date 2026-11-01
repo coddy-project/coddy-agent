@@ -140,7 +140,7 @@ func installArchive(t *testing.T, p MarketplacePlugin) (string, map[string]Remot
 	lock := map[string]RemoteEntry{}
 	res := &SyncResult{}
 	base := RemoteEntry{Source: "https://market.example/marketplace.json", URL: "https://market.example/marketplace.json"}
-	err := installPlugin(context.Background(), p, "", base.Source, base, managed, lock, res)
+	err := installPlugin(context.Background(), p, "", base.Source, base, managed, lock, res, nil)
 	return managed, lock, res, err
 }
 

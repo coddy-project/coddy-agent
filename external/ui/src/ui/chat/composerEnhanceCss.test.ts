@@ -1,12 +1,8 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
-
-const dir = dirname(fileURLToPath(import.meta.url));
+import { stylesSource } from "../../stylesSource";
 
 function cssText(): string {
-  return readFileSync(join(dir, "../../styles.css"), "utf8");
+  return stylesSource();
 }
 
 // The wand sits in the field's top right corner instead of a row of its own,

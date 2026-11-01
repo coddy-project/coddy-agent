@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>coddy serve: one process, many subsystems</title>
+    <link rel="stylesheet" href="diagram.css" />
+    <style>
+      .top {
+        grid-template-columns: 392px 1fr;
+        gap: 52px;
+      }
+      .forms .panel {
+        padding: 11px 13px;
+        margin-bottom: 12px;
+      }
+      .forms .panel > .title {
+        margin-bottom: 8px;
+      }
+      .forms .box {
+        padding: 6px 12px;
+      }
+      .forms .down {
+        height: 22px;
+      }
+      .exits {
+        display: grid;
+        grid-template-columns: 1fr;
+        row-gap: 6px;
+        margin-top: 10px;
+      }
+      .exits .box {
+        font-size: 13.5px;
+        padding: 5px 10px;
+      }
+      .rt {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+      .rt .box {
+        padding: 6px 11px;
+      }
+      .subs {
+        display: grid;
+        grid-template-columns: 154px 188px 74px 1fr 118px 24px;
+        column-gap: 10px;
+        row-gap: 6px;
+        align-items: stretch;
+      }
+      .subs .head {
+        font-size: 12.5px;
+        font-weight: 600;
+        color: var(--muted);
+        align-self: end;
+      }
+      .subs .box {
+        padding: 5px 10px;
+        display: flex;
+        align-items: center;
+      }
+      .subs .cell {
+        font-size: 13.5px;
+        color: var(--ink-2);
+        display: flex;
+        align-items: center;
+      }
+      .subs .cell code {
+        font-size: 12.5px;
+      }
+      .subs .none {
+        color: var(--faint);
+      }
+      .subs .restart {
+        color: var(--purple-ink);
+        font-weight: 600;
+      }
+      .stoporder {
+        grid-column: 6;
+        grid-row: 2 / span 6;
+        position: relative;
+      }
+      .stoporder .lbl {
+        position: absolute;
+        right: -8px;
+        top: 50%;
+        transform: translateY(-50%) rotate(180deg);
+        writing-mode: vertical-rl;
+        font-size: 12.5px;
+        font-weight: 600;
+        color: var(--purple-line);
+        white-space: nowrap;
+      }
+      .anchor {
+        position: absolute;
+        left: 2px;
+        width: 1px;
+        height: 1px;
+      }
+      .flow {
+        display: grid;
+        grid-template-columns: 1.15fr 1.15fr 1.3fr 1fr 1.05fr;
+        column-gap: 34px;
+        row-gap: 14px;
+        align-items: stretch;
+      }
+      .flow .box {
+        padding: 7px 12px;
+      }
+      .outcomes {
+        display: grid;
+        grid-template-columns: 2.45fr 1.1fr 1.1fr 0.72fr;
+        column-gap: 12px;
+        row-gap: 6px;
+        align-items: stretch;
+        margin-top: 4px;
+      }
+      .outcomes > .box {
+        padding: 8px 12px;
+        font-size: 14px;
+      }
+      .fresh {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .fresh .box {
+        font-size: 13px;
+        padding: 5px 9px;
+        font-weight: 400;
+      }
+    </style>
+  </head>
+  <body style="--width: 1360px">
+    <h1>coddy serve: one process, many subsystems</h1>
+    <p class="lead">
+      Every subsystem <code>config.yaml</code> enables runs as a goroutine of one process over one session manager. A
+      dispatcher or systemd keeps that process alive and starts a fresh one when a change cannot be applied in place.
+    </p>
+
+    <div class="cols top">
+      <div class="forms">
+        <h2>1. What keeps the process up</h2>
+
+        <div class="panel">
+          <div class="title">Background daemon</div>
+          <div class="box amber" id="dcmd">
+            <code>coddy serve --daemon</code>
+            <span class="sub">returns once the first worker is up or has failed; both processes log to <code>&lt;home&gt;/logs/serve.log</code></span>
+          </div>
+          <div class="down"></div>
+          <div class="box core b" id="disp">
+            dispatcher
+            <span class="sub"
+              ><code>CODDY_SERVE_ROLE=dispatcher</code>; records itself in <code>&lt;home&gt;/serve.json</code>: pid,
+              version, config, log, args, worker pid, last error</span
+            >
+          </div>
+          <div class="down"></div>
+          <div class="box core b" id="worker">
+            worker
+            <span class="sub"><code>CODDY_SERVE_ROLE=worker</code>, in a process group of its own</span>
+          </div>
+          <div class="label muted" style="margin-top: 10px">when the worker exits</div>
+          <div class="exits" style="margin-top: 6px">
+            <div class="box gray" style="color: var(--ink-2)">exit 0: told to stop, the dispatcher stops too</div>
+            <div class="box green" id="ex75">exit 75 (<code>ExitRestart</code>): a new worker at once</div>
+            <div class="box red">crash, panic, OOM kill: wait 1 s, 2, 4 ... 30 s; back to 1 s after a minute up</div>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-bottom: 0">
+          <div class="title">systemd user service (<code>coddy serve install</code>)</div>
+          <div class="box core b" id="svc">
+            coddy.service
+            <span class="sub"
+              ><code>CODDY_SERVE_ROLE=service</code>, <code>Restart=on-failure</code>,
+              <code>SuccessExitStatus=75</code> and <code>RestartForceExitStatus=75</code>, 40 s to stop, works in
+              <code>~/Coddy</code></span
+            >
+          </div>
+          <div class="title" style="margin-top: 12px">Foreground</div>
+          <div class="box core b" id="fg">
+            <code>coddy serve</code>
+            <span class="sub">no role: nothing would start it again, so a moved address is only logged</span>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h2>2. Inside the serving process</h2>
+        <div class="panel" id="proc">
+          <div class="title">Runtime (<code>internal/serve</code>): what every subsystem shares</div>
+          <div class="rt">
+            <div class="box blue">
+              paths and log
+              <span class="sub">the agent home, the workspace, the config file</span>
+            </div>
+            <div class="box purple b">
+              one <code>session.Manager</code>
+              <span class="sub"
+                >over one session store, for every surface; none in a process that only relays a swarm</span
+              >
+            </div>
+            <div class="box blue">
+              global MCP servers
+              <span class="sub">started with the process, shared by every session of every subsystem</span>
+            </div>
+            <div class="box blue">
+              turn-mirror slot
+              <span class="sub">the HTTP server mirrors a turn another surface runs, so a browser follows it</span>
+            </div>
+            <div class="box blue">
+              detached permission prompts
+              <span class="sub">offered by the HTTP server and the bots; the first answer wins</span>
+            </div>
+            <div class="box blue">
+              background waker
+              <span class="sub">one per process; a woken turn goes to the chat bound to the session, then the HTTP server, else the manager</span>
+            </div>
+          </div>
+
+          <div class="title" style="margin-top: 16px">Supervisor: one goroutine per subsystem, in declaration order</div>
+          <div class="subs">
+            <div class="head">subsystem</div>
+            <div class="head">turned on by</div>
+            <div class="head">build tag</div>
+            <div class="head">rebuilt in place when (<code>Fingerprint</code>)</div>
+            <div class="head">fresh process (<code>RestartKey</code>)</div>
+            <div></div>
+
+            <div class="box core b" id="s-http">HTTP server</div>
+            <div class="cell"><code>httpserver.enable</code></div>
+            <div class="cell"><code>http</code></div>
+            <div class="cell none">never: the caller talks through its listener</div>
+            <div class="cell restart">host or port</div>
+
+            <div class="box core b">Telegram bot</div>
+            <div class="cell"><code>gateways.telegram.enable</code></div>
+            <div class="cell"><code>gateway</code></div>
+            <div class="cell">its whole block (the token)</div>
+            <div class="cell none">-</div>
+
+            <div class="box core b">Pachca bot</div>
+            <div class="cell"><code>gateways.pachca.enable</code></div>
+            <div class="cell"><code>gateway</code></div>
+            <div class="cell">its whole block; rebuilt alone</div>
+            <div class="cell none">-</div>
+
+            <div class="box core b">swarm relay</div>
+            <div class="cell"><code>swarm.enable</code></div>
+            <div class="cell"><code>swarm</code></div>
+            <div class="cell">its settings other than host and port</div>
+            <div class="cell restart">host or port</div>
+
+            <div class="box core b">scheduler</div>
+            <div class="cell"><code>scheduler.enable</code></div>
+            <div class="cell"><code>scheduler</code></div>
+            <div class="cell">its directory, timeout, queue or retention</div>
+            <div class="cell none">-</div>
+
+            <div class="box dashed b" id="s-metrics" style="border-color: var(--core-line)">metrics exporter</div>
+            <div class="cell"><code>metrics.enable</code></div>
+            <div class="cell"><code>metrics</code></div>
+            <div class="cell">host or port; counters kept</div>
+            <div class="cell none">-</div>
+
+            <div class="stoporder">
+              <div class="anchor" id="so-top" style="top: 6px"></div>
+              <div class="anchor" id="so-bottom" style="bottom: 6px"></div>
+              <div class="lbl">stop order: intake before the API</div>
+            </div>
+          </div>
+          <p class="note red" style="margin: 12px 0 6px">
+            Pre-flight (<code>serve.Resolve</code>) before anything binds: a subsystem enabled but built without stops
+            the start by name, <code>swarm.enable is true but this binary has no swarm support (rebuild with -tags
+            swarm)</code>. A file that enables nothing, or only the exporter, is refused too.
+          </p>
+          <p class="note" style="margin: 0">
+            A subsystem that fails or panics ends the whole process, and whatever keeps it up starts a clean one. The
+            exporter is auxiliary (dashed): it fails alone, never keeps the process up by itself and may always stop.
+          </p>
+          <p class="note" style="margin: 8px 0 0">
+            <code>GET /coddy/status</code> and Settings → System read this table live: each subsystem running,
+            starting, stopped or retained, and a saved address that waits for a restart.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <h2>3. A configuration change reaches the supervisor</h2>
+    <div class="flow">
+      <div class="box amber" id="w-out">
+        edited outside the process
+        <span class="sub"><code>coddy providers login</code>, an editor, a deployment</span>
+      </div>
+      <div class="box core" id="watch">
+        <code>config.FileWatcher</code>
+        <span class="sub">a stat every 2 s, then load, flags applied again, compared with the live config</span>
+      </div>
+      <div class="box purple b" id="repl">
+        live config replaced
+        <span class="sub"
+          ><code>Manager.ReplaceConfig</code> (a relay alone: the runtime's holder); most settings are live at once,
+          and <code>GET /coddy/events</code> says <code>config_reloaded</code></span
+        >
+      </div>
+      <div class="box blue" id="chan">
+        reloads channel
+        <span class="sub">one slot: a newer config replaces one still waiting, nothing blocks the writer</span>
+      </div>
+      <div class="box core b" id="apply">
+        <code>Supervisor.applyConfig</code>
+        <span class="sub">compares each subsystem with the config it was started from</span>
+      </div>
+      <div class="box amber" id="w-in" style="grid-column: 2; grid-row: 2">
+        saved by the process itself
+        <span class="sub">Settings screen, <code>config_commit</code>, a relay's settings</span>
+      </div>
+    </div>
+
+    <div class="outcomes">
+      <div class="bracket over muted" id="o-br" style="grid-column: 1 / span 4; grid-row: 1"></div>
+      <div class="box purple" style="grid-row: 2">
+        <b>A listen address moved</b>, or a surface that runs turns was turned on where only a relay runs. Weighed
+        first, before anything else is applied:
+        <div class="fresh">
+          <div class="box red">pre-flight refuses the new file: nothing changes at all</div>
+          <div class="box green">worker or service: surfaces stop, exit 75, a fresh process binds it</div>
+          <div class="box gray" style="color: var(--ink-2)">foreground: logged; see Settings → System</div>
+        </div>
+      </div>
+      <div class="box blue" style="grid-row: 2">
+        <b>An <code>enable</code> key flipped</b>: started on the address the new file gives, or stopped. The only
+        running surface is never stopped.
+      </div>
+      <div class="box blue" style="grid-row: 2">
+        <b>A <code>Fingerprint</code> moved</b>: that subsystem stops (up to 30 s) and starts again on the new
+        settings; the others keep running.
+      </div>
+      <div class="box green" style="grid-row: 2"><b>Nothing it reads moved</b>: left as it is.</div>
+    </div>
+
+    <div class="footer">
+      <p>
+        Stopping walks the declaration order backwards, so the bots, the relay and the scheduler stop taking work
+        before the HTTP server goes, and running turns drain against a session store still in place.
+        <code>coddy serve stop</code> signals the dispatcher, which gives the worker 30 s.
+      </p>
+      <p>
+        <code>coddy serve -t</code> and <code>--dry-run</code> run the same pre-flight on the file without starting
+        anything.
+      </p>
+    </div>
+
+    <script src="diagram.js"></script>
+    <script>
+      wires([
+        { from: "#dcmd", to: "#disp", fromSide: "bottom", toSide: "top", color: "ink" },
+        { from: "#disp", to: "#worker", fromSide: "bottom", toSide: "top", color: "ink" },
+        { from: "#worker", to: "#proc", toShift: -0.36, color: "ink" },
+        { from: "#svc", to: "#proc", toShift: 0.06, color: "ink" },
+        { from: "#fg", to: "#proc", toShift: 0.36, color: "ink" },
+        { from: "#so-bottom", to: "#so-top", fromSide: "top", toSide: "bottom", color: "purple" },
+        { from: "#w-out", to: "#watch", color: "amber" },
+        { from: "#watch", to: "#repl", color: "ink" },
+        { from: "#w-in", to: "#repl", fromSide: "right", toSide: "bottom", color: "amber" },
+        { from: "#repl", to: "#chan", color: "purple" },
+        { from: "#chan", to: "#apply", color: "blue" },
+        { from: "#apply", to: "#o-br", fromSide: "bottom", toSide: "top", toShift: 0.417, route: "straight", color: "ink", label: "what it does with each subsystem", labelShift: [-128, 8] },
+      ]);
+    </script>
+  </body>
+</html>

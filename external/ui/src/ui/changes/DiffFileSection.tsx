@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { copyText } from "../clipboard";
 import { useT } from "../i18n/I18nProvider";
@@ -150,6 +150,16 @@ export function DiffFileSection(props: {
 }) {
   const { t } = useT();
   const [copied, setCopied] = useState(false);
+  const mounted = useRef(false);
+  const copyTimer = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      window.clearTimeout(copyTimer.current);
+      copyTimer.current = undefined;
+    };
+  }, []);
   const file = props.file;
   const dir = dirName(file.path);
 
@@ -186,9 +196,13 @@ export function DiffFileSection(props: {
 
   const copyPath = () => {
     void copyText(file.path).then((ok) => {
-      if (!ok) return;
+      if (!ok || !mounted.current) return;
       setCopied(true);
-      window.setTimeout(() => setCopied(false), 1200);
+      window.clearTimeout(copyTimer.current);
+      copyTimer.current = window.setTimeout(() => {
+        copyTimer.current = undefined;
+        setCopied(false);
+      }, 1200);
     });
   };
 

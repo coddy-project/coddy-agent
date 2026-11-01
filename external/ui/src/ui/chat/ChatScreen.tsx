@@ -1,3 +1,4 @@
+import { motionIsReduced } from "../theme/uiSimple";
 import type { CSSProperties, Dispatch, ReactNode, SetStateAction } from "react";
 import { HeroFooter } from "./HeroFooter";
 import {
@@ -476,9 +477,7 @@ export function ChatScreen(props: {
     setShowScrollToBottom(false);
     const from = readTranscriptScrollTop();
     const to = transcriptScrollBottom();
-    const reduceMotion =
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduceMotion = motionIsReduced();
     if (to <= from) {
       // Already at the newest message, or past where this measure puts it: a
       // "jump" to the smaller offset would take the reader back up the page.
@@ -705,7 +704,7 @@ export function ChatScreen(props: {
   // layout viewport, which an overlaying on-screen keyboard covers (iOS Safari
   // ignores interactive-widget=resizes-content): the block rode under the
   // keyboard, scroll-to-bottom button included. --coddy-keyboard-inset lifts it
-  // by what the keyboard hides (styles.css), and the reader's position is read
+  // by what the keyboard hides (styles/shell/_stacked.scss), and the reader's position is read
   // again, since the keyboard changes how much of the transcript is in view.
   useEffect(() => {
     if (!mobileDocScroll) return undefined;
@@ -737,6 +736,9 @@ export function ChatScreen(props: {
   const readOnlyNotice = props.subagentTranscript ? (
     <SubagentReadOnlyNotice
       meta={props.subagentTranscript}
+      reasoningLevels={
+        props.llmReasoningLevelsByModel?.[props.subagentTranscript.model ?? ""]
+      }
       {...(props.onOpenSession ? { onOpenSession: props.onOpenSession } : {})}
     />
   ) : props.sessionArchived ? (
@@ -851,7 +853,6 @@ export function ChatScreen(props: {
     ...(props.backgroundNowMs !== undefined
       ? { backgroundNowMs: props.backgroundNowMs }
       : {}),
-    ...(props.onOpenSession ? { onOpenSession: props.onOpenSession } : {}),
     ...(props.onMentionArtifact
       ? { onMentionArtifact: props.onMentionArtifact }
       : {}),

@@ -24,9 +24,9 @@ const retryAfterOpenAICompletion = `{"id":"chatcmpl-1","object":"chat.completion
 	`"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],` +
 	`"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`
 
-const retryAfterAnthropicCompletion = `{"id":"msg_1","type":"message","role":"assistant","model":"test-model",` +
-	`"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","stop_sequence":null,` +
-	`"usage":{"input_tokens":1,"output_tokens":1}}`
+// retryAfterAnthropicCompletion is streamed: Complete reads the Messages API
+// from a stream.
+var retryAfterAnthropicCompletion = anthropicTextAnswerSSE("ok")
 
 type retryAfterState struct {
 	server   *httptest.Server
@@ -55,9 +55,9 @@ func (s *retryAfterState) cleanup() {
 }
 
 func (s *retryAfterState) aProviderWhoseUpstreamRateLimits(providerType, header, value string) error {
-	success := retryAfterOpenAICompletion
+	success, successType := retryAfterOpenAICompletion, "application/json"
 	if providerType == "anthropic" {
-		success = retryAfterAnthropicCompletion
+		success, successType = retryAfterAnthropicCompletion, "text/event-stream"
 	}
 	s.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		s.mu.Lock()
@@ -74,6 +74,7 @@ func (s *retryAfterState) aProviderWhoseUpstreamRateLimits(providerType, header,
 			_, _ = w.Write([]byte(`{"error":{"message":"rate limit reached","type":"rate_limit_error","code":"429"}}`))
 			return
 		}
+		w.Header().Set("Content-Type", successType)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(success))
 	}))

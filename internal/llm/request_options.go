@@ -11,6 +11,8 @@ import (
 // /v1/chat/completions - as opposed to the values configured on the model.
 // The zero value asks for nothing and leaves the configured values in place.
 type RequestOptions struct {
+	// TopP is the request's nucleus sampling value.
+	TopP *float64
 	// MaxTokens caps the output of this request; nil keeps the model's max_tokens.
 	MaxTokens *int
 	// Temperature replaces the model's temperature; nil keeps it. Zero is a
@@ -32,6 +34,14 @@ type RequestOptions struct {
 // asked, so the caller refuses the request before anything reaches the
 // provider instead of the value being dropped on the way.
 func (o RequestOptions) Validate(providerType, model string) error {
+	if o.TopP != nil {
+		if providerType != "openai" {
+			return fmt.Errorf("top_p is not supported by provider type %s", providerType)
+		}
+		if *o.TopP < 0 || *o.TopP > 1 {
+			return fmt.Errorf("top_p must be between 0 and 1")
+		}
+	}
 	if providerType == "anthropic" {
 		if err := validateAnthropicReasoningEffort(model, o.ReasoningEffort); err != nil {
 			return err
@@ -75,6 +85,7 @@ func (o RequestOptions) Validate(providerType, model string) error {
 // is the caller's own copy, so the configuration it was resolved from stays
 // untouched.
 func (o RequestOptions) Apply(in *ProviderInput) {
+	in.TopP = o.TopP
 	if o.MaxTokens != nil {
 		in.MaxTokens = *o.MaxTokens
 	}
