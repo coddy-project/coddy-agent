@@ -518,9 +518,9 @@ func TestSearchMatchesAnInflectedRussianWord(t *testing.T) {
 	}
 }
 
-// A word few notes have outweighs one most notes have, however often the
-// common word repeats: the old overlap count tied them and left the order
-// to the path.
+// A word few notes have outweighs one most notes have, even when the common
+// word repeats: counting the words a note shares with the query would tie
+// them and leave the order to the path.
 func TestSearchRareWordOutranksACommonOne(t *testing.T) {
 	st := NewWithRoots(t.TempDir(), t.TempDir())
 	notes := map[string]string{

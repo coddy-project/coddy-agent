@@ -120,7 +120,7 @@ The child knows the notes only through search, list and read, plus its fixed pro
 - **Not in the prompt.** The guides ride in the task, never in the system prompt or a template: a `{{` in a guide is plain text, and editing a guide does not change the child's system prompt or tool definitions;
 - **Not a search hit.** `coddy_memory_search` does not return the root `AGENTS.md`, since the child already has it. The child can still list and read it, and write it in a persist run when the guide asks for that.
 
-With both guides present the task looks like this:
+With both guides present the task looks like this.
 
 ```text
 Memory guide (global:AGENTS.md):
