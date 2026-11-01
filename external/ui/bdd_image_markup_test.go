@@ -28,6 +28,14 @@ func TestImageMarkupFeature(t *testing.T) {
 			"ImageMarkupDialog types a label in any script and commits it with Enter"},
 		`^the editor crops and turns the picture$`: {dialog,
 			"ImageMarkupDialog crops and turns the picture"},
+		`^the editor draws a pen stroke wider where it was pressed harder$`: {dialog,
+			"ImageMarkupDialog pen input draws a pen stroke wider where it was pressed harder"},
+		`^the editor keeps every point a fast pen stroke reports$`: {dialog,
+			"ImageMarkupDialog pen input keeps the samples a move coalesced, so a fast stroke stays round"},
+		`^the editor ignores a hand resting on the screen while the pen is in use$`: {dialog,
+			"ImageMarkupDialog pen input draws nothing with a palm resting beside the pen"},
+		`^the editor keeps a second pointer out of a stroke in progress$`: {dialog,
+			"ImageMarkupDialog pen input keeps a second pointer out of a stroke in progress"},
 	}
 	suite := godog.TestSuite{
 		Name: "web_ui_image_markup",

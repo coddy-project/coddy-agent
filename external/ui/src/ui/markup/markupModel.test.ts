@@ -4,6 +4,9 @@ import {
   cropFor,
   dragDrew,
   fitView,
+  penPressure,
+  penSegments,
+  penWidthFactor,
   sizeAfter,
   strokeWidthFor,
   textSizeFor,
@@ -81,5 +84,54 @@ describe("markup model", () => {
     expect(strokeWidthFor({ w: 8000, h: 50 })).toBe(14);
     expect(textSizeFor({ w: 1800, h: 700 })).toBe(50);
     expect(textSizeFor({ w: 100, h: 50 })).toBe(16);
+  });
+
+  it("reads a pressure from a pen only", () => {
+    expect(penPressure({ pointerType: "pen", pressure: 0.8 })).toBe(0.8);
+    expect(penPressure({ pointerType: "pen", pressure: 0 })).toBeUndefined();
+    expect(
+      penPressure({ pointerType: "mouse", pressure: 0.5 }),
+    ).toBeUndefined();
+    expect(penPressure({ pointerType: "touch", pressure: 1 })).toBeUndefined();
+    expect(penPressure({ pressure: 0.5 })).toBeUndefined();
+    expect(penWidthFactor(0.5)).toBeCloseTo(1);
+    expect(penWidthFactor(0)).toBeLessThan(penWidthFactor(1));
+  });
+
+  it("cuts a stroke into smooth pieces that meet end to end", () => {
+    const points = [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 20, y: 10 },
+      { x: 30, y: 10 },
+    ];
+    const plain = penSegments({ width: 4, points });
+    expect(plain).toHaveLength(4);
+    expect(plain[0]!.from).toEqual(points[0]);
+    expect(plain[plain.length - 1]!.to).toEqual(points[3]);
+    for (let i = 1; i < plain.length; i++) {
+      expect(plain[i]!.from).toEqual(plain[i - 1]!.to);
+    }
+    expect(plain.slice(1, -1).map((g) => g.ctrl)).toEqual([
+      points[1],
+      points[2],
+    ]);
+    expect(plain.every((g) => g.width === 4)).toBe(true);
+
+    const pressed = penSegments({
+      width: 4,
+      points,
+      pressures: [0.1, 0.5, 0.9, 0.9],
+    });
+    expect(pressed.map((g) => g.width)).toEqual([
+      4 * penWidthFactor(0.1),
+      4 * penWidthFactor(0.5),
+      4 * penWidthFactor(0.9),
+      4 * penWidthFactor(0.9),
+    ]);
+    expect(penSegments({ width: 4, points: points.slice(0, 2) })).toEqual([
+      { from: points[0], ctrl: null, to: points[1], width: 4 },
+    ]);
+    expect(penSegments({ width: 4, points: points.slice(0, 1) })).toEqual([]);
   });
 });
