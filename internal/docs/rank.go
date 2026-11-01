@@ -45,11 +45,20 @@ func CountTerms(fields ...string) Terms {
 		panic("docs: too many fields for a Ranker")
 	}
 	var t Terms
-	slot := map[string]int{}
+	size := 0
+	for _, text := range fields {
+		size += len(text)
+	}
+	// A distinct word takes about a dozen bytes of text, repeats included;
+	// the map and the lists start near that count, so they rarely grow. The
+	// lists are dropped once the document is added.
+	hint := size/12 + 1
+	slot := make(map[string]int, hint)
+	t.words = make([]string, 0, hint)
+	t.tfs = make([][MaxFields]uint16, 0, hint)
 	for f, text := range fields {
-		toks := indexTokens(text)
-		t.lens[f] = len(toks)
-		for _, w := range toks {
+		eachToken(text, true, func(w string) {
+			t.lens[f]++
 			k, ok := slot[w]
 			if !ok {
 				k = len(t.words)
@@ -60,7 +69,7 @@ func CountTerms(fields ...string) Terms {
 			if t.tfs[k][f] < math.MaxUint16 {
 				t.tfs[k][f]++
 			}
-		}
+		})
 	}
 	return t
 }
@@ -287,6 +296,13 @@ func indexTokens(s string) []string { return tokenizeWith(s, true) }
 
 func tokenizeWith(s string, forms bool) []string {
 	out := make([]string, 0, len(s)/8+1)
+	eachToken(s, forms, func(w string) { out = append(out, w) })
+	return out
+}
+
+// eachToken calls emit with every word tokenizeWith returns, in order, so a
+// caller that only counts them keeps no list of them.
+func eachToken(s string, forms bool, emit func(string)) {
 	start := -1
 	for i, r := range s {
 		if r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) {
@@ -296,17 +312,16 @@ func tokenizeWith(s string, forms bool) []string {
 			continue
 		}
 		if start >= 0 {
-			out = appendWord(out, s[start:i], forms)
+			eachWord(s[start:i], forms, emit)
 			start = -1
 		}
 	}
 	if start >= 0 {
-		out = appendWord(out, s[start:], forms)
+		eachWord(s[start:], forms, emit)
 	}
-	return out
 }
 
-func appendWord(out []string, w string, forms bool) []string {
+func eachWord(w string, forms bool, emit func(string)) {
 	w = lower(strings.Trim(w, "_"))
 	if !isASCII(w) {
 		// Russian is written with and without the dots over ё; the index
@@ -314,26 +329,25 @@ func appendWord(out []string, w string, forms bool) []string {
 		w = strings.ReplaceAll(w, "ё", "е")
 	}
 	if !strings.Contains(w, "_") {
-		return appendToken(out, w, forms)
+		eachStem(w, forms, emit)
+		return
 	}
 	// An identifier is a name, matched as written; its parts are words.
-	out = append(out, w)
+	emit(w)
 	for _, part := range strings.Split(w, "_") {
-		out = appendToken(out, part, forms)
+		eachStem(part, forms, emit)
 	}
-	return out
 }
 
-func appendToken(out []string, w string, forms bool) []string {
+func eachStem(w string, forms bool, emit func(string)) {
 	if len(w) < 2 || stopwords[w] || (len(w) < 4 && utf8.RuneCountInString(w) < 2) {
-		return out
+		return
 	}
 	s := stem(w)
-	out = append(out, s)
+	emit(s)
 	if forms && s != w && !isASCII(w) {
-		out = append(out, w)
+		emit(w)
 	}
-	return out
 }
 
 // lower is strings.ToLower without the allocation for a word that is

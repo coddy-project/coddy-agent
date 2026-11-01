@@ -14,7 +14,7 @@ See root **README** and **[docs/contributing/build.md](../../docs/contributing/b
 
 ## Code layout
 
-- **`storage/`** - roots, search, read/write (flat slug or **`relative_path`**, nested dirs), mkdir, listing, delete file or directory tree (**package `memstorage`**). The project root is reached through **`os.Root`** (**`roots.go`**), so a link in it never leads out of it; the global root follows links. The HTTP notes routes use the same store.
+- **`storage/`** - roots, search (BM25F: the **`docs.Ranker`** of the documentation search over a note's path words and body, **`pathWeight`** 3 and **`bodyWeight`** 1), read/write (flat slug or **`relative_path`**, nested dirs), mkdir, listing, delete file or directory tree (**package `memstorage`**). The project root is reached through **`os.Root`** (**`roots.go`**), so a link in it never leads out of it; the global root follows links. The HTTP notes routes use the same store.
 - **`tools/`** - per-tool files **`mem_*.go`** each returning **`memory*Tool(...) *tooling.Tool`** (same shape as scheduler **`job_*.go`**), **`register.go`** with **`PersistTools`**, **`RecallTools`**, **`ToolDefinitions`**, **`Exec`**, and test helper **`ExecTool`** (**package `memtools`**).
 - **`agent.go`** - what the child runs on: **`PromptTemplate`** (the embedded **`prompts/memory_agent.md`**, plus the read-only addendum for an ask-mode turn), **`TaskMessage`** (the user message behind a preamble, cut at 32 KiB), **`ToolNames`** (the six names, or the three recall names) and **`Tools`** (the tool set over the two note roots of a cwd) (**package `memory`**, root of this module).
 

@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -1195,6 +1196,70 @@ func (s *memoryFeatureState) backgroundCommandAccepted() error {
 	return nil
 }
 
+// memoryRootHolds writes a note into one memory root of the scenario's
+// workspace: the global root under the home, the project root under
+// <workspace>/.coddy/memory.
+func (s *memoryFeatureState) memoryRootHolds(scope, rel, body string) error {
+	root := filepath.Join(s.home, "memory")
+	if scope == "project" {
+		root = filepath.Join(s.cwd, ".coddy", "memory")
+	}
+	path := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(body+"\n"), 0o644)
+}
+
+func (s *memoryFeatureState) userSendsAndChildSearchesThenAnswers(text, query, answer string) error {
+	args, _ := json.Marshal(map[string]interface{}{"query": query, "scope": "both"})
+	call := llm.ToolCall{ID: "call_search", Name: memtools.NameSearch, InputJSON: string(args)}
+	s.setChildSteps(func() []scriptStep { return []scriptStep{toolStep(call), answerStep(answer)} })
+	return s.runTurn(text, answerStep("parent answer"))
+}
+
+var searchHitLine = regexp.MustCompile(`### Hit \d+ \(\w+ score=\S+ path=([^)]+)\)`)
+
+// childSearchHits is the paths of the hits the child's coddy_memory_search
+// call answered with, best first.
+func (s *memoryFeatureState) childSearchHits() ([]string, error) {
+	snap, err := s.childSnapshot()
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range snap.Messages {
+		if m.Role == llm.RoleTool && m.ToolCallID == "call_search" {
+			var paths []string
+			for _, match := range searchHitLine.FindAllStringSubmatch(m.Content, -1) {
+				paths = append(paths, match[1])
+			}
+			return paths, nil
+		}
+	}
+	return nil, fmt.Errorf("the child transcript holds no result of the search")
+}
+
+// searchRanksAbove holds when the search listed the first note and either
+// left the second out or listed it below the first.
+func (s *memoryFeatureState) searchRanksAbove(better, worse string) error {
+	paths, err := s.childSearchHits()
+	if err != nil {
+		return err
+	}
+	at := map[string]int{}
+	for i, p := range paths {
+		at[p] = i
+	}
+	i, ok := at[better]
+	if !ok {
+		return fmt.Errorf("the search did not list %s: %v", better, paths)
+	}
+	if j, ok := at[worse]; ok && j < i {
+		return fmt.Errorf("the search listed %s above %s: %v", worse, better, paths)
+	}
+	return nil
+}
+
 func initializeMemoryScenario(sc *godog.ScenarioContext) {
 	s := &memoryFeatureState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -1268,6 +1333,9 @@ func initializeMemoryScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the pool lists exactly (\d+) memory tasks for the parent session$`, s.poolListsExactlyMemoryTasks)
 	sc.Step(`^exactly (\d+) memory child bundles exist under the parent's$`, s.exactlyChildBundles)
 	sc.Step(`^the background command was accepted$`, s.backgroundCommandAccepted)
+	sc.Step(`^the (global|project) memory root holds the note "([^"]*)" saying "([^"]*)"$`, s.memoryRootHolds)
+	sc.Step(`^the user sends "([^"]*)" and the memory child searches the notes for "([^"]*)" then answers "([^"]*)"$`, s.userSendsAndChildSearchesThenAnswers)
+	sc.Step(`^the memory child's search ranks "([^"]*)" above "([^"]*)"$`, s.searchRanksAbove)
 }
 
 func TestMemorySubagentFeature(t *testing.T) {

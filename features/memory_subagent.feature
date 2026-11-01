@@ -165,3 +165,13 @@ Feature: Long-term memory runs as a background subagent
     And every model the memory child could run on answers "402 Payment Required"
     And the user sends "and what about the database?" and the memory child answers "never delivered"
     Then the first request of the second turn carries "the API returns JSON" nowhere
+
+  Scenario: The memory child's search ranks the notes the question is about above a generic one
+    Given long-term memory is enabled with a wait of 10 seconds
+    And the global memory root holds the note "how-to-write-a-note.md" saying "How to write a note. Open the file, add a heading and save it to the folder."
+    And the global memory root holds the note "relay-deployment.md" saying "Relay deployment: build the image and restart the relay service."
+    And the project memory root holds the note "runbook.md" saying "Runbook of the relay: deploy it with the release script."
+    And a parent agent session in that workspace
+    When the user sends "how do we deploy the relay?" and the memory child searches the notes for "how to deploy the relay" then answers "Already on disk: build the image, restart the service"
+    Then the memory child's search ranks "global:relay-deployment.md" above "global:how-to-write-a-note.md"
+    And the memory child's search ranks "project:runbook.md" above "global:how-to-write-a-note.md"

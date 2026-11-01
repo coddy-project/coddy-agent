@@ -17,15 +17,25 @@ import (
 	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 )
 
 // Hit is one ranked memory snippet for recall.
 type Hit struct {
-	Path    string `json:"path"`
-	Scope   string `json:"scope"`
-	Score   int    `json:"score"`
-	Snippet string `json:"snippet"`
+	Path    string  `json:"path"`
+	Scope   string  `json:"scope"`
+	Score   float64 `json:"score"`
+	Snippet string  `json:"snippet"`
 }
+
+// The fields of a note a search scores, in this order, with their weights
+// (BM25F, see docs.Ranker): the words of its folders and file name, and its
+// body. A word in the path says what a note is about, so it weighs three
+// times a word in the body. The weights are constants, not settings.
+const (
+	pathWeight = 3.0
+	bodyWeight = 1.0
+)
 
 // ErrProjectRootLink refuses a project root that is a link, or sits in a
 // .coddy folder that is one.
@@ -83,51 +93,6 @@ func isMemoryFile(name string) bool {
 	return ext == ".md" || ext == ".txt"
 }
 
-func tokenize(s string) map[string]int {
-	s = strings.ToLower(s)
-	var cur strings.Builder
-	tokens := make(map[string]int)
-	flush := func() {
-		if cur.Len() == 0 {
-			return
-		}
-		w := cur.String()
-		cur.Reset()
-		if len(w) < 2 {
-			return
-		}
-		tokens[w]++
-	}
-	for _, r := range s {
-		if unicode.IsLetter(r) || unicode.IsNumber(r) {
-			cur.WriteRune(r)
-		} else {
-			flush()
-		}
-	}
-	flush()
-	return tokens
-}
-
-func scoreOverlap(query, body string) int {
-	q := tokenize(query)
-	if len(q) == 0 {
-		return 0
-	}
-	b := tokenize(body)
-	score := 0
-	for w, n := range q {
-		if m, ok := b[w]; ok {
-			if n < m {
-				score += n
-			} else {
-				score += m
-			}
-		}
-	}
-	return score
-}
-
 // clip cuts s to max characters (runes, not bytes), so a snippet of
 // non-Latin text is as long as an ASCII one and never ends in half a
 // character.
@@ -139,7 +104,13 @@ func clip(s string, max int) string {
 	return string([]rune(s)[:max]) + "\n..."
 }
 
-// Search ranks memory files by token overlap with query.
+// Search ranks the notes of the scope against the query with the BM25F
+// ranker of the documentation search (docs.Ranker): words are stemmed,
+// a word few notes have counts more than one most have, a word in the path
+// counts more than one in the body, and a word the query begins is found.
+// The index is built from the files read for this call; memory changes
+// between calls and is small, so there is nothing to keep. Equal scores are
+// ordered by path.
 func (s *Store) Search(query string, scope string, maxHits int) ([]Hit, error) {
 	query = strings.TrimSpace(query)
 	if maxHits <= 0 {
@@ -154,13 +125,13 @@ func (s *Store) Search(query string, scope string, maxHits int) ([]Hit, error) {
 	default:
 		labels = []string{"global", "project"}
 	}
-	type cand struct {
+	type note struct {
 		path  string
 		scope string
-		score int
+		rel   string
 		body  string
 	}
-	var all []cand
+	var notes []note
 	for _, label := range labels {
 		root, err := s.openRoot(label, false)
 		if err != nil {
@@ -178,28 +149,25 @@ func (s *Store) Search(query string, scope string, maxHits int) ([]Hit, error) {
 			if err != nil {
 				continue
 			}
-			body := string(b)
-			pathContext := strings.ReplaceAll(rel, "/", " ") + " " + path.Base(rel)
-			sc := scoreOverlap(query, pathContext+" "+body)
-			if sc <= 0 {
-				continue
-			}
-			all = append(all, cand{path: label + ":" + rel, scope: label, score: sc, body: body})
+			notes = append(notes, note{path: label + ":" + rel, scope: label, rel: rel, body: string(b)})
 		}
 		_ = root.Close()
 	}
-	sort.Slice(all, func(i, j int) bool {
-		if all[i].score == all[j].score {
-			return all[i].path < all[j].path
-		}
-		return all[i].score > all[j].score
-	})
-	if len(all) > maxHits {
-		all = all[:maxHits]
+	// The ranker orders equal scores by the order notes were added in, so
+	// they go in by path.
+	sort.Slice(notes, func(i, j int) bool { return notes[i].path < notes[j].path })
+	ranker := docs.NewRanker(pathWeight, bodyWeight)
+	for _, n := range notes {
+		ranker.Add(docs.CountTerms(strings.TrimSuffix(n.rel, path.Ext(n.rel)), n.body))
 	}
-	out := make([]Hit, 0, len(all))
-	for _, c := range all {
-		out = append(out, Hit{Path: c.path, Scope: c.scope, Score: c.score, Snippet: clip(c.body, 1200)})
+	ranked, _ := ranker.Rank(query)
+	if len(ranked) > maxHits {
+		ranked = ranked[:maxHits]
+	}
+	out := make([]Hit, 0, len(ranked))
+	for _, r := range ranked {
+		n := notes[r.Doc]
+		out = append(out, Hit{Path: n.path, Scope: n.scope, Score: r.Score, Snippet: clip(n.body, 1200)})
 	}
 	return out, nil
 }

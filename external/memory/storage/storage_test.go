@@ -3,6 +3,7 @@
 package memstorage
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -429,5 +430,188 @@ func TestSearchIntermediateQueryThenWalkReachesVault(t *testing.T) {
 	}
 	if !sliceContains(order, "global:topics/services/api-map.md") {
 		t.Fatalf("expected api-map in pathOrder=%v", order)
+	}
+}
+
+// writeNotes saves rel -> body pairs under one scope of the store.
+func writeNotes(t *testing.T, st *Store, scope string, notes map[string]string) {
+	t.Helper()
+	for rel, body := range notes {
+		if _, err := st.WriteFlexible(scope, "n", rel, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// searchPaths is the paths a search returns, best first.
+func searchPaths(t *testing.T, st *Store, query, scope string, maxHits int) []string {
+	t.Helper()
+	hits, err := st.Search(query, scope, maxHits)
+	if err != nil {
+		t.Fatalf("Search(%q, %q): %v", query, scope, err)
+	}
+	paths := make([]string, 0, len(hits))
+	for _, h := range hits {
+		paths = append(paths, h.Path)
+	}
+	return paths
+}
+
+func equalPaths(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// A question's function words count for nothing: the generic how-to note
+// that shares "how to the" with it is not a hit at all, and the note about
+// deploying the relay comes first (issue #698).
+func TestSearchRanksTheNoteTheQuestionIsAbout(t *testing.T) {
+	st := NewWithRoots(t.TempDir(), t.TempDir())
+	writeNotes(t, st, "global", map[string]string{
+		"how-to-write-a-note.md": "How to write a note. Open the file, add a heading and save it to the folder.",
+		"relay-deployment.md":    "Relay deployment: build the image and restart the relay service.",
+		"relay-steps.md":         "relay deploy steps",
+	})
+	got := searchPaths(t, st, "how to deploy the relay", "global", 8)
+	want := []string{"global:relay-deployment.md", "global:relay-steps.md"}
+	if !equalPaths(got, want) {
+		t.Fatalf("hits = %v, want %v", got, want)
+	}
+}
+
+// A plural finds its singular and the other way round; a query word also
+// finds the words it begins.
+func TestSearchStemsAndMatchesPrefixes(t *testing.T) {
+	st := NewWithRoots(t.TempDir(), t.TempDir())
+	writeNotes(t, st, "global", map[string]string{
+		"a.md": "the config file lives next to the binary",
+		"b.md": "tabs and spaces are both fine",
+		"c.md": "deployment happens on friday",
+	})
+	for _, tc := range []struct{ query, want string }{
+		{"configs", "global:a.md"},
+		{"tab", "global:b.md"},
+		{"deploy", "global:c.md"},
+	} {
+		if got := searchPaths(t, st, tc.query, "global", 8); !equalPaths(got, []string{tc.want}) {
+			t.Errorf("Search(%q) = %v, want [%s]", tc.query, got, tc.want)
+		}
+	}
+}
+
+// A Russian query finds a note that has another form of its word.
+func TestSearchMatchesAnInflectedRussianWord(t *testing.T) {
+	st := NewWithRoots(t.TempDir(), t.TempDir())
+	writeNotes(t, st, "project", map[string]string{
+		"relay.md": "Настройки релея хранятся в файле конфигурации узла.",
+		"misc.md":  "Список покупок на неделю.",
+	})
+	if got := searchPaths(t, st, "настройка файл", "project", 8); !equalPaths(got, []string{"project:relay.md"}) {
+		t.Fatalf("hits = %v", got)
+	}
+}
+
+// A word few notes have outweighs one most notes have, however often the
+// common word repeats: the old overlap count tied them and left the order
+// to the path.
+func TestSearchRareWordOutranksACommonOne(t *testing.T) {
+	st := NewWithRoots(t.TempDir(), t.TempDir())
+	notes := map[string]string{
+		"a-common.md": "service service service restarts after every deploy",
+		"z-rare.md":   "zebra restarts after every deploy of anything",
+	}
+	for _, n := range []string{"b", "c", "d", "e"} {
+		notes[n+".md"] = "the service runs on a schedule and restarts nightly"
+	}
+	writeNotes(t, st, "global", notes)
+	got := searchPaths(t, st, "service zebra", "global", 8)
+	if len(got) == 0 || got[0] != "global:z-rare.md" {
+		t.Fatalf("hits = %v, want global:z-rare.md first", got)
+	}
+}
+
+// A word in the file name or a folder weighs more than the same word in the
+// body.
+func TestSearchPathWordsOutweighTheBody(t *testing.T) {
+	st := NewWithRoots(t.TempDir(), t.TempDir())
+	writeNotes(t, st, "global", map[string]string{
+		"misc.md":              "relay mentioned here once among other words",
+		"relay.md":             "nothing mentioned here once among other words",
+		"deploy/checklist.md":  "steps mentioned here once among other words",
+		"unrelated/storage.md": "nothing mentioned here once among other words",
+	})
+	got := searchPaths(t, st, "relay", "global", 8)
+	if len(got) != 2 || got[0] != "global:relay.md" || got[1] != "global:misc.md" {
+		t.Fatalf("file name vs body: hits = %v", got)
+	}
+	got = searchPaths(t, st, "deploy", "global", 8)
+	if len(got) != 1 || got[0] != "global:deploy/checklist.md" {
+		t.Fatalf("folder name: hits = %v", got)
+	}
+}
+
+// Behaviour that does not depend on the ranking: what an empty or empty-
+// handed query returns, which roots a scope reads, how many hits come back
+// and how equal scores are ordered.
+func TestSearchQueriesScopesAndLimits(t *testing.T) {
+	st := NewWithRoots(t.TempDir(), filepath.Join(t.TempDir(), ".coddy", "memory"))
+	writeNotes(t, st, "global", map[string]string{"g.md": "shared topic of the global notes"})
+	writeNotes(t, st, "project", map[string]string{"p.md": "shared topic of the project notes"})
+	for _, q := range []string{"", "   ", "zzzqqq", "?!"} {
+		if got := searchPaths(t, st, q, "both", 8); len(got) != 0 {
+			t.Errorf("Search(%q) = %v, want nothing", q, got)
+		}
+	}
+	for scope, want := range map[string][]string{
+		"global":   {"global:g.md"},
+		"project":  {"project:p.md"},
+		" Global":  {"global:g.md"},
+		"both":     {"global:g.md", "project:p.md"},
+		"":         {"global:g.md", "project:p.md"},
+		"nonsense": {"global:g.md", "project:p.md"},
+	} {
+		if got := searchPaths(t, st, "shared topic", scope, 8); !equalPaths(got, want) {
+			t.Errorf("scope %q: hits = %v, want %v", scope, got, want)
+		}
+	}
+	if got := searchPaths(t, st, "shared topic", "both", 1); len(got) != 1 {
+		t.Errorf("maxHits 1 returned %v", got)
+	}
+	many := map[string]string{}
+	for i := 0; i < 12; i++ {
+		many[fmt.Sprintf("n%02d.md", i)] = "identical words here"
+	}
+	writeNotes(t, st, "global", many)
+	got := searchPaths(t, st, "identical words", "global", 0)
+	if len(got) != 8 {
+		t.Fatalf("the default limit returned %d hits, want 8", len(got))
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i-1] > got[i] {
+			t.Fatalf("equal scores are not ordered by path: %v", got)
+		}
+	}
+}
+
+// A hit carries its score, best first.
+func TestSearchScoresDescend(t *testing.T) {
+	st := NewWithRoots(t.TempDir(), t.TempDir())
+	writeNotes(t, st, "global", map[string]string{
+		"relay.md": "relay deploy",
+		"misc.md":  "some words about a relay and other things entirely",
+	})
+	hits, err := st.Search("relay deploy", "global", 8)
+	if err != nil || len(hits) != 2 {
+		t.Fatalf("hits=%v err=%v", hits, err)
+	}
+	if hits[0].Score <= 0 || hits[0].Score <= hits[1].Score {
+		t.Fatalf("scores %v then %v", hits[0].Score, hits[1].Score)
 	}
 }
