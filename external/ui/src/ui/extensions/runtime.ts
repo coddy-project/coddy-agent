@@ -42,6 +42,19 @@ import { extensionHost, type ExtensionHostAPI } from "./hostChannel";
 import { extensionConfig, type ExtensionConfigAPI } from "./configApi";
 import { extensionSessions, type ExtensionSessionsAPI } from "./sessions";
 import { composerBridge } from "./composerBridge";
+import { extensionNav, type ExtensionNavAPI, type NavScreen } from "./nav";
+import { chatBridge, type ChatStatus } from "./chatBridge";
+import {
+  validateModal,
+  validateOverlay,
+  validateShell,
+  type Modal,
+  type Overlay,
+  type RuntimeModal,
+  type RuntimeOverlay,
+  type RuntimeShell,
+  type Shell,
+} from "./surfaces";
 import {
   ComposerControlHost,
   validateComposerAlter,
@@ -105,6 +118,15 @@ export type ExtensionAPI = {
   host: ExtensionHostAPI;
   config: ExtensionConfigAPI;
   sessions: ExtensionSessionsAPI;
+  /** Where the app is and where an extension may take it. */
+  nav: ExtensionNavAPI;
+  /** What the chat is doing now: the data a status line draws from. */
+  chat: {
+    status: () => ChatStatus | null;
+    onStatusChange: (listener: (status: ChatStatus) => void) => {
+      remove: () => void;
+    };
+  };
   /** The composer's draft and picks: what an alternative input line drives. */
   composer: {
     getText: () => string;
@@ -177,6 +199,20 @@ export type ExtensionAPI = {
     /** Rewrites the assembled control list before it renders - the
      * declare-then-alter pipeline. Needs the `ui.alter` scope. */
     alterControls: ComposerControlsAPI["alter"];
+    /** One modal at a time; Escape and the handle close it. */
+    openModal: (modal: Modal) => { close: () => void; remove: () => void };
+    /** A free-floating box the app never dims - a pet, a toast. Several may
+     * be open; only the handle closes one. */
+    openOverlay: (overlay: Overlay) => {
+      close: () => void;
+      remove: () => void;
+    };
+    /** Takes the window: the host stops drawing its UI and the mount gets
+     * it, until the handle releases it or the extension goes away. */
+    takeOverShell: (shell: Shell) => {
+      release: () => void;
+      remove: () => void;
+    };
     /** A named anchor box of the host surface, or null while its surface is
      * closed. `onAnchor` covers anchors that mount later. */
     anchor: (name: string) => HTMLElement | null;
@@ -207,6 +243,9 @@ export type RuntimeSnapshot = {
   permissionPreviews: Owned<PermissionPreview>[];
   sessionFilters: Owned<SessionFilter>[];
   hooks: Owned<HookContribution>[];
+  modals: RuntimeModal[];
+  overlays: RuntimeOverlay[];
+  shell: RuntimeShell | null;
   errors: Record<string, string>;
 };
 
@@ -229,6 +268,9 @@ export class ExtensionRuntime {
     permissionPreviews: [],
     sessionFilters: [],
     hooks: [],
+    modals: [],
+    overlays: [],
+    shell: null,
     errors: {},
   };
   readonly fields = new Contributions<AnySettingsField>(() =>
@@ -331,6 +373,18 @@ export class ExtensionRuntime {
     this.state = { ...this.state, ...patch };
     this.listeners.forEach((fn) => fn());
   }
+  /** Takes one open surface away from the outside - the host's own close
+   * button - with the same effect as the surface handle. */
+  closeSurface(list: "modals" | "overlays" | "shell", key: string) {
+    if (list === "shell") {
+      if (this.state.shell?.key === key) this.publish({ shell: null });
+      return;
+    }
+    this.publish({
+      [list]: this.state[list].filter((row) => row.key !== key),
+    } as Partial<RuntimeSnapshot>);
+  }
+
   private dispose(id: string) {
     const life = this.lifetimes.get(id);
     if (!life) return;
@@ -349,6 +403,12 @@ export class ExtensionRuntime {
       pages: this.state.pages.filter((p) => p.owner !== id),
       menu: this.state.menu.filter((p) => p.owner !== id),
       panels: this.state.panels.filter((p) => p.owner !== id),
+      modals: this.state.modals.filter((m) => m.owner !== id),
+      overlays: this.state.overlays.filter((o) => o.owner !== id),
+      shell:
+        this.state.shell && this.state.shell.owner === id
+          ? null
+          : this.state.shell,
     });
   }
   stop() {
@@ -490,6 +550,13 @@ export class ExtensionRuntime {
         },
       };
     };
+    // An open surface leaves the snapshot with its handle, its lifetime or
+    // the extension's; the host runs the mount cleanup as it unmounts.
+    const dropSurface = (list: "modals" | "overlays", key: string) => {
+      this.publish({
+        [list]: this.state[list].filter((r) => r.key !== key),
+      } as Partial<RuntimeSnapshot>);
+    };
     const api: ExtensionAPI = {
       api: 1,
       id: entry.id,
@@ -536,6 +603,12 @@ export class ExtensionRuntime {
       i18n: this.i18n.api(entry.id, controller.signal),
       config: extensionConfig(entry.id, entry.sha256, controller.signal),
       sessions: extensionSessions(controller.signal),
+      nav: extensionNav(),
+      chat: {
+        status: () => chatBridge.current(),
+        onStatusChange: (listener) =>
+          chatBridge.onStatusChange(controller.signal, listener),
+      },
       composer: {
         getText: () => composerBridge.text(),
         setText: (text) => {
@@ -673,6 +746,54 @@ export class ExtensionRuntime {
             control,
             validateComposerControl,
           );
+        },
+        openModal: (modal) => {
+          if (!active()) throw new Error("Extension disposed");
+          validateModal(modal);
+          const key = `${entry.id}/${modal.id}`;
+          if (this.state.modals.some((m) => m.key === key))
+            throw new Error(`Duplicate modal: ${key}`);
+          const row: RuntimeModal = {
+            ...modal,
+            key,
+            owner: entry.id,
+            api,
+          };
+          // One modal at a time: the open one leaves as the new one arrives.
+          this.publish({ modals: [row] });
+          const remove = () => {
+            if (!active() || !this.state.modals.some((m) => m.key === key))
+              return;
+            dropSurface("modals", key);
+          };
+          return { close: remove, remove };
+        },
+        openOverlay: (overlay) => {
+          if (!active()) throw new Error("Extension disposed");
+          validateOverlay(overlay);
+          const key = `${entry.id}/${overlay.id}`;
+          if (this.state.overlays.some((o) => o.key === key))
+            throw new Error(`Duplicate overlay: ${key}`);
+          const row: RuntimeOverlay = { ...overlay, key, owner: entry.id, api };
+          this.publish({ overlays: [...this.state.overlays, row] });
+          const remove = () => {
+            if (!active() || !this.state.overlays.some((o) => o.key === key))
+              return;
+            dropSurface("overlays", key);
+          };
+          return { close: remove, remove };
+        },
+        takeOverShell: (shell) => {
+          if (!active()) throw new Error("Extension disposed");
+          validateShell(shell);
+          const key = `${entry.id}/${shell.id}`;
+          const row: RuntimeShell = { ...shell, key, owner: entry.id, api };
+          this.publish({ shell: row });
+          const remove = () => {
+            if (this.state.shell?.key !== key) return;
+            this.publish({ shell: null });
+          };
+          return { release: remove, remove };
         },
         alterControls: (pass) => {
           if (!active()) throw new Error("Extension disposed");

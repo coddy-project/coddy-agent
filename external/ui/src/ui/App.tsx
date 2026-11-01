@@ -57,7 +57,12 @@ import {
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import { isNoLiveTurnRelayError } from "./chat/composerStreamError";
 import { subscribeSharedServerEvents } from "./chat/sharedServerEvents";
-import { useExtensions } from "./extensions/ExtensionsProvider";
+import {
+  useExtensions,
+  useExtensionShell,
+} from "./extensions/ExtensionsProvider";
+import { ExtensionShellHost } from "./extensions/ExtensionSurfaces";
+import { chatBridge } from "./extensions/chatBridge";
 import { selectMessageRenderer } from "./extensions/messageRenderers";
 import { readOpening, type OpeningRead } from "./chat/openingRead";
 import {
@@ -7890,6 +7895,37 @@ export function App() {
       upsertToolCall(patch as any);
     },
   );
+
+  // The chat status an extension draws its badges and status line from,
+  // reported every render and delivered only on a real change.
+  useEffect(() => {
+    const open = sessionId.trim();
+    chatBridge.report({
+      sessionId: open,
+      turnActive: sessions.some((row) => row.id === open && row.turnActive),
+      tokenUsage: tokenUsage
+        ? {
+            inputTokens: tokenUsage.inputTokens,
+            outputTokens: tokenUsage.outputTokens,
+            totalTokens: tokenUsage.totalTokens,
+          }
+        : null,
+      permissionPending: permissionPendingSids.has(open),
+      questionPending: questionPendingSids.has(open),
+    });
+  });
+  // The shell takeover: an extension that takes the window draws it alone,
+  // while the app keeps its machinery running underneath.
+  const extensionShell = useExtensionShell();
+  if (extensionShell)
+    return (
+      <ExtensionShellHost
+        shell={extensionShell}
+        onRelease={() =>
+          extensions?.runtime.closeSurface("shell", extensionShell.key)
+        }
+      />
+    );
 
   return (
     <div

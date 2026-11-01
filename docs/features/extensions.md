@@ -127,6 +127,12 @@ export function activate(coddy) {
 | `coddy.composer.onDraftChange(fn)`, `onPaste(fn)`, `onDrop(fn)` | Draft changes; a paste or drop listener that returns `true` takes the event before the host's own attachment and mention handling. |
 | `coddy.ui.registerComposerControl({id, placement, title?, order?, visible?, mount})` | Mounts a control into the composer - `actions` (its action row) or `tabs` (the strip of picks). Returns an `update`/`remove` handle. |
 | `coddy.ui.alterControls(fn)` | The declare-then-alter pipeline: `fn(controls, {surface: "composer"})` rewrites the assembled control list - retitle, reorder, hide or drop any entry - before it renders. Needs the `ui.alter` scope; host controls join the list later. |
+| `coddy.nav.currentRoute()`, `openSession(id)`, `openScreen(screen)` | Where the app is, and where an extension may take it: a conversation, or the `home`, `history`, `settings` and `scheduler` screens the rail opens. |
+| `coddy.chat.status()`, `onStatusChange(fn)` | What the chat is doing - the session, whether a turn runs, the token usage, a pending permission or question - what a status line and badges draw from. |
+| `coddy.ui.openModal({id, title, mount})` | One modal at a time over the chat; Escape and the handle close it. |
+| `coddy.ui.openOverlay({id, mount, position?})` | A free-floating box the app never dims - a pet, a toast; several may be open. |
+| `coddy.ui.takeOverShell({id, mount})` | Takes the window: the host draws nothing of its own until `release()` or the extension goes away. |
+| `coddy.sessions.rename(id, title)`, `setTags(id, tags)`, `pin(id, pinned)`, `archive(id, archived)`, `remove(id)` | The listing's own writes: title, tags, pin, archive and removal. |
 | `coddy.hooks.register({id, into, mount})` | Fills a hook an interface element declared - `into` is `<owner>/<name>` - with your own block. Returns an `update`/`remove` handle. |
 | `coddy.hooks.slot(name, element)` | Renders the contributions of this element's hook `<this id>/<name>` into `element`; an empty slot draws nothing, and contributions mount and leave live. |
 | `coddy.hooks.list()` | The hooks the running registrations declared, as `{owner, hook}` - where a contribution can go. |
@@ -505,6 +511,8 @@ These ship as `coddy.composer`, `registerComposerControl` and `alterControls`; t
 - **`coddy.ui.alterControls`** - retitle, reorder, hide or replace host controls; the `ui.alter` scope is declared for it - frontend.
 
 ### Navigation and surfaces
+
+These ship as `coddy.nav`, `coddy.chat`, `openModal`/`openOverlay`, `takeOverShell` and the session writes. Surfaces at once mean one panel plus modals and overlays; the fine anchors and host entries of the alter list remain.
 
 - **`coddy.nav`** - `openSession`, `openScreen`, `currentRoute`; the hash router is there - frontend;
 - **`coddy.ui.openModal` and `openOverlay`** - modals, toasts, an always-on-top pet - frontend;
