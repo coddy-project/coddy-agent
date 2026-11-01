@@ -40,6 +40,7 @@ import { validateSessionFilter, type SessionFilter } from "./sessionFilters";
 import { ExtensionI18n, type ExtensionI18nAPI } from "./extensionI18n";
 import { extensionHost, type ExtensionHostAPI } from "./hostChannel";
 import { extensionConfig, type ExtensionConfigAPI } from "./configApi";
+import { extensionSessions, type ExtensionSessionsAPI } from "./sessions";
 import {
   HookSlotHost,
   isHookName,
@@ -93,6 +94,7 @@ export type ExtensionAPI = {
   i18n: ExtensionI18nAPI;
   host: ExtensionHostAPI;
   config: ExtensionConfigAPI;
+  sessions: ExtensionSessionsAPI;
   hooks: {
     /** Fills a hook an interface element declared: `<owner>/<name>`. */
     register: (
@@ -477,6 +479,7 @@ export class ExtensionRuntime {
       ),
       i18n: this.i18n.api(entry.id, controller.signal),
       config: extensionConfig(entry.id, entry.sha256, controller.signal),
+      sessions: extensionSessions(controller.signal),
       host: extensionHost(
         entry.id,
         entry.sha256,

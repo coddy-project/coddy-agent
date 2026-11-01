@@ -37,6 +37,9 @@ export function activate(coddy) {
     sessions: "Session list",
     mode: "Switch mode",
     needsApi: "needs a host API this phase does not expose",
+    tool: "tool: ",
+    live: "live",
+    noSession: "Open a session and this mini-chat talks to it.",
     footer: "Mini-chat and duck from the OK, coddy prototype",
   });
   coddy.i18n.registerMessages("ru", {
@@ -58,6 +61,9 @@ export function activate(coddy) {
     sessions: "Список сессий",
     mode: "Сменить режим",
     needsApi: "нужен API хоста, который эта фаза не открывает",
+    tool: "инструмент: ",
+    live: "вживую",
+    noSession: "Откройте сессию - и мини-чат заговорит с ней.",
     footer: "Мини-чат и уточка из прототипа «ОК, кодди»",
   });
 
@@ -115,6 +121,30 @@ export function activate(coddy) {
       log.scrollTop = log.scrollHeight;
     };
     line("note", coddy.i18n.t("footer"));
+    // A session on the address turns the mini-chat live: its turn streams
+    // into the log and the input sends into the conversation.
+    const sessionId = coddy.sessions.current();
+    if (!sessionId) line("note", coddy.i18n.t("noSession"));
+    let live = null;
+    let liveLine = null;
+    if (sessionId) {
+      live = coddy.sessions.onMessage(sessionId, (event) => {
+        if (event.type === "text") {
+          if (!liveLine) {
+            liveLine = document.createElement("div");
+            liveLine.className = "ok-line ok-line-duck";
+            log.append(liveLine);
+          }
+          liveLine.textContent += event.delta;
+          log.scrollTop = log.scrollHeight;
+        } else if (event.type === "tool") {
+          liveLine = null;
+          line("note", coddy.i18n.t("tool") + event.name);
+        } else if (event.type === "done") {
+          liveLine = null;
+        }
+      });
+    }
 
     const duck = duckSvg();
     applyTrick(duck, "idle");
@@ -212,12 +242,18 @@ export function activate(coddy) {
       if (ticket.checked) {
         ticket.checked = false;
         line("duck", coddy.i18n.t("ticketMade") + text);
-      } else {
-        window.setTimeout(
-          () => line("duck", coddy.i18n.t("reply") + text),
-          250,
-        );
+        return;
       }
+      if (sessionId) {
+        coddy.sessions
+          .send({ sessionId: sessionId, text: text })
+          .then((result) => {
+            if (!result.accepted) line("note", result.error);
+          })
+          .catch((error) => line("note", String(error)));
+        return;
+      }
+      window.setTimeout(() => line("duck", coddy.i18n.t("reply") + text), 250);
     };
     send.addEventListener("click", sendLine, { signal: coddy.signal });
     input.addEventListener("keydown", (event) => {
@@ -232,6 +268,28 @@ export function activate(coddy) {
       b.disabled = true;
       b.textContent = coddy.i18n.t(label);
       b.title = coddy.i18n.t("needsApi");
+      if (label === "toFeed" && sessionId) {
+        // The feed action is the sessions API now; the other two still
+        // wait for coddy.nav and composer controls.
+        b.disabled = false;
+        b.title = coddy.i18n.t("live");
+        b.addEventListener(
+          "click",
+          () => {
+            const text = input.value.trim();
+            if (!text) return;
+            input.value = "";
+            line("me", text);
+            coddy.sessions
+              .send({ sessionId: sessionId, text: text })
+              .then((result) => {
+                if (!result.accepted) line("note", result.error);
+              })
+              .catch((error) => line("note", String(error)));
+          },
+          { signal: coddy.signal },
+        );
+      }
       actions.append(b);
     }
 
@@ -258,6 +316,7 @@ export function activate(coddy) {
       input.focus();
     }
     return () => {
+      if (live) live.remove();
       slot.remove();
       footer.remove();
       stopAuto();

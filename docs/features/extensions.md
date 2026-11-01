@@ -116,6 +116,12 @@ export function activate(coddy) {
 | `coddy.i18n.registerMessages(locale, dict)`, `coddy.i18n.onChange(fn)` | Register one locale's strings and observe host locale changes. Both return a `remove()` handle. |
 | `coddy.config.get(path?)` | The whole configuration document, or one dot path of it (`providers.0.name`). |
 | `coddy.config.set(path, value)` | Writes one dot path - an object key, an array index, or `+` to append to an array - through the settings save transaction: a minimal write over the file as it is, comments preserved, the result installed. Requires the `config.write` scope. |
+| `coddy.sessions.current()` | The session the address is on now, or null on the start screen. |
+| `coddy.sessions.list(query?)`, `coddy.sessions.state(sessionId)` | The History listing: one page of session rows, or one row - title, folders, flags, pending prompts - for badges and buttons. |
+| `coddy.sessions.messages(sessionId, {limit, before})`, `coddy.sessions.toolCalls(sessionId, {limit, before})` | One page of the transcript or of its tool calls, newest first. |
+| `coddy.sessions.send({sessionId, text, files?, model?, reasoning?})` | Sends a prompt into the session; slash commands and @-mentions resolve on the server, `model` and `reasoning` set the session's choice. Resolves `{accepted, status, error}` - a turn already running answers `accepted: false`. Declares `sessions.prompt`. |
+| `coddy.sessions.stop(sessionId)`, `coddy.sessions.rewind(sessionId)` | Stops the running turn; rewinds the session to before its last user prompt. |
+| `coddy.sessions.onMessage(sessionId, listener)` | The live turn, decoded into `{type: "text", delta}`, `{type: "tool"}`, `{type: "tool_update"}`, `{type: "done"}` and `{type: "error"}`. Read-only - the turn stays the host's. |
 | `coddy.hooks.register({id, into, mount})` | Fills a hook an interface element declared - `into` is `<owner>/<name>` - with your own block. Returns an `update`/`remove` handle. |
 | `coddy.hooks.slot(name, element)` | Renders the contributions of this element's hook `<this id>/<name>` into `element`; an empty slot draws nothing, and contributions mount and leave live. |
 | `coddy.hooks.list()` | The hooks the running registrations declared, as `{owner, hook}` - where a contribution can go. |
@@ -469,15 +475,83 @@ python -m zipfile -c stream-tools.zip manifest.json main.js
 
 ## Gaps for alternative interfaces
 
-An alternative interface built as an extension - the `examples/extensions/ok-coddy` drawer after the coddy-duck-prototype - draws its own surfaces, reads the theme layer, observes the live stream, and reaches the network, the configuration and the hook slots. What it cannot yet do, and what the host API still owes such an interface:
+An alternative interface built as an extension - the `examples/extensions/ok-coddy` drawer after the coddy-duck-prototype - draws its own surfaces, reads the theme layer, observes the live stream, and reaches the network, the configuration and the hook slots. What the API still owes such an interface is listed below by area. Every item marks where the work lands: **frontend** is the SPA layer of the SDK (wrappers, placements and registries over routes the server already serves), and **host** is Go and server work. Most of the conversation surface is frontend: the endpoints exist and the SPA already calls them.
 
-- **Send a prompt into a session** - a message or a file to the conversation feed. The specification names the gap `sessions.prompt`;
-- **Open host surfaces** - the session list, a session, a rail screen. `coddy.nav` of the specification does not exist yet, so the Session list action stays disabled;
-- **Composer controls** - the mode switch, the model pick, anything in the composer's action rows (`registerComposerControl` of section 11 of the specification);
-- **Read a conversation** - the transcript and its live updates beyond read-only stream observation; the mini-chat answers from canned replies because there is nothing to read a session's messages with;
-- **Free-floating overlays** - an always-on-top pet outside the panels and anchors (`coddy.ui.openOverlay` of the specification); today a mascot lives inside a panel, a drawer or an anchor box.
+### Conversation and sessions
 
-Each of these lands with the phase of the specification that owns it.
+These seven ship as `coddy.sessions` in this build; the entries below name what each one gives.
+
+- **Send a prompt into a session** - a message or a file to the conversation feed (`sessions.prompt` of the specification) - frontend;
+- **Read a transcript** - paged messages, tool calls and usage (`sessions.read`) - frontend;
+- **Live messages, decoded** - a subscription that hands message rows as they stream, instead of raw frames the extension parses alone - frontend;
+- **Stop, rewind and resume a turn** - frontend;
+- **Create, open and delete sessions** - with `coddy.nav` below - frontend;
+- **Session settings** - model, reasoning, mode: read and set - frontend;
+- **Session state** - turn active, queued, a permission or question pending, for custom lists and badges - frontend.
+
+### Composer
+
+- **`registerComposerControl` and chips** - buttons and selects in the composer's action rows (section 11 of the specification) - frontend;
+- **Fine anchors** - `composer`, `composer.model`, `composer.send` beside the one `composer.actions` - frontend;
+- **Draft control** - insert text and files, intercept paste and drop - frontend;
+- **The composer's model, reasoning and mode** - read and set - frontend;
+- **`coddy.ui.alterControls`** - retitle, reorder, hide or replace host controls; the `ui.alter` scope is declared for it - frontend.
+
+### Navigation and surfaces
+
+- **`coddy.nav`** - `openSession`, `openScreen`, `currentRoute`; the hash router is there - frontend;
+- **`coddy.ui.openModal` and `openOverlay`** - modals, toasts, an always-on-top pet - frontend;
+- **Several surfaces at once** - one panel and one page dialog are open at a time - frontend;
+- **Shell takeover** - a true alternative interface replaces the app instead of drawing over it; the host must hand out its root and lifecycle - host;
+- **Chat header and statusline data** - the anchors exist; what they show (phase, tokens per second, usage) must arrive as parsed data - frontend;
+- **The session list beyond filtering** - pins, tags, rename, grouping, archive actions - frontend.
+
+### Tools, agents and background work
+
+- **Own agent tools** (`manifest.tools[]` with execution in the ReAct loop) - host;
+- **A say in tool execution** - allow, deny or handle a call from the UI, the browser side of the PreToolUse `handled` outcome - host;
+- **Subagents** - spawn, observe, approve - host;
+- **Background tasks as an API** - list, stop, read output - frontend.
+
+### Events and lifecycle
+
+- **The full host event set** of the specification (`session.created`, `turn.started`, `tool.finished`, `config.reloaded`, ...) - host;
+- **Synchronous hooks with a decision**, the `handled` shape of the PreToolUse handlers - host;
+- **Surface events** - panel opened and closed, focus, beforeunload - frontend.
+
+### Settings and configuration
+
+- **Settings alter** - hide, retitle or reorder sections and rows (`ui.alter`) - frontend;
+- **Complex field types** - lists and objects in the settings form - frontend;
+- **Secrets** - a write-only store for keys; the configuration is ordinary readable configuration today - host;
+- **The model and provider catalog** - what is available now - frontend;
+- **A `config.reloaded` subscription** - the event already flows on the shared stream - frontend.
+
+### Network
+
+- **Streaming `net.fetch`** - SSE and chunked reads through the server proxy, which buffers 8 MiB for 30 seconds today - host; until then an extension may stream from the browser where CORS allows - frontend;
+- **WebSocket** - browser-native; the SDK needs the wrapper - frontend;
+- **Per-call proxy routing** - through a provider's proxy or the corporate one - host.
+
+### Theme and drawing
+
+- **Pre-paint** - extension styles land after activation and flash once; the build must place them earlier - frontend;
+- **Manifest themes** (`themes[]` of the specification) - an extension adds a theme to the switcher - frontend, plus the manifest field;
+- **A frozen token contract** - pinning the shape `theme.tokens()` returns - frontend.
+
+### Trust
+
+- **Enforcement of `permissions`** - scopes are declared and not checked; enablement is the whole gate - host;
+- **Revocation without a reload** - frontend for the cooperative part, host for isolation;
+- **Sandboxed rendering** - the specification's later iframe option - frontend architecture.
+
+### Platforms
+
+- **The IDE action bridge** (`ide.actions`) - open a file, a terminal, a notification in the editor; `coddy.host.request` already carries the call and its answer, the shape the IDE tool-delegation bridge speaks - the contract is missing, the pieces are not;
+- **Console, Telegram and `coddy -p`** - extensions are a browser surface only - host;
+- **Native executables and marketplaces** - the later phases of the specification - host.
+
+Each of these lands with the phase of the specification that owns it. The frontend-marked conversation items are the ones that turn an interface mock into a working client.
 
 ## Known limitations
 
