@@ -6,6 +6,7 @@ package memstorage
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -339,16 +340,69 @@ func (s *Store) Read(rel string) (string, error) {
 		return "", err
 	}
 	defer func() { _ = root.Close() }()
-	// A named pipe, a socket or a device is not a note, and reading one can
-	// block for good. A folder keeps the error its read gives.
-	if info, err := root.Stat(name); err == nil && !info.IsDir() && !info.Mode().IsRegular() {
-		return "", ErrNotNote
+	if err := refuseNonRegular(root, name); err != nil {
+		return "", err
 	}
 	b, err := root.ReadFile(name)
 	if err != nil {
 		return "", err
 	}
 	return string(b), nil
+}
+
+// refuseNonRegular is ErrNotNote for a named pipe, a socket or a device: it is
+// not a note, and opening one can block for good. A folder, a missing file and
+// a link the root refuses are left to the read, which answers each in its own
+// words.
+func refuseNonRegular(root rootFS, name string) error {
+	if info, err := root.Stat(name); err == nil && !info.IsDir() && !info.Mode().IsRegular() {
+		return ErrNotNote
+	}
+	return nil
+}
+
+// ReadHead reads the first max bytes of the note rel (scope:relative, as Read
+// takes it) and says whether more of the file followed, so a caller that
+// bounds a note never has the rest in memory. When more followed, the head
+// ends on a character boundary. The guards and the errors are Read's: a
+// missing root or note is fs.ErrNotExist, a link out of the project root
+// ErrOutsideRoot, a named pipe ErrNotNote, and a refusal of the disk (no
+// permission, a link that loops) is reported as it is.
+func (s *Store) ReadHead(rel string, max int) (head []byte, more bool, err error) {
+	label, name, err := s.resolveReadable(rel)
+	if err != nil {
+		return nil, false, err
+	}
+	root, err := s.openRoot(label, false)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = root.Close() }()
+	if err := refuseNonRegular(root, name); err != nil {
+		return nil, false, err
+	}
+	f, err := root.Open(name)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = f.Close() }()
+	buf := make([]byte, max+1)
+	n, err := io.ReadFull(f, buf)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return nil, false, err
+	}
+	if n <= max {
+		return buf[:n], false, nil
+	}
+	head = buf[:max]
+	// Drop a character the bound cut in two: at most three bytes of it.
+	for i := 0; i < utf8.UTFMax-1 && len(head) > 0; i++ {
+		if r, size := utf8.DecodeLastRune(head); r != utf8.RuneError || size != 1 {
+			break
+		}
+		head = head[:len(head)-1]
+	}
+	return head, true, nil
 }
 
 // ReadNote reads one note for the notes browser: a .md or .txt regular file

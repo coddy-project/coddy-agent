@@ -33,8 +33,9 @@ var (
 	// ErrInvalidPath refuses a path that would leave its root by its own
 	// spelling: "..", an absolute path, a volume name.
 	ErrInvalidPath = errors.New("invalid path: it must stay inside the memory root")
-	// ErrNotNote refuses a file that is not a .md or .txt note.
-	ErrNotNote = errors.New("memory file must end with .md or .txt")
+	// ErrNotNote refuses what is not a note: a file that does not end in .md
+	// or .txt, or one that is not a regular file (a named pipe, a device).
+	ErrNotNote = errors.New("not a memory note: it must be a regular file ending in .md or .txt")
 	// ErrNotDir answers a listing of something that is not a folder.
 	ErrNotDir = errors.New("not a directory")
 	// ErrScopeRoot refuses deleting a root itself.
@@ -49,6 +50,7 @@ var (
 // *os.Root is one; dirRoot is the other.
 type rootFS interface {
 	ReadFile(name string) ([]byte, error)
+	Open(name string) (*os.File, error)
 	WriteFile(name string, data []byte, perm fs.FileMode) error
 	MkdirAll(name string, perm fs.FileMode) error
 	Stat(name string) (fs.FileInfo, error)
@@ -66,6 +68,7 @@ type dirRoot struct{ dir string }
 func (d dirRoot) path(name string) string { return filepath.Join(d.dir, filepath.FromSlash(name)) }
 
 func (d dirRoot) ReadFile(name string) ([]byte, error) { return os.ReadFile(d.path(name)) }
+func (d dirRoot) Open(name string) (*os.File, error)   { return os.Open(d.path(name)) }
 
 func (d dirRoot) WriteFile(name string, data []byte, perm fs.FileMode) error {
 	return os.WriteFile(d.path(name), data, perm)
@@ -104,6 +107,11 @@ func outside(err error) error {
 func (r projectRoot) ReadFile(name string) ([]byte, error) {
 	b, err := r.Root.ReadFile(name)
 	return b, outside(err)
+}
+
+func (r projectRoot) Open(name string) (*os.File, error) {
+	f, err := r.Root.Open(name)
+	return f, outside(err)
 }
 
 func (r projectRoot) WriteFile(name string, data []byte, perm fs.FileMode) error {

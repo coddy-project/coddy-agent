@@ -774,3 +774,68 @@ func TestSearchSkipsNamedPipesAndKeepsLinkedNotes(t *testing.T) {
 		t.Fatal("HasAnyFiles = false with notes in the roots")
 	}
 }
+
+// ReadHead reads a note as far as its bound and says whether more followed;
+// the head ends on a character boundary, and the guards are Read's.
+func TestReadHeadReadsOnlyTheBound(t *testing.T) {
+	g := t.TempDir()
+	p := filepath.Join(t.TempDir(), ".coddy", "memory")
+	if err := os.MkdirAll(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	st := NewWithRoots(g, p)
+	files := map[string]string{
+		"short.md": "abc",
+		"exact.md": strings.Repeat("a", 10),
+		"long.md":  strings.Repeat("a", 10) + "b",
+		"wide.md":  strings.Repeat("ж", 10),
+		"empty.md": "",
+	}
+	for root, scope := range map[string]string{g: "global", p: "project"} {
+		for name, body := range files {
+			if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, tc := range []struct {
+			name, want string
+			more       bool
+		}{
+			{"short.md", "abc", false},
+			{"exact.md", strings.Repeat("a", 10), false},
+			{"long.md", strings.Repeat("a", 10), true},
+			{"wide.md", strings.Repeat("ж", 5), true},
+			{"empty.md", "", false},
+		} {
+			head, more, err := st.ReadHead(scope+":"+tc.name, 10)
+			if err != nil || string(head) != tc.want || more != tc.more {
+				t.Errorf("ReadHead(%s:%s) = %q, %v, %v; want %q, %v", scope, tc.name, head, more, err, tc.want, tc.more)
+			}
+		}
+	}
+}
+
+func TestReadHeadReportsWhatRefusesTheRead(t *testing.T) {
+	g := t.TempDir()
+	st := NewWithRoots(g, filepath.Join(t.TempDir(), ".coddy", "memory"))
+	if _, _, err := st.ReadHead("global:missing.md", 10); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a missing note = %v, want a not-exist error", err)
+	}
+	if _, _, err := st.ReadHead("project:missing.md", 10); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a missing project root = %v, want a not-exist error", err)
+	}
+	if _, _, err := st.ReadHead("global:../x.md", 10); !errors.Is(err, ErrInvalidPath) && err == nil {
+		t.Errorf("a path that leaves the root = %v, want an error", err)
+	}
+	mkfifoOrSkip(t, filepath.Join(g, "pipe.md"))
+	var err error
+	within(t, "ReadHead", func() { _, _, err = st.ReadHead("global:pipe.md", 10) })
+	if !errors.Is(err, ErrNotNote) {
+		t.Errorf("a named pipe = %v, want ErrNotNote", err)
+	}
+	if err := os.Symlink("loop.md", filepath.Join(g, "loop.md")); err == nil {
+		if _, _, err := st.ReadHead("global:loop.md", 10); err == nil || errors.Is(err, os.ErrNotExist) {
+			t.Errorf("a link that loops = %v, want a real error", err)
+		}
+	}
+}

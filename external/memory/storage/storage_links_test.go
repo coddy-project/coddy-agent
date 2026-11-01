@@ -115,6 +115,18 @@ func TestProjectRootRefusesAGuideThatIsALinkOutOfIt(t *testing.T) {
 	}
 }
 
+// The bounded read of a note (a guide's) holds the same line: a link out of
+// the project root is ErrOutsideRoot and the file behind it is never opened.
+func TestProjectRootRefusesABoundedReadThroughALinkOutOfIt(t *testing.T) {
+	s := newLinkStand(t)
+	symlinkOrSkip(t, s.secret, filepath.Join(s.project, GuideName))
+	st := s.store(t)
+	head, more, err := st.ReadHead("project:"+GuideName, 4096)
+	if !errors.Is(err, ErrOutsideRoot) || len(head) != 0 || more || strings.Contains(string(head), "OUTSIDE-SECRET") {
+		t.Fatalf("ReadHead through a linked guide = %q, %v, %v; want ErrOutsideRoot", head, more, err)
+	}
+}
+
 // A folder of the project root that is a link to a folder outside it leads
 // nowhere: nothing is read, listed, created, written or deleted behind it.
 func TestProjectRootRefusesALinkedFolderOutOfIt(t *testing.T) {
