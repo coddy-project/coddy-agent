@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/statistics"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
@@ -42,7 +43,7 @@ type loadSkillArgs struct {
 	Name string `json:"name"`
 }
 
-func executeLoadSkill(_ context.Context, argsJSON string, env *tooling.Env) (string, error) {
+func executeLoadSkill(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
 	args, err := tooling.ParseArgs[loadSkillArgs](argsJSON)
 	if err != nil {
 		return "", err
@@ -59,5 +60,6 @@ func executeLoadSkill(_ context.Context, argsJSON string, env *tooling.Env) (str
 		sort.Strings(available)
 		return "", fmt.Errorf("load_skill: unknown skill %q; available: %s", name, strings.Join(available, ", "))
 	}
+	statistics.RecordSkill(ctx, name)
 	return body, nil
 }

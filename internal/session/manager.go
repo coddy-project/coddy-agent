@@ -23,6 +23,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
+	"github.com/EvilFreelancer/coddy-agent/internal/statistics"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
 
@@ -1448,6 +1449,8 @@ func (r *TurnRestriction) Allows(name string) bool {
 // turn lock themselves - streaming ones before committing SSE headers, non-streaming ones
 // before opening a relay for watchers.
 type PromptRunOpts struct {
+	// StatisticsSource identifies the surface running this turn, never its content.
+	StatisticsSource string
 	// SkipTurnLock when true means the caller already holds the composer turn lock (e.g. coddy serve SSE).
 	SkipTurnLock bool
 	// DetachFromRequest when true runs the turn on a context.WithoutCancel copy of ctx, so a
@@ -1889,6 +1892,14 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 
 	// What the surface wants the model to know lasts exactly this turn: set
 	// under the turn lock, cleared before it is released, never persisted.
+	if opts != nil {
+		if opts.StatisticsSource != "" {
+			turnCtx = statistics.WithSource(turnCtx, opts.StatisticsSource)
+		}
+		if opts.BackgroundWake != nil {
+			turnCtx = statistics.WithSource(turnCtx, "background")
+		}
+	}
 	if opts != nil && strings.TrimSpace(opts.SurfaceSystemPrompt) != "" {
 		state.SetSurfaceSystemPrompt(opts.SurfaceSystemPrompt)
 		defer state.SetSurfaceSystemPrompt("")

@@ -2,6 +2,7 @@ import type { JsonSchema } from "./SchemaForm";
 import { translate } from "../i18n/i18n";
 
 export type SectionKind =
+  | "statistics"
   | "array"
   | "object"
   | "group"
@@ -36,6 +37,7 @@ export type SectionDescriptor = {
  * sections keep their server-provided title and description.
  */
 const SECTION_LABEL_KEYS = {
+  statistics: "stats.title",
   appearance: "settings.section.appearance.label",
   sessions_manager: "settings.section.sessions_manager.label",
   status: "settings.section.status.label",
@@ -185,7 +187,15 @@ export function deriveSettingsSections(
   // sessions the Sessions tab manages and the status route exist only on an
   // agent.
   const relay = opts.relay === true || schema?.["x-coddy-relay"] === true;
-  const head = relay ? [appearance] : [appearance, sessionsManager, status];
+  const statistics: SectionDescriptor = {
+    id: "statistics",
+    label: labelFor("statistics"),
+    description: translate("stats.settings.description"),
+    kind: "statistics",
+  };
+  const head = relay
+    ? [appearance]
+    : [appearance, sessionsManager, status, statistics];
   if (!schema || schema.type !== "object" || !schema.properties) {
     return head;
   }
@@ -359,6 +369,10 @@ export const SETTINGS_TEXTS = {
     desc: "subagents.catalog.description",
   },
   providerModels: { label: "settings.providerModels.legend" },
+  statisticsTimezone: { label: "stats.timezone" },
+  statisticsPrices: { label: "stats.prices" },
+  statisticsImport: { label: "stats.import.heading" },
+  statisticsClear: { label: "stats.clear.heading" },
   systemInstallation: { label: "system.installation" },
   systemSubsystems: { label: "system.subsystems" },
   systemDisk: { label: "system.disk" },

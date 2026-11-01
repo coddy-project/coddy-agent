@@ -853,6 +853,7 @@ export function Settings(props: {
     // schema loads, and they render in the normal scroll flow like any other tab.
     if (
       section.kind === "appearance" ||
+      section.kind === "statistics" ||
       section.kind === "sessions" ||
       section.kind === "status"
     ) {

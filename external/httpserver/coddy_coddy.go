@@ -646,7 +646,8 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
+	ctx, finishStatistics := s.auxiliaryStatistics(r.Context(), "background")
+	defer finishStatistics()
 	resp, err := provider.Complete(ctx, []llm.Message{
 		{Role: llm.RoleSystem, Content: prompts.WithIdentity(describeSystemPrompt(commands))},
 		{Role: llm.RoleUser, Content: text},

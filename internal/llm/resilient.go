@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/statistics"
+
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/openai/openai-go"
 )
@@ -133,6 +135,14 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 		allowance.recordAttempt(attempt > 0)
 		clock := &attemptClock{began: time.Now(), retry: attempt > 0}
 		resp, err := fn(ctx, clock)
+		var input, output, cached *int64
+		if resp != nil && (resp.InputTokens > 0 || resp.OutputTokens > 0) {
+			input, output = statistics.Int(int64(resp.InputTokens)), statistics.Int(int64(resp.OutputTokens))
+			if resp.CachedInputTokens > 0 {
+				cached = statistics.Int(int64(resp.CachedInputTokens))
+			}
+		}
+		statistics.RecordCall(ctx, p.opts.Name, p.opts.Model, "", input, output, cached)
 		p.observeAttempt(clock, resp, err)
 		p.markCallFinished()
 		if err == nil {

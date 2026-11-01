@@ -12,6 +12,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/statistics"
 )
 
 // directACPRefusal refuses a direct completion of a model a local ACP agent
@@ -37,6 +38,12 @@ func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State,
 		mk = defaultMakeLLMFromYAML
 	}
 	cfg := s.activeCfg()
+	if cfg != nil && cfg.Paths.Home != "" {
+		provider, model, _ := strings.Cut(yamlSel, "/")
+		var recorder *statistics.Recorder
+		ctx, recorder = statistics.Begin(ctx, statistics.New(cfg.Paths.Home), statistics.Event{Session: sessionID, Project: st.GetCWD(), Source: "api", Provider: provider, Model: model, Reasoning: opts.ReasoningEffort, Requests: 1}, func(err error) { s.log.Warn("statistics could not be saved", "error", err) })
+		defer recorder.Finish()
+	}
 	if err := directACPRefusal(cfg, yamlSel); err != nil {
 		return nil, err
 	}

@@ -399,6 +399,7 @@ const RAIL_SCREEN_PAGES: Record<
   RailScreenId,
   { href: string; testId: string }
 > = {
+  statistics: { href: "#/statistics", testId: "statistics-view" },
   history: { href: appNavHrefHistory(), testId: "sessions" },
   scheduler: { href: appNavHrefScheduler(), testId: "scheduler-drawer" },
   swarm: { href: appNavHrefSwarm(), testId: "swarm-view" },
@@ -472,7 +473,7 @@ test("on a relay the swarm is home: Escape leaves it, and closes what opened ove
 // On a relay the map is home: its entry in the rail stays lit while the map is
 // on screen, and the brand, which starts a new chat on an agent, leads there
 // too - a relay has no chat to start (issue #401).
-test("on a relay the Swarm entry stays lit, and the brand leads to the map", async () => {
+test("on a relay the Swarm entry stays lit, and the plus leads to the map", async () => {
   relay = true;
   history.replaceState(null, "", "/");
   render(
@@ -497,7 +498,7 @@ test("on a relay the Swarm entry stays lit, and the brand leads to the map", asy
       "false",
     ),
   );
-  fireEvent.click(screen.getByTestId("nav-home"));
+  fireEvent.click(screen.getByTestId("nav-new-chat"));
   await screen.findByTestId("swarm-view");
   await waitFor(() =>
     expect(screen.getByTestId("nav-swarm")).toHaveAttribute(

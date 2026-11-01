@@ -338,7 +338,7 @@ test("a new chat forgets the goal version, so a restarted server's snapshot is r
   // The server restarts (its version counter starts over) while the
   // operator is on a new chat, then the operator comes back.
   await act(async () => {
-    fireEvent.click(screen.getByTestId("nav-home"));
+    fireEvent.click(screen.getByTestId("nav-new-chat"));
   });
   await settle();
   expect(screen.queryByTestId("composer-goal")).toBeNull();

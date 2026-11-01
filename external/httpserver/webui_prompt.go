@@ -69,3 +69,13 @@ func langFromHTTP(raw json.RawMessage) string {
 	}
 	return strings.TrimSpace(m.Lang)
 }
+
+func statisticsSourceFromHTTP(raw json.RawMessage) string {
+	var m struct {
+		Surface string `json:"surface"`
+	}
+	if json.Unmarshal(raw, &m) == nil && strings.EqualFold(strings.TrimSpace(m.Surface), webUISurface) {
+		return "webui"
+	}
+	return "api"
+}
