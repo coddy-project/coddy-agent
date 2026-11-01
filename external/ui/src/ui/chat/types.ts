@@ -13,6 +13,8 @@ import type { ToolArtifact } from "./toolArtifacts";
 import type { GenerationSummary } from "./generationSpeed";
 
 export type TokenUsage = {
+  usageKnown?: boolean;
+  sessionUsageKnown?: boolean;
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;

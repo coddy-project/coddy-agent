@@ -10,9 +10,9 @@ Feature: A provider's failure keeps its HTTP status on the way to the client
     Given a coddy server whose direct model's provider answers 400 "Request too long: 121692 input tokens over the limit of 46112"
     When an OpenAI client posts "local/llama-3.1-8b" without streaming
     Then the answer is HTTP 400
-    And the error is an upstream_error with upstream_status 400 and the provider's message
+    And the error is an upstream_error with upstream_status 400 and private diagnostics in the log
 
   Scenario: A streamed completion names the provider's status in its error frame
     Given a coddy server whose direct model's provider answers 400 "Request too long: 121692 input tokens over the limit of 46112"
     When an OpenAI client streams "local/llama-3.1-8b"
-    Then the stream's error frame is an upstream_error with upstream_status 400 and the provider's message
+    Then the stream's error frame is an upstream_error with upstream_status 400 and private diagnostics in the log

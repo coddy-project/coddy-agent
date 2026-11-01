@@ -101,7 +101,7 @@ function TaskCard(props: {
     ...taskTimesTitle(task),
     serverUrl,
     [usage?.modelId || "", reasoning].filter(Boolean).join(" · "),
-    usage && usage.tokens > 0
+    usage && !usage.incomplete && usage.tokens > 0
       ? t("tasks.agentTokensTitle", {
           input: number.format(usage.inputTokens),
           output: number.format(usage.outputTokens),
@@ -215,12 +215,12 @@ function TaskCard(props: {
                   </span>
                 </>
               ) : null}
-              {usage.model && usage.tokens > 0 ? (
+              {usage.model && !usage.incomplete && usage.tokens > 0 ? (
                 <span className="bgtask-card-usage-sep" aria-hidden="true">
                   {" · "}
                 </span>
               ) : null}
-              {usage.tokens > 0 ? (
+              {!usage.incomplete && usage.tokens > 0 ? (
                 <span className="bgtask-card-tokens">
                   {tp("status.turnTokens", usage.tokens, {
                     shown: formatTurnTokens(usage.tokens),

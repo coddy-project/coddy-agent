@@ -33,6 +33,14 @@ type footer struct {
 
 	tokensIn  int
 	tokensOut int
+	// tokensReported says a usage update reached this session at all; until
+	// one does the counters are not a known zero and stay hidden.
+	// tokensUnknown marks an explicitly unknown total, which hides the
+	// counters for the session (DESIGN.md, Token usage HUD): an explicitly
+	// known zero is a value and shows as zero, a subsequent known update
+	// does not make an unknown total known again.
+	tokensReported bool
+	tokensUnknown  bool
 	// runningTasks is how many background tasks of the session run right now.
 	runningTasks int
 	// mcpConnected of mcpTotal configured MCP servers have answered; the
@@ -76,11 +84,18 @@ func (f *footer) Invalidate() {}
 func (f *footer) SetSession(title, modeID string) { f.title, f.modeID = title, modeID }
 
 // AddTokens accumulates per-call token usage (the update carries per-call
-// input/output, so directional counters are summed client-side).
-func (f *footer) AddTokens(in, out int) { f.tokensIn += in; f.tokensOut += out }
+// input/output, so directional counters are summed client-side). A known
+// update, zero included, makes the counters a value the footer shows.
+func (f *footer) AddTokens(in, out int) {
+	f.tokensIn += in
+	f.tokensOut += out
+	f.tokensReported = true
+}
 
 // ResetTokens clears accumulated counters (new/switched session).
-func (f *footer) ResetTokens() { f.tokensIn, f.tokensOut = 0, 0 }
+func (f *footer) ResetTokens() {
+	f.tokensIn, f.tokensOut, f.tokensReported, f.tokensUnknown = 0, 0, false, false
+}
 
 // SetRunningTasks updates how many background tasks of the session run right now.
 func (f *footer) SetRunningTasks(n int) { f.runningTasks = n }
@@ -449,7 +464,7 @@ func (f *footer) firstLeft(avail int) string {
 func (f *footer) secondLine(width int) string {
 	th := f.theme
 	left := ""
-	if f.tokensIn > 0 || f.tokensOut > 0 {
+	if f.tokensReported && !f.tokensUnknown {
 		left = "↑" + tui.FormatTokenCount(f.tokensIn) + " ↓" + tui.FormatTokenCount(f.tokensOut) + " "
 	}
 	if f.ctxMax > 0 {
