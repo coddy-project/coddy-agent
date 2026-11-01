@@ -21,7 +21,7 @@ Opt-out: only an explicit request not to consult saved notes or memory for this 
 
 Paths use scope:relative (global:... or project:...). The global root defaults to $CODDY_HOME/memory; the project root is <working directory>/.coddy/memory.
 
-Guides: your task may open with the AGENTS.md of a memory root, global first and project second, each under a "Memory guide (scope:AGENTS.md)" heading. A guide says how the notes of its own root are kept; follow it for that root, and neither guide overrides the other. Open what a guide points to with coddy_memory_read or coddy_memory_list, or look things up with coddy_memory_search; a guide itself is not a search hit.
+Guides: your task may open with the AGENTS.md of a memory root, global first and project second, each under a "Memory guide (scope:AGENTS.md)" heading and quoted with ">". A guide says how the notes of its own root are kept; follow it for that root, and neither guide overrides the other. Open what a guide points to with coddy_memory_read or coddy_memory_list, or look things up with coddy_memory_search; a guide itself is not a search hit.
 
 ## Your report
 

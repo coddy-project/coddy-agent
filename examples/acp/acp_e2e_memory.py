@@ -514,10 +514,17 @@ def main() -> None:
                 file=sys.stderr,
             )
             exit_code = exit_code or 14
-        guided_tasks = [t for t in child_tasks(Path(session_root) / sid3) if "Memory guide (global:AGENTS.md):" in t]
+        # The guide travels quoted ("> " before each line; the bundle's JSON may spell ">" as \u003e).
+        guided_tasks = [
+            t
+            for t in child_tasks(Path(session_root) / sid3)
+            if "Memory guide (global:AGENTS.md):" in t
+            and ("> # Memory guide" in t or "\\u003e # Memory guide" in t)
+            and guide_note in t
+        ]
         if not guided_tasks:
             print(
-                f"FAIL: no memory child of {sid3} started from a task that opens with the global guide.",
+                f"FAIL: no memory child of {sid3} started from a task that opens with the quoted global guide.",
                 file=sys.stderr,
             )
             exit_code = exit_code or 15

@@ -118,16 +118,17 @@ The child knows the notes only through search, list and read, plus its fixed pro
 - **Read like any note.** A guide goes through the same store as `coddy_memory_read`, so the project guide gets the protection of the rest of the project root: one that is a link leading out of `.coddy/memory`, or a named pipe or other file that is not a regular one, is not read, a warning in the agent log says so, and the run goes on without it;
 - **Size.** A guide is cut at 8 KiB with a marker that says so. Keep it a map and put the detail in notes it points to; the child opens them with `coddy_memory_read` and `coddy_memory_list`, or finds them with `coddy_memory_search`;
 - **Not in the prompt.** The guides ride in the task, never in the system prompt or a template: a `{{` in a guide is plain text, and editing a guide does not change the child's system prompt or tool definitions;
+- **Quoted, so references stay text.** Every guide line is written into the task as a Markdown quote (`> ` before it), and a quoted line is prose to the `@` mention grammar. A project guide arrives with a checkout, so an `@~/.aws/credentials` or `@/abs/path` in it attaches no file to the child's request;
 - **Not a search hit.** `coddy_memory_search` does not return the root `AGENTS.md`, since the child already has it. The child can still list and read it, and write it in a persist run when the guide asks for that.
 
 With both guides present the task looks like this.
 
 ```text
 Memory guide (global:AGENTS.md):
-<the global file>
+> <the global file, every line quoted>
 
 Memory guide (project:AGENTS.md):
-<the project file>
+> <the project file, every line quoted>
 
 User message for this turn:
 <your message>

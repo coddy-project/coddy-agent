@@ -94,7 +94,8 @@ func Guides(cfg *config.Config, cwd string) ([]Guide, error) {
 }
 
 // TaskMessage is the child's task: the guides of the memory roots, each under
-// a heading that names it, then the user message behind a preamble. The user
+// a heading that names it and quoted line by line, then the user message
+// behind a preamble. The user
 // message is cut at the bound a spawn_agent prompt has (32 KiB) and each
 // guide at guideMaxBytes, with a marker, so the pass sees a bounded input
 // (issue #266). Without guides the task is the preamble and the message alone.
@@ -105,7 +106,7 @@ func TaskMessage(userText string, guides []Guide) string {
 		if cut {
 			text += guideCutMarker
 		}
-		b.WriteString("Memory guide (" + g.Path + "):\n" + text + "\n\n")
+		b.WriteString("Memory guide (" + g.Path + "):\n" + quoteLines(text) + "\n\n")
 	}
 	text, cut := cutBytes(strings.TrimSpace(userText), subagents.MaxPromptBytes)
 	if cut {
@@ -113,6 +114,25 @@ func TaskMessage(userText string, guides []Guide) string {
 	}
 	b.WriteString(taskPreamble + text)
 	return b.String()
+}
+
+// quoteLines writes text as a Markdown blockquote, "> " before every line and
+// ">" alone for an empty one. The child's task is resolved for @ references
+// like any prompt, and a guide arrives with a checkout: a reference in it
+// ("@~/.aws/credentials") would attach that file to the child's request. A
+// quoted line is prose to the mention grammar, a fence the guide opens and
+// never closes cannot swallow the user message after it, and the guide stays
+// readable text.
+func quoteLines(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		if l == "" {
+			lines[i] = ">"
+		} else {
+			lines[i] = "> " + l
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // cutBytes cuts s to at most max bytes without splitting a character, the
