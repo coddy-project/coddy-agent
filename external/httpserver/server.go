@@ -878,7 +878,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	turnCtx, cancelTurn := context.WithCancel(ctx)
 	st.SetCancel(cancelTurn)
 	defer cancelTurn()
-	directRes, err := s.runDirectYAMLCompletion(turnCtx, st, sessionID, model, bridge, clientTools, genOpts)
+	directRes, err := s.runDirectYAMLCompletion(turnCtx, st, sessionID, model, statisticsSourceFromHTTP(req.Metadata), bridge, clientTools, genOpts)
 	if err != nil {
 		if errors.Is(err, context.Canceled) && req.Stream {
 			meta := metadataResponse(s.activeCfg(), model)
@@ -1493,7 +1493,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	respTurnCtx, respCancelTurn := context.WithCancel(ctx)
 	st.SetCancel(respCancelTurn)
 	defer respCancelTurn()
-	directRes, err := s.runDirectYAMLCompletion(respTurnCtx, st, sid, model, bridge, nil, llm.RequestOptions{})
+	directRes, err := s.runDirectYAMLCompletion(respTurnCtx, st, sid, model, statisticsSourceFromHTTP(body.Metadata), bridge, nil, llm.RequestOptions{})
 	if err != nil {
 		if errors.Is(err, context.Canceled) && body.Stream {
 			meta := metadataResponse(s.activeCfg(), model)

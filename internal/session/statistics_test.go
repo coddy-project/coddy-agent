@@ -10,6 +10,32 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/statistics"
 )
 
+func TestStatisticsImportMarksQueuedFollowUps(t *testing.T) {
+	home := t.TempDir()
+	cfg := &config.Config{Paths: config.Paths{Home: home}}
+	fs := &FileStore{Root: cfg.ResolvedSessionsRoot()}
+	dir, err := fs.EnsureLayout("sess_followup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &State{ID: "sess_followup", CWD: home, Mode: ModeAgent, SessionDir: dir}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "queued", FollowUp: true, CreatedAt: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano)})
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(cfg, nil, nil, slog.New(slog.DiscardHandler), home, fs)
+	if err := m.importStatisticsSession(m.Statistics(), st.ID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	report, err := m.Statistics().Query(statistics.Filter{Source: "followup"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Totals.Requests != 1 {
+		t.Fatalf("imported follow-up kept the session origin: %+v", report)
+	}
+}
+
 func TestStatisticsImportIsIdempotentAndSkipsLiveTurns(t *testing.T) {
 	home := t.TempDir()
 	cfg := &config.Config{Paths: config.Paths{Home: home}}

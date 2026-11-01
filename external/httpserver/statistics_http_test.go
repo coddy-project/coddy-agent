@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/statistics"
 )
@@ -71,6 +72,24 @@ func TestStatisticsHTTPPersistenceSettingsAndExport(t *testing.T) {
 	r, err := m.Statistics().Query(statistics.Filter{})
 	if err != nil || r.Totals.Chats != 0 {
 		t.Fatalf("cleanup: %+v %v", r, err)
+	}
+}
+
+func TestStatisticsDirectWebUICompletionKeepsItsSurface(t *testing.T) {
+	m, s, _ := testHTTPServerPersist(t)
+	s.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) {
+		return fakeProvider{reply: "done"}, nil
+	}
+	w := statisticsDo(s, http.MethodPost, "/v1/responses", `{"model":"openai/gpt-4o","input":"hi","stream":false,"metadata":{"surface":"webui"}}`)
+	if w.Code != 200 {
+		t.Fatalf("direct completion: %d %s", w.Code, w.Body.String())
+	}
+	report, err := m.Statistics().Query(statistics.Filter{Source: "webui"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Totals.Requests != 1 {
+		t.Fatalf("direct web UI request was recorded under another source: %+v", report)
 	}
 }
 

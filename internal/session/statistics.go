@@ -153,6 +153,7 @@ func (m *Manager) importStatisticsSession(s *statistics.Store, id string, before
 		e.Kind = "turn"
 		if msg.FollowUp {
 			e.Kind = "request"
+			e.Source = "followup"
 		}
 		e.ID = fmt.Sprintf("import:%s:turn:%s:%d", id, msg.CreatedAt, i)
 		e.At = at
