@@ -225,7 +225,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List persisted chat sessions",
 					"description": "Rows are ordered by **session.json** **updatedAt** (newest first), then **id** when timestamps tie. " +
-						"The envelope's **active_count** is the global number of currently active turns in History's normal eligible scope (not the page or active filters), so it excludes archived, scheduler and subagent sessions. " +
+						"The envelope's **active_count** is the global number of currently active turns in History's normal eligible scope (not the page or active filters). It counts the turns of chats and of their subagents alike, and excludes archived sessions, scheduler job sessions with their runs and print runs with their children. " +
 						"**updatedAt** advances when session state is persisted (messages, titles, etc.); loading a snapshot into memory for HTTP does not rewrite it. " +
 						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**. " +
 						"Child sessions of subagent runs (**subagentRun** metadata, stored inside the parent's bundle) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer. " +
