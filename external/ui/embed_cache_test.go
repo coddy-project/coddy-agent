@@ -82,12 +82,18 @@ func TestTextAssetsAreSentCompressed(t *testing.T) {
 	}
 }
 
-// A range request, a picture and a HEAD keep their usual answers.
-func TestRangesPicturesAndHeadStayPlain(t *testing.T) {
+// A range request is answered over the encoding the client accepts; a
+// picture and a HEAD keep their usual answers.
+func TestRangesPicturesAndHead(t *testing.T) {
 	h := Handler()
 	ranged := get(t, h, http.MethodGet, "/app.js", map[string]string{"Accept-Encoding": "gzip", "Range": "bytes=0-9"})
-	if ranged.Code != http.StatusPartialContent || ranged.Header().Get("Content-Encoding") != "" || ranged.Body.Len() != 10 {
-		t.Fatalf("range: status %d, encoding %q, %d bytes", ranged.Code, ranged.Header().Get("Content-Encoding"), ranged.Body.Len())
+	gzFirst := indexAssets()["app.js"].gzipped()[:10]
+	if ranged.Code != http.StatusPartialContent || ranged.Header().Get("Content-Encoding") != "gzip" || !bytes.Equal(ranged.Body.Bytes(), gzFirst) {
+		t.Fatalf("gzip range: status %d, encoding %q, %d bytes", ranged.Code, ranged.Header().Get("Content-Encoding"), ranged.Body.Len())
+	}
+	plain := get(t, h, http.MethodGet, "/app.js", map[string]string{"Range": "bytes=0-9"})
+	if plain.Code != http.StatusPartialContent || plain.Header().Get("Content-Encoding") != "" || plain.Body.Len() != 10 {
+		t.Fatalf("plain range: status %d, encoding %q, %d bytes", plain.Code, plain.Header().Get("Content-Encoding"), plain.Body.Len())
 	}
 	png := get(t, h, http.MethodGet, "/icon-192.png", map[string]string{"Accept-Encoding": "gzip"})
 	if png.Header().Get("Content-Encoding") != "" || png.Header().Get("ETag") == "" {
@@ -99,6 +105,40 @@ func TestRangesPicturesAndHeadStayPlain(t *testing.T) {
 	}
 	if mf := get(t, h, http.MethodGet, "/manifest.webmanifest", map[string]string{"Accept-Encoding": "gzip"}); mf.Header().Get("Content-Type") != "application/manifest+json" {
 		t.Fatalf("manifest Content-Type %q", mf.Header().Get("Content-Type"))
+	}
+}
+
+// The Accept-Encoding parser honours q-values, duplicate tokens and the
+// wildcard, so a client that refused gzip never gets a gzip body.
+func TestAcceptsGzipParsesQValues(t *testing.T) {
+	for _, c := range []struct {
+		header string
+		want   bool
+	}{
+		{"gzip", true},
+		{"gzip, deflate, br", true},
+		{"GZIP", true},
+		{"gzip;q=1", true},
+		{"gzip;q=0.5", true},
+		{"gzip;q=0", false},
+		{"gzip;q=0.0", false},
+		{"gzip;q=0.000", false},
+		{"gzip;q=0.0000", false},
+		{"gzip;foo=1;q=0", false},
+		{"gzip, gzip;q=0", false},
+		{"gzip;q=0, gzip", true},
+		{"*", true},
+		{"*;q=0", false},
+		{"br", false},
+		{"br;q=1, *;q=0.5", true},
+		{"identity", false},
+		{"", false},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/app.js", nil)
+		req.Header.Set("Accept-Encoding", c.header)
+		if got := acceptsGzip(req); got != c.want {
+			t.Fatalf("Accept-Encoding %q: got %v, want %v", c.header, got, c.want)
+		}
 	}
 }
 

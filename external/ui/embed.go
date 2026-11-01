@@ -13,6 +13,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -89,18 +90,33 @@ func compressible(name string) bool {
 	return false
 }
 
-// acceptsGzip reports whether the request takes a gzip body (and does not
-// refuse it with q=0).
+// acceptsGzip reports whether the request takes a gzip body: the last "gzip"
+// entry of Accept-Encoding with a q above zero, or a wildcard that is not
+// refused either when gzip is not named at all.
 func acceptsGzip(r *http.Request) bool {
+	gzipQ, starQ := -1.0, -1.0
 	for _, part := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
 		token, params, _ := strings.Cut(strings.TrimSpace(part), ";")
-		if !strings.EqualFold(strings.TrimSpace(token), "gzip") {
-			continue
+		token = strings.TrimSpace(token)
+		q := 1.0
+		for _, p := range strings.Split(params, ";") {
+			if k, v, ok := strings.Cut(strings.TrimSpace(p), "="); ok && strings.EqualFold(k, "q") {
+				if f, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
+					q = f
+				}
+			}
 		}
-		q := strings.ReplaceAll(strings.TrimSpace(params), " ", "")
-		return q != "q=0" && q != "q=0.0" && q != "q=0.00" && q != "q=0.000"
+		switch {
+		case strings.EqualFold(token, "gzip"):
+			gzipQ = q
+		case token == "*":
+			starQ = q
+		}
 	}
-	return false
+	if gzipQ >= 0 {
+		return gzipQ > 0
+	}
+	return starQ > 0
 }
 
 // Handler serves the bundled SPA and sets Cache-Control on the fixed asset paths
@@ -139,9 +155,10 @@ func Handler() http.Handler {
 
 // serveAsset answers with the embedded file the path names, its headers set
 // by Handler: the gzip copy when the request takes one, else the file through
-// the file server, both under a validator of their own. A range request, a
-// path that is not a file and /index.html (which the file server redirects to
-// /) are left to the file server as they were.
+// the file server, both under a validator of their own. A range request is
+// answered over the encoding the client accepts. A path that is not a file
+// and /index.html (which the file server redirects to /) are left to the file
+// server as they were.
 func serveAsset(w http.ResponseWriter, r *http.Request, next http.Handler) {
 	name := strings.TrimPrefix(r.URL.Path, "/")
 	if name == "" {
@@ -156,11 +173,15 @@ func serveAsset(w http.ResponseWriter, r *http.Request, next http.Handler) {
 	if text {
 		w.Header().Add("Vary", "Accept-Encoding")
 	}
-	if text && acceptsGzip(r) && r.Header.Get("Range") == "" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+	if text && acceptsGzip(r) && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
 		if w.Header().Get("Content-Type") == "" {
-			if ct := mime.TypeByExtension(path.Ext(name)); ct != "" {
-				w.Header().Set("Content-Type", ct)
+			ct := mime.TypeByExtension(path.Ext(name))
+			if ct == "" {
+				// An extension the mime table does not know must not be sniffed
+				// out of the compressed bytes, which would type it x-gzip.
+				ct = http.DetectContentType(a.data)
 			}
+			w.Header().Set("Content-Type", ct)
 		}
 		w.Header().Set("Content-Encoding", "gzip")
 		w.Header().Set("ETag", `"`+a.etag+`-gz"`)
