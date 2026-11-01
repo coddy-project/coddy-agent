@@ -582,6 +582,22 @@ func TestSearchLeavesTheRootGuideOut(t *testing.T) {
 	}
 }
 
+// The file a search leaves out is the one ReadNote reads as the guide: on a
+// case-insensitive filesystem (macOS, Windows) an Agents.md at the root is the
+// guide and no hit, on a case-sensitive one it is an ordinary note.
+func TestSearchLeavesOutTheFileReadAsTheGuide(t *testing.T) {
+	st := NewWithRoots(t.TempDir(), filepath.Join(t.TempDir(), ".coddy", "memory"))
+	writeNotes(t, st, "global", map[string]string{"Agents.md": "relay deploy notes live under ops"})
+	_, readErr := st.ReadNote("global", GuideName)
+	got := searchPaths(t, st, "relay deploy", "global", 8)
+	if readErr == nil && len(got) != 0 {
+		t.Fatalf("Agents.md is read as the guide and still a hit: %v", got)
+	}
+	if readErr != nil && (len(got) != 1 || got[0] != "global:Agents.md") {
+		t.Fatalf("Agents.md is not the guide here (%v) but hits = %v", readErr, got)
+	}
+}
+
 // Behaviour that does not depend on the ranking: what an empty or empty-
 // handed query returns, which roots a scope reads, how many hits come back
 // and how equal scores are ordered.

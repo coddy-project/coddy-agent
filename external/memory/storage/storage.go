@@ -149,9 +149,14 @@ func (s *Store) Search(query string, scope string, maxHits int) ([]Hit, error) {
 			}
 			return nil, err
 		}
+		// The guide is the file the root answers for GuideName, whatever its
+		// case on a case-insensitive filesystem.
+		guide, _ := root.Stat(GuideName)
 		for _, rel := range collectFiles(root.FS()) {
-			if rel == GuideName {
-				continue
+			if guide != nil && !strings.Contains(rel, "/") {
+				if info, err := root.Stat(rel); err == nil && os.SameFile(guide, info) {
+					continue
+				}
 			}
 			b, err := root.ReadFile(rel)
 			if err != nil {
