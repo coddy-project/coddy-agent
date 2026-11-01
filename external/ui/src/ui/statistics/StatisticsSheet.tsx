@@ -8,13 +8,11 @@ export function StatisticsSheet({
   onClose,
   children,
   busy = false,
-  closeLabel,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   busy?: boolean;
-  closeLabel?: string;
 }) {
   const { t } = useT();
   const ref = useRef<HTMLDivElement>(null);
@@ -40,6 +38,14 @@ export function StatisticsSheet({
       )
         return;
       if (e.key === "Escape") {
+        if (
+          document.activeElement?.getAttribute("role") === "combobox" &&
+          document.activeElement.getAttribute("aria-expanded") === "true" &&
+          document.activeElement
+            .closest(".settings-combobox")
+            ?.querySelector('[role="listbox"]')
+        )
+          return;
         e.preventDefault();
         e.stopImmediatePropagation();
         if (!busyRef.current) close.current();
@@ -89,10 +95,25 @@ export function StatisticsSheet({
         tabIndex={-1}
         ref={ref}
       >
-        <header className="statistics-sheet-head">
+        <header className="sessions-head statistics-sheet-head">
           <h2>{title}</h2>
-          <button onClick={onClose} disabled={busy}>
-            {closeLabel ?? t("stats.done")}
+          <button
+            className="sessions-close"
+            aria-label={t("common.close")}
+            onClick={onClose}
+            disabled={busy}
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <path d="m6 6 12 12M18 6 6 18" />
+            </svg>
           </button>
         </header>
         <div className="statistics-sheet-body">{children}</div>

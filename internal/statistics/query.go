@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/llm/models"
 )
 
 type Filter struct {
@@ -87,7 +89,14 @@ func ApplyPrice(e *Event, prices map[string]Price) {
 		p, ok = prices[e.Model]
 	}
 	if !ok {
-		return
+		catalog, found := models.LookupPrice(e.Model)
+		if !found {
+			return
+		}
+		p = Price{Input: catalog.Input, Output: catalog.Output, Cached: catalog.Input}
+		if catalog.Cached != nil {
+			p.Cached = *catalog.Cached
+		}
 	}
 	cached := int64(0)
 	if e.Cached != nil {

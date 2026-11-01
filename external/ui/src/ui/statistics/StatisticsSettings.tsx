@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { landmarkAnchor } from "../settings/settingsSections";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useT } from "../i18n/I18nProvider";
+import { Combobox } from "../settings/Combobox";
+import { Chevron } from "../components/Chevron";
 import {
   browserTimezone,
   statisticsRequest,
@@ -24,6 +26,7 @@ export default function StatisticsSettings({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [pricesOpen, setPricesOpen] = useState(false);
   const load = async () => {
     const data = await statisticsRequest<StatisticsData>(
       `/coddy/statistics?timezone=${encodeURIComponent(browserTimezone())}`,
@@ -146,20 +149,17 @@ export default function StatisticsSettings({
             </h3>
             <label className="statistics-filter">
               <span>{t("stats.timezone")}</span>
-              <input
-                list="statistics-timezones"
+              <Combobox
+                inlineOptions
                 value={timezone}
+                ariaLabel={t("stats.timezone")}
                 placeholder={t("stats.timezone.browser")}
-                onChange={(e) => {
-                  setTimezone(e.target.value);
+                options={zones.map((value) => ({ value }))}
+                onChange={(value) => {
+                  setTimezone(value);
                   setSaved(false);
                 }}
               />
-              <datalist id="statistics-timezones">
-                {zones.map((z) => (
-                  <option key={z} value={z} />
-                ))}
-              </datalist>
             </label>
             <p className="statistics-muted">
               {t("stats.timezone.hint", { timezone: browserTimezone() })}
@@ -172,58 +172,77 @@ export default function StatisticsSettings({
               {t("stats.prices")}
             </h3>
             <p className="statistics-muted">{t("stats.prices.hint")}</p>
-            <datalist id="statistics-models">
-              {models.map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
-            {rates.map((r, i) => (
-              <div className="statistics-rate" key={i}>
-                <label className="statistics-filter">
-                  <span>{t("stats.model")}</span>
-                  <input
-                    list="statistics-models"
-                    value={r.name}
-                    onChange={(e) => changeRate(i, "name", e.target.value)}
-                  />
-                </label>
-                {(["input", "output", "cached"] as const).map((field) => (
-                  <label className="statistics-filter" key={field}>
-                    <span>{t(`stats.${field}`)}</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={r[field]}
-                      onChange={(e) => changeRate(i, field, e.target.value)}
+            <details
+              className="statistics-price-overrides"
+              onToggle={(e) => setPricesOpen(e.currentTarget.open)}
+            >
+              <summary>
+                <Chevron open={pricesOpen} />
+                {t("stats.prices.custom", { count: rates.length })}
+              </summary>
+              {rates.map((r, i) => (
+                <div className="statistics-rate" key={i}>
+                  <label className="statistics-filter">
+                    <span>{t("stats.model")}</span>
+                    <Combobox
+                      inlineOptions
+                      value={r.name}
+                      ariaLabel={t("stats.model")}
+                      options={models.map((value) => ({ value }))}
+                      onChange={(value) => changeRate(i, "name", value)}
                     />
                   </label>
-                ))}
-                <button
-                  aria-label={t("stats.prices.remove")}
-                  onClick={() => {
-                    setRates((old) => old.filter((_, j) => i !== j));
-                    setSaved(false);
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-            <button
-              onClick={() => {
-                setRates((old) => [
-                  ...old,
-                  { name: "", input: "", output: "", cached: "" },
-                ]);
-                setSaved(false);
-              }}
-            >
-              {t("stats.prices.add")}
-            </button>
+                  {(["input", "output", "cached"] as const).map((field) => (
+                    <label className="statistics-filter" key={field}>
+                      <span>{t(`stats.${field}`)}</span>
+                      <input
+                        className="settings-input"
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={r[field]}
+                        onChange={(e) => changeRate(i, field, e.target.value)}
+                      />
+                    </label>
+                  ))}
+                  <button
+                    className="settings-btn settings-btn-icon statistics-rate-remove"
+                    aria-label={t("stats.prices.remove")}
+                    onClick={() => {
+                      setRates((old) => old.filter((_, j) => i !== j));
+                      setSaved(false);
+                    }}
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden="true"
+                    >
+                      <path d="m6 6 12 12M18 6 6 18" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+              <button
+                className="settings-btn"
+                onClick={() => {
+                  setRates((old) => [
+                    ...old,
+                    { name: "", input: "", output: "", cached: "" },
+                  ]);
+                  setSaved(false);
+                }}
+              >
+                {t("stats.prices.add")}
+              </button>
+            </details>
           </section>
           <button
-            className="statistics-primary"
+            className="settings-btn settings-btn-primary"
             disabled={busy}
             onClick={() => void save()}
           >
@@ -237,6 +256,7 @@ export default function StatisticsSettings({
             </h3>
             <p className="statistics-muted">{t("stats.import.message")}</p>
             <button
+              className="settings-btn"
               disabled={busy || settings.import.state === "running"}
               onClick={() => void importHistory()}
             >
@@ -250,16 +270,22 @@ export default function StatisticsSettings({
             <p className="statistics-muted">{t("stats.clear.hint")}</p>
             <label className="statistics-filter">
               <span>{t("stats.clear.keep")}</span>
-              <select value={keep} onChange={(e) => setKeep(e.target.value)}>
-                {["none", "day", "week", "month"].map((v) => (
-                  <option key={v} value={v}>
-                    {t(`stats.clear.${v}`)}
-                  </option>
-                ))}
-              </select>
+              <span className="appearance-language-select-wrap">
+                <select
+                  className="appearance-language-select"
+                  value={keep}
+                  onChange={(e) => setKeep(e.target.value)}
+                >
+                  {["none", "day", "week", "month"].map((v) => (
+                    <option key={v} value={v}>
+                      {t(`stats.clear.${v}`)}
+                    </option>
+                  ))}
+                </select>
+              </span>
             </label>
             <button
-              className="statistics-danger"
+              className="settings-btn settings-btn-danger statistics-danger"
               disabled={busy}
               onClick={() => setConfirm(true)}
             >

@@ -175,7 +175,13 @@ func (s *Store) Append(e Event) error {
 		e.Dataset = st.Dataset
 		e.RecordedAt = time.Now().UTC()
 		if e.Kind == "call" {
-			ApplyPrice(&e, st.Prices)
+			// Preserve configured tariffs at recording time. Catalog estimates
+			// are resolved on reads so a later custom tariff can replace them.
+			_, specific := st.Prices[e.Provider+"/"+e.Model]
+			_, general := st.Prices[e.Model]
+			if specific || general {
+				ApplyPrice(&e, st.Prices)
+			}
 		}
 		b, err := json.Marshal(e)
 		if err != nil {

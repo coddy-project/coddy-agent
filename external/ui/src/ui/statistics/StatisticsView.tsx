@@ -6,6 +6,7 @@ import { snapshotPhone } from "../shellBreakpoint";
 import { useT } from "../i18n/I18nProvider";
 import { CoddyWorkIndicator } from "../messages/CoddyWorkIndicator";
 import { ActivityCalendar } from "./ActivityCalendar";
+import { Combobox } from "../settings/Combobox";
 import {
   browserTimezone,
   exportStatistics,
@@ -239,14 +240,20 @@ export default function StatisticsView({
   ) => (
     <label className="statistics-filter">
       <span>{t(label)}</span>
-      <select value={value} onChange={(e) => change(e.target.value)}>
-        <option value="">{t("stats.all")}</option>
-        {rows.map((row) => (
-          <option key={row.name} value={row.name}>
-            {label === "stats.source" ? sourceName(row.name) : row.name}
-          </option>
-        ))}
-      </select>
+      <Combobox
+        inlineOptions
+        value={value}
+        onChange={change}
+        ariaLabel={t(label)}
+        placeholder={t("stats.all")}
+        options={[
+          { value: "", label: t("stats.all") },
+          ...rows.map((row) => ({
+            value: row.name,
+            label: label === "stats.source" ? sourceName(row.name) : row.name,
+          })),
+        ]}
+      />
     </label>
   );
   const breakdown = (title: string, rows: Breakdown[] = [], counts = true) => (
@@ -296,18 +303,29 @@ export default function StatisticsView({
               }}
             >
               <button
-                className="statistics-icon-button"
+                className="sessions-close"
                 aria-label={t("stats.actions")}
                 aria-expanded={actionsOpen}
                 onClick={() => setActionsOpen(!actionsOpen)}
               >
-                ⋯
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <circle cx="5" cy="12" r="2" />
+                  <circle cx="12" cy="12" r="2" />
+                  <circle cx="19" cy="12" r="2" />
+                </svg>
               </button>
               {actionsOpen && (
                 <div className="statistics-actions-menu">
                   {data && (
                     <>
                       <button
+                        className="settings-btn"
                         onClick={() => {
                           exportStatistics(data, "csv");
                           setActionsOpen(false);
@@ -316,6 +334,7 @@ export default function StatisticsView({
                         {t("stats.exportCsv")}
                       </button>
                       <button
+                        className="settings-btn"
                         onClick={() => {
                           exportStatistics(data, "json");
                           setActionsOpen(false);
@@ -326,7 +345,7 @@ export default function StatisticsView({
                     </>
                   )}
                   {!aggregate && (
-                    <button onClick={openSettings}>
+                    <button className="settings-btn" onClick={openSettings}>
                       {t("stats.settings")}
                     </button>
                   )}
@@ -334,11 +353,21 @@ export default function StatisticsView({
               )}
             </div>
             <button
-              className="statistics-icon-button"
+              className="sessions-close"
               aria-label={t("common.close")}
               onClick={onClose}
             >
-              ×
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden="true"
+              >
+                <path d="m6 6 12 12M18 6 6 18" />
+              </svg>
             </button>
           </div>
         </header>
@@ -383,16 +412,19 @@ export default function StatisticsView({
             {tab === "overview" && (
               <label className="statistics-filter">
                 <span>{t("stats.period")}</span>
-                <select
-                  value={period}
-                  onChange={(e) => setPeriod(e.target.value)}
-                >
-                  {["7", "30", "year", "all", "custom"].map((v) => (
-                    <option key={v} value={v}>
-                      {t(`stats.period.${v}`)}
-                    </option>
-                  ))}
-                </select>
+                <span className="appearance-language-select-wrap">
+                  <select
+                    className="appearance-language-select"
+                    value={period}
+                    onChange={(e) => setPeriod(e.target.value)}
+                  >
+                    {["7", "30", "year", "all", "custom"].map((v) => (
+                      <option key={v} value={v}>
+                        {t(`stats.period.${v}`)}
+                      </option>
+                    ))}
+                  </select>
+                </span>
               </label>
             )}
             {tab === "overview" && period === "custom" && (
@@ -400,6 +432,7 @@ export default function StatisticsView({
                 <label className="statistics-filter">
                   <span>{t("stats.from")}</span>
                   <input
+                    className="settings-input"
                     type="date"
                     value={from}
                     onChange={(e) => setFrom(e.target.value)}
@@ -408,6 +441,7 @@ export default function StatisticsView({
                 <label className="statistics-filter">
                   <span>{t("stats.to")}</span>
                   <input
+                    className="settings-input"
                     type="date"
                     value={to}
                     onChange={(e) => setTo(e.target.value)}
@@ -417,7 +451,7 @@ export default function StatisticsView({
             )}
             {(tab === "overview" || swarm) && (
               <button
-                className="statistics-filter-trigger"
+                className="settings-btn statistics-filter-trigger"
                 aria-expanded={filtersOpen}
                 onClick={() => setFiltersOpen(true)}
               >
@@ -440,7 +474,10 @@ export default function StatisticsView({
           </div>
           <div className="statistics-filter-tags">
             {scope === "swarm" && (
-              <button onClick={() => setFiltersOpen(true)}>
+              <button
+                className="settings-btn"
+                onClick={() => setFiltersOpen(true)}
+              >
                 {t("stats.swarm")}
               </button>
             )}
@@ -463,7 +500,11 @@ export default function StatisticsView({
             ]
               .filter(([, value]) => value)
               .map(([key, value]) => (
-                <button key={key} onClick={() => setFiltersOpen(true)}>
+                <button
+                  className="settings-btn"
+                  key={key}
+                  onClick={() => setFiltersOpen(true)}
+                >
                   {t(key!)}: {value}
                 </button>
               ))}
@@ -477,38 +518,44 @@ export default function StatisticsView({
                 {swarm && (
                   <label className="statistics-filter">
                     <span>{t("stats.scope")}</span>
-                    <select
-                      value={scope}
-                      onChange={(e) => {
-                        setScope(e.target.value);
-                        setNode("");
-                        setModel("");
-                        setProvider("");
-                        setProject("");
-                        setSource("");
-                      }}
-                    >
-                      {!relayHome && (
-                        <option value="local">{t("stats.thisServer")}</option>
-                      )}
-                      <option value="swarm">{t("stats.swarm")}</option>
-                    </select>
+                    <span className="appearance-language-select-wrap">
+                      <select
+                        className="appearance-language-select"
+                        value={scope}
+                        onChange={(e) => {
+                          setScope(e.target.value);
+                          setNode("");
+                          setModel("");
+                          setProvider("");
+                          setProject("");
+                          setSource("");
+                        }}
+                      >
+                        {!relayHome && (
+                          <option value="local">{t("stats.thisServer")}</option>
+                        )}
+                        <option value="swarm">{t("stats.swarm")}</option>
+                      </select>
+                    </span>
                   </label>
                 )}
                 {aggregate && (
                   <label className="statistics-filter">
                     <span>{t("stats.node")}</span>
-                    <select
-                      value={node}
-                      onChange={(e) => setNode(e.target.value)}
-                    >
-                      <option value="">{t("stats.all")}</option>
-                      {data?.nodes?.map((n) => (
-                        <option key={n.dataset} value={n.dataset}>
-                          {n.path.join(" / ") || n.name}
-                        </option>
-                      ))}
-                    </select>
+                    <span className="appearance-language-select-wrap">
+                      <select
+                        className="appearance-language-select"
+                        value={node}
+                        onChange={(e) => setNode(e.target.value)}
+                      >
+                        <option value="">{t("stats.all")}</option>
+                        {data?.nodes?.map((n) => (
+                          <option key={n.dataset} value={n.dataset}>
+                            {n.path.join(" / ") || n.name}
+                          </option>
+                        ))}
+                      </select>
+                    </span>
                   </label>
                 )}
                 {tab === "overview" && (
@@ -531,7 +578,7 @@ export default function StatisticsView({
                 )}
               </div>
               <button
-                className="statistics-reset"
+                className="settings-btn statistics-reset"
                 onClick={() => {
                   setProject("");
                   setProvider("");
@@ -563,7 +610,9 @@ export default function StatisticsView({
           {error && (
             <div role="alert" className="statistics-error">
               {error}
-              <button onClick={() => void read()}>{t("stats.retry")}</button>
+              <button className="settings-btn" onClick={() => void read()}>
+                {t("stats.retry")}
+              </button>
             </div>
           )}
           {data?.warnings?.map((w) => (
@@ -610,7 +659,10 @@ export default function StatisticsView({
                   <CoddyWorkIndicator />
                   {t("stats.import.running")}
                 </div>
-                <progress max={Math.max(1, imp.total)} value={imp.done} />
+                <progress
+                  max={Math.max(1, imp.total)}
+                  value={imp.total ? imp.done : undefined}
+                />
                 <span>
                   {t("stats.import.progress", {
                     done: imp.done,
@@ -622,7 +674,10 @@ export default function StatisticsView({
             {imp && ["interrupted", "error"].includes(imp.state) && (
               <p className="statistics-warning">
                 {t("stats.import.interrupted")}
-                <button onClick={() => void importHistory("start")}>
+                <button
+                  className="settings-btn"
+                  onClick={() => void importHistory("start")}
+                >
                   {t("stats.retry")}
                 </button>
               </p>
@@ -665,6 +720,7 @@ export default function StatisticsView({
                     <div className="statistics-segments">
                       {(["days", "weeks", "cumulative"] as const).map((v) => (
                         <button
+                          className="settings-btn"
                           key={v}
                           aria-pressed={mode === v}
                           onClick={() => setMode(v)}
@@ -768,7 +824,7 @@ export default function StatisticsView({
                   <p className="statistics-muted">
                     {t("stats.unpriced", { count: totals.unpricedCalls })}
                     {!aggregate && (
-                      <button onClick={openSettings}>
+                      <button className="settings-btn" onClick={openSettings}>
                         {t("stats.prices.configure")}
                       </button>
                     )}
@@ -807,7 +863,6 @@ export default function StatisticsView({
         {imp?.state === "pending" && tab === "overview" && (
           <StatisticsSheet
             title={t("stats.import.title")}
-            closeLabel={t("common.close")}
             onClose={() => void importHistory("skip")}
             busy={working}
           >
@@ -819,13 +874,14 @@ export default function StatisticsView({
             )}
             <div className="statistics-sheet-actions">
               <button
-                className="statistics-primary"
+                className="confirm-dialog-btn confirm-dialog-btn--primary"
                 disabled={working}
                 onClick={() => void importHistory("start")}
               >
                 {t("stats.import.start")}
               </button>
               <button
+                className="settings-btn"
                 disabled={working}
                 onClick={() => void importHistory("skip")}
               >

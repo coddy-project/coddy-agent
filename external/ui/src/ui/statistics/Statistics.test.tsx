@@ -18,6 +18,47 @@ afterEach(() => {
   initLocale("en");
 });
 
+test("catalog pricing needs no manual form; custom tariffs expand on demand", async () => {
+  initLocale("en");
+  const data = fixture();
+  data.settings!.import.state = "complete";
+  const fetch = vi.fn(
+    async (_: RequestInfo | URL, init?: RequestInit) =>
+      new Response(
+        JSON.stringify(init?.method === "PUT" ? data.settings : data),
+      ),
+  );
+  vi.stubGlobal("fetch", fetch);
+  render(<StatisticsSettings />);
+  const summary = await screen.findByText("Custom prices (0)");
+  expect(summary.closest("details")).not.toHaveAttribute("open");
+  expect(screen.getByText(/bundled models.dev catalog/)).toBeInTheDocument();
+  fireEvent.click(summary);
+  fireEvent.click(screen.getByRole("button", { name: "Add model price" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Model" }), {
+    target: { value: "account/model" },
+  });
+  for (const name of ["Input", "Output", "Cached input"])
+    fireEvent.change(screen.getByRole("spinbutton", { name }), {
+      target: { value: "0" },
+    });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Save statistics settings" }),
+  );
+  await waitFor(() =>
+    expect(fetch).toHaveBeenCalledWith(
+      "/coddy/statistics/settings",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          timezone: "",
+          prices: { "account/model": { input: 0, output: 0, cached: 0 } },
+        }),
+      }),
+    ),
+  );
+});
+
 function fixture(): StatisticsData {
   const report = {
     dataset: "one",
@@ -153,6 +194,13 @@ test("filters stay collapsed, preserve selections and return focus when dismisse
   trigger.focus();
   fireEvent.click(trigger);
   const dialog = screen.getByRole("dialog", { name: "Filters" });
+  const modelInput = within(dialog).getByRole("combobox", { name: "Model" });
+  modelInput.focus();
+  fireEvent.focus(modelInput);
+  expect(within(dialog).getByRole("listbox")).toBeInTheDocument();
+  fireEvent.keyDown(modelInput, { key: "Escape" });
+  expect(within(dialog).queryByRole("listbox")).toBeNull();
+  expect(screen.getByRole("dialog", { name: "Filters" })).toBeInTheDocument();
   fireEvent.change(within(dialog).getByLabelText("Model"), {
     target: { value: "model" },
   });
@@ -163,6 +211,7 @@ test("filters stay collapsed, preserve selections and return focus when dismisse
       ),
     ).toBe(true),
   );
+  fireEvent.keyDown(modelInput, { key: "Escape" });
   fireEvent.keyDown(window, { key: "Escape" });
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(onClose).not.toHaveBeenCalled();

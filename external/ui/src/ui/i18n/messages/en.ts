@@ -134,7 +134,8 @@ export const messagesEn: Record<string, string> = {
     "Leave empty to use the browser time zone ({timezone}). Enter an IANA zone to override it for this server.",
   "stats.prices": "Model prices · USD per million tokens",
   "stats.prices.hint":
-    "Set input, output and cached-input rates for each model, or provider/model. Estimates use recorded tokens and these rates; subscriptions and tool charges are not included. Missing rates leave the estimate empty. A zero rate marks a free model.",
+    "Estimates use list prices from the bundled models.dev catalog automatically. Subscriptions and tool charges are not included. Add a custom price only for a different tariff or an unlisted model.",
+  "stats.prices.custom": "Custom prices ({count})",
   "stats.prices.add": "Add model price",
   "stats.prices.remove": "Remove model price",
   "stats.prices.invalid":

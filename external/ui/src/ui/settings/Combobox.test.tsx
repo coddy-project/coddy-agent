@@ -6,6 +6,28 @@ import { OpenRailScreen } from "../nav/railEscape.fakes";
 
 afterEach(cleanup);
 
+test("inline options dismiss after the outside control receives its click", () => {
+  const click = vi.fn();
+  render(
+    <>
+      <Combobox
+        inlineOptions
+        value=""
+        onChange={vi.fn()}
+        options={[{ value: "model" }]}
+        ariaLabel="Model"
+      />
+      <button onClick={click}>Save</button>
+    </>,
+  );
+  fireEvent.focus(screen.getByRole("combobox"));
+  fireEvent.mouseDown(screen.getByRole("button", { name: "Save" }));
+  expect(screen.getByRole("listbox")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(click).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("listbox")).toBeNull();
+});
+
 function Harness({ initial = "" }: { initial?: string }) {
   const [v, setV] = React.useState(initial);
   return (

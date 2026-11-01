@@ -122,7 +122,11 @@ export function ProviderLimits({
     <section className="statistics-limits" aria-label={t("stats.limits")}>
       <div className="statistics-section-head">
         <p className="statistics-muted">{t("stats.limitsHint")}</p>
-        <button disabled={busy} onClick={() => void read(true)}>
+        <button
+          className="settings-btn"
+          disabled={busy}
+          onClick={() => void read(true)}
+        >
           {t("stats.refresh")}
         </button>
       </div>
