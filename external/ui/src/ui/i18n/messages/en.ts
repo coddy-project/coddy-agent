@@ -683,6 +683,12 @@ export const messagesEn: Record<string, string> = {
     "Host written into the URL the agent hands out, when the browser is on another machine. Empty uses the bind host.",
   "settings.schema.tools.preview_server.public_host.ph": "The bind host",
   "settings.schema.tools.websearch.brave_api_key.ph": "Read from BRAVE_API_KEY",
+  "settings.schema.tools.websearch.deepseek_api_key.label":
+    "DeepSeek Search API key",
+  "settings.schema.tools.websearch.deepseek_api_key.desc":
+    "The deepseek engine asks DeepSeek's Search API, which has no public page to scrape, so this key is required for the engine to work. Leave empty to read DEEPSEEK_API_KEY from the environment or ~/.coddy/.env.",
+  "settings.schema.tools.websearch.deepseek_api_key.ph":
+    "Read from DEEPSEEK_API_KEY",
   "settings.schema.tools.websearch.searxng_url.ph": "http://localhost:8888",
   "settings.schema.tools.http_request.label": "HTTP requests",
   "settings.schema.tools.http_request.desc":

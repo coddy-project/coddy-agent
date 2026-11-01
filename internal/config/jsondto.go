@@ -225,6 +225,7 @@ type ToolWebSearchJSON struct {
 	CacheTTLSeconds      int      `json:"cache_ttl_seconds,omitempty"`
 	SearXNGURL           string   `json:"searxng_url,omitempty"`
 	BraveAPIKey          string   `json:"brave_api_key,omitempty"`
+	DeepSeekAPIKey       string   `json:"deepseek_api_key,omitempty"`
 }
 
 // ToolHTTPRequestJSON mirrors ToolHTTPRequest for JSON APIs. DefaultHeaders
@@ -1213,6 +1214,7 @@ func escapeYAMLSecrets(cfg *Config) *Config {
 		}
 	}
 	out.Tools.WebSearch.BraveAPIKey = escapeYAMLDollar(cfg.Tools.WebSearch.BraveAPIKey)
+	out.Tools.WebSearch.DeepSeekAPIKey = escapeYAMLDollar(cfg.Tools.WebSearch.DeepSeekAPIKey)
 	if len(cfg.Tools.HTTPRequest.DefaultHeaders) > 0 {
 		out.Tools.HTTPRequest.DefaultHeaders = cloneStringMap(cfg.Tools.HTTPRequest.DefaultHeaders)
 		for name, value := range out.Tools.HTTPRequest.DefaultHeaders {

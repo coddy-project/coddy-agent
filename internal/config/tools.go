@@ -61,11 +61,12 @@ type Tools struct {
 
 // Search engine names accepted in tools.websearch.engines.
 const (
-	WebSearchEngineBrave   = "brave"
-	WebSearchEngineBing    = "bing"
-	WebSearchEngineDDG     = "ddg"
-	WebSearchEngineGoogle  = "google"
-	WebSearchEngineSearXNG = "searxng"
+	WebSearchEngineBrave    = "brave"
+	WebSearchEngineBing     = "bing"
+	WebSearchEngineDDG      = "ddg"
+	WebSearchEngineGoogle   = "google"
+	WebSearchEngineSearXNG  = "searxng"
+	WebSearchEngineDeepSeek = "deepseek"
 )
 
 // Defaults for tools.websearch. A blocked engine answers fast - a challenge
@@ -85,6 +86,12 @@ const (
 // live in the environment or ${CODDY_HOME}/.env rather than in config.yaml.
 const WebSearchBraveAPIKeyEnv = "BRAVE_API_KEY" //nolint:gosec // G101: the name of an environment variable, not a credential
 
+// WebSearchDeepSeekAPIKeyEnv is the environment variable the DeepSeek engine
+// reads its API key from when tools.websearch.deepseek_api_key is empty, the
+// same convention as BRAVE_API_KEY. DeepSeek's Search API is key-only - there
+// is no HTML page to scrape - so without a key the engine is unavailable.
+const WebSearchDeepSeekAPIKeyEnv = "DEEPSEEK_API_KEY" //nolint:gosec // G101: the name of an environment variable, not a credential
+
 // WebSearchDefaultEngines is what the tool asks when the operator named no
 // engines: Brave first, Bing behind it. DuckDuckGo and Google are deliberately
 // absent - measured from a server, DuckDuckGo answers every query with an
@@ -100,7 +107,7 @@ func WebSearchDefaultEngines() []string {
 func KnownWebSearchEngines() []string {
 	return []string{
 		WebSearchEngineBrave, WebSearchEngineBing, WebSearchEngineDDG,
-		WebSearchEngineGoogle, WebSearchEngineSearXNG,
+		WebSearchEngineGoogle, WebSearchEngineSearXNG, WebSearchEngineDeepSeek,
 	}
 }
 
@@ -142,6 +149,11 @@ type ToolWebSearch struct {
 	// of reading the public result page: a stable contract with no parser to
 	// break when Brave redeploys its front end.
 	BraveAPIKey string `yaml:"brave_api_key"`
+
+	// DeepSeekAPIKey is the DeepSeek Search API key. DeepSeek's search has no
+	// public page to scrape, so this engine works only with a key - set either
+	// here or in the DEEPSEEK_API_KEY environment variable (or ${CODDY_HOME}/.env).
+	DeepSeekAPIKey string `yaml:"deepseek_api_key"`
 }
 
 // validate rejects negative bounds and unknown engine names, and refuses an
@@ -491,7 +503,8 @@ func (w *ToolWebSearch) ToolSettings() ToolWebSearchSettings {
 		// Read when the settings are built, like the rest of the section, so a
 		// key exported for the process (or set in ${CODDY_HOME}/.env) is used
 		// without being written into config.yaml. A configured key wins.
-		BraveAPIKey: strings.TrimSpace(os.Getenv(WebSearchBraveAPIKeyEnv)),
+		BraveAPIKey:    strings.TrimSpace(os.Getenv(WebSearchBraveAPIKeyEnv)),
+		DeepSeekAPIKey: strings.TrimSpace(os.Getenv(WebSearchDeepSeekAPIKeyEnv)),
 	}
 	if w == nil {
 		return out
@@ -515,6 +528,9 @@ func (w *ToolWebSearch) ToolSettings() ToolWebSearchSettings {
 	if key := strings.TrimSpace(w.BraveAPIKey); key != "" {
 		out.BraveAPIKey = key
 	}
+	if key := strings.TrimSpace(w.DeepSeekAPIKey); key != "" {
+		out.DeepSeekAPIKey = key
+	}
 	return out
 }
 
@@ -530,6 +546,7 @@ type ToolWebSearchSettings struct {
 	CacheTTLSeconds      int
 	SearXNGURL           string
 	BraveAPIKey          string
+	DeepSeekAPIKey       string
 }
 
 // CanvasCDNSources are the hosts a canvas frame may load libraries, styles and
