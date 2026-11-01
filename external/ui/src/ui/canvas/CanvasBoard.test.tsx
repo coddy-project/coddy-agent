@@ -848,6 +848,9 @@ test("a page that waits for the person is a placeholder that loads nothing", asy
   expect(held[0]!.textContent).toContain("site/index.html");
   expect(held[0]!.textContent).toContain("site/");
   expect(held[1]!.textContent).toContain("every file of the workspace");
+  // The note may shrink to its frame (1280x800 against 320x200), never past
+  // it: a frame smaller on screen than the note keeps it inside.
+  expect(held[0]!.style.getPropertyValue("--canvas-held-fit")).toBe("4");
   // Nothing loads it: no frame address was asked for or handed to a page.
   expect(fetches.some((f) => f.url.includes("/coddy/canvas/"))).toBe(false);
 });

@@ -292,7 +292,10 @@
   align-items: center;
   gap: 8px;
   padding: 16px;
-  transform: translate(-50%, -50%) scale(var(--canvas-inv, 1));
+  /* Its size on screen, but never larger than the frame (--canvas-held-fit,
+     set by CanvasHeldFrame). */
+  transform: translate(-50%, -50%)
+    scale(min(var(--canvas-inv, 1), var(--canvas-held-fit, 1)));
   color: var(--text);
   font-size: 13px;
   text-align: center;

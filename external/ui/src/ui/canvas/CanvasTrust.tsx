@@ -4,6 +4,11 @@ import { useEscapeCloses } from "../components/useEscapeCloses";
 import { HttpError } from "../files/api";
 import { trustBoard, type CanvasFrame as Frame, type CanvasTrust } from "./api";
 
+/** The note of a waiting frame in board units at zoom 1 (`.canvas-held`),
+ *  its height with room for a two-line hint and the button. */
+const HELD_NOTE_WIDTH = 320;
+const HELD_NOTE_HEIGHT = 200;
+
 /**
  * A page of a board that came with the workspace and waits for the person: a
  * placeholder where its frame stands, naming the page and what it would read,
@@ -26,6 +31,12 @@ export const CanvasHeldFrame = memo(function CanvasHeldFrame(props: {
         top: frame.y + props.dy,
         width: frame.width,
         height: frame.height,
+        // The note keeps its size on screen until the frame gets smaller
+        // than it: then it shrinks with the frame instead of spilling out.
+        ["--canvas-held-fit" as string]: Math.min(
+          frame.width / HELD_NOTE_WIDTH,
+          frame.height / HELD_NOTE_HEIGHT,
+        ),
       }}
       data-testid="canvas-frame-held"
       data-frame-id={frame.id}
