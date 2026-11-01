@@ -342,7 +342,11 @@ export function ImageMarkupDialog(props: ImageMarkupDialogProps) {
     if (tool === "crop") {
       draftRef.current = { kind: "crop", a: p, b: p };
     } else if (tool === "pen") {
-      const pressure = penPressure(e);
+      // A pen tracks the pressure of every point, even when the driver has
+      // no reading at the press itself: seeded at the resting press, so a
+      // pen whose first report is 0 does not draw its whole stroke flat.
+      const pressure =
+        e.pointerType === "pen" ? (penPressure(e) ?? 0.5) : undefined;
       draftRef.current = {
         kind: "shape",
         shape:

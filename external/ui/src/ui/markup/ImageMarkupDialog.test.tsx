@@ -352,6 +352,19 @@ describe("ImageMarkupDialog", () => {
       expect(calls.filter((c) => c.op === "stroke")).toHaveLength(3);
     });
 
+    it("keeps tracking the pressure of a pen whose first reading is zero", async () => {
+      const { canvas, onDone } = await open();
+      const pen = { pointerType: "pen" };
+      pointer("pointerdown", canvas, 10, 10, { ...pen, pressure: 0 });
+      pointer("pointermove", canvas, 30, 20, { ...pen, pressure: 0.6 });
+      pointer("pointermove", canvas, 60, 20, { ...pen, pressure: 0.9 });
+      pointer("pointerup", canvas, 60, 20, { ...pen, pressure: 0.9 });
+      const calls = await finish(onDone);
+      // A zero reading at the press is seeded, so the stroke is still drawn
+      // piece by piece at the pressure of each point rather than flat.
+      expect(calls.filter((c) => c.op === "stroke")).toHaveLength(3);
+    });
+
     it("draws nothing with a palm resting beside the pen", async () => {
       const { canvas } = await open();
       const pen = { pointerType: "pen", pressure: 0.5, id: 2 };
