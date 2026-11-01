@@ -849,13 +849,17 @@ export function SessionsManager(props: {
                   </td>
                   <td
                     className="sessions-manager-col-num"
-                    title={t("sessions.manage.tokensBreakdown", {
-                      input: usage.inputTokens ?? 0,
-                      output: usage.outputTokens ?? 0,
-                      total,
-                    })}
+                    title={
+                      row.tokenUsage === null
+                        ? undefined
+                        : t("sessions.manage.tokensBreakdown", {
+                            input: usage.inputTokens ?? 0,
+                            output: usage.outputTokens ?? 0,
+                            total,
+                          })
+                    }
                   >
-                    {formatTokenCount(total)}
+                    {row.tokenUsage === null ? "—" : formatTokenCount(total)}
                   </td>
                   <td title={formatRowTimestampFull(row.createdAt)}>
                     {formatRowTimestamp(row.createdAt)}

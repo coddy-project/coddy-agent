@@ -269,7 +269,11 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		}
 		a.plan.SetEntries(entries)
 	case acp.TokenUsageUpdate:
-		a.foot.AddTokens(u.InputTokens, u.OutputTokens)
+		if (u.SessionUsageKnown != nil && !*u.SessionUsageKnown) || (u.UsageKnown != nil && !*u.UsageKnown) {
+			a.foot.tokensUnknown = true
+		} else {
+			a.foot.AddTokens(u.InputTokens, u.OutputTokens)
+		}
 	case acp.TurnProgressUpdate:
 		a.applyTurnProgress(u)
 	case acp.UsageUpdate:

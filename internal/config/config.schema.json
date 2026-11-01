@@ -1264,6 +1264,12 @@
           "minimum": 0,
           "maximum": 65535
         },
+        "max_body_bytes": {
+          "type": "integer",
+          "description": "Largest request body accepted by POST /v1/chat/completions and POST /v1/responses, in bytes. 0 means the built-in 512 MiB. A larger body is refused with 413 and the request_too_large error.",
+          "default": 0,
+          "minimum": 0
+        },
         "auth_token": {
           "type": "string",
           "description": "Optional bearer credential for the HTTP API. Empty means no authentication (historical default). Use a \"${ENV}\" reference to keep the secret out of the file; never echoed back by GET /coddy/config. Prefer --auth-token / CODDY_HTTP_TOKEN to keep it out of config.yaml entirely. See https://coddy.dev/docs/operate/remote.",

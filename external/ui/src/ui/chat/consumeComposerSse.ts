@@ -142,6 +142,7 @@ export type ConsumeComposerSseParams = {
     input: number;
     output: number;
     total: number;
+    known?: boolean;
   }>;
   reasoningDurationMsByContentRef: MutableRefObject<Map<string, number>>;
   newId: (prefix: string) => string;
@@ -632,13 +633,21 @@ export async function consumeComposerSseReader(
         callThinkingId = null;
         try {
           const u = JSON.parse(ev.data) as TokenUsage;
-          const merged: TokenUsage = {
-            inputTokens: tokenBaselineRef.current.input + (u.inputTokens || 0),
-            outputTokens:
-              tokenBaselineRef.current.output + (u.outputTokens || 0),
-            totalTokens: tokenBaselineRef.current.total + (u.totalTokens || 0),
-          };
-          setTokenUsage(merged);
+          if (u.usageKnown === false || u.sessionUsageKnown === false)
+            tokenBaselineRef.current.known = false;
+          if (tokenBaselineRef.current.known === false) {
+            setTokenUsage(null);
+          } else {
+            const merged: TokenUsage = {
+              inputTokens:
+                tokenBaselineRef.current.input + (u.inputTokens || 0),
+              outputTokens:
+                tokenBaselineRef.current.output + (u.outputTokens || 0),
+              totalTokens:
+                tokenBaselineRef.current.total + (u.totalTokens || 0),
+            };
+            setTokenUsage(merged);
+          }
           const reasoningTokens = Number(u.reasoningTokens);
           if (
             thinkingId &&

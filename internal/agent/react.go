@@ -854,6 +854,23 @@ func (a *Agent) runReActLoop(
 	maxTurns int,
 ) (string, error) {
 	var totalInputTokens, totalOutputTokens int
+	allUsageKnown := true
+	statsWritable := true
+	var previousInputTokens, previousOutputTokens int
+	if sd != "" {
+		stats, err := session.ReadSessionStats(sd)
+		if err == nil {
+			previousInputTokens = stats.TokenUsageTotal.InputTokens
+			previousOutputTokens = stats.TokenUsageTotal.OutputTokens
+			if stats.TokenUsageTotal.UsageKnown != nil {
+				allUsageKnown = *stats.TokenUsageTotal.UsageKnown
+			}
+		} else if !os.IsNotExist(err) {
+			allUsageKnown = false
+			statsWritable = false
+			a.log.WarnContext(ctx, "read session token usage", "error", err)
+		}
+	}
 	var turnIndex int
 	var lastStatsWrite time.Time
 	var emptyContinuations int
@@ -1637,7 +1654,8 @@ func (a *Agent) runReActLoop(
 			"input_tokens", response.InputTokens,
 			"cached_input_tokens", response.CachedInputTokens,
 			"output_tokens", response.OutputTokens)
-		if !transport.agent {
+		usageKnown := response.UsageKnown || (!response.UsageIncomplete && (response.InputTokens > 0 || response.OutputTokens > 0))
+		if !transport.agent && usageKnown {
 			// An agent's input count measures its own context (its system
 			// prompt, its tools, their results), not this transcript.
 			a.recordProviderInputTokens(response.InputTokens, estimateAtSend)
@@ -1646,8 +1664,12 @@ func (a *Agent) runReActLoop(
 		// Accumulate and broadcast token usage after each LLM call.
 		totalInputTokens += response.InputTokens
 		totalOutputTokens += response.OutputTokens
+		allUsageKnown = allUsageKnown && usageKnown
+		sessionUsageKnown := allUsageKnown
 		_ = a.server.SendSessionUpdate(sessionID, acp.TokenUsageUpdate{
 			SessionUpdate:     acp.UpdateTypeTokenUsage,
+			UsageKnown:        &usageKnown,
+			SessionUsageKnown: &sessionUsageKnown,
 			InputTokens:       response.InputTokens,
 			OutputTokens:      response.OutputTokens,
 			TotalTokens:       totalInputTokens + totalOutputTokens,
@@ -1655,19 +1677,21 @@ func (a *Agent) runReActLoop(
 			ReasoningTokens:   response.ReasoningTokens,
 		})
 
-		if sd != "" {
+		if sd != "" && statsWritable {
 			now := time.Now().UTC()
-			if lastStatsWrite.IsZero() || now.Sub(lastStatsWrite) > 750*time.Millisecond {
+			if lastStatsWrite.IsZero() || !allUsageKnown || now.Sub(lastStatsWrite) > 750*time.Millisecond {
 				lastStatsWrite = now
 				stats := session.SessionStats{
 					Version:   1,
 					UpdatedAt: now.Format(time.RFC3339),
 					TokenUsageTotal: session.TokenUsageTotals{
-						InputTokens:  totalInputTokens,
-						OutputTokens: totalOutputTokens,
-						TotalTokens:  totalInputTokens + totalOutputTokens,
+						UsageKnown:   &allUsageKnown,
+						InputTokens:  previousInputTokens + totalInputTokens,
+						OutputTokens: previousOutputTokens + totalOutputTokens,
+						TotalTokens:  previousInputTokens + previousOutputTokens + totalInputTokens + totalOutputTokens,
 					},
 					TokenUsageByTurn: []session.TokenUsageTurn{{
+						UsageKnown:   &usageKnown,
 						TurnIndex:    turnIndex,
 						InputTokens:  response.InputTokens,
 						OutputTokens: response.OutputTokens,

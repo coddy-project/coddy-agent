@@ -92,6 +92,20 @@ beforeEach(() => {
   vi.useRealTimers();
 });
 
+test("unknown token usage is not displayed as zero", async () => {
+  rows.push({ id: "sess_unknown", tokenUsage: null });
+  try {
+    stubFetch();
+    renderTable();
+    const row = await screen.findByTestId("sessions-manager-row-sess_unknown");
+    const cell = within(row).getAllByRole("cell")[4];
+    expect(cell).toHaveTextContent("—");
+    expect(cell).not.toHaveAttribute("title");
+  } finally {
+    rows.pop();
+  }
+});
+
 test("the table asks for the statistics and renders a row per session", async () => {
   const calls = stubFetch();
   renderTable();

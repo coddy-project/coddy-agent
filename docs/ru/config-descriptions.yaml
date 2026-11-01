@@ -533,6 +533,9 @@ httpserver.host:
 httpserver.port:
   en: "Default listen port when coddy serve does not pass -P/--port. 0 falls back to 12345."
   ru: "Порт по умолчанию, если coddy serve не передаёт -P/--port. 0 сводится к 12345."
+httpserver.max_body_bytes:
+  en: "Largest request body accepted by POST /v1/chat/completions and POST /v1/responses, in bytes. 0 means the built-in 512 MiB. A larger body is refused with 413 and the request_too_large error."
+  ru: "Наибольший размер тела запроса, который принимают POST /v1/chat/completions и POST /v1/responses, в байтах. 0 означает встроенный предел 512 МиБ. Тело больше этого предела отклоняется с кодом 413 и ошибкой request_too_large."
 httpserver.auth_token:
   en: "Optional bearer credential for the HTTP API. Empty means no authentication (historical default). Use a \"${ENV}\" reference to keep the secret out of the file; never echoed back by GET /coddy/config. Prefer --auth-token / CODDY_HTTP_TOKEN to keep it out of config.yaml entirely. See https://coddy.dev/docs/operate/remote."
   ru: "Необязательный bearer-токен для HTTP API. Пусто означает отсутствие аутентификации (исторически так по умолчанию). Ссылка \"${ENV}\" держит секрет вне файла; GET /coddy/config его никогда не возвращает. Лучше задавать его через --auth-token / CODDY_HTTP_TOKEN, чтобы его вообще не было в config.yaml. См. https://coddy.dev/docs/operate/remote."

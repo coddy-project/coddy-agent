@@ -118,6 +118,9 @@ func TestBackgroundTasksWebUIFeature(t *testing.T) {
 			sc.Step(`^a folded subagent card names its model and the tokens its calls spent, and a command card neither$`, func() error {
 				return runVitestScenario(panel, "a folded subagent card names its model and the tokens it spent, a command card neither")
 			})
+			sc.Step(`^an incomplete subagent card shows its model without a token total$`, func() error {
+				return runVitestScenario(panel, "an incomplete subagent usage keeps its model but hides the partial total")
+			})
 			sc.Step(`^a click on a card expands it in place and another folds it$`, func() error {
 				return runVitestScenario(panel, "the card is one control: a click expands it in place, another folds it")
 			})

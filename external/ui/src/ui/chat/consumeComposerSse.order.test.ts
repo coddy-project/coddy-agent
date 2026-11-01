@@ -54,6 +54,51 @@ async function drive(sse: string): Promise<TranscriptItem[]> {
   return items;
 }
 
+test.each([
+  [false, null],
+  [true, { inputTokens: 0, outputTokens: 0, totalTokens: 0 }],
+  [undefined, { inputTokens: 0, outputTokens: 0, totalTokens: 0 }],
+])("token usage presence %s is respected", async (known, expected) => {
+  const updates: unknown[] = [];
+  const params: ConsumeComposerSseParams = {
+    reader: mockReader(
+      `event: token_usage\ndata: ${JSON.stringify({ inputTokens: 0, outputTokens: 0, totalTokens: 0, usageKnown: known })}\n\ndata: [DONE]\n\n`,
+    ),
+    dec: new TextDecoder(),
+    carry: { buf: "" },
+    assistantId: "a",
+    applyStreamItems: () => {},
+    setTokenUsage: (u) => updates.push(u),
+    setContextUsage: () => {},
+    tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
+    reasoningDurationMsByContentRef: { current: new Map() },
+    newId: (p) => p,
+    applyMemoryRunToItems: (prev) => prev,
+  };
+  await consumeComposerSseReader(params);
+  expect(updates).toEqual([expected]);
+});
+
+test("unknown usage remains unknown after a later known call", async () => {
+  const updates: unknown[] = [];
+  const event = (known: boolean) =>
+    `event: token_usage\ndata: ${JSON.stringify({ inputTokens: 3, outputTokens: 2, totalTokens: 5, usageKnown: known })}\n\n`;
+  await consumeComposerSseReader({
+    reader: mockReader(event(false) + event(true) + "data: [DONE]\n\n"),
+    dec: new TextDecoder(),
+    carry: { buf: "" },
+    assistantId: "a",
+    applyStreamItems: () => {},
+    setTokenUsage: (u) => updates.push(u),
+    setContextUsage: () => {},
+    tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
+    reasoningDurationMsByContentRef: { current: new Map() },
+    newId: (p) => p,
+    applyMemoryRunToItems: (prev) => prev,
+  });
+  expect(updates).toEqual([null, null]);
+});
+
 test("usage_update replaces the displayed current context after compaction", async () => {
   vi.stubGlobal("requestAnimationFrame", () => 0);
   const updates: Array<{ used: number; size: number }> = [];
@@ -834,4 +879,24 @@ test("a tool call of an acp agent keeps its mark", async () => {
     agentTool: true,
   });
   expect(own).not.toHaveProperty("agentTool");
+});
+
+test("unknown session usage stays hidden when the current call is known", async () => {
+  const updates: unknown[] = [];
+  await consumeComposerSseReader({
+    reader: mockReader(
+      `event: token_usage\ndata: ${JSON.stringify({ inputTokens: 3, outputTokens: 2, totalTokens: 5, usageKnown: true, sessionUsageKnown: false })}\n\ndata: [DONE]\n\n`,
+    ),
+    dec: new TextDecoder(),
+    carry: { buf: "" },
+    assistantId: "a",
+    applyStreamItems: () => {},
+    setTokenUsage: (u) => updates.push(u),
+    setContextUsage: () => {},
+    tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
+    reasoningDurationMsByContentRef: { current: new Map() },
+    newId: (p) => p,
+    applyMemoryRunToItems: (prev) => prev,
+  });
+  expect(updates).toEqual([null]);
 });

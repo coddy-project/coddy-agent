@@ -413,7 +413,7 @@ func agentUsageParts(row bgtask.Snapshot) []string {
 		}
 		parts = append(parts, model)
 	}
-	if tokens := max(0, row.Agent.InputTokens) + max(0, row.Agent.OutputTokens); tokens > 0 {
+	if tokens := max(0, row.Agent.InputTokens) + max(0, row.Agent.OutputTokens); !row.Agent.UsageIncomplete && tokens > 0 {
 		parts = append(parts, tui.FormatTokenCount(tokens)+" "+plural(tokens, "token", "tokens"))
 	}
 	return parts

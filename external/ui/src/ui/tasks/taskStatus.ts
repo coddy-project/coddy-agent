@@ -287,6 +287,7 @@ export type AgentUsage = {
   tokens: number;
   inputTokens: number;
   outputTokens: number;
+  incomplete?: boolean;
 };
 
 export function agentUsage(task: BackgroundTask): AgentUsage | null {
@@ -314,6 +315,7 @@ export function agentUsage(task: BackgroundTask): AgentUsage | null {
     tokens: inputTokens + outputTokens,
     inputTokens,
     outputTokens,
+    ...(agent.usage_incomplete ? { incomplete: true } : {}),
   };
 }
 

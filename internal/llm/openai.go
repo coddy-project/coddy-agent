@@ -22,6 +22,7 @@ type openAIProvider struct {
 	temp      float64
 	// tempSet sends temp even at zero: the caller asked for that value.
 	tempSet         bool
+	topP            *float64
 	reasoningEffort string
 	// modelParams is what the provider's model listing says the model takes
 	// (ProviderInput.SupportedParameters); nil when nothing is known.
@@ -129,6 +130,9 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition,
 	params := openai.ChatCompletionNewParams{
 		Model:    openai.ChatModel(p.model),
 		Messages: oaiMessages,
+	}
+	if p.topP != nil {
+		params.TopP = openai.Float(*p.topP)
 	}
 
 	// An OpenRouter-style aggregator lists the unified reasoning object for a
@@ -294,6 +298,8 @@ func (p *openAIProvider) parseCompletion(resp *openai.ChatCompletion) (*Response
 	msg := choice.Message
 
 	r := &Response{
+		UsageKnown:        openAIUsageKnown(resp.RawJSON()),
+		UsageIncomplete:   !openAIUsageKnown(resp.RawJSON()),
 		Content:           msg.Content,
 		Reasoning:         openAIReasoningText(msg.RawJSON()),
 		StopReason:        mapOpenAIStopReason(string(choice.FinishReason)),
@@ -312,6 +318,11 @@ func (p *openAIProvider) parseCompletion(resp *openai.ChatCompletion) (*Response
 	}
 
 	return r, nil
+}
+
+func openAIUsageKnown(raw string) bool {
+	u := gjson.Get(raw, "usage")
+	return u.IsObject() && u.Get("prompt_tokens").Type == gjson.Number && u.Get("completion_tokens").Type == gjson.Number
 }
 
 // openAIReasoningText pulls the thinking text out of a non-streamed assistant

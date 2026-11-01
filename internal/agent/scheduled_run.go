@@ -219,7 +219,9 @@ func RunScheduledJob(ctx context.Context, cfg *config.Config, rt SubagentRuntime
 		// No relay: the scheduler has no parent chat to forward a prompt to,
 		// so a request the gate raises under ask or accept_edits is denied.
 		run.sender = newSubagentSender(out, nil)
-		run.sender.onUsage = func(in, outTokens int) { pool.SetAgentUsage(jobSessionID, taskID, in, outTokens) }
+		run.sender.onUsage = func(in, outTokens int, incomplete bool) {
+			pool.SetAgentUsageStatus(jobSessionID, taskID, in, outTokens, incomplete)
+		}
 		_, _ = fmt.Fprintf(out, "scheduled run of job %s (%s, task %s, session %s) starting\n", jobID, spec.Trigger, taskID, runID)
 		if unknownModel != "" {
 			_, _ = fmt.Fprintf(out, "model %q is not configured; using the configured model\n", unknownModel)

@@ -22,6 +22,8 @@ type HTTPServerConfig struct {
 	Host string `yaml:"host"`
 	// Port is the default listen port when `coddy serve` does not override -P/--port. Zero falls back to 12345.
 	Port int `yaml:"port"`
+	// MaxBodyBytes bounds OpenAI request bodies; zero uses the default.
+	MaxBodyBytes int64 `yaml:"max_body_bytes,omitempty"`
 	// AuthToken is the optional bearer credential for the HTTP API. Empty means no authentication
 	// (historical "no login" behavior). "${ENV}" references are expanded at load. The HTTP layer
 	// never echoes it back through GET /coddy/config. Prefer --auth-token / CODDY_HTTP_TOKEN to
@@ -340,6 +342,9 @@ func (h *HTTPServerConfig) Normalize() {
 
 // Validate checks HTTP settings when present in config.
 func (h *HTTPServerConfig) Validate() error {
+	if h.MaxBodyBytes < 0 {
+		return fmt.Errorf("httpserver.max_body_bytes must not be negative")
+	}
 	if h.Port < 0 || h.Port > 65535 {
 		return fmt.Errorf("httpserver.port out of range")
 	}

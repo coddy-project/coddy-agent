@@ -87,6 +87,8 @@ type AgentInfo struct {
 	// goes (Pool.SetAgentUsage); the record keeps the final figures.
 	InputTokens  int `json:"input_tokens,omitempty"`
 	OutputTokens int `json:"output_tokens,omitempty"`
+	// UsageIncomplete means at least one completed call did not report usage.
+	UsageIncomplete bool `json:"usage_incomplete,omitempty"`
 	// Worktree is the git worktree a child with isolation worktree works
 	// in, and Branch its branch; both empty for a child in the parent's
 	// folder. The worktree may be gone once the run ends: a run that left

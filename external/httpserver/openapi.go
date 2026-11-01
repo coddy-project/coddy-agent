@@ -70,20 +70,20 @@ func openAPISpec() map[string]interface{} {
 			"/v1/chat/completions": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Create chat completion",
-					"description": "Chat completion in OpenAI-compatible shape. **`model`** must match an **`id`** from **`GET /v1/models`**: **`agent`** / **`plan`** / **`ask`** (ReAct) or a configured **`models[].model`** YAML selector (single direct completion). " +
+					"description": "Request bodies are limited by `httpserver.max_body_bytes` (512 MiB by default); an oversized body returns 413. Chat completion in OpenAI-compatible shape. **`model`** must match an **`id`** from **`GET /v1/models`**: **`agent`** / **`plan`** / **`ask`** (ReAct) or a configured **`models[].model`** YAML selector (single direct completion). " +
 						"A direct **`models[].model`** id sends the request's **`max_tokens`** (or **`max_completion_tokens`**), **`temperature`** and **`reasoning_effort`** for that one request in place of the configured values (the model's **`reasoning_default`** when no level is given), and refuses with **400**, before a session is created or the provider is contacted, a value its provider or model cannot take as asked. " +
 						"Optional **`metadata`** on agent/plan/ask only: **`metadata.model`** sets the backed LLM (**`models[].model`**); omit or omit the key to use session defaults. " +
 						"**`metadata`** must not carry **`model`** for direct-completion **`model`** values. " +
-						"When **stream** is true the response is **text/event-stream** in the strict OpenAI **`chat.completion.chunk`** contract a third-party client parses literally (VS Code Copilot, the openai SDKs): a first chunk with **`delta.role`** `assistant`, **`delta.content`**, **`delta.reasoning_content`** and **`delta.tool_calls`** deltas with **`finish_reason: null`**, a final chunk whose **`finish_reason`** is **`stop`** (**`length`** when the turn hit **`max_turns`** / **`max_tokens`**, **`tool_calls`** when a direct model called one of the client's tools, **`content_filter`** when the provider's content filter cut a direct answer short), a usage chunk with an empty **`choices`** array when **`stream_options.include_usage`** is true, then **`data: [DONE]`**. No named **`event:`** frame is sent here (each leaves an SSE comment in its place, so the connection stays busy through a tool phase); the coddy events (**`tool_call`**, **`token_usage`**, **`coddy_meta`**, ...) are the **`POST /v1/responses`** stream and the composer relay. Otherwise JSON. " +
+						"When **stream** is true the response is **text/event-stream** in the strict OpenAI **`chat.completion.chunk`** contract a third-party client parses literally (VS Code Copilot, the openai SDKs): a first chunk with **`delta.role`** `assistant`, **`delta.content`**, **`delta.reasoning_content`** and **`delta.tool_calls`** deltas with **`finish_reason: null`**, a final chunk whose **`finish_reason`** is **`stop`** (**`length`** when the turn hit **`max_turns`** / **`max_tokens`**, **`tool_calls`** when a direct model called one of the client's tools, **`content_filter`** when the provider's content filter cut a direct answer short), a usage chunk with an empty **`choices`** array when **`stream_options.include_usage`** is true and provider counters are available, then **`data: [DONE]`**. No named **`event:`** frame is sent here (each leaves an SSE comment in its place, so the connection stays busy through a tool phase); the coddy events (**`tool_call`**, **`token_usage`**, **`coddy_meta`**, ...) are the **`POST /v1/responses`** stream and the composer relay. Otherwise JSON. " +
 						"A non-streaming JSON completion includes **`usage`** with **`prompt_tokens`**, **`completion_tokens`** and **`total_tokens`** when the provider reported token counts, summing the model calls of an agent turn's own loop (a spawned subagent, a compaction and the memory run are not counted); **`prompt_tokens_details.cached_tokens`** is included when positive. If no counts were reported, **`usage`** is omitted rather than invented as zero. " +
-						"A direct **`models[].model`** id is coddy standing in for the provider: the client's **`tools`** are offered to the model as they are (**`tool_choice`** `none` withholds them, any other value leaves the choice to the model), a call the model makes comes back as **`delta.tool_calls`** chunks (streamed) or **`message.tool_calls`** (JSON) with **`finish_reason`** **`tool_calls`**, the client replays the assistant's **`tool_calls`** and answers with **`tool`** messages, which may end the request, and **`content`** parts of type **`image_url`** reach a model configured **`multimodal`** as images (dropped otherwise; an https address is handed to the provider, never fetched). Bounds: 128 tools, 256 KiB of **`parameters`** per tool, 16 images per message, 20 MiB per image URL string, else **400**. The **agent** / **plan** / **ask** profiles run coddy's own tools, never read the client's, and take no trailing **`tool`** message. " +
+						"A direct **`models[].model`** id is coddy standing in for the provider: the client's **`tools`** are offered to the model as they are (**`tool_choice`** `none` withholds them, `auto` leaves the choice to the model), a call the model makes comes back as **`delta.tool_calls`** chunks (streamed) or **`message.tool_calls`** (JSON) with **`finish_reason`** **`tool_calls`**, the client replays the assistant's **`tool_calls`** and answers with **`tool`** messages, which may end the request, and **`content`** parts of type **`image_url`** reach a model configured **`multimodal`** as images (dropped otherwise; an https address is handed to the provider, never fetched). Bounds: 128 tools, 256 KiB of **`parameters`** per tool, 16 images per message, 20 MiB per image URL string, else **400**. The **agent** / **plan** / **ask** profiles run coddy's own tools and reject client tools, and take no trailing **`tool`** message. " +
 						"**409** when **X-Coddy-Session-ID** names a child session spawned by **spawn_agent**: those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. " +
 						"A direct completion on a session whose turn lock is already held answers **409** before changing its transcript or contacting the provider. " +
 						"A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. " +
 						"This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport coddy uses to reach the LLM. " +
 						"Every **agent**/**plan**/**ask** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /coddy/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. " +
-						"The last entry in **messages** must have role **user**." +
-						" A failure of the model provider keeps its status: a provider **4xx** is answered with the same status (**429** with **Retry-After** when the provider named a pause), a **5xx** with **502** (with the pause of a **503** that named one) and a **504** or a timeout with **504**, and the error object carries **`type: upstream_error`** and **`upstream_status`**; a streamed request carries the same error object in its error frame. **500** is left for failures of coddy itself.",
+						"The last entry in **messages** must have role **user**, or **tool** for a direct model. Unsupported top-level and nested message fields return **400** with the field path in **`error.param`**, including **`messages[].name`** and **`image_url.detail`**. Non-null **`stream_options`** requires **`stream: true`**. A direct request rejects **`metadata.reasoning`**, including null; use **`reasoning_effort`** instead. Profile requests reject generation options and client tools. **`developer`** messages are treated as **`system`**. Direct requests accept **`top_p`** from 0 to 1 for supported providers." +
+						" A failure of the model provider keeps its status: a provider **4xx** is answered with the same status (**429** with **Retry-After** when the provider named a pause), a **5xx** with **502** (with the pause of a **503** that named one) and a **504** or a timeout with **504**, and the error object carries **`type: upstream_error`** and, when the provider returned a status, **`upstream_status`**; a streamed request carries the same error object in its error frame. **500** is left for failures of coddy itself.",
 					"operationId": "createChatCompletion",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -125,24 +125,25 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
-						"400": errorResponseRef(),
-						"404": errorResponseRef(),
-						"409": errorResponseRef(),
-						"429": errorResponseRef(),
-						"500": errorResponseRef(),
-						"502": errorResponseRef(),
-						"504": errorResponseRef(),
+						"400": openAIErrorResponseRef(),
+						"404": openAIErrorResponseRef(),
+						"409": openAIErrorResponseRef(),
+						"413": openAIErrorResponseRef(),
+						"429": openAIErrorResponseRef(),
+						"500": openAIErrorResponseRef(),
+						"502": openAIErrorResponseRef(),
+						"504": openAIErrorResponseRef(),
 					},
 				},
 			},
 			"/v1/responses": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Create response",
-					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
+					"description": "Request bodies are limited by `httpserver.max_body_bytes` (512 MiB by default); an oversized body returns 413. Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
 						"**409** when **X-Coddy-Session-ID** names a child session spawned by **spawn_agent**: those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. " +
 						"A direct completion on a session whose turn lock is already held answers **409** before changing its transcript or contacting the provider. " +
 						"**`metadata.model`** applies only when **`model`** is **`agent`**, **`plan`**, or **`ask`**. **`attachments`** (workspace-relative **`path`** rows) hydrate text file bodies from session **cwd** on **`agent`** / **`plan`** / **`ask`** only; a file stored in another detected encoding (Windows-1251 and other legacy charsets) is converted to UTF-8. Every **agent**/**plan**/**ask** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /coddy/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. A turn started with **`stream: false`** is cancelled when its HTTP request is dropped; a streamed one keeps running. A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport coddy uses to reach the LLM." +
-						" A failure of the model provider keeps its status: a provider **4xx** is answered with the same status (**429** with **Retry-After** when the provider named a pause), a **5xx** with **502** (with the pause of a **503** that named one) and a **504** or a timeout with **504**, and the error object carries **`type: upstream_error`** and **`upstream_status`**; a streamed request carries the same error object in its error frame. **500** is left for failures of coddy itself.",
+						" A failure of the model provider keeps its status: a provider **4xx** is answered with the same status (**429** with **Retry-After** when the provider named a pause), a **5xx** with **502** (with the pause of a **503** that named one) and a **504** or a timeout with **504**, and the error object carries **`type: upstream_error`** and, when the provider returned a status, **`upstream_status`**; a streamed request carries the same error object in its error frame. **500** is left for failures of coddy itself.",
 					"operationId": "createResponse",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -184,13 +185,14 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
-						"400": errorResponseRef(),
-						"404": errorResponseRef(),
-						"409": errorResponseRef(),
-						"429": errorResponseRef(),
-						"500": errorResponseRef(),
-						"502": errorResponseRef(),
-						"504": errorResponseRef(),
+						"400": openAIErrorResponseRef(),
+						"404": openAIErrorResponseRef(),
+						"409": openAIErrorResponseRef(),
+						"413": openAIErrorResponseRef(),
+						"429": openAIErrorResponseRef(),
+						"500": openAIErrorResponseRef(),
+						"502": openAIErrorResponseRef(),
+						"504": openAIErrorResponseRef(),
 					},
 				},
 			},
@@ -217,7 +219,7 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
-						"404": errorResponseRef(),
+						"404": openAIErrorResponseRef(),
 					},
 				},
 			},
@@ -296,7 +298,7 @@ func openAPISpec() map[string]interface{} {
 						"in":     "query",
 						"schema": map[string]string{"type": "boolean"},
 						"description": "When true, each row also carries what the session management table renders: **messageCount** (persisted transcript rows of every role), **tokenUsage** " +
-							"(**`{inputTokens, outputTokens, totalTokens}`** from the bundle's **stats.json**, zeroes when the session never completed a model call), **createdAt** and **model**. " +
+							"(**`{inputTokens, outputTokens, totalTokens}`** from the bundle's **stats.json**; null when usage is explicitly unknown, an object with zeroes when known to be zero or when no stats are available), **createdAt** and **model**. " +
 							"**createdAt** is omitted for a bundle stored before the field existed - the moment it was started is not recoverable and is not invented - and **model** is omitted for a session " +
 							"that never overrode **`agent.model`**, so a client renders those as unknown rather than as a value. Each row costs one extra small file read.",
 					}),
@@ -308,8 +310,22 @@ func openAPISpec() map[string]interface{} {
 									"schema": map[string]interface{}{
 										"type": "object",
 										"properties": map[string]interface{}{
-											"object":       map[string]string{"type": "string"},
-											"sessions":     map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object"}},
+											"object": map[string]string{"type": "string"},
+											"sessions": map[string]interface{}{"type": "array", "items": map[string]interface{}{
+												"type": "object",
+												"properties": map[string]interface{}{
+													"tokenUsage": map[string]interface{}{
+														"type": "object", "nullable": true,
+														"description": "Present with include_stats=true; null when usage is explicitly unknown. Known zero and missing stats are represented by zero counters.",
+														"properties": map[string]interface{}{
+															"inputTokens":  map[string]interface{}{"type": "integer"},
+															"outputTokens": map[string]interface{}{"type": "integer"},
+															"totalTokens":  map[string]interface{}{"type": "integer"},
+														},
+														"required": []string{"inputTokens", "outputTokens", "totalTokens"},
+													},
+												},
+											}},
 											"nextCursor":   map[string]interface{}{"type": "string", "nullable": true},
 											"hasMore":      map[string]string{"type": "boolean"},
 											"active_count": map[string]string{"type": "integer", "minimum": "0", "description": "Currently active turns in the normal History scope, independent of pagination and filters."},
@@ -1479,7 +1495,7 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Task list with a **running** count"},
+						"200": backgroundTaskResponse(true),
 						"404": errorResponseRef(),
 					},
 				},
@@ -1521,7 +1537,7 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Task with output"},
+						"200": backgroundTaskResponse(false),
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 					},
@@ -1544,7 +1560,7 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Stopped task with output"},
+						"200": backgroundTaskResponse(false),
 						"404": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
@@ -3701,6 +3717,23 @@ func openAPISpec() map[string]interface{} {
 					},
 					"required": []string{"file", "path", "scope", "trust", "trusted", "needs_approval", "hooks"},
 				},
+				"OpenAIErrorEnvelope": map[string]interface{}{
+					"type":     "object",
+					"required": []string{"error"},
+					"properties": map[string]interface{}{
+						"error": map[string]interface{}{
+							"type":     "object",
+							"required": []string{"message", "type", "code", "param"},
+							"properties": map[string]interface{}{
+								"message":         map[string]interface{}{"type": "string"},
+								"type":            map[string]interface{}{"type": "string"},
+								"code":            map[string]interface{}{"type": "string", "nullable": true},
+								"param":           map[string]interface{}{"type": "string", "nullable": true},
+								"upstream_status": map[string]interface{}{"type": "integer", "description": "Provider HTTP status, when available."},
+							},
+						},
+					},
+				},
 				"ErrorEnvelope": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -4135,11 +4168,13 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 				"OpenAIMessage": map[string]interface{}{
-					"type": "object",
+					"type":        "object",
+					"description": "Unsupported message and nested content or tool call fields, including name and image_url.detail, are rejected with 400; error.param identifies the field path.",
 					"properties": map[string]interface{}{
 						"role": map[string]interface{}{
-							"type": "string",
-							"enum": []interface{}{"system", "user", "assistant", "tool"},
+							"type":        "string",
+							"enum":        []interface{}{"system", "developer", "user", "assistant", "tool"},
+							"description": "developer is treated as system.",
 						},
 						"content": map[string]interface{}{
 							"description": "A string, null, or an array of OpenAI content parts: `text` parts are joined, `image_url` parts (`{url}` object or a bare string, data URL or https) reach a multimodal direct model as images and are accepted on user messages only, refused with 400 on any other role, as is any other part type.",
@@ -4249,14 +4284,15 @@ func openAPISpec() map[string]interface{} {
 						"stream": map[string]string{"type": "boolean"},
 						"stream_options": map[string]interface{}{
 							"type":        "object",
-							"description": "OpenAI stream options. `include_usage: true` appends a chunk with an empty `choices` array and the turn's `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`, summed over the model calls of the turn by the same rule as the JSON answer - a spawned subagent, a compaction and the memory run are not counted - zero when the provider reported none, plus `prompt_tokens_details.cached_tokens` only when it reported cached input) after the choice finishes. Streamed responses only.",
+							"nullable":    true,
+							"description": "OpenAI stream options. `include_usage: true` appends a chunk with an empty `choices` array and the turn's `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`, summed over the model calls of the turn by the same rule as the JSON answer - a spawned subagent, a compaction and the memory run are not counted - plus `prompt_tokens_details.cached_tokens` only when it reported cached input) after the choice finishes, only when provider counters are available. Streamed responses only.",
 							"properties": map[string]interface{}{
 								"include_usage": map[string]string{"type": "boolean"},
 							},
 						},
 						"tools": map[string]interface{}{
 							"type":        "array",
-							"description": "The client's function tools in OpenAI shape (`type: function`, `function.name`, `function.description`, `function.parameters` JSON Schema). Offered as they are to a direct `models[].model`; ignored by agent, plan and ask, which run coddy's own tools. Any other tool type is refused with 400.",
+							"description": "The client's function tools in OpenAI shape (`type: function`, `function.name`, `function.description`, `function.parameters` JSON Schema). Offered as they are to a direct `models[].model`; rejected by agent, plan and ask, which run coddy's own tools. Any other tool type is refused with 400.",
 							"items": map[string]interface{}{
 								"type": "object",
 								"properties": map[string]interface{}{
@@ -4274,36 +4310,34 @@ func openAPISpec() map[string]interface{} {
 							},
 						},
 						"tool_choice": map[string]interface{}{
-							"description": "OpenAI tool_choice. `none` withholds the tools from the model; `auto`, `required` and a named function leave the choice to the model, since the providers take no forcing parameter.",
-							"oneOf": []interface{}{
-								map[string]string{"type": "string"},
-								map[string]interface{}{"type": "object", "additionalProperties": true},
-							},
+							"description": "OpenAI tool_choice. `none` withholds the tools; `auto` leaves the choice to the model. Other values are rejected.",
+							"type":        "string", "nullable": true, "enum": []interface{}{"auto", "none"},
 						},
 						"max_tokens": map[string]interface{}{
 							"type":        "integer",
 							"minimum":     1,
-							"description": "Output cap of this request for a direct `models[].model` id, replacing the model's configured `max_tokens`; omitted, the configured value applies. **400** below 1 and on a `codex` model, whose backend takes no cap. The agent/plan/ask profiles do not read it: their turn runs on the profile model's configured values.",
+							"description": "Output cap of this request for a direct `models[].model` id, replacing the model's configured `max_tokens`; omitted, the configured value applies. **400** below 1 and on a `codex` model, whose backend takes no cap. The agent/plan/ask profiles reject it: their turn runs on the profile model's configured values.",
 						},
 						"max_completion_tokens": map[string]interface{}{
 							"type":        "integer",
 							"minimum":     1,
 							"description": "OpenAI's newer name for `max_tokens`, with the same meaning. A request may carry both only when they agree, else **400**.",
 						},
+						"top_p": map[string]interface{}{"type": "number", "minimum": 0, "maximum": 1, "nullable": true, "description": "Nucleus sampling for a direct model on a supported provider; rejected for profiles."},
 						"temperature": map[string]interface{}{
 							"type":        "number",
 							"format":      "float",
 							"minimum":     0,
 							"maximum":     2,
-							"description": "Temperature of this request for a direct `models[].model` id, replacing the model's configured `temperature`, `0` included, and sent next to a reasoning level too; omitted, the configured value applies. **400** outside 0-2 (0-1 for an `anthropic` provider) and on a `codex` model, whose backend takes no temperature. The agent/plan/ask profiles do not read it.",
+							"description": "Temperature of this request for a direct `models[].model` id, replacing the model's configured `temperature`, `0` included, and sent next to a reasoning level too; omitted, the configured value applies. **400** outside 0-2 (0-1 for an `anthropic` provider) and on a `codex` model, whose backend takes no temperature. The agent/plan/ask profiles reject it.",
 						},
 						"reasoning_effort": map[string]interface{}{
 							"type":        "string",
-							"description": "Reasoning level of this request for a direct `models[].model` id: one of the `reasoning_levels` `GET /v1/models` lists for that id, else **400**. Omitted, `null` or empty, the model's `reasoning_default` applies, and a model without one gets no reasoning level at all (a Claude model that thinks by default still thinks, at its own default effort), which is not the same request as the level `none` a `codex` model offers. The level the provider was asked for is echoed as `metadata.reasoning_effort`. Mapped to OpenAI `reasoning_effort`, Anthropic extended thinking (a `max_tokens` of this request that leaves no room above the thinking budget is **400**), Anthropic `output_config.effort` for the Claude models with adaptive thinking, or Codex `reasoning.effort`. The agent/plan/ask profiles take `metadata.reasoning` instead.",
+							"description": "Reasoning level of this request for a direct `models[].model` id: one of the `reasoning_levels` `GET /v1/models` lists for that id, else **400**. Omitted, `null` or empty, the model's `reasoning_default` applies, and a model without one gets no reasoning level at all (a Claude model that thinks by default still thinks, at its own default effort), which is not the same request as the level `none` a `codex` model offers. The level the provider was asked for is echoed as `metadata.reasoning_effort`. Mapped to OpenAI `reasoning_effort`, Anthropic extended thinking (a `max_tokens` of this request that leaves no room above the thinking budget is **400**), Anthropic `output_config.effort` for the Claude models with adaptive thinking, or Codex `reasoning.effort`. The agent/plan/ask profiles reject this field and take `metadata.reasoning` instead.",
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. `lang` (the web UI sends its locale, e.g. `\"ru\"`) is the language of the turn: Coddy's documentation that the turn's `@coddy:` mentions attach and the agent's documentation tools read is in it. Not allowed for direct completion `model` values.",
+							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. `lang` (the web UI sends its locale, e.g. `\"ru\"`) is the language of the turn: Coddy's documentation that the turn's `@coddy:` mentions attach and the agent's documentation tools read is in it. For direct completion `model` values, `model` and `reasoning` keys are rejected; use the top-level `reasoning_effort` for reasoning.",
 							"additionalProperties": true,
 						},
 					},
@@ -4786,6 +4820,91 @@ func coddyConfigErrorResponse(description string) map[string]interface{} {
 				},
 			},
 		},
+	}
+}
+
+func openAIErrorResponseRef() map[string]interface{} {
+	return map[string]interface{}{
+		"description": "OpenAI error",
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{"$ref": "#/components/schemas/OpenAIErrorEnvelope"},
+			},
+		},
+	}
+}
+
+// backgroundTaskResponse describes the shared task row returned by list, get and stop.
+func backgroundTaskResponse(list bool) map[string]interface{} {
+	agent := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"name":             map[string]interface{}{"type": "string", "description": "Subagent definition or run kind behind the task."},
+			"session_id":       map[string]interface{}{"type": "string", "description": "Child session the run is transcribed in. Omitted until known."},
+			"system":           map[string]interface{}{"type": "boolean", "description": "True for a run the process starts on its own (memory), omitted otherwise."},
+			"model":            map[string]interface{}{"type": "string", "description": "Effective model the run calls."},
+			"reasoning":        map[string]interface{}{"type": "string", "description": "Reasoning level the run calls the model with, when the model has levels."},
+			"input_tokens":     map[string]interface{}{"type": "integer", "description": "Input tokens the run's calls spent so far."},
+			"output_tokens":    map[string]interface{}{"type": "integer", "description": "Output tokens the run's calls spent so far."},
+			"usage_incomplete": map[string]interface{}{"type": "boolean", "description": "True when at least one completed model call did not report usage, so input_tokens and output_tokens are incomplete. Omitted when false."},
+			"worktree":         map[string]interface{}{"type": "string", "description": "Worktree the run works in, when it left the main checkout."},
+			"branch":           map[string]interface{}{"type": "string", "description": "Branch the run's worktree holds."},
+		},
+	}
+	row := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"id":               map[string]interface{}{"type": "string", "description": "Task id inside the session."},
+			"session_id":       map[string]interface{}{"type": "string", "description": "Session the task belongs to."},
+			"kind":             map[string]interface{}{"type": "string", "description": "command, agent or server."},
+			"label":            map[string]interface{}{"type": "string", "description": "Human-readable title shown on the task card."},
+			"command":          map[string]interface{}{"type": "string", "description": "Shell command behind a command task; omitted for agent and server tasks."},
+			"cwd":              map[string]interface{}{"type": "string", "description": "Working directory the command runs in."},
+			"tool_call_id":     map[string]interface{}{"type": "string", "description": "Id of the tool call that started the task, when it came from one."},
+			"status":           map[string]interface{}{"type": "string", "description": "queued, running, succeeded, failed, timed_out, stopped or orphaned."},
+			"exit_code":        map[string]interface{}{"type": "integer", "description": "Process exit code; omitted for agent and server tasks and while running."},
+			"error":            map[string]interface{}{"type": "string", "description": "Failure reason; omitted on success."},
+			"started_at":       map[string]interface{}{"type": "string", "format": "date-time"},
+			"finished_at":      map[string]interface{}{"type": "string", "format": "date-time", "description": "Omitted while the task runs."},
+			"expected_seconds": map[string]interface{}{"type": "integer", "description": "Caller estimate; omitted when none was given."},
+			"timeout_seconds":  map[string]interface{}{"type": "integer", "description": "Hard limit of the task; 0 when the caller gave none."},
+			"output_bytes":     map[string]interface{}{"type": "integer", "description": "Captured output size."},
+			"output_truncated": map[string]interface{}{"type": "boolean", "description": "True when the in-memory window dropped earlier output."},
+			"notify_on_finish": map[string]interface{}{"type": "boolean", "description": "True when the task's end wakes the agent; omitted when false."},
+			"woke_agent":       map[string]interface{}{"type": "boolean", "description": "True when a finished task's end did wake the agent; omitted when false."},
+			"agent":            agent,
+			"url":              map[string]interface{}{"type": "string", "description": "Address of a preview server task; omitted for other kinds."},
+			"pid":              map[string]interface{}{"type": "integer", "description": "Process id of a command task; omitted otherwise."},
+			"last_output_at":   map[string]interface{}{"type": "string", "format": "date-time", "description": "Last time the task produced output; omitted when it never did."},
+			"elapsed_seconds":  map[string]interface{}{"type": "integer", "description": "Seconds between started_at and finished_at (or now while running)."},
+			"overdue":          map[string]interface{}{"type": "boolean", "description": "True while a running task outlived its expected_seconds."},
+			"running":          map[string]interface{}{"type": "boolean", "description": "True while the task has not finished."},
+			"pending_permission": map[string]interface{}{
+				"type":        "object",
+				"description": "Permission prompt of a detached subagent behind this task (sessionId, toolCall, options, parent_session_id, task_id, agent_name, asked_at); present only while one waits.",
+			},
+		},
+	}
+	properties := map[string]interface{}{
+		"object":    map[string]interface{}{"type": "string", "description": "Payload kind."},
+		"sessionId": map[string]interface{}{"type": "string", "description": "Session the tasks belong to."},
+	}
+	description := "Task with output"
+	if list {
+		description = "Task list with a running count"
+		properties["object"].(map[string]interface{})["enum"] = []interface{}{"coddy.background_task_list"}
+		properties["running"] = map[string]interface{}{"type": "integer", "description": "Number of listed tasks that are still running."}
+		properties["data"] = map[string]interface{}{"type": "array", "items": row}
+	} else {
+		properties["object"].(map[string]interface{})["enum"] = []interface{}{"coddy.background_task"}
+		properties["task"] = row
+		properties["output"] = map[string]interface{}{"type": "string", "description": "Captured output of the task, whole or the tail the request asked for."}
+	}
+	return map[string]interface{}{
+		"description": description,
+		"content": map[string]interface{}{"application/json": map[string]interface{}{
+			"schema": map[string]interface{}{"type": "object", "properties": properties},
+		}},
 	}
 }
 
