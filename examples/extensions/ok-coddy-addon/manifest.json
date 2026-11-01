@@ -1,0 +1,11 @@
+{
+  "api": 1,
+  "id": "ok-coddy-addon",
+  "name": "OK Coddy Addon",
+  "version": "1.0.0",
+  "description": "Contributes a trick and a footer line into the OK, coddy panel's hooks.",
+  "permissions": ["ui.page"],
+  "ui": {
+    "entry": "main.js"
+  }
+}

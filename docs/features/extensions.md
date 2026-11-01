@@ -116,6 +116,9 @@ export function activate(coddy) {
 | `coddy.i18n.registerMessages(locale, dict)`, `coddy.i18n.onChange(fn)` | Register one locale's strings and observe host locale changes. Both return a `remove()` handle. |
 | `coddy.config.get(path?)` | The whole configuration document, or one dot path of it (`providers.0.name`). |
 | `coddy.config.set(path, value)` | Writes one dot path - an object key, an array index, or `+` to append to an array - through the settings save transaction: a minimal write over the file as it is, comments preserved, the result installed. Requires the `config.write` scope. |
+| `coddy.hooks.register({id, into, mount})` | Fills a hook an interface element declared - `into` is `<owner>/<name>` - with your own block. Returns an `update`/`remove` handle. |
+| `coddy.hooks.slot(name, element)` | Renders the contributions of this element's hook `<this id>/<name>` into `element`; an empty slot draws nothing, and contributions mount and leave live. |
+| `coddy.hooks.list()` | The hooks the running registrations declared, as `{owner, hook}` - where a contribution can go. |
 | `coddy.React` | The host's React instance for authors who need it. The page mount contract also works with plain DOM code. |
 
 `activate` may return a cleanup function or a promise for one. The host gives activation 10 seconds. Failed activation removes its registrations, requests, styles and blob URL; the error appears in Settings. The host does not retry failed code on its own; the list refresh leaves a failed package alone. **Refresh** in **Settings → Extensions** asks again, and only for what failed before any code ran - a module whose code has already been evaluated still needs a page reload. Closing a page calls its mount cleanup. Disposal removes everything the extension holds: registrations, styles, compat styles and theme overrides. The first effects snapshot an extension reads is the baseline its `onEffectsChange` listeners are registered against; they hear a change, never the state the world was already in. Cleanup is cooperative and cannot revoke arbitrary same-origin JavaScript.
@@ -299,6 +302,12 @@ coddy.ui.registerMenuItem({
 
 An anchor is a named box of the host surface: `composer.actions`, `chat.header`, `nav.rail`, `statusline`, `sessions.toolbar` or `settings.footer`. `coddy.ui.anchor(name)` returns the box, or `null` while its surface is closed - the host mounts a box only while its surface is open. `coddy.ui.onAnchor(name, fn)` returns a `remove()` handle and calls `fn(boxOrNull)` on attach and detach, immediately with the box when it is already there.
 
+## Hooks in interface elements
+
+An interface element extends the API with its own description: a panel or page registration carries `hooks: ["summary", "actions"]`, and each name opens a slot other extensions fill. The declaring side renders `coddy.hooks.slot(name, element)` where the block belongs, and the contributing side answers with `coddy.hooks.register({id, into: "<owner>/<name>", mount})`. A slot draws nothing while no contribution matches, mounts them in owner-id order, and updates live: a contribution that arrives later mounts into the open slot, and one that leaves runs its cleanup and takes its box away - the boxes that stay keep their DOM and state.
+
+A mount that throws is dropped with its registration and reported in Settings; its neighbours stay. `coddy.hooks.list()` names every declared hook, so an extension can look for places to contribute. The `examples/extensions/ok-coddy` panel declares `hooks: ["tricks", "footer"]` and renders both slots; `examples/extensions/ok-coddy-addon` fills them - one more trick button and a footer note - without the panel knowing it exists.
+
 ## Strings of an extension
 
 ```js
@@ -457,6 +466,18 @@ From `examples/extensions/stream-tools`, package it with:
 ```sh
 python -m zipfile -c stream-tools.zip manifest.json main.js
 ```
+
+## Gaps for alternative interfaces
+
+An alternative interface built as an extension - the `examples/extensions/ok-coddy` drawer after the coddy-duck-prototype - draws its own surfaces, reads the theme layer, observes the live stream, and reaches the network, the configuration and the hook slots. What it cannot yet do, and what the host API still owes such an interface:
+
+- **Send a prompt into a session** - a message or a file to the conversation feed. The specification names the gap `sessions.prompt`;
+- **Open host surfaces** - the session list, a session, a rail screen. `coddy.nav` of the specification does not exist yet, so the Session list action stays disabled;
+- **Composer controls** - the mode switch, the model pick, anything in the composer's action rows (`registerComposerControl` of section 11 of the specification);
+- **Read a conversation** - the transcript and its live updates beyond read-only stream observation; the mini-chat answers from canned replies because there is nothing to read a session's messages with;
+- **Free-floating overlays** - an always-on-top pet outside the panels and anchors (`coddy.ui.openOverlay` of the specification); today a mascot lives inside a panel, a drawer or an anchor box.
+
+Each of these lands with the phase of the specification that owns it.
 
 ## Known limitations
 

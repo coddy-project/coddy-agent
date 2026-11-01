@@ -6,6 +6,9 @@ export type Panel = {
   id: string;
   title: string;
   placement: "slide-over" | "full" | "drawer";
+  /** Hook names this panel offers to other extensions, each addressed as
+   * `<this extension id>/<name>` and rendered through `hooks.slot`. */
+  hooks?: string[];
   mount: (element: HTMLElement, api: ExtensionAPI) => void | (() => void);
 };
 export type RuntimePanel = Panel & {
@@ -22,4 +25,10 @@ export function validatePanel(panel: Partial<Panel>) {
     typeof panel.mount !== "function"
   )
     throw new Error("A panel needs an id, title, placement and mount function");
+  if (
+    panel.hooks !== undefined &&
+    (!Array.isArray(panel.hooks) ||
+      panel.hooks.some((name) => !/^[a-z][a-z0-9-]{0,63}$/.test(name)))
+  )
+    throw new Error("A panel hook name must match ^[a-z][a-z0-9-]{0,63}$");
 }

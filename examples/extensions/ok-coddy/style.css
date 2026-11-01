@@ -1,0 +1,199 @@
+.ok-coddy {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: var(--text);
+}
+.ok-log {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* The panel body scrolls; the blocks keep their height. */
+  flex: none;
+  min-height: 90px;
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  background: var(--coddy-glass-panel-bg, var(--bg));
+}
+.ok-line {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ok-line-me {
+  color: var(--text);
+  font-weight: 600;
+}
+.ok-line-duck {
+  color: var(--coddy-link);
+}
+.ok-line-note {
+  color: var(--muted);
+  font-style: italic;
+}
+.ok-duck {
+  align-self: center;
+  flex: none;
+  cursor: pointer;
+  border-radius: 12px;
+  outline: none;
+  animation: ok-idle 3.2s ease-in-out infinite;
+}
+.ok-duck:focus-visible {
+  outline: 2px solid var(--accent);
+}
+.ok-tray {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ok-tray-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+}
+.ok-tray-hooks,
+.ok-footer-hooks {
+  display: contents;
+}
+.ok-trick-btn {
+  font-size: 11px;
+}
+.ok-ticket,
+.ok-attach-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.ok-chip {
+  font-size: 11px;
+  color: var(--text);
+}
+.ok-input {
+  padding: 8px 10px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 8px;
+  background: var(--coddy-surface-field);
+  color: var(--text);
+  font-size: 14px;
+}
+.ok-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ok-actions .settings-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.ok-open {
+  white-space: nowrap;
+}
+
+/* The duck's tricks: one keyframe family per trick. */
+.ok-duck.trick-wave svg {
+  animation: ok-wave 0.9s ease-in-out 2;
+}
+.ok-duck.trick-spin svg {
+  animation: ok-spin 0.9s ease-in-out 1;
+}
+.ok-duck.trick-flip svg {
+  animation: ok-flip 0.8s ease-in-out 1;
+}
+.ok-duck.trick-dance svg {
+  animation: ok-dance 0.5s ease-in-out 4;
+}
+.ok-duck.trick-moonwalk svg {
+  animation: ok-moonwalk 1.2s ease-in-out 1;
+}
+.ok-duck.trick-turbo svg {
+  animation: ok-turbo 0.7s ease-in-out 2;
+}
+.ok-duck.trick-tongue svg {
+  animation: ok-tongue 0.6s ease-in-out 2;
+}
+.ok-duck.trick-heart svg {
+  animation: ok-heart 0.9s ease-in-out 2;
+}
+.ok-duck.trick-magic svg {
+  animation: ok-magic 1s ease-in-out 1;
+}
+.ok-duck.trick-confetti svg {
+  animation: ok-confetti 1s ease-in-out 2;
+}
+.ok-duck.trick-cannon svg {
+  animation: ok-cannon 0.6s ease-in-out 1;
+}
+.ok-duck.trick-sleep svg {
+  animation: ok-sleep 2s ease-in-out 1;
+}
+@keyframes ok-idle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+@keyframes ok-wave {
+  0%, 100% { transform: rotate(0deg); }
+  30% { transform: rotate(-8deg); }
+  60% { transform: rotate(8deg); }
+}
+@keyframes ok-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes ok-flip {
+  from { transform: scaleY(1); }
+  50% { transform: scaleY(-1); }
+  to { transform: scaleY(1); }
+}
+@keyframes ok-dance {
+  0%, 100% { transform: translateX(0) rotate(-4deg); }
+  50% { transform: translateX(6px) rotate(4deg); }
+}
+@keyframes ok-moonwalk {
+  from { transform: translateX(24px); }
+  to { transform: translateX(-24px); }
+}
+@keyframes ok-turbo {
+  0%, 100% { transform: translateY(0) scale(1); }
+  40% { transform: translateY(-14px) scale(1.05); }
+}
+@keyframes ok-tongue {
+  0%, 100% { transform: skewX(0deg); }
+  50% { transform: skewX(-10deg); }
+}
+@keyframes ok-heart {
+  0%, 100% { transform: scale(1); }
+  40% { transform: scale(1.12); }
+}
+@keyframes ok-magic {
+  0% { filter: hue-rotate(0deg); opacity: 1; }
+  50% { filter: hue-rotate(160deg); opacity: 0.6; }
+  100% { filter: hue-rotate(0deg); opacity: 1; }
+}
+@keyframes ok-confetti {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(-4px, -8px) rotate(-6deg); }
+  75% { transform: translate(4px, -4px) rotate(6deg); }
+}
+@keyframes ok-cannon {
+  from { transform: translateX(0); }
+  30% { transform: translateX(-18px); }
+  60% { transform: translateX(6px); }
+  to { transform: translateX(0); }
+}
+@keyframes ok-sleep {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(-12deg) scale(0.96); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ok-duck,
+  .ok-duck svg {
+    animation: none;
+  }
+}
