@@ -259,6 +259,7 @@ type ToolCanvasJSON struct {
 	Enabled        *bool    `json:"enable,omitempty"`
 	AllowCDN       *bool    `json:"allow_cdn,omitempty"`
 	AllowedSources []string `json:"allowed_sources,omitempty"`
+	ProjectTrust   string   `json:"project_trust,omitempty"`
 }
 
 // ToolOutputLimitsJSON mirrors ToolOutputLimits. Pointer fields keep the
@@ -597,6 +598,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			Enabled:        cloneBoolPtr(c.Tools.Canvas.Enabled),
 			AllowCDN:       cloneBoolPtr(c.Tools.Canvas.AllowCDN),
 			AllowedSources: append([]string(nil), c.Tools.Canvas.AllowedSources...),
+			ProjectTrust:   c.Tools.Canvas.ProjectTrust,
 		},
 		HTTPRequest: ToolHTTPRequestJSON{
 			Allowlist:      append([]string(nil), c.Tools.HTTPRequest.Allowlist...),
@@ -856,6 +858,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			Enabled:        cloneBoolPtr(j.Tools.Canvas.Enabled),
 			AllowCDN:       cloneBoolPtr(j.Tools.Canvas.AllowCDN),
 			AllowedSources: append([]string(nil), j.Tools.Canvas.AllowedSources...),
+			ProjectTrust:   j.Tools.Canvas.ProjectTrust,
 		},
 		HTTPRequest: ToolHTTPRequest{
 			Allowlist:      append([]string(nil), j.Tools.HTTPRequest.Allowlist...),

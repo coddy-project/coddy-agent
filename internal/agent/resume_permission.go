@@ -375,17 +375,18 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},
-		LoadSkillBody:     a.loadSkillBody,
-		SSHConnectTimeout: a.cfg.Tools.SSHConnectTimeout,
-		ConfigPath:        a.cfg.Paths.ConfigPath,
-		ConfigHome:        a.cfg.Paths.Home,
-		ConfigCWD:         a.cfg.Paths.CWD,
-		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
-		Background:        a.backgroundPool(sessionDir),
-		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
-		WebSearch:         webSearchSettings(a.cfg),
-		AttachImage:       a.attachToolImage,
-		ImageRefusal:      a.toolImageRefusal,
+		LoadSkillBody:      a.loadSkillBody,
+		SSHConnectTimeout:  a.cfg.Tools.SSHConnectTimeout,
+		ConfigPath:         a.cfg.Paths.ConfigPath,
+		ConfigHome:         a.cfg.Paths.Home,
+		ConfigCWD:          a.cfg.Paths.CWD,
+		OutputLineLimits:   a.cfg.Tools.OutputLimits.AsMap(),
+		Background:         a.backgroundPool(sessionDir),
+		BackgroundEnabled:  a.cfg.Tools.Background.ResolvedEnabled(),
+		WebSearch:          webSearchSettings(a.cfg),
+		CanvasProjectTrust: a.cfg.Tools.Canvas.ResolvedProjectTrust(),
+		AttachImage:        a.attachToolImage,
+		ImageRefusal:       a.toolImageRefusal,
 	}
 	httpRequestEnv(env, a.cfg)
 	a.wireWorkspaceTool(env)

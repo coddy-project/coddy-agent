@@ -28,10 +28,22 @@ export interface CanvasFrame {
   gen: number;
   /** Moves when a file under the frame's root changes. */
   stamp: string;
-  /** The frame's address, relative to the API base. */
+  /** The frame's address, relative to the API base; "" while held. */
   url: string;
   expires_at: string;
+  /** The page waits for the person: the board came with the workspace and
+   *  no approval lets this page run. It has no address. */
+  held?: boolean;
   report?: CanvasReportSummary;
+}
+
+/** Which pages of a board run (tools.canvas.project_trust). */
+export interface CanvasTrust {
+  policy: "ask" | "allow" | "deny";
+  /** Names the board's pages: what an approval sends back. */
+  digest: string;
+  /** Every page of the board runs. */
+  trusted: boolean;
 }
 
 /** A node of a .canvas file that is not a live frame: a text card, a file
@@ -84,6 +96,8 @@ export interface CanvasBoard {
   frames: CanvasFrame[];
   items: CanvasItem[];
   edges: CanvasEdge[];
+  /** Absent from an older server, and while the file cannot be read. */
+  trust?: CanvasTrust;
 }
 
 export type CanvasDevice = "desktop" | "tablet" | "phone";
@@ -148,11 +162,20 @@ export function normalizeBoard(
   raw: Partial<CanvasBoard> | null | undefined,
 ): CanvasBoard {
   const frames = Array.isArray(raw?.frames)
-    ? raw.frames.filter(
-        (f): f is CanvasFrame =>
-          !!f && typeof f.id === "string" && typeof f.url === "string",
-      )
+    ? raw.frames
+        .filter(
+          (f): f is CanvasFrame =>
+            !!f &&
+            typeof f.id === "string" &&
+            (typeof f.url === "string" || f.held === true),
+        )
+        .map((f) =>
+          f.held === true
+            ? { ...f, held: true, url: "", expires_at: "" }
+            : { ...f, held: false },
+        )
     : [];
+  const trust = raw?.trust;
   const items = Array.isArray(raw?.items)
     ? raw.items.filter(
         (n): n is CanvasItem =>
@@ -183,7 +206,46 @@ export function normalizeBoard(
     frames,
     items,
     edges,
+    ...(trust &&
+    typeof trust.digest === "string" &&
+    ["ask", "allow", "deny"].includes(trust.policy)
+      ? {
+          trust: {
+            policy: trust.policy,
+            digest: trust.digest,
+            trusted: trust.trusted === true,
+          },
+        }
+      : {}),
   };
+}
+
+/** Lets the pages of a board run: digest names the list the person was
+ *  shown, and a board whose pages changed since answers 409. */
+export async function trustBoard(
+  sessionId: string,
+  file: string,
+  digest: string,
+): Promise<CanvasBoard> {
+  return normalizeBoard(
+    await readJson<Partial<CanvasBoard>>(
+      `${boardPath(sessionId)}/trust${fileQuery(file)}`,
+      { method: "POST", headers: json, body: JSON.stringify({ digest }) },
+    ),
+  );
+}
+
+/** Holds the pages of a board again until the person trusts it. */
+export async function untrustBoard(
+  sessionId: string,
+  file: string,
+): Promise<CanvasBoard> {
+  return normalizeBoard(
+    await readJson<Partial<CanvasBoard>>(
+      `${boardPath(sessionId)}/untrust${fileQuery(file)}`,
+      { method: "POST" },
+    ),
+  );
 }
 
 /** One node moved or resized: a frame (by a size or a device), a card, a link
