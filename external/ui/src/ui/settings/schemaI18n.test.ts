@@ -1,6 +1,10 @@
 import { afterEach, expect, test } from "vitest";
 import { initLocale, setLocale } from "../i18n/i18n";
-import { schemaFieldDesc, schemaFieldLabel } from "./schemaI18n";
+import {
+  schemaFieldDesc,
+  schemaFieldLabel,
+  schemaFieldPlaceholder,
+} from "./schemaI18n";
 
 afterEach(() => {
   // Reset to the default locale so module state never leaks between tests.
@@ -67,6 +71,52 @@ test("the english dictionary mirrors the schema text it replaces", () => {
   ).toBe("Loop guard");
   expect(schemaFieldLabel("system", "logger", "Logger", "logger")).toBe(
     "Logger",
+  );
+});
+
+test("tools.websearch.deepseek_api_key has Russian label, description and placeholder", () => {
+  setLocale("ru");
+  expect(
+    schemaFieldLabel(
+      "tools",
+      "websearch.deepseek_api_key",
+      "DeepSeek Search API key",
+      "deepseek_api_key",
+    ),
+  ).toBe("Ключ DeepSeek Search API");
+  const desc = schemaFieldDesc(
+    "tools",
+    "websearch.deepseek_api_key",
+    "The deepseek engine asks DeepSeek's Search API, which has no public page to scrape, so this key is required for the engine to work. Leave empty to read DEEPSEEK_API_KEY from the environment or ~/.coddy/.env.",
+  );
+  // Localized, not the schema's English fallback.
+  expect(desc).not.toBe(
+    "The deepseek engine asks DeepSeek's Search API, which has no public page to scrape, so this key is required for the engine to work. Leave empty to read DEEPSEEK_API_KEY from the environment or ~/.coddy/.env.",
+  );
+  expect(desc).toMatch(/[а-яё]/i);
+  // Names the env fallback and that the key is required for the backend.
+  expect(desc).toContain("DEEPSEEK_API_KEY");
+  expect(desc).toMatch(/обязателен/i);
+  expect(schemaFieldPlaceholder("tools", "websearch.deepseek_api_key")).toBe(
+    "Берётся из DEEPSEEK_API_KEY",
+  );
+});
+
+test("tools.websearch.deepseek_api_key has English label, description and placeholder", () => {
+  // English mirrors the schema text it replaces (ui_schema.go).
+  expect(
+    schemaFieldLabel(
+      "tools",
+      "websearch.deepseek_api_key",
+      "DeepSeek Search API key",
+      "deepseek_api_key",
+    ),
+  ).toBe("DeepSeek Search API key");
+  expect(
+    schemaFieldDesc("tools", "websearch.deepseek_api_key", "schema text"),
+  ).not.toBe("schema text");
+  expect(schemaFieldPlaceholder("tools", "websearch.deepseek_api_key")).toBe(
+    "Read from DEEPSEEK_API_KEY",
   );
 });
 

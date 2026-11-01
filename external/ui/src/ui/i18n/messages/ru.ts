@@ -673,6 +673,12 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.tools.preview_server.public_host.ph": "Адрес привязки",
   "settings.schema.tools.websearch.brave_api_key.ph":
     "Берётся из BRAVE_API_KEY",
+  "settings.schema.tools.websearch.deepseek_api_key.label":
+    "Ключ DeepSeek Search API",
+  "settings.schema.tools.websearch.deepseek_api_key.desc":
+    "Движок deepseek обращается к Search API DeepSeek, у которого нет публичной страницы для парсинга, поэтому ключ обязателен для работы движка. Оставьте пустым, чтобы взять DEEPSEEK_API_KEY из окружения или ~/.coddy/.env.",
+  "settings.schema.tools.websearch.deepseek_api_key.ph":
+    "Берётся из DEEPSEEK_API_KEY",
   "settings.schema.tools.websearch.searxng_url.ph": "http://localhost:8888",
   "settings.schema.tools.http_request.label": "HTTP-запросы",
   "settings.schema.tools.http_request.desc":

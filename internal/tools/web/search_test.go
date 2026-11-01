@@ -201,6 +201,21 @@ func TestSearchSucceedsEmptyWhenEnginesGenuinelyFoundNothing(t *testing.T) {
 	}
 }
 
+func TestSearchEmptyAnswerDoesNotClaimUnavailableEnginesAnswered(t *testing.T) {
+	for _, failure := range []error{blocked("rejected key"), fmt.Errorf("connection refused")} {
+		t.Run(failure.Error(), func(t *testing.T) {
+			stubEngines(t)
+			deepseekSearchFunc = func(context.Context, Query, Settings) ([]Result, error) {
+				return nil, failure
+			}
+			out := runSearch(t, envWith(EngineBrave, EngineDeepSeek), `{"query":"go"}`)
+			if strings.Contains(out.Hint, "Every engine answered") || !strings.Contains(out.Hint, "incomplete") || !strings.Contains(out.Hint, "deepseek") {
+				t.Fatalf("partial search presented as a definitive empty answer: %q", out.Hint)
+			}
+		})
+	}
+}
+
 func TestSearchAnErrorFromOneEngineDoesNotSinkTheCall(t *testing.T) {
 	stubEngines(t)
 	braveSearchFunc = func(context.Context, Query, Settings) ([]Result, error) {

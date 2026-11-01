@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 )
 
 // deepseekSearchFunc is swapped in tests to avoid a live API key.
@@ -52,15 +53,22 @@ type deepseekError struct {
 // is no HTML page to fall back on: the API is the only way in, so a missing
 // or refused key is reported as blocked rather than silently empty.
 //
-// The API has no pagination - its only bound is count, capped at 50 - so the
-// Page of a Query is ignored: every call returns the top maxResults rows.
+// The API has no pagination, so later pages are refused locally rather than
+// repeating the first page and displacing other engines' later results.
 func runDeepSeek(ctx context.Context, q Query, s Settings) ([]Result, error) {
+	if q.Page > 1 {
+		return nil, blocked("deepseek does not support pagination; use page 1 or narrow the query")
+	}
 	if deepseekSearchFunc != nil {
 		return deepseekSearchFunc(ctx, q, s)
 	}
 	key := strings.TrimSpace(s.DeepSeekAPIKey)
 	if key == "" {
 		return nil, blocked("tools.websearch.deepseek_api_key is not set")
+	}
+	query := engineQuery(q)
+	if n := utf8.RuneCountInString(query); n < 1 || n > 128 {
+		return nil, blocked("deepseek query must contain 1 to 128 Unicode characters, including site restriction")
 	}
 	count := q.MaxResults
 	if count <= 0 {
@@ -70,7 +78,7 @@ func runDeepSeek(ctx context.Context, q Query, s Settings) ([]Result, error) {
 		count = 50
 	}
 	body, err := json.Marshal(map[string]interface{}{
-		"query": engineQuery(q),
+		"query": query,
 		"count": count,
 	})
 	if err != nil {
@@ -107,11 +115,20 @@ func runDeepSeek(ctx context.Context, q Query, s Settings) ([]Result, error) {
 		}
 		return nil, blocked("%s", msg)
 	}
+	buf, err := io.ReadAll(io.LimitReader(resp.Body, maxSERPBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(buf) > maxSERPBytes {
+		return nil, blocked("deepseek response exceeds the %d byte limit", maxSERPBytes)
+	}
 	var parsed deepseekResponse
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+	if err := json.Unmarshal(buf, &parsed); err != nil {
 		return nil, blocked("deepseek did not answer json (%v)", err)
 	}
-	max := q.MaxResults
+	if parsed.Results == nil {
+		return nil, blocked("deepseek response is missing the results array")
+	}
 	out := make([]Result, 0, len(parsed.Results))
 	for _, r := range parsed.Results {
 		u := strings.TrimSpace(r.URL)
@@ -126,9 +143,12 @@ func runDeepSeek(ctx context.Context, q Query, s Settings) ([]Result, error) {
 		// The API honours count, but capping what it returned matches the
 		// sibling engines: a response larger than asked for never reaches the
 		// merge.
-		if max > 0 && len(out) >= max {
+		if len(out) >= count {
 			break
 		}
+	}
+	if len(parsed.Results) > 0 && len(out) == 0 {
+		return nil, blocked("deepseek returned results without usable URLs")
 	}
 	return out, nil
 }

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"net"
 	"reflect"
 	"strings"
@@ -88,6 +89,23 @@ func TestWebSearchResolvedEnginesDropsBlanksAndRepeats(t *testing.T) {
 	got := w.ResolvedEngines()
 	if !reflect.DeepEqual(got, []string{"brave", "bing"}) {
 		t.Errorf("got %v", got)
+	}
+}
+
+func TestWebSearchDeepSeekKeyIsRedactedAtEveryConfigPath(t *testing.T) {
+	paths := testPathConfig(t, "tools:\n  websearch:\n    engines: [deepseek]\n    deepseek_api_key: sk-deepseek-fixture-secret\n")
+	for _, path := range []string{".", "tools", "tools.websearch", "tools.websearch.deepseek_api_key"} {
+		got, err := ReadConfigPath(paths, path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(got.Value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !got.Redacted || strings.Contains(string(encoded), "sk-deepseek-fixture-secret") {
+			t.Fatalf("config_get %s leaked the DeepSeek credential: %s", path, encoded)
+		}
 	}
 }
 

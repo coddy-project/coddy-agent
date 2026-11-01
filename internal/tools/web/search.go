@@ -113,6 +113,7 @@ func executeSearchWeb(ctx context.Context, argsJSON string, env *tooling.Env) (s
 	rows := make([]searchRow, 0, maxRes)
 	reports := make([]Report, 0, len(runs))
 	healthy := 0
+	canPaginate := false
 	for i := range runs {
 		run := &runs[i]
 		kept := 0
@@ -147,6 +148,9 @@ func executeSearchWeb(ctx context.Context, argsJSON string, env *tooling.Env) (s
 		if run.report.Status == OutcomeEmpty {
 			healthy++
 		}
+		if run.name != EngineDeepSeek && run.report.Status == OutcomeOK && len(run.rows) > 0 {
+			canPaginate = true
+		}
 		reports = append(reports, run.report)
 	}
 
@@ -162,9 +166,17 @@ func executeSearchWeb(ctx context.Context, argsJSON string, env *tooling.Env) (s
 	out := searchOutput{Query: q, Page: page, Engines: reports, Results: rows}
 	switch {
 	case len(rows) == 0:
-		out.Hint = "Every engine answered, and none of them had anything under these words. Search again with different wording rather than repeating this query."
+		if len(blockedEngines(runs)) > 0 {
+			out.Hint = "Available engines found no results, but this search is incomplete because other engines were unavailable. Do not conclude the subject does not exist."
+		} else {
+			out.Hint = "Every engine answered, and none of them had anything under these words. Search again with different wording rather than repeating this query."
+		}
 	case len(rows) >= maxRes:
-		out.Hint = "More results are available: call websearch again with page incremented, or narrow the query."
+		if canPaginate {
+			out.Hint = "More results are available: call websearch again with page incremented, or narrow the query."
+		} else {
+			out.Hint = "DeepSeek does not support pagination; narrow the query for other results."
+		}
 	}
 	if blockedNames := blockedEngines(runs); len(blockedNames) > 0 {
 		out.Hint = strings.TrimSpace(out.Hint + " Engines unavailable for this call: " + strings.Join(blockedNames, ", ") + ".")

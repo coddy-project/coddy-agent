@@ -52,7 +52,7 @@ A search row in the transcript reads as what it found, not as the JSON above. It
 | `brave` | no (optional) | Default and first in the merge order. Reads the public result page; with an API key (`brave_api_key` or `BRAVE_API_KEY`) it uses the official Search API instead, which has no parser to break. |
 | `bing` | no | Default, second. Serves an unrelated result set to a client it dislikes, which the relevance gate below catches. |
 | `searxng` | no, but needs `searxng_url` | Your own instance, asked over its JSON API. The durable choice: not rate-limited against its owner, never served a decoy. |
-| `deepseek` | yes (`deepseek_api_key` or `DEEPSEEK_API_KEY`) | DeepSeek's Search API, asked over its JSON API. Not asked by default. There is no public page to scrape - the API is the only way in - so without a key the engine reports `blocked` rather than silently empty. It has no pagination: every call returns the top `max_results` rows. |
+| `deepseek` | yes (`deepseek_api_key` or `DEEPSEEK_API_KEY`) | [DeepSeek Search API](https://api-docs.deepseek.com/guides/search), disabled by default. Requires a key and supports only page 1. Missing credentials and requests for later pages report `blocked`. The query, including any `site:` restriction, must contain 1-128 Unicode characters. |
 | `ddg` | no | Not asked by default. From a server, both its endpoints answer every query with an HTTP 202 anti-bot page, which arrives as `blocked`; where DuckDuckGo still serves you, a query it has nothing for arrives as `empty`. |
 | `google` | no | Not asked by default. The page served to an unapproved client carries no organic results for any user agent; the results are rendered in the browser. |
 
@@ -83,6 +83,12 @@ tools:
     brave_api_key: ""             # official Brave Search API; or BRAVE_API_KEY
     deepseek_api_key: ""          # DeepSeek Search API; the deepseek engine needs a key
 ```
+
+To use DeepSeek, add `deepseek` to `engines` and set `deepseek_api_key` or export `DEEPSEEK_API_KEY`. A configured key takes precedence. The API receives `POST /v1/tools/search` with bearer authentication and a JSON body containing `query` and `count`. It returns up to `max_results` rows on page 1. Later pages skip DeepSeek without an HTTP request, so it cannot repeat page-one rows ahead of other engines' results. With DeepSeek alone, the hint asks for a narrower query instead of another page.
+
+![DeepSeek Search API key in Settings](../assets/web-search-deepseek-settings-dark-1280.png)
+
+*Web search settings with DeepSeek selected and its API key field left empty to use `DEEPSEEK_API_KEY`.*
 
 An engine name the loader does not know is a configuration error rather than a silently skipped backend, and `searxng` without `searxng_url` is refused the same way - `coddy -t` reports both with the line they are on.
 
@@ -118,6 +124,8 @@ What is refused is the link-local range, where no SearXNG listens and where the 
 One engine's answer to one query is remembered for `cache_ttl_seconds` (300 by default), so a model that reaches for the same search twice does not make the engine answer twice.
 
 Failures are remembered far more briefly, and the two kinds differently. A challenge page is sticky - the engine serves it to the next call as well - so it is kept for 30 seconds: long enough to stop a retry inside one turn, short enough that a recovering engine is noticed. An engine that could not be reached at all is kept for 5 seconds, which spares one turn's worth of repeats without hiding a host that has come back.
+
+DeepSeek cache entries include a SHA-256 fingerprint of the API key, never the key itself. Replacing a key starts a fresh cache entry, so a cached authentication failure does not survive a credential change. Successful DeepSeek responses are limited to 4 MiB and must contain a `results` array; malformed answers report `blocked` instead of an empty search.
 
 ## Arguments
 

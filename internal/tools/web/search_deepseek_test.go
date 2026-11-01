@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -225,9 +226,8 @@ func TestDeepSeekNonJSONErrorBodyFallsBackToTheCode(t *testing.T) {
 	}
 }
 
-// TestDeepSeekIgnoresPage pins the API's lack of pagination: a call for page 3
-// sends the same request as page 1, since the endpoint has no offset.
-func TestDeepSeekIgnoresPage(t *testing.T) {
+// Later pages must not repeat the first page or spend another API request.
+func TestDeepSeekRejectsLaterPages(t *testing.T) {
 	var calls int
 	restore := pointDeepSeekAt(t, func(w http.ResponseWriter, _ *http.Request) {
 		calls++
@@ -240,14 +240,98 @@ func TestDeepSeekIgnoresPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	third, err := runDeepSeek(context.Background(), Query{Text: "go", Page: 3, MaxResults: 3}, Settings{DeepSeekAPIKey: "key"})
-	if err != nil {
-		t.Fatal(err)
+	_, err = runDeepSeek(context.Background(), Query{Text: "go", Page: 3, MaxResults: 3}, Settings{DeepSeekAPIKey: "key"})
+	if reason, ok := asBlocked(err); !ok || !strings.Contains(reason, "pagination") {
+		t.Fatalf("later page should explain the limitation, got %v", err)
 	}
-	if calls != 2 {
-		t.Fatalf("expected 2 calls, got %d", calls)
+	if calls != 1 || len(first) != 1 {
+		t.Fatalf("later page should not call API again: calls=%d first=%+v", calls, first)
 	}
-	if len(first) != 1 || len(third) != 1 || first[0].URL != third[0].URL {
-		t.Fatalf("page 3 returned a different answer than page 1: %+v vs %+v", first, third)
+}
+
+func TestDeepSeekBoundsSuccessfulResponses(t *testing.T) {
+	restore := pointDeepSeekAt(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"results":[],"content":"%s"}`, strings.Repeat("x", maxSERPBytes))
+	})
+	defer restore()
+	_, err := runDeepSeek(context.Background(), Query{Text: "go"}, Settings{DeepSeekAPIKey: "key"})
+	if reason, ok := asBlocked(err); !ok || !strings.Contains(reason, "limit") {
+		t.Fatalf("oversized response should be blocked, got %v", err)
+	}
+}
+
+func TestDeepSeekRejectsMalformedSuccessfulEnvelopes(t *testing.T) {
+	for _, body := range []string{`{}`, `null`, `{"results":null}`, `{"results":[null]}`, `{"results":[{}]}`, `{"error":{"message":"upstream failed"}}`, `{"results":[]} {}`} {
+		t.Run(body, func(t *testing.T) {
+			restore := pointDeepSeekAt(t, func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(body))
+			})
+			defer restore()
+			_, err := runDeepSeek(context.Background(), Query{Text: "go"}, Settings{DeepSeekAPIKey: "key"})
+			if _, ok := asBlocked(err); !ok {
+				t.Fatalf("malformed success should be blocked, got %v", err)
+			}
+		})
+	}
+}
+
+func TestDeepSeekLaterPageDoesNotCrowdOutOtherEngines(t *testing.T) {
+	stubEngines(t)
+	deepseekSearchFunc = nil
+	restore := pointDeepSeekAt(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"results":[{"title":"Go","url":"https://go.dev"}]}`))
+	})
+	defer restore()
+	braveSearchFunc = func(_ context.Context, q Query, _ Settings) ([]Result, error) {
+		return []Result{{Title: "Go next page", URL: fmt.Sprintf("https://example.com/go/%d", q.Page)}}, nil
+	}
+	env := envWith(EngineDeepSeek, EngineBrave)
+	env.WebSearch.DeepSeekAPIKey = "key"
+	out := runSearch(t, env, `{"query":"go","page":2,"max_results":1}`)
+	if len(out.Results) != 1 || out.Results[0].Source != EngineBrave {
+		t.Fatalf("first-page rows displaced later-page results: %+v", out.Results)
+	}
+	if rep := reportFor(t, out, EngineDeepSeek); rep.Status != OutcomeBlocked || !strings.Contains(rep.Reason, "pagination") {
+		t.Fatalf("pagination limitation not reported: %+v", rep)
+	}
+}
+
+func TestDeepSeekOnlySearchDoesNotOfferPagination(t *testing.T) {
+	stubEngines(t)
+	deepseekSearchFunc = func(context.Context, Query, Settings) ([]Result, error) {
+		return []Result{{Title: "Go", URL: "https://go.dev"}}, nil
+	}
+	for _, engines := range [][]string{{EngineDeepSeek}, {EngineDeepSeek, EngineBrave}} {
+		out := runSearch(t, envWith(engines...), `{"query":"go","max_results":1}`)
+		if strings.Contains(out.Hint, "page incremented") || !strings.Contains(out.Hint, "pagination") {
+			t.Fatalf("engines %v: hint promises unavailable pagination: %q", engines, out.Hint)
+		}
+	}
+}
+
+func TestDeepSeekChecksQueryLengthAfterSiteFolding(t *testing.T) {
+	for _, tc := range []struct {
+		text, site string
+		wantCall   bool
+	}{
+		{strings.Repeat("я", 128), "", true},
+		{strings.Repeat("я", 129), "", false},
+		{strings.Repeat("a", 120), "go.dev", false},
+		{"   ", "", false},
+	} {
+		calls := 0
+		restore := pointDeepSeekAt(t, func(w http.ResponseWriter, _ *http.Request) {
+			calls++
+			_, _ = w.Write([]byte(`{"results":[]}`))
+		})
+		_, err := runDeepSeek(context.Background(), Query{Text: tc.text, Site: tc.site}, Settings{DeepSeekAPIKey: "key"})
+		restore()
+		if tc.wantCall {
+			if err != nil || calls != 1 {
+				t.Fatalf("valid Unicode query: calls=%d err=%v", calls, err)
+			}
+		} else if reason, ok := asBlocked(err); !ok || !strings.Contains(reason, "128") || calls != 0 {
+			t.Fatalf("invalid query should be rejected locally: calls=%d err=%v", calls, err)
+		}
 	}
 }

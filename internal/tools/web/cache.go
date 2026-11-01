@@ -1,6 +1,8 @@
 package web
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"strconv"
 	"strings"
 	"sync"
@@ -69,9 +71,12 @@ func cacheKey(engine string, q Query, s Settings) string {
 	if strings.TrimSpace(s.BraveAPIKey) != "" {
 		b.WriteString("keyed")
 	}
-	b.WriteByte('\n')
-	if strings.TrimSpace(s.DeepSeekAPIKey) != "" {
-		b.WriteString("deepseek-keyed")
+	if engine == EngineDeepSeek {
+		// A rotated credential must not inherit a cached authentication failure.
+		// Store only its fingerprint, never the credential itself.
+		b.WriteByte('\n')
+		digest := sha256.Sum256([]byte(strings.TrimSpace(s.DeepSeekAPIKey)))
+		b.WriteString(hex.EncodeToString(digest[:]))
 	}
 	return b.String()
 }
