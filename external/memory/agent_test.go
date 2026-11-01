@@ -5,9 +5,12 @@ package memory
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	memstorage "github.com/EvilFreelancer/coddy-agent/external/memory/storage"
@@ -308,5 +311,50 @@ func TestGuidesRefuseAProjectGuideBehindALink(t *testing.T) {
 	}
 	if len(guides) != 1 || guides[0].Path != "global:AGENTS.md" {
 		t.Fatalf("guides = %+v", guides)
+	}
+}
+
+// mkfifoOrSkip makes a named pipe, which a read of blocks until somebody
+// writes to it, and releases any reader still stuck on it when the test ends.
+func mkfifoOrSkip(t *testing.T, path string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("no named pipes on Windows")
+	}
+	if err := exec.Command("mkfifo", path).Run(); err != nil {
+		t.Skipf("mkfifo unavailable: %v", err)
+	}
+	t.Cleanup(func() {
+		if f, err := os.OpenFile(path, os.O_RDWR, 0); err == nil {
+			_ = f.Close()
+		}
+	})
+}
+
+// A guide that is a named pipe would block the run forever on the read; it is
+// refused like any other file that is not a note, and the other level stays.
+func TestGuidesRefuseAProjectGuideThatIsANamedPipe(t *testing.T) {
+	s := newGuideStand(t)
+	writeFile(t, filepath.Join(s.globalDir, "AGENTS.md"), "Global guide.")
+	mkfifoOrSkip(t, filepath.Join(s.project, "AGENTS.md"))
+	type result struct {
+		guides []Guide
+		err    error
+	}
+	done := make(chan result, 1)
+	go func() {
+		g, err := Guides(s.cfg, s.cwd)
+		done <- result{g, err}
+	}()
+	select {
+	case r := <-done:
+		if !equalStrings(guidePaths(r.guides), []string{"global:AGENTS.md"}) {
+			t.Fatalf("guides = %+v", r.guides)
+		}
+		if r.err == nil || !strings.Contains(r.err.Error(), "project:AGENTS.md") {
+			t.Fatalf("err = %v, want one naming project:AGENTS.md", r.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Guides blocked on a guide that is a named pipe")
 	}
 }

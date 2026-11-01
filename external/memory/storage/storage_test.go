@@ -3,13 +3,17 @@
 package memstorage
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -654,5 +658,119 @@ func TestSearchScoresDescend(t *testing.T) {
 	}
 	if hits[0].Score <= 0 || hits[0].Score <= hits[1].Score {
 		t.Fatalf("scores %v then %v", hits[0].Score, hits[1].Score)
+	}
+}
+
+// mkfifoOrSkip makes a named pipe, which a read of blocks until somebody
+// writes to it, and releases any reader still stuck on it when the test ends.
+func mkfifoOrSkip(t *testing.T, path string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("no named pipes on Windows")
+	}
+	if err := exec.Command("mkfifo", path).Run(); err != nil {
+		t.Skipf("mkfifo unavailable: %v", err)
+	}
+	t.Cleanup(func() {
+		if f, err := os.OpenFile(path, os.O_RDWR, 0); err == nil {
+			_ = f.Close()
+		}
+	})
+}
+
+// within runs f and fails the test when it has not returned after two
+// seconds, which is how a read stuck on a named pipe shows.
+func within(t *testing.T, what string, f func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		f()
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("%s blocked on a named pipe", what)
+	}
+}
+
+// A named pipe is not a note: reading it would block the caller for good, so
+// it is refused, in either root.
+func TestReadNoteRefusesANamedPipe(t *testing.T) {
+	g := t.TempDir()
+	p := filepath.Join(t.TempDir(), ".coddy", "memory")
+	if err := os.MkdirAll(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	st := NewWithRoots(g, p)
+	mkfifoOrSkip(t, filepath.Join(g, "AGENTS.md"))
+	mkfifoOrSkip(t, filepath.Join(p, "AGENTS.md"))
+	for _, scope := range []string{"global", "project"} {
+		var err error
+		within(t, "ReadNote "+scope, func() { _, err = st.ReadNote(scope, "AGENTS.md") })
+		if !errors.Is(err, ErrNotNote) {
+			t.Errorf("ReadNote(%s) of a named pipe = %v, want ErrNotNote", scope, err)
+		}
+	}
+}
+
+// The tool read of a note (coddy_memory_read) refuses a named pipe as well,
+// and still reports a missing note and a folder as it did.
+func TestReadRefusesANamedPipe(t *testing.T) {
+	g := t.TempDir()
+	st := NewWithRoots(g, t.TempDir())
+	mkfifoOrSkip(t, filepath.Join(g, "pipe.md"))
+	if err := os.Mkdir(filepath.Join(g, "dir.md"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	within(t, "Read", func() { _, err = st.Read("global:pipe.md") })
+	if !errors.Is(err, ErrNotNote) {
+		t.Errorf("Read of a named pipe = %v, want ErrNotNote", err)
+	}
+	if _, err := st.Read("global:missing.md"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Read of a missing note = %v, want a not-exist error", err)
+	}
+	if _, err := st.Read("global:dir.md"); err == nil || errors.Is(err, ErrNotNote) {
+		t.Errorf("Read of a folder = %v, want the read error, not ErrNotNote", err)
+	}
+}
+
+// Search lists no named pipe and reads no named pipe, wherever it sits and
+// whatever it is called; a link to a regular note still counts as the note.
+func TestSearchSkipsNamedPipesAndKeepsLinkedNotes(t *testing.T) {
+	g := t.TempDir()
+	p := filepath.Join(t.TempDir(), ".coddy", "memory")
+	if err := os.MkdirAll(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	st := NewWithRoots(g, p)
+	writeNotes(t, st, "global", map[string]string{"real.md": "relay deploy notes"})
+	writeNotes(t, st, "project", map[string]string{"real.md": "relay deploy notes"})
+	for _, root := range []string{g, p} {
+		mkfifoOrSkip(t, filepath.Join(root, "AGENTS.md"))
+		mkfifoOrSkip(t, filepath.Join(root, "pipe.md"))
+		if err := os.MkdirAll(filepath.Join(root, "sub"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mkfifoOrSkip(t, filepath.Join(root, "sub", "pipe.txt"))
+		if err := os.Symlink("pipe.md", filepath.Join(root, "alias-of-pipe.md")); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		if err := os.Symlink("real.md", filepath.Join(root, "alias.md")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got []string
+	within(t, "Search", func() { got = searchPaths(t, st, "relay deploy", "both", 8) })
+	want := []string{"global:alias.md", "global:real.md", "project:alias.md", "project:real.md"}
+	sort.Strings(got)
+	if !equalPaths(got, want) {
+		t.Fatalf("hits = %v, want %v", got, want)
+	}
+	var any bool
+	within(t, "HasAnyFiles", func() { any = st.HasAnyFiles() })
+	if !any {
+		t.Fatal("HasAnyFiles = false with notes in the roots")
 	}
 }

@@ -153,6 +153,9 @@ func (s *Store) Search(query string, scope string, maxHits int) ([]Hit, error) {
 		// case on a case-insensitive filesystem.
 		guide, _ := root.Stat(GuideName)
 		for _, rel := range collectFiles(root.FS()) {
+			if rel == GuideName {
+				continue
+			}
 			if guide != nil && !strings.Contains(rel, "/") {
 				if info, err := root.Stat(rel); err == nil && os.SameFile(guide, info) {
 					continue
@@ -336,6 +339,11 @@ func (s *Store) Read(rel string) (string, error) {
 		return "", err
 	}
 	defer func() { _ = root.Close() }()
+	// A named pipe, a socket or a device is not a note, and reading one can
+	// block for good. A folder keeps the error its read gives.
+	if info, err := root.Stat(name); err == nil && !info.IsDir() && !info.Mode().IsRegular() {
+		return "", ErrNotNote
+	}
 	b, err := root.ReadFile(name)
 	if err != nil {
 		return "", err
@@ -343,9 +351,9 @@ func (s *Store) Read(rel string) (string, error) {
 	return string(b), nil
 }
 
-// ReadNote reads one note for the notes browser: a .md or .txt file, never a
-// folder. A note that cannot be reached, whatever the reason, is
-// fs.ErrNotExist.
+// ReadNote reads one note for the notes browser: a .md or .txt regular file
+// (or a link that resolves to one), never a folder, a named pipe or a device.
+// A note that cannot be reached, whatever the reason, is fs.ErrNotExist.
 func (s *Store) ReadNote(scopeLabel, inner string) ([]byte, error) {
 	root, name, err := s.openScopeDir(scopeLabel, inner, false)
 	if err != nil {
@@ -367,6 +375,9 @@ func (s *Store) ReadNote(scopeLabel, inner string) ([]byte, error) {
 	}
 	if info.IsDir() {
 		return nil, fs.ErrNotExist
+	}
+	if !info.Mode().IsRegular() {
+		return nil, ErrNotNote
 	}
 	return root.ReadFile(name)
 }

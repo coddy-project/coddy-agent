@@ -240,17 +240,27 @@ func openRealDir(parent *os.Root, name, display string, create bool) (*os.Root, 
 }
 
 // collectFiles lists the notes under a root as slash paths relative to it.
-// Folders that are links are not descended into, as before; a note that is
-// a link is listed, and reading it is the root's to allow.
+// Folders that are links are not descended into, as before; a note that is a
+// link is listed when it resolves to a regular file, and reading it is the
+// root's to allow. A named pipe, a socket or a device is never a note: a read
+// of one can block for good.
 func collectFiles(fsys fs.FS) []string {
 	var out []string
 	_ = fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if !d.IsDir() && isMemoryFile(d.Name()) {
-			out = append(out, p)
+		if d.IsDir() || !isMemoryFile(d.Name()) {
+			return nil
 		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			if info, err := fs.Stat(fsys, p); err != nil || !info.Mode().IsRegular() {
+				return nil
+			}
+		} else if !d.Type().IsRegular() {
+			return nil
+		}
+		out = append(out, p)
 		return nil
 	})
 	return out
