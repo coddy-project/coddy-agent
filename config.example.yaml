@@ -544,6 +544,9 @@ tools:
 #   # side effect. Set 0.0.0.0 to accept connections from other machines.
 #   host: "127.0.0.1"
 #   port: 8080
+#   # Largest request body POST /v1/chat/completions and POST /v1/responses accept, in bytes.
+#   # 0 (the default) means the built-in 512 MiB; a larger body is refused with 413 request_too_large.
+#   max_body_bytes: 0
 #   # Optional bearer auth. Empty = no auth (default). When set, /v1/* and /coddy/* require
 #   # "Authorization: Bearer <token>". Prefer --auth-token / CODDY_HTTP_TOKEN to keep the
 #   # secret out of this file; a "${ENV}" reference works too. Never returned by GET /coddy/config.

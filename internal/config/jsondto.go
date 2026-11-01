@@ -353,6 +353,7 @@ type DecisionsJSON struct {
 // HTTPServerJSON mirrors HTTPServerConfig. AuthToken is write-only: ConfigToJSONDTO never
 // populates it (redacted), reporting only whether one is set via AuthConfigured.
 type HTTPServerJSON struct {
+	MaxBodyBytes   int64         `json:"max_body_bytes,omitempty"`
 	Enabled        *bool         `json:"enable,omitempty"`
 	Host           string        `json:"host,omitempty"`
 	Port           int           `json:"port,omitempty"`
@@ -636,6 +637,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	}
 	out.Decisions = DecisionsJSON{Enabled: c.Decisions.Enabled, Model: c.Decisions.Model, Threshold: c.Decisions.Threshold}
 	out.HTTPServer = HTTPServerJSON{
+		MaxBodyBytes:  c.HTTPServer.MaxBodyBytes,
 		Enabled:       c.HTTPServer.Enabled,
 		Host:          c.HTTPServer.Host,
 		Port:          c.HTTPServer.Port,
@@ -896,10 +898,11 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	}
 	cfg.Decisions = DecisionsConfig{Enabled: j.Decisions.Enabled, Model: j.Decisions.Model, Threshold: j.Decisions.Threshold}
 	cfg.HTTPServer = HTTPServerConfig{
-		Enabled:   j.HTTPServer.Enabled,
-		Host:      j.HTTPServer.Host,
-		Port:      j.HTTPServer.Port,
-		AuthToken: j.HTTPServer.AuthToken,
+		MaxBodyBytes: j.HTTPServer.MaxBodyBytes,
+		Enabled:      j.HTTPServer.Enabled,
+		Host:         j.HTTPServer.Host,
+		Port:         j.HTTPServer.Port,
+		AuthToken:    j.HTTPServer.AuthToken,
 		Login: HTTPLoginConfig{
 			Enabled:         cloneBoolPtr(j.HTTPServer.Login.Enabled),
 			Mode:            j.HTTPServer.Login.Mode,

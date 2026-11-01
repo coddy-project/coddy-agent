@@ -1377,12 +1377,23 @@ func isNormalHistoryList(opts session.ListOptions) bool {
 // coddySessionTokenUsage reads the provider token totals a session accumulated.
 // A bundle with no stats.json yet (a chat that never completed a model call)
 // reports zeroes rather than nothing, so every row of the table has the same
-// shape and sorts numerically.
+// shape and sorts numerically. A stats.json that exists but cannot be read -
+// corrupt JSON, a directory under that name - reports null instead: the usage
+// is unknown, not zero.
 func coddySessionTokenUsage(fs *session.FileStore, id string) map[string]int {
 	usage := map[string]int{"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
 	stats, err := session.ReadSessionStats(fs.SessionPath(id))
-	if err != nil || stats == nil {
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return usage
+		}
+		return nil
+	}
+	if stats == nil {
 		return usage
+	}
+	if stats.TokenUsageTotal.UsageKnown != nil && !*stats.TokenUsageTotal.UsageKnown {
+		return nil
 	}
 	usage["inputTokens"] = stats.TokenUsageTotal.InputTokens
 	usage["outputTokens"] = stats.TokenUsageTotal.OutputTokens

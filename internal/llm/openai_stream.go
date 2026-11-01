@@ -459,6 +459,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	var toolCalls []ToolCall
 	var stopReason string
 	var inputTokens, outputTokens, cachedInputTokens, reasoningTokens int
+	var usageKnown bool
 
 	// Accumulate tool call deltas by index.
 	type tcBuilder struct {
@@ -559,7 +560,8 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 		}
 
 		if len(chunk.Choices) == 0 {
-			if chunk.Usage.TotalTokens > 0 {
+			if openAIUsageKnown(string(payload)) {
+				usageKnown = true
 				inputTokens = int(chunk.Usage.PromptTokens)
 				outputTokens = int(chunk.Usage.CompletionTokens)
 				cachedInputTokens = int(chunk.Usage.PromptTokensDetails.CachedTokens)
@@ -613,7 +615,8 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 			}
 		}
 
-		if chunk.Usage.TotalTokens > 0 {
+		if openAIUsageKnown(string(payload)) {
+			usageKnown = true
 			inputTokens = int(chunk.Usage.PromptTokens)
 			outputTokens = int(chunk.Usage.CompletionTokens)
 			cachedInputTokens = int(chunk.Usage.PromptTokensDetails.CachedTokens)
@@ -653,6 +656,8 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 				return &Response{
 					Content:           fullContent,
 					Reasoning:         reasoningBuf.String(),
+					UsageKnown:        usageKnown,
+					UsageIncomplete:   !usageKnown,
 					InputTokens:       inputTokens,
 					OutputTokens:      outputTokens,
 					CachedInputTokens: cachedInputTokens,
@@ -676,6 +681,8 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 					Content:           fullContent,
 					ToolCalls:         toolCalls,
 					StopReason:        sr,
+					UsageKnown:        usageKnown,
+					UsageIncomplete:   !usageKnown,
 					InputTokens:       inputTokens,
 					OutputTokens:      outputTokens,
 					CachedInputTokens: cachedInputTokens,
@@ -704,6 +711,8 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 		Content:           fullContent,
 		ToolCalls:         toolCalls,
 		StopReason:        stopReason,
+		UsageKnown:        usageKnown,
+		UsageIncomplete:   !usageKnown,
 		InputTokens:       inputTokens,
 		OutputTokens:      outputTokens,
 		CachedInputTokens: cachedInputTokens,

@@ -415,6 +415,7 @@ type SessionContextWindow = {
 
 type SessionStats = {
   tokenUsageTotal?: {
+    usageKnown?: boolean;
     inputTokens: number;
     outputTokens: number;
     totalTokens: number;
@@ -643,22 +644,28 @@ export function App() {
   );
 
   const applySessionStatsPayload = useCallback(
-    (stats: SessionStats | null | undefined, viewing: boolean) => {
+    (stats: SessionStats | null | undefined, sid: string, viewing: boolean) => {
       if (!viewing) {
         return;
       }
       if (stats?.tokenUsageTotal) {
         const t = stats.tokenUsageTotal;
-        tokenBaselineRef.current = {
+        const baseline = tokenBaselineForSession(sid);
+        baseline.current = {
           input: t.inputTokens || 0,
           output: t.outputTokens || 0,
           total: t.totalTokens || 0,
+          known: t.usageKnown !== false,
         };
-        setTokenUsage({
-          inputTokens: tokenBaselineRef.current.input,
-          outputTokens: tokenBaselineRef.current.output,
-          totalTokens: tokenBaselineRef.current.total,
-        });
+        setTokenUsage(
+          t.usageKnown === false
+            ? null
+            : {
+                inputTokens: baseline.current.input,
+                outputTokens: baseline.current.output,
+                totalTokens: baseline.current.total,
+              },
+        );
       }
       if (stats?.contextBreakdown) {
         setContextBreakdown(stats.contextBreakdown);
@@ -689,6 +696,7 @@ export function App() {
       recordSessionContextWindow(key, statsRes.data?.contextWindow);
       applySessionStatsPayload(
         statsRes.data?.stats,
+        key,
         viewedSessionIdRef.current.trim() === key,
       );
     },
@@ -709,11 +717,27 @@ export function App() {
     if (viewedSessionIdRef.current.trim() !== key) return;
     void markCoddySessionActivityRead(key);
   }, []);
-  const tokenBaselineRef = useRef<{
-    input: number;
-    output: number;
-    total: number;
-  }>({ input: 0, output: 0, total: 0 });
+  const tokenBaselinesRef = useRef(
+    new Map<
+      string,
+      {
+        current: {
+          input: number;
+          output: number;
+          total: number;
+          known?: boolean;
+        };
+      }
+    >(),
+  );
+  function tokenBaselineForSession(sid: string) {
+    let baseline = tokenBaselinesRef.current.get(sid);
+    if (!baseline) {
+      baseline = { current: { input: 0, output: 0, total: 0 } };
+      tokenBaselinesRef.current.set(sid, baseline);
+    }
+    return baseline;
+  }
   /**
    * Per-session shadow transcript while that session streams in the
    * background, kept as a small LRU (see sessionTranscriptCache.ts). Every
@@ -4869,7 +4893,6 @@ export function App() {
     setDraft("");
     setTokenUsage(null);
     setContextBreakdown(null);
-    tokenBaselineRef.current = { input: 0, output: 0, total: 0 };
     const lifecycle = new AbortController();
     void (async () => {
       await loadSessionsList(true);
@@ -4892,6 +4915,7 @@ export function App() {
         if (statsRes.ok && statsRes.data?.stats) {
           applySessionStatsPayload(
             statsRes.data.stats,
+            sessionId,
             viewedSessionIdRef.current.trim() === sessionId,
           );
         }
@@ -5142,7 +5166,7 @@ export function App() {
     };
 
     const branchTokenUsage = (u: TokenUsage | null) => {
-      if (u === null || !ownsRelay() || fetchCtl.signal.aborted) return;
+      if (!ownsRelay() || fetchCtl.signal.aborted) return;
       if (viewedSessionIdRef.current.trim() === key) {
         setTokenUsage(u);
         debouncedRefreshSessionStats(key);
@@ -5200,7 +5224,7 @@ export function App() {
         applyStreamItems,
         setTokenUsage: branchTokenUsage,
         setContextUsage: branchContextUsage,
-        tokenBaselineRef,
+        tokenBaselineRef: tokenBaselineForSession(key),
         reasoningDurationMsByContentRef,
         newId,
         applyMemoryRunToItems,
@@ -5522,7 +5546,7 @@ export function App() {
       };
 
       const branchTokenUsage = (u: TokenUsage | null) => {
-        if (u === null || !ownsPost() || abortCtl.signal.aborted) return;
+        if (!ownsPost() || abortCtl.signal.aborted) return;
         if (viewedSessionIdRef.current.trim() === streamKey) {
           setTokenUsage(u);
           debouncedRefreshSessionStats(streamKey);
@@ -5986,7 +6010,7 @@ export function App() {
         applyStreamItems,
         setTokenUsage: branchTokenUsage,
         setContextUsage: branchContextUsage,
-        tokenBaselineRef,
+        tokenBaselineRef: tokenBaselineForSession(streamKey),
         reasoningDurationMsByContentRef,
         newId,
         applyMemoryRunToItems,

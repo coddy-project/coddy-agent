@@ -212,6 +212,10 @@ type Response struct {
 	// reads and cache writes apart from the rest (Anthropic, Devin) adds them in.
 	InputTokens  int
 	OutputTokens int
+	// UsageKnown marks an explicitly reported complete usage, including zero.
+	UsageKnown bool
+	// UsageIncomplete means the provider did not report both token counters.
+	UsageIncomplete bool
 	// CachedInputTokens is the part of InputTokens the provider served from its
 	// prompt cache instead of processing again (OpenAI
 	// usage.prompt_tokens_details.cached_tokens, Anthropic
@@ -283,6 +287,7 @@ type ProviderInput struct {
 	// a set temperature is sent as is, zero included, and next to a reasoning
 	// level too, where a configured one is left out.
 	TemperatureSet bool
+	TopP           *float64
 	// ReasoningEffort is the reasoning level name, "off" to disable thinking where
 	// the model supports it, or empty to keep the backend default.
 	// OpenAI maps it to reasoning_effort; Anthropic maps it to an extended-thinking
@@ -398,6 +403,7 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	case "openai":
 		op := newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 		op.tempSet = p.TemperatureSet
+		op.topP = p.TopP
 		op.modelParams = p.SupportedParameters
 		inner = op
 	case "anthropic":

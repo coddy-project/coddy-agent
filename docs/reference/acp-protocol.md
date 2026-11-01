@@ -578,6 +578,15 @@ define; a client that ignores unknown kinds keeps working.
 - **`turn_progress`** carries the turn clock and output tokens. Optional `tokensPerSecond` reports generation speed; `completed: true` marks the final update, including a stopped or failed turn; when present, the rate is the average across measured model calls. Saved averages replay on session load. Blocking (non-streaming) providers, ACP agent models and calls delivered in a single output chunk contribute no tokens or time to the speed average; output counts still include them. With no measurable call interval, live output counts remain available, but the rate is omitted and no generation caption is saved. When an average exists, its saved caption pairs total output tokens from all calls with the rate across measured calls only. The same calculation powers the console and web UI.
 - **`token_usage`** after every completed model call: `inputTokens`,
   `outputTokens` of that call and `totalTokens` accumulated over the turn.
+  `usageKnown` says whether the call's usage is known; `false` means the
+  numeric fields do not establish complete usage, even if they are nonzero.
+  `true` includes an explicitly reported zero. The field is optional for
+  compatibility with older senders. The flag describes this call, not the
+  completeness of `totalTokens` across earlier calls in the turn.
+  Optional `sessionUsageKnown` reports whether accumulated usage for the whole
+  session is complete. Once a call's usage is unknown, it remains `false` even
+  if a later call has `usageKnown: true`. Older servers may omit the field;
+  clients treat its absence as known for compatibility.
   `inputTokens` is the whole prompt of the call, the part served from the
   provider's prompt cache included; that part is `cachedInputTokens`, omitted
   when the provider reported none. `reasoningTokens` is the part of

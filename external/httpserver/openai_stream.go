@@ -186,9 +186,7 @@ func (f *openAIStreamFilter) named(event, data string) {
 	case "token_usage":
 		var u acp.TokenUsageUpdate
 		if err := json.Unmarshal([]byte(data), &u); err == nil {
-			f.usage.input += u.InputTokens
-			f.usage.output += u.OutputTokens
-			f.usage.cached += u.CachedInputTokens
+			f.usage.add(u)
 		}
 	}
 }
@@ -245,7 +243,8 @@ func (f *openAIStreamFilter) open() error {
 
 // finish writes what precedes [DONE]: the chunk that finishes the choice, unless
 // a forwarded chunk already did, then the usage chunk when the client asked for
-// one. A turn that ended on an error frame gets neither: the error is its end,
+// one and the provider reported counters. A turn that ended on an error frame
+// gets neither: the error is its end,
 // and a finished choice after it would read as a successful answer.
 func (f *openAIStreamFilter) finish() error {
 	if f.errored {
@@ -265,9 +264,10 @@ func (f *openAIStreamFilter) finish() error {
 	}
 	usage := f.usage.openAI()
 	if usage == nil {
-		// Keep the streaming contract: an explicitly requested usage chunk
-		// exists even when the provider supplied no counters.
-		usage = map[string]interface{}{"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+		// The provider reported no counters: leave the usage chunk out, like
+		// the non-streaming answer, so a client can tell "no data" from a
+		// real zero count (issue #576).
+		return nil
 	}
 	line, err := json.Marshal(map[string]any{
 		"id":      f.chatID,

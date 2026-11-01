@@ -43,6 +43,21 @@ Feature: POST /v1/chat/completions streams the contract an OpenAI client parses
     And that usage chunk carries an empty choices array
     And that usage chunk reports 4 cached prompt tokens
 
+  Scenario: A client asking for usage gets no usage object when the provider reports none
+    Given a coddy server whose model streams reasoning before its answer and reports no usage
+    When an OpenAI client streams "local/qwen3-1.7b" over POST /v1/chat/completions asking for usage
+    Then the client assembles the answer "Hi there."
+    And the last chunk before [DONE] finishes with "stop"
+    And the stream carries no usage object
+    When an OpenAI client requests a non-streaming completion from "local/qwen3-1.7b"
+    Then the JSON completion carries no usage object
+
+  Scenario: An agent turn asking for usage gets no usage object when the provider reports none
+    Given a coddy server whose model streams reasoning before its answer and reports no usage
+    When an OpenAI client streams "agent" over POST /v1/chat/completions asking for usage
+    Then the client assembles the answer "Hi there."
+    And the stream carries no usage object
+
   Scenario: The rich coddy channel is untouched on POST /v1/responses
     Given a coddy server whose model streams reasoning before its answer
     When a coddy client streams "agent" over POST /v1/responses

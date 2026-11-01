@@ -2,24 +2,44 @@
 
 package httpserver
 
-import "github.com/EvilFreelancer/coddy-agent/internal/llm"
+import (
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+)
 
 // completionUsage holds provider-reported counters for one HTTP request.
 type completionUsage struct {
-	input  int
-	output int
-	cached int
+	input      int
+	output     int
+	cached     int
+	known      bool
+	incomplete bool
 }
 
 func completionUsageFromResponse(response *llm.Response) completionUsage {
 	if response == nil {
 		return completionUsage{}
 	}
-	return completionUsage{input: response.InputTokens, output: response.OutputTokens, cached: response.CachedInputTokens}
+	return completionUsage{input: response.InputTokens, output: response.OutputTokens, cached: response.CachedInputTokens, known: response.UsageKnown || (!response.UsageIncomplete && (response.InputTokens > 0 || response.OutputTokens > 0))}
+}
+
+func (u *completionUsage) add(update acp.TokenUsageUpdate) {
+	known := update.InputTokens > 0 || update.OutputTokens > 0
+	if update.UsageKnown != nil {
+		known = *update.UsageKnown
+	}
+	if !known {
+		u.incomplete = true
+		return
+	}
+	u.known = true
+	u.input += update.InputTokens
+	u.output += update.OutputTokens
+	u.cached += update.CachedInputTokens
 }
 
 func (u completionUsage) openAI() map[string]interface{} {
-	if u.input <= 0 && u.output <= 0 {
+	if !u.known || u.incomplete {
 		return nil
 	}
 	usage := map[string]interface{}{
