@@ -557,6 +557,31 @@ func TestSearchPathWordsOutweighTheBody(t *testing.T) {
 	}
 }
 
+// The AGENTS.md at the root of a scope is the guide the child already has at
+// the top of its task, so it is never a hit; one in a subfolder is an
+// ordinary note.
+func TestSearchLeavesTheRootGuideOut(t *testing.T) {
+	st := NewWithRoots(t.TempDir(), filepath.Join(t.TempDir(), ".coddy", "memory"))
+	writeNotes(t, st, "global", map[string]string{
+		"AGENTS.md":         "Guide: relay deploy notes live under ops.",
+		"ops/AGENTS.md":     "relay deploy conventions of the ops folder",
+		"ops/deployment.md": "relay deploy: build, push, restart",
+	})
+	writeNotes(t, st, "project", map[string]string{"AGENTS.md": "Guide of the project: relay deploy."})
+	got := searchPaths(t, st, "relay deploy", "both", 8)
+	for _, p := range got {
+		if p == "global:AGENTS.md" || p == "project:AGENTS.md" {
+			t.Fatalf("the root guide is a hit: %v", got)
+		}
+	}
+	if len(got) != 2 || !sliceContains(got, "global:ops/AGENTS.md") || !sliceContains(got, "global:ops/deployment.md") {
+		t.Fatalf("hits = %v, want the two notes of ops", got)
+	}
+	if got := searchPaths(t, st, "guide", "both", 8); len(got) != 0 {
+		t.Fatalf("a word only the guides have found %v", got)
+	}
+}
+
 // Behaviour that does not depend on the ranking: what an empty or empty-
 // handed query returns, which roots a scope reads, how many hits come back
 // and how equal scores are ordered.

@@ -3,10 +3,14 @@
 package memory
 
 import (
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
+	memstorage "github.com/EvilFreelancer/coddy-agent/external/memory/storage"
 	memtools "github.com/EvilFreelancer/coddy-agent/external/memory/tools"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
@@ -42,11 +46,11 @@ func TestPromptTemplateRendersToolsAndReadOnlyAddendum(t *testing.T) {
 }
 
 func TestTaskMessageIsBounded(t *testing.T) {
-	if got := TaskMessage("  remember that I prefer pytest  "); got != "User message for this turn:\nremember that I prefer pytest" {
+	if got := TaskMessage("  remember that I prefer pytest  ", nil); got != "User message for this turn:\nremember that I prefer pytest" {
 		t.Fatalf("TaskMessage = %q", got)
 	}
 	long := strings.Repeat("ж", subagents.MaxPromptBytes) // two bytes per rune: the cut lands inside a rune
-	got := TaskMessage(long)
+	got := TaskMessage(long, nil)
 	if len(got) > subagents.MaxPromptBytes+len(taskPreamble)+len(cutMarker) {
 		t.Fatalf("task is %d bytes, over the bound", len(got))
 	}
@@ -83,5 +87,226 @@ func TestToolNamesAndTools(t *testing.T) {
 		if !names[want] {
 			t.Errorf("Tools() lacks %s", want)
 		}
+	}
+}
+
+// With no guide the task is exactly what it was before guides existed.
+func TestTaskMessageWithoutGuidesIsTheUserMessageBehindThePreamble(t *testing.T) {
+	want := "User message for this turn:\nremember that I prefer pytest"
+	for _, guides := range [][]Guide{nil, {}} {
+		if got := TaskMessage("remember that I prefer pytest", guides); got != want {
+			t.Fatalf("TaskMessage with guides %v = %q", guides, got)
+		}
+	}
+}
+
+// Each guide sits under a heading that names its level, the global one first,
+// and the user message comes after them. A missing level adds nothing: no
+// heading, no placeholder.
+func TestTaskMessageOpensWithTheGuides(t *testing.T) {
+	global := Guide{Path: "global:AGENTS.md", Text: "Notes live under topics/."}
+	project := Guide{Path: "project:AGENTS.md", Text: "Decisions live in decisions/."}
+	for _, tc := range []struct {
+		name   string
+		guides []Guide
+		want   string
+	}{
+		{"both", []Guide{global, project}, "Memory guide (global:AGENTS.md):\nNotes live under topics/.\n\n" +
+			"Memory guide (project:AGENTS.md):\nDecisions live in decisions/.\n\n" +
+			"User message for this turn:\nwhat did we decide?"},
+		{"global only", []Guide{global}, "Memory guide (global:AGENTS.md):\nNotes live under topics/.\n\n" +
+			"User message for this turn:\nwhat did we decide?"},
+		{"project only", []Guide{project}, "Memory guide (project:AGENTS.md):\nDecisions live in decisions/.\n\n" +
+			"User message for this turn:\nwhat did we decide?"},
+	} {
+		if got := TaskMessage("what did we decide?", tc.guides); got != tc.want {
+			t.Errorf("%s:\n got %q\nwant %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// A guide over its bound is cut on a character boundary and says so, and the
+// user message after it is not touched by the cut.
+func TestTaskMessageCutsAGuideAtItsBound(t *testing.T) {
+	long := strings.Repeat("ж", guideMaxBytes) // two bytes per rune: the cut lands inside a rune
+	got := TaskMessage("hello", []Guide{{Path: "global:AGENTS.md", Text: long}})
+	head := "Memory guide (global:AGENTS.md):\n"
+	tail := guideCutMarker + "\n\nUser message for this turn:\nhello"
+	if !strings.HasPrefix(got, head) || !strings.HasSuffix(got, tail) {
+		t.Fatalf("a cut guide must end with the marker and leave the message whole: %q", got[len(got)-80:])
+	}
+	body := strings.TrimSuffix(strings.TrimPrefix(got, head), tail)
+	if len(body) > guideMaxBytes || !utf8.ValidString(body) || !strings.HasPrefix(long, body) || len(body) < guideMaxBytes-3 {
+		t.Fatalf("the guide kept %d bytes (valid UTF-8: %v), want the head up to %d bytes on a rune boundary", len(body), utf8.ValidString(body), guideMaxBytes)
+	}
+	exact := strings.Repeat("a", guideMaxBytes)
+	if got := TaskMessage("hello", []Guide{{Path: "global:AGENTS.md", Text: exact}}); strings.Contains(got, "was cut") {
+		t.Fatal("a guide of exactly the bound is not cut")
+	}
+}
+
+// The user message keeps its own bound whatever the guides hold.
+func TestTaskMessageBoundsTheUserMessageApartFromTheGuides(t *testing.T) {
+	user := strings.Repeat("u", subagents.MaxPromptBytes+10)
+	got := TaskMessage(user, []Guide{{Path: "global:AGENTS.md", Text: "g"}, {Path: "project:AGENTS.md", Text: "p"}})
+	if !strings.HasSuffix(got, strings.Repeat("u", subagents.MaxPromptBytes)+cutMarker) {
+		t.Fatal("the user message is cut at the same bound with guides in front of it")
+	}
+}
+
+// A guide is text in a message, never a template: braces stay as written,
+// and the child's system prompt is the same whatever the guides say.
+func TestGuideWithTemplateSyntaxStaysLiteralAndLeavesThePromptAlone(t *testing.T) {
+	data := prompts.TemplateData{CWD: "/w", Tools: "- `coddy_memory_search`"}
+	before, err := prompts.RenderSource("memory", PromptTemplate(false), data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := "Use {{.CWD}} and {{if .Tools}}tools{{end}} as written. {{"
+	task := TaskMessage("hi", []Guide{{Path: "global:AGENTS.md", Text: tmpl}})
+	if !strings.Contains(task, tmpl) {
+		t.Fatalf("the guide did not stay literal: %q", task)
+	}
+	after, err := prompts.RenderSource("memory", PromptTemplate(false), data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before != after || strings.Contains(after, "as written") {
+		t.Fatal("the system prompt moved with a guide")
+	}
+}
+
+// guideStand is a home and a workspace with the two memory roots.
+type guideStand struct {
+	cfg                     *config.Config
+	cwd, globalDir, project string
+}
+
+func newGuideStand(t *testing.T) guideStand {
+	t.Helper()
+	tmp := t.TempDir()
+	s := guideStand{cfg: &config.Config{}, cwd: filepath.Join(tmp, "w")}
+	s.cfg.Paths.Home = filepath.Join(tmp, "home")
+	s.globalDir = filepath.Join(s.cfg.Paths.Home, "memory")
+	s.project = filepath.Join(s.cwd, ".coddy", "memory")
+	for _, d := range []string{s.globalDir, s.project} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return s
+}
+
+func writeFile(t *testing.T, path, text string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func guidePaths(guides []Guide) []string {
+	var out []string
+	for _, g := range guides {
+		out = append(out, g.Path)
+	}
+	return out
+}
+
+func TestGuidesReadTheRootOfEachScopeGlobalFirst(t *testing.T) {
+	s := newGuideStand(t)
+	writeFile(t, filepath.Join(s.project, "AGENTS.md"), "\n  Project guide.  \n\n")
+	writeFile(t, filepath.Join(s.globalDir, "AGENTS.md"), "Global guide.\n")
+	guides, err := Guides(s.cfg, s.cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(guides) != 2 || guides[0] != (Guide{Path: "global:AGENTS.md", Text: "Global guide."}) ||
+		guides[1] != (Guide{Path: "project:AGENTS.md", Text: "Project guide."}) {
+		t.Fatalf("guides = %+v", guides)
+	}
+}
+
+func TestGuidesAreAbsentWhenTheFileIs(t *testing.T) {
+	s := newGuideStand(t)
+	// A guide in a subfolder is an ordinary note; an empty one says nothing.
+	writeFile(t, filepath.Join(s.globalDir, "topics", "AGENTS.md"), "not a root guide")
+	writeFile(t, filepath.Join(s.project, "AGENTS.md"), " \n\t\n")
+	guides, err := Guides(s.cfg, s.cwd)
+	if err != nil || len(guides) != 0 {
+		t.Fatalf("guides = %+v, err = %v", guides, err)
+	}
+	// Only one level present.
+	writeFile(t, filepath.Join(s.globalDir, "AGENTS.md"), "Global only.")
+	guides, err = Guides(s.cfg, s.cwd)
+	if err != nil || !equalStrings(guidePaths(guides), []string{"global:AGENTS.md"}) {
+		t.Fatalf("guides = %+v, err = %v", guides, err)
+	}
+	// Neither root exists yet: nothing to read, nothing to report.
+	bare := &config.Config{}
+	bare.Paths.Home = filepath.Join(t.TempDir(), "home")
+	if guides, err := Guides(bare, filepath.Join(t.TempDir(), "w")); err != nil || len(guides) != 0 {
+		t.Fatalf("without roots: guides = %+v, err = %v", guides, err)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// memory.dir moves the global root, and the guide with it.
+func TestGuidesFollowMemoryDir(t *testing.T) {
+	s := newGuideStand(t)
+	s.cfg.Memory.Dir = filepath.Join(t.TempDir(), "notes")
+	writeFile(t, filepath.Join(s.cfg.Memory.Dir, "AGENTS.md"), "From memory.dir.")
+	writeFile(t, filepath.Join(s.globalDir, "AGENTS.md"), "From the home.")
+	guides, err := Guides(s.cfg, s.cwd)
+	if err != nil || len(guides) != 1 || guides[0].Text != "From memory.dir." {
+		t.Fatalf("guides = %+v, err = %v", guides, err)
+	}
+}
+
+// The project root comes with a checkout: a guide that is a link out of it is
+// refused like any note of that root, reported, and the other level stays.
+func TestGuidesRefuseAProjectGuideBehindALink(t *testing.T) {
+	s := newGuideStand(t)
+	secret := filepath.Join(t.TempDir(), "credentials")
+	writeFile(t, secret, "OUTSIDE-SECRET")
+	if err := os.Symlink(secret, filepath.Join(s.project, "AGENTS.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	writeFile(t, filepath.Join(s.globalDir, "AGENTS.md"), "Global guide.")
+	guides, err := Guides(s.cfg, s.cwd)
+	if !errors.Is(err, memstorage.ErrOutsideRoot) || !strings.Contains(err.Error(), "project:AGENTS.md") {
+		t.Fatalf("err = %v, want ErrOutsideRoot naming project:AGENTS.md", err)
+	}
+	if len(guides) != 1 || guides[0].Path != "global:AGENTS.md" || strings.Contains(guides[0].Text, "OUTSIDE-SECRET") {
+		t.Fatalf("guides = %+v", guides)
+	}
+	// A project root that is a link is refused as a whole.
+	other := t.TempDir()
+	writeFile(t, filepath.Join(other, "AGENTS.md"), "OUTSIDE-SECRET")
+	if err := os.RemoveAll(s.project); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(other, s.project); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	guides, err = Guides(s.cfg, s.cwd)
+	if !errors.Is(err, memstorage.ErrProjectRootLink) {
+		t.Fatalf("err = %v, want ErrProjectRootLink", err)
+	}
+	if len(guides) != 1 || guides[0].Path != "global:AGENTS.md" {
+		t.Fatalf("guides = %+v", guides)
 	}
 }

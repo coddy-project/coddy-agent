@@ -175,3 +175,20 @@ Feature: Long-term memory runs as a background subagent
     When the user sends "how do we deploy the relay?" and the memory child searches the notes for "how to deploy the relay" then answers "Already on disk: build the image, restart the service"
     Then the memory child's search ranks "global:relay-deployment.md" above "global:how-to-write-a-note.md"
     And the memory child's search ranks "project:runbook.md" above "global:how-to-write-a-note.md"
+
+  Scenario: The AGENTS.md of both memory roots open the memory child's task, the global one first
+    Given long-term memory is enabled with a wait of 10 seconds
+    And the global memory root holds the note "AGENTS.md" saying "Global guide: read topics/index.md first."
+    And the project memory root holds the note "AGENTS.md" saying "Project guide: decisions live in decisions/."
+    And a parent agent session in that workspace
+    When the user sends "what did we decide about the API?" and the memory child answers "(no memory hits)"
+    Then the memory child's task carries "Global guide: read topics/index.md first.", then "Project guide: decisions live in decisions/.", then "what did we decide about the API?"
+    And the memory child's task carries "Memory guide (global:AGENTS.md):", then "Memory guide (project:AGENTS.md):", then "User message for this turn:"
+
+  Scenario: A memory root without an AGENTS.md adds nothing to the task
+    Given long-term memory is enabled with a wait of 10 seconds
+    And the global memory root holds the note "AGENTS.md" saying "Global guide: read topics/index.md first."
+    And a parent agent session in that workspace
+    When the user sends "what did we decide about the API?" and the memory child answers "(no memory hits)"
+    Then the memory child's task carries "Memory guide (global:AGENTS.md):", then "Global guide: read topics/index.md first.", then "what did we decide about the API?"
+    And the memory child's task does not carry "Memory guide (project:AGENTS.md):"

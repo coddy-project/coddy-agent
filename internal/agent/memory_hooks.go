@@ -81,6 +81,12 @@ func (a *Agent) runMemoryBeforeTurn(ctx context.Context, userText, mode string) 
 		a.log.Warn("memory.additional_prompt is longer than additional_prompt_max_chars; the memory subagent reads the first characters only",
 			"session_id", parentID, "max_chars", cfg.Memory.AdditionalPromptMaxChars, "chars", utf8.RuneCountInString(cfg.Memory.AdditionalPrompt))
 	}
+	// The guides of the two memory roots open the child's task. One that is
+	// refused is said at every launch that reads it, like a cut addendum.
+	guides, err := memory.Guides(cfg, a.state.GetCWD())
+	if err != nil {
+		a.log.Warn("memory guide not read", "session_id", parentID, "error", err)
+	}
 	childID := session.NewSessionID()
 	label := memoryTaskLabel(userText)
 	// The deadline is taken before the launch: the child is created on the
@@ -108,7 +114,7 @@ func (a *Agent) runMemoryBeforeTurn(ctx context.Context, userText, mode string) 
 			MaxTokens:       cfg.Memory.CopilotMaxTokens,
 			FallbackModels:  memoryFallbackModels(cfg, cfg.Memory.FallbackModels, a.state.EffectiveModelID(cfg)),
 		},
-		prompt:         memory.TaskMessage(userText),
+		prompt:         memory.TaskMessage(userText, guides),
 		parentMode:     mode,
 		label:          label,
 		timeoutSeconds: cfg.Memory.EffectiveTimeoutSeconds(),

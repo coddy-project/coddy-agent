@@ -28,6 +28,11 @@ type Hit struct {
 	Snippet string  `json:"snippet"`
 }
 
+// GuideName is the file at the root of a scope that guides the memory
+// subagent. A search never returns it: the child already has it at the top of
+// its task. Anywhere else it is an ordinary note.
+const GuideName = "AGENTS.md"
+
 // The fields of a note a search scores, in this order, with their weights
 // (BM25F, see docs.Ranker): the words of its folders and file name, and its
 // body. A word in the path says what a note is about, so it weighs three
@@ -110,7 +115,7 @@ func clip(s string, max int) string {
 // counts more than one in the body, and a word the query begins is found.
 // The index is built from the files read for this call; memory changes
 // between calls and is small, so there is nothing to keep. Equal scores are
-// ordered by path.
+// ordered by path, and the root AGENTS.md of a scope is not a note to find.
 func (s *Store) Search(query string, scope string, maxHits int) ([]Hit, error) {
 	query = strings.TrimSpace(query)
 	if maxHits <= 0 {
@@ -145,6 +150,9 @@ func (s *Store) Search(query string, scope string, maxHits int) ([]Hit, error) {
 			return nil, err
 		}
 		for _, rel := range collectFiles(root.FS()) {
+			if rel == GuideName {
+				continue
+			}
 			b, err := root.ReadFile(rel)
 			if err != nil {
 				continue

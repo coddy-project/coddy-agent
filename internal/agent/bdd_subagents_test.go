@@ -101,6 +101,9 @@ type scriptedProvider struct {
 	calls    int
 	requests [][]llm.Message
 	offered  [][]string
+	// definitions are the tool definitions of every call, whole, for a test
+	// that compares what two requests would have cached.
+	definitions [][]llm.ToolDefinition
 	// fail, when set, decides whether a call breaks the way a lane that lost
 	// its connection does: the call streams partial, then fails with err. A
 	// failed call takes no step, so the script picks up where it stood once
@@ -123,6 +126,7 @@ func (p *scriptedProvider) Stream(_ context.Context, messages []llm.Message, def
 		names = append(names, d.Name)
 	}
 	p.offered = append(p.offered, names)
+	p.definitions = append(p.definitions, append([]llm.ToolDefinition(nil), defs...))
 	if p.fail != nil {
 		if partial, err := p.fail(call); err != nil {
 			p.failed++

@@ -4,12 +4,12 @@ In the LLM sense, memory is whatever reaches the context: the chat history is th
 
 ## What the memory subagent does
 
-The child gets the user message as its task and a system prompt of its own (`external/memory/prompts/memory_agent.md`, embedded in the binary, so changing it means a rebuild). It chooses one of two modes, never both in the same run:
+The child gets the user message as its task, opened by the [guides](#guides) of the memory roots that have one, and a system prompt of its own (`external/memory/prompts/memory_agent.md`, embedded in the binary, so changing it means a rebuild). It chooses one of two modes, never both in the same run:
 
 - **Recall** loads context for the main assistant: it searches the notes, lists folders and reads files, then reports plain facts under `Already on disk` and, optionally, `Not in notes` - no paths, no file names - or exactly `(no memory hits)` when nothing matched. Recall is the default whenever the child is unsure, and it retries with English keywords and a folder listing when a first search finds nothing;
 - **Persist** updates the notes when you clearly ask to remember, save, forget or delete something, or when writing durable notes from what you said is the evident intent. It reads existing notes first to avoid duplicates, creates a folder before the first save into it, and reports what it verified, saved, skipped or deleted. Keys, tokens and passwords are never written.
 
-The prompt tells the child that answering your request is the main assistant's job: its report carries only what the notes hold. If you tell it not to consult the notes for this message, it skips recall and answers with one short line. The task text is cut at 32 KiB, the bound a `spawn_agent` prompt has.
+The prompt tells the child that answering your request is the main assistant's job: its report carries only what the notes hold. If you tell it not to consult the notes for this message, it skips recall and answers with one short line. The user message in the task is cut at 32 KiB, the bound a `spawn_agent` prompt has.
 
 The child's last assistant message is the report. It reaches the main model in the `<turn_context>` block appended after the history, under **Long-term memory**, on every step of that turn; it lives for that turn only and is written neither to `session.json` nor to the transcript. It never enters the system message: the `{{.Memory}}` slot of the templates (`agent.md`, `plan.md`, `ask.md`) holds the session notes alone ([Configuration](../getting-started/configuration.md)), so a recall that differs from turn to turn does not move the prefix a provider caches the conversation by (see [The prompt cache](#the-prompt-cache)). The main ReAct loop does not receive the `coddy_memory_*` tool definitions and cannot call memory as a normal tool.
 
@@ -39,7 +39,7 @@ A memory model whose account is unauthorised, out of quota or rate-limited canno
 
 A provider caches a request by its prefix: the tool definitions, then the messages from the start, and the first byte that differs from the previous request costs everything cached behind it ([The ReAct agent](../contributing/react-agent.md#the-system-prompt-is-frozen-for-the-turn)). A recall is different for nearly every message, so a report rendered into the system message would make `messages[0]` a new one on every turn, and the whole conversation behind it would be read at full price each time. That is why the report travels after the history. With memory on, a new turn still repeats the previous request byte for byte up to its own message, and only the tail is uncached: the new message and the turn context block with the report. The price is small and bounded: the report's few hundred tokens are read again on every step of the turn instead of once.
 
-The memory subagent itself is a separate conversation with a short prompt of its own; it shares no prefix with the parent and takes nothing from the parent's cache.
+The memory subagent itself is a separate conversation with a short prompt of its own; it shares no prefix with the parent and takes nothing from the parent's cache. The guides of the memory roots belong to its task, a message after its system prompt and tool definitions, so editing a guide moves nothing a provider has cached for the memory conversation.
 
 ## Watching a run
 
@@ -87,11 +87,12 @@ Paths are `scope:relative/path.md` - `global:preferences.md`, `project:architect
 
 A note has two fields: its path (the folders and the file name without `.md` or `.txt`) and its body. A word in the path says what a note is about, so it counts three times a word in the body. The weights are constants in the code, not settings.
 
-- **Stemming.** Words are matched after stemming, English and Russian alike, so `configs` finds a note that says `config`, and a Russian query finds another form of a word (`настройка` finds `настройки`).
-- **Rare words count more.** A word few notes have outweighs one most notes have, and repeating a word adds less each time, so a note that holds every word of the query ranks above one that holds a frequent word many times.
-- **Prefixes.** A query word of three letters or more also finds the words it begins: `deploy` finds `deployment`, below a note that says `deploy`.
-- **Function words count for nothing.** `how`, `to` and `the` (and their Russian counterparts) are dropped from the query, so `how to deploy the relay` ranks the note about the relay deployment first and does not return a generic how-to note for sharing `how to the`. A query made of function words alone finds nothing.
-- **Order.** Notes with equal scores are ordered by path, and a hit carries its score.
+- **Stemming.** Words are matched after stemming, English and Russian alike, so `configs` finds a note that says `config`, and a Russian query finds another form of a word (`настройка` finds `настройки`);
+- **Rare words count more.** A word few notes have outweighs one most notes have, and repeating a word adds less each time, so a note that holds every word of the query ranks above one that holds a frequent word many times;
+- **Prefixes.** A query word of three letters or more also finds the words it begins: `deploy` finds `deployment`, below a note that says `deploy`;
+- **Function words count for nothing.** `how`, `to` and `the` (and their Russian counterparts) are dropped from the query, so `how to deploy the relay` ranks the note about the relay deployment first and does not return a generic how-to note for sharing `how to the`. A query made of function words alone finds nothing;
+- **Order.** Notes with equal scores are ordered by path, and a hit carries its score;
+- **Not a guide.** The `AGENTS.md` at the root of a scope is never a hit ([Guides](#guides)); one in a subfolder is an ordinary note.
 
 The index is built from the files read for each call. Notes change between calls and the store is small, so there is nothing to keep or invalidate.
 
@@ -107,6 +108,32 @@ A note body holds at most `memory.max_note_chars` characters (default 900; chara
 Only `.md` and `.txt` files count. Nested folders are encouraged for thematic grouping, and the child calls `coddy_memory_mkdir` before saving into a new branch of the tree. Both roots are plain directories: they can be edited with any editor, and the project root can be committed with the repository or ignored, as the notes deserve.
 
 The two roots treat links differently. The global root is yours: a note or a folder in it may be a link to anywhere, a synced folder for instance, and Coddy follows it. The project root comes with the checkout, so a link in it never leads out of it. Coddy reaches it through `os.Root`: a link inside it is followed only while its target stays inside, and `.coddy` and `.coddy/memory` must be real folders, not links. A note of a cloned repository that is a link to `~/.aws/credentials` is then neither read nor found by search, so it never reaches the model, and a save never lands in a folder that is a link to another project. Deleting such a link removes the link and leaves what it points at. A project root that is itself a link is refused with an error that says so; a search of both roots still answers from the global one.
+
+## Guides
+
+The child knows the notes only through search, list and read, plus its fixed prompt. An `AGENTS.md` at the root of a memory root is the place to tell it how you keep them: an index note to start from, one folder per topic, naming conventions, what never to save. `memory.additional_prompt` does the same for every workspace; a guide belongs to one root.
+
+- **Where.** `AGENTS.md` at the top of the global root (`$CODDY_HOME/memory/AGENTS.md`, or under `memory.dir`) and at the top of the project root (`<workspace>/.coddy/memory/AGENTS.md`). The file existing is the switch, there is no setting for it, and a file of that name in a subfolder is an ordinary note;
+- **Both levels, global first.** At the start of every run the child's task opens with the global guide, then the project guide, then the user message, each guide under a heading that names its level and path. A level without a guide adds nothing: no heading, no placeholder. The two levels stay apart: neither overrides or merges into the other, and the child's prompt tells it to follow each guide for the notes of its own root;
+- **Read like any note.** A guide goes through the same store as `coddy_memory_read`, so the project guide gets the protection of the rest of the project root: one that is a link leading out of `.coddy/memory` is not read, a warning in the agent log says so, and the run goes on without it;
+- **Size.** A guide is cut at 8 KiB with a marker that says so. Keep it a map and put the detail in notes it points to; the child opens them with `coddy_memory_read` and `coddy_memory_list`, or finds them with `coddy_memory_search`;
+- **Not in the prompt.** The guides ride in the task, never in the system prompt or a template: a `{{` in a guide is plain text, and editing a guide does not change the child's system prompt or tool definitions;
+- **Not a search hit.** `coddy_memory_search` does not return the root `AGENTS.md`, since the child already has it. The child can still list and read it, and write it in a persist run when the guide asks for that.
+
+With both guides present the task looks like this:
+
+```text
+Memory guide (global:AGENTS.md):
+<the global file>
+
+Memory guide (project:AGENTS.md):
+<the project file>
+
+User message for this turn:
+<your message>
+```
+
+With no guide the task is the user message behind its preamble, as it was before guides existed.
 
 ## Browsing the notes over HTTP
 
@@ -166,10 +193,10 @@ The field table is in the [config.yaml reference](../reference/config.md#memory)
 
 ## Cost and latency
 
-Every user turn with memory on is a second model conversation: the child's own system prompt (the template, the environment block, six tool definitions) and its rounds, one model call at least, more when it uses tools. The turn is delayed by the wait at most, never by the run: a persist that takes longer finishes in the background. Pinning a small, fast model with `memory.model` keeps the cost of recall low and the report inside the wait, while the main agent stays on the model you chose for it.
+Every user turn with memory on is a second model conversation: the child's own system prompt (the template, the environment block, six tool definitions) and its rounds, one model call at least, more when it uses tools. The turn is delayed by the wait at most, never by the run: a persist that takes longer finishes in the background. Pinning a small, fast model with `memory.model` keeps the cost of recall low and the report inside the wait, while the main agent stays on the model you chose for it. A guide adds at most 8 KiB per root to the child's task on every run.
 
 ## Testing
 
-- `features/memory_subagent.feature` (harness `internal/agent/bdd_memory_test.go`, `-tags memory`): the run in the pool and the child bundle, the report in the first system prompt, a late report in the turn context, the recall-only child of ask mode, a persist, a Cyrillic note kept whole under the character cap, the isolation of the parent's stream, the fallback chain, a Stop during the wait, retention and the pool cap, the ranking of the child's search. `features/memory_http.feature` (`external/httpserver/bdd_memory_http_test.go`, `-tags http,memory`): the system task row and the read-only child transcript over REST.
-- Unit tests: `external/memory/agent_test.go` (the template, the task bound, the tool sets), `external/memory/storage/storage_test.go` (search ranking: stemming in English and Russian, rare words, path words, prefixes, function words, scopes and limits; snippets cut in characters, nested writes, file names from non-Latin titles, traversal, deletion, link targets), `external/memory/storage/storage_links_test.go` (a note, a folder and the project root that are links out of it, a link that stays inside, links followed in the global root), `external/memory/tools/register_test.go` (the tool definitions), `external/memory/tools/mem_save_test.go` (the note cap in characters, the truncation warning, `max_note_chars`), `internal/agent/memory_run_test.go` (the in-flight bounds, the wait, the token clamp, the templated prompt, the turn context section), `external/httpserver/memory_http_test.go` (traversal over REST).
-- `examples/acp/acp_e2e_memory.py`, `examples/httpserver/http_e2e_memory.py` and `examples/cli/cli_e2e_memory.py` drive a real model: a pre-seeded global note is recalled and shapes the reply, a `remember` turn persists a note, the ACP harness then asks for that fact in a fresh session so the answer can only come from disk, and the run's record is checked where the surface shows it (the `memory` task row over HTTP, the child bundle under `<session>/subagents/` for ACP and the console).
+- `features/memory_subagent.feature` (harness `internal/agent/bdd_memory_test.go`, `-tags memory`): the run in the pool and the child bundle, the report in the first system prompt, a late report in the turn context, the recall-only child of ask mode, a persist, a Cyrillic note kept whole under the character cap, the isolation of the parent's stream, the fallback chain, a Stop during the wait, retention and the pool cap, the ranking of the child's search, the guides at the top of its task. `features/memory_http.feature` (`external/httpserver/bdd_memory_http_test.go`, `-tags http,memory`): the system task row and the read-only child transcript over REST.
+- Unit tests: `external/memory/agent_test.go` (the template, the task bound, the guides: both levels, one level, the size cut, braces kept literal, a guide behind a link), `internal/agent/prompt_cache_memory_test.go` (the child's system message and tool definitions identical across runs whose guides differ), `external/memory/storage/storage_test.go` (search ranking: stemming in English and Russian, rare words, path words, prefixes, function words, scopes and limits; snippets cut in characters, nested writes, file names from non-Latin titles, traversal, deletion, link targets), `external/memory/storage/storage_links_test.go` (a note, a guide, a folder and the project root that are links out of it, a link that stays inside, links followed in the global root), `external/memory/tools/register_test.go` (the tool definitions), `external/memory/tools/mem_save_test.go` (the note cap in characters, the truncation warning, `max_note_chars`), `internal/agent/memory_run_test.go` (the in-flight bounds, the wait, the token clamp, the templated prompt, the turn context section), `external/httpserver/memory_http_test.go` (traversal over REST).
+- `examples/acp/acp_e2e_memory.py`, `examples/httpserver/http_e2e_memory.py` and `examples/cli/cli_e2e_memory.py` drive a real model: a pre-seeded global note is recalled and shapes the reply, a `remember` turn persists a note, the ACP harness then asks for that fact in a fresh session so the answer can only come from disk, and a step where only a seeded global `AGENTS.md` leads to the note that answers, and the run's record is checked where the surface shows it (the `memory` task row over HTTP, the child bundle under `<session>/subagents/` for ACP and the console).

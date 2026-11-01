@@ -1260,6 +1260,50 @@ func (s *memoryFeatureState) searchRanksAbove(better, worse string) error {
 	return nil
 }
 
+// childTask is the task message the memory child started from: the first
+// user message of its first request.
+func (s *memoryFeatureState) childTask() (string, error) {
+	p, err := s.childProvider()
+	if err != nil {
+		return "", err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, m := range p.requests[0] {
+		if m.Role == llm.RoleUser {
+			return m.Content, nil
+		}
+	}
+	return "", fmt.Errorf("the memory child's first request carries no user message")
+}
+
+func (s *memoryFeatureState) childTaskCarriesInOrder(first, second, third string) error {
+	task, err := s.childTask()
+	if err != nil {
+		return err
+	}
+	at := 0
+	for _, part := range []string{first, second, third} {
+		i := strings.Index(task[at:], part)
+		if i < 0 {
+			return fmt.Errorf("the memory child's task lacks %q after offset %d:\n%s", part, at, task)
+		}
+		at += i + len(part)
+	}
+	return nil
+}
+
+func (s *memoryFeatureState) childTaskDoesNotCarry(text string) error {
+	task, err := s.childTask()
+	if err != nil {
+		return err
+	}
+	if strings.Contains(task, text) {
+		return fmt.Errorf("the memory child's task carries %q:\n%s", text, task)
+	}
+	return nil
+}
+
 func initializeMemoryScenario(sc *godog.ScenarioContext) {
 	s := &memoryFeatureState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -1336,6 +1380,8 @@ func initializeMemoryScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the (global|project) memory root holds the note "([^"]*)" saying "([^"]*)"$`, s.memoryRootHolds)
 	sc.Step(`^the user sends "([^"]*)" and the memory child searches the notes for "([^"]*)" then answers "([^"]*)"$`, s.userSendsAndChildSearchesThenAnswers)
 	sc.Step(`^the memory child's search ranks "([^"]*)" above "([^"]*)"$`, s.searchRanksAbove)
+	sc.Step(`^the memory child's task carries "([^"]*)", then "([^"]*)", then "([^"]*)"$`, s.childTaskCarriesInOrder)
+	sc.Step(`^the memory child's task does not carry "([^"]*)"$`, s.childTaskDoesNotCarry)
 }
 
 func TestMemorySubagentFeature(t *testing.T) {
