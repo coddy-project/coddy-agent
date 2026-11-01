@@ -38,14 +38,16 @@ func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State,
 		mk = defaultMakeLLMFromYAML
 	}
 	cfg := s.activeCfg()
+	if err := directACPRefusal(cfg, yamlSel); err != nil {
+		return nil, err
+	}
+	// A refused request never reached a provider, so it must not reach the
+	// usage history either; the recorder starts only once the call may run.
 	if cfg != nil && cfg.Paths.Home != "" {
 		provider, model, _ := strings.Cut(yamlSel, "/")
 		var recorder *statistics.Recorder
 		ctx, recorder = statistics.Begin(ctx, statistics.New(cfg.Paths.Home), statistics.Event{Session: sessionID, Project: st.GetCWD(), Source: "api", Provider: provider, Model: model, Reasoning: opts.ReasoningEffort, Requests: 1}, func(err error) { s.log.Warn("statistics could not be saved", "error", err) })
 		defer recorder.Finish()
-	}
-	if err := directACPRefusal(cfg, yamlSel); err != nil {
-		return nil, err
 	}
 	// What the provider's model listing said the model takes, as far as the
 	// session's manager has read it: an OpenRouter-style aggregator gets the

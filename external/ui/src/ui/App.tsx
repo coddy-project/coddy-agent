@@ -2577,6 +2577,10 @@ export function App() {
   const applyLocationHash = useCallback(() => {
     const p = parseAppHash();
     setStatisticsRoute(p.branch === "statistics");
+    // The Files and the edits windows have addresses of their own; any other
+    // one puts them away.
+    if (!(p.branch === "session" && p.filesOpen)) setFilesOpen(false);
+    if (!(p.branch === "session" && p.editsOpen)) setChangesViewerOpen(false);
     if (p.branch === "statistics") {
       setDocsRoute(null);
       setSwarmRoute(false);
@@ -2587,10 +2591,6 @@ export function App() {
       if (isStackedShell()) setTasksOpen(false);
       return;
     }
-    // The Files and the edits windows have addresses of their own; any other
-    // one puts them away.
-    if (!(p.branch === "session" && p.filesOpen)) setFilesOpen(false);
-    if (!(p.branch === "session" && p.editsOpen)) setChangesViewerOpen(false);
     if (p.branch === "docs") {
       setDocsRoute({ slug: p.slug, anchor: p.anchor });
       if (p.slug) {

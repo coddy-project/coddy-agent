@@ -266,11 +266,7 @@ export default function StatisticsView({
             {!aggregate && (
               <button onClick={onSettings}>{t("stats.settings")}</button>
             )}
-            <button
-              className="drawer-close"
-              aria-label={t("common.close")}
-              onClick={onClose}
-            >
+            <button aria-label={t("common.close")} onClick={onClose}>
               ×
             </button>
           </div>

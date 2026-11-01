@@ -203,6 +203,7 @@ export const messagesEn: Record<string, string> = {
   "auth.signOut.tooltipUser": "Sign out ({user})",
 
   "common.cancel": "Cancel",
+  "common.close": "Close",
   "common.confirm": "Confirm",
   "common.confirmAction": "Confirm action",
   "common.delete": "Delete",

@@ -200,6 +200,7 @@ export const messagesRu: Record<string, string> = {
   "auth.signOut.tooltipUser": "Выйти ({user})",
 
   "common.cancel": "Отмена",
+  "common.close": "Закрыть",
   "common.confirm": "Подтвердить",
   "common.confirmAction": "Подтвердить",
   "common.delete": "Удалить",
