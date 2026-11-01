@@ -41,6 +41,16 @@ import { ExtensionI18n, type ExtensionI18nAPI } from "./extensionI18n";
 import { extensionHost, type ExtensionHostAPI } from "./hostChannel";
 import { extensionConfig, type ExtensionConfigAPI } from "./configApi";
 import { extensionSessions, type ExtensionSessionsAPI } from "./sessions";
+import { composerBridge } from "./composerBridge";
+import {
+  ComposerControlHost,
+  validateComposerAlter,
+  validateComposerControl,
+  type ComposerAlter,
+  type ComposerAlterFn,
+  type ComposerControl,
+  type ComposerControlsAPI,
+} from "./composerControls";
 import {
   HookSlotHost,
   isHookName,
@@ -95,6 +105,29 @@ export type ExtensionAPI = {
   host: ExtensionHostAPI;
   config: ExtensionConfigAPI;
   sessions: ExtensionSessionsAPI;
+  /** The composer's draft and picks: what an alternative input line drives. */
+  composer: {
+    getText: () => string;
+    setText: (text: string) => void;
+    /** Replaces the draft around the caret; falls back to appending. */
+    insertText: (text: string) => void;
+    attachFiles: (files: readonly File[]) => void;
+    getMode: () => string;
+    setMode: (mode: string) => void;
+    getModel: () => string;
+    setModel: (modelId: string) => void;
+    getReasoning: () => string;
+    setReasoning: (level: string) => void;
+    getPermissionMode: () => string;
+    onDraftChange: (listener: (text: string) => void) => { remove: () => void };
+    /** A listener that returns true takes the paste or drop before the host. */
+    onPaste: (
+      listener: (event: { preventDefault(): void }) => boolean | void,
+    ) => { remove: () => void };
+    onDrop: (
+      listener: (event: { preventDefault(): void }) => boolean | void,
+    ) => { remove: () => void };
+  };
   hooks: {
     /** Fills a hook an interface element declared: `<owner>/<name>`. */
     register: (
@@ -136,6 +169,14 @@ export type ExtensionAPI = {
     registerSessionFilter: (
       filter: SessionFilter,
     ) => ContributionHandle<SessionFilter>;
+    /** Mounts a control into the composer: `actions` (its action row) or
+     * `tabs` (the strip of picks). */
+    registerComposerControl: (
+      control: ComposerControl,
+    ) => ContributionHandle<ComposerControl>;
+    /** Rewrites the assembled control list before it renders - the
+     * declare-then-alter pipeline. Needs the `ui.alter` scope. */
+    alterControls: ComposerControlsAPI["alter"];
     /** A named anchor box of the host surface, or null while its surface is
      * closed. `onAnchor` covers anchors that mount later. */
     anchor: (name: string) => HTMLElement | null;
@@ -208,6 +249,20 @@ export class ExtensionRuntime {
   readonly sessionFilters = new Contributions<SessionFilter>(() =>
     this.publish({ sessionFilters: this.sessionFilters.rows }),
   );
+  readonly composerRows = new Contributions<ComposerControl>(() =>
+    this.composerHost.refresh(),
+  );
+  readonly composerAlters = new Contributions<ComposerAlter>(() =>
+    this.composerHost.refresh(),
+  );
+  readonly composerHost = new ComposerControlHost(
+    () => this.composerRows.rows,
+    () => this.composerAlters.rows,
+    (key, owner, error) => {
+      this.composerRows.remove(key);
+      this.reportError(owner, String(error));
+    },
+  );
   readonly hookRows = new Contributions<HookContribution>(() => {
     this.publish({ hooks: this.hookRows.rows });
     this.hookSlots.refresh();
@@ -249,6 +304,7 @@ export class ExtensionRuntime {
     this.reportError(owner, String(error));
   }
   private evaluated = false;
+  private alterSeq = 0;
   private evaluatedDigests = new Map<string, string>();
   private failed = new Map<string, string>();
   private compatStyles = new Map<string, HTMLStyleElement[]>();
@@ -480,6 +536,43 @@ export class ExtensionRuntime {
       i18n: this.i18n.api(entry.id, controller.signal),
       config: extensionConfig(entry.id, entry.sha256, controller.signal),
       sessions: extensionSessions(controller.signal),
+      composer: {
+        getText: () => composerBridge.text(),
+        setText: (text) => {
+          if (!active()) throw new Error("Extension disposed");
+          composerBridge.setText(text);
+        },
+        insertText: (text) => {
+          if (!active()) throw new Error("Extension disposed");
+          composerBridge.insertText(text);
+        },
+        attachFiles: (files) => {
+          if (!active()) throw new Error("Extension disposed");
+          composerBridge.attachFiles(files);
+        },
+        getMode: () => composerBridge.mode(),
+        setMode: (mode) => {
+          if (!active()) throw new Error("Extension disposed");
+          composerBridge.setMode(mode);
+        },
+        getModel: () => composerBridge.model(),
+        setModel: (modelId) => {
+          if (!active()) throw new Error("Extension disposed");
+          composerBridge.setModel(modelId);
+        },
+        getReasoning: () => composerBridge.reasoning(),
+        setReasoning: (level) => {
+          if (!active()) throw new Error("Extension disposed");
+          composerBridge.setReasoning(level);
+        },
+        getPermissionMode: () => composerBridge.permissionMode(),
+        onDraftChange: (listener) =>
+          composerBridge.onDraftChange(controller.signal, listener),
+        onPaste: (listener) =>
+          composerBridge.onPaste(controller.signal, listener),
+        onDrop: (listener) =>
+          composerBridge.onDrop(controller.signal, listener),
+      },
       host: extensionHost(
         entry.id,
         entry.sha256,
@@ -570,6 +663,34 @@ export class ExtensionRuntime {
             api,
             filter,
             validateSessionFilter,
+          );
+        },
+        registerComposerControl: (control) => {
+          if (!active()) throw new Error("Extension disposed");
+          return this.composerRows.register(
+            entry.id,
+            api,
+            control,
+            validateComposerControl,
+          );
+        },
+        alterControls: (pass) => {
+          if (!active()) throw new Error("Extension disposed");
+          // The courtesy of the configuration API: a manifest that declares
+          // permissions must name `ui.alter` to rewrite the control list.
+          if (
+            entry.permissions &&
+            entry.permissions.length > 0 &&
+            !entry.permissions.includes("ui.alter")
+          )
+            throw new Error("alterControls needs the ui.alter scope");
+          validateComposerAlter(pass);
+          this.alterSeq += 1;
+          return this.composerAlters.register(
+            entry.id,
+            api,
+            { id: `alter-${this.alterSeq}`, run: pass },
+            () => {},
           );
         },
         registerPage: (page) =>

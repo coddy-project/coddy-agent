@@ -122,6 +122,11 @@ export function activate(coddy) {
 | `coddy.sessions.send({sessionId, text, files?, model?, reasoning?})` | Отправляет промпт в сессию; слэш-команды и @-упоминания разбирает сервер, `model` и `reasoning` задают выбор сессии. Возвращает `{accepted, status, error}` - уже идущий ход отвечает `accepted: false`. Заявляет `sessions.prompt`. |
 | `coddy.sessions.stop(sessionId)`, `coddy.sessions.rewind(sessionId)` | Останавливает идущий ход; отматывает сессию к состоянию перед последним пользовательским промптом. |
 | `coddy.sessions.onMessage(sessionId, listener)` | Живой ход, разобранный в `{type: "text", delta}`, `{type: "tool"}`, `{type: "tool_update"}`, `{type: "done"}` и `{type: "error"}`. Только чтение - ход остаётся за приложением. |
+| `coddy.composer.getText()`, `setText(text)`, `insertText(text)`, `attachFiles(files)` | Черновик и вложения поля ввода: чтение и запись черновика, вставка вокруг каретки, добавление файлов в строку вложений. |
+| `coddy.composer.getMode()`, `setMode(mode)`, `getModel()`, `setModel(id)`, `getReasoning()`, `setReasoning(level)`, `getPermissionMode()` | Выбор поля ввода - режим (`agent`/`plan`/`ask`), модель, уровень рассуждения и режим разрешений - чтение и запись. |
+| `coddy.composer.onDraftChange(fn)`, `onPaste(fn)`, `onDrop(fn)` | Изменения черновика; обработчик вставки или перетаскивания, вернувший `true`, забирает событие раньше собственной работы приложения с вложениями и упоминаниями. |
+| `coddy.ui.registerComposerControl({id, placement, title?, order?, visible?, mount})` | Монтирует элемент управления в поле ввода - `actions` (его строку действий) или `tabs` (полосу выбора). Возвращает дескриптор с методами `update` и `remove`. |
+| `coddy.ui.alterControls(fn)` | Пайплайн "сначала объявить, потом изменить" - `fn(controls, {surface: "composer"})` переписывает собранный список элементов управления - переименовать, переставить, скрыть или удалить любую запись, - прежде чем он отрисуется. Требует области `ui.alter`; элементы приложения попадут в список позже. |
 | `coddy.hooks.register({id, into, mount})` | Наполняет хук, который объявил элемент интерфейса, - `into` это `<owner>/<name>`, - своим блоком. Возвращает дескриптор с методами `update` и `remove`. |
 | `coddy.hooks.slot(name, element)` | Рисует вклады хука этого элемента `<this id>/<name>` внутри `element`; пустой слот ничего не рисует, а вклады монтируются и снимаются на лету. |
 | `coddy.hooks.list()` | Хуки, объявленные действующими регистрациями, в виде `{owner, hook}` - куда можно вложиться. |
@@ -306,7 +311,7 @@ coddy.ui.registerMenuItem({
 
 `coddy.ui.registerPanel` даёт расширению собственный интерфейс, а `coddy.ui.openPanel(id)` открывает его. `placement` равен `"slide-over"`, `"full"` или `"drawer"`; одновременно открыта одна панель. Escape и кнопка закрытия вызывают функцию очистки монтирования. Дескриптор обновляет и удаляет панель так же, как дескриптор страницы.
 
-Якорь - именованный блок интерфейса приложения: `composer.actions`, `chat.header`, `nav.rail`, `statusline`, `sessions.toolbar` или `settings.footer`. `coddy.ui.anchor(name)` возвращает блок или `null`, пока этот интерфейс закрыт; приложение монтирует блок, только пока открыт его интерфейс. `coddy.ui.onAnchor(name, fn)` возвращает дескриптор с методом `remove()` и вызывает `fn(boxOrNull)` при появлении и исчезновении блока, а если блок уже есть - сразу с ним.
+Якорь - именованный блок интерфейса приложения: `composer.actions`, `composer.tabs`, `chat.header`, `nav.rail`, `statusline`, `sessions.toolbar` или `settings.footer`. `coddy.ui.anchor(name)` возвращает блок или `null`, пока этот интерфейс закрыт; приложение монтирует блок, только пока открыт его интерфейс. `coddy.ui.onAnchor(name, fn)` возвращает дескриптор с методом `remove()` и вызывает `fn(boxOrNull)` при появлении и исчезновении блока, а если блок уже есть - сразу с ним.
 
 ## Хуки в элементах интерфейса
 
@@ -491,6 +496,8 @@ python -m zipfile -c stream-tools.zip manifest.json main.js
 
 ### Поле ввода
 
+Это уже собрано в `coddy.composer`, `registerComposerControl` и `alterControls`; точные якоря `composer.model` / `composer.send` и записи приложения в списке alter пока впереди.
+
 - **`registerComposerControl` и чипы** - кнопки и селекторы в строках действий поля ввода (раздел 11 спецификации) - фронтенд;
 - **Точные якоря** - `composer`, `composer.model`, `composer.send` рядом с единственным `composer.actions` - фронтенд;
 - **Управление черновиком** - вставить текст и файлы, перехватить вставку и перетаскивание - фронтенд;
@@ -561,4 +568,4 @@ python -m zipfile -c stream-tools.zip manifest.json main.js
 - одновременно открыта одна панель, какому бы расширению она ни принадлежала;
 - якорный блок - пустой `div`, который приложение держит в именованном месте и монтирует, только пока открыт его интерфейс; в остальное время `ui.anchor(name)` возвращает `null`, а `ui.onAnchor` - способ дождаться блока.
 
-<!-- docsgen:source sha256=069d80eb4b8fcde7 -->
+<!-- docsgen:source sha256=a778d7afb25a866a -->

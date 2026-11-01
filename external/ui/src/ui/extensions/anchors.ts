@@ -6,6 +6,7 @@
  */
 export const EXTENSION_ANCHORS = [
   "composer.actions",
+  "composer.tabs",
   "chat.header",
   "nav.rail",
   "statusline",

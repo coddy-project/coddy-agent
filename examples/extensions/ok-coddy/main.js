@@ -39,6 +39,7 @@ export function activate(coddy) {
     needsApi: "needs a host API this phase does not expose",
     tool: "tool: ",
     live: "live",
+    modeNow: "mode: ",
     noSession: "Open a session and this mini-chat talks to it.",
     footer: "Mini-chat and duck from the OK, coddy prototype",
   });
@@ -63,6 +64,7 @@ export function activate(coddy) {
     needsApi: "нужен API хоста, который эта фаза не открывает",
     tool: "инструмент: ",
     live: "вживую",
+    modeNow: "режим: ",
     noSession: "Откройте сессию - и мини-чат заговорит с ней.",
     footer: "Мини-чат и уточка из прототипа «ОК, кодди»",
   });
@@ -268,6 +270,23 @@ export function activate(coddy) {
       b.disabled = true;
       b.textContent = coddy.i18n.t(label);
       b.title = coddy.i18n.t("needsApi");
+      if (label === "mode") {
+        // The composer API exists now: the button cycles the session mode.
+        b.disabled = false;
+        b.title = coddy.i18n.t("live");
+        b.addEventListener(
+          "click",
+          () => {
+            const order = ["agent", "plan", "ask"];
+            const current = coddy.composer.getMode();
+            const next =
+              order[(order.indexOf(current) + 1) % order.length] || "agent";
+            coddy.composer.setMode(next);
+            line("note", coddy.i18n.t("modeNow") + next);
+          },
+          { signal: coddy.signal },
+        );
+      }
       if (label === "toFeed" && sessionId) {
         // The feed action is the sessions API now; the other two still
         // wait for coddy.nav and composer controls.

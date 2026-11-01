@@ -1,5 +1,6 @@
 import { composerAutoFocusAllowed } from "./composerFocus";
 import { ExtensionAnchor } from "../extensions/ExtensionAnchor";
+import { composerBridge } from "../extensions/composerBridge";
 import {
   lazy,
   Suspense,
@@ -646,6 +647,41 @@ export function Composer(props: {
   const [localAttachedFiles, setLocalAttachedFiles] = useState<File[]>([]);
   const attachedFiles = props.attachedFiles ?? localAttachedFiles;
   const setAttachedFiles = props.onAttachedFilesChange ?? setLocalAttachedFiles;
+  // The extension surface of the composer: the draft and the picks, reported
+  // fresh every render and withdrawn when the composer goes away.
+  useEffect(() => {
+    composerBridge.report({
+      getText: () => props.value,
+      setText: (text) => props.onChange(text),
+      insertText: (text) => {
+        const el = taRef.current;
+        if (!el) {
+          props.onChange(props.value + text);
+          return;
+        }
+        const start = el.selectionStart ?? props.value.length;
+        const end = el.selectionEnd ?? start;
+        const next =
+          props.value.slice(0, start) + text + props.value.slice(end);
+        props.onChange(next);
+        const caret = start + text.length;
+        setCaretPos(caret);
+        el.setSelectionRange(caret, caret);
+      },
+      attachFiles: (files) => {
+        setAttachedFiles((prev) => [...prev, ...files]);
+      },
+      getMode: () => props.mode,
+      setMode: (mode) => props.onModeChange(mode),
+      getModel: () => props.llmModel ?? "",
+      setModel: (modelId) => props.onLlmModelChange?.(modelId),
+      getReasoning: () => props.llmReasoning ?? "",
+      setReasoning: (level) => props.onLlmReasoningChange?.(level),
+      getPermissionMode: () => props.permissionMode ?? "",
+      textarea: taRef.current,
+    });
+    return () => composerBridge.report(null);
+  });
   /** Transient reason a paste/drop was rejected (non-multimodal model); auto-clears. */
   const [attachHint, setAttachHint] = useState<string | null>(null);
   /** Files are being dragged over the composer card (drop-target affordance). */
@@ -3150,6 +3186,11 @@ export function Composer(props: {
             setDragOverCard(false);
           }}
           onDrop={(ev) => {
+            if (composerBridge.claimDrop(ev)) {
+              ev.preventDefault();
+              setDragOverCard(false);
+              return;
+            }
             const files = ev.dataTransfer
               ? Array.from(ev.dataTransfer.files || [])
               : [];
@@ -3319,6 +3360,7 @@ export function Composer(props: {
                   preEnhanceRef.current = null;
                   setEnhanceErr(null);
                   props.onChange(v);
+                  composerBridge.draftChanged();
                   updatePickerMenus(v, caret);
                 }}
                 onScroll={() => syncComposerScroll()}
@@ -3354,6 +3396,10 @@ export function Composer(props: {
                   }
                 }}
                 onPaste={(ev) => {
+                  if (composerBridge.claimPaste(ev)) {
+                    ev.preventDefault();
+                    return;
+                  }
                   const images = clipboardImageFiles(ev.clipboardData);
                   if (images.length === 0) {
                     return; // plain-text paste: keep the browser default
@@ -3679,6 +3725,7 @@ export function Composer(props: {
               className="composer-tabs"
               aria-label={t("composer.composerOptions")}
             >
+              <ExtensionAnchor name="composer.tabs" />
               {props.llmModelMultimodal ? (
                 <>
                   <input
