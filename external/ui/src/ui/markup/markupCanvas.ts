@@ -1,5 +1,7 @@
 import {
   arrowGeometry,
+  penSegments,
+  penWidthFactor,
   type MarkupOp,
   type MarkupShape,
   type Size,
@@ -38,18 +40,37 @@ export function drawShape(ctx: CanvasRenderingContext2D, s: MarkupShape): void {
   ctx.fillStyle = s.color;
   switch (s.kind) {
     case "pen": {
-      ctx.lineWidth = s.width;
-      ctx.beginPath();
-      const [first, ...rest] = s.points;
-      if (first) {
+      const [first] = s.points;
+      if (!first) break;
+      if (s.points.length === 1) {
+        // A click is a dot.
+        const p = s.pressures?.[0];
+        const w = typeof p === "number" ? s.width * penWidthFactor(p) : s.width;
+        ctx.beginPath();
+        ctx.arc(first.x, first.y, w / 2, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      const segments = penSegments(s);
+      if (!s.pressures) {
+        // One width: one path, so the joins stay round and nothing overlaps.
+        ctx.lineWidth = s.width;
+        ctx.beginPath();
         ctx.moveTo(first.x, first.y);
-        if (rest.length === 0) {
-          // A click is a dot.
-          ctx.arc(first.x, first.y, s.width / 2, 0, Math.PI * 2);
-          ctx.fill();
-          break;
+        for (const g of segments) {
+          if (g.ctrl) ctx.quadraticCurveTo(g.ctrl.x, g.ctrl.y, g.to.x, g.to.y);
+          else ctx.lineTo(g.to.x, g.to.y);
         }
-        for (const p of rest) ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+        break;
+      }
+      // A width per piece: each is a path of its own, joined by round caps.
+      for (const g of segments) {
+        ctx.lineWidth = g.width;
+        ctx.beginPath();
+        ctx.moveTo(g.from.x, g.from.y);
+        if (g.ctrl) ctx.quadraticCurveTo(g.ctrl.x, g.ctrl.y, g.to.x, g.to.y);
+        else ctx.lineTo(g.to.x, g.to.y);
         ctx.stroke();
       }
       break;
