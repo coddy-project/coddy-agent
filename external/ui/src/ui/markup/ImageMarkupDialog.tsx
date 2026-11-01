@@ -26,6 +26,7 @@ import {
   fitView,
   MARKUP_PALETTE,
   MARKUP_TOOL_KEYS,
+  penPressure,
   sizeAfter,
   strokeWidthFor,
   textSizeFor,
@@ -42,6 +43,27 @@ type Draft =
   | { kind: "crop"; a: Pt; b: Pt };
 
 type Label = { at: Pt; text: string };
+
+/**
+ * How long after a pen last touched or hovered a finger is taken for the
+ * palm resting beside it and draws nothing.
+ */
+const PALM_AFTER_PEN_MS = 1000;
+
+/** The points one move brings: every sample the browser coalesced into it. */
+function moveSamples(e: ReactPointerEvent<HTMLCanvasElement>): {
+  clientX: number;
+  clientY: number;
+  pointerType?: string;
+  pressure?: number;
+}[] {
+  const native = e.nativeEvent as PointerEvent | undefined;
+  const coalesced =
+    native && typeof native.getCoalescedEvents === "function"
+      ? native.getCoalescedEvents()
+      : [];
+  return coalesced.length > 0 ? coalesced : [e];
+}
 
 const DRAW_TOOLS: MarkupTool[] = ["pen", "ellipse", "rect", "arrow", "text"];
 
@@ -92,6 +114,11 @@ export function ImageMarkupDialog(props: ImageMarkupDialogProps) {
   const [stage, setStage] = useState<Size>({ w: 0, h: 0 });
   const [, setTick] = useState(0);
   const draftRef = useRef<Draft | null>(null);
+  // The pointer a draft belongs to: a second finger, or a palm under a pen,
+  // adds nothing to it.
+  const draftPointerRef = useRef<{ id: number; type: string } | null>(null);
+  // When a pen last touched or hovered the picture, for palm rejection.
+  const lastPenAtRef = useRef(Number.NEGATIVE_INFINITY);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -282,6 +309,23 @@ export function ImageMarkupDialog(props: ImageMarkupDialogProps) {
 
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0 || !raster) return;
+    const now = performance.now();
+    if (e.pointerType === "pen") {
+      lastPenAtRef.current = now;
+      // A pen that lands while a finger is drawing takes over: the finger
+      // was the palm.
+      if (draftPointerRef.current?.type === "touch") {
+        draftRef.current = null;
+        draftPointerRef.current = null;
+      }
+    } else if (
+      e.pointerType === "touch" &&
+      (draftPointerRef.current?.type === "pen" ||
+        now - lastPenAtRef.current < PALM_AFTER_PEN_MS)
+    ) {
+      return;
+    }
+    if (draftRef.current) return;
     // The press must not move the focus: a press with the text tool opens a
     // label whose field takes the focus, and the mousedown that follows would
     // hand it to the dialog and close the label empty.
@@ -294,12 +338,21 @@ export function ImageMarkupDialog(props: ImageMarkupDialogProps) {
       return;
     }
     e.currentTarget.setPointerCapture?.(e.pointerId);
+    draftPointerRef.current = { id: e.pointerId, type: e.pointerType ?? "" };
     if (tool === "crop") {
       draftRef.current = { kind: "crop", a: p, b: p };
     } else if (tool === "pen") {
+      // A pen tracks the pressure of every point, even when the driver has
+      // no reading at the press itself: seeded at the resting press, so a
+      // pen whose first report is 0 does not draw its whole stroke flat.
+      const pressure =
+        e.pointerType === "pen" ? (penPressure(e) ?? 0.5) : undefined;
       draftRef.current = {
         kind: "shape",
-        shape: { kind: "pen", color, width, points: [p] },
+        shape:
+          pressure === undefined
+            ? { kind: "pen", color, width, points: [p] }
+            : { kind: "pen", color, width, points: [p], pressures: [pressure] },
       };
     } else {
       draftRef.current = {
@@ -311,22 +364,39 @@ export function ImageMarkupDialog(props: ImageMarkupDialogProps) {
   };
 
   const onPointerMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (e.pointerType === "pen") lastPenAtRef.current = performance.now();
     const draft = draftRef.current;
     if (!draft) return;
+    const owner = draftPointerRef.current;
+    if (owner && owner.id !== e.pointerId) return;
     const p = toPicture(e);
     if (draft.kind === "crop") {
       draftRef.current = { ...draft, b: p };
     } else if (draft.shape.kind === "pen") {
-      const pts = draft.shape.points;
-      const last = pts[pts.length - 1];
-      if (
-        last &&
-        Math.hypot(p.x - last.x, p.y - last.y) * screenPerPixel() < 0.5
-      )
-        return;
+      // A pen reports more points than there are frames: the browser hands
+      // the ones between two events over as coalesced samples.
+      const pts = [...draft.shape.points];
+      const pressures = draft.shape.pressures
+        ? [...draft.shape.pressures]
+        : null;
+      const k = screenPerPixel();
+      for (const sample of moveSamples(e)) {
+        const q = toPicture(sample);
+        const last = pts[pts.length - 1];
+        if (last && Math.hypot(q.x - last.x, q.y - last.y) * k < 0.5) continue;
+        pts.push(q);
+        if (pressures) {
+          pressures.push(
+            penPressure(sample) ?? pressures[pressures.length - 1] ?? 0.5,
+          );
+        }
+      }
+      if (pts.length === draft.shape.points.length) return;
       draftRef.current = {
         kind: "shape",
-        shape: { ...draft.shape, points: [...pts, p] },
+        shape: pressures
+          ? { ...draft.shape, points: pts, pressures }
+          : { ...draft.shape, points: pts },
       };
     } else if (draft.shape.kind !== "text") {
       draftRef.current = { kind: "shape", shape: { ...draft.shape, b: p } };
@@ -335,9 +405,12 @@ export function ImageMarkupDialog(props: ImageMarkupDialogProps) {
   };
 
   const onPointerUp = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    const owner = draftPointerRef.current;
+    if (owner && owner.id !== e.pointerId) return;
     onPointerMove(e);
     const draft = draftRef.current;
     draftRef.current = null;
+    draftPointerRef.current = null;
     if (!draft) return;
     if (draft.kind === "crop") {
       const crop = cropFor(size, draft.a, draft.b);
@@ -357,8 +430,11 @@ export function ImageMarkupDialog(props: ImageMarkupDialogProps) {
     setOps((prev) => [...prev, { kind: "shape", shape: s }]);
   };
 
-  const onPointerCancel = () => {
+  const onPointerCancel = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    const owner = draftPointerRef.current;
+    if (owner && owner.id !== e.pointerId) return;
     draftRef.current = null;
+    draftPointerRef.current = null;
     setTick((n) => n + 1);
   };
 
