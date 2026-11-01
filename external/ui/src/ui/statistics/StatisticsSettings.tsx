@@ -11,7 +11,9 @@ import {
 
 type Rate = { name: string; input: string; output: string; cached: string };
 
-export default function StatisticsSettings() {
+export default function StatisticsSettings({
+  onImported,
+}: { onImported?: () => void } = {}) {
   const { t } = useT();
   const [settings, setSettings] = useState<StatisticsSettings | null>(null);
   const [timezone, setTimezone] = useState("");
@@ -99,7 +101,8 @@ export default function StatisticsSettings() {
         method: "POST",
         body: JSON.stringify({ action: "start" }),
       });
-      window.location.hash = "#/statistics";
+      if (onImported) onImported();
+      else window.location.hash = "#/statistics";
     } catch (e) {
       setError(String(e));
     } finally {

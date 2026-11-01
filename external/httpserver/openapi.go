@@ -2878,6 +2878,18 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/providers/usage": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List all provider account limits",
+					"description": "Returns every configured provider in configuration order, including unused, unsupported and disabled rows. Uses the manager's shared cache, credentials, proxy and refresh pacing. Reads at most four accounts concurrently under a 15-second request budget; a failed row carries error=unavailable. Does not sum limits across accounts. refresh=1 requests fresh reads subject to the pacing floor.",
+					"operationId": "listProviderUsage",
+					"parameters":  []interface{}{map[string]interface{}{"name": "refresh", "in": "query", "schema": map[string]string{"type": "string"}}},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("All configured provider limits.", "#/components/schemas/ProviderUsageList"),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/providers/{name}/usage": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get provider account usage",
@@ -3999,6 +4011,13 @@ func openAPISpec() map[string]interface{} {
 						"connected": map[string]string{"type": "boolean"},
 					},
 					"required": []string{"login_id", "verification_url", "user_code", "status", "connected"},
+				},
+				"ProviderUsageList": map[string]interface{}{
+					"type":     "object",
+					"required": []string{"providers"},
+					"properties": map[string]interface{}{
+						"providers": map[string]interface{}{"type": "array", "items": map[string]interface{}{"$ref": "#/components/schemas/ProviderUsage"}},
+					},
 				},
 				"ProviderUsageAnswer": map[string]interface{}{
 					"type": "object",

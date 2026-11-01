@@ -47,3 +47,9 @@ Feature: NeuralDeep account usage on every surface
     When I read the neuraldeep provider usage over REST
     Then the usage marks "kimi-k2.6" blocked with the moment it comes back
     And the usage still reports the account itself as able to request
+
+  @http
+  Scenario: Statistics lists limits for every configured provider
+    Given a coddy HTTP server with a neuraldeep provider, a stored hub login and a stand-in limits API
+    When I read all provider limits over REST
+    Then the list contains neuraldeep windows and the unsupported stub provider

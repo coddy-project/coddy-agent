@@ -583,6 +583,8 @@ func initializeNeuralDeepUsageScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the stand-in limits API refuses the model "([^"]*)" until the period rolls over$`, s.givenAPIRefusesModel)
 	sc.Step(`^the usage marks "([^"]*)" blocked with the moment it comes back$`, s.thenUsageMarksModelBlocked)
 	sc.Step(`^the usage still reports the account itself as able to request$`, s.thenUsageReportsAccountUnblocked)
+	sc.Step(`^I read all provider limits over REST$`, s.whenReadAllLimits)
+	sc.Step(`^the list contains neuraldeep windows and the unsupported stub provider$`, s.thenAllLimits)
 }
 
 func TestNeuralDeepUsageFeature(t *testing.T) {
@@ -643,6 +645,45 @@ func (s *neuralDeepUsageBDDState) thenUsageReportsAccountUnblocked() error {
 	}
 	if blocked, _ := usage["blocked"].(bool); blocked {
 		return fmt.Errorf("a model gate must not read as an account block: %v", usage["blockers"])
+	}
+	return nil
+}
+
+func (s *neuralDeepUsageBDDState) whenReadAllLimits() error {
+	res, err := http.Get(s.ts.URL + "/coddy/providers/usage")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	s.lastStatus = res.StatusCode
+	s.lastBody, err = io.ReadAll(res.Body)
+	return err
+}
+
+func (s *neuralDeepUsageBDDState) thenAllLimits() error {
+	var answer struct {
+		Providers []acp.ProviderUsageUpdate `json:"providers"`
+	}
+	if s.lastStatus != http.StatusOK {
+		return fmt.Errorf("status = %d", s.lastStatus)
+	}
+	if err := json.Unmarshal(s.lastBody, &answer); err != nil {
+		return err
+	}
+	if len(answer.Providers) != 2 {
+		return fmt.Errorf("providers = %+v", answer.Providers)
+	}
+	found, unsupported := false, false
+	for _, u := range answer.Providers {
+		if u.Provider == "neuraldeep" {
+			found = u.Plan == "pro" && len(u.Windows) >= 2
+		}
+		if u.Provider == "stub" {
+			unsupported = u.Unsupported
+		}
+	}
+	if !found || !unsupported || strings.Contains(string(s.lastBody), neuralDeepUsageBDDKey) {
+		return fmt.Errorf("unexpected provider limits: %s", s.lastBody)
 	}
 	return nil
 }

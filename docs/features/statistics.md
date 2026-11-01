@@ -12,7 +12,7 @@ Coddy records model calls from its agent turns across the console, ACP, HTTP API
 
 The page shows token totals, the busiest day, chats, manual requests, model calls, reasoning levels, installed and used skills, skill invocations, task duration and activity streaks. A task is one agent invocation. Its duration excludes time waiting for answers to questions or permission prompts and the agent's explicit wait for a quota reset. Total agent time sums the recorded durations, including parallel child runs; it is not elapsed calendar time. A streak counts consecutive dates with a manual request. A dash means that a value was not recorded.
 
-Choose the last 7 days, 30 days, year, all time or a custom date range. Project, provider, model and source filters apply to the selected period. The lifetime token card covers the server's retained history. The calendar shows the final year of the selected period, by day, by week or cumulatively. Daily boundaries use the browser's time zone unless **Settings → Statistics** sets an IANA zone for the server.
+Choose the last 7 days, 30 days, year, all time or a custom date range. Project, provider, model and source filters apply to the selected period. Open **Filters** to choose a project, provider, model or source; selected filters remain visible as chips. Four counters above the calendar show period tokens, active agent time, estimated cost and the current streak. The lists below the calendar group the remaining counters under Tokens, Activity and Skills. The lifetime token row covers the server's retained history. The calendar shows the final year of the selected period, by day, by week or cumulatively. Daily boundaries use the browser's time zone unless **Settings → Statistics** sets an IANA zone for the server.
 
 ## Storage and cleanup
 
@@ -34,7 +34,17 @@ Import restores dated user requests and the most recently saved usage sample fro
 
 In **Settings → Statistics**, enter USD rates per million input, output and cached-input tokens for a model id or `provider/model`. A configured rate of zero represents a free model. Coddy saves the estimate with new calls that have a rate; an old call without an estimate can use a rate configured later. Changing a rate does not change estimates already recorded. Calls without a rate are counted beside the partial estimate. Subscription payments, cache-write premiums and separately billed tools are outside this estimate.
 
-**CSV** exports daily counters for the current filters and time zone. **JSON** exports the filtered report, retained lifetime summary and warnings. An unavailable reading is an empty CSV cell or JSON `null`.
+The **⋯** menu contains export and statistics settings. On a phone, filters, statistics settings opened from this menu and the first-import prompt open in bottom sheets. **Export CSV** exports daily counters for the current filters and time zone. **Export JSON** exports the filtered report, retained lifetime summary and warnings. An unavailable reading is an empty CSV cell or JSON `null`.
+
+## Provider limits
+
+The **Limits** tab lists every configured provider, including providers that have not served a chat. It shows every reported quota window, used and remaining counters, reset times, request rates, cooldowns, wallet balance and model restrictions. Missing fields stay absent. Providers without a supported usage source, disabled usage reads and failed requests have separate notices. A failed refresh keeps the last snapshot marked stale.
+
+These are current account limits, independent of the overview's period, project, model and source filters. The page reads them every 30 seconds while visible; **Refresh** requests an update through the same server cache and pacing rules as the chat's usage panel. In swarm mode, limits remain grouped by node and provider. Identical provider names on different nodes are separate accounts; their quotas are not added together. A node that cannot answer remains visible with an error.
+
+![Provider account limits](../assets/statistics/statistics-limits-dark-1280.png)
+
+*Quota windows and availability for every configured provider.*
 
 ## Swarm summary
 

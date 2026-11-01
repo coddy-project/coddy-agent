@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ConfirmDialog } from "../components/ConfirmDialog";
+import { ProviderLimits } from "./ProviderLimits";
+import { StatisticsSheet } from "./StatisticsSheet";
+import StatisticsSettings from "./StatisticsSettings";
+import { snapshotPhone } from "../shellBreakpoint";
 import { useT } from "../i18n/I18nProvider";
 import { CoddyWorkIndicator } from "../messages/CoddyWorkIndicator";
 import { ActivityCalendar } from "./ActivityCalendar";
@@ -26,6 +29,7 @@ export default function StatisticsView({
   cwd: string;
 }) {
   const { t, locale } = useT();
+  const [tab, setTab] = useState<"overview" | "limits">("overview");
   const [data, setData] = useState<StatisticsData | null>(null);
   const [error, setError] = useState("");
   const [timezone, setTimezone] = useState(browserTimezone);
@@ -40,6 +44,36 @@ export default function StatisticsView({
   const [node, setNode] = useState("");
   const [mode, setMode] = useState<"days" | "weeks" | "cumulative">("days");
   const [working, setWorking] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsRef = useRef<HTMLDivElement>(null);
+  const openSettings = () => {
+    actionsRef.current?.querySelector("button")?.focus();
+    setActionsOpen(false);
+    if (snapshotPhone()) setSettingsOpen(true);
+    else onSettings();
+  };
+  useEffect(() => {
+    if (!actionsOpen) return;
+    const outside = (e: PointerEvent) => {
+      if (!actionsRef.current?.contains(e.target as Node))
+        setActionsOpen(false);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      setActionsOpen(false);
+      actionsRef.current?.querySelector("button")?.focus();
+    };
+    document.addEventListener("pointerdown", outside);
+    window.addEventListener("keydown", key, true);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      window.removeEventListener("keydown", key, true);
+    };
+  }, [actionsOpen]);
   const request = useRef(0);
   const aggregate = scope === "swarm";
   const read = useCallback(async () => {
@@ -253,74 +287,115 @@ export default function StatisticsView({
         <header className="sessions-head statistics-head">
           <h2>{t("stats.title")}</h2>
           <div className="statistics-actions">
-            {data && (
-              <>
-                <button onClick={() => exportStatistics(data, "csv")}>
-                  CSV
-                </button>
-                <button onClick={() => exportStatistics(data, "json")}>
-                  JSON
-                </button>
-              </>
-            )}
-            {!aggregate && (
-              <button onClick={onSettings}>{t("stats.settings")}</button>
-            )}
-            <button aria-label={t("common.close")} onClick={onClose}>
+            <div
+              className="statistics-actions-anchor"
+              ref={actionsRef}
+              onBlur={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget))
+                  setActionsOpen(false);
+              }}
+            >
+              <button
+                className="statistics-icon-button"
+                aria-label={t("stats.actions")}
+                aria-expanded={actionsOpen}
+                onClick={() => setActionsOpen(!actionsOpen)}
+              >
+                ⋯
+              </button>
+              {actionsOpen && (
+                <div className="statistics-actions-menu">
+                  {data && (
+                    <>
+                      <button
+                        onClick={() => {
+                          exportStatistics(data, "csv");
+                          setActionsOpen(false);
+                        }}
+                      >
+                        {t("stats.exportCsv")}
+                      </button>
+                      <button
+                        onClick={() => {
+                          exportStatistics(data, "json");
+                          setActionsOpen(false);
+                        }}
+                      >
+                        {t("stats.exportJson")}
+                      </button>
+                    </>
+                  )}
+                  {!aggregate && (
+                    <button onClick={openSettings}>
+                      {t("stats.settings")}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+            <button
+              className="statistics-icon-button"
+              aria-label={t("common.close")}
+              onClick={onClose}
+            >
               ×
             </button>
           </div>
         </header>
+        <div
+          className="statistics-tabs"
+          role="tablist"
+          aria-label={t("stats.title")}
+          onKeyDown={(e) => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key))
+              return;
+            e.preventDefault();
+            const next =
+              e.key === "Home"
+                ? "overview"
+                : e.key === "End"
+                  ? "limits"
+                  : tab === "overview"
+                    ? "limits"
+                    : "overview";
+            setTab(next);
+            e.currentTarget
+              .querySelector<HTMLButtonElement>(`[id="statistics-tab-${next}"]`)
+              ?.focus();
+          }}
+        >
+          {(["overview", "limits"] as const).map((value) => (
+            <button
+              key={value}
+              id={`statistics-tab-${value}`}
+              role="tab"
+              aria-selected={tab === value}
+              aria-controls={`statistics-panel-${value}`}
+              tabIndex={tab === value ? 0 : -1}
+              onClick={() => setTab(value)}
+            >
+              {t(`stats.${value}`)}
+            </button>
+          ))}
+        </div>
         <div className="statistics-body">
           <div className="statistics-filters">
-            {swarm && (
+            {tab === "overview" && (
               <label className="statistics-filter">
-                <span>{t("stats.scope")}</span>
+                <span>{t("stats.period")}</span>
                 <select
-                  value={scope}
-                  onChange={(e) => {
-                    setScope(e.target.value);
-                    setNode("");
-                    setModel("");
-                    setProvider("");
-                    setProject("");
-                    setSource("");
-                  }}
+                  value={period}
+                  onChange={(e) => setPeriod(e.target.value)}
                 >
-                  {!relayHome && (
-                    <option value="local">{t("stats.thisServer")}</option>
-                  )}
-                  <option value="swarm">{t("stats.swarm")}</option>
-                </select>
-              </label>
-            )}
-            {aggregate && (
-              <label className="statistics-filter">
-                <span>{t("stats.node")}</span>
-                <select value={node} onChange={(e) => setNode(e.target.value)}>
-                  <option value="">{t("stats.all")}</option>
-                  {data?.nodes?.map((n) => (
-                    <option key={n.dataset} value={n.dataset}>
-                      {n.path.join(" / ") || n.name}
+                  {["7", "30", "year", "all", "custom"].map((v) => (
+                    <option key={v} value={v}>
+                      {t(`stats.period.${v}`)}
                     </option>
                   ))}
                 </select>
               </label>
             )}
-            <label className="statistics-filter">
-              <span>{t("stats.period")}</span>
-              <select
-                value={period}
-                onChange={(e) => setPeriod(e.target.value)}
-              >
-                {["7", "30", "year", "all", "custom"].map((v) => (
-                  <option key={v} value={v}>
-                    {t(`stats.period.${v}`)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {period === "custom" && (
+            {tab === "overview" && period === "custom" && (
               <>
                 <label className="statistics-filter">
                   <span>{t("stats.from")}</span>
@@ -340,11 +415,151 @@ export default function StatisticsView({
                 </label>
               </>
             )}
-            {select("stats.project", project, setProject, all?.projects)}
-            {select("stats.provider", provider, setProvider, all?.providers)}
-            {select("stats.model", model, setModel, all?.models)}
-            {select("stats.source", source, setSource, all?.sources)}
+            {(tab === "overview" || swarm) && (
+              <button
+                className="statistics-filter-trigger"
+                aria-expanded={filtersOpen}
+                onClick={() => setFiltersOpen(true)}
+              >
+                {t("stats.filters")}
+                {(tab === "overview"
+                  ? [project, provider, model, source, node]
+                  : [node]
+                ).filter(Boolean).length > 0 && (
+                  <span className="statistics-filter-count">
+                    {
+                      (tab === "overview"
+                        ? [project, provider, model, source, node]
+                        : [node]
+                      ).filter(Boolean).length
+                    }
+                  </span>
+                )}
+              </button>
+            )}
           </div>
+          <div className="statistics-filter-tags">
+            {scope === "swarm" && (
+              <button onClick={() => setFiltersOpen(true)}>
+                {t("stats.swarm")}
+              </button>
+            )}
+            {[
+              ["stats.project", tab === "overview" ? project : ""],
+              ["stats.provider", tab === "overview" ? provider : ""],
+              ["stats.model", tab === "overview" ? model : ""],
+              [
+                "stats.source",
+                tab === "overview" && source ? sourceName(source) : "",
+              ],
+              [
+                "stats.node",
+                node
+                  ? data?.nodes
+                      ?.find((n) => n.dataset === node)
+                      ?.path.join(" / ") || node
+                  : "",
+              ],
+            ]
+              .filter(([, value]) => value)
+              .map(([key, value]) => (
+                <button key={key} onClick={() => setFiltersOpen(true)}>
+                  {t(key!)}: {value}
+                </button>
+              ))}
+          </div>
+          {filtersOpen && (
+            <StatisticsSheet
+              title={t("stats.filters")}
+              onClose={() => setFiltersOpen(false)}
+            >
+              <div className="statistics-filters statistics-filter-fields">
+                {swarm && (
+                  <label className="statistics-filter">
+                    <span>{t("stats.scope")}</span>
+                    <select
+                      value={scope}
+                      onChange={(e) => {
+                        setScope(e.target.value);
+                        setNode("");
+                        setModel("");
+                        setProvider("");
+                        setProject("");
+                        setSource("");
+                      }}
+                    >
+                      {!relayHome && (
+                        <option value="local">{t("stats.thisServer")}</option>
+                      )}
+                      <option value="swarm">{t("stats.swarm")}</option>
+                    </select>
+                  </label>
+                )}
+                {aggregate && (
+                  <label className="statistics-filter">
+                    <span>{t("stats.node")}</span>
+                    <select
+                      value={node}
+                      onChange={(e) => setNode(e.target.value)}
+                    >
+                      <option value="">{t("stats.all")}</option>
+                      {data?.nodes?.map((n) => (
+                        <option key={n.dataset} value={n.dataset}>
+                          {n.path.join(" / ") || n.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {tab === "overview" && (
+                  <>
+                    {select(
+                      "stats.project",
+                      project,
+                      setProject,
+                      all?.projects,
+                    )}
+                    {select(
+                      "stats.provider",
+                      provider,
+                      setProvider,
+                      all?.providers,
+                    )}
+                    {select("stats.model", model, setModel, all?.models)}
+                    {select("stats.source", source, setSource, all?.sources)}
+                  </>
+                )}
+              </div>
+              <button
+                className="statistics-reset"
+                onClick={() => {
+                  setProject("");
+                  setProvider("");
+                  setModel("");
+                  setSource("");
+                  setNode("");
+                }}
+              >
+                {t("stats.resetFilters")}
+              </button>
+            </StatisticsSheet>
+          )}
+          {settingsOpen && (
+            <StatisticsSheet
+              title={t("stats.settings")}
+              onClose={() => {
+                setSettingsOpen(false);
+                void read();
+              }}
+            >
+              <StatisticsSettings
+                onImported={() => {
+                  setSettingsOpen(false);
+                  void read();
+                }}
+              />
+            </StatisticsSheet>
+          )}
           {error && (
             <div role="alert" className="statistics-error">
               {error}
@@ -365,169 +580,260 @@ export default function StatisticsView({
               {t("stats.loading")}
             </p>
           )}
-          {imp?.state === "running" && (
-            <div className="statistics-import" role="status">
-              <div className="statistics-progress">
-                <CoddyWorkIndicator />
-                {t("stats.import.running")}
-              </div>
-              <progress max={Math.max(1, imp.total)} value={imp.done} />
-              <span>
-                {t("stats.import.progress", {
-                  done: imp.done,
-                  total: imp.total,
-                })}
-              </span>
-            </div>
-          )}
-          {imp && ["interrupted", "error"].includes(imp.state) && (
-            <p className="statistics-warning">
-              {t("stats.import.interrupted")}
-              <button onClick={() => void importHistory("start")}>
-                {t("stats.retry")}
-              </button>
-            </p>
-          )}
-          {imp && imp.failed > 0 && (
-            <p className="statistics-warning">
-              {t("stats.import.failed", { count: imp.failed })}
-            </p>
-          )}
-          {data && totals && (
-            <>
-              <section className="statistics-activity">
-                <div className="statistics-section-head">
-                  <h3>{t("stats.activity")}</h3>
-                  <div className="statistics-segments">
-                    {(["days", "weeks", "cumulative"] as const).map((v) => (
-                      <button
-                        key={v}
-                        aria-pressed={mode === v}
-                        onClick={() => setMode(v)}
-                      >
-                        {t(`stats.${v}`)}
-                      </button>
-                    ))}
-                  </div>
+          <div
+            id="statistics-panel-limits"
+            role="tabpanel"
+            aria-labelledby="statistics-tab-limits"
+            hidden={tab !== "limits"}
+            tabIndex={0}
+          >
+            {tab === "limits" && (
+              <ProviderLimits
+                aggregate={aggregate}
+                nodes={data?.nodes}
+                node={node}
+                timezone={timezone}
+              />
+            )}
+          </div>
+          <div
+            className="statistics-overview"
+            id="statistics-panel-overview"
+            role="tabpanel"
+            aria-labelledby="statistics-tab-overview"
+            hidden={tab !== "overview"}
+            tabIndex={0}
+          >
+            {imp?.state === "running" && (
+              <div className="statistics-import" role="status">
+                <div className="statistics-progress">
+                  <CoddyWorkIndicator />
+                  {t("stats.import.running")}
                 </div>
-                <ActivityCalendar
-                  days={data.report.days ?? []}
-                  timezone={data.report.timezone}
-                  mode={mode}
-                  {...(period === "custom" && to ? { end: to } : {})}
-                />
-                <p className="statistics-muted">{data.report.timezone}</p>
-              </section>
-              <div className="statistics-cards">
-                {[
-                  ["stats.tokensAllTime", number(all?.totals.totalTokens)],
-                  ["stats.tokensPeriod", number(totals.totalTokens)],
-                  ["stats.input", number(totals.inputTokens)],
-                  ["stats.output", number(totals.outputTokens)],
-                  ["stats.cached", number(totals.cachedTokens)],
-                  ["stats.maxDaily", number(totals.maxDailyTokens)],
-                  ["stats.longest", duration(totals.longestMs)],
-                  ["stats.activeTime", duration(totals.activeMs)],
-                  ["stats.currentStreak", number(totals.currentStreak)],
-                  ["stats.longestStreak", number(totals.longestStreak)],
-                  ["stats.chats", number(totals.chats)],
-                  ["stats.requests", number(totals.requests)],
-                  [
-                    "stats.calls",
-                    number(
-                      totals.importedTurns > 0 && totals.calls === 0
-                        ? null
-                        : totals.calls,
-                    ),
-                  ],
-                  [
-                    "stats.uniqueSkills",
-                    number(
-                      totals.importedTurns > 0 && totals.uniqueSkills === 0
-                        ? null
-                        : totals.uniqueSkills,
-                    ),
-                  ],
-                  [
-                    "stats.skillCalls",
-                    number(
-                      totals.importedTurns > 0 && totals.skillCalls === 0
-                        ? null
-                        : totals.skillCalls,
-                    ),
-                  ],
-                  ["stats.installedSkills", number(data.installedSkills)],
-                  [
-                    "stats.cost",
-                    totals.costUsd == null
-                      ? "—"
-                      : new Intl.NumberFormat(locale, {
-                          style: "currency",
-                          currency: "USD",
-                          maximumFractionDigits: 2,
-                        }).format(totals.costUsd),
-                  ],
-                ].map(([key, value]) => (
-                  <div className="statistics-card" key={key}>
-                    <strong>{value}</strong>
-                    <span>{t(key!)}</span>
+                <progress max={Math.max(1, imp.total)} value={imp.done} />
+                <span>
+                  {t("stats.import.progress", {
+                    done: imp.done,
+                    total: imp.total,
+                  })}
+                </span>
+              </div>
+            )}
+            {imp && ["interrupted", "error"].includes(imp.state) && (
+              <p className="statistics-warning">
+                {t("stats.import.interrupted")}
+                <button onClick={() => void importHistory("start")}>
+                  {t("stats.retry")}
+                </button>
+              </p>
+            )}
+            {imp && imp.failed > 0 && (
+              <p className="statistics-warning">
+                {t("stats.import.failed", { count: imp.failed })}
+              </p>
+            )}
+            {data && totals && (
+              <>
+                <div
+                  className="statistics-cards"
+                  aria-label={t("stats.overview")}
+                >
+                  {[
+                    ["stats.tokensPeriod", number(totals.totalTokens)],
+                    ["stats.activeTime", duration(totals.activeMs)],
+                    [
+                      "stats.cost",
+                      totals.costUsd == null
+                        ? "—"
+                        : new Intl.NumberFormat(locale, {
+                            style: "currency",
+                            currency: "USD",
+                            maximumFractionDigits: 2,
+                          }).format(totals.costUsd),
+                    ],
+                    ["stats.currentStreak", number(totals.currentStreak)],
+                  ].map(([key, value]) => (
+                    <div className="statistics-card" key={key}>
+                      <span>{t(key!)}</span>
+                      <strong>{value}</strong>
+                    </div>
+                  ))}
+                </div>
+                <section className="statistics-activity">
+                  <div className="statistics-section-head">
+                    <h3>{t("stats.activity")}</h3>
+                    <div className="statistics-segments">
+                      {(["days", "weeks", "cumulative"] as const).map((v) => (
+                        <button
+                          key={v}
+                          aria-pressed={mode === v}
+                          onClick={() => setMode(v)}
+                        >
+                          {t(`stats.segment.${v}`)}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                ))}
-              </div>
-              <p className="statistics-muted">{t("stats.unknownHint")}</p>
-              {totals.importedTurns > 0 && (
-                <p className="statistics-muted">{t("stats.import.partial")}</p>
-              )}
-              {totals.unpricedCalls > 0 && (
-                <p className="statistics-muted">
-                  {t("stats.unpriced", { count: totals.unpricedCalls })}
-                  {!aggregate && (
-                    <button onClick={onSettings}>
-                      {t("stats.prices.configure")}
-                    </button>
-                  )}
-                </p>
-              )}
-              <div className="statistics-summary-row">
-                <span>{t("stats.popularReasoning")}</span>
-                <strong>
-                  {data.report.reasoning?.[0]
-                    ? `${data.report.reasoning[0].name} · ${Math.round(
-                        (data.report.reasoning[0].count /
-                          Math.max(
-                            1,
-                            data.report.reasoning.reduce(
-                              (n, r) => n + r.count,
-                              0,
-                            ),
-                          )) *
-                          100,
-                      )}%`
-                    : "—"}
-                </strong>
-              </div>
-              <div className="statistics-breakdowns">
-                {breakdown("stats.models", data.report.models, false)}
-                {breakdown("stats.providers", data.report.providers, false)}
-                {breakdown("stats.projects", data.report.projects)}
-                {breakdown("stats.sources", data.report.sources)}
-                {breakdown("stats.reasoning", data.report.reasoning, false)}
-                {breakdown("stats.skills", data.report.skills)}
-              </div>
-            </>
-          )}
+                  <ActivityCalendar
+                    days={data.report.days ?? []}
+                    timezone={data.report.timezone}
+                    mode={mode}
+                    {...(period === "custom" && to ? { end: to } : {})}
+                  />
+                  <p className="statistics-muted">{data.report.timezone}</p>
+                </section>
+                <div className="statistics-detail-groups">
+                  <section className="statistics-detail-group">
+                    <h3>{t("stats.tokensHeading")}</h3>
+                    <dl>
+                      {[
+                        [
+                          "stats.tokensAllTime",
+                          number(all?.totals.totalTokens),
+                        ],
+                        ["stats.input", number(totals.inputTokens)],
+                        ["stats.output", number(totals.outputTokens)],
+                        ["stats.cached", number(totals.cachedTokens)],
+                        ["stats.maxDaily", number(totals.maxDailyTokens)],
+                      ].map(([key, value]) => (
+                        <div key={key}>
+                          <dt>{t(key!)}</dt>
+                          <dd>{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                  <section className="statistics-detail-group">
+                    <h3>{t("stats.activityDetails")}</h3>
+                    <dl>
+                      {[
+                        ["stats.longest", duration(totals.longestMs)],
+                        ["stats.longestStreak", number(totals.longestStreak)],
+                        ["stats.chats", number(totals.chats)],
+                        ["stats.requests", number(totals.requests)],
+                        [
+                          "stats.calls",
+                          number(
+                            totals.importedTurns > 0 && totals.calls === 0
+                              ? null
+                              : totals.calls,
+                          ),
+                        ],
+                      ].map(([key, value]) => (
+                        <div key={key}>
+                          <dt>{t(key!)}</dt>
+                          <dd>{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                  <section className="statistics-detail-group">
+                    <h3>{t("stats.skills")}</h3>
+                    <dl>
+                      {[
+                        [
+                          "stats.uniqueSkills",
+                          number(
+                            totals.importedTurns > 0 &&
+                              totals.uniqueSkills === 0
+                              ? null
+                              : totals.uniqueSkills,
+                          ),
+                        ],
+                        [
+                          "stats.skillCalls",
+                          number(
+                            totals.importedTurns > 0 && totals.skillCalls === 0
+                              ? null
+                              : totals.skillCalls,
+                          ),
+                        ],
+                        ["stats.installedSkills", number(data.installedSkills)],
+                      ].map(([key, value]) => (
+                        <div key={key}>
+                          <dt>{t(key!)}</dt>
+                          <dd>{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                </div>
+                <p className="statistics-muted">{t("stats.unknownHint")}</p>
+                {totals.importedTurns > 0 && (
+                  <p className="statistics-muted">
+                    {t("stats.import.partial")}
+                  </p>
+                )}
+                {totals.unpricedCalls > 0 && (
+                  <p className="statistics-muted">
+                    {t("stats.unpriced", { count: totals.unpricedCalls })}
+                    {!aggregate && (
+                      <button onClick={openSettings}>
+                        {t("stats.prices.configure")}
+                      </button>
+                    )}
+                  </p>
+                )}
+                <div className="statistics-summary-row">
+                  <span>{t("stats.popularReasoning")}</span>
+                  <strong>
+                    {data.report.reasoning?.[0]
+                      ? `${data.report.reasoning[0].name} · ${Math.round(
+                          (data.report.reasoning[0].count /
+                            Math.max(
+                              1,
+                              data.report.reasoning.reduce(
+                                (n, r) => n + r.count,
+                                0,
+                              ),
+                            )) *
+                            100,
+                        )}%`
+                      : "—"}
+                  </strong>
+                </div>
+                <div className="statistics-breakdowns">
+                  {breakdown("stats.models", data.report.models, false)}
+                  {breakdown("stats.providers", data.report.providers, false)}
+                  {breakdown("stats.projects", data.report.projects)}
+                  {breakdown("stats.sources", data.report.sources)}
+                  {breakdown("stats.reasoning", data.report.reasoning, false)}
+                  {breakdown("stats.skills", data.report.skills)}
+                </div>
+              </>
+            )}
+          </div>
         </div>
-        <ConfirmDialog
-          open={imp?.state === "pending"}
-          title={t("stats.import.title")}
-          message={t("stats.import.message")}
-          confirmLabel={t("stats.import.start")}
-          cancelLabel={t("stats.import.skip")}
-          ariaLabel={t("stats.import.title")}
-          onConfirm={() => void importHistory("start")}
-          onCancel={() => void importHistory("skip")}
-          confirming={working}
-        />
+        {imp?.state === "pending" && tab === "overview" && (
+          <StatisticsSheet
+            title={t("stats.import.title")}
+            closeLabel={t("common.close")}
+            onClose={() => void importHistory("skip")}
+            busy={working}
+          >
+            <p className="statistics-muted">{t("stats.import.message")}</p>
+            {error && (
+              <p role="alert" className="statistics-error">
+                {error}
+              </p>
+            )}
+            <div className="statistics-sheet-actions">
+              <button
+                className="statistics-primary"
+                disabled={working}
+                onClick={() => void importHistory("start")}
+              >
+                {t("stats.import.start")}
+              </button>
+              <button
+                disabled={working}
+                onClick={() => void importHistory("skip")}
+              >
+                {t("stats.import.skip")}
+              </button>
+            </div>
+          </StatisticsSheet>
+        )}
       </div>
     </div>
   );

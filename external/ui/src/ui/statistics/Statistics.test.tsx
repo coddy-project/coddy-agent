@@ -130,3 +130,116 @@ test("cleanup confirms the selected period and sends it to the server", async ()
     ),
   );
 });
+
+test("filters stay collapsed, preserve selections and return focus when dismissed", async () => {
+  initLocale("en");
+  const data = fixture();
+  data.settings!.import.state = "complete";
+  const fetch = vi.fn(async () => new Response(JSON.stringify(data)));
+  vi.stubGlobal("fetch", fetch);
+  const onClose = vi.fn();
+  render(
+    <StatisticsView
+      onClose={onClose}
+      onSettings={vi.fn()}
+      swarm={false}
+      relayHome={false}
+      cwd="/project"
+    />,
+  );
+  await screen.findByText("Token activity");
+  expect(screen.queryByLabelText("Model")).toBeNull();
+  const trigger = screen.getByRole("button", { name: "Filters" });
+  trigger.focus();
+  fireEvent.click(trigger);
+  const dialog = screen.getByRole("dialog", { name: "Filters" });
+  fireEvent.change(within(dialog).getByLabelText("Model"), {
+    target: { value: "model" },
+  });
+  await waitFor(() =>
+    expect(
+      fetch.mock.calls.some((args: unknown[]) =>
+        String(args[0]).includes("model=model"),
+      ),
+    ).toBe(true),
+  );
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(onClose).not.toHaveBeenCalled();
+  expect(trigger).toHaveFocus();
+  expect(
+    screen.getByRole("button", { name: "Model: model" }),
+  ).toBeInTheDocument();
+  fireEvent.click(trigger);
+  expect(screen.getByLabelText("Model")).toHaveValue("model");
+});
+
+test("export and settings live behind the actions button", async () => {
+  initLocale("en");
+  const data = fixture();
+  data.settings!.import.state = "complete";
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify(data))),
+  );
+  const onSettings = vi.fn();
+  render(
+    <StatisticsView
+      onClose={vi.fn()}
+      onSettings={onSettings}
+      swarm={false}
+      relayHome={false}
+      cwd="/project"
+    />,
+  );
+  await screen.findByText("Token activity");
+  expect(screen.queryByRole("button", { name: "Export CSV" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Statistics actions" }));
+  expect(
+    screen.getByRole("button", { name: "Export CSV" }),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Statistics settings" }));
+  expect(onSettings).toHaveBeenCalledOnce();
+});
+
+test("phone settings keep cleanup confirmation above the sheet", async () => {
+  initLocale("en");
+  const data = fixture();
+  data.settings!.import.state = "complete";
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(() => ({ matches: true })),
+  );
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify(data))),
+  );
+  const onSettings = vi.fn();
+  render(
+    <StatisticsView
+      onClose={vi.fn()}
+      onSettings={onSettings}
+      swarm={false}
+      relayHome={false}
+      cwd="/project"
+    />,
+  );
+  await screen.findByText("Token activity");
+  const actions = screen.getByRole("button", { name: "Statistics actions" });
+  fireEvent.click(actions);
+  fireEvent.click(screen.getByRole("button", { name: "Statistics settings" }));
+  const sheet = screen.getByRole("dialog", { name: "Statistics settings" });
+  fireEvent.click(
+    await within(sheet).findByRole("button", { name: "Clear statistics" }),
+  );
+  await screen.findByRole("dialog", { name: "Clear recorded statistics?" });
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(
+    screen.queryByRole("dialog", { name: "Clear recorded statistics?" }),
+  ).toBeNull();
+  expect(sheet).toBeInTheDocument();
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(actions).toHaveFocus();
+  expect(onSettings).not.toHaveBeenCalled();
+});

@@ -84,7 +84,8 @@ export function ActivityCalendar({
           {weeks.map((week, index) => (
             <div className="statistics-week" key={week[0]!.date}>
               <span className="statistics-month">
-                {index === 0 || week[0]!.month !== weeks[index - 1]![0]!.month
+                {(index === 0 && week[0]!.month === weeks[2]?.[0]?.month) ||
+                (index > 0 && week[0]!.month !== weeks[index - 1]![0]!.month)
                   ? week[0]!.month
                   : ""}
               </span>
