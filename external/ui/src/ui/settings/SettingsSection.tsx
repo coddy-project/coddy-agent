@@ -39,6 +39,9 @@ import { translate } from "../i18n/i18n";
 // (vite.config.ts names it SystemSection-<hash>.js), so app.js carries only the
 // store, the badge and the strings.
 const SystemSection = lazy(() => import("./SystemSection"));
+const StatisticsSettings = lazy(
+  () => import("../statistics/StatisticsSettings"),
+);
 
 // The deployments a neuraldeep provider may point at, mirroring
 // neuralDeepEndpoints in internal/llm/neuraldeep_auth.go. The backend ignores
@@ -590,6 +593,15 @@ export function SettingsSection(props: {
 
   if (section.kind === "appearance") {
     return <AppearanceThemePicker />;
+  }
+  if (section.kind === "statistics") {
+    return (
+      <ChunkBoundary>
+        <Suspense fallback={<SystemPending />}>
+          <StatisticsSettings />
+        </Suspense>
+      </ChunkBoundary>
+    );
   }
 
   // The session table is API-driven (/coddy/sessions): it reads and removes

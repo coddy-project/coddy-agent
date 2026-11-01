@@ -292,6 +292,12 @@ pages:
     en:
       title: "Message queue"
       summary: "Writing a follow-up while the agent works, when the running turn reads it, taking one back, the composer and console surfaces, the queue routes."
+  features/statistics.md:
+    title: "Статистика"
+    summary: "Сохранённая история расхода токенов, использование моделей и навыков, фоновый импорт истории, часовые пояса, оценка стоимости, очистка, экспорт и сводка swarm."
+    en:
+      title: "Statistics"
+      summary: "Retained token activity, model and skill usage, background history import, time zones, estimated costs, cleanup, exports and swarm summaries."
   features/background-tasks.md:
     title: "Фоновые задачи"
     summary: "Отсоединённые команды, пул задач, тайм-ауты, подхват долгих команд переднего плана, разрешения на всю программу."

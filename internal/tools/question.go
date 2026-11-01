@@ -10,6 +10,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/statistics"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
@@ -145,6 +146,8 @@ func executeQuestion(ctx context.Context, argsJSON string, env *tooling.Env) (st
 	if toolCallID == "" {
 		toolCallID = fmt.Sprintf("question_%d", time.Now().UnixNano())
 	}
+	resumeStatistics := statistics.Pause(ctx)
+	defer resumeStatistics()
 	res, err := env.Sender.RequestQuestion(ctx, acp.QuestionRequestParams{
 		SessionID:  env.SessionID,
 		RequestID:  rid,

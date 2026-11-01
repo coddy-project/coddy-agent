@@ -68,6 +68,7 @@ func (a *Agent) appendQueuedMessages(messages *[]llm.Message, queued []session.Q
 			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: content},
 		})
 		a.state.AddMessage(msg)
+		a.statisticsRecorder.FollowUp(q.ID)
 	}
 	a.log.Info("read queued messages", "session_id", sessionID, "messages", len(queued))
 	a.refreshConversationContextUsage(true)

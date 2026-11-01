@@ -85,6 +85,7 @@ test("derives tabs in schema order with Appearance first and System last", () =>
     "appearance",
     "sessions_manager",
     "status",
+    "statistics",
     "providers",
     "models",
     "agent",
@@ -110,10 +111,11 @@ test("System is the last tab even when its keys come first", () => {
     ...rootSchema,
     "x-coddy-property-order": ["prompts", "providers", "logger"],
   } as JsonSchema).map((s) => s.id);
-  expect(ids.slice(0, 5)).toEqual([
+  expect(ids.slice(0, 6)).toEqual([
     "appearance",
     "sessions_manager",
     "status",
+    "statistics",
     "providers",
     "logger",
   ]);
@@ -231,6 +233,7 @@ test("Appearance, Sessions and System are present even without a schema", () => 
     "appearance",
     "sessions_manager",
     "status",
+    "statistics",
   ]);
 });
 
@@ -283,9 +286,14 @@ test("a relay's settings leave out the Sessions tab and name the swarm section",
 test("the System tab follows Sessions in the head, before every tab the schema brings", () => {
   const sections = deriveSettingsSections(rootSchema);
   const ids = sections.map((s) => s.id);
-  expect(ids.slice(0, 3)).toEqual(["appearance", "sessions_manager", "status"]);
+  expect(ids.slice(0, 4)).toEqual([
+    "appearance",
+    "sessions_manager",
+    "status",
+    "statistics",
+  ]);
   expect(ids[0]).toBe("appearance");
-  expect(ids.indexOf("providers")).toBe(3);
+  expect(ids.indexOf("providers")).toBe(4);
   const status = sections.find((s) => s.id === "status")!;
   expect(status.kind).toBe("status");
   expect(status.label).toBe("System");

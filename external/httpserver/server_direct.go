@@ -12,6 +12,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/statistics"
 )
 
 // directACPRefusal refuses a direct completion of a model a local ACP agent
@@ -31,7 +32,7 @@ func directACPRefusal(cfg *config.Config, model string) error {
 // OpenAI tool_calls delta and kept on the assistant message, and running it is the
 // caller's business. opts are the request's own generation options, applied to
 // the provider built for this one call.
-func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State, sessionID, yamlSel string, bridge *Sender, toolDefs []llm.ToolDefinition, opts llm.RequestOptions) (*llm.Response, error) {
+func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State, sessionID, yamlSel, source string, bridge *Sender, toolDefs []llm.ToolDefinition, opts llm.RequestOptions) (*llm.Response, error) {
 	mk := s.makeLLMFromYAML
 	if mk == nil {
 		mk = defaultMakeLLMFromYAML
@@ -39,6 +40,14 @@ func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State,
 	cfg := s.activeCfg()
 	if err := directACPRefusal(cfg, yamlSel); err != nil {
 		return nil, err
+	}
+	// A refused request never reached a provider, so it must not reach the
+	// usage history either; the recorder starts only once the call may run.
+	if cfg != nil && cfg.Paths.Home != "" {
+		provider, model, _ := strings.Cut(yamlSel, "/")
+		var recorder *statistics.Recorder
+		ctx, recorder = statistics.Begin(ctx, statistics.New(cfg.Paths.Home), statistics.Event{Session: sessionID, Project: st.GetCWD(), Source: source, Provider: provider, Model: model, Reasoning: opts.ReasoningEffort, Requests: 1}, func(err error) { s.log.Warn("statistics could not be saved", "error", err) })
+		defer recorder.Finish()
 	}
 	// What the provider's model listing said the model takes, as far as the
 	// session's manager has read it: an OpenRouter-style aggregator gets the

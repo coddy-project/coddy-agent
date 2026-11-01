@@ -357,7 +357,7 @@ test("a new chat after a session starts from the mode configured now", async () 
   // The session keeps its own mode.
   expect(permissionChip()).toHaveTextContent("Ask first");
 
-  fireEvent.click(screen.getByTestId("nav-home"));
+  fireEvent.click(screen.getByTestId("nav-new-chat"));
   await settle();
   expect(permissionChip()).toHaveTextContent("Bypass");
   expect(await send("hello")).toBe("hello");

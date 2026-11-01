@@ -6,6 +6,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { PanePortal } from "../components/PanePortal";
 import { useT } from "../i18n/I18nProvider";
 import { signOut, snapshotAuth, subscribeAuth } from "../auth/authState";
 import {
@@ -238,6 +239,7 @@ export function NavRail(props: {
   /** The host name of the page's own server, for the environment item. */
   localHost?: string;
   onNewChat: () => void;
+  onOpenStatistics?: () => void;
   onOpenHistory: () => void;
   historyOpen: boolean;
   /** Currently active sessions across History's normal eligible listing. */
@@ -318,6 +320,48 @@ export function NavRail(props: {
   const moreBtnRef = useRef<HTMLButtonElement | null>(null);
   const [slots, setSlots] = useState<number | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [brandMenu, setBrandMenu] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
+  const brandMenuRef = useRef<HTMLDivElement | null>(null);
+  const brandTriggerRef = useRef<HTMLElement | null>(null);
+  const brandClick = (ev: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!props.onOpenStatistics) {
+      sameTabInAppNavClick(ev, props.onNewChat);
+      return;
+    }
+    if (ev.button !== 0 || ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey)
+      return;
+    ev.preventDefault();
+    const rect = ev.currentTarget.getBoundingClientRect();
+    brandTriggerRef.current = ev.currentTarget;
+    setBrandMenu((old) =>
+      old
+        ? null
+        : {
+            left: Math.min(window.innerWidth - 200, rect.left),
+            top: rect.bottom + 8,
+          },
+    );
+  };
+  useEscapeCloses(brandMenu !== null, () => {
+    setBrandMenu(null);
+    brandTriggerRef.current?.focus();
+  });
+  useEffect(() => {
+    if (!brandMenu) return;
+    brandMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    const close = (ev: PointerEvent) => {
+      if (
+        !brandMenuRef.current?.contains(ev.target as Node) &&
+        !brandTriggerRef.current?.contains(ev.target as Node)
+      )
+        setBrandMenu(null);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [brandMenu]);
 
   useLayoutEffect(() => {
     const pill = pillRef.current;
@@ -471,9 +515,17 @@ export function NavRail(props: {
               <a
                 href={appNavHrefHome()}
                 className="rail-brand rail-brand-header"
-                aria-label={t("nav.homeAriaLabel")}
+                aria-label={
+                  props.onOpenStatistics
+                    ? t("stats.brandMenu")
+                    : t("nav.homeAriaLabel")
+                }
                 data-testid="nav-home"
-                onClick={(ev) => sameTabInAppNavClick(ev, props.onNewChat)}
+                aria-haspopup={props.onOpenStatistics ? "menu" : undefined}
+                aria-expanded={
+                  props.onOpenStatistics ? brandMenu !== null : undefined
+                }
+                onClick={brandClick}
               >
                 <span className="rail-brand-text-header-single">
                   {t("nav.brandTitle")}{" "}
@@ -502,9 +554,17 @@ export function NavRail(props: {
                 <a
                   href={appNavHrefHome()}
                   className="rail-brand"
-                  aria-label={t("nav.homeAriaLabel")}
+                  aria-label={
+                    props.onOpenStatistics
+                      ? t("stats.brandMenu")
+                      : t("nav.homeAriaLabel")
+                  }
                   data-testid="nav-home"
-                  onClick={(ev) => sameTabInAppNavClick(ev, props.onNewChat)}
+                  aria-haspopup={props.onOpenStatistics ? "menu" : undefined}
+                  aria-expanded={
+                    props.onOpenStatistics ? brandMenu !== null : undefined
+                  }
+                  onClick={brandClick}
                 >
                   <span className="rail-brand-text">
                     <span className="rail-brand-title">
@@ -522,9 +582,17 @@ export function NavRail(props: {
             <a
               href={appNavHrefHome()}
               className="rail-brand"
-              aria-label={t("nav.homeAriaLabel")}
+              aria-label={
+                props.onOpenStatistics
+                  ? t("stats.brandMenu")
+                  : t("nav.homeAriaLabel")
+              }
               data-testid="nav-home"
-              onClick={(ev) => sameTabInAppNavClick(ev, props.onNewChat)}
+              aria-haspopup={props.onOpenStatistics ? "menu" : undefined}
+              aria-expanded={
+                props.onOpenStatistics ? brandMenu !== null : undefined
+              }
+              onClick={brandClick}
             >
               <span className="rail-brand-text">
                 <span className="rail-brand-title">{t("nav.brandTitle")}</span>
@@ -847,6 +915,27 @@ export function NavRail(props: {
           ) : null}
         </div>
       </div>
+      {brandMenu && (
+        <PanePortal>
+          <div
+            ref={brandMenuRef}
+            className="statistics-brand-menu"
+            role="menu"
+            style={brandMenu}
+          >
+            <button
+              role="menuitem"
+              data-testid="nav-statistics"
+              onClick={() => {
+                setBrandMenu(null);
+                props.onOpenStatistics?.();
+              }}
+            >
+              {t("stats.title")}
+            </button>
+          </div>
+        </PanePortal>
+      )}
     </aside>
   );
 }

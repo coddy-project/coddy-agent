@@ -257,6 +257,15 @@ export function stubServer(source: ServerState | (() => ServerState)) {
       // The version a page names a server that does not report its status by.
       return reply(200, { object: "coddy.info", version: "1.2.35" });
     }
+    if (route === "/coddy/statistics" && method === "GET")
+      return reply(200, {
+        settings: {
+          timezone: "",
+          prices: {},
+          import: { state: "complete", done: 0, total: 0, failed: 0 },
+        },
+        allTime: { models: [] },
+      });
     if (route === "/coddy/status" && method === "GET") {
       const { status, body } = server.status ?? { status: 404 };
       return reply(status, body ?? {});

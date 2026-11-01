@@ -11,6 +11,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/statistics"
 )
 
 // limitWaitHeartbeat is how often a waiting turn re-sends its countdown, so
@@ -90,6 +91,8 @@ func (a *Agent) limitResetToWaitFor(streamErr error, response *llm.Response, rea
 // when the turn is cancelled meanwhile. RunPlan turns run at depth 0 and
 // wait the same way.
 func (a *Agent) waitForLimitReset(ctx context.Context, sessionID string, reset *llm.QuotaResetError) error {
+	resumeStatistics := statistics.Pause(ctx)
+	defer resumeStatistics()
 	providerName, providerType := a.limitWaitProvider()
 	send := func() {
 		now := time.Now()

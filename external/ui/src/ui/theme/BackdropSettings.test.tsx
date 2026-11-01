@@ -720,12 +720,12 @@ test("offscreen thumbnails fetch only after intersection and abort on unmount", 
   );
   const view = mount();
   await screen.findByTestId("appearance-wallpaper-thumb-a.png");
+  await waitFor(() => expect(observers).toHaveLength(2));
   expect(
     api.fetch.mock.calls.filter(([url]) =>
       String(url).includes("/wallpapers/"),
     ),
   ).toHaveLength(0);
-  expect(observers).toHaveLength(2);
   act(() =>
     observers[0]!.callback(
       [{ isIntersecting: true } as IntersectionObserverEntry],

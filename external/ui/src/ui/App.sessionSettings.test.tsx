@@ -477,7 +477,7 @@ test("leaving a session for a new chat starts from the start page's defaults", a
   expect(reasoningChip()).toHaveTextContent("High");
   expect(permissionChip()).toHaveTextContent("Bypass");
 
-  fireEvent.click(screen.getByTestId("nav-home"));
+  fireEvent.click(screen.getByTestId("nav-new-chat"));
   await settle();
   expect(reasoningChip()).toHaveTextContent("Low");
   expect(permissionChip()).toHaveTextContent("Ask first");

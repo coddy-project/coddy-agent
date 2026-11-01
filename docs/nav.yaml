@@ -151,6 +151,9 @@ groups:
       - path: features/background-tasks.md
         title: Background tasks
         summary: Detached commands, the task pool, timeouts, adoption of long foreground commands, program-wide permission grants.
+      - path: features/statistics.md
+        title: Statistics
+        summary: Retained token activity, model and skill usage, background history import, time zones, estimated costs, cleanup, exports and swarm summaries.
       - path: features/preview-server.md
         title: Preview server
         summary: Serving a project directory on a free localhost port so you can open HTML, JS and CSS work in a browser; the server as a background task, what it refuses to serve, the bind host.
