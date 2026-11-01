@@ -1282,7 +1282,7 @@ describe("settings search", () => {
     typeQuery("metrics");
     expect(offered()).toContain("tab:metrics");
     expect(offered()).toContain("metrics:port");
-    typeQuery("scrape");
+    typeQuery("metrics scrape");
     expect(offered()).toEqual(["metrics:token"]);
     whole.unmount();
 
@@ -1298,7 +1298,7 @@ describe("settings search", () => {
         query,
       ).toEqual([]);
     }
-    typeQuery("scrape");
+    typeQuery("metrics scrape");
     expect(screen.getByTestId("settings-search-empty")).toBeTruthy();
     expect(options()).toEqual([]);
   });

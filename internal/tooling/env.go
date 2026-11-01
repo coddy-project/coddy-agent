@@ -383,6 +383,8 @@ type WebSearchSettings struct {
 	SearXNGURL string
 	// BraveAPIKey routes the Brave backend to the official Search API.
 	BraveAPIKey string
+	// DeepSeekAPIKey is the DeepSeek Search API key.
+	DeepSeekAPIKey string
 }
 
 // PreviewServerSettings is the resolved tools.preview_server section as the

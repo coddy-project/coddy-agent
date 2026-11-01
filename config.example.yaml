@@ -456,7 +456,7 @@ tools:
   # own instance and is the durable choice - it is not rate-limited against its owner and
   # is never served a decoy result set. See docs/features/web-search.md.
   # websearch:
-  #   engines: [brave, bing]        # merge order; brave, bing, ddg, google, searxng
+  #   engines: [brave, bing]        # merge order; brave, bing, ddg, google, searxng, deepseek
   #   engine_timeout_seconds: 8     # per-engine budget
   #   total_timeout_seconds: 20     # budget for the whole search
   #   max_concurrent_engines: 4     # how many engines are asked at once
@@ -465,6 +465,8 @@ tools:
   #   searxng_url: ""               # e.g. http://localhost:8080 (enable format: json there)
   #   brave_api_key: ""             # official Brave Search API instead of the public page;
   #                                 # empty reads BRAVE_API_KEY (environment or ~/.coddy/.env)
+  #   deepseek_api_key: ""          # DeepSeek Search API; the deepseek engine needs a key -
+  #                                 # empty reads DEEPSEEK_API_KEY (environment or ~/.coddy/.env)
 
   # HTTP requests: the http_request tool is the agent's curl (any method, headers, bodies,
   # multipart uploads, downloads to a file, a proxy and the certificate check per request).

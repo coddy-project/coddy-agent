@@ -149,6 +149,17 @@ func TestDeliveryReplacesAnOlderCopyOnDisk(t *testing.T) {
 	}
 }
 
+func TestDeliveryUpdatesConfigureCoddyForDeepSeek(t *testing.T) {
+	cfg := deliveryHome(t, true)
+	path := writeSkill(t, cfg, "configure-coddy", "1.2.3", "configuration guide before DeepSeek support")
+	if _, err := skills.SeedDelivery(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, path); !strings.Contains(got, "deepseek_api_key") {
+		t.Fatal("existing configure-coddy did not receive the DeepSeek configuration guide")
+	}
+}
+
 func TestDeliveryIsIdempotent(t *testing.T) {
 	cfg := deliveryHome(t, true)
 
