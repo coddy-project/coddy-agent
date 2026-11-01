@@ -36,9 +36,9 @@ type legacyMove struct {
 // mcp.json resolves when the server starts), a name the file declares
 // already left alone; and skills.sources into the sources of
 // <home>/marketplaces.json, a source the file has already (in any case) and
-// the system source not repeated. A move that cannot write its target leaves
-// its key where it is; the others go ahead, in one rewrite of config.yaml
-// with one backup of the old file.
+// the address of the system marketplace not repeated. A move that cannot
+// write its target leaves its key where it is; the others go ahead, in one
+// rewrite of config.yaml with one backup of the old file.
 func migrateLegacyKeys(paths Paths, data []byte) []byte {
 	if strings.TrimSpace(paths.ConfigPath) == "" {
 		return data
@@ -72,15 +72,6 @@ func migrateLegacyKeys(paths Paths, data []byte) []byte {
 		}
 	}
 	if len(moves) == 0 {
-		return data
-	}
-	if paths.ConfigFromWorkspace {
-		// A config.yaml found in the workspace may have come with a checkout:
-		// moving its servers or sources into the home files would make them
-		// the operator's own, ungated in every workspace. It is read as it is.
-		for _, m := range moves {
-			slog.Default().Warn("config: the workspace's config.yaml, read because the Coddy home has none, still has a key that left config.yaml; it is not used and not moved out of a file that may have come with a checkout", "key", m.path, "config", paths.ConfigPath, "home", paths.Home)
-		}
 		return data
 	}
 	if !configPathWriteMu.TryLock() {
@@ -229,8 +220,8 @@ func moveLegacyMCPServers(paths Paths, value *yaml.Node) (moved, kept []string, 
 
 // moveLegacySkillSources appends the sources of an old skills.sources list to
 // the sources of <home>/marketplaces.json. A source the file has already, in
-// any case, and the system source, which is in effect without any file, are
-// not repeated.
+// any case, and the system marketplace, which is in effect without any file,
+// are not repeated.
 func moveLegacySkillSources(paths Paths, value *yaml.Node) (moved, kept []string, err error) {
 	var sources []string
 	if err := value.Decode(&sources); err != nil {
@@ -454,7 +445,7 @@ func rewriteConfigKeepingBackup(path string, old, next []byte) error {
 	if err := os.WriteFile(backup, old, perm); err != nil {
 		return fmt.Errorf("backup %s: %w", backup, err)
 	}
-	return atomicWriteFile(path, next, perm)
+	return AtomicWriteFile(path, next, perm)
 }
 
 // cutKeyBlocks cuts mapping keys out of raw YAML text, each with its block

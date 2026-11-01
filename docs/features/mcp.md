@@ -23,6 +23,9 @@ config.yaml](#moving-from-configyaml)).
 Tools from all connected MCP servers are merged into the tool list passed to the LLM during
 the ReAct loop (in **`agent`** and **`plan`** modes).
 
+![The life of a configured MCP server: where it is declared, the trust gate for project declarations, the shared server pool, the dial and its retries, and what reaches the model](../assets/diagrams/mcp-servers.png)
+*One running server serves every session that resolves its declaration the same way, and a project declaration starts only once the trust gate admits it.*
+
 ## mcp.json (global and local)
 
 Both mcp.json files use the same shape as Cursor's: a single `mcpServers` object keyed by
@@ -115,10 +118,7 @@ stays in `config.yaml`, unused, until the file is repaired; a save from Settings
 as it is. The block ends where the parser puts the next key, so a comment at column 0 among
 the items, a list written without indentation or a flow list closed at column 0 goes whole. A
 key inside a flow mapping (`{mcp_servers: [...], ...}` on one line) is not a block of lines:
-its servers move, the key stays, and the log asks to delete it by hand. A `config.yaml` read
-from the workspace because the home has none is never rewritten and its servers never move:
-that file may have come with a checkout, and its servers would become yours in every
-workspace. `coddy -t` reports a leftover key as a warning saying where the servers go and
+its servers move, the key stays, and the log asks to delete it by hand. `coddy -t` reports a leftover key as a warning saying where the servers go and
 writes nothing. The **MCP servers** tab of the web
 settings keeps its address, `#/settings/mcp_servers`.
 
@@ -155,7 +155,10 @@ the operator approves that exact declaration for that workspace.
   and the variables its values read, never their values;
 - rewriting an approved entry changes the digest and withdraws the approval, so the next
   session asks again. Enable/disable and `disabledTools` do not: they are operational
-  switches, not a trust boundary;
+  switches, not a trust boundary. The digest covers the declaration, not the files it runs:
+  a server whose command is a script of the checkout (`./tools/mcp.sh`, `node server.js`)
+  keeps its approval when that script changes, so read such a script the way you read the
+  declaration (project hooks files bind their scripts, [Hooks](hooks.md#project-files-and-trust));
 - the gate is re-checked immediately before the process is spawned or the URL is contacted,
   on both the session path and the management probe, so listing servers never starts a
   command that has not been approved;

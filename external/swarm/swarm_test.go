@@ -175,10 +175,10 @@ func TestDeleteIsTheTakeoverPath(t *testing.T) {
 	if _, err := r.Register(directRequest("nas02")); err != nil {
 		t.Fatal(err)
 	}
-	if !r.Delete("nas02") {
+	if deleted, err := r.Delete("nas02"); err != nil || !deleted {
 		t.Fatal("Delete reported no such node")
 	}
-	if r.Delete("nas02") {
+	if deleted, err := r.Delete("nas02"); err != nil || deleted {
 		t.Fatal("Delete reported success twice")
 	}
 	if _, err := r.Register(directRequest("nas02")); err != nil {
@@ -675,6 +675,7 @@ func TestMountScrubsClientSuppliedHeaders(t *testing.T) {
 	}
 	req.Header.Set("Authorization", "Bearer client-secret")
 	req.Header.Set("Cookie", "session=mine")
+	req.Header.Set("Origin", "http://relay.example")
 	req.Header.Set("X-Forwarded-For", "10.0.0.1")
 	req.Header.Set("X-Real-IP", "10.0.0.1")
 	req.Header.Set("Forwarded", "for=10.0.0.1")
@@ -689,7 +690,7 @@ func TestMountScrubsClientSuppliedHeaders(t *testing.T) {
 	if got := seen.Get("Authorization"); got != "Bearer node-secret" {
 		t.Fatalf("node saw authorization %q, want the node's own credential", got)
 	}
-	for _, h := range []string{"Cookie", "X-Forwarded-For", "X-Real-Ip", "Forwarded", "X-Coddy-Swarm-Path"} {
+	for _, h := range []string{"Cookie", "Origin", "X-Forwarded-For", "X-Real-Ip", "Forwarded", "X-Coddy-Swarm-Path"} {
 		if v := seen.Get(h); v != "" {
 			t.Errorf("header %s reached the node as %q", h, v)
 		}

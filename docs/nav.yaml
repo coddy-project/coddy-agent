@@ -130,6 +130,9 @@ groups:
       - path: features/http-requests.md
         title: HTTP requests
         summary: The http_request tool - any method, headers, bodies, multipart uploads and downloads, a proxy and the certificate check per request, headers the configuration adds to every request - and the permission prompt that shows where a request goes and what it carries.
+      - path: features/browser.md
+        title: Coddy for Browser
+        summary: Your own browser - Chrome, Yandex Browser or Firefox - as the agent's hands through the Coddy for Browser extension - the browser tool, tab groups, website approvals, files, the web UI in its side panel, chats of other processes and of the swarm.
       - path: features/mentions.md
         title: Mentions
         summary: Pointing at things with @ in a prompt - files anywhere on disk, line ranges, folders, other sessions, rules, subagents, web pages - resolved once into the message, with completion on every surface.
@@ -194,6 +197,9 @@ groups:
       - path: reference/acp-protocol.md
         title: ACP protocol
         summary: How coddy acp implements the Agent Client Protocol, methods, notifications, permission and question requests.
+      - path: reference/browser-protocol.md
+        title: Browser protocol
+        summary: The JSON-RPC wire between coddy serve and the Coddy for Browser extension - the handshake, the tabs, the commands, website approval, file transfers, the side panel and the API for other Coddy processes.
   - id: tutorials
     title: Tutorials
     summary: Task-shaped guides, each a complete path from a goal to a working result, with the configs and commands to copy, the check that it worked and what tends to go wrong.
@@ -271,6 +277,9 @@ groups:
       - path: contributing/zcode-hooks.md
         title: ZCode hooks
         summary: Deterministic delivery of the Cursor rules to ZCode sessions working on this repository.
+      - path: contributing/kimi-code-hooks.md
+        title: Kimi Code hooks
+        summary: Deterministic delivery of the Cursor rules to Kimi Code sessions working on this repository.
       - path: contributing/syntax-highlighting-audit.md
         title: Syntax highlighting audit
         summary: The NeuralDeep audit of code highlighting across the seven themes, its fixtures and how to re-run it.

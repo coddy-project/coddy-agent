@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"net"
 	"reflect"
 	"strings"
@@ -46,6 +47,29 @@ func TestWebSearchBraveKeyComesFromTheEnvironmentWhenTheConfigHasNone(t *testing
 	}
 }
 
+// TestWebSearchDeepSeekKeyComesFromTheEnvironmentWhenTheConfigHasNone mirrors
+// the Brave convention: DeepSeek's Search API is key-only, and the key belongs
+// in the environment (or ${CODDY_HOME}/.env) as much as a provider's does.
+func TestWebSearchDeepSeekKeyComesFromTheEnvironmentWhenTheConfigHasNone(t *testing.T) {
+	t.Setenv(WebSearchDeepSeekAPIKeyEnv, " sk-deep-from-env ")
+	var unset ToolWebSearch
+	if got := unset.ToolSettings().DeepSeekAPIKey; got != "sk-deep-from-env" {
+		t.Errorf("key without a configured one = %q, want the environment's", got)
+	}
+	var nilSection *ToolWebSearch
+	if got := nilSection.ToolSettings().DeepSeekAPIKey; got != "sk-deep-from-env" {
+		t.Errorf("key without a websearch section = %q, want the environment's", got)
+	}
+	configured := ToolWebSearch{DeepSeekAPIKey: "sk-deep-from-config"}
+	if got := configured.ToolSettings().DeepSeekAPIKey; got != "sk-deep-from-config" {
+		t.Errorf("key with a configured one = %q, want the configured one", got)
+	}
+	t.Setenv(WebSearchDeepSeekAPIKeyEnv, "")
+	if got := unset.ToolSettings().DeepSeekAPIKey; got != "" {
+		t.Errorf("key with neither = %q, want none", got)
+	}
+}
+
 // TestWebSearchDefaultEnginesExcludeTheMeasuredDeadOnes pins the decision:
 // DuckDuckGo answers a server with an anti-bot interstitial and Google renders
 // its results in the browser, so neither is asked unless an operator says so.
@@ -65,6 +89,23 @@ func TestWebSearchResolvedEnginesDropsBlanksAndRepeats(t *testing.T) {
 	got := w.ResolvedEngines()
 	if !reflect.DeepEqual(got, []string{"brave", "bing"}) {
 		t.Errorf("got %v", got)
+	}
+}
+
+func TestWebSearchDeepSeekKeyIsRedactedAtEveryConfigPath(t *testing.T) {
+	paths := testPathConfig(t, "tools:\n  websearch:\n    engines: [deepseek]\n    deepseek_api_key: sk-deepseek-fixture-secret\n")
+	for _, path := range []string{".", "tools", "tools.websearch", "tools.websearch.deepseek_api_key"} {
+		got, err := ReadConfigPath(paths, path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(got.Value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !got.Redacted || strings.Contains(string(encoded), "sk-deepseek-fixture-secret") {
+			t.Fatalf("config_get %s leaked the DeepSeek credential: %s", path, encoded)
+		}
 	}
 }
 

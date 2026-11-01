@@ -354,6 +354,12 @@ func (s *archiveFeatureState) publishesTwo(market, first, second string) error {
 	return s.publish(market, "", first, second)
 }
 
+// publishesTwoWithSHA publishes two plugins whose entries declare the sha256
+// of their archives, so a new archive is a version the update check sees.
+func (s *archiveFeatureState) publishesTwoWithSHA(market, first, second string) error {
+	return s.publish(market, "with its sha256", first, second)
+}
+
 func (s *archiveFeatureState) alsoPublishes(market, plugin string) error {
 	return s.publish(market, "", plugin)
 }
@@ -429,6 +435,19 @@ func (s *archiveFeatureState) homeDeclaresSource(market string) error {
 		}
 	}
 	return fmt.Errorf("the home marketplaces.json declares %v, not %s", file.Sources, s.marketURL(market))
+}
+
+// homeDeclaresNoSource: installing a source a project declares does not copy
+// it into the operator's file.
+func (s *archiveFeatureState) homeDeclaresNoSource() error {
+	file, err := config.ReadMarketplacesFile(config.GlobalMarketplacesPath(s.home))
+	if err != nil {
+		return err
+	}
+	if len(file.Sources) != 0 {
+		return fmt.Errorf("the home marketplaces.json declares %v", file.Sources)
+	}
+	return nil
 }
 
 func (s *archiveFeatureState) configHasNoSources() error {
@@ -603,6 +622,13 @@ func (s *archiveFeatureState) fromNewArchive(name string) error {
 	return nil
 }
 
+func (s *archiveFeatureState) notFromNewArchive(name string) error {
+	if err := s.fromNewArchive(name); err == nil {
+		return fmt.Errorf("skill %q on disk already comes from the new archive", name)
+	}
+	return nil
+}
+
 func initializeArchiveScenario(sc *godog.ScenarioContext) {
 	s := &archiveFeatureState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -619,6 +645,7 @@ func initializeArchiveScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^git is not installed$`, s.gitNotInstalled)
 	sc.Step(`^an https marketplace "([^"]*)" publishing the plugin "([^"]*)" as a zip archive (with the plugin at its root|wrapped in one folder|with its sha256|of its author's repository with a SKILL\.md in its test data|with its skill at the plugin root)$`, s.publishes)
 	sc.Step(`^an https marketplace "([^"]*)" publishing the plugins "([^"]*)" and "([^"]*)" as zip archives$`, s.publishesTwo)
+	sc.Step(`^an https marketplace "([^"]*)" publishing the plugins "([^"]*)" and "([^"]*)" as zip archives with their sha256$`, s.publishesTwoWithSHA)
 	sc.Step(`^the marketplace "([^"]*)" also publishes the plugin "([^"]*)" as a zip archive$`, s.alsoPublishes)
 	sc.Step(`^the address of the marketplace "([^"]*)" is a source of the home marketplaces\.json$`, s.sourceInConfig)
 	sc.Step(`^I (?:have )?run the plugin command "([^"]*)" for the marketplace "([^"]*)"$`, s.runForMarketplace)
@@ -630,6 +657,7 @@ func initializeArchiveScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^coddy loads the configuration$`, s.loadConfig)
 	sc.Step(`^the home marketplaces\.json declares the marketplace "([^"]*)" as a source$`, s.homeDeclaresSource)
 	sc.Step(`^config\.yaml no longer has skills\.sources$`, s.configHasNoSources)
+	sc.Step(`^the home marketplaces\.json declares no source$`, s.homeDeclaresNoSource)
 	sc.Step(`^the plugin command answers "([^"]*)"$`, s.answers)
 	sc.Step(`^the skill "([^"]*)" is installed$`, s.installed)
 	sc.Step(`^the skill "([^"]*)" is installed with its executable script "([^"]*)"$`, s.installedWithScript)
@@ -639,6 +667,7 @@ func initializeArchiveScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the marketplace "([^"]*)" publishes a new archive of the plugin "([^"]*)"$`, s.publishesNewArchive)
 	sc.Step(`^the update check offers the skill "([^"]*)" at the version of the new archive$`, s.updateOffered)
 	sc.Step(`^the skill "([^"]*)" on disk comes from the new archive$`, s.fromNewArchive)
+	sc.Step(`^the skill "([^"]*)" on disk does not come from the new archive$`, s.notFromNewArchive)
 	sc.Step(`^the update check offers no update for the skill "([^"]*)"$`, s.noUpdateOffered)
 }
 

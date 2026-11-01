@@ -1,12 +1,7 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+import { stylesSource } from "../../stylesSource";
 
-const css = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
-  "utf8",
-);
+const css = stylesSource();
 
 /** Every `@media (max-width: 1199px)` block, joined: the narrow shell is split
  *  across several of them, and a rule may live in any one. */
@@ -42,7 +37,10 @@ function ruleBody(source: string, selector: string): string {
 const INSET = /14px/;
 
 test("the drawer head and its lead pane set one inline inset", () => {
-  expect(ruleBody(css, ".sessions-head {")).toMatch(/padding:\s*14px\s+14px/);
+  expect(ruleBody(css, ".sessions-head {")).toMatch(
+    /padding:\s*0\s+var\(--coddy-panel-head-inline\)/,
+  );
+  expect(css).toMatch(/--coddy-panel-head-inline:\s*14px;/);
   expect(ruleBody(css, ".settings.drawer .settings-lead-pane {")).toMatch(
     /padding:\s*8px\s+14px/,
   );

@@ -92,9 +92,9 @@ var pluginManifestFiles = []string{
 }
 
 // installArchivePlugin installs the skills of a plugin published as a zip
-// archive. entry already carries the plugin name and the version its
-// marketplace entry declares.
-func installArchivePlugin(ctx context.Context, p MarketplacePlugin, entry RemoteEntry, managedDir string, lock map[string]RemoteEntry, res *SyncResult) error {
+// archive, or only the ones only names when it is not nil. entry already
+// carries the plugin name and the version its marketplace entry declares.
+func installArchivePlugin(ctx context.Context, p MarketplacePlugin, entry RemoteEntry, managedDir string, lock map[string]RemoteEntry, res *SyncResult, only map[string]bool) error {
 	archiveURL := strings.TrimSpace(p.Source.URL)
 	if archiveURL == "" {
 		return fmt.Errorf("plugin %q: empty archive url", p.Name)
@@ -133,7 +133,7 @@ func installArchivePlugin(ctx context.Context, p MarketplacePlugin, entry Remote
 		// it need not change when the archive does.
 		entry.Version = archiveVersion(sum)
 	}
-	return installSkillDirs(hits, entry, managedDir, lock, res)
+	return installSkillDirs(hits, entry, managedDir, lock, res, only)
 }
 
 // checkArchiveURL admits an archive address: https, and past the SSRF guard.

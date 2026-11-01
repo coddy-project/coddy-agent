@@ -268,6 +268,27 @@ test("a card names what runs in a tag on the left and the work in its title", ()
   expect(parts.indexOf("tag")).toBeLessThan(parts.indexOf("title"));
 });
 
+test("an incomplete subagent usage keeps its model but hides the partial total", () => {
+  const agent = {
+    name: "explore",
+    session_id: "sess_0a1b2c",
+    model: "neuraldeep/qwen3.8-27b",
+    input_tokens: 1200,
+    output_tokens: 100,
+    usage_incomplete: true,
+  };
+  renderPanel({ tasks: [agentTask({ agent })] });
+  expect(screen.getByTestId("bgtask-model-bg_7")).toHaveTextContent(
+    "qwen3.8-27b",
+  );
+  expect(screen.getByTestId("bgtask-usage-bg_7")).not.toHaveTextContent(
+    "tokens",
+  );
+  expect(
+    screen.getByTestId("bgtask-open-bg_7").getAttribute("title"),
+  ).not.toMatch(/1,200/);
+});
+
 test("a folded subagent card names its model and the tokens it spent, a command card neither", () => {
   renderPanel({
     tasks: [
@@ -325,7 +346,7 @@ test("a folded subagent card names its model and the tokens it spent, a command 
   );
 });
 
-test("an expanded subagent card places its child transcript action below output", async () => {
+test("a folded subagent card links to its child transcript as plain text", () => {
   const onOpenSession = vi.fn();
   renderPanel({
     tasks: [task(), agentTask()],
@@ -333,42 +354,59 @@ test("an expanded subagent card places its child transcript action below output"
     onOpenSession,
   });
 
-  const opener = screen.getByTestId("bgtask-open-bg_7");
-  expect(screen.queryByTestId("bgtask-open-transcript-bg_7")).toBeNull();
-
-  fireEvent.click(opener);
-  expect(await screen.findByText("delegated report")).toBeInTheDocument();
+  // Nothing has to be opened: the link is there on the folded card.
+  expect(screen.queryByTestId("bgtask-body-bg_7")).toBeNull();
   const transcript = screen.getByTestId("bgtask-open-transcript-bg_7");
+  expect(transcript.tagName).toBe("A");
+  expect(transcript).toHaveAttribute("href", "#/s/sess_0a1b2c");
   expect(transcript).toHaveTextContent("Show transcript");
   expect(transcript).toHaveAccessibleName(
     "Show the transcript of survey the repo",
   );
-  expect(screen.getByTestId("bgtask-body-bg_7")).toContainElement(transcript);
-  expect(
-    screen
-      .getByTestId("bgtask-output-bg_7")
-      .compareDocumentPosition(transcript),
-  ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 
-  fireEvent.click(transcript);
+  // A plain click goes to the chat in place and leaves the card folded.
+  expect(fireEvent.click(transcript)).toBe(false);
   expect(onOpenSession).toHaveBeenCalledWith("sess_0a1b2c");
+  expect(screen.queryByTestId("bgtask-body-bg_7")).toBeNull();
+
+  // A modifier click is the browser's: a new tab, not this one.
+  onOpenSession.mockClear();
+  fireEvent.click(transcript, { ctrlKey: true });
+  expect(onOpenSession).not.toHaveBeenCalled();
 
   // A shell command has no child conversation behind it.
   expect(screen.queryByTestId("bgtask-open-transcript-bg_1")).toBeNull();
 });
 
-test("an expanded subagent card keeps its transcript action disabled until its child session exists", () => {
+test("an open subagent card does not repeat its transcript link", async () => {
+  renderPanel({
+    tasks: [agentTask()],
+    loadOutput: outputsOf({ bg_7: "delegated report" }),
+  });
+  fireEvent.click(screen.getByTestId("bgtask-open-bg_7"));
+  expect(await screen.findByText("delegated report")).toBeInTheDocument();
+  expect(screen.getAllByTestId("bgtask-open-transcript-bg_7")).toHaveLength(1);
+  expect(screen.getByTestId("bgtask-body-bg_7")).not.toContainElement(
+    screen.getByTestId("bgtask-open-transcript-bg_7"),
+  );
+});
+
+test("a subagent card's transcript link is plain text until its child session is known", () => {
+  const onOpenSession = vi.fn();
   renderPanel({
     tasks: [agentTask({ agent: { name: "explore" } })],
+    onOpenSession,
   });
 
-  fireEvent.click(screen.getByTestId("bgtask-open-bg_7"));
   const transcript = screen.getByTestId("bgtask-open-transcript-bg_7");
-  expect(transcript).toBeDisabled();
+  expect(transcript.tagName).toBe("SPAN");
+  expect(transcript).toHaveAttribute("aria-disabled", "true");
   expect(transcript).toHaveAttribute(
     "title",
     "The child session is not known yet",
   );
+  fireEvent.click(transcript);
+  expect(onOpenSession).not.toHaveBeenCalled();
 });
 
 test("the card is one control: a click expands it in place, another folds it", async () => {
@@ -683,7 +721,7 @@ test("empty and error states replace the sections", () => {
   expect(screen.queryByTestId("bgtasks-list-empty")).toBeNull();
 });
 
-test("an expanded subagent card opens the child transcript and shows the run's log, not a command", async () => {
+test("an expanded subagent card shows the run's log, not a command", async () => {
   const onOpenSession = vi.fn();
   renderPanel({
     tasks: [
@@ -714,34 +752,13 @@ test("an expanded subagent card opens the child transcript and shows the run's l
   expect(foot).not.toHaveTextContent("Exit code");
   expect(foot).toHaveTextContent(/^Succeeded$/);
 
-  // The transcript action follows the potentially long report in the expanded card.
+  // The way into the transcript stays where the folded card has it.
   const transcript = screen.getByTestId("bgtask-open-transcript-bg_7");
-  expect(screen.getByTestId("bgtask-body-bg_7")).toContainElement(transcript);
-  expect(
-    screen
-      .getByTestId("bgtask-output-bg_7")
-      .compareDocumentPosition(transcript),
-  ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-  expect(transcript.compareDocumentPosition(foot)).toBe(
-    Node.DOCUMENT_POSITION_FOLLOWING,
+  expect(screen.getByTestId("bgtask-body-bg_7")).not.toContainElement(
+    transcript,
   );
-  expect(onOpenSession).not.toHaveBeenCalled();
   fireEvent.click(transcript);
   expect(onOpenSession).toHaveBeenCalledWith("sess_0a1b2c");
-});
-
-test("Show transcript stays disabled until the child session is known", () => {
-  const onOpenSession = vi.fn();
-  renderPanel({
-    tasks: [agentTask({ agent: { name: "explore" } })],
-    onOpenSession,
-  });
-
-  fireEvent.click(screen.getByTestId("bgtask-open-bg_7"));
-  const button = screen.getByTestId("bgtask-open-transcript-bg_7");
-  expect(button).toBeDisabled();
-  fireEvent.click(button);
-  expect(onOpenSession).not.toHaveBeenCalled();
 });
 
 // A running task that will wake the agent when it ends says so with a bell

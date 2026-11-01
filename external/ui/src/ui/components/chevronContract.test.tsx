@@ -17,12 +17,13 @@ import { fileURLToPath } from "node:url";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { Chevron } from "./Chevron";
+import { stylesSource } from "../../stylesSource";
 
 afterEach(() => cleanup());
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const uiRoot = join(dir, "..");
-const css = readFileSync(join(uiRoot, "../styles.css"), "utf8");
+const css = stylesSource();
 const chevronModule = join("components", "Chevron.tsx");
 
 function sources(root: string): string[] {

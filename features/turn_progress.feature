@@ -34,3 +34,9 @@ Feature: A running turn reports its progress
     Given an agent whose model streams 2400 characters over 1500 ms and reports 500 output tokens
     When the user sends a turn
     Then the session state holds the turn start and 500 output tokens
+
+  Scenario: A completed turn keeps its generation speed beside its token count
+    Given an agent whose model streams 2400 characters over 1500 ms and reports 500 output tokens
+    When the user sends a turn
+    Then the completed progress reports an average generation speed
+    And the generation summary is kept outside the model history

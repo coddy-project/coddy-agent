@@ -1,0 +1,510 @@
+// The session goal: its popover and the mark on the plate.
+
+@use "../abstracts" as *;
+
+/* Goal popover (GoalPopover.tsx, DESIGN.md "Session goal"): the context
+   popover's shell - a portal anchored over the goal mark on a desktop, a
+   bottom sheet over the scrim on the stacked shell - as a column whose head
+   and actions stay put while the body scrolls. */
+.goal-popover {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+  outline: none;
+}
+
+.goal-popover > :not(.slash-menu-surface) {
+  position: relative;
+  z-index: 1;
+}
+
+.goal-popover--portal {
+  position: fixed;
+  z-index: var(--coddy-z-slash-command);
+  max-height: min(560px, 80vh);
+}
+
+.goal-popover--sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--coddy-keyboard-inset, 0px);
+  margin: 0 auto;
+  max-width: min(560px, 100vw);
+  /* Under the top bar the stacked shell keeps fixed at the top, and over the
+     on-screen keyboard: a landscape phone has 320px for both. */
+  max-height: min(
+    80vh,
+    calc(
+      100dvh - var(--coddy-keyboard-inset, 0px) - var(
+          --coddy-mobile-top-inset,
+          0px
+        ) -
+        6px
+    )
+  );
+  border-radius: $sheet-corners;
+  z-index: 41;
+}
+
+.goal-popover--sheet .slash-menu-surface {
+  border-radius: $sheet-corners;
+}
+
+.goal-popover-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+}
+
+.goal-popover-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.goal-popover-icon {
+  flex: none;
+  color: var(--accent);
+}
+
+.goal-status-badge {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--goal-tone) 55%, transparent);
+  color: var(--goal-tone);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.goal-popover-close {
+  flex: none;
+  margin-left: auto;
+}
+
+.goal-popover-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.goal-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.goal-section-title,
+.goal-subtitle,
+.goal-turn-body-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: mix-text(55%);
+}
+
+/* The objective whole, however long (up to 4000 characters): its own scroll
+   past nine lines, so the numbers and the actions stay in reach. */
+.goal-objective {
+  max-height: 9.5em;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid mix-text(10%);
+  background: var(--coddy-surface-muted);
+  color: mix-text(88%);
+}
+
+.goal-reason,
+.goal-check-reason,
+.goal-empty,
+.goal-note {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: mix-text(70%);
+}
+
+.goal-reason {
+  color: var(--goal-tone, var(--text));
+}
+
+.goal-note {
+  font-size: 12px;
+  color: mix-text(55%);
+}
+
+.goal-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--coddy-danger);
+  overflow-wrap: anywhere;
+}
+
+.goal-check-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.goal-verdict {
+  font-weight: 600;
+}
+
+.goal-verdict--met {
+  color: var(--coddy-todo-completed);
+}
+
+.goal-verdict--alert {
+  color: var(--coddy-danger);
+}
+
+.goal-verdict--open {
+  color: mix-text(80%);
+}
+
+.goal-verified {
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid
+    color-mix(in srgb, var(--coddy-todo-completed) 55%, transparent);
+  color: var(--coddy-todo-completed);
+  font-size: 11px;
+}
+
+.goal-remaining,
+.goal-turn-remaining {
+  margin: 0;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}
+
+.goal-checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.goal-check-item {
+  min-width: 0;
+}
+
+.goal-check-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.goal-check-details > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.goal-check-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.goal-check-chevron {
+  margin-top: 2px;
+}
+
+.goal-check-details[open] > summary .goal-check-chevron {
+  transform: rotate(90deg);
+}
+
+.goal-check-icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.goal-check-item--met .goal-check-icon {
+  color: var(--coddy-todo-completed);
+}
+
+.goal-check-item--not_met .goal-check-icon,
+.goal-check-item--unverified .goal-check-icon {
+  color: var(--muted);
+}
+
+.goal-evidence {
+  margin: 4px 0 2px 20px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: mix-text(62%);
+}
+
+/* The numbers of a goal, the checker and its level included: three cells
+   to a row, every cell one column wide, so the rows come out full and the
+   labels stand on the same column lines. */
+.goal-numbers {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.goal-numbers dt {
+  font-size: 11px;
+  color: mix-text(55%);
+}
+
+.goal-numbers dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  /* A model id wraps inside its cell, after the provider first. */
+  overflow-wrap: anywhere;
+}
+
+/* A phone has room for two numbers to a row. */
+@media (max-width: 599px) {
+  .goal-numbers {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.goal-popover-actions {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px max(12px, env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid mix-text(8%);
+}
+
+/* The goal's buttons: the composer tab's recipe, at least 36px tall so a
+   finger hits them, the primary in the accent and Clear in the danger tone. */
+.goal-btn {
+  min-height: 36px;
+  padding: 6px 14px;
+  border-radius: 10px;
+  border: 1px solid mix-text(16%);
+  background: var(--coddy-surface-muted);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.goal-btn:hover:not(:disabled) {
+  background: var(--coddy-surface-raised);
+}
+
+.goal-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.goal-btn--primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--coddy-on-accent-fg);
+}
+
+.goal-btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 85%, var(--text));
+}
+
+.goal-btn--danger {
+  color: var(--coddy-danger);
+  border-color: color-mix(in srgb, var(--coddy-danger) 45%, transparent);
+}
+
+/* The goal's actions - resume, pause, edit, clear - are icons: rounded
+   squares of the same 36px a finger hits, on the buttons' colours, named in
+   their tip and for a screen reader. */
+.goal-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid mix-text(16%);
+  background: var(--coddy-surface-muted);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.goal-icon-btn:hover:not(:disabled) {
+  background: var(--coddy-surface-raised);
+}
+
+.goal-icon-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.goal-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.goal-icon-btn--primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--coddy-on-accent-fg);
+}
+
+.goal-icon-btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 85%, var(--text));
+}
+
+.goal-icon-btn--danger {
+  color: var(--coddy-danger);
+  border-color: color-mix(in srgb, var(--coddy-danger) 45%, transparent);
+}
+
+.goal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.goal-form-label {
+  font-size: 12px;
+  color: mix-text(70%);
+}
+
+.goal-form-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 6.5em;
+  max-height: 40vh;
+  resize: vertical;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid mix-text(16%);
+  background: var(--coddy-surface-field);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.goal-form-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.goal-form-input[aria-invalid="true"] {
+  border-color: var(--coddy-danger);
+}
+
+.goal-form-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.goal-form-count {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: mix-text(50%);
+}
+
+.composer-goal-validation {
+  padding: 0 12px 6px;
+}
+
+.goal-form-count--over {
+  color: var(--coddy-danger);
+}
+
+.goal-form-buttons {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* A turn the supervisor started for the goal (GoalTurnMessage.tsx): the
+   thinking row's frame, a target before the line, the line cut at two lines
+   and whole in the fold. */
+.goal-turn-summary {
+  cursor: default;
+}
+
+.goal-turn-row .thinking-details > .goal-turn-summary {
+  cursor: pointer;
+}
+
+.goal-turn-head {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  line-height: 20px;
+}
+
+.goal-turn-icon {
+  flex: none;
+  margin-top: 3px;
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+}
+
+.goal-turn-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: mix-text(62%);
+}
+
+.goal-turn-count {
+  flex: none;
+  font-size: 12px;
+  white-space: nowrap;
+  color: mix-text(42%);
+}
+
+.goal-turn-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+
+.goal-turn-full {
+  margin: 0;
+  white-space: pre-wrap;
+}

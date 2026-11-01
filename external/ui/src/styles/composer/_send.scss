@@ -1,0 +1,85 @@
+// The send and stop circle, shared with the scheduler's run buttons.
+
+@use "../abstracts" as *;
+
+/* Send/stop control: perfect circle so play/stop glyphs read clearly on all breakpoints */
+.composer-icon {
+  box-sizing: border-box;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  min-height: 42px;
+  padding: 0;
+  margin: 0;
+  border-radius: 50%;
+  border: 1px solid mix-text(12%);
+  background: var(--coddy-surface-subtle);
+  color: mix-text(80%);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.composer-icon:hover {
+  background: var(--coddy-surface-raised);
+}
+
+.composer-send-play {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: mix-text(95%);
+}
+
+.composer-send-play:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.composer-send-stop {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: rgba(248, 113, 113, 0.4);
+  color: rgba(255, 250, 250, 0.95);
+}
+
+.composer-send-stop:hover {
+  background: rgba(239, 68, 68, 0.32);
+}
+
+/* Shared play/stop glyph sizing (composer + scheduler job rows). */
+.composer-send-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+}
+
+.composer-run-icon--stop .composer-send-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 0;
+  line-height: 0;
+  transform: none;
+}
+
+.composer-stop-square {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.composer-icon.composer-run-icon {
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  min-height: 42px;
+  flex-shrink: 0;
+}

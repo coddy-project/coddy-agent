@@ -7,6 +7,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
 // Env provides environmental context to tool execution.
@@ -41,6 +42,11 @@ type Env struct {
 	// CommandAllowlist contains command prefixes/exact commands that never
 	// require permission. Checked via CommandAllowed().
 	CommandAllowlist []string
+
+	// Shell is the interpreter run_command hands a command to, which decides
+	// how CommandAllowed reads the command's quoting and operators. Empty
+	// means platform.CurrentShell(), the one run_command uses.
+	Shell platform.ShellKind
 
 	// HTTPAllowlist is tools.http_request.allowlist: destinations an
 	// http_request call reaches without a permission prompt.
@@ -214,25 +220,55 @@ func (e *Env) OutputLineLimit(tool string) int {
 // in the allowlist, meaning it can run without user permission.
 //
 // Matching rules (case-sensitive).
-// Exact match ("make") matches exactly "make" but not "make build".
+// "*" allows every command.
+// Exact match ("make") matches exactly "make" but not "make build"; the whole
+// command equal to an entry always counts, whatever it holds.
 // Prefix match ("go test ") matches "go test ./..." via allowed entry "go test".
 //
 // A trailing space is implicitly added to prefix entries to prevent
 // "go" from matching "golang-migrate".
+//
+// A prefix vouches for the arguments of one command, never for a second one
+// written after them: "git status && rm -rf ~" is allowed only when every
+// command it runs is (see commandSegments), and a command or process
+// substitution or a redirection always asks.
 func (e *Env) CommandAllowed(command string) bool {
 	cmd := strings.TrimSpace(command)
+	var entries []string
 	for _, allowed := range e.CommandAllowlist {
 		allowed = strings.TrimSpace(allowed)
 		if allowed == "" {
 			continue
 		}
-		if allowed == "*" {
+		if allowed == "*" || cmd == allowed {
 			return true
 		}
-		if cmd == allowed {
-			return true
+		entries = append(entries, allowed)
+	}
+	if len(entries) == 0 {
+		return false
+	}
+	shell := e.Shell
+	if shell == "" {
+		shell = platform.CurrentShell().Kind
+	}
+	segments, ok := commandSegments(shell, cmd)
+	if !ok {
+		return false
+	}
+	for _, segment := range segments {
+		if !segmentAllowed(entries, segment) {
+			return false
 		}
-		if strings.HasPrefix(cmd, allowed+" ") {
+	}
+	return true
+}
+
+// segmentAllowed reports whether one simple command is an entry or an entry
+// followed by arguments.
+func segmentAllowed(entries []string, segment string) bool {
+	for _, allowed := range entries {
+		if segment == allowed || strings.HasPrefix(segment, allowed+" ") {
 			return true
 		}
 	}
@@ -347,6 +383,8 @@ type WebSearchSettings struct {
 	SearXNGURL string
 	// BraveAPIKey routes the Brave backend to the official Search API.
 	BraveAPIKey string
+	// DeepSeekAPIKey is the DeepSeek Search API key.
+	DeepSeekAPIKey string
 }
 
 // PreviewServerSettings is the resolved tools.preview_server section as the

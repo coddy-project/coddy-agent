@@ -20,6 +20,8 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/minisig"
 )
 
 const (
@@ -154,6 +156,11 @@ type updateFeatureState struct {
 	// release, listed first so that picking the asset by position fails.
 	decoyName    string
 	decoyArchive []byte
+
+	// signingSecret signs the digest list; restoreKeys puts back the keys of
+	// the build, which the scenario replaced.
+	signingSecret string
+	restoreKeys   func()
 }
 
 func (s *updateFeatureState) reset() {
@@ -162,6 +169,9 @@ func (s *updateFeatureState) reset() {
 	}
 	if s.dir != "" {
 		_ = os.RemoveAll(s.dir)
+	}
+	if s.restoreKeys != nil {
+		s.restoreKeys()
 	}
 	*s = updateFeatureState{}
 }
@@ -208,8 +218,11 @@ func (s *updateFeatureState) releaseIsAvailable(goos, goarch string) error {
 		switch r.URL.Path {
 		case "/repos/" + DefaultRepo + "/releases/latest":
 			decoy := ""
+			if s.signingSecret != "" {
+				decoy = fmt.Sprintf(`{"name":%q,"browser_download_url":"http://%s/sums.minisig"},`, signatureAssetName, r.Host)
+			}
 			if s.decoyName != "" {
-				decoy = fmt.Sprintf(`{"name":%q,"browser_download_url":"http://%s/decoy"},`, s.decoyName, r.Host)
+				decoy += fmt.Sprintf(`{"name":%q,"browser_download_url":"http://%s/decoy"},`, s.decoyName, r.Host)
 			}
 			_, _ = fmt.Fprintf(w, `{"tag_name":%q,"assets":[%s{"name":%q,"browser_download_url":"http://%s/asset"},{"name":%q,"browser_download_url":"http://%s/sums"}]}`,
 				featureReleaseTag, decoy, assetName, r.Host, checksumAssetName, r.Host)
@@ -225,10 +238,38 @@ func (s *updateFeatureState) releaseIsAvailable(goos, goarch string) error {
 			_, _ = w.Write(s.decoyArchive)
 		case "/sums":
 			_, _ = w.Write([]byte(sums))
+		case "/sums.minisig":
+			signature, err := minisig.Sign(s.signingSecret, []byte(sums), minisig.ReleaseComment(featureReleaseTag))
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			_, _ = w.Write(signature)
 		default:
 			http.NotFound(w, r)
 		}
 	}))
+	return nil
+}
+
+// newerSignedReleaseIsAvailable is a release signed the way CI signs one, for a
+// build that carries the key.
+func (s *updateFeatureState) newerSignedReleaseIsAvailable() error {
+	secret, pub, err := minisig.GenerateKey()
+	if err != nil {
+		return err
+	}
+	s.signingSecret = secret
+	keys := releaseSigningKeys
+	s.restoreKeys = func() { releaseSigningKeys = keys }
+	releaseSigningKeys = []string{pub.String()}
+	return s.newerReleaseIsAvailable()
+}
+
+func (s *updateFeatureState) reportsAVerifiedSignature() error {
+	if !strings.Contains(s.out.String(), "Verified the signature of "+checksumAssetName) {
+		return fmt.Errorf("the output names no verified signature: %q", s.out.String())
+	}
 	return nil
 }
 
@@ -389,16 +430,7 @@ func (s *updateFeatureState) printsNoReleaseNotes() error {
 }
 
 func (s *updateFeatureState) coddyPreparesTheWindowsUpdate() error {
-	return s.prepareWindowsUpdate(false)
-}
-
-func (s *updateFeatureState) coddyPreparesTheWindowsUpdateWithoutRestart() error {
-	return s.prepareWindowsUpdate(true)
-}
-
-func (s *updateFeatureState) prepareWindowsUpdate(noRestart bool) error {
 	opts := s.options()
-	opts.NoRestart = noRestart
 	opts.windowsInstaller = func(req windowsUpdateRequest) error {
 		s.scheduled = &req
 		return nil
@@ -440,22 +472,9 @@ func (s *updateFeatureState) updateIsReady() error {
 	return s.reports("Update downloaded")
 }
 
-func (s *updateFeatureState) helperWillLeaveCoddyStopped() error {
-	if err := s.helperWasScheduled(); err != nil {
-		return err
-	}
-	if s.scheduled.Restart {
-		return fmt.Errorf("helper restart = true, want the update installed without one")
-	}
-	return nil
-}
-
-func (s *updateFeatureState) helperWillRestartCoddy() error {
-	if err := s.helperWasScheduled(); err != nil {
-		return err
-	}
-	if !s.scheduled.Restart {
-		return fmt.Errorf("helper restart = false")
+func (s *updateFeatureState) doesNotPromiseARestart() error {
+	if got := s.out.String(); strings.Contains(got, "restart") {
+		return fmt.Errorf("output promises a restart: %q", got)
 	}
 	return nil
 }
@@ -489,6 +508,8 @@ func TestUpdateFeature(t *testing.T) {
 				return ctx, nil
 			})
 			sc.Step(`^a newer Coddy release is available$`, s.newerReleaseIsAvailable)
+			sc.Step(`^a newer Coddy release with a signed digest list is available$`, s.newerSignedReleaseIsAvailable)
+			sc.Step(`^Coddy reports that it verified the signature of the checksums$`, s.reportsAVerifiedSignature)
 			sc.Step(`^a newer Windows Coddy release is available$`, s.newerWindowsReleaseIsAvailable)
 			sc.Step(`^a newer Coddy release with Linux and Android builds for arm64 is available$`, s.newerAndroidReleaseIsAvailable)
 			sc.Step(`^Coddy downloads the Android archive$`, s.downloadsTheAndroidArchive)
@@ -501,7 +522,6 @@ func TestUpdateFeature(t *testing.T) {
 			sc.Step(`^Coddy links the full changelog between the two versions on GitHub$`, s.linksTheFullChangelog)
 			sc.Step(`^Coddy prints no release notes$`, s.printsNoReleaseNotes)
 			sc.Step(`^Coddy prepares the Windows update$`, s.coddyPreparesTheWindowsUpdate)
-			sc.Step(`^Coddy prepares the Windows update with --no-restart$`, s.coddyPreparesTheWindowsUpdateWithoutRestart)
 			sc.Step(`^the installed executable is the one from the release$`, s.installedExecutableIsFromTheRelease)
 			sc.Step(`^Coddy reports the release it installed$`, s.reportsTheInstalledRelease)
 			sc.Step(`^Coddy reports that it verified the archive against the published checksums$`, s.reportsAVerifiedArchive)
@@ -509,8 +529,8 @@ func TestUpdateFeature(t *testing.T) {
 			sc.Step(`^the man page and the shell completions are the ones from the release$`, s.extrasAreFromTheRelease)
 			sc.Step(`^Coddy reports that it refreshed the man page and the shell completions$`, s.reportsRefreshedExtras)
 			sc.Step(`^it reports that the update is ready$`, s.updateIsReady)
-			sc.Step(`^it schedules a helper that will restart Coddy$`, s.helperWillRestartCoddy)
-			sc.Step(`^it schedules a helper that will leave Coddy stopped$`, s.helperWillLeaveCoddyStopped)
+			sc.Step(`^it schedules a helper that will install the release$`, s.helperWasScheduled)
+			sc.Step(`^it does not say that Coddy will start again$`, s.doesNotPromiseARestart)
 		},
 		Options: &godog.Options{
 			Format: "progress",

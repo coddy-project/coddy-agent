@@ -11,12 +11,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
 // TelegramLaunch is what a verified launch says.
@@ -105,27 +109,112 @@ func hmacSHA256(key, msg []byte) []byte {
 }
 
 // ReplayGuard remembers launches already used, until they would have
-// expired anyway, so one launch data signs a browser in once.
+// expired anyway, so one launch data signs a browser in once. With a file
+// (SetFile) the record outlives the process: a restart within a launch's
+// hour does not make an already used launch new again.
 type ReplayGuard struct {
-	mu   sync.Mutex
-	seen map[string]time.Time
+	mu     sync.Mutex
+	seen   map[string]time.Time
+	path   string
+	loaded bool
 }
 
-// Use records key until until and reports whether it was new.
-func (g *ReplayGuard) Use(key string, until, now time.Time) bool {
+// SetFile names the file the guard keeps its record in. The file holds a
+// digest of each key, never the key itself.
+func (g *ReplayGuard) SetFile(path string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.path = path
+	g.loaded = false
+}
+
+// Use records key until until and reports whether it was new. An error
+// means the durable record could not be read or written: the caller must
+// refuse the launch, since it cannot prove it stays used.
+func (g *ReplayGuard) Use(key string, until, now time.Time) (bool, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.seen == nil {
 		g.seen = make(map[string]time.Time)
+	}
+	if err := g.loadLocked(); err != nil {
+		return false, err
 	}
 	for k, exp := range g.seen {
 		if now.After(exp) {
 			delete(g.seen, k)
 		}
 	}
-	if _, ok := g.seen[key]; ok {
-		return false
+	sum := sha256.Sum256([]byte(key))
+	digest := hex.EncodeToString(sum[:])
+	if _, ok := g.seen[digest]; ok {
+		return false, nil
 	}
-	g.seen[key] = until
-	return true
+	g.seen[digest] = until
+	if err := g.saveLocked(); err != nil {
+		if !errors.Is(err, platform.ErrWriteNotDurable) {
+			delete(g.seen, digest)
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// loadLocked merges the file's record into memory once. A file that is not
+// there yet is an empty record; one that cannot be read or parsed is an
+// error, since treating it as empty would accept a launch already spent
+// before a restart. A failure is not remembered, so the next call tries
+// the read again.
+func (g *ReplayGuard) loadLocked() error {
+	if g.loaded || g.path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(g.path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			g.loaded = true
+			return nil
+		}
+		return fmt.Errorf("telegram: the record of used launches cannot be read: %w", err)
+	}
+	var stored map[string]time.Time
+	if err := json.Unmarshal(data, &stored); err != nil {
+		return fmt.Errorf("telegram: the record of used launches cannot be read: %w", err)
+	}
+	if stored == nil {
+		return errors.New("telegram: the record of used launches must be an object")
+	}
+	for key, expiry := range stored {
+		decoded, err := hex.DecodeString(key)
+		if err != nil || len(decoded) != sha256.Size || hex.EncodeToString(decoded) != key || expiry.IsZero() {
+			return errors.New("telegram: invalid entry in the record of used launches")
+		}
+	}
+	g.loaded = true
+	for k, exp := range stored {
+		if cur, ok := g.seen[k]; !ok || exp.After(cur) {
+			g.seen[k] = exp
+		}
+	}
+	return nil
+}
+
+// saveLocked writes the record next to where it will be read, readable by
+// the owner only. A durability error may follow a committed replacement.
+func (g *ReplayGuard) saveLocked() error {
+	if g.path == "" {
+		return nil
+	}
+	data, err := json.Marshal(g.seen)
+	if err != nil {
+		return err
+	}
+	report, err := platform.WritePrivateFileReplacing(g.path, data)
+	if err != nil {
+		return fmt.Errorf("telegram: the record of used launches was not saved: %w", err)
+	}
+	if report.DirSyncErr != nil {
+		return fmt.Errorf("telegram: the record of used launches: %w: %v", platform.ErrWriteNotDurable, report.DirSyncErr)
+	}
+	return nil
 }

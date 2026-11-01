@@ -1,0 +1,961 @@
+// The chat screen: the main column, the start screen, the sticky header and
+// its views, the transcript frame and the docked block over the composer.
+
+@use "../abstracts" as *;
+
+/* Main chat */
+.main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 14px 18px;
+  min-height: 0;
+  transition: opacity 0.11s ease-out;
+}
+
+.main.is-empty {
+  padding-top: 24px;
+}
+
+.main.session-fading-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes chat-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.chat-skeleton {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 28px;
+  padding: 28px 20px 20px;
+  animation: chat-fade-in 0.18s ease-out both;
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.chat-skeleton-header {
+  padding-bottom: 4px;
+}
+
+.chat-skeleton-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.chat-skeleton-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-skeleton-row--user {
+  align-items: flex-end;
+}
+
+.chat-skeleton-bar {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 0%,
+    rgba(255, 255, 255, 0.09) 40%,
+    rgba(255, 255, 255, 0.04) 80%
+  );
+  background-size: 300% 100%;
+  animation: chat-skeleton-shimmer 1.6s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes chat-skeleton-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+/* Why the first message of a new chat was not sent, under the start screen's
+   composer it came back to (issue #357): the folder or the branch picked there
+   could not be applied. The text and the picks are still in place. */
+.hero-start-notice {
+  margin: 12px 4px 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--coddy-danger, #f87171);
+  overflow-wrap: anywhere;
+}
+
+/* The name of a new chat while the describe call works it out (issue #435):
+   a shimmering bar where the title will be, in the chat header and on the
+   chat's History row, plus two short bars for the tags the same answer
+   brings. Tinted from --text like the settings skeleton, so the bars read on
+   every theme; sized in em, so they follow the type they stand in for. */
+.naming-skeleton-bar {
+  display: inline-block;
+  vertical-align: middle;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--text) 6%, transparent) 0%,
+    color-mix(in srgb, var(--text) 14%, transparent) 40%,
+    color-mix(in srgb, var(--text) 6%, transparent) 80%
+  );
+  background-size: 300% 100%;
+  animation: chat-skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+.chat-title-skeleton {
+  width: 13em;
+  max-width: 100%;
+  height: 0.9em;
+}
+
+.session-title--pending {
+  display: flex;
+  align-items: center;
+  min-height: 1.35em;
+}
+
+.session-title-skeleton {
+  width: 72%;
+  height: 0.8em;
+}
+
+.session-tag-skeleton {
+  width: 44px;
+  height: 14px;
+  border-radius: 999px;
+}
+
+.session-tag-skeleton + .session-tag-skeleton {
+  width: 30px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .naming-skeleton-bar {
+    animation: none;
+  }
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--coddy-chat-header-bg);
+  border: 1px solid var(--coddy-glass-panel-border);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: var(--coddy-glass-panel-shadow);
+}
+
+.chat-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  opacity: 0.9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The views of a chat at the right of the sticky header: a row of buttons -
+   Files, and Background tasks at the right edge - that are icons at every
+   width, as a phone always showed them. Files is the icon alone, the size of
+   the rail's, in a square; Background tasks are the dot and the running /
+   total count the header always had, and the word only while there are no
+   counts yet. The full name and the view's key are in a tooltip everywhere.
+   The row is there from the first message, so the header never jumps when the
+   first task starts. DESIGN.md, Views of a chat. */
+.chat-views {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+}
+
+.chat-view-tip-host {
+  position: relative;
+  display: inline-flex;
+}
+
+/* The look of the top bar's buttons around an 18px icon: 36px high in a
+   desktop header, the top bar's own 42px on a tablet and 40px on a phone
+   (further down). Files is a square of that size around its icon, and so is
+   Tasks around its dot until the chat has tasks to count. */
+.chat-view-btn {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 12px 0 11px;
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  border-radius: 12px;
+  border: 1px solid mix-text(8%);
+  background: mix-text(4%);
+  color: mix-text(82%);
+  cursor: pointer;
+  transition:
+    color 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease;
+}
+
+/* Pointed at, and while its view shows: brighter text, border and ground, the
+   way the Tasks control always marked its open panel. The accent is kept for
+   work in flight (.is-running, below), which wins over this. */
+.chat-view-btn:hover,
+.chat-view-btn.is-active {
+  color: var(--text);
+  border-color: mix-text(22%);
+  background: mix-text(9%);
+}
+
+/* Work in flight in the chat's background: the accent border and tint the
+   Tasks control always had, the dot running. */
+.chat-view-btn--icon {
+  width: 36px;
+  padding: 0;
+}
+
+.chat-view-btn.is-running {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--accent) 12%, var(--coddy-blend-base));
+  color: mix-text(88%);
+}
+
+.chat-view-btn:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The tasks dot and the counts are one line of text, and the dot sits on it
+   with vertical-align: middle, in whatever font the engine draws. Centred on
+   the line box instead, a glyph reads a pixel high beside the text, by an amount
+   that differs per font. In a square the icon or the dot stands alone, centred. */
+.chat-view-face {
+  display: block;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.chat-view-face > * + * {
+  margin-left: 7px;
+}
+
+.chat-view-btn--icon .chat-view-face {
+  display: flex;
+}
+
+.chat-view-icon {
+  display: block;
+}
+
+.chat-view-face .bgtask-dot {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* running / total beside the dot. Tabular digits, so a count that changes
+   does not move the row. */
+.chat-view-count {
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: mix-text(88%);
+}
+
+/* The name of a button, in the rail's tooltip, under the row and kept to its
+   right edge so the tooltip of the last button stays inside the window. */
+.chat-view-tip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: var(--coddy-tip-bg);
+  border: 1px solid var(--coddy-tip-border);
+  color: var(--coddy-tip-fg);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+  z-index: 80;
+  box-shadow: var(--coddy-tip-shadow);
+}
+
+/* Only where there is a real pointer: a touch leaves :hover behind (see
+   ui/tooltipTouchCss.test.ts), and a keyboard's focus says what it is on. */
+@media (hover: hover) {
+  .chat-view-tip-host:hover .chat-view-tip {
+    opacity: 1;
+  }
+}
+
+.chat-view-tip-host:has(.chat-view-btn:focus-visible) .chat-view-tip {
+  opacity: 1;
+}
+
+/* The stacked shell's top bar has 42px buttons, a phone's 40px: the header's
+   take the same size there, Files a square of it. */
+@media (max-width: 1199px) {
+  .chat-view-btn {
+    height: 42px;
+  }
+
+  .chat-view-btn--icon {
+    width: 42px;
+  }
+}
+
+@media (max-width: 599px) {
+  .chat-views {
+    gap: 4px;
+  }
+
+  .chat-view-btn {
+    height: 40px;
+  }
+
+  .chat-view-btn--icon {
+    width: 40px;
+  }
+}
+
+.chat-title-btn {
+  border: 0;
+  background: transparent;
+  color: mix-text(90%);
+  font: inherit;
+  padding: 6px 8px;
+  border-radius: 12px;
+  cursor: default;
+}
+
+.chat-title-btn.is-editable {
+  cursor: text;
+}
+
+.chat-title-btn.is-editable:hover {
+  background: mix-text(4%);
+}
+
+/* Match .chat-title-btn padding so view/edit heights stay aligned; full width of .chat-title */
+.chat-title-input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.35;
+  color: mix-text(92%);
+  background: transparent;
+  border: 0;
+  border-radius: 12px;
+  padding: 6px 8px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.chat-title-input:focus,
+.chat-title-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+  background: mix-text(4%);
+}
+
+.header-links {
+  display: flex;
+  gap: 14px;
+}
+
+.repo-link {
+  color: mix-text(60%);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.repo-link:hover {
+  color: mix-text(90%);
+}
+
+.hero {
+  flex: 1;
+  display: grid;
+  /* One track that cannot grow past the container: the composer's chips
+     would otherwise widen it, and the page, on a phone. */
+  grid-template-columns: minmax(0, 1fr);
+  align-content: center;
+  justify-items: center;
+  padding: 18px 0 10px;
+}
+
+.hero-composer {
+  width: min(720px, 100%);
+  min-width: 0;
+}
+
+.hero-footer {
+  position: fixed;
+  bottom: 16px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: mix-text(35%);
+  pointer-events: none;
+}
+
+.hero-footer a {
+  color: inherit;
+  text-decoration: none;
+  pointer-events: auto;
+}
+
+.hero-footer a:hover {
+  color: mix-text(65%);
+  text-decoration: underline;
+}
+
+.hero-footer-sep {
+  opacity: 0.5;
+}
+
+.hero-title {
+  margin: 0 0 18px;
+  font-size: clamp(26px, 5vw, 44px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.18;
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* One gradient across "What … ?" so the question mark continues the phrase tone. */
+.hero-title-muted {
+  background: linear-gradient(
+    118deg,
+    mix-text(98%) 0%,
+    var(--coddy-hero-muted-mid) 42%,
+    var(--coddy-hero-muted-end) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.hero-title-muted .hero-title-accent {
+  background: none !important;
+  background-image: none !important;
+  -webkit-background-clip: unset !important;
+  background-clip: unset !important;
+  -webkit-text-fill-color: currentColor;
+}
+
+.hero-title-accent {
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--coddy-hero-accent);
+  text-shadow: 0 0 22px var(--coddy-hero-accent-glow);
+  animation: hero-accent-cycle 44s ease-in-out infinite;
+}
+
+[data-theme="light"] .hero-title-accent {
+  animation: none;
+  color: var(--accent);
+  text-shadow: none;
+}
+
+@keyframes hero-accent-cycle {
+  0%,
+  100% {
+    color: var(--coddy-hero-accent);
+    text-shadow: 0 0 22px var(--coddy-hero-accent-glow);
+  }
+  20% {
+    color: color-mix(in srgb, var(--coddy-hero-accent) 85%, var(--text));
+    text-shadow: 0 0 20px var(--coddy-hero-accent-glow);
+  }
+  45% {
+    color: color-mix(in srgb, var(--coddy-hero-accent) 90%, black);
+    text-shadow: 0 0 20px var(--coddy-hero-accent-glow);
+  }
+  70% {
+    color: color-mix(in srgb, var(--coddy-hero-accent) 95%, var(--text));
+    text-shadow: 0 0 22px var(--coddy-hero-accent-glow);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-title-accent {
+    animation: none;
+    color: var(--accent);
+    text-shadow: none;
+  }
+}
+
+.chat-stack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  /* Match native scrollbar gutters so the docked composer does not paint over the scroll track */
+  --coddy-chat-scrollbar-gutter: 14px;
+}
+
+.chat-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overscroll-behavior: contain;
+  /* both-edges keeps #messages content center aligned with composer (stable alone reserves inline-end only) */
+  scrollbar-gutter: stable both-edges;
+}
+
+.chat-scroll-sticky-head {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  flex-shrink: 0;
+  padding: 0 0 16px;
+}
+
+/* Same max-width as .chat-bottom-inner / transcript column so title and composer share one vertical stripe */
+.chat-title-column {
+  width: 100%;
+  max-width: 920px;
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
+}
+
+.messages-inner {
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  --coddy-transcript-row-gap: 10px;
+  gap: var(--coddy-transcript-row-gap);
+  padding: 0;
+  animation: chat-fade-in 0.22s ease-out both;
+}
+
+/* Transcript rows lay themselves out, every one of them.
+   `content-visibility: auto` used to let off-screen rows skip layout and paint,
+   sized from `contain-intrinsic-size` until they had been rendered once. A
+   session opens scrolled to its end, so every row above the first screen was a
+   guess: a 360-row transcript reported 42114px of scrollport against a real
+   50342px. Scrolling up then materialised those rows a screen at a time, the
+   height grew under the reader, and scroll anchoring pushed the position down
+   by the difference on every wheel notch - a transcript that fought the scroll.
+   Row memoisation and the bounded shadow-transcript cache carry the long
+   transcripts now; a wrong scrollport is not worth the layout it saves. */
+.messages-inner > .thinking-row {
+  max-width: 720px;
+}
+
+.chat-scroll-tail {
+  flex: none;
+  height: var(--chat-composer-reserve, 220px);
+}
+
+/* Transcript window (issue #338; DESIGN.md, Transcript window). A long
+   conversation keeps only a bounded slice of its rows in the DOM. The control
+   at the top stands for what is above - rows not rendered yet, or history
+   still on the server - and is the sentinel the window watches, so it renders
+   them by itself as the reader scrolls up to it. */
+.transcript-earlier {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 32px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: mix-text(48%);
+}
+
+.transcript-earlier-button {
+  border: 1px solid mix-text(10%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-glass-panel-bg));
+  padding: 5px 14px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.transcript-earlier-button:hover {
+  color: mix-text(78%);
+  background: color-mix(in srgb, var(--text) 7%, var(--coddy-glass-panel-bg));
+}
+
+.transcript-earlier-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The lower edge of a window cut short of the newest rows, for the window
+   to watch: one pixel that takes back the column's gap before it, so the
+   rows above end where they would. */
+.transcript-window-edge {
+  flex: none;
+  height: 1px;
+  margin-top: calc(-1px - var(--coddy-transcript-row-gap, 10px));
+  pointer-events: none;
+}
+
+.chat-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  pointer-events: none;
+  box-sizing: border-box;
+  padding-inline: var(--coddy-chat-scrollbar-gutter);
+}
+
+/* Full-width vignette above the docked composer (no side gaps vs narrow card stripe) */
+.chat-bottom:has(.composer-wrap-docked)::before {
+  position: absolute;
+  left: var(--coddy-chat-scrollbar-gutter);
+  right: var(--coddy-chat-scrollbar-gutter);
+  bottom: 100%;
+  height: clamp(56px, 16vh, 120px);
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(
+      ellipse min(140%, 920px) 115% at 50% 100%,
+      rgba(11, 11, 12, 0.42) 0%,
+      rgba(11, 11, 12, 0.18) 45%,
+      transparent 72%
+    ),
+    linear-gradient(
+      to bottom,
+      rgba(11, 11, 12, 0) 0%,
+      rgba(11, 11, 12, 0.12) 100%
+    );
+}
+
+/* Keep the composer shield soft on light canvases instead of painting a dark slab. */
+[data-theme="light"] .chat-bottom:has(.composer-wrap-docked)::before {
+  background:
+    radial-gradient(
+      ellipse min(140%, 920px) 115% at 50% 100%,
+      var(--coddy-canvas-gradient-bottom) 0%,
+      color-mix(in srgb, var(--coddy-canvas-gradient-bottom) 48%, transparent)
+        45%,
+      transparent 72%
+    ),
+    linear-gradient(
+      to bottom,
+      transparent 0%,
+      color-mix(in srgb, var(--coddy-canvas-gradient-bottom) 62%, transparent)
+        100%
+    );
+}
+
+.chat-bottom-inner {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  pointer-events: auto;
+}
+
+.chat-bottom-inner .composer-wrap {
+  pointer-events: auto;
+}
+
+/* Expand / collapse of the docked composer (issue #342,
+   chat/ComposerExpandButton.tsx): the scroll-to-bottom circle's size, glass and
+   shadow, in the slot right over the composer's right edge, where it stays;
+   the jumps of the transcript stand one slot higher, above it, so the two
+   read as a pair of different controls (arrows to the corners here, an arrow
+   up or down there). Expanded, the jumps are hidden and the control stands
+   one step of the top rhythm over the card, the header one step above it. */
+.chat-expand-composer {
+  position: absolute;
+  right: 8px;
+  bottom: 100%;
+  z-index: 2;
+  margin-bottom: calc(10px - var(--coddy-composer-wrap-pad));
+  box-sizing: border-box;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: $float-lift;
+  color: mix-text(76%);
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.chat-expand-composer.is-expanded {
+  margin-bottom: var(--coddy-top-rhythm);
+  color: var(--text);
+}
+
+.chat-expand-composer:hover {
+  color: var(--text);
+  border-color: mix-text(24%);
+}
+
+.chat-expand-composer:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+}
+
+[data-theme="light"] .chat-expand-composer {
+  box-shadow: $float-lift-light;
+}
+
+/* Expanded, the card is the top of the docked block: the strip over it holds
+   the control alone. */
+.composer-wrap.composer-wrap--expanded {
+  padding-top: 0;
+}
+
+/* Quote: the button a text selection in the transcript offers (issue #342,
+   chat/TranscriptQuoteButton.tsx). Fixed to the viewport by the selection's
+   box - above it with a mouse, below it on a touch screen, where the
+   browser's own selection menu takes the space above - and cut from the same
+   glass as the scroll-to-bottom circle, so every theme carries it. */
+.transcript-quote-btn {
+  position: fixed;
+  z-index: 30;
+  transform: translate(-50%, -100%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: $float-lift;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.transcript-quote-btn--below {
+  transform: translate(-50%, 0);
+}
+
+.transcript-quote-btn:hover {
+  border-color: mix-text(24%);
+}
+
+.transcript-quote-btn:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+}
+
+[data-theme="light"] .transcript-quote-btn {
+  box-shadow: $float-lift-light;
+}
+
+/* Scroll-to-bottom: hangs off the top edge of the docked block, against the
+   composer's right edge, so it rides with the composer on every shell - the
+   absolute desktop dock, the fixed mobile one, and the inset the tasks panel
+   reserves - instead of being pinned to the viewport. It stays in the DOM for
+   the whole chat and crosses between its two states with a transition; the
+   resting rule below is the hidden state and carries the exit timing. */
+.chat-scroll-bottom {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  z-index: 2;
+  margin-bottom: 10px;
+  box-sizing: border-box;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  /* A small shadow, sized to a 34px circle: enough to lift it off the
+     transcript without the diffuse cast the full panel token carries. */
+  box-shadow: $float-lift;
+  color: mix-text(76%);
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(6px) scale(0.9);
+  pointer-events: none;
+  transition:
+    opacity 0.12s ease-in,
+    transform 0.12s ease-in,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.chat-scroll-bottom.is-visible {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  transition:
+    opacity 0.14s ease-out,
+    transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1),
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.chat-scroll-bottom:hover {
+  color: var(--text);
+  border-color: mix-text(24%);
+}
+
+[data-theme="light"] .chat-scroll-bottom {
+  box-shadow: $float-lift-light;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-scroll-bottom,
+  .chat-scroll-bottom.is-visible {
+    transition: none;
+  }
+}
+
+/* With the expand control in the composer's slot, the jump to the newest
+   message stands over it, 10px apart, as the control stands 10px over the
+   composer; both on the vertical line of the improve-prompt wand (its centre
+   25px from the card's outer edge - 12px, half of 24px and the card's 1px
+   border - theirs 8px plus half of 34px). */
+.chat-bottom-inner:has(> .chat-expand-composer) > .chat-scroll-bottom {
+  right: 8px;
+  margin-bottom: calc(54px - var(--coddy-composer-wrap-pad));
+}
+
+/* A usage banner over the composer is the block's top: the two keep their
+   10px over it instead of reaching down to the card. */
+.chat-bottom-inner:has(> .usage-banner)
+  > .chat-expand-composer:not(.is-expanded) {
+  margin-bottom: 10px;
+}
+
+.chat-bottom-inner:has(> .usage-banner):has(> .chat-expand-composer)
+  > .chat-scroll-bottom {
+  margin-bottom: 54px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-expand-composer {
+    transition: none;
+  }
+}
+
+/* Subagent transcript: the composer's slot holds a read-only notice that points
+   back at the parent chat. Same glass card tokens as the composer so the
+   bottom of the column keeps its weight. */
+.subagent-readonly-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  font-size: 13px;
+  line-height: 1.45;
+  color: mix-text(78%);
+}
+
+.subagent-readonly-text {
+  display: block;
+}
+
+.subagent-readonly-copy {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.subagent-readonly-model {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.subagent-readonly-link {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 35%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--accent) 10%, var(--coddy-blend-base));
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.subagent-readonly-link:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--coddy-blend-base));
+}

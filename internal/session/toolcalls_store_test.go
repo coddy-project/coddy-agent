@@ -251,3 +251,26 @@ func TestToolCallTimestampsKeepMilliseconds(t *testing.T) {
 		t.Fatalf("duration %v collapsed; stamps %q -> %q", d, meta.StartedAt, meta.FinishedAt)
 	}
 }
+
+// A record says the id is taken whatever the id looks like: one kept under its
+// own name, one kept under a digest, and nothing for an id no call went by.
+func TestToolCallRecordedFindsTheRecordOfAnyID(t *testing.T) {
+	t.Parallel()
+	sd := t.TempDir()
+	for _, id := range []string{"call_abc123", "functions.write:0", "../escape"} {
+		if ToolCallRecorded(sd, id) {
+			t.Fatalf("ToolCallRecorded(%q) before any record = true", id)
+		}
+		if err := WriteToolCallMeta(sd, id, ToolCallMeta{Name: "write", Status: "completed"}); err != nil {
+			t.Fatal(err)
+		}
+		if !ToolCallRecorded(sd, id) {
+			t.Fatalf("ToolCallRecorded(%q) after its record = false", id)
+		}
+	}
+	for _, args := range [][2]string{{sd, ""}, {"", "call_abc123"}, {sd, "functions.write:0_2"}} {
+		if ToolCallRecorded(args[0], args[1]) {
+			t.Fatalf("ToolCallRecorded(%q, %q) = true, want false", args[0], args[1])
+		}
+	}
+}

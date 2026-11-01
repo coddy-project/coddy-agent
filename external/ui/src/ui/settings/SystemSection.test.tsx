@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   afterEach,
   beforeEach,
@@ -29,6 +26,7 @@ import { PaneHidden } from "../components/PanePortal";
 import { resetServerVersionForTests } from "../chat/HeroFooter";
 import { installRemoteFetchShim, setEnv } from "../env/remoteEnv";
 import { initLocale } from "../i18n/i18n";
+import { stylesSource } from "../../stylesSource";
 
 type Reply = { status?: number; body?: unknown } | Error;
 
@@ -1205,11 +1203,7 @@ describe("formatting", () => {
  * least 44px, and the charts become one-line rows under the phone width.
  */
 describe("the stylesheet", () => {
-  const dir = dirname(fileURLToPath(import.meta.url));
-  const css = readFileSync(join(dir, "../../styles.css"), "utf8").replace(
-    /\/\*[\s\S]*?\*\//g,
-    "",
-  );
+  const css = stylesSource().replace(/\/\*[\s\S]*?\*\//g, "");
 
   /** Collapses whitespace, which Prettier spreads values over lines with. */
   const squash = (text: string) => text.replace(/\s+/g, " ").trim();
@@ -1422,8 +1416,9 @@ describe("the stylesheet", () => {
   test("labels, headings, legends and notes are quiet text mixed from the theme's text, not --muted", () => {
     // --muted is too dim on several presets (nord's reads 2.1:1 on its canvas);
     // the settings rail and tiles mix --text instead.
+    // The mix is the stylesheet's mix-text() ladder.
     expect(bodyOf(".settings.drawer")).toMatch(
-      /--system-quiet:\s*color-mix\(in srgb, var\(--text\) \d+%, var\(--coddy-blend-base\)\)/,
+      /--system-quiet:\s*mix-text\(\d+%\)/,
     );
     const systemRules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) =>
       /\.system-/.test(m[1]!),

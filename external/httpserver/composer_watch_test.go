@@ -207,7 +207,7 @@ func TestNonStreamProfileTurnErrorReachesWatchers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(watched), errRunnerExploded.Error()) {
+	if !strings.Contains(string(watched), "Internal server error") || strings.Contains(string(watched), errRunnerExploded.Error()) {
 		t.Fatalf("watcher never saw the error frame: %s", watched)
 	}
 	if !strings.Contains(string(watched), "data: [DONE]") {

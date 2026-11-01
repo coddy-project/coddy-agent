@@ -70,20 +70,20 @@ func openAPISpec() map[string]interface{} {
 			"/v1/chat/completions": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Create chat completion",
-					"description": "Chat completion in OpenAI-compatible shape. **`model`** must match an **`id`** from **`GET /v1/models`**: **`agent`** / **`plan`** / **`ask`** (ReAct) or a configured **`models[].model`** YAML selector (single direct completion). " +
+					"description": "Request bodies are limited by `httpserver.max_body_bytes` (512 MiB by default); an oversized body returns 413. Chat completion in OpenAI-compatible shape. **`model`** must match an **`id`** from **`GET /v1/models`**: **`agent`** / **`plan`** / **`ask`** (ReAct) or a configured **`models[].model`** YAML selector (single direct completion). " +
 						"A direct **`models[].model`** id sends the request's **`max_tokens`** (or **`max_completion_tokens`**), **`temperature`** and **`reasoning_effort`** for that one request in place of the configured values (the model's **`reasoning_default`** when no level is given), and refuses with **400**, before a session is created or the provider is contacted, a value its provider or model cannot take as asked. " +
 						"Optional **`metadata`** on agent/plan/ask only: **`metadata.model`** sets the backed LLM (**`models[].model`**); omit or omit the key to use session defaults. " +
 						"**`metadata`** must not carry **`model`** for direct-completion **`model`** values. " +
-						"When **stream** is true the response is **text/event-stream** in the strict OpenAI **`chat.completion.chunk`** contract a third-party client parses literally (VS Code Copilot, the openai SDKs): a first chunk with **`delta.role`** `assistant`, **`delta.content`**, **`delta.reasoning_content`** and **`delta.tool_calls`** deltas with **`finish_reason: null`**, a final chunk whose **`finish_reason`** is **`stop`** (**`length`** when the turn hit **`max_turns`** / **`max_tokens`**, **`tool_calls`** when a direct model called one of the client's tools, **`content_filter`** when the provider's content filter cut a direct answer short), a usage chunk with an empty **`choices`** array when **`stream_options.include_usage`** is true, then **`data: [DONE]`**. No named **`event:`** frame is sent here (each leaves an SSE comment in its place, so the connection stays busy through a tool phase); the coddy events (**`tool_call`**, **`token_usage`**, **`coddy_meta`**, ...) are the **`POST /v1/responses`** stream and the composer relay. Otherwise JSON. " +
+						"When **stream** is true the response is **text/event-stream** in the strict OpenAI **`chat.completion.chunk`** contract a third-party client parses literally (VS Code Copilot, the openai SDKs): a first chunk with **`delta.role`** `assistant`, **`delta.content`**, **`delta.reasoning_content`** and **`delta.tool_calls`** deltas with **`finish_reason: null`**, a final chunk whose **`finish_reason`** is **`stop`** (**`length`** when the turn hit **`max_turns`** / **`max_tokens`**, **`tool_calls`** when a direct model called one of the client's tools, **`content_filter`** when the provider's content filter cut a direct answer short), a usage chunk with an empty **`choices`** array when **`stream_options.include_usage`** is true and provider counters are available, then **`data: [DONE]`**. No named **`event:`** frame is sent here (each leaves an SSE comment in its place, so the connection stays busy through a tool phase); the coddy events (**`tool_call`**, **`token_usage`**, **`coddy_meta`**, ...) are the **`POST /v1/responses`** stream and the composer relay. Otherwise JSON. " +
 						"A non-streaming JSON completion includes **`usage`** with **`prompt_tokens`**, **`completion_tokens`** and **`total_tokens`** when the provider reported token counts, summing the model calls of an agent turn's own loop (a spawned subagent, a compaction and the memory run are not counted); **`prompt_tokens_details.cached_tokens`** is included when positive. If no counts were reported, **`usage`** is omitted rather than invented as zero. " +
-						"A direct **`models[].model`** id is coddy standing in for the provider: the client's **`tools`** are offered to the model as they are (**`tool_choice`** `none` withholds them, any other value leaves the choice to the model), a call the model makes comes back as **`delta.tool_calls`** chunks (streamed) or **`message.tool_calls`** (JSON) with **`finish_reason`** **`tool_calls`**, the client replays the assistant's **`tool_calls`** and answers with **`tool`** messages, which may end the request, and **`content`** parts of type **`image_url`** reach a model configured **`multimodal`** as images (dropped otherwise; an https address is handed to the provider, never fetched). Bounds: 128 tools, 256 KiB of **`parameters`** per tool, 16 images per message, 20 MiB per image URL string, else **400**. The **agent** / **plan** / **ask** profiles run coddy's own tools, never read the client's, and take no trailing **`tool`** message. " +
+						"A direct **`models[].model`** id is coddy standing in for the provider: the client's **`tools`** are offered to the model as they are (**`tool_choice`** `none` withholds them, `auto` leaves the choice to the model), a call the model makes comes back as **`delta.tool_calls`** chunks (streamed) or **`message.tool_calls`** (JSON) with **`finish_reason`** **`tool_calls`**, the client replays the assistant's **`tool_calls`** and answers with **`tool`** messages, which may end the request, and **`content`** parts of type **`image_url`** reach a model configured **`multimodal`** as images (dropped otherwise; an https address is handed to the provider, never fetched). Bounds: 128 tools, 256 KiB of **`parameters`** per tool, 16 images per message, 20 MiB per image URL string, else **400**. The **agent** / **plan** / **ask** profiles run coddy's own tools and reject client tools, and take no trailing **`tool`** message. " +
 						"**409** when **X-Coddy-Session-ID** names a child session spawned by **spawn_agent**: those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. " +
 						"A direct completion on a session whose turn lock is already held answers **409** before changing its transcript or contacting the provider. " +
 						"A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. " +
 						"This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport coddy uses to reach the LLM. " +
 						"Every **agent**/**plan**/**ask** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /coddy/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. " +
-						"The last entry in **messages** must have role **user**." +
-						" A failure of the model provider keeps its status: a provider **4xx** is answered with the same status (**429** with **Retry-After** when the provider named a pause), a **5xx** with **502** (with the pause of a **503** that named one) and a **504** or a timeout with **504**, and the error object carries **`type: upstream_error`** and **`upstream_status`**; a streamed request carries the same error object in its error frame. **500** is left for failures of coddy itself.",
+						"The last entry in **messages** must have role **user**, or **tool** for a direct model. Unsupported top-level and nested message fields return **400** with the field path in **`error.param`**, including **`messages[].name`** and **`image_url.detail`**. Non-null **`stream_options`** requires **`stream: true`**. A direct request rejects **`metadata.reasoning`**, including null; use **`reasoning_effort`** instead. Profile requests reject generation options and client tools. **`developer`** messages are treated as **`system`**. Direct requests accept **`top_p`** from 0 to 1 for supported providers." +
+						" A failure of the model provider keeps its status: a provider **4xx** is answered with the same status (**429** with **Retry-After** when the provider named a pause), a **5xx** with **502** (with the pause of a **503** that named one) and a **504** or a timeout with **504**, and the error object carries **`type: upstream_error`** and, when the provider returned a status, **`upstream_status`**; a streamed request carries the same error object in its error frame. **500** is left for failures of coddy itself.",
 					"operationId": "createChatCompletion",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -125,24 +125,25 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
-						"400": errorResponseRef(),
-						"404": errorResponseRef(),
-						"409": errorResponseRef(),
-						"429": errorResponseRef(),
-						"500": errorResponseRef(),
-						"502": errorResponseRef(),
-						"504": errorResponseRef(),
+						"400": openAIErrorResponseRef(),
+						"404": openAIErrorResponseRef(),
+						"409": openAIErrorResponseRef(),
+						"413": openAIErrorResponseRef(),
+						"429": openAIErrorResponseRef(),
+						"500": openAIErrorResponseRef(),
+						"502": openAIErrorResponseRef(),
+						"504": openAIErrorResponseRef(),
 					},
 				},
 			},
 			"/v1/responses": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Create response",
-					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
+					"description": "Request bodies are limited by `httpserver.max_body_bytes` (512 MiB by default); an oversized body returns 413. Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
 						"**409** when **X-Coddy-Session-ID** names a child session spawned by **spawn_agent**: those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. " +
 						"A direct completion on a session whose turn lock is already held answers **409** before changing its transcript or contacting the provider. " +
 						"**`metadata.model`** applies only when **`model`** is **`agent`**, **`plan`**, or **`ask`**. **`attachments`** (workspace-relative **`path`** rows) hydrate text file bodies from session **cwd** on **`agent`** / **`plan`** / **`ask`** only; a file stored in another detected encoding (Windows-1251 and other legacy charsets) is converted to UTF-8. Every **agent**/**plan**/**ask** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /coddy/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. A turn started with **`stream: false`** is cancelled when its HTTP request is dropped; a streamed one keeps running. A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport coddy uses to reach the LLM." +
-						" A failure of the model provider keeps its status: a provider **4xx** is answered with the same status (**429** with **Retry-After** when the provider named a pause), a **5xx** with **502** (with the pause of a **503** that named one) and a **504** or a timeout with **504**, and the error object carries **`type: upstream_error`** and **`upstream_status`**; a streamed request carries the same error object in its error frame. **500** is left for failures of coddy itself.",
+						" A failure of the model provider keeps its status: a provider **4xx** is answered with the same status (**429** with **Retry-After** when the provider named a pause), a **5xx** with **502** (with the pause of a **503** that named one) and a **504** or a timeout with **504**, and the error object carries **`type: upstream_error`** and, when the provider returned a status, **`upstream_status`**; a streamed request carries the same error object in its error frame. **500** is left for failures of coddy itself.",
 					"operationId": "createResponse",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -184,13 +185,14 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
-						"400": errorResponseRef(),
-						"404": errorResponseRef(),
-						"409": errorResponseRef(),
-						"429": errorResponseRef(),
-						"500": errorResponseRef(),
-						"502": errorResponseRef(),
-						"504": errorResponseRef(),
+						"400": openAIErrorResponseRef(),
+						"404": openAIErrorResponseRef(),
+						"409": openAIErrorResponseRef(),
+						"413": openAIErrorResponseRef(),
+						"429": openAIErrorResponseRef(),
+						"500": openAIErrorResponseRef(),
+						"502": openAIErrorResponseRef(),
+						"504": openAIErrorResponseRef(),
 					},
 				},
 			},
@@ -217,7 +219,7 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
-						"404": errorResponseRef(),
+						"404": openAIErrorResponseRef(),
 					},
 				},
 			},
@@ -225,7 +227,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List persisted chat sessions",
 					"description": "Rows are ordered by **session.json** **updatedAt** (newest first), then **id** when timestamps tie. " +
-						"The envelope's **active_count** is the global number of currently active turns in History's normal eligible scope (not the page or active filters), so it excludes archived, scheduler and subagent sessions. " +
+						"The envelope's **active_count** is the global number of currently active turns in History's normal eligible scope (not the page or active filters). It counts the turns of chats and of their subagents alike, and excludes archived sessions, scheduler job sessions with their runs and print runs with their children. " +
 						"**updatedAt** advances when session state is persisted (messages, titles, etc.); loading a snapshot into memory for HTTP does not rewrite it. " +
 						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**. " +
 						"Child sessions of subagent runs (**subagentRun** metadata, stored inside the parent's bundle) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer. " +
@@ -296,7 +298,7 @@ func openAPISpec() map[string]interface{} {
 						"in":     "query",
 						"schema": map[string]string{"type": "boolean"},
 						"description": "When true, each row also carries what the session management table renders: **messageCount** (persisted transcript rows of every role), **tokenUsage** " +
-							"(**`{inputTokens, outputTokens, totalTokens}`** from the bundle's **stats.json**, zeroes when the session never completed a model call), **createdAt** and **model**. " +
+							"(**`{inputTokens, outputTokens, totalTokens}`** from the bundle's **stats.json**; null when usage is explicitly unknown, an object with zeroes when known to be zero or when no stats are available), **createdAt** and **model**. " +
 							"**createdAt** is omitted for a bundle stored before the field existed - the moment it was started is not recoverable and is not invented - and **model** is omitted for a session " +
 							"that never overrode **`agent.model`**, so a client renders those as unknown rather than as a value. Each row costs one extra small file read.",
 					}),
@@ -308,8 +310,22 @@ func openAPISpec() map[string]interface{} {
 									"schema": map[string]interface{}{
 										"type": "object",
 										"properties": map[string]interface{}{
-											"object":       map[string]string{"type": "string"},
-											"sessions":     map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object"}},
+											"object": map[string]string{"type": "string"},
+											"sessions": map[string]interface{}{"type": "array", "items": map[string]interface{}{
+												"type": "object",
+												"properties": map[string]interface{}{
+													"tokenUsage": map[string]interface{}{
+														"type": "object", "nullable": true,
+														"description": "Present with include_stats=true; null when usage is explicitly unknown. Known zero and missing stats are represented by zero counters.",
+														"properties": map[string]interface{}{
+															"inputTokens":  map[string]interface{}{"type": "integer"},
+															"outputTokens": map[string]interface{}{"type": "integer"},
+															"totalTokens":  map[string]interface{}{"type": "integer"},
+														},
+														"required": []string{"inputTokens", "outputTokens", "totalTokens"},
+													},
+												},
+											}},
 											"nextCursor":   map[string]interface{}{"type": "string", "nullable": true},
 											"hasMore":      map[string]string{"type": "boolean"},
 											"active_count": map[string]string{"type": "integer", "minimum": "0", "description": "Currently active turns in the normal History scope, independent of pagination and filters."},
@@ -1290,7 +1306,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/activity": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Composer activity for a session",
-					"description": "Returns **turnActive** (a turn running in this server process, or the exclusive turn lock held by another one), **activitySeq**, **readActivitySeq**, **lastErrorSeq**, **unreadComplete** and **questionPending** for multi-surface UI. **questionPending** is true while an interactive `question` tool waits for an answer, and is process-local to the Coddy server process that owns the wait. **lastErrorSeq** is the activity generation of the latest real failure, or zero when the latest outcome was not an error. While this process runs the turn it also carries the turn's progress - **turnStartedAt** (RFC3339), **turnElapsedMs**, **turnOutputTokens** and **turnTokensEstimated**, the numbers of the **turn_progress** stream event - so a client that joins the turn late (a reloaded tab is not replayed the frames its transcript snapshot covers) still shows the right clock and token count. A turn finished background tasks started (**notify_on_finish**) also carries **backgroundWake** (**`{tasks}`**, in the shape of the **background_wake** stream frame), so a client resuming the session mid-turn learns that nobody typed it. A turn held by another process leaves those fields out.",
+					"description": "Returns **turnActive** (a turn running in this server process, or the exclusive turn lock held by another one), **activitySeq**, **readActivitySeq**, **lastErrorSeq**, **unreadComplete** and **questionPending** for multi-surface UI. **questionPending** is true while an interactive `question` tool waits for an answer, and is process-local to the Coddy server process that owns the wait. **lastErrorSeq** is the activity generation of the latest real failure, or zero when the latest outcome was not an error. While this process runs the turn it also carries the turn's progress - **turnStartedAt** (RFC3339), **turnElapsedMs**, **turnOutputTokens**, **turnTokensEstimated** and optional **turnTokensPerSecond**, the numbers of the **turn_progress** stream event - so a client that joins the turn late (a reloaded tab is not replayed the frames its transcript snapshot covers) still shows the right clock and token count. A turn finished background tasks started (**notify_on_finish**) also carries **backgroundWake** (**`{tasks}`**, in the shape of the **background_wake** stream frame), so a client resuming the session mid-turn learns that nobody typed it. A turn held by another process leaves those fields out.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -1479,7 +1495,7 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Task list with a **running** count"},
+						"200": backgroundTaskResponse(true),
 						"404": errorResponseRef(),
 					},
 				},
@@ -1521,7 +1537,7 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Task with output"},
+						"200": backgroundTaskResponse(false),
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 					},
@@ -1544,7 +1560,7 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Stopped task with output"},
+						"200": backgroundTaskResponse(false),
 						"404": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
@@ -1645,6 +1661,7 @@ func openAPISpec() map[string]interface{} {
 											"user":           map[string]string{"type": "string", "description": "Signed-in account; absent otherwise."},
 											"expires_at":     map[string]string{"type": "string", "format": "date-time", "description": "When the session ends; absent otherwise."},
 											"telegram_login": map[string]string{"type": "boolean", "description": "A page opened as the Telegram bot's Mini App can sign in with its launch data (POST /coddy/auth/telegram), the bot's admins only."},
+											"browser_login":  map[string]string{"type": "boolean", "description": "A page opened in the side panel of Coddy for Browser can sign in with the ticket the extension's endpoint gave it (POST /coddy/auth/browser)."},
 										},
 										"required": []string{"login_required", "auth_required", "authenticated"},
 									},
@@ -1706,7 +1723,7 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Sign a Telegram Mini App in with its launch data (the bot's admins only)",
 					"description": "Public: the way through the gate for the web UI opened as the Telegram bot's Mini App. `init_data` is the launch data Telegram signed with the bot's token (`tgWebAppData`); the server checks the signature as Telegram documents for Mini Apps, refuses launch data older than an hour or used before, and signs in only a user listed in `gateways.telegram.admins`. " +
 						"On success sets an HttpOnly, SameSite=Strict `" + tgSessionCookieBaseName + "_<host digest>` cookie that opens what the sign-in form's cookie opens, also behind a token-only gate; it ends when the bot's token changes, the bot is disabled or the person is no longer an admin. " +
-						"**400** without an enabled Telegram bot with a token, **401** for bad, stale or replayed launch data, **403** for somebody who is not an admin or a cross-site attempt.",
+						"**400** without an enabled Telegram bot with a token, **401** for bad, stale or replayed launch data, **403** for somebody who is not an admin or a cross-site attempt, **500** when the record of used launches cannot be read or durably written; a launch may already be spent if the write committed before durability failed, so retry with a new Mini App launch.",
 					"operationId": "authTelegram",
 					"security":    []interface{}{map[string]interface{}{}},
 					"requestBody": map[string]interface{}{
@@ -1741,13 +1758,144 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"401": errorResponseRef(),
 						"403": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/auth/browser": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Sign the side panel of Coddy for Browser in with its ticket",
+					"description": "Public: the way through the gate for the web UI the extension shows in its side panel. `ticket` is the one-time ticket the extension's endpoint (`browser.token`) gave a browser that connected with the extension key, over its socket (`panel/open`); it is good for one sign-in within a minute. " +
+						"On success sets an HttpOnly, SameSite=Strict `" + browserSessionCookieBaseName + "_<host digest>` cookie that opens what the sign-in form's cookie opens, also behind a token-only gate; it ends when `browser.token` changes or `browser.enable` is turned off. " +
+						"**400** without an enabled endpoint with a key, **401** for an unknown, used or expired ticket, **403** for a cross-site attempt.",
+					"operationId": "authBrowser",
+					"security":    []interface{}{map[string]interface{}{}},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":       "object",
+									"properties": map[string]interface{}{"ticket": map[string]string{"type": "string"}},
+									"required":   []string{"ticket"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Signed in; the panel's session cookie is set",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"ok":         map[string]string{"type": "boolean"},
+											"user":       map[string]string{"type": "string", "description": "`browser:<browser id>`"},
+											"expires_at": map[string]string{"type": "string", "format": "date-time"},
+										},
+										"required": []string{"ok", "user"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"401": errorResponseRef(),
+						"403": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/browser/v1/browsers": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "List the browsers connected to this server, for a chat of another Coddy process",
+					"description": "Coddy for Browser: the browsers whose extension connected to this server and the tabs they share, as the chat `node`/`session_id` sees them (`yours` for its own tab group, `busy` for another chat's). A console or an editor on this machine and the nodes of the swarm call it, behind this server's ordinary credentials; the extension key does not open it. " +
+						"**404** unless `browser.serve_remote` is on (and `browser.token` set).",
+					"operationId": "browserList",
+					"parameters": []interface{}{
+						map[string]interface{}{"name": "node", "in": "query", "schema": map[string]string{"type": "string"}, "description": "Where the calling chat runs, as it names itself."},
+						map[string]interface{}{"name": "session_id", "in": "query", "schema": map[string]string{"type": "string"}, "description": "The calling chat's session id."},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "The connected browsers",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"browsers": map[string]interface{}{"type": "array", "items": browserSnapshotSchema()},
+										},
+										"required": []string{"browsers"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"401": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/browser/v1/call": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Ask a browser connected to this server for one action, for a chat of another Coddy process",
+					"description": "Coddy for Browser: one action of the `browser` tool (`snapshot`, `click`, `navigate`, `upload_file`, `download_file` and the rest; docs/reference/browser-protocol.md) sent to the extension of `browser_id`. The calling chat owns tabs as `<node>/<session_id>`, and the extension asks the person before its first action and before every new website. `upload_file` carries the file in `file` (base64 `data`), `download_file` names it there and gets the bytes back in the answer, 32 MiB at most. The call lasts as long as the action and is never retried; dropping the request cancels it. " +
+						"**404** unless `browser.serve_remote` is on, **400** for an invalid caller or body, **409** when the browser refuses or fails the action (the message says why), **413** for a file over the limit.",
+					"operationId": "browserCall",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"browser_id": map[string]string{"type": "string"},
+										"action":     map[string]string{"type": "string"},
+										"tab_id":     map[string]string{"type": "integer"},
+										"params":     map[string]string{"type": "object", "description": "The action's parameters, as the browser tool takes them."},
+										"caller": map[string]interface{}{
+											"type": "object",
+											"properties": map[string]interface{}{
+												"node":       map[string]string{"type": "string", "description": "Where the chat runs: 1 to 64 letters, digits, dots, dashes or underscores. Shown to the person, not trusted."},
+												"session_id": map[string]string{"type": "string"},
+												"title":      map[string]string{"type": "string", "description": "Names the chat's tab group."},
+											},
+											"required": []string{"node", "session_id"},
+										},
+										"file": browserFileSchema(),
+									},
+									"required": []string{"browser_id", "action", "caller"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "What the extension answered",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"result": map[string]string{"type": "object", "description": "The extension's answer, untrusted page data."},
+											"file":   browserFileSchema(),
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"401": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+						"413": errorResponseRef(),
 					},
 				},
 			},
 			"/coddy/auth/logout": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "End the browser session on the server",
-					"description": "Drops the session server-side and expires the cookie - the sign-in form's and, when the browser holds one, the Telegram Mini App's (`" + tgSessionCookieBaseName + "_<host digest>`) - so a copy of it taken elsewhere stops working too. Idempotent: a request with no cookie, or with one this server no longer knows, still answers **200**. **403** for a cross-site attempt.",
+					"description": "Drops the session server-side and expires the cookie - the sign-in form's and, when the browser holds one, the Telegram Mini App's (`" + tgSessionCookieBaseName + "_<host digest>`) and the Coddy for Browser side panel's (`" + browserSessionCookieBaseName + "_<host digest>`) - so a copy of it taken elsewhere stops working too. Idempotent: a request with no cookie, or with one this server no longer knows, still answers **200**. **403** for a cross-site attempt.",
 					"operationId": "authLogout",
 					"security":    []interface{}{map[string]interface{}{}},
 					"responses": map[string]interface{}{
@@ -2316,7 +2464,7 @@ func openAPISpec() map[string]interface{} {
 						"A **user** row that opened a turn nobody typed - finished background tasks the model started woke the agent (**notify_on_finish**, on by default) - carries **`background_wake`** **`{tasks: [{id, kind, label, agent, status, exit_code, duration_ms, error}]}`**; its **content** is the instruction the model read, and a UI does not render the row as a message from the user (the bundled UI shows nothing for it: the turn reads as the agent carrying on). A **user** row the session supervisor opened a goal turn with carries **`goal_turn`** **`{kind, index, limit, objective, reason, remaining}`**; a UI shows it as a one-line goal row, not as a message from the user. The answer also carries **goal**, the session goal in the shape of **GET /coddy/sessions/{id}/goal**, and, while the session keeps a todo checklist, **todoPlan** **`[{content, status, priority}]`**, the list **GET /coddy/sessions/{id}/plan** returns, in its order (the bundled UI shows it under the newest message; a session without a list carries no key). " +
 						"An **assistant** row a model of type acp wrote carries **`agent_tools`** **`[{id, title, kind, status, input, output, output_lines}]`**, the tool calls the agent behind it ran on its own side: a UI draws them as tool rows (the bundled UI puts them before the row's text), and the whole output of each is **GET /coddy/sessions/{id}/tool-calls/{toolCallId}**. " +
 						"A memory subagent run leaves nothing in this payload: its record is the **agent** task of kind agent with **`agent.system`** true under **GET /coddy/sessions/{id}/background-tasks**, and its transcript is the child session named there. " +
-						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
+						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors and generation summaries (**generation** with **outputTokens**, **tokensPerSecond** and **elapsedMs**, how long the turn ran) keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
 						"**messagesRev** is the revision of the history these **messages** were read at; pass it to **GET /coddy/sessions/{id}/composer-stream** as **`?since_rev=`** to be replayed only the frames of a running turn this transcript does not already hold. " +
 						"Immediately after **POST /coddy/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows. " +
 						"For a child session spawned by **spawn_agent** the payload also carries **readOnly** **true** and **subagent** **`{parentSessionId, name, taskId}`**: the transcript is served from the live child while it runs and from its bundle afterwards, and no route accepts a prompt for it (**409**), so a UI replaces the composer with a notice linking to the parent chat. " +
@@ -2585,7 +2733,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/{name}/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List a provider's available models",
-					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET {selected api_base}/models`**, where api_base is one of the official deployments (**`https://api.neuraldeep.ru/v1`** by default, **`https://api.neuraldeep.tech/v1`** for the international mirror); codex: the fixed official Codex backend with the saved ChatGPT OAuth token, listing every model the account is offered, asked as Codex release 0.999.0 so that a model the backend reserves for a recent Codex release is not left out). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name,context_window}]}`** on success (`context_window` only when the provider's listing reports one, under `limit.context`, `context_length`, `max_model_len`, `max_context_length` or `context_window`), or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Unknown provider name returns 404.",
+					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET {selected api_base}/models`**, where api_base is one of the official deployments (**`https://api.neuraldeep.ru/v1`** by default, **`https://api.neuraldeep.tech/v1`** for the international mirror); codex: the fixed official Codex backend with the saved ChatGPT OAuth token, listing every model the account is offered, asked as Codex release 0.999.0 so that a model the backend reserves for a recent Codex release is not left out). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name,context_window,catalog}]}`** on success (`context_window` only when the provider's listing reports one, under `limit.context`, `context_length`, `max_model_len`, `max_context_length`, `context_window`, `max_input_tokens` or `max_context_tokens`; **`catalog`** - **`{context_window, max_tokens, multimodal}`** - only for a model Coddy's built-in models catalog, built from models.dev and embedded into the binary, knows whose window the provider does not report or reports the same: what the settings form fills a model it adds from, `max_tokens` left out when the catalog has none and `multimodal` when the model reads no images), or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Unknown provider name returns 404.",
 					"operationId": "listProviderModels",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -2604,7 +2752,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/models": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Fetch models for a provider description",
-					"description": "Fetches the model list advertised by a provider row posted in the request body (**`{name, type, api_base, api_key, api_key_command, proxy}`** - the `providers[]` shape). Unlike the GET route, the row need not be saved in config.yaml: the settings form's provider editor sends the entry being edited, so a provider that only exists in the form (for example right after an OAuth device sign-in) lists its models the same way a stored one does. Fields the body leaves empty are inherited from the saved provider of the same name when there is one, so a sparse **`{name}`** post resolves the stored credentials without secrets travelling over the wire. The credential pair (**`api_key`** / **`api_key_command`**) is one slot: it is inherited only when the body posts neither field, and only while the resolved **`api_base`** and **`proxy`** still match the saved row, so an overridden route never receives stored credentials. The body must be **`application/json`**: any other content type (the kinds a cross-site page can send without a preflight) gets **`415`**. A posted **`api_key_command`** is executed server-side, exactly as it would be for a saved provider. A row of **`type: acp`** lists the models its agent offers (**`default`** first, the agent's own model) from the **saved** row only: its **`acp`** block names a program, and a body cannot bring one of its own - an **`acp`** row that is not saved yet is **`400`**. Returns the same **`{ok:true, models:[{id,name,context_window}]}`** / **`{ok:false, error, models:[]}`** shape as the GET (`context_window` only when the provider's listing reports one); a malformed body or an invalid provider row returns 400.",
+					"description": "Fetches the model list advertised by a provider row posted in the request body (**`{name, type, api_base, api_key, api_key_command, proxy}`** - the `providers[]` shape). Unlike the GET route, the row need not be saved in config.yaml: the settings form's provider editor sends the entry being edited, so a provider that only exists in the form (for example right after an OAuth device sign-in) lists its models the same way a stored one does. Fields the body leaves empty are inherited from the saved provider of the same name when there is one, so a sparse **`{name}`** post resolves the stored credentials without secrets travelling over the wire. The credential pair (**`api_key`** / **`api_key_command`**) is one slot: it is inherited only when the body posts neither field, and only while the resolved **`api_base`** and **`proxy`** still match the saved row, so an overridden route never receives stored credentials. The body must be **`application/json`**: any other content type (the kinds a cross-site page can send without a preflight) gets **`415`**. A posted **`api_key_command`** is executed server-side, exactly as it would be for a saved provider. A row of **`type: acp`** lists the models its agent offers (**`default`** first, the agent's own model) from the **saved** row only: its **`acp`** block names a program, and a body cannot bring one of its own - an **`acp`** row that is not saved yet is **`400`**. Returns the same **`{ok:true, models:[{id,name,context_window,catalog}]}`** / **`{ok:false, error, models:[]}`** shape as the GET (`context_window` only when the provider's listing reports one, **`catalog`** only for a model the built-in models catalog knows whose window the provider does not report or reports the same); a malformed body or an invalid provider row returns 400.",
 					"operationId": "fetchProviderModels",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -3040,22 +3188,22 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/coddy/skills/sync": map[string]interface{}{
 				"post": map[string]interface{}{
-					"summary":     "Sync remote skill sources",
-					"description": "Fetches every source in effect for the session workspace (the server default workspace without **X-Coddy-Session-ID**): the built-in one, the sources of **`<home>/marketplaces.json`** and those of the workspace's **`.coddy/marketplaces.json`** the trust gate admits (GitHub repos, git URLs, or an http(s) URL to an agents-standard **`marketplace.json`**), and materializes their skills into the managed skills directory, then refreshes every marketplace in effect and reinstalls only the plugins installed from it. A project entry the gate holds back (**`skills.project_trust`**) is reported in **`held`** and not fetched. Manual only - never runs automatically. Returns lists of added/updated skill names and per-source failures.",
+					"summary":     "Read the skill marketplaces and report newer versions",
+					"description": "Reads again the list of every marketplace and source in effect for the session workspace (the server default workspace without **X-Coddy-Session-ID**): the built-in **`rpa-skills`**, the entries of **`<home>/marketplaces.json`** and those of the workspace's **`.coddy/marketplaces.json`** the trust gate admits. It records the list of each marketplace and answers with the installed skills a newer version is published for, the skills of the standard delivery included. It installs and updates nothing: **`POST /coddy/skills/update`** installs the newer versions, **`POST /coddy/skills/install`** a plugin or a source. A project entry the gate holds back (**`skills.project_trust`**) is reported in **`held`** and not read. Manual only - never runs automatically.",
 					"operationId": "syncSkills",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "source", "in": "query", "required": false,
 							"schema":      map[string]string{"type": "string"},
-							"description": "Sync only this source, or refresh only the plugins installed from this marketplace (by name or source). Omit to sync everything in effect. A project entry the trust gate holds back is refused with 400.",
+							"description": "Read only this marketplace (by name) or source (by address), and report only the skills installed from it. Omit to read everything in effect. A project entry the trust gate holds back is refused with 400, and so is a key nothing in effect answers to.",
 						},
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Sync result.",
+							"description": "What was read and the updates it found.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
-									"schema": map[string]interface{}{"$ref": "#/components/schemas/SkillSyncResult"},
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/SkillIndexResult"},
 								},
 							},
 						},
@@ -3080,8 +3228,8 @@ func openAPISpec() map[string]interface{} {
 											"object":        map[string]string{"type": "string", "example": "coddy.skills_sources"},
 											"workspace":     map[string]string{"type": "string", "description": "The workspace whose project file was read."},
 											"project_trust": map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}, "description": "The skills.project_trust in force."},
-											"items":         map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "The sources installed whole that are in effect: the built-in ones first, then the operator's, then the project's the gate admits."},
-											"system":        map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "The sources Coddy brings itself. They are in no file, always trusted, DELETE refuses them, and a client should offer no remove control for them."},
+											"items":         map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "The sources installed whole that are in effect: the operator's, then the project's the gate admits."},
+											"system":        map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "The addresses of the marketplaces Coddy brings itself (`EvilFreelancer/rpa-skills`, listed in entries as the marketplace `rpa-skills`). They are in no file, always trusted, DELETE refuses them by name or address, and a client should offer no remove control for them."},
 											"entries": map[string]interface{}{
 												"type":  "array",
 												"items": map[string]interface{}{"$ref": "#/components/schemas/SkillSourceEntry"},
@@ -3096,7 +3244,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"post": map[string]interface{}{
 					"summary":     "Declare a skill source or marketplace",
-					"description": "Declares a source (installed whole: every plugin it publishes, kept in sync) or, with **`kind: marketplace`**, a catalog whose plugins are installed one by one (its **`marketplace.json`** is read for its name). **`scope: global`** (default) writes **`<home>/marketplaces.json`**; **`scope: local`** writes the session workspace's **`.coddy/marketplaces.json`** and approves the entry for that workspace, the operator having typed it. Set **`sync:true`** to also fetch a source immediately; with **`kind: marketplace`** it is a 400, because declaring a marketplace installs nothing. config.yaml is not touched.",
+					"description": "Declares a source (installed whole when it is installed: every plugin it publishes at that moment) or, with **`kind: marketplace`**, a catalog whose plugins are installed one by one (its **`marketplace.json`** is read for its name). **`scope: global`** (default) writes **`<home>/marketplaces.json`**; **`scope: local`** writes the session workspace's **`.coddy/marketplaces.json`** and approves the entry for that workspace, the operator having typed it. Set **`sync:true`** to also install every plugin of a source this call declares; a source declared already and the built-in catalogue install nothing (the answer says **`added:false`** and carries no **`sync`**), and with **`kind: marketplace`** it is a 400, because declaring a marketplace installs nothing. Declaring alone installs nothing, and nothing installs the source later but **`POST /coddy/skills/install`**. config.yaml is not touched.",
 					"operationId": "addSkillSource",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -3106,7 +3254,7 @@ func openAPISpec() map[string]interface{} {
 									"type": "object",
 									"properties": map[string]interface{}{
 										"source": map[string]string{"type": "string", "description": "owner/repo[@ref], a git URL, or a marketplace.json URL."},
-										"sync":   map[string]interface{}{"type": "boolean", "description": "Fetch the source immediately after adding (kind source only)."},
+										"sync":   map[string]interface{}{"type": "boolean", "description": "Install every plugin of the source when this call declares it (kind source only); nothing for a source declared already or the built-in catalogue."},
 										"scope":  map[string]interface{}{"type": "string", "enum": []string{"global", "local"}, "description": "global: <home>/marketplaces.json (default); local: the workspace's .coddy/marketplaces.json."},
 										"kind":   map[string]interface{}{"type": "string", "enum": []string{"source", "marketplace"}, "description": "source (default): installed whole; marketplace: a catalog."},
 									},
@@ -3146,7 +3294,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/skills/sources/trust": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Approve a project skill source",
-					"description": "Records the operator's approval of an entry of the session workspace's **`.coddy/marketplaces.json`** for that workspace, so a sync uses it. The optional **`fingerprint`** names the entry the operator was shown (`GET /coddy/skills/sources`); when the checkout rewrote it since, the answer is **409** and nothing is recorded. Receipts live in **`<home>/skills-trust.json`**. **400** for an entry no file declares, one of the operator's own or the built-in one (they need no approval), and under **`skills.project_trust: deny`**.",
+					"description": "Records the operator's approval of an entry of the session workspace's **`.coddy/marketplaces.json`** for that workspace, so it is read and can be installed from. Approving installs nothing. The optional **`fingerprint`** names the entry the operator was shown (`GET /coddy/skills/sources`); when the checkout rewrote it since, the answer is **409** and nothing is recorded. Receipts live in **`<home>/skills-trust.json`**. **400** for an entry no file declares, one of the operator's own or the built-in one (they need no approval), and under **`skills.project_trust: deny`**.",
 					"operationId": "trustSkillSource",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -3196,19 +3344,19 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/skills/available": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List installable marketplace plugins",
-					"description": "Fetches the manifest of every source and marketplace in effect for the workspace (network / git) and returns the plugins they advertise, each flagged with `installed`; a project entry the trust gate holds back offers nothing. Backs the browse/filter install control.",
+					"description": "Fetches the manifest of every source and marketplace in effect for the workspace (network / git) and returns the plugins they advertise, each flagged with `installed`; a project entry the trust gate holds back offers nothing. `failed` names the marketplaces and sources that could not be read (a marketplace by name, a source by address), so the search can say why it finds nothing there; a source with no marketplace.json is no catalogue and is not listed in it. Backs the browse/filter install control.",
 					"operationId": "listAvailablePlugins",
 					"parameters":  []interface{}{listingCWDParam()},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Available plugins (name, description, version, source, installed)."},
+						"200": map[string]interface{}{"description": "Available plugins (items: name, description, version, source, installed) and the lists that could not be read (failed: source, error)."},
 						"500": errorResponseRef(),
 					},
 				},
 			},
 			"/coddy/skills/install": map[string]interface{}{
 				"post": map[string]interface{}{
-					"summary":     "Install one plugin from a marketplace",
-					"description": "Installs a single named plugin from a marketplace source (rather than syncing every plugin the source advertises). Answers 400 when the plugin or the source is unknown, and when nothing could be installed (an archive refused, a plugin without skills), with the reason in the error message.",
+					"summary":     "Install one plugin from a marketplace, or a source whole",
+					"description": "With **`plugin`**, installs that single plugin from a marketplace source. Without it, installs every plugin the **`source`** publishes, every skill of a repository without a marketplace.json: a source the session workspace's files declare as it is (a project source once approved), any other declared in **`<home>/marketplaces.json`** first. Answers 400 when the plugin or the source is unknown, and when nothing could be installed (an archive refused, a plugin without skills), with the reason in the error message.",
 					"operationId": "installPlugin",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -3217,10 +3365,10 @@ func openAPISpec() map[string]interface{} {
 								"schema": map[string]interface{}{
 									"type": "object",
 									"properties": map[string]interface{}{
-										"source": map[string]string{"type": "string", "description": "Configured marketplace source the plugin comes from."},
-										"plugin": map[string]string{"type": "string", "description": "Plugin name to install."},
+										"source": map[string]string{"type": "string", "description": "Marketplace source the plugin comes from, or the source to install whole."},
+										"plugin": map[string]string{"type": "string", "description": "Plugin name to install; omit to install every plugin of the source."},
 									},
-									"required": []interface{}{"source", "plugin"},
+									"required": []interface{}{"source"},
 								},
 							},
 						},
@@ -3234,7 +3382,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/skills/updates": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Check installed remote skills for updates",
-					"description": "For every installed remote skill, fetches its marketplace source and compares the installed version against the latest declared upstream. Performs network / git access. Returns one entry per remote skill with **`update_available`** set when a newer version exists. For a zip-archive plugin without a declared version the upstream value is the archive **`sha256`** its entry declares, and any change of it is an update. A source a project of the workspace declares (**X-Coddy-Session-ID**, else the optional **`cwd`** query, else the server default cwd) that the trust gate holds back is not contacted and reports no update.",
+					"description": "For every installed remote skill, and every skill of the standard delivery still on disk (counted as installed from the built-in `rpa-skills` catalogue under its own name), fetches its marketplace source and compares the installed version against the latest declared upstream. Performs network / git access. Returns one entry per remote skill with **`update_available`** set when a newer version exists. For a zip-archive plugin without a declared version the upstream value is the archive **`sha256`** its entry declares, and any change of it is an update. A source a project of the workspace declares (**X-Coddy-Session-ID**, else the optional **`cwd`** query, else the server default cwd) that the trust gate holds back is not contacted and reports no update.",
 					"operationId": "checkSkillUpdates",
 					"parameters":  []interface{}{listingCWDParam()},
 					"responses": map[string]interface{}{
@@ -3250,16 +3398,34 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/skills/update": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Update every skill that has a newer version",
+					"description": "Installs the newer version of every installed skill whose marketplace or source publishes one (the check of `GET /coddy/skills/updates`), the skills of the standard delivery included. Only installed skills are written: a skill the operator removed is not installed back, not even as part of a plugin whose other skill is updated, and a copy newer than the published one is left as it is. Skills from a project source of the session workspace the trust gate holds back are skipped.",
+					"operationId": "updateSkills",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Update result.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/SkillSyncResult"},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/skills/{name}/update": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Update a skill to its latest version",
-					"description": "Re-syncs the marketplace source that provides **{name}**, installing whatever version that source currently declares. A skill installed from a marketplace (a catalog) reinstalls only its own plugin, not every plugin that marketplace lists. Fails with 400 when the skill was not installed from a remote source, and when that source is a project entry of the session workspace the trust gate holds back (approval withdrawn, or `skills.project_trust: deny`). A source no file of the workspace declares any more stays updatable.",
+					"description": "Reinstalls **{name}** - an installed skill, or the installed skills of the plugin of that name - from the marketplace or source it came from, at the version published now, unless what is installed is known to be that version or newer (then it is listed in **`current`** and nothing is written). Only the plugin's installed skills are written, never another plugin of the marketplace. Fails with 400 when the skill was not installed from a marketplace or a source, and when that source is a project entry of the session workspace the trust gate holds back (approval withdrawn, or `skills.project_trust: deny`). A source no file of the workspace declares any more stays updatable.",
 					"operationId": "updateSkill",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "name", "in": "path", "required": true,
 							"schema":      map[string]string{"type": "string"},
-							"description": "Canonical skill name (single segment, no slashes).",
+							"description": "Canonical skill name, or the name of a plugin (single segment, no slashes).",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -3296,8 +3462,10 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/coddy/sessions/{id}/cancel": map[string]interface{}{
 				"post": map[string]interface{}{
-					"summary":     "Cancel active generation for a session",
-					"description": "Best-effort cancellation of the current ReAct or direct completion turn. Writes a cross-process cancel signal for persisted bundles so another **coddy** process holding the turn can observe cooperative cancel. When assistant tokens were already streamed, the server persists that partial **assistant** message for the interrupted turn before the turn ends. Optional header **X-Coddy-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
+					"summary": "Cancel active generation for a session",
+					"description": "Best-effort cancellation of the current ReAct or direct completion turn. The optional JSON body takes **continue_queue** (default **false**). With **true**, an eligible in-process ordinary profile prompt reserves every pending queue row in FIFO order, including duplicates and images, interrupts only its current child run, and continues under the same root admission. An accepted reservation returns **queueContinued: true** without writing a disk cancel signal; this acknowledges acceptance, not completion of the continuation. " +
+						"An empty queue, a pending cancellation or an unsupported admission falls back to legacy full cancellation. Direct completions, explicit plan runs and permission-resume admissions do not support queue interruption. Legacy cancellation drops pending steer rows and retains after_turn rows without auto-starting them; it returns no **queueContinued** field and writes a cross-process cancel signal for persisted bundles so another **coddy** process holding the turn can observe cooperative cancel. Provider failures do not by themselves request continuation. " +
+						"An empty body, **null** or **{}** keeps legacy behavior. Malformed JSON, a non-boolean **continue_queue**, trailing JSON or a body over 1 KiB answers **400** before cancellation. When assistant tokens were already streamed, the server persists that partial **assistant** message before the interrupted run ends. Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -3307,8 +3475,41 @@ func openAPISpec() map[string]interface{} {
 							"description": "Session id.",
 						},
 					},
+					"requestBody": map[string]interface{}{
+						"required": false,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object", "nullable": true,
+									"properties": map[string]interface{}{
+										"continue_queue": map[string]interface{}{
+											"type": "boolean", "default": false,
+											"description": "Request queue interruption on an eligible in-process ordinary profile prompt; otherwise use legacy full cancellation.",
+										},
+									},
+								},
+							},
+						},
+					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Cancellation applied (idempotent when nothing is running)."},
+						"200": map[string]interface{}{
+							"description": "Cancellation requested, or queue interruption accepted. Neither confirms that the running turn has completed.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object", "required": []string{"object", "id"},
+										"properties": map[string]interface{}{
+											"object": map[string]interface{}{"type": "string", "enum": []string{"coddy.session_cancelled"}},
+											"id":     map[string]interface{}{"type": "string"},
+											"queueContinued": map[string]interface{}{
+												"type":        "boolean",
+												"description": "Present and true only when queue interruption was accepted, not when its continuation completed. Absent on legacy full cancellation.",
+											},
+										},
+									},
+								},
+							},
+						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 					},
@@ -3432,7 +3633,7 @@ func openAPISpec() map[string]interface{} {
 				"bearerAuth": map[string]interface{}{
 					"type":        "http",
 					"scheme":      "bearer",
-					"description": "Optional. When httpserver.auth_token (or --auth-token / CODDY_HTTP_TOKEN) is set, every /v1/* and /coddy/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true. The three /coddy/auth/* routes are always reachable without it.",
+					"description": "Optional. When httpserver.auth_token (or --auth-token / CODDY_HTTP_TOKEN) is set, every /v1/* and /coddy/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true. The three /coddy/auth/* routes are always reachable without it. While no credential is configured and httpserver.allow_insecure is off, a request that arrived on a loopback address is answered with 421 when its Host is not a loopback name, and any request that changes state (any method but GET, HEAD and OPTIONS) with 403 when it carries an Origin that is neither the server's own nor one httpserver.cors admits.",
 				},
 				"cookieAuth": map[string]interface{}{
 					"type": "apiKey",
@@ -3516,6 +3717,23 @@ func openAPISpec() map[string]interface{} {
 					},
 					"required": []string{"file", "path", "scope", "trust", "trusted", "needs_approval", "hooks"},
 				},
+				"OpenAIErrorEnvelope": map[string]interface{}{
+					"type":     "object",
+					"required": []string{"error"},
+					"properties": map[string]interface{}{
+						"error": map[string]interface{}{
+							"type":     "object",
+							"required": []string{"message", "type", "code", "param"},
+							"properties": map[string]interface{}{
+								"message":         map[string]interface{}{"type": "string"},
+								"type":            map[string]interface{}{"type": "string"},
+								"code":            map[string]interface{}{"type": "string", "nullable": true},
+								"param":           map[string]interface{}{"type": "string", "nullable": true},
+								"upstream_status": map[string]interface{}{"type": "integer", "description": "Provider HTTP status, when available."},
+							},
+						},
+					},
+				},
 				"ErrorEnvelope": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -3582,9 +3800,32 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
+						"current": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Skills an update by name left as they are: already the newest version, or newer."},
+					},
+				},
+				"SkillIndexResult": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"ok":   map[string]interface{}{"type": "boolean"},
+						"read": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "What was read: a marketplace by its name, a source by its address."},
+						"updates": map[string]interface{}{
+							"type":        "array",
+							"description": "Installed skills a newer version is published for; `POST /coddy/skills/update` installs them.",
+							"items":       map[string]interface{}{"$ref": "#/components/schemas/SkillUpdateStatus"},
+						},
+						"failed": map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"source": map[string]string{"type": "string"},
+									"error":  map[string]string{"type": "string"},
+								},
+							},
+						},
 						"held": map[string]interface{}{
 							"type":        "array",
-							"description": "Project entries the workspace trust gate kept out of the sync.",
+							"description": "Project entries the workspace trust gate kept out of the read.",
 							"items":       map[string]interface{}{"$ref": "#/components/schemas/SkillSourceEntry"},
 						},
 					},
@@ -3596,7 +3837,7 @@ func openAPISpec() map[string]interface{} {
 						"name":        map[string]string{"type": "string", "description": "A marketplace's name, what <plugin>@<name> uses."},
 						"source":      map[string]string{"type": "string", "description": "owner/repo, a git URL or a marketplace.json URL."},
 						"origin":      map[string]interface{}{"type": "string", "enum": []string{"system", "home", "project"}, "description": "Built into Coddy, <home>/marketplaces.json, or the workspace's .coddy/marketplaces.json."},
-						"source_path": map[string]string{"type": "string", "description": "The file it is declared in; absent for the built-in source."},
+						"source_path": map[string]string{"type": "string", "description": "The file it is declared in; absent for the built-in marketplace."},
 						"gated":       map[string]interface{}{"type": "boolean", "description": "True for a project entry, the kind the trust gate decides on."},
 						"trusted":     map[string]interface{}{"type": "boolean"},
 						"status":      map[string]interface{}{"type": "string", "enum": []string{"ready", "needs_approval", "denied"}},
@@ -3618,18 +3859,19 @@ func openAPISpec() map[string]interface{} {
 					"properties": map[string]interface{}{
 						"object": map[string]string{"type": "string", "example": "coddy.skills_updates"},
 						"items": map[string]interface{}{
-							"type": "array",
-							"items": map[string]interface{}{
-								"type": "object",
-								"properties": map[string]interface{}{
-									"name":             map[string]string{"type": "string", "description": "Installed remote skill name."},
-									"source":           map[string]string{"type": "string", "description": "Configured source it was installed from."},
-									"version":          map[string]string{"type": "string", "description": "Installed version."},
-									"latest":           map[string]string{"type": "string", "description": "Latest version declared by the source."},
-									"update_available": map[string]interface{}{"type": "boolean", "description": "True when latest is newer than the installed version, or, when either is an archive digest (`sha256:` and 12 hex digits), different from it."},
-								},
-							},
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/SkillUpdateStatus"},
 						},
+					},
+				},
+				"SkillUpdateStatus": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name":             map[string]string{"type": "string", "description": "Installed remote skill name."},
+						"source":           map[string]string{"type": "string", "description": "Configured source it was installed from; the built-in `EvilFreelancer/rpa-skills` for a skill of the standard delivery."},
+						"version":          map[string]string{"type": "string", "description": "Installed version."},
+						"latest":           map[string]string{"type": "string", "description": "Latest version declared by the source."},
+						"update_available": map[string]interface{}{"type": "boolean", "description": "True when latest is newer than the installed version, or, when either is an archive digest (`sha256:` and 12 hex digits), different from it."},
 					},
 				},
 				"MCPToolRow": map[string]interface{}{
@@ -3898,6 +4140,10 @@ func openAPISpec() map[string]interface{} {
 										"type":        "integer",
 										"description": "Context window a session on this model measures its context usage and its automatic compaction threshold against: `models[].max_context_tokens`, else the window the provider's model listing reports, else 128000. The `agent`, `plan` and `ask` rows carry the window of `agent.model`.",
 									},
+									"context_length": map[string]string{
+										"type":        "integer",
+										"description": "The same window as `max_context_tokens`, under the name OpenAI-compatible clients read (OpenRouter's spelling).",
+									},
 									"multimodal": map[string]string{"type": "boolean"},
 									"reasoning_levels": map[string]interface{}{
 										"type":        "array",
@@ -3922,11 +4168,13 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 				"OpenAIMessage": map[string]interface{}{
-					"type": "object",
+					"type":        "object",
+					"description": "Unsupported message and nested content or tool call fields, including name and image_url.detail, are rejected with 400; error.param identifies the field path.",
 					"properties": map[string]interface{}{
 						"role": map[string]interface{}{
-							"type": "string",
-							"enum": []interface{}{"system", "user", "assistant", "tool"},
+							"type":        "string",
+							"enum":        []interface{}{"system", "developer", "user", "assistant", "tool"},
+							"description": "developer is treated as system.",
 						},
 						"content": map[string]interface{}{
 							"description": "A string, null, or an array of OpenAI content parts: `text` parts are joined, `image_url` parts (`{url}` object or a bare string, data URL or https) reach a multimodal direct model as images and are accepted on user messages only, refused with 400 on any other role, as is any other part type.",
@@ -4036,14 +4284,15 @@ func openAPISpec() map[string]interface{} {
 						"stream": map[string]string{"type": "boolean"},
 						"stream_options": map[string]interface{}{
 							"type":        "object",
-							"description": "OpenAI stream options. `include_usage: true` appends a chunk with an empty `choices` array and the turn's `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`, summed over the model calls of the turn by the same rule as the JSON answer - a spawned subagent, a compaction and the memory run are not counted - zero when the provider reported none, plus `prompt_tokens_details.cached_tokens` only when it reported cached input) after the choice finishes. Streamed responses only.",
+							"nullable":    true,
+							"description": "OpenAI stream options. `include_usage: true` appends a chunk with an empty `choices` array and the turn's `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`, summed over the model calls of the turn by the same rule as the JSON answer - a spawned subagent, a compaction and the memory run are not counted - plus `prompt_tokens_details.cached_tokens` only when it reported cached input) after the choice finishes, only when provider counters are available. Streamed responses only.",
 							"properties": map[string]interface{}{
 								"include_usage": map[string]string{"type": "boolean"},
 							},
 						},
 						"tools": map[string]interface{}{
 							"type":        "array",
-							"description": "The client's function tools in OpenAI shape (`type: function`, `function.name`, `function.description`, `function.parameters` JSON Schema). Offered as they are to a direct `models[].model`; ignored by agent, plan and ask, which run coddy's own tools. Any other tool type is refused with 400.",
+							"description": "The client's function tools in OpenAI shape (`type: function`, `function.name`, `function.description`, `function.parameters` JSON Schema). Offered as they are to a direct `models[].model`; rejected by agent, plan and ask, which run coddy's own tools. Any other tool type is refused with 400.",
 							"items": map[string]interface{}{
 								"type": "object",
 								"properties": map[string]interface{}{
@@ -4061,36 +4310,34 @@ func openAPISpec() map[string]interface{} {
 							},
 						},
 						"tool_choice": map[string]interface{}{
-							"description": "OpenAI tool_choice. `none` withholds the tools from the model; `auto`, `required` and a named function leave the choice to the model, since the providers take no forcing parameter.",
-							"oneOf": []interface{}{
-								map[string]string{"type": "string"},
-								map[string]interface{}{"type": "object", "additionalProperties": true},
-							},
+							"description": "OpenAI tool_choice. `none` withholds the tools; `auto` leaves the choice to the model. Other values are rejected.",
+							"type":        "string", "nullable": true, "enum": []interface{}{"auto", "none"},
 						},
 						"max_tokens": map[string]interface{}{
 							"type":        "integer",
 							"minimum":     1,
-							"description": "Output cap of this request for a direct `models[].model` id, replacing the model's configured `max_tokens`; omitted, the configured value applies. **400** below 1 and on a `codex` model, whose backend takes no cap. The agent/plan/ask profiles do not read it: their turn runs on the profile model's configured values.",
+							"description": "Output cap of this request for a direct `models[].model` id, replacing the model's configured `max_tokens`; omitted, the configured value applies. **400** below 1 and on a `codex` model, whose backend takes no cap. The agent/plan/ask profiles reject it: their turn runs on the profile model's configured values.",
 						},
 						"max_completion_tokens": map[string]interface{}{
 							"type":        "integer",
 							"minimum":     1,
 							"description": "OpenAI's newer name for `max_tokens`, with the same meaning. A request may carry both only when they agree, else **400**.",
 						},
+						"top_p": map[string]interface{}{"type": "number", "minimum": 0, "maximum": 1, "nullable": true, "description": "Nucleus sampling for a direct model on a supported provider; rejected for profiles."},
 						"temperature": map[string]interface{}{
 							"type":        "number",
 							"format":      "float",
 							"minimum":     0,
 							"maximum":     2,
-							"description": "Temperature of this request for a direct `models[].model` id, replacing the model's configured `temperature`, `0` included, and sent next to a reasoning level too; omitted, the configured value applies. **400** outside 0-2 (0-1 for an `anthropic` provider) and on a `codex` model, whose backend takes no temperature. The agent/plan/ask profiles do not read it.",
+							"description": "Temperature of this request for a direct `models[].model` id, replacing the model's configured `temperature`, `0` included, and sent next to a reasoning level too; omitted, the configured value applies. **400** outside 0-2 (0-1 for an `anthropic` provider) and on a `codex` model, whose backend takes no temperature. The agent/plan/ask profiles reject it.",
 						},
 						"reasoning_effort": map[string]interface{}{
 							"type":        "string",
-							"description": "Reasoning level of this request for a direct `models[].model` id: one of the `reasoning_levels` `GET /v1/models` lists for that id, else **400**. Omitted, `null` or empty, the model's `reasoning_default` applies, and a model without one gets no reasoning level at all (a Claude model that thinks by default still thinks, at its own default effort), which is not the same request as the level `none` a `codex` model offers. The level the provider was asked for is echoed as `metadata.reasoning_effort`. Mapped to OpenAI `reasoning_effort`, Anthropic extended thinking (a `max_tokens` of this request that leaves no room above the thinking budget is **400**), Anthropic `output_config.effort` for the Claude models with adaptive thinking, or Codex `reasoning.effort`. The agent/plan/ask profiles take `metadata.reasoning` instead.",
+							"description": "Reasoning level of this request for a direct `models[].model` id: one of the `reasoning_levels` `GET /v1/models` lists for that id, else **400**. Omitted, `null` or empty, the model's `reasoning_default` applies, and a model without one gets no reasoning level at all (a Claude model that thinks by default still thinks, at its own default effort), which is not the same request as the level `none` a `codex` model offers. The level the provider was asked for is echoed as `metadata.reasoning_effort`. Mapped to OpenAI `reasoning_effort`, Anthropic extended thinking (a `max_tokens` of this request that leaves no room above the thinking budget is **400**), Anthropic `output_config.effort` for the Claude models with adaptive thinking, or Codex `reasoning.effort`. The agent/plan/ask profiles reject this field and take `metadata.reasoning` instead.",
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. `lang` (the web UI sends its locale, e.g. `\"ru\"`) is the language of the turn: Coddy's documentation that the turn's `@coddy:` mentions attach and the agent's documentation tools read is in it. Not allowed for direct completion `model` values.",
+							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. `lang` (the web UI sends its locale, e.g. `\"ru\"`) is the language of the turn: Coddy's documentation that the turn's `@coddy:` mentions attach and the agent's documentation tools read is in it. For direct completion `model` values, `model` and `reasoning` keys are rejected; use the top-level `reasoning_effort` for reasoning.",
 							"additionalProperties": true,
 						},
 					},
@@ -4163,7 +4410,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. `lang` (the web UI sends its locale, e.g. `\"ru\"`) is the language of the turn: Coddy's documentation that the turn's `@coddy:` mentions attach and the agent's documentation tools read is in it.",
+							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. `lang` (the web UI sends its locale, e.g. `\"ru\"`) is the language of the turn: Coddy's documentation that the turn's `@coddy:` mentions attach and the agent's documentation tools read is in it. `browser` (`{browser_id, tab_id, url, title}`, what the web UI in the side panel of Coddy for Browser sends) names the tab the turn is written from: the session's browser tool selects that browser and acts on that tab when a call names none, and the turn's system prompt says so, with the page's address and title as JSON data.",
 							"additionalProperties": true,
 						},
 						"attachments": map[string]interface{}{
@@ -4556,6 +4803,7 @@ func openAPISpec() map[string]interface{} {
 	mergeCanvasOpenAPI(doc)
 	mergeStatusOpenAPI(doc)
 	mergeOpenCodeAuthOpenAPI(doc)
+	mergeWallpaperOpenAPI(doc)
 	return doc
 }
 
@@ -4572,6 +4820,91 @@ func coddyConfigErrorResponse(description string) map[string]interface{} {
 				},
 			},
 		},
+	}
+}
+
+func openAIErrorResponseRef() map[string]interface{} {
+	return map[string]interface{}{
+		"description": "OpenAI error",
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{"$ref": "#/components/schemas/OpenAIErrorEnvelope"},
+			},
+		},
+	}
+}
+
+// backgroundTaskResponse describes the shared task row returned by list, get and stop.
+func backgroundTaskResponse(list bool) map[string]interface{} {
+	agent := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"name":             map[string]interface{}{"type": "string", "description": "Subagent definition or run kind behind the task."},
+			"session_id":       map[string]interface{}{"type": "string", "description": "Child session the run is transcribed in. Omitted until known."},
+			"system":           map[string]interface{}{"type": "boolean", "description": "True for a run the process starts on its own (memory), omitted otherwise."},
+			"model":            map[string]interface{}{"type": "string", "description": "Effective model the run calls."},
+			"reasoning":        map[string]interface{}{"type": "string", "description": "Reasoning level the run calls the model with, when the model has levels."},
+			"input_tokens":     map[string]interface{}{"type": "integer", "description": "Input tokens the run's calls spent so far."},
+			"output_tokens":    map[string]interface{}{"type": "integer", "description": "Output tokens the run's calls spent so far."},
+			"usage_incomplete": map[string]interface{}{"type": "boolean", "description": "True when at least one completed model call did not report usage, so input_tokens and output_tokens are incomplete. Omitted when false."},
+			"worktree":         map[string]interface{}{"type": "string", "description": "Worktree the run works in, when it left the main checkout."},
+			"branch":           map[string]interface{}{"type": "string", "description": "Branch the run's worktree holds."},
+		},
+	}
+	row := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"id":               map[string]interface{}{"type": "string", "description": "Task id inside the session."},
+			"session_id":       map[string]interface{}{"type": "string", "description": "Session the task belongs to."},
+			"kind":             map[string]interface{}{"type": "string", "description": "command, agent or server."},
+			"label":            map[string]interface{}{"type": "string", "description": "Human-readable title shown on the task card."},
+			"command":          map[string]interface{}{"type": "string", "description": "Shell command behind a command task; omitted for agent and server tasks."},
+			"cwd":              map[string]interface{}{"type": "string", "description": "Working directory the command runs in."},
+			"tool_call_id":     map[string]interface{}{"type": "string", "description": "Id of the tool call that started the task, when it came from one."},
+			"status":           map[string]interface{}{"type": "string", "description": "queued, running, succeeded, failed, timed_out, stopped or orphaned."},
+			"exit_code":        map[string]interface{}{"type": "integer", "description": "Process exit code; omitted for agent and server tasks and while running."},
+			"error":            map[string]interface{}{"type": "string", "description": "Failure reason; omitted on success."},
+			"started_at":       map[string]interface{}{"type": "string", "format": "date-time"},
+			"finished_at":      map[string]interface{}{"type": "string", "format": "date-time", "description": "Omitted while the task runs."},
+			"expected_seconds": map[string]interface{}{"type": "integer", "description": "Caller estimate; omitted when none was given."},
+			"timeout_seconds":  map[string]interface{}{"type": "integer", "description": "Hard limit of the task; 0 when the caller gave none."},
+			"output_bytes":     map[string]interface{}{"type": "integer", "description": "Captured output size."},
+			"output_truncated": map[string]interface{}{"type": "boolean", "description": "True when the in-memory window dropped earlier output."},
+			"notify_on_finish": map[string]interface{}{"type": "boolean", "description": "True when the task's end wakes the agent; omitted when false."},
+			"woke_agent":       map[string]interface{}{"type": "boolean", "description": "True when a finished task's end did wake the agent; omitted when false."},
+			"agent":            agent,
+			"url":              map[string]interface{}{"type": "string", "description": "Address of a preview server task; omitted for other kinds."},
+			"pid":              map[string]interface{}{"type": "integer", "description": "Process id of a command task; omitted otherwise."},
+			"last_output_at":   map[string]interface{}{"type": "string", "format": "date-time", "description": "Last time the task produced output; omitted when it never did."},
+			"elapsed_seconds":  map[string]interface{}{"type": "integer", "description": "Seconds between started_at and finished_at (or now while running)."},
+			"overdue":          map[string]interface{}{"type": "boolean", "description": "True while a running task outlived its expected_seconds."},
+			"running":          map[string]interface{}{"type": "boolean", "description": "True while the task has not finished."},
+			"pending_permission": map[string]interface{}{
+				"type":        "object",
+				"description": "Permission prompt of a detached subagent behind this task (sessionId, toolCall, options, parent_session_id, task_id, agent_name, asked_at); present only while one waits.",
+			},
+		},
+	}
+	properties := map[string]interface{}{
+		"object":    map[string]interface{}{"type": "string", "description": "Payload kind."},
+		"sessionId": map[string]interface{}{"type": "string", "description": "Session the tasks belong to."},
+	}
+	description := "Task with output"
+	if list {
+		description = "Task list with a running count"
+		properties["object"].(map[string]interface{})["enum"] = []interface{}{"coddy.background_task_list"}
+		properties["running"] = map[string]interface{}{"type": "integer", "description": "Number of listed tasks that are still running."}
+		properties["data"] = map[string]interface{}{"type": "array", "items": row}
+	} else {
+		properties["object"].(map[string]interface{})["enum"] = []interface{}{"coddy.background_task"}
+		properties["task"] = row
+		properties["output"] = map[string]interface{}{"type": "string", "description": "Captured output of the task, whole or the tail the request asked for."}
+	}
+	return map[string]interface{}{
+		"description": description,
+		"content": map[string]interface{}{"application/json": map[string]interface{}{
+			"schema": map[string]interface{}{"type": "object", "properties": properties},
+		}},
 	}
 }
 
@@ -4832,5 +5165,45 @@ func listingCWDParam() map[string]interface{} {
 		"description": "Absolute path of an existing folder that names the workspace when no session is behind the request " +
 			"(X-Coddy-Session-ID absent, or naming a session the server does not have yet): the folder a new chat picked before its first message. " +
 			"Ignored next to a session the server has. 400 for a relative path or a missing folder.",
+	}
+}
+
+// browserSnapshotSchema is one connected browser as GET /coddy/browser/v1/browsers lists it.
+func browserSnapshotSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"id":      map[string]string{"type": "string"},
+			"name":    map[string]string{"type": "string"},
+			"version": map[string]string{"type": "string"},
+			"actions": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+			"tabs": map[string]interface{}{
+				"type": "array",
+				"items": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"id":        map[string]string{"type": "integer"},
+						"url":       map[string]string{"type": "string"},
+						"title":     map[string]string{"type": "string"},
+						"sessionId": map[string]string{"type": "string", "description": "The chat whose tab group holds the tab; empty for the shared group."},
+						"yours":     map[string]string{"type": "boolean"},
+						"busy":      map[string]string{"type": "boolean"},
+					},
+				},
+			},
+		},
+		"required": []string{"id", "name", "actions", "tabs"},
+	}
+}
+
+// browserFileSchema is a file inside a browser call.
+func browserFileSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"name": map[string]string{"type": "string"},
+			"data": map[string]string{"type": "string", "format": "byte"},
+		},
+		"required": []string{"name"},
 	}
 }

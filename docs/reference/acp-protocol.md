@@ -245,7 +245,7 @@ Coddy returns both **Session Config Options** (preferred by modern ACP clients) 
         {
           "value": "accept_edits",
           "name": "Accept edits",
-          "description": "Auto-approve file writes; ask before running commands"
+          "description": "Auto-approve file writes inside the workspace; ask before running commands"
         },
         {
           "value": "bypass",
@@ -572,11 +572,21 @@ Tool call kinds are values of the ACP `ToolKind` enum, and Coddy sends no other:
 
 ### Coddy-specific session updates: `token_usage`, `usage_update`, `provider_usage`
 
-Coddy sends three `session/update` kinds the ACP specification does not
+Coddy sends four `session/update` kinds the ACP specification does not
 define; a client that ignores unknown kinds keeps working.
 
+- **`turn_progress`** carries the turn clock and output tokens. Optional `tokensPerSecond` reports generation speed; `completed: true` marks the final update, including a stopped or failed turn; when present, the rate is the average across measured model calls. Saved averages replay on session load. Blocking (non-streaming) providers, ACP agent models and calls delivered in a single output chunk contribute no tokens or time to the speed average; output counts still include them. With no measurable call interval, live output counts remain available, but the rate is omitted and no generation caption is saved. When an average exists, its saved caption pairs total output tokens from all calls with the rate across measured calls only. The same calculation powers the console and web UI.
 - **`token_usage`** after every completed model call: `inputTokens`,
   `outputTokens` of that call and `totalTokens` accumulated over the turn.
+  `usageKnown` says whether the call's usage is known; `false` means the
+  numeric fields do not establish complete usage, even if they are nonzero.
+  `true` includes an explicitly reported zero. The field is optional for
+  compatibility with older senders. The flag describes this call, not the
+  completeness of `totalTokens` across earlier calls in the turn.
+  Optional `sessionUsageKnown` reports whether accumulated usage for the whole
+  session is complete. Once a call's usage is unknown, it remains `false` even
+  if a later call has `usageKnown: true`. Older servers may omit the field;
+  clients treat its absence as known for compatibility.
   `inputTokens` is the whole prompt of the call, the part served from the
   provider's prompt cache included; that part is `cachedInputTokens`, omitted
   when the provider reported none. `reasoningTokens` is the part of
@@ -764,7 +774,7 @@ Sent after `session/set_config_option`, after `session/set_mode`, or whenever th
 
 ## Permission Requests (Agent -> Client, expects response)
 
-These requests are sent when `permission_mode` is `ask` (commands and writes) or `accept_edits` (commands only). Under `bypass` the agent sends `session/request_permission` only for a prompt no mode answers by itself: a `PreToolUse` hook's `ask` and a shell command the [decisions check](../features/decisions.md) did not clear. Set the mode via `session/set_config_option` or a `/permissions` command in the prompt; a new session starts in the mode chosen last.
+These requests are sent when `permission_mode` is `ask` (commands and writes) or `accept_edits` (commands, and writes outside the workspace or into a `.git` folder). Under `bypass` the agent sends `session/request_permission` only for a prompt no mode answers by itself: a `PreToolUse` hook's `ask` and a shell command the [decisions check](../features/decisions.md) did not clear. Set the mode via `session/set_config_option` or a `/permissions` command in the prompt; a new session starts in the mode chosen last.
 
 Under `ask`, a request that belongs to the session itself carries two more options of kind `allow_always` before Reject: `allow_session_bypass` (**Bypass for this session**) and, for a file write, `allow_session_accept_edits` (**Allow edits for this session**). Choosing one approves the call and switches the session's permission mode, which the agent announces with `config_option_update`. A request relayed from a subagent, one a hook forced, and `config_commit` / `config_rollback` do not carry them.
 

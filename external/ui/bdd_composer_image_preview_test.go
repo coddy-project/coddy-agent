@@ -13,6 +13,7 @@ import (
 func TestComposerImagePreviewFeature(t *testing.T) {
 	const composer = "src/ui/chat/Composer.test.tsx"
 	const bubble = "src/ui/messages/UserMessage.test.tsx"
+	const copies = "src/ui/chat/Composer.attachmentCopy.test.tsx"
 	suite := godog.TestSuite{
 		Name: "composer_image_preview",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
@@ -31,6 +32,23 @@ func TestComposerImagePreviewFeature(t *testing.T) {
 			sc.Step(`^a bubble sent before the full-size asset existed opens its preview instead$`, func() error {
 				return runVitestScenario(bubble,
 					"a bubble that predates the full-size url falls back to the preview")
+			})
+			sc.Step(`^a dropped file is replaced by a copy held in memory$`, func() error {
+				return runVitestScenario(copies, "a dropped file is replaced by a copy held in memory")
+			})
+			sc.Step(`^files dropped one after another keep their order whichever is read first$`, func() error {
+				return runVitestScenario(copies, "files dropped one after another keep their order whichever is read first")
+			})
+			sc.Step(`^a file that cannot be read leaves the others and says which it was$`, func() error {
+				return runVitestScenario(copies, "a file that cannot be read leaves the others and says which it was")
+			})
+			sc.Step(`^the row of a queued picture opens it from the session's assets at once$`, func() error {
+				return runVitestScenario("src/ui/chat/queuedUserMessage.test.ts",
+					"a picture read with a known session opens from the session's assets at once")
+			})
+			sc.Step(`^a server file with nothing to show yet keeps the picture the row has$`, func() error {
+				return runVitestScenario("src/ui/chat/transcriptServerSnapshot.test.ts",
+					"preserveUserMessageFiles keeps a local picture for a server file that has nothing to show yet")
 			})
 		},
 		Options: &godog.Options{

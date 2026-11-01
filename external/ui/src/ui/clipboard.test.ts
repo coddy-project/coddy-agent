@@ -221,6 +221,8 @@ test("the allow-list reads a Windows path as it reads any other", () => {
   expect(MAY_TOUCH_THE_CLIPBOARD.has(underSrc(windows))).toBe(true);
 });
 
+// This scans the whole source tree under the suite's parallel CPU load. Its
+// deadline bounds static analysis, not a clipboard interaction.
 test("no component copies text by itself", () => {
   const src = join(__dirname, "..");
   const files = new Map(
@@ -238,4 +240,4 @@ test("no component copies text by itself", () => {
       ),
     );
   expect(offenders).toEqual([]);
-});
+}, 60_000);

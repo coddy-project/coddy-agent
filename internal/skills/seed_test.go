@@ -149,6 +149,17 @@ func TestDeliveryReplacesAnOlderCopyOnDisk(t *testing.T) {
 	}
 }
 
+func TestDeliveryUpdatesConfigureCoddyForDeepSeek(t *testing.T) {
+	cfg := deliveryHome(t, true)
+	path := writeSkill(t, cfg, "configure-coddy", "1.2.3", "configuration guide before DeepSeek support")
+	if _, err := skills.SeedDelivery(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, path); !strings.Contains(got, "deepseek_api_key") {
+		t.Fatal("existing configure-coddy did not receive the DeepSeek configuration guide")
+	}
+}
+
 func TestDeliveryIsIdempotent(t *testing.T) {
 	cfg := deliveryHome(t, true)
 
@@ -179,10 +190,27 @@ func TestDeliveryDoesNotCreateAConfigFile(t *testing.T) {
 		t.Fatalf("a config file appeared at %s", cfg.Paths.ConfigPath)
 	}
 	// A home with no config file still has the marketplace: it is a system
-	// source, not something the file has to name.
-	if len(skills.ListSources(cfg, "")) == 0 {
-		t.Fatal("a home without a config file has no marketplace in effect")
+	// marketplace, not something the file has to name.
+	if keys := inEffectKeys(t, cfg); len(keys) == 0 || keys[0] != config.SystemSkillsMarketplace {
+		t.Fatalf("a home without a config file has %v in effect, want the system marketplace", keys)
 	}
+}
+
+// inEffectKeys names every marketplace and source in effect for the home, in
+// order: a marketplace by its name, a source by its address.
+func inEffectKeys(t *testing.T, cfg *config.Config) []string {
+	t.Helper()
+	decls, errs := skills.Declarations(cfg, "")
+	if len(errs) > 0 {
+		t.Fatal(errs)
+	}
+	var out []string
+	for _, d := range decls {
+		if d.State == skills.StateReady {
+			out = append(out, d.Key())
+		}
+	}
+	return out
 }
 
 // declareHome makes <home>/marketplaces.json declare sources.
@@ -200,14 +228,16 @@ func TestSystemSourceIsListedAndUndeletable(t *testing.T) {
 	cfg := deliveryHome(t, true)
 	declareHome(t, cfg, "someone/else", "https://github.com/"+config.SystemSkillsSource)
 
-	got := skills.ListSources(cfg, "")
-	want := []string{config.SystemSkillsSource, "someone/else"}
+	got := inEffectKeys(t, cfg)
+	want := []string{config.SystemSkillsMarketplace, "someone/else"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("sources: want %v, got %v", want, got)
+		t.Fatalf("in effect: want %v, got %v", want, got)
 	}
 
-	if _, err := skills.RemoveSource(cfg, "", config.SystemSkillsSource, ""); err == nil {
-		t.Fatal("removing the system marketplace was allowed")
+	for _, key := range []string{config.SystemSkillsSource, config.SystemSkillsMarketplace} {
+		if _, err := skills.RemoveSource(cfg, "", key, ""); err == nil {
+			t.Fatalf("removing the system marketplace by %q was allowed", key)
+		}
 	}
 	if added, err := skills.AddSource(cfg, "", config.SystemSkillsSource, skills.ScopeGlobal); err != nil || added {
 		t.Fatalf("adding the system marketplace should be a no-op, got added=%v err=%v", added, err)
@@ -273,7 +303,7 @@ func TestDeliveryStopsOnAnUnreadableReceipt(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(managed, "rpa-feat")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(managed, ".bundled.json"), []byte("{not json"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(cfg.Paths.Home, "skills-delivery.json"), []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -333,10 +363,65 @@ func TestRemovingARedundantConfigEntryClearsTheFile(t *testing.T) {
 		}
 	}
 	// The marketplace is in effect all the same, and the other source survived.
-	if !strings.EqualFold(skills.ListSources(cfg, "")[0], config.SystemSkillsSource) {
-		t.Fatalf("the system marketplace left the listing: %v", skills.ListSources(cfg, ""))
+	if keys := inEffectKeys(t, cfg); !reflect.DeepEqual(keys, []string{config.SystemSkillsMarketplace, "someone/else"}) {
+		t.Fatalf("in effect after the removal: %v", keys)
 	}
-	if !strings.Contains(strings.Join(skills.ListSources(cfg, ""), " "), "someone/else") {
-		t.Fatalf("an unrelated source was dropped: %v", skills.ListSources(cfg, ""))
+}
+
+// The record of what was handed over lives in the coddy home, beside the
+// skills folder rather than in it: deleting the folder is not a first install.
+// A record an older Coddy kept inside the folder moves out on the next run,
+// with what it said.
+func TestTheDeliveryRecordLivesBesideTheSkillsFolder(t *testing.T) {
+	cfg := deliveryHome(t, true)
+	if _, err := skills.SeedDelivery(cfg); err != nil {
+		t.Fatal(err)
+	}
+	managed := cfg.Skills.ManagedDir(cfg.Paths.Home)
+	record := filepath.Join(cfg.Paths.Home, "skills-delivery.json")
+	if _, err := os.Stat(record); err != nil {
+		t.Fatalf("no delivery record in the home: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(managed, ".bundled.json")); !os.IsNotExist(err) {
+		t.Fatalf("a record inside the skills folder: %v", err)
+	}
+
+	// An older Coddy's record inside the folder: rpa-feat handed over and
+	// deleted since.
+	if err := os.Remove(record); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(managed, "rpa-feat")); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"version":1,"skills":{"rpa-feat":"1.0.0"}}`
+	if err := os.WriteFile(filepath.Join(managed, ".bundled.json"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := skills.SeedDelivery(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(managed, "rpa-feat")); !os.IsNotExist(err) {
+		t.Fatalf("the deleted skill came back on the move: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(managed, ".bundled.json")); !os.IsNotExist(err) {
+		t.Fatalf("the old record stayed in the skills folder: %v", err)
+	}
+	data, err := os.ReadFile(record)
+	if err != nil || !strings.Contains(string(data), `"rpa-feat"`) {
+		t.Fatalf("the moved record = %s, %v", data, err)
+	}
+
+	// The whole folder deleted: nothing comes back.
+	if err := os.RemoveAll(managed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := skills.SeedDelivery(cfg); err != nil {
+		t.Fatal(err)
+	}
+	for _, sk := range skills.Bundled() {
+		if _, err := os.Stat(filepath.Join(managed, skills.CanonicalCommandName(sk))); !os.IsNotExist(err) {
+			t.Fatalf("%s came back after the skills folder was deleted: %v", skills.CanonicalCommandName(sk), err)
+		}
 	}
 }

@@ -307,7 +307,7 @@ func TestInstallFromDirWritesManagedDirAndLock(t *testing.T) {
 	res := &SyncResult{}
 	entry := RemoteEntry{Source: "owner/repo", Repo: "https://github.com/owner/repo"}
 
-	if err := installFromDir(clone, entry, managed, lock, res); err != nil {
+	if err := installFromDir(clone, entry, managed, lock, res, nil); err != nil {
 		t.Fatalf("installFromDir: %v", err)
 	}
 	for _, name := range []string{"one", "two"} {
@@ -360,9 +360,9 @@ func TestSyncFromLocalMarketplaceGit(t *testing.T) {
 	declareHomeSources(t, home, fileURL)
 	cfg := &config.Config{Paths: config.Paths{Home: home}}
 
-	res, err := Sync(context.Background(), cfg, "")
+	res, _, err := InstallSource(context.Background(), cfg, "", fileURL)
 	if err != nil {
-		t.Fatalf("Sync: %v", err)
+		t.Fatalf("InstallSource: %v", err)
 	}
 	if len(res.Failed) != 0 {
 		t.Fatalf("unexpected failures: %+v", res.Failed)
@@ -681,8 +681,8 @@ func TestSyncRecordsVersionThenCheckAndUpdate(t *testing.T) {
 	declareHomeSources(t, home, fileURL)
 	cfg := &config.Config{Paths: config.Paths{Home: home}}
 
-	if _, err := Sync(context.Background(), cfg, ""); err != nil {
-		t.Fatalf("Sync: %v", err)
+	if _, _, err := InstallSource(context.Background(), cfg, "", fileURL); err != nil {
+		t.Fatalf("InstallSource: %v", err)
 	}
 	managed := cfg.Skills.ManagedDir(home)
 	if ent := readRemoteLock(managed)["demo"]; ent.Version != "1.0.0" {
@@ -710,16 +710,25 @@ func TestSyncRecordsVersionThenCheckAndUpdate(t *testing.T) {
 		t.Fatalf("expected update to 2.0.0: %+v", ups)
 	}
 
+	// Reading the source again reports the update and installs nothing.
+	idx, err := RefreshIndex(context.Background(), cfg, "", "")
+	if err != nil || len(idx.Updates) != 1 || idx.Updates[0].Name != "demo" || idx.Updates[0].Latest != "2.0.0" {
+		t.Fatalf("RefreshIndex = %+v, %v; want the update of demo to 2.0.0", idx, err)
+	}
+	if ent := readRemoteLock(managed)["demo"]; ent.Version != "1.0.0" {
+		t.Fatalf("the read installed %q, want 1.0.0 kept", ent.Version)
+	}
+
 	// Applying the update installs it and clears the flag.
-	if _, err := UpdateSkill(context.Background(), cfg, "", "demo"); err != nil {
-		t.Fatalf("UpdateSkill: %v", err)
+	if _, err := UpdateSkills(context.Background(), cfg, "", ""); err != nil {
+		t.Fatalf("UpdateSkills: %v", err)
 	}
 	if ent := readRemoteLock(managed)["demo"]; ent.Version != "2.0.0" {
 		t.Fatalf("post-update lock version = %q, want 2.0.0", ent.Version)
 	}
 
 	// Updating a non-remote skill errors.
-	if _, err := UpdateSkill(context.Background(), cfg, "", "not-installed"); err == nil {
+	if _, err := UpdateSkills(context.Background(), cfg, "", "not-installed"); err == nil {
 		t.Error("expected error updating unknown skill")
 	}
 }
@@ -970,7 +979,7 @@ func TestInstallRefusesNamesOfTheManagedDirsOwnFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	res := &SyncResult{}
-	err := installFromDir(src, RemoteEntry{Source: "evil/market"}, managed, lock, res)
+	err := installFromDir(src, RemoteEntry{Source: "evil/market"}, managed, lock, res, nil)
 	if err == nil || !strings.Contains(err.Error(), `".remote.json"`) {
 		t.Fatalf("installFromDir = %v, want the dot name refused", err)
 	}

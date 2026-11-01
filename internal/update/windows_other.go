@@ -24,6 +24,6 @@ func runWindowsUpdateHelper(_ []string, _ io.Writer) error {
 	return errNotWindows
 }
 
-func runWindowsRestartAfterUpdate(_ []string, _ io.Writer) error {
+func runWindowsAfterUpdate(_ []string, _ io.Writer) error {
 	return errNotWindows
 }

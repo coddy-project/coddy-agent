@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Coddy for Browser: one socket, every chat</title>
+    <link rel="stylesheet" href="diagram.css" />
+    <style>
+      .top {
+        grid-template-columns: 330px 520px 1fr;
+        gap: 60px;
+      }
+      .panel .box {
+        margin-bottom: 8px;
+      }
+      .panel .box:last-child {
+        margin-bottom: 0;
+      }
+      .routes .box {
+        padding: 6px 12px;
+      }
+      .routes .group {
+        font-size: 12.5px;
+        font-weight: 600;
+        color: var(--muted);
+        margin: 10px 0 6px;
+      }
+      .routes .group:first-child {
+        margin-top: 0;
+      }
+      .others .box {
+        margin-bottom: 10px;
+      }
+      .action {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1.25fr 1.2fr 1fr;
+        column-gap: 34px;
+        align-items: stretch;
+      }
+      .action .box {
+        padding: 9px 12px;
+      }
+      .checks {
+        display: grid;
+        grid-template-columns: 1fr;
+        row-gap: 6px;
+      }
+      .checks .box {
+        padding: 6px 10px;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body style="--width: 1400px">
+    <h1>Coddy for Browser: one socket, every chat</h1>
+    <p class="lead">
+      The extension dials out to the HTTP server of <code>coddy serve</code> on its own machine and keeps one WebSocket
+      open. Every action of every chat reaches the browser down that socket; the person at the browser approves
+      websites and chats there.
+    </p>
+
+    <div class="cols top">
+      <div>
+        <h2>1. The browser</h2>
+        <div class="panel" id="browser">
+          <div class="title">Coddy for Browser</div>
+          <div class="box core" id="panel">
+            Side panel
+            <span class="sub">the web UI of the home server in a frame; Chrome's side panel, Firefox's sidebar, a window in Yandex Browser</span>
+          </div>
+          <div class="box core b" id="ext">
+            Background of the extension
+            <span class="sub">opens the socket and keeps it open; the tab groups, the approvals, the key in its storage</span>
+          </div>
+          <div class="box amber" id="person">
+            The person decides
+            <span class="sub">allow a website for this chat, always, or decline; allow a chat of another machine</span>
+          </div>
+          <div class="box green" id="tabs">
+            Tabs in the Coddy tab groups
+            <span class="sub">the shared <b>Coddy</b> group, one group per chat; nothing else is reached</span>
+          </div>
+        </div>
+        <p class="note" style="margin: 12px 0 0">
+          Clicks and keys go through the debugger in Chrome and Yandex Browser, so a page sees trusted input. Firefox has
+          no debugger for extensions: the events are dispatched in the page, and the result says
+          <code>trusted: false</code>.
+        </p>
+      </div>
+
+      <div>
+        <h2>2. coddy serve, the home server</h2>
+        <div class="panel routes" id="home">
+          <div class="group">outside the API gate, opened by the extension's key</div>
+          <div class="box blue b" id="ws">
+            GET /browser/v1/connect
+            <span class="sub">WebSocket, JSON-RPC 2.0 both ways; <code>chrome-extension://</code> or <code>moz-extension://</code> origin, the key in <code>initialize</code></span>
+          </div>
+          <div class="box blue" id="files">
+            /browser/v1/files/{ticket}
+            <span class="sub">one-time file tickets, 32 MiB at most</span>
+          </div>
+          <div class="group">the web UI of the panel</div>
+          <div class="box blue" id="auth">
+            POST /coddy/auth/browser
+            <span class="sub">redeems the one-time ticket the socket handed out (<code>panel/open</code>) for a session cookie</span>
+          </div>
+          <div class="box blue" id="turn">
+            POST /v1/responses with <code>metadata.browser</code>
+            <span class="sub">the tab the person writes from, in the turn context block: the system prompt does not move</span>
+          </div>
+          <div class="group">behind the API gate, under <code>browser.serve_remote</code></div>
+          <div class="box blue" id="api">
+            GET /coddy/browser/v1/browsers, POST /coddy/browser/v1/call
+            <span class="sub">a chat of another process owns tabs as <code>&lt;node&gt;/&lt;session id&gt;</code></span>
+          </div>
+          <div class="box core b" id="hub" style="margin-top: 14px">
+            Hub and the <code>browser</code> tool
+            <span class="sub">one connection per browser; the tool asks this hub, the server of this machine, then <code>browser.remotes</code></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="others">
+        <h2>3. Elsewhere</h2>
+        <div class="box core" id="local">
+          A console or an editor on the same machine
+          <span class="sub"><code>coddy</code>, <code>coddy acp</code>: the server at <code>httpserver.host</code> and <code>port</code>, with <code>auth_token</code></span>
+        </div>
+        <div class="box core" id="node">
+          Another machine, a node of the swarm
+          <span class="sub">names the home server in <code>browser.remotes</code>; a relay mount such as <code>/swarm/nodes/home</code> works too</span>
+        </div>
+        <p class="note" style="margin: 2px 0 18px">
+          A process that only uses the browsers of other servers needs no key of its own. The marks of a remote chat's
+          tabs go away 45 s after its last call.
+        </p>
+        <div class="box amber" id="model">
+          Model provider
+          <span class="sub">page text and screenshots reach it as tool results, like any other</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <h2>4. One action, end to end</h2>
+    <div class="action">
+      <div class="box blue b" id="a1">
+        The chat calls <code>browser</code>
+        <span class="sub">snapshot, click, type, open_tab, upload_file...</span>
+      </div>
+      <div class="box core b" id="a2">
+        Hub.Call
+        <span class="sub">a tab in another chat's group is refused before sending; the call is never retried</span>
+      </div>
+      <div class="box blue b" id="a3">
+        <code>browser/command</code> down the socket
+        <span class="sub">a cancelled turn sends <code>$/cancelRequest</code>; its end sends <code>browser/turnEnded</code></span>
+      </div>
+      <div class="checks" id="a4">
+        <div class="box amber">a chat of another machine: allowed?</div>
+        <div class="box amber">this website: allowed for this chat?</div>
+        <div class="box green">the tab is in the chat's group</div>
+      </div>
+      <div class="box green b" id="a5">
+        The extension acts
+        <span class="sub">and answers with the result and the tab after it</span>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>
+        Stop on the page Coddy works in, and Disconnect on the extension's settings page, cancel every action, ungroup
+        every tab and take back what the chats of other machines were allowed. The answers about websites and chats
+        stay in the browser and never reach Coddy.
+      </p>
+    </div>
+
+    <script src="diagram.js"></script>
+    <script>
+      wires([
+        { from: "#ext", to: "#ws", color: "blue", bend: 0.7 },
+        { from: "#panel", to: "#auth", color: "ink", dash: true, toShift: -0.2, bend: 0.3 },
+        { from: "#local", to: "#api", fromSide: "left", toSide: "right", color: "ink" },
+        { from: "#node", to: "#api", fromSide: "left", toSide: "right", color: "ink", toShift: 0.25 },
+        { from: "#hub", to: "#model", fromSide: "right", toSide: "left", color: "amber" },
+        { from: "#a1", to: "#a2", color: "ink" },
+        { from: "#a2", to: "#a3", color: "ink" },
+        { from: "#a3", to: "#a4", color: "ink" },
+        { from: "#a4", to: "#a5", color: "green" },
+      ]);
+    </script>
+  </body>
+</html>

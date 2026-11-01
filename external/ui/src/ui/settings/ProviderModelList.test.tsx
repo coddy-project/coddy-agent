@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   cleanup,
   fireEvent,
@@ -11,6 +8,7 @@ import {
 import { afterEach, expect, test, vi } from "vitest";
 import { ProviderModelList } from "./ProviderModelList";
 import { AUTO_FETCH_DEBOUNCE_MS } from "./useProviderModels";
+import { stylesSource } from "../../stylesSource";
 
 afterEach(() => {
   cleanup();
@@ -18,7 +16,16 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-type StubModel = { id: string; name?: string; context_window?: number };
+type StubModel = {
+  id: string;
+  name?: string;
+  context_window?: number;
+  catalog?: {
+    context_window?: number;
+    max_tokens?: number;
+    multimodal?: boolean;
+  };
+};
 
 /** Answers every POST /coddy/providers/models with the given list (or an error). */
 function stubModels(models: StubModel[], ok = true) {
@@ -123,7 +130,25 @@ test("a row without a name or a type fetches nothing and says why", () => {
 });
 
 test("a model is added to Logical models from its row", async () => {
-  stubModels([{ id: "m1", context_window: 131072 }, { id: "m2" }]);
+  stubModels([
+    {
+      id: "m1",
+      context_window: 131072,
+      // Never sent beside a reported window; held to it all the same.
+      catalog: { context_window: 200000, max_tokens: 40000 },
+    },
+    {
+      id: "m2",
+      catalog: { context_window: 128000, max_tokens: 16384, multimodal: true },
+    },
+    { id: "m3" },
+    // The provider reports the catalog's window, as Anthropic's listing does.
+    {
+      id: "m4",
+      context_window: 200000,
+      catalog: { context_window: 200000, max_tokens: 40000, multimodal: true },
+    },
+  ]);
   const onAddModel = vi.fn();
   render(
     <ProviderModelList
@@ -141,10 +166,29 @@ test("a model is added to Logical models from its row", async () => {
   );
   fireEvent.click(toggle("m1"));
   fireEvent.click(toggle("m2"));
+  fireEvent.click(toggle("m3"));
+  fireEvent.click(toggle("m4"));
 
-  // The context window the provider reports travels with the id.
-  expect(onAddModel).toHaveBeenNthCalledWith(1, "demo/m1", 131072);
-  expect(onAddModel).toHaveBeenNthCalledWith(2, "demo/m2", undefined);
+  // The window the provider reports travels with the id, else the models
+  // catalog's window with its max_tokens and image support.
+  expect(onAddModel).toHaveBeenNthCalledWith(
+    1,
+    "demo/m1",
+    131072,
+    undefined,
+    undefined,
+  );
+  expect(onAddModel).toHaveBeenNthCalledWith(2, "demo/m2", 128000, 16384, true);
+  expect(onAddModel).toHaveBeenNthCalledWith(
+    3,
+    "demo/m3",
+    undefined,
+    undefined,
+    undefined,
+  );
+  expect(onAddModel).toHaveBeenNthCalledWith(4, "demo/m4", 200000, 40000, true);
+  // The row shows the window the model is added with.
+  expect(screen.getByTestId("provider-model-m2").textContent).toContain("128k");
 });
 
 test("a model already in Logical models is checked and unchecking removes it", async () => {
@@ -425,10 +469,7 @@ test("connection edits wait for the refresh icon; a new id fetches once it settl
 // width every <fieldset> defaults to, the id may shrink and ellipsizes, and
 // the toggle never squeezes.
 test("the list is contained: the box may shrink, the id ellipsizes, the toggle never squeezes", () => {
-  const css = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
-    "utf8",
-  );
+  const css = stylesSource();
   const rule = (selector: string) => {
     const m = css.match(
       new RegExp(

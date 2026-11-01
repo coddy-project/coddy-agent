@@ -223,9 +223,7 @@ func (s *Server) configureSender(bridge *Sender) *Sender {
 func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 	if u, ok := update.(acp.TokenUsageUpdate); ok {
 		s.mu.Lock()
-		s.usage.input += u.InputTokens
-		s.usage.output += u.OutputTokens
-		s.usage.cached += u.CachedInputTokens
+		s.usage.add(u)
 		s.mu.Unlock()
 	}
 	if !s.emit || s.w == nil {

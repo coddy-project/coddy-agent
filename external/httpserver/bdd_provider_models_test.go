@@ -29,6 +29,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm/models"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -47,9 +48,10 @@ type providerModelsWorld struct {
 	codexRows     []codexCatalogRow
 	codexVersions []string
 
-	ok     bool
-	models []string
-	ctx    map[string]int
+	ok      bool
+	models  []string
+	ctx     map[string]int
+	catalog map[string]*models.Limits
 }
 
 // codexCatalogRow is one model of the stand-in Codex catalog: its slug and
@@ -68,8 +70,19 @@ const codexSourceBuildVersion = "0.154.0"
 // upstreamServing starts a stand-in provider endpoint that answers the model
 // list with the given ids and records the credential it was called with. An
 // entry may carry a context window as "id:131072" - the stand-in reports it
-// under the OpenRouter spelling, context_length.
+// under the OpenRouter spelling, context_length - or as "id:catalog", the
+// window the embedded models catalog has for the id.
 func (w *providerModelsWorld) upstreamServing(t *testing.T, csv string) error {
+	return w.serveListing(t, csv, "context_length")
+}
+
+// anthropicServing is upstreamServing in Anthropic's shape: the window is
+// max_input_tokens.
+func (w *providerModelsWorld) anthropicServing(t *testing.T, csv string) error {
+	return w.serveListing(t, csv, "max_input_tokens")
+}
+
+func (w *providerModelsWorld) serveListing(t *testing.T, csv, windowField string) error {
 	ids := strings.Split(csv, ",")
 	var data []map[string]interface{}
 	for _, part := range ids {
@@ -77,11 +90,19 @@ func (w *providerModelsWorld) upstreamServing(t *testing.T, csv string) error {
 		id, ctx := part, 0
 		if i := strings.LastIndex(part, ":"); i > 0 {
 			id = part[:i]
-			ctx, _ = strconv.Atoi(part[i+1:])
+			if part[i+1:] == "catalog" {
+				limits, ok := models.Lookup(id)
+				if !ok {
+					return fmt.Errorf("the models catalog does not list %q any more: pick another model for this scenario", id)
+				}
+				ctx = limits.ContextWindow
+			} else {
+				ctx, _ = strconv.Atoi(part[i+1:])
+			}
 		}
 		entry := map[string]interface{}{"id": id}
 		if ctx > 0 {
-			entry["context_length"] = ctx
+			entry[windowField] = ctx
 		}
 		data = append(data, entry)
 	}
@@ -257,6 +278,65 @@ func (w *providerModelsWorld) serve(t *testing.T, cfg *config.Config, home strin
 	t.Cleanup(w.ts.Close)
 }
 
+// sourceCoddyServing starts another Coddy API as the upstream: its models
+// sit on a provider named "local" and carry their windows as
+// max_context_tokens, given as "id:32768", so that Coddy reports them from
+// its own configuration and never asks its provider.
+func (w *providerModelsWorld) sourceCoddyServing(t *testing.T, csv string) error {
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "local", Type: "openai", APIKey: "k"}},
+	}
+	for _, entry := range strings.Split(csv, ",") {
+		id, window, ok := strings.Cut(strings.TrimSpace(entry), ":")
+		n, err := strconv.Atoi(window)
+		if !ok || err != nil {
+			return fmt.Errorf("source model %q: want id:window", entry)
+		}
+		cfg.Models = append(cfg.Models, config.ModelEntry{Model: "local/" + id, MaxContextTokens: n})
+	}
+	cfg.Agent.Model = cfg.Models[0].Model
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	home := t.TempDir()
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	w.upstream = httptest.NewServer(New(cfg, mgr, slog.Default(), home).Handler())
+	t.Cleanup(w.upstream.Close)
+	return nil
+}
+
+// gatewayWithModelsAtSource boots the client Coddy: a provider of type openai
+// at the source Coddy's /v1, and models on it that set no max_context_tokens,
+// so their windows come from the source's listing.
+func (w *providerModelsWorld) gatewayWithModelsAtSource(t *testing.T, name, csv string) error {
+	if w.upstream == nil {
+		return fmt.Errorf("source not started")
+	}
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.yaml")
+	yml := fmt.Sprintf(`providers:
+  - name: %s
+    type: openai
+    api_base: %s/v1
+    api_key: sk-src
+models:
+`, name, w.upstream.URL)
+	ids := strings.Split(csv, ",")
+	for _, id := range ids {
+		yml += fmt.Sprintf("  - model: %s/%s\n    max_tokens: 4096\n", name, strings.TrimSpace(id))
+	}
+	yml += fmt.Sprintf("agent:\n  model: %s/%s\n", name, strings.TrimSpace(ids[0]))
+	if err := os.WriteFile(cfgPath, []byte(yml), 0o644); err != nil {
+		return err
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return err
+	}
+	w.serve(t, cfg, home)
+	return nil
+}
+
 func (w *providerModelsWorld) gatewayWithUnrelatedProvider(t *testing.T, name string) error {
 	return w.startGateway(t, fmt.Sprintf(`providers:
   - name: %s
@@ -329,6 +409,11 @@ func (w *providerModelsWorld) readModels(res *http.Response) error {
 		Models []struct {
 			ID            string `json:"id"`
 			ContextWindow int    `json:"context_window"`
+			Catalog       *struct {
+				ContextWindow int  `json:"context_window"`
+				MaxTokens     int  `json:"max_tokens"`
+				Multimodal    bool `json:"multimodal"`
+			} `json:"catalog"`
 		} `json:"models"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
@@ -337,9 +422,13 @@ func (w *providerModelsWorld) readModels(res *http.Response) error {
 	w.ok = payload.OK
 	w.models = nil
 	w.ctx = map[string]int{}
+	w.catalog = map[string]*models.Limits{}
 	for _, m := range payload.Models {
 		w.models = append(w.models, m.ID)
 		w.ctx[m.ID] = m.ContextWindow
+		if m.Catalog != nil {
+			w.catalog[m.ID] = &models.Limits{ContextWindow: m.Catalog.ContextWindow, MaxTokens: m.Catalog.MaxTokens, Multimodal: m.Catalog.Multimodal}
+		}
 	}
 	return nil
 }
@@ -371,6 +460,26 @@ func (w *providerModelsWorld) upstreamSawKey(key string) error {
 func (w *providerModelsWorld) wantCtx(want int, id string) error {
 	if w.ctx[id] != want {
 		return fmt.Errorf("context_window for %q = %d, want %d", id, w.ctx[id], want)
+	}
+	return nil
+}
+
+// wantCatalog holds the answer to the embedded models catalog, whatever its
+// numbers are after the next refresh.
+func (w *providerModelsWorld) wantCatalog(id string) error {
+	want, ok := models.Lookup(id)
+	if !ok {
+		return fmt.Errorf("the models catalog does not list %q any more: pick another model for this scenario", id)
+	}
+	if got := w.catalog[id]; got == nil || *got != want {
+		return fmt.Errorf("catalog for %q = %+v, want %+v", id, got, want)
+	}
+	return nil
+}
+
+func (w *providerModelsWorld) wantNoCatalog(id string) error {
+	if got := w.catalog[id]; got != nil {
+		return fmt.Errorf("catalog for %q = %+v, want none", id, *got)
 	}
 	return nil
 }
@@ -412,6 +521,9 @@ func TestProviderModelsFetchFeature(t *testing.T) {
 		Name: "provider_models_fetch",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			w := &providerModelsWorld{}
+			sc.Step(`^an Anthropic model endpoint serving "([^"]*)"$`, func(csv string) error {
+				return w.anthropicServing(t, csv)
+			})
 			sc.Step(`^an upstream model endpoint serving "([^"]*)"$`, func(csv string) error {
 				return w.upstreamServing(t, csv)
 			})
@@ -420,6 +532,12 @@ func TestProviderModelsFetchFeature(t *testing.T) {
 			})
 			sc.Step(`^a coddy server holding a provider "([^"]*)" of type "([^"]*)" at that upstream with key "([^"]*)"$`, func(name, providerType, key string) error {
 				return w.gatewayWithProviderAtUpstream(t, name, providerType, key)
+			})
+			sc.Step(`^a source coddy server serving "([^"]*)"$`, func(csv string) error {
+				return w.sourceCoddyServing(t, csv)
+			})
+			sc.Step(`^a coddy server whose provider "([^"]*)" at that source lists the models "([^"]*)"$`, func(name, csv string) error {
+				return w.gatewayWithModelsAtSource(t, name, csv)
 			})
 			sc.Step(`^a stand-in Codex backend whose catalog offers "([^"]*)" from Codex (\d+\.\d+\.\d+)$`, func(csv, minVersion string) error {
 				return w.codexCatalogStandIn(t, csv, minVersion)
@@ -436,6 +554,8 @@ func TestProviderModelsFetchFeature(t *testing.T) {
 			sc.Step(`^the settings form reads the models of the saved provider "([^"]*)"$`, w.getSaved)
 			sc.Step(`^the gateway answers with the models "([^"]*)"$`, w.wantModels)
 			sc.Step(`^the gateway answers with context window (\d+) for "([^"]*)"$`, w.wantCtx)
+			sc.Step(`^the gateway answers with the window, max_tokens and image support the models catalog has for "([^"]*)"$`, w.wantCatalog)
+			sc.Step(`^the gateway answers with nothing from the models catalog for "([^"]*)"$`, w.wantNoCatalog)
 			sc.Step(`^the upstream saw the key "([^"]*)"$`, w.upstreamSawKey)
 			sc.Step(`^the model list reports the context window (\d+) for "([^"]*)"$`, w.modelListReportsWindow)
 		},

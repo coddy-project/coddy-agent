@@ -18,6 +18,14 @@ type Asset struct {
 	UsedBy []string // repository-relative paths
 }
 
+// diagramsDir is the folder of the documentation diagrams under docs/assets:
+// one HTML source per diagram, the stylesheet and script the sources share,
+// and the PNG rendered from each source, which is what a page embeds.
+const diagramsDir = "diagrams/"
+
+// renderDiagramsScript renders every diagram source into its picture.
+const renderDiagramsScript = "scripts/render-diagrams.sh"
+
 // assetIndexFiles are the hand-written files inside docs/assets that are not assets.
 var assetIndexFiles = map[string]bool{"INDEX.md": true, "README.md": true}
 
@@ -99,8 +107,62 @@ func AssetInventory(root string) ([]Asset, error) {
 			}
 		}
 	}
+	if err := linkDiagramSources(root, assets); err != nil {
+		return nil, err
+	}
 	sort.Slice(assets, func(i, j int) bool { return assets[i].Path < assets[j].Path })
 	return assets, nil
+}
+
+func isDiagramSource(path string) bool {
+	return strings.HasPrefix(path, diagramsDir) && strings.EqualFold(filepath.Ext(path), ".html")
+}
+
+func isDiagramPicture(path string) bool {
+	return strings.HasPrefix(path, diagramsDir) && strings.EqualFold(filepath.Ext(path), ".png")
+}
+
+func diagramPicture(source string) string {
+	return strings.TrimSuffix(source, filepath.Ext(source)) + ".png"
+}
+
+func diagramSource(picture string) string {
+	return strings.TrimSuffix(picture, filepath.Ext(picture)) + ".html"
+}
+
+// linkDiagramSources marks what a page reaches through a diagram's picture
+// rather than by name: the HTML source the picture is rendered from, used by
+// the script that renders it, and the files the sources link (the shared
+// stylesheet and script), used by each source that links them.
+func linkDiagramSources(root string, assets []Asset) error {
+	have := map[string]bool{}
+	for _, a := range assets {
+		have[a.Path] = true
+	}
+	for i := range assets {
+		source := assets[i].Path
+		if !isDiagramSource(source) {
+			continue
+		}
+		if have[diagramPicture(source)] {
+			assets[i].UsedBy = append(assets[i].UsedBy, renderDiagramsScript)
+		}
+		data, err := os.ReadFile(filepath.Join(root, AssetsDir, source))
+		if err != nil {
+			return err
+		}
+		text := string(data)
+		for j := range assets {
+			linked := assets[j].Path
+			if j == i || !strings.HasPrefix(linked, diagramsDir) {
+				continue
+			}
+			if strings.Contains(text, `"`+strings.TrimPrefix(linked, diagramsDir)+`"`) {
+				assets[j].UsedBy = append(assets[j].UsedBy, AssetsDir+"/"+source)
+			}
+		}
+	}
+	return nil
 }
 
 func referenceFiles(root string) ([]string, error) {
@@ -149,8 +211,21 @@ func referenceFiles(root string) ([]string, error) {
 // CheckAssets reports every asset that nothing references: a file nobody
 // links is a file the repository does not need.
 func CheckAssets(assets []Asset) []Problem {
+	have := map[string]bool{}
+	for _, a := range assets {
+		have[a.Path] = true
+	}
 	var problems []Problem
 	for _, a := range assets {
+		// A diagram is its source and its picture: a page shows the picture,
+		// and a change edits the source and renders the picture again.
+		if isDiagramSource(a.Path) && !have[diagramPicture(a.Path)] {
+			problems = append(problems, Problem{AssetsDir + "/" + a.Path, "a diagram source without its picture " + filepath.Base(diagramPicture(a.Path)) + "; render it with make diagrams and embed it on a page, or delete the source"})
+			continue
+		}
+		if isDiagramPicture(a.Path) && !have[diagramSource(a.Path)] {
+			problems = append(problems, Problem{AssetsDir + "/" + a.Path, "a diagram picture without its source " + filepath.Base(diagramSource(a.Path)) + "; commit the HTML it is rendered from (make diagrams), or delete the picture"})
+		}
 		if len(a.UsedBy) == 0 {
 			problems = append(problems, Problem{AssetsDir + "/" + a.Path, "not referenced by any page, script or the Dockerfile; delete it or use it"})
 		}

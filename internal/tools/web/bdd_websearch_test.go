@@ -9,6 +9,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -18,11 +20,13 @@ import (
 )
 
 type webSearchFeatureState struct {
-	engines []string
-	scripts map[string]func(context.Context, Query, Settings) ([]Result, error)
-	out     searchOutput
-	raw     string
-	runErr  error
+	engines  []string
+	scripts  map[string]func(context.Context, Query, Settings) ([]Result, error)
+	out      searchOutput
+	raw      string
+	runErr   error
+	apiCheck chan error
+	cleanup  func()
 }
 
 func (s *webSearchFeatureState) reset() {
@@ -31,6 +35,8 @@ func (s *webSearchFeatureState) reset() {
 	s.out = searchOutput{}
 	s.raw = ""
 	s.runErr = nil
+	s.apiCheck = nil
+	s.cleanup = nil
 	searchCache.reset()
 }
 
@@ -47,6 +53,7 @@ func (s *webSearchFeatureState) install() {
 	bingSearchFunc = pick(EngineBing)
 	googleSearchFunc = pick(EngineGoogle)
 	searxngSearchFunc = pick(EngineSearXNG)
+	deepseekSearchFunc = pick(EngineDeepSeek)
 }
 
 func (s *webSearchFeatureState) theOperatorConfiguredTheSearchEngines(list string) error {
@@ -92,6 +99,47 @@ func (s *webSearchFeatureState) engineAnswersWithNoResults(engine string) error 
 	return nil
 }
 
+func (s *webSearchFeatureState) deepSeekAPIAnswersWith(table *godog.Table) error {
+	if err := s.engineAnswersWith(EngineDeepSeek, table); err != nil {
+		return err
+	}
+	rows, err := s.scripts[EngineDeepSeek](context.Background(), Query{}, Settings{})
+	if err != nil {
+		return err
+	}
+	results := make([]map[string]string, 0, len(rows))
+	for _, row := range rows {
+		results = append(results, map[string]string{"title": row.Title, "url": row.URL, "snippet": row.Snippet})
+	}
+	s.apiCheck = make(chan error, 1)
+	checks := s.apiCheck
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Query string `json:"query"`
+			Count int    `json:"count"`
+		}
+		check := json.NewDecoder(r.Body).Decode(&body)
+		if check == nil && (r.Method != http.MethodPost || r.URL.Path != "/v1/tools/search" ||
+			r.Header.Get("Authorization") != "Bearer fixture-key" || r.Header.Get("Content-Type") != "application/json" ||
+			body.Query != "golang context" || body.Count != 15) {
+			check = fmt.Errorf("unexpected DeepSeek request: %s %s, query=%q count=%d", r.Method, r.URL.Path, body.Query, body.Count)
+		}
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{"results": results}); err != nil && check == nil {
+			check = err
+		}
+		checks <- check
+	}))
+	oldEndpoint, oldClient := deepseekEndpoint, deepseekClient
+	deepseekEndpoint, deepseekClient = server.URL+"/v1/tools/search", server.Client()
+	s.cleanup = func() {
+		server.Close()
+		deepseekEndpoint, deepseekClient = oldEndpoint, oldClient
+	}
+	// Use the real HTTP backend rather than the scenario's engine seam.
+	s.scripts[EngineDeepSeek] = nil
+	return nil
+}
+
 func (s *webSearchFeatureState) engineIsBlockedWith(engine, reason string) error {
 	s.scripts[engine] = func(context.Context, Query, Settings) ([]Result, error) {
 		return nil, blocked("%s", reason)
@@ -108,8 +156,19 @@ func (s *webSearchFeatureState) theAgentSearchesTheWebFor(query string) error {
 	env := &tooling.Env{WebSearch: &tooling.WebSearchSettings{
 		Engines:         s.engines,
 		CacheTTLSeconds: -1,
+		DeepSeekAPIKey:  "fixture-key",
 	}}
 	s.raw, s.runErr = WebSearchTool().Execute(context.Background(), string(args), env)
+	if s.apiCheck != nil {
+		select {
+		case err := <-s.apiCheck:
+			if err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("DeepSeek API was not called")
+		}
+	}
 	if s.runErr != nil {
 		return nil
 	}
@@ -208,19 +267,24 @@ func (s *webSearchFeatureState) theFailureNamesEngineAndItsReason(engine, reason
 
 func initializeWebSearchScenario(sc *godog.ScenarioContext) {
 	s := &webSearchFeatureState{}
-	oldBrave, oldBing, oldGoogle, oldSearx := braveSearchFunc, bingSearchFunc, googleSearchFunc, searxngSearchFunc
+	oldBrave, oldBing, oldGoogle, oldSearx, oldDeep := braveSearchFunc, bingSearchFunc, googleSearchFunc, searxngSearchFunc, deepseekSearchFunc
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
 		s.reset()
 		return ctx, nil
 	})
 	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+		if s.cleanup != nil {
+			s.cleanup()
+		}
 		braveSearchFunc, bingSearchFunc = oldBrave, oldBing
 		googleSearchFunc, searxngSearchFunc = oldGoogle, oldSearx
+		deepseekSearchFunc = oldDeep
 		searchCache.reset()
 		return ctx, nil
 	})
 	sc.Step(`^the operator configured the search engines "([^"]*)"$`, s.theOperatorConfiguredTheSearchEngines)
 	sc.Step(`^engine "([^"]*)" answers with:$`, s.engineAnswersWith)
+	sc.Step(`^the DeepSeek API answers with:$`, s.deepSeekAPIAnswersWith)
 	sc.Step(`^engine "([^"]*)" answers with no results$`, s.engineAnswersWithNoResults)
 	sc.Step(`^engine "([^"]*)" is blocked with "([^"]*)"$`, s.engineIsBlockedWith)
 	sc.Step(`^the agent searches the web for "([^"]*)"$`, s.theAgentSearchesTheWebFor)

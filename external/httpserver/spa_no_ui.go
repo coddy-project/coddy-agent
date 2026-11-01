@@ -4,6 +4,9 @@ package httpserver
 
 import "net/http"
 
+// UIAvailable reports whether this binary embeds the web UI.
+const UIAvailable = false
+
 const spaNotEmbeddedResponse = "Coddy HTTP API is running without the embedded web UI (rebuild with -tags \"http ui\").\n"
 
 func mountEmbeddedSPARoot(s *Server) {

@@ -1,0 +1,334 @@
+// The slash, mention and @ pickers of the composer.
+
+@use "../abstracts" as *;
+
+.slash-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: var(--coddy-overlay-scrim-bg);
+}
+
+/* The composer's own pickers (skills, commands, mentions, line ranges, command
+   options) dim nothing: the reader keeps seeing the chat and the draft while
+   choosing, and a press outside still closes the list. */
+.slash-sheet-backdrop--clear {
+  background: transparent;
+}
+
+/* Transparent catch-all so an open mode/model/reasoning menu closes on outside click. */
+.mode-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: default;
+}
+
+/*
+ * Portaled under document.body (not inside .composer-card) so the menu's own
+ * backdrop-filter blurs the chat behind it as frosted glass — a nested
+ * backdrop-filter would only frost the composer card's tint and read as solid.
+ * Position comes from the trigger rect via inline left/top/bottom.
+ */
+.mode-menu.mode-menu--portal {
+  position: fixed;
+  z-index: 101;
+}
+
+/* Shell holds surface (frosted) + inner scroll — scroll must not live on backdrop-filter layer */
+.slash-menu {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+.slash-menu-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: var(--coddy-glass-panel-radius);
+  box-shadow: var(--coddy-glass-panel-shadow);
+}
+
+.slash-menu-scroll {
+  position: relative;
+  z-index: 1;
+  /* Match #composer horizontal padding so skills list lines up with typed text */
+  padding: 10px 10px 5px;
+  min-height: 0;
+}
+
+/* Floating desktop menu is portaled under document.body so backdrop-filter blurs chat below composer */
+.slash-menu--portal {
+  position: fixed;
+  z-index: var(--coddy-z-slash-command);
+  box-sizing: border-box;
+}
+
+.slash-menu--portal .slash-menu-scroll {
+  max-height: min(260px, 42vh);
+  overflow-y: auto;
+}
+
+.slash-menu--sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0 auto;
+  max-width: min(560px, 100vw);
+  border-radius: $sheet-corners;
+  z-index: 41;
+}
+
+.slash-menu--sheet .slash-menu-surface {
+  border-radius: $sheet-corners;
+}
+
+.slash-menu--sheet .slash-menu-scroll {
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.slash-menu-title {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  padding: 2px 6px 6px;
+}
+
+/* A second section title (e.g. Commands after the Skills list) gets a divider. */
+.slash-rows + .slash-menu-title {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.slash-muted,
+.slash-err {
+  font-size: 12px;
+  padding: 8px;
+  opacity: 0.75;
+}
+
+.slash-err {
+  opacity: 0.95;
+  color: rgba(251, 113, 133, 0.95);
+}
+
+.slash-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.slash-row-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 10px;
+  padding: 8px;
+  cursor: pointer;
+  color: var(--text);
+  background: transparent;
+}
+
+.slash-row-btn:hover {
+  background: mix-text(6%);
+}
+
+/* Keyboard-highlighted row (arrow-key selection); accent-tinted so it reads as
+   the current choice distinct from a plain hover. */
+.slash-row-btn.is-active {
+  background: color-mix(in srgb, var(--accent) 16%, var(--coddy-blend-base));
+}
+
+/* Name and description flow as one inline block: the description begins right
+   after the /name and wraps onto the next line, clamped to 2 lines with an
+   ellipsis for anything that does not fit. */
+.slash-row-line {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.4;
+}
+
+.slash-row-name {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The argument a settings command takes, between its name and description. */
+.slash-row-hint {
+  font-family: $coddy-mono-ui;
+  font-size: 11px;
+  color: mix-text(55%);
+}
+
+.slash-row-desc {
+  font-size: 12px;
+  opacity: 0.72;
+}
+
+/* "@" picker: the kind of each candidate - file, folder, session, rule,
+   subagent, plan - as a small label before it. The meta kinds take the
+   accent, so another session or a rule reads apart from a path. */
+.mention-kind {
+  display: inline-block;
+  min-width: 44px;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 6px;
+  font-size: 10px;
+  line-height: 16px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: center;
+  vertical-align: 1px;
+  color: color-mix(in srgb, var(--text) 62%, transparent);
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.mention-kind--session,
+.mention-kind--rule,
+.mention-kind--agent,
+.mention-kind--plan,
+.mention-kind--doc,
+.mention-kind--scheme {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* "50 of 1204, type to narrow": the list was cut, and typing narrows it.
+   It rides the title row, which is on screen when the picker opens. */
+.mention-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mention-more {
+  text-transform: none;
+  letter-spacing: 0;
+  text-align: right;
+}
+
+.slash-load-more {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(147, 197, 253, 0.95);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.slash-load-more:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Line-range picker: the panel that replaces the @ file picker once a ":" is
+   typed. Rows are one logical line each (no wrapping), so the gutter numbers
+   line up with the code and long lines scroll sideways inside the panel. */
+.at-range-title-path {
+  margin-left: 6px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+.at-range-title-range {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.at-range-hint,
+.at-range-menu-hint {
+  padding-top: 0;
+  padding-bottom: 6px;
+}
+
+.at-range-menu-hint {
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.at-range-lines {
+  overflow-x: auto;
+  font-family: var(--mono, $coddy-mono-ui);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.at-range-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-width: max-content;
+  padding: 0 6px;
+  border: none;
+  border-radius: 6px;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  font: inherit;
+}
+
+/* Desktop rows are buttons; mobile shells render plain rows with no pointer
+   affordance, since a range there is typed rather than dragged. */
+button.at-range-line {
+  cursor: pointer;
+}
+
+button.at-range-line:hover {
+  background: mix-text(6%);
+}
+
+.at-range-line--sel,
+button.at-range-line--sel:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--coddy-blend-base));
+}
+
+.at-range-line-no {
+  flex: 0 0 auto;
+  min-width: 3ch;
+  text-align: right;
+  opacity: 0.5;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.at-range-line-code {
+  flex: 1 1 auto;
+  white-space: pre;
+}

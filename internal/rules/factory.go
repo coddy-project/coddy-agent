@@ -69,7 +69,7 @@ func (f *Factory) ProjectFolders() []string {
 
 // Discovery is what one discovery pass found.
 type Discovery struct {
-	// Rules are the rules of the session, one per file name.
+	// Rules are the rules of the session, one per path inside the rule folder.
 	Rules []*Rule
 	// ProjectFolder is the project folder the rules came from, as the chain
 	// names it (".cursor/rules"), or "" when no folder of the chain holds a
@@ -117,8 +117,8 @@ func (f *Factory) Inspect(cwd string, systems []Source) (*Discovery, error) {
 // already absolute, which is how the operator's own folder outside the
 // workspace joins the same pass. Every rule is anchored at the absolute cwd
 // (Rule.Root) so its globs match project-relative paths whichever folder the
-// file itself came from. A project rule wins over the operator's rule of the
-// same file name.
+// file itself came from. A project rule wins over the operator's rule at the
+// same path inside the rule folder, extension included (Rule.DedupeKey).
 func (f *Factory) discover(cwd string, systems []Source, inspect bool) (*Discovery, error) {
 	admitted := admittedBy(systems)
 	projectRoot, err := filepath.Abs(cwd)
@@ -156,8 +156,8 @@ func (f *Factory) discover(cwd string, systems []Source, inspect bool) (*Discove
 			r.Root = projectRoot
 		}
 		// The project folder was loaded first, so a rule of the operator's
-		// that shares a file name with one of the project's is dropped, and
-		// within one folder the first file of that name wins.
+		// at the same path as one of the project's (Rule.DedupeKey) is
+		// dropped, and within one folder the first file at that path wins.
 		if _, ok := byKey[key]; !ok {
 			byKey[key] = r
 		}

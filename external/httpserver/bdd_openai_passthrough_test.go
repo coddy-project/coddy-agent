@@ -560,6 +560,9 @@ func initializeOpenAIPassthroughScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a coddy server whose direct model is a recording stub with tool calling$`, s.startServer)
 	sc.Step(`^an OpenAI client streams "([^"]+)" with a "([^"]+)" tool$`, s.streamsWithTool)
+	sc.Step(`^an OpenAI client streams "([^"]+)" without client tools$`, func(model string) error {
+		return s.stream(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hello"}],"stream":true}`, model))
+	})
 	sc.Step(`^an OpenAI client streams "([^"]+)" with the tool result "([^"]+)" for call "([^"]+)"$`, s.streamsWithToolResult)
 	sc.Step(`^an OpenAI client posts "([^"]+)" with a "([^"]+)" tool without streaming$`, s.postsWithToolWithoutStreaming)
 	sc.Step(`^two OpenAI clients post "([^"]+)" and "([^"]+)" to the same session concurrently$`, s.twoConcurrentDirectPosts)

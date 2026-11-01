@@ -313,13 +313,17 @@ skills:
   # ${CODDY_HOME}/marketplaces.json (yours) and the project's
   # .coddy/marketplaces.json, {"sources": [...], "marketplaces": [{"name", "source"}]},
   # written by `coddy skills add [--project]`, `coddy plugin marketplace add`
-  # and Settings -> Skills. Nothing is fetched until `coddy skills sync`.
+  # and Settings -> Skills. Declaring installs nothing: `coddy plugin install`
+  # installs a plugin or a source, `coddy plugin marketplace update` reads the
+  # lists and names the newer versions, `coddy plugin update` installs them.
   # An old skills.sources list moves into the home file on the first load.
-  # "EvilFreelancer/rpa-skills", the catalogue the bundled rpa-* skills are
-  # published from, is always in effect and always trusted beside both files.
+  # The catalogue rpa-skills (EvilFreelancer/rpa-skills), which the bundled
+  # rpa-* skills are published from, is always in effect and always trusted
+  # beside both files; it installs nothing on its own, and a skill of it you
+  # delete stays deleted.
   #
   # project_trust decides the project's marketplaces.json, which travels with
-  # the checkout: "ask" (default) syncs an entry only once it is approved for
+  # the checkout: "ask" (default) uses an entry only once it is approved for
   # the workspace (`coddy plugin marketplace trust <name>` or the shield in
   # Settings -> Skills), "allow" treats it like your own file, "deny" never
   # uses it. Whatever any entry installs goes to ${CODDY_HOME}/skills.
@@ -376,7 +380,9 @@ tools:
   # file on the next start.
 
   # Commands that never require user permission.
-  # Supports exact match and prefix match (prefix + space + any args).
+  # Supports exact match and prefix match (prefix + space + any args). A line of
+  # several commands (&&, ||, ;, &, a pipe) runs without asking only when each of
+  # them is listed; command substitution and redirections always ask.
   # Use "*" to allow all commands without asking (disables permission for commands entirely).
   command_allowlist:
     - "go build"
@@ -450,7 +456,7 @@ tools:
   # own instance and is the durable choice - it is not rate-limited against its owner and
   # is never served a decoy result set. See docs/features/web-search.md.
   # websearch:
-  #   engines: [brave, bing]        # merge order; brave, bing, ddg, google, searxng
+  #   engines: [brave, bing]        # merge order; brave, bing, ddg, google, searxng, deepseek
   #   engine_timeout_seconds: 8     # per-engine budget
   #   total_timeout_seconds: 20     # budget for the whole search
   #   max_concurrent_engines: 4     # how many engines are asked at once
@@ -459,6 +465,8 @@ tools:
   #   searxng_url: ""               # e.g. http://localhost:8080 (enable format: json there)
   #   brave_api_key: ""             # official Brave Search API instead of the public page;
   #                                 # empty reads BRAVE_API_KEY (environment or ~/.coddy/.env)
+  #   deepseek_api_key: ""          # DeepSeek Search API; the deepseek engine needs a key -
+  #                                 # empty reads DEEPSEEK_API_KEY (environment or ~/.coddy/.env)
 
   # HTTP requests: the http_request tool is the agent's curl (any method, headers, bodies,
   # multipart uploads, downloads to a file, a proxy and the certificate check per request).
@@ -536,6 +544,9 @@ tools:
 #   # side effect. Set 0.0.0.0 to accept connections from other machines.
 #   host: "127.0.0.1"
 #   port: 8080
+#   # Largest request body POST /v1/chat/completions and POST /v1/responses accept, in bytes.
+#   # 0 (the default) means the built-in 512 MiB; a larger body is refused with 413 request_too_large.
+#   max_body_bytes: 0
 #   # Optional bearer auth. Empty = no auth (default). When set, /v1/* and /coddy/* require
 #   # "Authorization: Bearer <token>". Prefer --auth-token / CODDY_HTTP_TOKEN to keep the
 #   # secret out of this file; a "${ENV}" reference works too. Never returned by GET /coddy/config.
@@ -554,8 +565,9 @@ tools:
 #     password_hash: "$$argon2id$$v=19$$m=19456,t=2,p=1$$..."
 #     session_ttl_hours: 720   # 0 = the browser drops the cookie on close; the server still expires its record after 30 days
 #   public_docs: false      # when auth is on, keep /docs and /openapi.* reachable without a token
-#   allow_insecure: false   # silence the warnings about a server without a credential: a non-loopback
-#                           # bind, and cors.allow_loopback or "*" (and their --dry-run findings)
+#   allow_insecure: false   # a server without a credential is open on purpose: silences the warnings about
+#                           # one (a non-loopback bind, cors.allow_loopback or "*", their --dry-run findings)
+#                           # and turns off the refusal of a foreign Host on loopback and of a cross-origin write
 #   # CORS lets a browser UI on another origin call this API (needed when the UI points here as a
 #   # remote). Bearer auth still applies. allowed_origins accepts exact origins or a single "*";
 #   # allow_loopback admits every page served from the browser's own machine (localhost,
@@ -764,6 +776,19 @@ logger:
 #       dial:
 #         proxy: "socks5://127.0.0.1:1080"
 #         ca_file: "/etc/coddy/internal-ca.pem"
+
+# ----------------------------------------------------------------------------
+# browser - Coddy for Browser, the extension that lets chats work in your
+# browser (Chrome, Yandex Browser, Firefox) through the browser tool. It connects to the HTTP server and shows
+# the web UI in its side panel. Needs a binary built with -tags browser;
+# others refuse enable.
+# Guide: docs/features/browser.md
+# ----------------------------------------------------------------------------
+# browser:
+#   enable: false                    # off by default
+#   token: "${CODDY_BROWSER_KEY}"    # the key entered in the extension, 32+ characters
+#   serve_remote: false              # let a console, an editor or a swarm node use these browsers
+#   remotes: []                      # servers whose browsers this one's chats use
 
 # ----------------------------------------------------------------------------
 # metrics - the Prometheus exporter: GET /metrics on a port of its own, run by

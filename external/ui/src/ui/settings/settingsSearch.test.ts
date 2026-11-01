@@ -1034,6 +1034,17 @@ test("every landmark heading and every drawn text is a key of the default dictio
   ]);
 });
 
+test("Appearance landmarks follow the drawing order with wallpaper before language", () => {
+  expect(anchors(inTab(indexOf(AGENT_SCHEMA), "appearance"))).toEqual([
+    null,
+    "landmark:appearance:theme",
+    "landmark:appearance:simple",
+    "landmark:appearance:wallpaper",
+    "landmark:appearance:language",
+    "landmark:appearance:notifications",
+  ]);
+});
+
 test("the Notifications landmark is left out where the tab draws none", () => {
   const notifications = "landmark:appearance:notifications";
   expect(entriesAt(indexOf(AGENT_SCHEMA), notifications)).toHaveLength(1);
@@ -1046,6 +1057,8 @@ test("the Notifications landmark is left out where the tab draws none", () => {
   ).toEqual([
     null,
     "landmark:appearance:theme",
+    "landmark:appearance:simple",
+    "landmark:appearance:wallpaper",
     "landmark:appearance:language",
   ]);
 });

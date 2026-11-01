@@ -7,6 +7,14 @@ import {
 import { useT } from "../i18n/I18nProvider";
 import { MessageCopyIconButton } from "./MessageCopyIconButton";
 import { MessageRetryIconButton } from "./MessageRetryIconButton";
+import {
+  formatGenerationSpeed,
+  type GenerationSummary,
+} from "../chat/generationSpeed";
+import { formatElapsedSeconds } from "../chat/liveStatus";
+import { CoddyWorkIndicator } from "./CoddyWorkIndicator";
+import { TurnTasksSegment } from "./TypingDotsMessage";
+import { formatTurnTokens } from "../chat/turnProgress";
 
 export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
   /** The transcript row id, stamped on the row so the transcript window can
@@ -15,11 +23,63 @@ export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
   /** error: a failed request or turn; notice: information the operator should see once. */
   level: "error" | "notice";
   message: string;
+  generation?: GenerationSummary;
   createdAtUtc?: string;
   /** When provided, a refresh button re-runs the last turn (e.g. after a no-response error). */
   onRetry?: () => void;
+  /** Tasks the finished turn left running: its line says so and its mark turns. */
+  runningTasks?: number;
+  /** Opens the Tasks panel from that count. */
+  onOpenTasks?: () => void;
 }) {
-  const { t } = useT();
+  const { t, tp } = useT();
+  if (props.generation) {
+    // The live line as the turn left it: its own parts, the mark at rest and no
+    // phrase, since no step is under way. When it finished is its tooltip.
+    const { elapsedMs, outputTokens, tokensPerSecond } = props.generation;
+    const at = props.createdAtUtc;
+    const runningTasks = props.runningTasks ?? 0;
+    return (
+      <div
+        className="msg-assistant-stack"
+        data-row-id={props.rowId}
+        data-testid="generation-summary"
+      >
+        <div
+          className={
+            "typing-dots" + (runningTasks > 0 ? "" : " typing-dots--finished")
+          }
+          {...(at ? { title: formatUtcToLocalFullDetail(at) } : {})}
+        >
+          <CoddyWorkIndicator />
+          <span className="typing-dots-status typing-dots-status--finished">
+            <span className="typing-dots-turn">
+              {elapsedMs !== undefined ? (
+                <span className="typing-dots-turn-item typing-dots-turn-time">
+                  {formatElapsedSeconds(elapsedMs)}
+                </span>
+              ) : null}
+              <span className="typing-dots-turn-item">
+                {tp("status.turnTokens", outputTokens, {
+                  shown: formatTurnTokens(outputTokens),
+                })}
+                {" · "}
+                {t("status.generationSpeed", {
+                  speed: formatGenerationSpeed(tokensPerSecond),
+                })}
+              </span>
+              {runningTasks > 0 ? (
+                <TurnTasksSegment
+                  count={runningTasks}
+                  {...(props.onOpenTasks ? { onOpen: props.onOpenTasks } : {})}
+                />
+              ) : null}
+            </span>
+          </span>
+        </div>
+      </div>
+    );
+  }
   const timeHM = props.createdAtUtc
     ? formatUtcToLocalHM(props.createdAtUtc)
     : "";

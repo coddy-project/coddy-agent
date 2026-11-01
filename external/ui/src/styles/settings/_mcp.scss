@@ -1,0 +1,401 @@
+// The MCP servers and Subagents tabs.
+
+@use "../abstracts" as *;
+
+.mcp-servers-box {
+  min-inline-size: 0;
+}
+
+.mcp-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.mcp-list {
+  /* Where a server row's name starts: the chevron, its gap, the status dot
+     and its gap. The tools and the trust note under a row start there too. */
+  --mcp-switch-inset: calc(22px + 8px);
+  --mcp-row-inset: calc(var(--mcp-switch-inset) + 38px + 8px + 9px + 8px);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mcp-list-item {
+  padding: 4px 0;
+}
+
+.mcp-list-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.mcp-list-item.is-disabled .mcp-list-item-text {
+  opacity: 0.5;
+}
+
+/* Trailing controls in an MCP row never shrink (same rule as skill rows), so
+   a long command line or error text cannot squeeze the 40px icon buttons. */
+.mcp-list-item-head > button {
+  flex: 0 0 auto;
+}
+
+.mcp-list-item-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.mcp-expand-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.mcp-expand-btn:hover {
+  background: mix-text(8%);
+  color: var(--text);
+}
+
+/* Connection status dot (Cursor-style): green connected, red error, gray
+   disabled, amber unsupported transport. */
+.mcp-status-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 30%, transparent);
+}
+
+.mcp-status-dot.is-connected {
+  background: #34c759;
+  box-shadow: 0 0 5px color-mix(in srgb, #34c759 60%, transparent);
+}
+
+.mcp-status-dot.is-error {
+  background: #ff453a;
+  box-shadow: 0 0 5px color-mix(in srgb, #ff453a 60%, transparent);
+}
+
+.mcp-status-dot.is-unsupported {
+  background: #ff9f0a;
+}
+
+.mcp-status-dot.is-disabled {
+  background: color-mix(in srgb, var(--text) 24%, transparent);
+}
+
+/* A project entry waiting for workspace approval, and one refused by policy. */
+.mcp-status-dot.is-needs_approval {
+  background: #ff9f0a;
+  box-shadow: 0 0 5px color-mix(in srgb, #ff9f0a 60%, transparent);
+}
+
+.mcp-status-dot.is-denied {
+  background: #ff453a;
+}
+
+/* Project-trust policy: its own fieldset above the server list. The MCP tab
+   owns it, next to the servers it governs, so it never joins the settings
+   document Save all flow. */
+.mcp-discovery-box {
+  min-inline-size: 0;
+}
+
+.mcp-discovery-box .settings-label {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.mcp-discovery-box .settings-input {
+  max-width: 420px;
+}
+
+.mcp-trust-note {
+  margin: 6px 0 0 var(--mcp-row-inset);
+  /* The file a declaration came from is one long path: it wraps anywhere
+     rather than run past the row on a phone. */
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+  color: color-mix(in srgb, var(--text) 72%, transparent);
+}
+
+.mcp-trust-note code {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.74rem;
+  word-break: break-all;
+}
+
+.mcp-trust-note p {
+  margin: 0 0 6px;
+}
+
+/* The declaration an approval covers: label column, value wraps freely. */
+.mcp-trust-facts {
+  margin: 0 0 6px;
+}
+
+.mcp-trust-facts > div {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.mcp-trust-facts dt {
+  flex: 0 0 72px;
+  color: color-mix(in srgb, var(--text) 52%, transparent);
+}
+
+.mcp-trust-facts dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.settings-btn-approve {
+  color: #ff9f0a;
+  border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
+}
+
+/* Subagents tab: two blocks, the settings and the definitions, on the
+   drawer's 12px rhythm like the Skills and MCP tabs. */
+.settings-subagents-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* A definition's absolute path and its comma-separated tool list are long and
+   unbreakable. A <code> does not wrap on its own, so without these rules one
+   row widens the whole fieldset past the settings panel and the row
+   descriptions lose their ellipsis. */
+.settings-subagents-section .subagents-catalog-box,
+.settings-subagents-section .subagents-list,
+.settings-subagents-section .subagents-item {
+  min-inline-size: 0;
+  max-width: 100%;
+}
+
+.subagents-item-name,
+.settings-subagents-section .subagents-file,
+.settings-subagents-section .subagents-facts code {
+  overflow-wrap: anywhere;
+}
+
+/* The definitions stack with no rule between them, like every list of the
+   drawer. */
+.subagents-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.subagents-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: 2px;
+  min-width: 0;
+}
+
+/* The shield of a project definition stands at the end of its head, like
+   the MCP tab's, and never shrinks under a long name. */
+.subagents-item-head > .subagents-trust {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+/* The fold toggle is the app's chevron in front of the definition's name, the
+   two one control (DESIGN.md "Chevron"). The chevron is centred on the name's
+   first 20px line, (20 - 14) / 2 = 3px down, so a name that wraps keeps it on
+   the line it starts. */
+.subagents-toggle {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.subagents-toggle > .coddy-chevron {
+  margin-top: 3px;
+}
+
+.subagents-toggle:hover > .coddy-chevron,
+.subagents-toggle:focus-visible > .coddy-chevron {
+  opacity: 1;
+}
+
+.subagents-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* The description, the file and the facts start where the name does: the
+   14px chevron and its 4px gap. */
+.subagents-item-body {
+  min-width: 0;
+  padding-left: 18px;
+}
+
+.subagents-file {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.74rem;
+  color: color-mix(in srgb, var(--text) 52%, transparent);
+}
+
+.subagents-facts {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  color: color-mix(in srgb, var(--text) 72%, transparent);
+}
+
+.subagents-facts > div {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+/* Declaration labels run longer than the MCP ones ("permissions",
+   "инструменты"); at 72px they would wrap mid-word. */
+.subagents-facts dt {
+  flex: 0 0 104px;
+  color: color-mix(in srgb, var(--text) 52%, transparent);
+}
+
+.subagents-facts dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.subagents-facts code {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.74rem;
+}
+
+.subagents-badge-pending {
+  color: #ff9f0a;
+  border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
+}
+
+.mcp-command {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.74rem;
+}
+
+.mcp-badge-transport {
+  text-transform: uppercase;
+}
+
+/* Expanded per-tool rows, under the server's name. */
+.mcp-tools {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 var(--mcp-switch-inset);
+  display: flex;
+  flex-direction: column;
+}
+
+.mcp-tool-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-top: 1px dashed mix-text(7%);
+}
+
+.mcp-tool-row > .skill-switch {
+  flex: 0 0 auto;
+}
+
+.mcp-tool-row.is-disabled .mcp-tool-text {
+  opacity: 0.5;
+}
+
+.mcp-tool-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.mcp-tool-name {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.mcp-tools-empty {
+  margin: 0 0 8px;
+  padding-left: var(--mcp-row-inset);
+}
+
+/* JSON editor card for one .coddy/mcp.json entry (add or edit). */
+.mcp-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 10px;
+  padding: 10px;
+  border: 1px solid mix-text(10%);
+  border-radius: 8px;
+  background: mix-text(3%);
+}
+
+.mcp-editor-json {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  resize: vertical;
+  min-height: 120px;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+/* Global / Local scope picker in the add-server editor. */
+.mcp-editor-scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 0.8rem;
+}
+
+.mcp-editor-scope-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.mcp-editor-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}

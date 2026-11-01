@@ -637,8 +637,13 @@ func UISchemaMap() map[string]interface{} {
 							"title":       "Brave Search API key",
 							"description": "With a subscription token the brave engine uses the official JSON API instead of reading the public result page. Leave empty to read BRAVE_API_KEY from the environment or ~/.coddy/.env.",
 						},
+						"deepseek_api_key": map[string]interface{}{
+							"type":        "string",
+							"title":       "DeepSeek Search API key",
+							"description": "The deepseek engine asks DeepSeek's Search API, which has no public page to scrape, so this key is required for the engine to work. Leave empty to read DEEPSEEK_API_KEY from the environment or ~/.coddy/.env.",
+						},
 					},
-					[]string{"engines", "engine_timeout_seconds", "total_timeout_seconds", "max_concurrent_engines", "snippet_chars", "cache_ttl_seconds", "searxng_url", "brave_api_key"},
+					[]string{"engines", "engine_timeout_seconds", "total_timeout_seconds", "max_concurrent_engines", "snippet_chars", "cache_ttl_seconds", "searxng_url", "brave_api_key", "deepseek_api_key"},
 					nil),
 				"http_request": objectSchema("HTTP requests",
 					"Policy of the http_request tool, the agent's curl: where it goes without asking and the headers every request sends. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.",
@@ -869,6 +874,18 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"level", "levels", "outputs", "file", "format", "rotation"},
 			nil),
+		"browser": objectSchema("Browser", "Coddy for Browser: the extension connects to this server, lets the chats work in your browser through the browser tool, and shows the web UI in its side panel. It takes effect only in a binary built with the browser tag.",
+			map[string]interface{}{
+				"enable":       boolProp("Enabled", "Offer the browser tool to the chats, and accept the extension when a key is set."),
+				"token":        secretProp("Extension key", "At least 32 characters, entered in the extension. Write-only: leave empty to keep the current key.", "token_configured"),
+				"serve_remote": boolProp("Serve to other Coddy processes", "Let a console or an editor on this machine and the nodes of the swarm drive the browsers connected here, through /coddy/browser/v1 with this server's API credential. The extension asks you before the first action of each such chat."),
+				"remotes": map[string]interface{}{
+					"type":        "array",
+					"title":       "Browsers of other servers",
+					"description": "Coddy servers whose browsers the chats of this one may use: a name of httpserver.remotes, or an address such as a node mount of a swarm relay. That server needs browser.serve_remote.",
+					"items":       map[string]interface{}{"type": "string"},
+				},
+			}, []string{"enable", "token", "serve_remote", "remotes"}, nil),
 		"metrics": objectSchema("Metrics", "Prometheus exporter on a port of its own. It takes effect only in a binary built with the metrics tag.",
 			map[string]interface{}{
 				"enable": boolProp("Enabled", "Serve /metrics from this process."),
@@ -930,7 +947,7 @@ func UISchemaMap() map[string]interface{} {
 	// model), then what the agent can do (tools, MCP servers, skills,
 	// subagents, hooks), then what runs it without a person at the composer
 	// (the scheduler, the messenger gateways), and last the operation of the
-	// process (the logger and the metrics exporter, then prompts and
+	// process (the logger, the metrics exporter and the browser extension, then prompts and
 	// instructions, which the web UI folds into one System tab). The sessions
 	// key belongs to the Sessions tab.
 	rootOrder := []string{
@@ -938,7 +955,7 @@ func UISchemaMap() map[string]interface{} {
 		"agent", "supervisor", "compaction", "memory", "decisions",
 		"tools", "skills", "subagents", "hooks",
 		"scheduler", "gateways",
-		"logger", "metrics", "sessions", "prompts", "instructions",
+		"logger", "metrics", "browser", "sessions", "prompts", "instructions",
 	}
 
 	doc := map[string]interface{}{

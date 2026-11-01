@@ -39,9 +39,9 @@ _coddy() {
             [ "${COMP_CWORD}" -gt 2 ] && [ "${COMP_WORDS[2]}" = add ] && COMPREPLY=($(compgen -W "--project" -- "${cur}"))
             ;;
         plugin)
-            [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "marketplace install remove enable disable list" -- "${cur}"))
+            [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "marketplace install update remove enable disable list" -- "${cur}"))
             [ "${COMP_CWORD}" -eq 3 ] && [ "${prev}" = marketplace ] &&
-                COMPREPLY=($(compgen -W "add list update remove sync trust untrust" -- "${cur}"))
+                COMPREPLY=($(compgen -W "add list update remove trust untrust" -- "${cur}"))
             ;;
         mcp)
             [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list trust untrust" -- "${cur}"))
@@ -91,7 +91,7 @@ _coddy() {
             fi
             ;;
         update)
-            COMPREPLY=($(compgen -W "--check -y --yes --version --repo --no-restart --no-notes" -- "${cur}"))
+            COMPREPLY=($(compgen -W "--check -y --yes --version --repo --no-notes" -- "${cur}"))
             ;;
         help)
             # `coddy help <command>` names a command of its own.
