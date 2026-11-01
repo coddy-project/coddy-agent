@@ -5,6 +5,7 @@ package memstorage
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -733,6 +734,55 @@ func TestReadRefusesANamedPipe(t *testing.T) {
 	}
 	if _, err := st.Read("global:dir.md"); err == nil || errors.Is(err, ErrNotNote) {
 		t.Errorf("Read of a folder = %v, want the read error, not ErrNotNote", err)
+	}
+}
+
+// swappedRoot is a root whose checks (Stat, Lstat) of one name answer with the
+// file of another: a regular note when the name is checked, while opening the
+// name reaches what is really there, a named pipe. That is a note swapped for
+// a pipe between the check and the open.
+type swappedRoot struct {
+	rootFS
+	name, checkedAs string
+}
+
+func (r swappedRoot) Stat(name string) (fs.FileInfo, error) {
+	if name == r.name {
+		name = r.checkedAs
+	}
+	return r.rootFS.Stat(name)
+}
+
+func (r swappedRoot) Lstat(name string) (fs.FileInfo, error) {
+	if name == r.name {
+		name = r.checkedAs
+	}
+	return r.rootFS.Lstat(name)
+}
+
+// The type of a note is judged on the file that was opened, not on its name
+// before the open: a pipe swapped in after a check must not block the open.
+func TestReadHeadRefusesAPipeSwappedInAfterTheCheck(t *testing.T) {
+	g := t.TempDir()
+	if err := os.WriteFile(filepath.Join(g, "note.md"), []byte("a regular note\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mkfifoOrSkip(t, filepath.Join(g, "AGENTS.md"))
+	root := swappedRoot{rootFS: dirRoot{dir: g}, name: "AGENTS.md", checkedAs: "note.md"}
+	var err error
+	within(t, "readHead", func() { _, _, err = readHead(root, "AGENTS.md", 8192) })
+	if !errors.Is(err, ErrNotNote) {
+		t.Errorf("readHead of a pipe swapped in after the check = %v, want ErrNotNote", err)
+	}
+	// The same for the whole-note read that Read and Search share.
+	within(t, "readNote", func() { _, err = readNote(root, "AGENTS.md") })
+	if !errors.Is(err, ErrNotNote) {
+		t.Errorf("readNote of a pipe swapped in after the check = %v, want ErrNotNote", err)
+	}
+	// And a regular note is still read.
+	head, more, err := readHead(swappedRoot{rootFS: dirRoot{dir: g}}, "note.md", 8192)
+	if err != nil || more || string(head) != "a regular note\n" {
+		t.Errorf("readHead of a regular note = %q, %v, %v", head, more, err)
 	}
 }
 

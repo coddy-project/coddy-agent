@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -162,7 +163,7 @@ func (s *Store) Search(query string, scope string, maxHits int) ([]Hit, error) {
 					continue
 				}
 			}
-			b, err := root.ReadFile(rel)
+			b, err := readNote(root, rel)
 			if err != nil {
 				continue
 			}
@@ -340,25 +341,61 @@ func (s *Store) Read(rel string) (string, error) {
 		return "", err
 	}
 	defer func() { _ = root.Close() }()
-	if err := refuseNonRegular(root, name); err != nil {
-		return "", err
-	}
-	b, err := root.ReadFile(name)
+	b, err := readNote(root, name)
 	if err != nil {
 		return "", err
 	}
 	return string(b), nil
 }
 
-// refuseNonRegular is ErrNotNote for a named pipe, a socket or a device: it is
-// not a note, and opening one can block for good. A folder, a missing file and
-// a link the root refuses are left to the read, which answers each in its own
-// words.
-func refuseNonRegular(root rootFS, name string) error {
-	if info, err := root.Stat(name); err == nil && !info.IsDir() && !info.Mode().IsRegular() {
-		return ErrNotNote
+// openNote opens the note name of root for reading and judges what it opened,
+// not its name before the open: a named pipe, a socket or a device is
+// ErrNotNote. The open does not wait for a writer (O_NONBLOCK), so a pipe
+// swapped in for the note at any moment cannot hold the caller; a regular file
+// reads as usual. A folder is returned as it is, and its read fails as a
+// folder's does. A missing file, a link the root refuses and a refusal of the
+// disk come back as the open answers them. info is the opened file's.
+func openNote(root rootFS, name string) (*os.File, fs.FileInfo, error) {
+	f, err := root.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, nil, err
 	}
-	return nil
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, nil, err
+	}
+	if !info.IsDir() && !info.Mode().IsRegular() {
+		_ = f.Close()
+		return nil, nil, ErrNotNote
+	}
+	return f, info, nil
+}
+
+// readNote reads the whole note name of root, into a buffer sized by the file.
+func readNote(root rootFS, name string) ([]byte, error) {
+	f, info, err := openNote(root, name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return readAll(f, info)
+}
+
+// readAll reads f to its end into a buffer sized by what the file said it
+// holds, one allocation for a note that did not grow meanwhile.
+func readAll(f *os.File, info fs.FileInfo) ([]byte, error) {
+	buf := make([]byte, int(min(info.Size(), 1<<20))+1)
+	n, err := io.ReadFull(f, buf)
+	switch err {
+	case nil:
+		// The file grew past what it said: take the rest.
+		rest, err := io.ReadAll(f)
+		return append(buf[:n], rest...), err
+	case io.EOF, io.ErrUnexpectedEOF:
+		return buf[:n], nil
+	}
+	return nil, err
 }
 
 // ReadHead reads the first max bytes of the note rel (scope:relative, as Read
@@ -378,10 +415,12 @@ func (s *Store) ReadHead(rel string, max int) (head []byte, more bool, err error
 		return nil, false, err
 	}
 	defer func() { _ = root.Close() }()
-	if err := refuseNonRegular(root, name); err != nil {
-		return nil, false, err
-	}
-	f, err := root.Open(name)
+	return readHead(root, name, max)
+}
+
+// readHead is ReadHead on an opened root.
+func readHead(root rootFS, name string, max int) (head []byte, more bool, err error) {
+	f, _, err := openNote(root, name)
 	if err != nil {
 		return nil, false, err
 	}
@@ -420,20 +459,18 @@ func (s *Store) ReadNote(scopeLabel, inner string) ([]byte, error) {
 	if !isMemoryFile(name) {
 		return nil, ErrNotNote
 	}
-	info, err := root.Stat(name)
+	f, info, err := openNote(root, name)
 	if err != nil {
-		if errors.Is(err, ErrOutsideRoot) {
+		if errors.Is(err, ErrOutsideRoot) || errors.Is(err, ErrNotNote) {
 			return nil, err
 		}
 		return nil, fmt.Errorf("%w: %w", fs.ErrNotExist, err)
 	}
+	defer func() { _ = f.Close() }()
 	if info.IsDir() {
 		return nil, fs.ErrNotExist
 	}
-	if !info.Mode().IsRegular() {
-		return nil, ErrNotNote
-	}
-	return root.ReadFile(name)
+	return readAll(f, info)
 }
 
 // PutFile writes content as the note inner of a scope, as it is, replacing

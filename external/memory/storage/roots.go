@@ -49,8 +49,7 @@ var (
 // relative to the root, "." for the root itself, as cleanRel returns them.
 // *os.Root is one; dirRoot is the other.
 type rootFS interface {
-	ReadFile(name string) ([]byte, error)
-	Open(name string) (*os.File, error)
+	OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error)
 	WriteFile(name string, data []byte, perm fs.FileMode) error
 	MkdirAll(name string, perm fs.FileMode) error
 	Stat(name string) (fs.FileInfo, error)
@@ -67,8 +66,9 @@ type dirRoot struct{ dir string }
 
 func (d dirRoot) path(name string) string { return filepath.Join(d.dir, filepath.FromSlash(name)) }
 
-func (d dirRoot) ReadFile(name string) ([]byte, error) { return os.ReadFile(d.path(name)) }
-func (d dirRoot) Open(name string) (*os.File, error)   { return os.Open(d.path(name)) }
+func (d dirRoot) OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error) {
+	return os.OpenFile(d.path(name), flag, perm)
+}
 
 func (d dirRoot) WriteFile(name string, data []byte, perm fs.FileMode) error {
 	return os.WriteFile(d.path(name), data, perm)
@@ -104,13 +104,8 @@ func outside(err error) error {
 	return err
 }
 
-func (r projectRoot) ReadFile(name string) ([]byte, error) {
-	b, err := r.Root.ReadFile(name)
-	return b, outside(err)
-}
-
-func (r projectRoot) Open(name string) (*os.File, error) {
-	f, err := r.Root.Open(name)
+func (r projectRoot) OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error) {
+	f, err := r.Root.OpenFile(name, flag, perm)
 	return f, outside(err)
 }
 
