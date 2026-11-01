@@ -122,6 +122,11 @@ export function activate(coddy) {
 | `coddy.sessions.send({sessionId, text, files?, model?, reasoning?})` | Sends a prompt into the session; slash commands and @-mentions resolve on the server, `model` and `reasoning` set the session's choice. Resolves `{accepted, status, error}` - a turn already running answers `accepted: false`. Declares `sessions.prompt`. |
 | `coddy.sessions.stop(sessionId)`, `coddy.sessions.rewind(sessionId)` | Stops the running turn; rewinds the session to before its last user prompt. |
 | `coddy.sessions.onMessage(sessionId, listener)` | The live turn, decoded into `{type: "text", delta}`, `{type: "tool"}`, `{type: "tool_update"}`, `{type: "done"}` and `{type: "error"}`. Read-only - the turn stays the host's. |
+| `coddy.composer.getText()`, `setText(text)`, `insertText(text)`, `attachFiles(files)` | The composer's draft and attachments: read and write the draft, insert around the caret, push files into the attachment row. |
+| `coddy.composer.getMode()`, `setMode(mode)`, `getModel()`, `setModel(id)`, `getReasoning()`, `setReasoning(level)`, `getPermissionMode()` | The composer's picks - the mode (`agent`/`plan`/`ask`), the model, the reasoning level and the permission mode - read and set. |
+| `coddy.composer.onDraftChange(fn)`, `onPaste(fn)`, `onDrop(fn)` | Draft changes; a paste or drop listener that returns `true` takes the event before the host's own attachment and mention handling. |
+| `coddy.ui.registerComposerControl({id, placement, title?, order?, visible?, mount})` | Mounts a control into the composer - `actions` (its action row) or `tabs` (the strip of picks). Returns an `update`/`remove` handle. |
+| `coddy.ui.alterControls(fn)` | The declare-then-alter pipeline: `fn(controls, {surface: "composer"})` rewrites the assembled control list - retitle, reorder, hide or drop any entry - before it renders. Needs the `ui.alter` scope; host controls join the list later. |
 | `coddy.hooks.register({id, into, mount})` | Fills a hook an interface element declared - `into` is `<owner>/<name>` - with your own block. Returns an `update`/`remove` handle. |
 | `coddy.hooks.slot(name, element)` | Renders the contributions of this element's hook `<this id>/<name>` into `element`; an empty slot draws nothing, and contributions mount and leave live. |
 | `coddy.hooks.list()` | The hooks the running registrations declared, as `{owner, hook}` - where a contribution can go. |
@@ -306,7 +311,7 @@ coddy.ui.registerMenuItem({
 
 `coddy.ui.registerPanel` gives an extension a surface of its own, and `coddy.ui.openPanel(id)` opens it. `placement` is `"slide-over"`, `"full"` or `"drawer"`; one panel is open at a time. Escape and the close button run the mount cleanup. The handle updates and removes the panel the way a page's does.
 
-An anchor is a named box of the host surface: `composer.actions`, `chat.header`, `nav.rail`, `statusline`, `sessions.toolbar` or `settings.footer`. `coddy.ui.anchor(name)` returns the box, or `null` while its surface is closed - the host mounts a box only while its surface is open. `coddy.ui.onAnchor(name, fn)` returns a `remove()` handle and calls `fn(boxOrNull)` on attach and detach, immediately with the box when it is already there.
+An anchor is a named box of the host surface: `composer.actions`, `composer.tabs`, `chat.header`, `nav.rail`, `statusline`, `sessions.toolbar` or `settings.footer`. `coddy.ui.anchor(name)` returns the box, or `null` while its surface is closed - the host mounts a box only while its surface is open. `coddy.ui.onAnchor(name, fn)` returns a `remove()` handle and calls `fn(boxOrNull)` on attach and detach, immediately with the box when it is already there.
 
 ## Hooks in interface elements
 
@@ -490,6 +495,8 @@ These seven ship as `coddy.sessions` in this build; the entries below name what 
 - **Session state** - turn active, queued, a permission or question pending, for custom lists and badges - frontend.
 
 ### Composer
+
+These ship as `coddy.composer`, `registerComposerControl` and `alterControls`; the fine `composer.model` / `composer.send` anchors and host entries in the alter list remain.
 
 - **`registerComposerControl` and chips** - buttons and selects in the composer's action rows (section 11 of the specification) - frontend;
 - **Fine anchors** - `composer`, `composer.model`, `composer.send` beside the one `composer.actions` - frontend;

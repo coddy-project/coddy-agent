@@ -43,7 +43,42 @@ export function activate(coddy) {
       element.append(line);
     },
   });
+  // A control in the composer's pick strip, and an alter pass over the
+  // assembled control list - the declare-then-alter pipeline.
+  const control = coddy.ui.registerComposerControl({
+    id: "disco-quick",
+    placement: "tabs",
+    title: "Disco",
+    mount(element) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "settings-btn";
+      button.textContent = coddy.i18n.t("trick");
+      button.addEventListener(
+        "click",
+        () => {
+          const duck = document.querySelector(".ok-duck");
+          if (duck) {
+            duck.classList.remove(
+              ...[...duck.classList].filter((c) => c.indexOf("trick-") === 0),
+            );
+            void duck.offsetWidth;
+            duck.classList.add("trick-dance");
+          }
+        },
+        { signal: coddy.signal },
+      );
+      element.append(button);
+    },
+  });
+  const alter = coddy.ui.alterControls((controls) =>
+    controls.map((row) =>
+      row.id === "disco-quick" ? { ...row, title: "Disco trick" } : row,
+    ),
+  );
   return () => {
+    alter.remove();
+    control.remove();
     tricks.remove();
     footer.remove();
   };
