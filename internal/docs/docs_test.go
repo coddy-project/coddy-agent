@@ -394,3 +394,111 @@ func TestVideoLinesPlayTheRepositoryCopy(t *testing.T) {
 		t.Fatalf("an attachment without a copy is left as it is:\n%s", p.Markdown)
 	}
 }
+
+// rankFS is a documentation tree big enough for a ranking to mean something:
+// English and Russian pages that share words (configuration, trust,
+// servers, install) in titles, headings and bodies, so the weights of the
+// fields, the length normalisation, the prefix matches and the coverage of a
+// multi-word query all move the order.
+func rankFS() fstest.MapFS {
+	return fstest.MapFS{
+		"nav.yaml": {Data: []byte(`groups:
+  - id: guide
+    title: Guide
+    summary: Getting started.
+    pages:
+      - path: guide/install.md
+        title: Installation
+        summary: Install the binary, verify it and keep it current.
+      - path: guide/proxy.md
+        title: Proxies
+        summary: Route provider requests through a proxy.
+  - id: features
+    title: Features
+    summary: What Coddy does.
+    pages:
+      - path: features/memory.md
+        title: Long-term memory
+        summary: Notes the assistant keeps between sessions.
+      - path: features/mcp.md
+        title: MCP servers
+        summary: Tools from servers the operator configures.
+      - path: features/hooks.md
+        title: Hooks
+        summary: Commands that run at points of a session.
+      - path: features/skills.md
+        title: Скилы
+        summary: Наборы инструкций, которые агент загружает по запросу.
+  - id: operate
+    title: Operate
+    summary: Running Coddy.
+    pages:
+      - path: operate/serve.md
+        title: Serving
+        summary: Run coddy serve as a service.
+      - path: operate/swarm.md
+        title: Рой узлов
+        summary: Релей и узлы, которые подключаются к нему.
+  - id: reference
+    title: Reference
+    summary: Lists.
+    pages:
+      - path: reference/config.md
+        title: Configuration reference
+        summary: Every key of the configuration file.
+`)},
+		"guide/install.md":    {Data: []byte("# Installation\n\nDownload the archive for your platform and put the binary on the PATH.\n\n## Download\n\nThe release archives sit on the releases page, one per platform. The install script picks the right one.\n\n## Verify the checksum\n\nEvery archive has a checksum file. Compare it before you install the binary.\n\n## Upgrade packages\n\nA package manager owns the binary it installed. Upgrade it with the package manager, not with an update command.\n")},
+		"guide/proxy.md":      {Data: []byte("# Proxies\n\nEvery provider has a proxy setting: inherit, none or a URL.\n\n## Provider proxy\n\nThe proxy of a provider row routes its completions, model lists and sign-in.\n\n## Environment\n\nHTTPS_PROXY is read when the setting is inherit. Servers that sit behind a corporate proxy need it.\n")},
+		"features/memory.md":  {Data: []byte("# Long-term memory\n\nThe assistant keeps notes between sessions. A note is a markdown file under a global or a project folder.\n\n## Notes\n\nA note holds one fact. The memory subagent writes a note when you ask it to remember something and reads the notes before each turn.\n\n## Search\n\nThe subagent searches the notes by words. A query that names the folder or the file finds the note faster.\n\n## Scopes\n\nGlobal notes follow you into every project. Project notes stay with the checkout and are never shared with another project.\n")},
+		"features/mcp.md":     {Data: []byte("# MCP servers\n\nAn MCP server gives the assistant tools. The operator declares servers in a file; the configuration of one server names its command or its address.\n\n## Configuration\n\nA server's command and arguments run exactly as written. The configuration file is read at the start and watched afterwards.\n\n## Trust gate\n\nA project file arrives with a checkout, so its servers are not started until the operator approves that exact declaration. Trust is bound to the workspace and to the digest of the declaration.\n\n## Shared servers\n\nSessions do not own a server. One connection is shared between sessions, and a server nothing holds is stopped after a delay.\n")},
+		"features/hooks.md":   {Data: []byte("# Hooks\n\nA hook is a command that reads one JSON document on stdin at a point of a session and answers with an exit code.\n\n## Events\n\nHooks run before a tool call, after it, when a prompt is submitted and when the assistant stops. A hook can veto a tool call.\n\n## Trust\n\nA project hook file is held until the operator approves it. The trust receipt is bound to the file digest, so an edited hook asks again.\n")},
+		"features/skills.md":  {Data: []byte("# Скилы\n\nСкил - это набор инструкций в файле SKILL.md. Агент загружает скил, когда задача к нему подходит.\n\n## Установка скилов\n\nСкилы ставятся из репозитория или из маркетплейса. Установка копирует файлы в папку скилов.\n\n## Обновление\n\nОбновление проверяет версии установленных скилов и ставит более новые. Скил, которого нет на диске, обновление не ставит.\n")},
+		"operate/serve.md":    {Data: []byte("# Serving\n\nCoddy serve is the one long-running command. It starts every surface the configuration enables.\n\n## Systemd unit\n\nOn Linux the install command writes a systemd user unit and enables it for one account.\n\n## Restart policy\n\nThe dispatcher restarts a worker that exits with the restart status. A crash loop stops after a few tries and the unit reports it.\n\n## Configuration\n\nA change of the listen address needs a fresh process. Other changes of the configuration apply in place.\n")},
+		"operate/swarm.md":    {Data: []byte("# Рой узлов\n\nРелей соединяет узлы роя. Узел подключается к релею и получает от него сессии.\n\n## Релей\n\nРелей не хранит сессий. Он ведёт реестр узлов и показывает их все в одном списке.\n\n## Настройка узла\n\nУзел подключается по адресу релея. Настройка занимает три строки в файле конфигурации.\n")},
+		"reference/config.md": {Data: []byte("# Configuration reference\n\nEvery key of the configuration file, with its type and its default.\n\n## agent.max_turns\n\nThe cap on ReAct rounds of one turn, max_turns for short.\n\n## memory.max_search_hits\n\nThe number of notes a memory search returns.\n\n## mcp.project_trust\n\nWhether a project file of MCP servers is trusted: ask, allow or deny.\n\n## serve.listen\n\nThe address the server listens on. A change needs a restart.\n")},
+	}
+}
+
+// The ranking of the documentation search is held to these orders: the core
+// that ranks sections (tokenizing, stemming, the prefix matches, BM25F over
+// the fields, the coverage of a multi-word query) is shared with other
+// searches, and none of them may move a page of this one.
+func TestSearchRankingIsPinned(t *testing.T) {
+	lib, err := Load(rankFS(), "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		query string
+		want  []string
+	}{
+		{"install", []string{"guide/install", "guide/install#verify-the-checksum", "guide/install#download", "operate/serve#systemd-unit"}},
+		{"configuration", []string{"reference/config", "operate/serve#configuration", "features/mcp#configuration", "reference/config#agentmax_turns", "reference/config#memorymax_search_hits", "operate/serve"}},
+		{"config", []string{"reference/config", "operate/serve#configuration", "features/mcp#configuration", "reference/config#agentmax_turns", "reference/config#memorymax_search_hits", "features/mcp"}},
+		{"trust gate", []string{"features/mcp#trust-gate", "features/hooks#trust", "reference/config#mcpproject_trust"}},
+		{"servers shared", []string{"features/mcp#shared-servers", "features/mcp", "features/memory#scopes", "features/mcp#configuration", "reference/config#servelisten", "reference/config#mcpproject_trust"}},
+		{"restart policy systemd", []string{"operate/serve#restart-policy", "operate/serve#systemd-unit", "reference/config#servelisten"}},
+		{"how do I restart the unit", []string{"operate/serve#restart-policy", "operate/serve#systemd-unit", "reference/config#servelisten"}},
+		{"hooks events", []string{"features/hooks#events", "features/hooks", "features/hooks#trust"}},
+		{"memory search", []string{"reference/config#memorymax_search_hits", "features/memory#search", "features/memory", "features/memory#notes"}},
+		{"notes scopes", []string{"features/memory#scopes", "features/memory#notes", "features/memory", "reference/config#memorymax_search_hits"}},
+		{"proxies", []string{"guide/proxy", "guide/proxy#provider-proxy", "guide/proxy#environment"}},
+		{"max_turns", []string{"reference/config#agentmax_turns", "reference/config#memorymax_search_hits", "features/memory#notes"}},
+		{"turns", []string{"reference/config#agentmax_turns", "features/memory#notes"}},
+		{"скилы", []string{"features/skills", "features/skills#установка-скилов", "features/skills#обновление"}},
+		{"установка скилов", []string{"features/skills#установка-скилов", "features/skills", "features/skills#обновление"}},
+		{"обновление", []string{"features/skills#обновление"}},
+		{"релей настройка", []string{"operate/swarm#настройка-узла", "operate/swarm#релей", "operate/swarm"}},
+		{"реле", []string{"operate/swarm#релей", "operate/swarm", "operate/swarm#настройка-узла"}},
+		{"узел", []string{"operate/swarm#настройка-узла", "operate/swarm"}},
+		{"project trust digest", []string{"features/hooks#trust", "features/mcp#trust-gate", "reference/config#mcpproject_trust", "features/memory#scopes", "features/memory"}},
+	} {
+		var got []string
+		for _, h := range lib.Search(tc.query, 6) {
+			got = append(got, h.Ref())
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("Search(%q) = %q, want %q", tc.query, got, tc.want)
+		}
+	}
+}
