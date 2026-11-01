@@ -95,10 +95,10 @@ func Guides(cfg *config.Config, cwd string) ([]Guide, error) {
 
 // TaskMessage is the child's task: the guides of the memory roots, each under
 // a heading that names it and quoted line by line, then the user message
-// behind a preamble. The user
-// message is cut at the bound a spawn_agent prompt has (32 KiB) and each
-// guide at guideMaxBytes, with a marker, so the pass sees a bounded input
-// (issue #266). Without guides the task is the preamble and the message alone.
+// behind a preamble. The user message is cut at the bound a spawn_agent prompt
+// has (32 KiB) and each guide at guideMaxBytes, with a marker, so the pass sees
+// a bounded input (issue #266). Without guides the task is the preamble and
+// the message alone.
 func TaskMessage(userText string, guides []Guide) string {
 	var b strings.Builder
 	for _, g := range guides {
