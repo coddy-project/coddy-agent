@@ -501,7 +501,7 @@ const imageTokensEach = 1600
 // compaction and the context ring measure with it.
 func conversationTokens(msgs []llm.Message, readsImages bool) int {
 	kept, _ := selectPictures(msgs, readsImages, nil)
-	total := session.EstimateContextTokens(conversationText(msgs)) + len(kept)*imageTokensEach
+	total := session.EstimateFromCounts(conversationCounts(msgs)) + len(kept)*imageTokensEach
 	for _, m := range msgs {
 		total += session.EstimateContextTokens(m.Reasoning)
 		for _, call := range m.ToolCalls {
