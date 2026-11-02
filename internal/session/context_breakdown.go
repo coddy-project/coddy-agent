@@ -40,9 +40,9 @@ func EstimateContextTokens(s string) int {
 }
 
 // TextCounts counts the ASCII runes of s and the others, an invalid byte
-// counting as one other rune, as ranging over s does. The counts of pieces
-// add up to the counts of the pieces joined, which lets a caller estimate a
-// long text without building it.
+// counting as one other rune, as ranging over s does. Counts can be added
+// without joining the text when boundaries cannot complete a UTF-8 sequence
+// across pieces (for example, when ASCII separators stand between them).
 func TextCounts(s string) (ascii, other int) {
 	for i := 0; i < len(s); {
 		if s[i] < utf8.RuneSelf {

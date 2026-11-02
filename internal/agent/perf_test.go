@@ -231,8 +231,8 @@ func copyTree(src, dst string) error {
 	})
 }
 
-// The token estimate a long session runs before every model call: counted
-// message by message, never over the conversation joined into one string.
+// Compare the old joined-text estimate with counting message by message on
+// the same history. Fixture allocations are outside both measurements.
 func BenchmarkConversationTokensLongSession(b *testing.B) {
 	msgs := make([]llm.Message, 0, 3000)
 	for i := 0; i < 750; i++ {
@@ -243,8 +243,16 @@ func BenchmarkConversationTokensLongSession(b *testing.B) {
 			llm.Message{Role: llm.RoleAssistant, Content: "Here is the explanation.\n\n```go\nfunc main() {}\n```\n" + strings.Repeat("Lorem ipsum dolor sit amet. ", 10)},
 		)
 	}
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		_ = conversationTokens(msgs, false)
-	}
+	b.Run("joined", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = referenceConversationTokens(msgs, false)
+		}
+	})
+	b.Run("counts", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = conversationTokens(msgs, false)
+		}
+	})
 }

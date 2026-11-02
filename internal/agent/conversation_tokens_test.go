@@ -1,7 +1,8 @@
 package agent
 
 import (
-	"math/rand"
+	// A seeded generator makes reproducible histories; no secrets are generated.
+	"math/rand" // nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used
 	"strings"
 	"testing"
 
@@ -11,7 +12,7 @@ import (
 
 // referenceConversationTokens is the estimate as it was computed before:
 // over the conversation joined into one string.
-func referenceConversationTokens(msgs []llm.Message) int {
+func referenceConversationTokens(msgs []llm.Message, readsImages bool) int {
 	var b strings.Builder
 	for _, m := range msgs {
 		if strings.TrimSpace(m.Content) == "" && m.Rules == "" {
@@ -26,14 +27,28 @@ func referenceConversationTokens(msgs []llm.Message) int {
 		}
 		b.WriteString("\n\n")
 	}
-	total := session.EstimateContextTokens(b.String())
+	kept, _ := selectPictures(msgs, readsImages, nil)
+	total := referenceContextTokens(b.String()) + len(kept)*imageTokensEach
 	for _, m := range msgs {
-		total += session.EstimateContextTokens(m.Reasoning)
+		total += referenceContextTokens(m.Reasoning)
 		for _, call := range m.ToolCalls {
-			total += session.EstimateContextTokens(call.Name) + session.EstimateContextTokens(call.InputJSON)
+			total += referenceContextTokens(call.Name) + referenceContextTokens(call.InputJSON)
 		}
 	}
 	return total
+}
+
+// Keep the old rune walk independent of the production counting helpers.
+func referenceContextTokens(s string) int {
+	var ascii, other int
+	for _, r := range s {
+		if r < 0x80 {
+			ascii++
+		} else {
+			other++
+		}
+	}
+	return (ascii+2)/3 + other
 }
 
 // The estimate counted part by part is the estimate of the joined text to
@@ -41,7 +56,7 @@ func referenceConversationTokens(msgs []llm.Message) int {
 // rules joined to a result, blank contents.
 func TestConversationTokensMatchesTheJoinedText(t *testing.T) {
 	rng := rand.New(rand.NewSource(1))
-	pieces := []string{"", " ", "\n", "plain ascii text ", "Привет, мир ", "\xff\xfe broken ", "```go\nfunc f() {}\n```\n", "日本語 ", "\n\n"}
+	pieces := []string{"", " ", "\n", "plain ascii text ", "Привет, мир ", "\xff\xfe broken ", "```go\nfunc f() {}\n```\n", "日本語 ", "\n\n", "🙂🚀", "\xe2\x82", "\xac"}
 	text := func() string {
 		var b strings.Builder
 		for i := rng.Intn(6); i > 0; i-- {
@@ -60,11 +75,47 @@ func TestConversationTokensMatchesTheJoinedText(t *testing.T) {
 			if rng.Intn(3) == 0 {
 				m.ToolCalls = []llm.ToolCall{{Name: "read", InputJSON: `{"path":"` + text() + `"}`}}
 			}
+			if rng.Intn(3) == 0 {
+				m.ImageParts = []llm.ImagePart{imagePart("shot.png")}
+			}
 			msgs = append(msgs, m)
 		}
-		if got, want := conversationTokens(msgs, false), referenceConversationTokens(msgs); got != want {
-			t.Fatalf("round %d: estimate %d, the joined text gives %d", round, got, want)
+		for _, readsImages := range []bool{false, true} {
+			if got, want := conversationTokens(msgs, readsImages), referenceConversationTokens(msgs, readsImages); got != want {
+				t.Fatalf("round %d, images %t: estimate %d, the joined text gives %d", round, readsImages, got, want)
+			}
 		}
+	}
+}
+
+func TestConversationTokensJoinedTextBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		msgs []llm.Message
+	}{
+		{name: "empty"},
+		{name: "round once across messages", msgs: []llm.Message{
+			{Role: llm.RoleUser, Content: "a"}, {Role: llm.RoleUser, Content: "b"},
+		}},
+		{name: "rules trim trailing newlines", msgs: []llm.Message{
+			{Role: llm.RoleTool, Content: "result\n\n", Rules: "Прочитай 🙂"},
+			{Role: llm.RoleTool, Content: "\n\n", Rules: "rules only"},
+		}},
+		{name: "invalid UTF-8 stays separated", msgs: []llm.Message{
+			{Role: llm.RoleUser, Content: "\xe2\x82"}, {Role: llm.RoleTool, Content: "\xac"},
+		}},
+		{name: "blank content still counts reasoning calls and images", msgs: []llm.Message{
+			{Role: llm.RoleAssistant, Content: " \n", Reasoning: "考える🙂", ToolCalls: []llm.ToolCall{{Name: "read", InputJSON: `{}`}}},
+			{Role: llm.RoleTool, ImageParts: []llm.ImagePart{imagePart("shot.png")}},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, readsImages := range []bool{false, true} {
+				if got, want := conversationTokens(tc.msgs, readsImages), referenceConversationTokens(tc.msgs, readsImages); got != want {
+					t.Fatalf("images %t: got %d, want %d", readsImages, got, want)
+				}
+			}
+		})
 	}
 }
 
