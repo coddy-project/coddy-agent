@@ -41,11 +41,30 @@ func ParseRuleFile(path string, src Source, data []byte) (*Rule, error) {
 		return nil, err
 	}
 	parseCache.mu.Lock()
+	defer parseCache.mu.Unlock()
+	// A concurrent reader may have installed the same parse while we worked.
+	if hit, ok := parseCache.byFile[key]; ok && hit.sum == sum {
+		return hit.rule.clone(), nil
+	}
+	if old, ok := parseCache.byFile[key]; ok {
+		parseCache.bytes -= old.size
+		delete(parseCache.byFile, key)
+	}
+	if len(data) > maxParseCacheBytes {
+		return r, nil
+	}
+	for k, old := range parseCache.byFile {
+		if parseCache.bytes+len(data) <= maxParseCacheBytes && len(parseCache.byFile) < maxParseCacheEntries {
+			break
+		}
+		delete(parseCache.byFile, k)
+		parseCache.bytes -= old.size
+	}
 	if parseCache.byFile == nil {
 		parseCache.byFile = map[parseKey]parsedRule{}
 	}
-	parseCache.byFile[key] = parsedRule{sum: sum, rule: r.clone()}
-	parseCache.mu.Unlock()
+	parseCache.byFile[key] = parsedRule{sum: sum, rule: r.clone(), size: len(data)}
+	parseCache.bytes += len(data)
 	return r, nil
 }
 
@@ -53,20 +72,29 @@ func ParseRuleFile(path string, src Source, data []byte) (*Rule, error) {
 // of a workspace discovers the same rule files, and each kept its own parse:
 // with a rule tree the size of this repository's that was most of a loaded
 // session's memory. A file's entry is replaced when its bytes change, so the
-// cache holds one parse per path; a caller always gets a copy it may edit,
+// cache holds at most one parse per path; a caller gets a copy it may edit,
 // and the copies share the text.
 type parseKey struct {
 	path string
 	src  Source
 }
 
+// Bound the input bytes retained by the cache and its per-file overhead.
+// Eviction only drops reuse: callers keep their own references to the text.
+const (
+	maxParseCacheBytes   = 16 << 20
+	maxParseCacheEntries = 1024
+)
+
 type parsedRule struct {
 	sum  [sha256.Size]byte
 	rule *Rule
+	size int
 }
 
 var parseCache struct {
 	mu     sync.Mutex
+	bytes  int
 	byFile map[parseKey]parsedRule
 }
 

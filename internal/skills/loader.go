@@ -217,14 +217,40 @@ func loadFile(path string) (*Skill, error) {
 	}
 	skill := parseSkillFile(path, data)
 	parseCache.mu.Lock()
+	defer parseCache.mu.Unlock()
+	// Keep the parse another reader installed during this cold load.
+	if hit, ok := parseCache.byPath[path]; ok && hit.sum == sum {
+		c := *hit.skill
+		return &c, nil
+	}
+	if old, ok := parseCache.byPath[path]; ok {
+		parseCache.bytes -= old.size
+		delete(parseCache.byPath, path)
+	}
+	if len(data) > maxParseCacheBytes {
+		return skill, nil
+	}
+	for key, old := range parseCache.byPath {
+		if parseCache.bytes+len(data) <= maxParseCacheBytes && len(parseCache.byPath) < maxParseCacheEntries {
+			break
+		}
+		delete(parseCache.byPath, key)
+		parseCache.bytes -= old.size
+	}
 	if parseCache.byPath == nil {
 		parseCache.byPath = map[string]parsedSkill{}
 	}
 	c := *skill
-	parseCache.byPath[path] = parsedSkill{sum: sum, skill: &c}
-	parseCache.mu.Unlock()
+	parseCache.byPath[path] = parsedSkill{sum: sum, skill: &c, size: len(data)}
+	parseCache.bytes += len(data)
 	return skill, nil
 }
+
+// Bound cached input bytes and per-file overhead without changing discovery.
+const (
+	maxParseCacheBytes   = 16 << 20
+	maxParseCacheEntries = 1024
+)
 
 // parsedSkill is the last parse of a skill file. Every session loads the
 // skills of its search roots, and each kept a parse of its own; the entry is
@@ -233,10 +259,12 @@ func loadFile(path string) (*Skill, error) {
 type parsedSkill struct {
 	sum   [sha256.Size]byte
 	skill *Skill
+	size  int
 }
 
 var parseCache struct {
 	mu     sync.Mutex
+	bytes  int
 	byPath map[string]parsedSkill
 }
 
