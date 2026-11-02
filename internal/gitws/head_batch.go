@@ -1,12 +1,10 @@
 package gitws
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -47,6 +45,9 @@ func gitBatchHEAD(dir string, records []changedRecord) headBlobReader {
 		return perFile
 	}
 	prefix := strings.TrimSuffix(string(prefixOut), "\n")
+	if strings.ContainsAny(prefix, "\n\r") {
+		return perFile
+	}
 	var in bytes.Buffer
 	for _, rel := range need {
 		in.WriteString("HEAD:" + prefix + rel + "\n")
@@ -76,13 +77,13 @@ func gitBatchHEAD(dir string, records []changedRecord) headBlobReader {
 func parseCatFileBatch(out []byte, want []string) (blobs map[string][]byte, missing map[string]bool, ok bool) {
 	blobs = map[string][]byte{}
 	missing = map[string]bool{}
-	r := bufio.NewReader(bytes.NewReader(out))
 	for _, rel := range want {
-		header, err := r.ReadString('\n')
-		if err != nil {
+		header, rest, found := bytes.Cut(out, []byte{'\n'})
+		if !found {
 			return nil, nil, false
 		}
-		fields := strings.Fields(strings.TrimSuffix(header, "\n"))
+		out = rest
+		fields := strings.Fields(string(header))
 		if len(fields) == 2 && (fields[1] == "missing" || fields[1] == "ambiguous") {
 			missing[rel] = fields[1] == "missing"
 			continue
@@ -91,18 +92,30 @@ func parseCatFileBatch(out []byte, want []string) (blobs map[string][]byte, miss
 			return nil, nil, false
 		}
 		size, err := strconv.Atoi(fields[2])
-		if err != nil || size < 0 {
-			return nil, nil, false
-		}
-		body := make([]byte, size+1)
-		if _, err := io.ReadFull(r, body); err != nil || body[size] != '\n' {
+		if err != nil || size < 0 || size >= len(out) || out[size] != '\n' {
 			return nil, nil, false
 		}
 		if fields[1] == "blob" {
-			blobs[rel] = body[:size]
+			blobs[rel] = out[:size:size]
 		}
+		out = out[size+1:]
 	}
-	return blobs, missing, true
+	return blobs, missing, len(out) == 0
+}
+
+// A larger batch falls back to the old per-file reads, rather than retaining
+// an unbounded combined output in addition to the assembled changes.
+const maxHeadBatchBytes = 32 << 20
+
+type headBatchBuffer struct {
+	buf bytes.Buffer
+}
+
+func (b *headBatchBuffer) Write(p []byte) (int, error) {
+	if len(p) > maxHeadBatchBytes-b.buf.Len() {
+		return 0, errors.New("HEAD batch exceeds memory budget")
+	}
+	return b.buf.Write(p)
 }
 
 // runGitInput runs git in dir with input on its stdin, under the same rules
@@ -114,11 +127,13 @@ func runGitInput(dir string, input []byte, args ...string) ([]byte, error) {
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	cmd.Stdin = bytes.NewReader(input)
+	var out headBatchBuffer
+	cmd.Stdout = &out
 	platform.AdaptCommand(cmd)
 	cmd.WaitDelay = time.Second
-	out, err := cmd.Output()
+	err := cmd.Run()
 	if err != nil {
 		return nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}
-	return out, nil
+	return out.buf.Bytes(), nil
 }
