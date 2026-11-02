@@ -136,7 +136,7 @@ func (s *Server) coddySessionChangesList(w http.ResponseWriter, r *http.Request)
 	vcs := ""
 	var work []gitws.WorkChange
 	skipped := 0
-	if gitws.Describe(cwd).IsGitRepo {
+	if gitws.IsRepo(cwd) {
 		vcs = "git"
 		var err error
 		work, skipped, err = gitws.WorktreeChanges(cwd)
@@ -192,7 +192,7 @@ func (s *Server) coddySessionChangeFile(w http.ResponseWriter, r *http.Request) 
 	// character of a file name. Then the other separator, since the list is
 	// OS-shaped and a caller may send either form of a Windows path.
 	var change *gitws.WorkChange
-	if gitws.Describe(cwd).IsGitRepo {
+	if gitws.IsRepo(cwd) {
 		for _, want := range []string{path, filepath.FromSlash(strings.ReplaceAll(path, `\`, "/"))} {
 			var err error
 			change, err = gitws.WorktreeChangeFor(cwd, want)
