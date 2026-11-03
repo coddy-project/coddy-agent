@@ -370,9 +370,13 @@
   gap: 6px;
 }
 
-/* The foot of the window. */
+/* The foot of the window. It never takes more than its share of the pane,
+   however many picks it holds: the picks scroll, the field and Send stay
+   (issue #569). */
 .canvas-bar {
-  flex: none;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 60%;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -382,6 +386,11 @@
 }
 
 .canvas-picks {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 90px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -423,6 +432,7 @@
 }
 
 .canvas-bar-row {
+  flex: none;
   display: flex;
   align-items: flex-end;
   gap: 8px;
