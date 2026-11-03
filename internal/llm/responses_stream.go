@@ -245,7 +245,9 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 				incompleteReason = reason
 			}
 		case "error":
-			return nil, responsesStreamEventError(label, ev.Message, label+" stream error", emitted)
+			// The flat error event carries its code as a field of the event
+			// itself, so the event is the error object.
+			return nil, responsesStreamEventError(label, ev.Message, ev.RawJSON(), label+" stream error", emitted)
 		case "response.failed":
 			// A failed response carries its explanation on the response
 			// object, not on the event.
@@ -253,7 +255,7 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 			if code := strings.TrimSpace(string(ev.Response.Error.Code)); code != "" && msg != "" {
 				msg = code + ": " + msg
 			}
-			return nil, responsesStreamEventError(label, msg, label+" response failed", emitted)
+			return nil, responsesStreamEventError(label, msg, ev.Response.Error.RawJSON(), label+" response failed", emitted)
 		}
 	}
 
@@ -323,7 +325,7 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 		if terminal != "" {
 			// Not a cut, so not a truncation, but held to the same rule: once
 			// deltas reached the caller no retry replays them.
-			streamErr = responsesStreamEventError(label, "response incomplete: "+incompleteReason, "", emitted)
+			streamErr = responsesStreamEventError(label, "response incomplete: "+incompleteReason, "", "", emitted)
 		}
 		return partialWithoutTools(), streamErr
 	}
@@ -345,13 +347,19 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 }
 
 // responsesStreamEventError reports a failure the backend sent inside the
-// stream. Before any chunk reached the caller its text is classified like any
-// other error; after that it is a streamServerError marked as emitted, which no
-// retry replays whatever its message happens to contain.
-func responsesStreamEventError(label, msg, fallback string, emitted bool) error {
+// stream; errObj is the JSON of its error object. An overload by
+// isOverloadPayload is the 503 the SDK-intercepted error event is (issue
+// #602): retried before any chunk reached the caller, transient but never
+// replayed after. Any other failure before output is classified by its text
+// like any other error; after output it is a streamServerError marked as
+// emitted, which no retry replays whatever its message happens to contain.
+func responsesStreamEventError(label, msg, errObj, fallback string, emitted bool) error {
 	msg = strings.TrimSpace(msg)
 	if msg == "" {
 		msg = fallback
+	}
+	if isOverloadPayload(errObj) {
+		return fmt.Errorf("%s stream: %w", label, &streamServerError{code: 503, msg: msg, emitted: emitted})
 	}
 	if emitted {
 		return fmt.Errorf("%s stream: %w", label, &streamServerError{msg: msg, emitted: true})

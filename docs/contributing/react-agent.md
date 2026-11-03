@@ -298,11 +298,12 @@ messages: [
      status is also read from the text of
      an untyped error, as a number with no digit in front of it (`529 `, not
      the end of `1529 tokens`). A cancellation, an unknown host, and any
-     failure after output was emitted stay final. A Codex `response.failed`
-     event is read as an untyped error: its `code` (`server_is_overloaded`
-     included) only joins the text of the message and is not classified, so
-     it is retried only when its message names a status that way
-     (`503 Service Unavailable`) and is final otherwise.
+     failure after output was emitted stay final. The Responses API's own
+     failure events, `response.failed` (its error object rides on the
+     response) and the flat `error` event (its `code` is a field of the
+     event), are read by the same fields, so an overload there counts as a
+     503 as well; any other failure they report is an untyped error, read by
+     its text as above.
    - **First-token re-issue.** A streamed call the first-token guard
      (**`llm_first_token_timeout_ms`**) cuts with **nothing produced** is
      re-issued at most once, using a normal **`max_turns`** iteration. The

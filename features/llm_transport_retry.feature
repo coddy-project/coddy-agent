@@ -33,3 +33,8 @@ Feature: Transport failures without a status are retried
     Given a "codex" provider whose upstream reports an in-band overload once before any output and then streams a completion
     When a streaming completion is requested
     Then the call succeeds with text "Hello after retry" in 2 upstream requests
+
+  Scenario: A Codex response that fails as overloaded before any output is retried and succeeds
+    Given a "codex" provider whose upstream fails the response as overloaded once before any output and then streams a completion
+    When a streaming completion is requested
+    Then the call succeeds with text "Hello after retry" in 2 upstream requests
