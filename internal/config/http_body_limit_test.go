@@ -53,3 +53,31 @@ func TestHTTPServerMaxBodyBytesRefusedAtLoad(t *testing.T) {
 		t.Fatalf("a negative max_body_bytes must be refused at load, got %v", err)
 	}
 }
+
+// TestHTTPServerClientToolLimitsValidate refuses a negative limit on the tools
+// a client offers and on one tool's schema; zero is the default.
+func TestHTTPServerClientToolLimitsValidate(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		h       config.HTTPServerConfig
+		wantErr string
+	}{
+		{name: "defaults", h: config.HTTPServerConfig{}},
+		{name: "raised", h: config.HTTPServerConfig{MaxClientTools: 512, MaxClientToolSchemaBytes: 1 << 20}},
+		{name: "negative tools", h: config.HTTPServerConfig{MaxClientTools: -1}, wantErr: "max_client_tools"},
+		{name: "negative schema", h: config.HTTPServerConfig{MaxClientToolSchemaBytes: -1}, wantErr: "max_client_tool_schema_bytes"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.h.Validate()
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Validate: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("Validate = %v, want an error naming %s", err, tc.wantErr)
+			}
+		})
+	}
+}

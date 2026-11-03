@@ -5326,7 +5326,7 @@ func TestOpenAIContentReadsStringsNullAndParts(t *testing.T) {
 
 func TestOpenAIToolsToLLMReadsFunctionToolsAndToolChoice(t *testing.T) {
 	weather := `[{"type":"function","function":{"name":"get_weather","description":"Weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}}]`
-	tools, err := openAIToolsToLLM(json.RawMessage(weather), nil)
+	tools, err := openAIToolsToLLM(json.RawMessage(weather), nil, clientToolLimitsOf(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -5337,7 +5337,7 @@ func TestOpenAIToolsToLLMReadsFunctionToolsAndToolChoice(t *testing.T) {
 		t.Fatalf("schema = %#v", tools[0].InputSchema)
 	}
 	// No parameters: an empty object schema, which every provider accepts.
-	tools, err = openAIToolsToLLM(json.RawMessage(`[{"type":"function","function":{"name":"ping"}}]`), nil)
+	tools, err = openAIToolsToLLM(json.RawMessage(`[{"type":"function","function":{"name":"ping"}}]`), nil, clientToolLimitsOf(nil))
 	if err != nil || len(tools) != 1 {
 		t.Fatalf("tools = %+v, err = %v", tools, err)
 	}
@@ -5345,20 +5345,20 @@ func TestOpenAIToolsToLLMReadsFunctionToolsAndToolChoice(t *testing.T) {
 		t.Fatalf("default schema = %#v", tools[0].InputSchema)
 	}
 	// tool_choice "none" withholds the tools; anything else leaves them offered.
-	if tools, err := openAIToolsToLLM(json.RawMessage(weather), json.RawMessage(`"none"`)); err != nil || tools != nil {
+	if tools, err := openAIToolsToLLM(json.RawMessage(weather), json.RawMessage(`"none"`), clientToolLimitsOf(nil)); err != nil || tools != nil {
 		t.Fatalf("tool_choice none: tools = %+v, err = %v", tools, err)
 	}
 	// Withheld tools are still read: a broken list is refused whatever the choice.
-	if _, err := openAIToolsToLLM(json.RawMessage(`[{"type":"web_search"}]`), json.RawMessage(`"none"`)); err == nil {
+	if _, err := openAIToolsToLLM(json.RawMessage(`[{"type":"web_search"}]`), json.RawMessage(`"none"`), clientToolLimitsOf(nil)); err == nil {
 		t.Fatal("tool_choice none must not hide a broken tool list")
 	}
-	if tools, err := openAIToolsToLLM(json.RawMessage(weather), json.RawMessage(`{"type":"function","function":{"name":"get_weather"}}`)); err != nil || len(tools) != 1 {
+	if tools, err := openAIToolsToLLM(json.RawMessage(weather), json.RawMessage(`{"type":"function","function":{"name":"get_weather"}}`), clientToolLimitsOf(nil)); err != nil || len(tools) != 1 {
 		t.Fatalf("tool_choice object: tools = %+v, err = %v", tools, err)
 	}
-	if _, err := openAIToolsToLLM(json.RawMessage(`[{"type":"web_search"}]`), nil); err == nil || !strings.Contains(err.Error(), `unsupported tool type "web_search"`) {
+	if _, err := openAIToolsToLLM(json.RawMessage(`[{"type":"web_search"}]`), nil, clientToolLimitsOf(nil)); err == nil || !strings.Contains(err.Error(), `unsupported tool type "web_search"`) {
 		t.Fatalf("unknown tool type: err = %v", err)
 	}
-	if _, err := openAIToolsToLLM(json.RawMessage(`[{"type":"function","function":{}}]`), nil); err == nil || !strings.Contains(err.Error(), "tool without a function name") {
+	if _, err := openAIToolsToLLM(json.RawMessage(`[{"type":"function","function":{}}]`), nil, clientToolLimitsOf(nil)); err == nil || !strings.Contains(err.Error(), "tool without a function name") {
 		t.Fatalf("nameless tool: err = %v", err)
 	}
 }
@@ -5504,11 +5504,11 @@ func TestChatCompletionsPassthroughToolAnswerAndBounds(t *testing.T) {
 	}
 
 	// Bounds: the tool count, a schema's size, the pictures per message and a picture's size.
-	tools := strings.Repeat(weather+",", maxClientTools) + weather
+	tools := strings.Repeat(weather+",", defaultMaxClientTools) + weather
 	if code, body := post(`{"model":"` + model + `","messages":[{"role":"user","content":"hi"}],"tools":[` + tools + `]}`); code != http.StatusBadRequest || !strings.Contains(body, "at most 128 tools") {
 		t.Fatalf("too many tools: %d %s", code, body)
 	}
-	big := `{"type":"function","function":{"name":"big","parameters":{"type":"object","description":"` + strings.Repeat("x", maxClientToolSchemaBytes) + `"}}}`
+	big := `{"type":"function","function":{"name":"big","parameters":{"type":"object","description":"` + strings.Repeat("x", defaultMaxClientToolSchemaBytes) + `"}}}`
 	if code, body := post(`{"model":"` + model + `","messages":[{"role":"user","content":"hi"}],"tools":[` + big + `]}`); code != http.StatusBadRequest || !strings.Contains(body, "parameters exceed") {
 		t.Fatalf("huge schema: %d %s", code, body)
 	}
