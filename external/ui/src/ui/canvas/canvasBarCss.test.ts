@@ -82,3 +82,13 @@ test("the canvas has no zoom controls of its own", () => {
 test("the bar has no Stop of its own beside Send", () => {
   expect(css).not.toMatch(/\.canvas-bar-stop\b/);
 });
+
+// The camera is the only thing that moves the board (issue #679). A board
+// that clips with overflow: hidden is still a scroll container, which a
+// page's focus() scrolls to its frame behind the camera's back; clip keeps the
+// same clipping and leaves nothing to scroll.
+test("the board clips without being a scroll container", () => {
+  const body = ruleBody(".canvas-board {");
+  expect(body).toContain("overflow: clip");
+  expect(body).not.toContain("overflow: hidden");
+});
