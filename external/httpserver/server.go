@@ -563,10 +563,12 @@ func (r chatCompletionRequest) includeUsage() bool {
 }
 
 type openAIMessage struct {
-	Role       string          `json:"role"`
-	Content    json.RawMessage `json:"content"`
-	ToolCallID string          `json:"tool_call_id"`
-	Name       string          `json:"name"`
+	Role             string          `json:"role"`
+	Content          json.RawMessage `json:"content"`
+	ToolCallID       string          `json:"tool_call_id"`
+	Name             string          `json:"name"`
+	ReasoningContent json.RawMessage `json:"reasoning_content,omitempty"`
+	Reasoning        json.RawMessage `json:"reasoning,omitempty"`
 	// ToolCalls are the calls an assistant message made, replayed by a client
 	// that runs the tools itself.
 	ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
@@ -937,6 +939,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		"role":    "assistant",
 		"content": strings.TrimSpace(directRes.Content),
 	}
+	if directRes.Reasoning != "" {
+		message["reasoning_content"] = directRes.Reasoning
+	}
 	finish := openAIFinishReason(directStopReason(directRes))
 	if calls := openAIToolCallsJSON(directRes.ToolCalls); len(calls) > 0 {
 		message["tool_calls"] = calls
@@ -1038,7 +1043,11 @@ func openAIMessagesToLLM(messages []openAIMessage) ([]llm.Message, error) {
 		case "user":
 			out = append(out, llm.Message{Role: llm.RoleUser, Content: txt, ImageParts: images})
 		case "assistant":
-			msg := llm.Message{Role: llm.RoleAssistant, Content: txt}
+			reasoning, err := chatReasoning(m.ReasoningContent, m.Reasoning)
+			if err != nil {
+				return nil, err
+			}
+			msg := llm.Message{Role: llm.RoleAssistant, Content: txt, Reasoning: reasoning}
 			for _, tc := range m.ToolCalls {
 				if t := strings.TrimSpace(tc.Type); t != "" && t != "function" {
 					return nil, fmt.Errorf("unsupported tool call type %q", tc.Type)
@@ -1272,6 +1281,27 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	var raw json.RawMessage
+	if err := s.decodeOpenAIRequest(w, r, &raw); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeBodyTooLarge(w)
+		} else {
+			writeOpenAIValidationError(w, "invalid JSON", "")
+		}
+		return
+	}
+	var selector struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(raw, &selector); err != nil {
+		writeOpenAIValidationError(w, "invalid JSON", "")
+		return
+	}
+	if !httpModelIsCoddyProfile(strings.TrimSpace(selector.Model)) {
+		s.handleDirectResponses(w, r, raw)
+		return
+	}
 	var body struct {
 		Model       string                         `json:"model"`
 		Input       string                         `json:"input"`
@@ -1283,7 +1313,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		InlineFiles []inlineFileJSON `json:"inline_files,omitempty"`
 	}
 
-	if err := s.decodeOpenAIRequest(w, r, &body); err != nil {
+	if err := json.Unmarshal(raw, &body); err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
 			writeBodyTooLarge(w)
@@ -1493,63 +1523,6 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(out)
 		return
 	}
-	imageParts := inlineFilesToImageParts(inlineFiles)
-	if err := session.SavePartsToAssets(imageParts, st.GetPersistedSessionDir()); err != nil {
-		s.log.Error("responses direct completion assets", "error", err)
-		http.Error(w, `{"error":{"message":"save inline files failed"}}`, http.StatusInternalServerError)
-		return
-	}
-
-	var bridge *Sender
-	if body.Stream {
-		writeSSEHeaders(w)
-		bridge = s.configureSender(NewSender(s.activeCfg(), w, true, model))
-	} else {
-		bridge = NewSender(s.activeCfg(), nil, false, model)
-	}
-	st.AddMessage(llm.Message{
-		Role:       llm.RoleUser,
-		Content:    strings.TrimSpace(body.Input),
-		ImageParts: imageParts,
-		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
-	})
-	respTurnCtx, respCancelTurn := context.WithCancel(ctx)
-	st.SetCancel(respCancelTurn)
-	defer respCancelTurn()
-	directRes, err := s.runDirectYAMLCompletion(respTurnCtx, st, sid, model, bridge, nil, llm.RequestOptions{})
-	if err != nil {
-		if errors.Is(err, context.Canceled) && body.Stream {
-			meta := metadataResponse(s.activeCfg(), model)
-			_ = bridge.FinishStreamWithMetadata(meta)
-			return
-		}
-		if !errors.Is(err, context.Canceled) {
-			st.AppendUILogError(session.CountUserTurns(st.GetMessages()), err.Error())
-		}
-		s.log.Error("responses direct completion", "error", err)
-		if body.Stream {
-			_ = bridge.SendErrorFor(err)
-		} else {
-			writeErrorReply(w, err)
-		}
-		return
-	}
-	meta := metadataResponse(s.activeCfg(), model)
-	if body.Stream {
-		_ = bridge.FinishStreamWithMetadata(meta)
-		return
-	}
-	text := strings.TrimSpace(directRes.Content)
-	out := map[string]interface{}{
-		"id":       sid,
-		"object":   "response",
-		"status":   "completed",
-		"model":    model,
-		"metadata": meta,
-		"output":   []map[string]string{{"type": "text", "text": text}},
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(out)
 }
 
 func (s *Server) handleResponsesGetPath(w http.ResponseWriter, r *http.Request) {

@@ -22,12 +22,12 @@ func openAPISpec() map[string]interface{} {
 		"info": map[string]interface{}{
 			"title": "Coddy HTTP API",
 			"description": "OpenAI-compatible endpoints backed by Coddy sessions and agents. **`GET /v1/models`** returns one list: **agent**, **plan**, and **ask** first (**`owned_by`**: **`coddy`**), then every configured **`models[].model`** row (**`id`** is the YAML selector, **`owned_by`** is the provider prefix; a provider row named **`coddy`** gives its rows **`owned_by`** **`coddy`** too, so tell a profile by its **`id`**). " +
-				"Classify POST **model** values: **agent** / **plan** / **ask** run the ReAct agent; a selector with **provider/rest** form (see config) that appears in **`models`** triggers a single direct LLM completion (no tools). " +
+				"Classify POST **model** values: **agent** / **plan** / **ask** run the ReAct agent; a selector with **provider/rest** form (see config) that appears in **`models`** runs one provider call with the client's messages and function tools; Coddy does not execute those tools. " +
 				"**`metadata.model`** may appear only on agent/plan/ask requests to set the session **`SelectedModelID`**; it is **not** allowed on direct completion. " +
 				"**`metadata.reasoning`** (optional, agent/plan/ask only) sets the reasoning level; it must be one of the effective model's **`reasoning_levels`**, or **`off`** where the model's provider can turn thinking off (null/empty clears). **`metadata.toolset`** (optional, agent/plan/ask only) picks a **`toolsets[]`** preset for the session, or **`default`** for every tool of the mode; a name the configuration does not have is **400**. Levels map to provider controls (**`reasoning_effort`**; **`qwen3*`** models on OpenAI-compatible providers also pin **`chat_template_kwargs.enable_thinking`**, off included). " +
 				"These values change the session only where they differ from it, quietly (no transcript notice); **`metadata.settingsVersion`**, the **version** of the last settings snapshot the client applied, makes the server ignore them when a newer snapshot has been published since (the model was switched from another surface). " +
 				"An **input** that starts with settings commands (**`/model`**, **`/reasoning`**, **`/think`**, **`/nothink`**, **`/toolset`**, **`/agent`**, **`/plan`**, **`/ask`**, **`/permissions`**, each with **`--once`** or **`--count=N`**) applies them first; when nothing else is left no turn runs and the answer is a one-line notice. " +
-				"JSON and SSE responses include **`metadata`** with the effective YAML model selector (**`metadata.model`**); streamed runs over **`POST /v1/responses`** emit a final **`event: coddy_meta`** JSON payload with the same map before **`data: [DONE]`**, while **`POST /v1/chat/completions`** streams the plain OpenAI contract (see that operation). " +
+				"Profile JSON and SSE responses include **`metadata`** with the effective YAML model selector (**`metadata.model`**); streamed profile turns over **`POST /v1/responses`** emit a final **`event: coddy_meta`** JSON payload with the same map before **`data: [DONE]`**, while **`POST /v1/chat/completions`** streams the plain OpenAI contract (see that operation). " +
 				"Optional header **X-Coddy-Session-ID** continues an existing session; omit it to create one according to project docs.",
 			"version": ver,
 		},
@@ -74,7 +74,7 @@ func openAPISpec() map[string]interface{} {
 						"A direct **`models[].model`** id sends the request's **`max_tokens`** (or **`max_completion_tokens`**), **`temperature`** and **`reasoning_effort`** for that one request in place of the configured values (the model's **`reasoning_default`** when no level is given), and refuses with **400**, before a session is created or the provider is contacted, a value its provider or model cannot take as asked. " +
 						"Optional **`metadata`** on agent/plan/ask only: **`metadata.model`** sets the backed LLM (**`models[].model`**); omit or omit the key to use session defaults. " +
 						"**`metadata`** must not carry **`model`** for direct-completion **`model`** values. " +
-						"When **stream** is true the response is **text/event-stream** in the strict OpenAI **`chat.completion.chunk`** contract a third-party client parses literally (VS Code Copilot, the openai SDKs): a first chunk with **`delta.role`** `assistant`, **`delta.content`**, **`delta.reasoning_content`** and **`delta.tool_calls`** deltas with **`finish_reason: null`**, a final chunk whose **`finish_reason`** is **`stop`** (**`length`** when the turn hit **`max_turns`** / **`max_tokens`**, **`tool_calls`** when a direct model called one of the client's tools, **`content_filter`** when the provider's content filter cut a direct answer short), a usage chunk with an empty **`choices`** array when **`stream_options.include_usage`** is true and provider counters are available, then **`data: [DONE]`**. No named **`event:`** frame is sent here (each leaves an SSE comment in its place, so the connection stays busy through a tool phase); the coddy events (**`tool_call`**, **`token_usage`**, **`coddy_meta`**, ...) are the **`POST /v1/responses`** stream and the composer relay. Otherwise JSON. " +
+						"When **stream** is true the response is **text/event-stream** in the strict OpenAI **`chat.completion.chunk`** contract a third-party client parses literally (VS Code Copilot, the openai SDKs): a first chunk with **`delta.role`** `assistant`, **`delta.content`**, **`delta.reasoning_content`** and **`delta.tool_calls`** deltas with **`finish_reason: null`**, a final chunk whose **`finish_reason`** is **`stop`** (**`length`** when the turn hit **`max_turns`** / **`max_tokens`**, **`tool_calls`** when a direct model called one of the client's tools, **`content_filter`** when the provider's content filter cut a direct answer short), a usage chunk with an empty **`choices`** array when **`stream_options.include_usage`** is true and provider counters are available, then **`data: [DONE]`**. No named **`event:`** frame is sent here (each leaves an SSE comment in its place, so the connection stays busy through a tool phase); the coddy events (**`tool_call`**, **`token_usage`**, **`coddy_meta`**, ...) belong to the profile **`POST /v1/responses`** stream and the composer relay. Otherwise JSON. " +
 						"A non-streaming JSON completion includes **`usage`** with **`prompt_tokens`**, **`completion_tokens`** and **`total_tokens`** when the provider reported token counts, summing the model calls of an agent turn's own loop (a spawned subagent, a compaction and the memory run are not counted); **`prompt_tokens_details.cached_tokens`** is included when positive. If no counts were reported, **`usage`** is omitted rather than invented as zero. " +
 						"A direct **`models[].model`** id is coddy standing in for the provider: the client's **`tools`** are offered to the model as they are (**`tool_choice`** `none` withholds them, `auto` leaves the choice to the model), a call the model makes comes back as **`delta.tool_calls`** chunks (streamed) or **`message.tool_calls`** (JSON) with **`finish_reason`** **`tool_calls`**, the client replays the assistant's **`tool_calls`** and answers with **`tool`** messages, which may end the request, and **`content`** parts of type **`image_url`** reach a model configured **`multimodal`** as images (dropped otherwise; an https address is handed to the provider, never fetched). Bounds: 128 tools, 256 KiB of **`parameters`** per tool, 16 images per message, 20 MiB per image URL string, else **400**. The **agent** / **plan** / **ask** profiles run coddy's own tools and reject client tools, and take no trailing **`tool`** message. " +
 						"**409** when **X-Coddy-Session-ID** names a child session spawned by **spawn_agent**: those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. " +
@@ -3730,6 +3730,7 @@ func openAPISpec() map[string]interface{} {
 								"code":            map[string]interface{}{"type": "string", "nullable": true},
 								"param":           map[string]interface{}{"type": "string", "nullable": true},
 								"upstream_status": map[string]interface{}{"type": "integer", "description": "Provider HTTP status, when available."},
+								"retry_after":     map[string]interface{}{"type": "integer", "minimum": 1, "description": "Retry delay in seconds in a Chat Completions SSE error, when the provider named a pause. Blocking errors use the Retry-After header."},
 							},
 						},
 					},
@@ -3745,6 +3746,7 @@ func openAPISpec() map[string]interface{} {
 									"type":        "string",
 									"description": "`upstream_error` when the failure came from the model's provider rather than from coddy (POST /v1/chat/completions and POST /v1/responses).",
 								},
+								"retry_after": map[string]interface{}{"type": "integer", "minimum": 1, "description": "Retry delay in seconds in a Chat Completions SSE error, when available."},
 								"upstream_status": map[string]string{
 									"type":        "integer",
 									"description": "The HTTP status the provider answered with, when it answered one. The response status follows it: a provider 4xx is passed through, 429 with Retry-After when the provider named a pause, a 5xx becomes 502 (with the Retry-After of a 503 that named one) and a 504 or a timeout 504.",
@@ -4189,9 +4191,15 @@ func openAPISpec() map[string]interface{} {
 							"description": "On an assistant message: the calls it made, replayed by a client that runs the tools itself (`id`, `type: function`, `function.name`, `function.arguments`).",
 							"items":       map[string]interface{}{"type": "object", "additionalProperties": true},
 						},
+						"reasoning_content": map[string]interface{}{
+							"type":        "string",
+							"nullable":    true,
+							"description": "OpenAI-compatible alias of `reasoning` (Coddy transcript extension): the model's reasoning text alongside an assistant reply. Accepted as a string or null; empty or null carries none. The two spellings are interchangeable, and when both are present they must agree: two different nonempty values are **400** naming the field. On an assistant message the text is replayed to a direct model upstream as OpenAI `reasoning_content` (for a plain reply and for one carrying `tool_calls`); on any other role it is validated but ignored.",
+						},
 						"reasoning": map[string]interface{}{
 							"type":        "string",
-							"description": "Coddy transcript extension persisted model reasoning alongside assistant replies.",
+							"nullable":    true,
+							"description": "Coddy transcript extension: the model's reasoning text alongside an assistant reply, the spelling `reasoning_content` is an alias of. Accepted as a string or null; empty or null carries none, and when both are present they must agree (two different nonempty values are **400**). On an assistant message the text is replayed to a direct model upstream as OpenAI `reasoning_content`; on any other role it is validated but ignored.",
 						},
 						"reasoning_duration_ms": map[string]interface{}{
 							"type":        "integer",
@@ -4387,6 +4395,10 @@ func openAPISpec() map[string]interface{} {
 												"type":        "array",
 												"description": "Present when a direct model called one of the client's tools: `id`, `type: function`, `function.name`, `function.arguments`.",
 												"items":       map[string]interface{}{"type": "object", "additionalProperties": true},
+											},
+											"reasoning_content": map[string]interface{}{
+												"type":        "string",
+												"description": "The model's reasoning text for this answer, present only when a direct model reasoned. Send it back unchanged on the assistant message of a later request and it is replayed upstream as OpenAI `reasoning_content`, so the provider keeps its chain of thought.",
 											},
 										},
 									},
@@ -4804,6 +4816,7 @@ func openAPISpec() map[string]interface{} {
 	mergeStatusOpenAPI(doc)
 	mergeOpenCodeAuthOpenAPI(doc)
 	mergeWallpaperOpenAPI(doc)
+	mergeResponsesOpenAPI(doc)
 	return doc
 }
 
