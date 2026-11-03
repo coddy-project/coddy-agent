@@ -110,7 +110,11 @@ func validateChatMessageFields(raw json.RawMessage) *chatParameterError {
 	}
 	for i, msg := range messages {
 		base := fmt.Sprintf("messages[%d]", i)
-		if err := rejectUnknownFields(msg, base, "role", "content", "tool_calls", "tool_call_id"); err != nil {
+		if err := rejectUnknownFields(msg, base, "role", "content", "tool_calls", "tool_call_id", "reasoning_content", "reasoning"); err != nil {
+			return err
+		}
+		if _, err := chatReasoning(msg["reasoning_content"], msg["reasoning"]); err != nil {
+			err.Param = base + "." + err.Param
 			return err
 		}
 		var calls []map[string]json.RawMessage
