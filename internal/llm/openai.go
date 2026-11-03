@@ -120,7 +120,11 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition,
 				}
 				oaiMessages = append(oaiMessages, openai.ChatCompletionMessageParamUnion{OfAssistant: &asst})
 			} else {
-				oaiMessages = append(oaiMessages, openai.AssistantMessage(m.Content))
+				asst := openai.AssistantMessage(m.Content)
+				if m.Reasoning != "" {
+					asst.OfAssistant.SetExtraFields(map[string]any{"reasoning_content": m.Reasoning})
+				}
+				oaiMessages = append(oaiMessages, asst)
 			}
 		case RoleTool:
 			oaiMessages = append(oaiMessages, openai.ToolMessage(m.Content, m.ToolCallID))
