@@ -95,3 +95,58 @@ func TestPromptCacheAnthropicTailSkipsRequestOnlyMessages(t *testing.T) {
 		t.Fatalf("the tool result before the turn context: cache_control %q, want ephemeral", got)
 	}
 }
+
+// The message just before the request-only tail may hold nothing a mark can
+// stick to - a replayed thinking-only turn - so the mark walks back to the
+// last message that takes one.
+func TestPromptCacheAnthropicTailWalksBackToAMarkableMessage(t *testing.T) {
+	p := newAnthropicProvider("claude-opus-5-5", "", "", nil, 8192, 0, "low")
+	history := []Message{
+		{Role: RoleSystem, Content: "system"},
+		{Role: RoleUser, Content: "question"},
+		{Role: RoleAssistant, Reasoning: "what it thought", ReasoningSignature: "sig"},
+		{Role: RoleUser, Content: "<turn_context>now</turn_context>", Ephemeral: true},
+	}
+	params, err := p.requestParams(history, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(params)
+	if n := gjson.GetBytes(raw, "messages.#").Int(); n != 3 {
+		t.Fatalf("%d messages, want 3 (the thinking turn is replayed): %s", n, raw)
+	}
+	if got := gjson.GetBytes(raw, "messages.1.content.0.type").String(); got != "thinking" {
+		t.Fatalf("messages.1.content.0.type = %q, want thinking: %s", got, raw)
+	}
+	if got := gjson.GetBytes(raw, "messages.0.content.0.cache_control.type").String(); got != "ephemeral" {
+		t.Fatalf("the user text before the thinking-only turn: cache_control %q, want ephemeral: %s", got, raw)
+	}
+	if gjson.GetBytes(raw, "messages.1.content.0.cache_control").Exists() {
+		t.Fatal("the thinking block carries a mark")
+	}
+	if gjson.GetBytes(raw, "messages.2.content.0.cache_control").Exists() {
+		t.Fatal("the turn context carries a mark")
+	}
+}
+
+// An empty text is never marked - the API refuses a mark on it - so the mark
+// walks back to the message before it.
+func TestPromptCacheAnthropicTailNeverMarksAnEmptyText(t *testing.T) {
+	p := newAnthropicProvider("claude-opus-5-5", "", "", nil, 8192, 0, "")
+	history := []Message{
+		{Role: RoleUser, Content: "real"},
+		{Role: RoleUser, Content: ""},
+		{Role: RoleUser, Content: "<turn_context>now</turn_context>", Ephemeral: true},
+	}
+	params, err := p.requestParams(history, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(params)
+	if got := gjson.GetBytes(raw, "messages.0.content.0.cache_control.type").String(); got != "ephemeral" {
+		t.Fatalf("the text before the empty one: cache_control %q, want ephemeral: %s", got, raw)
+	}
+	if gjson.GetBytes(raw, "messages.1.content.0.cache_control").Exists() {
+		t.Fatal("an empty text carries a mark")
+	}
+}

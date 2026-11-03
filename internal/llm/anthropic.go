@@ -580,32 +580,32 @@ func trailingEphemeral(messages []Message) int {
 	return n
 }
 
-// withCacheTail marks the last block of the conversation before its skip
+// withCacheTail marks the last block of the last message before the
 // trailing request-only messages that takes a cache mark: the next request,
 // the next step of the turn or the next turn, starts with everything up to
 // there, so it reads it back from the cache and pays the write price only for
 // what it adds. A mark on the turn context would name a prefix no later
-// request holds. The marked message and block are copies: the history the
-// caller holds is never written to. Block marks only, never the request-level
-// field, which Anthropic-compatible endpoints may not know.
+// request holds. A message with nothing a mark sticks to - a replayed
+// thinking-only turn - is walked past to the message before it, and an empty
+// text is never marked: the API refuses a mark on one. The marked message and
+// block are copies: the history the caller holds is never written to. Block
+// marks only, never the request-level field, which Anthropic-compatible
+// endpoints may not know.
 func withCacheTail(messages []anthropic.MessageParam, skip int) []anthropic.MessageParam {
-	at := len(messages) - 1 - skip
-	if at < 0 {
-		return messages
-	}
 	out := append([]anthropic.MessageParam(nil), messages...)
-	last := &out[at]
-	content := append([]anthropic.ContentBlockParamUnion(nil), last.Content...)
-	for i := len(content) - 1; i >= 0; i-- {
-		block, copied := copyBlock(content[i])
-		if !copied {
-			continue
-		}
-		if cc := block.GetCacheControl(); cc != nil {
-			*cc = anthropic.NewCacheControlEphemeralParam()
-			content[i] = block
-			last.Content = content
-			return out
+	for at := len(out) - 1 - skip; at >= 0; at-- {
+		content := append([]anthropic.ContentBlockParamUnion(nil), out[at].Content...)
+		for i := len(content) - 1; i >= 0; i-- {
+			block, copied := copyBlock(content[i])
+			if !copied || (block.OfText != nil && block.OfText.Text == "") {
+				continue
+			}
+			if cc := block.GetCacheControl(); cc != nil {
+				*cc = anthropic.NewCacheControlEphemeralParam()
+				content[i] = block
+				out[at].Content = content
+				return out
+			}
 		}
 	}
 	return messages
