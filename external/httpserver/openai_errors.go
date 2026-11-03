@@ -126,10 +126,20 @@ func openAIMethodNotAllowed(allow string) http.HandlerFunc {
 }
 
 func writeOpenAIValidationError(w http.ResponseWriter, message, param string) {
+	writeOpenAIValidationErrorCode(w, message, param, "")
+}
+
+// writeOpenAIValidationErrorCode is writeOpenAIValidationError with an
+// error.code; an empty code is null.
+func writeOpenAIValidationErrorCode(w http.ResponseWriter, message, param, code string) {
+	var codeValue any
+	if code != "" {
+		codeValue = code
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusBadRequest)
 	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{
-		"message": message, "type": "invalid_request_error", "code": nil, "param": param,
+		"message": message, "type": "invalid_request_error", "code": codeValue, "param": param,
 	}})
 }
 
