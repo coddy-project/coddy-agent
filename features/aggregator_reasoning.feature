@@ -24,3 +24,7 @@ Feature: A model behind an OpenRouter-style aggregator shows its reasoning and w
     And the stream carries the reasoning "Weighing the request." as reasoning_content
     And the stream's token_usage reports 42 reasoning tokens
     And the session history keeps the reasoning "Weighing the request." with 42 reasoning tokens
+
+  Scenario: A direct call without a session asks for reasoning the way the listing says
+    When a client streams a direct call at reasoning level "high" with no session header
+    Then the aggregator was asked for reasoning with effort "high" and without reasoning_effort

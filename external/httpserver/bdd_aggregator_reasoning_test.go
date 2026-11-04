@@ -222,6 +222,22 @@ func (s *aggregatorReasoningState) aCoddyClientStreamsATurnAt(level string) erro
 	return nil
 }
 
+// A stateless call has no stored session, and still reads the provider listing
+// through the manager (issue #585).
+func (s *aggregatorReasoningState) aClientStreamsADirectCallWithNoSessionHeader(level string) error {
+	body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hello"}],"stream":true,"reasoning_effort":%q}`, s.modelRef, level)
+	res, err := http.Post(s.ts.URL+"/v1/chat/completions", "application/json", bytes.NewReader([]byte(body)))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	raw, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("POST /v1/chat/completions status %d: %s", res.StatusCode, raw)
+	}
+	return nil
+}
+
 func (s *aggregatorReasoningState) theAggregatorWasAskedForEffort(effort string) error {
 	s.backend.mu.Lock()
 	defer s.backend.mu.Unlock()
@@ -298,6 +314,7 @@ func initializeAggregatorReasoningScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a client lists the models$`, s.aClientListsTheModels)
 	sc.Step(`^"([^"]+)" offers the reasoning levels "([^"]+)"$`, s.modelOffersTheLevels)
 	sc.Step(`^a coddy client streams a turn at reasoning level "([^"]+)"$`, s.aCoddyClientStreamsATurnAt)
+	sc.Step(`^a client streams a direct call at reasoning level "([^"]+)" with no session header$`, s.aClientStreamsADirectCallWithNoSessionHeader)
 	sc.Step(`^the aggregator was asked for reasoning with effort "([^"]+)" and without reasoning_effort$`, s.theAggregatorWasAskedForEffort)
 	sc.Step(`^the stream carries the reasoning "([^"]+)" as reasoning_content$`, s.theStreamCarriesTheReasoning)
 	sc.Step(`^the stream's token_usage reports (\d+) reasoning tokens$`, s.tokenUsageReportsReasoningTokens)

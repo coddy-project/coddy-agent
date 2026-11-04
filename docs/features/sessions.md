@@ -70,6 +70,8 @@ The agent's `worktree_open` tool and the worktree checkbox on the web UI's plate
 
 A session runs one turn at a time. The turn lock is a file lock on the bundle, so a second process - `coddy serve` while `coddy acp` holds the turn - is refused rather than interleaved (`409` over HTTP), and a cancel also writes a marker into the bundle that the process holding the turn picks up between its polls. Different sessions stream in parallel, each behind its own lock ([Web UI](../surfaces/web-ui.md#parallel-sessions-and-generation-cancel)).
 
+One kind of HTTP request runs outside this store: a call to a `models[].model` selector without `X-Coddy-Session-ID` is stateless and leaves no bundle ([HTTP API](../reference/http-api.md#model-profiles-and-direct-completion)).
+
 Browsers and consoles connected through `--remote` to the same server can stop a turn or add and remove [queued follow-ups](message-queue.md), including a turn another client started. They recover activity and queue state when reconnecting; losing a stream connection does not mean the session stopped. A successful cancel response acknowledges the request, while the turn's completion confirms that its lock was released. HTTP profiles install their cancellation hook when they acquire that lock, before workspace preparation; a Stop in that window remains effective when the runner is admitted. Shared permission/question answers and a live foreign-turn transcript in the remote console are not part of these controls. Separate local processes sharing only the bundle still have separate queues and pending-answer channels.
 
 ## Resuming

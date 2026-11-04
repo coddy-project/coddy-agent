@@ -185,6 +185,10 @@ type State struct {
 	// built. Set at construction and never changed (context_window.go).
 	contextWindows providerContextWindows
 
+	// ephemeral marks a state Manager.NewEphemeralState built: one stateless
+	// model call, with no bundle and no place among the live sessions.
+	ephemeral bool
+
 	// Plan holds the current todo list entries.
 	Plan []acp.PlanEntry
 

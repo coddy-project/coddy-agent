@@ -28,7 +28,7 @@ func openAPISpec() map[string]interface{} {
 				"These values change the session only where they differ from it, quietly (no transcript notice); **`metadata.settingsVersion`**, the **version** of the last settings snapshot the client applied, makes the server ignore them when a newer snapshot has been published since (the model was switched from another surface). " +
 				"An **input** that starts with settings commands (**`/model`**, **`/reasoning`**, **`/think`**, **`/nothink`**, **`/toolset`**, **`/agent`**, **`/plan`**, **`/ask`**, **`/permissions`**, each with **`--once`** or **`--count=N`**) applies them first; when nothing else is left no turn runs and the answer is a one-line notice. " +
 				"Profile JSON and SSE responses include **`metadata`** with the effective YAML model selector (**`metadata.model`**); streamed profile turns over **`POST /v1/responses`** emit a final **`event: coddy_meta`** JSON payload with the same map before **`data: [DONE]`**, while **`POST /v1/chat/completions`** streams the plain OpenAI contract (see that operation). " +
-				"Optional header **X-Coddy-Session-ID** continues an existing session; omit it to create one according to project docs.",
+				"Optional header **X-Coddy-Session-ID** names the session of a turn, created when it does not exist yet. Without it an **agent**, **plan** or **ask** turn creates a session and names it in the same response header, and a call to a **`models[].model`** selector is stateless: nothing is stored and no session is named.",
 			"version": ver,
 		},
 		"servers": []interface{}{
@@ -89,7 +89,7 @@ func openAPISpec() map[string]interface{} {
 						map[string]interface{}{
 							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
 							"schema":      map[string]string{"type": "string"},
-							"description": "Existing session id. If absent, the server may create a new session.",
+							"description": "Session id; a session that does not exist yet is created. If absent, an agent, plan or ask turn creates a session and a call to a models[].model selector is stateless: nothing is stored and no session is named.",
 						},
 						map[string]interface{}{
 							"name": "X-Coddy-Session-Origin", "in": "header", "required": false,
@@ -149,7 +149,7 @@ func openAPISpec() map[string]interface{} {
 						map[string]interface{}{
 							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
 							"schema":      map[string]string{"type": "string"},
-							"description": "Existing session id. If absent, the server creates a session for this turn.",
+							"description": "Session id; a session that does not exist yet is created. If absent, an agent, plan or ask turn creates a session and a call to a models[].model selector is stateless: nothing is stored and no session is named.",
 						},
 						map[string]interface{}{
 							"name": "X-Coddy-Session-Origin", "in": "header", "required": false,

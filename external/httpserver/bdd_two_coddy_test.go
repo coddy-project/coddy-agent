@@ -1397,34 +1397,37 @@ func testTCIsolation(t *testing.T) {
 	if tot, _ := res.Usage["total_tokens"].(float64); tot != 18 {
 		t.Fatalf("usage.total_tokens %v, want 18", res.Usage["total_tokens"])
 	}
-	session1 := tcSessionFallback(t, b, "b-secret", res)
+	// A headerless direct call is stateless: it names no session (issue #585).
+	if res.SessionID != "" {
+		t.Fatalf("headerless direct call named session %s", res.SessionID)
+	}
 
-	// The session header pins the session: the same id comes back.
+	// The session header pins the session: no other id comes back.
+	const pinned = "sess_two_coddy_pinned"
 	res2 := tcPostChat(t, b, "b-secret", "bstub/test-model",
-		[]map[string]any{{"role": "user", "content": "second-marker"}}, false, session1)
+		[]map[string]any{{"role": "user", "content": "second-marker"}}, false, pinned)
 	if res2.Status != http.StatusOK {
 		t.Fatalf("status %d: %s", res2.Status, truncate(string(res2.Raw), 1000))
 	}
-	if res2.SessionID != "" && res2.SessionID != session1 {
-		t.Fatalf("pinned session returned id %s, want %s", res2.SessionID, session1)
+	if res2.SessionID != "" && res2.SessionID != pinned {
+		t.Fatalf("pinned session returned id %s, want %s", res2.SessionID, pinned)
 	}
 
-	// Headerless call: a fresh session, and the upstream sees only what this
-	// client sent - no leak of either earlier turn.
+	// Headerless again, after a session exists: the upstream sees only what
+	// this client sent - no leak of either earlier turn.
 	res3 := tcPostChat(t, b, "b-secret", "bstub/test-model",
 		[]map[string]any{{"role": "user", "content": "fresh-marker"}}, false, "")
 	if res3.Status != http.StatusOK {
 		t.Fatalf("status %d: %s", res3.Status, truncate(string(res3.Raw), 1000))
 	}
-	session3 := tcSessionFallback(t, b, "b-secret", res3)
-	if session3 == session1 {
-		t.Fatalf("headerless call reused session %s", session1)
+	if res3.SessionID != "" {
+		t.Fatalf("headerless direct call named session %s", res3.SessionID)
 	}
 	reqs := up.all()
 	fresh := reqs[len(reqs)-1]
 	for _, m := range fresh.Messages {
 		if m.Role == "user" && strings.Contains(m.text(), "-marker") && !strings.Contains(m.text(), "fresh-marker") {
-			t.Fatalf("headerless session leaked a prior turn: %s", rawReq(fresh))
+			t.Fatalf("headerless call leaked a prior turn: %s", rawReq(fresh))
 		}
 	}
 }
