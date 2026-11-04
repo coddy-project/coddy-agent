@@ -23,7 +23,11 @@ export function ProviderPickerDialog(props: {
   onSkip: () => void;
 }) {
   const { t } = useT();
-  const [selected, setSelected] = useState<ProviderPresetId>("openai");
+  // The picker opens on the first preset, which is what the order of
+  // PROVIDER_PRESETS means: no card is picked out of the grid by hand.
+  const [selected, setSelected] = useState<ProviderPresetId>(
+    PROVIDER_PRESETS[0].id,
+  );
   const [apiKey, setApiKey] = useState("");
   const [apiBase, setApiBase] = useState("");
   const [proxy, setProxy] = useState("");

@@ -24,9 +24,9 @@ import (
 
 // loginHint is what the console says while no provider can answer: in the
 // header of a fresh install, and after a turn that failed for it.
-const loginHint = "No model provider is set up yet. Type /login to sign in to NeuralDeep, or /login codex, devin or opencode for another provider."
+const loginHint = "No model provider is set up yet. Type /login to pick one, or /login neuraldeep, codex, devin, opencode to go straight to it."
 
-const loginUsage = "Usage: /login [provider] - neuraldeep (the default), codex, devin, opencode, or a provider config.yaml lists"
+const loginUsage = "Usage: /login [provider] - no name opens the picker; neuraldeep, codex, devin, opencode, or a provider config.yaml lists"
 
 // loginRun is the sign-in /login started, while it waits for the person.
 type loginRun struct {
@@ -42,7 +42,8 @@ type loginRun struct {
 	modelBefore string
 }
 
-// loginTarget is the provider a /login names: NeuralDeep when it names none.
+// loginTarget is the provider a /login names: NeuralDeep when it names none,
+// which is also the provider the picker opens on.
 func loginTarget(args []string) string {
 	if len(args) == 0 {
 		return providerlogin.DefaultType
@@ -84,7 +85,9 @@ func (a *App) turnFailureHint() string {
 }
 
 // dispatchLogin handles /login [provider]. Every refusal says why before
-// anything starts.
+// anything starts. A bare /login opens the provider picker (onboarding.go),
+// the console's twin of the web UI's first-run screen; a name goes straight
+// to that provider, picker or not.
 func (a *App) dispatchLogin(args []string) {
 	switch {
 	case a.remoteURL != "":
@@ -96,6 +99,9 @@ func (a *App) dispatchLogin(args []string) {
 		return
 	case len(args) > 1:
 		a.appendStatus(roleWarning, loginUsage)
+		return
+	case len(args) == 0:
+		a.openProviderPicker()
 		return
 	}
 	name := loginTarget(args)

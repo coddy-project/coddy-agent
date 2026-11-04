@@ -72,11 +72,120 @@ func registerCLILoginSteps(sc *godog.ScenarioContext, s *cliTUIState) {
 	sc.Step(`^a stand-in NeuralDeep hub whose tier serves the models "([^"]*)" and "([^"]*)"$`, s.standInLoginHub)
 	sc.Step(`^the screen shows the hub's verification page and the code "([^"]*)"$`, s.screenShowsVerificationPage)
 	sc.Step(`^config\.yaml lists the provider "([^"]*)" with the models "([^"]*)" and "([^"]*)"$`, s.configListsProviderAndModels)
+	sc.Step(`^config\.yaml lists the provider "([^"]*)" with the model "([^"]*)"$`, s.configListsProviderAndModel)
 	sc.Step(`^the screen no longer shows "([^"]*)"$`, s.footerNoLongerShows)
 	sc.Step(`^the model selector offers "([^"]*)"$`, s.modelSelectorOffers)
 	sc.Step(`^the slash menu offers "([^"]*)"$`, s.slashMenuOffers)
 	sc.Step(`^a coddy console app on the example config with OPENAI_API_KEY unset$`, s.buildExampleConfigApp)
 	sc.Step(`^config\.yaml names "([^"]*)" as agent\.model$`, s.configNamesAgentModel)
+	sc.Step(`^the provider picker lists "([^"]*)" in that order$`, s.providerPickerListsInOrder)
+	sc.Step(`^the operator confirms the highlighted row$`, s.operatorConfirmsHighlightedRow)
+	sc.Step(`^the operator picks "([^"]*)" in the provider picker$`, s.operatorPicksProvider)
+	sc.Step(`^a stand-in OpenAI-compatible server that lists the model "([^"]*)"$`, s.standInCompatibleServer)
+	sc.Step(`^the operator answers with the stand-in server's address$`, s.operatorAnswersWithStandInAddress)
+	sc.Step(`^the operator answers "([^"]*)"$`, s.operatorAnswers)
+}
+
+// providerPickerListsInOrder reads the picker's rows off the frame: every
+// label of the comma-separated list, in that order, on the screen. The order
+// is the contract the console shares with the web UI's cards.
+func (s *cliTUIState) providerPickerListsInOrder(list string) error {
+	want := strings.Split(list, ", ")
+	deadline := time.Now().Add(within(5 * time.Second))
+	var last string
+	for time.Now().Before(deadline) {
+		last = s.screenText()
+		at, ok := -1, true
+		for _, label := range want {
+			// A row's label stands at the start of its line, after the
+			// selection arrow; "OpenAI" must not match "OpenAI-compatible".
+			found := -1
+			for i, line := range strings.Split(last, "\n") {
+				if i <= at {
+					continue
+				}
+				fields := strings.Fields(line)
+				if len(fields) > 0 && fields[0] == "→" {
+					fields = fields[1:]
+				}
+				if len(fields) > 0 && fields[0] == label {
+					found = i
+					break
+				}
+			}
+			if found < 0 {
+				ok = false
+				break
+			}
+			at = found
+		}
+		if ok {
+			return nil
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return fmt.Errorf("the picker does not list %q in that order; last frame:\n%s", list, last)
+}
+
+func (s *cliTUIState) operatorConfirmsHighlightedRow() error {
+	s.press("\r")
+	return nil
+}
+
+// operatorPicksProvider types the label as the selector's filter and takes
+// the one row left.
+func (s *cliTUIState) operatorPicksProvider(label string) error {
+	if err := s.waitScreen("Set up a model provider", 5*time.Second); err != nil {
+		return err
+	}
+	s.typeText(label)
+	s.press("\r")
+	return nil
+}
+
+// operatorAnswers types one line into the open value prompt and sends it.
+func (s *cliTUIState) operatorAnswers(text string) error {
+	s.typeText(text)
+	s.press("\r")
+	return nil
+}
+
+func (s *cliTUIState) operatorAnswersWithStandInAddress() error {
+	if s.compatibleServer == nil {
+		return fmt.Errorf("no stand-in OpenAI-compatible server in this scenario")
+	}
+	// The prompt is prefilled with nothing for this preset, so the typed
+	// address is the whole answer.
+	return s.operatorAnswers(s.compatibleServer.URL + "/v1")
+}
+
+// standInCompatibleServer serves the one endpoint the setup of a key
+// provider reads, GET /v1/models, so nothing leaves the machine.
+func (s *cliTUIState) standInCompatibleServer(model string) error {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{
+			{"id": model, "context_window": 32768},
+		}})
+	})
+	s.compatibleServer = httptest.NewServer(mux)
+	return nil
+}
+
+// configListsProviderAndModel is configListsProviderAndModels for a setup
+// that wrote one model.
+func (s *cliTUIState) configListsProviderAndModel(provider, model string) error {
+	deadline := time.Now().Add(within(5 * time.Second))
+	for {
+		cfg, err := config.LoadWithPaths(s.cfg.Paths)
+		if err == nil && cfg.FindProvider(provider) != nil && cfg.FindModelEntry(model) != nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("config.yaml does not list provider %q with model %q (%v)", provider, model, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // exampleConfig is the part of config.example.yaml that decides a fresh

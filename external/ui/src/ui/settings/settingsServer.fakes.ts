@@ -226,7 +226,9 @@ export function stubServer(source: ServerState | (() => ServerState)) {
     if (route === "/coddy/providers/models") {
       return reply(200, { ok: true, models: [] });
     }
-    if (/^\/coddy\/providers\/[^/]+\/(codex|neuraldeep|devin)-auth$/.test(route)) {
+    if (
+      /^\/coddy\/providers\/[^/]+\/(codex|neuraldeep|devin)-auth$/.test(route)
+    ) {
       return reply(200, { connected: false, source: "none" });
     }
     if (route === "/coddy/mcp") {

@@ -85,12 +85,48 @@ of another provider.
 
 *The first start with no `config.yaml`: the line in the warning colour points at `/login`, and the footer names no model.*
 
-`/login` runs the sign-in of `coddy providers login` without leaving the
-console:
+### The provider picker
+
+A console that starts with no provider that can answer opens the picker by
+itself, before the first prompt, the way the web UI opens its own on a first
+run ([Web UI](web-ui.md#first-run-onboarding)). It offers the same providers in
+the same order, and the row it opens on is the same one:
+
+| Row | What it is | What the console asks for |
+|---|---|---|
+| **NeuralDeep** | API key or account sign-in on either hub | the hub, then the device sign-in |
+| **OpenCode** | OpenCode Go or Console with account sign-in | the gateway, then the device sign-in |
+| **OpenAI** | GPT models and the OpenAI API | the API key |
+| **Anthropic** | Claude models | the API key |
+| **Codex** | your ChatGPT subscription through OAuth | the device sign-in |
+| **Devin** | Devin models with browser sign-in | the browser sign-in |
+| **Ollama** | local models through an OpenAI-compatible API | the address of the server, then an optional key |
+| **OpenAI-compatible** | DeepSeek, Groq, Together or a custom endpoint | the address of the endpoint, then the API key |
+
+Arrows move, typing filters, Enter takes the row and Escape puts the picker
+away: the header keeps pointing at `/login`, which opens it again, so nothing
+about it is a one-shot screen. A row that signs in runs the sign-in below; a
+row that takes a key is asked for its endpoint where it has none of its own and
+then for the key, and an empty key leaves the row reading its `NAME_API_KEY`
+variable, which is how a local server with no key works. Coddy then asks the
+provider what it serves and offers that list; the model picked becomes
+`models[]`, the session's model and, when nothing that answers was named
+before, `agent.model`. A provider that cannot be reached says why and the model
+is named by hand instead, so a setup is never stuck behind a listing.
+
+![The provider picker on the first start of a fresh install](../assets/cli-tui/login-provider-picker-dark-1280.png)
+
+*The picker on a first start: NeuralDeep first and highlighted, the eight providers in the order the web UI shows them.*
+
+### `/login`
+
+`/login` opens that picker again at any time; a name after it skips the picker
+and runs the sign-in of `coddy providers login` without leaving the console:
 
 | Command | Signs in to | How |
 |---|---|---|
-| `/login` | NeuralDeep | device code: open the hub's page, confirm the code |
+| `/login` | the picker above | arrows, Enter, Escape |
+| `/login neuraldeep` | NeuralDeep | device code: open the hub's page, confirm the code |
 | `/login codex` | Codex (ChatGPT) | device code |
 | `/login devin` | Devin | browser sign-in; the page sends the browser back to this machine |
 | `/login opencode` | OpenCode | device code, then the organization on the page |
@@ -100,10 +136,11 @@ The console prints the page to open and the code to confirm, and opens the page
 in this machine's browser when it has one; over SSH it prints the address only,
 for any browser, a phone's included. Escape stops the sign-in. A Devin sign-in
 whose browser runs on another machine completes from the address that browser
-was sent back to: paste it into the editor and press Enter. A bare `/login`
-signs in against the NeuralDeep deployment for Russia; for the international
-mirror, give the `neuraldeep` row `api_base: https://api.neuraldeep.tech/v1`
-first and then run `/login neuraldeep` ([NeuralDeep](../getting-started/configuration.md#neuraldeep)).
+was sent back to: paste it into the editor and press Enter. The picker asks
+which NeuralDeep deployment to sign in against, Russia or the international
+mirror; `/login neuraldeep` takes the one the `neuraldeep` row's `api_base`
+names, and the deployment for Russia when it names none
+([NeuralDeep](../getting-started/configuration.md#neuraldeep)).
 
 Once the sign-in succeeds, the console adds the provider row and every model the
 account serves to `config.yaml`, and `agent.model` when none is set, the same
@@ -120,9 +157,9 @@ another type, such as `openai` or `anthropic`, takes a key, and `/login` says
 so; an `acp` agent signs in on its own. Over `--remote` the configuration is the
 server's, so `/login` sends you there.
 
-![The console after a bare /login: the hub's page and the code, Signed in to NeuralDeep, what config.yaml gained, and the footer on the new model with its usage](../assets/cli-tui/login-signed-in-dark-1280.png)
+![The console after the picker signed in: the hub's page and the code, Signed in to NeuralDeep, what config.yaml gained, and the footer on the new model with its usage](../assets/cli-tui/login-signed-in-dark-1280.png)
 
-*A bare `/login` on a fresh install: the page and the code, the account, the provider and its five models in `config.yaml`, and the footer on `neuraldeep/qwen3.8-27b` with the account usage.*
+*NeuralDeep taken from the picker on a fresh install: the page and the code, the account, the provider and its five models in `config.yaml`, and the footer on `neuraldeep/qwen3.8-27b` with the account usage.*
 
 
 ## Live file drafts
@@ -1031,10 +1068,12 @@ and types `@ment` against a provider that is never asked anything.
 `examples/cli/capture_settings.py`: `/permissions bypass`, then a chained
 `/model --once /reasoning --count=3`, with a temporary home standing in for
 `HOME` too, so the header lists the bundled skills only.
-`login-signed-in-dark-1280` comes from `examples/cli/capture_login.py`: a
-bare `/login` on an empty `CODDY_HOME`, with the hub and the API base pointed
-at a local stand-in that answers the device sign-in, the account, the tier's
-models and the usage, so neither a hub nor a key is needed.
+`login-provider-picker-dark-1280` and `login-signed-in-dark-1280` both come
+from `examples/cli/capture_login.py`: the picker a fresh console opens by
+itself on an empty `CODDY_HOME`, and then NeuralDeep taken from it, with the
+hub and the API base pointed at a local stand-in that answers the device
+sign-in, the account, the tier's models and the usage, so neither a hub nor a
+key is needed.
 
 
 ## Testing

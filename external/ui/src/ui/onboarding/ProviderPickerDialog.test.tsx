@@ -158,6 +158,33 @@ describe("ProviderPickerDialog", () => {
     vi.unstubAllGlobals();
   });
 
+  it("opens on NeuralDeep and draws the cards in the catalog's order", async () => {
+    renderPicker();
+    const cards = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-testid^=provider-card-]"),
+    ).map((card) => card.dataset.testid);
+    expect(cards).toEqual([
+      "provider-card-neuraldeep",
+      "provider-card-opencode",
+      "provider-card-openai",
+      "provider-card-anthropic",
+      "provider-card-codex",
+      "provider-card-devin",
+      "provider-card-ollama",
+      "provider-card-compatible",
+    ]);
+    expect(
+      screen
+        .getByTestId("provider-card-neuraldeep")
+        .classList.contains("provider-picker-card--active"),
+    ).toBe(true);
+    // Its endpoint picker is the one on screen, so Enter on the open dialog
+    // configures NeuralDeep without a card being clicked first.
+    expect(
+      await screen.findByTestId("provider-neuraldeep-domain"),
+    ).toBeTruthy();
+  });
+
   it("saves OpenCode with its managed login and keeps the existing config", async () => {
     const onSaved = renderPicker();
     fireEvent.click(screen.getByTestId("provider-card-opencode"));
@@ -258,7 +285,7 @@ describe("ProviderPickerDialog", () => {
     expect(body.providers).toHaveLength(2);
     expect(body.models).toHaveLength(2);
     expect(body.agent).toEqual({
-      model: "openai/gpt-5.6-terra",
+      model: "neuraldeep/qwen3.6-35b-a3b",
       max_turns: 40,
     });
   });

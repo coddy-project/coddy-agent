@@ -192,8 +192,10 @@ type cliTUIState struct {
 	skillSources []string
 	silentSource *silentListener
 	// loginStand is the stand-in hub of a /login scenario
-	// (features/cli_login.feature).
-	loginStand *loginStand
+	// (features/cli_login.feature); compatibleServer is the stand-in
+	// OpenAI-compatible endpoint the provider picker is pointed at.
+	loginStand       *loginStand
+	compatibleServer *httptest.Server
 }
 
 // syncBuffer is a goroutine-safe string sink for the one-shot print steps.
@@ -286,6 +288,10 @@ func (s *cliTUIState) shutdown() {
 	if s.loginStand != nil {
 		s.loginStand.stop()
 		s.loginStand = nil
+	}
+	if s.compatibleServer != nil {
+		s.compatibleServer.Close()
+		s.compatibleServer = nil
 	}
 	if s.usageEnvSet {
 		_ = os.Setenv(llm.EnvNeuralDeepBaseURL, s.prevBaseEnv)

@@ -173,7 +173,10 @@
 }
 
 .provider-picker-primary {
-  border: none;
+  // A transparent border, not none: the actions row wraps on the phone tier
+  // and Save ends up alone on its line, where a border-less button would
+  // stand 2px shorter than Skip and Test above it.
+  border: 1px solid transparent;
   background: var(--accent);
   color: var(--coddy-on-accent-fg);
 }

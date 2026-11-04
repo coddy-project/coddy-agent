@@ -387,9 +387,7 @@ test("Devin account sign-in uses the unsaved proxy and callback paste", async ()
     ),
   ).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Sign Out" }));
-  expect(
-    await screen.findByTestId("devin-auth-sign-in"),
-  ).toBeInTheDocument();
+  expect(await screen.findByTestId("devin-auth-sign-in")).toBeInTheDocument();
 });
 
 // A failed attempt keeps the code beside its reason: the operator compares it

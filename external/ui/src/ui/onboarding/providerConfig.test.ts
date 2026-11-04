@@ -11,6 +11,21 @@ const preset = (id: string) => {
   return found;
 };
 
+describe("PROVIDER_PRESETS", () => {
+  it("offers the providers in the order the picker opens on", () => {
+    expect(PROVIDER_PRESETS.map((item) => item.id)).toEqual([
+      "neuraldeep",
+      "opencode",
+      "openai",
+      "anthropic",
+      "codex",
+      "devin",
+      "ollama",
+      "compatible",
+    ]);
+  });
+});
+
 describe("buildOnboardingConfig", () => {
   it("merges the selected provider and model without dropping existing rows", () => {
     const doc = buildOnboardingConfig({

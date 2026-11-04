@@ -50,7 +50,35 @@ export const OPENCODE_API_BASE_OPTIONS = [
   },
 ] as const;
 
+// The order the picker offers the presets in, here and in the console's own
+// picker (internal/providerpreset, held to this list by TestProviderPresets-
+// MatchTheWebPicker): the sign-ins that need no key first, NeuralDeep at the
+// head as the one a bare picker starts on, then the two big key providers, the
+// two account sign-ins, and last the endpoints an operator brings themselves.
 export const PROVIDER_PRESETS: [ProviderPreset, ...ProviderPreset[]] = [
+  {
+    id: "neuraldeep",
+    label: "NeuralDeep",
+    descriptionKey: "onboarding.provider.neuraldeep.description",
+    providerName: "neuraldeep",
+    providerType: "neuraldeep",
+    apiBase: NEURALDEEP_API_BASE_OPTIONS[0].value,
+    multimodal: false,
+    defaultModel: "neuraldeep/qwen3.6-35b-a3b",
+    maxContextTokens: 46112,
+    envKey: "${NEURALDEEP_API_KEY}",
+  },
+  {
+    id: "opencode",
+    label: "OpenCode",
+    descriptionKey: "onboarding.provider.opencode.description",
+    providerName: "opencode",
+    providerType: "opencode",
+    apiBase: OPENCODE_API_BASE_OPTIONS[0].value,
+    multimodal: false,
+    defaultModel: "opencode/gpt-5.5",
+    envKey: "${OPENCODE_API_KEY}",
+  },
   {
     id: "openai",
     label: "OpenAI",
@@ -72,6 +100,25 @@ export const PROVIDER_PRESETS: [ProviderPreset, ...ProviderPreset[]] = [
     envKey: "${ANTHROPIC_API_KEY}",
   },
   {
+    id: "codex",
+    label: "Codex",
+    descriptionKey: "onboarding.provider.codex.description",
+    providerName: "codex",
+    providerType: "codex",
+    multimodal: false,
+    defaultModel: "codex/gpt-5.6-sol",
+  },
+  {
+    id: "devin",
+    label: "Devin",
+    descriptionKey: "onboarding.provider.devin.description",
+    providerName: "devin",
+    providerType: "devin",
+    multimodal: true,
+    defaultModel: "devin/claude-sonnet-5",
+    envKey: "${DEVIN_API_KEY}",
+  },
+  {
     id: "ollama",
     label: "Ollama",
     descriptionKey: "onboarding.provider.ollama.description",
@@ -89,48 +136,6 @@ export const PROVIDER_PRESETS: [ProviderPreset, ...ProviderPreset[]] = [
     providerType: "openai",
     multimodal: true,
     defaultModel: "custom/gpt-4o",
-  },
-  {
-    id: "neuraldeep",
-    label: "NeuralDeep",
-    descriptionKey: "onboarding.provider.neuraldeep.description",
-    providerName: "neuraldeep",
-    providerType: "neuraldeep",
-    apiBase: NEURALDEEP_API_BASE_OPTIONS[0].value,
-    multimodal: false,
-    defaultModel: "neuraldeep/qwen3.6-35b-a3b",
-    maxContextTokens: 46112,
-    envKey: "${NEURALDEEP_API_KEY}",
-  },
-  {
-    id: "codex",
-    label: "Codex",
-    descriptionKey: "onboarding.provider.codex.description",
-    providerName: "codex",
-    providerType: "codex",
-    multimodal: false,
-    defaultModel: "codex/gpt-5.6-sol",
-  },
-  {
-    id: "opencode",
-    label: "OpenCode",
-    descriptionKey: "onboarding.provider.opencode.description",
-    providerName: "opencode",
-    providerType: "opencode",
-    apiBase: OPENCODE_API_BASE_OPTIONS[0].value,
-    multimodal: false,
-    defaultModel: "opencode/gpt-5.5",
-    envKey: "${OPENCODE_API_KEY}",
-  },
-  {
-    id: "devin",
-    label: "Devin",
-    descriptionKey: "onboarding.provider.devin.description",
-    providerName: "devin",
-    providerType: "devin",
-    multimodal: true,
-    defaultModel: "devin/claude-sonnet-5",
-    envKey: "${DEVIN_API_KEY}",
   },
 ];
 
