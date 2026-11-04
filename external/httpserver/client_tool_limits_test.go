@@ -93,6 +93,18 @@ func TestModelListingAdvertisesTheLimits(t *testing.T) {
 		}
 	})
 
+	t.Run("a direct model row without multimodal takes no pictures", func(t *testing.T) {
+		// Its last message is refused with a picture (issue #584), so the row
+		// must not advertise room for one.
+		limits := read(t, "local/qwen3-text").Get("limits")
+		if got := limits.Get("images_per_message").Int(); got != 0 {
+			t.Errorf("limits.images_per_message = %d, want 0: %s", got, limits.Raw)
+		}
+		if got := limits.Get("tools").Int(); got != defaultMaxClientTools {
+			t.Errorf("limits.tools = %d, want %d: %s", got, defaultMaxClientTools, limits.Raw)
+		}
+	})
+
 	t.Run("a raised limit is the one advertised", func(t *testing.T) {
 		state.srv.activeCfg().HTTPServer.MaxClientTools = 200
 		state.srv.activeCfg().HTTPServer.MaxClientToolSchemaBytes = 1 << 20

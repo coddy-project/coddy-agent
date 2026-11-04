@@ -157,6 +157,12 @@ func (b *recordingOpenAIBackend) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	}
 }
 
+func (b *recordingOpenAIBackend) count() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.requests)
+}
+
 func (b *recordingOpenAIBackend) last() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -176,6 +182,8 @@ type openAIPassthroughState struct {
 	sseBody                string
 	frames                 []sseFrame
 	jsonBody               string
+	refusedStatus          int
+	refusedBody            string
 	concurrentFirstAnswer  string
 	concurrentFirstStatus  int
 	concurrentSecondStatus int
@@ -281,7 +289,8 @@ func (s *openAIPassthroughState) reset() error {
 		return err
 	}
 	s.root = root
-	s.sseBody, s.jsonBody = "", ""
+	s.sseBody, s.jsonBody, s.refusedBody = "", "", ""
+	s.refusedStatus = 0
 	s.frames = nil
 	return nil
 }
@@ -318,7 +327,7 @@ func (s *openAIPassthroughState) startServer() error {
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: home, CWD: s.cwd},
 		Providers: []config.ProviderConfig{{Name: "local", Type: "openai", APIBase: s.backendTS.URL, APIKey: "test-key"}},
-		Models:    []config.ModelEntry{{Model: "local/qwen3-1.7b", Multimodal: true}},
+		Models:    []config.ModelEntry{{Model: "local/qwen3-1.7b", Multimodal: true}, {Model: "local/qwen3-text"}},
 		Agent:     config.Agent{Model: "local/qwen3-1.7b"},
 	}
 	cfg.Tools.PermissionMode = config.PermModeBypass
@@ -351,6 +360,14 @@ func (s *openAIPassthroughState) post(body string) (*http.Response, []byte, erro
 		return nil, nil, fmt.Errorf("POST /v1/chat/completions status %d: %s", res.StatusCode, raw)
 	}
 	return res, raw, nil
+}
+
+// imageRequest is a user message with a text part and the test picture.
+func imageRequest(model string, stream bool) string {
+	return fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":[
+		{"type":"text","text":"What is on the picture?"},
+		{"type":"image_url","image_url":{"url":%q}}
+	]}],"stream":%t}`, model, passthroughImageDataURL, stream)
 }
 
 func (s *openAIPassthroughState) stream(body string) error {
@@ -396,10 +413,48 @@ func (s *openAIPassthroughState) postsWithToolWithoutStreaming(model, tool strin
 }
 
 func (s *openAIPassthroughState) streamsWithTextAndImage(model string) error {
-	return s.stream(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":[
-		{"type":"text","text":"What is on the picture?"},
-		{"type":"image_url","image_url":{"url":%q}}
-	]}],"stream":true}`, model, passthroughImageDataURL))
+	return s.stream(imageRequest(model, true))
+}
+
+// postsWithTextAndImage keeps whatever the endpoint answered, so a scenario
+// can read a refusal.
+func (s *openAIPassthroughState) postsWithTextAndImage(model string) error {
+	res, err := http.Post(s.ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(imageRequest(model, false)))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	raw, _ := io.ReadAll(res.Body)
+	s.refusedStatus, s.refusedBody = res.StatusCode, string(raw)
+	return nil
+}
+
+func (s *openAIPassthroughState) refusedWithParam(status int, param string) error {
+	if s.refusedStatus != status {
+		return fmt.Errorf("status = %d, want %d: %s", s.refusedStatus, status, s.refusedBody)
+	}
+	if got := gjson.Get(s.refusedBody, "error.param").String(); got != param {
+		return fmt.Errorf("error.param = %q, want %q: %s", got, param, s.refusedBody)
+	}
+	if got := gjson.Get(s.refusedBody, "error.type").String(); got != "invalid_request_error" {
+		return fmt.Errorf("error.type = %q, want invalid_request_error: %s", got, s.refusedBody)
+	}
+	return nil
+}
+
+func (s *openAIPassthroughState) errorSaysTakesNoImages(model string) error {
+	msg := gjson.Get(s.refusedBody, "error.message").String()
+	if !strings.Contains(msg, model) || !strings.Contains(msg, "takes no images") || !strings.Contains(msg, "multimodal") {
+		return fmt.Errorf("error.message = %q, want it to name %s, say it takes no images and name multimodal", msg, model)
+	}
+	return nil
+}
+
+func (s *openAIPassthroughState) noUpstreamRequest() error {
+	if n := s.backend.count(); n != 0 {
+		return fmt.Errorf("%d request(s) reached the upstream, want none: %s", n, s.backend.last())
+	}
+	return nil
 }
 
 func (s *openAIPassthroughState) upstreamOfferedTheTool(name string) error {
@@ -572,6 +627,10 @@ func initializeOpenAIPassthroughScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the upstream request offered coddy's own tools and not "([^"]+)"$`, s.upstreamOfferedCoddysToolsNot)
 	sc.Step(`^the upstream request carried the tool result "([^"]+)" under call "([^"]+)"$`, s.upstreamCarriedToolResult)
 	sc.Step(`^the upstream request carried the image as an image_url part$`, s.upstreamCarriedTheImage)
+	sc.Step(`^an OpenAI client posts "([^"]+)" a text part and an image part$`, s.postsWithTextAndImage)
+	sc.Step(`^the request is refused with (\d+) and error\.param "([^"]+)"$`, s.refusedWithParam)
+	sc.Step(`^the error says that "([^"]+)" takes no images$`, s.errorSaysTakesNoImages)
+	sc.Step(`^no request reached the upstream$`, s.noUpstreamRequest)
 	sc.Step(`^a tool_calls delta calls "([^"]+)" with arguments (\{.*\})$`, s.toolCallsDelta)
 	sc.Step(`^every chunk carries a finish_reason field$`, s.everyChunkCarriesFinishReason)
 	sc.Step(`^the last chunk before \[DONE\] finishes with "([^"]+)"$`, s.lastChunkFinishesWith)
