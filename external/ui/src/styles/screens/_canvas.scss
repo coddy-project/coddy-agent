@@ -272,6 +272,136 @@
     0 6px 24px color-mix(in srgb, #000 22%, transparent);
 }
 
+/* A page of a board that came with the workspace and waits for the person:
+   nothing loads, the frame stands empty with its page named in it. What it
+   says keeps its size on screen, scaled back like the title bars. */
+.canvas-frame--held {
+  background: var(--bg);
+  border: 1px dashed color-mix(in srgb, var(--text) 30%, transparent);
+  box-sizing: border-box;
+}
+
+.canvas-held {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  box-sizing: border-box;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  /* Its size on screen, but never larger than the frame (--canvas-held-fit,
+     set by CanvasHeldFrame). */
+  transform: translate(-50%, -50%)
+    scale(min(var(--canvas-inv, 1), var(--canvas-held-fit, 1)));
+  color: var(--text);
+  font-size: 13px;
+  text-align: center;
+}
+
+.canvas-held p {
+  margin: 0;
+}
+
+.canvas-held-title {
+  font-weight: 600;
+}
+
+.canvas-held-page code {
+  overflow-wrap: anywhere;
+}
+
+.canvas-held-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* The question before a board's pages run, over the middle of the board. */
+.canvas-trust {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 5;
+  box-sizing: border-box;
+  width: min(460px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  transform: translate(-50%, -50%);
+  border-radius: 12px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  /* Opaque, like the popover: the board must not show through. */
+  background: color-mix(in srgb, var(--text) 5%, var(--bg));
+  box-shadow: var(--coddy-glass-panel-shadow);
+  color: var(--text);
+  font-size: 13px;
+  cursor: auto;
+}
+
+.canvas-trust-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.canvas-trust-intro {
+  margin: 0;
+  color: var(--muted);
+}
+
+.canvas-trust-pages {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.canvas-trust-pages li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  overflow-wrap: anywhere;
+}
+
+.canvas-trust-root {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.canvas-trust-error {
+  margin: 0;
+  color: var(--coddy-danger);
+}
+
+/* Holds the pages of the board again: at the board's bottom left corner, out
+   of the way of the mode switch and the zoom. */
+.canvas-hold {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 3;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: color-mix(in srgb, var(--text) 5%, var(--bg));
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.canvas-hold:hover {
+  background: color-mix(in srgb, var(--text) 10%, var(--bg));
+}
+
 /* The page at its own size; the world layer scales it with the board. */
 .canvas-frame-page {
   position: absolute;

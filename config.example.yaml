@@ -444,6 +444,8 @@ tools:
   #   enable: true
   #   allow_cdn: true        # jsDelivr, unpkg, cdnjs, the Tailwind CDN, Google Fonts
   #   allowed_sources: []    # further hosts, e.g. https://cdn.example.com
+  #   project_trust: ask     # pages of a board that came with the checkout wait for you:
+  #                          # ask (default), allow (run every page), deny (only pages Coddy put)
 
   # Web search: which engines the websearch tool asks, in what order their results merge,
   # and what it may spend asking them. Every engine reports its own outcome next to the

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
 // obsidianCanvas is a board as Obsidian writes it, with a key of a later
@@ -450,6 +452,7 @@ func findItem(t *testing.T, b Board, id string) int {
 
 func TestFrameOfIsTheFrameLoadGives(t *testing.T) {
 	ref, _ := obsidianBoard(t)
+	ref.Trust = &Trust{Policy: config.ProjectTrustAllow}
 	b, err := Load(ref)
 	if err != nil {
 		t.Fatal(err)

@@ -2714,6 +2714,26 @@ export const messagesEn: Record<string, string> = {
   "canvas.frame.remove": "Remove from canvas",
   "canvas.frame.left": "This page left the canvas.",
   "canvas.frame.back": "Back to the page",
+  "canvas.held.title": "This page came with the workspace",
+  "canvas.held.hint":
+    "Its scripts would read the files of {root} and could send them anywhere, so it waits for you.",
+  "canvas.held.hintAll":
+    "Its scripts would read every file of the workspace and could send them anywhere, so it waits for you.",
+  "canvas.held.run": "Run the pages of this board",
+  "canvas.held.deny":
+    "tools.canvas.project_trust is deny: only the pages Coddy put on a board run.",
+  "canvas.trust.title": "Run the pages of this board?",
+  "canvas.trust.intro":
+    "{file} came with the workspace. Each page runs in a sandbox, reads every file of its folder and can send what it reads anywhere. Run them only if you trust where this checkout came from.",
+  "canvas.trust.reads": "reads {root}",
+  "canvas.trust.readsAll": "reads the whole workspace",
+  "canvas.trust.confirm": "Run pages",
+  "canvas.trust.moved":
+    "The pages of this board changed while you were reading. Check the list again.",
+  "canvas.trust.failed": "The pages did not start: {error}",
+  "canvas.hold": "Hold pages",
+  "canvas.holdTitle":
+    "Stop the pages of this board until you let them run again",
   "canvas.device.desktop": "Desktop 1280×800",
   "canvas.device.tablet": "Tablet 820×1180",
   "canvas.device.phone": "Phone 390×844",
