@@ -1270,6 +1270,18 @@
           "default": 0,
           "minimum": 0
         },
+        "max_client_tools": {
+          "type": "integer",
+          "description": "Most tools a client may offer a direct model on POST /v1/chat/completions and POST /v1/responses. 0 means the built-in 128, OpenAI's own limit. More are refused with 400 and the too_many_tools error, which names the count and this setting. Raise it for a client whose MCP servers offer more; a provider with a limit of its own still applies it.",
+          "default": 0,
+          "minimum": 0
+        },
+        "max_client_tool_schema_bytes": {
+          "type": "integer",
+          "description": "Largest parameters schema of one client tool on POST /v1/chat/completions and POST /v1/responses, in bytes. 0 means the built-in 256 KiB. A larger one is refused with 400 and the tool_parameters_too_large error.",
+          "default": 0,
+          "minimum": 0
+        },
         "auth_token": {
           "type": "string",
           "description": "Optional bearer credential for the HTTP API. Empty means no authentication (historical default). Use a \"${ENV}\" reference to keep the secret out of the file; never echoed back by GET /coddy/config. Prefer --auth-token / CODDY_HTTP_TOKEN to keep it out of config.yaml entirely. See https://coddy.dev/docs/operate/remote.",

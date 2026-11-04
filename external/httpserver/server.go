@@ -606,14 +606,11 @@ func (c openAIToolCall) argumentsJSON() (string, error) {
 	return string(raw), nil
 }
 
-// Bounds on what a client may hand a direct model. OpenAI itself takes up to
-// 128 tools; a schema or a picture past these sizes is not a request coddy
-// should carry to a provider or keep under the session's assets.
-const (
-	maxClientTools           = 128
-	maxClientToolSchemaBytes = 256 << 10
-	maxImagePartsPerMessage  = 16
-)
+// Bounds on the pictures a client may hand a direct model: past these a
+// request is not one coddy should carry to a provider or keep under the
+// session's assets. The bounds on its tools are configurable
+// (client_tool_limits.go).
+const maxImagePartsPerMessage = 16
 
 // maxImagePartBytes bounds one image_url payload.
 const maxImagePartBytes = 20 << 20
@@ -689,9 +686,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	var clientTools []llm.ToolDefinition
 	var genOpts llm.RequestOptions
 	if !httpModelIsCoddyProfile(model) {
-		clientTools, err = openAIToolsToLLM(req.Tools, req.ToolChoice)
+		clientTools, err = openAIToolsToLLM(req.Tools, req.ToolChoice, clientToolLimitsOf(s.activeCfg()))
 		if err != nil {
-			http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
+			writeClientToolError(w, err)
 			return
 		}
 		// Refused here for the same reason: an option the provider cannot
@@ -1148,8 +1145,8 @@ func openAIContent(raw json.RawMessage) (string, []llm.ImagePart, error) {
 // withholds them, once they have been read - a broken tool list is refused
 // whatever the choice, so a client learns about it before it switches the
 // tools on. Unsupported choices are rejected before this function is called.
-func openAIToolsToLLM(rawTools, rawChoice json.RawMessage) ([]llm.ToolDefinition, error) {
-	tools, err := parseOpenAITools(rawTools)
+func openAIToolsToLLM(rawTools, rawChoice json.RawMessage, limits clientToolLimits) ([]llm.ToolDefinition, error) {
+	tools, err := parseOpenAITools(rawTools, limits)
 	if err != nil {
 		return nil, err
 	}
@@ -1163,7 +1160,7 @@ func openAIToolsToLLM(rawTools, rawChoice json.RawMessage) ([]llm.ToolDefinition
 }
 
 // parseOpenAITools reads an OpenAI tools array into the providers' definitions.
-func parseOpenAITools(rawTools json.RawMessage) ([]llm.ToolDefinition, error) {
+func parseOpenAITools(rawTools json.RawMessage, limits clientToolLimits) ([]llm.ToolDefinition, error) {
 	trimmed := bytes.TrimSpace(rawTools)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		return nil, nil
@@ -1179,8 +1176,8 @@ func parseOpenAITools(rawTools json.RawMessage) ([]llm.ToolDefinition, error) {
 	if err := json.Unmarshal(trimmed, &tools); err != nil {
 		return nil, fmt.Errorf("invalid tools: %w", err)
 	}
-	if len(tools) > maxClientTools {
-		return nil, fmt.Errorf("at most %d tools may be offered", maxClientTools)
+	if len(tools) > limits.tools {
+		return nil, tooManyClientTools(len(tools), limits.tools)
 	}
 	out := make([]llm.ToolDefinition, 0, len(tools))
 	for _, t := range tools {
@@ -1191,8 +1188,8 @@ func parseOpenAITools(rawTools json.RawMessage) ([]llm.ToolDefinition, error) {
 		if name == "" {
 			return nil, fmt.Errorf("tool without a function name")
 		}
-		if len(t.Function.Parameters) > maxClientToolSchemaBytes {
-			return nil, fmt.Errorf("tool %q: parameters exceed %d bytes", name, maxClientToolSchemaBytes)
+		if len(t.Function.Parameters) > limits.schemaBytes {
+			return nil, clientToolParametersTooLarge(name, len(t.Function.Parameters), limits.schemaBytes)
 		}
 		// A function's parameters are a JSON Schema object; anything else is
 		// refused rather than decoded into an arbitrary value.

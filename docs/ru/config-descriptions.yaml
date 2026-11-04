@@ -536,6 +536,12 @@ httpserver.port:
 httpserver.max_body_bytes:
   en: "Largest request body accepted by POST /v1/chat/completions and POST /v1/responses, in bytes. 0 means the built-in 512 MiB. A larger body is refused with 413 and the request_too_large error."
   ru: "Наибольший размер тела запроса, который принимают POST /v1/chat/completions и POST /v1/responses, в байтах. 0 означает встроенный предел 512 МиБ. Тело больше этого предела отклоняется с кодом 413 и ошибкой request_too_large."
+httpserver.max_client_tools:
+  en: "Most tools a client may offer a direct model on POST /v1/chat/completions and POST /v1/responses. 0 means the built-in 128, OpenAI's own limit. More are refused with 400 and the too_many_tools error, which names the count and this setting. Raise it for a client whose MCP servers offer more; a provider with a limit of its own still applies it."
+  ru: "Наибольшее число инструментов, которое клиент может передать прямой модели в POST /v1/chat/completions и POST /v1/responses. 0 означает встроенный предел 128, как у самого OpenAI. Если инструментов больше, запрос отклоняется с кодом 400 и ошибкой too_many_tools, в которой названы их число и эта настройка. Увеличьте предел для клиента, чьи MCP-серверы дают больше инструментов; провайдер со своим пределом всё равно применит его."
+httpserver.max_client_tool_schema_bytes:
+  en: "Largest parameters schema of one client tool on POST /v1/chat/completions and POST /v1/responses, in bytes. 0 means the built-in 256 KiB. A larger one is refused with 400 and the tool_parameters_too_large error."
+  ru: "Наибольший размер схемы параметров одного инструмента клиента в POST /v1/chat/completions и POST /v1/responses, в байтах. 0 означает встроенный предел 256 КиБ. Схема больше этого предела отклоняется с кодом 400 и ошибкой tool_parameters_too_large."
 httpserver.auth_token:
   en: "Optional bearer credential for the HTTP API. Empty means no authentication (historical default). Use a \"${ENV}\" reference to keep the secret out of the file; never echoed back by GET /coddy/config. Prefer --auth-token / CODDY_HTTP_TOKEN to keep it out of config.yaml entirely. See https://coddy.dev/docs/operate/remote."
   ru: "Необязательный bearer-токен для HTTP API. Пусто означает отсутствие аутентификации (исторически так по умолчанию). Ссылка \"${ENV}\" держит секрет вне файла; GET /coddy/config его никогда не возвращает. Лучше задавать его через --auth-token / CODDY_HTTP_TOKEN, чтобы его вообще не было в config.yaml. См. https://coddy.dev/docs/operate/remote."
