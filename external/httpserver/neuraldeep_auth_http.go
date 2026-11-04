@@ -52,9 +52,7 @@ func (s *Server) cancelNeuralDeepAuthLogins() {
 	s.codexAuthMu.Lock()
 	defer s.codexAuthMu.Unlock()
 	for _, attempt := range s.neuralDeepAuthLogins {
-		if attempt.cancel != nil {
-			attempt.cancel()
-		}
+		attempt.stop()
 	}
 }
 
@@ -65,8 +63,8 @@ func (s *Server) cancelNeuralDeepAuthLoginsFor(provider string) {
 	s.codexAuthMu.Lock()
 	defer s.codexAuthMu.Unlock()
 	for _, attempt := range s.neuralDeepAuthLogins {
-		if attempt.ProviderName == provider && attempt.cancel != nil {
-			attempt.cancel()
+		if attempt.ProviderName == provider {
+			attempt.stop()
 		}
 	}
 }
@@ -216,17 +214,7 @@ func (s *Server) coddyProviderNeuralDeepAuthDevicePost(w http.ResponseWriter, r 
 	// already visible to a concurrent start or sign-out and gets cancelled
 	// with everything else instead of slipping through the gap.
 	s.codexAuthMu.Lock()
-	for id, old := range s.neuralDeepAuthLogins {
-		if old.ProviderName == name || time.Since(old.CreatedAt) > 20*time.Minute {
-			if old.cancel != nil {
-				old.cancel()
-			}
-		}
-		if time.Since(old.CreatedAt) > 20*time.Minute {
-			delete(s.neuralDeepAuthLogins, id)
-		}
-	}
-	s.neuralDeepAuthLogins[loginID] = attempt
+	registerAuthLoginAttempt(s.neuralDeepAuthLogins, loginID, name, attempt)
 	s.codexAuthMu.Unlock()
 
 	// The hub call answers this request, so it follows the request context,

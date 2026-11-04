@@ -148,7 +148,7 @@ type Server struct {
 	codexAuthLogins      map[string]*codexAuthLoginAttempt
 	neuralDeepAuthLogins map[string]*codexAuthLoginAttempt
 	opencodeAuthLogins   map[string]*codexAuthLoginAttempt
-	devinAuthLogins      map[string]*devinAuthLoginAttempt
+	devinAuthLogins      map[string]*codexAuthLoginAttempt
 
 	permissionResumeWG sync.WaitGroup
 	// bgWG counts background goroutines owned by this server (codex auth login
@@ -226,7 +226,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 		neuralDeepAuthLogins: make(map[string]*codexAuthLoginAttempt),
 		opencodeAuthLogins:   make(map[string]*codexAuthLoginAttempt),
-		devinAuthLogins:      make(map[string]*devinAuthLoginAttempt),
+		devinAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 		events:               newServerEventsHub(),
 		served:               configapi.NewRevisions(),
 		sessions:             webauth.NewSessionStore(),

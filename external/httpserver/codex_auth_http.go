@@ -18,6 +18,13 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
+// authLoginMaxAge is how long a sign-in nobody finished is kept before the
+// next start of the same kind cancels it and forgets it.
+const authLoginMaxAge = 20 * time.Minute
+
+// codexAuthLoginAttempt is one browser or device sign-in waiting for the
+// person: the Codex, NeuralDeep, OpenCode and Devin routes all keep their
+// attempts in this shape, in maps guarded by codexAuthMu.
 type codexAuthLoginAttempt struct {
 	ProviderName string
 	Status       string
@@ -26,6 +33,38 @@ type codexAuthLoginAttempt struct {
 	CreatedAt    time.Time
 	// cancel stops the waiting goroutine when the server drains.
 	cancel context.CancelFunc
+	// paste is the pipe a sign-in that completes from a pasted callback
+	// address reads (Devin); nil for the device flows, which have none.
+	paste *io.PipeWriter
+}
+
+// stop ends an attempt: the wait it holds and, where the sign-in reads one,
+// the pipe its pasted answer would arrive on.
+func (a *codexAuthLoginAttempt) stop() {
+	if a.cancel != nil {
+		a.cancel()
+	}
+	if a.paste != nil {
+		_ = a.paste.Close()
+	}
+}
+
+// registerAuthLoginAttempt records a new attempt and supersedes what it
+// replaces: a pending attempt of the same provider is ended, because a
+// second sign-in must not later re-store a credential the first one was
+// about to overwrite, and anything older than authLoginMaxAge is ended and
+// forgotten. The caller holds codexAuthMu.
+func registerAuthLoginAttempt(store map[string]*codexAuthLoginAttempt, loginID, provider string, attempt *codexAuthLoginAttempt) {
+	for id, old := range store {
+		stale := time.Since(old.CreatedAt) > authLoginMaxAge
+		if old.ProviderName == provider || stale {
+			old.stop()
+		}
+		if stale {
+			delete(store, id)
+		}
+	}
+	store[loginID] = attempt
 }
 
 type codexAuthLoginResponse struct {
@@ -47,9 +86,7 @@ func (s *Server) cancelCodexAuthLogins() {
 	s.codexAuthMu.Lock()
 	defer s.codexAuthMu.Unlock()
 	for _, attempt := range s.codexAuthLogins {
-		if attempt.cancel != nil {
-			attempt.cancel()
-		}
+		attempt.stop()
 	}
 }
 
@@ -60,8 +97,8 @@ func (s *Server) cancelCodexAuthLoginsFor(provider string) {
 	s.codexAuthMu.Lock()
 	defer s.codexAuthMu.Unlock()
 	for _, attempt := range s.codexAuthLogins {
-		if attempt.ProviderName == provider && attempt.cancel != nil {
-			attempt.cancel()
+		if attempt.ProviderName == provider {
+			attempt.stop()
 		}
 	}
 }
@@ -168,17 +205,7 @@ func (s *Server) coddyProviderCodexAuthDevicePost(w http.ResponseWriter, r *http
 	// already visible to a concurrent start or sign-out and gets cancelled
 	// with everything else instead of slipping through the gap.
 	s.codexAuthMu.Lock()
-	for id, old := range s.codexAuthLogins {
-		if old.ProviderName == name || time.Since(old.CreatedAt) > 20*time.Minute {
-			if old.cancel != nil {
-				old.cancel()
-			}
-		}
-		if time.Since(old.CreatedAt) > 20*time.Minute {
-			delete(s.codexAuthLogins, id)
-		}
-	}
-	s.codexAuthLogins[loginID] = attempt
+	registerAuthLoginAttempt(s.codexAuthLogins, loginID, name, attempt)
 	s.codexAuthMu.Unlock()
 
 	// The issuer call answers this request, so it follows the request context,

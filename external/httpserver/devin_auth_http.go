@@ -16,25 +16,11 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
-type devinAuthLoginAttempt struct {
-	ProviderName string
-	Status       string
-	Connected    bool
-	Error        string
-	CreatedAt    time.Time
-	cancel       context.CancelFunc
-	paste        *io.PipeWriter
-}
-
 type devinAuthStatusResponse struct {
 	Connected bool   `json:"connected"`
 	Source    string `json:"source"`
 	Masked    string `json:"masked,omitempty"`
 	Email     string `json:"email,omitempty"`
-}
-
-type devinDeviceStartRequest struct {
-	Proxy *string `json:"proxy"`
 }
 
 func (s *Server) registerDevinAuthRoutes() {
@@ -84,12 +70,7 @@ func (s *Server) cancelDevinAuthLogins(provider string) {
 	defer s.codexAuthMu.Unlock()
 	for _, attempt := range s.devinAuthLogins {
 		if provider == "" || attempt.ProviderName == provider {
-			if attempt.cancel != nil {
-				attempt.cancel()
-			}
-			if attempt.paste != nil {
-				_ = attempt.paste.Close()
-			}
+			attempt.stop()
 		}
 	}
 }
@@ -121,7 +102,7 @@ func (s *Server) coddyProviderDevinAuthDevicePost(w http.ResponseWriter, r *http
 	if !ok {
 		return
 	}
-	var body devinDeviceStartRequest
+	var body codexDeviceStartRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil && err != io.EOF {
 		writeCoddyConfigErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
@@ -134,22 +115,9 @@ func (s *Server) coddyProviderDevinAuthDevicePost(w http.ResponseWriter, r *http
 	waitCtx, cancel := context.WithCancel(context.Background())
 	loginID := newCodexAuthLoginID()
 	pr, pw := io.Pipe()
-	attempt := &devinAuthLoginAttempt{ProviderName: name, Status: "pending", CreatedAt: time.Now(), cancel: cancel, paste: pw}
+	attempt := &codexAuthLoginAttempt{ProviderName: name, Status: "pending", CreatedAt: time.Now(), cancel: cancel, paste: pw}
 	s.codexAuthMu.Lock()
-	for id, old := range s.devinAuthLogins {
-		if old.ProviderName == name || time.Since(old.CreatedAt) > 20*time.Minute {
-			if old.cancel != nil {
-				old.cancel()
-			}
-			if old.paste != nil {
-				_ = old.paste.Close()
-			}
-		}
-		if time.Since(old.CreatedAt) > 20*time.Minute {
-			delete(s.devinAuthLogins, id)
-		}
-	}
-	s.devinAuthLogins[loginID] = attempt
+	registerAuthLoginAttempt(s.devinAuthLogins, loginID, name, attempt)
 	s.codexAuthMu.Unlock()
 
 	authPath := config.DevinAuthPath(s.activeCfg().Paths.Home, name)
