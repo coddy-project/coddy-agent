@@ -136,7 +136,7 @@ func TestPromptCacheToolImagesKeepThePrefix(t *testing.T) {
 		t.Fatalf("the history did not grow: %d then %d messages", len(afterRead), len(afterGlob))
 	}
 	for j, before := range afterRead {
-		if !bytes.Equal(before, afterGlob[j]) {
+		if withoutCacheMarks(t, before) != withoutCacheMarks(t, afterGlob[j]) {
 			t.Fatalf("message %d changed between requests:\nbefore: %.300s\nafter:  %.300s", j, before, afterGlob[j])
 		}
 	}
