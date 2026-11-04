@@ -70,6 +70,35 @@ func TestPromptCacheOpenRouterTailSkipsMessagesWithoutText(t *testing.T) {
 	}
 }
 
+// An empty system message takes no mark - Anthropic refuses one on an empty
+// text - so the breakpoint that covers the tool definitions walks back to the
+// message before it instead of going missing. A role the request builder sends
+// nothing for is stepped over the same way, and shifts neither mark.
+func TestPromptCacheOpenRouterMarksSurviveAMessageThatSendsNothing(t *testing.T) {
+	history := []Message{
+		{Role: RoleSystem, Content: "You are Coddy."},
+		{Role: RoleSystem, Content: ""},
+		{Role: "unknown-to-this-builder", Content: "nothing is sent for this"},
+		{Role: RoleUser, Content: "hi"},
+	}
+	raw := openAIRequestJSON(t, "anthropic/claude-haiku-5.5", history, nil)
+	if n := gjson.GetBytes(raw, "messages.#").Int(); n != 3 {
+		t.Fatalf("%d messages, want 3 (the unknown role sends nothing): %s", n, raw)
+	}
+	if got := gjson.GetBytes(raw, "messages.0.content.0.cache_control.type").String(); got != "ephemeral" {
+		t.Fatalf("the system message before the empty one: cache_control %q, want ephemeral: %s", got, raw)
+	}
+	if gjson.GetBytes(raw, "messages.1.content.0.cache_control").Exists() {
+		t.Fatalf("an empty system message carries a mark: %s", raw)
+	}
+	if got := gjson.GetBytes(raw, "messages.2.content.0.cache_control.type").String(); got != "ephemeral" {
+		t.Fatalf("the last user message: cache_control %q, want ephemeral: %s", got, raw)
+	}
+	if n := strings.Count(string(raw), `"cache_control"`); n != 2 {
+		t.Fatalf("%d cache_control marks, want 2: %s", n, raw)
+	}
+}
+
 // Every other model caches a repeated prefix on its own: its request keeps
 // plain string contents and carries no mark.
 func TestPromptCacheOpenAIModelsCarryNoMarks(t *testing.T) {

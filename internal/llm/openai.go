@@ -64,11 +64,13 @@ func (p *openAIProvider) Complete(ctx context.Context, messages []Message, tools
 // blocking request, so it is set for the streaming path only.
 func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition, streaming bool) openai.ChatCompletionNewParams {
 	oaiMessages := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
-	// at[i] is where messages[i] landed in oaiMessages, -1 for a role that
-	// sends nothing; the cache marks are placed by it.
+	// at[i] is where messages[i] landed in oaiMessages, -1 for a message that
+	// sends nothing; the cache marks are placed by it. It is read after the
+	// loop rather than written before the switch, so a role that stops
+	// appending leaves -1 behind instead of pointing at its neighbour.
 	at := make([]int, len(messages))
 	for i, m := range messages {
-		at[i] = len(oaiMessages)
+		before := len(oaiMessages)
 		switch m.Role {
 		case RoleSystem:
 			oaiMessages = append(oaiMessages, openai.SystemMessage(m.Content))
@@ -133,8 +135,10 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition,
 			}
 		case RoleTool:
 			oaiMessages = append(oaiMessages, openai.ToolMessage(m.Content, m.ToolCallID))
-		default:
-			at[i] = -1
+		}
+		at[i] = -1
+		if len(oaiMessages) > before {
+			at[i] = before
 		}
 	}
 	if p.marksPromptCache() {
@@ -275,8 +279,10 @@ func (p *openAIProvider) marksPromptCache() bool {
 // no text to mark, so the mark goes to the message before it.
 func markOpenAIPromptCache(out []openai.ChatCompletionMessageParamUnion, messages []Message, at []int) {
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == RoleSystem && at[i] >= 0 {
-			markOpenAIMessage(&out[at[i]])
+		// An empty system message takes no mark, so keep walking back rather
+		// than leaving the request without the breakpoint that covers the
+		// tool definitions.
+		if messages[i].Role == RoleSystem && at[i] >= 0 && markOpenAIMessage(&out[at[i]]) {
 			break
 		}
 	}
