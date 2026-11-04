@@ -6,11 +6,14 @@ Feature: Setting up a model provider from the console
   escape puts it away and the header keeps pointing at /login, which opens it
   again. A provider that signs in (NeuralDeep, OpenCode, Codex, Devin) runs the
   sign-in `coddy providers login` runs in a shell and adds every model the
-  account serves; one that takes a key is asked for its endpoint and key, and
-  the model is chosen from what the provider itself lists. /login <name> skips
-  the picker. Either way config.yaml gains the provider and its models and the
-  console runs on them at once, without a restart. (Settings in the web UI keep
-  adding models one by one with the plus button next to each.)
+  account serves, unless this machine has already signed in to it, which Codex
+  and Devin do once for every program on the machine: then the picker asks the
+  provider for its models instead of running the sign-in again. One that takes
+  a key is asked for its endpoint and key, and the model is chosen from what
+  the provider itself lists. /login <name> skips the picker. Either way
+  config.yaml gains the provider and its models and the console runs on them at
+  once, without a restart. (Settings in the web UI keep adding models one by
+  one with the plus button next to each.)
 
   Scenario: A fresh install opens the provider picker
     Given a coddy console app with no model provider configured
@@ -61,6 +64,23 @@ Feature: Setting up a model provider from the console
     When the operator picks "own-1" from the list
     Then config.yaml lists the provider "acp" with the model "acp/own-1"
     And config.yaml gives the provider "acp" no key and no API base
+    And config.yaml runs the provider "acp" as a command
+
+  Scenario: The picker goes straight to the models of a Codex this machine already signed in to
+    A Codex sign-in is one ChatGPT account for every program on the machine,
+    so a console that finds the Codex CLI's auth.json asks Codex what it
+    serves instead of putting the person through the device flow again. The
+    device flow would have shown a code; this scenario never sees one.
+
+    Given a stand-in Codex backend that lists the model "gpt-5.6-sol" to a machine already signed in
+    And a coddy console app with no model provider configured
+    When the console app starts
+    And the operator picks "Codex" in the provider picker
+    Then the screen shows "Codex: which model"
+    When the operator confirms the highlighted row
+    Then config.yaml lists the provider "codex" with the model "codex/gpt-5.6-sol"
+    And config.yaml names "codex/gpt-5.6-sol" as agent.model
+    And config.yaml gives the provider "codex" no key and no API base
 
   Scenario: /login <name> skips the picker and moves the session to the signed-in provider
     install.sh writes config.yaml from the example, whose openai row reads an

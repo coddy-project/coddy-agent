@@ -98,8 +98,8 @@ the same order, and the row it opens on is the same one:
 | **OpenCode** | OpenCode Go or Console with account sign-in | the gateway, then the device sign-in |
 | **OpenAI** | GPT models and the OpenAI API | the API key |
 | **Anthropic** | Claude models | the API key |
-| **Codex** | your ChatGPT subscription through OAuth | the device sign-in |
-| **Devin** | Devin models with browser sign-in | the browser sign-in |
+| **Codex** | your ChatGPT subscription through OAuth | the device sign-in, or nothing when this machine has one |
+| **Devin** | Devin models with browser sign-in | the browser sign-in, or nothing when this machine has one |
 | **OpenAI-compatible** | Ollama, LM Studio, DeepSeek, Groq or any endpoint of your own | the address of the endpoint, then the API key |
 | **ACP agent** | an agent of your own this machine runs: Claude Code, Codex, Gemini | the command that speaks ACP |
 
@@ -117,6 +117,18 @@ named another endpoint - and offers that list; the model picked becomes
 `models[]`, the session's model and, when nothing that can be run was named
 before, `agent.model`. A provider that cannot be reached says why and the model
 is named by hand instead, so a setup is never stuck behind a listing.
+
+A Codex or a Devin sign-in is one account for every program on the machine, so
+the picker looks for one before it asks for anything: with the Codex CLI's
+`auth.json` or the Devin CLI's credentials already on disk, it says the
+provider is signed in and goes straight to the models, and nothing is written
+but the row and the model you pick. The other two sign-ins belong to the hub
+they were taken from, and the picker has just asked which hub to use, so
+NeuralDeep and OpenCode sign in every time. One CLI login is one account and
+serves one row - the only row of its type, or the row named after it
+([Several profiles of one provider
+type](../getting-started/configuration.md#several-profiles-of-one-provider-type))
+- so with several Codex rows already configured the picker signs in as before.
 
 A provider `config.yaml` already lists keeps everything the picker does not ask
 about - a credential helper, a proxy, a timeout - because only what the setup

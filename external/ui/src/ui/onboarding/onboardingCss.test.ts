@@ -73,12 +73,44 @@ describe("the provider picker's styles", () => {
     );
   });
 
-  // The proxy block is one switch and one field like any other row, so it
-  // carries no frame and its input starts where the others do.
-  it("takes the frame off the proxy block", () => {
-    const body = rule(".provider-picker-proxy > .settings-row");
+  // A block the form borrows from the settings screen - an account sign-in,
+  // the proxy - is one row like the fields around it. Framed, it stood 13px
+  // further in than the key above it, and its button 2px shorter than the
+  // fields.
+  it("takes the frame off every block borrowed from the settings screen", () => {
+    const body = rule(
+      ".provider-picker-form > .settings-row,\n.provider-picker-proxy > .settings-row",
+    );
     expect(body).toContain("padding: 0");
     expect(body).toContain("border: none");
+    expect(body).toContain("background: none");
+    expect(
+      rule(".provider-picker-form > .settings-row .settings-btn"),
+    ).toContain("height: var(--onboarding-control-h)");
+  });
+
+  // The names the form writes itself and the ones a borrowed block brings
+  // with it stand in one column, so they are one size and one colour; the
+  // settings screen's muted grey next to this form's own read as two kinds
+  // of field.
+  it("gives every label of the form one size and one colour", () => {
+    const body = rule(".provider-picker-form .settings-label");
+    expect(body).toContain("font-size: 13px");
+    expect(body).toContain("color: var(--text)");
+    expect(rule(".provider-picker-field")).toContain("font-size: 13px");
+  });
+
+  // The model and the button that lists it share a line, except on a phone,
+  // where the button left the field about 130px and a model id read as
+  // "neuraldeep/q".
+  it("gives the model field the line on a phone", () => {
+    const css = stylesPartial("onboarding");
+    expect(css).toMatch(
+      /@media \(max-width: 599px\)[\s\S]*?\.provider-picker-key-row \{[^}]*flex-wrap: wrap/,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 599px\)[\s\S]*?\.provider-picker-key-row \.settings-combobox,\s*\n\s*\.provider-picker-key-row \.provider-picker-input \{[^}]*flex: 1 1 100%/,
+    );
   });
 
   // One column on the phone tier, two above it: the eight cards of the

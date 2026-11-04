@@ -505,3 +505,39 @@ func TestReadyReadsTheCodexSignIn(t *testing.T) {
 		t.Fatal("an API-key file is not a ChatGPT sign-in")
 	}
 }
+
+// SignedIn answers for a row config.yaml does not list yet, which is what a
+// first-run picker has in hand: the Codex CLI's own auth.json counts, since
+// one CLI login serves the one codex row a fresh install would write.
+func TestSignedInFindsTheCLILoginOfAnUnsavedRow(t *testing.T) {
+	home := isolate(t)
+	cfg := freshConfig(home)
+	if SignedIn(cfg, "codex", "codex") {
+		t.Fatal("nothing is signed in on a machine with no credential")
+	}
+	cliAuth := llm.CodexCLIAuthPath()
+	if err := os.MkdirAll(filepath.Dir(cliAuth), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cliAuth, []byte(`{"auth_mode":"chatgpt","tokens":{"access_token":"x","refresh_token":"y"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !SignedIn(cfg, "codex", "codex") {
+		t.Fatal("the Codex CLI's sign-in serves the codex row a picker would write")
+	}
+	// One CLI login is one account and serves one row: with several codex
+	// rows and none named after the type, it serves none of them, and a row
+	// with no credential of its own is not signed in.
+	crowded := freshConfig(home)
+	crowded.Providers = []config.ProviderConfig{{Name: "work", Type: "codex"}, {Name: "home", Type: "codex"}}
+	if SignedIn(crowded, "work", "codex") {
+		t.Fatal("the CLI login serves no row when several share the type and none is named after it")
+	}
+	// A name of no type and no row has no sign-in to find.
+	if SignedIn(freshConfig(home), "custom", "openai") {
+		t.Fatal("an openai row with no key and no endpoint is not signed in")
+	}
+	if SignedIn(nil, "codex", "codex") {
+		t.Fatal("no configuration, no sign-in")
+	}
+}

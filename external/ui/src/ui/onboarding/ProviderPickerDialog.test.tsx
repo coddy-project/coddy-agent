@@ -23,6 +23,7 @@ describe("ProviderPickerDialog", () => {
   const fetchMock = vi.fn();
   let devinConnected = false;
   let devinSource = "none";
+  let codexConnected = true;
   let baseProviders: Record<string, unknown>[] = [];
   let baseConfigDelay = 0;
 
@@ -30,6 +31,7 @@ describe("ProviderPickerDialog", () => {
     initLocale("en");
     devinConnected = false;
     devinSource = "none";
+    codexConnected = true;
     baseProviders = [
       {
         name: "local",
@@ -94,6 +96,15 @@ describe("ProviderPickerDialog", () => {
               source: "oauth",
               organization: "Test Org",
             }),
+            { status: 200 },
+          );
+        }
+        if (url === "/coddy/providers/codex/codex-auth" && method === "GET") {
+          // A machine the Codex CLI has already signed in on: the row the
+          // picker is about to write may use that login, so the server
+          // reports it connected before anything is saved.
+          return new Response(
+            JSON.stringify({ connected: codexConnected, source: "codex_cli" }),
             { status: 200 },
           );
         }
@@ -183,6 +194,51 @@ describe("ProviderPickerDialog", () => {
     expect(
       await screen.findByTestId("provider-neuraldeep-domain"),
     ).toBeTruthy();
+  });
+
+  it("goes straight to the models of a Codex this machine already signed in to", async () => {
+    const onSaved = renderPicker();
+    fireEvent.click(screen.getByTestId("provider-card-codex"));
+    expect(
+      await screen.findByText(
+        "Connected via the Codex CLI login on this server.",
+      ),
+    ).toBeTruthy();
+    // Nothing was typed and no sign-in was started: the stored login is what
+    // the listing is made with.
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, init]) =>
+            url === "/coddy/providers/models" && init?.method === "POST",
+        ),
+      ).toBe(true),
+    );
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/codex-auth/device"),
+      ),
+    ).toBe(false);
+    fireEvent.click(screen.getByTestId("provider-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const put = fetchMock.mock.calls.find(
+      ([url, init]) => url === "/coddy/config" && init?.method === "PUT",
+    );
+    const body = JSON.parse(String(put?.[1]?.body));
+    // A Codex row is its sign-in: no key, no endpoint of its own.
+    expect(
+      body.providers.find((row: { name: string }) => row.name === "codex"),
+    ).toEqual({ name: "codex", type: "codex" });
+  });
+
+  it("offers the sign-in when this machine has no Codex login", async () => {
+    codexConnected = false;
+    renderPicker();
+    fireEvent.click(screen.getByTestId("provider-card-codex"));
+    expect(await screen.findByTestId("codex-auth-sign-in")).toBeTruthy();
+    expect(
+      screen.queryByText("Connected via the Codex CLI login on this server."),
+    ).toBeNull();
   });
 
   it("saves OpenCode with its managed login and keeps the existing config", async () => {

@@ -9,6 +9,7 @@ package cli
 // registerCLILoginSteps.
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -86,9 +87,11 @@ func registerCLILoginSteps(sc *godog.ScenarioContext, s *cliTUIState) {
 	sc.Step(`^the operator picks "([^"]*)" in the provider picker$`, s.operatorPicksProvider)
 	sc.Step(`^the operator picks "([^"]*)" from the list$`, s.operatorPicksFromTheList)
 	sc.Step(`^a stand-in OpenAI-compatible server that lists the model "([^"]*)"$`, s.standInCompatibleServer)
+	sc.Step(`^a stand-in Codex backend that lists the model "([^"]*)" to a machine already signed in$`, s.standInSignedInCodex)
 	sc.Step(`^a stand-in ACP agent that lists the model "([^"]*)"$`, s.standInACPAgent)
 	sc.Step(`^the operator answers with the stand-in agent's command$`, s.operatorAnswersWithStandInCommand)
 	sc.Step(`^config\.yaml gives the provider "([^"]*)" no key and no API base$`, s.configGivesProviderNoCredential)
+	sc.Step(`^config\.yaml runs the provider "([^"]*)" as a command$`, s.configRunsProviderAsCommand)
 	sc.Step(`^the operator answers with the stand-in server's address$`, s.operatorAnswersWithStandInAddress)
 	sc.Step(`^the operator answers "([^"]*)"$`, s.operatorAnswers)
 }
@@ -186,6 +189,58 @@ func (s *cliTUIState) standInCompatibleServer(model string) error {
 	return nil
 }
 
+// standInSignedInCodex stands in for a machine the Codex CLI has already
+// signed in on: a CODEX_HOME of its own holding an auth.json with a token
+// that has not expired, and a backend serving the model catalog that token
+// buys. Nothing writes a Coddy credential, so the picker reaching the models
+// proves it used the machine-wide login.
+func (s *cliTUIState) standInSignedInCodex(model string) error {
+	stand := &loginStand{env: map[string]*string{}}
+	s.loginStand = stand
+	home := s.t.TempDir()
+	// An access token the provider reads but never verifies: it only parses
+	// the payload for exp, and an expired one would send it refreshing.
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
+	payload, err := json.Marshal(map[string]any{
+		"exp":                time.Now().Add(time.Hour).Unix(),
+		"chatgpt_account_id": "acct-stand-in",
+	})
+	if err != nil {
+		return err
+	}
+	token := header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
+	auth, err := json.Marshal(map[string]any{
+		"auth_mode": "chatgpt",
+		"tokens": map[string]string{
+			"access_token": token, "refresh_token": "rt-stand-in", "account_id": "acct-stand-in",
+		},
+		"last_refresh": time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(home, "auth.json"), auth, 0o600); err != nil {
+		return err
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /models", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"models": []map[string]any{
+			{"slug": model, "display_name": model, "visibility": "list", "context_window": 272000},
+		}})
+	})
+	stand.hub = httptest.NewServer(mux)
+	for name, value := range map[string]string{
+		"CODEX_HOME":        home,
+		llm.EnvCodexBaseURL: stand.hub.URL,
+	} {
+		if err := stand.setenv(name, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // standInACPAgent is the scripted agent of internal/llm/acptest, this test
 // binary started again (TestHelperACPAgent), so the ACP path runs a real
 // program over a real stdio connection and nothing leaves the machine.
@@ -202,9 +257,9 @@ func (s *cliTUIState) operatorAnswersWithStandInCommand() error {
 	return s.operatorAnswers(s.acpCommand)
 }
 
-// configGivesProviderNoCredential holds the shape of an ACP row: the agent
-// signs itself in, so the row carries its command and neither a key nor an
-// endpoint.
+// configGivesProviderNoCredential holds the shape of a row that signs itself
+// in: an ACP agent or a Codex this machine already signed in to carries
+// neither a key nor an endpoint, since the setup wrote none.
 func (s *cliTUIState) configGivesProviderNoCredential(provider string) error {
 	cfg, err := config.LoadWithPaths(s.cfg.Paths)
 	if err != nil {
@@ -218,7 +273,19 @@ func (s *cliTUIState) configGivesProviderNoCredential(provider string) error {
 		return fmt.Errorf("provider %q carries a credential: %+v", provider, row)
 	case strings.TrimSpace(row.APIBase) != "":
 		return fmt.Errorf("provider %q carries an api_base %q", provider, row.APIBase)
-	case row.ACP == nil || strings.TrimSpace(row.ACP.Command) == "":
+	}
+	return nil
+}
+
+// configRunsProviderAsCommand is the other half of an ACP row: the program
+// this machine starts is what the row is.
+func (s *cliTUIState) configRunsProviderAsCommand(provider string) error {
+	cfg, err := config.LoadWithPaths(s.cfg.Paths)
+	if err != nil {
+		return err
+	}
+	row := cfg.FindProvider(provider)
+	if row == nil || row.ACP == nil || strings.TrimSpace(row.ACP.Command) == "" {
 		return fmt.Errorf("provider %q names no command to run", provider)
 	}
 	return nil

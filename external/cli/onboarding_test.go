@@ -7,6 +7,8 @@ package cli
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -328,5 +330,57 @@ func TestAStaleModelListingIsDropped(t *testing.T) {
 	a.offerProviderModels(old, []llm.ModelEntry{{ID: "mini-1"}}, nil)
 	if a.modal != nil {
 		t.Fatalf("a stale listing opened a selector: %T", a.modal)
+	}
+}
+
+// A sign-in is skipped only where it is one account for the whole machine
+// with no endpoint to choose. A NeuralDeep or OpenCode credential belongs to
+// the hub it was taken from, and the picker has just asked which hub to use,
+// so a stored one never stands in for the endpoint in front of it.
+func TestOnlyAMachineWideSignInSkipsTheSignInStep(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", filepath.Join(home, ".codex"))
+	t.Setenv(llm.EnvDevinCLICredentials, filepath.Join(home, "no-devin-cli.toml"))
+	for _, name := range []string{"CODEX_API_KEY", "NEURALDEEP_API_KEY", "OPENCODE_API_KEY", "DEVIN_API_KEY"} {
+		t.Setenv(name, "")
+	}
+	cfg := &config.Config{Paths: config.Paths{Home: home, CWD: home, ConfigPath: filepath.Join(home, "config.yaml")}}
+	for _, id := range []string{"codex", "devin", "neuraldeep", "opencode"} {
+		if presetAlreadySignedIn(cfg, preset(t, id)) {
+			t.Fatalf("%s is signed in on a machine with no credential", id)
+		}
+	}
+
+	write := func(path, body string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(config.CodexAuthPath(home, "codex"), `{"auth_mode":"chatgpt","tokens":{"access_token":"x","refresh_token":"y"}}`)
+	write(config.NeuralDeepAuthPath(home, "neuraldeep"), `{"api_key":"nd-stored","hub":"https://api.neuraldeep.ru/v1"}`)
+	write(config.OpenCodeAuthPath(home, "opencode"), `{"api_key":"oc-stored"}`)
+
+	if !presetAlreadySignedIn(cfg, preset(t, "codex")) {
+		t.Fatal("a stored Codex sign-in skips the sign-in step")
+	}
+	for _, id := range []string{"neuraldeep", "opencode"} {
+		if presetAlreadySignedIn(cfg, preset(t, id)) {
+			t.Fatalf("%s has a hub to choose, so a stored credential must not skip its sign-in", id)
+		}
+	}
+
+	// The credential a signed-in provider is listed with travels on the
+	// listing input; without it the probe would reach the backend bare.
+	in := providerListInput(context.Background(), cfg, &providerSetupRun{preset: preset(t, "codex")})
+	if in.AuthPath != config.CodexAuthPath(home, "codex") {
+		t.Fatalf("the listing does not name the stored credential: %+v", in)
+	}
+	if in.NoCLILogin {
+		t.Fatal("the row a fresh install would write may use the Codex CLI's login")
 	}
 }

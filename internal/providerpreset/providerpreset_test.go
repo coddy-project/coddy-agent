@@ -40,6 +40,44 @@ func TestPresetsMatchTheWebPicker(t *testing.T) {
 	}
 }
 
+// The endpoints a preset offers are a line a person reads, and the two
+// pickers must offer the same line: the console takes it from APIBases here,
+// the web UI from a dictionary key, and nothing but this test connects them.
+// They drifted once already - an em dash in the dictionary against a hyphen
+// here - because the structural parity above compares values, not labels.
+func TestTheEndpointLabelsMatchTheWebPicker(t *testing.T) {
+	web := readWebAPIBases(t)
+	english := readWebMessages(t)
+	for _, preset := range Presets {
+		if len(preset.APIBases) == 0 {
+			continue
+		}
+		list, ok := web[preset.ID]
+		if !ok {
+			t.Errorf("%s offers %d endpoints here and none in the web picker", preset.ID, len(preset.APIBases))
+			continue
+		}
+		if len(list) != len(preset.APIBases) {
+			t.Errorf("%s offers %d endpoints in the web picker and %d here", preset.ID, len(list), len(preset.APIBases))
+			continue
+		}
+		for i, want := range preset.APIBases {
+			got := list[i]
+			if got.Value != want.Value {
+				t.Errorf("%s endpoint %d is %q in the web picker and %q here", preset.ID, i, got.Value, want.Value)
+			}
+			label, ok := english[got.Label]
+			if !ok {
+				t.Errorf("%s endpoint %d names the message %q, which the English dictionary does not carry", preset.ID, i, got.Label)
+				continue
+			}
+			if label != want.Label {
+				t.Errorf("%s endpoint %d reads %q in the web picker and %q here", preset.ID, i, label, want.Label)
+			}
+		}
+	}
+}
+
 // NeuralDeep is first, because that is what both pickers open on.
 func TestDefaultIsNeuralDeep(t *testing.T) {
 	if got := Default().ID; got != "neuraldeep" {
@@ -171,6 +209,77 @@ func ids(list []Preset) []string {
 	out := make([]string, 0, len(list))
 	for _, p := range list {
 		out = append(out, p.ID)
+	}
+	return out
+}
+
+// webMessagesFile is the English dictionary of the SPA, where the web
+// picker's endpoint labels live.
+const webMessagesFile = "../../external/ui/src/ui/i18n/messages/en.ts"
+
+var (
+	// One entry of an exported option list: its value and the dictionary key
+	// its label is written as.
+	webOptionEntryRe = regexp.MustCompile(
+		`value: "([^"]*)",\s*\n\s*labelKey: "([^"]*)"`)
+	webOptionListRe = regexp.MustCompile(`(?s)export const ([A-Z_]+) = \[(.*?)\n\] as const;`)
+	// A dictionary entry, whose value Prettier may have moved to the next
+	// line. Only the single-line string form is read; a label long enough to
+	// be split over several string literals would need more than this, and
+	// an endpoint label is never that long.
+	webMessageRe = regexp.MustCompile(`\n  "([^"]+)":\s*\n?\s*"((?:[^"\\]|\\.)*)",`)
+)
+
+// readWebAPIBases reads the endpoint lists the web catalog exports, keyed by
+// the preset that names one, each entry carrying its value and the dictionary
+// key of its label.
+func readWebAPIBases(t *testing.T) map[string][]APIBase {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.FromSlash(webPresetsFile))
+	if err != nil {
+		t.Fatalf("read the web catalog: %v", err)
+	}
+	lists := map[string][]APIBase{}
+	for _, m := range webOptionListRe.FindAllSubmatch(raw, -1) {
+		var entries []APIBase
+		for _, e := range webOptionEntryRe.FindAllSubmatch(m[2], -1) {
+			entries = append(entries, APIBase{Value: string(e[1]), Label: string(e[2])})
+		}
+		lists[string(m[1])] = entries
+	}
+	body := webArrayRe.FindSubmatch(raw)
+	if body == nil {
+		t.Fatal(errNoWebArr)
+	}
+	out := map[string][]APIBase{}
+	for _, entry := range webEntryRe.FindAllSubmatch(body[1], -1) {
+		m := webOptionRe.FindSubmatch(entry[2])
+		if m == nil {
+			continue
+		}
+		list, ok := lists[string(m[1])]
+		if !ok {
+			t.Fatalf("%s: the web catalog names the option list %s, which it does not export", entry[1], m[1])
+		}
+		out[string(entry[1])] = list
+	}
+	return out
+}
+
+// readWebMessages reads the English dictionary into a map. A key whose value
+// the regexp cannot read is left out, and the caller reports it as missing.
+func readWebMessages(t *testing.T) map[string]string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.FromSlash(webMessagesFile))
+	if err != nil {
+		t.Fatalf("read the English dictionary: %v", err)
+	}
+	out := map[string]string{}
+	for _, m := range webMessageRe.FindAllSubmatch(raw, -1) {
+		out[string(m[1])] = string(m[2])
+	}
+	if len(out) == 0 {
+		t.Fatal("the English dictionary read as empty; keep the two catalogs in step by hand")
 	}
 	return out
 }

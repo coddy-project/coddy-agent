@@ -224,6 +224,29 @@ func ProviderReady(cfg *config.Config, name string) bool {
 	return prov != nil && rowReady(cfg, prov)
 }
 
+// SignedIn is ProviderReady for a row config.yaml need not list yet: a
+// first-run picker asks it of the row it is about to write, so that a
+// provider this machine has already signed in to is not signed in a second
+// time. A saved row of that name decides for itself; otherwise the question
+// is asked of the row the picker would write, which is how the Codex CLI's
+// own auth.json is found on a machine with no config.yaml at all
+// (config.Config.CLILoginRow admits the row it is about to write).
+//
+// It reads files and runs nothing, as Ready does, and it says nothing about
+// which endpoint a stored credential was taken from: a caller whose provider
+// offers a choice of hubs (NeuralDeep, OpenCode) must not read a true here as
+// "the stored sign-in fits the endpoint the person just picked".
+func SignedIn(cfg *config.Config, name, providerType string) bool {
+	if cfg == nil {
+		return false
+	}
+	prov, err := Resolve(cfg, name, providerType)
+	if err != nil {
+		return false
+	}
+	return rowReady(cfg, prov)
+}
+
 // DefaultModel is the model a session moves to after a sign-in to provider:
 // agent.model when it runs on that provider, else the provider's first
 // model in config.yaml, which a sign-in lists in the provider's own order.

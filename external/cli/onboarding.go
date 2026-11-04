@@ -125,6 +125,11 @@ func (a *App) askProviderEndpoint(run *providerSetupRun) {
 // the key of one that takes a key.
 func (a *App) continueProviderSetup(run *providerSetupRun) {
 	if providerlogin.Supports(run.preset.ProviderType) {
+		if presetAlreadySignedIn(a.config(), run.preset) {
+			a.appendStatus(roleDim, run.preset.Label+" is already signed in on this machine; asking it for its models")
+			a.fetchProviderModels(run)
+			return
+		}
 		a.startPresetLogin(run)
 		return
 	}
@@ -137,6 +142,24 @@ func (a *App) continueProviderSetup(run *providerSetupRun) {
 		return
 	}
 	a.askProviderKey(run)
+}
+
+// presetAlreadySignedIn reports a preset this machine has already signed in
+// to, so the picker asks the provider for its models instead of running the
+// sign-in a second time.
+//
+// Only Codex and Devin are decided here, the two whose sign-in is one account
+// for every program on the machine and which have no endpoint to choose
+// (config.Config.CLILoginRow serves exactly these). A NeuralDeep or OpenCode
+// credential belongs to the hub it was taken from, and the picker has just
+// asked which hub to use, so a stored one says nothing about the endpoint in
+// front of it.
+func presetAlreadySignedIn(cfg *config.Config, preset providerpreset.Preset) bool {
+	switch preset.ProviderType {
+	case "codex", "devin":
+		return providerlogin.SignedIn(cfg, preset.ProviderName, preset.ProviderType)
+	}
+	return false
 }
 
 // askProviderCommand asks for the program that speaks ACP on this machine.
@@ -292,6 +315,14 @@ func providerListInput(ctx context.Context, cfg *config.Config, run *providerSet
 		APIKey:   strings.TrimSpace(run.apiKey),
 		BaseURL:  strings.TrimSpace(run.apiBase),
 		ProxyURL: providerRowProxy(cfg, name),
+		// A provider that signs in is listed with the credential the sign-in
+		// stored, which is how the picker asks a Codex this machine already
+		// signed in to what it serves. The row the picker is about to write
+		// counts toward the rows of its type whether or not config.yaml lists
+		// it yet, the way the settings screen's own probe counts it
+		// (external/httpserver/providers_models_http.go).
+		AuthPath:   config.ProviderAuthPath(cfg.Paths.Home, name, run.preset.ProviderType),
+		NoCLILogin: !cfg.ProviderMayUseCLILogin(name, run.preset.ProviderType),
 	}
 	if run.preset.CommandTyped {
 		// An ACP agent is listed by starting it, so the probe needs the

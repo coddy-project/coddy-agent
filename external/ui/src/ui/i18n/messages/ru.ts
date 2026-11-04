@@ -1172,9 +1172,9 @@ export const messagesRu: Record<string, string> = {
 
   "neuralDeepApiBase.description":
     "NeuralDeep держит одно и то же API в двух развёртываниях: api.neuraldeep.ru обслуживает Россию, а api.neuraldeep.tech служит зеркалом для остальных стран. Выбор определяет и хаб, через который идёт вход ниже. Список моделей ниже запрашивается с настройками из этой формы, сохранять перед этим не нужно.",
-  "neuralDeepApiBase.optionRu": "api.neuraldeep.ru — Россия",
+  "neuralDeepApiBase.optionRu": "api.neuraldeep.ru - Россия",
   "neuralDeepApiBase.optionTech":
-    "api.neuraldeep.tech — зеркало для остального мира",
+    "api.neuraldeep.tech - зеркало для остального мира",
   "neuralDeepApiBase.unknown":
     "Сохранённый api_base {value} не является эндпоинтом NeuralDeep, поэтому запросы пойдут на {fallback}. Выберите эндпоинт, чтобы заменить его.",
 

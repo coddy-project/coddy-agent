@@ -89,13 +89,17 @@
   margin-bottom: 16px;
 }
 
+// Every block the form borrows from the settings screen - the account
+// sign-ins, the proxy - is one row of this form like the fields around it: no
+// frame of its own, and its label and its control start where every other
+// label and control start. A framed block stood 13px further in than the key
+// above it, which is the one indent a reader notices.
 .provider-picker-form > .settings-row,
 .provider-picker-proxy > .settings-row {
   gap: 6px;
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
-  border-radius: 10px;
-  background: var(--coddy-surface-muted);
+  padding: 0;
+  border: none;
+  background: none;
 }
 
 .provider-picker-field {
@@ -103,6 +107,16 @@
   flex-direction: column;
   gap: 6px;
   font-size: 13px;
+}
+
+// One column of labels reads as one column: the names the form writes itself
+// and the ones a borrowed block brings with it (the account sign-ins, the
+// proxy) are the same size and the same colour. The settings screen writes
+// its labels in a muted grey, which next to this form's own looked like two
+// kinds of field.
+.provider-picker-form .settings-label {
+  font-size: 13px;
+  color: var(--text);
 }
 
 .provider-picker-input {
@@ -173,17 +187,16 @@
   background: var(--coddy-surface-field);
 }
 
-// The proxy block is one switch and one field, like any other row of the
-// form, so it carries no frame of its own and its input starts where the
-// others do.
-.provider-picker-proxy > .settings-row {
-  padding: 0;
-  border: none;
-  background: none;
-}
-
 .provider-picker-proxy .settings-input,
 .provider-picker-proxy input[type="text"] {
+  box-sizing: border-box;
+  height: var(--onboarding-control-h);
+}
+
+// The sign-in a provider's account block offers is a control of this form:
+// it stands as tall as the fields over it, not the 34px the settings screen
+// gives its own buttons.
+.provider-picker-form > .settings-row .settings-btn {
   box-sizing: border-box;
   height: var(--onboarding-control-h);
 }
@@ -381,6 +394,23 @@
 
   .provider-picker-panel {
     padding: 18px;
+  }
+
+  // On a phone the button beside the model left it about 130px, which cut
+  // "neuraldeep/qwen3.6-35b-a3b" down to "neuraldeep/q" - and the model is
+  // the one value to read before saving. The field takes the line and the
+  // button stands under it.
+  .provider-picker-key-row {
+    flex-wrap: wrap;
+  }
+
+  .provider-picker-key-row .settings-combobox,
+  .provider-picker-key-row .provider-picker-input {
+    flex: 1 1 100%;
+  }
+
+  .provider-picker-key-row .provider-picker-ghost-btn {
+    flex: 1 1 auto;
   }
 }
 
