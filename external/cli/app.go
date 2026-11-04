@@ -217,6 +217,10 @@ type App struct {
 	pasted    map[int]pastedImage
 	pastedSeq int
 
+	// setup is the walk through the provider picker that is waiting for a
+	// provider to list its models (onboarding.go): the one step of the setup
+	// with no modal on screen. nil when none is.
+	setup *providerSetupRun
 	// The sign-in /login runs (login.go): the one in progress, how the
 	// configuration it writes is installed (the manager's InstallConfig; nil
 	// over --remote), how its page is opened, and the ChatGPT issuer a test

@@ -22,6 +22,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm/models"
 	"github.com/EvilFreelancer/coddy-agent/internal/providerlogin"
 	"github.com/EvilFreelancer/coddy-agent/internal/providerpreset"
 )
@@ -52,6 +53,10 @@ func (a *App) openProviderPicker() {
 		a.appendStatus(roleWarning, "A sign-in to "+a.login.title+" is already running (escape to stop it)")
 		return
 	}
+	if a.setup != nil {
+		a.appendStatus(roleWarning, "Still asking "+a.setup.preset.Label+" for its models; /login opens the list again once it answers")
+		return
+	}
 	items := make([]tui.SelectItem, 0, len(providerpreset.Presets))
 	for _, p := range providerpreset.Presets {
 		items = append(items, tui.SelectItem{Value: p.ID, Label: p.Label, Description: p.Description})
@@ -74,8 +79,7 @@ func (a *App) openProviderPicker() {
 		a.beginProviderSetup(&providerSetupRun{preset: preset, apiBase: preset.DefaultAPIBase()})
 		a.screen.RequestRender()
 	}
-	a.openModal(sel)
-	a.screen.RequestRender()
+	a.openSetupModal(sel)
 }
 
 // beginProviderSetup asks for the endpoint when the preset offers a choice,
@@ -108,8 +112,7 @@ func (a *App) askProviderEndpoint(run *providerSetupRun) {
 		a.continueProviderSetup(run)
 		a.screen.RequestRender()
 	}
-	a.openModal(sel)
-	a.screen.RequestRender()
+	a.openSetupModal(sel)
 }
 
 // continueProviderSetup starts the sign-in of a provider that has one, and
@@ -163,13 +166,18 @@ func (a *App) askProviderAPIBase(run *providerSetupRun) {
 	})
 }
 
-// askProviderKey asks for the API key. An empty answer is a deliberate
-// choice: the row then reads its NAME_API_KEY variable, which is how a local
-// server with no key works.
+// askProviderKey asks for the API key. An empty answer changes no
+// credential: a row that already carries one keeps it, and a row with none
+// reads its NAME_API_KEY variable, which is how a local server with no key
+// works.
 func (a *App) askProviderKey(run *providerSetupRun) {
 	hint := "Paste the API key, or send an empty line to read it from the environment"
 	if run.preset.EnvKey != "" {
 		hint = "Paste the API key, or send an empty line to read it from " + run.preset.EnvKey
+	}
+	if existing := a.config().FindProvider(run.preset.ProviderName); existing != nil &&
+		(strings.TrimSpace(existing.APIKey) != "" || strings.TrimSpace(existing.APIKeyCommand) != "") {
+		hint = "Paste the API key, or send an empty line to keep the one config.yaml already holds"
 	}
 	a.askProviderValue(run.preset.Label+": API key", hint, "", func(text string) {
 		run.apiKey = strings.TrimSpace(text)
@@ -190,13 +198,31 @@ func (a *App) askProviderValue(title, hint, prefill string, done func(string)) {
 		done(text)
 		a.screen.RequestRender()
 	}
-	a.openModal(m)
+	a.openSetupModal(m)
+}
+
+// openSetupModal puts a step of the setup on screen, unless something else is
+// there already. closeModal opens the next permission or question waiting in
+// the queue, and openModal replaces whatever it finds without a word, so a
+// step that simply called openModal could take the screen from a gate whose
+// asker then waits for an answer nobody can give. The setup stops instead and
+// says how to start it again.
+func (a *App) openSetupModal(c tui.Component) bool {
+	if a.modal != nil {
+		a.setup = nil
+		a.appendStatus(roleWarning, "Something else came up on screen, so the provider setup stopped; /login starts it again")
+		a.screen.RequestRender()
+		return false
+	}
+	a.openModal(c)
 	a.screen.RequestRender()
+	return true
 }
 
 // fetchProviderModels asks the provider what it serves, on a worker, and
 // offers the answer. The row is not written yet: nothing lands in
-// config.yaml until a model has been chosen.
+// config.yaml until a model has been chosen. This is the one step of the
+// setup with no modal on screen, so a.setup marks it as still running.
 func (a *App) fetchProviderModels(run *providerSetupRun) {
 	a.appendStatus(roleDim, "Asking "+run.preset.Label+" for its models...")
 	cfg := a.config()
@@ -208,17 +234,23 @@ func (a *App) fetchProviderModels(run *providerSetupRun) {
 		ProxyURL: providerRowProxy(cfg, run.preset.ProviderName),
 	}
 	ctx := a.workCtx
+	a.setup = run
 	a.workers.Add(1)
 	go func() {
 		defer a.workers.Done()
-		models, err := llm.ListModels(ctx, in)
-		a.postUI(func() { a.offerProviderModels(run, models, err) })
+		listed, err := llm.ListModels(ctx, in)
+		a.postUI(func() { a.offerProviderModels(run, listed, err) })
 	}()
 }
 
 // offerProviderModels puts the catalog on screen, or says why there is none
-// and lets the model be named by hand.
-func (a *App) offerProviderModels(run *providerSetupRun, models []llm.ModelEntry, err error) {
+// and lets the model be named by hand. An answer that belongs to a setup the
+// console has moved on from is dropped.
+func (a *App) offerProviderModels(run *providerSetupRun, listed []llm.ModelEntry, err error) {
+	if a.setup != run {
+		return
+	}
+	a.setup = nil
 	if err != nil {
 		a.appendStatus(roleWarning, run.preset.Label+" did not answer with a model catalog: "+err.Error())
 		a.askProviderValue(run.preset.Label+": model", "Name the model to run on; the provider will be asked again at the first turn",
@@ -227,8 +259,8 @@ func (a *App) offerProviderModels(run *providerSetupRun, models []llm.ModelEntry
 			})
 		return
 	}
-	run.models = models
-	if len(models) == 0 {
+	run.models = listed
+	if len(listed) == 0 {
 		a.appendStatus(roleWarning, run.preset.Label+" lists no model")
 		a.askProviderValue(run.preset.Label+": model", "Name the model to run on",
 			strings.TrimPrefix(run.preset.DefaultModel, run.preset.ProviderName+"/"), func(text string) {
@@ -236,8 +268,8 @@ func (a *App) offerProviderModels(run *providerSetupRun, models []llm.ModelEntry
 			})
 		return
 	}
-	items := make([]tui.SelectItem, 0, len(models))
-	for _, m := range models {
+	items := make([]tui.SelectItem, 0, len(listed))
+	for _, m := range listed {
 		label := tui.SanitizeText(m.ID)
 		desc := ""
 		if m.ContextWindow > 0 {
@@ -254,17 +286,17 @@ func (a *App) offerProviderModels(run *providerSetupRun, models []llm.ModelEntry
 			a.openProviderPicker()
 			return
 		}
-		a.saveProviderSetup(run, item.Value, findModelEntry(models, item.Value))
+		a.saveProviderSetup(run, item.Value, findModelEntry(listed, item.Value))
 		a.screen.RequestRender()
 	}
-	a.openModal(sel)
-	a.screen.RequestRender()
+	a.openSetupModal(sel)
 }
 
 // saveProviderSetup writes the provider row, the model and, where there is
 // none that answers, agent.model, then installs the new configuration so the
 // next prompt runs on it.
 func (a *App) saveProviderSetup(run *providerSetupRun, modelID string, listed *llm.ModelEntry) {
+	a.setup = nil
 	ref := run.preset.ModelRef(modelID)
 	if _, _, err := config.SplitModelRef(ref); err != nil {
 		a.appendStatus(roleError, "Could not read "+tui.SanitizeText(ref)+" as a model: "+err.Error())
@@ -300,26 +332,44 @@ func (a *App) saveProviderSetup(run *providerSetupRun, modelID string, listed *l
 // providerSetupCommands stages what config.yaml is missing: the provider row
 // with the endpoint and the key that were answered, the model row, and
 // agent.model when nothing it names can answer.
+//
+// A whole row is written only when config.yaml lists none. A row that is
+// already there keeps everything the picker does not ask about - a credential
+// helper, a proxy, a timeout - because a `set` on `providers[name=X]`
+// replaces the list element outright (config.mutateConfigNode), so only the
+// scalars that actually moved are staged, the way a sign-in writes its own
+// endpoint (llm.ApplyNeuralDeepLoginToConfig).
 func providerSetupCommands(cfg *config.Config, run *providerSetupRun, ref string, listed *llm.ModelEntry) ([]config.UCICommand, []string) {
 	var cmds []config.UCICommand
 	var added []string
 	name := run.preset.ProviderName
-	row := map[string]string{"name": name, "type": run.preset.ProviderType}
-	if base := strings.TrimSpace(run.apiBase); base != "" {
-		row["api_base"] = base
-	}
-	// A key typed here is the one requests use; an empty answer leaves the
-	// row without one, so the conventional NAME_API_KEY variable applies.
-	// The placeholder of the preset is never written: the save escapes "$",
-	// and the row would then send that text as the bearer token.
-	if key := strings.TrimSpace(run.apiKey); key != "" {
-		row["api_key"] = key
-	}
-	existing := cfg.FindProvider(name)
-	if existing == nil || !sameProviderRow(existing, row) {
+	base := strings.TrimSpace(run.apiBase)
+	// A key typed here is the one requests use; an empty answer changes no
+	// credential, so a row keeps its key or its helper and a row with
+	// neither reads the conventional NAME_API_KEY variable. The placeholder
+	// of the preset is never written: the save escapes "$", and the row
+	// would then send that text as the bearer token.
+	key := strings.TrimSpace(run.apiKey)
+	if existing := cfg.FindProvider(name); existing == nil {
+		row := map[string]string{"name": name, "type": run.preset.ProviderType}
+		if base != "" {
+			row["api_base"] = base
+		}
+		if key != "" {
+			row["api_key"] = key
+		}
 		rowJSON, _ := json.Marshal(row)
 		cmds = append(cmds, config.UCICommand{Op: config.UCIOpSet, Path: fmt.Sprintf("providers[name=%s]", name), Value: string(rowJSON)})
 		added = append(added, "provider "+name)
+	} else {
+		if base != "" && strings.TrimSpace(existing.APIBase) != base {
+			cmds = append(cmds, config.UCICommand{Op: config.UCIOpSet, Path: fmt.Sprintf("providers[name=%s].api_base", name), Value: base})
+			added = append(added, "provider "+name+" api_base -> "+base)
+		}
+		if key != "" && strings.TrimSpace(existing.APIKey) != key {
+			cmds = append(cmds, config.UCICommand{Op: config.UCIOpSet, Path: fmt.Sprintf("providers[name=%s].api_key", name), Value: key})
+			added = append(added, "provider "+name+" api_key")
+		}
 	}
 	if cfg.FindModelEntry(ref) == nil {
 		entry := map[string]any{"model": ref}
@@ -329,7 +379,12 @@ func providerSetupCommands(cfg *config.Config, run *providerSetupRun, ref string
 		case run.preset.MaxContextTokens > 0:
 			entry["max_context_tokens"] = run.preset.MaxContextTokens
 		}
-		if run.preset.Multimodal {
+		// Whether a model reads images is the model's own property, not the
+		// preset's: a text-only endpoint behind the OpenAI-compatible preset
+		// would otherwise be written multimodal and be sent pictures. The
+		// embedded catalog is the same source the settings screen reads
+		// (external/httpserver/providers_models_http.go).
+		if presetModelMultimodal(run.preset, ref) {
 			entry["multimodal"] = true
 		}
 		entryJSON, _ := json.Marshal(entry)
@@ -337,23 +392,35 @@ func providerSetupCommands(cfg *config.Config, run *providerSetupRun, ref string
 		added = append(added, "model "+ref)
 	}
 	// agent.model decides what a new session starts on. It moves only when
-	// what it names cannot answer, so a working setup is never repointed by
+	// what it names cannot be run - nothing set, a provider that cannot
+	// answer, or a model config.yaml does not list, which a new session
+	// silently replaces with the first row of models[] anyway
+	// (session.normalizeModelID) - so a working setup is never repointed by
 	// adding a second provider.
 	current := strings.TrimSpace(cfg.Agent.Model)
 	owner, _, _ := config.SplitModelRef(current)
-	if current == "" || (owner != name && !providerlogin.ProviderReady(cfg, owner)) {
+	stale := owner != name && !providerlogin.ProviderReady(cfg, owner)
+	if current == "" || stale || cfg.FindModelEntry(current) == nil {
 		cmds = append(cmds, config.UCICommand{Op: config.UCIOpSet, Path: "agent.model", Value: ref})
 		added = append(added, "agent.model "+ref)
 	}
 	return cmds, added
 }
 
-// sameProviderRow reports a configured row that already says what the setup
-// would write, so nothing is staged for it.
-func sameProviderRow(existing *config.ProviderConfig, row map[string]string) bool {
-	return existing.Type == row["type"] &&
-		strings.TrimSpace(existing.APIBase) == row["api_base"] &&
-		strings.TrimSpace(existing.APIKey) == row["api_key"]
+// presetModelMultimodal reports whether the model named by ref reads images:
+// the embedded catalog decides for a model it knows, and the preset's own
+// flag for one it does not, which is all a local or a private endpoint can
+// offer. This is how the settings screen fills the same field
+// (external/ui/src/ui/onboarding/providerConfig.ts).
+func presetModelMultimodal(preset providerpreset.Preset, ref string) bool {
+	_, id, err := config.SplitModelRef(ref)
+	if err != nil {
+		return preset.Multimodal
+	}
+	if limits, ok := models.Lookup(id); ok {
+		return limits.Multimodal
+	}
+	return preset.Multimodal
 }
 
 // providerRowProxy is the proxy setting of the row the preset writes, so the
@@ -427,7 +494,7 @@ func (m *valuePromptModal) InsertPaste(body string) { m.editor.InsertPaste(body)
 // that can answer: the first run, before anything is typed. Over --remote the
 // server's configuration decides and nothing opens here.
 func (a *App) maybeOpenProviderPicker() {
-	if !a.needsLogin() || a.modal != nil || a.login != nil {
+	if !a.needsLogin() || a.modal != nil || a.login != nil || a.setup != nil {
 		return
 	}
 	a.openProviderPicker()

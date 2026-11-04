@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"testing"
 )
 
@@ -31,6 +32,10 @@ func TestPresetsMatchTheWebPicker(t *testing.T) {
 			t.Errorf("%s starts on %q in the web picker and %q here", want.ID, got.DefaultModel, want.DefaultModel)
 		case got.Multimodal != want.Multimodal:
 			t.Errorf("%s reads images %v in the web picker and %v here", want.ID, got.Multimodal, want.Multimodal)
+		case got.APIBaseDefault != want.DefaultAPIBase():
+			t.Errorf("%s starts on the endpoint %q in the web picker and %q here", want.ID, got.APIBaseDefault, want.DefaultAPIBase())
+		case got.MaxContextTokens != want.MaxContextTokens:
+			t.Errorf("%s has the window %d in the web picker and %d here", want.ID, got.MaxContextTokens, want.MaxContextTokens)
 		}
 	}
 }
@@ -92,9 +97,15 @@ func TestDefaultAPIBase(t *testing.T) {
 const webPresetsFile = "../../external/ui/src/ui/onboarding/providerConfig.ts"
 
 var (
-	webEntryRe  = regexp.MustCompile(`(?s)\{\s*\n\s*id: "([a-z]+)",(.*?)\n  \}`)
-	webFieldRe  = regexp.MustCompile(`\b(providerName|providerType|defaultModel): "([^"]*)"`)
-	webBoolRe   = regexp.MustCompile(`\bmultimodal: (true|false)`)
+	webEntryRe = regexp.MustCompile(`(?s)\{\s*\n\s*id: "([a-z]+)",(.*?)\n  \}`)
+	webFieldRe = regexp.MustCompile(`\b(providerName|providerType|defaultModel|apiBase): "([^"]*)"`)
+	webBoolRe  = regexp.MustCompile(`\bmultimodal: (true|false)`)
+	webNumRe   = regexp.MustCompile(`\bmaxContextTokens: (\d+)`)
+	// An endpoint written as the first entry of a named option list rather
+	// than as a literal: NeuralDeep's hubs and OpenCode's gateways.
+	webOptionRe  = regexp.MustCompile(`\bapiBase: ([A-Z_]+)\[0]\.value`)
+	webOptionsRe = regexp.MustCompile(
+		`(?s)export const ([A-Z_]+) = \[\s*\{\s*\n\s*value: "([^"]*)"`)
 	webArrayRe  = regexp.MustCompile(`(?s)export const PROVIDER_PRESETS[^=]*= \[(.*?)\n\];`)
 	errNoWebArr = "external/ui/src/ui/onboarding/providerConfig.ts has no PROVIDER_PRESETS array; keep the two catalogs in step by hand"
 )
@@ -109,6 +120,12 @@ func readWebPresets(t *testing.T) []Preset {
 	if body == nil {
 		t.Fatal(errNoWebArr)
 	}
+	// The first value of every exported option list, for an apiBase written
+	// as OPTIONS[0].value instead of a literal.
+	options := map[string]string{}
+	for _, m := range webOptionsRe.FindAllSubmatch(raw, -1) {
+		options[string(m[1])] = string(m[2])
+	}
 	var out []Preset
 	for _, entry := range webEntryRe.FindAllSubmatch(body[1], -1) {
 		p := Preset{ID: string(entry[1])}
@@ -120,10 +137,26 @@ func readWebPresets(t *testing.T) []Preset {
 				p.ProviderType = string(field[2])
 			case "defaultModel":
 				p.DefaultModel = string(field[2])
+			case "apiBase":
+				p.APIBaseDefault = string(field[2])
 			}
+		}
+		if m := webOptionRe.FindSubmatch(entry[2]); m != nil {
+			base, ok := options[string(m[1])]
+			if !ok {
+				t.Fatalf("%s: the web catalog names the option list %s, which it does not export", p.ID, m[1])
+			}
+			p.APIBaseDefault = base
 		}
 		if m := webBoolRe.FindSubmatch(entry[2]); m != nil {
 			p.Multimodal = string(m[1]) == "true"
+		}
+		if m := webNumRe.FindSubmatch(entry[2]); m != nil {
+			n, err := strconv.Atoi(string(m[1]))
+			if err != nil {
+				t.Fatalf("%s: maxContextTokens %q: %v", p.ID, m[1], err)
+			}
+			p.MaxContextTokens = n
 		}
 		out = append(out, p)
 	}
