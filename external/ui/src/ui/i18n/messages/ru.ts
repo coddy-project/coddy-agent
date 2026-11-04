@@ -1080,20 +1080,11 @@ export const messagesRu: Record<string, string> = {
   "onboarding.proxy": "URL прокси",
   "onboarding.proxyHint":
     "Этот маршрут используется для получения моделей, входа и запросов чата.",
-  "onboarding.defaultModel": "Модель по умолчанию",
-  "onboarding.fetchingModels": "Получаем модели…",
-  "onboarding.refreshModels": "Обновить",
-  "onboarding.fetchModels": "Получить модели",
-  "onboarding.modelMultimodalOn": "Эта модель принимает изображения.",
-  "onboarding.modelMultimodalOff":
-    "Поддержка изображений у этой модели не заявлена.",
-  "onboarding.modelVisionOption": "{model} (изображения)",
   "onboarding.validationFailed": "Конфигурация недействительна.",
   "onboarding.saveFailed": "Не удалось сохранить конфигурацию ({status}).",
   "onboarding.saveFailedGeneric": "Не удалось сохранить конфигурацию.",
-  "onboarding.testOk": "Провайдер ответил каталогом моделей.",
-  "onboarding.skip": "Пропустить пока",
-  "onboarding.test": "Проверить соединение",
+  "onboarding.moreProviders": "Ещё провайдеры",
+  "onboarding.fewerProviders": "Свернуть",
   "onboarding.save": "Сохранить и продолжить",
   "onboarding.restart": "Пройти онбординг снова",
   "onboarding.restartHint":

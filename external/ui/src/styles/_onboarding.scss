@@ -94,8 +94,7 @@
 // frame of its own, and its label and its control start where every other
 // label and control start. A framed block stood 13px further in than the key
 // above it, which is the one indent a reader notices.
-.provider-picker-form > .settings-row,
-.provider-picker-proxy > .settings-row {
+.provider-picker-form > .settings-row {
   gap: 6px;
   padding: 0;
   border: none;
@@ -185,12 +184,6 @@
   height: var(--onboarding-control-h);
   border-radius: 10px;
   background: var(--coddy-surface-field);
-}
-
-.provider-picker-proxy .settings-input,
-.provider-picker-proxy input[type="text"] {
-  box-sizing: border-box;
-  height: var(--onboarding-control-h);
 }
 
 // The sign-in a provider's account block offers is a control of this form:
@@ -388,8 +381,19 @@
 }
 
 @media (max-width: 599px) {
+  // Two cards a row here as well: one column turned eight providers into a
+  // scroll of its own before the form was reached. The description is what
+  // gives way, not the column.
   .provider-picker-grid {
-    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .provider-picker-card {
+    padding: 10px;
+  }
+
+  .provider-picker-card-desc {
+    font-size: 11px;
   }
 
   .provider-picker-panel {
@@ -418,4 +422,49 @@
   .tour-spotlight {
     transition: none;
   }
+}
+
+// The folded Advanced settings of the picker is the one the provider form of
+// Settings folds its proxy behind, so it keeps that component's look; only
+// the room around it belongs to this form.
+.provider-picker-advanced .settings-fieldset--collapsible {
+  margin: 0;
+}
+
+.provider-picker-advanced .settings-form-group-body {
+  padding-top: 10px;
+}
+
+// The providers that do not lead are shown by one quiet row under the grid:
+// the app's chevron, the words, no frame and no legend. It starts where the
+// cards start, so the column reads straight down.
+.provider-picker-more {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 16px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  opacity: 0.75;
+  cursor: pointer;
+}
+
+.provider-picker-more:hover,
+.provider-picker-more:focus-visible {
+  opacity: 1;
+}
+
+// Opened, the Advanced fold keeps the form's one left edge: the settings
+// screen indents a fieldset's body, which here put the key and the proxy a
+// visible step further in than the fields above them.
+.provider-picker-advanced .settings-fieldset--collapsible {
+  padding-inline: 0;
+}
+
+.provider-picker-advanced .settings-form-group-body {
+  padding-inline: 0;
 }

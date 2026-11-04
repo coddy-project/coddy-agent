@@ -1054,20 +1054,11 @@ export const messagesEn: Record<string, string> = {
   "onboarding.proxy": "Proxy URL",
   "onboarding.proxyHint":
     "Model discovery, sign-in and chat requests use this route.",
-  "onboarding.defaultModel": "Default model",
-  "onboarding.fetchingModels": "Fetching models…",
-  "onboarding.refreshModels": "Refresh",
-  "onboarding.fetchModels": "Fetch models",
-  "onboarding.modelMultimodalOn": "This model accepts image input.",
-  "onboarding.modelMultimodalOff":
-    "No image support is reported for this model.",
-  "onboarding.modelVisionOption": "{model} (vision)",
   "onboarding.validationFailed": "The configuration is invalid.",
   "onboarding.saveFailed": "Could not save the configuration ({status}).",
   "onboarding.saveFailedGeneric": "Could not save the configuration.",
-  "onboarding.testOk": "The provider answered with a model catalog.",
-  "onboarding.skip": "Skip for now",
-  "onboarding.test": "Test connection",
+  "onboarding.moreProviders": "More providers",
+  "onboarding.fewerProviders": "Fewer providers",
   "onboarding.save": "Save and continue",
   "onboarding.restart": "Restart onboarding",
   "onboarding.restartHint":

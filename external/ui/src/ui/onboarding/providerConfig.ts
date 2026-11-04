@@ -36,6 +36,11 @@ export type ProviderPreset = {
   defaultModel: string;
   maxContextTokens?: number;
   envKey?: string;
+  // featured marks a preset this picker shows without being asked; the rest
+  // fold behind "More providers", so eight cards do not fill the dialog
+  // before a word of the form is read. The console's picker is one scrolling
+  // list and offers every preset alike, so it ignores this.
+  featured?: boolean;
 };
 
 export const NEURALDEEP_API_BASE_OPTIONS = [
@@ -76,6 +81,7 @@ export const PROVIDER_PRESETS: [ProviderPreset, ...ProviderPreset[]] = [
     defaultModel: "neuraldeep/qwen3.6-35b-a3b",
     maxContextTokens: 46112,
     envKey: "${NEURALDEEP_API_KEY}",
+    featured: true,
   },
   {
     id: "opencode",
@@ -87,6 +93,7 @@ export const PROVIDER_PRESETS: [ProviderPreset, ...ProviderPreset[]] = [
     multimodal: false,
     defaultModel: "opencode/gpt-5.5",
     envKey: "${OPENCODE_API_KEY}",
+    featured: true,
   },
   {
     id: "openai",
@@ -97,6 +104,7 @@ export const PROVIDER_PRESETS: [ProviderPreset, ...ProviderPreset[]] = [
     multimodal: true,
     defaultModel: "openai/gpt-5.6-terra",
     envKey: "${OPENAI_API_KEY}",
+    featured: true,
   },
   {
     id: "anthropic",
@@ -107,6 +115,7 @@ export const PROVIDER_PRESETS: [ProviderPreset, ...ProviderPreset[]] = [
     multimodal: true,
     defaultModel: "anthropic/claude-sonnet-5",
     envKey: "${ANTHROPIC_API_KEY}",
+    featured: true,
   },
   {
     id: "codex",
@@ -175,6 +184,32 @@ export function catalogEntry(
   return catalog.find(
     (model) => model.id === raw || `${preset.providerName}/${model.id}` === raw,
   );
+}
+
+/**
+ * startingModelId is the model a row starts on when no field asks for one:
+ * the preset's own default where the provider lists it, else the first model
+ * it does list, else "" - which providerModelRef reads as the default anyway.
+ *
+ * Both halves matter. An endpoint the operator brought (a local Ollama, a
+ * gateway) does not serve "gpt-4o", so a preset default written blindly gives
+ * a row that fails at the first turn; and a provider that does serve its
+ * preset default should keep it, because llm.ListModels sorts a catalog
+ * alphabetically and its first entry is nobody's recommendation.
+ */
+export function startingModelId(
+  preset: ProviderPreset,
+  catalog: FetchedModel[],
+): string {
+  if (catalog.length === 0) return "";
+  const prefix = `${preset.providerName}/`;
+  const bare = preset.defaultModel.startsWith(prefix)
+    ? preset.defaultModel.slice(prefix.length)
+    : preset.defaultModel;
+  const listed = catalog.find(
+    (model) => model.id === bare || model.id === preset.defaultModel,
+  );
+  return listed ? listed.id : (catalog[0]?.id ?? "");
 }
 
 export function providerModelRef(
@@ -325,3 +360,7 @@ export function buildOnboardingConfig(input: {
     },
   };
 }
+
+/** The cards the picker shows at once, and the ones behind "More providers". */
+export const FEATURED_PRESETS = PROVIDER_PRESETS.filter((p) => p.featured);
+export const REST_PRESETS = PROVIDER_PRESETS.filter((p) => !p.featured);

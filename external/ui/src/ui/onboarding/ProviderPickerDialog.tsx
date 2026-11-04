@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { errorMessage } from "../settings/apiError";
-import { Combobox } from "../settings/Combobox";
+import { Chevron } from "../components/Chevron";
+import { CollapsibleFieldset } from "../settings/SchemaForm";
 import { CodexAuthField } from "../settings/CodexAuthField";
 import { NeuralDeepAuthField } from "../settings/NeuralDeepAuthField";
 import { OpenCodeAuthField } from "../settings/OpenCodeAuthField";
-import { ProxySettingField } from "../settings/ProxySettingField";
 import { useProviderModels } from "../settings/useProviderModels";
 import { DevinAuthField } from "../settings/DevinAuthField";
 import {
   buildOnboardingConfig,
-  catalogEntry,
+  FEATURED_PRESETS as FEATURED,
+  REST_PRESETS as REST,
+  startingModelId,
   NEURALDEEP_API_BASE_OPTIONS,
   OPENCODE_API_BASE_OPTIONS,
   PROVIDER_PRESETS,
@@ -57,19 +59,17 @@ export function ProviderPickerDialog(props: {
   const [apiBase, setApiBase] = useState("");
   const [command, setCommand] = useState("");
   const [proxy, setProxy] = useState("");
-  const [modelId, setModelId] = useState("");
   const [showKey, setShowKey] = useState(false);
+  const [showAllState, setShowAllState] = useState(false);
   const [managedLogin, setManagedLogin] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [testOk, setTestOk] = useState(false);
   // The /coddy/config document to merge into: null until one has loaded. Save
   // must never build from the empty stand-in - PUT /coddy/config writes the
   // lists as sent, so that would replace every saved row with this one.
   const [baseDoc, setBaseDoc] = useState<Record<string, unknown> | null>(null);
   const baseLoad = useRef<Promise<Record<string, unknown>> | null>(null);
   const {
-    loading: modelsLoading,
     models: fetchedModels,
     error: modelsError,
     fetched: modelsFetched,
@@ -119,11 +119,6 @@ export function ProviderPickerDialog(props: {
         : {}),
     };
   }, [apiKey, command, effectiveApiBase, keyless, preset, proxy]);
-  const pickedModel = useMemo(
-    () => catalogEntry(preset, modelId, fetchedModels),
-    [preset, modelId, fetchedModels],
-  );
-
   /** The current config document, one request shared by every caller in
    * flight; a failure leaves no promise behind, so Save may retry it. */
   const loadBaseDoc = useCallback((): Promise<Record<string, unknown>> => {
@@ -147,7 +142,6 @@ export function ProviderPickerDialog(props: {
   useEffect(() => {
     if (!props.open) return;
     setError(null);
-    setTestOk(false);
     setBaseDoc(null);
     loadBaseDoc()
       .then((doc) => setBaseDoc(doc))
@@ -158,16 +152,10 @@ export function ProviderPickerDialog(props: {
 
   useEffect(() => {
     setError(null);
-    setTestOk(false);
     setManagedLogin(false);
     setApiBase(preset.apiBase || "");
     setApiKey("");
     setCommand("");
-    setModelId(
-      ["neuraldeep", "codex", "opencode", "devin"].includes(preset.id)
-        ? preset.defaultModel
-        : "",
-    );
     resetModels();
   }, [preset, resetModels]);
 
@@ -176,23 +164,6 @@ export function ProviderPickerDialog(props: {
     const timer = window.setTimeout(() => void fetchModels(providerRow), 100);
     return () => window.clearTimeout(timer);
   }, [props.open, managedLogin, apiKey, providerRow, fetchModels]);
-
-  const testConnection = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-    setTestOk(false);
-    try {
-      const result = await fetchModels(providerRow);
-      if (result === null) return;
-      if (result.error) {
-        setError(result.error);
-        return;
-      }
-      setTestOk(true);
-    } finally {
-      setBusy(false);
-    }
-  }, [fetchModels, providerRow]);
 
   const save = useCallback(async () => {
     setBusy(true);
@@ -205,6 +176,18 @@ export function ProviderPickerDialog(props: {
         base = await loadBaseDoc();
         setBaseDoc(base);
       }
+      // No field asks for a model any more, so Save is where the catalog is
+      // learned when nothing fetched it before: without it an endpoint the
+      // operator brought would start on the preset's default, which it may
+      // not serve at all. A provider that cannot answer is not an error here
+      // - the row is still written, on that default.
+      let catalog = fetchedModels;
+      if (catalog.length === 0) {
+        const listing = await fetchModels(providerRow);
+        if (listing && !listing.error) {
+          catalog = listing.models;
+        }
+      }
       const body = JSON.stringify(
         buildOnboardingConfig({
           preset,
@@ -212,9 +195,9 @@ export function ProviderPickerDialog(props: {
           apiBase: effectiveApiBase,
           command,
           proxy,
-          modelId,
+          modelId: startingModelId(preset, catalog),
           baseDoc: base,
-          catalog: fetchedModels,
+          catalog,
           managedLogin,
         }),
       );
@@ -272,15 +255,75 @@ export function ProviderPickerDialog(props: {
     baseDoc,
     command,
     effectiveApiBase,
+    fetchModels,
     fetchedModels,
     loadBaseDoc,
     managedLogin,
-    modelId,
     preset,
+    providerRow,
     proxy,
     props,
     t,
   ]);
+
+  // A provider that signs in has two ways to present a credential, and
+  // showing both at once asks the operator to choose before they know the
+  // difference. The sign-in is the way in; the key stays available, under
+  // Advanced settings, for whoever already has one. Codex has no key at all,
+  // and an ACP agent carries neither.
+  const keyIsAdvanced =
+    !preset.commandTyped &&
+    ["neuraldeep", "opencode", "devin"].includes(preset.providerType);
+  const keyField = (
+    <label className="provider-picker-field">
+      <span>{t("onboarding.apiKey")}</span>
+      <div className="provider-picker-secret">
+        <input
+          className="provider-picker-input"
+          type={showKey ? "text" : "password"}
+          value={apiKey}
+          onChange={(event) => {
+            setApiKey(event.target.value);
+          }}
+          placeholder={preset.envKey || "sk-..."}
+          autoComplete="off"
+          data-testid="provider-api-key"
+        />
+        <button
+          type="button"
+          className="provider-picker-eye"
+          onClick={() => setShowKey((value) => !value)}
+          aria-label={
+            showKey ? t("onboarding.hideKey") : t("onboarding.showKey")
+          }
+          title={showKey ? t("onboarding.hideKey") : t("onboarding.showKey")}
+          aria-pressed={showKey}
+          data-testid="provider-key-reveal"
+        >
+          <EyeIcon off={!showKey} />
+        </button>
+      </div>
+    </label>
+  );
+
+  // The cards that do not lead stay on screen once they are shown, and a
+  // provider selected among them keeps them there whatever the toggle says.
+  const showAll = showAllState || preset.featured !== true;
+
+  const card = (item: (typeof PROVIDER_PRESETS)[number]) => (
+    <button
+      key={item.id}
+      type="button"
+      className={`provider-picker-card${selected === item.id ? " provider-picker-card--active" : ""}`}
+      data-testid={`provider-card-${item.id}`}
+      onClick={() => setSelected(item.id)}
+    >
+      <span className="provider-picker-card-title">{item.label}</span>
+      <span className="provider-picker-card-desc">
+        {t(item.descriptionKey)}
+      </span>
+    </button>
+  );
 
   if (!props.open) return null;
 
@@ -305,21 +348,28 @@ export function ProviderPickerDialog(props: {
         </div>
 
         <div className="provider-picker-grid">
-          {PROVIDER_PRESETS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`provider-picker-card${selected === item.id ? " provider-picker-card--active" : ""}`}
-              data-testid={`provider-card-${item.id}`}
-              onClick={() => setSelected(item.id)}
-            >
-              <span className="provider-picker-card-title">{item.label}</span>
-              <span className="provider-picker-card-desc">
-                {t(item.descriptionKey)}
-              </span>
-            </button>
-          ))}
+          {(showAll ? PROVIDER_PRESETS : FEATURED).map(card)}
         </div>
+
+        {/* One quiet row under the grid, the app's own chevron in front of
+            it. A fieldset put a frame and a legend around a grid that needs
+            neither, and the cards inside it sat in a box of their own. */}
+        {REST.length > 0 ? (
+          <button
+            type="button"
+            className="provider-picker-more"
+            aria-expanded={showAll}
+            onClick={() => setShowAllState((value) => !value)}
+            data-testid="provider-more-toggle"
+          >
+            <Chevron open={showAll} />
+            <span>
+              {showAll
+                ? t("onboarding.fewerProviders")
+                : t("onboarding.moreProviders")}
+            </span>
+          </button>
+        ) : null}
 
         <div className="provider-picker-form">
           {selected === "neuraldeep" || selected === "opencode" ? (
@@ -331,7 +381,6 @@ export function ProviderPickerDialog(props: {
                 onChange={(event) => {
                   setApiBase(event.target.value);
                   setManagedLogin(false);
-                  setTestOk(false);
                   resetModels();
                 }}
                 data-testid={`provider-${selected}-domain`}
@@ -358,39 +407,8 @@ export function ProviderPickerDialog(props: {
               }}
               onConnectedChange={setManagedLogin}
             />
-          ) : (
-            <label className="provider-picker-field">
-              <span>{t("onboarding.apiKey")}</span>
-              <div className="provider-picker-secret">
-                <input
-                  className="provider-picker-input"
-                  type={showKey ? "text" : "password"}
-                  value={apiKey}
-                  onChange={(event) => {
-                    setApiKey(event.target.value);
-                    setTestOk(false);
-                  }}
-                  placeholder={preset.envKey || "sk-..."}
-                  autoComplete="off"
-                  data-testid="provider-api-key"
-                />
-                <button
-                  type="button"
-                  className="provider-picker-eye"
-                  onClick={() => setShowKey((value) => !value)}
-                  aria-label={
-                    showKey ? t("onboarding.hideKey") : t("onboarding.showKey")
-                  }
-                  title={
-                    showKey ? t("onboarding.hideKey") : t("onboarding.showKey")
-                  }
-                  aria-pressed={showKey}
-                  data-testid="provider-key-reveal"
-                >
-                  <EyeIcon off={!showKey} />
-                </button>
-              </div>
-            </label>
+          ) : keyIsAdvanced ? null : (
+            keyField
           )}
 
           {selected === "neuraldeep" ? (
@@ -442,7 +460,6 @@ export function ProviderPickerDialog(props: {
                 value={command}
                 onChange={(event) => {
                   setCommand(event.target.value);
-                  setTestOk(false);
                 }}
                 placeholder={preset.commandExample}
                 autoComplete="off"
@@ -480,102 +497,54 @@ export function ProviderPickerDialog(props: {
             </label>
           ) : null}
 
-          <div className="provider-picker-proxy">
-            <ProxySettingField
-              value={proxy}
-              onChange={(value) => setProxy(String(value ?? ""))}
-              texts={{
-                primary: t("onboarding.proxy"),
-                primaryDesc: t("onboarding.proxyHint"),
-                second: t("settings.providerProxy.ignoreSystem"),
-                secondDesc: t("settings.providerProxy.ignoreSystemDesc"),
-              }}
-            />
+          {/* The proxy is the one setting of this form nobody needs on a
+              first run, so it folds away behind the same legend the provider
+              form of Settings folds it behind, and by the same component. */}
+          <div className="provider-picker-advanced">
+            <CollapsibleFieldset
+              legend={t("settings.providers.group.advanced")}
+              testid="provider-advanced"
+            >
+              {keyIsAdvanced ? keyField : null}
+              {/* A plain field, like every other row here. The switch that
+                  turns the system proxy off belongs to the provider form of
+                  Settings, where a row is tuned; a first run only ever needs
+                  to name a proxy or leave the field alone. */}
+              <label className="provider-picker-field">
+                <span>{t("onboarding.proxy")}</span>
+                <input
+                  className="provider-picker-input"
+                  value={proxy}
+                  onChange={(event) => setProxy(event.target.value)}
+                  placeholder={t("settings.providerProxy.placeholderSystem")}
+                  autoComplete="off"
+                  spellCheck={false}
+                  data-testid="provider-proxy"
+                />
+                <span className="provider-picker-hint">
+                  {t("onboarding.proxyHint")}
+                </span>
+              </label>
+            </CollapsibleFieldset>
           </div>
 
-          <label className="provider-picker-field">
-            <span>{t("onboarding.defaultModel")}</span>
-            <div className="provider-picker-key-row">
-              <Combobox
-                value={modelId}
-                onChange={setModelId}
-                options={fetchedModels.map((model) => ({
-                  value: model.id,
-                  label: model.catalog?.multimodal
-                    ? t("onboarding.modelVisionOption", {
-                        model: model.name || model.id,
-                      })
-                    : model.name || model.id,
-                }))}
-                placeholder={preset.defaultModel}
-                ariaLabel={t("onboarding.defaultModel")}
-                testid="provider-model-id"
-              />
-              <button
-                type="button"
-                className="provider-picker-ghost-btn"
-                onClick={() => void testConnection()}
-                disabled={busy || modelsLoading || incomplete}
-                data-testid="provider-fetch-models"
-              >
-                {modelsLoading
-                  ? t("onboarding.fetchingModels")
-                  : fetchedModels.length > 0
-                    ? t("onboarding.refreshModels")
-                    : t("onboarding.fetchModels")}
-              </button>
-            </div>
-            {modelsFetched && modelsError ? (
-              <span
-                className="provider-picker-hint"
-                data-testid="provider-models-error"
-              >
-                {modelsError}
-              </span>
-            ) : null}
-            {pickedModel ? (
-              <span
-                className="provider-picker-hint"
-                data-testid="provider-multimodal-note"
-              >
-                {pickedModel.catalog?.multimodal
-                  ? t("onboarding.modelMultimodalOn")
-                  : t("onboarding.modelMultimodalOff")}
-              </span>
-            ) : null}
-          </label>
+          {modelsFetched && modelsError ? (
+            <span
+              className="provider-picker-hint"
+              data-testid="provider-models-error"
+            >
+              {modelsError}
+            </span>
+          ) : null}
 
           {error ? (
             <div className="provider-picker-error" data-testid="provider-error">
               {error}
             </div>
           ) : null}
-          {testOk ? (
-            <div className="provider-picker-ok" data-testid="provider-test-ok">
-              {t("onboarding.testOk")}
-            </div>
-          ) : null}
         </div>
 
         <div className="provider-picker-actions">
-          <button
-            type="button"
-            className="provider-picker-secondary"
-            onClick={props.onSkip}
-            disabled={busy}
-            data-testid="provider-skip"
-          >
-            {t("onboarding.skip")}
-          </button>
-          <button
-            type="button"
-            className="provider-picker-secondary"
-            onClick={() => void testConnection()}
-            disabled={busy || modelsLoading || incomplete}
-            data-testid="provider-test"
-          >
-            {t("onboarding.test")}
-          </button>
           <button
             type="button"
             className="provider-picker-primary"

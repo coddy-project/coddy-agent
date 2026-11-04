@@ -3,6 +3,7 @@ import {
   buildOnboardingConfig,
   PROVIDER_PRESETS,
   providerModelRef,
+  startingModelId,
 } from "./providerConfig";
 
 const preset = (id: string) => {
@@ -306,5 +307,38 @@ describe("providerModelRef", () => {
     expect(providerModelRef(preset("compatible"), "openai/gpt-4o")).toBe(
       "custom/openai/gpt-4o",
     );
+  });
+});
+
+// No field of the picker asks for a model any more, so the row starts on the
+// preset's default where the provider serves it and on the provider's own
+// first model where it does not.
+describe("startingModelId", () => {
+  const nd = PROVIDER_PRESETS.find((p) => p.id === "neuraldeep")!;
+  const compatible = PROVIDER_PRESETS.find((p) => p.id === "compatible")!;
+  const model = (id: string) => ({ id }) as never;
+
+  it("keeps the preset's default when the provider lists it", () => {
+    expect(
+      startingModelId(nd, [model("gpt-oss-120b"), model("qwen3.6-35b-a3b")]),
+    ).toBe("qwen3.6-35b-a3b");
+    // The qualified spelling of the same model counts too.
+    expect(startingModelId(nd, [model("neuraldeep/qwen3.6-35b-a3b")])).toBe(
+      "neuraldeep/qwen3.6-35b-a3b",
+    );
+  });
+
+  it("takes the first listed model when the default is not served", () => {
+    // An endpoint the operator brought does not serve "gpt-4o"; writing it
+    // would give a row that fails at the first turn.
+    expect(
+      startingModelId(compatible, [model("llama3.2"), model("phi4")]),
+    ).toBe("llama3.2");
+  });
+
+  it("names nothing when the provider listed nothing", () => {
+    // providerModelRef reads "" as the preset's default.
+    expect(startingModelId(compatible, [])).toBe("");
+    expect(providerModelRef(compatible, "")).toBe("custom/gpt-4o");
   });
 });

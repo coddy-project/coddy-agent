@@ -73,14 +73,11 @@ describe("the provider picker's styles", () => {
     );
   });
 
-  // A block the form borrows from the settings screen - an account sign-in,
-  // the proxy - is one row like the fields around it. Framed, it stood 13px
-  // further in than the key above it, and its button 2px shorter than the
-  // fields.
+  // A block the form borrows from the settings screen - an account sign-in -
+  // is one row like the fields around it. Framed, it stood 13px further in
+  // than the key above it, and its button 2px shorter than the fields.
   it("takes the frame off every block borrowed from the settings screen", () => {
-    const body = rule(
-      ".provider-picker-form > .settings-row,\n.provider-picker-proxy > .settings-row",
-    );
+    const body = rule(".provider-picker-form > .settings-row");
     expect(body).toContain("padding: 0");
     expect(body).toContain("border: none");
     expect(body).toContain("background: none");
@@ -113,9 +110,10 @@ describe("the provider picker's styles", () => {
     );
   });
 
-  // One column on the phone tier, two above it: the eight cards of the
-  // catalog are a list on a phone and a grid on everything else.
-  it("lays the cards out in two columns above the phone tier", () => {
+  // Two columns at every width, a phone included: one column there turned
+  // eight providers into a scroll of its own before the form was reached, so
+  // the description gives way instead of the column.
+  it("lays the cards out in two columns at every width", () => {
     const css = stylesPartial("onboarding");
     expect(rule(".provider-picker-grid")).toContain(
       "grid-template-columns: repeat(2, minmax(0, 1fr))",
@@ -123,8 +121,23 @@ describe("the provider picker's styles", () => {
     // A card whose description wraps must not make its row taller than the
     // others.
     expect(rule(".provider-picker-grid")).toContain("grid-auto-rows: 1fr");
-    expect(css).toMatch(
+    expect(css).not.toMatch(
       /@media \(max-width: 599px\)[\s\S]*?\.provider-picker-grid \{[^}]*grid-template-columns: 1fr/,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 599px\)[\s\S]*?\.provider-picker-card-desc \{[^}]*font-size: 11px/,
+    );
+  });
+
+  // The providers that do not lead are shown by a row, not by a fieldset: a
+  // frame and a legend around a grid of cards boxed them in for nothing.
+  it("shows the rest of the catalog from a plain row", () => {
+    const body = rule(".provider-picker-more");
+    expect(body).toContain("border: none");
+    expect(body).toContain("background: none");
+    expect(body).toContain("padding: 0");
+    expect(stylesPartial("onboarding")).not.toContain(
+      ".provider-picker-more .settings-fieldset--collapsible",
     );
   });
 });
