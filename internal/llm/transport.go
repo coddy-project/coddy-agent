@@ -305,5 +305,5 @@ func providerHTTPClient(proxySetting string, timeout, streamIdle time.Duration) 
 	if streamIdle > 0 {
 		rt = &stallGuardTransport{inner: rt, idle: streamIdle}
 	}
-	return &http.Client{Transport: rt, Timeout: timeout}, nil
+	return &http.Client{Transport: &httpTraceTransport{inner: rt}, Timeout: timeout}, nil
 }

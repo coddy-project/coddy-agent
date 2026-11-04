@@ -80,10 +80,6 @@ type Paths struct {
 	CWD string
 	// ConfigPath is the YAML file to load (default: <Home>/config.yaml).
 	ConfigPath string
-	// ConfigFromWorkspace says ConfigPath is the workspace's config.yaml, read
-	// because the home has none and no file was named: a file that may have
-	// come with a checkout, which the loader reads but never rewrites.
-	ConfigFromWorkspace bool
 }
 
 // CLIPaths captures CLI flag overrides. Empty fields fall back to env then built-in defaults.

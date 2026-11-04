@@ -24,6 +24,12 @@ Feature: Coddy self-update
     When Coddy installs the update
     Then Coddy reports that it verified the archive against the published checksums
 
+  Scenario: Verifying the published checksums against their signature
+    Given a newer Coddy release with a signed digest list is available
+    When Coddy installs the update
+    Then Coddy reports that it verified the signature of the checksums
+    And the installed executable is the one from the release
+
   Scenario: Resuming a download the server cut short
     Given a newer Coddy release is available
     And the download server drops the first connection halfway

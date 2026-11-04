@@ -225,6 +225,7 @@ type ToolWebSearchJSON struct {
 	CacheTTLSeconds      int      `json:"cache_ttl_seconds,omitempty"`
 	SearXNGURL           string   `json:"searxng_url,omitempty"`
 	BraveAPIKey          string   `json:"brave_api_key,omitempty"`
+	DeepSeekAPIKey       string   `json:"deepseek_api_key,omitempty"`
 }
 
 // ToolHTTPRequestJSON mirrors ToolHTTPRequest for JSON APIs. DefaultHeaders
@@ -352,6 +353,7 @@ type DecisionsJSON struct {
 // HTTPServerJSON mirrors HTTPServerConfig. AuthToken is write-only: ConfigToJSONDTO never
 // populates it (redacted), reporting only whether one is set via AuthConfigured.
 type HTTPServerJSON struct {
+	MaxBodyBytes   int64         `json:"max_body_bytes,omitempty"`
 	Enabled        *bool         `json:"enable,omitempty"`
 	Host           string        `json:"host,omitempty"`
 	Port           int           `json:"port,omitempty"`
@@ -635,6 +637,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	}
 	out.Decisions = DecisionsJSON{Enabled: c.Decisions.Enabled, Model: c.Decisions.Model, Threshold: c.Decisions.Threshold}
 	out.HTTPServer = HTTPServerJSON{
+		MaxBodyBytes:  c.HTTPServer.MaxBodyBytes,
 		Enabled:       c.HTTPServer.Enabled,
 		Host:          c.HTTPServer.Host,
 		Port:          c.HTTPServer.Port,
@@ -895,10 +898,11 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	}
 	cfg.Decisions = DecisionsConfig{Enabled: j.Decisions.Enabled, Model: j.Decisions.Model, Threshold: j.Decisions.Threshold}
 	cfg.HTTPServer = HTTPServerConfig{
-		Enabled:   j.HTTPServer.Enabled,
-		Host:      j.HTTPServer.Host,
-		Port:      j.HTTPServer.Port,
-		AuthToken: j.HTTPServer.AuthToken,
+		MaxBodyBytes: j.HTTPServer.MaxBodyBytes,
+		Enabled:      j.HTTPServer.Enabled,
+		Host:         j.HTTPServer.Host,
+		Port:         j.HTTPServer.Port,
+		AuthToken:    j.HTTPServer.AuthToken,
 		Login: HTTPLoginConfig{
 			Enabled:         cloneBoolPtr(j.HTTPServer.Login.Enabled),
 			Mode:            j.HTTPServer.Login.Mode,
@@ -1213,6 +1217,7 @@ func escapeYAMLSecrets(cfg *Config) *Config {
 		}
 	}
 	out.Tools.WebSearch.BraveAPIKey = escapeYAMLDollar(cfg.Tools.WebSearch.BraveAPIKey)
+	out.Tools.WebSearch.DeepSeekAPIKey = escapeYAMLDollar(cfg.Tools.WebSearch.DeepSeekAPIKey)
 	if len(cfg.Tools.HTTPRequest.DefaultHeaders) > 0 {
 		out.Tools.HTTPRequest.DefaultHeaders = cloneStringMap(cfg.Tools.HTTPRequest.DefaultHeaders)
 		for name, value := range out.Tools.HTTPRequest.DefaultHeaders {

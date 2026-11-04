@@ -14,7 +14,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -236,6 +235,10 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		loginThrottle:        &webauth.Throttle{},
 	}
 	s.cfgAt.Store(cfg)
+	// A Mini App launch signs one browser in once, across restarts too.
+	if cfg != nil && strings.TrimSpace(cfg.Paths.Home) != "" {
+		s.tgReplay.SetFile(filepath.Join(cfg.Paths.Home, "telegram-launches.json"))
+	}
 	// A board changes from a tool call of any surface's turn or from a route
 	// of this server; either way the web UI reads it again on the event.
 	s.removeCanvasObserver = canvas.OnChange(s.publishCanvasChanged)
@@ -284,11 +287,17 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	s.mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
 	s.mux.HandleFunc("POST /v1/responses", s.handleResponsesCreate)
 	s.mux.HandleFunc("GET /v1/responses/{id}", s.handleResponsesGetPath)
+	s.mux.HandleFunc("/v1/models", openAIMethodNotAllowed("GET, HEAD"))
+	s.mux.HandleFunc("/v1/chat/completions", openAIMethodNotAllowed("POST"))
+	s.mux.HandleFunc("/v1/responses", openAIMethodNotAllowed("POST"))
+	s.mux.HandleFunc("/v1/responses/{id}", openAIMethodNotAllowed("GET, HEAD"))
+	s.mux.HandleFunc("/v1/", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
 	s.registerAuthRoutes()
 	s.registerCoddyRoutes()
 	s.registerConfigRoutes()
 	s.registerProvidersRoutes()
 	s.registerOnboardingRoutes()
+	s.registerWallpaperRoutes()
 	s.mux.HandleFunc("GET /openapi.yaml", s.handleOpenAPIYAML)
 	s.mux.HandleFunc("GET /openapi.json", s.handleOpenAPIJSON)
 	s.mux.HandleFunc("GET /docs", s.redirectDocsTrailingSlash)
@@ -426,18 +435,17 @@ func (s *Server) redirectDocsTrailingSlash(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, "/docs/", http.StatusFound)
 }
 
-// Handler returns the root HTTP handler: CORS wraps the auth gate wraps the route mux. Both
-// middlewares are no-ops unless configured, so unauthenticated, same-origin deployments are
-// unchanged.
+// Handler returns the root HTTP handler: CORS wraps the open-server guard wraps the auth gate
+// wraps the route mux. CORS and the auth gate are no-ops unless configured; the guard applies only
+// while no credential is configured (open_server_guard.go).
 func (s *Server) Handler() http.Handler {
-	return s.corsMiddleware(s.authGate(s.mux))
+	return s.openAIErrors(s.corsMiddleware(s.openServerGuard(s.authGate(s.mux))))
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.NotFound(w, r)
-		return
-	}
+	// The mux's "GET" pattern admits GET and HEAD, so a method check would
+	// 404 the HEAD the fallback's Allow header advertises; the body net/http
+	// discards for HEAD is the same work a GET costs.
 	type modelObj struct {
 		ID               string   `json:"id"`
 		Object           string   `json:"object"`
@@ -545,9 +553,8 @@ type chatCompletionRequest struct {
 	// Tools are the client's own function tools, offered to a direct model as
 	// they are; a profile turn runs coddy's tools and ignores them.
 	Tools json.RawMessage `json:"tools,omitempty"`
-	// ToolChoice is OpenAI's tool_choice. "none" withholds the tools; every
-	// other value leaves the choice to the model, since the providers take no
-	// forcing parameter.
+	// ToolChoice is OpenAI's tool_choice. "none" withholds the tools; "auto"
+	// leaves the choice to the model. Other choices are rejected.
 	ToolChoice json.RawMessage `json:"tool_choice,omitempty"`
 }
 
@@ -560,10 +567,12 @@ func (r chatCompletionRequest) includeUsage() bool {
 }
 
 type openAIMessage struct {
-	Role       string          `json:"role"`
-	Content    json.RawMessage `json:"content"`
-	ToolCallID string          `json:"tool_call_id"`
-	Name       string          `json:"name"`
+	Role             string          `json:"role"`
+	Content          json.RawMessage `json:"content"`
+	ToolCallID       string          `json:"tool_call_id"`
+	Name             string          `json:"name"`
+	ReasoningContent json.RawMessage `json:"reasoning_content,omitempty"`
+	Reasoning        json.RawMessage `json:"reasoning,omitempty"`
 	// ToolCalls are the calls an assistant message made, replayed by a client
 	// that runs the tools itself.
 	ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
@@ -626,22 +635,37 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	var raw json.RawMessage
+	if err := s.decodeOpenAIRequest(w, r, &raw); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeBodyTooLarge(w)
+			return
+		}
+		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
+		return
+	}
 	var req chatCompletionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.Unmarshal(raw, &req); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
 		return
 	}
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
-		http.Error(w, `{"error":{"message":"model is required"}}`, http.StatusBadRequest)
+		writeOpenAIValidationError(w, "model is required", "model")
 		return
 	}
 	if !httpModelListed(s.activeCfg(), model) {
-		http.Error(w, `{"error":{"message":"unknown model"}}`, http.StatusBadRequest)
+		writeUnknownModelError(w)
+		return
+	}
+	parsedOpts, paramErr := validateChatParameters(raw, httpModelIsCoddyProfile(model))
+	if paramErr != nil {
+		writeOpenAIValidationError(w, paramErr.Message, paramErr.Param)
 		return
 	}
 	if err := coerceMetadataJSON(req.Metadata); err != nil {
-		http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
+		writeOpenAIValidationError(w, "invalid metadata", "metadata")
 		return
 	}
 	msgs, err := openAIMessagesToLLM(req.Messages)
@@ -650,7 +674,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(msgs) == 0 {
-		http.Error(w, `{"error":{"message":"messages required"}}`, http.StatusBadRequest)
+		writeOpenAIValidationError(w, "messages required", "messages")
 		return
 	}
 	last := msgs[len(msgs)-1]
@@ -676,8 +700,12 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		// Refused here for the same reason: an option the provider cannot
 		// send as asked must not cost a session, nor reach the provider.
-		genOpts, err = directRequestOptions(s.activeCfg(), model, req)
+		genOpts, err = directRequestOptions(s.activeCfg(), model, req, parsedOpts.TopP)
 		if err != nil {
+			if parsedOpts.TopP != nil && strings.HasPrefix(err.Error(), "top_p ") {
+				writeOpenAIValidationError(w, err.Error(), "top_p")
+				return
+			}
 			http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 			return
 		}
@@ -730,7 +758,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 				return
 			}
-			http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
+			writeOpenAIValidationError(w, "invalid metadata", "metadata")
 			return
 		}
 		if runPlanRefusedInAskMode(model, req.Metadata) {
@@ -915,6 +943,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		"role":    "assistant",
 		"content": strings.TrimSpace(directRes.Content),
 	}
+	if directRes.Reasoning != "" {
+		message["reasoning_content"] = directRes.Reasoning
+	}
 	finish := openAIFinishReason(directStopReason(directRes))
 	if calls := openAIToolCallsJSON(directRes.ToolCalls); len(calls) > 0 {
 		message["tool_calls"] = calls
@@ -1011,12 +1042,16 @@ func openAIMessagesToLLM(messages []openAIMessage) ([]llm.Message, error) {
 			return nil, fmt.Errorf("image parts are only accepted on user messages")
 		}
 		switch role {
-		case "system":
+		case "system", "developer":
 			out = append(out, llm.Message{Role: llm.RoleSystem, Content: txt})
 		case "user":
 			out = append(out, llm.Message{Role: llm.RoleUser, Content: txt, ImageParts: images})
 		case "assistant":
-			msg := llm.Message{Role: llm.RoleAssistant, Content: txt}
+			reasoning, err := chatReasoning(m.ReasoningContent, m.Reasoning)
+			if err != nil {
+				return nil, err
+			}
+			msg := llm.Message{Role: llm.RoleAssistant, Content: txt, Reasoning: reasoning}
 			for _, tc := range m.ToolCalls {
 				if t := strings.TrimSpace(tc.Type); t != "" && t != "function" {
 					return nil, fmt.Errorf("unsupported tool call type %q", tc.Type)
@@ -1116,8 +1151,7 @@ func openAIContent(raw json.RawMessage) (string, []llm.ImagePart, error) {
 // openAIToolsToLLM reads the client's function tools. A tool_choice of "none"
 // withholds them, once they have been read - a broken tool list is refused
 // whatever the choice, so a client learns about it before it switches the
-// tools on; the providers take no forcing parameter, so any other value
-// leaves the choice to the model.
+// tools on. Unsupported choices are rejected before this function is called.
 func openAIToolsToLLM(rawTools, rawChoice json.RawMessage) ([]llm.ToolDefinition, error) {
 	tools, err := parseOpenAITools(rawTools)
 	if err != nil {
@@ -1251,6 +1285,27 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	var raw json.RawMessage
+	if err := s.decodeOpenAIRequest(w, r, &raw); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeBodyTooLarge(w)
+		} else {
+			writeOpenAIValidationError(w, "invalid JSON", "")
+		}
+		return
+	}
+	var selector struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(raw, &selector); err != nil {
+		writeOpenAIValidationError(w, "invalid JSON", "")
+		return
+	}
+	if !httpModelIsCoddyProfile(strings.TrimSpace(selector.Model)) {
+		s.handleDirectResponses(w, r, raw)
+		return
+	}
 	var body struct {
 		Model       string                         `json:"model"`
 		Input       string                         `json:"input"`
@@ -1262,7 +1317,12 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		InlineFiles []inlineFileJSON `json:"inline_files,omitempty"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.Unmarshal(raw, &body); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeBodyTooLarge(w)
+			return
+		}
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
 		return
 	}
@@ -1272,11 +1332,11 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !httpModelListed(s.activeCfg(), model) {
-		http.Error(w, `{"error":{"message":"unknown or missing model"}}`, http.StatusBadRequest)
+		writeUnknownModelError(w)
 		return
 	}
 	if err := coerceMetadataJSON(body.Metadata); err != nil {
-		http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
+		writeOpenAIValidationError(w, "invalid metadata", "metadata")
 		return
 	}
 	if !httpModelIsCoddyProfile(model) {
@@ -1323,7 +1383,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 				return
 			}
-			http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
+			writeOpenAIValidationError(w, "invalid metadata", "metadata")
 			return
 		}
 		if runPlanRefusedInAskMode(model, body.Metadata) {
@@ -1356,24 +1416,23 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		promptBlocks, err := session.BuildHydratedComposerPrompt(cwdAbs, strings.TrimSpace(body.Input), body.Attachments)
 		if err != nil {
-			code := http.StatusBadRequest
-			if !errors.Is(err, session.ErrPathTraversal) &&
-				!errors.Is(err, session.ErrFolderAttach) &&
-				!errors.Is(err, session.ErrNotDecodableText) &&
-				!os.IsNotExist(err) &&
-				!strings.Contains(err.Error(), "file too large") &&
-				!strings.Contains(err.Error(), "UTF-8") &&
-				!strings.Contains(err.Error(), "invalid attachment") {
-				code = http.StatusInternalServerError
-			}
-			if code == http.StatusInternalServerError {
-				s.log.Error("responses prompt attachments", "error", err)
-			}
-			if body.Stream {
+			// The log keeps the full error; the client gets the safe reason
+			// (never the path or the raw error text) through the helpers in
+			// openai_errors.go.
+			s.log.Error("responses prompt attachments", "error", err)
+			if reason := attachmentErrorReason(err); reason != "" {
+				msg := "Unable to read attachment: " + reason
+				if body.Stream {
+					writeSSEHeaders(w)
+					_, _ = io.WriteString(w, "data: "+attachmentErrorJSON(msg, true)+"\n\n")
+				} else {
+					writeOpenAIValidationError(w, msg, "attachments")
+				}
+			} else if body.Stream {
 				writeSSEHeaders(w)
-				_, _ = io.WriteString(w, "data: "+errorJSON(err.Error())+"\n\n")
+				_, _ = io.WriteString(w, "data: "+attachmentErrorJSON("Internal server error", false)+"\n\n")
 			} else {
-				http.Error(w, errorJSON(err.Error()), code)
+				http.Error(w, errorJSON("Internal server error"), http.StatusInternalServerError)
 			}
 			return
 		}
@@ -1468,63 +1527,6 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(out)
 		return
 	}
-	imageParts := inlineFilesToImageParts(inlineFiles)
-	if err := session.SavePartsToAssets(imageParts, st.GetPersistedSessionDir()); err != nil {
-		s.log.Error("responses direct completion assets", "error", err)
-		http.Error(w, `{"error":{"message":"save inline files failed"}}`, http.StatusInternalServerError)
-		return
-	}
-
-	var bridge *Sender
-	if body.Stream {
-		writeSSEHeaders(w)
-		bridge = s.configureSender(NewSender(s.activeCfg(), w, true, model))
-	} else {
-		bridge = NewSender(s.activeCfg(), nil, false, model)
-	}
-	st.AddMessage(llm.Message{
-		Role:       llm.RoleUser,
-		Content:    strings.TrimSpace(body.Input),
-		ImageParts: imageParts,
-		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
-	})
-	respTurnCtx, respCancelTurn := context.WithCancel(ctx)
-	st.SetCancel(respCancelTurn)
-	defer respCancelTurn()
-	directRes, err := s.runDirectYAMLCompletion(respTurnCtx, st, sid, model, bridge, nil, llm.RequestOptions{})
-	if err != nil {
-		if errors.Is(err, context.Canceled) && body.Stream {
-			meta := metadataResponse(s.activeCfg(), model)
-			_ = bridge.FinishStreamWithMetadata(meta)
-			return
-		}
-		if !errors.Is(err, context.Canceled) {
-			st.AppendUILogError(session.CountUserTurns(st.GetMessages()), err.Error())
-		}
-		s.log.Error("responses direct completion", "error", err)
-		if body.Stream {
-			_ = bridge.SendErrorFor(err)
-		} else {
-			writeErrorReply(w, err)
-		}
-		return
-	}
-	meta := metadataResponse(s.activeCfg(), model)
-	if body.Stream {
-		_ = bridge.FinishStreamWithMetadata(meta)
-		return
-	}
-	text := strings.TrimSpace(directRes.Content)
-	out := map[string]interface{}{
-		"id":       sid,
-		"object":   "response",
-		"status":   "completed",
-		"model":    model,
-		"metadata": meta,
-		"output":   []map[string]string{{"type": "text", "text": text}},
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(out)
 }
 
 func (s *Server) handleResponsesGetPath(w http.ResponseWriter, r *http.Request) {

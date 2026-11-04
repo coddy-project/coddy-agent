@@ -40,7 +40,7 @@ const (
 // reasoningOpenAIBackend is an OpenAI-compatible server streaming the dialect of
 // a reasoning model (vLLM, SGLang, llama.cpp): a role chunk, reasoning_content
 // deltas, content deltas, the finish_reason chunk and a trailing usage chunk.
-type reasoningOpenAIBackend struct{ omitUsage bool }
+type reasoningOpenAIBackend struct{ omitUsage, zeroUsage bool }
 
 func (b reasoningOpenAIBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	raw, _ := io.ReadAll(r.Body)
@@ -62,6 +62,9 @@ func (b reasoningOpenAIBackend) ServeHTTP(w http.ResponseWriter, r *http.Request
 				"prompt_tokens_details": map[string]int{"cached_tokens": 4},
 			}
 		}
+		if b.zeroUsage {
+			answer["usage"] = map[string]int{"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+		}
 		_ = json.NewEncoder(w).Encode(answer)
 		return
 	}
@@ -82,7 +85,9 @@ func (b reasoningOpenAIBackend) ServeHTTP(w http.ResponseWriter, r *http.Request
 		frames = append(frames, chunk(map[string]any{"content": piece}, nil))
 	}
 	frames = append(frames, chunk(map[string]any{}, "stop"))
-	if !b.omitUsage {
+	if b.zeroUsage {
+		frames = append(frames, `data: {"id":"chatcmpl-compat","object":"chat.completion.chunk","created":1786903885,"model":"qwen3-1.7b","choices":[],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}`+"\n\n")
+	} else if !b.omitUsage {
 		frames = append(frames, `data: {"id":"chatcmpl-compat","object":"chat.completion.chunk","created":1786903885,"model":"qwen3-1.7b","choices":[],"usage":{"prompt_tokens":12,"completion_tokens":5,"total_tokens":17,"prompt_tokens_details":{"cached_tokens":4}}}`+"\n\n")
 	}
 	frames = append(frames, "data: [DONE]\n\n")
@@ -124,14 +129,16 @@ func parseSSEFrames(body string) []sseFrame {
 }
 
 type openAIStreamCompatState struct {
-	root           string
-	cwd            string
-	backendTS      *httptest.Server
-	srv            *Server
-	ts             *httptest.Server
-	sseBody        string
-	frames         []sseFrame
-	backendNoUsage bool
+	root             string
+	cwd              string
+	backendTS        *httptest.Server
+	srv              *Server
+	ts               *httptest.Server
+	sseBody          string
+	frames           []sseFrame
+	backendNoUsage   bool
+	backendZeroUsage bool
+	backendNonStream bool
 }
 
 func (s *openAIStreamCompatState) reset() error {
@@ -173,12 +180,16 @@ func (s *openAIStreamCompatState) startServer() error {
 			return err
 		}
 	}
-	s.backendTS = httptest.NewServer(reasoningOpenAIBackend{omitUsage: s.backendNoUsage})
+	s.backendTS = httptest.NewServer(reasoningOpenAIBackend{omitUsage: s.backendNoUsage, zeroUsage: s.backendZeroUsage})
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: home, CWD: s.cwd},
 		Providers: []config.ProviderConfig{{Name: "local", Type: "openai", APIBase: s.backendTS.URL, APIKey: "test-key"}},
 		Models:    []config.ModelEntry{{Model: "local/qwen3-1.7b"}},
 		Agent:     config.Agent{Model: "local/qwen3-1.7b"},
+	}
+	if s.backendNonStream {
+		stream := false
+		cfg.Models[0].Stream = &stream
 	}
 	cfg.Tools.PermissionMode = config.PermModeBypass
 	log := slog.Default()
@@ -381,6 +392,27 @@ func (s *openAIStreamCompatState) usageChunkReportsCachedTokens(cached int) erro
 	return nil
 }
 
+func (s *openAIStreamCompatState) startServerWithoutUsage() error {
+	s.backendNoUsage = true
+	return s.startServer()
+}
+
+func (s *openAIStreamCompatState) streamCarriesNoUsageObject() error {
+	for _, c := range s.chunks() {
+		if gjson.Get(c, "usage").Exists() {
+			return fmt.Errorf("a chunk carried a usage object without provider counters: %s", c)
+		}
+	}
+	return nil
+}
+
+func (s *openAIStreamCompatState) jsonCompletionCarriesNoUsageObject() error {
+	if usage := gjson.Get(s.sseBody, "usage"); usage.Exists() {
+		return fmt.Errorf("usage = %s, want no usage object in %s", usage.Raw, s.sseBody)
+	}
+	return nil
+}
+
 func (s *openAIStreamCompatState) usageChunkCarriesEmptyChoices() error {
 	chunks := s.chunks()
 	last := chunks[len(chunks)-1]
@@ -401,6 +433,10 @@ func initializeOpenAIStreamCompatScenario(sc *godog.ScenarioContext) {
 	})
 
 	sc.Step(`^a coddy server whose model streams reasoning before its answer$`, s.startServer)
+	sc.Step(`^a coddy server whose model streams reasoning before its answer and reports no usage$`, s.startServerWithoutUsage)
+	sc.Step(`^an OpenAI client requests a non-streaming completion from "([^"]+)"$`, s.nonStreamingCompletion)
+	sc.Step(`^the stream carries no usage object$`, s.streamCarriesNoUsageObject)
+	sc.Step(`^the JSON completion carries no usage object$`, s.jsonCompletionCarriesNoUsageObject)
 	sc.Step(`^an OpenAI client streams "([^"]+)" over POST /v1/chat/completions$`, s.openAIClientStreams)
 	sc.Step(`^an OpenAI client streams "([^"]+)" over POST /v1/chat/completions asking for usage$`, s.openAIClientStreamsAskingForUsage)
 	sc.Step(`^a coddy client streams "([^"]+)" over POST /v1/responses$`, s.coddyClientStreams)

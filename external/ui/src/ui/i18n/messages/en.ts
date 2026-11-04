@@ -29,6 +29,29 @@ export const messagesEn: Record<string, string> = {
     "Notifications need a secure connection. Open Coddy over https or on localhost.",
   "appearance.notifications.unsupported":
     "This browser shows no notifications from web pages.",
+  "appearance.wallpaper.upload": "Upload picture",
+  "appearance.wallpaper.clear": "Clear background",
+  "appearance.wallpaper.delete": "Delete {name}",
+  "appearance.wallpaper.deleteConfirm": 'Delete "{name}"?',
+  "appearance.wallpaper.yes": "Yes",
+  "appearance.wallpaper.no": "No",
+  "appearance.wallpaper.uploadError":
+    "The picture could not be uploaded. Try again.",
+  "appearance.wallpaper.deleteError":
+    "The picture could not be deleted. Try again.",
+  "appearance.wallpaperLabel": "Wallpaper",
+  "appearance.wallpaper.dim": "Dimming: {value}%",
+  "appearance.wallpaper.hint":
+    "Upload adds a picture to CODDY_HOME/wallpapers on the selected server. Duplicate bytes reuse the existing file. Choose a thumbnail to fill the background, centered and cropped to fit. Clear background keeps the server file; the trash deletes it.",
+  "appearance.wallpaper.gallery.loading": "Loading wallpapers…",
+  "appearance.wallpaper.gallery.empty": "No wallpapers in the server folder.",
+  "appearance.wallpaper.gallery.error":
+    "The server gallery could not be loaded. Reopen Appearance to try again.",
+  "appearance.wallpaper.notImage": "This file is not a picture.",
+  "appearance.wallpaper.storage":
+    "Browser storage could not read or change the saved wallpaper. Try again.",
+  "appearance.wallpaper.unreadable": "The browser cannot read this picture.",
+  "appearance.wallpaper.offline": "The picture could not be loaded. Try again.",
 
   "notify.untitled": "Coddy",
   "notify.turnFinished": "The agent finished its turn.",
@@ -660,6 +683,12 @@ export const messagesEn: Record<string, string> = {
     "Host written into the URL the agent hands out, when the browser is on another machine. Empty uses the bind host.",
   "settings.schema.tools.preview_server.public_host.ph": "The bind host",
   "settings.schema.tools.websearch.brave_api_key.ph": "Read from BRAVE_API_KEY",
+  "settings.schema.tools.websearch.deepseek_api_key.label":
+    "DeepSeek Search API key",
+  "settings.schema.tools.websearch.deepseek_api_key.desc":
+    "The deepseek engine asks DeepSeek's Search API, which has no public page to scrape, so this key is required for the engine to work. Leave empty to read DEEPSEEK_API_KEY from the environment or ~/.coddy/.env.",
+  "settings.schema.tools.websearch.deepseek_api_key.ph":
+    "Read from DEEPSEEK_API_KEY",
   "settings.schema.tools.websearch.searxng_url.ph": "http://localhost:8888",
   "settings.schema.tools.http_request.label": "HTTP requests",
   "settings.schema.tools.http_request.desc":
@@ -1725,7 +1754,8 @@ export const messagesEn: Record<string, string> = {
   "composer.permissionAcceptEdits": "Accept edits",
   "composer.permissionBypass": "Bypass",
   "composer.permissionAskHint": "Ask before commands and file writes",
-  "composer.permissionAcceptEditsHint": "File writes pass, commands still ask",
+  "composer.permissionAcceptEditsHint":
+    "Writes in the workspace pass, the rest still asks",
   "composer.permissionBypassHint": "Nothing asks for approval",
   "composer.overridesTitle": "Changed for the next turns:\n{list}",
   "composer.overrideThisTurn": "{value} this turn",
@@ -2493,6 +2523,8 @@ export const messagesEn: Record<string, string> = {
   "tasks.wokeTitle": "Woke the agent when it ended",
   "tasks.running.one": "{count} running task",
   "tasks.running.other": "{count} running tasks",
+  "tasks.runningCompact.one": "{count} task",
+  "tasks.runningCompact.other": "{count} tasks",
   "tasks.openAria": "Open background tasks: {label}",
   "tasks.header.counts": "{running} / {total}",
   "tasks.header.aria": "Background tasks: {running} running, {total} in total",
@@ -2666,6 +2698,11 @@ export const messagesEn: Record<string, string> = {
   "markdown.figure.downloadSource": "Download the source (.mmd)",
   "markdown.figure.downloadSvg": "Download as SVG (.svg)",
   "markdown.figure.open": "Open the picture",
+  "markdown.figure.draw": "Draw the diagram",
+  "markdown.figure.drawHint":
+    "It can fetch pictures from other sites as it is drawn",
+  "markdown.remoteMedia.loadImage": "Load the picture from {host}",
+  "markdown.remoteMedia.loadVideo": "Load the video from {host}",
   "markdown.figure.rendering": "Drawing…",
   "markdown.figure.error": "Could not draw the picture: {message}",
   "markdown.figure.loadError":

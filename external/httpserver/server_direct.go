@@ -32,30 +32,7 @@ func directACPRefusal(cfg *config.Config, model string) error {
 // caller's business. opts are the request's own generation options, applied to
 // the provider built for this one call.
 func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State, sessionID, yamlSel string, bridge *Sender, toolDefs []llm.ToolDefinition, opts llm.RequestOptions) (*llm.Response, error) {
-	mk := s.makeLLMFromYAML
-	if mk == nil {
-		mk = defaultMakeLLMFromYAML
-	}
-	cfg := s.activeCfg()
-	if err := directACPRefusal(cfg, yamlSel); err != nil {
-		return nil, err
-	}
-	// What the provider's model listing said the model takes, as far as the
-	// session's manager has read it: an OpenRouter-style aggregator gets the
-	// reasoning level in the form its listing names (issue #258).
-	// A direct completion may be the first request of an API client, with no
-	// turn and no GET /v1/models before it to read the listing, so one that
-	// sends a reasoning level reads it itself, waiting as briefly as a turn
-	// does; without a level the listed parameters change nothing.
-	if cfg != nil && opts.SupportedParameters == nil && opts.ReasoningEffort != "" {
-		if ent := cfg.FindModelEntry(yamlSel); ent != nil {
-			if s.mgr != nil {
-				s.mgr.AwaitContextWindows(ctx, cfg, []string{yamlSel}, session.ContextWindowWait)
-			}
-			opts.SupportedParameters = st.ModelParameters(cfg, ent.ProviderName(), ent.APIModel())
-		}
-	}
-	provider, err := mk(cfg, yamlSel, opts)
+	provider, err := s.directYAMLProvider(ctx, st, yamlSel, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -92,9 +69,11 @@ func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State,
 		if err != nil {
 			return nil, err
 		}
-		if resp != nil && (resp.InputTokens > 0 || resp.OutputTokens > 0) {
+		if resp != nil && (resp.UsageKnown || (!resp.UsageIncomplete && (resp.InputTokens > 0 || resp.OutputTokens > 0))) {
+			known := true
 			_ = bridge.SendSessionUpdate(sessionID, acp.TokenUsageUpdate{
 				SessionUpdate:     acp.UpdateTypeTokenUsage,
+				UsageKnown:        &known,
 				InputTokens:       resp.InputTokens,
 				OutputTokens:      resp.OutputTokens,
 				TotalTokens:       resp.InputTokens + resp.OutputTokens,
@@ -112,16 +91,47 @@ func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State,
 	return resp, nil
 }
 
+// directYAMLProvider is shared by the Chat Completions and Responses wires.
+func (s *Server) directYAMLProvider(ctx context.Context, st *session.State, yamlSel string, opts llm.RequestOptions) (llm.Provider, error) {
+	mk := s.makeLLMFromYAML
+	if mk == nil {
+		mk = defaultMakeLLMFromYAML
+	}
+	cfg := s.activeCfg()
+	if err := directACPRefusal(cfg, yamlSel); err != nil {
+		return nil, err
+	}
+	// What the provider's model listing said the model takes, as far as the
+	// session's manager has read it: an OpenRouter-style aggregator gets the
+	// reasoning level in the form its listing names (issue #258).
+	// A direct completion may be the first request of an API client, with no
+	// turn and no GET /v1/models before it to read the listing, so one that
+	// sends a reasoning level reads it itself, waiting as briefly as a turn
+	// does; without a level the listed parameters change nothing.
+	if cfg != nil && opts.SupportedParameters == nil && opts.ReasoningEffort != "" {
+		if ent := cfg.FindModelEntry(yamlSel); ent != nil {
+			if s.mgr != nil {
+				s.mgr.AwaitContextWindows(ctx, cfg, []string{yamlSel}, session.ContextWindowWait)
+			}
+			opts.SupportedParameters = st.ModelParameters(cfg, ent.ProviderName(), ent.APIModel())
+		}
+	}
+	return mk(cfg, yamlSel, opts)
+}
+
 // directAssistantMessage is the transcript row of a direct completion: the text
 // and, when the model called the caller's tools, those calls, so the tool result
 // the caller sends next has its call to answer.
 func directAssistantMessage(resp *llm.Response, yamlSel string) llm.Message {
 	return llm.Message{
-		Role:      llm.RoleAssistant,
-		Content:   strings.TrimSpace(resp.Content),
-		ToolCalls: resp.ToolCalls,
-		Model:     yamlSel,
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		Role:               llm.RoleAssistant,
+		Content:            strings.TrimSpace(resp.Content),
+		Reasoning:          resp.Reasoning,
+		ReasoningSignature: resp.ReasoningSignature,
+		ReasoningTokens:    resp.ReasoningTokens,
+		ToolCalls:          resp.ToolCalls,
+		Model:              yamlSel,
+		CreatedAt:          time.Now().UTC().Format(time.RFC3339),
 	}
 }
 
@@ -131,8 +141,11 @@ func directAssistantMessage(resp *llm.Response, yamlSel string) llm.Message {
 // names, so a request may carry both only when they agree. reasoning_effort
 // must be a level the model offers, as GET /v1/models lists them; omitted,
 // null or empty, the model's reasoning_default applies.
-func directRequestOptions(cfg *config.Config, model string, req chatCompletionRequest) (llm.RequestOptions, error) {
+func directRequestOptions(cfg *config.Config, model string, req chatCompletionRequest, topP ...*float64) (llm.RequestOptions, error) {
 	opts := llm.RequestOptions{MaxTokens: req.MaxTokens, Temperature: req.Temperature}
+	if len(topP) > 0 {
+		opts.TopP = topP[0]
+	}
 	if req.MaxCompletionTokens != nil {
 		if req.MaxTokens != nil && *req.MaxTokens != *req.MaxCompletionTokens {
 			return llm.RequestOptions{}, fmt.Errorf("max_tokens (%d) and max_completion_tokens (%d) disagree", *req.MaxTokens, *req.MaxCompletionTokens)

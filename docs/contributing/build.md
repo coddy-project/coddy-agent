@@ -364,6 +364,7 @@ On each SemVer git tag **`X.Y.Z`** that is on **`main`**, the [**Release binarie
 | **`coddy_X.Y.Z_linux_amd64.rpm`**, **`coddy_X.Y.Z_linux_arm64.rpm`** | Fedora, RHEL, openSUSE and derivatives |
 | **`coddy.rb`** | Homebrew cask for the macOS archives of this tag; the same file is committed to the tap [coddy-project/homebrew-coddy-agent](https://github.com/coddy-project/homebrew-coddy-agent) |
 | **`SHA256SUMS`** | Checksums for every archive and package above |
+| **`SHA256SUMS.minisig`** | The signature of that list ([Signing releases](#signing-releases)) |
 
 The **`.tar.gz`** archives carry the man page and the shell completions beside the binary; the
 packages wrap the Linux binaries the same job just built rather than compiling their own, so the
@@ -374,6 +375,23 @@ Tags match the full feature set: **`http`**, **`ui`**, **`scheduler`**, **`memor
 ```bash
 gh workflow run "Release binaries" --ref X.Y.Z -f tag=X.Y.Z
 ```
+
+### Signing releases
+
+The workflow signs **`SHA256SUMS`** with the secret key in the repository secret **`RELEASE_SIGNING_KEY`** through **`cmd/releasesign`**, and **`coddy update`** checks the signature against the public keys in **`releaseSigningKeys`** (**`internal/update/checksum.go`**). The signature is in minisign's format, so **`minisign -Vm SHA256SUMS -P <public key>`** verifies it, and its trusted comment names the tag, so a signed list of an old release does not pass for a new one. A release from **`firstSignedRelease`** on is refused without a valid signature.
+
+The official release job stops before uploading assets if the secret is missing or its key is not trusted by the updater. The signing command verifies the signature against the shipped public keys before writing **`SHA256SUMS.minisig`**. An empty list of public keys does not turn off mandatory verification. A fork without the secret may publish unsigned releases; the official updater does not authenticate another repository's releases.
+
+To make a key, run the first command, put the public key it prints into **`releaseSigningKeys`**, then store the secret:
+
+```bash
+go run ./cmd/releasesign keygen coddy-release-signing.key
+gh secret set RELEASE_SIGNING_KEY --repo coddy-project/coddy-agent < coddy-release-signing.key
+```
+
+GitHub does not give a secret back, so keep the file offline or accept that a lost key is replaced rather than recovered. To replace a key, ship its public key in front of the old one in a release signed by the old one, and switch the secret once the people who update have that build: a binary only trusts the keys it carries.
+
+The signature stops whoever can upload release assets, which is what a leaked token or a compromised step of another job can do. It does not stop whoever can run a workflow of this repository with the secret.
 
 ## AppSec scan
 

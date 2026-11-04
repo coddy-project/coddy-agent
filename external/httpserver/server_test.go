@@ -6221,8 +6221,8 @@ func TestReplyForErrorMapsProviderStatus(t *testing.T) {
 			if got := gjson.Get(body, "error.type").String() == "upstream_error"; got != c.typeUpstream {
 				t.Fatalf("type upstream_error = %v, want %v: %s", got, c.typeUpstream, body)
 			}
-			if gjson.Get(body, "error.message").String() != c.err.Error() {
-				t.Fatalf("message = %s, want the error's text", gjson.Get(body, "error.message").Raw)
+			if strings.Contains(gjson.Get(body, "error.message").String(), c.err.Error()) {
+				t.Fatalf("message exposes the original error: %s", body)
 			}
 		})
 	}

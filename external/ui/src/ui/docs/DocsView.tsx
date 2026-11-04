@@ -579,7 +579,13 @@ export function DocsView(props: {
                 </p>
                 {/* A fresh tree per page: the heading links added to it are
                   never left on a heading of the next page. */}
-                <Markdown key={shown.slug} text={shown.markdown} />
+                <Markdown
+                  key={shown.slug}
+                  text={shown.markdown}
+                  // The documentation ships with Coddy; its screenshots and
+                  // videos live in the release on GitHub.
+                  remoteMedia="load"
+                />
                 <nav className="docs-pager" aria-label={t("docs.pager.label")}>
                   {shown.prev ? (
                     <a

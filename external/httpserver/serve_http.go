@@ -14,6 +14,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/httpx"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/wallpaper"
 )
 
 // Available reports whether this binary can serve the HTTP API.
@@ -42,6 +43,11 @@ func Serve(ctx context.Context, opts Options) error {
 	llm.LogNeuralDeepAuthNotices(log, opts.Cfg)
 
 	s := New(opts.Cfg, opts.Mgr, log, opts.DefaultCWD)
+	if home := s.activeCfg().Paths.Home; strings.TrimSpace(home) != "" {
+		if err := wallpaper.EnsureDefaults(ctx, home); err != nil {
+			log.Warn("wallpaper defaults initialization failed", "error", err)
+		}
+	}
 	s.SetDetachedPrompts(opts.DetachedPrompts)
 	s.SetExtraAuthTokens(opts.ExtraAuthTokens)
 	s.SetUnbuiltSections(opts.UnbuiltSections)

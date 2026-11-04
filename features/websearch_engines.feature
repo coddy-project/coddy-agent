@@ -36,6 +36,21 @@ Feature: Web search over several engines, honestly reported
     And engine "brave" is reported as "ok" with 2 results
     And engine "bing" is reported as "ok" with 1 result
 
+  Scenario: DeepSeek results join the configured engines and are reported
+    Given the operator configured the search engines "deepseek"
+    And engine "brave" answers with:
+      | title           | url                        | snippet         |
+      | Context package | https://pkg.go.dev/context | Package context |
+    And the DeepSeek API answers with:
+      | title           | url                                          | snippet         |
+      | Context package | https://www.pkg.go.dev/context/?utm_source=d | Same package    |
+      | Go blog         | https://go.dev/blog/context                  | Go concurrency  |
+    When the agent searches the web for "golang context"
+    Then the search returns 2 results
+    And result 1 is "https://pkg.go.dev/context"
+    And result 2 is "https://go.dev/blog/context"
+    And engine "deepseek" is reported as "ok" with 1 result
+
   Scenario: The same page found by two engines is listed once
     Given engine "brave" answers with:
       | title           | url                        | snippet            |

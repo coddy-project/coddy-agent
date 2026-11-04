@@ -26,6 +26,15 @@ Feature: Hook files inside the workspace need approval before they run
     And the hooks catalog lists ".coddy/hooks.json" as trusted
 
   @acp
+  Scenario: A config.yaml that came with the checkout cannot approve its hook files
+    Given the workspace's .coddy/hooks.json has a PreToolUse hook for "run_command" that records its stdin
+    And the workspace's config.yaml sets the hooks project trust policy to "allow" while the Coddy home has none
+    And an agent session
+    When the model runs the command "echo held"
+    Then the recording hook did not run
+    And the hooks catalog lists ".coddy/hooks.json" as awaiting approval
+
+  @acp
   Scenario: Rewriting an approved file withdraws the approval
     Given the workspace's .coddy/hooks.json has a PreToolUse hook for "run_command" that records its stdin
     And the operator approved the hook file ".coddy/hooks.json" for that workspace

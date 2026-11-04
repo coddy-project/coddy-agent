@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -129,6 +130,33 @@ func TestCacheOffWhenTTLIsNegative(t *testing.T) {
 	runEngines(context.Background(), []string{"brave"}, q, settings)
 	if calls != 2 {
 		t.Fatalf("caching was asked to be off, engine asked %d times", calls)
+	}
+}
+
+func TestDeepSeekCacheIsolatesRotatedKeys(t *testing.T) {
+	stubEngines(t)
+	calls := 0
+	deepseekSearchFunc = func(_ context.Context, _ Query, s Settings) ([]Result, error) {
+		calls++
+		if s.DeepSeekAPIKey == "bad-key" {
+			return nil, blocked("rejected key")
+		}
+		return []Result{{Title: "Go", URL: "https://go.dev"}}, nil
+	}
+	q := Query{Text: "go", Page: 1, MaxResults: 5}
+	bad := Settings{DeepSeekAPIKey: "bad-key"}
+	good := Settings{DeepSeekAPIKey: "good-key"}
+	runEngines(context.Background(), []string{EngineDeepSeek}, q, bad)
+	runs := runEngines(context.Background(), []string{EngineDeepSeek}, q, good)
+	if calls != 2 || runs[0].report.Status != OutcomeOK || runs[0].report.Cached {
+		t.Fatalf("rotated key reused the old answer: calls=%d report=%+v", calls, runs[0].report)
+	}
+	if key := cacheKey(EngineDeepSeek, q, good); strings.Contains(key, good.DeepSeekAPIKey) {
+		t.Fatal("credential appears in cache key")
+	}
+	runs = runEngines(context.Background(), []string{EngineDeepSeek}, q, good)
+	if calls != 2 || !runs[0].report.Cached {
+		t.Fatal("identical credentials should still use the cache")
 	}
 }
 

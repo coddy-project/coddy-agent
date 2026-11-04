@@ -67,7 +67,7 @@ var hopByHopHeaders = []string{
 // clientHeadersToDrop are headers a client must not be able to inject, because
 // downstream they would either be believed or leak the caller's own identity.
 var clientHeadersToDrop = []string{
-	"Cookie", "Forwarded", "X-Forwarded-For", "X-Forwarded-Host",
+	"Cookie", "Forwarded", "Origin", "X-Forwarded-For", "X-Forwarded-Host",
 	"X-Forwarded-Proto", "X-Real-Ip",
 }
 

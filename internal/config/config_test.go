@@ -206,7 +206,7 @@ logger:
 	}
 }
 
-func TestLoadFromCLIUsesCwdConfigWhenHomeConfigMissing(t *testing.T) {
+func TestLoadFromCLIDoesNotReadACwdConfigWhenHomeConfigMissing(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv(config.EnvCODDYHome, home)
 	cwdDir := t.TempDir()
@@ -235,11 +235,11 @@ agent:
 	if err != nil {
 		t.Fatalf("LoadFromCLI: %v", err)
 	}
-	if got := filepath.Clean(cfg.Paths.ConfigPath); got != filepath.Clean(path) {
-		t.Fatalf("ConfigPath %q want %q", got, path)
+	if want := filepath.Join(home, "config.yaml"); filepath.Clean(cfg.Paths.ConfigPath) != filepath.Clean(want) {
+		t.Fatalf("ConfigPath %q want %q", cfg.Paths.ConfigPath, want)
 	}
-	if cfg.Agent.Model != "openai/gpt-4o" {
-		t.Fatalf("model %q", cfg.Agent.Model)
+	if cfg.Agent.Model == "openai/gpt-4o" || len(cfg.Providers) != 0 {
+		t.Fatalf("the working directory's config.yaml was read: model %q, providers %+v", cfg.Agent.Model, cfg.Providers)
 	}
 }
 

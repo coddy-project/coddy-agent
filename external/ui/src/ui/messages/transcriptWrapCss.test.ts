@@ -36,6 +36,12 @@ function px(value: string | undefined): number {
 }
 
 describe("a tool row never widens the transcript", () => {
+  test("a targetless head lays its label and duration out as inline text", () => {
+    expect(decl(rule(".thinking-head--targetless"), "display")).toBe("block");
+    expect(
+      decl(rule(".thinking-head--targetless .thinking-label"), "display"),
+    ).toBe("inline");
+  });
   test("the label keeps its line while it fits, and wraps inside the row when it does not", () => {
     const label = rule(".thinking-head .thinking-label");
     // It never gives way to a sibling: a short label next to a long target

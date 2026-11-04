@@ -353,8 +353,8 @@ func (c *Client) Run(ctx context.Context) error {
 			backoff = initialBackoff
 			wait = c.heartbeatInterval()
 		case errors.Is(err, ErrNameConflict):
-			// Retrying quickly cannot help; the other lease has to expire or an
-			// operator has to intervene.
+			// Retrying quickly cannot help: the other lease has to expire, or for
+			// a name bound to another secret an operator has to free it.
 			c.log.Error("swarm join refused", "relay", c.opts.RelayURL, "node", c.opts.Name, "error", err)
 			wait = maxBackoff
 		default:

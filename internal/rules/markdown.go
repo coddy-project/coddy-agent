@@ -1,11 +1,13 @@
 package rules
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -26,6 +28,84 @@ type frontmatter struct {
 // (.mdc is Cursor's, .md is Claude Code's). Files with any other extension
 // are not rules and yield an error.
 func ParseRuleFile(path string, src Source, data []byte) (*Rule, error) {
+	key := parseKey{path: path, src: src}
+	sum := sha256.Sum256(data)
+	parseCache.mu.Lock()
+	hit, ok := parseCache.byFile[key]
+	parseCache.mu.Unlock()
+	if ok && hit.sum == sum {
+		return hit.rule.clone(), nil
+	}
+	r, err := parseRuleFile(path, src, data)
+	if err != nil {
+		return nil, err
+	}
+	parseCache.mu.Lock()
+	defer parseCache.mu.Unlock()
+	// A concurrent reader may have installed the same parse while we worked.
+	if hit, ok := parseCache.byFile[key]; ok && hit.sum == sum {
+		return hit.rule.clone(), nil
+	}
+	if old, ok := parseCache.byFile[key]; ok {
+		parseCache.bytes -= old.size
+		delete(parseCache.byFile, key)
+	}
+	if len(data) > maxParseCacheBytes {
+		return r, nil
+	}
+	for k, old := range parseCache.byFile {
+		if parseCache.bytes+len(data) <= maxParseCacheBytes && len(parseCache.byFile) < maxParseCacheEntries {
+			break
+		}
+		delete(parseCache.byFile, k)
+		parseCache.bytes -= old.size
+	}
+	if parseCache.byFile == nil {
+		parseCache.byFile = map[parseKey]parsedRule{}
+	}
+	parseCache.byFile[key] = parsedRule{sum: sum, rule: r.clone(), size: len(data)}
+	parseCache.bytes += len(data)
+	return r, nil
+}
+
+// parseKey and parsedRule hold the last parse of each rule file. Every session
+// of a workspace discovers the same rule files, and each kept its own parse:
+// with a rule tree the size of this repository's that was most of a loaded
+// session's memory. A file's entry is replaced when its bytes change, so the
+// cache holds at most one parse per path; a caller gets a copy it may edit,
+// and the copies share the text.
+type parseKey struct {
+	path string
+	src  Source
+}
+
+// Bound the input bytes retained by the cache and its per-file overhead.
+// Eviction only drops reuse: callers keep their own references to the text.
+const (
+	maxParseCacheBytes   = 16 << 20
+	maxParseCacheEntries = 1024
+)
+
+type parsedRule struct {
+	sum  [sha256.Size]byte
+	rule *Rule
+	size int
+}
+
+var parseCache struct {
+	mu     sync.Mutex
+	bytes  int
+	byFile map[parseKey]parsedRule
+}
+
+// clone copies a rule; Globs is its only field a copy would otherwise share.
+func (r *Rule) clone() *Rule {
+	c := *r
+	c.Globs = append([]string(nil), r.Globs...)
+	return &c
+}
+
+func parseRuleFile(path string, src Source, data []byte) (*Rule, error) {
 	format, ok := FormatForPath(path)
 	if !ok {
 		return nil, fmt.Errorf("rules: %s is neither a .md nor a .mdc file", path)

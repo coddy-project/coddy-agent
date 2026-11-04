@@ -720,6 +720,8 @@ type ConfigOptionUpdate struct {
 // TokenUsageUpdate reports token consumption for the current turn.
 type TokenUsageUpdate struct {
 	SessionUpdate     string `json:"sessionUpdate"` // "token_usage"
+	UsageKnown        *bool  `json:"usageKnown,omitempty"`
+	SessionUsageKnown *bool  `json:"sessionUsageKnown,omitempty"`
 	InputTokens       int    `json:"inputTokens"`
 	OutputTokens      int    `json:"outputTokens"`
 	TotalTokens       int    `json:"totalTokens"`

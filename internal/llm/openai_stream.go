@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/openai/openai-go"
@@ -147,9 +148,10 @@ func streamErrorSnippet(payload []byte) string {
 // already delivered to the caller before the failure: retrying such a call
 // would stream the same deltas twice, so classification refuses the code.
 type streamServerError struct {
-	code    int
-	msg     string
-	emitted bool
+	code       int
+	msg        string
+	emitted    bool
+	retryAfter time.Duration
 }
 
 func (e *streamServerError) Error() string {
@@ -431,7 +433,21 @@ func newStreamServerError(obj []byte, emitted bool) error {
 	// The code is read where the SDK-decoded streams read it (inBandStatus):
 	// the object itself, then an error object a gateway nested in it.
 	parsed := gjson.ParseBytes(obj)
-	code := numericCode(parsed)
+	code := 0
+	var retryAfter time.Duration
+	if parsed.Get("type").String() == "upstream_error" {
+		v := parsed.Get("upstream_status")
+		if v.Type == gjson.Number && v.Float() == float64(v.Int()) && v.Int() >= 400 && v.Int() < 600 {
+			code = int(v.Int())
+			r := parsed.Get("retry_after")
+			if r.Type == gjson.Number && r.Float() > 0 && r.Float() <= 86400 {
+				retryAfter = time.Duration(r.Float() * float64(time.Second))
+			}
+		}
+	}
+	if code == 0 {
+		code = numericCode(parsed)
+	}
 	if code == 0 {
 		code = numericCode(parsed.Get("error"))
 	}
@@ -440,7 +456,7 @@ func newStreamServerError(obj []byte, emitted bool) error {
 		// it is the 503 the SDK-decoded streams treat it as.
 		code = 503
 	}
-	return &streamServerError{code: code, msg: msg, emitted: emitted}
+	return &streamServerError{code: code, msg: msg, emitted: emitted, retryAfter: retryAfter}
 }
 
 // Stream implements Provider.Stream over the lenient SSE path.
@@ -459,6 +475,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	var toolCalls []ToolCall
 	var stopReason string
 	var inputTokens, outputTokens, cachedInputTokens, reasoningTokens int
+	var usageKnown bool
 
 	// Accumulate tool call deltas by index.
 	type tcBuilder struct {
@@ -559,7 +576,8 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 		}
 
 		if len(chunk.Choices) == 0 {
-			if chunk.Usage.TotalTokens > 0 {
+			if openAIUsageKnown(string(payload)) {
+				usageKnown = true
 				inputTokens = int(chunk.Usage.PromptTokens)
 				outputTokens = int(chunk.Usage.CompletionTokens)
 				cachedInputTokens = int(chunk.Usage.PromptTokensDetails.CachedTokens)
@@ -613,7 +631,8 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 			}
 		}
 
-		if chunk.Usage.TotalTokens > 0 {
+		if openAIUsageKnown(string(payload)) {
+			usageKnown = true
 			inputTokens = int(chunk.Usage.PromptTokens)
 			outputTokens = int(chunk.Usage.CompletionTokens)
 			cachedInputTokens = int(chunk.Usage.PromptTokensDetails.CachedTokens)
@@ -653,6 +672,8 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 				return &Response{
 					Content:           fullContent,
 					Reasoning:         reasoningBuf.String(),
+					UsageKnown:        usageKnown,
+					UsageIncomplete:   !usageKnown,
 					InputTokens:       inputTokens,
 					OutputTokens:      outputTokens,
 					CachedInputTokens: cachedInputTokens,
@@ -676,6 +697,8 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 					Content:           fullContent,
 					ToolCalls:         toolCalls,
 					StopReason:        sr,
+					UsageKnown:        usageKnown,
+					UsageIncomplete:   !usageKnown,
 					InputTokens:       inputTokens,
 					OutputTokens:      outputTokens,
 					CachedInputTokens: cachedInputTokens,
@@ -704,6 +727,8 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 		Content:           fullContent,
 		ToolCalls:         toolCalls,
 		StopReason:        stopReason,
+		UsageKnown:        usageKnown,
+		UsageIncomplete:   !usageKnown,
 		InputTokens:       inputTokens,
 		OutputTokens:      outputTokens,
 		CachedInputTokens: cachedInputTokens,

@@ -62,6 +62,8 @@ The toolbar also turns the picture a quarter clockwise and takes back the last s
 
 One picture pasted into the composer opens in the same editor over the chat. **Done** attaches it as a PNG named after the paste (`pasted-1.png`), **Cancel** or **Escape** attaches nothing. The tools, the keys and the colours are the ones in the table above, the keys going by their place on the keyboard as in the console; **Ctrl+Z** or **⌘Z** undoes the last step. Enter on a focused button of the toolbar presses that button, and Tab stays inside the editor.
 
+With a pen - a Surface Pen, an Apple Pencil, a graphics tablet - the pencil draws thicker where you press harder, keeps every point the pen reports, so a fast line stays round, and ignores a hand resting on the screen while the pen is in use. A mouse and a finger draw at one width, as before. The console's window has no pressure.
+
 A picture attached with the paperclip, dropped onto the composer or pasted together with others is attached at once. The pencil in the top-left corner of its card opens it in the editor: Done replaces it with the marked-up copy, Cancel leaves it as it was. A browser that cannot draw on a canvas attaches a pasted picture at once and shows no pencil. The editor's code is loaded the first time a picture opens; when it cannot be loaded (a tab left open across an update), a pasted picture is attached as it is.
 
 ## What is sent

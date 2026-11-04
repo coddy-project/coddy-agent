@@ -27,6 +27,30 @@ export const messagesRu: Record<string, string> = {
     "Уведомлениям нужно защищённое соединение. Откройте Coddy по https или на localhost.",
   "appearance.notifications.unsupported":
     "Этот браузер не показывает уведомления веб-страниц.",
+  "appearance.wallpaper.upload": "Загрузить картинку",
+  "appearance.wallpaper.clear": "Убрать фон",
+  "appearance.wallpaper.delete": "Удалить {name}",
+  "appearance.wallpaper.deleteConfirm": 'Удалить "{name}"?',
+  "appearance.wallpaper.yes": "Да",
+  "appearance.wallpaper.no": "Нет",
+  "appearance.wallpaper.uploadError":
+    "Не удалось загрузить картинку на сервер. Попробуйте ещё раз.",
+  "appearance.wallpaper.deleteError":
+    "Не удалось удалить картинку. Попробуйте ещё раз.",
+  "appearance.wallpaperLabel": "Обои",
+  "appearance.wallpaper.dim": "Затемнение: {value}%",
+  "appearance.wallpaper.hint":
+    'Загрузка добавляет картинку в CODDY_HOME/wallpapers на выбранном сервере. Для одинаковых файлов используется уже загруженная картинка. Выберите миниатюру, чтобы заполнить фон по центру с обрезкой по краям. Кнопка "Убрать фон" сохраняет файл на сервере, а корзина удаляет его.',
+  "appearance.wallpaper.gallery.loading": "Загрузка обоев…",
+  "appearance.wallpaper.gallery.empty": "Нет обоев в папке на сервере.",
+  "appearance.wallpaper.gallery.error":
+    'Не удалось прочитать галерею сервера. Откройте вкладку "Оформление" ещё раз.',
+  "appearance.wallpaper.notImage": "Этот файл не картинка.",
+  "appearance.wallpaper.storage":
+    "Не удалось прочитать или изменить обои в хранилище браузера. Попробуйте ещё раз.",
+  "appearance.wallpaper.unreadable": "Браузер не может прочитать эту картинку.",
+  "appearance.wallpaper.offline":
+    "Не удалось загрузить картинку. Попробуйте ещё раз.",
 
   "notify.untitled": "Coddy",
   "notify.turnFinished": "Агент закончил ход.",
@@ -673,6 +697,12 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.tools.preview_server.public_host.ph": "Адрес привязки",
   "settings.schema.tools.websearch.brave_api_key.ph":
     "Берётся из BRAVE_API_KEY",
+  "settings.schema.tools.websearch.deepseek_api_key.label":
+    "Ключ DeepSeek Search API",
+  "settings.schema.tools.websearch.deepseek_api_key.desc":
+    "Движок deepseek обращается к Search API DeepSeek, у которого нет публичной страницы для парсинга, поэтому ключ обязателен для работы движка. Оставьте пустым, чтобы взять DEEPSEEK_API_KEY из окружения или ~/.coddy/.env.",
+  "settings.schema.tools.websearch.deepseek_api_key.ph":
+    "Берётся из DEEPSEEK_API_KEY",
   "settings.schema.tools.websearch.searxng_url.ph": "http://localhost:8888",
   "settings.schema.tools.http_request.label": "HTTP-запросы",
   "settings.schema.tools.http_request.desc":
@@ -1784,7 +1814,7 @@ export const messagesRu: Record<string, string> = {
   "composer.permissionBypass": "Без вопросов",
   "composer.permissionAskHint": "Спрашивать перед командами и записью файлов",
   "composer.permissionAcceptEditsHint":
-    "Запись файлов без вопросов, команды спрашивают",
+    "Запись в рабочей папке без вопросов, остальное спрашивает",
   "composer.permissionBypassHint": "Ничего не спрашивать",
   "composer.overridesTitle": "Изменено на ближайшие ходы:\n{list}",
   "composer.overrideThisTurn": "{value} на этот ход",
@@ -2589,6 +2619,10 @@ export const messagesRu: Record<string, string> = {
   "tasks.running.few": "Выполняются {count} задачи",
   "tasks.running.many": "Выполняется {count} задач",
   "tasks.running.other": "Выполняется {count} задачи",
+  "tasks.runningCompact.one": "{count} задача",
+  "tasks.runningCompact.few": "{count} задачи",
+  "tasks.runningCompact.many": "{count} задач",
+  "tasks.runningCompact.other": "{count} задачи",
   "tasks.openAria": "Открыть фоновые задачи: {label}",
   "tasks.header.counts": "{running} / {total}",
   "tasks.header.aria": "Фоновые задачи: выполняется {running}, всего {total}",
@@ -2780,6 +2814,11 @@ export const messagesRu: Record<string, string> = {
   "markdown.figure.downloadSource": "Скачать исходник (.mmd)",
   "markdown.figure.downloadSvg": "Скачать как SVG (.svg)",
   "markdown.figure.open": "Открыть картинку",
+  "markdown.figure.draw": "Нарисовать диаграмму",
+  "markdown.figure.drawHint":
+    "При отрисовке она может загрузить картинки с других сайтов",
+  "markdown.remoteMedia.loadImage": "Загрузить картинку с {host}",
+  "markdown.remoteMedia.loadVideo": "Загрузить видео с {host}",
   "markdown.figure.rendering": "Рисую…",
   "markdown.figure.error": "Не удалось нарисовать картинку: {message}",
   "markdown.figure.loadError":

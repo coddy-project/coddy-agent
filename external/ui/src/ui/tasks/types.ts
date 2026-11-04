@@ -45,6 +45,7 @@ export type BackgroundTask = {
     /** What the child's model calls have spent so far: input summed over calls, output generated. */
     input_tokens?: number;
     output_tokens?: number;
+    usage_incomplete?: boolean;
   };
   status: BackgroundTaskStatus;
   exit_code?: number;

@@ -247,7 +247,7 @@ Coddy - **ACP-харнес, удобный для distroless**, написанн
 
 ### Конфигурация (`internal/config`)
 
-Конфигурация на основе YAML. При её поиске учитываются **`CODDY_HOME`** (по умолчанию **`~/.coddy`**), **`CODDY_CWD`**, **`CODDY_CONFIG`**, необязательный **`config.yaml`** в рабочем каталоге процесса, когда нет **`$CODDY_HOME/config.yaml`**, и флаги CLI (см. **`docs/getting-started/configuration.md`** и **`README.md`**).
+Конфигурация на основе YAML. При её поиске учитываются **`CODDY_HOME`** (по умолчанию **`~/.coddy`**), **`CODDY_CWD`**, **`CODDY_CONFIG`** и флаги CLI (см. **`docs/getting-started/configuration.md`** и **`README.md`**).
 
 ## Режимы сессии
 
@@ -305,4 +305,4 @@ Coddy - **ACP-харнес, удобный для distroless**, написанн
 
 Необязательные слои **`external/httpserver`**, **`external/ui`**, **`external/scheduler`** и **`external/memory`** не попадают в бинарник, если не передать соответствующие **теги сборки Go**; см. **`docs/contributing/build.md`** и **`README.md`**. Долговременная память включается во время работы ключом **`memory.enable`**, если бинарник собран с **`memory`**.
 
-<!-- docsgen:source sha256=431aa9dfb147dd58 -->
+<!-- docsgen:source sha256=3b957e80e7d9c9b6 -->

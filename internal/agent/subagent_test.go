@@ -1029,7 +1029,7 @@ func TestSubagentSenderCountsWhatTheChildSpent(t *testing.T) {
 	s := newSubagentSender(&buf, nil)
 	type usage struct{ in, out int }
 	var seen []usage
-	s.onUsage = func(in, out int) { seen = append(seen, usage{in, out}) }
+	s.onUsage = func(in, out int, _ bool) { seen = append(seen, usage{in, out}) }
 
 	first := "2026-09-18T10:00:00Z"
 	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 0})

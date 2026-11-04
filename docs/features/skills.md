@@ -243,9 +243,8 @@ themselves:
 
 The move follows the rules of the `mcp_servers` one ([MCP](mcp.md#moving-from-configyaml)): a
 file it moves into that does not read moves nothing and a save keeps the key, a key inside a
-flow mapping (`skills: {sources: [...], ...}`) has its sources moved and stays for you to delete,
-and a `config.yaml` read from the workspace because the home has none is neither rewritten nor
-moved from, since its sources would become yours. `coddy -t` reports a `skills.sources` key still
+flow mapping (`skills: {sources: [...], ...}`) has its sources moved and stays for you to delete.
+`coddy -t` reports a `skills.sources` key still
 standing in a file as moved, with a pointer here.
 
 ### The `plugin` command (CLI and `/plugin` in chat)

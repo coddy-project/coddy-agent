@@ -12,12 +12,14 @@ import (
 const statsFileVersion = 1
 
 type TokenUsageTotals struct {
-	InputTokens  int `json:"inputTokens"`
-	OutputTokens int `json:"outputTokens"`
-	TotalTokens  int `json:"totalTokens"`
+	UsageKnown   *bool `json:"usageKnown,omitempty"`
+	InputTokens  int   `json:"inputTokens"`
+	OutputTokens int   `json:"outputTokens"`
+	TotalTokens  int   `json:"totalTokens"`
 }
 
 type TokenUsageTurn struct {
+	UsageKnown   *bool  `json:"usageKnown,omitempty"`
 	TurnIndex    int    `json:"turnIndex"`
 	InputTokens  int    `json:"inputTokens"`
 	OutputTokens int    `json:"outputTokens"`

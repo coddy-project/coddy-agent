@@ -127,6 +127,13 @@ type Message struct {
 	// turn-context block the agent appends after the history. A provider
 	// that keeps the conversation on its side (acp) sends it with the prompt
 	// and leaves it out of what it remembers having sent.
+	//
+	// Such a message is always a RoleUser one at the end of the slice, and the
+	// prompt-cache marks depend on it: trailingEphemeral counts them here and
+	// the Anthropic provider applies that count to the messages it built, one
+	// per message. An Ephemeral message of another role, or one that a
+	// provider folds into its neighbour, would move the tail mark onto a turn
+	// no later request repeats.
 	Ephemeral bool `json:"-"`
 	// AgentTools, on an assistant message, are the tool calls the agent
 	// behind an acp model ran on its own side while it wrote this answer,
@@ -212,6 +219,10 @@ type Response struct {
 	// reads and cache writes apart from the rest (Anthropic, Devin) adds them in.
 	InputTokens  int
 	OutputTokens int
+	// UsageKnown marks an explicitly reported complete usage, including zero.
+	UsageKnown bool
+	// UsageIncomplete means the provider did not report both token counters.
+	UsageIncomplete bool
 	// CachedInputTokens is the part of InputTokens the provider served from its
 	// prompt cache instead of processing again (OpenAI
 	// usage.prompt_tokens_details.cached_tokens, Anthropic
@@ -283,6 +294,7 @@ type ProviderInput struct {
 	// a set temperature is sent as is, zero included, and next to a reasoning
 	// level too, where a configured one is left out.
 	TemperatureSet bool
+	TopP           *float64
 	// ReasoningEffort is the reasoning level name, "off" to disable thinking where
 	// the model supports it, or empty to keep the backend default.
 	// OpenAI maps it to reasoning_effort; Anthropic maps it to an extended-thinking
@@ -398,6 +410,7 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	case "openai":
 		op := newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 		op.tempSet = p.TemperatureSet
+		op.topP = p.TopP
 		op.modelParams = p.SupportedParameters
 		inner = op
 	case "anthropic":

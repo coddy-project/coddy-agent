@@ -14,10 +14,11 @@ import (
 // empties the cache, so one case cannot answer the next.
 func stubEngines(t *testing.T) {
 	t.Helper()
-	oldBrave, oldBing, oldDDG, oldGoogle, oldSearx := braveSearchFunc, bingSearchFunc, ddgSearchFunc, googleSearchFunc, searxngSearchFunc
+	oldBrave, oldBing, oldDDG, oldGoogle, oldSearx, oldDeep := braveSearchFunc, bingSearchFunc, ddgSearchFunc, googleSearchFunc, searxngSearchFunc, deepseekSearchFunc
 	t.Cleanup(func() {
 		braveSearchFunc, bingSearchFunc = oldBrave, oldBing
 		ddgSearchFunc, googleSearchFunc, searxngSearchFunc = oldDDG, oldGoogle, oldSearx
+		deepseekSearchFunc = oldDeep
 		searchCache.reset()
 	})
 	searchCache.reset()
@@ -25,6 +26,7 @@ func stubEngines(t *testing.T) {
 	bingSearchFunc = func(context.Context, Query, Settings) ([]Result, error) { return nil, nil }
 	googleSearchFunc = func(context.Context, Query, Settings) ([]Result, error) { return nil, nil }
 	searxngSearchFunc = func(context.Context, Query, Settings) ([]Result, error) { return nil, nil }
+	deepseekSearchFunc = func(context.Context, Query, Settings) ([]Result, error) { return nil, nil }
 }
 
 // envWith returns a tool environment carrying the given engine list, with the
@@ -196,6 +198,21 @@ func TestSearchSucceedsEmptyWhenEnginesGenuinelyFoundNothing(t *testing.T) {
 	}
 	if !strings.Contains(out.Hint, "different wording") {
 		t.Errorf("hint should push a reword: %q", out.Hint)
+	}
+}
+
+func TestSearchEmptyAnswerDoesNotClaimUnavailableEnginesAnswered(t *testing.T) {
+	for _, failure := range []error{blocked("rejected key"), fmt.Errorf("connection refused")} {
+		t.Run(failure.Error(), func(t *testing.T) {
+			stubEngines(t)
+			deepseekSearchFunc = func(context.Context, Query, Settings) ([]Result, error) {
+				return nil, failure
+			}
+			out := runSearch(t, envWith(EngineBrave, EngineDeepSeek), `{"query":"go"}`)
+			if strings.Contains(out.Hint, "Every engine answered") || !strings.Contains(out.Hint, "incomplete") || !strings.Contains(out.Hint, "deepseek") {
+				t.Fatalf("partial search presented as a definitive empty answer: %q", out.Hint)
+			}
+		})
 	}
 }
 

@@ -409,6 +409,85 @@ async function navigate(sid: string) {
 }
 
 test.each(["post", "relay"])(
+  "unknown usage clears the active HUD on %s",
+  async (transport) => {
+    backend.override = (r) =>
+      r.path.endsWith(`/${A}/stats`)
+        ? json({
+            stats: {
+              tokenUsageTotal: {
+                inputTokens: 100,
+                outputTokens: 20,
+                totalTokens: 120,
+              },
+            },
+          })
+        : undefined;
+    if (transport === "relay") backend.activity.set(A, true);
+    await mount();
+    await waitFor(() =>
+      expect(
+        document.querySelector(".composer-context-tip")?.textContent,
+      ).toContain("120"),
+    );
+    if (transport === "post") await send("Own turn");
+    else await waitFor(() => expect(backend.relays.length).toBeGreaterThan(0));
+    await act(async () => {
+      const stream =
+        transport === "post"
+          ? backend.posts[0]!.stream
+          : backend.relays[0]!.stream;
+      stream.frame("token_usage", { usageKnown: false });
+    });
+    await waitFor(() =>
+      expect(
+        document.querySelector(".composer-context-tip")?.textContent,
+      ).not.toContain("120"),
+    );
+  },
+);
+
+test("unknown usage in a background stream does not contaminate the active session", async () => {
+  await mount();
+  await send("Own A turn");
+  await navigate(B);
+  await send("Own B turn");
+  await waitFor(() => expect(backend.posts).toHaveLength(2));
+  await act(async () => {
+    backend.posts[0]!.stream.frame("token_usage", { usageKnown: false });
+    backend.posts[1]!.stream.frame("token_usage", {
+      inputTokens: 70,
+      outputTokens: 30,
+      totalTokens: 100,
+    });
+  });
+  await waitFor(() =>
+    expect(
+      document.querySelector(".composer-context-tip")?.textContent,
+    ).toContain("100"),
+  );
+});
+
+test("known reasoning tokens survive an unknown total", async () => {
+  await mount();
+  await send("Reasoning turn");
+  await act(async () => {
+    backend.posts[0]!.stream.frame("", {
+      choices: [{ delta: { reasoning_content: "Thinking here" } }],
+    });
+    backend.posts[0]!.stream.frame("token_usage", {
+      usageKnown: false,
+      reasoningTokens: 23,
+    });
+  });
+  await waitFor(() =>
+    expect(document.querySelector(".thinking-tokens")?.textContent).toContain(
+      "23",
+    ),
+  );
+});
+
+test.each(["post", "relay"])(
   "a late provider window replaces the model-list fallback on the %s stream",
   async (transport) => {
     // Both sessions run on test-model: an open session shows its own model,

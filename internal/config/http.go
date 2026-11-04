@@ -22,6 +22,8 @@ type HTTPServerConfig struct {
 	Host string `yaml:"host"`
 	// Port is the default listen port when `coddy serve` does not override -P/--port. Zero falls back to 12345.
 	Port int `yaml:"port"`
+	// MaxBodyBytes bounds OpenAI request bodies; zero uses the default.
+	MaxBodyBytes int64 `yaml:"max_body_bytes,omitempty"`
 	// AuthToken is the optional bearer credential for the HTTP API. Empty means no authentication
 	// (historical "no login" behavior). "${ENV}" references are expanded at load. The HTTP layer
 	// never echoes it back through GET /coddy/config. Prefer --auth-token / CODDY_HTTP_TOKEN to
@@ -33,9 +35,11 @@ type HTTPServerConfig struct {
 	Login HTTPLoginConfig `yaml:"login"`
 	// PublicDocs keeps /docs and /openapi.* reachable without a token even when auth is enabled.
 	PublicDocs bool `yaml:"public_docs"`
-	// AllowInsecure silences the two startup warnings about a server without
-	// authentication - a non-loopback bind, and CORS that admits pages nobody
-	// listed (allow_loopback or "*") - and the --dry-run findings that mirror them.
+	// AllowInsecure says a server without authentication is open on purpose. It
+	// silences the two startup warnings about one - a non-loopback bind, and CORS
+	// that admits pages nobody listed (allow_loopback or "*") - and the --dry-run
+	// findings that mirror them, and turns off the open-server guard of
+	// external/httpserver.
 	AllowInsecure bool `yaml:"allow_insecure"`
 	// CORS controls cross-origin access so a browser UI on another origin can call this API.
 	CORS HTTPCORSConfig `yaml:"cors"`
@@ -338,6 +342,9 @@ func (h *HTTPServerConfig) Normalize() {
 
 // Validate checks HTTP settings when present in config.
 func (h *HTTPServerConfig) Validate() error {
+	if h.MaxBodyBytes < 0 {
+		return fmt.Errorf("httpserver.max_body_bytes must not be negative")
+	}
 	if h.Port < 0 || h.Port > 65535 {
 		return fmt.Errorf("httpserver.port out of range")
 	}

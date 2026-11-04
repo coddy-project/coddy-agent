@@ -223,9 +223,7 @@ func (s *Server) configureSender(bridge *Sender) *Sender {
 func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 	if u, ok := update.(acp.TokenUsageUpdate); ok {
 		s.mu.Lock()
-		s.usage.input += u.InputTokens
-		s.usage.output += u.OutputTokens
-		s.usage.cached += u.CachedInputTokens
+		s.usage.add(u)
 		s.mu.Unlock()
 	}
 	if !s.emit || s.w == nil {
@@ -560,7 +558,11 @@ func (s *Sender) SendErrorFor(err error) error {
 	if !s.emit || s.w == nil {
 		return nil
 	}
-	raw, _ := json.Marshal(replyForError(err).body)
+	reply := replyForError(err)
+	if reply.retryAfter > 0 {
+		reply.body["error"].(map[string]any)["retry_after"] = reply.retryAfter
+	}
+	raw, _ := json.Marshal(reply.body)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, werr := fmt.Fprintf(s.w, "data: %s\n\n", raw)

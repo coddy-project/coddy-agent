@@ -42,7 +42,7 @@ func WriteBackup(configPath string, data []byte) error {
 	if strings.TrimSpace(configPath) == "" {
 		return fmt.Errorf("config path is empty")
 	}
-	return atomicWriteFile(BackupPath(configPath), data, credentialFileMode)
+	return AtomicWriteFile(BackupPath(configPath), data, credentialFileMode)
 }
 
 // BackupCurrent copies the current config file to config.yaml.bak, written
@@ -67,7 +67,7 @@ func BackupCurrent(configPath string) error {
 	if err != nil {
 		return err
 	}
-	return atomicWriteFile(BackupPath(src), data, credentialFileMode)
+	return AtomicWriteFile(BackupPath(src), data, credentialFileMode)
 }
 
 // AtomicWriteConfigYAML writes yamlBytes to configPath using a temp file and rename.
@@ -82,10 +82,12 @@ func AtomicWriteConfigYAML(configPath string, yamlBytes []byte) error {
 	if current, err := os.ReadFile(configPath); err == nil {
 		yamlBytes = applyLineEnding(yamlBytes, configLineEnding(current))
 	}
-	return atomicWriteFile(configPath, yamlBytes, credentialFileMode)
+	return AtomicWriteFile(configPath, yamlBytes, credentialFileMode)
 }
 
-func atomicWriteFile(path string, data []byte, perm fs.FileMode) error {
+// AtomicWriteFile writes data to path through a temporary file in the same
+// folder, so a reader sees the old content or the new one, never a part of it.
+func AtomicWriteFile(path string, data []byte, perm fs.FileMode) error {
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)
 	tmp, err := os.CreateTemp(dir, "."+base+".tmp-*")
