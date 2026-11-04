@@ -196,6 +196,10 @@ type cliTUIState struct {
 	// OpenAI-compatible endpoint the provider picker is pointed at.
 	loginStand       *loginStand
 	compatibleServer *httptest.Server
+	// acpCommand starts the scripted ACP agent of a picker scenario.
+	acpCommand string
+	// t is the scenario's own testing.TB, for helpers that need one.
+	t testing.TB
 }
 
 // syncBuffer is a goroutine-safe string sink for the one-shot print steps.
@@ -218,6 +222,7 @@ func (s *syncBuffer) String() string {
 
 func (s *cliTUIState) reset() {
 	s.home, s.cwd, s.homes = "", "", nil
+	s.acpCommand = ""
 	s.cfg, s.store, s.app = nil, nil, nil
 	s.permOutcome, s.permOption = "", ""
 	s.detachedAnswers = nil
@@ -1943,8 +1948,8 @@ func (s *cliTUIState) helpShowsPageAfter(page string) error {
 	return fmt.Errorf("no page titled %q, or it is the last", page)
 }
 
-func initializeCLITUIScenario(sc *godog.ScenarioContext) {
-	s := &cliTUIState{}
+func initializeCLITUIScenario(sc *godog.ScenarioContext, t testing.TB) {
+	s := &cliTUIState{t: t}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
 		s.reset()
 		return ctx, nil
@@ -2140,7 +2145,7 @@ func TestCLITUIFeature(t *testing.T) {
 	t.Setenv("LANG", "en_US.UTF-8")
 	suite := godog.TestSuite{
 		Name:                "cli-tui",
-		ScenarioInitializer: initializeCLITUIScenario,
+		ScenarioInitializer: func(sc *godog.ScenarioContext) { initializeCLITUIScenario(sc, t) },
 		Options: &godog.Options{
 			Format:   "pretty",
 			Paths:    []string{"../../features/cli_tui.feature", "../../features/cli_mcp.feature", "../../features/cli_login.feature"},

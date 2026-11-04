@@ -1029,10 +1029,10 @@ export const messagesEn: Record<string, string> = {
   "onboarding.close": "Close onboarding",
   "onboarding.provider.openai.description": "GPT models and the OpenAI API",
   "onboarding.provider.anthropic.description": "Claude models",
-  "onboarding.provider.ollama.description":
-    "Local models through an OpenAI-compatible API",
   "onboarding.provider.compatible.description":
-    "DeepSeek, Groq, Together or a custom endpoint",
+    "Ollama, LM Studio, DeepSeek, Groq or any endpoint of your own",
+  "onboarding.provider.acp.description":
+    "An agent of your own on this machine: Claude Code, Codex, Gemini",
   "onboarding.provider.neuraldeep.description":
     "API key or account sign-in on either hub",
   "onboarding.provider.codex.description":
@@ -1044,6 +1044,11 @@ export const messagesEn: Record<string, string> = {
   "onboarding.showKey": "Show",
   "onboarding.hideKey": "Hide",
   "onboarding.apiBase": "API base URL",
+  "onboarding.command": "Command",
+  "onboarding.commandHint":
+    "The program that speaks ACP on this machine, with its arguments. It signs itself in; Coddy stores no key for it.",
+  "onboarding.commandRequired":
+    "Enter the command to run before testing or saving this agent.",
   "onboarding.apiBaseRequired":
     "Enter the API base URL before testing or saving this provider.",
   "onboarding.proxy": "Proxy URL",

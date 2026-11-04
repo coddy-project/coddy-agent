@@ -100,14 +100,15 @@ the same order, and the row it opens on is the same one:
 | **Anthropic** | Claude models | the API key |
 | **Codex** | your ChatGPT subscription through OAuth | the device sign-in |
 | **Devin** | Devin models with browser sign-in | the browser sign-in |
-| **Ollama** | local models through an OpenAI-compatible API | the address of the server, then an optional key |
-| **OpenAI-compatible** | DeepSeek, Groq, Together or a custom endpoint | the address of the endpoint, then the API key |
+| **OpenAI-compatible** | Ollama, LM Studio, DeepSeek, Groq or any endpoint of your own | the address of the endpoint, then the API key |
+| **ACP agent** | an agent of your own this machine runs: Claude Code, Codex, Gemini | the command that speaks ACP |
 
 Arrows move, typing filters, Enter takes the row and Escape puts the picker
 away: the header keeps pointing at `/login`, which opens it again, so nothing
 about it is a one-shot screen. A row that signs in runs the sign-in below; a
 row that takes a key is asked for its endpoint where it has none of its own and
-then for the key. An empty answer at the key prompt changes no credential: a row
+then for the key; an ACP agent is asked only for the command that starts it,
+because the agent signs itself in and Coddy stores no credential for it. An empty answer at the key prompt changes no credential: a row
 `config.yaml` already holds keeps its `api_key` or its `api_key_command`, and a
 row with neither reads its `NAME_API_KEY` variable, which is how a local server
 with no key works. Coddy then asks the provider what it serves, the way that row

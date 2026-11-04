@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
@@ -38,6 +39,9 @@ type providerSetupRun struct {
 	preset  providerpreset.Preset
 	apiBase string
 	apiKey  string
+	// command is the program an ACP row runs, words separated by spaces:
+	// the first is acp.command and the rest are acp.args.
+	command string
 	// models is what the provider answered when it was asked; empty when it
 	// was not asked or could not answer.
 	models []llm.ModelEntry
@@ -116,11 +120,16 @@ func (a *App) askProviderEndpoint(run *providerSetupRun) {
 	a.openSetupModal(sel)
 }
 
-// continueProviderSetup starts the sign-in of a provider that has one, and
-// asks for the endpoint and the key of one that takes a key.
+// continueProviderSetup starts the sign-in of a provider that has one, asks
+// for the command of an agent this machine runs, and for the endpoint and
+// the key of one that takes a key.
 func (a *App) continueProviderSetup(run *providerSetupRun) {
 	if providerlogin.Supports(run.preset.ProviderType) {
 		a.startPresetLogin(run)
+		return
+	}
+	if run.preset.CommandTyped {
+		a.askProviderCommand(run)
 		return
 	}
 	if run.preset.APIBaseTyped {
@@ -128,6 +137,32 @@ func (a *App) continueProviderSetup(run *providerSetupRun) {
 		return
 	}
 	a.askProviderKey(run)
+}
+
+// askProviderCommand asks for the program that speaks ACP on this machine.
+// The agent behind it signs itself in, so no key is asked for and none is
+// written; the command is what the row is, and the setup refuses to go on
+// without one.
+func (a *App) askProviderCommand(run *providerSetupRun) {
+	hint := "Enter the program that speaks ACP, with its arguments; it signs itself in, so Coddy stores no key for it"
+	if run.preset.CommandExample != "" {
+		hint += " (for example " + run.preset.CommandExample + ")"
+	}
+	// Only a command already configured is offered to edit: an example
+	// prefilled into the field is text the operator has to delete first.
+	prefill := ""
+	if existing := a.config().FindProvider(run.preset.ProviderName); existing != nil && existing.ACP != nil {
+		prefill = strings.TrimSpace(strings.Join(append([]string{existing.ACP.Command}, existing.ACP.Args...), " "))
+	}
+	a.askProviderValue(run.preset.Label+": command", hint, prefill, func(text string) {
+		command := strings.TrimSpace(text)
+		if command == "" {
+			a.appendStatus(roleWarning, run.preset.Label+" needs a command to run; /login opens the list again")
+			return
+		}
+		run.command = command
+		a.fetchProviderModels(run)
+	})
 }
 
 // startPresetLogin resolves the preset's row and runs the sign-in of
@@ -152,9 +187,9 @@ func (a *App) startPresetLogin(run *providerSetupRun) {
 // own: an Ollama server (prefilled) or any other OpenAI-compatible address,
 // which the setup refuses to go on without.
 func (a *App) askProviderAPIBase(run *providerSetupRun) {
-	hint := "Enter the address of the OpenAI-compatible API, for example https://api.example.com/v1"
-	if run.preset.APIBaseDefault != "" {
-		hint = "Enter the address of the server, or keep the one offered"
+	hint := "Enter the address of the OpenAI-compatible API"
+	if run.preset.APIBaseExample != "" {
+		hint += ", for example " + run.preset.APIBaseExample + " for a local Ollama"
 	}
 	a.askProviderValue(run.preset.Label+": API base URL", hint, run.preset.APIBaseDefault, func(text string) {
 		base := strings.TrimSpace(text)
@@ -257,6 +292,12 @@ func providerListInput(ctx context.Context, cfg *config.Config, run *providerSet
 		APIKey:   strings.TrimSpace(run.apiKey),
 		BaseURL:  strings.TrimSpace(run.apiBase),
 		ProxyURL: providerRowProxy(cfg, name),
+	}
+	if run.preset.CommandTyped {
+		// An ACP agent is listed by starting it, so the probe needs the
+		// command before the row is written.
+		in.ACP = acpConfigFor(run.command)
+		return in
 	}
 	saved := cfg.FindProvider(name)
 	if saved == nil {
@@ -378,7 +419,22 @@ func providerSetupCommands(cfg *config.Config, run *providerSetupRun, ref string
 	// of the preset is never written: the save escapes "$", and the row
 	// would then send that text as the bearer token.
 	key := strings.TrimSpace(run.apiKey)
-	if existing := cfg.FindProvider(name); existing == nil {
+	if run.preset.CommandTyped {
+		// An ACP row is its command: the agent signs itself in, so neither a
+		// key nor an endpoint is written for it.
+		acp := acpConfigFor(run.command)
+		row := map[string]any{"name": name, "type": run.preset.ProviderType, "acp": acp}
+		existing := cfg.FindProvider(name)
+		if existing == nil {
+			rowJSON, _ := json.Marshal(row)
+			cmds = append(cmds, config.UCICommand{Op: config.UCIOpSet, Path: fmt.Sprintf("providers[name=%s]", name), Value: string(rowJSON)})
+			added = append(added, "provider "+name)
+		} else if acp != nil && !sameACPCommand(existing.ACP, acp) {
+			acpJSON, _ := json.Marshal(acp)
+			cmds = append(cmds, config.UCICommand{Op: config.UCIOpSet, Path: fmt.Sprintf("providers[name=%s].acp", name), Value: string(acpJSON)})
+			added = append(added, "provider "+name+" acp.command -> "+acp.Command)
+		}
+	} else if existing := cfg.FindProvider(name); existing == nil {
 		row := map[string]string{"name": name, "type": run.preset.ProviderType}
 		if base != "" {
 			row["api_base"] = base
@@ -456,6 +512,30 @@ func presetModelMultimodal(preset providerpreset.Preset, ref string) bool {
 		return limits.Multimodal
 	}
 	return preset.Multimodal
+}
+
+// acpConfigFor reads the words of a typed command into the row an ACP
+// provider runs: the first word is the program, the rest its arguments. An
+// empty line yields nil, which leaves a configured row as it is.
+func acpConfigFor(command string) *config.ACPProviderConfig {
+	words := strings.Fields(command)
+	if len(words) == 0 {
+		return nil
+	}
+	acp := &config.ACPProviderConfig{Command: words[0]}
+	if len(words) > 1 {
+		acp.Args = words[1:]
+	}
+	return acp
+}
+
+// sameACPCommand reports a configured agent that already runs what the setup
+// would write, so nothing is staged for it.
+func sameACPCommand(existing, next *config.ACPProviderConfig) bool {
+	if existing == nil || next == nil {
+		return false
+	}
+	return existing.Command == next.Command && slices.Equal(existing.Args, next.Args)
 }
 
 // providerRowProxy is the proxy setting of the row the preset writes, so the

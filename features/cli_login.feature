@@ -16,7 +16,7 @@ Feature: Setting up a model provider from the console
     Given a coddy console app with no model provider configured
     When the console app starts
     Then the screen shows "Set up a model provider"
-    And the provider picker lists "NeuralDeep, OpenCode, OpenAI, Anthropic, Codex, Devin, Ollama, OpenAI-compatible" in that order
+    And the provider picker lists "NeuralDeep, OpenCode, OpenAI, Anthropic, Codex, Devin, OpenAI-compatible, ACP agent" in that order
     When the operator presses escape
     Then the screen shows "Type /login to pick one"
     And the screen does not show "same agent as ACP and HTTP"
@@ -49,6 +49,18 @@ Feature: Setting up a model provider from the console
     Then config.yaml lists the provider "custom" with the model "custom/mini-1"
     And config.yaml names "custom/mini-1" as agent.model
     And the footer shows "(custom) mini-1"
+
+  Scenario: The picker connects an agent of the operator's own over ACP
+    Given a stand-in ACP agent that lists the model "own-1"
+    And a coddy console app with no model provider configured
+    When the console app starts
+    And the operator picks "ACP agent" in the provider picker
+    Then the screen shows "ACP agent: command"
+    When the operator answers with the stand-in agent's command
+    Then the screen shows "ACP agent: which model"
+    When the operator picks "own-1" from the list
+    Then config.yaml lists the provider "acp" with the model "acp/own-1"
+    And config.yaml gives the provider "acp" no key and no API base
 
   Scenario: /login <name> skips the picker and moves the session to the signed-in provider
     install.sh writes config.yaml from the example, whose openai row reads an

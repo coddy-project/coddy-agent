@@ -10,6 +10,7 @@ package cli
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -17,12 +18,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm/acptest"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -81,7 +84,11 @@ func registerCLILoginSteps(sc *godog.ScenarioContext, s *cliTUIState) {
 	sc.Step(`^the provider picker lists "([^"]*)" in that order$`, s.providerPickerListsInOrder)
 	sc.Step(`^the operator confirms the highlighted row$`, s.operatorConfirmsHighlightedRow)
 	sc.Step(`^the operator picks "([^"]*)" in the provider picker$`, s.operatorPicksProvider)
+	sc.Step(`^the operator picks "([^"]*)" from the list$`, s.operatorPicksFromTheList)
 	sc.Step(`^a stand-in OpenAI-compatible server that lists the model "([^"]*)"$`, s.standInCompatibleServer)
+	sc.Step(`^a stand-in ACP agent that lists the model "([^"]*)"$`, s.standInACPAgent)
+	sc.Step(`^the operator answers with the stand-in agent's command$`, s.operatorAnswersWithStandInCommand)
+	sc.Step(`^config\.yaml gives the provider "([^"]*)" no key and no API base$`, s.configGivesProviderNoCredential)
 	sc.Step(`^the operator answers with the stand-in server's address$`, s.operatorAnswersWithStandInAddress)
 	sc.Step(`^the operator answers "([^"]*)"$`, s.operatorAnswers)
 }
@@ -97,18 +104,17 @@ func (s *cliTUIState) providerPickerListsInOrder(list string) error {
 		last = s.screenText()
 		at, ok := -1, true
 		for _, label := range want {
-			// A row's label stands at the start of its line, after the
-			// selection arrow; "OpenAI" must not match "OpenAI-compatible".
+			// A row's label opens its line, after the selection arrow, and
+			// its description follows two spaces later: "OpenAI" must not
+			// match "OpenAI-compatible", and "ACP agent" is one label of two
+			// words, not two fields.
 			found := -1
 			for i, line := range strings.Split(last, "\n") {
 				if i <= at {
 					continue
 				}
-				fields := strings.Fields(line)
-				if len(fields) > 0 && fields[0] == "→" {
-					fields = fields[1:]
-				}
-				if len(fields) > 0 && fields[0] == label {
+				row := strings.TrimPrefix(strings.TrimSpace(line), "→ ")
+				if name, _, _ := strings.Cut(row, "  "); strings.TrimSpace(name) == label {
 					found = i
 					break
 				}
@@ -143,6 +149,14 @@ func (s *cliTUIState) operatorPicksProvider(label string) error {
 	return nil
 }
 
+// operatorPicksFromTheList types the row's name as the selector's filter and
+// takes the one row left.
+func (s *cliTUIState) operatorPicksFromTheList(label string) error {
+	s.typeText(label)
+	s.press("\r")
+	return nil
+}
+
 // operatorAnswers types one line into the open value prompt and sends it.
 func (s *cliTUIState) operatorAnswers(text string) error {
 	s.typeText(text)
@@ -169,6 +183,44 @@ func (s *cliTUIState) standInCompatibleServer(model string) error {
 		}})
 	})
 	s.compatibleServer = httptest.NewServer(mux)
+	return nil
+}
+
+// standInACPAgent is the scripted agent of internal/llm/acptest, this test
+// binary started again (TestHelperACPAgent), so the ACP path runs a real
+// program over a real stdio connection and nothing leaves the machine.
+func (s *cliTUIState) standInACPAgent(model string) error {
+	command, args := acptest.Command(s.t, acptest.Script{Models: []string{model}})
+	s.acpCommand = strings.TrimSpace(command + " " + strings.Join(args, " "))
+	return nil
+}
+
+func (s *cliTUIState) operatorAnswersWithStandInCommand() error {
+	if s.acpCommand == "" {
+		return fmt.Errorf("no stand-in ACP agent in this scenario")
+	}
+	return s.operatorAnswers(s.acpCommand)
+}
+
+// configGivesProviderNoCredential holds the shape of an ACP row: the agent
+// signs itself in, so the row carries its command and neither a key nor an
+// endpoint.
+func (s *cliTUIState) configGivesProviderNoCredential(provider string) error {
+	cfg, err := config.LoadWithPaths(s.cfg.Paths)
+	if err != nil {
+		return err
+	}
+	row := cfg.FindProvider(provider)
+	switch {
+	case row == nil:
+		return fmt.Errorf("config.yaml lists no provider %q", provider)
+	case strings.TrimSpace(row.APIKey) != "" || strings.TrimSpace(row.APIKeyCommand) != "":
+		return fmt.Errorf("provider %q carries a credential: %+v", provider, row)
+	case strings.TrimSpace(row.APIBase) != "":
+		return fmt.Errorf("provider %q carries an api_base %q", provider, row.APIBase)
+	case row.ACP == nil || strings.TrimSpace(row.ACP.Command) == "":
+		return fmt.Errorf("provider %q names no command to run", provider)
+	}
 	return nil
 }
 
@@ -402,4 +454,12 @@ func (s *cliTUIState) slashMenuOffers(name string) error {
 		time.Sleep(15 * time.Millisecond)
 	}
 	return fmt.Errorf("the slash menu offers no %q; last frame:\n%s", name, s.screenText())
+}
+
+// TestHelperACPAgent turns this test binary into the scripted ACP agent when
+// acptest.Command started it; the ordinary run skips it.
+func TestHelperACPAgent(t *testing.T) {
+	if !acptest.Main(flag.Args()) {
+		t.Skip("helper process")
+	}
 }

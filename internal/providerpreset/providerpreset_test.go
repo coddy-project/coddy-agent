@@ -48,23 +48,24 @@ func TestDefaultIsNeuralDeep(t *testing.T) {
 	if _, ok := ByID("nothing"); ok {
 		t.Fatal("ByID invented a preset")
 	}
-	p, ok := ByID("ollama")
-	if !ok || p.ProviderName != "local" {
-		t.Fatalf("ByID(ollama) = %+v, %v", p, ok)
+	p, ok := ByID("compatible")
+	if !ok || p.ProviderName != "custom" {
+		t.Fatalf("ByID(compatible) = %+v, %v", p, ok)
 	}
 }
 
 func TestModelRefNamesTheProviderRow(t *testing.T) {
-	ollama, _ := ByID("ollama")
+	acp, _ := ByID("acp")
 	compatible, _ := ByID("compatible")
 	for _, tc := range []struct {
 		preset Preset
 		in     string
 		want   string
 	}{
-		{ollama, "llama3.2", "local/llama3.2"},
-		{ollama, "local/llama3.2", "local/llama3.2"},
-		{ollama, "   ", "local/llama3.2"},
+		{compatible, "llama3.2", "custom/llama3.2"},
+		{compatible, "custom/llama3.2", "custom/llama3.2"},
+		{compatible, "   ", "custom/gpt-4o"},
+		{acp, "sonnet", "acp/sonnet"},
 		// A slash inside the id a provider lists is part of that id: the
 		// first segment of a reference is always the provider row.
 		{compatible, "openai/gpt-4o", "custom/openai/gpt-4o"},
@@ -79,9 +80,9 @@ func TestDefaultAPIBase(t *testing.T) {
 	for id, want := range map[string]string{
 		"neuraldeep": "https://api.neuraldeep.ru/v1",
 		"opencode":   "https://opencode.ai/inference/go/v1",
-		"ollama":     "http://127.0.0.1:11434/v1",
 		"compatible": "",
 		"openai":     "",
+		"acp":        "",
 	} {
 		p, ok := ByID(id)
 		if !ok {

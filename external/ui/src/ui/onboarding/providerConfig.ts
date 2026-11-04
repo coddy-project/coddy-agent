@@ -3,12 +3,12 @@ import type { FetchedModel } from "../settings/useProviderModels";
 export type ProviderPresetId =
   | "openai"
   | "anthropic"
-  | "ollama"
   | "compatible"
   | "neuraldeep"
   | "codex"
   | "opencode"
-  | "devin";
+  | "devin"
+  | "acp";
 
 export type ProviderPreset = {
   id: ProviderPresetId;
@@ -21,8 +21,17 @@ export type ProviderPreset = {
     | "neuraldeep"
     | "codex"
     | "opencode"
-    | "devin";
+    | "devin"
+    | "acp";
   apiBase?: string;
+  // apiBaseExample is the placeholder of an endpoint the operator types: one
+  // address of the many the preset covers.
+  apiBaseExample?: string;
+  // commandTyped marks the provider this machine runs rather than reaches:
+  // the row carries acp.command instead of api_base and api_key, and the
+  // agent behind it signs itself in.
+  commandTyped?: boolean;
+  commandExample?: string;
   multimodal: boolean;
   defaultModel: string;
   maxContextTokens?: number;
@@ -119,23 +128,25 @@ export const PROVIDER_PRESETS: [ProviderPreset, ...ProviderPreset[]] = [
     envKey: "${DEVIN_API_KEY}",
   },
   {
-    id: "ollama",
-    label: "Ollama",
-    descriptionKey: "onboarding.provider.ollama.description",
-    providerName: "local",
-    providerType: "openai",
-    apiBase: "http://127.0.0.1:11434/v1",
-    multimodal: true,
-    defaultModel: "local/llama3.2",
-  },
-  {
     id: "compatible",
     label: "OpenAI-compatible",
     descriptionKey: "onboarding.provider.compatible.description",
     providerName: "custom",
     providerType: "openai",
+    apiBaseExample: "http://127.0.0.1:11434/v1",
     multimodal: true,
     defaultModel: "custom/gpt-4o",
+  },
+  {
+    id: "acp",
+    label: "ACP agent",
+    descriptionKey: "onboarding.provider.acp.description",
+    providerName: "acp",
+    providerType: "acp",
+    commandTyped: true,
+    commandExample: "claude-code-acp",
+    multimodal: false,
+    defaultModel: "acp/default",
   },
 ];
 
@@ -185,6 +196,9 @@ export function buildOnboardingConfig(input: {
   preset: ProviderPreset;
   apiKey: string;
   apiBase: string;
+  // command is the program an ACP row runs, words separated by spaces: the
+  // first is acp.command and the rest are acp.args.
+  command?: string;
   proxy: string;
   modelId: string;
   baseDoc: Record<string, unknown>;
@@ -203,6 +217,9 @@ export function buildOnboardingConfig(input: {
   };
   const keyless =
     preset.providerType === "codex" ||
+    // An ACP agent is a program this machine runs and signs itself in; the
+    // row carries its command, never a key.
+    preset.commandTyped === true ||
     (input.managedLogin &&
       !input.apiKey.trim() &&
       ["neuraldeep", "opencode", "devin"].includes(preset.providerType));
@@ -230,7 +247,27 @@ export function buildOnboardingConfig(input: {
     // Nothing typed and the row already carries a key or a helper: it keeps
     // what the spread above copied.
   }
-  if (preset.providerType === "codex" || preset.providerType === "devin") {
+  if (preset.commandTyped) {
+    // The command is what the row is: without it the agent cannot be
+    // started, so an empty answer keeps whatever the row already names.
+    const words = String(input.command || "")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (words.length > 0) {
+      const acp: Record<string, unknown> = {
+        ...object(existingProvider?.acp),
+        command: words[0],
+      };
+      if (words.length > 1) acp.args = words.slice(1);
+      else delete acp.args;
+      provider.acp = acp;
+    }
+    delete provider.api_base;
+  } else if (
+    preset.providerType === "codex" ||
+    preset.providerType === "devin"
+  ) {
     delete provider.api_base;
   } else {
     const base = input.apiBase.trim() || preset.apiBase || "";

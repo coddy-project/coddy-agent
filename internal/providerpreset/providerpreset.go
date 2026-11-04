@@ -36,13 +36,21 @@ type Preset struct {
 	// when the provider has one endpoint of its own (OpenAI, Anthropic,
 	// Codex, Devin) or when the operator brings it (see APIBaseTyped).
 	APIBases []APIBase
-	// APIBaseTyped says the endpoint is typed rather than picked: a local
-	// Ollama server (prefilled with APIBaseDefault) or any other
-	// OpenAI-compatible endpoint, which has no default at all.
+	// APIBaseTyped says the endpoint is typed rather than picked: any
+	// OpenAI-compatible endpoint, a local Ollama server among them. An empty
+	// answer refuses the preset, since the row would have no destination.
 	APIBaseTyped bool
-	// APIBaseDefault prefills a typed endpoint; "" leaves it empty, and an
-	// empty answer then refuses the preset (OpenAI-compatible).
+	// APIBaseDefault prefills a typed endpoint; "" leaves it empty.
 	APIBaseDefault string
+	// APIBaseExample is the address the field offers as its placeholder when
+	// nothing is prefilled: one endpoint of the many the preset covers.
+	APIBaseExample string
+	// CommandTyped says the provider is a program this machine runs, not an
+	// address: the preset writes providers[].acp.command instead of api_base
+	// and api_key, and the agent behind it signs itself in.
+	CommandTyped bool
+	// CommandExample is the placeholder of that command field.
+	CommandExample string
 	// Multimodal is what models[].multimodal gets for a model no catalog
 	// describes.
 	Multimodal bool
@@ -72,7 +80,8 @@ var (
 // Presets is the catalog, in the order the pickers offer it: the sign-ins
 // that need no key first, NeuralDeep at the head as the one a picker opens
 // on, then the two big key providers, the two account sign-ins, and last the
-// endpoints an operator brings themselves.
+// two an operator brings themselves - any OpenAI-compatible endpoint, Ollama
+// and LM Studio among them, and an ACP agent this machine runs.
 var Presets = []Preset{
 	{
 		ID:               "neuraldeep",
@@ -134,25 +143,25 @@ var Presets = []Preset{
 		EnvKey:       "DEVIN_API_KEY",
 	},
 	{
-		ID:             "ollama",
-		Label:          "Ollama",
-		Description:    "Local models through an OpenAI-compatible API",
-		ProviderName:   "local",
+		ID:             "compatible",
+		Label:          "OpenAI-compatible",
+		Description:    "Ollama, LM Studio, DeepSeek, Groq or any endpoint of your own",
+		ProviderName:   "custom",
 		ProviderType:   "openai",
 		APIBaseTyped:   true,
-		APIBaseDefault: "http://127.0.0.1:11434/v1",
+		APIBaseExample: "http://127.0.0.1:11434/v1",
 		Multimodal:     true,
-		DefaultModel:   "local/llama3.2",
+		DefaultModel:   "custom/gpt-4o",
 	},
 	{
-		ID:           "compatible",
-		Label:        "OpenAI-compatible",
-		Description:  "DeepSeek, Groq, Together or a custom endpoint",
-		ProviderName: "custom",
-		ProviderType: "openai",
-		APIBaseTyped: true,
-		Multimodal:   true,
-		DefaultModel: "custom/gpt-4o",
+		ID:             "acp",
+		Label:          "ACP agent",
+		Description:    "An agent of your own on this machine: Claude Code, Codex, Gemini",
+		ProviderName:   "acp",
+		ProviderType:   "acp",
+		CommandTyped:   true,
+		CommandExample: "claude-code-acp",
+		DefaultModel:   "acp/default",
 	},
 }
 

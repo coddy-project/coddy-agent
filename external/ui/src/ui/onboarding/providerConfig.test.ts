@@ -20,8 +20,8 @@ describe("PROVIDER_PRESETS", () => {
       "anthropic",
       "codex",
       "devin",
-      "ollama",
       "compatible",
+      "acp",
     ]);
   });
 });
@@ -110,13 +110,13 @@ describe("buildOnboardingConfig", () => {
     );
   });
 
-  it("saves Ollama keyless on its local endpoint", () => {
+  it("saves a local endpoint keyless, which is how Ollama is set up", () => {
     const doc = buildOnboardingConfig({
-      preset: preset("ollama"),
+      preset: preset("compatible"),
       apiKey: "",
       apiBase: "http://127.0.0.1:11434/v1",
       proxy: "",
-      modelId: "",
+      modelId: "llama3.2",
       baseDoc: {},
       catalog: [],
       managedLogin: false,
@@ -128,13 +128,58 @@ describe("buildOnboardingConfig", () => {
     expect(provider.api_base).toBe("http://127.0.0.1:11434/v1");
     expect(doc.models).toEqual([
       expect.objectContaining({
-        model: "local/llama3.2",
+        model: "custom/llama3.2",
         temperature: 0.2,
       }),
     ]);
     expect(
       (doc.models as Record<string, unknown>[])[0]!.reasoning_default,
     ).toBeUndefined();
+  });
+
+  it("saves an ACP agent as its command and nothing else", () => {
+    const doc = buildOnboardingConfig({
+      preset: preset("acp"),
+      apiKey: "",
+      apiBase: "",
+      command: "  claude-code-acp --stdio  ",
+      proxy: "",
+      modelId: "sonnet",
+      baseDoc: {},
+      catalog: [],
+      managedLogin: false,
+    });
+    const provider = (doc.providers as Record<string, unknown>[])[0]!;
+    expect(provider).toEqual({
+      name: "acp",
+      type: "acp",
+      acp: { command: "claude-code-acp", args: ["--stdio"] },
+    });
+    expect(doc.agent).toEqual(expect.objectContaining({ model: "acp/sonnet" }));
+  });
+
+  it("keeps the command of a configured ACP row when none is typed", () => {
+    const doc = buildOnboardingConfig({
+      preset: preset("acp"),
+      apiKey: "",
+      apiBase: "",
+      command: "   ",
+      proxy: "",
+      modelId: "sonnet",
+      baseDoc: {
+        providers: [
+          {
+            name: "acp",
+            type: "acp",
+            acp: { command: "gemini", args: ["--acp"] },
+          },
+        ],
+      },
+      catalog: [],
+      managedLogin: false,
+    });
+    const provider = (doc.providers as Record<string, unknown>[])[0]!;
+    expect(provider.acp).toEqual({ command: "gemini", args: ["--acp"] });
   });
 
   it("uses catalog limits and image support for the picked model", () => {

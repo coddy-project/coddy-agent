@@ -34,8 +34,51 @@ describe("the provider picker's styles", () => {
     // Both take their box from the one rule that pairs them, so the border
     // is the only thing that could make them differ in height.
     expect(stylesPartial("onboarding")).toMatch(
-      /\.provider-picker-primary,\s*\.provider-picker-secondary \{[^}]*padding: 8px 14px/,
+      /\.provider-picker-primary,\s*\.provider-picker-secondary \{[^}]*padding: 0 14px/,
     );
+  });
+
+  // A row with a button beside the field used to stand a few pixels off the
+  // row above it: the inputs were 37px, the combobox and the proxy field
+  // 34px, and the buttons beside them bare text of 19px. One variable holds
+  // every control of the form to one height.
+  it("gives every control of the form one height", () => {
+    expect(rule(".provider-picker-panel")).toContain(
+      "--onboarding-control-h: 36px",
+    );
+    for (const selector of [
+      ".provider-picker-input",
+      ".provider-picker-ghost-btn",
+      ".provider-picker-primary,\n.provider-picker-secondary",
+    ]) {
+      const body = stylesPartial("onboarding");
+      const at = body.indexOf(`\n\n${selector} {`);
+      expect(at, `${selector} opens no rule`).toBeGreaterThan(-1);
+      expect(
+        body.slice(at, body.indexOf("}", at)).replace(/\s+/g, " "),
+      ).toContain("height: var(--onboarding-control-h)");
+    }
+  });
+
+  // The reveal of the key is inside the field, so the input keeps the full
+  // width of the form instead of ending short of every other one.
+  it("puts the key's reveal inside the field", () => {
+    expect(rule(".provider-picker-secret")).toContain("position: relative");
+    const eye = rule(".provider-picker-eye");
+    expect(eye).toContain("position: absolute");
+    expect(eye).toContain("right: 0");
+    expect(eye).toContain("width: var(--onboarding-control-h)");
+    expect(rule(".provider-picker-secret .provider-picker-input")).toContain(
+      "padding-right: calc(var(--onboarding-control-h) + 2px)",
+    );
+  });
+
+  // The proxy block is one switch and one field like any other row, so it
+  // carries no frame and its input starts where the others do.
+  it("takes the frame off the proxy block", () => {
+    const body = rule(".provider-picker-proxy > .settings-row");
+    expect(body).toContain("padding: 0");
+    expect(body).toContain("border: none");
   });
 
   // One column on the phone tier, two above it: the eight cards of the
@@ -45,6 +88,9 @@ describe("the provider picker's styles", () => {
     expect(rule(".provider-picker-grid")).toContain(
       "grid-template-columns: repeat(2, minmax(0, 1fr))",
     );
+    // A card whose description wraps must not make its row taller than the
+    // others.
+    expect(rule(".provider-picker-grid")).toContain("grid-auto-rows: 1fr");
     expect(css).toMatch(
       /@media \(max-width: 599px\)[\s\S]*?\.provider-picker-grid \{[^}]*grid-template-columns: 1fr/,
     );

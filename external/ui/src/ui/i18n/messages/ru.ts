@@ -1055,10 +1055,10 @@ export const messagesRu: Record<string, string> = {
   "onboarding.close": "Закрыть онбординг",
   "onboarding.provider.openai.description": "Модели GPT и API OpenAI",
   "onboarding.provider.anthropic.description": "Модели Claude",
-  "onboarding.provider.ollama.description":
-    "Локальные модели через OpenAI-совместимый API",
   "onboarding.provider.compatible.description":
-    "DeepSeek, Groq, Together или свой endpoint",
+    "Ollama, LM Studio, DeepSeek, Groq или свой эндпоинт",
+  "onboarding.provider.acp.description":
+    "Свой агент на этой машине: Claude Code, Codex, Gemini",
   "onboarding.provider.neuraldeep.description":
     "Ключ API или вход в аккаунт на любом хабе",
   "onboarding.provider.codex.description": "Ваша подписка ChatGPT через OAuth",
@@ -1070,6 +1070,11 @@ export const messagesRu: Record<string, string> = {
   "onboarding.showKey": "Показать",
   "onboarding.hideKey": "Скрыть",
   "onboarding.apiBase": "Базовый URL API",
+  "onboarding.command": "Команда",
+  "onboarding.commandHint":
+    "Программа на этой машине, которая говорит по ACP, вместе с аргументами. Она входит в аккаунт сама, Coddy не хранит для неё ключ.",
+  "onboarding.commandRequired":
+    "Введите команду, прежде чем проверять или сохранять этого агента.",
   "onboarding.apiBaseRequired":
     "Введите базовый URL API, прежде чем проверять или сохранять этого провайдера.",
   "onboarding.proxy": "URL прокси",

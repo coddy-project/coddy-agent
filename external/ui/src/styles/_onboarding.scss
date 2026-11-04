@@ -15,6 +15,10 @@
 }
 
 .provider-picker-panel {
+  // Every control of the dialog stands this tall, so a row with a button
+  // beside it does not sit a few pixels off the row above, and the actions
+  // at the foot match the fields over them.
+  --onboarding-control-h: 36px;
   position: relative;
   z-index: 1;
   pointer-events: auto;
@@ -43,6 +47,9 @@
 .provider-picker-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  // One height for every card, whatever its description wraps to: a grid
+  // whose last row is taller than the rest reads as a mistake.
+  grid-auto-rows: 1fr;
   gap: 10px;
   margin-bottom: 16px;
 }
@@ -101,11 +108,49 @@
 .provider-picker-input {
   font: inherit;
   font-size: 14px;
+  box-sizing: border-box;
+  height: var(--onboarding-control-h);
   border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
   background: var(--coddy-surface-field);
-  padding: 8px 10px;
+  padding: 0 10px;
   color: inherit;
+}
+
+// The reveal of a secret field sits inside the field, so the input keeps the
+// full width of the form and its right edge lines up with every other one.
+.provider-picker-secret {
+  position: relative;
+  display: flex;
+}
+
+.provider-picker-secret .provider-picker-input {
+  flex: 1;
+  min-width: 0;
+  padding-right: calc(var(--onboarding-control-h) + 2px);
+}
+
+.provider-picker-eye {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--onboarding-control-h);
+  height: var(--onboarding-control-h);
+  padding: 0;
+  border: none;
+  border-radius: 0 10px 10px 0;
+  background: transparent;
+  color: inherit;
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+.provider-picker-eye:hover,
+.provider-picker-eye:focus-visible {
+  opacity: 1;
 }
 
 .provider-picker-key-row {
@@ -122,23 +167,55 @@
 
 .provider-picker-key-row .settings-combobox-input {
   font-size: 14px;
+  box-sizing: border-box;
+  height: var(--onboarding-control-h);
   border-radius: 10px;
   background: var(--coddy-surface-field);
+}
+
+// The proxy block is one switch and one field, like any other row of the
+// form, so it carries no frame of its own and its input starts where the
+// others do.
+.provider-picker-proxy > .settings-row {
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.provider-picker-proxy .settings-input,
+.provider-picker-proxy input[type="text"] {
+  box-sizing: border-box;
+  height: var(--onboarding-control-h);
 }
 
 .provider-picker-form .settings-combobox-list {
   max-height: 200px;
 }
 
+// A button standing beside a field is a control of the same height, framed
+// like the field, not a line of text floating next to it.
 .provider-picker-ghost-btn {
   font: inherit;
-  font-size: 12px;
-  border: none;
+  font-size: 13px;
+  box-sizing: border-box;
+  height: var(--onboarding-control-h);
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  border-radius: 10px;
   background: transparent;
   color: inherit;
   opacity: 0.85;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.provider-picker-ghost-btn:hover:not(:disabled) {
+  opacity: 1;
+}
+
+.provider-picker-ghost-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .provider-picker-hint {
@@ -167,8 +244,10 @@
 .provider-picker-secondary {
   font: inherit;
   font-size: 13px;
+  box-sizing: border-box;
+  height: var(--onboarding-control-h);
   border-radius: 10px;
-  padding: 8px 14px;
+  padding: 0 14px;
   cursor: pointer;
 }
 

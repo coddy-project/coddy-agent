@@ -241,6 +241,62 @@ func TestProviderSetupTakesMultimodalFromTheCatalog(t *testing.T) {
 	}
 }
 
+// An ACP agent is a program this machine runs: the row carries its command
+// and its arguments, and neither a key nor an endpoint is written for it.
+func TestProviderSetupWritesAnACPRowAsItsCommand(t *testing.T) {
+	cfg := &config.Config{}
+	run := &providerSetupRun{preset: preset(t, "acp"), command: "  claude-code-acp --stdio  "}
+	cmds, added := providerSetupCommands(cfg, run, "acp/sonnet", nil)
+	row, ok := valueAt(cmds, "providers[name=acp]")
+	if !ok {
+		t.Fatalf("no provider row staged: %v", paths(cmds))
+	}
+	for _, want := range []string{`"type":"acp"`, `"command":"claude-code-acp"`, `"args":["--stdio"]`} {
+		if !strings.Contains(row, want) {
+			t.Errorf("the staged row %s lacks %s", row, want)
+		}
+	}
+	for _, unwanted := range []string{"api_key", "api_base"} {
+		if strings.Contains(row, unwanted) {
+			t.Errorf("the staged row %s carries %s, which an ACP agent has no use for", row, unwanted)
+		}
+	}
+	if !slices.Contains(added, "provider acp") {
+		t.Fatalf("what was added is not reported: %v", added)
+	}
+
+	// A configured agent that already runs that command is left alone.
+	cfg = &config.Config{Providers: []config.ProviderConfig{{
+		Name: "acp", Type: "acp",
+		ACP: &config.ACPProviderConfig{Command: "claude-code-acp", Args: []string{"--stdio"}},
+	}}}
+	cmds, _ = providerSetupCommands(cfg, run, "acp/sonnet", nil)
+	for _, p := range paths(cmds) {
+		if strings.HasPrefix(p, "set providers[name=acp]") {
+			t.Fatalf("an unchanged command was staged again: %v", paths(cmds))
+		}
+	}
+
+	// A different command moves only the acp block.
+	run = &providerSetupRun{preset: preset(t, "acp"), command: "gemini --experimental-acp"}
+	cmds, _ = providerSetupCommands(cfg, run, "acp/sonnet", nil)
+	if v, ok := valueAt(cmds, "providers[name=acp].acp"); !ok || !strings.Contains(v, `"command":"gemini"`) {
+		t.Fatalf("the new command is not staged on its own path: %v", paths(cmds))
+	}
+}
+
+// The probe of an ACP agent is the command it runs, before any row exists.
+func TestProviderListInputCarriesTheACPCommand(t *testing.T) {
+	in := providerListInput(context.Background(), &config.Config{},
+		&providerSetupRun{preset: preset(t, "acp"), command: "claude-code-acp --stdio"})
+	if in.Type != "acp" || in.ACP == nil || in.ACP.Command != "claude-code-acp" {
+		t.Fatalf("the listing does not carry the command: %+v", in)
+	}
+	if len(in.ACP.Args) != 1 || in.ACP.Args[0] != "--stdio" {
+		t.Fatalf("the arguments were lost: %+v", in.ACP)
+	}
+}
+
 // The listing of a provider's models is the one step of the setup with no
 // modal on screen. A permission or question modal that opens meanwhile keeps
 // the screen: taking it would leave its asker waiting for an answer nobody

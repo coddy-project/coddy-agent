@@ -170,8 +170,8 @@ describe("ProviderPickerDialog", () => {
       "provider-card-anthropic",
       "provider-card-codex",
       "provider-card-devin",
-      "provider-card-ollama",
       "provider-card-compatible",
+      "provider-card-acp",
     ]);
     expect(
       screen

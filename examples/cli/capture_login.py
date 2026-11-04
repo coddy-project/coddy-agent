@@ -34,7 +34,7 @@ capture.COLS = COLS
 NAME = "login-signed-in-dark-1280"
 PICKER_NAME = "login-provider-picker-dark-1280"
 # Every row of the picker, in the order it offers them.
-PICKER_ROWS = ["NeuralDeep", "OpenCode", "OpenAI", "Anthropic", "Codex", "Devin", "Ollama", "OpenAI-compatible"]
+PICKER_ROWS = ["NeuralDeep", "OpenCode", "OpenAI", "Anthropic", "Codex", "Devin", "OpenAI-compatible", "ACP agent"]
 CODE = "BCDF-GHJK"
 # The address the real hub sends a person to; the stand-in only names it.
 PAGE = "https://hub.neuraldeep.ru/app/device?code=" + CODE

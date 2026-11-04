@@ -17,6 +17,31 @@ import {
   type ProviderPresetId,
 } from "./providerConfig";
 
+/** EyeIcon is the reveal control of a secret field: an open eye while the
+ * value is on screen, the same eye struck through while it is hidden. The
+ * ink is centred in the viewBox, so it does not move with the platform's
+ * font the way a text glyph would. */
+function EyeIcon({ off }: { off: boolean }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M1.5 8S3.9 3.6 8 3.6 14.5 8 14.5 8 12.1 12.4 8 12.4 1.5 8 1.5 8Z" />
+      <circle cx="8" cy="8" r="2.1" />
+      {off ? <path d="M2.6 2.6 13.4 13.4" /> : null}
+    </svg>
+  );
+}
+
 export function ProviderPickerDialog(props: {
   open: boolean;
   onSaved: () => void;
@@ -30,6 +55,7 @@ export function ProviderPickerDialog(props: {
   );
   const [apiKey, setApiKey] = useState("");
   const [apiBase, setApiBase] = useState("");
+  const [command, setCommand] = useState("");
   const [proxy, setProxy] = useState("");
   const [modelId, setModelId] = useState("");
   const [showKey, setShowKey] = useState(false);
@@ -59,27 +85,40 @@ export function ProviderPickerDialog(props: {
   );
   const effectiveApiBase = apiBase.trim() || preset.apiBase || "";
   // The compatible preset has no endpoint of its own: without a typed api_base
-  // the row would save keyless with no destination, so Test and Save wait.
+  // the row would save keyless with no destination, so Test and Save wait. An
+  // ACP row is its command the same way.
   const apiBaseMissing = preset.id === "compatible" && !effectiveApiBase;
+  const commandMissing = preset.commandTyped === true && !command.trim();
+  const incomplete = apiBaseMissing || commandMissing;
   const keyless =
     preset.providerType === "codex" ||
+    // An ACP agent is a program this machine runs and signs itself in; the
+    // row carries its command, never a key.
+    preset.commandTyped === true ||
     (managedLogin &&
       !apiKey.trim() &&
       ["neuraldeep", "opencode", "devin"].includes(preset.providerType));
-  const providerRow = useMemo(
-    () => ({
+  const providerRow = useMemo(() => {
+    const words = command.trim().split(/\s+/).filter(Boolean);
+    return {
       name: preset.providerName,
       type: preset.providerType,
       api_base:
-        preset.providerType === "codex" || preset.providerType === "devin"
+        preset.commandTyped ||
+        preset.providerType === "codex" ||
+        preset.providerType === "devin"
           ? ""
           : effectiveApiBase,
       api_key: keyless ? "" : apiKey,
       api_key_command: "",
       proxy,
-    }),
-    [apiKey, effectiveApiBase, keyless, preset, proxy],
-  );
+      // An ACP agent is listed by starting it, so the probe needs the
+      // command even before the row is saved.
+      ...(preset.commandTyped && words.length > 0
+        ? { acp: { command: words[0], args: words.slice(1) } }
+        : {}),
+    };
+  }, [apiKey, command, effectiveApiBase, keyless, preset, proxy]);
   const pickedModel = useMemo(
     () => catalogEntry(preset, modelId, fetchedModels),
     [preset, modelId, fetchedModels],
@@ -123,6 +162,7 @@ export function ProviderPickerDialog(props: {
     setManagedLogin(false);
     setApiBase(preset.apiBase || "");
     setApiKey("");
+    setCommand("");
     setModelId(
       ["neuraldeep", "codex", "opencode", "devin"].includes(preset.id)
         ? preset.defaultModel
@@ -170,6 +210,7 @@ export function ProviderPickerDialog(props: {
           preset,
           apiKey,
           apiBase: effectiveApiBase,
+          command,
           proxy,
           modelId,
           baseDoc: base,
@@ -229,6 +270,7 @@ export function ProviderPickerDialog(props: {
   }, [
     apiKey,
     baseDoc,
+    command,
     effectiveApiBase,
     fetchedModels,
     loadBaseDoc,
@@ -306,7 +348,7 @@ export function ProviderPickerDialog(props: {
             </label>
           ) : null}
 
-          {selected === "codex" ? (
+          {preset.commandTyped ? null : selected === "codex" ? (
             <CodexAuthField
               providerName={preset.providerName}
               proxy={proxy}
@@ -319,7 +361,7 @@ export function ProviderPickerDialog(props: {
           ) : (
             <label className="provider-picker-field">
               <span>{t("onboarding.apiKey")}</span>
-              <div className="provider-picker-key-row">
+              <div className="provider-picker-secret">
                 <input
                   className="provider-picker-input"
                   type={showKey ? "text" : "password"}
@@ -334,10 +376,18 @@ export function ProviderPickerDialog(props: {
                 />
                 <button
                   type="button"
-                  className="provider-picker-ghost-btn"
+                  className="provider-picker-eye"
                   onClick={() => setShowKey((value) => !value)}
+                  aria-label={
+                    showKey ? t("onboarding.hideKey") : t("onboarding.showKey")
+                  }
+                  title={
+                    showKey ? t("onboarding.hideKey") : t("onboarding.showKey")
+                  }
+                  aria-pressed={showKey}
+                  data-testid="provider-key-reveal"
                 >
-                  {showKey ? t("onboarding.hideKey") : t("onboarding.showKey")}
+                  <EyeIcon off={!showKey} />
                 </button>
               </div>
             </label>
@@ -384,14 +434,39 @@ export function ProviderPickerDialog(props: {
             />
           ) : null}
 
-          {selected === "compatible" || selected === "ollama" ? (
+          {preset.commandTyped ? (
+            <label className="provider-picker-field">
+              <span>{t("onboarding.command")}</span>
+              <input
+                className="provider-picker-input"
+                value={command}
+                onChange={(event) => {
+                  setCommand(event.target.value);
+                  setTestOk(false);
+                }}
+                placeholder={preset.commandExample}
+                autoComplete="off"
+                spellCheck={false}
+                data-testid="provider-command"
+              />
+              <span className="provider-picker-hint">
+                {commandMissing
+                  ? t("onboarding.commandRequired")
+                  : t("onboarding.commandHint")}
+              </span>
+            </label>
+          ) : null}
+
+          {selected === "compatible" ? (
             <label className="provider-picker-field">
               <span>{t("onboarding.apiBase")}</span>
               <input
                 className="provider-picker-input"
                 value={apiBase}
                 onChange={(event) => setApiBase(event.target.value)}
-                placeholder="https://api.example.com/v1"
+                placeholder={
+                  preset.apiBaseExample || "https://api.example.com/v1"
+                }
                 data-testid="provider-api-base"
               />
               {apiBaseMissing ? (
@@ -440,7 +515,7 @@ export function ProviderPickerDialog(props: {
                 type="button"
                 className="provider-picker-ghost-btn"
                 onClick={() => void testConnection()}
-                disabled={busy || modelsLoading || apiBaseMissing}
+                disabled={busy || modelsLoading || incomplete}
                 data-testid="provider-fetch-models"
               >
                 {modelsLoading
@@ -496,7 +571,7 @@ export function ProviderPickerDialog(props: {
             type="button"
             className="provider-picker-secondary"
             onClick={() => void testConnection()}
-            disabled={busy || modelsLoading || apiBaseMissing}
+            disabled={busy || modelsLoading || incomplete}
             data-testid="provider-test"
           >
             {t("onboarding.test")}
@@ -505,7 +580,7 @@ export function ProviderPickerDialog(props: {
             type="button"
             className="provider-picker-primary"
             onClick={() => void save()}
-            disabled={busy || apiBaseMissing}
+            disabled={busy || incomplete}
             data-testid="provider-save"
           >
             {t("onboarding.save")}
