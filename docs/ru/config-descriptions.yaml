@@ -554,6 +554,9 @@ httpserver.login.user:
 httpserver.login.password_hash:
   en: "argon2id hash of the password in PHC form (\"$argon2id$v=19$m=...$...\"), written by `coddy serve set-password`. Never echoed back by GET /coddy/config, and a save from the settings screen preserves it. Put a plaintext password in CODDY_HTTP_PASSWORD instead of here."
   ru: "Хеш пароля argon2id в формате PHC (\"$argon2id$v=19$m=...$...\"), который записывает `coddy serve set-password`. GET /coddy/config его никогда не возвращает, а при сохранении с экрана настроек он не теряется. Пароль открытым текстом задавайте в CODDY_HTTP_PASSWORD, а не здесь."
+httpserver.login.totp_secret:
+  en: "Base32 secret of the one-time codes asked for after the password (TOTP: an authenticator app such as Google Authenticator or FreeOTP). Written by `coddy serve set-totp`, which shows it as a QR code; empty means the password alone signs in, and `coddy serve set-totp --disable` empties it. Never echoed back by GET /coddy/config, and a save from the settings screen preserves it."
+  ru: "Секрет одноразовых кодов в base32, которые форма входа спрашивает после пароля (TOTP: приложение-аутентификатор вроде Google Authenticator или FreeOTP). Его записывает `coddy serve set-totp` и показывает QR-кодом; пустое значение значит, что для входа достаточно пароля, а `coddy serve set-totp --disable` его очищает. GET /coddy/config его никогда не возвращает, а при сохранении с экрана настроек он не теряется."
 httpserver.login.session_ttl_hours:
   en: "How long a browser stays signed in. 0 means the cookie is dropped when the browser closes; the server still expires the session itself after 30 days, because a record it keeps forever is not a session."
   ru: "Сколько времени действует вход в браузере. 0 означает, что cookie удаляется при закрытии браузера; сервер всё равно сам завершает сессию через 30 дней, потому что запись, которую он хранит вечно, уже не сессия."

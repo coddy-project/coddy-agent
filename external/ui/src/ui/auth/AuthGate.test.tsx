@@ -229,6 +229,92 @@ describe("SignInScreen", () => {
     expect(screen.queryByTestId("the-app")).not.toBeInTheDocument();
   });
 
+  it("asks for the authenticator code when the server wants one and sends it", async () => {
+    const reload = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...window.location, reload },
+    });
+    let signedIn = false;
+    respond = (url) => {
+      if (url === "/coddy/auth/login") {
+        signedIn = true;
+        return jsonResponse(200, { ok: true, user: "operator" });
+      }
+      return jsonResponse(200, {
+        login_required: true,
+        second_factor: "totp",
+        authenticated: signedIn,
+      });
+    };
+    renderGate();
+    await screen.findByTestId("sign-in-screen");
+
+    const code = screen.getByLabelText("Code from the authenticator app");
+    expect(code).toHaveAttribute("autocomplete", "one-time-code");
+    expect(code).toHaveAttribute("inputmode", "numeric");
+    fireEvent.change(screen.getByLabelText("User"), {
+      target: { value: "operator" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct-horse" },
+    });
+    // The password alone is not a complete form.
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeDisabled();
+    fireEvent.change(code, { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    await waitFor(() => expect(reload).toHaveBeenCalled());
+    const post = seen.find((s) => s.url === "/coddy/auth/login");
+    expect(post?.body).toBe(
+      JSON.stringify({
+        user: "operator",
+        password: "correct-horse",
+        code: "123456",
+      }),
+    );
+  });
+
+  it("shows no code field to a server that asks for none", async () => {
+    respond = () =>
+      jsonResponse(200, { login_required: true, authenticated: false });
+    renderGate();
+    await screen.findByTestId("sign-in-screen");
+    expect(screen.queryByTestId("sign-in-code")).not.toBeInTheDocument();
+  });
+
+  it("clears the password and the code after a refusal and names the code", async () => {
+    respond = (url) => {
+      if (url === "/coddy/auth/login") {
+        return jsonResponse(401, {
+          error: "invalid credentials",
+          second_factor: "totp",
+        });
+      }
+      return jsonResponse(200, {
+        login_required: true,
+        second_factor: "totp",
+        authenticated: false,
+      });
+    };
+    renderGate();
+    await screen.findByTestId("sign-in-screen");
+    fireEvent.change(screen.getByLabelText("User"), {
+      target: { value: "operator" },
+    });
+    const password = screen.getByLabelText("Password");
+    const code = screen.getByLabelText("Code from the authenticator app");
+    fireEvent.change(password, { target: { value: "correct-horse" } });
+    fireEvent.change(code, { target: { value: "000000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Wrong user, password or code.",
+    );
+    expect(password).toHaveValue("");
+    expect(code).toHaveValue("");
+  });
+
   it("names the misconfiguration when the form has no account behind it", async () => {
     respond = (url) => {
       if (url === "/coddy/auth/login") {

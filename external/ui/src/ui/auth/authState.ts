@@ -20,6 +20,11 @@ export type AuthState = {
   /** The signed-in account, when there is one. */
   user: string;
   /**
+   * The form also asks for a one-time code from an authenticator app
+   * (`coddy serve set-totp`); empty when the password alone signs in.
+   */
+  secondFactor: "" | "totp";
+  /**
    * The page was opened as the Telegram bot's Mini App by somebody who is not
    * one of the bot's admins: the server refused the launch data, and only
    * the bot's admins open Coddy from the chat.
@@ -44,6 +49,7 @@ const initial: AuthState = {
   authRequired: false,
   authenticated: false,
   user: "",
+  secondFactor: "",
   telegramRefused: false,
   telegramProblem: "",
   loaded: false,
@@ -84,6 +90,7 @@ type AuthMeResponse = {
   auth_required?: boolean;
   authenticated?: boolean;
   user?: string;
+  second_factor?: string;
   telegram_login?: boolean;
   browser_login?: boolean;
 };
@@ -224,6 +231,7 @@ async function askAuthMe(): Promise<{
           authRequired: body.auth_required === true,
           authenticated: body.authenticated === true,
           user: typeof body.user === "string" ? body.user : "",
+          secondFactor: body.second_factor === "totp" ? "totp" : "",
           telegramRefused: false,
           telegramProblem: "",
           loaded: true,
@@ -244,10 +252,15 @@ async function askAuthMe(): Promise<{
 
 export type SignInResult = { ok: boolean; status: number; error?: string };
 
-/** signIn posts the form. The cookie, when there is one, is set by the server. */
+/**
+ * signIn posts the form. The cookie, when there is one, is set by the server.
+ * `code` is the one-time code of the authenticator app, sent only when the
+ * server asks for one.
+ */
 export async function signIn(
   user: string,
   password: string,
+  code?: string,
 ): Promise<SignInResult> {
   let res: Response;
   try {
@@ -257,7 +270,9 @@ export async function signIn(
         "Content-Type": "application/json",
         Accept: "application/json",
       },
-      body: JSON.stringify({ user, password }),
+      body: JSON.stringify(
+        code === undefined ? { user, password } : { user, password, code },
+      ),
     });
   } catch (e) {
     return { ok: false, status: 0, error: e instanceof Error ? e.message : "" };

@@ -371,14 +371,15 @@ type HTTPServerJSON struct {
 	Remotes         []HTTPRemoteJSON `json:"remotes,omitempty"`
 }
 
-// HTTPLoginJSON mirrors HTTPLoginConfig. PasswordHash is write-only: reading
-// the config never returns it, and writing the config back without it keeps the
-// hash that is already on disk.
+// HTTPLoginJSON mirrors HTTPLoginConfig. PasswordHash and TOTPSecret are
+// write-only: reading the config never returns them, and writing the config
+// back without them keeps what is already on disk.
 type HTTPLoginJSON struct {
 	Enabled         *bool  `json:"enable,omitempty"`
 	Mode            string `json:"mode,omitempty"`
 	User            string `json:"user,omitempty"`
 	PasswordHash    string `json:"password_hash,omitempty"`
+	TOTPSecret      string `json:"totp_secret,omitempty"`
 	SessionTTLHours int    `json:"session_ttl_hours,omitempty"`
 }
 
@@ -649,7 +650,8 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			Enabled: cloneBoolPtr(c.HTTPServer.Login.Enabled),
 			Mode:    c.HTTPServer.Login.Mode,
 			User:    c.HTTPServer.Login.User,
-			// PasswordHash is redacted for the same reason the token is.
+			// PasswordHash and TOTPSecret are redacted for the same reason
+			// the token is.
 			SessionTTLHours: c.HTTPServer.Login.SessionTTLHours,
 		},
 		// An account behind a switched-off form is not a configured sign-in:
@@ -908,6 +910,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			Mode:            j.HTTPServer.Login.Mode,
 			User:            j.HTTPServer.Login.User,
 			PasswordHash:    j.HTTPServer.Login.PasswordHash,
+			TOTPSecret:      j.HTTPServer.Login.TOTPSecret,
 			SessionTTLHours: j.HTTPServer.Login.SessionTTLHours,
 		},
 		PublicDocs:    j.HTTPServer.PublicDocs,
@@ -1114,6 +1117,12 @@ func preserveRedactedSecrets(next, current *Config) {
 	// lock the operator out of the page they were saving from.
 	if strings.TrimSpace(next.HTTPServer.Login.PasswordHash) == "" && strings.TrimSpace(current.HTTPServer.Login.PasswordHash) != "" {
 		next.HTTPServer.Login.PasswordHash = current.HTTPServer.Login.PasswordHash
+	}
+	// The one-time code secret is write-only too, and only `coddy serve
+	// set-totp` turns it off: a settings save that dropped it would quietly
+	// take the second factor away from the account.
+	if strings.TrimSpace(next.HTTPServer.Login.TOTPSecret) == "" && strings.TrimSpace(current.HTTPServer.Login.TOTPSecret) != "" {
+		next.HTTPServer.Login.TOTPSecret = current.HTTPServer.Login.TOTPSecret
 	}
 	preserveSwarmSecrets(&next.Swarm, &current.Swarm)
 	if strings.TrimSpace(next.Browser.Token) == "" {

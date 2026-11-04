@@ -518,6 +518,7 @@ func initializeLoginScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the model list includes profiles "([^"]+)"$`, s.modelListIncludes)
 	sc.Step(`^the config response hides the password hash$`, s.configHidesPasswordHash)
 	sc.Step(`^the config response reports the login source "([^"]+)"$`, s.configReportsLoginSource)
+	registerLoginTOTPSteps(sc, s)
 }
 
 func TestWebUILoginFeature(t *testing.T) {

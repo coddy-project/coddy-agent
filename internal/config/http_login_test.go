@@ -102,10 +102,15 @@ func TestHTTPLoginValidation(t *testing.T) {
 		{name: "plaintext hash", login: config.HTTPLoginConfig{PasswordHash: "hunter2"}, wantErr: "argon2id"},
 		{name: "bcrypt hash", login: config.HTTPLoginConfig{PasswordHash: "$2y$10$abcdefghij"}, wantErr: "argon2id"},
 		{name: "real hash", login: config.HTTPLoginConfig{User: "operator", PasswordHash: good}},
+		{name: "totp secret", login: config.HTTPLoginConfig{User: "operator", PasswordHash: good, TOTPSecret: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"}},
+		{name: "totp secret in groups", login: config.HTTPLoginConfig{TOTPSecret: "jbsw y3dp ehpk 3pxp"}},
+		{name: "totp secret not base32", login: config.HTTPLoginConfig{TOTPSecret: "not-a-secret!1"}, wantErr: "totp_secret"},
+		{name: "totp secret too short", login: config.HTTPLoginConfig{TOTPSecret: "GEZDGNBV"}, wantErr: "totp_secret"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			h := config.HTTPServerConfig{Login: tc.login}
+			h.Normalize()
 			err := h.Validate()
 			if tc.wantErr == "" {
 				if err != nil {
@@ -285,5 +290,33 @@ func TestHTTPLoginHashFromEnvReferenceSurvivesReload(t *testing.T) {
 	cfg := writeLoginConfig(t, "httpserver:\n  login:\n    enable: true\n    user: operator\n    password_hash: \"${CODDY_TEST_LOGIN_HASH}\"\n")
 	if got := cfg.HTTPServer.Login.PasswordHash; got != hash {
 		t.Fatalf("password_hash did not expand ${ENV}: %q", got)
+	}
+}
+
+func TestHTTPLoginTOTPSecretRedactedAndPreserved(t *testing.T) {
+	hash := loginHash(t, "pw")
+	const secret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+	cur := writeLoginConfig(t, "httpserver:\n  login:\n    user: operator\n    password_hash: \""+yamlHash(hash)+"\"\n    totp_secret: \""+secret+"\"\n")
+	if !cur.HTTPServer.Login.HasTOTP() {
+		t.Fatal("totp_secret was not read from the file")
+	}
+	dto := config.ConfigToJSONDTO(cur)
+	raw, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dto.HTTPServer.Login.TOTPSecret != "" || strings.Contains(string(raw), secret) {
+		t.Fatalf("GET /coddy/config must not expose totp_secret: %s", raw)
+	}
+	body := `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"openai/gpt-4o","max_tokens":1024,"temperature":0.2}],` +
+		`"agent":{"model":"openai/gpt-4o"},` +
+		`"httpserver":{"login":{"user":"operator"}}}`
+	next, err := config.ParseConfigJSONPreservingSecrets([]byte(body), cur.Paths, cur)
+	if err != nil {
+		t.Fatalf("preserve parse: %v", err)
+	}
+	if next.HTTPServer.Login.TOTPSecret != secret {
+		t.Fatalf("totp_secret not preserved across a redacted save: %q", next.HTTPServer.Login.TOTPSecret)
 	}
 }

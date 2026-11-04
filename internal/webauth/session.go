@@ -191,3 +191,16 @@ func CredentialFingerprint(user, hash string) string {
 	sum := sha256.Sum256([]byte(user + "\x00" + hash))
 	return hex.EncodeToString(sum[:8])
 }
+
+// AccountFingerprint is CredentialFingerprint with the account's second factor
+// folded in: turning one-time codes on, rotating their secret or turning them
+// off ends the sessions the account opened before, the way a new password
+// does. With no secret it is CredentialFingerprint itself, so a server that
+// never used codes keeps every session across the upgrade.
+func AccountFingerprint(user, hash, totpSecret string) string {
+	totpSecret = NormalizeTOTPSecret(totpSecret)
+	if totpSecret == "" {
+		return CredentialFingerprint(user, hash)
+	}
+	return CredentialFingerprint(user, hash+"\x00totp\x00"+totpSecret)
+}

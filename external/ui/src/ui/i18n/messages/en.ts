@@ -72,6 +72,9 @@ export const messagesEn: Record<string, string> = {
   "auth.signIn.submit": "Sign in",
   "auth.signIn.working": "Signing in\u2026",
   "auth.signIn.invalid": "Wrong user or password.",
+  "auth.signIn.code": "Code from the authenticator app",
+  "auth.signIn.invalidWithCode":
+    "Wrong user, password or code. A code works once: wait for the next one.",
   "auth.signIn.unreachable": "The server did not answer. Is it still running?",
   "auth.signIn.noAccount":
     "Sign-in is switched on but no account is configured. Run `coddy serve set-password` on the server.",
