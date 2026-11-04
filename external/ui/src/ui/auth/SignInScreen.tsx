@@ -27,6 +27,7 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
     : wordmarkDark;
   const [user, setUser] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   // The server took the password, but the session it set did not come back.
@@ -39,6 +40,9 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
       ? t("auth.signIn.telegramRetry")
       : "";
   const telegramNotKept = auth.telegramProblem === "not_kept";
+  // The server asks for the six digits of an authenticator app after the
+  // password (`coddy serve set-totp`).
+  const needsCode = auth.secondFactor === "totp";
 
   const submit = async (ev: React.FormEvent) => {
     ev.preventDefault();
@@ -48,7 +52,9 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
     setBusy(true);
     setError("");
     setNotKept(false);
-    const res = await signIn(user, password);
+    const res = needsCode
+      ? await signIn(user, password, code)
+      : await signIn(user, password);
     if (res.ok) {
       // signIn has asked the server again. A browser that does not send the
       // cookie back in this frame - a page embedded in another site, such as
@@ -58,6 +64,7 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
       if (after.loginRequired && !after.authenticated) {
         setBusy(false);
         setPassword("");
+        setCode("");
         setNotKept(true);
         return;
       }
@@ -73,8 +80,12 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
     }
     setBusy(false);
     setPassword("");
+    // A code is taken once, so a refused one is never worth sending again.
+    setCode("");
     if (res.status === 401) {
-      setError(t("auth.signIn.invalid"));
+      setError(
+        needsCode ? t("auth.signIn.invalidWithCode") : t("auth.signIn.invalid"),
+      );
     } else if (res.status === 0) {
       setError(t("auth.signIn.unreachable"));
     } else if (res.status === 503) {
@@ -151,6 +162,25 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
               />
             </label>
 
+            {needsCode ? (
+              <label className="auth-field">
+                <span className="auth-label">{t("auth.signIn.code")}</span>
+                <input
+                  className="auth-input"
+                  type="text"
+                  name="one-time-code"
+                  autoComplete="one-time-code"
+                  inputMode="numeric"
+                  maxLength={7}
+                  placeholder="123456"
+                  data-testid="sign-in-code"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  disabled={busy}
+                />
+              </label>
+            ) : null}
+
             {error ? (
               <p className="auth-error" role="alert">
                 {error}
@@ -173,7 +203,12 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
             <button
               className="auth-submit"
               type="submit"
-              disabled={busy || user.trim() === "" || password === ""}
+              disabled={
+                busy ||
+                user.trim() === "" ||
+                password === "" ||
+                (needsCode && code.trim() === "")
+              }
             >
               {busy ? t("auth.signIn.working") : t("auth.signIn.submit")}
             </button>

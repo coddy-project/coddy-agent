@@ -39,7 +39,7 @@ import (
 // a line of YAML.
 // serveVerbList names the verbs runServe dispatches on, for the error that
 // refuses a word it does not know.
-const serveVerbList = "install, uninstall, status, stop, restart, set-password"
+const serveVerbList = "install, uninstall, status, stop, restart, set-password, set-totp"
 
 func runServe(args []string) error {
 	// The control verbs come before the flag set, because they are about a
@@ -58,6 +58,8 @@ func runServe(args []string) error {
 			return runServeRestart(args[1:])
 		case "set-password":
 			return runServeSetPassword(args[1:])
+		case "set-totp":
+			return runServeSetTOTP(args[1:])
 		}
 	}
 

@@ -98,8 +98,8 @@ way through the gate:
 
 | Route | What it does |
 |---|---|
-| **`GET /coddy/auth/me`** | `login_required`, `auth_required`, `authenticated`, and `user` / `expires_at` for a signed-in browser. The SPA calls it on boot to choose between the sign-in screen and the app. |
-| **`POST /coddy/auth/login`** | `{user, password}`. On success sets an `HttpOnly`, `SameSite=Strict` `coddy_session_<host digest>` cookie (`Secure` when the request arrived over TLS or through a proxy sending `X-Forwarded-Proto: https`), living for `session_ttl_hours`; with `0` the browser drops it on close and the server expires its own record after 30 days. The name carries a digest of the host the request was addressed to, because cookies are not scoped by port: without it two Coddy servers on one machine - a relay and the node behind it, say - would sign each other out at every login. |
+| **`GET /coddy/auth/me`** | `login_required`, `auth_required`, `authenticated`, and `user` / `expires_at` for a signed-in browser; `second_factor: "totp"` when the form also asks for a one-time code. The SPA calls it on boot to choose between the sign-in screen and the app. |
+| **`POST /coddy/auth/login`** | `{user, password}`, plus `code` when one-time codes are on. On success sets an `HttpOnly`, `SameSite=Strict` `coddy_session_<host digest>` cookie (`Secure` when the request arrived over TLS or through a proxy sending `X-Forwarded-Proto: https`), living for `session_ttl_hours`; with `0` the browser drops it on close and the server expires its own record after 30 days. The name carries a digest of the host the request was addressed to, because cookies are not scoped by port: without it two Coddy servers on one machine - a relay and the node behind it, say - would sign each other out at every login. |
 | **`POST /coddy/auth/telegram`** | `{init_data}`: the launch data of the web UI opened as the Telegram bot's Mini App. The signature is checked against the bot's token (launch data at most an hour old, each launch once). `${CODDY_HOME}/telegram-launches.json` records accepted launches across restarts. Reusing accepted launch data returns 401. A replay record storage failure returns 500 without issuing a session or cookie. A failure before the record is replaced does not mark the launch as used, so retry with the same launch data after fixing storage. If directory synchronization fails after replacement, the launch may already be marked used and remains protected against replay in memory; if a retry returns 401, open the Mini App again. Only a user in `gateways.telegram.admins` is signed in, with an HttpOnly, `SameSite=Strict` `coddy_tg_session_<host digest>` cookie that opens what the form's cookie opens, also behind a token-only gate, and ends when the token changes, the bot is disabled or the person stops being an admin. 403 for anybody else. `GET /coddy/auth/me` says `telegram_login: true` when the route is available. |
 | **`POST /coddy/auth/browser`** | `{ticket}`: the one-time ticket the side panel of [Coddy for Browser](../features/browser.md) got over its socket (`panel/open`) and loaded the web UI with. Good for one sign-in within a minute and bound to the extension key it was issued for; on success an HttpOnly, `SameSite=Strict` `coddy_browser_session_<host digest>` cookie that opens what the form's cookie opens, also behind a token-only gate, and ends when `browser.token` changes or `browser.enable` is turned off. 401 for an unknown, used or expired ticket. `GET /coddy/auth/me` says `browser_login: true` while the extension's endpoint is on. |
 | **`POST /coddy/auth/logout`** | Drops the session on the server and expires the cookie (the Mini App's too). Idempotent. |
@@ -128,9 +128,20 @@ process ends them. Rotating the password or renaming the account ends every sess
 the next request, with nothing to invalidate by hand. The store is bounded at 512 live sessions,
 oldest first.
 
-`GET /coddy/config` never returns `password_hash`; it reports `httpserver.login_configured` and
+With `httpserver.login.totp_secret` set (`coddy serve set-totp` writes it once an authenticator app
+has confirmed the key), the form asks for a one-time code as well: RFC 6238, six digits, a 30-second
+step, SHA-1, one step of clock drift either way. A code opens one session; the same code or an older
+one is refused afterwards. A missing, wrong or reused code gets the same `401` and the same body as a
+wrong password - with `second_factor: "totp"` in it - and counts against the same throttle, and the
+code is not looked at when the password is wrong, so a refusal never confirms the password and a
+mistyped password does not spend a code. Turning codes on, rotating the key or turning them off
+(`coddy serve set-totp --disable`) ends every session the account opened before. Bearer tokens, the
+Telegram Mini App and the browser side panel are not asked for a code. Guide:
+[Remote mode](../operate/remote.md#one-time-codes).
+
+`GET /coddy/config` never returns `password_hash` or `totp_secret`; it reports `httpserver.login_configured` and
 `httpserver.login_source` (`config` or `env`), and a save from the settings screen preserves the
-hash the way it preserves `auth_token`. The neighbouring `auth_configured` means what it says - a
+hash and the key the way it preserves `auth_token`. The neighbouring `auth_configured` means what it says - a
 bearer token is set - so a server closed with a password and no token reports
 `auth_configured: false` next to `login_configured: true`; ask `GET /coddy/auth/me` when the
 question is "does this server want a credential at all". The document keeps describing the file, so an account that

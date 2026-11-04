@@ -1539,7 +1539,11 @@ token of the environment selector and is never gated here.
 - **The card** (**`.auth-card`**, the column's full width) uses the glass panel tokens
   (**`--coddy-glass-panel-bg`** / **`-border`** / **`-backdrop`** / **`-shadow`** / **`-radius`**),
   **28px** padding and a **14px** column gap: **`h1`** title, the two fields, the error line, the
-  submit button. Nothing explains the screen in prose - a form with two fields under a title that
+  submit button. When **`/coddy/auth/me`** says **`second_factor: "totp"`** a third field follows
+  the password, the code of an authenticator app (**`auth.signIn.code`**,
+  **`autocomplete="one-time-code"`**, **`inputmode="numeric"`**, the same **`.auth-field`**), and
+  Sign in waits for it too; a refusal clears the password and the code, because a code is taken
+  once. Nothing explains the screen in prose - a form with two fields under a title that
   says Sign in needs no caption.
 - **The wordmark** (**`.auth-logo`**, **`min(240px, 72%)`** of the column, centred) is the
   rectangular logo with the product name in it, not a text line:

@@ -1307,6 +1307,11 @@
               "description": "argon2id hash of the password in PHC form (\"$argon2id$v=19$m=...$...\"), written by `coddy serve set-password`. Never echoed back by GET /coddy/config, and a save from the settings screen preserves it. Put a plaintext password in CODDY_HTTP_PASSWORD instead of here.",
               "default": ""
             },
+            "totp_secret": {
+              "type": "string",
+              "description": "Base32 secret of the one-time codes asked for after the password (TOTP: an authenticator app such as Google Authenticator or FreeOTP). Written by `coddy serve set-totp`, which shows it as a QR code; empty means the password alone signs in, and `coddy serve set-totp --disable` empties it. Never echoed back by GET /coddy/config, and a save from the settings screen preserves it.",
+              "default": ""
+            },
             "session_ttl_hours": {
               "type": "integer",
               "description": "How long a browser stays signed in. 0 means the cookie is dropped when the browser closes; the server still expires the session itself after 30 days, because a record it keeps forever is not a session.",

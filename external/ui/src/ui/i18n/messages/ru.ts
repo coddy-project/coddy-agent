@@ -69,6 +69,9 @@ export const messagesRu: Record<string, string> = {
   "auth.signIn.submit": "Войти",
   "auth.signIn.working": "Вход\u2026",
   "auth.signIn.invalid": "Неверный пользователь или пароль.",
+  "auth.signIn.code": "Код из приложения-аутентификатора",
+  "auth.signIn.invalidWithCode":
+    "Неверный пользователь, пароль или код. Код действует один раз: дождитесь следующего.",
   "auth.signIn.unreachable": "Сервер не ответил. Он ещё работает?",
   "auth.signIn.noAccount":
     "Вход включён, но учётная запись не настроена. Выполните `coddy serve set-password` на сервере.",

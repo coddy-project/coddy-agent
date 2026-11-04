@@ -98,6 +98,8 @@ type Server struct {
 	browserEndpoint browser.Mounted
 	// loginThrottle slows repeated wrong passwords per source address.
 	loginThrottle *webauth.Throttle
+	// totpGuard keeps a one-time code from opening a second session.
+	totpGuard webauth.TOTPReplayGuard
 	// served remembers the configurations GET /coddy/config handed out, so a
 	// PUT is measured against what its client read (config_revisions.go).
 	served *configapi.Revisions

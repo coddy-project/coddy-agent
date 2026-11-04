@@ -78,12 +78,29 @@ describe("refreshAuthState", () => {
       authRequired: true,
       authenticated: true,
       user: "operator",
+      secondFactor: "",
       telegramRefused: false,
       telegramProblem: "",
       loaded: true,
     });
     expect(snapshotAuth()).toEqual(state);
     expect(seen[0]?.url).toBe("/coddy/auth/me");
+  });
+
+  it("reads whether the form asks for a one-time code", async () => {
+    respond = () =>
+      jsonResponse(200, {
+        login_required: true,
+        auth_required: true,
+        authenticated: false,
+        second_factor: "totp",
+      });
+    expect((await refreshAuthState()).secondFactor).toBe("totp");
+    resetAuthStateForTests();
+    respond = () =>
+      jsonResponse(200, { login_required: true, second_factor: "sms" });
+    // A factor this page cannot ask for is not one it pretends to.
+    expect((await refreshAuthState()).secondFactor).toBe("");
   });
 
   it("treats a server without the route as one that wants no sign-in", async () => {

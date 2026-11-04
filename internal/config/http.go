@@ -82,6 +82,12 @@ type HTTPLoginConfig struct {
 	// `coddy serve set-password`. The HTTP layer never echoes it back through
 	// GET /coddy/config, and a save from the settings screen preserves it.
 	PasswordHash string `yaml:"password_hash"`
+	// TOTPSecret turns on one-time codes as a second factor: the base32 secret
+	// an authenticator app was given by `coddy serve set-totp`. Empty means the
+	// password alone signs in. It is a key, not a hash - a code can only be
+	// checked against the secret itself - so GET /coddy/config never returns it
+	// and a save from the settings screen preserves it, like the password hash.
+	TOTPSecret string `yaml:"totp_secret"`
 	// SessionTTLHours is how long a browser stays signed in. Zero means the
 	// cookie is dropped when the browser closes; the server still bounds the
 	// session it holds (webauth.DefaultSessionTTL), because it cannot see a
@@ -94,6 +100,7 @@ func (l *HTTPLoginConfig) Normalize() {
 	l.Mode = strings.ToLower(strings.TrimSpace(l.Mode))
 	l.User = strings.TrimSpace(l.User)
 	l.PasswordHash = strings.TrimSpace(l.PasswordHash)
+	l.TOTPSecret = webauth.NormalizeTOTPSecret(l.TOTPSecret)
 }
 
 // Validate reports the login settings a server could not honour.
@@ -120,12 +127,24 @@ func (l *HTTPLoginConfig) Validate() error {
 			"(a hand-written one needs every \"$\" doubled, as \"$$argon2id$$v=19$$...\"); " +
 			"write it with `coddy serve set-password`")
 	}
+	if l.TOTPSecret != "" {
+		if err := webauth.ValidateTOTPSecret(l.TOTPSecret); err != nil {
+			return fmt.Errorf("httpserver.login.totp_secret is not a usable secret (%v); "+
+				"write it with `coddy serve set-totp`", err)
+		}
+	}
 	return nil
 }
 
 // HasAccount reports whether this file carries a complete account.
 func (l *HTTPLoginConfig) HasAccount() bool {
 	return l.User != "" && l.PasswordHash != ""
+}
+
+// HasTOTP reports whether the sign-in asks for a one-time code after the
+// password.
+func (l *HTTPLoginConfig) HasTOTP() bool {
+	return l.TOTPSecret != ""
 }
 
 // IsExplicitlyDisabled reports an `enable: false` the operator wrote, which wins

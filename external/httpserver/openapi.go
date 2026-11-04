@@ -1643,7 +1643,8 @@ func openAPISpec() map[string]interface{} {
 					"description": "Public: this is how the bundled UI decides between the sign-in screen and the app, so it answers without a credential. " +
 						"**login_required** is true when a password account is configured (in `httpserver.login` or in CODDY_HTTP_USER / CODDY_HTTP_PASSWORD) and not switched off with `httpserver.login.enable: false`. " +
 						"**auth_required** is true when any credential gates the API, including a bearer-only server the browser cannot sign in to. " +
-						"**authenticated** reports this request: a live session cookie, or a valid bearer token. **user** and **expires_at** are present only for a signed-in browser. See https://coddy.dev/docs/operate/remote.",
+						"**authenticated** reports this request: a live session cookie, or a valid bearer token. **user** and **expires_at** are present only for a signed-in browser. " +
+						"**second_factor** is `totp` when the form also asks for a one-time code from an authenticator app (`httpserver.login.totp_secret`, written by `coddy serve set-totp`). See https://coddy.dev/docs/operate/remote.",
 					"operationId": "getAuthState",
 					"security":    []interface{}{map[string]interface{}{}},
 					"responses": map[string]interface{}{
@@ -1658,6 +1659,7 @@ func openAPISpec() map[string]interface{} {
 											"auth_required":  map[string]string{"type": "boolean", "description": "Some credential gates /v1/* and /coddy/*."},
 											"authenticated":  map[string]string{"type": "boolean", "description": "This request carries a valid session cookie or bearer token."},
 											"mode":           map[string]interface{}{"type": "string", "enum": []string{"password"}, "description": "How a browser signs in. Absent when no form is configured."},
+											"second_factor":  map[string]interface{}{"type": "string", "enum": []string{"totp"}, "description": "The form also asks for the six-digit one-time code of an authenticator app. Absent when the password alone signs in."},
 											"user":           map[string]string{"type": "string", "description": "Signed-in account; absent otherwise."},
 											"expires_at":     map[string]string{"type": "string", "format": "date-time", "description": "When the session ends; absent otherwise."},
 											"telegram_login": map[string]string{"type": "boolean", "description": "A page opened as the Telegram bot's Mini App can sign in with its launch data (POST /coddy/auth/telegram), the bot's admins only."},
@@ -1675,7 +1677,8 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Sign a browser in with the configured account",
 					"description": "Public: it is the way through the gate. On success sets an HttpOnly, SameSite=Strict `" + sessionCookieBaseName + "_<host digest>` cookie (Secure when the request arrived over TLS or through a proxy sending `X-Forwarded-Proto: https`), valid for `httpserver.login.session_ttl_hours`; when that is 0 the cookie is dropped as the browser closes and the server expires its own record after 30 days. " +
-						"A wrong password and an unknown user get the same **401** and the same body; repeated failures from one non-loopback address are answered progressively more slowly. **400** when no sign-in is configured, **403** for a cross-site attempt, **503** when `httpserver.login.enable` is true with no account behind it. " +
+						"When `httpserver.login.totp_secret` is set, **code** carries the six-digit one-time code (RFC 6238: SHA-1, 30-second step, one step of clock drift either way) and a code opens one session only. " +
+						"A wrong password, an unknown user and a missing, wrong or reused code get the same **401** and the same body (with `second_factor: \"totp\"` when codes are on); repeated failures from one non-loopback address are answered progressively more slowly. **400** when no sign-in is configured, **403** for a cross-site attempt, **503** when `httpserver.login.enable` is true with no account behind it. " +
 						"API clients do not use this route: they present `Authorization: Bearer <token>` instead.",
 					"operationId": "authLogin",
 					"security":    []interface{}{map[string]interface{}{}},
@@ -1688,6 +1691,7 @@ func openAPISpec() map[string]interface{} {
 									"properties": map[string]interface{}{
 										"user":     map[string]string{"type": "string"},
 										"password": map[string]string{"type": "string", "format": "password"},
+										"code":     map[string]string{"type": "string", "description": "One-time code of the authenticator app; required when `GET /coddy/auth/me` reports `second_factor: totp`, ignored otherwise."},
 									},
 									"required": []string{"user", "password"},
 								},
