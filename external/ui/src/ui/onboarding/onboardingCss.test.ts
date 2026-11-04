@@ -146,4 +146,24 @@ describe("the provider picker's styles", () => {
     expect(opened).toContain("flex-direction: column");
     expect(opened).toContain("gap: 12px");
   });
+
+  // One rhythm, set in one place. The blocks used to carry a margin each,
+  // which added to the form's gap: 32px before the actions while folded and
+  // 28px between the advanced row and what it opened.
+  it("keeps one vertical rhythm for the whole dialog", () => {
+    const panel = rule(".provider-picker-panel");
+    expect(panel).toContain("flex-direction: column");
+    expect(panel).toContain("gap: 16px");
+    expect(rule(".provider-picker-form")).toContain("gap: 12px");
+    expect(rule(".provider-picker-field")).toContain("gap: 6px");
+    // No block may set a margin of its own beside that gap.
+    for (const selector of [
+      ".provider-picker-grid",
+      ".provider-picker-form",
+      ".provider-picker-disclosure",
+      ".provider-picker-lead",
+    ]) {
+      expect(rule(selector), selector).not.toMatch(/margin-bottom: [1-9]/);
+    }
+  });
 });

@@ -30,6 +30,11 @@
   background: var(--coddy-tip-bg);
   border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
   padding: 24px;
+  // One rhythm, set in one place: every block of the dialog stands this far
+  // from the next, and the form sets its own, closer, gap between fields.
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .provider-picker-head h2 {
@@ -39,7 +44,7 @@
 }
 
 .provider-picker-lead {
-  margin: 0 0 16px;
+  margin: 0;
   font-size: 14px;
   opacity: 0.85;
 }
@@ -51,7 +56,6 @@
   // whose last row is taller than the rest reads as a mistake.
   grid-auto-rows: 1fr;
   gap: 10px;
-  margin-bottom: 16px;
 }
 
 .provider-picker-card {
@@ -86,7 +90,6 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  margin-bottom: 16px;
 }
 
 // Every block the form borrows from the settings screen - the account
@@ -432,7 +435,6 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 16px;
   padding: 0;
   border: none;
   background: none;

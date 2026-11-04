@@ -274,6 +274,37 @@ export function ProviderPickerDialog(props: {
   const keyIsAdvanced =
     !preset.commandTyped &&
     ["neuraldeep", "opencode", "devin"].includes(preset.providerType);
+  // A preset with endpoints of its own opens on the right one, so the choice
+  // is a refinement, not a question of the first run: it sits in the fold
+  // with the key and the proxy. The compatible preset is the exception - it
+  // has no endpoint at all and Save waits for one - so that field stays in
+  // the form where it cannot be missed.
+  const apiBaseField =
+    selected === "neuraldeep" || selected === "opencode" ? (
+      <label className="provider-picker-field">
+        <span>{t("onboarding.apiBase")}</span>
+        <select
+          className="provider-picker-input"
+          value={effectiveApiBase}
+          onChange={(event) => {
+            setApiBase(event.target.value);
+            setManagedLogin(false);
+            resetModels();
+          }}
+          data-testid={`provider-${selected}-domain`}
+        >
+          {(selected === "neuraldeep"
+            ? NEURALDEEP_API_BASE_OPTIONS
+            : OPENCODE_API_BASE_OPTIONS
+          ).map((option) => (
+            <option key={option.value} value={option.value}>
+              {t(option.labelKey)}
+            </option>
+          ))}
+        </select>
+      </label>
+    ) : null;
+
   const keyField = (
     <label className="provider-picker-field">
       <span>{t("onboarding.apiKey")}</span>
@@ -372,31 +403,6 @@ export function ProviderPickerDialog(props: {
         ) : null}
 
         <div className="provider-picker-form">
-          {selected === "neuraldeep" || selected === "opencode" ? (
-            <label className="provider-picker-field">
-              <span>{t("onboarding.apiBase")}</span>
-              <select
-                className="provider-picker-input"
-                value={effectiveApiBase}
-                onChange={(event) => {
-                  setApiBase(event.target.value);
-                  setManagedLogin(false);
-                  resetModels();
-                }}
-                data-testid={`provider-${selected}-domain`}
-              >
-                {(selected === "neuraldeep"
-                  ? NEURALDEEP_API_BASE_OPTIONS
-                  : OPENCODE_API_BASE_OPTIONS
-                ).map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {t(option.labelKey)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-
           {preset.commandTyped ? null : selected === "codex" ? (
             <CodexAuthField
               providerName={preset.providerName}
@@ -516,6 +522,7 @@ export function ProviderPickerDialog(props: {
               className="provider-picker-advanced"
               data-testid="provider-advanced"
             >
+              {apiBaseField}
               {keyIsAdvanced ? keyField : null}
               <label className="provider-picker-field">
                 <span>{t("onboarding.proxy")}</span>

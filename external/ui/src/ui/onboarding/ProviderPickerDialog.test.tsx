@@ -212,11 +212,10 @@ describe("ProviderPickerDialog", () => {
         .getByTestId("provider-card-neuraldeep")
         .classList.contains("provider-picker-card--active"),
     ).toBe(true);
-    // Its endpoint picker is the one on screen, so Enter on the open dialog
-    // configures NeuralDeep without a card being clicked first.
-    expect(
-      await screen.findByTestId("provider-neuraldeep-domain"),
-    ).toBeTruthy();
+    // Its account sign-in is the one on screen, so the dialog configures
+    // NeuralDeep without a card being clicked first; the endpoint it opens on
+    // is a refinement and lives in the fold.
+    expect(await screen.findByTestId("neuraldeep-auth-field")).toBeTruthy();
   });
 
   it("goes straight to the models of a Codex this machine already signed in to", async () => {
@@ -284,6 +283,29 @@ describe("ProviderPickerDialog", () => {
     expect(await screen.findByTestId("provider-command")).toBeTruthy();
     fireEvent.click(toggle);
     expect(screen.getByTestId("provider-card-acp")).toBeTruthy();
+  });
+
+  it("puts the endpoint in the fold where a preset has one, and in the form where it does not", async () => {
+    renderPicker();
+    // NeuralDeep opens on its own hub, so the choice is a refinement.
+    expect(screen.queryByTestId("provider-neuraldeep-domain")).toBeNull();
+    fireEvent.click(screen.getByTestId("provider-advanced-toggle"));
+    const advanced = screen.getByTestId("provider-advanced");
+    expect(
+      advanced.contains(
+        await screen.findByTestId("provider-neuraldeep-domain"),
+      ),
+    ).toBe(true);
+
+    // The compatible preset has no endpoint at all and Save waits for one, so
+    // its field cannot be behind a fold.
+    showAllProviders();
+    fireEvent.click(screen.getByTestId("provider-card-compatible"));
+    const base = await screen.findByTestId("provider-api-base");
+    expect(screen.getByTestId("provider-advanced").contains(base)).toBe(false);
+    expect(
+      (screen.getByTestId("provider-save") as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it("offers no Skip, and the backdrop is the way out", () => {
