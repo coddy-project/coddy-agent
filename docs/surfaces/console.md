@@ -107,12 +107,22 @@ Arrows move, typing filters, Enter takes the row and Escape puts the picker
 away: the header keeps pointing at `/login`, which opens it again, so nothing
 about it is a one-shot screen. A row that signs in runs the sign-in below; a
 row that takes a key is asked for its endpoint where it has none of its own and
-then for the key, and an empty key leaves the row reading its `NAME_API_KEY`
-variable, which is how a local server with no key works. Coddy then asks the
-provider what it serves and offers that list; the model picked becomes
-`models[]`, the session's model and, when nothing that answers was named
+then for the key. An empty answer at the key prompt changes no credential: a row
+`config.yaml` already holds keeps its `api_key` or its `api_key_command`, and a
+row with neither reads its `NAME_API_KEY` variable, which is how a local server
+with no key works. Coddy then asks the provider what it serves, the way that row
+asks it - the endpoint and the credential it already carries, unless the setup
+named another endpoint - and offers that list; the model picked becomes
+`models[]`, the session's model and, when nothing that can be run was named
 before, `agent.model`. A provider that cannot be reached says why and the model
 is named by hand instead, so a setup is never stuck behind a listing.
+
+A provider `config.yaml` already lists keeps everything the picker does not ask
+about - a credential helper, a proxy, a timeout - because only what the setup
+answered is written. While the picker waits for a provider to list its models,
+`/login` says so instead of opening a second list, and a permission or question
+prompt that comes up then keeps the screen: the setup stops and says how to
+start it again.
 
 ![The provider picker on the first start of a fresh install](../assets/cli-tui/login-provider-picker-dark-1280.png)
 

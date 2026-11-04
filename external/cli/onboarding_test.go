@@ -6,6 +6,7 @@ package cli
 // paths are features/cli_login.feature.
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -75,6 +76,62 @@ func TestProviderSetupKeepsWhatAConfiguredRowAlreadyHolds(t *testing.T) {
 		if strings.HasPrefix(p, "set providers[name=openai]") {
 			t.Fatalf("an empty key answer touched the row: %v", paths(cmds))
 		}
+	}
+}
+
+// A row whose name the preset writes but whose type is another protocol
+// would answer the endpoint just written in the wrong language.
+func TestProviderSetupRepairsTheTypeOfAConfiguredRow(t *testing.T) {
+	cfg := &config.Config{Providers: []config.ProviderConfig{{
+		Name: "custom", Type: "anthropic", APIKey: "sk-old",
+	}}}
+	run := &providerSetupRun{preset: preset(t, "compatible"), apiBase: "https://api.example.test/v1"}
+	cmds, _ := providerSetupCommands(cfg, run, "custom/mini-1", nil)
+	if v, ok := valueAt(cmds, "providers[name=custom].type"); !ok || v != "openai" {
+		t.Fatalf("the row kept a type the endpoint does not speak: %v", paths(cmds))
+	}
+}
+
+// The listing of a configured row goes out the way that row's own requests
+// do: the stored endpoint when the picker asked for none, and the stored
+// credential when the operator answered the key prompt with an empty line,
+// which is what the prompt promises. The credential stays behind when the
+// endpoint moved, so a key of one server never reaches another.
+func TestProviderListInputFillsInFromTheConfiguredRow(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	cfg := &config.Config{Providers: []config.ProviderConfig{{
+		Name: "openai", Type: "openai",
+		APIBase: "https://gateway.example.test/v1", APIKey: "sk-saved",
+		Proxy: "http://127.0.0.1:7890",
+	}}}
+	ctx := context.Background()
+
+	in := providerListInput(ctx, cfg, &providerSetupRun{preset: preset(t, "openai")})
+	if in.BaseURL != "https://gateway.example.test/v1" || in.APIKey != "sk-saved" {
+		t.Fatalf("an empty answer did not reuse the row: base=%q key=%q", in.BaseURL, in.APIKey)
+	}
+	if in.ProxyURL != "http://127.0.0.1:7890" {
+		t.Fatalf("the listing left the row's proxy: %q", in.ProxyURL)
+	}
+
+	// A typed key wins over the stored one.
+	in = providerListInput(ctx, cfg, &providerSetupRun{preset: preset(t, "openai"), apiKey: "sk-typed"})
+	if in.APIKey != "sk-typed" {
+		t.Fatalf("the typed key did not win: %q", in.APIKey)
+	}
+
+	// Another endpoint means another server: the stored key stays behind.
+	in = providerListInput(ctx, cfg, &providerSetupRun{preset: preset(t, "openai"), apiBase: "https://other.example.test/v1"})
+	if in.APIKey != "" {
+		t.Fatalf("the key stored for one endpoint went to another: %q", in.APIKey)
+	}
+
+	// Nothing configured: only what was answered.
+	in = providerListInput(ctx, &config.Config{}, &providerSetupRun{
+		preset: preset(t, "compatible"), apiBase: "https://api.example.test/v1", apiKey: "sk-new",
+	})
+	if in.BaseURL != "https://api.example.test/v1" || in.APIKey != "sk-new" || in.Type != "openai" {
+		t.Fatalf("a fresh setup was filled in from nothing: %+v", in)
 	}
 }
 

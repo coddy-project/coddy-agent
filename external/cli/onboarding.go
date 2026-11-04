@@ -15,6 +15,7 @@ package cli
 // the chosen row, its model and agent.model into config.yaml.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -226,21 +227,48 @@ func (a *App) openSetupModal(c tui.Component) bool {
 func (a *App) fetchProviderModels(run *providerSetupRun) {
 	a.appendStatus(roleDim, "Asking "+run.preset.Label+" for its models...")
 	cfg := a.config()
-	in := llm.ProviderInput{
-		Name:     run.preset.ProviderName,
-		Type:     run.preset.ProviderType,
-		APIKey:   run.apiKey,
-		BaseURL:  run.apiBase,
-		ProxyURL: providerRowProxy(cfg, run.preset.ProviderName),
-	}
 	ctx := a.workCtx
 	a.setup = run
 	a.workers.Add(1)
 	go func() {
 		defer a.workers.Done()
-		listed, err := llm.ListModels(ctx, in)
+		// The credential helper of a configured row runs here, on the
+		// worker, under the turn's context.
+		listed, err := llm.ListModels(ctx, providerListInput(ctx, cfg, run))
 		a.postUI(func() { a.offerProviderModels(run, listed, err) })
 	}()
+}
+
+// providerListInput is what the setup asks the provider with: what was
+// answered, filled in from the row config.yaml already holds for the parts
+// the picker did not ask about. Without this an empty answer at the key
+// prompt - which keeps the stored credential, and says so - would send the
+// listing out with no credential at all and get a 401 back.
+//
+// The credential is inherited only while the request still takes the saved
+// route, the saved endpoint through the saved proxy, so a key stored for one
+// endpoint never goes to another. This is the rule of the settings screen's
+// own probe (external/httpserver/providers_models_http.go).
+func providerListInput(ctx context.Context, cfg *config.Config, run *providerSetupRun) llm.ProviderInput {
+	name := run.preset.ProviderName
+	in := llm.ProviderInput{
+		Name:     name,
+		Type:     run.preset.ProviderType,
+		APIKey:   strings.TrimSpace(run.apiKey),
+		BaseURL:  strings.TrimSpace(run.apiBase),
+		ProxyURL: providerRowProxy(cfg, name),
+	}
+	saved := cfg.FindProvider(name)
+	if saved == nil {
+		return in
+	}
+	if in.BaseURL == "" {
+		in.BaseURL = strings.TrimSpace(saved.APIBase)
+	}
+	if in.APIKey == "" && in.BaseURL == strings.TrimSpace(saved.APIBase) {
+		in.APIKey = saved.EffectiveAPIKeyContext(ctx)
+	}
+	return in
 }
 
 // offerProviderModels puts the catalog on screen, or says why there is none
@@ -362,6 +390,13 @@ func providerSetupCommands(cfg *config.Config, run *providerSetupRun, ref string
 		cmds = append(cmds, config.UCICommand{Op: config.UCIOpSet, Path: fmt.Sprintf("providers[name=%s]", name), Value: string(rowJSON)})
 		added = append(added, "provider "+name)
 	} else {
+		// A row whose name a preset writes but whose type is another
+		// protocol would answer the endpoint just written in the wrong
+		// language, and the row's type is what decides it (config.ResolveLLM).
+		if existing.Type != run.preset.ProviderType {
+			cmds = append(cmds, config.UCICommand{Op: config.UCIOpSet, Path: fmt.Sprintf("providers[name=%s].type", name), Value: run.preset.ProviderType})
+			added = append(added, "provider "+name+" type -> "+run.preset.ProviderType)
+		}
 		if base != "" && strings.TrimSpace(existing.APIBase) != base {
 			cmds = append(cmds, config.UCICommand{Op: config.UCIOpSet, Path: fmt.Sprintf("providers[name=%s].api_base", name), Value: base})
 			added = append(added, "provider "+name+" api_base -> "+base)
