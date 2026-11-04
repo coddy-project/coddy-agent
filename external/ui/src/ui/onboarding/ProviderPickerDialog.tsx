@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { errorMessage } from "../settings/apiError";
 import { Chevron } from "../components/Chevron";
-import { CollapsibleFieldset } from "../settings/SchemaForm";
 import { CodexAuthField } from "../settings/CodexAuthField";
 import { NeuralDeepAuthField } from "../settings/NeuralDeepAuthField";
 import { OpenCodeAuthField } from "../settings/OpenCodeAuthField";
@@ -61,6 +60,7 @@ export function ProviderPickerDialog(props: {
   const [proxy, setProxy] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [showAllState, setShowAllState] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [managedLogin, setManagedLogin] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -357,7 +357,7 @@ export function ProviderPickerDialog(props: {
         {REST.length > 0 ? (
           <button
             type="button"
-            className="provider-picker-more"
+            className="provider-picker-disclosure"
             aria-expanded={showAll}
             onClick={() => setShowAllState((value) => !value)}
             data-testid="provider-more-toggle"
@@ -497,19 +497,26 @@ export function ProviderPickerDialog(props: {
             </label>
           ) : null}
 
-          {/* The proxy is the one setting of this form nobody needs on a
-              first run, so it folds away behind the same legend the provider
-              form of Settings folds it behind, and by the same component. */}
-          <div className="provider-picker-advanced">
-            <CollapsibleFieldset
-              legend={t("settings.providers.group.advanced")}
-              testid="provider-advanced"
+          {/* The same row as More providers, for the same reason: a fieldset
+              put a frame and a legend around two fields that read better as
+              a plain continuation of the form. What is typed here lives in
+              this dialog's state, so folding it away loses nothing. */}
+          <button
+            type="button"
+            className="provider-picker-disclosure"
+            aria-expanded={showAdvanced}
+            onClick={() => setShowAdvanced((value) => !value)}
+            data-testid="provider-advanced-toggle"
+          >
+            <Chevron open={showAdvanced} />
+            <span>{t("settings.providers.group.advanced")}</span>
+          </button>
+          {showAdvanced ? (
+            <div
+              className="provider-picker-advanced"
+              data-testid="provider-advanced"
             >
               {keyIsAdvanced ? keyField : null}
-              {/* A plain field, like every other row here. The switch that
-                  turns the system proxy off belongs to the provider form of
-                  Settings, where a row is tuned; a first run only ever needs
-                  to name a proxy or leave the field alone. */}
               <label className="provider-picker-field">
                 <span>{t("onboarding.proxy")}</span>
                 <input
@@ -525,8 +532,8 @@ export function ProviderPickerDialog(props: {
                   {t("onboarding.proxyHint")}
                 </span>
               </label>
-            </CollapsibleFieldset>
-          </div>
+            </div>
+          ) : null}
 
           {modelsFetched && modelsError ? (
             <span

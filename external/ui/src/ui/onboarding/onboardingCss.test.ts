@@ -129,15 +129,21 @@ describe("the provider picker's styles", () => {
     );
   });
 
-  // The providers that do not lead are shown by a row, not by a fieldset: a
-  // frame and a legend around a grid of cards boxed them in for nothing.
-  it("shows the rest of the catalog from a plain row", () => {
-    const body = rule(".provider-picker-more");
+  // Both disclosures - the rest of the catalog, the advanced settings - are
+  // the same row, from the same rule, so neither can drift from the other.
+  // A fieldset framed and indented what reads as a plain part of the form.
+  it("draws both disclosures from one rule", () => {
+    const body = rule(".provider-picker-disclosure");
     expect(body).toContain("border: none");
     expect(body).toContain("background: none");
     expect(body).toContain("padding: 0");
-    expect(stylesPartial("onboarding")).not.toContain(
-      ".provider-picker-more .settings-fieldset--collapsible",
-    );
+    const css = stylesPartial("onboarding");
+    // Nothing of the settings screen's fieldset is left in this partial.
+    expect(css).not.toContain("settings-fieldset");
+    expect(css).not.toContain("settings-form-group");
+    // What the advanced row opens is the form's own column, not a frame.
+    const opened = rule(".provider-picker-advanced");
+    expect(opened).toContain("flex-direction: column");
+    expect(opened).toContain("gap: 12px");
   });
 });

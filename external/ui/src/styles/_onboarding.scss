@@ -424,21 +424,11 @@
   }
 }
 
-// The folded Advanced settings of the picker is the one the provider form of
-// Settings folds its proxy behind, so it keeps that component's look; only
-// the room around it belongs to this form.
-.provider-picker-advanced .settings-fieldset--collapsible {
-  margin: 0;
-}
-
-.provider-picker-advanced .settings-form-group-body {
-  padding-top: 10px;
-}
-
-// The providers that do not lead are shown by one quiet row under the grid:
-// the app's chevron, the words, no frame and no legend. It starts where the
-// cards start, so the column reads straight down.
-.provider-picker-more {
+// Both disclosures of this dialog - the rest of the catalog, the advanced
+// settings - are one quiet row: the app's chevron, the words, no frame and no
+// legend. They start where the cards and the fields start, so the column
+// reads straight down and the two look alike, because they are the same rule.
+.provider-picker-disclosure {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -453,18 +443,15 @@
   cursor: pointer;
 }
 
-.provider-picker-more:hover,
-.provider-picker-more:focus-visible {
+.provider-picker-disclosure:hover,
+.provider-picker-disclosure:focus-visible {
   opacity: 1;
 }
 
-// Opened, the Advanced fold keeps the form's one left edge: the settings
-// screen indents a fieldset's body, which here put the key and the proxy a
-// visible step further in than the fields above them.
-.provider-picker-advanced .settings-fieldset--collapsible {
-  padding-inline: 0;
-}
-
-.provider-picker-advanced .settings-form-group-body {
-  padding-inline: 0;
+// What the advanced row opens is a continuation of the form: the same column
+// and the same gap between rows, no frame and no indent of its own.
+.provider-picker-advanced {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }

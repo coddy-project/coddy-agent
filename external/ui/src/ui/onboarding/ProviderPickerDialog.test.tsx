@@ -298,14 +298,17 @@ describe("ProviderPickerDialog", () => {
   it("keeps the key out of the way of a sign-in, and in reach under Advanced", async () => {
     renderPicker();
     // NeuralDeep signs in; its key is not a second thing to answer first.
-    const advanced = screen.getByTestId("provider-advanced");
+    fireEvent.click(screen.getByTestId("provider-advanced-toggle"));
     await waitFor(() =>
-      expect(advanced.contains(screen.getByTestId("provider-api-key"))).toBe(
-        true,
-      ),
+      expect(
+        screen
+          .getByTestId("provider-advanced")
+          .contains(screen.getByTestId("provider-api-key")),
+      ).toBe(true),
     );
     // OpenAI has no sign-in, so its key is the form's own first field.
     fireEvent.click(screen.getByTestId("provider-card-openai"));
+    // The row still holds the proxy for every provider; what moves is the key.
     await waitFor(() =>
       expect(
         screen
@@ -313,6 +316,7 @@ describe("ProviderPickerDialog", () => {
           .contains(screen.getByTestId("provider-api-key")),
       ).toBe(false),
     );
+    expect(screen.getByTestId("provider-proxy")).toBeTruthy();
     // Codex carries no key at all.
     showAllProviders();
     fireEvent.click(screen.getByTestId("provider-card-codex"));
@@ -321,20 +325,30 @@ describe("ProviderPickerDialog", () => {
     );
   });
 
-  it("folds the proxy away behind Advanced settings", async () => {
+  it("folds the proxy away behind an Advanced settings row", async () => {
     renderPicker();
     const toggle = await screen.findByTestId("provider-advanced-toggle");
     expect(toggle.textContent).toBe("Advanced settings");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    const body = screen
-      .getByTestId("provider-advanced")
-      .querySelector(".settings-form-group-body")!;
-    expect(body.hasAttribute("hidden")).toBe(true);
-    // The field is mounted while folded, so what it holds survives the fold.
-    expect(body.querySelector('[data-testid="provider-proxy"]')).not.toBeNull();
+    // The same row as More providers, not a fieldset of its own.
+    expect(toggle.className).toBe(
+      screen.getByTestId("provider-more-toggle").className,
+    );
+    expect(toggle.closest("fieldset")).toBeNull();
+    expect(screen.queryByTestId("provider-proxy")).toBeNull();
+
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(body.hasAttribute("hidden")).toBe(false);
+    const proxy = screen.getByTestId("provider-proxy") as HTMLInputElement;
+    fireEvent.change(proxy, { target: { value: "http://127.0.0.1:7890" } });
+    // Folding it away and back keeps what was typed: the value lives in the
+    // dialog, not in the markup.
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId("provider-proxy")).toBeNull();
+    fireEvent.click(toggle);
+    expect(
+      (screen.getByTestId("provider-proxy") as HTMLInputElement).value,
+    ).toBe("http://127.0.0.1:7890");
   });
 
   it("asks for no model and starts the row on what the provider serves", async () => {
