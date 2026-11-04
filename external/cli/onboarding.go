@@ -353,6 +353,14 @@ func (a *App) offerProviderModels(run *providerSetupRun, listed []llm.ModelEntry
 	a.setup = nil
 	if err != nil {
 		a.appendStatus(roleWarning, run.preset.Label+" did not answer with a model catalog: "+err.Error())
+		// A stored sign-in is only a file on disk: whether its token still
+		// works is what the listing just found out. The picker skipped the
+		// sign-in because the file was there, so the way back to one is
+		// worth naming - otherwise the only offer is to type a model that
+		// will fail at the first turn for the same reason.
+		if providerlogin.Supports(run.preset.ProviderType) {
+			a.appendStatus(roleDim, "If the sign-in expired, /login "+run.preset.ProviderName+" signs in again")
+		}
 		a.askProviderValue(run.preset.Label+": model", "Name the model to run on; the provider will be asked again at the first turn",
 			strings.TrimPrefix(run.preset.DefaultModel, run.preset.ProviderName+"/"), func(text string) {
 				a.saveProviderSetup(run, strings.TrimSpace(text), nil)

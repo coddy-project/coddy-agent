@@ -184,15 +184,11 @@ func Ready(cfg *config.Config) bool {
 }
 
 func rowReady(cfg *config.Config, prov *config.ProviderConfig) bool {
-	home := cfg.Paths.Home
 	switch prov.Type {
 	case "acp":
 		return prov.ACP != nil && strings.TrimSpace(prov.ACP.Command) != ""
 	case "codex":
-		// Not llm.InspectCodexAuth: that one waits on the lock a token
-		// refresh holds through its request, and a surface asks this while
-		// it draws.
-		return llm.CodexLoginStored(config.CodexAuthPath(home, prov.Name), cfg.ProviderMayUseCLILogin(prov.Name, "codex"))
+		return signInStored(cfg, prov)
 	}
 	if keySource(prov) != "" {
 		return true
@@ -201,6 +197,24 @@ func rowReady(cfg *config.Config, prov *config.ProviderConfig) bool {
 	case "openai", "anthropic":
 		// An endpoint of its own may need no key: a local server, a gateway.
 		return strings.TrimSpace(prov.APIBase) != ""
+	}
+	return signInStored(cfg, prov)
+}
+
+// signInStored reports a sign-in this machine holds for prov: the credential
+// Coddy stored for that row, or the machine-wide CLI login of its type the row
+// may use (config.Config.CLILoginRow). It is not whether the row can answer -
+// a key in config.yaml, in a credential helper or in the conventional
+// NAME_API_KEY variable is not a sign-in, and a row that carries one still has
+// a sign-in to run. It reads files and runs nothing.
+func signInStored(cfg *config.Config, prov *config.ProviderConfig) bool {
+	home := cfg.Paths.Home
+	switch prov.Type {
+	case "codex":
+		// Not llm.InspectCodexAuth: that one waits on the lock a token
+		// refresh holds through its request, and a surface asks this while
+		// it draws.
+		return llm.CodexLoginStored(config.CodexAuthPath(home, prov.Name), cfg.ProviderMayUseCLILogin(prov.Name, "codex"))
 	case "neuraldeep":
 		st, err := llm.InspectNeuralDeepAuth(config.NeuralDeepAuthPath(home, prov.Name))
 		return err == nil && st.Connected
@@ -224,13 +238,18 @@ func ProviderReady(cfg *config.Config, name string) bool {
 	return prov != nil && rowReady(cfg, prov)
 }
 
-// SignedIn is ProviderReady for a row config.yaml need not list yet: a
-// first-run picker asks it of the row it is about to write, so that a
-// provider this machine has already signed in to is not signed in a second
-// time. A saved row of that name decides for itself; otherwise the question
-// is asked of the row the picker would write, which is how the Codex CLI's
-// own auth.json is found on a machine with no config.yaml at all
+// SignedIn reports a sign-in this machine already holds for a row config.yaml
+// need not list yet: a first-run picker asks it of the row it is about to
+// write, so that a provider already signed in to is not signed in a second
+// time. A saved row of that name is asked about as saved; otherwise the
+// question is asked of the row the picker would write, which is how the Codex
+// CLI's own auth.json is found on a machine with no config.yaml at all
 // (config.Config.CLILoginRow admits the row it is about to write).
+//
+// This is not Ready: a key in config.yaml, in a credential helper or in the
+// conventional NAME_API_KEY variable makes a row answer but is not a sign-in,
+// and a picker that took one for a sign-in would announce one that never
+// happened and then list the models with no credential at all.
 //
 // It reads files and runs nothing, as Ready does, and it says nothing about
 // which endpoint a stored credential was taken from: a caller whose provider
@@ -244,7 +263,7 @@ func SignedIn(cfg *config.Config, name, providerType string) bool {
 	if err != nil {
 		return false
 	}
-	return rowReady(cfg, prov)
+	return signInStored(cfg, prov)
 }
 
 // DefaultModel is the model a session moves to after a sign-in to provider:

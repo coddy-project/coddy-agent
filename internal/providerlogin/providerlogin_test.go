@@ -525,13 +525,17 @@ func TestSignedInFindsTheCLILoginOfAnUnsavedRow(t *testing.T) {
 	if !SignedIn(cfg, "codex", "codex") {
 		t.Fatal("the Codex CLI's sign-in serves the codex row a picker would write")
 	}
-	// One CLI login is one account and serves one row: with several codex
-	// rows and none named after the type, it serves none of them, and a row
-	// with no credential of its own is not signed in.
+	// One CLI login is one account and serves one row: the only row of its
+	// type, or the row named after it. The picker writes the row named after
+	// the type, so it keeps the login however many other rows exist, while a
+	// row of another name beside it gets none.
 	crowded := freshConfig(home)
 	crowded.Providers = []config.ProviderConfig{{Name: "work", Type: "codex"}, {Name: "home", Type: "codex"}}
+	if !SignedIn(crowded, "codex", "codex") {
+		t.Fatal("the row the picker writes is named after the type, so the CLI login is its own")
+	}
 	if SignedIn(crowded, "work", "codex") {
-		t.Fatal("the CLI login serves no row when several share the type and none is named after it")
+		t.Fatal("a row of another name beside it is not served by that one account")
 	}
 	// A name of no type and no row has no sign-in to find.
 	if SignedIn(freshConfig(home), "custom", "openai") {
@@ -539,5 +543,41 @@ func TestSignedInFindsTheCLILoginOfAnUnsavedRow(t *testing.T) {
 	}
 	if SignedIn(nil, "codex", "codex") {
 		t.Fatal("no configuration, no sign-in")
+	}
+}
+
+// A sign-in is a sign-in, not any credential the row could answer with. A key
+// in the environment makes Ready true and SignedIn false: a picker that
+// confused the two announced a sign-in that never happened and then listed the
+// models with nothing to present, because an unsaved row's NAME_API_KEY never
+// reaches the listing.
+func TestSignedInIsNotAKeyInTheEnvironment(t *testing.T) {
+	home := isolate(t)
+	cfg := freshConfig(home)
+	cfg.Providers = []config.ProviderConfig{{Name: "devin", Type: "devin"}}
+	t.Setenv("DEVIN_API_KEY", "dv-from-the-environment")
+	if !Ready(cfg) {
+		t.Fatal("the variable is a credential, so the row can answer")
+	}
+	if SignedIn(cfg, "devin", "devin") {
+		t.Fatal("a key in the environment is not a sign-in")
+	}
+	// The credential Coddy stores for the row is one.
+	path := config.DevinAuthPath(home, "devin")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"session_token":"dv-session"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !SignedIn(cfg, "devin", "devin") {
+		t.Fatal("a stored Devin sign-in is one")
+	}
+	// The same for a hub sign-in, which the picker does not act on but which
+	// must still be told from a key.
+	nd := freshConfig(home)
+	t.Setenv("NEURALDEEP_API_KEY", "nd-from-the-environment")
+	if SignedIn(nd, "neuraldeep", "neuraldeep") {
+		t.Fatal("a NeuralDeep key in the environment is not a sign-in either")
 	}
 }

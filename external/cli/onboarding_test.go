@@ -365,9 +365,22 @@ func TestOnlyAMachineWideSignInSkipsTheSignInStep(t *testing.T) {
 	write(config.NeuralDeepAuthPath(home, "neuraldeep"), `{"api_key":"nd-stored","hub":"https://api.neuraldeep.ru/v1"}`)
 	write(config.OpenCodeAuthPath(home, "opencode"), `{"api_key":"oc-stored"}`)
 
-	if !presetAlreadySignedIn(cfg, preset(t, "codex")) {
-		t.Fatal("a stored Codex sign-in skips the sign-in step")
+	write(config.DevinAuthPath(home, "devin"), `{"session_token":"dv-session"}`)
+
+	for _, id := range []string{"codex", "devin"} {
+		if !presetAlreadySignedIn(cfg, preset(t, id)) {
+			t.Fatalf("a stored %s sign-in skips the sign-in step", id)
+		}
 	}
+	// A key is not a sign-in: with one in the environment and no credential
+	// stored, the picker must still run the sign-in, because the listing of a
+	// row config.yaml does not list yet carries no variable.
+	bare := &config.Config{Paths: config.Paths{Home: t.TempDir(), CWD: home, ConfigPath: filepath.Join(home, "config.yaml")}}
+	t.Setenv("DEVIN_API_KEY", "dv-from-the-environment")
+	if presetAlreadySignedIn(bare, preset(t, "devin")) {
+		t.Fatal("DEVIN_API_KEY is a credential, not a sign-in")
+	}
+	t.Setenv("DEVIN_API_KEY", "")
 	for _, id := range []string{"neuraldeep", "opencode"} {
 		if presetAlreadySignedIn(cfg, preset(t, id)) {
 			t.Fatalf("%s has a hub to choose, so a stored credential must not skip its sign-in", id)

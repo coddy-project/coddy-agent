@@ -124,11 +124,15 @@ the picker looks for one before it asks for anything: with the Codex CLI's
 provider is signed in and goes straight to the models, and nothing is written
 but the row and the model you pick. The other two sign-ins belong to the hub
 they were taken from, and the picker has just asked which hub to use, so
-NeuralDeep and OpenCode sign in every time. One CLI login is one account and
-serves one row - the only row of its type, or the row named after it
-([Several profiles of one provider
-type](../getting-started/configuration.md#several-profiles-of-one-provider-type))
-- so with several Codex rows already configured the picker signs in as before.
+NeuralDeep and OpenCode sign in every time. Only a sign-in counts: a key in
+`DEVIN_API_KEY` or in `config.yaml` lets the row answer but is not one, and
+the picker still signs in. One CLI login is one account and serves one row,
+the only row of its type or, where several share it, the row named after the
+type ([Several profiles of one provider
+type](../getting-started/configuration.md#several-profiles-of-one-provider-type)).
+The picker writes exactly that row, `codex` or `devin`, so the login it finds
+is always the one meant for it, whatever else `config.yaml` lists; a row of
+your own beside it keeps signing in for itself.
 
 A provider `config.yaml` already lists keeps everything the picker does not ask
 about - a credential helper, a proxy, a timeout - because only what the setup
