@@ -386,36 +386,37 @@ test("a card keeps its height when an open neighbour needs the room", () => {
   expect(ruleBody(".bgtask-card {")).toContain("flex: none");
 });
 
-// The base padding keeps two row gaps above the live line and the composer
-// reserve keeps two below it. Only the active line without todos drops 4px
-// above it; the idle slot and the line under a checklist keep their padding.
-// The 17px on the left are the plate's 1px border and its 16px padding, so the
-// mark stands on the vertical line of the folder icon under it.
-test("the live line keeps its base padding for the idle slot and the checklist", () => {
+// The row's own padding is one row gap split evenly above and below, so the
+// step the line reports on and what follows stand the same distance from it;
+// it used to be a whole row gap on top and nothing underneath. The row's
+// height is what it was, so the composer reserve below it and the rows above
+// it did not move. The 17px on the left are the plate's 1px border and its
+// 16px padding, so the mark stands on the vertical line of the folder icon
+// under it.
+test("the live line splits its own room evenly above and below", () => {
   expect(ruleBody(".typing-dots {")).toMatch(
-    /padding: var\(--coddy-transcript-row-gap, 10px\) 17px 0;/,
+    /padding: calc\(var\(--coddy-transcript-row-gap, 10px\) \/ 2\) 17px;/,
   );
 });
 
-test("without todos the active live line removes 4px above it and adds no room below", () => {
+test("without todos the live line takes 4px less of the column, still evenly", () => {
   const rule = capture(
-    /\.messages-inner:not\(:has\(> \.message-row-todo\)\)\s*>\s*\.msg-assistant-stack:not\(\.typing-dots-slot\)\s*>\s*\.typing-dots:not\(\.typing-dots--summary\)\s*\{([^}]+)\}/,
+    /\.messages-inner:not\(:has\(> \.message-row-todo\)\)\s*>\s*\.msg-assistant-stack:not\(\.typing-dots-slot\)\s*>\s*\.typing-dots\s*\{([^}]+)\}/,
     css,
     "the active live line needs its own spacing when no checklist is present",
   );
   expect(rule).toContain(
-    "padding-top: calc(var(--coddy-transcript-row-gap, 10px) - 4px);",
+    "padding-block: calc((var(--coddy-transcript-row-gap, 10px) - 4px) / 2);",
   );
-  expect(rule).not.toMatch(/padding-bottom\s*:|padding\s*:/);
+  expect(rule).not.toMatch(/padding-top\s*:|padding-bottom\s*:|padding\s*:/);
 });
 
-// The line a finished step leaves is not the working line: it is an ordinary
-// row of the transcript, with the column's gap above it and the same below,
-// so the step it reports on and what follows stand equally far from it.
-test("the line of a finished step carries the column's rhythm on both sides", () => {
-  const rule = ruleBody(".typing-dots--summary {");
-  expect(rule).toContain("padding-top: 0");
-  expect(rule).toContain("padding-bottom: 0");
+// Regression (npm run check:queue, "the end of a turn moves nothing"): the
+// line a finished step leaves takes the live line's place in one frame, so it
+// has to be the same box. A rule that gave the finished one its own padding
+// moved the whole transcript by the difference the moment a turn ended.
+test("the finished line is the same box as the live line it replaces", () => {
+  expect(css).not.toMatch(/\.typing-dots--summary\s*\{[^}]*padding/);
 });
 
 test("the active live line eases checklist spacing changes only without reduced motion", () => {

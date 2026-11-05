@@ -170,12 +170,19 @@
   /* 6px to the first number, the gap the plate over the composer keeps
      between the folder icon and its name. */
   gap: 6px;
-  /* By default, two row gaps above it - the column's and this padding - and
-     the same two between it and the composer (chat/composerReserve.ts). The
-     17px on the left put the mark on the vertical line of that folder icon
-     (the plate's 1px border and its 16px padding), so the mark, the numbers
-     and the checklist above them stand in one column. */
-  padding: var(--coddy-transcript-row-gap, 10px) 17px 0;
+  /* The row's own padding is one row gap, split evenly above and below, so
+     the line stands the same distance from the step it reports on and from
+     what follows it; with the column's gap on either side that is a row and
+     a half each way, and two row gaps to the composer below
+     (chat/composerReserve.ts) as before, since the row's height did not move.
+     It was a whole row gap on top and nothing underneath, which read as a
+     line pushed down onto the row under it. The live line and the line a
+     finished step leaves keep the same box, or the transcript would jump by
+     the difference the moment a turn ends (npm run check:queue). The 17px on
+     the left put the mark on the vertical line of the folder icon on the
+     plate over the composer (the plate's 1px border and its 16px padding), so
+     the mark, the numbers and the checklist above them stand in one column. */
+  padding: calc(var(--coddy-transcript-row-gap, 10px) / 2) 17px;
   /* Blockified as a flex item of the column .msg-assistant-stack; without this its
      min-content width follows the unbreakable phrase in the status label and pushes
      the row past .messages-inner. */
@@ -183,14 +190,12 @@
   max-width: 100%;
 }
 
-/* Without a checklist, reduce the working line's top gap by 4px.
-   Keep its bottom padding at zero, as it is under a checklist. The line a
-   finished step leaves is not the working line and keeps the column's own
-   rhythm on both sides (.typing-dots--summary below). */
+/* Without a checklist the line takes 4px less of the column, still split
+   evenly, so the two gaps around it stay equal. */
 .messages-inner:not(:has(> .message-row-todo))
   > .msg-assistant-stack:not(.typing-dots-slot)
-  > .typing-dots:not(.typing-dots--summary) {
-  padding-top: calc(var(--coddy-transcript-row-gap, 10px) - 4px);
+  > .typing-dots {
+  padding-block: calc((var(--coddy-transcript-row-gap, 10px) - 4px) / 2);
 }
 
 /* Between turns the live line's room stays, transparent and still: the line
@@ -292,15 +297,6 @@
    whole line, so it closes with no middle dot - nothing follows it to separate. */
 .typing-dots-status--tasks-only .typing-dots-turn-item::after {
   content: none;
-}
-
-/* The line a finished step leaves behind is a row of the transcript like any
-   other: the column's gap above it and the same below, never the live line's
-   reserve on one side and nothing on the other. The live line keeps that
-   reserve, because it is the last row and the composer stands under it. */
-.typing-dots--summary {
-  padding-top: 0;
-  padding-bottom: 0;
 }
 
 /* A finished turn keeps the line: the mark at rest, its numbers can be copied,

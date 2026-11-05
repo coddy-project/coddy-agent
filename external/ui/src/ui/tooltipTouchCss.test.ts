@@ -46,6 +46,43 @@ test("a tooltip of the composer card stands over the plate joined to it", () => 
   );
 });
 
+// Regression: the ring's tip stands 12px above the ring, and it carried the
+// rail's downward shadow (10px down over 28px of blur), which washed grey over
+// the ring and the bar under it - a crooked shadow around the ring itself.
+// A tip above its control casts its shadow upward, and every theme names that
+// shadow as it names the downward one.
+test("the tip above the context ring casts its shadow upward", () => {
+  expect(css).toMatch(
+    /\.composer-context-tip-host \.composer-context-tip\.rail-tip \{[^}]*box-shadow: var\(--coddy-tip-shadow-above, var\(--coddy-tip-shadow\)\);/,
+  );
+  const themes = [
+    "dark",
+    "light",
+    "midnight",
+    "solarized-dark",
+    "monokai",
+    "nord",
+    "rose-pine",
+    "neuraldeep",
+  ];
+  for (const theme of themes) {
+    const body = new RegExp(
+      `\\[data-theme="${theme}"\\][^{]*\\{([^}]*)\\}`,
+    ).exec(css);
+    expect(body, theme).not.toBeNull();
+    expect(body![1], theme).toMatch(/--coddy-tip-shadow-above: 0 -\d+px /);
+  }
+});
+
+// A finger is wider than a cursor and the control beside the ring stops the
+// turn, so the two stand further apart wherever the pointer is coarse.
+test("the ring keeps its distance from the stop control on a touch screen", () => {
+  expect(css).toMatch(
+    /@media \(max-width: 599px\), \(any-hover: none\) and \(any-pointer: coarse\) \{ \.composer-bar-actions \{ gap: 20px; \}/,
+  );
+  expect(css).toMatch(/\.composer-bar-actions \{[^}]*gap: 10px;/);
+});
+
 test("the plus of the rail changes its frame and its ground under the pointer", () => {
   expect(css).toMatch(
     /@media \(hover: hover\) \{ \.rail-pill \.rail-hit\.rail-new-chat:hover \{ border-color: var\(--accent\); background: color-mix\(in srgb, var\(--accent\) 28%/,

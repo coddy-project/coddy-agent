@@ -275,6 +275,15 @@
   flex-shrink: 0;
 }
 
+/* A finger is wider than a cursor, and the control beside the ring stops the
+   turn: 10px between the two is a miss away from stopping a turn somebody
+   only meant to read the context of. */
+@media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {
+  .composer-bar-actions {
+    gap: 20px;
+  }
+}
+
 /* Context meter: same tooltip styling as narrow rail (see .rail-tip) */
 .composer-context-tip-host {
   position: relative;
@@ -342,5 +351,9 @@
   font-size: 12px;
   line-height: 1.45;
   text-align: left;
-  box-shadow: var(--coddy-tip-shadow);
+  /* The tip stands above the ring it belongs to, so its shadow is cast
+     upward: the rail's downward one (10px down, 28px of blur, over a 12px
+     gap) washed grey over the ring and the bar under it, which read as the
+     ring having a crooked shadow of its own. */
+  box-shadow: var(--coddy-tip-shadow-above, var(--coddy-tip-shadow));
 }

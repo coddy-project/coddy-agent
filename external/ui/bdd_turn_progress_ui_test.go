@@ -27,8 +27,14 @@ func TestTurnProgressWebUIFeature(t *testing.T) {
 			sc.Step(`^the active live line eases checklist spacing changes only without reduced motion$`, func() error {
 				return runVitestScenario("src/ui/tasks/backgroundTaskCss.test.ts", "the active live line eases checklist spacing changes only without reduced motion")
 			})
-			sc.Step(`^without todos the active live line removes 4px above it and adds no room below$`, func() error {
-				return runVitestScenario("src/ui/tasks/backgroundTaskCss.test.ts", "without todos the active live line removes 4px above it and adds no room below")
+			sc.Step(`^the live line splits its own room evenly above and below$`, func() error {
+				return runVitestScenario("src/ui/tasks/backgroundTaskCss.test.ts", "the live line splits its own room evenly above and below")
+			})
+			sc.Step(`^without todos the live line takes 4px less of the column, still evenly$`, func() error {
+				return runVitestScenario("src/ui/tasks/backgroundTaskCss.test.ts", "without todos the live line takes 4px less of the column, still evenly")
+			})
+			sc.Step(`^the finished line is the same box as the live line it replaces$`, func() error {
+				return runVitestScenario("src/ui/tasks/backgroundTaskCss.test.ts", "the finished line is the same box as the live line it replaces")
 			})
 			sc.Step(`^before the first token the live line shows the turn clock and the waiting phrase alone$`, func() error {
 				return runVitestScenario(dots, "before the first token the line is the turn clock and the waiting phrase")
