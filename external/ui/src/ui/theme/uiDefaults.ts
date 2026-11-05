@@ -12,6 +12,7 @@ import {
   type UiThemeMode,
 } from "./themeCookie";
 import { applyUiTheme } from "./uiTheme";
+import { onEnvironmentSwitch } from "../env/remoteEnv";
 
 export interface UiDefaults {
   theme?: string;
@@ -64,6 +65,9 @@ export function loadUiDefaults(
 export function resetUiDefaultsCache(): void {
   defaultsPromise = undefined;
 }
+
+// The cached answer belongs to one environment; another server is asked anew.
+onEnvironmentSwitch(resetUiDefaultsCache);
 
 /**
  * Applies the server's default theme only while the browser holds no theme

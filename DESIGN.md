@@ -592,7 +592,7 @@ A phone gives the shell 360 to 430 CSS px. Everything below lives in one **`@med
   (**`.session-archived-mark`**) leads the row beside its state dot, where states
   belong - it is not a chip among the tags, which are labels the operator chose.
 - **A running turn is a pulsing dot** (**`.session-activity-dot`**, **`sessionRowShowsActivity`**), not a
-  spinner: the **unread dot** a finished background turn leaves behind (8px, violet) made **a third
+  spinner: the **unread dot** a finished background turn leaves behind (8px, the theme's accent) made **a third
   darker** (**`color-mix(in srgb, <unread colour> 67%, #000)`**) and pulsing between full and 30%
   opacity every 1.2s, held still under **`prefers-reduced-motion`**. The two marks are one family -
   *working* and *done, not read yet* - where a spinner beside them read as a third kind of state.
@@ -606,7 +606,7 @@ A phone gives the shell 360 to 430 CSS px. Everything below lives in one **`@med
   turn carries **`lastErrorSeq`** in the session activity data: while its generation is newer than the
   read cursor it is a filled red **`.session-error-dot`**; opening that session advances the cursor and
   turns the mark into a red outline (**`.is-seen`**) until a later successful turn clears it. An unseen
-  error wins over the generic violet unread-completion dot. A permission or question waiting on the
+  error wins over the generic accent unread-completion dot. A permission or question waiting on the
   reader owns the slot instead, so it renders no idle or error ring behind its own mark. A question marker stays still: the turn is waiting for a person rather than making progress.
 - **The composer's slot on an archived conversation** is **`.archived-session-notice`**, cut from the
   same glass panel as the subagent notice beside it (**`--coddy-glass-panel-bg`** plus the backdrop
@@ -1075,7 +1075,7 @@ something needs the user.
   (the **10%** amber or red it used to be) let the chat read through the
   notice. The tone's colour is mixed into the theme's canvas instead,
   **`color-mix(in srgb, #f59e0b 10%, var(--bg))`** for **warn** and
-  **`#ef4444`** for **error**; **`--bg`** is a solid colour in all seven
+  **`#ef4444`** for **error**; **`--bg`** is a solid colour in all eight
   themes, so the plate is too (**`usageBannerCss.test.ts`** holds both). The
   text is **`var(--text)`** and the **×** hover plate the **6%** text wash:
   the **`--fg`** and **`--border`** the rules used to name exist in no theme.
