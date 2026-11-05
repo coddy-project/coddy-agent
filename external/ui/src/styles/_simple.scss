@@ -109,6 +109,12 @@ html[data-simple="on"] .settings-skeleton-bar {
   background: mix-text(8%);
 }
 
+/* In simplified mode a finished-but-unread mark is translucent; every other
+   session mark keeps its usual look. */
+html[data-simple="on"] .session-unread-dot {
+  opacity: 0.5;
+}
+
 html[data-simple="on"] .chat-bottom:has(.composer-wrap-docked)::before,
 html[data-simple="on"] .permission-preview-fade {
   background: none;

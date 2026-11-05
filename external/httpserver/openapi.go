@@ -1218,6 +1218,14 @@ func openAPISpec() map[string]interface{} {
 												"items":       map[string]string{"type": "string"},
 												"description": "The toolsets[] presets by name, in the order of the configuration; empty without one.",
 											},
+											"ui": map[string]interface{}{
+												"type":        "object",
+												"description": "The deployment's UI defaults, present only while CODDY_UI_THEME or CODDY_UI_WALLPAPER is set: theme names the theme a browser without its own cookie opens on, wallpaper a file of the server's wallpaper gallery shown until the person picks a background.",
+												"properties": map[string]interface{}{
+													"theme":     map[string]interface{}{"type": "string", "example": "neuraldeep"},
+													"wallpaper": map[string]interface{}{"type": "string", "example": "night.png"},
+												},
+											},
 										},
 									},
 								},
