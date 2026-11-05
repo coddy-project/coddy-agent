@@ -37,9 +37,50 @@ func (m *Manager) EnqueueTurnMessageWithMode(sessionID, text string, mode QueueM
 	if err != nil {
 		return QueuedMessage{}, st.QueuedMessages(), err
 	}
+	m.steerAgentTurn(st, mode)
 	// The change announced itself through the notifier the manager installed;
 	// nothing here publishes a second time.
 	return msg, st.QueuedMessages(), nil
+}
+
+// steerAgentTurn delivers a steer follow-up to a turn an agent behind an acp
+// row is running, at once.
+//
+// A steer message means "read this at the next step". With a model of its own
+// the loop has a step every few seconds and reads it there; a turn an acp
+// agent runs is one call that can last minutes, with no step of Coddy's
+// inside it, so the message waited for the whole run and the only way to be
+// heard was Stop. The step boundary of such a turn is its prompt: the run is
+// interrupted and started again carrying what is queued, which is what Stop
+// with continue_queue already does by hand - the agent keeps its own session
+// and goes on from what it had done.
+//
+// Only a steer message does this, and only while nothing queued asked to wait
+// for the turn: an after_turn message means the turn is to finish first, and
+// the interrupt carries the whole queue.
+func (m *Manager) steerAgentTurn(st *State, mode QueueMode) {
+	if mode != QueueModeSteer || !m.turnRunsAnAgent(st) {
+		return
+	}
+	for _, q := range st.QueuedMessages() {
+		if q.Mode == QueueModeAfterTurn {
+			return
+		}
+	}
+	if m.TryInterruptQueuedTurn(st.GetID()) && m.log != nil {
+		m.log.Info("steering the agent's turn with the queued follow-up", "session_id", st.GetID())
+	}
+}
+
+// turnRunsAnAgent reports whether the session's model is served by a local
+// agent (providers[].type: acp), whose prompt is the whole turn.
+func (m *Manager) turnRunsAnAgent(st *State) bool {
+	cfg := m.activeCfg()
+	if cfg == nil {
+		return false
+	}
+	rm, err := cfg.ResolveLLM(st.EffectiveModelID(cfg))
+	return err == nil && rm.ProviderType == "acp"
 }
 
 // EnqueueFollowUp is EnqueueTurnMessage for text an operator typed while the

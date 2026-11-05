@@ -389,15 +389,17 @@ test("a card keeps its height when an open neighbour needs the room", () => {
 // The base padding keeps two row gaps above the live line and the composer
 // reserve keeps two below it. Only the active line without todos drops 4px
 // above it; the idle slot and the line under a checklist keep their padding.
+// The 17px on the left are the plate's 1px border and its 16px padding, so the
+// mark stands on the vertical line of the folder icon under it.
 test("the live line keeps its base padding for the idle slot and the checklist", () => {
   expect(ruleBody(".typing-dots {")).toMatch(
-    /padding: var\(--coddy-transcript-row-gap, 10px\) 14px 0;/,
+    /padding: var\(--coddy-transcript-row-gap, 10px\) 17px 0;/,
   );
 });
 
 test("without todos the active live line removes 4px above it and adds no room below", () => {
   const rule = capture(
-    /\.messages-inner:not\(:has\(> \.message-row-todo\)\)\s*>\s*\.msg-assistant-stack:not\(\.typing-dots-slot\)\s*>\s*\.typing-dots\s*\{([^}]+)\}/,
+    /\.messages-inner:not\(:has\(> \.message-row-todo\)\)\s*>\s*\.msg-assistant-stack:not\(\.typing-dots-slot\)\s*>\s*\.typing-dots:not\(\.typing-dots--summary\)\s*\{([^}]+)\}/,
     css,
     "the active live line needs its own spacing when no checklist is present",
   );
@@ -405,6 +407,15 @@ test("without todos the active live line removes 4px above it and adds no room b
     "padding-top: calc(var(--coddy-transcript-row-gap, 10px) - 4px);",
   );
   expect(rule).not.toMatch(/padding-bottom\s*:|padding\s*:/);
+});
+
+// The line a finished step leaves is not the working line: it is an ordinary
+// row of the transcript, with the column's gap above it and the same below,
+// so the step it reports on and what follows stand equally far from it.
+test("the line of a finished step carries the column's rhythm on both sides", () => {
+  const rule = ruleBody(".typing-dots--summary {");
+  expect(rule).toContain("padding-top: 0");
+  expect(rule).toContain("padding-bottom: 0");
 });
 
 test("the active live line eases checklist spacing changes only without reduced motion", () => {

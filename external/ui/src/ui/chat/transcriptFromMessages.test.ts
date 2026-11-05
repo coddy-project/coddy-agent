@@ -903,3 +903,98 @@ test("an acp model's tool calls are rows of their own before the answer", () => 
     agentTool: true,
   });
 });
+
+// Regression: an agent behind an acp model writes a line, runs a tool, writes
+// the next line, and the whole of it is one assistant message. Read back from
+// the transcript, every call stood before the whole answer, so a finished turn
+// put all of the agent's words under all of its tools - never where they were
+// written. Each call carries how much of the answer stood when it was
+// announced, and the answer is cut there.
+test("an acp model's calls stand between the runs of the answer they interrupted", () => {
+  const answer = "Beginning.\nMiddle part.\nEnd.";
+  const msgs: RawSessionMessage[] = [
+    { role: "user", content: "go" },
+    {
+      role: "assistant",
+      content: answer,
+      agent_tools: [
+        {
+          id: "acp_t1",
+          title: "read notes.txt",
+          kind: "read",
+          status: "completed",
+          text_offset: answer.indexOf("Middle"),
+        },
+        {
+          id: "acp_t2",
+          title: "bash go test",
+          kind: "execute",
+          status: "completed",
+          text_offset: answer.indexOf("End."),
+        },
+      ],
+    },
+  ];
+  const { items } = transcriptItemsFromMessages({
+    messages: msgs,
+    window: windowAt(msgs, 0),
+    uiLog: undefined,
+    newId,
+    reasoningDurations: new Map(),
+  });
+  expect(
+    items.map((it) =>
+      it.type === "assistant_message"
+        ? `answer:${it.content}`
+        : it.type === "tool_call"
+          ? `tool:${it.toolCallId}`
+          : it.type,
+    ),
+  ).toEqual([
+    "user_message",
+    "answer:Beginning.\n",
+    "tool:acp_t1",
+    "answer:Middle part.\n",
+    "tool:acp_t2",
+    "answer:End.",
+  ]);
+  // Every run of one answer is a row of its own, so their keys differ.
+  const ids = items
+    .filter((it) => it.type === "assistant_message")
+    .map((it) => it.id);
+  expect(new Set(ids).size).toBe(3);
+});
+
+// The offsets count characters, so an answer in a non-Latin script cuts where
+// the agent stopped writing, not a byte count further back.
+test("the cut of an answer follows characters, not bytes", () => {
+  const answer = "Начало.\nПродолжение.";
+  const msgs: RawSessionMessage[] = [
+    { role: "user", content: "go" },
+    {
+      role: "assistant",
+      content: answer,
+      agent_tools: [
+        {
+          id: "acp_t1",
+          title: "read",
+          kind: "read",
+          status: "completed",
+          text_offset: "Начало.\n".length,
+        },
+      ],
+    },
+  ];
+  const { items } = transcriptItemsFromMessages({
+    messages: msgs,
+    window: windowAt(msgs, 0),
+    uiLog: undefined,
+    newId,
+    reasoningDurations: new Map(),
+  });
+  expect(
+    items
+      .filter((it) => it.type === "assistant_message")
+      .map((it) => (it as { content: string }).content),
+  ).toEqual(["Начало.\n", "Продолжение."]);
+});

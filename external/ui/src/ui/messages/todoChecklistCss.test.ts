@@ -118,7 +118,9 @@ test("a header-only collapsed checklist has equal top and bottom insets", () => 
     '.todo-checklist:has(> .todo-checklist-head[aria-expanded="false"])',
   );
   // The open card and the heading-to-item gap keep their existing padding.
-  expect(card).toContain("padding: 4px 14px 8px;");
+  // The 16px on either side stand the card's marks on the vertical line of
+  // the folder icon on the plate over the composer, over its own 1px border.
+  expect(card).toContain("padding: 4px 16px 8px;");
   expect(head).toContain("padding: 6px 0 4px;");
   expect(collapsed).toContain("padding-bottom: 6px;");
   const bottom = Number(collapsed.match(/padding-bottom: (\d+)px;/)?.[1]);

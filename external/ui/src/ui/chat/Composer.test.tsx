@@ -388,6 +388,76 @@ test("Tab key selects first slash command from picker", async () => {
   vi.unstubAllGlobals();
 });
 
+// Regression: while a turn ran, the skills picker drew its rows and took a
+// click, but every key of it was refused, so Tab fell through to the browser
+// and moved the focus to the attach control instead of completing the name.
+test("Tab completes a skill name while a turn runs", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: true,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+    onchange: null,
+  }));
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      items: [{ name: "nd-search", description: "Search the web" }],
+      has_more: false,
+      page: 1,
+    }),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  const onChange = vi.fn();
+  const onQueue = vi.fn();
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={(v) => {
+          setValue(v);
+          onChange(v);
+        }}
+        onSend={() => {}}
+        generating
+        onQueue={onQueue}
+        onStop={() => {}}
+      />
+    );
+  }
+
+  render(<Harness />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "/nd-", selectionStart: 4, selectionEnd: 4 },
+  });
+
+  await waitFor(() => {
+    expect(
+      screen.queryByRole("listbox", { name: "Slash commands" }),
+    ).toBeTruthy();
+  });
+
+  fireEvent.keyDown(ta, { key: "Tab", code: "Tab" });
+
+  await waitFor(() => {
+    expect(onChange).toHaveBeenCalledWith("/nd-search ");
+  });
+  // The key belonged to the picker, so it never reached the queue.
+  expect(onQueue).not.toHaveBeenCalled();
+  expect(screen.queryByRole("listbox", { name: "Slash commands" })).toBeNull();
+  vi.unstubAllGlobals();
+});
+
 test("composer highlights only the active slash draft at caret", () => {
   const s = "asdfasf /find-skills asdfasdf";
   render(

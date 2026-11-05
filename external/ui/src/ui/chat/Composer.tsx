@@ -3526,12 +3526,15 @@ export function Composer(props: {
                     });
                     return;
                   }
+                  // The skills picker answers its keys while a turn runs, as
+                  // the mention picker above does: it is open and its rows
+                  // take a click, so a key that did nothing left Tab to the
+                  // browser, which moved the focus to the attach control.
                   if (
                     (ev.key === "ArrowDown" || ev.key === "ArrowUp") &&
                     slashOpen &&
                     !atOpen &&
-                    slashRows.length > 0 &&
-                    !props.generating
+                    slashRows.length > 0
                   ) {
                     ev.preventDefault();
                     const len = slashRows.length;
@@ -3554,8 +3557,7 @@ export function Composer(props: {
                   if (
                     ev.key === "Tab" &&
                     slashOpen &&
-                    (slashItems.length > 0 || commandMatches.length > 0) &&
-                    !props.generating
+                    (slashItems.length > 0 || commandMatches.length > 0)
                   ) {
                     ev.preventDefault();
                     const pick = slashRows[slashActiveIdx]?.name;
@@ -3581,8 +3583,7 @@ export function Composer(props: {
                     ev.key === "Enter" &&
                     !ev.shiftKey &&
                     slashOpen &&
-                    (slashItems.length > 0 || commandMatches.length > 0) &&
-                    !props.generating
+                    (slashItems.length > 0 || commandMatches.length > 0)
                   ) {
                     ev.preventDefault();
                     const pick = slashRows[slashActiveIdx]?.name;

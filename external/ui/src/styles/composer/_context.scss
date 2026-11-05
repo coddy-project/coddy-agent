@@ -15,7 +15,12 @@
   max-width: 100%;
   align-items: center;
   gap: 12px;
-  margin: 0 0 10px;
+  /* The notice takes a queued message's place over the composer, so it keeps
+     that row's 6px to the card under it (composer/_card.scss,
+     .composer-queue). The room the card's wrapper keeps over itself lies
+     above the notice instead, which is also what chat/composerReserve.ts
+     reads (blockEdgePaddingTop). */
+  margin: 0 0 6px;
   padding: 8px 12px;
   border-radius: 12px;
   border: 1px solid rgba(245, 158, 11, 0.45);
@@ -28,6 +33,13 @@
 .usage-banner--error {
   border-color: rgba(239, 68, 68, 0.5);
   background: color-mix(in srgb, #ef4444 10%, var(--bg));
+}
+
+/* With a notice over it the card's wrapper has nothing to hold apart: its
+   own top room would stand between the two and make the gap under the notice
+   three times the one a queued message keeps. */
+:is(.chat-bottom-inner, .hero-composer):has(> .usage-banner) > .composer-wrap {
+  padding-top: 0;
 }
 
 .usage-banner-text {

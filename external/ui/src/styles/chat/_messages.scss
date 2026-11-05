@@ -167,10 +167,15 @@
 .typing-dots {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  /* 6px to the first number, the gap the plate over the composer keeps
+     between the folder icon and its name. */
+  gap: 6px;
   /* By default, two row gaps above it - the column's and this padding - and
-     the same two between it and the composer (chat/composerReserve.ts). */
-  padding: var(--coddy-transcript-row-gap, 10px) 14px 0;
+     the same two between it and the composer (chat/composerReserve.ts). The
+     17px on the left put the mark on the vertical line of that folder icon
+     (the plate's 1px border and its 16px padding), so the mark, the numbers
+     and the checklist above them stand in one column. */
+  padding: var(--coddy-transcript-row-gap, 10px) 17px 0;
   /* Blockified as a flex item of the column .msg-assistant-stack; without this its
      min-content width follows the unbreakable phrase in the status label and pushes
      the row past .messages-inner. */
@@ -179,10 +184,12 @@
 }
 
 /* Without a checklist, reduce the working line's top gap by 4px.
-   Keep its bottom padding at zero, as it is under a checklist. */
+   Keep its bottom padding at zero, as it is under a checklist. The line a
+   finished step leaves is not the working line and keeps the column's own
+   rhythm on both sides (.typing-dots--summary below). */
 .messages-inner:not(:has(> .message-row-todo))
   > .msg-assistant-stack:not(.typing-dots-slot)
-  > .typing-dots {
+  > .typing-dots:not(.typing-dots--summary) {
   padding-top: calc(var(--coddy-transcript-row-gap, 10px) - 4px);
 }
 
@@ -223,12 +230,13 @@
   }
 }
 
-/* The live status label follows the work indicator. */
+/* The live status label follows the work indicator, the row's gap apart and
+   nothing more: a margin of its own put the numbers past the name on the
+   plate under them. */
 .typing-dots-status {
   display: inline-flex;
   align-items: baseline;
   min-width: 0;
-  margin-left: 3px;
   font-size: 13px;
   line-height: 1.3;
   color: mix-text(55%);
@@ -284,6 +292,15 @@
    whole line, so it closes with no middle dot - nothing follows it to separate. */
 .typing-dots-status--tasks-only .typing-dots-turn-item::after {
   content: none;
+}
+
+/* The line a finished step leaves behind is a row of the transcript like any
+   other: the column's gap above it and the same below, never the live line's
+   reserve on one side and nothing on the other. The live line keeps that
+   reserve, because it is the last row and the composer stands under it. */
+.typing-dots--summary {
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 /* A finished turn keeps the line: the mark at rest, its numbers can be copied,
