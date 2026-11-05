@@ -1241,27 +1241,30 @@ async function scenarioViews() {
 
   // The tooltip of the context ring opens upward from inside the composer card,
   // and the card's blur makes it a layer of its own: the plate joined to its top
-  // used to paint over the tip. A tip takes no pointer, so it takes one to be read.
+  // used to paint over the tip. The card comes over the plate while a tip is up,
+  // which is what keeps it readable however far up it reaches - the tip is one
+  // line now and usually stops inside the card. A tip takes no pointer, so it
+  // takes one to be read.
   await a.page.locator(".composer-context-tip-host").first().hover();
   await a.page.waitForTimeout(250);
   const overPlate = await a.page.evaluate(() => {
     const tip = document.querySelector(".composer-context-tip");
-    const plate = document
-      .querySelector(".workspace-bar")
-      .getBoundingClientRect();
+    const card = document.querySelector(".composer-card");
+    const plate = document.querySelector(".workspace-bar");
     tip.style.pointerEvents = "auto";
     const r = tip.getBoundingClientRect();
     const at = document.elementFromPoint(r.left + r.width / 2, r.top + 4);
     tip.style.pointerEvents = "";
     return {
-      overlaps: r.top < plate.bottom,
       top: !!at && tip.contains(at),
       at: at ? String(at.className) : "",
+      card: getComputedStyle(card).zIndex,
+      plate: getComputedStyle(plate).zIndex,
     };
   });
   check(
-    "the context ring's tooltip stands over the plate it opens across",
-    overPlate.overlaps && overPlate.top,
+    "the context ring's tooltip is read over the plate joined to the card",
+    overPlate.top && Number(overPlate.card) > Number(overPlate.plate),
     JSON.stringify(overPlate),
   );
   await a.page.mouse.move(5, 400);
