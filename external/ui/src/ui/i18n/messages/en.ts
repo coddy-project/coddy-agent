@@ -1023,6 +1023,85 @@ export const messagesEn: Record<string, string> = {
 
   "settings.combobox.toggleAria": "Toggle options",
 
+  "onboarding.title": "Choose a provider",
+  "onboarding.lead":
+    "Connect a model provider to start chatting. You can change this later in Settings.",
+  "onboarding.close": "Close onboarding",
+  "onboarding.provider.openai.description": "GPT models and the OpenAI API",
+  "onboarding.provider.anthropic.description": "Claude models",
+  "onboarding.provider.compatible.description":
+    "Ollama, LM Studio, DeepSeek, Groq or any endpoint of your own",
+  "onboarding.provider.acp.description":
+    "An agent of your own on this machine: Claude Code, Codex, Gemini",
+  "onboarding.provider.neuraldeep.description":
+    "API key or account sign-in on either hub",
+  "onboarding.provider.codex.description":
+    "Your ChatGPT subscription through OAuth",
+  "onboarding.provider.opencode.description":
+    "OpenCode Go or Console with account sign-in",
+  "onboarding.provider.devin.description": "Devin models with browser sign-in",
+  "onboarding.apiKey": "API key",
+  "onboarding.showKey": "Show",
+  "onboarding.hideKey": "Hide",
+  "onboarding.apiBase": "API base URL",
+  "onboarding.command": "Command",
+  "onboarding.commandHint":
+    "The program that speaks ACP on this machine, with its arguments. It signs itself in; Coddy stores no key for it.",
+  "onboarding.commandRequired":
+    "Enter the command to run before testing or saving this agent.",
+  "onboarding.apiBaseRequired":
+    "Enter the API base URL before testing or saving this provider.",
+  "onboarding.proxy": "Proxy URL",
+  "onboarding.proxyHint":
+    "Model discovery, sign-in and chat requests use this route.",
+  "onboarding.validationFailed": "The configuration is invalid.",
+  "onboarding.saveFailed": "Could not save the configuration ({status}).",
+  "onboarding.saveFailedGeneric": "Could not save the configuration.",
+  "onboarding.save": "Save and continue",
+  "onboarding.restart": "Restart onboarding",
+  "onboarding.restartHint":
+    "Choose a provider again and replay the guided tour.",
+
+  "devinAuth.error.signInFailed": "Devin sign in failed.",
+  "devinAuth.error.incompleteResponse":
+    "Devin returned incomplete sign-in instructions.",
+  "devinAuth.fieldLabel": "Devin account",
+  "devinAuth.description":
+    "Sign in through the browser and paste the callback address when the browser cannot reach Coddy. Tokens stay on the Coddy server. Save the provider settings to use this row for chats.",
+  "devinAuth.connected": "Signed in to Devin ({account}).",
+  "devinAuth.shadowedByKey":
+    "The explicit API key takes priority over this login.",
+  "devinAuth.openSignInPage": "Open sign-in page",
+  "devinAuth.waiting": "Waiting for Devin…",
+  "devinAuth.signOut": "Sign Out",
+  "devinAuth.signIn": "Sign In with Devin",
+  "devinAuth.pasteLabel": "Remote browser? Paste the full callback address",
+  "devinAuth.pasteSubmit": "Complete sign-in",
+
+  "tour.stepCounter": "Step {current} of {total}",
+  "tour.skip": "Skip tour",
+  "tour.back": "Back",
+  "tour.next": "Next",
+  "tour.done": "Done",
+  "tour.step.newChat.title": "New chat",
+  "tour.step.newChat.body":
+    "Start a conversation here. Each one keeps its own history, workspace and model.",
+  "tour.step.settings.title": "Settings",
+  "tour.step.settings.body":
+    "Manage providers, models, tools and the rest of Coddy here.",
+  "tour.step.project.title": "Workspace",
+  "tour.step.project.body": "Choose the folder and branch the agent works in.",
+  "tour.step.history.title": "History",
+  "tour.step.history.body": "Open earlier conversations or start a new chat.",
+  "tour.step.model.title": "Model",
+  "tour.step.model.body": "Pick the configured model for this chat.",
+  "tour.step.input.title": "Message",
+  "tour.step.input.body":
+    "Write a request here. Use @ to mention files and / for commands.",
+  "tour.step.send.title": "Send",
+  "tour.step.send.body":
+    "Send the message and watch the agent work in the transcript.",
+
   "codexAuth.error.signInFailed": "ChatGPT sign in failed.",
   "codexAuth.error.incompleteResponse":
     "The OAuth server returned an incomplete sign-in response.",
@@ -1045,15 +1124,15 @@ export const messagesEn: Record<string, string> = {
 
   "neuralDeepApiBase.description":
     "NeuralDeep runs the same API at two deployments: api.neuraldeep.ru serves Russia, api.neuraldeep.tech is the mirror for everywhere else. The choice also decides which hub the sign-in below talks to. The model list below is fetched with the row as it stands in the form.",
-  "neuralDeepApiBase.optionRu": "api.neuraldeep.ru — Russia",
-  "neuralDeepApiBase.optionTech": "api.neuraldeep.tech — international mirror",
+  "neuralDeepApiBase.optionRu": "api.neuraldeep.ru - Russia",
+  "neuralDeepApiBase.optionTech": "api.neuraldeep.tech - international mirror",
   "neuralDeepApiBase.unknown":
     "The saved api_base {value} is not a NeuralDeep endpoint, so requests go to {fallback}. Pick an endpoint to replace it.",
 
   "openCodeApiBase.description":
     "OpenCode serves one API key from two gateways: the Go subscription and pay-as-you-go Console. Pick the one your key is for; the model list below is fetched with the row as it stands in the form. Enter the key in the API key field above, or run `coddy providers login opencode`.",
-  "openCodeApiBase.optionGo": "Go — subscription (inference/go/v1)",
-  "openCodeApiBase.optionConsole": "Console — pay as you go (inference/v1)",
+  "openCodeApiBase.optionGo": "Go - subscription (inference/go/v1)",
+  "openCodeApiBase.optionConsole": "Console - pay as you go (inference/v1)",
   "openCodeApiBase.unresolved": "Not an OpenCode gateway — pick one",
   "openCodeApiBase.unknown":
     "The saved api_base {value} is not an OpenCode gateway, so requests go to {fallback}. Pick a gateway to replace it.",

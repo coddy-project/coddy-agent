@@ -122,17 +122,7 @@ func (s *Server) coddyProviderOpenCodeAuthDevicePost(w http.ResponseWriter, r *h
 	loginID := newCodexAuthLoginID()
 	attempt := &codexAuthLoginAttempt{ProviderName: name, Status: "pending", CreatedAt: time.Now(), cancel: cancel}
 	s.codexAuthMu.Lock()
-	for id, old := range s.opencodeAuthLogins {
-		if old.ProviderName == name || time.Since(old.CreatedAt) > 20*time.Minute {
-			if old.cancel != nil {
-				old.cancel()
-			}
-		}
-		if time.Since(old.CreatedAt) > 20*time.Minute {
-			delete(s.opencodeAuthLogins, id)
-		}
-	}
-	s.opencodeAuthLogins[loginID] = attempt
+	registerAuthLoginAttempt(s.opencodeAuthLogins, loginID, name, attempt)
 	s.codexAuthMu.Unlock()
 	startCtx, stopStart := context.WithCancel(r.Context())
 	defer stopStart()

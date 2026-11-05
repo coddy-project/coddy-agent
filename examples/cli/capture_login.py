@@ -6,10 +6,11 @@ no config.yaml - with the hub and the API base pointed at a local stand-in
 (CODDY_NEURALDEEP_HUB_URL, CODDY_NEURALDEEP_BASE_URL). The stand-in answers
 the device sign-in as the real hub does: a code to confirm on its page,
 "pending" once, then a key; whoami names the account, the tier status lists
-the chat models, and GET /limits feeds the usage line. The shot types /login
-and renders one PNG once the sign-in is over: the page and the code, the
-signed-in line, what config.yaml gained, and the footer on the new model.
-No real hub, no key, no browser.
+the chat models, and GET /limits feeds the usage line. It renders two PNGs:
+the provider picker a fresh console opens by itself, and then, once Enter has
+taken NeuralDeep and its first endpoint, the page and the code, the signed-in
+line, what config.yaml gained, and the footer on the new model. No real hub,
+no key, no browser.
 
 Usage: python3 capture_login.py [repo] [outdir]   (default docs/assets/cli-tui)
 Needs a cli-tagged build/coddy (make build TAGS=cli, or CODDY_BIN), pexpect,
@@ -31,6 +32,9 @@ from cli_tui_driver import ROWS, CR  # noqa: E402
 COLS = 148
 capture.COLS = COLS
 NAME = "login-signed-in-dark-1280"
+PICKER_NAME = "login-provider-picker-dark-1280"
+# Every row of the picker, in the order it offers them.
+PICKER_ROWS = ["NeuralDeep", "OpenCode", "OpenAI", "Anthropic", "Codex", "Devin", "OpenAI-compatible", "ACP agent"]
 CODE = "BCDF-GHJK"
 # The address the real hub sends a person to; the stand-in only names it.
 PAGE = "https://hub.neuraldeep.ru/app/device?code=" + CODE
@@ -178,9 +182,22 @@ def render_png(outdir, name):
 OUT.mkdir(parents=True, exist_ok=True)
 tui = Shot()
 tui.wait_for("coddy v", timeout=30)
-tui.wait_for("Type /login", timeout=10)
+# A console with no provider opens the picker by itself; that is the first
+# shot, and the second is what taking NeuralDeep out of it leads to.
+tui.wait_for("Set up a model provider", timeout=15)
+tui.wait_for("OpenAI-compatible", timeout=10)
 tui.pump(1.0)
-tui.send("/login" + CR)
+for row in PICKER_ROWS:
+    if row not in tui.text():
+        raise AssertionError(f"{row!r} is not on the picker:\n{tui.text()}")
+capture.snapshot(tui, OUT, PICKER_NAME)
+render_png(OUT, PICKER_NAME)
+
+# NeuralDeep is the row the picker opens on, and its first endpoint is the
+# one the second Enter takes.
+tui.send(CR)
+tui.wait_for("NeuralDeep: which endpoint", timeout=10)
+tui.send(CR)
 tui.wait_for(CODE, timeout=20)
 tui.wait_for("Signed in to NeuralDeep", timeout=30)
 tui.wait_for("neuraldeep) qwen3.8-27b", timeout=20)
@@ -197,8 +214,9 @@ capture.snapshot(tui, OUT, NAME)
 tui.send("\x03"); time.sleep(0.2); tui.send("\x03")
 tui.pump(1)
 render_png(OUT, NAME)
-for ext in (".txt", ".html"):
-    (OUT / f"{NAME}{ext}").unlink(missing_ok=True)
+for name in (NAME, PICKER_NAME):
+    for ext in (".txt", ".html"):
+        (OUT / f"{name}{ext}").unlink(missing_ok=True)
 srv.shutdown()
 shutil.rmtree(home, ignore_errors=True)
 shutil.rmtree(work, ignore_errors=True)

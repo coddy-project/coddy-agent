@@ -148,6 +148,7 @@ type Server struct {
 	codexAuthLogins      map[string]*codexAuthLoginAttempt
 	neuralDeepAuthLogins map[string]*codexAuthLoginAttempt
 	opencodeAuthLogins   map[string]*codexAuthLoginAttempt
+	devinAuthLogins      map[string]*codexAuthLoginAttempt
 
 	permissionResumeWG sync.WaitGroup
 	// bgWG counts background goroutines owned by this server (codex auth login
@@ -187,6 +188,7 @@ func (s *Server) Drain() {
 	s.cancelCodexAuthLogins()
 	s.cancelNeuralDeepAuthLogins()
 	s.cancelOpenCodeAuthLogins("")
+	s.cancelDevinAuthLogins("")
 	// A memory run stopped mid-persist loses its note: running memory runs get
 	// the drain grace before the pool is closed.
 	if n := agent.MemoryRunsInFlight(); n > 0 {
@@ -224,6 +226,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 		neuralDeepAuthLogins: make(map[string]*codexAuthLoginAttempt),
 		opencodeAuthLogins:   make(map[string]*codexAuthLoginAttempt),
+		devinAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 		events:               newServerEventsHub(),
 		served:               configapi.NewRevisions(),
 		sessions:             webauth.NewSessionStore(),
@@ -293,6 +296,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	s.registerCoddyRoutes()
 	s.registerConfigRoutes()
 	s.registerProvidersRoutes()
+	s.registerOnboardingRoutes()
 	s.registerWallpaperRoutes()
 	s.mux.HandleFunc("GET /openapi.yaml", s.handleOpenAPIYAML)
 	s.mux.HandleFunc("GET /openapi.json", s.handleOpenAPIJSON)
