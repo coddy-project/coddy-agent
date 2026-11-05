@@ -1053,19 +1053,16 @@ export const messagesRu: Record<string, string> = {
   "onboarding.lead":
     "Подключите провайдера моделей, чтобы начать чат. Позже это можно изменить в настройках.",
   "onboarding.close": "Закрыть онбординг",
-  "onboarding.provider.openai.description": "Модели GPT и API OpenAI",
-  "onboarding.provider.anthropic.description": "Модели Claude",
+  "onboarding.provider.openai.description": "Модели GPT через API-ключ",
+  "onboarding.provider.anthropic.description": "Модели Claude через API-ключ",
   "onboarding.provider.compatible.description":
-    "Ollama, LM Studio, DeepSeek, Groq или свой эндпоинт",
+    "Llama.cpp, Ollama, LM Studio, DeepSeek, Groq или другой совместимый API-провайдер",
   "onboarding.provider.acp.description":
-    "Свой агент на этой машине: Claude Code, Codex, Gemini",
-  "onboarding.provider.neuraldeep.description":
-    "Ключ API или вход в аккаунт на любом хабе",
-  "onboarding.provider.codex.description": "Ваша подписка ChatGPT через OAuth",
-  "onboarding.provider.opencode.description":
-    "OpenCode Go или Console со входом в аккаунт",
-  "onboarding.provider.devin.description":
-    "Модели Devin со входом через браузер",
+    "Свой агент на этой машине: ClaudeCode, Codex, Gemini, Cursor, Qwen...",
+  "onboarding.provider.neuraldeep.description": "Ваша подписка или API-ключ",
+  "onboarding.provider.codex.description": "Ваша подписка через OAuth",
+  "onboarding.provider.opencode.description": "Ваша подписка Go или Console",
+  "onboarding.provider.devin.description": "Подписка Devin со входом в аккаунт",
   "onboarding.apiKey": "Ключ API",
   "onboarding.showKey": "Показать",
   "onboarding.hideKey": "Скрыть",
@@ -1079,24 +1076,13 @@ export const messagesRu: Record<string, string> = {
     "Введите базовый URL API, прежде чем проверять или сохранять этого провайдера.",
   "onboarding.proxy": "URL прокси",
   "onboarding.proxyHint":
-    "Этот маршрут используется для получения моделей, входа и запросов чата.",
+    "Прокси используется для получения списка моделей, авторизации и запросов к модели.",
   "onboarding.validationFailed": "Конфигурация недействительна.",
   "onboarding.saveFailed": "Не удалось сохранить конфигурацию ({status}).",
   "onboarding.saveFailedGeneric": "Не удалось сохранить конфигурацию.",
-  "onboarding.moreProviders": "Ещё провайдеры",
-  "onboarding.fewerProviders": "Свернуть",
   "onboarding.save": "Сохранить и продолжить",
   "onboarding.restart": "Пройти онбординг снова",
-  "onboarding.restartHint":
-    "Выбрать провайдера и повторить краткий тур по интерфейсу.",
-  "onboarding.codexAuth.description":
-    "Войдите через ChatGPT. Токены хранятся на сервере Coddy.",
-  "onboarding.neuralDeepAuth.description":
-    "Войдите на выбранном хабе вместо вставки ключа.",
-  "onboarding.openCodeAuth.description":
-    "Подтвердите код устройства и выберите организацию. Токены хранятся на сервере Coddy.",
-  "onboarding.devinAuth.description":
-    "Войдите через браузер или вставьте токен сессии Devin выше.",
+  "onboarding.restartHint": "Повторить краткую экскурсию по интерфейсу.",
 
   "devinAuth.error.signInFailed": "Не удалось войти через Devin.",
   "devinAuth.error.incompleteResponse":
@@ -1116,10 +1102,13 @@ export const messagesRu: Record<string, string> = {
   "devinAuth.pasteSubmit": "Завершить вход",
 
   "tour.stepCounter": "Шаг {current} из {total}",
-  "tour.skip": "Пропустить тур",
+  "tour.skip": "Завершить",
   "tour.back": "Назад",
   "tour.next": "Далее",
   "tour.done": "Готово",
+  "tour.step.newChat.title": "Новый чат",
+  "tour.step.newChat.body":
+    "Отсюда начинается диалог. У каждого своя история, своя рабочая папка и своя модель.",
   "tour.step.settings.title": "Настройки",
   "tour.step.settings.body":
     "Здесь настраиваются провайдеры, модели, инструменты и остальные возможности Coddy.",
@@ -1129,9 +1118,6 @@ export const messagesRu: Record<string, string> = {
   "tour.step.history.title": "История",
   "tour.step.history.body":
     "Открывайте прошлые разговоры или начинайте новый чат.",
-  "tour.step.scheduler.title": "Планировщик",
-  "tour.step.scheduler.body":
-    "Создавайте периодические задания, которые Coddy выполняет за вас.",
   "tour.step.model.title": "Модель",
   "tour.step.model.body": "Выберите настроенную модель для этого чата.",
   "tour.step.input.title": "Сообщение",

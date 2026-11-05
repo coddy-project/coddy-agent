@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { errorMessage } from "../settings/apiError";
-import { Chevron } from "../components/Chevron";
+import { CollapsibleFieldset } from "../settings/SchemaForm";
 import { CodexAuthField } from "../settings/CodexAuthField";
 import { NeuralDeepAuthField } from "../settings/NeuralDeepAuthField";
 import { OpenCodeAuthField } from "../settings/OpenCodeAuthField";
@@ -9,8 +9,6 @@ import { useProviderModels } from "../settings/useProviderModels";
 import { DevinAuthField } from "../settings/DevinAuthField";
 import {
   buildOnboardingConfig,
-  FEATURED_PRESETS as FEATURED,
-  REST_PRESETS as REST,
   startingModelId,
   NEURALDEEP_API_BASE_OPTIONS,
   OPENCODE_API_BASE_OPTIONS,
@@ -59,8 +57,15 @@ export function ProviderPickerDialog(props: {
   const [command, setCommand] = useState("");
   const [proxy, setProxy] = useState("");
   const [showKey, setShowKey] = useState(false);
-  const [showAllState, setShowAllState] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  // What the provider's own sign-in would do, published by its field. A modal
+  // shows one primary action at a time, so this one takes the actions row
+  // until the account is connected, and Save takes it back afterwards.
+  const [signInAction, setSignInAction] = useState<{
+    label: string;
+    disabled: boolean;
+    pending: boolean;
+    run: () => void;
+  } | null>(null);
   const [managedLogin, setManagedLogin] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +74,7 @@ export function ProviderPickerDialog(props: {
   // lists as sent, so that would replace every saved row with this one.
   const [baseDoc, setBaseDoc] = useState<Record<string, unknown> | null>(null);
   const baseLoad = useRef<Promise<Record<string, unknown>> | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
   const {
     models: fetchedModels,
     error: modelsError,
@@ -139,6 +145,32 @@ export function ProviderPickerDialog(props: {
     return pending;
   }, []);
 
+  // Each edge of the catalog fades by what lies past it: the top one grows as
+  // the first rows go under it, the bottom one thins as the end comes, and an
+  // edge with nothing beyond it is sharp. Written straight onto the node, so
+  // a scroll renders nothing.
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!props.open || !grid) return;
+    // Light enough that the row under the edge still reads: at 26 the cards
+    // showing through were washed out.
+    const FADE = 14;
+    const edge = (past: number) => `${Math.max(0, Math.min(FADE, past))}px`;
+    const sync = () => {
+      const below = grid.scrollHeight - grid.clientHeight - grid.scrollTop;
+      grid.style.setProperty("--onboarding-fade-top", edge(grid.scrollTop));
+      grid.style.setProperty("--onboarding-fade-bottom", edge(below));
+    };
+    sync();
+    grid.addEventListener("scroll", sync, { passive: true });
+    const observer = new ResizeObserver(sync);
+    observer.observe(grid);
+    return () => {
+      grid.removeEventListener("scroll", sync);
+      observer.disconnect();
+    };
+  }, [props.open, selected]);
+
   useEffect(() => {
     if (!props.open) return;
     setError(null);
@@ -156,6 +188,9 @@ export function ProviderPickerDialog(props: {
     setApiBase(preset.apiBase || "");
     setApiKey("");
     setCommand("");
+    // The sign-in action is not reset here: a child effect runs before its
+    // parent's, so this would wipe what the provider's field just published.
+    // The field's own cleanup clears it when it unmounts.
     resetModels();
   }, [preset, resetModels]);
 
@@ -337,9 +372,10 @@ export function ProviderPickerDialog(props: {
     </label>
   );
 
-  // The cards that do not lead stay on screen once they are shown, and a
-  // provider selected among them keeps them there whatever the toggle says.
-  const showAll = showAllState || preset.featured !== true;
+  // A key typed into the form is a decision: the person brought their own
+  // credential and does not want the account flow, so the action goes back to
+  // Save. An explicit key wins over a stored login everywhere else too.
+  const signInKey = apiKey.trim() ? null : signInAction;
 
   const card = (item: (typeof PROVIDER_PRESETS)[number]) => (
     <button
@@ -378,40 +414,32 @@ export function ProviderPickerDialog(props: {
           <p className="provider-picker-lead">{t("onboarding.lead")}</p>
         </div>
 
-        <div className="provider-picker-grid">
-          {(showAll ? PROVIDER_PRESETS : FEATURED).map(card)}
+        {/* Every provider in one grid that scrolls: two rows stand open
+            and the wheel or the bar reaches the rest. A fold hid half the
+            catalog behind a word and cost a row of its own. */}
+        <div
+          ref={gridRef}
+          className="provider-picker-grid"
+          data-testid="provider-grid"
+          role="group"
+          aria-label={t("onboarding.title")}
+        >
+          {PROVIDER_PRESETS.map(card)}
         </div>
-
-        {/* One quiet row under the grid, the app's own chevron in front of
-            it. A fieldset put a frame and a legend around a grid that needs
-            neither, and the cards inside it sat in a box of their own. */}
-        {REST.length > 0 ? (
-          <button
-            type="button"
-            className="provider-picker-disclosure"
-            aria-expanded={showAll}
-            onClick={() => setShowAllState((value) => !value)}
-            data-testid="provider-more-toggle"
-          >
-            <Chevron open={showAll} />
-            <span>
-              {showAll
-                ? t("onboarding.fewerProviders")
-                : t("onboarding.moreProviders")}
-            </span>
-          </button>
-        ) : null}
 
         <div className="provider-picker-form">
           {preset.commandTyped ? null : selected === "codex" ? (
             <CodexAuthField
               providerName={preset.providerName}
               proxy={proxy}
-              texts={{
-                primary: t("codexAuth.fieldLabel"),
-                primaryDesc: t("onboarding.codexAuth.description"),
-              }}
+              // No heading over the button: it names the provider itself,
+              // and a label with nothing under it but one button was a line
+              // of chrome. The settings screen keeps its own.
+              texts={{ primary: "" }}
               onConnectedChange={setManagedLogin}
+              action={setSignInAction}
+              hideAction
+              accountOnly
             />
           ) : keyIsAdvanced ? null : (
             keyField
@@ -423,12 +451,11 @@ export function ProviderPickerDialog(props: {
               hasExplicitKey={apiKey.trim() !== ""}
               apiBase={effectiveApiBase}
               proxy={proxy}
-              texts={{
-                primary: "",
-                second: t("neuralDeepAuth.fieldLabel"),
-                secondDesc: t("onboarding.neuralDeepAuth.description"),
-              }}
+              texts={{ primary: "", second: "" }}
               onConnectedChange={setManagedLogin}
+              action={setSignInAction}
+              hideAction
+              accountOnly
             />
           ) : null}
           {selected === "opencode" ? (
@@ -436,12 +463,11 @@ export function ProviderPickerDialog(props: {
               providerName={preset.providerName}
               hasExplicitKey={apiKey.trim() !== ""}
               proxy={proxy}
-              texts={{
-                primary: "",
-                second: t("openCodeAuth.fieldLabel"),
-                secondDesc: t("onboarding.openCodeAuth.description"),
-              }}
+              texts={{ primary: "", second: "" }}
               onConnectedChange={setManagedLogin}
+              action={setSignInAction}
+              hideAction
+              accountOnly
             />
           ) : null}
           {selected === "devin" ? (
@@ -449,12 +475,11 @@ export function ProviderPickerDialog(props: {
               providerName={preset.providerName}
               hasExplicitKey={apiKey.trim() !== ""}
               proxy={proxy}
-              texts={{
-                primary: "",
-                second: t("devinAuth.fieldLabel"),
-                secondDesc: t("onboarding.devinAuth.description"),
-              }}
+              texts={{ primary: "", second: "" }}
               onConnectedChange={setManagedLogin}
+              action={setSignInAction}
+              hideAction
+              accountOnly
             />
           ) : null}
 
@@ -503,44 +528,32 @@ export function ProviderPickerDialog(props: {
             </label>
           ) : null}
 
-          {/* The same row as More providers, for the same reason: a fieldset
-              put a frame and a legend around two fields that read better as
-              a plain continuation of the form. What is typed here lives in
-              this dialog's state, so folding it away loses nothing. */}
-          <button
-            type="button"
-            className="provider-picker-disclosure"
-            aria-expanded={showAdvanced}
-            onClick={() => setShowAdvanced((value) => !value)}
-            data-testid="provider-advanced-toggle"
-          >
-            <Chevron open={showAdvanced} />
-            <span>{t("settings.providers.group.advanced")}</span>
-          </button>
-          {showAdvanced ? (
-            <div
-              className="provider-picker-advanced"
-              data-testid="provider-advanced"
+          <div className="provider-picker-advanced-fold">
+            <CollapsibleFieldset
+              legend={t("settings.providers.group.advanced")}
+              testid="provider-advanced"
             >
-              {apiBaseField}
-              {keyIsAdvanced ? keyField : null}
-              <label className="provider-picker-field">
-                <span>{t("onboarding.proxy")}</span>
-                <input
-                  className="provider-picker-input"
-                  value={proxy}
-                  onChange={(event) => setProxy(event.target.value)}
-                  placeholder={t("settings.providerProxy.placeholderSystem")}
-                  autoComplete="off"
-                  spellCheck={false}
-                  data-testid="provider-proxy"
-                />
-                <span className="provider-picker-hint">
-                  {t("onboarding.proxyHint")}
-                </span>
-              </label>
-            </div>
-          ) : null}
+              <div className="provider-picker-advanced">
+                {apiBaseField}
+                {keyIsAdvanced ? keyField : null}
+                <label className="provider-picker-field">
+                  <span>{t("onboarding.proxy")}</span>
+                  <input
+                    className="provider-picker-input"
+                    value={proxy}
+                    onChange={(event) => setProxy(event.target.value)}
+                    placeholder={t("settings.providerProxy.placeholderSystem")}
+                    autoComplete="off"
+                    spellCheck={false}
+                    data-testid="provider-proxy"
+                  />
+                  <span className="provider-picker-hint">
+                    {t("onboarding.proxyHint")}
+                  </span>
+                </label>
+              </div>
+            </CollapsibleFieldset>
+          </div>
 
           {modelsFetched && modelsError ? (
             <span
@@ -559,15 +572,37 @@ export function ProviderPickerDialog(props: {
         </div>
 
         <div className="provider-picker-actions">
-          <button
-            type="button"
-            className="provider-picker-primary"
-            onClick={() => void save()}
-            disabled={busy || incomplete}
-            data-testid="provider-save"
-          >
-            {t("onboarding.save")}
-          </button>
+          {signInKey?.pending ? (
+            // The sign-in is running and the page already says what to do
+            // with the code: a disabled button repeating the wait was the
+            // same words twice. The wait reads as the line it belongs to.
+            <p
+              className="settings-field-desc"
+              data-testid="provider-signing-in"
+            >
+              {signInKey.label}
+            </p>
+          ) : signInKey ? (
+            <button
+              type="button"
+              className="provider-picker-primary"
+              onClick={signInKey.run}
+              disabled={busy || signInKey.disabled || incomplete}
+              data-testid="provider-sign-in"
+            >
+              {signInKey.label}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="provider-picker-primary"
+              onClick={() => void save()}
+              disabled={busy || incomplete}
+              data-testid="provider-save"
+            >
+              {t("onboarding.save")}
+            </button>
+          )}
         </div>
       </div>
     </div>

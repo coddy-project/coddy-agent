@@ -120,7 +120,12 @@ describe("the provider picker's styles", () => {
     );
     // A card whose description wraps must not make its row taller than the
     // others.
-    expect(rule(".provider-picker-grid")).toContain("grid-auto-rows: 1fr");
+    // Fixed rows, so the window below shows whole cards; `1fr` inside a
+    // scroller would share the window between every row instead.
+    expect(rule(".provider-picker-grid")).toContain(
+      "grid-auto-rows: var(--onboarding-card-h)",
+    );
+    expect(rule(".provider-picker-grid")).toContain("overflow-y: auto");
     expect(css).not.toMatch(
       /@media \(max-width: 599px\)[\s\S]*?\.provider-picker-grid \{[^}]*grid-template-columns: 1fr/,
     );
@@ -129,22 +134,39 @@ describe("the provider picker's styles", () => {
     );
   });
 
-  // Both disclosures - the rest of the catalog, the advanced settings - are
-  // the same row, from the same rule, so neither can drift from the other.
-  // A fieldset framed and indented what reads as a plain part of the form.
-  it("draws both disclosures from one rule", () => {
-    const body = rule(".provider-picker-disclosure");
-    expect(body).toContain("border: none");
-    expect(body).toContain("background: none");
-    expect(body).toContain("padding: 0");
+  // The catalog is a window over one grid, and the advanced fields are a
+  // fieldset of the settings screen's own kind, whose body keeps this form's
+  // left edge rather than the indent that screen gives it.
+  it("shows the catalog through a window and the advanced fields in a fieldset", () => {
+    const grid = rule(".provider-picker-grid");
+    expect(grid).toContain("--onboarding-card-rows: 2");
+    expect(grid).toMatch(/max-height: calc\(/);
+    expect(grid).toContain("overscroll-behavior: contain");
     const css = stylesPartial("onboarding");
-    // Nothing of the settings screen's fieldset is left in this partial.
-    expect(css).not.toContain("settings-fieldset");
-    expect(css).not.toContain("settings-form-group");
-    // What the advanced row opens is the form's own column, not a frame.
-    const opened = rule(".provider-picker-advanced");
-    expect(opened).toContain("flex-direction: column");
-    expect(opened).toContain("gap: 12px");
+    expect(css).not.toContain(".provider-picker-disclosure");
+    expect(css).toMatch(
+      /@media \(max-width: 599px\)[\s\S]*?--onboarding-card-rows: 4/,
+    );
+    // The frame stands on the form's edge and the fields keep clear of it by
+    // one inset on every side: flush against the frame they read as cramped,
+    // and the frame's own block padding stacked on the body's left them 43px
+    // from the top against 13px from the sides.
+    expect(
+      rule(".provider-picker-advanced-fold .settings-fieldset--collapsible"),
+    ).toContain("padding: 0");
+    expect(
+      rule(".provider-picker-advanced-fold .settings-form-group-body"),
+    ).toContain("padding: 12px");
+    // Both fades are variables the dialog writes from the scroll, not fixed
+    // edges that would stay past the first row and the last.
+    const grid2 = rule(".provider-picker-grid");
+    expect(grid2).toContain("--onboarding-fade-top: 0px");
+    expect(grid2).toContain("--onboarding-fade-bottom: 0px");
+    expect(grid2).toContain("#000 var(--onboarding-fade-top)");
+    expect(grid2).toContain("calc(100% - var(--onboarding-fade-bottom))");
+    expect(rule(".provider-picker-advanced")).toContain(
+      "flex-direction: column",
+    );
   });
 
   // One rhythm, set in one place. The blocks used to carry a margin each,
@@ -160,7 +182,6 @@ describe("the provider picker's styles", () => {
     for (const selector of [
       ".provider-picker-grid",
       ".provider-picker-form",
-      ".provider-picker-disclosure",
       ".provider-picker-lead",
     ]) {
       expect(rule(selector), selector).not.toMatch(/margin-bottom: [1-9]/);

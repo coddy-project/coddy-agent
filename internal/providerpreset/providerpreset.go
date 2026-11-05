@@ -62,11 +62,6 @@ type Preset struct {
 	// hint of the key field. It is never written into config.yaml: saving one
 	// would escape the "$" and send the placeholder as the bearer token.
 	EnvKey string
-	// Featured marks a preset the web UI's picker shows without being asked;
-	// the rest fold behind "More providers", so eight cards do not fill the
-	// dialog before a word of the form is read. The console's picker is one
-	// scrolling list and offers every preset alike, so it ignores this.
-	Featured bool
 }
 
 // NeuralDeepAPIBases and OpenCodeAPIBases are the endpoints of the two
@@ -98,7 +93,6 @@ var Presets = []Preset{
 		DefaultModel:     "neuraldeep/qwen3.6-35b-a3b",
 		MaxContextTokens: 46112,
 		EnvKey:           "NEURALDEEP_API_KEY",
-		Featured:         true,
 	},
 	{
 		ID:           "opencode",
@@ -109,7 +103,6 @@ var Presets = []Preset{
 		APIBases:     OpenCodeAPIBases,
 		DefaultModel: "opencode/gpt-5.5",
 		EnvKey:       "OPENCODE_API_KEY",
-		Featured:     true,
 	},
 	{
 		ID:           "openai",
@@ -120,7 +113,6 @@ var Presets = []Preset{
 		Multimodal:   true,
 		DefaultModel: "openai/gpt-5.6-terra",
 		EnvKey:       "OPENAI_API_KEY",
-		Featured:     true,
 	},
 	{
 		ID:           "anthropic",
@@ -131,7 +123,6 @@ var Presets = []Preset{
 		Multimodal:   true,
 		DefaultModel: "anthropic/claude-sonnet-5",
 		EnvKey:       "ANTHROPIC_API_KEY",
-		Featured:     true,
 	},
 	{
 		ID:           "codex",

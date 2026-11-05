@@ -36,8 +36,6 @@ func TestPresetsMatchTheWebPicker(t *testing.T) {
 			t.Errorf("%s starts on the endpoint %q in the web picker and %q here", want.ID, got.APIBaseDefault, want.DefaultAPIBase())
 		case got.MaxContextTokens != want.MaxContextTokens:
 			t.Errorf("%s has the window %d in the web picker and %d here", want.ID, got.MaxContextTokens, want.MaxContextTokens)
-		case got.Featured != want.Featured:
-			t.Errorf("%s leads the web picker %v there and %v here", want.ID, got.Featured, want.Featured)
 		}
 	}
 }
@@ -141,11 +139,7 @@ var (
 	webEntryRe = regexp.MustCompile(`(?s)\{\s*\n\s*id: "([a-z]+)",(.*?)\n  \}`)
 	webFieldRe = regexp.MustCompile(`\b(providerName|providerType|defaultModel|apiBase): "([^"]*)"`)
 	webBoolRe  = regexp.MustCompile(`\bmultimodal: (true|false)`)
-	// featured decides which cards the web picker shows before "More
-	// providers" is opened; the console ignores it, but the two catalogs
-	// still have to agree on which presets lead.
-	webFeaturedRe = regexp.MustCompile(`\bfeatured: (true|false)`)
-	webNumRe      = regexp.MustCompile(`\bmaxContextTokens: (\d+)`)
+	webNumRe   = regexp.MustCompile(`\bmaxContextTokens: (\d+)`)
 	// An endpoint written as the first entry of a named option list rather
 	// than as a literal: NeuralDeep's hubs and OpenCode's gateways.
 	webOptionRe  = regexp.MustCompile(`\bapiBase: ([A-Z_]+)\[0]\.value`)
@@ -195,9 +189,6 @@ func readWebPresets(t *testing.T) []Preset {
 		}
 		if m := webBoolRe.FindSubmatch(entry[2]); m != nil {
 			p.Multimodal = string(m[1]) == "true"
-		}
-		if m := webFeaturedRe.FindSubmatch(entry[2]); m != nil {
-			p.Featured = string(m[1]) == "true"
 		}
 		if m := webNumRe.FindSubmatch(entry[2]); m != nil {
 			n, err := strconv.Atoi(string(m[1]))

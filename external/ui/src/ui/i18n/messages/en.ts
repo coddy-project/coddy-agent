@@ -1057,20 +1057,10 @@ export const messagesEn: Record<string, string> = {
   "onboarding.validationFailed": "The configuration is invalid.",
   "onboarding.saveFailed": "Could not save the configuration ({status}).",
   "onboarding.saveFailedGeneric": "Could not save the configuration.",
-  "onboarding.moreProviders": "More providers",
-  "onboarding.fewerProviders": "Fewer providers",
   "onboarding.save": "Save and continue",
   "onboarding.restart": "Restart onboarding",
   "onboarding.restartHint":
     "Choose a provider again and replay the guided tour.",
-  "onboarding.codexAuth.description":
-    "Sign in with ChatGPT. Tokens stay on the Coddy server.",
-  "onboarding.neuralDeepAuth.description":
-    "Sign in to the selected hub instead of pasting a key.",
-  "onboarding.openCodeAuth.description":
-    "Confirm the device code and select your organization. Tokens stay on the Coddy server.",
-  "onboarding.devinAuth.description":
-    "Sign in through the browser, or paste a Devin session token above.",
 
   "devinAuth.error.signInFailed": "Devin sign in failed.",
   "devinAuth.error.incompleteResponse":
@@ -1093,6 +1083,9 @@ export const messagesEn: Record<string, string> = {
   "tour.back": "Back",
   "tour.next": "Next",
   "tour.done": "Done",
+  "tour.step.newChat.title": "New chat",
+  "tour.step.newChat.body":
+    "Start a conversation here. Each one keeps its own history, workspace and model.",
   "tour.step.settings.title": "Settings",
   "tour.step.settings.body":
     "Manage providers, models, tools and the rest of Coddy here.",
@@ -1100,8 +1093,6 @@ export const messagesEn: Record<string, string> = {
   "tour.step.project.body": "Choose the folder and branch the agent works in.",
   "tour.step.history.title": "History",
   "tour.step.history.body": "Open earlier conversations or start a new chat.",
-  "tour.step.scheduler.title": "Scheduler",
-  "tour.step.scheduler.body": "Create recurring jobs that run Coddy for you.",
   "tour.step.model.title": "Model",
   "tour.step.model.body": "Pick the configured model for this chat.",
   "tour.step.input.title": "Message",

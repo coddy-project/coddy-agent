@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useT } from "../i18n/I18nProvider";
 import { responseError } from "../settings/apiError";
 import { FieldLabel } from "../settings/FieldHint";
@@ -23,9 +29,38 @@ export function DevinAuthField(props: {
   proxy?: string;
   hasExplicitKey: boolean;
   texts: OverrideTexts;
+  /**
+   * Lets one primary action outside this field drive the sign-in: `action`
+   * receives a description of it on every change (its label, whether it can
+   * run, and how to run it) and `hideAction` keeps this field from drawing a
+   * button of its own. A modal shows one primary action at a time, so the
+   * picker renders it once, in its actions row, instead of beside this field
+   * and again at the foot.
+   */
+  action?: (
+    state: {
+      label: string;
+      disabled: boolean;
+      /** The sign-in is running: the label is a wait, not an invitation. */
+      pending: boolean;
+      run: () => void;
+    } | null,
+  ) => void;
+  hideAction?: boolean | undefined;
+  /**
+   * Onboarding: the account line and what a sign-in in flight needs, nothing
+   * else. The advisory notes and the sign-out belong to the settings screen,
+   * where a row is tuned; in a first-run dialog they are chrome around the
+   * one fact that matters - the account is connected.
+   */
+  accountOnly?: boolean | undefined;
+
   onConnectedChange?: (connected: boolean) => void;
 }) {
   const { t } = useT();
+
+  // What the outside primary would do right now. A layout effect so the
+  // picker's button and this field never disagree within a paint.
   const name = props.providerName.trim();
   const endpoint = `/coddy/providers/${encodeURIComponent(name)}/devin-auth`;
   const [status, setStatus] = useState<AuthStatus>({ connected: false });
@@ -191,12 +226,53 @@ export function DevinAuthField(props: {
     }
   };
 
+  const publish = props.action;
+  // A ref keeps `run` the same function across renders, so the effect below
+  // publishes only when what the action says or does actually changes. A
+  // fresh object every render would be a new state in the picker every
+  // render, which is a loop React stops with "maximum update depth".
+  const signInRef = useRef(signIn);
+  signInRef.current = signIn;
+  const run = useCallback(() => void signInRef.current(), []);
+  const actionLabel = loading ? t("devinAuth.waiting") : t("devinAuth.signIn");
+  const actionDisabled = !name || loading;
+  useLayoutEffect(() => {
+    if (!publish) return;
+    publish(
+      status.connected
+        ? null
+        : {
+            label: actionLabel,
+            disabled: actionDisabled,
+            pending: loading,
+            run,
+          },
+    );
+    return () => publish(null);
+  }, [publish, status.connected, actionLabel, actionDisabled, loading, run]);
+
+  // With the action drawn elsewhere and nothing else to say - no label, no
+  // account, no device code, no error - this field renders nothing at all.
+  // An empty box still took a row of the form's column and pushed what
+  // follows a gap further down.
+  if (
+    props.hideAction &&
+    !status.connected &&
+    !login &&
+    !error &&
+    !(props.texts.second ?? props.texts.primary)
+  ) {
+    return null;
+  }
+
   return (
     <div className="settings-row" data-testid="devin-auth-field">
-      <FieldLabel
-        label={props.texts.second ?? props.texts.primary}
-        description={props.texts.secondDesc ?? props.texts.primaryDesc}
-      />
+      {(props.texts.second ?? props.texts.primary) ? (
+        <FieldLabel
+          label={props.texts.second ?? props.texts.primary}
+          description={props.texts.secondDesc ?? props.texts.primaryDesc}
+        />
+      ) : null}
       {status.connected ? (
         <p className="settings-muted codex-auth-status">
           {t("devinAuth.connected", {
@@ -204,7 +280,7 @@ export function DevinAuthField(props: {
           })}
         </p>
       ) : null}
-      {status.connected && props.hasExplicitKey ? (
+      {!props.accountOnly && status.connected && props.hasExplicitKey ? (
         <p className="settings-field-desc">{t("devinAuth.shadowedByKey")}</p>
       ) : null}
       {login?.verification_url ? (
@@ -245,28 +321,30 @@ export function DevinAuthField(props: {
           </button>
         </div>
       ) : null}
-      <div className="codex-auth-actions">
-        {status.connected || login?.status === "pending" ? (
-          <button
-            type="button"
-            className="settings-btn settings-btn-danger"
-            disabled={loading && !login}
-            onClick={() => void signOut()}
-          >
-            {t("devinAuth.signOut")}
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="settings-btn settings-btn-primary"
-            data-testid="devin-auth-sign-in"
-            disabled={!name || loading}
-            onClick={() => void signIn()}
-          >
-            {loading ? t("devinAuth.waiting") : t("devinAuth.signIn")}
-          </button>
-        )}
-      </div>
+      {props.accountOnly ? null : (
+        <div className="codex-auth-actions">
+          {status.connected || login?.status === "pending" ? (
+            <button
+              type="button"
+              className="settings-btn settings-btn-danger"
+              disabled={loading && !login}
+              onClick={() => void signOut()}
+            >
+              {t("devinAuth.signOut")}
+            </button>
+          ) : props.hideAction ? null : (
+            <button
+              type="button"
+              className="settings-btn settings-btn-primary"
+              data-testid="devin-auth-sign-in"
+              disabled={!name || loading}
+              onClick={() => void signIn()}
+            >
+              {loading ? t("devinAuth.waiting") : t("devinAuth.signIn")}
+            </button>
+          )}
+        </div>
+      )}
       {error ? <p className="settings-error">{error}</p> : null}
     </div>
   );

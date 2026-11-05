@@ -36,11 +36,6 @@ export type ProviderPreset = {
   defaultModel: string;
   maxContextTokens?: number;
   envKey?: string;
-  // featured marks a preset this picker shows without being asked; the rest
-  // fold behind "More providers", so eight cards do not fill the dialog
-  // before a word of the form is read. The console's picker is one scrolling
-  // list and offers every preset alike, so it ignores this.
-  featured?: boolean;
 };
 
 export const NEURALDEEP_API_BASE_OPTIONS = [
@@ -81,7 +76,6 @@ export const PROVIDER_PRESETS: [ProviderPreset, ...ProviderPreset[]] = [
     defaultModel: "neuraldeep/qwen3.6-35b-a3b",
     maxContextTokens: 46112,
     envKey: "${NEURALDEEP_API_KEY}",
-    featured: true,
   },
   {
     id: "opencode",
@@ -93,7 +87,6 @@ export const PROVIDER_PRESETS: [ProviderPreset, ...ProviderPreset[]] = [
     multimodal: false,
     defaultModel: "opencode/gpt-5.5",
     envKey: "${OPENCODE_API_KEY}",
-    featured: true,
   },
   {
     id: "openai",
@@ -104,7 +97,6 @@ export const PROVIDER_PRESETS: [ProviderPreset, ...ProviderPreset[]] = [
     multimodal: true,
     defaultModel: "openai/gpt-5.6-terra",
     envKey: "${OPENAI_API_KEY}",
-    featured: true,
   },
   {
     id: "anthropic",
@@ -115,7 +107,6 @@ export const PROVIDER_PRESETS: [ProviderPreset, ...ProviderPreset[]] = [
     multimodal: true,
     defaultModel: "anthropic/claude-sonnet-5",
     envKey: "${ANTHROPIC_API_KEY}",
-    featured: true,
   },
   {
     id: "codex",
@@ -360,7 +351,3 @@ export function buildOnboardingConfig(input: {
     },
   };
 }
-
-/** The cards the picker shows at once, and the ones behind "More providers". */
-export const FEATURED_PRESETS = PROVIDER_PRESETS.filter((p) => p.featured);
-export const REST_PRESETS = PROVIDER_PRESETS.filter((p) => !p.featured);
