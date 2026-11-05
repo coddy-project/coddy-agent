@@ -789,7 +789,10 @@ test("generating shows stop and calls onStop", () => {
   expect(stopped).toBe(true);
 });
 
-test("context tooltip percent and Max context follow cap when model max changes", () => {
+// The tip is one line: how much of the window is used, and the two numbers
+// that say it. The five lines it used to be - input, output, total and the
+// window - repeated the popover the ring opens, badly.
+test("the context tip is the percent and the tokens, and follows the model's window", () => {
   const usage = { inputTokens: 800, outputTokens: 200, totalTokens: 1000 };
   const { rerender } = render(
     <Composer
@@ -806,8 +809,7 @@ test("context tooltip percent and Max context follow cap when model max changes"
     />,
   );
   const tip = () => screen.getByRole("tooltip").textContent ?? "";
-  expect(tip()).toMatch(/1\.0% context used/);
-  expect(tip()).toMatch(/Max context 100000/);
+  expect(tip()).toBe("1.0% \u00b7 1.0k / 100k");
 
   rerender(
     <Composer
@@ -823,8 +825,7 @@ test("context tooltip percent and Max context follow cap when model max changes"
       onSend={() => {}}
     />,
   );
-  expect(tip()).toMatch(/10\.0% context used/);
-  expect(tip()).toMatch(/Max context 10000/);
+  expect(tip()).toBe("10.0% \u00b7 1.0k / 10.0k");
 });
 
 test("context tooltip hidden until pointer leaves ring after closing breakdown", () => {

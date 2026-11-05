@@ -351,9 +351,11 @@
   font-size: 12px;
   line-height: 1.45;
   text-align: left;
-  /* The tip stands above the ring it belongs to, so its shadow is cast
-     upward: the rail's downward one (10px down, 28px of blur, over a 12px
-     gap) washed grey over the ring and the bar under it, which read as the
-     ring having a crooked shadow of its own. */
-  box-shadow: var(--coddy-tip-shadow-above, var(--coddy-tip-shadow));
+  /* No shadow at all. The tip stands 12px above the ring it belongs to, and
+     any shadow of the rail's shape reaches past that gap: the downward one
+     (10px down over 28px of blur) washed grey over the ring and the bar, and
+     cast upward it still spilled under its own bottom edge. The tip is an
+     opaque plate with a border, which is what tells it from the transcript;
+     nothing is drawn under it. */
+  box-shadow: none;
 }

@@ -107,6 +107,7 @@ import {
   snapshotTouchOnly,
   serverSnapshotTouchOnly,
 } from "../shellBreakpoint";
+import { formatTurnTokens } from "./turnProgress";
 import { composerEnterAction, insertNewline } from "./composerEnter";
 import { contextUsagePercent } from "./contextUsage";
 import { parseDocsCommand } from "../docs/docsCommand";
@@ -2429,32 +2430,17 @@ export function Composer(props: {
       setMenuOpen(type);
     }
   }
+  // One line, because the ring opens a popover with everything: how much of
+  // the window is used and the two numbers that say it, "20.1% · 201k / 1M".
+  // The five lines it used to be repeated the popover badly - input, output
+  // and total of a window nobody reads at a glance.
   const tip = contextIdle
-    ? [
-        t("composer.contextTipIdle"),
-        t("composer.contextTipMaxContext", { count: fmtInt(maxCtx) }),
-      ].join("\n")
-    : [
-        t("composer.contextTipUsed", {
-          percent: typeof pct === "number" ? pct.toFixed(1) : "0.0",
-        }),
-        usage
-          ? [
-              t("composer.contextTipInput", {
-                count: fmtInt(usage.inputTokens),
-              }),
-              t("composer.contextTipOutput", {
-                count: fmtInt(usage.outputTokens),
-              }),
-              t("composer.contextTipTotal", {
-                count: fmtInt(usage.totalTokens),
-              }),
-            ].join("\n")
-          : "",
-        t("composer.contextTipMaxContext", { count: fmtInt(maxCtx) }),
-      ]
-        .filter(Boolean)
-        .join("\n");
+    ? t("composer.contextTipIdle")
+    : t("composer.contextTipShort", {
+        percent: typeof pct === "number" ? pct.toFixed(1) : "0.0",
+        used: formatTurnTokens(usage?.totalTokens ?? 0),
+        max: formatTurnTokens(maxCtx ?? 0),
+      });
 
   const commandMatches = useMemo(
     () => (slashOpen ? filterCommandRows(allCommandItems, slashPrefix) : []),

@@ -65,9 +65,19 @@ of the server. Keep it as secret as the HTTP API's token.
 
 ## Install the extension
 
-Every [release](https://github.com/coddy-project/coddy-for-browser/releases) of the extension carries its packages,
-and the extension itself goes to the Chrome Web Store and addons.mozilla.org, which publish a version once their
-review passes. Every run of the extension's CI keeps the packages as artifacts:
+The extension is published in both stores:
+
+| Store | Browsers |
+| --- | --- |
+| [Chrome Web Store](https://chromewebstore.google.com/detail/coddy-for-browser/pdppgelbaehcedjpgfonemkmglpjifni) | Chrome 116 and later, Yandex Browser, Edge and other Chromium browsers |
+| [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/coddy-for-browser/) | Firefox 139 and later |
+
+**Settings → Browser** of the web UI offers both, the store of the browser you are reading in first, beside the key
+that browser needs, so the whole of connecting one is on that page.
+
+Every [release](https://github.com/coddy-project/coddy-for-browser/releases) of the extension also carries its
+packages, and every run of its CI keeps them as artifacts, for a version a store has not published yet or a build of
+your own:
 
 | Package | Browsers |
 | --- | --- |
@@ -87,6 +97,12 @@ To build it from source instead, run `npm run build` in a checkout of the extens
 `dist/firefox`. The README of the extension has the details for each browser.
 
 ## Connect the browser
+
+**Settings → Browser** of the web UI walks the whole of it: the two stores, the address and the key, and what the
+server sees. Press **Generate**, save the settings, and the card waits for the extension and says which browser
+arrived once one does - it reads `GET /coddy/browser/setup`, which carries no key and no tab. A key generated there is
+48 characters of the server's own alphabet, well past the 32 the configuration asks for; `openssl rand -hex 32` makes
+one for a server you configure by hand.
 
 The settings page of the extension opens after the install, and later from the settings button of the side panel.
 Enter the server address - the address of its web UI, `http://127.0.0.1:12345` for a local server - the key and a name

@@ -404,3 +404,82 @@
   background: color-mix(in srgb, var(--accent) 20%, transparent);
   color: var(--text);
 }
+
+/* Connecting a browser (Settings -> Browser, settings/BrowserSetupField.tsx):
+   three numbered steps where the key field used to stand alone. The field
+   asked for a key and offered no way to get one and no word about the
+   extension that needs it. */
+.browser-setup-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 8px 0 0;
+  padding: 0 0 0 20px;
+  list-style: decimal;
+  color: mix-text(72%);
+  font-size: 0.88rem;
+}
+
+/* The step stays a list item, so its number is drawn: a flex box here drops
+   display: list-item and the marker with it. What the step holds lays itself
+   out in the rows below. */
+.browser-setup-step {
+  display: list-item;
+}
+
+.browser-setup-step-text {
+  display: block;
+  margin-bottom: 6px;
+  color: mix-text(88%);
+}
+
+.browser-setup-stores,
+.browser-setup-pair {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.browser-setup-pair + .browser-setup-pair {
+  margin-top: 8px;
+}
+
+/* The address and the key are read from here and pasted into the extension,
+   never typed: the row is the value and the ways to take it. */
+.browser-setup-value {
+  flex: 1 1 220px;
+  min-width: 0;
+  font-family: $coddy-mono-ui;
+  font-size: 0.8rem;
+}
+
+.browser-setup-store {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  text-decoration: none;
+}
+
+/* The store of the browser this page runs in leads the row and is the one
+   marked: the other is there for the person setting a second browser up. */
+.browser-setup-store--suggested {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+}
+
+.browser-setup-store-mark {
+  flex: none;
+}
+
+.browser-setup-state {
+  color: mix-text(62%);
+}
+
+/* A browser on the socket is the one state that is finished, so it is the
+   one state in the theme's success colour. */
+.browser-setup-state--ready {
+  color: var(--coddy-todo-completed);
+  font-weight: 600;
+}
