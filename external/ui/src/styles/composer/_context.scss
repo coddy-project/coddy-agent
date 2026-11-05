@@ -47,31 +47,54 @@
   min-width: 0;
 }
 
+/* The app's close control, as History's and a queued message's: a small
+   framed square whose ground lifts under the pointer, its glyph centred by
+   the flex box rather than left on a text baseline inside it. */
 .usage-banner-dismiss {
   flex: 0 0 auto;
-  width: 32px;
-  height: 32px;
-  margin: -4px 0;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 26px;
+  height: 26px;
+  margin: -2px 0;
+  padding: 0;
+  border: 1px solid mix-text(12%);
+  border-radius: 8px;
+  background: mix-text(4%);
+  color: mix-text(72%);
+  font-size: 15px;
   line-height: 1;
   cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
 }
 
-.usage-banner-dismiss:hover {
-  background: mix-text(6%);
+.usage-banner-dismiss:hover,
+.usage-banner-dismiss:focus-visible {
+  background: mix-text(12%);
+  border-color: mix-text(22%);
   color: var(--text);
 }
 
+/* A touch target on a narrow shell: the frame keeps its size and an invisible
+   44px hit area lies over it, as it does over git's count on the plate. */
 @media (max-width: 1199px) {
-  /* A touch target on a narrow shell: 44 px of hit area, the same visual size. */
   .usage-banner-dismiss {
+    position: relative;
+  }
+
+  .usage-banner-dismiss::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
     width: 44px;
     height: 44px;
-    margin: -10px -10px -10px 0;
+    transform: translate(-50%, -50%);
   }
 }
 

@@ -1071,7 +1071,11 @@ something needs the user.
   for the reset (**warn** tone, `Usage limit reached · Auto-resuming at
   20:59`). The **×** control (32 px, a 44 px hit area below 1200 px)
   dismisses it for that provider row, window and period (**`localStorage`**
-  `coddy_usage_banner_dismissed`); a new period shows it again. The localized
+  `coddy_usage_banner_dismissed`); a new period shows it again. It is the
+  app's close control, as History's and a queued message's: a **26px** framed
+  square with **8px** corners whose ground lifts under the pointer, its glyph
+  centred by its own flex box. A bare glyph in a box with no display of its
+  own sat on the text baseline and read as a stray character. The localized
   copy above is the wording contract; do not replace it with a generic quota notice.
 - **It stands where a queued message stands.** The notice takes the place of
   the queue over the composer, so it keeps that row's **6px** to the card
