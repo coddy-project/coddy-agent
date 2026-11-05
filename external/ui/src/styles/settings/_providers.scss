@@ -433,25 +433,82 @@
   color: mix-text(88%);
 }
 
-.browser-setup-stores,
-.browser-setup-pair {
+/* The key's own name, between the address field and the key's. */
+.browser-setup-step .settings-label {
+  display: block;
+  margin-top: 10px;
+  margin-bottom: 6px;
+}
+
+.browser-setup-stores {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
 
-.browser-setup-pair + .browser-setup-pair {
+/* The address and the key are read from here and pasted into the extension,
+   never typed: the field is the value, and the ways to take it sit inside it
+   at the right edge, as a code block's copy does. */
+.browser-setup-field {
+  position: relative;
+  display: block;
+}
+
+.browser-setup-field + .browser-setup-field {
   margin-top: 8px;
 }
 
-/* The address and the key are read from here and pasted into the extension,
-   never typed: the row is the value and the ways to take it. */
 .browser-setup-value {
-  flex: 1 1 220px;
-  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
   font-family: $coddy-mono-ui;
   font-size: 0.8rem;
+  /* Room for the controls: 26px each and the gaps, plus the field's own. */
+  padding-right: calc(var(--browser-setup-actions, 34px) + 10px);
+}
+
+.browser-setup-actions {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.browser-setup-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: mix-text(52%);
+  cursor: pointer;
+}
+
+.browser-setup-icon:hover {
+  background: mix-text(9%);
+  color: var(--text);
+}
+
+.browser-setup-icon[aria-pressed="true"] {
+  color: var(--text);
+}
+
+.browser-setup-icon:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The key's field carries three controls, the address's one. */
+.browser-setup-field:has(.browser-setup-icon ~ .browser-setup-icon) {
+  --browser-setup-actions: 86px;
 }
 
 .browser-setup-store {

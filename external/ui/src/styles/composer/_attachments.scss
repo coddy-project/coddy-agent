@@ -343,8 +343,11 @@
   top: auto;
   bottom: calc(100% + 12px);
   transform: translateX(-50%);
-  white-space: pre-line;
-  min-width: 220px;
+  /* One line that fits itself: the tip said five things and needed a floor
+     of its own, and now it is "20.1% · 201k / 1M". */
+  white-space: nowrap;
+  min-width: 0;
+  width: max-content;
   max-width: min(320px, calc(100vw - 32px));
   padding: 10px 14px;
   font-weight: 500;

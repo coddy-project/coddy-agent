@@ -1,6 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { copyText } from "../clipboard";
+import { CopyGlyph } from "../messages/CodeBlockCopyButton";
 import { FieldLabel } from "./FieldHint";
 import type { OverrideTexts } from "./settingsSections";
 import { useT } from "../i18n/I18nProvider";
@@ -49,6 +56,10 @@ export function BrowserSetupField(props: {
   const { t } = useT();
   const [setup, setSetup] = useState<Setup | null>(null);
   const [copied, setCopied] = useState<"key" | "address" | null>(null);
+  // A key in the open is a credential on screen: it stays dotted until asked
+  // for, and a freshly generated one shows itself, since it is about to be
+  // copied out.
+  const [shown, setShown] = useState(false);
   const fetchImpl = props.fetchImpl;
   const connected = setup?.connected ?? [];
   // The key the form holds is what the extension has to be given; an empty
@@ -108,11 +119,6 @@ export function BrowserSetupField(props: {
 
   return (
     <div className="settings-row browser-setup" data-testid="browser-setup">
-      <FieldLabel
-        label={props.texts.primary}
-        description={props.texts.primaryDesc}
-      />
-
       <ol className="browser-setup-steps">
         <li className="browser-setup-step">
           <span className="browser-setup-step-text">
@@ -139,7 +145,11 @@ export function BrowserSetupField(props: {
           <span className="browser-setup-step-text">
             {t("browserSetup.step.key")}
           </span>
-          <span className="browser-setup-pair">
+          {/* The address and the key are read from here and pasted into the
+              extension: each control sits inside its field at the right edge,
+              as the copy of a code block does, instead of a row of words
+              beside it. */}
+          <span className="browser-setup-field">
             <input
               className="settings-input browser-setup-value"
               readOnly
@@ -147,20 +157,33 @@ export function BrowserSetupField(props: {
               aria-label={t("browserSetup.addressLabel")}
               data-testid="browser-setup-address"
             />
-            <button
-              type="button"
-              className="settings-btn"
-              onClick={() => void copy("address", address)}
-            >
-              {copied === "address"
-                ? t("browserSetup.copied")
-                : t("browserSetup.copy")}
-            </button>
+            <span className="browser-setup-actions">
+              <IconButton
+                label={
+                  copied === "address"
+                    ? t("browserSetup.copied")
+                    : t("browserSetup.copy")
+                }
+                testId="browser-setup-copy-address"
+                onClick={() => void copy("address", address)}
+              >
+                {copied === "address" ? <TickGlyph /> : <CopyGlyph />}
+              </IconButton>
+            </span>
           </span>
-          <span className="browser-setup-pair">
+          {/* Its own name, over the field it names: the card's first line is
+              the step, not the key. */}
+          <FieldLabel
+            label={props.texts.primary}
+            description={props.texts.primaryDesc}
+          />
+          <span className="browser-setup-field">
             <input
               className="settings-input browser-setup-value"
               readOnly
+              // A key is a credential: it is dots until the eye asks for it,
+              // as every other secret of the form is.
+              type={shown ? "text" : "password"}
               value={key}
               // The key is write-only, so a saved one never comes back to the
               // form: the placeholder then says the server holds one rather
@@ -173,28 +196,45 @@ export function BrowserSetupField(props: {
               aria-label={props.texts.primary}
               data-testid="browser-setup-key"
             />
-            <button
-              type="button"
-              className="settings-btn"
-              onClick={() => props.onChange(newExtensionKey())}
-              data-testid="browser-setup-generate"
-            >
-              {key === "" && setup?.key_set !== true
-                ? t("browserSetup.generate")
-                : t("browserSetup.regenerate")}
-            </button>
-            {key === "" ? null : (
-              <button
-                type="button"
-                className="settings-btn"
-                onClick={() => void copy("key", key)}
-                data-testid="browser-setup-copy-key"
+            <span className="browser-setup-actions">
+              {key === "" ? null : (
+                <IconButton
+                  label={t(shown ? "browserSetup.hide" : "browserSetup.show")}
+                  testId="browser-setup-show-key"
+                  pressed={shown}
+                  onClick={() => setShown((v) => !v)}
+                >
+                  <EyeGlyph open={shown} />
+                </IconButton>
+              )}
+              {key === "" ? null : (
+                <IconButton
+                  label={
+                    copied === "key"
+                      ? t("browserSetup.copied")
+                      : t("browserSetup.copy")
+                  }
+                  testId="browser-setup-copy-key"
+                  onClick={() => void copy("key", key)}
+                >
+                  {copied === "key" ? <TickGlyph /> : <CopyGlyph />}
+                </IconButton>
+              )}
+              <IconButton
+                label={
+                  key === "" && setup?.key_set !== true
+                    ? t("browserSetup.generate")
+                    : t("browserSetup.regenerate")
+                }
+                testId="browser-setup-generate"
+                onClick={() => {
+                  setShown(true);
+                  props.onChange(newExtensionKey());
+                }}
               >
-                {copied === "key"
-                  ? t("browserSetup.copied")
-                  : t("browserSetup.copy")}
-              </button>
-            )}
+                <RefreshGlyph />
+              </IconButton>
+            </span>
           </span>
         </li>
 
@@ -211,6 +251,94 @@ export function BrowserSetupField(props: {
         </li>
       </ol>
     </div>
+  );
+}
+
+/** One control inside a field: its word is the tooltip and the name. */
+function IconButton(props: {
+  label: string;
+  testId: string;
+  pressed?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className="browser-setup-icon"
+      title={props.label}
+      aria-label={props.label}
+      {...(props.pressed === undefined
+        ? {}
+        : { "aria-pressed": props.pressed })}
+      data-testid={props.testId}
+      onClick={props.onClick}
+    >
+      {props.children}
+    </button>
+  );
+}
+
+function TickGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+      <path
+        d="M3.5 8.5l3 3 6-7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** The circular arrow of a refresh: a new key in place of the one there. */
+function RefreshGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+      <path
+        d="M13 8a5 5 0 1 1-1.6-3.7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <path
+        d="M13.2 2.2v2.9h-2.9"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** The eye that shows the key, struck through while it is showing. */
+function EyeGlyph({ open }: { open: boolean }) {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+      <path
+        d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+      <circle cx="8" cy="8" r="1.9" fill="currentColor" />
+      {open ? (
+        <path
+          d="M2.5 13.5 13.5 2.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+        />
+      ) : null}
+    </svg>
   );
 }
 

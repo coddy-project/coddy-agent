@@ -45,11 +45,23 @@ export function composerReserveFor(m: {
  * The block's empty padding over its first visible edge: the card wrapper's
  * own padding while the card is the block's top, none while a usage banner
  * stands over it (the wrapper's padding then lies under the banner).
+ *
+ * Without a plate over the card - a chat outside a repository and with no
+ * goal - the card's own top inset is blank as well, and the transcript's last
+ * row stood that much further from the first thing it could read. A plate
+ * fills its own height with the folder and the branch; an empty card edge
+ * reads as a gap.
  */
 export function blockEdgePaddingTop(host: Element): number {
   if (host.querySelector(":scope > .usage-banner")) return 0;
   const wrap = host.querySelector(":scope > .composer-wrap");
   if (!wrap) return 0;
   const v = parseFloat(getComputedStyle(wrap).paddingTop);
-  return Number.isFinite(v) ? v : 0;
+  let pad = Number.isFinite(v) ? v : 0;
+  if (!host.querySelector(".workspace-bar")) {
+    const field = host.querySelector("textarea");
+    const inset = field ? parseFloat(getComputedStyle(field).paddingTop) : NaN;
+    if (Number.isFinite(inset)) pad += inset;
+  }
+  return pad;
 }

@@ -73,6 +73,10 @@ test("the card offers both stores and generates the key the extension needs", as
     "href",
     FIREFOX_ADDONS_URL,
   );
+  expect(screen.getByTestId("browser-setup-generate")).toHaveAttribute(
+    "title",
+    "Generate",
+  );
   screen.getByTestId("browser-setup-generate").click();
   expect(onChange).toHaveBeenCalledTimes(1);
   expect(String(onChange.mock.calls[0]![0])).toHaveLength(EXTENSION_KEY_LENGTH);
@@ -152,9 +156,11 @@ test("a key the server already holds is not asked for again", async () => {
   );
   expect(screen.getByTestId("browser-setup-key")).toHaveAttribute(
     "placeholder",
-    "The server has a key; generate a new one to replace it",
+    "The server holds a key",
   );
-  expect(screen.getByTestId("browser-setup-generate")).toHaveTextContent(
+  // The control is an icon now: its word is the tooltip and the name.
+  expect(screen.getByTestId("browser-setup-generate")).toHaveAttribute(
+    "title",
     "Generate a new one",
   );
 });
