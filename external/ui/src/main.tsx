@@ -20,6 +20,10 @@ import { startActiveHealthMonitor } from "./ui/env/activeHealth";
 import { initTelegramMiniApp } from "./ui/telegram/miniApp";
 import { registerServiceWorker } from "./ui/pwa/serviceWorker";
 import { followThemeColor } from "./ui/pwa/themeColor";
+import {
+  applyServerThemeDefaults,
+  loadUiDefaults,
+} from "./ui/theme/uiDefaults";
 import { followBackdrop } from "./ui/theme/backdropPrefs";
 import {
   startPanelNavigation,
@@ -33,6 +37,9 @@ installRemoteFetchShim();
 startActiveHealthMonitor();
 bootstrapUiThemeFromCookie();
 bootstrapUiSimpleFromCookie();
+// The deployment's defaults (CODDY_UI_THEME / CODDY_UI_WALLPAPER, read off
+// GET /coddy/info) apply while the browser has made no pick of its own.
+void loadUiDefaults().then(applyServerThemeDefaults);
 // After the theme: inside Telegram the theme follows Telegram's until the user
 // picks one. Outside Telegram this does nothing.
 initTelegramMiniApp();

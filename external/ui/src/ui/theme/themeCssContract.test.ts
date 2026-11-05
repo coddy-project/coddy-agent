@@ -81,7 +81,7 @@ test("index.html bootstraps theme before paint", () => {
   expect(html).toContain("dataset.theme");
 });
 
-test("styles.scss defines variable blocks for all 7 themes", () => {
+test("styles.scss defines variable blocks for all 8 themes", () => {
   const css = cssText();
   const themeSelectors = [
     '[data-theme="dark"]',
@@ -91,6 +91,7 @@ test("styles.scss defines variable blocks for all 7 themes", () => {
     '[data-theme="monokai"]',
     '[data-theme="nord"]',
     '[data-theme="rose-pine"]',
+    '[data-theme="neuraldeep"]',
   ];
   for (const sel of themeSelectors) {
     expect(css).toContain(sel);
@@ -107,6 +108,7 @@ test("each theme block defines --accent", () => {
     "monokai",
     "nord",
     "rose-pine",
+    "neuraldeep",
   ];
   for (const t of themes) {
     const block = new RegExp(

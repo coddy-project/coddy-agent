@@ -534,10 +534,10 @@ pages:
       summary: "Deterministic delivery of the Cursor rules to Kimi Code sessions working on this repository."
   contributing/syntax-highlighting-audit.md:
     title: "Аудит подсветки синтаксиса"
-    summary: "Аудит подсветки кода в семи темах от NeuralDeep, его фикстуры и как запустить его повторно."
+    summary: "Аудит подсветки кода в восьми темах от NeuralDeep, его фикстуры и как запустить его повторно."
     en:
       title: "Syntax highlighting audit"
-      summary: "The NeuralDeep audit of code highlighting across the seven themes, its fixtures and how to re-run it."
+      summary: "The NeuralDeep audit of code highlighting across the eight themes, its fixtures and how to re-run it."
   ../AGENTS.md:
     title: "Заметки для агентов"
     summary: "Карта репозитория и заметки для агентов, которые пишут код."

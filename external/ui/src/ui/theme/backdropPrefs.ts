@@ -4,6 +4,12 @@
  * in IndexedDB, dimmed by `coddy_ui_wallpaper_dim`. Legacy private blobs stay local.
  * followBackdrop applies the picture and dimming to <html> through CSS.
  */
+import { loadUiDefaults } from "./uiDefaults";
+import {
+  galleryEnvironmentScope,
+  readGalleryPhoto,
+} from "./wallpaperGallery";
+
 export const WALLPAPER_DIM_COOKIE = "coddy_ui_wallpaper_dim";
 export const WALLPAPER_DIM_DEFAULT = 40;
 
@@ -398,7 +404,13 @@ async function restoreWallpaper(): Promise<void> {
     const stored = await dbRequest<unknown>("readonly", (store) =>
       store.get(DB_KEY),
     );
-    if (committedRevision !== ownRevision || stored == null) return;
+    if (committedRevision !== ownRevision) return;
+    if (stored == null) {
+      // No pick of the person's own: the deployment's default gallery file
+      // (CODDY_UI_WALLPAPER, off GET /coddy/info) applies if it names one.
+      await restoreServerDefaultWallpaper();
+      return;
+    }
     const blob =
       stored instanceof Blob
         ? stored
@@ -417,6 +429,32 @@ async function restoreWallpaper(): Promise<void> {
     showWallpaper(blob, gallery);
   } catch (error) {
     if (committedRevision === ownRevision) storageFailure(error);
+  }
+}
+
+/**
+ * Shows the deployment's default wallpaper while the browser keeps no pick
+ * of its own. The file is read from the server's gallery and applied with
+ * its gallery identity, so a later manual pick or clear replaces it as any
+ * other selection would. A name the gallery does not have, or a server that
+ * answers no defaults, leaves the plain theme background.
+ */
+async function restoreServerDefaultWallpaper(): Promise<void> {
+  const { wallpaper } = await loadUiDefaults();
+  if (!wallpaper) return;
+  try {
+    const name = wallpaper.trim();
+    if (!name || name === "." || name === ".." || /[\\/\x00]/.test(name)) {
+      return;
+    }
+    const signal = new AbortController().signal;
+    const blob = await readGalleryPhoto({ name }, signal);
+    await setWallpaper(blob, signal, {
+      scope: galleryEnvironmentScope(),
+      name,
+    });
+  } catch {
+    // The gallery file is missing, unreadable or refused: no wallpaper.
   }
 }
 

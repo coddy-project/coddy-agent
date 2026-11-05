@@ -38,6 +38,7 @@ const SWATCH_COLORS: Record<
   monokai: { bg: "#272822", accent: "#fd971f", text: "#f8f8f2" },
   nord: { bg: "#2e3440", accent: "#88c0d0", text: "#eceff4" },
   "rose-pine": { bg: "#191724", accent: "#c4a7e7", text: "#e0def4" },
+  neuraldeep: { bg: "#08090c", accent: "#00ff88", text: "#f8fafc" },
 };
 
 function ThemeSwatch(props: {

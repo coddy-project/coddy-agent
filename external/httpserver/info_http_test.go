@@ -108,6 +108,36 @@ func TestCoddyInfoFollowsAReloadedPermissionMode(t *testing.T) {
 	}
 }
 
+// The deployment's UI defaults travel in the same answer: CODDY_UI_THEME
+// names the theme a fresh browser opens on, CODDY_UI_WALLPAPER a gallery file
+// it shows until the person picks one. Neither is sent when the variable is
+// unset or blank, so an older client sees the answer it knows.
+func TestCoddyInfoCarriesTheUIDefaults(t *testing.T) {
+	ts, _ := newInfoTestServer(t, "")
+	t.Setenv("CODDY_UI_THEME", "neuraldeep")
+	t.Setenv("CODDY_UI_WALLPAPER", "night.png")
+	info := readInfo(t, ts)
+	ui, _ := info["ui"].(map[string]interface{})
+	if ui == nil {
+		t.Fatalf("GET /coddy/info with the defaults set has no ui member: %v", info)
+	}
+	if got, _ := ui["theme"].(string); got != "neuraldeep" {
+		t.Errorf("ui.theme = %q, want neuraldeep", got)
+	}
+	if got, _ := ui["wallpaper"].(string); got != "night.png" {
+		t.Errorf("ui.wallpaper = %q, want night.png", got)
+	}
+}
+
+func TestCoddyInfoLeavesOutUnsetUIDefaults(t *testing.T) {
+	ts, _ := newInfoTestServer(t, "")
+	t.Setenv("CODDY_UI_THEME", "")
+	t.Setenv("CODDY_UI_WALLPAPER", "")
+	if ui, ok := readInfo(t, ts)["ui"]; ok {
+		t.Errorf("no defaults configured, yet ui = %v", ui)
+	}
+}
+
 // The served spec names the field, with the values it takes.
 func TestOpenAPIDescribesTheInfoPermissionMode(t *testing.T) {
 	paths, _ := openAPISpec()["paths"].(map[string]interface{})

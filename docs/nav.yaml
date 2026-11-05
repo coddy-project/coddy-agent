@@ -282,7 +282,7 @@ groups:
         summary: Deterministic delivery of the Cursor rules to Kimi Code sessions working on this repository.
       - path: contributing/syntax-highlighting-audit.md
         title: Syntax highlighting audit
-        summary: The NeuralDeep audit of code highlighting across the seven themes, its fixtures and how to re-run it.
+        summary: The NeuralDeep audit of code highlighting across the eight themes, its fixtures and how to re-run it.
       - path: ../AGENTS.md
         title: Agent notes
         summary: The repository map and contributor notes for coding agents.
