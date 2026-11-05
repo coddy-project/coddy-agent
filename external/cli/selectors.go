@@ -24,12 +24,13 @@ type selectorModal struct {
 	// confirmation approves). Empty for a plain selector.
 	body string
 
-	OnDone   func(item *tui.SelectItem) // nil item = cancelled
-	onChange func()
+	OnDone     func(item *tui.SelectItem) // nil item = cancelled
+	onChange   func()
+	maxVisible int
 }
 
 func newSelectorModal(theme *tui.Theme, title string, items []tui.SelectItem, maxVisible int, requestRender func()) *selectorModal {
-	m := &selectorModal{theme: theme, title: title, onChange: requestRender}
+	m := &selectorModal{theme: theme, title: title, onChange: requestRender, maxVisible: maxVisible}
 	m.list = tui.NewSelectList(items, maxVisible, selectListTheme(theme), tui.SelectListLayout{MinPrimaryColumnWidth: 12, MaxPrimaryColumnWidth: 32})
 	m.help = "↑↓ navigate · enter select · esc cancel · type to filter"
 	m.list.OnSelect = func(item tui.SelectItem) {
@@ -44,6 +45,12 @@ func newSelectorModal(theme *tui.Theme, title string, items []tui.SelectItem, ma
 	}
 	m.rebuild()
 	return m
+}
+
+// SetTerminalRows keeps the title, selection, help, border and footer visible
+// even in a phone-sized terminal. Reserve one extra row for the scroll marker.
+func (m *selectorModal) SetTerminalRows(rows int) {
+	m.list.SetMaxVisible(min(m.maxVisible, max(1, rows-6)))
 }
 
 func (m *selectorModal) rebuild() {

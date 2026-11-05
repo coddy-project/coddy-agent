@@ -641,6 +641,9 @@ func (a *App) Run(ctx context.Context) error {
 			a.openQuestionModal(req)
 			render.now()
 		case <-a.resizeCh:
+			if modal, ok := a.modal.(*selectorModal); ok {
+				modal.SetTerminalRows(a.term.Rows())
+			}
 			render.now()
 		case <-a.screen.RenderSignal():
 			render.throttled()
@@ -888,6 +891,9 @@ func (a *App) appendStatus(role, msg string) {
 // --- modal management ---
 
 func (a *App) openModal(c tui.Component) {
+	if modal, ok := c.(*selectorModal); ok {
+		modal.SetTerminalRows(a.term.Rows())
+	}
 	a.modal = c
 	a.editorWrap.Clear()
 	a.editorWrap.AddChild(c)
