@@ -121,7 +121,7 @@ func TestHeaderShowsTheLoginHintOnlyWhenAsked(t *testing.T) {
 	}
 	h.SetLoginHint(true)
 	text = strings.Join(keysOf(renderedRows(h, 200)), "\n")
-	if !strings.Contains(text, "Type /login to sign in to NeuralDeep") {
+	if !strings.Contains(text, "Type /login to pick one") {
 		t.Fatalf("a fresh install points at /login:\n%s", text)
 	}
 	h.SetLoginHint(false)

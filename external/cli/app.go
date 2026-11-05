@@ -217,6 +217,10 @@ type App struct {
 	pasted    map[int]pastedImage
 	pastedSeq int
 
+	// setup is the walk through the provider picker that is waiting for a
+	// provider to list its models (onboarding.go): the one step of the setup
+	// with no modal on screen. nil when none is.
+	setup *providerSetupRun
 	// The sign-in /login runs (login.go): the one in progress, how the
 	// configuration it writes is installed (the manager's InstallConfig; nil
 	// over --remote), how its page is opened, and the ChatGPT issuer a test
@@ -598,6 +602,10 @@ func (a *App) Run(ctx context.Context) error {
 		}()
 	}
 	render := a.newRenderScheduler()
+	// A console with no provider that can answer opens the picker before the
+	// first prompt, the way the web UI opens its own (onboarding.go). Escape
+	// puts it away and the header keeps pointing at /login.
+	a.maybeOpenProviderPicker()
 	render.now()
 	for {
 		select {
@@ -1585,7 +1593,7 @@ func (a *App) slashCatalog() []tui.AutocompleteItem {
 	items = append(items,
 		tui.AutocompleteItem{Value: "resume", Label: "resume", Description: "Resume another session"},
 		tui.AutocompleteItem{Value: "new", Label: "new", Description: "Start a new session"},
-		tui.AutocompleteItem{Value: "login", Label: "login", Description: "Sign in to a model provider and add its models: NeuralDeep, or /login codex, devin, opencode"},
+		tui.AutocompleteItem{Value: "login", Label: "login", Description: "Pick a model provider and set it up; /login <name> goes straight to one"},
 		tui.AutocompleteItem{Value: "theme", Label: "theme", Description: "Switch color theme"},
 		tui.AutocompleteItem{Value: "hotkeys", Label: "hotkeys", Description: "Show keyboard shortcuts"},
 		tui.AutocompleteItem{Value: "queue", Label: "queue", Description: "List, drop or clear the messages queued for the running turn"},

@@ -19,6 +19,7 @@ func (s *Server) registerProvidersRoutes() {
 	s.registerCodexAuthRoutes()
 	s.registerNeuralDeepAuthRoutes()
 	s.registerOpenCodeAuthRoutes()
+	s.registerDevinAuthRoutes()
 	s.registerProviderUsageRoutes()
 }
 

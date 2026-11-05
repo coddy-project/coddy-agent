@@ -92,6 +92,9 @@ test("every gradient of the stylesheet is cleared by the mode or draws a mark", 
   ]);
   // Fades along the edge of a strip of tabs: the mask rule of the blanket.
   const masks = new Set([
+    // The edge of the provider picker's scrolling catalog, so the row below
+    // reads as carrying on rather than being cut.
+    ".provider-picker-grid",
     ".composer-tabs",
     ".files-tabs.has-more-left",
     ".files-tabs.has-more-right",

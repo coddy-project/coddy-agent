@@ -1,0 +1,528 @@
+.provider-picker-host {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  pointer-events: none;
+}
+
+.provider-picker-host .backdrop {
+  z-index: 0;
+  background: var(--coddy-overlay-scrim-bg);
+}
+
+.provider-picker-panel {
+  // Every control of the dialog stands this tall, so a row with a button
+  // beside it does not sit a few pixels off the row above, and the actions
+  // at the foot match the fields over them.
+  --onboarding-control-h: 36px;
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+  // Narrower than it was: the form is one column of short rows, and 760px
+  // left the right half of every line empty.
+  width: min(600px, 100%);
+  max-height: min(88vh, 780px);
+  overflow: auto;
+  border-radius: var(--coddy-glass-panel-radius, 18px);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  background: var(--coddy-tip-bg);
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  padding: 24px;
+  // One rhythm, set in one place: every block of the dialog stands this far
+  // from the next, and the form sets its own, closer, gap between fields.
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.provider-picker-head h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.provider-picker-lead {
+  margin: 0;
+  font-size: 14px;
+  opacity: 0.85;
+}
+
+.provider-picker-grid {
+  --onboarding-card-h: 74px;
+  --onboarding-card-gap: 10px;
+  --onboarding-card-rows: 2;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  // One fixed height for every card, so the window below shows whole rows
+  // and never half of one. A grid whose last row is taller than the rest
+  // reads as a mistake, and `1fr` inside a scroller would share the window
+  // between every row instead.
+  grid-auto-rows: var(--onboarding-card-h);
+  gap: var(--onboarding-card-gap);
+  // Two rows stand open, and the row under them shows through the edge by
+  // this much: two whole rows and a clean cut read as the whole catalog.
+  --onboarding-card-peek: 36px;
+  max-height: calc(
+    var(--onboarding-card-h) * var(--onboarding-card-rows) +
+      var(--onboarding-card-gap) * (var(--onboarding-card-rows) - 1) +
+      var(--onboarding-card-peek)
+  );
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  // The edge fades into the panel, so the row under it reads as carrying on
+  // rather than being cut. A mask and not a dark shadow: a fixed black edge
+  // is a shadow on a dark theme and a dirty band on a light one, while a
+  // fade reveals whatever ground the theme actually has. The simplified mode
+  // clears it with every other mask (ui/theme/simpleModeCss.test.ts).
+  // Both edges fade by what lies past them, written by the dialog from the
+  // scroll: the top one grows as the first rows go under it and the bottom
+  // one thins as the end comes, so an edge with nothing beyond it is sharp.
+  --onboarding-fade-top: 0px;
+  --onboarding-fade-bottom: 0px;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--onboarding-fade-top),
+    #000 calc(100% - var(--onboarding-fade-bottom)),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--onboarding-fade-top),
+    #000 calc(100% - var(--onboarding-fade-bottom)),
+    transparent 100%
+  );
+  // Room for the bar, so a card's text does not run under it.
+  padding-right: 4px;
+  scrollbar-width: thin;
+}
+
+.provider-picker-card {
+  text-align: left;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  background: var(--coddy-surface-muted);
+  color: var(--text);
+  padding: 12px 14px;
+  cursor: pointer;
+}
+
+.provider-picker-card--active {
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.provider-picker-card-title {
+  display: block;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.provider-picker-card-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.provider-picker-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+// Every block the form borrows from the settings screen - the account
+// sign-ins, the proxy - is one row of this form like the fields around it: no
+// frame of its own, and its label and its control start where every other
+// label and control start. A framed block stood 13px further in than the key
+// above it, which is the one indent a reader notices.
+.provider-picker-form > .settings-row {
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.provider-picker-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+// One column of labels reads as one column: the names the form writes itself
+// and the ones a borrowed block brings with it (the account sign-ins, the
+// proxy) are the same size and the same colour. The settings screen writes
+// its labels in a muted grey, which next to this form's own looked like two
+// kinds of field.
+.provider-picker-form .settings-label {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.provider-picker-input {
+  font: inherit;
+  font-size: 14px;
+  box-sizing: border-box;
+  height: var(--onboarding-control-h);
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  background: var(--coddy-surface-field);
+  padding: 0 10px;
+  color: inherit;
+}
+
+// The reveal of a secret field sits inside the field, so the input keeps the
+// full width of the form and its right edge lines up with every other one.
+.provider-picker-secret {
+  position: relative;
+  display: flex;
+}
+
+.provider-picker-secret .provider-picker-input {
+  flex: 1;
+  min-width: 0;
+  padding-right: calc(var(--onboarding-control-h) + 2px);
+}
+
+.provider-picker-eye {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--onboarding-control-h);
+  height: var(--onboarding-control-h);
+  padding: 0;
+  border: none;
+  border-radius: 0 10px 10px 0;
+  background: transparent;
+  color: inherit;
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+.provider-picker-eye:hover,
+.provider-picker-eye:focus-visible {
+  opacity: 1;
+}
+
+.provider-picker-key-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.provider-picker-key-row .provider-picker-input,
+.provider-picker-key-row .settings-combobox {
+  flex: 1;
+  min-width: 0;
+}
+
+.provider-picker-key-row .settings-combobox-input {
+  font-size: 14px;
+  box-sizing: border-box;
+  height: var(--onboarding-control-h);
+  border-radius: 10px;
+  background: var(--coddy-surface-field);
+}
+
+// The sign-in a provider's account block offers is a control of this form:
+// it stands as tall as the fields over it, not the 34px the settings screen
+// gives its own buttons.
+.provider-picker-form > .settings-row .settings-btn {
+  box-sizing: border-box;
+  height: var(--onboarding-control-h);
+}
+
+.provider-picker-form .settings-combobox-list {
+  max-height: 200px;
+}
+
+// A button standing beside a field is a control of the same height, framed
+// like the field, not a line of text floating next to it.
+.provider-picker-ghost-btn {
+  font: inherit;
+  font-size: 13px;
+  box-sizing: border-box;
+  height: var(--onboarding-control-h);
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.85;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.provider-picker-ghost-btn:hover:not(:disabled) {
+  opacity: 1;
+}
+
+.provider-picker-ghost-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.provider-picker-hint {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.provider-picker-error {
+  font-size: 13px;
+  color: var(--coddy-danger);
+}
+
+.provider-picker-ok {
+  font-size: 13px;
+  color: var(--coddy-todo-completed);
+}
+
+.provider-picker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  // The action starts where every row of the dialog starts; against the
+  // right edge it sat alone across an empty line.
+  justify-content: flex-start;
+}
+
+.provider-picker-primary,
+.provider-picker-secondary {
+  font: inherit;
+  font-size: 13px;
+  box-sizing: border-box;
+  height: var(--onboarding-control-h);
+  border-radius: 10px;
+  padding: 0 14px;
+  cursor: pointer;
+}
+
+.provider-picker-primary {
+  // A transparent border, not none: the actions row wraps on the phone tier
+  // and Save ends up alone on its line, where a border-less button would
+  // stand 2px shorter than Skip and Test above it.
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--coddy-on-accent-fg);
+}
+
+.provider-picker-secondary {
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  background: transparent;
+  color: inherit;
+}
+
+.appearance-onboarding {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+}
+
+.appearance-onboarding p {
+  margin: 0;
+}
+
+.tour-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  pointer-events: auto;
+}
+
+.tour-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--coddy-overlay-scrim-bg);
+}
+
+.tour-spotlight {
+  position: fixed;
+  border-radius: 10px;
+  box-shadow: 0 0 0 9999px var(--coddy-overlay-scrim-bg);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  pointer-events: none;
+  transition:
+    top 0.15s ease,
+    left 0.15s ease,
+    width 0.15s ease,
+    height 0.15s ease;
+}
+
+.tour-bubble {
+  position: fixed;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  border-radius: var(--coddy-glass-panel-radius, 18px);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  background: var(--coddy-tip-bg);
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  padding: 16px;
+  pointer-events: auto;
+}
+
+.tour-counter {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-bottom: 6px;
+}
+
+.tour-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.tour-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  opacity: 0.88;
+}
+
+.tour-bubble-actions,
+.tour-bubble-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tour-bubble-actions {
+  justify-content: space-between;
+  margin-top: 16px;
+}
+
+.tour-btn {
+  font: inherit;
+  font-size: 13px;
+  border-radius: 10px;
+  padding: 7px 14px;
+  cursor: pointer;
+}
+
+.tour-btn-primary {
+  border: none;
+  background: var(--accent);
+  color: var(--coddy-on-accent-fg);
+}
+
+.tour-btn-ghost {
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  background: transparent;
+  color: inherit;
+}
+
+@media (max-width: 599px) {
+  // Two cards a row here as well: one column turned eight providers into a
+  // scroll of its own before the form was reached. The description is what
+  // gives way, not the column.
+  .provider-picker-grid {
+    --onboarding-card-h: 78px;
+    --onboarding-card-gap: 8px;
+    // Every card of the catalog stands open here: four rows is all of them,
+    // so there is nothing below to show through or to shade.
+    --onboarding-card-rows: 4;
+    --onboarding-card-peek: 0px;
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
+
+  .provider-picker-card {
+    padding: 10px;
+  }
+
+  .provider-picker-card-desc {
+    font-size: 11px;
+  }
+
+  .provider-picker-panel {
+    padding: 18px;
+  }
+
+  // On a phone the button beside the model left it about 130px, which cut
+  // "neuraldeep/qwen3.6-35b-a3b" down to "neuraldeep/q" - and the model is
+  // the one value to read before saving. The field takes the line and the
+  // button stands under it.
+  .provider-picker-key-row {
+    flex-wrap: wrap;
+  }
+
+  .provider-picker-key-row .settings-combobox,
+  .provider-picker-key-row .provider-picker-input {
+    flex: 1 1 100%;
+  }
+
+  .provider-picker-key-row .provider-picker-ghost-btn {
+    flex: 1 1 auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-spotlight {
+    transition: none;
+  }
+}
+
+// Inside the fieldset the advanced fields are the form's own column.
+.provider-picker-advanced {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+// A block borrowed from the settings screen speaks in this form's voice. Its
+// prose is sized for a settings pane, and at 16px next to these 13px rows it
+// read as a heading and made the 16px above it look like more.
+.provider-picker-form > .settings-row,
+.provider-picker-form > .settings-row p,
+.provider-picker-actions p {
+  font-size: 13px;
+}
+
+// The fieldset sits in the form's column, and its body keeps the form's left
+// edge rather than the indent the settings screen gives a fieldset.
+// The frame stands on the form's own edge, and the fields inside it keep
+// clear of it: flush against the frame they read as cramped.
+// The legend's name lines up with every other text of the dialog - the card
+// titles and the button's label, both 14px inside their boxes - instead of
+// sitting in the column the boxes start on. Two forces decide where it lands:
+// the settings screen pulls the legend left so its chevron hangs in front of
+// the name, and the chevron plus its gap push the name 20px right of the
+// legend's own edge. Measured in a browser, not guessed: this is what puts
+// the name on the same line as the titles beside it.
+.provider-picker-advanced-fold legend {
+  margin-left: -10px;
+}
+
+.provider-picker-advanced-fold .settings-fieldset--collapsible {
+  margin: 0;
+  // The frame's own block padding goes: stacked on the body's it left the
+  // fields 43px from the top edge against 13px from the sides.
+  padding: 0;
+}
+
+.provider-picker-advanced-fold .settings-form-group-body {
+  // One inset on every side.
+  padding: 12px;
+}

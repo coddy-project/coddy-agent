@@ -400,6 +400,10 @@ func parseRetryAfterHeaders(err error) (time.Duration, bool) {
 // order: response headers, the absolute "Limit resets at: ... UTC" body
 // phrase, the relative "retry in Ns" body phrase.
 func serverRetryDelay(err error) (time.Duration, bool) {
+	var streamErr *streamServerError
+	if errors.As(err, &streamErr) && streamErr.retryAfter > 0 {
+		return streamErr.retryAfter, true
+	}
 	if d, ok := parseRetryAfterHeaders(err); ok {
 		return d, true
 	}

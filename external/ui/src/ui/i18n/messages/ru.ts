@@ -1049,6 +1049,84 @@ export const messagesRu: Record<string, string> = {
 
   "settings.combobox.toggleAria": "Показать параметры",
 
+  "onboarding.title": "Выберите провайдера",
+  "onboarding.lead":
+    "Подключите провайдера моделей, чтобы начать чат. Позже это можно изменить в настройках.",
+  "onboarding.close": "Закрыть онбординг",
+  "onboarding.provider.openai.description": "Модели GPT через API-ключ",
+  "onboarding.provider.anthropic.description": "Модели Claude через API-ключ",
+  "onboarding.provider.compatible.description":
+    "Llama.cpp, Ollama, LM Studio, DeepSeek, Groq или другой совместимый API-провайдер",
+  "onboarding.provider.acp.description":
+    "Свой агент на этой машине: ClaudeCode, Codex, Gemini, Cursor, Qwen...",
+  "onboarding.provider.neuraldeep.description": "Ваша подписка или API-ключ",
+  "onboarding.provider.codex.description": "Ваша подписка через OAuth",
+  "onboarding.provider.opencode.description": "Ваша подписка Go или Console",
+  "onboarding.provider.devin.description": "Подписка Devin со входом в аккаунт",
+  "onboarding.apiKey": "Ключ API",
+  "onboarding.showKey": "Показать",
+  "onboarding.hideKey": "Скрыть",
+  "onboarding.apiBase": "Базовый URL API",
+  "onboarding.command": "Команда",
+  "onboarding.commandHint":
+    "Программа на этой машине, которая говорит по ACP, вместе с аргументами. Она входит в аккаунт сама, Coddy не хранит для неё ключ.",
+  "onboarding.commandRequired":
+    "Введите команду, прежде чем проверять или сохранять этого агента.",
+  "onboarding.apiBaseRequired":
+    "Введите базовый URL API, прежде чем проверять или сохранять этого провайдера.",
+  "onboarding.proxy": "URL прокси",
+  "onboarding.proxyHint":
+    "Прокси используется для получения списка моделей, авторизации и запросов к модели.",
+  "onboarding.validationFailed": "Конфигурация недействительна.",
+  "onboarding.saveFailed": "Не удалось сохранить конфигурацию ({status}).",
+  "onboarding.saveFailedGeneric": "Не удалось сохранить конфигурацию.",
+  "onboarding.save": "Сохранить и продолжить",
+  "onboarding.restart": "Пройти онбординг снова",
+  "onboarding.restartHint": "Повторить краткую экскурсию по интерфейсу.",
+
+  "devinAuth.error.signInFailed": "Не удалось войти через Devin.",
+  "devinAuth.error.incompleteResponse":
+    "Devin вернул неполные инструкции входа.",
+  "devinAuth.fieldLabel": "Аккаунт Devin",
+  "devinAuth.description":
+    "Войдите через браузер и вставьте callback-адрес, если браузер не может достучаться до Coddy. Токены остаются на сервере Coddy. Сохраните настройки провайдера, чтобы использовать эту строку в чатах.",
+  "devinAuth.connected": "Выполнен вход в Devin ({account}).",
+  "devinAuth.shadowedByKey":
+    "Явно заданный ключ API имеет приоритет над этим входом.",
+  "devinAuth.openSignInPage": "Открыть страницу входа",
+  "devinAuth.waiting": "Ждём Devin…",
+  "devinAuth.signOut": "Выйти",
+  "devinAuth.signIn": "Войти через Devin",
+  "devinAuth.pasteLabel":
+    "Браузер на другой машине? Вставьте полный callback-адрес",
+  "devinAuth.pasteSubmit": "Завершить вход",
+
+  "tour.stepCounter": "Шаг {current} из {total}",
+  "tour.skip": "Завершить",
+  "tour.back": "Назад",
+  "tour.next": "Далее",
+  "tour.done": "Готово",
+  "tour.step.newChat.title": "Новый чат",
+  "tour.step.newChat.body":
+    "Отсюда начинается диалог. У каждого своя история, своя рабочая папка и своя модель.",
+  "tour.step.settings.title": "Настройки",
+  "tour.step.settings.body":
+    "Здесь настраиваются провайдеры, модели, инструменты и остальные возможности Coddy.",
+  "tour.step.project.title": "Рабочая папка",
+  "tour.step.project.body":
+    "Выберите папку и ветку, с которыми будет работать агент.",
+  "tour.step.history.title": "История",
+  "tour.step.history.body":
+    "Открывайте прошлые разговоры или начинайте новый чат.",
+  "tour.step.model.title": "Модель",
+  "tour.step.model.body": "Выберите настроенную модель для этого чата.",
+  "tour.step.input.title": "Сообщение",
+  "tour.step.input.body":
+    "Напишите запрос здесь. Используйте @ для упоминания файлов и / для команд.",
+  "tour.step.send.title": "Отправка",
+  "tour.step.send.body":
+    "Отправьте сообщение и следите за работой агента в транскрипте.",
+
   "codexAuth.error.signInFailed": "Не удалось войти через ChatGPT.",
   "codexAuth.error.incompleteResponse":
     "Сервер OAuth вернул неполный ответ входа.",
@@ -1071,9 +1149,9 @@ export const messagesRu: Record<string, string> = {
 
   "neuralDeepApiBase.description":
     "NeuralDeep держит одно и то же API в двух развёртываниях: api.neuraldeep.ru обслуживает Россию, а api.neuraldeep.tech служит зеркалом для остальных стран. Выбор определяет и хаб, через который идёт вход ниже. Список моделей ниже запрашивается с настройками из этой формы, сохранять перед этим не нужно.",
-  "neuralDeepApiBase.optionRu": "api.neuraldeep.ru — Россия",
+  "neuralDeepApiBase.optionRu": "api.neuraldeep.ru - Россия",
   "neuralDeepApiBase.optionTech":
-    "api.neuraldeep.tech — зеркало для остального мира",
+    "api.neuraldeep.tech - зеркало для остального мира",
   "neuralDeepApiBase.unknown":
     "Сохранённый api_base {value} не является эндпоинтом NeuralDeep, поэтому запросы пойдут на {fallback}. Выберите эндпоинт, чтобы заменить его.",
 

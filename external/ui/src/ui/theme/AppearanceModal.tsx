@@ -172,8 +172,11 @@ export function AppearanceLanguagePicker() {
 /** AppearanceThemePicker renders just the theme swatch grid (no panel chrome) so it
  * can be embedded as a Settings tab. Theme selection applies immediately and is
  * client-side only (no config save). Below the grid: the simplified mode,
- * wallpaper, language and system notifications. */
-export function AppearanceThemePicker() {
+ * wallpaper, language, system notifications, then the restart of the first-run
+ * onboarding. */
+export function AppearanceThemePicker(props: {
+  onRestartOnboarding?: (() => void) | undefined;
+}) {
   const { t } = useT();
   const current = useSyncExternalStore(
     subscribeTheme,
@@ -213,6 +216,19 @@ export function AppearanceThemePicker() {
       <BackdropSettings />
       <AppearanceLanguagePicker />
       <NotificationsSetting />
+      {props.onRestartOnboarding ? (
+        <div className="appearance-onboarding">
+          <p className="settings-field-desc">{t("onboarding.restartHint")}</p>
+          <button
+            type="button"
+            className="settings-btn"
+            data-testid="settings-restart-onboarding"
+            onClick={props.onRestartOnboarding}
+          >
+            {t("onboarding.restart")}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

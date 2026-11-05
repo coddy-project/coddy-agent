@@ -2,6 +2,7 @@ import { Component, lazy, Suspense, type ReactNode } from "react";
 import { AppearanceThemePicker } from "../theme/AppearanceModal";
 import { applyModelsChange, applyToolsetsChange } from "./applyModelsChange";
 import { CodexAuthField } from "./CodexAuthField";
+import { DevinAuthField } from "./DevinAuthField";
 import { FieldLabel } from "./FieldHint";
 import { ContextWindowField } from "./ContextWindowField";
 import { NeuralDeepAuthField } from "./NeuralDeepAuthField";
@@ -370,6 +371,12 @@ export function overrideTexts(
         };
       }
     }
+    if (providerType === "devin" && path === "api_base") {
+      return {
+        primary: translate("devinAuth.fieldLabel"),
+        primaryDesc: translate("devinAuth.description"),
+      };
+    }
     if (providerType === "opencode" && path === "api_base") {
       return {
         primary: label(),
@@ -447,6 +454,19 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
     return (
       <CodexAuthField
         providerName={rowText(ctx.parentObj, "name")}
+        texts={box}
+        {...rowProxy(ctx.parentObj)}
+      />
+    );
+  }
+  if (rowText(ctx.parentObj, "type") === "devin") {
+    return (
+      <DevinAuthField
+        providerName={rowText(ctx.parentObj, "name")}
+        hasExplicitKey={
+          rowText(ctx.parentObj, "api_key").trim() !== "" ||
+          rowText(ctx.parentObj, "api_key_command").trim() !== ""
+        }
         texts={box}
         {...rowProxy(ctx.parentObj)}
       />
@@ -553,6 +573,7 @@ export function SettingsSection(props: {
   /** Workspace of the viewed session; the Subagents tab asks about it. */
   workspacePath?: string | undefined;
   onSessionTagsChanged?: (id: string, tags: string[]) => void;
+  onRestartOnboarding?: (() => void) | undefined;
 }) {
   const {
     section,
@@ -589,7 +610,9 @@ export function SettingsSection(props: {
     setDoc({ ...doc, [key]: value });
 
   if (section.kind === "appearance") {
-    return <AppearanceThemePicker />;
+    return (
+      <AppearanceThemePicker onRestartOnboarding={props.onRestartOnboarding} />
+    );
   }
 
   // The session table is API-driven (/coddy/sessions): it reads and removes

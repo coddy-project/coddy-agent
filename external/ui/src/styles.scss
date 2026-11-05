@@ -79,6 +79,9 @@
 @use "styles/screens/auth";
 @use "styles/settings/sessions-table";
 
+// First-run provider setup and the guided tour.
+@use "styles/onboarding";
+
 // The phone tier, after the stacked-shell rules it narrows.
 @use "styles/shell/phone";
 
