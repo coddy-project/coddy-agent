@@ -103,13 +103,21 @@ describe("the start screen never widens the page", () => {
   });
 });
 
-describe("the History drawer on the stacked shell", () => {
-  // It ran to the foot of the screen, and with the backdrop all covered there was
-  // nowhere to tap to get back to the conversation.
-  test("ends 30% above the foot of the screen, over the backdrop that closes it", () => {
-    const stacked = stylesSource();
-    expect(stacked.replace(/\s+/g, " ")).toContain(
-      "@media (max-width: 1199px) { .sessions.drawer { bottom: 30vh; bottom: 30dvh; } }",
+describe("the drawers of the stacked shell", () => {
+  // History used to stop 30% of the screen above the foot, to leave backdrop
+  // for a tap back to the conversation; beside the Scheduler's dock, which
+  // keeps the same four insets as every other drawer, it read as one that did
+  // not open all the way. The head's close control and Escape are the ways
+  // back from all of them alike.
+  test("History, the Scheduler and Settings share one band", () => {
+    const css = stylesSource().replace(/\s+/g, " ");
+    expect(css).toContain(
+      ".sessions.drawer, .scheduler-jobs.drawer, .settings.drawer { left: max(10px, env(safe-area-inset-left, 0px)); right: max(10px, env(safe-area-inset-right, 0px)); width: auto; top: calc(var(--coddy-mobile-top-inset) + 6px); bottom: max(14px, env(safe-area-inset-bottom, 0px)); }",
+    );
+    expect(css).not.toContain("bottom: 30dvh");
+    // The Scheduler's dock, which the band is measured against.
+    expect(css).toContain(
+      "bottom: max(14px, env(safe-area-inset-bottom, 0px)); flex-direction: column;",
     );
   });
 });

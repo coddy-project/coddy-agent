@@ -275,6 +275,15 @@
   flex-shrink: 0;
 }
 
+/* A finger is wider than a cursor, and the control beside the ring stops the
+   turn: 10px between the two is a miss away from stopping a turn somebody
+   only meant to read the context of. */
+@media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {
+  .composer-bar-actions {
+    gap: 20px;
+  }
+}
+
 /* Context meter: same tooltip styling as narrow rail (see .rail-tip) */
 .composer-context-tip-host {
   position: relative;
@@ -334,13 +343,22 @@
   top: auto;
   bottom: calc(100% + 12px);
   transform: translateX(-50%);
-  white-space: pre-line;
-  min-width: 220px;
+  /* One line that fits itself: the tip said five things and needed a floor
+     of its own, and now it is "20.1% · 201k / 1M". */
+  white-space: nowrap;
+  min-width: 0;
+  width: max-content;
   max-width: min(320px, calc(100vw - 32px));
   padding: 10px 14px;
   font-weight: 500;
   font-size: 12px;
   line-height: 1.45;
   text-align: left;
-  box-shadow: var(--coddy-tip-shadow);
+  /* No shadow at all. The tip stands 12px above the ring it belongs to, and
+     any shadow of the rail's shape reaches past that gap: the downward one
+     (10px down over 28px of blur) washed grey over the ring and the bar, and
+     cast upward it still spilled under its own bottom edge. The tip is an
+     opaque plate with a border, which is what tells it from the transcript;
+     nothing is drawn under it. */
+  box-shadow: none;
 }

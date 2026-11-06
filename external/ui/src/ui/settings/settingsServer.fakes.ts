@@ -249,6 +249,11 @@ export function stubServer(source: ServerState | (() => ServerState)) {
     if (route === "/coddy/subagents") {
       return reply(200, { items: [], workspace: "", policy: "ask" });
     }
+    // What the Browser tab reads while a person connects a browser: no key
+    // and nothing on the socket, the state the section opens in.
+    if (route === "/coddy/browser/setup") {
+      return reply(200, { key_set: false, connected: [] });
+    }
     if (route === "/coddy/sessions") {
       return reply(200, { sessions: [], hasMore: false });
     }

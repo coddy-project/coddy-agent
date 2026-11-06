@@ -147,6 +147,11 @@ type Tool struct {
 	Kind   string            `json:"kind,omitempty"`
 	Input  map[string]string `json:"input,omitempty"`
 	Output string            `json:"output,omitempty"`
+	// Say are answer chunks written just before the call is announced: an
+	// agent that says what it is about to do, runs the tool, and goes on
+	// writing. The whole answer of a prompt is one message, so where each
+	// call falls in it is what a surface needs to draw them in order.
+	Say []string `json:"say,omitempty"`
 	// Open leaves the call announced and never ended.
 	Open bool `json:"open,omitempty"`
 	// DelayMS is how long the call runs between its announcement and its
@@ -665,6 +670,9 @@ func (a *agent) prompt(m message, t Turn, cancelled <-chan struct{}) {
 		a.update(s.id, map[string]interface{}{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "reasoning", "text": th}})
 	}
 	for _, tool := range t.Tools {
+		for _, say := range tool.Say {
+			a.update(s.id, map[string]interface{}{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": say}})
+		}
 		kind := tool.Kind
 		if kind == "" {
 			kind = "execute"

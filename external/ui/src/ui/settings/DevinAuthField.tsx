@@ -283,7 +283,9 @@ export function DevinAuthField(props: {
       {!props.accountOnly && status.connected && props.hasExplicitKey ? (
         <p className="settings-field-desc">{t("devinAuth.shadowedByKey")}</p>
       ) : null}
-      {login?.verification_url ? (
+      {/* The sign-in page and the callback to paste belong to a sign-in still
+          running: a connected row says so and nothing else (CodexAuthField). */}
+      {!status.connected && login?.verification_url ? (
         <div className="codex-auth-device">
           <a
             className="settings-btn"

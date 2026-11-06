@@ -309,7 +309,9 @@ export function OpenCodeAuthField(props: {
             : t("openCodeAuth.shadowedByKey")}
         </p>
       ) : null}
-      {login?.user_code && login.verification_url ? (
+      {/* The code and its page belong to a sign-in still running: a connected
+          row says so and nothing else (CodexAuthField). */}
+      {!status.connected && login?.user_code && login.verification_url ? (
         <div className="codex-auth-device" ref={deviceRef}>
           <p className="settings-field-desc">{t("openCodeAuth.enterCode")}</p>
           <code className="codex-auth-code">{login.user_code}</code>

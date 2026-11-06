@@ -107,6 +107,7 @@ import {
   snapshotTouchOnly,
   serverSnapshotTouchOnly,
 } from "../shellBreakpoint";
+import { formatTurnTokens } from "./turnProgress";
 import { composerEnterAction, insertNewline } from "./composerEnter";
 import { contextUsagePercent } from "./contextUsage";
 import { parseDocsCommand } from "../docs/docsCommand";
@@ -2429,32 +2430,17 @@ export function Composer(props: {
       setMenuOpen(type);
     }
   }
+  // One line, because the ring opens a popover with everything: how much of
+  // the window is used and the two numbers that say it, "20.1% · 201k / 1M".
+  // The five lines it used to be repeated the popover badly - input, output
+  // and total of a window nobody reads at a glance.
   const tip = contextIdle
-    ? [
-        t("composer.contextTipIdle"),
-        t("composer.contextTipMaxContext", { count: fmtInt(maxCtx) }),
-      ].join("\n")
-    : [
-        t("composer.contextTipUsed", {
-          percent: typeof pct === "number" ? pct.toFixed(1) : "0.0",
-        }),
-        usage
-          ? [
-              t("composer.contextTipInput", {
-                count: fmtInt(usage.inputTokens),
-              }),
-              t("composer.contextTipOutput", {
-                count: fmtInt(usage.outputTokens),
-              }),
-              t("composer.contextTipTotal", {
-                count: fmtInt(usage.totalTokens),
-              }),
-            ].join("\n")
-          : "",
-        t("composer.contextTipMaxContext", { count: fmtInt(maxCtx) }),
-      ]
-        .filter(Boolean)
-        .join("\n");
+    ? t("composer.contextTipIdle")
+    : t("composer.contextTipShort", {
+        percent: typeof pct === "number" ? pct.toFixed(1) : "0.0",
+        used: formatTurnTokens(usage?.totalTokens ?? 0),
+        max: formatTurnTokens(maxCtx ?? 0),
+      });
 
   const commandMatches = useMemo(
     () => (slashOpen ? filterCommandRows(allCommandItems, slashPrefix) : []),
@@ -3526,12 +3512,15 @@ export function Composer(props: {
                     });
                     return;
                   }
+                  // The skills picker answers its keys while a turn runs, as
+                  // the mention picker above does: it is open and its rows
+                  // take a click, so a key that did nothing left Tab to the
+                  // browser, which moved the focus to the attach control.
                   if (
                     (ev.key === "ArrowDown" || ev.key === "ArrowUp") &&
                     slashOpen &&
                     !atOpen &&
-                    slashRows.length > 0 &&
-                    !props.generating
+                    slashRows.length > 0
                   ) {
                     ev.preventDefault();
                     const len = slashRows.length;
@@ -3554,8 +3543,7 @@ export function Composer(props: {
                   if (
                     ev.key === "Tab" &&
                     slashOpen &&
-                    (slashItems.length > 0 || commandMatches.length > 0) &&
-                    !props.generating
+                    (slashItems.length > 0 || commandMatches.length > 0)
                   ) {
                     ev.preventDefault();
                     const pick = slashRows[slashActiveIdx]?.name;
@@ -3581,8 +3569,7 @@ export function Composer(props: {
                     ev.key === "Enter" &&
                     !ev.shiftKey &&
                     slashOpen &&
-                    (slashItems.length > 0 || commandMatches.length > 0) &&
-                    !props.generating
+                    (slashItems.length > 0 || commandMatches.length > 0)
                   ) {
                     ev.preventDefault();
                     const pick = slashRows[slashActiveIdx]?.name;

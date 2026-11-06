@@ -10,9 +10,11 @@ Feature: The progress of a running turn in the web UI
     Then the working line shows a decorative Coddy logo instead of bouncing dots
     And its outer contour rotates, grows and shrinks, and reduced motion keeps it still
 
-  Scenario: The working line stays closer to the transcript when no checklist is present
-    Then without todos the active live line removes 4px above it and adds no room below
-    And the active live line eases checklist spacing changes only without reduced motion
+  Scenario: The line stands the same distance from the step it reports on and from what follows
+    Then the live line keeps the transcript's rhythm above and below
+    And the live line's room does not depend on the checklist
+    And the finished line is the same box as the live line it replaces
+    And the live line animates no padding of its own
 
   Scenario: Before the first token the line is the clock and the waiting phrase
     Then before the first token the live line shows the turn clock and the waiting phrase alone

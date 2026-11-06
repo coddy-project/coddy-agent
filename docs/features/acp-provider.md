@@ -76,7 +76,13 @@ What the agent reports while it works:
 
 The answer keeps the first lines of each call's output, and the session keeps the whole of it, as it does for Coddy's own tools: the rows come back after a reload, in the console and in an editor that loads the session, and a row's full output is a click away.
 
+An agent writes a line, runs a tool, writes the next line, and all of it is one answer. The rows stand where that happened: the transcript records how much of the answer stood written when each call was announced and cuts the answer there, so a turn read back after a reload looks as it did while it ran. A session written by an older Coddy has no such marks, and its calls stand before the whole answer, as they did then.
+
+The line a finished turn leaves under its answer - how long it ran and how much it wrote - carries no generation speed here. An agent streams its answer around waits of its own, so what it writes per second says nothing about a model.
+
 The model id selects the agent's model through the agent's model option, the session's reasoning level sets the agent's reasoning option when that option offers a value of the same name, and the session's mode selects the agent's mode through `acp.modes`. A value a turn does not name goes back to what the session started with, so a choice of an earlier turn never sticks.
+
+A message written while the agent works goes to the [message queue](message-queue.md), and a **steer** one is read at once: such a turn is one call with no step of Coddy's inside it, so its step boundary is the agent's prompt. Coddy interrupts that prompt and starts the turn again carrying the message, the way Stop with a waiting queue does by hand. The agent keeps its own ACP session and goes on from what it had done, and its answer so far stays in the transcript. A message that asked to wait for the turn changes nothing: the agent finishes first.
 
 Stop cancels the agent's prompt the way the protocol asks. The agent's work so far stays in the answer, the next message goes on in the same session, and the cancelled prompt is never sent again: a request that would repeat it fails instead, since the agent may already have acted on it. When the agent does not confirm the cancellation within ten seconds, Coddy closes its ACP session (the next message starts a new one from the transcript) and leaves the prompt twenty more seconds to end; after that it stops the agent process, which with `process: shared` also ends the prompts of the other sessions it serves.
 

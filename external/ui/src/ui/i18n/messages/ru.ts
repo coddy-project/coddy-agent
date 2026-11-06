@@ -300,6 +300,30 @@ export const messagesRu: Record<string, string> = {
   "settings.section.browser.label": "Браузер",
   "settings.section.browser.desc":
     "Coddy for Browser, ключ и кто им пользуется",
+  "browserSetup.step.install": "Установите расширение",
+  "browserSetup.step.key": "Возьмите адрес и ключ",
+  "browserSetup.step.paste": "Откройте настройки расширения и вставьте их туда",
+  "browserSetup.store.chrome": "Chrome Web Store",
+  "browserSetup.store.firefox": "Firefox Add-ons",
+  "browserSetup.addressLabel": "Адрес сервера",
+  "browserSetup.show": "Показать ключ",
+  "browserSetup.hide": "Скрыть ключ",
+  "browserSetup.copy": "Скопировать",
+  "browserSetup.copied": "Скопировано",
+  "browserSetup.generate": "Сгенерировать",
+  "browserSetup.regenerate": "Сгенерировать новый",
+  "browserSetup.keyEmpty": "Ключа пока нет",
+  "browserSetup.keyKept": "Ключ хранится на сервере",
+  "browserSetup.stateOff":
+    "Раздел выключен: включите его, чтобы принять браузер.",
+  "browserSetup.stateNoKey": "Сгенерируйте ключ и сохраните настройки.",
+  "browserSetup.stateUnsaved": "Сохраните настройки, затем вставьте ключ.",
+  "browserSetup.stateWaiting": "Ждём расширение\u2026",
+  "browserSetup.connected.one": "Подключён {count} браузер, всё готово.",
+  "browserSetup.connected.few": "Подключено {count} браузера, всё готово.",
+  "browserSetup.connected.many": "Подключено {count} браузеров, всё готово.",
+  "browserSetup.connected.other": "Подключено {count} браузера, всё готово.",
+  "browserSetup.unnamed": "Браузер без имени",
   "settings.schema.browser.enable.label": "Включено",
   "settings.schema.browser.enable.desc":
     "Давать чатам инструмент browser и принимать расширение, когда задан ключ.",
@@ -307,7 +331,7 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.browser.token.desc":
     "Не короче 32 символов, вводится в расширении. Оставьте поле пустым, чтобы сохранить текущий ключ.",
   "settings.schema.browser.serve_remote.label":
-    "Отдавать другим процессам Coddy",
+    "Открыть эти браузеры для других процессов Coddy",
   "settings.schema.browser.serve_remote.desc":
     "Разрешить консоли или редактору на этой машине и узлам роя управлять подключёнными сюда браузерами через /coddy/browser/v1 с учётными данными API этого сервера. Перед первым действием каждого такого чата расширение спросит вас.",
   "settings.schema.browser.remotes.label": "Браузеры других серверов",
@@ -323,6 +347,10 @@ export const messagesRu: Record<string, string> = {
   "settings.group.agent.timeouts": "Таймауты потока",
   "settings.group.agent.loop": "Защита от зацикливания",
   "settings.group.agent.limits": "Лимиты использования",
+  "settings.group.browser.shared":
+    "Совместное использование браузеров между процессами Coddy",
+  "settings.group.browser.sharedDesc":
+    "Браузеры, которые этот сервер открывает для других процессов Coddy, и браузеры других серверов, которыми могут пользоваться чаты этого сервера.",
   "settings.group.hooks.main": "Настройки хуков",
   "settings.group.hooks.mainDesc":
     "Как выполняются хуки, то есть можно ли запускать файлы, пришедшие с чекаутом, сколько может длиться один процесс хука без своего таймаута, сколько раз хук Stop может вернуть агента к работе и сколько текста может передать один хук.",
@@ -1812,7 +1840,8 @@ export const messagesRu: Record<string, string> = {
   "composer.reasoningLevel": "Уровень рассуждения",
   "composer.reasoningLevelTitle": "Уровень рассуждения (metadata.reasoning)",
   "composer.contextUsage": "Использование контекста",
-  "composer.contextTipIdle": "Контекст пока не используется",
+  "composer.contextTipShort": "{percent}% \u00b7 {used} / {max}",
+  "composer.contextTipIdle": "Контекст пуст",
   "composer.contextTipUsed": "Использовано {percent}% контекста",
   "usage.resets": "сброс {time}",
   "usage.resumingAt": "Продолжим автоматически в {time}",

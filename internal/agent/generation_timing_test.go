@@ -61,10 +61,26 @@ func requireUnmeasuredGeneration(t *testing.T, a *Agent, state *session.State, s
 			t.Errorf("unmeasurable output acquired speed %g tok/s", *update.TokensPerSecond)
 		}
 	}
+	// The turn still has a clock and a count, so the line it leaves behind
+	// stays: only the speed is left off it. Dropping the whole caption left
+	// an acp turn with nothing at all under its answer.
+	var captions []session.GenerationSummary
 	for _, row := range state.GetUILog() {
 		if row.Generation != nil {
-			t.Errorf("unmeasurable output persisted a generation caption: %+v", row.Generation)
+			captions = append(captions, *row.Generation)
 		}
+	}
+	if len(captions) != 1 {
+		t.Fatalf("generation captions = %+v, want exactly one", captions)
+	}
+	if captions[0].TokensPerSecond != 0 {
+		t.Errorf("unmeasurable output persisted a speed: %+v", captions[0])
+	}
+	if captions[0].OutputTokens != tokens {
+		t.Errorf("caption = %+v, want %d tokens", captions[0], tokens)
+	}
+	if captions[0].ElapsedMs < 0 {
+		t.Errorf("caption = %+v, want the turn's clock", captions[0])
 	}
 }
 
