@@ -16,11 +16,11 @@
   align-items: center;
   gap: 12px;
   /* The notice takes a queued message's place over the composer, so it keeps
-     that row's 6px to the card under it (composer/_card.scss,
-     .composer-queue). The room the card's wrapper keeps over itself lies
-     above the notice instead, which is also what chat/composerReserve.ts
-     reads (blockEdgePaddingTop). */
-  margin: 0 0 6px;
+     the stack's one gap to the card under it (--coddy-composer-stack-gap,
+     composer/_card.scss, .composer-queue). The room the card's wrapper keeps
+     over itself lies above the notice instead, which is also what
+     chat/composerReserve.ts reads (blockEdgePaddingTop). */
+  margin: 0 0 var(--coddy-composer-stack-gap);
   padding: 8px 12px;
   border-radius: 12px;
   border: 1px solid rgba(245, 158, 11, 0.45);

@@ -11,10 +11,10 @@ Feature: The progress of a running turn in the web UI
     And its outer contour rotates, grows and shrinks, and reduced motion keeps it still
 
   Scenario: The line stands the same distance from the step it reports on and from what follows
-    Then the live line splits its own room evenly above and below
-    And without todos the live line takes 4px less of the column, still evenly
+    Then the live line keeps the transcript's rhythm above and below
+    And the live line's room does not depend on the checklist
     And the finished line is the same box as the live line it replaces
-    And the active live line eases checklist spacing changes only without reduced motion
+    And the live line animates no padding of its own
 
   Scenario: Before the first token the line is the clock and the waiting phrase
     Then before the first token the live line shows the turn clock and the waiting phrase alone

@@ -258,12 +258,10 @@
    way, a status changes its mark in place and pops the new glyph in, and the
    item in progress spins and shimmers while a turn runs. With reduced motion
    every state is there at once and the item in progress keeps the still
-   half-filled mark of the todo rows. */
+   half-filled mark of the todo rows. The live line used to ease a padding of
+   its own here, from when the checklist's arrival changed it; it keeps one
+   padding now, so there is nothing left to ease. */
 @media (prefers-reduced-motion: no-preference) {
-  .messages-inner > .msg-assistant-stack:not(.typing-dots-slot) > .typing-dots {
-    transition: padding-top 0.24s ease;
-  }
-
   .todo-checklist {
     transition: padding-bottom 0.22s ease;
   }

@@ -170,32 +170,25 @@
   /* 6px to the first number, the gap the plate over the composer keeps
      between the folder icon and its name. */
   gap: 6px;
-  /* The row's own padding is one row gap, split evenly above and below, so
-     the line stands the same distance from the step it reports on and from
-     what follows it; with the column's gap on either side that is a row and
-     a half each way, and two row gaps to the composer below
-     (chat/composerReserve.ts) as before, since the row's height did not move.
-     It was a whole row gap on top and nothing underneath, which read as a
-     line pushed down onto the row under it. The live line and the line a
-     finished step leaves keep the same box, or the transcript would jump by
-     the difference the moment a turn ends (npm run check:queue). The 17px on
-     the left put the mark on the vertical line of the folder icon on the
-     plate over the composer (the plate's 1px border and its 16px padding), so
-     the mark, the numbers and the checklist above them stand in one column. */
-  padding: calc(var(--coddy-transcript-row-gap, 10px) / 2) 17px;
+  /* The line keeps the transcript's own rhythm: as far from the step it
+     reports on as any two rows stand apart, and as far from what follows.
+     The two numbers differ because the neighbours do - a row above ends 4px
+     above its own box, while a card below starts at its border - so an even
+     split in box terms read as 4px more room on top than underneath, which is
+     what the whole row gap it carried before read as, only louder. Measured
+     against the rows around it: 14.0 above and 13.9 below, where two ordinary
+     rows stand 13.7 apart. The live line and the line a finished step leaves
+     keep the same box, or the transcript would jump by the difference the
+     moment a turn ends (npm run check:queue). The 17px on the left put the
+     mark on the vertical line of the folder icon on the plate over the
+     composer (the plate's 1px border and its 16px padding), so the mark, the
+     numbers and the checklist above them stand in one column. */
+  padding: 1px 17px 4px;
   /* Blockified as a flex item of the column .msg-assistant-stack; without this its
      min-content width follows the unbreakable phrase in the status label and pushes
      the row past .messages-inner. */
   min-width: 0;
   max-width: 100%;
-}
-
-/* Without a checklist the line takes 4px less of the column, still split
-   evenly, so the two gaps around it stay equal. */
-.messages-inner:not(:has(> .message-row-todo))
-  > .msg-assistant-stack:not(.typing-dots-slot)
-  > .typing-dots {
-  padding-block: calc((var(--coddy-transcript-row-gap, 10px) - 4px) / 2);
 }
 
 /* Between turns the live line's room stays, transparent and still: the line

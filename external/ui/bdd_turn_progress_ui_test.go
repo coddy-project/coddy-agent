@@ -24,14 +24,14 @@ func TestTurnProgressWebUIFeature(t *testing.T) {
 				}
 				return runVitestScenario(file, "reduced motion leaves the Coddy work indicator still")
 			})
-			sc.Step(`^the active live line eases checklist spacing changes only without reduced motion$`, func() error {
-				return runVitestScenario("src/ui/tasks/backgroundTaskCss.test.ts", "the active live line eases checklist spacing changes only without reduced motion")
+			sc.Step(`^the live line animates no padding of its own$`, func() error {
+				return runVitestScenario("src/ui/tasks/backgroundTaskCss.test.ts", "the live line animates no padding of its own")
 			})
-			sc.Step(`^the live line splits its own room evenly above and below$`, func() error {
-				return runVitestScenario("src/ui/tasks/backgroundTaskCss.test.ts", "the live line splits its own room evenly above and below")
+			sc.Step(`^the live line keeps the transcript's rhythm above and below$`, func() error {
+				return runVitestScenario("src/ui/tasks/backgroundTaskCss.test.ts", "the live line keeps the transcript's rhythm above and below")
 			})
-			sc.Step(`^without todos the live line takes 4px less of the column, still evenly$`, func() error {
-				return runVitestScenario("src/ui/tasks/backgroundTaskCss.test.ts", "without todos the live line takes 4px less of the column, still evenly")
+			sc.Step(`^the live line's room does not depend on the checklist$`, func() error {
+				return runVitestScenario("src/ui/tasks/backgroundTaskCss.test.ts", "the live line's room does not depend on the checklist")
 			})
 			sc.Step(`^the finished line is the same box as the live line it replaces$`, func() error {
 				return runVitestScenario("src/ui/tasks/backgroundTaskCss.test.ts", "the finished line is the same box as the live line it replaces")

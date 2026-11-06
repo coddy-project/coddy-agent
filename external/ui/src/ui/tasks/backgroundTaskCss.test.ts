@@ -386,29 +386,26 @@ test("a card keeps its height when an open neighbour needs the room", () => {
   expect(ruleBody(".bgtask-card {")).toContain("flex: none");
 });
 
-// The row's own padding is one row gap split evenly above and below, so the
-// step the line reports on and what follows stand the same distance from it;
-// it used to be a whole row gap on top and nothing underneath. The row's
-// height is what it was, so the composer reserve below it and the rows above
-// it did not move. The 17px on the left are the plate's 1px border and its
-// 16px padding, so the mark stands on the vertical line of the folder icon
-// under it.
-test("the live line splits its own room evenly above and below", () => {
-  expect(ruleBody(".typing-dots {")).toMatch(
-    /padding: calc\(var\(--coddy-transcript-row-gap, 10px\) \/ 2\) 17px;/,
-  );
+// The line keeps the transcript's rhythm: measured against the rows around it
+// in a real browser, 14.0px above and 13.9px below, where two ordinary rows
+// stand 13.7px apart. The two numbers are not the same because the neighbours
+// are not - a row above ends 4px above its own box, a card below starts at its
+// border - so the padding is 1px over 4px rather than an even split, which
+// read as 4px more room on top. The 17px on the left are the plate's 1px
+// border and its 16px padding, so the mark stands on the vertical line of the
+// folder icon under it.
+test("the live line keeps the transcript's rhythm above and below", () => {
+  expect(ruleBody(".typing-dots {")).toMatch(/padding: 1px 17px 4px;/);
 });
 
-test("without todos the live line takes 4px less of the column, still evenly", () => {
-  const rule = capture(
-    /\.messages-inner:not\(:has\(> \.message-row-todo\)\)\s*>\s*\.msg-assistant-stack:not\(\.typing-dots-slot\)\s*>\s*\.typing-dots\s*\{([^}]+)\}/,
-    css,
-    "the active live line needs its own spacing when no checklist is present",
+// One padding, whatever stands under the line: the rule that took 4px off the
+// column without a checklist was compensating for the margin the checklist
+// card used to add, and that margin is gone.
+test("the live line's room does not depend on the checklist", () => {
+  expect(css).not.toMatch(
+    /:not\(:has\(> \.message-row-todo\)\)[^{]*\.typing-dots\s*\{/,
   );
-  expect(rule).toContain(
-    "padding-block: calc((var(--coddy-transcript-row-gap, 10px) - 4px) / 2);",
-  );
-  expect(rule).not.toMatch(/padding-top\s*:|padding-bottom\s*:|padding\s*:/);
+  expect(css).not.toMatch(/\.typing-dots\s*\{[^}]*padding-block/);
 });
 
 // Regression (npm run check:queue, "the end of a turn moves nothing"): the
@@ -419,20 +416,9 @@ test("the finished line is the same box as the live line it replaces", () => {
   expect(css).not.toMatch(/\.typing-dots--summary\s*\{[^}]*padding/);
 });
 
-test("the active live line eases checklist spacing changes only without reduced motion", () => {
-  const motion = [
-    ...css.matchAll(
-      /@media \(prefers-reduced-motion: no-preference\) \{([\s\S]*?)\n\}/g,
-    ),
-  ]
-    .map((match) => match[1])
-    .join("\n");
-  const rule = capture(
-    /\.messages-inner\s*>\s*\.msg-assistant-stack:not\(\.typing-dots-slot\)\s*>\s*\.typing-dots\s*\{([^}]+)\}/,
-    motion,
-    "only the active line should ease its checklist spacing change",
-  );
-  expect(rule).toContain("transition: padding-top 0.24s ease;");
+// With one padding there is no checklist-driven padding change left to ease.
+test("the live line animates no padding of its own", () => {
+  expect(css).not.toMatch(/transition:\s*padding-top/);
   expect(ruleBody(".typing-dots {")).not.toMatch(/transition\s*:/);
 });
 
