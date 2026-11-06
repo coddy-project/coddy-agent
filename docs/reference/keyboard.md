@@ -87,7 +87,7 @@ The markup window a pasted picture opens in on an X display ([Pasting and markin
 | backspace | while a label is typed, delete its last character |
 | ctrl+z | drop the label being typed, else take back the last step |
 
-Platform notes from the code: a lone Escape is resolved after 10 ms locally and 100 ms when `SSH_CONNECTION` or `SSH_TTY` is set (`external/cli/tui/terminal.go`); the backslash-and-enter newline exists for terminals that do not report shift+enter; `ctrl+c` on a non-empty editor clears it, so the exit needs an empty editor and a second press.
+Platform notes from the code: a lone Escape is resolved after 10 ms locally and 100 ms when `SSH_CONNECTION` or `SSH_TTY` is set (`external/cli/tui/terminal.go`); an Escape followed straight away by `/` waits for neither, and is never read as alt+`/` - the console takes the Escape and then the slash command, so a selector is closed and the next command typed in one movement; the backslash-and-enter newline exists for terminals that do not report shift+enter; `ctrl+c` on a non-empty editor clears it, so the exit needs an empty editor and a second press.
 
 ## Web UI
 

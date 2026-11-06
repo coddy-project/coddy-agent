@@ -641,6 +641,7 @@ func (a *App) Run(ctx context.Context) error {
 			a.openQuestionModal(req)
 			render.now()
 		case <-a.resizeCh:
+			a.fitModal(a.modal)
 			render.now()
 		case <-a.screen.RenderSignal():
 			render.throttled()
@@ -887,7 +888,19 @@ func (a *App) appendStatus(role, msg string) {
 
 // --- modal management ---
 
+// fitModal gives a selector the terminal it has to fit into: its height, and
+// the footer drawn under it, which is the only thing between the modal and the
+// bottom of the screen. Called when a modal opens and on every resize.
+func (a *App) fitModal(c tui.Component) {
+	modal, ok := c.(*selectorModal)
+	if !ok {
+		return
+	}
+	modal.FitTerminal(a.term.Rows(), func(width int) int { return len(a.foot.Render(width)) })
+}
+
 func (a *App) openModal(c tui.Component) {
+	a.fitModal(c)
 	a.modal = c
 	a.editorWrap.Clear()
 	a.editorWrap.AddChild(c)
