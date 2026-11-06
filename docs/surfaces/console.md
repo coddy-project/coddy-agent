@@ -673,6 +673,13 @@ sets `custom` to `false`; the typed text joins the options ticked beside it),
 model/reasoning/permission/theme/session
 selectors (`→ ` cursor, type-to-filter, `(i/n)` scroll indicator).
 
+A selector sizes its list to the terminal when it opens and again on every
+resize, so a short screen - a phone, a split pane - still shows what the choice
+is about. Its borders, its title, the body a trust prompt or `/goal` prints
+above the list, the help line, the scroll indicator and the footer under the
+modal keep their rows; the list takes what is left, down to a single row, and
+scrolls through the rest.
+
 A background subagent keeps working after the turn that spawned it has ended,
 and when it needs a permission it asks through the same modal, titled
 `[subagent <name>] …`, between turns too. A permission or question that
@@ -1021,6 +1028,10 @@ and is visible via `coddy mcp list` (approve with `coddy mcp trust <name>`).
 
 *A prompt sent before the servers answered waits for its tool list on the status line*
 
+![The ctrl+l model selector in a nine-row terminal](../assets/cli-tui/23-short-terminal-selector.png)
+
+*A nine-row terminal: the list gives up rows so the borders, the title, the highlighted model, the `(6/8)` scroll indicator, the help line and the footer all stay on screen*
+
 ![The usage footer with the account windows](../assets/cli-tui/09-usage-footer.png)
 
 *The usage footer with the account windows*
@@ -1100,7 +1111,11 @@ from `examples/cli/capture_login.py`: the picker a fresh console opens by
 itself on an empty `CODDY_HOME`, and then NeuralDeep taken from it, with the
 hub and the API base pointed at a local stand-in that answers the device
 sign-in, the account, the tier's models and the usage, so neither a hub nor a
-key is needed.
+key is needed. `23-short-terminal-selector` comes from
+`examples/cli/capture_short_terminal.py`, which opens the `ctrl+l` selector in
+a nine-row pty against a provider that only lists its models; `CODDY_BIN` and
+`CLI_E2E_ROWS` point the same script at another binary or another height,
+which is how the state before a fix is captured beside the state after it.
 
 
 ## Testing
