@@ -14,6 +14,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
 
 // anthropicProvider implements Provider using the Anthropic API.
@@ -39,8 +40,11 @@ func anthropicBlockingTimeout(maxTokens int64) time.Duration {
 	return max(time.Hour*tokens/128000, 10*time.Minute)
 }
 
-func newAnthropicProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *anthropicProvider {
+func newAnthropicProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string, userAgent ...string) *anthropicProvider {
 	opts := []option.RequestOption{option.WithMaxRetries(0)}
+	if len(userAgent) > 0 && userAgent[0] == "coddy" {
+		opts = append(opts, option.WithHeader("User-Agent", "Coddy/"+version.Get()))
+	}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
 	}

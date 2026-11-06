@@ -144,6 +144,7 @@ func contextWindowKey(p *config.ProviderConfig) string {
 		strings.TrimSpace(p.Name),
 		strings.TrimRight(strings.TrimSpace(p.APIBase), "/"),
 		strings.TrimSpace(p.Proxy),
+		strings.TrimSpace(p.UserAgent),
 	}, "|")
 }
 
@@ -332,12 +333,13 @@ func (m *Manager) refreshContextWindows(cfg *config.Config, prov config.Provider
 		defer close(done)
 		defer cancel()
 		models, err := list(ctx, llm.ProviderInput{
-			Name:     prov.Name,
-			Type:     prov.Type,
-			APIKey:   prov.EffectiveAPIKeyContext(ctx),
-			BaseURL:  prov.APIBase,
-			ProxyURL: prov.Proxy,
-			AuthPath: authPath,
+			Name:      prov.Name,
+			Type:      prov.Type,
+			APIKey:    prov.EffectiveAPIKeyContext(ctx),
+			BaseURL:   prov.APIBase,
+			UserAgent: prov.UserAgent,
+			ProxyURL:  prov.Proxy,
+			AuthPath:  authPath,
 			// The same account a request of this row would use.
 			NoCLILogin: !cfg.ProviderMayUseCLILogin(prov.Name, prov.Type),
 		})

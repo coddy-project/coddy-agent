@@ -283,7 +283,14 @@ func UISchemaMap() map[string]interface{} {
 			"enum":        []string{"openai", "anthropic", "neuraldeep", "opencode", "codex", "devin", "acp"},
 		},
 		"api_base": strProp("API base URL", "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); for opencode it picks the gateway (the Go subscription or pay-as-you-go Console); ignored by codex and devin, which use their official endpoints, and by acp, whose agent runs on this machine."),
-		"api_key":  providerAPIKey,
+		"user_agent": map[string]interface{}{
+			"type":        "string",
+			"title":       "User-Agent",
+			"description": "Client identity for OpenAI-compatible and Anthropic-compatible requests. The provider SDK is the default (OpenAI/Go or Anthropic/Go); Coddy uses the running application version.",
+			"enum":        []string{"", "openai", "anthropic", "coddy"},
+			"default":     "",
+		},
+		"api_key": providerAPIKey,
 		"api_key_command": strProp("API key command",
 			"Optional credential helper, run through the host shell when the API key is empty; its trimmed stdout is the key, like git or docker credential helpers. On failure the environment variable is read instead."),
 		// The settings screen renders this field as the "Ignore system proxy"
@@ -472,7 +479,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "LLM providers",
 			"description": "API credentials and transport selection for upstream LLM vendors.",
 			"items": objectSchema("", "", providerProps,
-				[]string{"name", "type", "acp", "api_base", "api_key", "api_key_command", "proxy", "timeout_ms", "usage_limits_panel"},
+				[]string{"name", "type", "acp", "api_base", "user_agent", "api_key", "api_key_command", "proxy", "timeout_ms", "usage_limits_panel"},
 				[]string{"name", "type"}),
 		},
 		"models": map[string]interface{}{

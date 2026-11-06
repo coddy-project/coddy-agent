@@ -2566,3 +2566,20 @@ These scenarios are intended to be automated via Playwright against the Vite dev
   - Then a task labelled **`memory: <first line of the message>`** carries the **memory** tag (**`bgtask-tag-<id>`**), its card offers **Show transcript** to the read-only child session without being opened, and its open card shows the child's log ending with **`=== subagent report ===`** and the delivery line
 
 For Playwright MCP against a live gateway, start **`make build TAGS="http ui memory"`** then **`./build/coddy serve`** with a disposable **`--home`** so config can enable memory; open **`http://127.0.0.1:<port>/`**, navigate to a session, send a prompt, open the Tasks panel and assert the **memory** badge on the run's row.
+
+### Provider client identity
+
+Open an OpenAI-compatible or Anthropic-compatible provider in **Settings → LLM providers**
+and expand **Advanced settings**. **User-Agent** offers the protocol SDK identity
+(`OpenAI/Go` or `Anthropic/Go`, the default) and **Coddy/version**. The latter sends
+`Coddy/<running version>` for blocking and streaming requests and model discovery.
+The model list uses the unsaved choice; save the provider to apply it to new model calls.
+Other provider types hide the selector.
+
+![OpenAI-compatible provider User-Agent selector](../assets/web-ui/provider-user-agent-openai-dark-1280.png)
+
+*The OpenAI-compatible provider with Coddy selected.*
+
+![Anthropic-compatible provider User-Agent selector](../assets/web-ui/provider-user-agent-anthropic-dark-1280.png)
+
+*The Anthropic-compatible provider offers its own SDK identity by default.*

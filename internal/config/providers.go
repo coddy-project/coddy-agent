@@ -36,7 +36,10 @@ type ProviderConfig struct {
 	Name    string `yaml:"name"`
 	Type    string `yaml:"type"`
 	APIBase string `yaml:"api_base"`
-	APIKey  string `yaml:"api_key"`
+	// UserAgent selects the SDK identity (empty, openai, anthropic) or Coddy.
+	// Only OpenAI-compatible and Anthropic-compatible providers use it.
+	UserAgent string `yaml:"user_agent,omitempty"`
+	APIKey    string `yaml:"api_key"`
 	// APIKeyCommand is an optional credential-helper command. When api_key is empty,
 	// the command is run via the shell and its trimmed stdout is used as the key
 	// (akin to git/docker credential helpers or AWS credential_process). This lets a
@@ -289,6 +292,7 @@ func (p *ProviderConfig) Normalize() {
 	p.Name = strings.TrimSpace(p.Name)
 	p.Type = strings.TrimSpace(p.Type)
 	p.APIBase = strings.TrimSpace(p.APIBase)
+	p.UserAgent = strings.TrimSpace(p.UserAgent)
 	p.APIKey = strings.TrimSpace(p.APIKey)
 	p.APIKeyCommand = strings.TrimSpace(p.APIKeyCommand)
 	p.Proxy = normalizeProxySetting(p.Proxy)
@@ -303,6 +307,9 @@ func (p *ProviderConfig) Normalize() {
 
 // Validate checks a single provider after Normalize.
 func (p *ProviderConfig) Validate() error {
+	if p.UserAgent != "" && p.UserAgent != "openai" && p.UserAgent != "anthropic" && p.UserAgent != "coddy" {
+		return fmt.Errorf("providers[%s]: user_agent must be openai, anthropic or coddy", p.Name)
+	}
 	if p.Name == "" {
 		return fmt.Errorf("providers: name is required")
 	}

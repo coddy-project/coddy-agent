@@ -105,6 +105,7 @@ type ProviderJSON struct {
 	Name          string `json:"name"`
 	Type          string `json:"type"`
 	APIBase       string `json:"api_base,omitempty"`
+	UserAgent     string `json:"user_agent,omitempty"`
 	APIKey        string `json:"api_key,omitempty"`
 	APIKeyCommand string `json:"api_key_command,omitempty"`
 	Proxy         string `json:"proxy,omitempty"`

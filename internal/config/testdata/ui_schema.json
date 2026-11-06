@@ -1234,6 +1234,18 @@
             "description": "Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
             "title": "Usage limits panel",
             "type": "boolean"
+          },
+          "user_agent": {
+            "default": "",
+            "description": "Client identity for OpenAI-compatible and Anthropic-compatible requests. The provider SDK is the default (OpenAI/Go or Anthropic/Go); Coddy uses the running application version.",
+            "enum": [
+              "",
+              "openai",
+              "anthropic",
+              "coddy"
+            ],
+            "title": "User-Agent",
+            "type": "string"
           }
         },
         "required": [
@@ -1246,6 +1258,7 @@
           "type",
           "acp",
           "api_base",
+          "user_agent",
           "api_key",
           "api_key_command",
           "proxy",

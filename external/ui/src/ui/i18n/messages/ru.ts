@@ -1,5 +1,11 @@
 /** Russian UI strings for the Coddy SPA. Key set mirrors messages/en.ts. */
 export const messagesRu: Record<string, string> = {
+  "settings.userAgent.openai": "OpenAI/Go (по умолчанию)",
+  "settings.userAgent.anthropic": "Anthropic/Go (по умолчанию)",
+  "settings.userAgent.coddy": "Coddy/version",
+  "settings.schema.providers.user_agent.label": "User-Agent",
+  "settings.schema.providers.user_agent.desc":
+    "Имя клиента в запросах к OpenAI- и Anthropic-совместимым провайдерам. По умолчанию используется имя SDK (OpenAI/Go или Anthropic/Go); Coddy передаёт версию запущенного приложения.",
   "appearance.themeLabel": "Тема",
   "appearance.themeGroupAria": "Тема",
   "appearance.simpleLabel": "Упрощённый режим",
