@@ -132,6 +132,33 @@ func TestGzipJSONKeepsEventStreamsLive(t *testing.T) {
 	}
 }
 
+// An upgrade request keeps the writer it was given: the browser extension's
+// WebSocket asserts http.Hijacker on it, which the wrapped writer does not
+// implement, and browsers send Accept-Encoding: gzip on the upgrade.
+func TestGzipJSONLeavesUpgradeRequestsAlone(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, _ *http.Request) {
+		if _, ok := w.(*gzipJSONWriter); ok {
+			http.Error(w, "wrapped writer reached the upgrade handler", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusSwitchingProtocols)
+	})
+	h := gzipJSON(mux)
+	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if enc := rec.Header().Get("Content-Encoding"); enc != "" {
+		t.Fatalf("upgrade request got Content-Encoding %q", enc)
+	}
+	if rec.Code != http.StatusSwitchingProtocols {
+		t.Fatalf("status %d, want 101", rec.Code)
+	}
+}
+
 func TestGzipJSONCompressesTheNormalizedOpenAIError(t *testing.T) {
 	cfg := &config.Config{}
 	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {

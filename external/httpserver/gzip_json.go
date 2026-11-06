@@ -20,7 +20,10 @@ import (
 // and Flush reaches the client in both cases.
 func gzipJSON(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodHead || !acceptsGzipEncoding(r.Header.Get("Accept-Encoding")) {
+		// An upgrade request (the browser extension's WebSocket) hijacks the writer
+		// through a plain `w.(http.Hijacker)` assertion the wrapper would hide, and
+		// every browser sends Accept-Encoding: gzip on it.
+		if r.Method == http.MethodHead || r.Header.Get("Upgrade") != "" || !acceptsGzipEncoding(r.Header.Get("Accept-Encoding")) {
 			next.ServeHTTP(w, r)
 			return
 		}
