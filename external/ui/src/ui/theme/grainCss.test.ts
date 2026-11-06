@@ -12,10 +12,21 @@ function rule(selector: string): string {
   return squash(css.slice(at, css.indexOf("}", at)));
 }
 
+// The canvas is a fixed layer of its own, not the root's background: on the
+// stacked shell the root's box is the whole document, so the glows, placed at
+// a per cent of their box, left the screen on a phone and the gradient
+// stretched over the conversation (styles/_base.scss).
 test("the canvas carries the grain over its gradients", () => {
-  expect(rule("html")).toMatch(
-    /^html \{ color-scheme: dark; background: var\(--coddy-grain\), radial-gradient\(/,
+  expect(rule("html::before")).toMatch(
+    /background: var\(--coddy-grain\), radial-gradient\(/,
   );
+  expect(rule("html::before")).toContain("position: fixed;");
+  expect(rule("html::before")).toContain("inset: 0;");
+  // The root keeps the colour under the layer and paints nothing itself.
+  expect(rule("html")).toMatch(
+    /^html \{ color-scheme: dark; background-color: var\(--coddy-canvas-gradient-bottom\);/,
+  );
+  expect(rule("html")).not.toContain("background-attachment");
 });
 
 test("the glass panels keep their blur and carry the grain over their tint", () => {
