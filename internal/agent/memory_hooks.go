@@ -4,6 +4,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -162,6 +163,43 @@ func memoryFallbackModels(cfg *config.Config, configured []string, sessionModel 
 		out = append(out, sessionModel)
 	}
 	return out
+}
+
+// memorySpawnCheck gates a spawn_agent call made under the bundled memory
+// definition. It needs the memory feature on: a memory run against no roots
+// would answer from nothing. Without the tag the stub answers an error that
+// names it instead.
+func (a *Agent) memorySpawnCheck(cfg *config.Config) error {
+	if !cfg.Memory.Enabled {
+		return fmt.Errorf("the memory subagent is off: enable it under memory.enable")
+	}
+	return nil
+}
+
+// memorySpawnSpec turns the spec of a spawn made under the bundled memory
+// definition into a run of the memory subagent, the same kind of child a
+// user turn starts in runMemoryBeforeTurn: its own six tools (three in a
+// read-only session), its prompt template, the memory model and its
+// fallback chain, the operator's addendum and the guides of the memory
+// roots ahead of the task. The task is whatever prompt the parent passed,
+// hooks context included, quoted under the guides.
+func (a *Agent) memorySpawnSpec(cfg *config.Config, spec *session.SubagentSpec, prompt *string, parentMode, sessionModel string) {
+	readOnly := parentMode == string(session.ModeAsk)
+	spec.Kind = session.SubagentKindMemory
+	spec.PromptTemplate = memory.PromptTemplate(readOnly)
+	spec.Tools = memory.ToolNames(readOnly)
+	spec.Role, _ = cfg.Memory.EffectiveAdditionalPrompt()
+	spec.MaxTokens = cfg.Memory.CopilotMaxTokens
+	spec.MaxTurns = cfg.Memory.EffectiveMaxTurns()
+	if m := strings.TrimSpace(cfg.Memory.Model); m != "" && cfg.FindModelEntry(m) != nil {
+		spec.SelectedModelID = m
+	}
+	spec.FallbackModels = memoryFallbackModels(cfg, cfg.Memory.FallbackModels, sessionModel)
+	guides, err := memory.Guides(cfg, spec.CWD)
+	if err != nil {
+		a.log.Warn("memory guide not read", "session_id", spec.ParentSessionID, "error", err)
+	}
+	*prompt = memory.TaskMessage(*prompt, guides)
 }
 
 // watchMemoryRun waits for the task to settle, on its own goroutine, and then

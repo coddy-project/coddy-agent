@@ -29,7 +29,7 @@ Definitions are searched in four default directories, always read, lowest priori
 4. `${CWD}/.coddy/agents` - project scope, the workspace's Coddy files;
 5. every entry of `subagents.dirs`, in order, after the defaults and winning a name over them (empty by default).
 
-The chain is the same as the skills' ([Skills](skills.md#directory-layout)): Claude Code's `.claude/agents` is not read unless `subagents.dirs` names it (`"${CWD}/.claude/agents"`; its frontmatter loads unchanged). A directory named twice is read once, at its last place. `${HOME}`, `${CODDY_HOME}`, `${CWD}` and a leading `~` expand; a relative entry is resolved against the session cwd. Three built-ins sit below every directory, so a user file with the same name replaces a built-in.
+The chain is the same as the skills' ([Skills](skills.md#directory-layout)): Claude Code's `.claude/agents` is not read unless `subagents.dirs` names it (`"${CWD}/.claude/agents"`; its frontmatter loads unchanged). A directory named twice is read once, at its last place. `${HOME}`, `${CODDY_HOME}`, `${CWD}` and a leading `~` expand; a relative entry is resolved against the session cwd. Four built-ins sit below every directory, so a user file with the same name replaces a built-in.
 
 Scope is decided on **canonical paths**: the expanded directory and the session cwd both go through the same normalisation the MCP trust store uses (absolute, symlinks resolved, cleaned). A directory at or under the canonical cwd is **project scope** and follows `subagents.project_trust` (below); everything else is **user scope**. A workspace reached through a symlink therefore still owns its `.coddy/agents`.
 
@@ -82,11 +82,12 @@ Every loaded definition is an **immutable value** carrying its scope, its path a
 
 ## Built-ins
 
-Three definitions ship embedded so delegation works before the operator writes a file. All are listed with scope `builtin` and path `(embedded)`.
+Four definitions ship embedded so delegation works before the operator writes a file. All are listed with scope `builtin` and path `(embedded)`.
 
 - **`general`** - a general-purpose worker with the **parent's tool set** (no `tools` restriction of its own), for multi-step tasks, research, or independent units of work that can run in parallel. Its role tells it to read before changing anything, keep edits minimal, verify when the task calls for it, never retry a permission the operator did not grant, and report what it did and what the parent must still decide.
 - **`explore`** - a read-only explorer for locating files, symbols and usages and gathering evidence before changes are proposed. Its tool list is exactly `read`, `keep_result`, `glob`, `grep`, `print_tree`, `websearch`, `webfetch`, `load_skill`, `coddy_docs_search`, `coddy_docs_read`, `background_list`, `background_output`, `background_wait`: no `run_command`, no writes, no MCP tools. Plan mode alone would not be read-only (it still offers the shell), which is why the list is spelled out. Because nothing in that set is an MCP tool, an `explore` child never dials an MCP server.
 - **`crossreview`** - a `hidden` orchestrator that sends one review brief to external code-agent CLIs (`run_command` background tasks) and internal `explore` children, keeps them blind to each other, waits for every answer, verifies each finding against the code and decides alone what to fix, what is not worth fixing and what to reject; its report is the final word the parent relays. It is the reason `spawns` exists: its definition declares `spawns: [explore]`, so it keeps `spawn_agent` at the depth cap and delegates to exactly that one reviewer kind. A session reaches it through the bundled `/crossreview` skill, which handles detection, the agent and model questions, the reviewer roster and the brief.
+- **`memory`** - the long-term memory steward, available in builds with the `memory` tag while `memory.enable` is on. Delegating to it runs the same child a user turn starts on its own: the six `coddy_memory_*` tools over the global and project memory roots (the three read tools in a read-only session), the memory prompt template, the memory model with its fallback chain, and the `AGENTS.md` guides of the memory roots ahead of the task - the spawn call's prompt is the task. Nothing outside the memory roots is in its reach, and it cannot run in a worktree, because the roots belong to the session's workspace. See [Long-term memory](memory.md).
 
 ## Scopes and project trust
 
