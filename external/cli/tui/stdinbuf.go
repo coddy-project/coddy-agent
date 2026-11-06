@@ -184,6 +184,10 @@ func nextSequenceLen(buf []byte) (int, bool) {
 	case 0x1b:
 		// ESC ESC: emit the first ESC alone.
 		return 1, true
+	case '/':
+		// Slash has no Alt binding; let a fast Escape then slash cancel a
+		// selector before the next slash command starts.
+		return 1, true
 	default:
 		// Meta: ESC + one UTF-8 rune.
 		n := utf8SeqLen(buf[1])

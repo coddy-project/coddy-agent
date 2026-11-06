@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -411,6 +412,50 @@ func TestACPModelShowsTheAgentsToolsAsRows(t *testing.T) {
 	meta, err := session.ReadToolCallMeta(st.SessionDir, "acp_t1")
 	if err != nil || meta.Name != "Read README.md" || meta.Status != "completed" || meta.StartedAt == "" || meta.FinishedAt == "" {
 		t.Fatalf("meta = %+v, %v", meta, err)
+	}
+}
+
+// An agent writes a line, runs a tool, writes the next line, and the whole of
+// it is one assistant message. The transcript keeps where each call fell in
+// that answer (llm.AgentToolCall.TextOffset, in characters), so a surface
+// rebuilding the turn draws the calls between the lines they stood between
+// instead of putting every call ahead of the whole answer.
+func TestACPModelRecordsWhereEachCallFellInTheAnswer(t *testing.T) {
+	cfg, _ := acpLoopConfig(t, acptest.Script{Turns: []acptest.Turn{{
+		Tools: []acptest.Tool{
+			{ID: "t1", Title: "Read README.md", Kind: "read", Say: []string{"Начало."}},
+			{ID: "t2", Title: "Run go test", Kind: "execute", Say: []string{"Середина."}},
+		},
+		Text: []string{"Конец."},
+	}}})
+	st := storedACPSession(t, "sess_offsets")
+	if err := runACPTurn(t, cfg, st, &acpSender{}, "go"); err != nil {
+		t.Fatal(err)
+	}
+	msgs := st.GetMessages()
+	answer := msgs[len(msgs)-1]
+	if len(answer.AgentTools) != 2 {
+		t.Fatalf("agent tools = %+v", answer.AgentTools)
+	}
+	// Cut the answer where the calls say they were announced; the runs
+	// between the cuts are the lines the agent wrote around them.
+	runes := []rune(answer.Content)
+	var runs []string
+	cut := 0
+	for _, call := range answer.AgentTools {
+		if call.TextOffset < cut || call.TextOffset > len(runes) {
+			t.Fatalf("offset %d of %s is outside the answer of %d characters", call.TextOffset, call.ID, len(runes))
+		}
+		runs = append(runs, string(runes[cut:call.TextOffset]))
+		cut = call.TextOffset
+	}
+	runs = append(runs, string(runes[cut:]))
+	for i := range runs {
+		runs[i] = strings.TrimSpace(runs[i])
+	}
+	if want := []string{"Начало.", "Середина.", "Конец."}; !slices.Equal(runs, want) {
+		t.Fatalf("runs of the answer = %q, want %q (answer %q, offsets %d/%d)",
+			runs, want, answer.Content, answer.AgentTools[0].TextOffset, answer.AgentTools[1].TextOffset)
 	}
 }
 

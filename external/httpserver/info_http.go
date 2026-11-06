@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
@@ -41,11 +42,25 @@ func (s *Server) coddyInfoGet(w http.ResponseWriter, _ *http.Request) {
 		toolsets = append(toolsets, cfg.ToolsetNames()...)
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	answer := map[string]interface{}{
 		"object":         "coddy.info",
 		"version":        version.Get(),
 		"hostname":       host,
 		"permissionMode": permissionMode,
 		"toolsets":       toolsets,
-	})
+	}
+	// The deployment's UI defaults, only while the variables name them: the
+	// theme a fresh browser opens on and the gallery file it shows until the
+	// person picks a background of their own.
+	ui := map[string]string{}
+	if theme := strings.TrimSpace(os.Getenv(config.UIThemeEnvVar)); theme != "" {
+		ui["theme"] = theme
+	}
+	if wallpaper := strings.TrimSpace(os.Getenv(config.UIWallpaperEnvVar)); wallpaper != "" {
+		ui["wallpaper"] = wallpaper
+	}
+	if len(ui) > 0 {
+		answer["ui"] = ui
+	}
+	_ = json.NewEncoder(w).Encode(answer)
 }

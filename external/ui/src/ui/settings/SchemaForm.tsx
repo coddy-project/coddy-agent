@@ -4,7 +4,7 @@ import { Fragment, useId, useLayoutEffect, useRef, useState } from "react";
 import { Chevron } from "../components/Chevron";
 
 import { Combobox } from "./Combobox";
-import { FieldLabel, LegendWithHint } from "./FieldHint";
+import { FieldHint, FieldLabel, LegendWithHint } from "./FieldHint";
 import { providerApiKeyFieldPlaceholder } from "./providerApiKeyPlaceholder";
 import {
   schemaFieldDesc,
@@ -779,6 +779,8 @@ export type SchemaFormGroup = {
  */
 export function CollapsibleFieldset(props: {
   legend: string;
+  /** Behind the (i) beside the legend, as an open fieldset's description is. */
+  description?: ReactNode | undefined;
   children: ReactNode;
   testid?: string | undefined;
   defaultOpen?: boolean | undefined;
@@ -806,17 +808,22 @@ export function CollapsibleFieldset(props: {
       data-settings-anchor={props.anchor}
     >
       <legend>
-        <button
-          type="button"
-          className="settings-fieldset-toggle"
-          aria-expanded={open}
-          aria-controls={bodyId}
-          data-testid={props.testid ? `${props.testid}-toggle` : undefined}
-          onClick={() => setOpen((o) => !o)}
-        >
-          <Chevron open={open} />
-          <span>{props.legend}</span>
-        </button>
+        <span className="settings-legend-line">
+          <button
+            type="button"
+            className="settings-fieldset-toggle"
+            aria-expanded={open}
+            aria-controls={bodyId}
+            data-testid={props.testid ? `${props.testid}-toggle` : undefined}
+            onClick={() => setOpen((o) => !o)}
+          >
+            <Chevron open={open} />
+            <span>{props.legend}</span>
+          </button>
+          {props.description ? (
+            <FieldHint text={props.description} label={props.legend} />
+          ) : null}
+        </span>
       </legend>
       <div id={bodyId} className="settings-form-group-body" hidden={!open}>
         {props.children}
@@ -941,6 +948,7 @@ export function SchemaForm(props: {
       <CollapsibleFieldset
         key={`group:${g.id}`}
         legend={g.legend}
+        description={g.description}
         testid={testid}
         anchor={groupAnchor(i18nDomain, g.id)}
       >

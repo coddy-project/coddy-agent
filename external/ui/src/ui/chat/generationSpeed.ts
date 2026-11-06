@@ -1,6 +1,12 @@
 export type GenerationSummary = {
   outputTokens: number;
-  tokensPerSecond: number;
+  /**
+   * Absent on a turn with no generation window to measure: an agent behind
+   * an acp row streams its answer around waits of its own, so what it writes
+   * per second says nothing about a model. The line then carries the clock
+   * and the token count alone.
+   */
+  tokensPerSecond?: number;
   /** How long the turn ran; absent on a row saved before it was kept. */
   elapsedMs?: number;
 };
@@ -22,13 +28,16 @@ export function generationSummaryFromFrame(
   const f = raw as Record<string, unknown>;
   return f.completed === true &&
     typeof f.outputTokens === "number" &&
-    f.outputTokens > 0 &&
-    typeof f.tokensPerSecond === "number" &&
-    Number.isFinite(f.tokensPerSecond) &&
-    f.tokensPerSecond > 0
+    f.outputTokens > 0
     ? {
         outputTokens: f.outputTokens,
-        tokensPerSecond: f.tokensPerSecond,
+        // A frame without a speed is a finished turn nobody could measure
+        // (an agent behind an acp row), not a frame to drop.
+        ...(typeof f.tokensPerSecond === "number" &&
+        Number.isFinite(f.tokensPerSecond) &&
+        f.tokensPerSecond > 0
+          ? { tokensPerSecond: f.tokensPerSecond }
+          : {}),
         ...(typeof f.elapsedMs === "number" &&
         Number.isFinite(f.elapsedMs) &&
         f.elapsedMs >= 0

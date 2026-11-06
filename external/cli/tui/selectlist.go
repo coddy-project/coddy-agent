@@ -86,6 +86,10 @@ func (s *SelectList) SetItems(items []SelectItem) {
 // above the item count keeps the scroll line on screen.
 func (s *SelectList) SetTotal(total int) { s.total = total }
 
+// SetMaxVisible bounds a selector to the current terminal height. A mobile
+// terminal can shrink while the selector remains open.
+func (s *SelectList) SetMaxVisible(rows int) { s.maxVisible = max(1, rows) }
+
 // SetFilter keeps items whose value starts with filter, or whose label
 // contains it (case-insensitive) so titled rows stay searchable.
 func (s *SelectList) SetFilter(filter string) {

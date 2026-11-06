@@ -518,8 +518,8 @@ function walkForm(walk: Walk, parent: PlainObject, where: string[]): void {
         row: walk.row,
         anchor: groupAnchor(form.domain, g.id),
         names: [g.legend],
-        // A folded block draws no description.
-        descriptions: !g.collapsible && g.description ? [g.description] : [],
+        // Folded or not, its description is behind the (i) beside the legend.
+        descriptions: g.description ? [g.description] : [],
         where,
       }),
     );

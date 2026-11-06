@@ -166,6 +166,16 @@ type AgentToolCall struct {
 	// OutputLines is how many lines the output had when a stored message
 	// keeps only its first ones; 0 when it keeps all of it.
 	OutputLines int `json:"output_lines,omitempty"`
+	// TextOffset is how much of the answer the agent had written when it
+	// announced this call, in characters of Message.Content (runes, not
+	// bytes: a surface counts the answer in characters). An agent writes a
+	// line, runs a tool, writes the next line; the whole of it is one
+	// assistant message, so without this a surface rebuilding the turn from
+	// the transcript can only draw every call before the whole answer. A
+	// surface splits the answer at these offsets and puts each call where it
+	// happened. Zero on a call announced before any text, and on a message
+	// stored before the offsets were kept.
+	TextOffset int `json:"text_offset,omitempty"`
 }
 
 type Artifact struct {

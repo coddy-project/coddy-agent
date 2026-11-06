@@ -19,6 +19,17 @@ Feature: Interactive console TUI
     Then the screen shows the coddy version header
     And the session catalog holds no nested AGENTS.md
 
+  Scenario: A selector fits a terminal too short for it and follows a resize
+    Given a coddy console app over a stub agent runner with 12 configured models
+    And the terminal is 14 rows tall
+    When the console app starts
+    And the operator opens the model selector
+    Then the terminal shows "Select model"
+    And the terminal shows the highlighted row of the selector
+    When the terminal shrinks to 9 rows
+    Then the terminal shows "Select model"
+    And the terminal shows the highlighted row of the selector
+
   Scenario: A prompt streams into the transcript
     When the console app starts
     And the operator submits the prompt "hello there"

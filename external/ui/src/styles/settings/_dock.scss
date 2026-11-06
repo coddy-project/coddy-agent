@@ -78,6 +78,12 @@
   gap: 10px;
 }
 
+@media (min-width: 1200px) {
+  .appearance-swatch-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 .appearance-swatch {
   display: flex;
   flex-direction: column;
@@ -199,6 +205,12 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
+}
+
+@media (min-width: 1200px) {
+  .appearance-wallpaper-gallery {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 .appearance-wallpaper-tile {
