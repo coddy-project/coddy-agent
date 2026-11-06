@@ -61,7 +61,7 @@ func (s *anthropicAdaptiveState) serve(model, effort, first string) error {
 			_, _ = w.Write([]byte(last))
 		}
 	}))
-	s.provider = newAnthropicProvider(model, "test", s.server.URL, s.server.Client(), 8192, 0, effort)
+	s.provider = newAnthropicProvider(model, "test", s.server.URL, s.server.Client(), 8192, 0, effort, "")
 	return nil
 }
 

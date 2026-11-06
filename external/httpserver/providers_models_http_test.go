@@ -522,3 +522,36 @@ func TestProviderModelsPostProxyOverrideDropsSavedCredentials(t *testing.T) {
 		t.Fatalf("the proxy the body named received the saved key: Authorization = %q", proxied)
 	}
 }
+
+func TestProviderModelsUserAgentOverride(t *testing.T) {
+	for _, protocol := range []string{"openai", "anthropic"} {
+		t.Run(protocol, func(t *testing.T) {
+			var seen string
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				seen = r.Header.Get("User-Agent")
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"data":[]}`))
+			}))
+			defer upstream.Close()
+			ts := newProviderModelsServer(t, &config.Config{Providers: []config.ProviderConfig{{Name: "test", Type: protocol, APIBase: upstream.URL, UserAgent: "coddy"}}})
+			sdk := "OpenAI/Go"
+			if protocol == "anthropic" {
+				sdk = "Anthropic/Go"
+			}
+			for _, tc := range []struct{ body, prefix string }{
+				{`{"name":"test"}`, "Coddy/"},
+				{`{"name":"test","user_agent":"` + protocol + `"}`, sdk},
+				{`{"name":"test","user_agent":"coddy"}`, "Coddy/"},
+			} {
+				res, err := http.Post(ts.URL+"/coddy/providers/models", "application/json", strings.NewReader(tc.body))
+				if err != nil {
+					t.Fatal(err)
+				}
+				_ = res.Body.Close()
+				if res.StatusCode != http.StatusOK || !strings.HasPrefix(seen, tc.prefix) {
+					t.Fatalf("status %d, identity %q, want %q", res.StatusCode, seen, tc.prefix)
+				}
+			}
+		})
+	}
+}

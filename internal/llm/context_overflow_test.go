@@ -71,10 +71,12 @@ func runOverflowAnswers(t *testing.T, cases []overflowAnswer, newProvider func(u
 	}
 }
 
-func openAIClient(url string) Provider { return newOpenAIProvider("m", "key", url, nil, 100, 0, "") }
+func openAIClient(url string) Provider {
+	return newOpenAIProvider("m", "key", url, nil, 100, 0, "", "")
+}
 
 func anthropicClient(url string) Provider {
-	return newAnthropicProvider("m", "key", url, nil, 100, 0, "")
+	return newAnthropicProvider("m", "key", url, nil, 100, 0, "", "")
 }
 
 func TestIsContextOverflowOnAnswersReadByTheOpenAIClient(t *testing.T) {

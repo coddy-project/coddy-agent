@@ -33,7 +33,7 @@ func TestRequestTopPValidation(t *testing.T) {
 
 func TestOpenAITopPSerialized(t *testing.T) {
 	for _, value := range []float64{0, 0.7} {
-		p := newOpenAIProvider("test-model", "", "", nil, 0, 0, "")
+		p := newOpenAIProvider("test-model", "", "", nil, 0, 0, "", "")
 		p.topP = &value
 		for _, stream := range []bool{false, true} {
 			raw, err := json.Marshal(p.buildParams([]Message{{Role: RoleUser, Content: "hi"}}, nil, stream))

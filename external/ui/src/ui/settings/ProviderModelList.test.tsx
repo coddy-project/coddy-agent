@@ -78,6 +78,7 @@ test("opening a provider row fetches the list with the row as the form holds it"
     api_base: "http://stub/v1",
     api_key: "sk-unsaved",
     api_key_command: "",
+    user_agent: "",
     proxy: "",
   });
   // A listed answer needs no words: no status line under the legend.

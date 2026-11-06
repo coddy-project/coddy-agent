@@ -257,7 +257,8 @@ func judgeSessionGoal(ctx context.Context, cfg *config.Config, st *State, req Go
 	base := llm.ProviderInput{
 		Name: rm.ProviderName, Type: rm.ProviderType, Model: rm.Model,
 		APIKey: rm.APIKey, BaseURL: rm.BaseURL, ProxyURL: rm.ProxyURL,
-		AuthPath: rm.AuthPath, NoCLILogin: rm.NoCLILogin,
+		UserAgent: rm.UserAgent,
+		AuthPath:  rm.AuthPath, NoCLILogin: rm.NoCLILogin,
 		MaxTokens: goalJudgeMaxTokens(rm.MaxTokens), Temperature: rm.Temperature,
 		ReasoningEffort:     GoalCheckReasoning(cfg, st),
 		SupportedParameters: st.ModelParameters(cfg, rm.ProviderName, rm.Model),

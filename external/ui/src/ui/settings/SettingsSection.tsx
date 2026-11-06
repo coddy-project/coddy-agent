@@ -338,6 +338,11 @@ export function overrideTexts(
       return proxy(SETTINGS_TEXTS.proxyIgnoreSystem);
     }
     const providerType = rowText(parent, "type");
+    if (path === "user_agent") {
+      return providerType === "openai" || providerType === "anthropic"
+        ? { primary: label(), primaryDesc: desc() }
+        : false;
+    }
     if (
       path === "usage_limits_panel" &&
       !USAGE_PANEL_PROVIDER_TYPES.has(providerType)
@@ -467,6 +472,29 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
   const box = boxFor("providers", ctx);
   if (box === false || box === null) {
     return box;
+  }
+  if (ctx.path === "user_agent") {
+    const providerType = rowText(ctx.parentObj, "type");
+    return (
+      <div className="settings-row">
+        <FieldLabel label={box.primary} description={box.primaryDesc} />
+        <select
+          className="settings-input"
+          aria-label={box.primary}
+          value={ctx.value === "coddy" ? "coddy" : ""}
+          onChange={(e) => ctx.onChange(e.target.value)}
+        >
+          <option value="">
+            {translate(
+              providerType === "anthropic"
+                ? "settings.userAgent.anthropic"
+                : "settings.userAgent.openai",
+            )}
+          </option>
+          <option value="coddy">{translate("settings.userAgent.coddy")}</option>
+        </select>
+      </div>
+    );
   }
   // Every provider type has the proxy switch and URL field, codex included: its
   // sign-in and its requests take the row's route like any other.
@@ -1044,7 +1072,7 @@ export function providerFormGroups(): SchemaFormGroup[] {
     {
       id: "advanced",
       legend: translate("settings.providers.group.advanced"),
-      paths: ["api_key_command", "proxy", "timeout_ms"],
+      paths: ["user_agent", "api_key_command", "proxy", "timeout_ms"],
       collapsible: true,
     },
   ];

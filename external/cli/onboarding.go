@@ -315,6 +315,9 @@ func providerListInput(ctx context.Context, cfg *config.Config, run *providerSet
 		APIKey:   strings.TrimSpace(run.apiKey),
 		BaseURL:  strings.TrimSpace(run.apiBase),
 		ProxyURL: providerRowProxy(cfg, name),
+		// The client identity the saved row already names, so a re-setup keeps
+		// it instead of silently dropping the configured User-Agent.
+		UserAgent: providerRowUserAgent(cfg, name),
 		// A provider that signs in is listed with the credential the sign-in
 		// stored, which is how the picker asks a Codex this machine already
 		// signed in to what it serves. The row the picker is about to write
@@ -582,6 +585,15 @@ func sameACPCommand(existing, next *config.ACPProviderConfig) bool {
 func providerRowProxy(cfg *config.Config, name string) string {
 	if prov := cfg.FindProvider(name); prov != nil {
 		return prov.Proxy
+	}
+	return ""
+}
+
+// providerRowUserAgent is the user_agent of the row the preset writes, so the
+// model listing of a setup keeps the client identity the row already names.
+func providerRowUserAgent(cfg *config.Config, name string) string {
+	if prov := cfg.FindProvider(name); prov != nil {
+		return prov.UserAgent
 	}
 	return ""
 }
