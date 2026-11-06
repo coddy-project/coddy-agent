@@ -1,0 +1,3 @@
+[submodule "external/tui-qwen"]
+	path = external/tui-qwen
+	url = https://github.com/vakovalskii/coddy-tui.git

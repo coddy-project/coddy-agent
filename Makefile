@@ -1,4 +1,4 @@
-.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version print-revision hooks deb rpm brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check models-catalog models-catalog-check docs docs-check diagrams docs-stamp docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
+.PHONY: build build-acp tui-qwen android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version print-revision hooks deb rpm brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check models-catalog models-catalog-check docs docs-check diagrams docs-stamp docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -68,6 +68,15 @@ ui-deps:
 
 ui-build: ui-deps
 	cd external/ui && npm run build:go
+
+# Coddy TUI: the Qwen Code terminal interface driving `coddy acp`, a git submodule in
+# external/tui-qwen (github.com/vakovalskii/coddy-tui, Node.js 22+ and corepack pnpm).
+# Not part of `make build`: the Go binary does not embed it. Output: an npm archive in
+# build/, installed with `npm i -g build/coddy-tui-*.tgz`. Guide: docs/surfaces/editors.md.
+tui-qwen:
+	git submodule update --init external/tui-qwen
+	cd external/tui-qwen && corepack pnpm install --frozen-lockfile && npm run build && npm run pack:coddy
+	mkdir -p $(BUILD_DIR) && mv external/tui-qwen/coddy-tui-*.tgz $(BUILD_DIR)/
 
 # The SPA's own vitest suite, part of `make test`.
 ui-test: ui-deps
