@@ -170,20 +170,19 @@
   /* 6px to the first number, the gap the plate over the composer keeps
      between the folder icon and its name. */
   gap: 6px;
-  /* The line keeps the transcript's own rhythm: as far from the step it
-     reports on as any two rows stand apart, and as far from what follows.
-     The two numbers differ because the neighbours do - a row above ends 4px
-     above its own box, while a card below starts at its border - so an even
-     split in box terms read as 4px more room on top than underneath, which is
-     what the whole row gap it carried before read as, only louder. Measured
-     against the rows around it: 14.0 above and 13.9 below, where two ordinary
-     rows stand 13.7 apart. The live line and the line a finished step leaves
-     keep the same box, or the transcript would jump by the difference the
-     moment a turn ends (npm run check:queue). The 17px on the left put the
-     mark on the vertical line of the folder icon on the plate over the
-     composer (the plate's 1px border and its 16px padding), so the mark, the
-     numbers and the checklist above them stand in one column. */
-  padding: 1px 17px 4px;
+  /* No room of its own above or below: the line is an ordinary row of the
+     transcript and the column's gap alone separates it, as it separates every
+     other pair. Room of its own is what kept being seen - a whole row gap on
+     top and nothing underneath first, then an even split, then 1px over 4px -
+     and the last of those still left 16px under the line where two rows stand
+     14 apart on a phone, which reads as a gap against the card below it. The
+     live line and the line a finished step leaves keep the same box, or the
+     transcript would jump by the difference the moment a turn ends
+     (npm run check:queue). The 17px on the sides put the mark on the vertical
+     line of the folder icon on the plate over the composer (the plate's 1px
+     border and its 16px padding), so the mark, the numbers and the checklist
+     above them stand in one column. */
+  padding: 0 17px;
   /* Blockified as a flex item of the column .msg-assistant-stack; without this its
      min-content width follows the unbreakable phrase in the status label and pushes
      the row past .messages-inner. */

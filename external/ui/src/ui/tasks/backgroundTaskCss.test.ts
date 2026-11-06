@@ -386,16 +386,18 @@ test("a card keeps its height when an open neighbour needs the room", () => {
   expect(ruleBody(".bgtask-card {")).toContain("flex: none");
 });
 
-// The line keeps the transcript's rhythm: measured against the rows around it
-// in a real browser, 14.0px above and 13.9px below, where two ordinary rows
-// stand 13.7px apart. The two numbers are not the same because the neighbours
-// are not - a row above ends 4px above its own box, a card below starts at its
-// border - so the padding is 1px over 4px rather than an even split, which
-// read as 4px more room on top. The 17px on the left are the plate's 1px
-// border and its 16px padding, so the mark stands on the vertical line of the
-// folder icon under it.
+// The line has no room of its own above or below: it is an ordinary row of the
+// transcript and the column's gap alone separates it, as it separates every
+// other pair. Measured in a real browser at 390px, the line now stands 14px
+// under the step it reports on, where two ordinary rows stand 14px apart, and
+// 12px over the card below it, where any row stands 12px over a card. Room of
+// its own is what kept being seen: a whole row gap on top and nothing
+// underneath, then an even split, then 1px over 4px, which still left 16px
+// under the line. The 17px on the sides are the plate's 1px border and its
+// 16px padding, so the mark stands on the vertical line of the folder icon
+// under it.
 test("the live line keeps the transcript's rhythm above and below", () => {
-  expect(ruleBody(".typing-dots {")).toMatch(/padding: 1px 17px 4px;/);
+  expect(ruleBody(".typing-dots {")).toMatch(/padding: 0 17px;/);
 });
 
 // One padding, whatever stands under the line: the rule that took 4px off the
