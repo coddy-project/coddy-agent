@@ -8,9 +8,9 @@ Feature: Compatible provider client identity
       | protocol  | identity  | prefix       |
       | openai    |           | OpenAI/Go    |
       | openai    | openai    | OpenAI/Go    |
-      | openai    | coddy | Coddy/   |
+      | openai    | coddy     | Coddy/       |
       | anthropic |           | Anthropic/Go |
       | anthropic | anthropic | Anthropic/Go |
-      | anthropic | coddy | Coddy/   |
+      | anthropic | coddy     | Coddy/       |
       | openai    | anthropic | OpenAI/Go    |
       | anthropic | openai    | Anthropic/Go |

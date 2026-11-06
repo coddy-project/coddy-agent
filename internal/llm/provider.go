@@ -430,7 +430,7 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		ap.blocking = p.DisableStream
 		inner = ap
 	case "neuraldeep":
-		op := newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		op := newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort, "")
 		op.tempSet = p.TemperatureSet
 		op.modelParams = p.SupportedParameters
 		inner = op

@@ -3062,7 +3062,7 @@ test.each([
     fireEvent.click(screen.getByTestId("settings-master-item-0"));
     fireEvent.click(screen.getByRole("button", { name: "Advanced settings" }));
     const field = screen.getByLabelText("User-Agent");
-    expect(field).toHaveValue(type);
+    expect(field).toHaveValue("");
     expect(
       within(field).getByRole("option", { name: `${label} (default)` }),
     ).toBeTruthy();

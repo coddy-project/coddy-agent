@@ -307,9 +307,6 @@ func (p *ProviderConfig) Normalize() {
 
 // Validate checks a single provider after Normalize.
 func (p *ProviderConfig) Validate() error {
-	if p.UserAgent != "" && p.UserAgent != "openai" && p.UserAgent != "anthropic" && p.UserAgent != "coddy" {
-		return fmt.Errorf("providers[%s]: user_agent must be openai, anthropic or coddy", p.Name)
-	}
 	if p.Name == "" {
 		return fmt.Errorf("providers: name is required")
 	}
@@ -321,6 +318,9 @@ func (p *ProviderConfig) Validate() error {
 	}
 	if _, ok := AllowedLLMProviderTypes[p.Type]; !ok {
 		return fmt.Errorf("providers[%s]: unsupported type %q", p.Name, p.Type)
+	}
+	if p.UserAgent != "" && p.UserAgent != "openai" && p.UserAgent != "anthropic" && p.UserAgent != "coddy" {
+		return fmt.Errorf("providers[%s]: user_agent must be openai, anthropic or coddy", p.Name)
 	}
 	if err := validateProxySetting(p.Proxy); err != nil {
 		// The message opens with "proxy:", so the path it names is the key

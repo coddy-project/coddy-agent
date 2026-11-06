@@ -481,10 +481,10 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
         <select
           className="settings-input"
           aria-label={box.primary}
-          value={ctx.value === "coddy" ? "coddy" : providerType}
+          value={ctx.value === "coddy" ? "coddy" : ""}
           onChange={(e) => ctx.onChange(e.target.value)}
         >
-          <option value={providerType}>
+          <option value="">
             {translate(
               providerType === "anthropic"
                 ? "settings.userAgent.anthropic"

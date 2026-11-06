@@ -31,9 +31,9 @@ type openAIProvider struct {
 	modelParams []string
 }
 
-func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string, userAgent ...string) *openAIProvider {
+func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string, userAgent string) *openAIProvider {
 	opts := []option.RequestOption{option.WithMaxRetries(0)}
-	if len(userAgent) > 0 && userAgent[0] == "coddy" {
+	if userAgent == "coddy" {
 		opts = append(opts, option.WithHeader("User-Agent", "Coddy/"+version.Get()))
 	}
 	if apiKey != "" {
