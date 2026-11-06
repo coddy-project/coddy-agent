@@ -11,6 +11,59 @@ func newTestEditor() *Editor {
 	return NewEditor(nil, EditorTheme{}, 0)
 }
 
+func TestEditorEncodedPrintableInput(t *testing.T) {
+	for _, tc := range []struct {
+		name, input, want string
+	}{
+		{"modifyOtherKeys uppercase", "\x1b[27;2;65~", "A"},
+		{"modifyOtherKeys punctuation", "\x1b[27;2;33~", "!"},
+		{"modifyOtherKeys Cyrillic", "\x1b[27;2;1046~", "Ж"},
+		{"modifyOtherKeys space", "\x1b[27;2;32~", " "},
+		{"Kitty uppercase", "\x1b[97;2u", "A"},
+		{"Kitty shifted punctuation", "\x1b[49:33;2u", "!"},
+		{"Kitty Cyrillic", "\x1b[1078;2u", "Ж"},
+		{"Kitty associated text", "\x1b[97;2;65u", "A"},
+		{"Kitty composed text", "\x1b[0;;101:769u", "e\u0301"},
+		{"Kitty repeat", "\x1b[97;2:2u", "A"},
+		{"plain encoded character", "\x1b[97u", "a"},
+		{"encoded space", "\x1b[32u", " "},
+		{"Kitty release", "\x1b[97;2:3u", ""},
+		{"Kitty control", "\x1b[97;6u", ""},
+		{"Kitty alt", "\x1b[97;3u", ""},
+		{"Kitty super", "\x1b[97;9u", ""},
+		{"Kitty hyper", "\x1b[97;17u", ""},
+		{"Kitty private key", "\x1b[57441;2u", ""},
+		{"Kitty invalid codepoint", "\x1b[1114112;2u", ""},
+		{"Kitty surrogate", "\x1b[55296;2u", ""},
+		{"Kitty wrapped codepoint", "\x1b[4294967361;2u", ""},
+		{"modifyOtherKeys control", "\x1b[27;6;65~", ""},
+		{"Kitty shortcut with text", "\x1b[97;6;65u", ""},
+		{"Kitty invalid text", "\x1b[97;2;27u", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newTestEditor()
+			e.HandleInput([]byte(tc.input))
+			if got := e.Text(); got != tc.want {
+				t.Fatalf("text %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestEncodedKeyShortcutMatchingIgnoresText(t *testing.T) {
+	for _, tc := range []struct{ input, spec string }{
+		{"\x1b[97u", "a"},
+		{"\x1b[97;2u", "shift+a"},
+		{"\x1b[27;2;65~", "shift+a"},
+		{"\x1b[99;5u", "ctrl+c"},
+		{"\x1b[13;2u", "shift+enter"},
+	} {
+		if !MatchesKey([]byte(tc.input), tc.spec) {
+			t.Errorf("%q must match %s", tc.input, tc.spec)
+		}
+	}
+}
+
 func TestEditorTypingAndSubmitRoundTrip(t *testing.T) {
 	e := newTestEditor()
 	var submitted string
@@ -51,6 +104,26 @@ func TestEditorBackspaceRespectsGraphemeBoundaries(t *testing.T) {
 	e.HandleInput([]byte{0x7f})
 	if e.Text() != "a" {
 		t.Fatalf("text %q", e.Text())
+	}
+}
+
+func TestEditorShiftBackspace(t *testing.T) {
+	for _, tc := range []struct{ name, input, want string }{
+		{"modifyOtherKeys DEL", "\x1b[27;2;127~", "hello "},
+		{"modifyOtherKeys BS", "\x1b[27;2;8~", "hello "},
+		{"Kitty press", "\x1b[127;2u", "hello "},
+		{"Kitty repeat", "\x1b[127;2:2u", "hello "},
+		{"Kitty release", "\x1b[127;2:3u", "hello 🙂"},
+		{"shift enter keeps its binding", "\x1b[13;2u", "hello 🙂\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newTestEditor()
+			e.HandleInput([]byte("hello 🙂"))
+			e.HandleInput([]byte(tc.input))
+			if got := e.Text(); got != tc.want {
+				t.Fatalf("text %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

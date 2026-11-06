@@ -166,7 +166,7 @@ func (m *docsModal) HandleInput(data []byte) {
 				}
 			}
 			return
-		case "backspace":
+		case "backspace", "shift+backspace":
 			if m.query != "" {
 				m.SetQuery(tui.TrimLastGrapheme(m.query))
 			}
@@ -174,6 +174,9 @@ func (m *docsModal) HandleInput(data []byte) {
 		}
 	}
 	s := string(data)
+	if isKey && key.Text != "" {
+		s = key.Text
+	}
 	if len(s) > 0 && !strings.ContainsRune(s, 0x1b) && s[0] >= 0x20 && s[0] != 0x7f {
 		m.SetQuery(m.query + s)
 	}
@@ -182,7 +185,11 @@ func (m *docsModal) HandleInput(data []byte) {
 func (m *docsModal) pageInput(data []byte, key tui.Key, isKey bool) {
 	body := m.bodyRows()
 	// Letters are commands here: the page view has no text to type into.
-	switch string(data) {
+	s := string(data)
+	if isKey && key.Text != "" {
+		s = key.Text
+	}
+	switch s {
 	case " ":
 		m.offset += body - 1
 		m.rebuild()
