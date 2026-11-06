@@ -98,12 +98,57 @@ func TestGzipJSONLeavesOtherAnswersAlone(t *testing.T) {
 		{http.MethodGet, "/empty", "gzip"},
 		{http.MethodHead, "/json", "gzip"},
 		{http.MethodGet, "/json", "gzip;q=0"},
+		{http.MethodGet, "/json", "gzip;Q=0"},
+		{http.MethodGet, "/json", "gzip;foo=1;q=0"},
+		{http.MethodGet, "/json", "gzip;q=0;extra"},
+		{http.MethodGet, "/json", "gzip;q=nope"},
+		{http.MethodGet, "/json", "gzip;q=0, gzip;q=0"},
 		{http.MethodGet, "/json", "identity"},
 	} {
 		rec := get(t, h, tc.method, tc.path, tc.accept)
 		if enc := rec.Header().Get("Content-Encoding"); enc != "" {
 			t.Errorf("%s %s with %q: Content-Encoding %q, want none", tc.method, tc.path, tc.accept, enc)
 		}
+	}
+}
+
+// The best weight across the gzip tokens decides, and Vary is set on the
+// identity variant too.
+func TestGzipJSONHonoursTheBestGzipWeight(t *testing.T) {
+	h := gzipTestHandler()
+	rec := get(t, h, http.MethodGet, "/json", "gzip;q=0, gzip;q=0.5")
+	if enc := rec.Header().Get("Content-Encoding"); enc != "gzip" {
+		t.Fatalf("Content-Encoding %q, want gzip for the best weight", enc)
+	}
+	plain := get(t, h, http.MethodGet, "/json", "")
+	if !strings.Contains(plain.Header().Get("Vary"), "Accept-Encoding") {
+		t.Fatalf("identity answer lost Vary: %v", plain.Header())
+	}
+}
+
+// A flush before the first write decides the encoding, so a JSON handler that
+// flushes early still sends a gzipped body under gzip headers.
+func TestGzipJSONFlushBeforeWriteDecides(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/json", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.(http.Flusher).Flush()
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+	rec := get(t, gzipJSON(mux), http.MethodGet, "/json", "gzip")
+	if enc := rec.Header().Get("Content-Encoding"); enc != "gzip" {
+		t.Fatalf("Content-Encoding %q, want gzip", enc)
+	}
+	zr, err := gzip.NewReader(rec.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != `{"ok":true}` {
+		t.Fatalf("body %q", got)
 	}
 }
 

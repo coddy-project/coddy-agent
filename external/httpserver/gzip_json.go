@@ -24,6 +24,10 @@ func gzipJSON(next http.Handler) http.Handler {
 		// through a plain `w.(http.Hijacker)` assertion the wrapper would hide, and
 		// every browser sends Accept-Encoding: gzip on it.
 		if r.Method == http.MethodHead || r.Header.Get("Upgrade") != "" || !acceptsGzipEncoding(r.Header.Get("Accept-Encoding")) {
+			// The identity variant varies on Accept-Encoding too, so Vary belongs on it.
+			if r.Header.Get("Upgrade") == "" {
+				w.Header().Add("Vary", "Accept-Encoding")
+			}
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -34,22 +38,32 @@ func gzipJSON(next http.Handler) http.Handler {
 }
 
 // acceptsGzipEncoding reports whether an Accept-Encoding header admits gzip:
-// named with a non-zero weight.
+// named with a non-zero weight. A malformed q weight counts as a refusal for
+// that token, and the best weight across the gzip tokens wins.
 func acceptsGzipEncoding(header string) bool {
+	best := -1.0
 	for _, part := range strings.Split(header, ",") {
-		name, params, _ := strings.Cut(strings.TrimSpace(part), ";")
-		if !strings.EqualFold(strings.TrimSpace(name), "gzip") {
+		params := strings.Split(part, ";")
+		if !strings.EqualFold(strings.TrimSpace(params[0]), "gzip") {
 			continue
 		}
-		q := strings.TrimSpace(params)
-		if v, ok := strings.CutPrefix(q, "q="); ok {
-			if w, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil && w == 0 {
-				return false
+		weight := 1.0
+		for _, p := range params[1:] {
+			k, v, ok := strings.Cut(strings.TrimSpace(p), "=")
+			if !ok || !strings.EqualFold(strings.TrimSpace(k), "q") {
+				continue
+			}
+			if w, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
+				weight = w
+			} else {
+				weight = 0
 			}
 		}
-		return true
+		if weight > best {
+			best = weight
+		}
 	}
-	return false
+	return best > 0
 }
 
 type gzipJSONWriter struct {
@@ -95,7 +109,13 @@ func (g *gzipJSONWriter) Write(p []byte) (int, error) {
 }
 
 // Flush pushes what is compressed so far, or the plain bytes, to the client.
+// Flushing before anything was written decides the encoding first: flushing the
+// raw writer would commit plain headers and a gzipped body written after them
+// would reach the client with no Content-Encoding.
 func (g *gzipJSONWriter) Flush() {
+	if !g.decided {
+		g.WriteHeader(http.StatusOK)
+	}
 	if g.gz != nil {
 		_ = g.gz.Flush()
 	}
