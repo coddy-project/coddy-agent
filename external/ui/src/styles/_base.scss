@@ -52,9 +52,31 @@ html :is(.chat-header, .rail-pill, .composer-card) {
 }
 
 /* A wallpaper the person chose (Settings → Appearance), dimmed toward the
-   theme's canvas colour so text on the glass stays readable. */
+   theme's canvas colour so text on the glass stays readable. The root keeps
+   only the colour under it; the picture is a fixed layer of its own. */
 html[data-wallpaper="true"],
 html[data-wallpaper="true"][data-simple="on"] {
+  background: none;
+  background-color: var(--coddy-canvas-gradient-bottom);
+}
+
+/* A layer and not the root's own background, because background-attachment:
+   fixed is the one thing that cannot be relied on here: mobile WebKit ignores
+   it, and on the stacked shell the root's box is the whole document
+   (html { height: auto } below, so the document scrolls under the sticky
+   chrome), so `cover` sized the picture to a page several screens tall and
+   left one magnified fragment of it on screen, stretching as the conversation
+   grew. A fixed box is the viewport on every engine, which is what the
+   picture is meant to cover. It is behind everything the page draws
+   (z-index: -1 in the root stacking context, over the root's own background)
+   and takes no pointer. */
+html[data-wallpaper="true"]::before,
+html[data-wallpaper="true"][data-simple="on"]::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background:
     linear-gradient(
       color-mix(
@@ -69,8 +91,6 @@ html[data-wallpaper="true"][data-simple="on"] {
       )
     ),
     var(--coddy-wallpaper) center / cover no-repeat;
-  background-color: var(--coddy-canvas-gradient-bottom);
-  background-attachment: fixed;
 }
 
 body {

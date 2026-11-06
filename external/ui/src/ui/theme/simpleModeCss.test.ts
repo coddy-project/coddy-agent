@@ -88,7 +88,9 @@ test("every gradient of the stylesheet is cleared by the mode or draws a mark", 
     // The checkerboard that shows a picture's transparency.
     ".files-image",
     // A chosen wallpaper and its flat dimming tint remain in simplified mode.
-    'html[data-wallpaper="true"], html[data-wallpaper="true"][data-simple="on"]',
+    // The picture is a fixed layer of its own, so the dimming is a gradient of
+    // that layer (styles/_base.scss) rather than of the root.
+    'html[data-wallpaper="true"]::before, html[data-wallpaper="true"][data-simple="on"]::before',
   ]);
   // Fades along the edge of a strip of tabs: the mask rule of the blanket.
   const masks = new Set([
