@@ -33,14 +33,12 @@ type selectorModal struct {
 	// onChange asks for a frame after the selection or the filter moved.
 	onChange func()
 	// maxVisible is the window the caller asked for; the list never grows
-	// past it. rows is the terminal height, 0 until the app says.
+	// past it. rows is the terminal height and under says how many rows the
+	// app draws beneath the modal, both nil or 0 until the app says.
 	maxVisible int
 	rows       int
+	under      func(width int) int
 }
-
-// selectorFooterRows is what the app keeps under an open modal: the footer's
-// two lines (a third appears only while a turn override is on).
-const selectorFooterRows = 2
 
 func newSelectorModal(theme *tui.Theme, title string, items []tui.SelectItem, maxVisible int, requestRender func()) *selectorModal {
 	m := &selectorModal{theme: theme, title: title, onChange: requestRender, maxVisible: maxVisible}
@@ -60,10 +58,14 @@ func newSelectorModal(theme *tui.Theme, title string, items []tui.SelectItem, ma
 	return m
 }
 
-// SetTerminalRows tells the modal how tall the terminal is, so a selector on a
-// phone-sized screen keeps its title, its selected row and its help line
-// visible. The app says it when the modal opens and again on every resize.
-func (m *selectorModal) SetTerminalRows(rows int) { m.rows = rows }
+// FitTerminal tells the modal how tall the terminal is and how many rows the
+// app draws under it, so a selector on a phone-sized screen keeps its title,
+// its selected row and its help line visible. The app says it when the modal
+// opens and again on every resize; under is asked at the width of the frame,
+// because the footer takes a third line while a turn override is on.
+func (m *selectorModal) FitTerminal(rows int, under func(width int) int) {
+	m.rows, m.under = rows, under
+}
 
 // Render gives the list the rows the rest of the modal leaves: a selector that
 // does not fit scrolls its own title off the screen, and the title is what says
@@ -79,13 +81,16 @@ func (m *selectorModal) Render(width int) []string {
 	return m.Container.Render(width)
 }
 
-// chromeRows counts every row of the open selector that is not a list item.
+// chromeRows counts every row of the terminal the list cannot have: the
+// borders, the title, the body and the help line, the list's own scroll
+// marker, and whatever the app draws under the modal.
 func (m *selectorModal) chromeRows(width int) int {
-	// The list's own scroll marker and the footer under the modal; the
-	// borders, the title, the body and the help line are in chrome.
-	rows := 1 + selectorFooterRows
+	rows := 1
 	for _, c := range m.chrome {
 		rows += len(c.Render(width))
+	}
+	if m.under != nil {
+		rows += m.under(width)
 	}
 	return rows
 }
