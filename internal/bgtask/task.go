@@ -68,8 +68,9 @@ type AgentInfo struct {
 	Name string `json:"name"`
 	// SessionID is the child session that holds the run's transcript.
 	SessionID string `json:"session_id,omitempty"`
-	// System marks a run the runtime started on its own behalf (the memory
-	// subagent) rather than a delegation the model asked for. A system task
+	// System marks a run the runtime started on its own behalf (the goal
+	// supervisor's children) rather than a delegation the model asked for. A
+	// system task
 	// is admitted past the per-session cap and never counted against it, is
 	// hidden from the model-facing pool tools, and is told apart in the
 	// Tasks drawer by this flag rather than by its name.

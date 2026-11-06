@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """ACP long-term memory E2E (uses default coddy binary from `make build`).
 
-Verifies the memory subagent behaves like an internal voice (not main-agent tools):
+Verifies the memory subagent behaves like an internal voice (not main-agent tools). Memory never
+runs on its own: the prompts ask the main model to delegate through spawn_agent with agent "memory",
+and the child's report comes back as the tool result.
 
 - Pre-seeded global markdown is found by the memory subagent (RECALL) and influences the main reply without read_file to that path.
 - A second turn asks, in so many words, to remember a fact stated in the user message (a favorite fruit named by a codeword):
-  the memory subagent (PERSIST) must write it under $CODDY_HOME/memory or <cwd>/.coddy/memory. The fact is in the user text on
-  purpose: the memory subagent works from the user message alone and never sees the assistant's reply, so a fact the
-  assistant invents in its answer is not something PERSIST can be asked to keep (issue #235).
+  the memory subagent must write it under $CODDY_HOME/memory or <cwd>/.coddy/memory. The fact is in the user text on
+  purpose: the memory subagent works from the task it is handed, so a fact the assistant invents in its answer is not
+  something the child can be asked to keep (issue #235).
 - A third question is asked in a fresh session of the same process, where the codeword was never said: the reply can only
   come from the note on disk, so this checks recall through the memory subagent and not the conversation history.
-- Every turn's run is a child session bundle under <session>/subagents/, named memory; the script asserts one exists.
-- Optional prune step: user text nudges the memory subagent to remove a disposable global note; file must disappear.
+- A delegated run is a child session bundle under <session>/subagents/, named memory; the script asserts one exists.
+- Optional prune step: user text nudges the model to delegate a delete of a disposable global note; file must disappear.
 - Guide step: a global AGENTS.md names the path of a note that answers a question, the note shares no word with the question
   (a search for the question's words finds nothing), and a fresh session asks the question: only the guide at the top of the
   memory subagent's task leads to the note, so the reply carries the note's token and the child's task opens with the guide.
@@ -276,7 +278,7 @@ def main() -> None:
     prune_name = "e2e-disposable-global-note.md"
     prune_path = global_mem / prune_name
     prune_path.write_text(
-        "# disposable\nThis line exists only so the memory copilot can delete it after a prune instruction.\n",
+        "# disposable\nThis line exists only so the memory subagent can delete it after a prune instruction.\n",
         encoding="utf-8",
     )
 
@@ -349,9 +351,11 @@ def main() -> None:
         print("sessionId=", sid, "work_dir=", work, "CODDY_HOME=", coddy_home, file=sys.stderr)
 
         # Turn 1: user never names the seed file; recall must surface VERIFIER_TOKEN from global memory.
+        # Memory never runs on its own, so the prompt tells the model to delegate to the memory subagent.
         p1 = (
             "You are helping validate Coddy long-term memory recall.\n"
-            "Answer in at most 4 short lines of plain text.\n"
+            "First delegate the lookup to the memory subagent (spawn_agent, agent \"memory\") so it searches "
+            "long-term memory, then answer in at most 4 short lines of plain text.\n"
             "Questions:\n"
             "1) What is the VERIFIER_TOKEN value?\n"
             "2) What indentation preference was recorded for YAML?\n"
@@ -379,11 +383,12 @@ def main() -> None:
         mid_paths = set(list_memory_markdown(global_mem, project_mem))
 
         # Turn 2: an explicit request to remember a fact the user states, the codeword included.
-        # PERSIST runs on the user message alone, so the fact has to be in it (issue #235);
-        # the memory run may finish after the reply, hence the poll below.
+        # The memory child works from the task it is delegated, so the fact has to be in the user text
+        # (issue #235); the prompt asks the model to delegate the save to the memory subagent.
         p2 = (
             f"Remember durably for future sessions: my favorite fruit is the one whose codeword is {fruit_word}. "
-            f"Save that codeword exactly as written. Reply with one short line confirming it, "
+            f"Delegate the save to the memory subagent (spawn_agent, agent \"memory\") so it keeps that codeword "
+            "exactly as written. Reply with one short line confirming it, "
             "and avoid tools unless absolutely required."
         )
         rp2, backlog2 = rpc_call(
@@ -426,7 +431,8 @@ def main() -> None:
         p3 = (
             "Third check, answer briefly.\n"
             "What is the codeword of my favorite fruit? It starts with MEMFRUIT_.\n"
-            "Reply with that single token only on the first line."
+            "Look it up in long-term memory through the memory subagent (spawn_agent, agent \"memory\"), "
+            "then reply with that single token only on the first line."
         )
         rp3, backlog3 = rpc_call(
             proc,
@@ -450,9 +456,8 @@ def main() -> None:
             assert prune_path.is_file(), "prune seed missing"
             p4 = (
                 "Memory maintenance before you answer.\n"
-                "If your environment includes an internal memory copilot with delete capability, "
-                f"delete the global long-term memory entry at path global:{prune_name} "
-                "(use the internal memory delete tool if available).\n"
+                "Delegate to the memory subagent (spawn_agent, agent \"memory\") a delete of the global "
+                f"long-term memory entry at path global:{prune_name}.\n"
                 "Then reply exactly one word on the first line: PRUNED if removal was performed, else SKIP.\n"
             )
             rp4, backlog4 = rpc_call(
@@ -499,7 +504,18 @@ def main() -> None:
         rp5, backlog5 = rpc_call(
             proc,
             "session/prompt",
-            {"sessionId": sid3, "prompt": [{"type": "text", "text": guide_question}]},
+            {
+                "sessionId": sid3,
+                "prompt": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "Answer the question only through the memory subagent "
+                            "(spawn_agent, agent \"memory\"): " + guide_question
+                        ),
+                    }
+                ],
+            },
             nid,
         )
         if "error" in rp5:

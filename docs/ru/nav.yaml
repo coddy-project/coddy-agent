@@ -318,10 +318,10 @@ pages:
       summary: "/compact and automatic summarisation at a threshold, the kept recent turns, result eviction with keep_result."
   features/memory.md:
     title: "Долговременная память"
-    summary: "Субагент памяти, который запускается на каждом ходе в пуле задач, что он вспоминает и сохраняет, как его отчёт попадает в ход, устройство хранилища, настройка и стоимость."
+    summary: "Субагент памяти, которого модель вызывает по требованию через spawn_agent, что он вспоминает и сохраняет, его инструменты, устройство хранилища, настройка и стоимость."
     en:
       title: "Long-term memory"
-      summary: "The memory subagent that runs per turn in the task pool, what it recalls and saves, how the report reaches the turn, the storage layout, configuration and cost."
+      summary: "The on-demand memory subagent the model delegates to through spawn_agent, what it recalls and saves, its tools, the storage layout, configuration and cost."
   features/decisions.md:
     title: "Безопасность команд (decisions)"
     summary: "Проверка NeuralDeep decisions, которая спрашивает, безопасна ли shell-команда, до шлюза разрешений: безопасная выполняется без запроса, о небезопасной спрашивают в любом режиме, включая bypass, а если ответить некому, её отклоняют."

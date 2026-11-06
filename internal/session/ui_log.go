@@ -90,7 +90,7 @@ func (s *State) AppendGenerationSummary(startedAt time.Time, turn, tokens int, s
 	s.touchPersist()
 }
 
-// CountUserTurns counts llm.RoleUser messages in order (matches memory copilot turn index).
+// CountUserTurns counts llm.RoleUser messages in order (matches memory subagent turn index).
 func CountUserTurns(msgs []llm.Message) int {
 	n := 0
 	for _, m := range msgs {

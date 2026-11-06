@@ -747,7 +747,7 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"memory": objectSchema("Memory", "Optional memory subagent (requires the memory build tag and a provider).",
 			map[string]interface{}{
-				"enable": boolProp("Enabled", "Runs the memory subagent on every user turn (memory build tag)."),
+				"enable": boolProp("Enabled", "Expose the bundled memory subagent to the model through spawn_agent (memory build tag)."),
 				"model":  strProp("Memory model", "Logical model the memory subagent runs on; empty uses the session's model."),
 				"fallback_models": map[string]interface{}{
 					"type":        "array",
@@ -756,9 +756,6 @@ func UISchemaMap() map[string]interface{} {
 					"description": "Models the memory subagent tries in order when the one before them fails before answering. The session's own model is the last resort whether or not it is listed.",
 				},
 				"dir":                         strProp("Memory root", "Filesystem root for memory markdown; empty uses ${CODDY_HOME}/memory."),
-				"wait_seconds":                intProp("Wait for the report (seconds)", "How long a turn waits for the memory subagent's report before its first model call; 0 never waits (default 20)."),
-				"timeout_seconds":             intProp("Run timeout (seconds)", "Hard limit of one memory run, capped by tools.background.max_timeout_seconds (default 300)."),
-				"keep_runs":                   intProp("Runs kept per session", "Finished memory runs kept in the Tasks panel per session, task record and child transcript alike; 0 keeps all (default 20)."),
 				"recall_max_turns":            intProp("Recall max turns", "Bounds the memory subagent's rounds together with persist_max_turns; the cap is the larger of the two."),
 				"persist_max_turns":           intProp("Persist max turns", "Bounds the memory subagent's rounds together with recall_max_turns; the cap is the larger of the two."),
 				"copilot_max_tokens":          intProp("Max tokens per call", "Completion token cap for the memory model's calls."),
@@ -767,7 +764,7 @@ func UISchemaMap() map[string]interface{} {
 				"additional_prompt":           strProp("Additional instructions", "Your own instructions for the memory subagent, a section of its system prompt; the main agent never sees them."),
 				"additional_prompt_max_chars": intProp("Additional instructions cap (characters)", "Longer instructions are cut at this many characters, with a warning in the log; 0 means no cap."),
 			},
-			[]string{"enable", "model", "dir", "fallback_models", "additional_prompt", "additional_prompt_max_chars", "wait_seconds", "timeout_seconds", "keep_runs", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits", "max_note_chars"},
+			[]string{"enable", "model", "dir", "fallback_models", "additional_prompt", "additional_prompt_max_chars", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits", "max_note_chars"},
 			nil),
 		"decisions": objectSchema("Command safety (decisions)", "Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer.",
 			map[string]interface{}{

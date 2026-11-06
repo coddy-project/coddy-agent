@@ -3061,10 +3061,10 @@ func TestSpawnSubagentResumeRefusals(t *testing.T) {
 	}
 	running := rig.lastAgentTask()
 
-	// A memory run is the runtime's own child, never a delegation to resume.
+	// The runtime's own child (the goal verifier) is never a delegation to resume.
 	memory, err := bgtask.Default().Launch(bgtask.Spec{
 		SessionID: rig.parent.ID, Kind: bgtask.KindAgent, Label: "memory",
-		Agent: &bgtask.AgentInfo{Name: "memory", SessionID: session.NewSessionID(), System: true},
+		Agent: &bgtask.AgentInfo{Name: "goal-verifier", SessionID: session.NewSessionID(), System: true},
 	}, func(string, io.Writer) (bgtask.Handle, error) { return finishedHandle{}, nil })
 	if err != nil {
 		t.Fatal(err)

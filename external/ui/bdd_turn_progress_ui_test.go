@@ -71,7 +71,7 @@ func TestTurnProgressWebUIFeature(t *testing.T) {
 			sc.Step(`^the live line names the running background tasks and opens the Tasks panel$`, func() error {
 				return runVitestScenario(dots, "running background tasks are named on the line and open the Tasks panel")
 			})
-			sc.Step(`^the live line of a running turn counts the tasks without the memory run$`, func() error {
+			sc.Step(`^the live line of a running turn counts the tasks without a system task$`, func() error {
 				return runVitestScenario(screen, "the live line of a running turn names the running tasks and opens the Tasks panel")
 			})
 		},

@@ -806,15 +806,6 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.memory.dir.desc":
     "Filesystem root for memory markdown; empty uses ${CODDY_HOME}/memory.",
   "settings.schema.memory.dir.ph": "${CODDY_HOME}/memory",
-  "settings.schema.memory.wait_seconds.label": "Wait for the report (seconds)",
-  "settings.schema.memory.wait_seconds.desc":
-    "How long a turn waits for the memory subagent's report before its first model call; 0 never waits (default 20).",
-  "settings.schema.memory.timeout_seconds.label": "Run timeout (seconds)",
-  "settings.schema.memory.timeout_seconds.desc":
-    "Hard limit of one memory run, capped by the background task pool's maximum (default 300).",
-  "settings.schema.memory.keep_runs.label": "Runs kept per session",
-  "settings.schema.memory.keep_runs.desc":
-    "Finished memory runs kept in the Tasks panel per session, task record and child transcript alike; 0 keeps all (default 20).",
   "settings.schema.memory.recall_max_turns.label": "Recall max turns",
   "settings.schema.memory.recall_max_turns.desc":
     "Bounds the memory subagent's rounds together with persist max turns; the cap is the larger of the two.",
@@ -2204,7 +2195,6 @@ export const messagesEn: Record<string, string> = {
   "tasks.status.orphaned": "Orphaned",
   "tasks.tag.shell": "shell",
   "tasks.tag.agent": "agent",
-  "tasks.tag.memory": "memory",
   "tasks.tag.server": "server",
   "tasks.openServer": "Open in a new tab",
   "tasks.untitledAgentRun": "Subagent run",

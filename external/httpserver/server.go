@@ -189,12 +189,6 @@ func (s *Server) Drain() {
 	s.cancelNeuralDeepAuthLogins()
 	s.cancelOpenCodeAuthLogins("")
 	s.cancelDevinAuthLogins("")
-	// A memory run stopped mid-persist loses its note: running memory runs get
-	// the drain grace before the pool is closed.
-	if n := agent.MemoryRunsInFlight(); n > 0 {
-		s.log.Info("waiting for memory runs before draining the task pool", "runs", n, "grace", agent.MemoryDrainGrace)
-		agent.WaitMemoryRuns(context.Background(), agent.MemoryDrainGrace)
-	}
 	// Background tasks are children of this process; leaving them running would
 	// orphan whole shell trees the operator can no longer see or stop. Close the
 	// pool first so a turn that is still winding down cannot start one more.

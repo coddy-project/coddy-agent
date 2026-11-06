@@ -134,7 +134,6 @@ import {
   upsertQuestionPromptRecord,
 } from "./chat/questionPromptSessionStore";
 import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
-import { applyMemoryRunToItems } from "./chat/memoryRun";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
 import type { ProviderUsage } from "./chat/providerUsage";
 import type {
@@ -5257,7 +5256,6 @@ export function App() {
         tokenBaselineRef: tokenBaselineForSession(key),
         reasoningDurationMsByContentRef,
         newId,
-        applyMemoryRunToItems,
         onQuestion: handleComposerSseQuestion,
         onPermission: handleComposerSsePermission,
         onProviderUsage: providerUsageState.applyPushed,
@@ -6043,7 +6041,6 @@ export function App() {
         tokenBaselineRef: tokenBaselineForSession(streamKey),
         reasoningDurationMsByContentRef,
         newId,
-        applyMemoryRunToItems,
         onQuestion: handleComposerSseQuestion,
         onPermission: handleComposerSsePermission,
         onProviderUsage: providerUsageState.applyPushed,

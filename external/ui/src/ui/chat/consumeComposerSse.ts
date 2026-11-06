@@ -1,4 +1,3 @@
-import type { MemoryRunEvt } from "./memoryRun";
 import { backgroundWakeItem } from "./backgroundWake";
 import {
   applyGoalTurnToItems,
@@ -146,11 +145,6 @@ export type ConsumeComposerSseParams = {
   }>;
   reasoningDurationMsByContentRef: MutableRefObject<Map<string, number>>;
   newId: (prefix: string) => string;
-  /** Coddy extension. The memory subagent run of the turn (`event: memory_run`). */
-  applyMemoryRunToItems: (
-    prev: TranscriptItem[],
-    e: MemoryRunEvt,
-  ) => TranscriptItem[];
   /** Coddy extension. Fired when the `question` tool blocks for answers (matches session/request_question payload shape). */
   onQuestion?: (payload: Record<string, unknown>) => void;
   /** Coddy extension. Fired when a guarded tool blocks for permission (matches session/request_permission payload shape). */
@@ -220,7 +214,6 @@ export async function consumeComposerSseReader(
     tokenBaselineRef,
     reasoningDurationMsByContentRef,
     newId,
-    applyMemoryRunToItems,
     onQuestion,
     onPermission,
     onProviderUsage,
@@ -831,31 +824,6 @@ export async function consumeComposerSseReader(
         continue;
       }
 
-      if (ev.event === "memory_run") {
-        try {
-          const raw = JSON.parse(ev.data) as MemoryRunEvt;
-          applyStreamItems((prev) =>
-            applyMemoryRunToItems(prev, {
-              status: String(raw.status || ""),
-              ...(raw.taskId ? { taskId: String(raw.taskId) } : {}),
-              ...(raw.childSessionId
-                ? { childSessionId: String(raw.childSessionId) }
-                : {}),
-              ...(raw.taskStatus ? { taskStatus: String(raw.taskStatus) } : {}),
-              ...(typeof raw.durationMs === "number"
-                ? { durationMs: raw.durationMs }
-                : {}),
-              ...(typeof raw.delivered === "boolean"
-                ? { delivered: raw.delivered }
-                : {}),
-              ...(raw.reason ? { reason: String(raw.reason) } : {}),
-            }),
-          );
-        } catch {
-          // ignore
-        }
-        continue;
-      }
       if (ev.event === "permission") {
         try {
           // The gate row is applied straight away, outside the rAF-batched
@@ -1130,31 +1098,6 @@ export async function consumeComposerSseReader(
         continue;
       }
 
-      if (ev.event === "memory_run") {
-        try {
-          const raw = JSON.parse(ev.data) as MemoryRunEvt;
-          applyStreamItems((prev) =>
-            applyMemoryRunToItems(prev, {
-              status: String(raw.status || ""),
-              ...(raw.taskId ? { taskId: String(raw.taskId) } : {}),
-              ...(raw.childSessionId
-                ? { childSessionId: String(raw.childSessionId) }
-                : {}),
-              ...(raw.taskStatus ? { taskStatus: String(raw.taskStatus) } : {}),
-              ...(typeof raw.durationMs === "number"
-                ? { durationMs: raw.durationMs }
-                : {}),
-              ...(typeof raw.delivered === "boolean"
-                ? { delivered: raw.delivered }
-                : {}),
-              ...(raw.reason ? { reason: String(raw.reason) } : {}),
-            }),
-          );
-        } catch {
-          // ignore
-        }
-        continue;
-      }
       if (ev.event === "permission") {
         try {
           // The gate row is applied straight away, outside the rAF-batched

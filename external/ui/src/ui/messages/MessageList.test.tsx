@@ -167,18 +167,6 @@ test("plan document on a read-only transcript renders without Run plan and Disca
   expect(screen.queryByRole("button", { name: /discard/i })).toBeNull();
 });
 
-test("a memory run renders nothing in the transcript", () => {
-  const items: TranscriptItem[] = [
-    { id: "u1", type: "user_message", content: "Hi" },
-    { id: "m1", type: "memory_run", status: "started", taskId: "bg_1" },
-  ];
-
-  const { container } = render(<MessageList items={items} />);
-
-  expect(container.querySelector(".thinking-row")).toBeNull();
-  expect(screen.getByText("Hi")).toBeInTheDocument();
-});
-
 // The live line is on screen for the whole turn and always says what is happening,
 // in general words at least: it used to drop its text under a reasoning row and to
 // vanish altogether once the turn had written any text, which read as a turn that

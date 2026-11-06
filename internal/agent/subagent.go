@@ -545,7 +545,7 @@ func (s *subagentSender) RequestQuestion(context.Context, acp.QuestionRequestPar
 // subagentHandle is the pool's view of a child run: Stop cancels the child,
 // Wait blocks until the run settled, and there is no OS process behind it.
 // A run that failed hands its error to the pool through Wait, so the task
-// record says why (the drawer row, the console line, the memory_run update).
+// record says why (the drawer row, the console line).
 type subagentHandle struct {
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -570,8 +570,8 @@ func (h *subagentHandle) PID() int                    { return 0 }
 func (h *subagentHandle) ProcessStartedAt() time.Time { return time.Time{} }
 
 // subagentRun is the bookkeeping of one child run: a spawn from the parent's
-// side, a system child such as the memory subagent (def nil, system true), or
-// a scheduled run from the daemon's.
+// side, a system child the runtime starts on its own behalf (def nil,
+// system true), or a scheduled run from the daemon's.
 type subagentRun struct {
 	// name is what the run is called in logs and reports: the definition
 	// name of a spawn, the system agent's name, the job id (or its
@@ -701,10 +701,24 @@ func (a *Agent) applySubagentEnv(env *tools.Env, mode string) {
 }
 
 // subagentDefinitions loads the definitions visible for this session's cwd.
+// The bundled memory definition is left out while the feature is off (or the
+// tag is not compiled in), so the parent never sees a spawn the gate would
+// refuse.
 func (a *Agent) subagentDefinitions() []*subagents.Definition {
 	loader := subagents.NewLoader(a.cfg.Subagents.SearchDirs(), a.cfg.Subagents.ResolvedProjectTrust())
 	loader.Log = a.log
-	return loader.Load(a.state.GetCWD(), a.cfg.Paths.Home)
+	defs := loader.Load(a.state.GetCWD(), a.cfg.Paths.Home)
+	if a.memorySpawnVisible(a.cfg) {
+		return defs
+	}
+	out := defs[:0]
+	for _, def := range defs {
+		if def.Builtin && def.Name == session.SubagentKindMemory {
+			continue
+		}
+		out = append(out, def)
+	}
+	return out
 }
 
 // subagentCatalogBlock renders the Subagents section for the system prompt, or
@@ -1168,7 +1182,7 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 // childLaunch is what a launcher decided about a child run before the pool is
 // involved: the session to build, the task to register and the parent-side
 // bookkeeping. spawnSubagentInMode fills it for a definition the model
-// chose; the memory runtime fills it for the system child of a user turn.
+// chose.
 type childLaunch struct {
 	spec session.SubagentSpec
 	// def is the definition behind a spawn_agent child; nil for a system child.
@@ -1182,7 +1196,7 @@ type childLaunch struct {
 	// timeoutSeconds is the run's hard limit; expectedSeconds the estimate.
 	timeoutSeconds, expectedSeconds int
 	// detached runs the child on a context that outlives the launching tool
-	// call (a background spawn, every memory run).
+	// call (a background spawn).
 	detached bool
 	// notify wakes the parent when the task finishes (background spawns only).
 	notify bool

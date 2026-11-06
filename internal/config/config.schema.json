@@ -1128,7 +1128,7 @@
       "properties": {
         "enable": {
           "type": "boolean",
-          "description": "Run the memory subagent on every user turn (needs the memory build tag).",
+          "description": "Expose the bundled memory subagent to the model through spawn_agent (needs the memory build tag).",
           "default": false
         },
         "model": {
@@ -1147,27 +1147,6 @@
           "type": "string",
           "description": "Long-term memory root. Empty resolves to ${CODDY_HOME}/memory. Supports ${CODDY_HOME} and ~.",
           "default": ""
-        },
-        "wait_seconds": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "description": "How long a user turn waits for the memory subagent's report before its first model call. An explicit 0 never waits: the report then reaches the turn only through a later step, or stays in the Tasks panel.",
-          "default": 20
-        },
-        "timeout_seconds": {
-          "type": "integer",
-          "description": "Hard limit of one memory run in seconds, capped by tools.background.max_timeout_seconds like every task of the pool.",
-          "default": 300
-        },
-        "keep_runs": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "description": "Finished memory runs kept per session, task record and child transcript alike; the oldest beyond this number are removed when a run finishes. An explicit 0 keeps every run.",
-          "default": 20
         },
         "recall_max_turns": {
           "type": "integer",

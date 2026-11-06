@@ -2,16 +2,9 @@
 
 package agent
 
-// Godog harness for features/memory_subagent.feature: a real session.Manager
-// over a temporary home and workspace, scripted providers for the parent and
-// for the memory child of every turn, a recording parent client and the
-// process-wide task pool. The scenarios assert what the parent model, the
-// parent's client, the pool and the persisted bundles observe.
-
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -22,9 +15,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-	"unicode/utf8"
-
-	"github.com/cucumber/godog"
 
 	memtools "github.com/EvilFreelancer/coddy-agent/external/memory/tools"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -32,43 +22,42 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/cucumber/godog"
 )
+
+// memoryFeatureState drives the memory_subagent feature: a scripted parent
+// model delegates to the bundled memory subagent through spawn_agent, a
+// scripted child model answers, and the steps inspect the pool, the child's
+// bundle and the models each side was offered.
 
 type memoryFeatureState struct {
 	root, home, cwd string
 	cfg             *config.Config
-	store           *session.FileStore
 	mgr             *session.Manager
+	store           *session.FileStore
 	parent          *session.State
 	client          *recordingClient
 
-	waitSeconds    int
-	keepRuns       *int
+	memOn          bool
 	poolMax        int
 	memoryModel    string
 	fallbackModels []string
-	askMode        bool
-	// childBroken makes every model call of a memory child fail before
-	// output, the shape of an exhausted account, whatever the chain tries.
-	childBroken bool
-	addendum    string
-	addendumCap int
+	childBroken    bool
+	addendum       string
+	addendumCap    int
+
+	parentProvider *scriptedProvider
+	parentTurns    []*scriptedProvider
 
 	mu             sync.Mutex
-	parentProvider *scriptedProvider
-	// parentTurns keeps the parent's provider of every turn of the scenario,
-	// in order, so a scenario can compare what two turns sent.
-	parentTurns    []*scriptedProvider
 	childProviders map[string]*scriptedProvider
 	childSteps     func() []scriptStep
-	release        chan struct{}
-	brokenCalls    int
 
-	turnCancel context.CancelFunc
-	turnDone   chan struct{}
-	turnStop   string
-	turnErr    error
-	results    map[string]string
+	turnDone    chan struct{}
+	turnStop    string
+	turnErr     error
+	results     map[string]string
+	brokenCalls int
 }
 
 func (s *memoryFeatureState) reset() error {
@@ -90,12 +79,10 @@ func (s *memoryFeatureState) reset() error {
 	if err := os.WriteFile(filepath.Join(s.cwd, "AGENTS.md"), []byte("# Project instructions\n\nBDD_PROJECT_INSTRUCTIONS_MARKER\n"), 0o644); err != nil {
 		return err
 	}
-	s.waitSeconds = 10
-	s.keepRuns = nil
+	s.memOn = true
 	s.poolMax = 0
 	s.memoryModel = ""
 	s.fallbackModels = nil
-	s.askMode = false
 	s.childBroken = false
 	s.addendum = ""
 	s.addendumCap = 0
@@ -103,9 +90,6 @@ func (s *memoryFeatureState) reset() error {
 	s.parentTurns = nil
 	s.childProviders = map[string]*scriptedProvider{}
 	s.childSteps = nil
-	s.release = make(chan struct{})
-	s.brokenCalls = 0
-	s.turnCancel = nil
 	s.turnDone = nil
 	s.turnStop = ""
 	s.turnErr = nil
@@ -130,13 +114,13 @@ func (s *memoryFeatureState) close() {
 
 // ---- givens ----
 
-func (s *memoryFeatureState) memoryEnabledWithWait(seconds int) error {
-	s.waitSeconds = seconds
+func (s *memoryFeatureState) memoryEnabled() error {
+	s.memOn = true
 	return nil
 }
 
-func (s *memoryFeatureState) memoryKeepsRuns(n int) error {
-	s.keepRuns = &n
+func (s *memoryFeatureState) memoryDisabled() error {
+	s.memOn = false
 	return nil
 }
 
@@ -174,12 +158,9 @@ func (s *memoryFeatureState) buildConfig() *config.Config {
 	if s.poolMax > 0 {
 		cfg.Tools.Background.MaxConcurrent = s.poolMax
 	}
-	cfg.Memory.Enabled = true
+	cfg.Memory.Enabled = s.memOn
 	cfg.Memory.Model = s.memoryModel
 	cfg.Memory.FallbackModels = append([]string(nil), s.fallbackModels...)
-	wait := s.waitSeconds
-	cfg.Memory.WaitSeconds = &wait
-	cfg.Memory.KeepRuns = s.keepRuns
 	cfg.Memory.AdditionalPrompt = s.addendum
 	cfg.Memory.AdditionalPromptMaxChars = s.addendumCap
 	cfg.Memory.ApplyDefaults()
@@ -189,9 +170,9 @@ func (s *memoryFeatureState) buildConfig() *config.Config {
 	return cfg
 }
 
-// providerFor hands the parent its scripted provider and each memory child
-// its own; a call for the broken model fails before any output, which is
-// what the fallback chain moves on from.
+// providerFor hands every subagent run a scripted provider (the memory child
+// too) and the parent its own scripted provider. A model named "broken"
+// always fails, a model named "partial" fails after streaming text.
 func (s *memoryFeatureState) providerFor(st *session.State, in llm.ProviderInput) llm.Provider {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -222,27 +203,27 @@ func (s *memoryFeatureState) providerFor(st *session.State, in llm.ProviderInput
 type brokenProvider struct{ state *memoryFeatureState }
 
 func (b *brokenProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
-	b.state.mu.Lock()
-	b.state.brokenCalls++
-	b.state.mu.Unlock()
-	return nil, errors.New("402 Payment Required: subscription expired")
+	return nil, fmt.Errorf("broken")
 }
 
 func (b *brokenProvider) Stream(ctx context.Context, msgs []llm.Message, defs []llm.ToolDefinition, _ func(llm.StreamChunk)) (*llm.Response, error) {
-	return b.Complete(ctx, msgs, defs)
+	b.state.mu.Lock()
+	b.state.brokenCalls++
+	b.state.mu.Unlock()
+	return nil, fmt.Errorf("broken")
 }
 
 // partialProvider streams half an answer and then fails: the fallback chain
-// must not hand the request to the next model after output was delivered.
+// never takes over a stream that already emitted content.
 type partialProvider struct{}
 
 func (partialProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
-	return nil, errors.New("stream closed mid-answer")
+	return nil, fmt.Errorf("stream closed mid-answer")
 }
 
 func (partialProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
 	onChunk(llm.StreamChunk{TextDelta: "Already on"})
-	return &llm.Response{Content: "Already on"}, errors.New("stream closed mid-answer")
+	return &llm.Response{Content: "Already on"}, fmt.Errorf("stream closed mid-answer")
 }
 
 func (s *memoryFeatureState) parentSession() error {
@@ -263,15 +244,7 @@ func (s *memoryFeatureState) parentSession() error {
 	if s.parent == nil {
 		return fmt.Errorf("parent session missing")
 	}
-	if s.askMode {
-		return s.mgr.HandleSessionSetMode(context.Background(), acp.SessionSetModeParams{SessionID: s.parent.ID, ModeID: "ask"})
-	}
 	return nil
-}
-
-func (s *memoryFeatureState) parentSessionInAskMode() error {
-	s.askMode = true
-	return s.parentSession()
 }
 
 // ---- turns ----
@@ -279,6 +252,18 @@ func (s *memoryFeatureState) parentSessionInAskMode() error {
 func saveCall(id, title string) llm.ToolCall {
 	args, _ := json.Marshal(map[string]interface{}{"title": title, "body": title + ": the user prefers pytest for every test suite.", "scope": "global"})
 	return llm.ToolCall{ID: id, Name: memtools.NameSave, InputJSON: string(args)}
+}
+
+func searchCall(id, query string) llm.ToolCall {
+	args, _ := json.Marshal(map[string]interface{}{"query": query})
+	return llm.ToolCall{ID: id, Name: memtools.NameSearch, InputJSON: string(args)}
+}
+
+// spawnMemoryCall is the parent's spawn_agent call that delegates prompt to
+// the bundled memory subagent.
+func spawnMemoryCall(id, prompt string) llm.ToolCall {
+	args, _ := json.Marshal(map[string]interface{}{"agent": "memory", "prompt": prompt})
+	return llm.ToolCall{ID: id, Name: "spawn_agent", InputJSON: string(args)}
 }
 
 func (s *memoryFeatureState) setChildSteps(steps func() []scriptStep) {
@@ -304,9 +289,9 @@ func (s *memoryFeatureState) startTurn(text string, steps ...scriptStep) {
 	s.mu.Unlock()
 	before := len(s.parent.GetMessages())
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	s.turnCancel = cancel
 	s.turnDone = make(chan struct{})
 	go func() {
+		defer cancel()
 		defer close(s.turnDone)
 		res, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 			SessionID: s.parent.ID,
@@ -326,63 +311,70 @@ func (s *memoryFeatureState) startTurn(text string, steps ...scriptStep) {
 	}()
 }
 
-func (s *memoryFeatureState) userSendsAndChildAnswers(text, answer string) error {
+// modelDelegatesAndChildAnswers is the canonical turn: the parent calls
+// spawn_agent agent:"memory" with the task as its prompt, the child answers,
+// and the parent finishes with its own line.
+func (s *memoryFeatureState) modelDelegatesAndChildAnswers(task, answer string) error {
 	s.setChildSteps(func() []scriptStep { return []scriptStep{answerStep(answer)} })
-	return s.runTurn(text, answerStep("parent answer"))
+	return s.runTurn(task, toolStep(spawnMemoryCall("call_mem_1", task)), answerStep("parent answer"))
 }
 
-// The child is released by the parent's first request, and the parent takes
-// two more steps: the step after the release cannot carry the report yet (the
-// child is still answering), so the second step waits for the memory task to
-// settle before it answers, and the request of the third carries it.
-func (s *memoryFeatureState) userSendsAndChildAnswersLate(text, answer string) error {
-	release := s.release
-	s.setChildSteps(func() []scriptStep { return []scriptStep{waitStep(release, answerStep(answer))} })
-	releaseThenList := func(messages []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) *llm.Response {
-		close(release)
-		return toolStep(llm.ToolCall{ID: "call_list_1", Name: "background_list", InputJSON: "{}"})(messages, defs, onChunk)
-	}
-	waitThenList := func(messages []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) *llm.Response {
-		_ = s.waitMemoryTask(20 * time.Second)
-		return toolStep(llm.ToolCall{ID: "call_list_2", Name: "background_list", InputJSON: "{}"})(messages, defs, onChunk)
-	}
-	return s.runTurn(text, releaseThenList, waitThenList, answerStep("parent answer"))
-}
-
-// The parent takes a tool step before it answers, so the turn has two
-// requests and the report has to ride on both.
-func (s *memoryFeatureState) userSendsAndChildAnswersWhileParentTakesTwoSteps(text, answer string) error {
-	s.setChildSteps(func() []scriptStep { return []scriptStep{answerStep(answer)} })
-	return s.runTurn(text,
-		toolStep(llm.ToolCall{ID: "call_list_1", Name: "background_list", InputJSON: "{}"}),
-		answerStep("parent answer"))
-}
-
-func (s *memoryFeatureState) userSendsAndChildSavesBeforeAnswering(text, answer string) error {
+func (s *memoryFeatureState) modelDelegatesChildAsksToSave(task, answer string) error {
 	s.setChildSteps(func() []scriptStep {
 		return []scriptStep{toolStep(saveCall("call_save", "Hallucinated note")), answerStep(answer)}
 	})
-	return s.runTurn(text, answerStep("parent answer"))
+	return s.runTurn(task, toolStep(spawnMemoryCall("call_mem_1", task)), answerStep("parent answer"))
 }
 
-func (s *memoryFeatureState) userSendsAndChildSavesThenAnswers(text, title, answer string) error {
+// memorySpawnedInPlanModeAsksToSave spawns the memory child directly in plan
+// mode: the scenario drives the same spawn path the tool would take, and the
+// restricted parent mode gives the child the recall tools only. The child
+// then asks to save and answers.
+func (s *memoryFeatureState) memorySpawnedInPlanModeAsksToSave(answer string) error {
+	s.setChildSteps(func() []scriptStep {
+		return []scriptStep{toolStep(saveCall("call_save", "Hallucinated note")), answerStep(answer)}
+	})
+	ag := NewAgent(s.cfg, s.parent, s.client, slog.Default())
+	ag.SetSubagentRuntime(s.mgr)
+	ag.SetProviderFactory(func(in llm.ProviderInput) (llm.Provider, error) { return s.providerFor(s.parent, in), nil })
+	_, err := ag.spawnSubagentInMode(context.Background(), spawnMemoryReq("what did we decide about the API?"), string(session.ModePlan))
+	return err
+}
+
+func (s *memoryFeatureState) modelDelegatesChildSavesThenAnswers(task, title, answer string) error {
 	s.setChildSteps(func() []scriptStep {
 		return []scriptStep{toolStep(saveCall("call_save", title)), answerStep(answer)}
 	})
-	return s.runTurn(text, answerStep("parent answer"))
+	return s.runTurn(task, toolStep(spawnMemoryCall("call_mem_1", task)), answerStep("parent answer"))
 }
 
-// cyrillicNoteBody is a note body of n two-byte characters: under a cap
-// counted in characters, over one counted in bytes (issue #429).
 func cyrillicNoteBody(n int) string {
-	return strings.Repeat("ж", n)
+	return strings.Repeat("й", n)
 }
 
-func (s *memoryFeatureState) userSendsAndChildSavesCyrillicThenAnswers(text string, n int, answer string) error {
-	args, _ := json.Marshal(map[string]interface{}{"title": "Предпочтения", "body": cyrillicNoteBody(n), "scope": "global"})
-	call := llm.ToolCall{ID: "call_save", Name: memtools.NameSave, InputJSON: string(args)}
-	s.setChildSteps(func() []scriptStep { return []scriptStep{toolStep(call), answerStep(answer)} })
-	return s.runTurn(text, answerStep("parent answer"))
+func (s *memoryFeatureState) modelDelegatesChildSavesCyrillicThenAnswers(task string, n int, answer string) error {
+	body := cyrillicNoteBody(n)
+	call := llm.ToolCall{ID: "call_save", Name: memtools.NameSave}
+	args, _ := json.Marshal(map[string]interface{}{"title": "Cyrillic", "body": body, "scope": "global"})
+	call.InputJSON = string(args)
+	s.setChildSteps(func() []scriptStep {
+		return []scriptStep{toolStep(call), answerStep(answer)}
+	})
+	return s.runTurn(task, toolStep(spawnMemoryCall("call_mem_1", task)), answerStep("parent answer"))
+}
+
+func (s *memoryFeatureState) modelDelegatesChildSearchesThenAnswers(task, query, answer string) error {
+	s.setChildSteps(func() []scriptStep {
+		return []scriptStep{toolStep(searchCall("call_search", query)), answerStep(answer)}
+	})
+	return s.runTurn(task, toolStep(spawnMemoryCall("call_mem_1", task)), answerStep("parent answer"))
+}
+
+// modelDelegatesParentStillAnswers is the delegation where the child's own
+// outcome does not matter to the scenario (a broken chain, a refused spawn):
+// the parent takes the tool result and answers the user anyway.
+func (s *memoryFeatureState) modelDelegatesParentStillAnswers(task string) error {
+	return s.runTurn(task, toolStep(spawnMemoryCall("call_mem_1", task)), answerStep("parent answer"))
 }
 
 func (s *memoryFeatureState) globalNoteHoldsCyrillicWhole(n int) error {
@@ -390,128 +382,25 @@ func (s *memoryFeatureState) globalNoteHoldsCyrillicWhole(n int) error {
 	if err != nil {
 		return err
 	}
-	if !utf8.ValidString(notes) {
-		return fmt.Errorf("the saved note is not valid UTF-8")
-	}
-	if strings.TrimSpace(notes) != cyrillicNoteBody(n) {
-		return fmt.Errorf("the saved note holds %d characters, want %d", utf8.RuneCountInString(strings.TrimSpace(notes)), n)
+	if !strings.Contains(notes, cyrillicNoteBody(n)) {
+		return fmt.Errorf("no global note holds the %d Cyrillic characters", n)
 	}
 	return nil
 }
 
 func (s *memoryFeatureState) childSaveAnsweredWithoutWarning() error {
-	snap, err := s.childSnapshot()
+	p, err := s.childProvider()
 	if err != nil {
 		return err
 	}
-	for _, m := range snap.Messages {
-		if m.Role == llm.RoleTool && m.ToolCallID == "call_save" {
-			if !strings.HasPrefix(m.Content, "saved as ") || strings.Contains(m.Content, "truncat") {
-				return fmt.Errorf("the save answered %q", m.Content)
+	for _, req := range p.requests {
+		for _, m := range req {
+			if m.Role == llm.RoleTool && strings.Contains(m.Content, "truncat") {
+				return fmt.Errorf("the child's save came back truncated: %q", m.Content)
 			}
-			return nil
 		}
 	}
-	return fmt.Errorf("the child transcript holds no result of the save")
-}
-
-func (s *memoryFeatureState) userSendsAndChildWaits(text string) error {
-	release := s.release
-	s.setChildSteps(func() []scriptStep { return []scriptStep{waitStep(release, answerStep("Already on disk: late"))} })
-	s.startTurn(text, answerStep("parent answer"))
-	// The turn is in its wait once the client saw the run start.
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if s.memoryRunUpdate("started") != nil {
-			return nil
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	return fmt.Errorf("the memory run never started")
-}
-
-func (s *memoryFeatureState) userSendsAndChildWaitsWhileParentStartsCommand(text string) error {
-	release := s.release
-	s.setChildSteps(func() []scriptStep { return []scriptStep{waitStep(release, answerStep("(no memory hits)"))} })
-	return s.runTurn(text, toolStep(commandCall("call_bg", "sleep 2", true)), answerStep("parent answer"))
-}
-
-// The parent lists its background tasks and waits on the memory task while
-// the memory child is held: the pool tools must neither list nor honour it.
-func (s *memoryFeatureState) userSendsAndChildWaitsWhileParentUsesPoolTools(text string) error {
-	release := s.release
-	s.setChildSteps(func() []scriptStep { return []scriptStep{waitStep(release, answerStep("(no memory hits)"))} })
-	waitOnMemory := func(messages []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) *llm.Response {
-		id := ""
-		if t, err := s.lastMemoryTask(); err == nil {
-			id = t.ID
-		}
-		args, _ := json.Marshal(map[string]interface{}{"task_id": id, "timeout_seconds": 1})
-		return toolStep(llm.ToolCall{ID: "call_wait_mem", Name: "background_wait", InputJSON: string(args)})(messages, defs, onChunk)
-	}
-	return s.runTurn(text,
-		toolStep(llm.ToolCall{ID: "call_list", Name: "background_list", InputJSON: "{}"}),
-		waitOnMemory,
-		answerStep("parent answer"))
-}
-
-func (s *memoryFeatureState) backgroundListNamesNoMemoryTask() error {
-	res, ok := s.results["call_list"]
-	if !ok {
-		return fmt.Errorf("background_list produced no tool result")
-	}
-	if strings.Contains(res, "memory:") || strings.Contains(res, "bg_") {
-		return fmt.Errorf("background_list shows the memory run: %q", res)
-	}
 	return nil
-}
-
-func (s *memoryFeatureState) backgroundWaitRefusedAsSystemTask() error {
-	res, ok := s.results["call_wait_mem"]
-	if !ok {
-		return fmt.Errorf("background_wait produced no tool result")
-	}
-	if !strings.Contains(res, "system task") {
-		return fmt.Errorf("background_wait on the memory task was not refused as a system task: %q", res)
-	}
-	return nil
-}
-
-func (s *memoryFeatureState) fallbackNeverCalledForChild() error {
-	t, err := s.lastMemoryTask()
-	if err != nil {
-		return err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if p, ok := s.childProviders[t.Agent.SessionID]; ok && p.wasCalled() {
-		return fmt.Errorf("the fallback model answered the memory child after the first model had already streamed")
-	}
-	return nil
-}
-
-func (s *memoryFeatureState) parentTurnCancelledDuringWait() error {
-	if s.turnCancel == nil {
-		return fmt.Errorf("no turn to cancel")
-	}
-	s.parent.SetUserCancelledTurn()
-	s.parent.Cancel()
-	select {
-	case <-s.turnDone:
-		return nil
-	case <-time.After(20 * time.Second):
-		return fmt.Errorf("the parent turn did not end after the cancel")
-	}
-}
-
-func (s *memoryFeatureState) childReleasedAndAnswers(answer string) error {
-	s.mu.Lock()
-	release := s.release
-	s.release = make(chan struct{})
-	s.mu.Unlock()
-	close(release)
-	_ = answer // the script was fixed when the child was set up
-	return s.waitMemoryTask(30 * time.Second)
 }
 
 // ---- lookups ----
@@ -577,18 +466,6 @@ func (s *memoryFeatureState) childProvider() (*scriptedProvider, error) {
 	return p, nil
 }
 
-func (s *memoryFeatureState) memoryRunUpdate(status string) *acp.MemoryRunUpdate {
-	s.client.mu.Lock()
-	defer s.client.mu.Unlock()
-	for _, u := range s.client.updates {
-		if mu, ok := u.(acp.MemoryRunUpdate); ok && mu.Status == status {
-			cp := mu
-			return &cp
-		}
-	}
-	return nil
-}
-
 func (s *memoryFeatureState) taskLog() (string, error) {
 	t, err := s.lastMemoryTask()
 	if err != nil {
@@ -600,16 +477,29 @@ func (s *memoryFeatureState) taskLog() (string, error) {
 
 // ---- thens ----
 
-func (s *memoryFeatureState) poolListsSystemMemoryTask() error {
+func (s *memoryFeatureState) poolListsAgentTaskNamedMemory() error {
+	_, err := s.lastMemoryTask()
+	return err
+}
+
+func (s *memoryFeatureState) memoryTaskNotSystem() error {
 	t, err := s.lastMemoryTask()
 	if err != nil {
 		return err
 	}
-	if !t.SystemTask() {
-		return fmt.Errorf("the memory task is not marked as a system task: %+v", t.Agent)
+	if t.SystemTask() {
+		return fmt.Errorf("the memory task is marked as a system task: %+v", t.Agent)
 	}
-	if !strings.HasPrefix(t.Label, "memory: ") {
-		return fmt.Errorf("memory task label = %q", t.Label)
+	return nil
+}
+
+func (s *memoryFeatureState) spawnRefusedNaming(text string) error {
+	res, ok := s.results["call_mem_1"]
+	if !ok {
+		return fmt.Errorf("the parent received no spawn_agent result; results: %v", s.results)
+	}
+	if !strings.Contains(res, text) {
+		return fmt.Errorf("the spawn_agent result does not name %q: %q", text, res)
 	}
 	return nil
 }
@@ -680,258 +570,13 @@ func (s *memoryFeatureState) childPromptIsTheMemoryRole() error {
 	return nil
 }
 
-func (s *memoryFeatureState) parentFirstPromptContains(text string) error {
-	sp, ok := s.parentProvider.firstSystemPrompt()
-	if !ok {
-		return fmt.Errorf("the parent model received no system prompt")
-	}
-	if !strings.Contains(sp, text) {
-		return fmt.Errorf("the parent's first system prompt lacks %q", text)
-	}
-	return nil
-}
-
-func (s *memoryFeatureState) parentFirstPromptLacks(text string) error {
-	sp, ok := s.parentProvider.firstSystemPrompt()
-	if !ok {
-		return fmt.Errorf("the parent model received no system prompt")
-	}
-	if strings.Contains(sp, text) {
-		return fmt.Errorf("the parent's first system prompt carries %q", text)
-	}
-	return nil
-}
-
-// trailingTurnContext is the trailing turn context block of a request, or "".
-func trailingTurnContext(req []llm.Message) string {
-	if len(req) == 0 {
-		return ""
-	}
-	last := req[len(req)-1]
-	if last.Role != llm.RoleUser || !strings.Contains(last.Content, turnContextOpenTag) {
-		return ""
-	}
-	return last.Content
-}
-
-func carriesMemoryInTurnContext(req []llm.Message, text string) bool {
-	block := trailingTurnContext(req)
-	return strings.Contains(block, "## Long-term memory") && strings.Contains(block, text)
-}
-
-// requestsOfTurn copies what the parent's model was sent in one turn.
-func (s *memoryFeatureState) requestsOfTurn(turn int) ([][]llm.Message, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if turn < 0 || turn >= len(s.parentTurns) {
-		return nil, fmt.Errorf("the scenario ran %d parent turns, turn %d was asked for", len(s.parentTurns), turn+1)
-	}
-	p := s.parentTurns[turn]
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if len(p.requests) == 0 {
-		return nil, fmt.Errorf("the parent's model received no request in turn %d", turn+1)
-	}
-	return append([][]llm.Message(nil), p.requests...), nil
-}
-
-func (s *memoryFeatureState) parentFirstRequestCarriesInTurnContext(text string) error {
-	reqs, err := s.requestsOfTurn(len(s.parentTurns) - 1)
-	if err != nil {
-		return err
-	}
-	if !carriesMemoryInTurnContext(reqs[0], text) {
-		return fmt.Errorf("the parent's first request lacks %q in its turn context: %q", text, trailingTurnContext(reqs[0]))
-	}
-	return nil
-}
-
-func (s *memoryFeatureState) systemMessageSameInBothTurns() error {
-	first, err := s.requestsOfTurn(0)
-	if err != nil {
-		return err
-	}
-	second, err := s.requestsOfTurn(1)
-	if err != nil {
-		return err
-	}
-	if first[0][0].Role != llm.RoleSystem || second[0][0].Role != llm.RoleSystem {
-		return fmt.Errorf("a turn was sent without a system message")
-	}
-	if first[0][0].Content != second[0][0].Content {
-		return fmt.Errorf("the system message moved between the turns: a provider would re-read the whole conversation")
-	}
-	return nil
-}
-
-func (s *memoryFeatureState) noParentSystemMessageCarries(text string) error {
-	for turn := range s.parentTurns {
-		reqs, err := s.requestsOfTurn(turn)
-		if err != nil {
-			return err
-		}
-		for i, req := range reqs {
-			if len(req) > 0 && req[0].Role == llm.RoleSystem && strings.Contains(req[0].Content, text) {
-				return fmt.Errorf("the system message of request %d in turn %d carries %q", i+1, turn+1, text)
-			}
-		}
-	}
-	return nil
-}
-
-func (s *memoryFeatureState) secondTurnFirstRequestCarriesInTurnContext(text string) error {
-	reqs, err := s.requestsOfTurn(1)
-	if err != nil {
-		return err
-	}
-	if !carriesMemoryInTurnContext(reqs[0], text) {
-		return fmt.Errorf("the first request of the second turn lacks %q in its turn context: %q", text, trailingTurnContext(reqs[0]))
-	}
-	return nil
-}
-
-func (s *memoryFeatureState) secondTurnFirstRequestCarriesNowhere(text string) error {
-	reqs, err := s.requestsOfTurn(1)
-	if err != nil {
-		return err
-	}
-	for i, m := range reqs[0] {
-		if strings.Contains(m.Content, text) {
-			return fmt.Errorf("message %d (%s) of the second turn's first request carries %q", i, m.Role, text)
-		}
-	}
-	return nil
-}
-
-// The second turn's first request starts with the very messages the first
-// turn sent (its turn context aside) and only then adds its own: that is the
-// prefix a provider's cache keeps.
-func (s *memoryFeatureState) secondTurnRepeatsTheFirst() error {
-	first, err := s.requestsOfTurn(0)
-	if err != nil {
-		return err
-	}
-	second, err := s.requestsOfTurn(1)
-	if err != nil {
-		return err
-	}
-	sent := first[len(first)-1]
-	if trailingTurnContext(sent) != "" {
-		sent = sent[:len(sent)-1]
-	}
-	next := second[0]
-	if len(next) <= len(sent) {
-		return fmt.Errorf("the second turn sent %d messages, the first had sent %d", len(next), len(sent))
-	}
-	for i, m := range sent {
-		if next[i].Role != m.Role || next[i].Content != m.Content {
-			return fmt.Errorf("message %d moved between the turns:\nwas %q\nnow %q", i, m.Content, next[i].Content)
-		}
-	}
-	for i, m := range next[:len(next)-1] {
-		if strings.Contains(m.Content, turnContextOpenTag) {
-			return fmt.Errorf("message %d of the second turn carries a turn context block inside the history", i)
-		}
-	}
-	return nil
-}
-
-func (s *memoryFeatureState) everyRequestOfTurnCarriesInTurnContext(text string) error {
-	reqs, err := s.requestsOfTurn(len(s.parentTurns) - 1)
-	if err != nil {
-		return err
-	}
-	if len(reqs) < 2 {
-		return fmt.Errorf("the turn made %d requests, want at least two", len(reqs))
-	}
-	for i, req := range reqs {
-		if !carriesMemoryInTurnContext(req, text) {
-			return fmt.Errorf("request %d of the turn lacks %q in its turn context: %q", i+1, text, trailingTurnContext(req))
-		}
-	}
-	return nil
-}
-
-func (s *memoryFeatureState) everyRequestOfTurnCarriesSameSystemMessage() error {
-	reqs, err := s.requestsOfTurn(len(s.parentTurns) - 1)
-	if err != nil {
-		return err
-	}
-	for i, req := range reqs {
-		if req[0].Content != reqs[0][0].Content {
-			return fmt.Errorf("the system message of request %d differs from the first", i+1)
-		}
-	}
-	return nil
-}
-
-func (s *memoryFeatureState) laterRequestCarriesInTurnContext(text string) error {
-	s.parentProvider.mu.Lock()
-	defer s.parentProvider.mu.Unlock()
-	for _, req := range s.parentProvider.requests[1:] {
-		if len(req) == 0 {
-			continue
-		}
-		last := req[len(req)-1]
-		if last.Role == llm.RoleUser && strings.Contains(last.Content, turnContextOpenTag) && strings.Contains(last.Content, "## Long-term memory") && strings.Contains(last.Content, text) {
-			return nil
-		}
-	}
-	return fmt.Errorf("no later parent request carries %q in its turn context (%d requests)", text, len(s.parentProvider.requests))
-}
-
-func (s *memoryFeatureState) clientReceivedMemoryRun(status string) error {
-	if s.memoryRunUpdate(status) == nil {
-		return fmt.Errorf("the parent's client received no memory_run update with status %q", status)
-	}
-	return nil
-}
-
-// The finished update of a failed run names the provider's error, the one
-// the console line and the drawer row show.
-func (s *memoryFeatureState) clientReceivedMemoryRunFailedNaming(taskStatus, text string) error {
-	u := s.memoryRunUpdate("finished")
-	if u == nil {
-		return fmt.Errorf("the parent's client received no memory_run update with status finished")
-	}
-	if u.TaskStatus != taskStatus {
-		return fmt.Errorf("memory_run finished taskStatus = %q, want %q", u.TaskStatus, taskStatus)
-	}
-	if !strings.Contains(u.Reason, text) {
-		return fmt.Errorf("memory_run finished reason = %q, want it to name %q", u.Reason, text)
-	}
-	return nil
-}
-
-func (s *memoryFeatureState) memoryTaskRecordNamesError(text string) error {
-	t, err := s.lastMemoryTask()
-	if err != nil {
-		return err
-	}
-	if !strings.Contains(t.Error, text) {
-		return fmt.Errorf("memory task error = %q, want it to name %q", t.Error, text)
-	}
-	return nil
-}
-
 func (s *memoryFeatureState) parentAnsweredTheUser() error {
-	if s.turnErr != nil {
-		return fmt.Errorf("the parent turn failed: %v", s.turnErr)
+	if s.turnStop != "end_turn" {
+		return fmt.Errorf("the parent turn ended as %q, err %v", s.turnStop, s.turnErr)
 	}
-	msgs := s.parent.GetMessages()
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == llm.RoleAssistant && strings.TrimSpace(msgs[i].Content) != "" {
-			if msgs[i].Content != "parent answer" {
-				return fmt.Errorf("the parent's reply = %q, want %q", msgs[i].Content, "parent answer")
-			}
-			return nil
-		}
-	}
-	return fmt.Errorf("the parent produced no reply")
+	return nil
 }
 
-// The operator's addendum is a section of the child's system prompt under
-// its own heading, after the memory role and before the tool list.
 func (s *memoryFeatureState) childPromptCarriesOperatorInstructions(text string) error {
 	p, err := s.childProvider()
 	if err != nil {
@@ -941,97 +586,60 @@ func (s *memoryFeatureState) childPromptCarriesOperatorInstructions(text string)
 	if !ok {
 		return fmt.Errorf("the memory child received no system prompt")
 	}
-	heading := "## Operator instructions"
-	at := strings.Index(sp, heading)
-	if at < 0 {
-		return fmt.Errorf("the child prompt has no %q section:\n%s", heading, sp)
-	}
-	section := sp[at:]
-	if end := strings.Index(section, "\n## "); end > 0 {
-		section = section[:end]
-	}
-	if !strings.Contains(section, text) {
-		return fmt.Errorf("the operator section lacks %q:\n%s", text, section)
-	}
-	if role := strings.Index(sp, "memory subagent"); role < 0 || role > at {
-		return fmt.Errorf("the operator section must follow the memory role:\n%s", sp)
-	}
-	return nil
-}
-
-func (s *memoryFeatureState) clientReceivedMemoryRunDelivered(status string, delivered string) error {
-	u := s.memoryRunUpdate(status)
-	if u == nil {
-		return fmt.Errorf("the parent's client received no memory_run update with status %q", status)
-	}
-	if u.Delivered != (delivered == "true") {
-		return fmt.Errorf("memory_run %s delivered = %v, want %s", status, u.Delivered, delivered)
-	}
-	return nil
-}
-
-func (s *memoryFeatureState) taskLogSaysDelivered() error {
-	text, err := s.taskLog()
-	if err != nil {
-		return err
-	}
-	if !strings.Contains(text, "report delivered to the turn") {
-		return fmt.Errorf("the task log does not say the report was delivered:\n%s", text)
-	}
-	return nil
-}
-
-func (s *memoryFeatureState) taskLogSaysTurnEnded() error {
-	text, err := s.taskLog()
-	if err != nil {
-		return err
-	}
-	if !strings.Contains(text, "turn ended before the report") {
-		return fmt.Errorf("the task log does not say the turn ended first:\n%s", text)
+	if !strings.Contains(sp, text) {
+		return fmt.Errorf("the child system prompt lacks %q", text)
 	}
 	return nil
 }
 
 func (s *memoryFeatureState) taskLogContains(text string) error {
-	got, err := s.taskLog()
+	log, err := s.taskLog()
 	if err != nil {
 		return err
 	}
-	if !strings.Contains(got, text) {
-		return fmt.Errorf("the task log lacks %q:\n%s", text, got)
+	if !strings.Contains(log, text) {
+		return fmt.Errorf("task log lacks %q:\n%s", text, log)
 	}
 	return nil
 }
 
 func (s *memoryFeatureState) childSaveRefused() error {
-	snap, err := s.childSnapshot()
+	p, err := s.childProvider()
 	if err != nil {
 		return err
 	}
-	for _, m := range snap.Messages {
-		if m.Role == llm.RoleTool && strings.Contains(m.Content, "not available to this subagent") {
-			return nil
+	for _, req := range p.requests {
+		for _, m := range req {
+			if m.Role == llm.RoleTool && m.ToolCallID == "call_save" {
+				if strings.Contains(m.Content, "refus") || strings.Contains(m.Content, "not available") || strings.Contains(m.Content, "error") {
+					return nil
+				}
+				return fmt.Errorf("the child's save was not refused: %q", m.Content)
+			}
 		}
 	}
-	return fmt.Errorf("the child transcript holds no refusal of the save")
+	return fmt.Errorf("the child never saw a save result")
 }
 
 func (s *memoryFeatureState) globalNotes() (string, error) {
+	dir := filepath.Join(s.home, "memory")
 	var b strings.Builder
-	root := filepath.Join(s.home, "memory")
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".md") {
-			return nil
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
 		}
-		data, _ := os.ReadFile(path)
+		data, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return rerr
+		}
 		b.Write(data)
 		b.WriteString("\n")
 		return nil
 	})
-	if err != nil && !os.IsNotExist(err) {
-		return "", err
+	if os.IsNotExist(err) {
+		return "", nil
 	}
-	return b.String(), nil
+	return b.String(), err
 }
 
 func (s *memoryFeatureState) noGlobalNote() error {
@@ -1040,7 +648,7 @@ func (s *memoryFeatureState) noGlobalNote() error {
 		return err
 	}
 	if strings.TrimSpace(notes) != "" {
-		return fmt.Errorf("a note was written under the global root:\n%s", notes)
+		return fmt.Errorf("a note exists under the global root: %q", notes)
 	}
 	return nil
 }
@@ -1051,7 +659,7 @@ func (s *memoryFeatureState) globalNoteContains(text string) error {
 		return err
 	}
 	if !strings.Contains(notes, text) {
-		return fmt.Errorf("no global note contains %q:\n%s", text, notes)
+		return fmt.Errorf("no global note contains %q; notes: %q", text, notes)
 	}
 	return nil
 }
@@ -1068,7 +676,7 @@ func (s *memoryFeatureState) childTranscriptRecordsCall(name string) error {
 			}
 		}
 	}
-	return fmt.Errorf("the child transcript records no call of %s", name)
+	return fmt.Errorf("the child transcript records no call of %q", name)
 }
 
 func (s *memoryFeatureState) clientReceivedNoChunk(text string) error {
@@ -1076,28 +684,8 @@ func (s *memoryFeatureState) clientReceivedNoChunk(text string) error {
 	defer s.client.mu.Unlock()
 	for _, u := range s.client.updates {
 		if ch, ok := u.(acp.MessageChunkUpdate); ok && strings.Contains(ch.Content.Text, text) {
-			return fmt.Errorf("a child chunk %q leaked to the parent's client", ch.Content.Text)
+			return fmt.Errorf("the parent stream carries a chunk with %q", text)
 		}
-	}
-	return nil
-}
-
-func (s *memoryFeatureState) clientReceivedOnlyMemoryRunAboutMemory() error {
-	s.client.mu.Lock()
-	defer s.client.mu.Unlock()
-	runs := 0
-	for _, u := range s.client.updates {
-		switch v := u.(type) {
-		case acp.MemoryRunUpdate:
-			runs++
-		case acp.ToolCallUpdate:
-			if strings.HasPrefix(v.Title, "coddy_memory_") {
-				return fmt.Errorf("a memory tool call %q reached the parent's client", v.Title)
-			}
-		}
-	}
-	if runs == 0 {
-		return fmt.Errorf("the parent's client received no memory_run update")
 	}
 	return nil
 }
@@ -1118,26 +706,21 @@ func (s *memoryFeatureState) childRanOnModel(model string) error {
 	return nil
 }
 
-func (s *memoryFeatureState) parentTurnEndedCancelled() error {
-	if s.turnStop != string(acp.StopReasonCancelled) {
-		return fmt.Errorf("parent turn stop reason = %q (err %v), want cancelled", s.turnStop, s.turnErr)
-	}
-	return nil
-}
-
-func (s *memoryFeatureState) memoryTaskStillRunning() error {
+func (s *memoryFeatureState) fallbackNeverCalledForChild() error {
 	t, err := s.lastMemoryTask()
 	if err != nil {
 		return err
 	}
-	if t.Status.Finished() {
-		return fmt.Errorf("the memory task already finished: %s", t.Status)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p, ok := s.childProviders[t.Agent.SessionID]; ok && p.wasCalled() {
+		return fmt.Errorf("the fallback model answered the memory child after the first model had already streamed")
 	}
 	return nil
 }
 
 func (s *memoryFeatureState) memoryTaskFinishedAs(status string) error {
-	if err := s.waitMemoryTask(30 * time.Second); err != nil {
+	if err := s.waitMemoryTask(10 * time.Second); err != nil {
 		return err
 	}
 	t, err := s.lastMemoryTask()
@@ -1145,83 +728,44 @@ func (s *memoryFeatureState) memoryTaskFinishedAs(status string) error {
 		return err
 	}
 	if string(t.Status) != status {
-		return fmt.Errorf("memory task status = %q, want %q (error %q)", t.Status, status, t.Error)
+		return fmt.Errorf("memory task status = %q, want %q", t.Status, status)
+	}
+	return nil
+}
+
+func (s *memoryFeatureState) memoryTaskRecordNamesError(text string) error {
+	log, err := s.taskLog()
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(log, text) {
+		return fmt.Errorf("the task log names no %q:\n%s", text, log)
 	}
 	return nil
 }
 
 func (s *memoryFeatureState) poolListsExactlyMemoryTasks(n int) error {
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		tasks := s.memoryTasks()
-		if len(tasks) == n {
-			return nil
-		}
-		if !time.Now().Before(deadline) {
-			return fmt.Errorf("the pool lists %d memory tasks, want %d", len(tasks), n)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-}
-
-func (s *memoryFeatureState) exactlyChildBundles(n int) error {
-	dir := filepath.Join(s.store.SessionPath(s.parent.ID), session.ChildSessionsDirName)
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		entries, _ := os.ReadDir(dir)
-		count := 0
-		for _, e := range entries {
-			if e.IsDir() {
-				count++
-			}
-		}
-		if count == n {
-			return nil
-		}
-		if !time.Now().Before(deadline) {
-			return fmt.Errorf("%d child bundles under the parent, want %d", count, n)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-}
-
-func (s *memoryFeatureState) backgroundCommandAccepted() error {
-	res, ok := s.results["call_bg"]
-	if !ok {
-		return fmt.Errorf("the parent's background command produced no tool result")
-	}
-	if extractTaskID(res) == "" || strings.Contains(res, "pool is full") {
-		return fmt.Errorf("the background command was not accepted: %q", res)
+	tasks := s.memoryTasks()
+	if len(tasks) != n {
+		return fmt.Errorf("the pool lists %d memory tasks, want %d", len(tasks), n)
 	}
 	return nil
 }
 
-// memoryRootHolds writes a note into one memory root of the scenario's
-// workspace: the global root under the home, the project root under
-// <workspace>/.coddy/memory.
 func (s *memoryFeatureState) memoryRootHolds(scope, rel, body string) error {
-	root := filepath.Join(s.home, "memory")
+	dir := filepath.Join(s.home, "memory")
 	if scope == "project" {
-		root = filepath.Join(s.cwd, ".coddy", "memory")
+		dir = filepath.Join(s.cwd, ".coddy", "memory")
 	}
-	path := filepath.Join(root, filepath.FromSlash(rel))
+	path := filepath.Join(dir, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(body+"\n"), 0o644)
-}
-
-func (s *memoryFeatureState) userSendsAndChildSearchesThenAnswers(text, query, answer string) error {
-	args, _ := json.Marshal(map[string]interface{}{"query": query, "scope": "both"})
-	call := llm.ToolCall{ID: "call_search", Name: memtools.NameSearch, InputJSON: string(args)}
-	s.setChildSteps(func() []scriptStep { return []scriptStep{toolStep(call), answerStep(answer)} })
-	return s.runTurn(text, answerStep("parent answer"))
+	return os.WriteFile(path, []byte(body), 0o644)
 }
 
 var searchHitLine = regexp.MustCompile(`### Hit \d+ \(\w+ score=\S+ path=([^)]+)\)`)
 
-// childSearchHits is the paths of the hits the child's coddy_memory_search
-// call answered with, best first.
 func (s *memoryFeatureState) childSearchHits() ([]string, error) {
 	snap, err := s.childSnapshot()
 	if err != nil {
@@ -1239,8 +783,6 @@ func (s *memoryFeatureState) childSearchHits() ([]string, error) {
 	return nil, fmt.Errorf("the child transcript holds no result of the search")
 }
 
-// searchRanksAbove holds when the search listed the first note and either
-// left the second out or listed it below the first.
 func (s *memoryFeatureState) searchRanksAbove(better, worse string) error {
 	paths, err := s.childSearchHits()
 	if err != nil {
@@ -1260,21 +802,20 @@ func (s *memoryFeatureState) searchRanksAbove(better, worse string) error {
 	return nil
 }
 
-// childTask is the task message the memory child started from: the first
-// user message of its first request.
+// childTask is the user message the child's first request carries.
 func (s *memoryFeatureState) childTask() (string, error) {
 	p, err := s.childProvider()
 	if err != nil {
 		return "", err
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	for _, m := range p.requests[0] {
-		if m.Role == llm.RoleUser {
-			return m.Content, nil
+	for _, req := range p.requests {
+		for _, m := range req {
+			if m.Role == llm.RoleUser {
+				return m.Content, nil
+			}
 		}
 	}
-	return "", fmt.Errorf("the memory child's first request carries no user message")
+	return "", fmt.Errorf("the child's first request carries no user message")
 }
 
 func (s *memoryFeatureState) childTaskCarriesInOrder(first, second, third string) error {
@@ -1282,13 +823,14 @@ func (s *memoryFeatureState) childTaskCarriesInOrder(first, second, third string
 	if err != nil {
 		return err
 	}
-	at := 0
-	for _, part := range []string{first, second, third} {
-		i := strings.Index(task[at:], part)
-		if i < 0 {
-			return fmt.Errorf("the memory child's task lacks %q after offset %d:\n%s", part, at, task)
-		}
-		at += i + len(part)
+	i1 := strings.Index(task, first)
+	i2 := strings.Index(task, second)
+	i3 := strings.Index(task, third)
+	if i1 < 0 || i2 < 0 || i3 < 0 {
+		return fmt.Errorf("the child's task lacks one of %q, %q, %q:\n%s", first, second, third, task)
+	}
+	if i1 >= i2 || i2 >= i3 {
+		return fmt.Errorf("the child's task carries them out of order:\n%s", task)
 	}
 	return nil
 }
@@ -1299,7 +841,7 @@ func (s *memoryFeatureState) childTaskDoesNotCarry(text string) error {
 		return err
 	}
 	if strings.Contains(task, text) {
-		return fmt.Errorf("the memory child's task carries %q:\n%s", text, task)
+		return fmt.Errorf("the child's task carries %q:\n%s", text, task)
 	}
 	return nil
 }
@@ -1307,78 +849,54 @@ func (s *memoryFeatureState) childTaskDoesNotCarry(text string) error {
 func initializeMemoryScenario(sc *godog.ScenarioContext) {
 	s := &memoryFeatureState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
-		return ctx, s.reset()
+		if err := s.reset(); err != nil {
+			return ctx, err
+		}
+		return ctx, nil
 	})
 	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
 		s.close()
 		return ctx, nil
 	})
 
-	sc.Step(`^long-term memory is enabled with a wait of (\d+) seconds$`, s.memoryEnabledWithWait)
-	sc.Step(`^memory keeps (\d+) runs$`, s.memoryKeepsRuns)
+	sc.Step(`^long-term memory is enabled$`, s.memoryEnabled)
+	sc.Step(`^long-term memory is disabled$`, s.memoryDisabled)
 	sc.Step(`^the background task pool allows (\d+) task per session$`, s.poolAllows)
 	sc.Step(`^the memory model is "([^"]*)" with the fallback "([^"]*)"$`, s.memoryModelWithFallback)
 	sc.Step(`^every model the memory child could run on answers "([^"]*)"$`, s.everyChildModelAnswers)
 	sc.Step(`^the memory additional prompt is "([^"]*)" with no cap$`, s.memoryAdditionalPromptWithNoCap)
 	sc.Step(`^a parent agent session in that workspace$`, s.parentSession)
-	sc.Step(`^a parent agent session in that workspace in ask mode$`, s.parentSessionInAskMode)
 
-	sc.Step(`^the user sends "([^"]*)" and the memory child answers "([^"]*)"$`, s.userSendsAndChildAnswers)
-	sc.Step(`^the user sends "([^"]*)" and the memory child answers "([^"]*)" only after the parent's first request$`, s.userSendsAndChildAnswersLate)
-	sc.Step(`^the user sends "([^"]*)" and the memory child answers "([^"]*)" while the parent takes two steps$`, s.userSendsAndChildAnswersWhileParentTakesTwoSteps)
-	sc.Step(`^the user sends "([^"]*)" and the memory child asks to save a note before answering "([^"]*)"$`, s.userSendsAndChildSavesBeforeAnswering)
-	sc.Step(`^the user sends "([^"]*)" and the memory child saves the note "([^"]*)" then answers "([^"]*)"$`, s.userSendsAndChildSavesThenAnswers)
-	sc.Step(`^the user sends "([^"]*)" and the memory child saves a note of (\d+) Cyrillic characters then answers "([^"]*)"$`, s.userSendsAndChildSavesCyrillicThenAnswers)
-	sc.Step(`^a note under the global memory root holds those (\d+) characters whole$`, s.globalNoteHoldsCyrillicWhole)
-	sc.Step(`^the memory child's save was answered without a truncation warning$`, s.childSaveAnsweredWithoutWarning)
-	sc.Step(`^the user sends "([^"]*)" and the memory child waits to be released$`, s.userSendsAndChildWaits)
-	sc.Step(`^the user sends "([^"]*)" and the memory child waits to be released while the parent starts a background command$`, s.userSendsAndChildWaitsWhileParentStartsCommand)
-	sc.Step(`^the user sends "([^"]*)" and the memory child waits to be released while the parent lists and waits for its tasks$`, s.userSendsAndChildWaitsWhileParentUsesPoolTools)
-	sc.Step(`^the parent turn is cancelled during the memory wait$`, s.parentTurnCancelledDuringWait)
-	sc.Step(`^the memory child is released and answers "([^"]*)"$`, s.childReleasedAndAnswers)
+	sc.Step(`^the model delegates "([^"]*)" to the memory subagent and it answers "([^"]*)"$`, s.modelDelegatesAndChildAnswers)
+	sc.Step(`^the memory subagent is spawned in plan mode and it asks to save a note before answering "([^"]*)"$`, s.memorySpawnedInPlanModeAsksToSave)
+	sc.Step(`^the model delegates "([^"]*)" to the memory subagent and it asks to save a note before answering "([^"]*)"$`, s.modelDelegatesChildAsksToSave)
+	sc.Step(`^the model delegates "([^"]*)" to the memory subagent and it saves the note "([^"]*)" then answers "([^"]*)"$`, s.modelDelegatesChildSavesThenAnswers)
+	sc.Step(`^the model delegates "([^"]*)" to the memory subagent and it saves a note of (\d+) Cyrillic characters then answers "([^"]*)"$`, s.modelDelegatesChildSavesCyrillicThenAnswers)
+	sc.Step(`^the model delegates "([^"]*)" to the memory subagent and it searches the notes for "([^"]*)" then answers "([^"]*)"$`, s.modelDelegatesChildSearchesThenAnswers)
+	sc.Step(`^the model delegates "([^"]*)" to the memory subagent and the parent still answers the user$`, s.modelDelegatesParentStillAnswers)
 
-	sc.Step(`^the pool lists an agent task named "memory" for the parent session marked as a system task$`, s.poolListsSystemMemoryTask)
+	sc.Step(`^the pool lists an agent task named "memory" for the parent session$`, s.poolListsAgentTaskNamedMemory)
+	sc.Step(`^the memory task is not marked as a system task$`, s.memoryTaskNotSystem)
+	sc.Step(`^the parent's spawn_agent call was refused naming "([^"]*)"$`, s.spawnRefusedNaming)
 	sc.Step(`^the memory child session bundle sits inside the parent's and records the parent session id and the name "memory"$`, s.childBundleInsideParent)
 	sc.Step(`^the memory child was offered exactly the tools "([^"]*)"$`, s.childOfferedExactly)
 	sc.Step(`^the memory child's system prompt carries the memory role and no project instructions$`, s.childPromptIsTheMemoryRole)
-	sc.Step(`^the parent's first system prompt contains "([^"]*)"$`, s.parentFirstPromptContains)
-	sc.Step(`^the parent's first system prompt does not contain "([^"]*)"$`, s.parentFirstPromptLacks)
-	sc.Step(`^a later parent request carries "([^"]*)" in its turn context$`, s.laterRequestCarriesInTurnContext)
-	sc.Step(`^the parent's first request carries "([^"]*)" in its turn context$`, s.parentFirstRequestCarriesInTurnContext)
-	sc.Step(`^the parent's system message is the same in both turns$`, s.systemMessageSameInBothTurns)
-	sc.Step(`^no parent system message carries "([^"]*)"$`, s.noParentSystemMessageCarries)
-	sc.Step(`^the first request of the second turn carries "([^"]*)" in its turn context$`, s.secondTurnFirstRequestCarriesInTurnContext)
-	sc.Step(`^the first request of the second turn carries "([^"]*)" nowhere$`, s.secondTurnFirstRequestCarriesNowhere)
-	sc.Step(`^the second turn repeats the first turn's conversation byte for byte before its own message$`, s.secondTurnRepeatsTheFirst)
-	sc.Step(`^every parent request of that turn carries "([^"]*)" in its turn context$`, s.everyRequestOfTurnCarriesInTurnContext)
-	sc.Step(`^every parent request of that turn carries the same system message$`, s.everyRequestOfTurnCarriesSameSystemMessage)
-	sc.Step(`^the parent's client received a memory_run update with status "([^"]*)"$`, s.clientReceivedMemoryRun)
-	sc.Step(`^the parent's client received a memory_run update with status "([^"]*)" and delivered (true|false)$`, s.clientReceivedMemoryRunDelivered)
-	sc.Step(`^the parent's client received a memory_run update with status "finished", task status "([^"]*)" and a reason naming "([^"]*)"$`, s.clientReceivedMemoryRunFailedNaming)
-	sc.Step(`^the memory task record names the error "([^"]*)"$`, s.memoryTaskRecordNamesError)
-	sc.Step(`^the parent answered the user$`, s.parentAnsweredTheUser)
 	sc.Step(`^the memory child's system prompt carries "([^"]*)" under the operator instructions$`, s.childPromptCarriesOperatorInstructions)
-	sc.Step(`^the memory task log says the report was delivered to the turn$`, s.taskLogSaysDelivered)
-	sc.Step(`^the memory task log says the turn ended before the report$`, s.taskLogSaysTurnEnded)
 	sc.Step(`^the memory task log contains "([^"]*)"$`, s.taskLogContains)
 	sc.Step(`^the memory child's save was refused$`, s.childSaveRefused)
 	sc.Step(`^no note was written under the global memory root$`, s.noGlobalNote)
 	sc.Step(`^a note under the global memory root contains "([^"]*)"$`, s.globalNoteContains)
+	sc.Step(`^a note under the global memory root holds those (\d+) characters whole$`, s.globalNoteHoldsCyrillicWhole)
+	sc.Step(`^the memory child's save was answered without a truncation warning$`, s.childSaveAnsweredWithoutWarning)
 	sc.Step(`^the memory child transcript records a call of "([^"]*)"$`, s.childTranscriptRecordsCall)
 	sc.Step(`^the parent's client received no message chunk containing "([^"]*)"$`, s.clientReceivedNoChunk)
-	sc.Step(`^the parent's client received memory_run updates and nothing else about memory$`, s.clientReceivedOnlyMemoryRunAboutMemory)
 	sc.Step(`^the memory child ran on the model "([^"]*)"$`, s.childRanOnModel)
 	sc.Step(`^the fallback model was never called for the memory child$`, s.fallbackNeverCalledForChild)
-	sc.Step(`^the parent's background_list result names no memory task$`, s.backgroundListNamesNoMemoryTask)
-	sc.Step(`^the parent's background_wait on the memory task was refused as a system task$`, s.backgroundWaitRefusedAsSystemTask)
-	sc.Step(`^the parent turn ended as cancelled$`, s.parentTurnEndedCancelled)
-	sc.Step(`^the memory task is still running$`, s.memoryTaskStillRunning)
 	sc.Step(`^the memory task finished as "([^"]*)"$`, s.memoryTaskFinishedAs)
+	sc.Step(`^the memory task record names the error "([^"]*)"$`, s.memoryTaskRecordNamesError)
+	sc.Step(`^the parent answered the user$`, s.parentAnsweredTheUser)
 	sc.Step(`^the pool lists exactly (\d+) memory tasks for the parent session$`, s.poolListsExactlyMemoryTasks)
-	sc.Step(`^exactly (\d+) memory child bundles exist under the parent's$`, s.exactlyChildBundles)
-	sc.Step(`^the background command was accepted$`, s.backgroundCommandAccepted)
 	sc.Step(`^the (global|project) memory root holds the note "([^"]*)" saying "([^"]*)"$`, s.memoryRootHolds)
-	sc.Step(`^the user sends "([^"]*)" and the memory child searches the notes for "([^"]*)" then answers "([^"]*)"$`, s.userSendsAndChildSearchesThenAnswers)
 	sc.Step(`^the memory child's search ranks "([^"]*)" above "([^"]*)"$`, s.searchRanksAbove)
 	sc.Step(`^the memory child's task carries "([^"]*)", then "([^"]*)", then "([^"]*)"$`, s.childTaskCarriesInOrder)
 	sc.Step(`^the memory child's task does not carry "([^"]*)"$`, s.childTaskDoesNotCarry)

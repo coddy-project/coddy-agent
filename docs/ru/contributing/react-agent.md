@@ -92,10 +92,6 @@ Runtime state refreshed by Coddy for this step. It is not a message from the use
 
 ## Current todo checklist
 - [ ] ...
-
-## Long-term memory
-Already on disk:
-- ...
 </turn_context>
 ```
 
@@ -106,12 +102,6 @@ Already on disk:
 - **чек-лист задач** (markdown из **`internal/tools/todo.FormatPlanMarkdown`** по
   **`session.Plan`**), если он есть у сессии, чтобы вызов **`coddy_todo_*`** в этом ходе
   отразился уже на следующем шаге;
-- **отчёт субагента памяти** за этот ход, если включена долговременная память
-  ([memory.md](../features/memory.md)). Найденное в памяти меняется от хода к ходу, поэтому, если
-  рендерить его в системное сообщение, **`messages[0]`** становился бы новым на каждом ходе, и каждый
-  раз пропадал бы закэшированный диалог. Отчёт попадает в блок на первом запросе, если запуск
-  завершился в пределах **`memory.wait_seconds`**, иначе на одном из следующих шагов, и остаётся до
-  конца хода; слот **`{{.Memory}}`** в шаблонах содержит только заметки сессии;
 - **фоновые задачи, которые ещё выполняются** в этой сессии, по строке на задачу в формулировке
   **`background_list`** (**`backgroundTasksSection`**, [background-tasks.md](../features/background-tasks.md)),
   чтобы модель без лишнего вызова знала, что оставила работать. Завершённые и системные задачи в
@@ -140,8 +130,8 @@ Already on disk:
 
 **`UTCNow`** и **`TodoList`** остаются доступны шаблону из **`prompts.dir`**, и он по-прежнему может
 их рендерить ценой этого кэша на каждом запросе. Такой шаблон не получает часов и чек-листа после
-истории; его блок несёт два раздела, которые не печатает ни один шаблон, то есть отчёт памяти и
-выполняющиеся фоновые задачи, и не добавляется, если нет ни того, ни другого.
+истории; его блок несёт один раздел, который не печатает ни один шаблон, то есть выполняющиеся
+фоновые задачи, и не добавляется, если его нет.
 
 ### Вторая половина - вытеснение результатов
 
@@ -254,7 +244,7 @@ messages: [
      e. Append tool result to conversation history
 
 5. REFRESH_TURN_CONTEXT
-   - messages[0] is not rewritten: the system message stays as the turn rendered it, and what moved since (wall clock, todo checklist, memory report, running background tasks) is rebuilt by `buildTurnContext` and appended after the history at the send boundary
+   - messages[0] is not rewritten: the system message stays as the turn rendered it, and what moved since (wall clock, todo checklist, running background tasks) is rebuilt by `buildTurnContext` and appended after the history at the send boundary
    - A template under `prompts.dir` that prints `{{.UTCNow}}` or `{{.TodoList}}` is the exception: it is re-rendered before every call, and its block carries no clock or checklist
    - An automatic compaction or a workspace switch re-renders the system message for the new history or workspace, and a turn resumed after a permission prompt renders it again on entry; no other step of the turn does
    - Next loop iteration repeats from step 2
@@ -510,7 +500,7 @@ messages: [
 
 ### Режим "Чат"
 
-Встроенный **`ask.md`** описывает ассистента только для чтения, который отвечает по репозиторию и вебу и ничего не меняет. Разрешённый список реестра (**`internal/agent.ToolSetForMode("ask")`**) - это **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, **`load_skill`**, **`coddy_docs_search`** и **`coddy_docs_read`**; в нём нет ни оболочки, ни инструментов плана, задач или конфигурации, ни **`spawn_agent`**, а инструменты **MCP** никогда не добавляются. Как и в режиме "План", разрешённый список проверяется и при выполнении, поэтому вызов, повторённый из истории, отклоняется с уведомлением о режиме только для чтения; режим "Чат" отклоняет там и имена инструментов MCP, а режим "План" передаёт их слою MCP. Упоминание плана или метаданные **`runPlanSlug`** в режиме "Чат" никогда не запускают выполнение плана, а субагент памяти только читает из памяти. Дочерний субагент никогда не работает в режиме "Чат", если только ход его родителя уже не шёл в этом режиме, а из него порождать субагентов нельзя.
+Встроенный **`ask.md`** описывает ассистента только для чтения, который отвечает по репозиторию и вебу и ничего не меняет. Разрешённый список реестра (**`internal/agent.ToolSetForMode("ask")`**) - это **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, **`load_skill`**, **`coddy_docs_search`** и **`coddy_docs_read`**; в нём нет ни оболочки, ни инструментов плана, задач или конфигурации, ни **`spawn_agent`**, а инструменты **MCP** никогда не добавляются. Как и в режиме "План", разрешённый список проверяется и при выполнении, поэтому вызов, повторённый из истории, отклоняется с уведомлением о режиме только для чтения; режим "Чат" отклоняет там и имена инструментов MCP, а режим "План" передаёт их слою MCP. Упоминание плана или метаданные **`runPlanSlug`** в режиме "Чат" никогда не запускают выполнение плана. Дочерний субагент никогда не работает в режиме "Чат", если только ход его родителя уже не шёл в этом режиме, а из него порождать субагентов нельзя; субагент памяти, порождённый, пока сессия работает только на чтение, строится только на вспоминание, с тремя инструментами только для чтения из шести (**`memory.ToolNames(true)`**, [memory.md](../features/memory.md)).
 
 ## Спецификация встроенных инструментов
 
@@ -549,4 +539,4 @@ messages: [
 - Слишком длинный контекст - старые сообщения сжимаются в сводку, работа продолжается со сводкой;
 - Отмена - все операции прерываются, возвращается причина остановки `cancelled`.
 
-<!-- docsgen:source sha256=bc8936937b57acc7 -->
+<!-- docsgen:source sha256=a82bcf1183320f6f -->

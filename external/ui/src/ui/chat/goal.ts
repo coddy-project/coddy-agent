@@ -499,7 +499,6 @@ export function sameGoalTurn(a: GoalTurn, b: GoalTurn): boolean {
 /** Rows that say nothing of a turn: what may stand after its opener before the turn's first frame. */
 function saysNothing(it: TranscriptItem): boolean {
   switch (it.type) {
-    case "memory_run":
     case "system_notice":
       return true;
     case "assistant_message":

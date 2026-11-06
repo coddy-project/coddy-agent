@@ -3,16 +3,11 @@
 package agent
 
 import (
-	"context"
 	"errors"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
-
-// runMemoryBeforeTurn is a no-op in a binary built without the memory tag:
-// the memory keys are accepted and nothing runs.
-func (a *Agent) runMemoryBeforeTurn(context.Context, string, string) {}
 
 // registerMemoryChildTools registers nothing without the memory tag.
 func (a *Agent) registerMemoryChildTools() {}
@@ -23,6 +18,10 @@ func (a *Agent) memorySpawnCheck(*config.Config) error {
 	return errors.New("the memory subagent is not available in this build (the memory tag is not compiled in)")
 }
 
-// memorySpawnSpec is unreachable without the tag: memorySpawnCheck refuses
-// the spawn first.
+// memorySpawnVisible hides the bundled memory definition in a binary built
+// without the memory tag.
+func (a *Agent) memorySpawnVisible(*config.Config) bool { return false }
+
+// memorySpawnSpec is unreachable without the tag: the definition is hidden
+// and memorySpawnCheck refuses a spawn addressed by name.
 func (a *Agent) memorySpawnSpec(*config.Config, *session.SubagentSpec, *string, string, string) {}

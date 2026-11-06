@@ -803,7 +803,7 @@ func runningBackgroundWork(sessionID string) bool {
 
 // awaitedBackgroundWork reports whether the check of a goal turn waits for
 // running work: only work whose end wakes the session again, so the deferred
-// check is sure to run. A system task (the memory run of every turn), a task
+// check is sure to run. A system task (the goal supervisor's own child), a task
 // started without notify_on_finish, or a process with no waker would leave
 // the goal active and never checked.
 func awaitedBackgroundWork(sessionID string) bool {

@@ -480,8 +480,8 @@ decisions.threshold:
   en: "Probability of the unsafe option at or above which a command counts as unsafe. 0 uses the default (0.5); lower is stricter, higher lets borderline commands through. A bare unsafe answer counts as 1."
   ru: "Вероятность опции unsafe, начиная с которой команда считается небезопасной. 0 - значение по умолчанию (0,5); ниже - строже, выше - пропускает пограничные команды. Ответ unsafe без вероятностей считается равным 1."
 memory.enable:
-  en: "Run the memory subagent on every user turn (needs the memory build tag)."
-  ru: "Запускать субагента памяти на каждом ходе пользователя (нужен тег сборки memory)."
+  en: "Expose the bundled memory subagent to the model through spawn_agent (needs the memory build tag)."
+  ru: "Показывать модели встроенного субагента memory для вызова через spawn_agent (нужен тег сборки memory)."
 memory.model:
   en: "Exact models[].model id the memory subagent runs on; empty uses the session's model."
   ru: "Точный id из models[].model, на котором работает субагент памяти; пусто - модель сессии."
@@ -491,15 +491,6 @@ memory.fallback_models:
 memory.dir:
   en: "Long-term memory root. Empty resolves to ${CODDY_HOME}/memory. Supports ${CODDY_HOME} and ~."
   ru: "Корень долговременной памяти. Пусто - ${CODDY_HOME}/memory. Поддерживает ${CODDY_HOME} и ~."
-memory.wait_seconds:
-  en: "How long a user turn waits for the memory subagent's report before its first model call. An explicit 0 never waits: the report then reaches the turn only through a later step, or stays in the Tasks panel."
-  ru: "Сколько ход пользователя ждёт отчёт субагента памяти перед первым вызовом модели. Явный 0 не ждёт никогда, и тогда отчёт попадает в ход только на одном из следующих шагов или остаётся в панели задач."
-memory.timeout_seconds:
-  en: "Hard limit of one memory run in seconds, capped by tools.background.max_timeout_seconds like every task of the pool."
-  ru: "Жёсткий предел одного запуска памяти в секундах; как и любую задачу пула, его ограничивает tools.background.max_timeout_seconds."
-memory.keep_runs:
-  en: "Finished memory runs kept per session, task record and child transcript alike; the oldest beyond this number are removed when a run finishes. An explicit 0 keeps every run."
-  ru: "Сколько завершённых запусков памяти хранится на сессию, и запись задачи, и дочерний транскрипт; самые старые сверх этого числа удаляются, когда запуск завершается. Явный 0 хранит все запуски."
 memory.recall_max_turns:
   en: "Bounds the memory subagent's ReAct rounds together with persist_max_turns; the child's cap is the larger of the two."
   ru: "Вместе с persist_max_turns ограничивает раунды ReAct субагента памяти; предел дочернего агента - большее из двух значений."

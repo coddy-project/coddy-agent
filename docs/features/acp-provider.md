@@ -60,7 +60,7 @@ On the provider row, `proxy` reaches the agent as its environment: `inherit` (th
 
 ## A session on an agent
 
-A Coddy session is bound to one ACP session of the agent. The first turn opens it and sends the conversation so far; every later turn sends only the new message, and the agent keeps its own history, tool results included. Coddy's system prompt is not sent: the agent has its own, and Coddy's describes tools the agent cannot call. The runtime block Coddy adds to every turn (the time, the todo checklist, the memory report) is sent after the message.
+A Coddy session is bound to one ACP session of the agent. The first turn opens it and sends the conversation so far; every later turn sends only the new message, and the agent keeps its own history, tool results included. Coddy's system prompt is not sent: the agent has its own, and Coddy's describes tools the agent cannot call. The runtime block Coddy adds to every turn (the time, the todo checklist) is sent after the message.
 
 The conversation starts over in a new ACP session, with the whole history in its first prompt, when the history no longer continues what the agent holds: after a rewind, an edited message, a compaction, a change of workspace, or when the agent process was restarted. Asking the same thing again after a completed answer (a regenerate) also opens a new session.
 
@@ -114,7 +114,7 @@ An agent answers inside a session only. The calls that are not a session's turn 
 
 - compaction skips an `acp` model in its chain and needs `compaction.model` set to another model; automatic compaction does not run on an `acp` model at all, since the agent keeps and compacts its own context;
 - titles and tags of a new chat use `agent.model` (or, when it is not set, the first configured model); when that is an `acp` model, they use the first model in alphabetical order that is not;
-- the goal check needs `supervisor.model` set to another model, and the memory subagent `memory.model`: a turn on an agent runs without a memory report otherwise;
+- the goal check needs `supervisor.model` set to another model, and the memory subagent `memory.model`: a delegation to the memory subagent does not run on an agent otherwise;
 - Improve prompt in the web UI's composer uses the first model in alphabetical order that is not an agent;
 - `/v1/chat/completions` and `/v1/responses` with an `acp` model as a direct model answer 400; the agent profiles (`agent`, `plan`, `ask`) work with it;
 - a turn a messenger restricts (a sender who is not an admin of the bot) is refused: the restriction holds Coddy's tools, not the agent's.

@@ -89,13 +89,13 @@ func TestSpawnSubagentMemoryRunsTheMemoryChild(t *testing.T) {
 	_ = childTools
 }
 
-// With the feature off a spawn under "memory" is refused instead of running
-// a child that would answer from no roots.
+// With the feature off the bundled "memory" definition is out of the
+// catalog, so a spawn under that name is refused as an unknown subagent.
 func TestSpawnSubagentMemoryRefusedWhenDisabled(t *testing.T) {
 	rig := newSubagentRig(t, nil)
 	_, err := rig.parentAgent().spawnSubagent(context.Background(), spawnMemoryReq("remember this"))
-	if err == nil || !strings.Contains(err.Error(), "memory.enable") {
-		t.Fatalf("error = %v, want a refusal naming memory.enable", err)
+	if err == nil || !strings.Contains(err.Error(), "unknown subagent") {
+		t.Fatalf("error = %v, want an unknown subagent refusal", err)
 	}
 }
 

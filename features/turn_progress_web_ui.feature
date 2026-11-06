@@ -37,4 +37,4 @@ Feature: The progress of a running turn in the web UI
 
   Scenario: Running background tasks are named on the line and open the Tasks panel
     Then the live line names the running background tasks and opens the Tasks panel
-    And the live line of a running turn counts the tasks without the memory run
+    And the live line of a running turn counts the tasks without a system task

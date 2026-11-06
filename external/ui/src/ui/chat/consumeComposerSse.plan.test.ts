@@ -35,7 +35,6 @@ async function plansOf(sse: string): Promise<TodoPlanEntry[][]> {
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => p,
-    applyMemoryRunToItems: (prev) => prev,
     onTodoPlan: (entries) => seen.push(entries),
   };
   await consumeComposerSseReader(params);

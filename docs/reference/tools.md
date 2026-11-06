@@ -154,7 +154,7 @@ Compiled in with the `scheduler` tag and registered only while the scheduler is 
 
 ## Memory subagent
 
-With the `memory` tag, every user turn starts a memory subagent, a child agent run in the background task pool, and these are its tools: they are registered into that child's registry only (`internal/agent/memory_hooks.go`, `external/memory/tools`), so the main model never sees them. A recall-only child (an ask-mode turn) gets the first three, every other child all six. Paths are `scope:relative/path.md` ([Long-term memory](../features/memory.md#the-tools)).
+With the `memory` tag and `memory.enable` on, the model delegates to the memory subagent on demand through `spawn_agent` with `agent: "memory"`, an ordinary child agent run in the background task pool, and these are its tools: they are registered into that child's registry only (`internal/agent/memory_hooks.go`, `external/memory/tools`), so the main model never sees them. A recall-only child (an ask-mode turn) gets the first three, every other child all six. Paths are `scope:relative/path.md` ([Long-term memory](../features/memory.md#the-tools)).
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
