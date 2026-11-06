@@ -2,6 +2,8 @@ import { type WorkspaceScope, withWorkspaceQuery } from "./chat/workspaceScope";
 
 export type TitleSuggestDeps = {
   userText: string;
+  /** Model selected for the first turn, before the session exists. */
+  model?: string;
   /**
    * The workspace of the chat being named. The server reads the slash
    * commands the text invokes from it, so a first message such as `/rpa-init`
@@ -65,7 +67,10 @@ async function describe(
           "Content-Type": "application/json",
           ...(deps.scope?.headers ?? {}),
         },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+          text,
+          ...(deps.model ? { model: deps.model } : {}),
+        }),
         signal,
       },
     );
