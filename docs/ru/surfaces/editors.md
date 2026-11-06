@@ -144,4 +144,4 @@ coddy acp --remote nas02 --remote-token "$CODDY_REMOTE_TOKEN"
 
 Более общие сбои - бинарника нет в `PATH`, провайдер отвергает ключ, порт занят - описаны в разделе [Решение проблем](../getting-started/troubleshooting.md).
 
-<!-- docsgen:source sha256=c3c8cb937ebd482e -->
+<!-- docsgen:source sha256=fb30b0bb024131c6 -->
