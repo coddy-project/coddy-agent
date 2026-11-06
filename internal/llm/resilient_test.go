@@ -671,7 +671,7 @@ func TestAnthropicHTTP529IsRetried(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	provider := applyResilientWrap(newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, ""), ProviderInput{
+	provider := applyResilientWrap(newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, "", ""), ProviderInput{
 		RetryMax: 2, RetryBase: time.Millisecond, RetryMaxDelay: time.Millisecond,
 	})
 	resp, err := provider.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
@@ -710,7 +710,7 @@ func TestAnthropicHTTPLaneFailureStaysTransient(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			provider := applyResilientWrap(newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, ""), ProviderInput{
+			provider := applyResilientWrap(newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, "", ""), ProviderInput{
 				RetryMax: 1, RetryBase: time.Millisecond, RetryMaxDelay: time.Millisecond,
 			})
 			_, err := provider.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})

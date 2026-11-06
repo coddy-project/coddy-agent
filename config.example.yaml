@@ -16,6 +16,9 @@
 
 # api_key must be the provider secret string (often starts with sk-...), a "${ENV}" reference, or empty to use NAME_API_KEY at runtime; never a web page URL.
 providers:
+  # OpenAI/Anthropic-compatible rows: user_agent: coddy identifies this app.
+  # Omit for the provider SDK identity, or select openai / anthropic explicitly.
+  # coddy sends Coddy/<running version> to completions and model listing.
   - name: openai
     type: openai
     api_key: "${OPENAI_API_KEY}"

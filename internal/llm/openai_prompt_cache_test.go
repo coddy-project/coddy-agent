@@ -10,7 +10,7 @@ import (
 
 func openAIRequestJSON(t *testing.T, model string, history []Message, tools []ToolDefinition) []byte {
 	t.Helper()
-	p := newOpenAIProvider(model, "", "", nil, 1024, 0, "")
+	p := newOpenAIProvider(model, "", "", nil, 1024, 0, "", "")
 	raw, err := json.Marshal(p.buildParams(history, tools, true))
 	if err != nil {
 		t.Fatal(err)

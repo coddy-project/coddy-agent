@@ -14,7 +14,7 @@ import (
 // end of the conversation, so the next request reads every earlier turn back
 // from the cache. Nothing else carries a marker.
 func TestPromptCacheAnthropicMarksTheSystemPromptAndTheConversationTail(t *testing.T) {
-	p := newAnthropicProvider("claude-opus-5-5", "", "", nil, 8192, 0, "")
+	p := newAnthropicProvider("claude-opus-5-5", "", "", nil, 8192, 0, "", "")
 	history := []Message{
 		{Role: RoleSystem, Content: strings.Repeat("You are Coddy. ", 400)},
 		{Role: RoleUser, Content: "read the manager"},
@@ -54,7 +54,7 @@ func TestPromptCacheAnthropicMarksTheSystemPromptAndTheConversationTail(t *testi
 // A request with no system prompt marks the tail only, and the history the
 // caller passed is never written to: the marks live on this request.
 func TestPromptCacheAnthropicMarksStayOnTheRequest(t *testing.T) {
-	p := newAnthropicProvider("claude-opus-5-5", "", "", nil, 8192, 0, "")
+	p := newAnthropicProvider("claude-opus-5-5", "", "", nil, 8192, 0, "", "")
 	history := []Message{{Role: RoleUser, Content: "first"}, {Role: RoleAssistant, Content: "ok"}, {Role: RoleUser, Content: "second"}}
 	params, err := p.requestParams(history, nil)
 	if err != nil {
@@ -74,7 +74,7 @@ func TestPromptCacheAnthropicMarksStayOnTheRequest(t *testing.T) {
 // unmarked: the next request does not carry them, so the mark goes on the
 // last turn it does carry.
 func TestPromptCacheAnthropicTailSkipsRequestOnlyMessages(t *testing.T) {
-	p := newAnthropicProvider("claude-opus-5-5", "", "", nil, 8192, 0, "")
+	p := newAnthropicProvider("claude-opus-5-5", "", "", nil, 8192, 0, "", "")
 	history := []Message{
 		{Role: RoleSystem, Content: "system"},
 		{Role: RoleUser, Content: "question"},
@@ -100,7 +100,7 @@ func TestPromptCacheAnthropicTailSkipsRequestOnlyMessages(t *testing.T) {
 // stick to - a replayed thinking-only turn - so the mark walks back to the
 // last message that takes one.
 func TestPromptCacheAnthropicTailWalksBackToAMarkableMessage(t *testing.T) {
-	p := newAnthropicProvider("claude-opus-5-5", "", "", nil, 8192, 0, "low")
+	p := newAnthropicProvider("claude-opus-5-5", "", "", nil, 8192, 0, "low", "")
 	history := []Message{
 		{Role: RoleSystem, Content: "system"},
 		{Role: RoleUser, Content: "question"},
@@ -132,7 +132,7 @@ func TestPromptCacheAnthropicTailWalksBackToAMarkableMessage(t *testing.T) {
 // An empty text is never marked - the API refuses a mark on it - so the mark
 // walks back to the message before it.
 func TestPromptCacheAnthropicTailNeverMarksAnEmptyText(t *testing.T) {
-	p := newAnthropicProvider("claude-opus-5-5", "", "", nil, 8192, 0, "")
+	p := newAnthropicProvider("claude-opus-5-5", "", "", nil, 8192, 0, "", "")
 	history := []Message{
 		{Role: RoleUser, Content: "real"},
 		{Role: RoleUser, Content: ""},

@@ -89,3 +89,17 @@ test("a finished line in the middle of a chat stays while a later turn runs", ()
   expect(screen.getByTestId("generation-summary")).toBeInTheDocument();
   expect(screen.getByTestId("typing-dots")).toBeInTheDocument();
 });
+
+test("the idle placeholder precedes an open todo checklist", () => {
+  render(
+    <MessageList
+      items={[answer]}
+      todoPlan={[{ content: "Next", status: "in_progress" }]}
+    />,
+  );
+  const slot = screen.getByTestId("live-line-slot");
+  const todo = screen.getByTestId("todo-checklist");
+  expect(
+    slot.compareDocumentPosition(todo) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+});

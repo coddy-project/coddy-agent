@@ -40,6 +40,12 @@
             "type": "string",
             "description": "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com). For type \"neuraldeep\" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. For type \"opencode\" it selects the gateway: https://opencode.ai/inference/go/v1 (the Go subscription, the default) or https://opencode.ai/inference/v1 (pay-as-you-go Console); any other value falls back to the default. Ignored for types \"codex\" and \"devin\", which always use their official endpoints, and for type \"acp\", whose agent runs on this machine."
           },
+          "user_agent": {
+            "type": "string",
+            "enum": ["", "openai", "anthropic", "coddy"],
+            "default": "",
+            "description": "Client identity for types openai and anthropic. Empty (the default), openai or anthropic keeps the current provider SDK identity (OpenAI/Go or Anthropic/Go); coddy sends Coddy/<running version>. Applies to completions and model listing. Ignored for other provider types."
+          },
           "api_key": {
             "type": "string",
             "description": "Provider secret. A literal key, a \"${ENV}\" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. For type \"devin\" it is a Devin session token and, when set, wins over the browser login and the Devin CLI login. For type \"opencode\" an explicit key wins over the login `coddy providers login opencode` stored. Ignored for type \"codex\", which signs in with ChatGPT, and for type \"acp\", whose agent signs in on its own."

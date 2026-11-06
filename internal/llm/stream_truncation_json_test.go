@@ -391,7 +391,7 @@ func openAIScriptStub(t *testing.T, scripts ...string) (Provider, *atomic.Int32,
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, scripts[min(n, len(scripts)-1)])
 	}))
-	p := applyResilientWrap(newOpenAIProvider("test-model", "", srv.URL, nil, 0, 0, ""), ProviderInput{
+	p := applyResilientWrap(newOpenAIProvider("test-model", "", srv.URL, nil, 0, 0, "", ""), ProviderInput{
 		RetryMax: 1, RetryBase: time.Millisecond, RetryMaxDelay: time.Millisecond,
 	})
 	return p, calls, srv.Close
@@ -638,7 +638,7 @@ func TestAnthropicStreamInBandErrorRetry(t *testing.T) {
 				_, _ = io.WriteString(w, tc.scripts[min(n, len(tc.scripts)-1)])
 			}))
 			defer srv.Close()
-			provider := applyResilientWrap(newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, ""), ProviderInput{
+			provider := applyResilientWrap(newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, "", ""), ProviderInput{
 				RetryMax: 2, RetryBase: time.Millisecond, RetryMaxDelay: time.Millisecond,
 			})
 

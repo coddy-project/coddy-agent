@@ -63,6 +63,7 @@ type providerModelsRequest struct {
 	Name          string `json:"name"`
 	Type          string `json:"type"`
 	APIBase       string `json:"api_base"`
+	UserAgent     string `json:"user_agent"`
 	APIKey        string `json:"api_key"`
 	APIKeyCommand string `json:"api_key_command"`
 	Proxy         string `json:"proxy"`
@@ -107,6 +108,7 @@ func (s *Server) coddyProviderModelsPost(w http.ResponseWriter, r *http.Request)
 		Name:          strings.TrimSpace(req.Name),
 		Type:          req.Type,
 		APIBase:       req.APIBase,
+		UserAgent:     req.UserAgent,
 		APIKey:        req.APIKey,
 		APIKeyCommand: req.APIKeyCommand,
 		Proxy:         req.Proxy,
@@ -117,6 +119,9 @@ func (s *Server) coddyProviderModelsPost(w http.ResponseWriter, r *http.Request)
 		}
 		if strings.TrimSpace(prov.APIBase) == "" {
 			prov.APIBase = saved.APIBase
+		}
+		if strings.TrimSpace(prov.UserAgent) == "" {
+			prov.UserAgent = saved.UserAgent
 		}
 		if strings.TrimSpace(prov.Proxy) == "" {
 			prov.Proxy = saved.Proxy
@@ -161,12 +166,13 @@ func (s *Server) coddyProviderModelsPost(w http.ResponseWriter, r *http.Request)
 // {"ok","models"} answer shared by the GET and POST routes.
 func (s *Server) writeProviderModels(w http.ResponseWriter, ctx context.Context, c *config.Config, prov *config.ProviderConfig) {
 	models, err := llm.ListModels(ctx, llm.ProviderInput{
-		Name:     prov.Name,
-		Type:     prov.Type,
-		APIKey:   prov.EffectiveAPIKeyContext(ctx),
-		BaseURL:  prov.APIBase,
-		ProxyURL: prov.Proxy,
-		AuthPath: config.ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
+		Name:      prov.Name,
+		Type:      prov.Type,
+		APIKey:    prov.EffectiveAPIKeyContext(ctx),
+		BaseURL:   prov.APIBase,
+		UserAgent: prov.UserAgent,
+		ProxyURL:  prov.Proxy,
+		AuthPath:  config.ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
 		// An unsaved row counts toward the rows of its type too, so the
 		// preview uses the account a saved row would.
 		NoCLILogin: !c.ProviderMayUseCLILogin(prov.Name, prov.Type),

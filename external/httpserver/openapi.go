@@ -454,7 +454,8 @@ func openAPISpec() map[string]interface{} {
 						"Every text is asked about, however short: a first message of two words is the one that needs the labels most, and echoing it back would leave the shortest conversations unfiled. " +
 						"A **/name** word that names a skill or a built-in action of the workspace is described to the model (the catalog row of that command), so a first message such as **/rpa-init** is named by what the command does; a phrase that is only a command name is not taken as the title, which falls back to the user's own words around the command, or to the command as typed when it was typed alone. " +
 						"Settings commands at the start of the text (**/model**, **/plan**, ...) are taken off it; a text made of nothing else names nothing and answers an empty **short** without asking the model. " +
-						"The workspace is the session in **X-Coddy-Session-ID** when the server holds it, else the folder in **cwd**, else the server's default; an unknown session or an unusable folder falls back instead of failing the call.",
+						"The workspace is the session in **X-Coddy-Session-ID** when the server holds it, else the folder in **cwd**, else the server's default; an unknown session or an unusable folder falls back instead of failing the call. " +
+						"A configured /model command at the start of text, including --once, takes precedence over the optional model field; a turn-scoped model takes precedence over a session-scoped one. The server builds a provider for the chosen model, falling back to the session's effective model and then the server default if it cannot build one. A Complete error does not trigger a retry with another provider. An ACP model is replaced by the first configured non-ACP model.",
 					"operationId": "coddyDescribe",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -476,7 +477,8 @@ func openAPISpec() map[string]interface{} {
 								"schema": map[string]interface{}{
 									"type": "object",
 									"properties": map[string]interface{}{
-										"text": map[string]string{"type": "string"},
+										"text":  map[string]string{"type": "string"},
+										"model": map[string]string{"type": "string", "description": "Optional configured model for naming."},
 									},
 									"required": []string{"text"},
 								},
@@ -2809,7 +2811,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/models": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Fetch models for a provider description",
-					"description": "Fetches the model list advertised by a provider row posted in the request body (**`{name, type, api_base, api_key, api_key_command, proxy}`** - the `providers[]` shape). Unlike the GET route, the row need not be saved in config.yaml: the settings form's provider editor sends the entry being edited, so a provider that only exists in the form (for example right after an OAuth device sign-in) lists its models the same way a stored one does. Fields the body leaves empty are inherited from the saved provider of the same name when there is one, so a sparse **`{name}`** post resolves the stored credentials without secrets travelling over the wire. The credential pair (**`api_key`** / **`api_key_command`**) is one slot: it is inherited only when the body posts neither field, and only while the resolved **`api_base`** and **`proxy`** still match the saved row, so an overridden route never receives stored credentials. The body must be **`application/json`**: any other content type (the kinds a cross-site page can send without a preflight) gets **`415`**. A posted **`api_key_command`** is executed server-side, exactly as it would be for a saved provider. A row of **`type: acp`** lists the models its agent offers (**`default`** first, the agent's own model) from the **saved** row only: its **`acp`** block names a program, and a body cannot bring one of its own - an **`acp`** row that is not saved yet is **`400`**. Returns the same **`{ok:true, models:[{id,name,context_window,catalog}]}`** / **`{ok:false, error, models:[]}`** shape as the GET (`context_window` only when the provider's listing reports one, **`catalog`** only for a model the built-in models catalog knows whose window the provider does not report or reports the same); a malformed body or an invalid provider row returns 400.",
+					"description": "Fetches the model list advertised by a provider row posted in the request body (**`{name, type, api_base, user_agent, api_key, api_key_command, proxy}`** - the `providers[]` shape). Unlike the GET route, the row need not be saved in config.yaml: the settings form's provider editor sends the entry being edited, so a provider that only exists in the form (for example right after an OAuth device sign-in) lists its models the same way a stored one does. Fields the body leaves empty are inherited from the saved provider of the same name when there is one, so a sparse **`{name}`** post resolves the stored credentials without secrets travelling over the wire. The credential pair (**`api_key`** / **`api_key_command`**) is one slot: it is inherited only when the body posts neither field, and only while the resolved **`api_base`** and **`proxy`** still match the saved row, so an overridden route never receives stored credentials. The body must be **`application/json`**: any other content type (the kinds a cross-site page can send without a preflight) gets **`415`**. A posted **`api_key_command`** is executed server-side, exactly as it would be for a saved provider. A row of **`type: acp`** lists the models its agent offers (**`default`** first, the agent's own model) from the **saved** row only: its **`acp`** block names a program, and a body cannot bring one of its own - an **`acp`** row that is not saved yet is **`400`**. Returns the same **`{ok:true, models:[{id,name,context_window,catalog}]}`** / **`{ok:false, error, models:[]}`** shape as the GET (`context_window` only when the provider's listing reports one, **`catalog`** only for a model the built-in models catalog knows whose window the provider does not report or reports the same); a malformed body or an invalid provider row returns 400.",
 					"operationId": "fetchProviderModels",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -2822,6 +2824,7 @@ func openAPISpec() map[string]interface{} {
 										"name":            map[string]string{"type": "string", "description": "Provider name; when it matches a saved provider, empty fields inherit the saved row."},
 										"type":            map[string]string{"type": "string", "description": "Provider type (openai, anthropic, neuraldeep, codex, devin, acp, ...)."},
 										"api_base":        map[string]string{"type": "string"},
+										"user_agent":      map[string]interface{}{"type": "string", "enum": []string{"", "openai", "anthropic", "coddy"}, "description": "OpenAI-compatible or Anthropic-compatible client identity; empty inherits the saved row, openai or anthropic selects the current protocol SDK identity, coddy sends Coddy/<running version>."},
 										"api_key":         map[string]string{"type": "string"},
 										"api_key_command": map[string]string{"type": "string"},
 										"proxy":           map[string]string{"type": "string"},

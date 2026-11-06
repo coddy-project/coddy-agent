@@ -54,6 +54,25 @@ test("describe is requested before session id promise resolves", async () => {
   });
 });
 
+test("describe sends the selected model before the session exists", async () => {
+  const fetchImpl = vi.fn(
+    async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      new Response(JSON.stringify({ short: "" }), { status: 200 }),
+  );
+  startSuggestSessionTitle({
+    userText: "repair session naming",
+    model: "openai/gpt-4o-mini",
+    sessionIdPromise: new Promise(() => {}),
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+  });
+  await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
+  const init = fetchImpl.mock.calls[0]?.[1] as RequestInit | undefined;
+  expect(JSON.parse(String(init?.body))).toEqual({
+    text: "repair session naming",
+    model: "openai/gpt-4o-mini",
+  });
+});
+
 test("onShortReady runs after describe and before PATCH resolves", async () => {
   let releaseSid!: (id: string) => void;
   const sidPromise = new Promise<string>((resolve) => {

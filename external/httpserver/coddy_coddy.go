@@ -606,7 +606,8 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Text string `json:"text"`
+		Text  string `json:"text"`
+		Model string `json:"model"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
@@ -639,7 +640,7 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 	commands := s.describeInvokedCommands(r, text)
 	words := describeFallbackWords(text, commands)
 
-	provider, err := s.providerFactory(s.activeCfg())
+	provider, err := s.describeProvider(r, body.Model, raw)
 	if err != nil {
 		s.log.Error("describe provider", "error", err)
 		http.Error(w, `{"error":{"message":"LLM unavailable"}}`, http.StatusServiceUnavailable)

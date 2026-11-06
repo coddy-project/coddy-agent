@@ -2,6 +2,12 @@
  *  English values are kept byte-identical to the former hardcoded literals so
  *  existing English-asserting tests keep passing when strings move behind t(). */
 export const messagesEn: Record<string, string> = {
+  "settings.userAgent.openai": "OpenAI/Go (default)",
+  "settings.userAgent.anthropic": "Anthropic/Go (default)",
+  "settings.userAgent.coddy": "Coddy/version",
+  "settings.schema.providers.user_agent.label": "User-Agent",
+  "settings.schema.providers.user_agent.desc":
+    "Client identity for OpenAI-compatible and Anthropic-compatible requests. The provider SDK is the default (OpenAI/Go or Anthropic/Go); Coddy uses the running application version.",
   "appearance.themeLabel": "Theme",
   "appearance.themeGroupAria": "Theme",
   "appearance.simpleLabel": "Simplified mode",

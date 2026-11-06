@@ -18,7 +18,7 @@ Feature: The todo checklist under the transcript in the web UI
 
   Scenario: A finished list leaves once the turn is over
     Then the checklist stays while the turn that finished it runs and leaves once the turn is over
-    And the checklist stands above the live line and only at the newest end of the transcript
+    And the live line stands above the checklist and only at the newest end of the transcript
 
   Scenario: The list folds down to the items in progress
     Then a click on the list's head folds it to the item in progress and the choice is remembered

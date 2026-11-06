@@ -101,6 +101,12 @@ const rootSchema: JsonSchema = {
             },
           },
           api_base: { type: "string", title: "API base URL" },
+          user_agent: {
+            type: "string",
+            title: "User-Agent",
+            enum: ["", "openai", "anthropic", "coddy"],
+            default: "",
+          },
           api_key: { type: "string", title: "API key" },
           api_key_command: { type: "string", title: "API key command" },
           proxy: { type: "string", title: "Proxy URL" },
@@ -110,6 +116,7 @@ const rootSchema: JsonSchema = {
           "type",
           "acp",
           "api_base",
+          "user_agent",
           "api_key",
           "api_key_command",
           "proxy",
@@ -3033,4 +3040,42 @@ test("the Metrics tab names its fields and their hints in Russian", () => {
   for (const hint of hints) {
     expect(hint).toMatch(/[а-яё]/i);
   }
+});
+
+test.each([
+  ["openai", "OpenAI/Go", ""],
+  ["anthropic", "Anthropic/Go", ""],
+  ["anthropic", "Anthropic/Go", "openai"],
+  ["openai", "OpenAI/Go", "anthropic"],
+])(
+  "%s provider defaults to its SDK and saves Coddy",
+  (type, label, userAgent) => {
+    let doc: Record<string, unknown> = {};
+    render(
+      <Harness
+        provider={{ name: "test", type, user_agent: userAgent }}
+        onDoc={(next) => {
+          doc = next;
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("settings-master-item-0"));
+    fireEvent.click(screen.getByRole("button", { name: "Advanced settings" }));
+    const field = screen.getByLabelText("User-Agent");
+    expect(field).toHaveValue("");
+    expect(
+      within(field).getByRole("option", { name: `${label} (default)` }),
+    ).toBeTruthy();
+    fireEvent.change(field, { target: { value: "coddy" } });
+    expect((doc.providers as Record<string, unknown>[])[0]?.user_agent).toBe(
+      "coddy",
+    );
+  },
+);
+
+test("managed providers hide the compatible identity selector", () => {
+  render(<Harness provider={{ name: "test", type: "neuraldeep" }} />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(screen.getByRole("button", { name: "Advanced settings" }));
+  expect(screen.queryByLabelText("User-Agent")).toBeNull();
 });

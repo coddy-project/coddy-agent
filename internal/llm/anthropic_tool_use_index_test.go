@@ -281,7 +281,7 @@ func TestAnthropicStreamCancelKeepsToolUseBehindText(t *testing.T) {
 		<-r.Context().Done()
 	}))
 	defer srv.Close()
-	p := newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, "")
+	p := newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, "", "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -318,7 +318,7 @@ func TestAnthropicCompleteToolUseBehindOtherBlocks(t *testing.T) {
 			`"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1}}`)
 	}))
 	defer srv.Close()
-	p := newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, "")
+	p := newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, "", "")
 	p.blocking = true
 
 	resp, err := p.Complete(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil)

@@ -280,11 +280,12 @@ type ProviderInput struct {
 	// diagnostic only: every error the provider returns is prefixed with it
 	// and the address it reached, so a user running several providers can
 	// tell which entry of their config failed. Empty leaves errors bare.
-	Name    string
-	Type    string
-	Model   string
-	APIKey  string
-	BaseURL string
+	Name      string
+	Type      string
+	Model     string
+	APIKey    string
+	BaseURL   string
+	UserAgent string
 	// ProxyURL is the row's providers[].proxy setting as written: empty or
 	// "inherit" follows the environment's proxy, "none" connects directly,
 	// and a proxy URL goes through that proxy (config.ParseProxySetting).
@@ -418,18 +419,18 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	var inner Provider
 	switch p.Type {
 	case "openai":
-		op := newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		op := newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort, p.UserAgent)
 		op.tempSet = p.TemperatureSet
 		op.topP = p.TopP
 		op.modelParams = p.SupportedParameters
 		inner = op
 	case "anthropic":
-		ap := newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		ap := newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort, p.UserAgent)
 		ap.tempSet = p.TemperatureSet
 		ap.blocking = p.DisableStream
 		inner = ap
 	case "neuraldeep":
-		op := newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		op := newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort, "")
 		op.tempSet = p.TemperatureSet
 		op.modelParams = p.SupportedParameters
 		inner = op

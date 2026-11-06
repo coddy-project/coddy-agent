@@ -88,12 +88,13 @@ func (r *runner) probeProvider(ctx context.Context, prov *config.ProviderConfig,
 	}
 
 	in := llm.ProviderInput{
-		Name:     prov.Name,
-		Type:     prov.Type,
-		APIKey:   key,
-		BaseURL:  prov.APIBase,
-		ProxyURL: prov.Proxy,
-		AuthPath: config.ProviderAuthPath(r.req.Paths.Home, prov.Name, prov.Type),
+		Name:      prov.Name,
+		Type:      prov.Type,
+		APIKey:    key,
+		BaseURL:   prov.APIBase,
+		UserAgent: prov.UserAgent,
+		ProxyURL:  prov.Proxy,
+		AuthPath:  config.ProviderAuthPath(r.req.Paths.Home, prov.Name, prov.Type),
 		// The account a request of this row would use: the CLI login of the
 		// type serves one row only.
 		NoCLILogin: !r.req.Cfg.ProviderMayUseCLILogin(prov.Name, prov.Type),

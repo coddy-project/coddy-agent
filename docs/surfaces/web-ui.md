@@ -1095,7 +1095,7 @@ The indicator replaces the three bouncing dots with a 14px SVG (`coddy-work-indi
 
 ![The working status without a todo checklist, below the last answer and above the composer](../assets/web-ui/live-status-spacing-working-dark-1280.png)
 
-*Without a checklist, the working status sits 4px closer to the preceding answer; the composer stays in place*
+*The working status without a checklist, above the composer*
 
 - The turn's own numbers lead the line: how long the turn has been running, how many tokens the model has generated in it, how many background tasks are running right now (`15m 08s · 13.5k tokens · 1 running task · Thinking…`). Before the first token the line is the clock and the phrase alone (`57s · Waiting for the model`), and the tasks segment appears only while something runs. It is a button: it opens the [Tasks panel](../features/background-tasks.md#ui).
 - On phones up to 599 px wide, the task count reads `1 task` or `2 tasks`, including after the turn ends. Russian uses `1 задача`, `2 задачи`, `5 задач`. The button keeps its full accessible name. Tablets and desktops keep the full running-task label.
@@ -1103,7 +1103,7 @@ The indicator replaces the three bouncing dots with a 14px SVG (`coddy-work-indi
 
 *The phone's live line with the task count beside time and tokens.*
 
-- Generation speed follows the output token count, for example `1.2k tokens · 9.8 tok/s`. Each model call starts a fresh window: 200 tokens with a 50-token step, then 500 tokens with a 100-token step once the call has written 500. While streaming, speed appears at the call's 200th token and stays for the rest of the call, so a call shorter than that shows it only in the finished line. It refreshes every five seconds, including a partial step; a stalled stream keeps the last value. The measurement includes text, reasoning and tool arguments, from the first output delta to the last, and excludes tool execution, permission waits and time to the first token. Live token counts are estimates. When the turn finishes, is cancelled or fails, a caption is saved only if at least one model call has a measurable generation interval. It pairs total output tokens from all calls with the average across measured calls only; reopening the session restores it. Blocking (non-streaming) providers and ACP agent models have no measurable per-model streaming boundaries, so their live output counts have no speed. A streamed call delivered in a single output chunk has no measurable generation interval either: neither its tokens nor its time contribute to the speed average, but its output still counts toward the turn total. With no measurable call interval, live output counters still work, but no speed or persisted generation caption is produced. Speeds below 2 use two decimal places, below 10 one, and 10 or more none.
+- Generation speed follows the output token count, for example `1.2k tokens · 9.8 tok/s`. Each model call starts a fresh window: 200 tokens with a 50-token step, then 500 tokens with a 100-token step once the call has written 500. While streaming, speed appears at the call's 200th token and stays for the rest of the call, so a call shorter than that shows it only in the finished line. It refreshes every five seconds, including a partial step; a stalled stream keeps the last value. The measurement includes text, reasoning and tool arguments, from the first output delta to the last, and excludes tool execution, permission waits and time to the first token. Live token counts are estimates. When the turn finishes, is cancelled or fails, a caption is saved when the turn wrote output. It pairs total output tokens from all calls with the average across measured calls when available; reopening the session restores it. Blocking (non-streaming) providers and ACP agent models have no measurable per-model streaming boundaries, so their live output counts have no speed. A streamed call delivered in a single output chunk has no measurable generation interval either: neither its tokens nor its time contribute to the speed average, but its output still counts toward the turn total. With no measurable call interval, live output counters still work, but the persisted generation caption has no speed. Speeds below 2 use two decimal places, below 10 one, and 10 or more none.
 
 ![Generation speed during streaming](../assets/generation-speed/generation-speed-live-dark-1280.png)
 
@@ -1116,7 +1116,7 @@ The indicator replaces the three bouncing dots with a 14px SVG (`coddy-work-indi
 *The finished turn's line stays after a reload*
 
 - When the turn has ended and background tasks it started are still running, the indicator stays at the tail of the transcript with the count and nothing else (`1 running task`): no clock and no tokens, because there is no turn to time. It opens the same panel, and it goes as soon as the last task finishes.
-- Between turns an empty, transparent slot remains at the tail of the transcript. Without a todo checklist, the active line reduces its top padding by 4px, leaving 16px under the preceding row on desktop and 20px on the stacked shell. Its bottom padding stays at zero, so the gap to the composer matches the line under a checklist. The idle slot and the line under a checklist keep their existing spacing.
+- Between turns an empty, transparent slot keeps the live line's room. The live line uses the same padding with or without a checklist, matching the spacing of the surrounding transcript rows. The slot and the tasks-only line stand above the checklist when it is shown.
 - The clock and the tokens are the server's: the agent publishes `turn_progress` on the turn stream ([HTTP API](../reference/http-api.md)) and keeps the same numbers behind `GET /coddy/sessions/{id}/activity`, which a reloaded tab reads, so the clock carries on where it was. `chat/turnProgress.ts` folds the two sources: a reading names its turn by the server's `startedAt` and is dated by the turn's age on the server's clock, so the newer reading wins whichever way it came - an activity answer read before the stream's last frame and delivered after it is dropped, and an answer a throttled tab handles seconds late is still the same turn. The tab drops the numbers when the turn ends and on any activity read that finds the session idle, so the next turn never opens on the previous turn's clock. A server that predates `turn_progress` leaves the clock counting from the turn's user message, without tokens.
 - The phrase of the current step, and a step counter when the step runs something other than the model - a tool call (`2m 05s · 1.2k tokens · Running a command · 45s`). Waiting, thinking and writing are covered by the turn clock. On a phone the line takes two rows: the turn's numbers next to the indicator and the phrase under them, so the numbers stay where they stand when the turn ends.
 - **The line carries the phase and nothing the step acts on.** No path, no command, no pattern, no url: what a step acts on is named once, on the transcript row above the line. So every phrase is complete on its own - `Running a command`, never `Running` waiting for a command to follow it - and a phrase that reads as a fragment fails the dictionary check in every locale (`external/ui/src/ui/i18n/statusPhrases.test.ts`). A phrase too long for the row ellipsizes rather than wrapping it.
@@ -1841,7 +1841,7 @@ Automated checks:
 
 *The todo checklist under the newest message*
 
-While the session keeps a todo checklist with work left in it, the newest end of the conversation shows the whole list, right above the live status line. Every item carries the mark its tool row uses: a ticked square for a completed item, an empty square for a pending one, a half-filled circle for the item in progress. An item in progress carries a still mark of its own, an accent ring with a dot in it, so the list says which item the agent is on now without drawing the eye. On a desktop the card is as wide as its text, within the width of the other cards; on a phone it takes the whole column. The card adds 6px above the transcript's row gap, folded or expanded.
+While the session keeps a todo checklist with work left in it, the newest end of the conversation shows the whole list, below the live status line and above the composer. Every item carries the mark its tool row uses: a ticked square for a completed item, an empty square for a pending one, a half-filled circle for the item in progress. An item in progress carries a still mark of its own, an accent ring with a dot in it, so the list says which item the agent is on now without drawing the eye. On a desktop the card is as wide as its text, within the width of the other cards; on a phone it takes the whole column. The card uses the transcript's row gap without extra spacing, folded or expanded.
 
 - The list shows while an item is pending or in progress. Once every item is completed, failed or cancelled, it stays only until the turn that closed the last item ends: an idle chat with a finished list shows nothing, although the session keeps the list until the agent replaces or archives it.
 - The list comes with every read of the transcript (**`todoPlan`** of **`GET /coddy/sessions/{id}/messages`**), so a reloaded tab shows it at once, and the **`plan`** frames of a running turn move it as the agent ticks items off. A design plan that **`plan_write`** publishes on the same event is not the checklist and does not show here.
@@ -2566,3 +2566,20 @@ These scenarios are intended to be automated via Playwright against the Vite dev
   - Then a task labelled **`memory: <first line of the message>`** carries the **memory** tag (**`bgtask-tag-<id>`**), its card offers **Show transcript** to the read-only child session without being opened, and its open card shows the child's log ending with **`=== subagent report ===`** and the delivery line
 
 For Playwright MCP against a live gateway, start **`make build TAGS="http ui memory"`** then **`./build/coddy serve`** with a disposable **`--home`** so config can enable memory; open **`http://127.0.0.1:<port>/`**, navigate to a session, send a prompt, open the Tasks panel and assert the **memory** badge on the run's row.
+
+### Provider client identity
+
+Open an OpenAI-compatible or Anthropic-compatible provider in **Settings → LLM providers**
+and expand **Advanced settings**. **User-Agent** offers the protocol SDK identity
+(`OpenAI/Go` or `Anthropic/Go`, the default) and **Coddy/version**. The latter sends
+`Coddy/<running version>` for blocking and streaming requests and model discovery.
+The model list uses the unsaved choice; save the provider to apply it to new model calls.
+Other provider types hide the selector.
+
+![OpenAI-compatible provider User-Agent selector](../assets/web-ui/provider-user-agent-openai-dark-1280.png)
+
+*The OpenAI-compatible provider with Coddy selected.*
+
+![Anthropic-compatible provider User-Agent selector](../assets/web-ui/provider-user-agent-anthropic-dark-1280.png)
+
+*The Anthropic-compatible provider offers its own SDK identity by default.*
