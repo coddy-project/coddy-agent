@@ -4,10 +4,8 @@
  * transcript's spacer, `--chat-composer-reserve`.
  *
  * A transcript parked at its end puts its newest row two row gaps above the
- * block's first visible edge (`TRANSCRIPT_END_GAP_ROWS`): one row gap read as
- * pressed against the composer's card. The live line, whatever stands over or
- * under it, keeps the transcript's own rhythm instead (its padding,
- * styles/chat/_messages.scss). The
+ * block's first visible edge (`TRANSCRIPT_END_GAP_ROWS`). The live line
+ * keeps the transcript's own rhythm instead (styles/chat/_messages.scss). The
  * block's padding over its card is empty and does not count, and where the
  * scroll content ends is not always where the block ends: on the stacked shell
  * the document's content stops above the shell's own bottom padding while the
@@ -46,22 +44,11 @@ export function composerReserveFor(m: {
  * own padding while the card is the block's top, none while a usage banner
  * stands over it (the wrapper's padding then lies under the banner).
  *
- * Without a plate over the card - a chat outside a repository and with no
- * goal - the card's own top inset is blank as well, and the transcript's last
- * row stood that much further from the first thing it could read. A plate
- * fills its own height with the folder and the branch; an empty card edge
- * reads as a gap.
  */
 export function blockEdgePaddingTop(host: Element): number {
   if (host.querySelector(":scope > .usage-banner")) return 0;
   const wrap = host.querySelector(":scope > .composer-wrap");
   if (!wrap) return 0;
   const v = parseFloat(getComputedStyle(wrap).paddingTop);
-  let pad = Number.isFinite(v) ? v : 0;
-  if (!host.querySelector(".workspace-bar")) {
-    const field = host.querySelector("textarea");
-    const inset = field ? parseFloat(getComputedStyle(field).paddingTop) : NaN;
-    if (Number.isFinite(inset)) pad += inset;
-  }
-  return pad;
+  return Number.isFinite(v) ? v : 0;
 }

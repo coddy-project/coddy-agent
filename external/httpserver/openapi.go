@@ -454,7 +454,8 @@ func openAPISpec() map[string]interface{} {
 						"Every text is asked about, however short: a first message of two words is the one that needs the labels most, and echoing it back would leave the shortest conversations unfiled. " +
 						"A **/name** word that names a skill or a built-in action of the workspace is described to the model (the catalog row of that command), so a first message such as **/rpa-init** is named by what the command does; a phrase that is only a command name is not taken as the title, which falls back to the user's own words around the command, or to the command as typed when it was typed alone. " +
 						"Settings commands at the start of the text (**/model**, **/plan**, ...) are taken off it; a text made of nothing else names nothing and answers an empty **short** without asking the model. " +
-						"The workspace is the session in **X-Coddy-Session-ID** when the server holds it, else the folder in **cwd**, else the server's default; an unknown session or an unusable folder falls back instead of failing the call.",
+						"The workspace is the session in **X-Coddy-Session-ID** when the server holds it, else the folder in **cwd**, else the server's default; an unknown session or an unusable folder falls back instead of failing the call. " +
+						"A configured /model command at the start of text, including --once, takes precedence over the optional model field; a turn-scoped model takes precedence over a session-scoped one. The server builds a provider for the chosen model, falling back to the session's effective model and then the server default if it cannot build one. A Complete error does not trigger a retry with another provider. An ACP model is replaced by the first configured non-ACP model.",
 					"operationId": "coddyDescribe",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -476,7 +477,8 @@ func openAPISpec() map[string]interface{} {
 								"schema": map[string]interface{}{
 									"type": "object",
 									"properties": map[string]interface{}{
-										"text": map[string]string{"type": "string"},
+										"text":  map[string]string{"type": "string"},
+										"model": map[string]string{"type": "string", "description": "Optional configured model for naming."},
 									},
 									"required": []string{"text"},
 								},

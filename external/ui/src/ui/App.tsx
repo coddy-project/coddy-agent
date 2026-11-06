@@ -5610,6 +5610,12 @@ export function App() {
         );
         naming = startSuggestSessionTitle({
           userText: text,
+          model: (() => {
+            const typed = sessionScopedModelCommand(text);
+            return typed && llmModelIds.includes(typed)
+              ? typed
+              : llmModel.trim();
+          })(),
           // The folder this chat was started in, as the send saw it: the
           // server describes the slash commands of that workspace.
           scope: workspaceScope(sid, namingFolder),
