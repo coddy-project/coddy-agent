@@ -1887,16 +1887,22 @@ async function scenarioTouch(sid) {
     "no tooltip comes back when the panel has gone from over the button",
     (await tip()) === "0",
   );
-  // History ends 30% above the foot of the screen, and a tap below it goes back
-  // to the conversation. A folder's whole row folds it, up to the plus.
+  // History keeps the band every drawer of the stacked shell keeps, the
+  // Scheduler's dock included: 10px from the sides, under the top strip, 14px
+  // from the foot. It used to stop 30% of the screen above the foot, to leave
+  // backdrop for a tap back to the conversation, and read as a panel that did
+  // not open all the way beside the Scheduler's. A folder's whole row folds
+  // it, up to the plus, and its head's close control is the way back.
   await page.getByTestId("nav-history").tap();
   const drawer = page.locator(".sessions.drawer");
   await drawer.waitFor();
   await page.waitForTimeout(300);
   const box = await drawer.boundingBox();
   check(
-    "on a phone History ends 30% above the foot of the screen",
-    Math.abs(box.y + box.height - 844 * 0.7) <= 2,
+    "on a phone History keeps the drawers' band to the foot of the screen",
+    Math.abs(844 - (box.y + box.height) - 14) <= 1 &&
+      Math.abs(box.x - 10) <= 1 &&
+      Math.abs(390 - (box.x + box.width) - 10) <= 1,
     JSON.stringify(box),
   );
   const bar = page.locator(".session-group-bar").first();
@@ -1933,13 +1939,13 @@ async function scenarioTouch(sid) {
       head.y + head.height / 2,
     );
   }
-  await page.touchscreen.tap(195, 844 * 0.85);
+  await page.getByTestId("sessions-close").tap();
   await until(
-    "History put away by a tap below it",
+    "History put away by the close control in its head",
     async () => (await drawer.count()) === 0,
     3000,
   );
-  check("a tap below History goes back to the conversation", true);
+  check("the close control in the head goes back to the conversation", true);
   await context.close();
 }
 
