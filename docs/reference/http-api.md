@@ -6,6 +6,8 @@ It is not a command of its own. **`coddy serve`** runs it whenever **`httpserver
 
 The bundled SPA is included only when you also set the **`ui`** tag (for example **`make build TAGS="http ui"`** or **`go build -tags=http,ui`**). With **http** only, **`GET /`** returns **404** with a plain-text hint.
 
+A JSON answer goes out with **`Content-Encoding: gzip`** and **`Vary: Accept-Encoding`** to a client whose **`Accept-Encoding`** admits gzip; event streams, files and error pages are sent as written.
+
 ## OpenAPI and Swagger UI
 
 Specs are regenerated on each request so they stay aligned with handlers.
