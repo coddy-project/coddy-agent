@@ -386,41 +386,40 @@ test("a card keeps its height when an open neighbour needs the room", () => {
   expect(ruleBody(".bgtask-card {")).toContain("flex: none");
 });
 
-// The base padding keeps two row gaps above the live line and the composer
-// reserve keeps two below it. Only the active line without todos drops 4px
-// above it; the idle slot and the line under a checklist keep their padding.
-test("the live line keeps its base padding for the idle slot and the checklist", () => {
-  expect(ruleBody(".typing-dots {")).toMatch(
-    /padding: var\(--coddy-transcript-row-gap, 10px\) 14px 0;/,
-  );
+// The line stands in the transcript's own rhythm, and the padding is what buys
+// it: the rows around it are text, whose glyphs sit about 3.5px inside their
+// line box, while this row is a flex box whose ink reaches its own edges.
+// Measured in a browser, 1px over 4px puts it 13.7px under the step it reports
+// on and 13.9px over what follows at 1280 (two ordinary rows: 13.7), and 16px
+// and 15.6px at 390 (two ordinary rows: 15.7). With no padding the row below
+// came within 9.9px. The 17px on the sides are the plate's 1px border and its
+// 16px padding, so the mark stands on the vertical line of the folder icon
+// under it.
+test("the live line keeps the transcript's rhythm above and below", () => {
+  expect(ruleBody(".typing-dots {")).toMatch(/padding: 1px 17px 4px;/);
 });
 
-test("without todos the active live line removes 4px above it and adds no room below", () => {
-  const rule = capture(
-    /\.messages-inner:not\(:has\(> \.message-row-todo\)\)\s*>\s*\.msg-assistant-stack:not\(\.typing-dots-slot\)\s*>\s*\.typing-dots\s*\{([^}]+)\}/,
-    css,
-    "the active live line needs its own spacing when no checklist is present",
+// One padding, whatever stands under the line: the rule that took 4px off the
+// column without a checklist was compensating for the margin the checklist
+// card used to add, and that margin is gone.
+test("the live line's room does not depend on the checklist", () => {
+  expect(css).not.toMatch(
+    /:not\(:has\(> \.message-row-todo\)\)[^{]*\.typing-dots\s*\{/,
   );
-  expect(rule).toContain(
-    "padding-top: calc(var(--coddy-transcript-row-gap, 10px) - 4px);",
-  );
-  expect(rule).not.toMatch(/padding-bottom\s*:|padding\s*:/);
+  expect(css).not.toMatch(/\.typing-dots\s*\{[^}]*padding-block/);
 });
 
-test("the active live line eases checklist spacing changes only without reduced motion", () => {
-  const motion = [
-    ...css.matchAll(
-      /@media \(prefers-reduced-motion: no-preference\) \{([\s\S]*?)\n\}/g,
-    ),
-  ]
-    .map((match) => match[1])
-    .join("\n");
-  const rule = capture(
-    /\.messages-inner\s*>\s*\.msg-assistant-stack:not\(\.typing-dots-slot\)\s*>\s*\.typing-dots\s*\{([^}]+)\}/,
-    motion,
-    "only the active line should ease its checklist spacing change",
-  );
-  expect(rule).toContain("transition: padding-top 0.24s ease;");
+// Regression (npm run check:queue, "the end of a turn moves nothing"): the
+// line a finished step leaves takes the live line's place in one frame, so it
+// has to be the same box. A rule that gave the finished one its own padding
+// moved the whole transcript by the difference the moment a turn ended.
+test("the finished line is the same box as the live line it replaces", () => {
+  expect(css).not.toMatch(/\.typing-dots--summary\s*\{[^}]*padding/);
+});
+
+// With one padding there is no checklist-driven padding change left to ease.
+test("the live line animates no padding of its own", () => {
+  expect(css).not.toMatch(/transition:\s*padding-top/);
   expect(ruleBody(".typing-dots {")).not.toMatch(/transition\s*:/);
 });
 
@@ -506,11 +505,16 @@ test("the mark of a finished turn's line stands still", () => {
   ).toContain("animation: none");
 });
 
+// Only at the tail, where the finished line takes the live line's own place
+// and nothing stands under it. With a row under it the room is held by the
+// empty slot instead (MessageList.tsx), and the blank second row stood between
+// the numbers and whatever followed: 31.9px against the 15.7px two ordinary
+// rows keep on a phone.
 test("the finished line keeps the live line's two rows on a phone", () => {
   // The numbers and the phrase under them: without this room the page moves when
   // the turn ends.
   const phone = css.slice(css.indexOf("Centre the 14px mark"));
   expect(phone.replace(/\s+/g, " ")).toContain(
-    ".typing-dots-status--finished { min-height: calc(12px * 1.3 + 2px + 11px * 1.3);",
+    ".messages-inner > :last-child .typing-dots-status--finished { min-height: calc(12px * 1.3 + 2px + 11px * 1.3);",
   );
 });

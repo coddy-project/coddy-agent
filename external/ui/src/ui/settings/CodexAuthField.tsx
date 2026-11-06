@@ -265,7 +265,11 @@ export function CodexAuthField(props: {
           {t("codexAuth.cliLoginOtherRow", { row: status.cli_login_row })}
         </p>
       ) : null}
-      {login?.user_code && login.verification_url ? (
+      {/* A one-time code and the page to type it on belong to a sign-in that
+          is still running. Once the row is connected the success line is all
+          there is to say, whatever a poll that never saw the end left behind:
+          "enter this code" under "signed in" reads as a contradiction. */}
+      {!status.connected && login?.user_code && login.verification_url ? (
         <div className="codex-auth-device">
           <p className="settings-field-desc">{t("codexAuth.enterCode")}</p>
           <code className="codex-auth-code">{login.user_code}</code>

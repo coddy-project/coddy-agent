@@ -47,7 +47,8 @@ export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
       >
         <div
           className={
-            "typing-dots" + (runningTasks > 0 ? "" : " typing-dots--finished")
+            "typing-dots typing-dots--summary" +
+            (runningTasks > 0 ? "" : " typing-dots--finished")
           }
           {...(at ? { title: formatUtcToLocalFullDetail(at) } : {})}
         >
@@ -63,10 +64,13 @@ export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
                 {tp("status.turnTokens", outputTokens, {
                   shown: formatTurnTokens(outputTokens),
                 })}
-                {" · "}
-                {t("status.generationSpeed", {
-                  speed: formatGenerationSpeed(tokensPerSecond),
-                })}
+                {/* A turn nobody could measure the generation of keeps the
+                    clock and the count and says no speed. */}
+                {tokensPerSecond !== undefined
+                  ? ` · ${t("status.generationSpeed", {
+                      speed: formatGenerationSpeed(tokensPerSecond),
+                    })}`
+                  : ""}
               </span>
               {runningTasks > 0 ? (
                 <TurnTasksSegment

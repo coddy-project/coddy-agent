@@ -161,3 +161,20 @@ test("a result's config key stands on a line of its own under where the setting 
   );
   expect(key?.body).toMatch(/display: block;/);
 });
+
+test("a folding legend keeps its chevron on the first line of a name that wraps", () => {
+  // A <button> centres its text in the browser's own stylesheet, so a legend
+  // too long for a narrow drawer came out centred with the chevron floating
+  // in the middle of the block instead of hanging in front of its name.
+  const toggle = rules(css).find(
+    (r) =>
+      r.selectors.includes(".settings-fieldset-toggle") &&
+      r.selectors.length === 1,
+  );
+  expect(toggle?.body).toMatch(/text-align: left;/);
+  expect(toggle?.body).toMatch(/align-items: flex-start;/);
+  const glyph = rules(css).find((r) =>
+    r.selectors.includes(".settings-fieldset-toggle > svg"),
+  );
+  expect(glyph?.body).toMatch(/margin-top: 1px;/);
+});

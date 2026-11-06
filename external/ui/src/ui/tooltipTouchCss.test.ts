@@ -46,6 +46,28 @@ test("a tooltip of the composer card stands over the plate joined to it", () => 
   );
 });
 
+// Regression: the ring's tip stands 12px above the ring, and it carried the
+// rail's shadow - 10px down over 28px of blur - which washed grey over the
+// ring and the bar under it. Cast upward it still spilled under its own
+// bottom edge, so the tip carries no shadow at all: an opaque plate with a
+// border is what tells it from the transcript.
+test("the tip above the context ring draws no shadow", () => {
+  expect(css).toMatch(
+    /\.composer-context-tip-host \.composer-context-tip\.rail-tip \{[^}]*box-shadow: none;/,
+  );
+  // And no palette keeps a token nothing draws with.
+  expect(css).not.toContain("--coddy-tip-shadow-above");
+});
+
+// A finger is wider than a cursor and the control beside the ring stops the
+// turn, so the two stand further apart wherever the pointer is coarse.
+test("the ring keeps its distance from the stop control on a touch screen", () => {
+  expect(css).toMatch(
+    /@media \(max-width: 599px\), \(any-hover: none\) and \(any-pointer: coarse\) \{ \.composer-bar-actions \{ gap: 20px; \}/,
+  );
+  expect(css).toMatch(/\.composer-bar-actions \{[^}]*gap: 10px;/);
+});
+
 test("the plus of the rail changes its frame and its ground under the pointer", () => {
   expect(css).toMatch(
     /@media \(hover: hover\) \{ \.rail-pill \.rail-hit\.rail-new-chat:hover \{ border-color: var\(--accent\); background: color-mix\(in srgb, var\(--accent\) 28%/,

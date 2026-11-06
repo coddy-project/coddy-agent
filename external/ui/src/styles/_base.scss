@@ -13,12 +13,40 @@ body,
   min-height: 100%;
 }
 
-/* The grain masks the rings the browser's ordered dither draws in the glows
-   on a high-contrast screen (issue #622). A phone's browser keeps the sizes the
-   stylesheet sets: iOS Safari otherwise enlarges the text of what it takes for a
-   wide block, such as the rows of a diff. */
+/* The root keeps the theme's colour and nothing else to paint; what the page
+   stands on is the canvas layer below. A phone's browser keeps the sizes the
+   stylesheet sets: iOS Safari otherwise enlarges the text of what it takes for
+   a wide block, such as the rows of a diff. */
 html {
   color-scheme: dark;
+  background-color: var(--coddy-canvas-gradient-bottom);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* The canvas: one fixed layer behind the whole page, carrying the theme's two
+   glows over its top-to-bottom gradient, and the grain over both - the grain
+   masks the rings the browser's ordered dither draws in the glows on a
+   high-contrast screen (issue #622).
+
+   A layer and not the root's own background, because background-attachment:
+   fixed is the one thing that cannot be relied on here: mobile WebKit ignores
+   it, and on the stacked shell the root's box is the whole document
+   (html { height: auto } below, so the document scrolls under the sticky
+   chrome). Painted on the root, the canvas was therefore sized to the whole
+   conversation on a phone: the glows, which are placed at a per cent of their
+   box, left the screen entirely and the gradient stretched over the page, so
+   the canvas read as one flat colour and a chosen wallpaper showed one
+   magnified fragment of itself, stretching further as the conversation grew.
+   A fixed box is the viewport on every engine, which is what both are meant
+   to fill. The layer is behind everything the page draws (z-index: -1 in the
+   root stacking context, over the root's own colour) and takes no pointer. */
+html::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background:
     var(--coddy-grain),
     radial-gradient(
@@ -36,10 +64,6 @@ html {
       var(--coddy-canvas-gradient-top),
       var(--coddy-canvas-gradient-bottom)
     );
-  background-color: var(--coddy-canvas-gradient-bottom);
-  background-attachment: fixed;
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
 }
 
 html[data-theme="light"] {
@@ -51,10 +75,12 @@ html :is(.chat-header, .rail-pill, .composer-card) {
   background-image: var(--coddy-grain);
 }
 
-/* A wallpaper the person chose (Settings → Appearance), dimmed toward the
-   theme's canvas colour so text on the glass stays readable. */
-html[data-wallpaper="true"],
-html[data-wallpaper="true"][data-simple="on"] {
+/* A wallpaper the person chose (Settings → Appearance) takes the canvas layer
+   over, dimmed toward the theme's canvas colour so text on the glass stays
+   readable. Both selectors, so the layer keeps its specificity over the flat
+   canvas the simplified mode paints in its place. */
+html[data-wallpaper="true"]::before,
+html[data-wallpaper="true"][data-simple="on"]::before {
   background:
     linear-gradient(
       color-mix(
@@ -69,8 +95,6 @@ html[data-wallpaper="true"][data-simple="on"] {
       )
     ),
     var(--coddy-wallpaper) center / cover no-repeat;
-  background-color: var(--coddy-canvas-gradient-bottom);
-  background-attachment: fixed;
 }
 
 body {

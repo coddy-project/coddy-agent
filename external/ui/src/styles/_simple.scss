@@ -59,6 +59,14 @@ html[data-simple="on"] {
   background: var(--coddy-simple-canvas);
 }
 
+/* The canvas layer loses the glows, the gradient and the grain; the root's own
+   colour under it is the whole canvas. A chosen wallpaper keeps its picture
+   and its dimming through the pair of selectors in styles/_base.scss, which
+   outranks this one. */
+html[data-simple="on"]::before {
+  background: none;
+}
+
 html[data-simple="on"][data-theme="light"] {
   --coddy-simple-surface: #ffffff;
 }

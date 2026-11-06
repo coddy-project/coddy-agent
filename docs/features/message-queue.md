@@ -56,6 +56,10 @@ A second Stop while the first reserved batch is still unread takes precedence as
 
 Other prompt paths still read steer messages between their own steps where supported; without an accepted continuation, their end drops unread steer messages with a warning and leaves after-turn messages queued.
 
+### A turn an agent runs
+
+A turn served by a local agent (`providers[].type: acp`, [ACP agent as a model](acp-provider.md)) is one call that can last minutes, and Coddy has no ReAct step inside it. Its step boundary is the agent's prompt, so a **steer** message queued while such a turn runs interrupts that prompt and the turn starts again carrying what is queued - the same thing Stop with a waiting queue does by hand, done for you. The agent keeps its own ACP session, so it goes on from what it had already done, and the answer it had written stays in the transcript. An **after-turn** message changes nothing there: the agent finishes and the message is read at the turn's own boundary. Nothing is interrupted while a message that asked to wait is in the queue.
+
 ## Images
 
 A composer attachment follows its text into the queue, and a message of images alone is valid. An image reaches the model only when the session's model reads images (`multimodal: true`), the rule an ordinary prompt follows: for a text-only model the server drops the images of a queued message and keeps its text. Only an image carried in the request itself is taken, a base64 `data:image/...` URI; anything else is refused. Coddy saves the image with the session's assets when the agent reads the message, sends it to the model, and shows it on the user message in the transcript.

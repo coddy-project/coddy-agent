@@ -1280,7 +1280,10 @@ func (a *Agent) runReActLoop(
 				// own, never a call of Coddy's.
 				streamedAny = true
 				maybeMarkReasonEnd(now)
-				agentTools.report(*tool)
+				// Where the answer stood when the call was announced, in
+				// characters: the transcript keeps it so a surface can draw
+				// the call between the lines the agent wrote around it.
+				agentTools.report(*tool, utf8.RuneCountInString(answerBuf.String()))
 			}
 			// A call the model has only named yet announces the same pending row:
 			// the arguments can take seconds to stream, and without the row the
