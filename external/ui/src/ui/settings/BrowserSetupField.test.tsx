@@ -1,5 +1,11 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 
 import { BrowserSetupField } from "./BrowserSetupField";
 import {
@@ -123,15 +129,31 @@ test("the card says what is missing, then that the browser arrived", async () =>
         onChange={() => {}}
         texts={texts}
         enabled
-        fetchImpl={setupAnswer({ key_set: true, connected: ["Chrome on dev"] })}
+        fetchImpl={setupAnswer({
+          key_set: true,
+          connected: [
+            { id: "b1", name: "Chrome on dev", version: "142.0" },
+            { id: "b2", name: "Firefox at home" },
+          ],
+        })}
       />
     </I18nProvider>,
   );
   await waitFor(() =>
     expect(screen.getByTestId("browser-setup-state")).toHaveTextContent(
-      "Chrome on dev is connected",
+      "2 browsers are connected",
     ),
   );
+  // The name is what a person types into the extension's options, so the card
+  // names the browsers rather than only counting them; a version the
+  // extension gave follows its name.
+  const rows = within(screen.getByTestId("browser-setup-list")).getAllByRole(
+    "listitem",
+  );
+  expect(rows.map((row) => row.textContent)).toEqual([
+    "Chrome on dev142.0",
+    "Firefox at home",
+  ]);
 });
 
 // The key is write-only: a saved one never comes back to the form, so the

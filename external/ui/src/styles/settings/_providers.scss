@@ -540,3 +540,49 @@
   color: var(--coddy-todo-completed);
   font-weight: 600;
 }
+
+/* The browsers themselves under that line, one per row: the name a person
+   gave the extension is why they gave one, so the card says which browsers
+   are there and not only how many. */
+.browser-setup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.browser-setup-browser {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: mix-text(78%);
+}
+
+.browser-setup-browser-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--coddy-todo-completed);
+  /* On the middle of the lowercase letters beside it, as every mark of a row
+     of text in this app stands. */
+  transform: translateY(-1px);
+}
+
+.browser-setup-browser-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-setup-browser-version {
+  flex: 0 0 auto;
+  color: mix-text(48%);
+  font-variant-numeric: tabular-nums;
+}

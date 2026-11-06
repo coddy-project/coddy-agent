@@ -102,10 +102,16 @@
    that folds it, one line per item with the mark the todo tool rows use. A
    folded row and a leaving card close by their grid row, so the height they
    give back can move; every movement is in the motion block below. */
+/* Its top margin is the transcript's own row gap and nothing more: the card
+   used to add 6px over it, which put it further from the row above - the live
+   line, or the one a finished turn leaves - than any two rows of the
+   transcript stand apart. The entrance and the exit still collapse a whole row
+   gap (the negative margin below), so the card comes and goes with the space
+   it occupies. */
 .message-row-todo {
   display: grid;
   grid-template-rows: 1fr;
-  margin-top: 6px;
+  margin-top: 0;
   align-self: flex-start;
   width: fit-content;
   min-width: min(320px, 100%);

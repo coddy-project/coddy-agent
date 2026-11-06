@@ -1242,5 +1242,21 @@ export function objectSectionGroups(
       },
     ];
   }
+  if (key === "browser") {
+    // Connecting a browser is the whole tab for almost everyone, so what one
+    // Coddy process lends another folds away under the card, the way a
+    // provider's advanced settings do. The switch that opens these browsers
+    // to other processes and the list of other servers' browsers are two
+    // halves of the same arrangement and stand together.
+    return [
+      {
+        id: "browser-shared",
+        legend: translate("settings.group.browser.shared"),
+        description: translate("settings.group.browser.sharedDesc"),
+        paths: ["serve_remote", "remotes"],
+        collapsible: true,
+      },
+    ];
+  }
   return undefined;
 }

@@ -17,8 +17,11 @@ import {
   type BrowserStore,
 } from "./browserSetup";
 
+/** One browser on the socket, as the endpoint names it. */
+type ConnectedBrowser = { id?: string; name?: string; version?: string };
+
 /** What GET /coddy/browser/setup answers (external/browser/api.go). */
-type Setup = { key_set?: boolean; connected?: string[] };
+type Setup = { key_set?: boolean; connected?: ConnectedBrowser[] };
 
 /** How often the card asks the server while it waits for the extension. */
 const WAIT_POLL_MS = 2000;
@@ -342,24 +345,48 @@ function EyeGlyph({ open }: { open: boolean }) {
   );
 }
 
-/** The last line of the card: what the endpoint says right now. */
+/**
+ * The last line of the card: what the endpoint says right now, and once a
+ * browser is there the browsers themselves, each by the name its extension
+ * was given - which is what the name in those options is for.
+ */
 function BrowserSetupState(props: {
   enabled: boolean;
   keySet: boolean;
   saved: boolean;
-  connected: string[];
+  connected: ConnectedBrowser[];
 }) {
   const { t, tp } = useT();
   if (props.connected.length > 0) {
     return (
-      <span
-        className="browser-setup-state browser-setup-state--ready"
-        data-testid="browser-setup-state"
-      >
-        {tp("browserSetup.connected", props.connected.length, {
-          names: props.connected.join(", "),
-        })}
-      </span>
+      <>
+        <span
+          className="browser-setup-state browser-setup-state--ready"
+          data-testid="browser-setup-state"
+        >
+          {tp("browserSetup.connected", props.connected.length, {
+            count: String(props.connected.length),
+          })}
+        </span>
+        <ul className="browser-setup-list" data-testid="browser-setup-list">
+          {props.connected.map((browser, i) => (
+            <li
+              className="browser-setup-browser"
+              key={browser.id || `${browser.name ?? ""}:${i}`}
+            >
+              <span className="browser-setup-browser-dot" aria-hidden="true" />
+              <span className="browser-setup-browser-name">
+                {browser.name || t("browserSetup.unnamed")}
+              </span>
+              {browser.version ? (
+                <span className="browser-setup-browser-version">
+                  {browser.version}
+                </span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </>
     );
   }
   // The key is write-only, so the form holds one only while it is new: what

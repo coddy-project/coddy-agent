@@ -99,10 +99,15 @@ To build it from source instead, run `npm run build` in a checkout of the extens
 ## Connect the browser
 
 **Settings → Browser** of the web UI walks the whole of it: the two stores, the address and the key, and what the
-server sees. Press **Generate**, save the settings, and the card waits for the extension and says which browser
-arrived once one does - it reads `GET /coddy/browser/setup`, which carries no key and no tab. A key generated there is
-48 characters of the server's own alphabet, well past the 32 the configuration asks for; `openssl rand -hex 32` makes
-one for a server you configure by hand.
+server sees. Press **Generate**, save the settings, and the card waits for the extension; once browsers arrive it
+lists them, each by the name its options were given and the version it reported. It reads
+`GET /coddy/browser/setup`, which carries no key and no tab. A key generated there is 48 characters of the server's
+own alphabet, well past the 32 the configuration asks for; `openssl rand -hex 32` makes one for a server you
+configure by hand.
+
+Connecting a browser is the whole of the section for most people, so **Open these browsers to other Coddy
+processes** and **Browsers of other servers** are folded under the card in **Sharing browsers between Coddy
+processes**. [Chats of other Coddy processes](#chats-of-other-coddy-processes) is what those two settings do.
 
 The settings page of the extension opens after the install, and later from the settings button of the side panel.
 Enter the server address - the address of its web UI, `http://127.0.0.1:12345` for a local server - the key and a name

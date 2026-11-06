@@ -123,20 +123,30 @@ func (a *API) Register(mux *http.ServeMux) {
 type SetupResponse struct {
 	// KeySet says the endpoint has a key to accept an extension with.
 	KeySet bool `json:"key_set"`
-	// Connected are the browsers on the socket right now, by the name each
-	// gave in initialize.
-	Connected []string `json:"connected"`
+	// Connected are the browsers on the socket right now, as each named
+	// itself in initialize.
+	Connected []SetupBrowser `json:"connected"`
+}
+
+// SetupBrowser is one browser on the socket as the settings screen sees it:
+// what the extension called itself and nothing more. The name is why a person
+// gives one in the extension's options, so the list says which browsers are
+// there rather than how many.
+type SetupBrowser struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Version string `json:"version,omitempty"`
 }
 
 // setup answers the settings screen. It is not gated on serve_remote: the
 // person reading it is configuring this very endpoint, and the answer holds
 // nothing a credential of this server does not already reach.
 func (a *API) setup(w http.ResponseWriter, _ *http.Request) {
-	names := []string{}
+	connected := []SetupBrowser{}
 	for _, b := range a.Hub.List("") {
-		names = append(names, b.Name)
+		connected = append(connected, SetupBrowser{ID: b.ID, Name: b.Name, Version: b.Version})
 	}
-	writeAPIJSON(w, http.StatusOK, SetupResponse{KeySet: a.KeySet != nil && a.KeySet(), Connected: names})
+	writeAPIJSON(w, http.StatusOK, SetupResponse{KeySet: a.KeySet != nil && a.KeySet(), Connected: connected})
 }
 
 func writeAPIError(w http.ResponseWriter, status int, msg string) {

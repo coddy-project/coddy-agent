@@ -37,16 +37,18 @@ func TestSetupReadAnswersTheSettingsScreen(t *testing.T) {
 	if !got.KeySet || len(got.Connected) != 0 {
 		t.Fatalf("setup = %+v, want a key and no browser", got)
 	}
-	conn, err := hub.Connect(BrowserInfo{ID: "browser-one", Name: "Chrome on devbox"}, []string{"open_tab"})
+	conn, err := hub.Connect(BrowserInfo{ID: "browser-one", Name: "Chrome on devbox", Version: "142.0"}, []string{"open_tab"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer hub.Disconnect(conn)
 	got = ask()
-	if len(got.Connected) != 1 || got.Connected[0] != "Chrome on devbox" {
-		t.Fatalf("setup = %+v, want the connected browser by name", got)
+	want := SetupBrowser{ID: "browser-one", Name: "Chrome on devbox", Version: "142.0"}
+	if len(got.Connected) != 1 || got.Connected[0] != want {
+		t.Fatalf("setup = %+v, want the connected browser as it named itself", got)
 	}
-	// Nothing of the browser but its name: no tab, no action, no key.
+	// Nothing of the browser but what it called itself: no tab, no action,
+	// no key.
 	raw, _ := json.Marshal(got)
 	for _, leak := range []string{"tabs", "actions", "token", "key\""} {
 		if string(raw) != "" && containsWord(string(raw), leak) {

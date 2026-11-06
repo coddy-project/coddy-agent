@@ -316,8 +316,11 @@ export const messagesEn: Record<string, string> = {
   "browserSetup.stateNoKey": "Generate a key and save the settings.",
   "browserSetup.stateUnsaved": "Save the settings, then paste the key.",
   "browserSetup.stateWaiting": "Waiting for the extension\u2026",
-  "browserSetup.connected.one": "{names} is connected. Everything is ready.",
-  "browserSetup.connected.other": "{names} are connected. Everything is ready.",
+  "browserSetup.connected.one":
+    "{count} browser is connected, everything is ready.",
+  "browserSetup.connected.other":
+    "{count} browsers are connected, everything is ready.",
+  "browserSetup.unnamed": "Unnamed browser",
   "settings.schema.browser.enable.label": "Enabled",
   "settings.schema.browser.enable.desc":
     "Offer the browser tool to the chats, and accept the extension when a key is set.",
@@ -325,7 +328,7 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.browser.token.desc":
     "At least 32 characters, entered in the extension. Leave empty to keep the current key.",
   "settings.schema.browser.serve_remote.label":
-    "Serve to other Coddy processes",
+    "Open these browsers to other Coddy processes",
   "settings.schema.browser.serve_remote.desc":
     "Let a console or an editor on this machine and the nodes of the swarm drive the browsers connected here, through /coddy/browser/v1 with this server's API credential. The extension asks you before the first action of each such chat.",
   "settings.schema.browser.remotes.label": "Browsers of other servers",
@@ -341,6 +344,9 @@ export const messagesEn: Record<string, string> = {
   "settings.group.agent.timeouts": "Stream timeouts",
   "settings.group.agent.loop": "Loop guard",
   "settings.group.agent.limits": "Usage limits",
+  "settings.group.browser.shared": "Sharing browsers between Coddy processes",
+  "settings.group.browser.sharedDesc":
+    "The browsers this server opens to other Coddy processes, and the browsers of other servers its own chats may use.",
   "settings.group.hooks.main": "Hook settings",
   "settings.group.hooks.mainDesc":
     "How hooks run: whether files that came with the checkout may run, how long one hook process may take when its definition gives no timeout, how many times a Stop hook may send the agent back to work, and how much text one hook may hand over.",

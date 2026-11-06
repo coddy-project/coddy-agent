@@ -1816,7 +1816,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/browser/setup": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "What the settings screen needs while a browser is being connected",
-					"description": "Coddy for Browser: whether the endpoint has an extension key (`browser.token`) and which browsers are on its socket right now, by the name each gave in `initialize`. The Browser tab of Settings reads it while a person connects a browser, so the card can say that it is waiting for the extension and then that the browser arrived. Unlike the two routes below it is not gated on `browser.serve_remote`: whoever holds this server's credentials is configuring this very endpoint, and the answer carries no key, no tab and no address.",
+					"description": "Coddy for Browser: whether the endpoint has an extension key (`browser.token`) and which browsers are on its socket right now, as each named itself in `initialize`. The Browser tab of Settings reads it while a person connects a browser, so the card can say that it is waiting for the extension, then that the browser arrived, and list the browsers connected now. Unlike the two routes below it is not gated on `browser.serve_remote`: whoever holds this server's credentials is configuring this very endpoint, and the answer carries no key, no tab and no address.",
 					"operationId": "browserSetup",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -1828,9 +1828,17 @@ func openAPISpec() map[string]interface{} {
 										"properties": map[string]interface{}{
 											"key_set": map[string]interface{}{"type": "boolean", "description": "browser.token is set, so the endpoint can accept an extension."},
 											"connected": map[string]interface{}{
-												"type":        "array",
-												"items":       map[string]string{"type": "string"},
-												"description": "The browsers on the socket right now, by name.",
+												"type": "array",
+												"items": map[string]interface{}{
+													"type": "object",
+													"properties": map[string]interface{}{
+														"id":      map[string]string{"type": "string", "description": "The browser's id on this endpoint."},
+														"name":    map[string]string{"type": "string", "description": "What the extension called this browser."},
+														"version": map[string]string{"type": "string", "description": "Its version, when the extension gave one."},
+													},
+													"required": []string{"id", "name"},
+												},
+												"description": "The browsers on the socket right now.",
 											},
 										},
 										"required": []string{"key_set", "connected"},

@@ -878,7 +878,7 @@ func UISchemaMap() map[string]interface{} {
 			map[string]interface{}{
 				"enable":       boolProp("Enabled", "Offer the browser tool to the chats, and accept the extension when a key is set."),
 				"token":        secretProp("Extension key", "At least 32 characters, entered in the extension. Write-only: leave empty to keep the current key.", "token_configured"),
-				"serve_remote": boolProp("Serve to other Coddy processes", "Let a console or an editor on this machine and the nodes of the swarm drive the browsers connected here, through /coddy/browser/v1 with this server's API credential. The extension asks you before the first action of each such chat."),
+				"serve_remote": boolProp("Open these browsers to other Coddy processes", "Let a console or an editor on this machine and the nodes of the swarm drive the browsers connected here, through /coddy/browser/v1 with this server's API credential. The extension asks you before the first action of each such chat."),
 				"remotes": map[string]interface{}{
 					"type":        "array",
 					"title":       "Browsers of other servers",

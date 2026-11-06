@@ -102,8 +102,11 @@ test("an item in progress carries a still mark of its own", () => {
   expect(css).not.toMatch(/@keyframes todo-checklist-(spin|shimmer)/);
 });
 
-test("the checklist adds 6px above the transcript gap and gives it back on exit", () => {
-  expect(plain(".message-row-todo")).toMatch(/(?:^|; )margin-top: 6px;/);
+test("the checklist stands on the transcript's own gap and gives it back on exit", () => {
+  // It used to add 6px over that gap, which put the card further from the row
+  // above - the live line, or the one a finished turn leaves - than any two
+  // rows of the transcript stand apart.
+  expect(plain(".message-row-todo")).toMatch(/(?:^|; )margin-top: 0;/);
   const closedMargin =
     "margin-top: calc(-1 * var(--coddy-transcript-row-gap, 10px))";
   expect(plain(".message-row-todo.is-leaving")).toContain(closedMargin);
