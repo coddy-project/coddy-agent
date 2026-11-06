@@ -505,8 +505,9 @@ func (s *settingsFeatureState) transcriptShowsNotices(list string) error {
 	defer func() { _ = res.Body.Close() }()
 	var page struct {
 		UILog []struct {
-			Level   string `json:"level"`
-			Message string `json:"message"`
+			Level      string          `json:"level"`
+			Message    string          `json:"message"`
+			Generation json.RawMessage `json:"generation"`
 		} `json:"uiLog"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&page); err != nil {
@@ -514,7 +515,10 @@ func (s *settingsFeatureState) transcriptShowsNotices(list string) error {
 	}
 	var got []string
 	for _, row := range page.UILog {
-		if row.Level == session.UILogLevelNotice {
+		// A row carrying a generation summary is the line a finished turn
+		// leaves under its answer, not a notice: the browser draws it as the
+		// live line at rest and never as a message.
+		if row.Level == session.UILogLevelNotice && len(row.Generation) == 0 {
 			got = append(got, row.Message)
 		}
 	}

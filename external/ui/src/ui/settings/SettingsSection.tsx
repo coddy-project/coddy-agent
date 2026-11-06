@@ -1,7 +1,9 @@
 import { Component, lazy, Suspense, type ReactNode } from "react";
 import { AppearanceThemePicker } from "../theme/AppearanceModal";
 import { applyModelsChange, applyToolsetsChange } from "./applyModelsChange";
+import { BrowserSetupField } from "./BrowserSetupField";
 import { CodexAuthField } from "./CodexAuthField";
+import { DevinAuthField } from "./DevinAuthField";
 import { FieldLabel } from "./FieldHint";
 import { ContextWindowField } from "./ContextWindowField";
 import { NeuralDeepAuthField } from "./NeuralDeepAuthField";
@@ -370,6 +372,12 @@ export function overrideTexts(
         };
       }
     }
+    if (providerType === "devin" && path === "api_base") {
+      return {
+        primary: translate("devinAuth.fieldLabel"),
+        primaryDesc: translate("devinAuth.description"),
+      };
+    }
     if (providerType === "opencode" && path === "api_base") {
       return {
         primary: label(),
@@ -404,6 +412,12 @@ export function overrideTexts(
   if (domain === "skills") {
     return path === SKILLS_HAND_DRAWN_FIELD ? false : null;
   }
+  // The extension key is the whole of connecting a browser, so the field
+  // carries the steps around it: the stores, the address and the key, and
+  // what the endpoint says while a browser is on its way.
+  if (domain === "browser") {
+    return path === "token" ? { primary: label(), primaryDesc: desc() } : null;
+  }
   return null;
 }
 
@@ -427,6 +441,28 @@ function gatewaysFieldOverride(ctx: FieldOverrideContext) {
   );
 }
 
+// The Browser section draws its key as the card that connects a browser: the
+// stores, the address, the key and what the endpoint says while the extension
+// is on its way (BrowserSetupField).
+function browserFieldOverride(row: Record<string, unknown>): FieldOverride {
+  return (ctx: FieldOverrideContext) => {
+    const box = boxFor("browser", ctx);
+    if (box === false || box === null) {
+      return box;
+    }
+    return (
+      <BrowserSetupField
+        value={
+          ctx.value === undefined || ctx.value === null ? "" : String(ctx.value)
+        }
+        onChange={ctx.onChange}
+        texts={box}
+        enabled={row.enable !== false}
+      />
+    );
+  };
+}
+
 function providerFieldOverride(ctx: FieldOverrideContext) {
   const box = boxFor("providers", ctx);
   if (box === false || box === null) {
@@ -447,6 +483,19 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
     return (
       <CodexAuthField
         providerName={rowText(ctx.parentObj, "name")}
+        texts={box}
+        {...rowProxy(ctx.parentObj)}
+      />
+    );
+  }
+  if (rowText(ctx.parentObj, "type") === "devin") {
+    return (
+      <DevinAuthField
+        providerName={rowText(ctx.parentObj, "name")}
+        hasExplicitKey={
+          rowText(ctx.parentObj, "api_key").trim() !== "" ||
+          rowText(ctx.parentObj, "api_key_command").trim() !== ""
+        }
         texts={box}
         {...rowProxy(ctx.parentObj)}
       />
@@ -553,6 +602,7 @@ export function SettingsSection(props: {
   /** Workspace of the viewed session; the Subagents tab asks about it. */
   workspacePath?: string | undefined;
   onSessionTagsChanged?: (id: string, tags: string[]) => void;
+  onRestartOnboarding?: (() => void) | undefined;
 }) {
   const {
     section,
@@ -589,7 +639,9 @@ export function SettingsSection(props: {
     setDoc({ ...doc, [key]: value });
 
   if (section.kind === "appearance") {
-    return <AppearanceThemePicker />;
+    return (
+      <AppearanceThemePicker onRestartOnboarding={props.onRestartOnboarding} />
+    );
   }
 
   // The session table is API-driven (/coddy/sessions): it reads and removes
@@ -946,32 +998,34 @@ export function SettingsSection(props: {
   const override: FieldOverride | undefined =
     key === "gateways"
       ? gatewaysFieldOverride
-      : key === "agent" ||
-          key === "memory" ||
-          key === "compaction" ||
-          key === "supervisor"
-        ? (ctx) =>
-            ctx.path === "model" ? (
-              <ModelPicker
-                value={
-                  ctx.value === undefined || ctx.value === null
-                    ? ""
-                    : String(ctx.value)
-                }
-                onChange={(v) => ctx.onChange(v)}
-                models={modelIds}
-                label={
-                  schemaFieldLabel(key, "model", ctx.schema.title, "model") ||
-                  t("settings.field.defaultModelFallback")
-                }
-                description={schemaFieldDesc(
-                  key,
-                  "model",
-                  ctx.schema.description,
-                )}
-              />
-            ) : null
-        : undefined;
+      : key === "browser"
+        ? browserFieldOverride(asObject(doc[key]))
+        : key === "agent" ||
+            key === "memory" ||
+            key === "compaction" ||
+            key === "supervisor"
+          ? (ctx) =>
+              ctx.path === "model" ? (
+                <ModelPicker
+                  value={
+                    ctx.value === undefined || ctx.value === null
+                      ? ""
+                      : String(ctx.value)
+                  }
+                  onChange={(v) => ctx.onChange(v)}
+                  models={modelIds}
+                  label={
+                    schemaFieldLabel(key, "model", ctx.schema.title, "model") ||
+                    t("settings.field.defaultModelFallback")
+                  }
+                  description={schemaFieldDesc(
+                    key,
+                    "model",
+                    ctx.schema.description,
+                  )}
+                />
+              ) : null
+          : undefined;
   return (
     <SchemaForm
       schema={sub}
@@ -1185,6 +1239,22 @@ export function objectSectionGroups(
         id: "hooks",
         legend: translate("settings.group.hooks.main"),
         description: translate("settings.group.hooks.mainDesc"),
+      },
+    ];
+  }
+  if (key === "browser") {
+    // Connecting a browser is the whole tab for almost everyone, so what one
+    // Coddy process lends another folds away under the card, the way a
+    // provider's advanced settings do. The switch that opens these browsers
+    // to other processes and the list of other servers' browsers are two
+    // halves of the same arrangement and stand together.
+    return [
+      {
+        id: "browser-shared",
+        legend: translate("settings.group.browser.shared"),
+        description: translate("settings.group.browser.sharedDesc"),
+        paths: ["serve_remote", "remotes"],
+        collapsible: true,
       },
     ];
   }

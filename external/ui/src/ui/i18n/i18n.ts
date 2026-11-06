@@ -149,6 +149,7 @@ export function themeLabel(themeId: string): string {
     monokai: translate("appearance.theme.monokai"),
     nord: translate("appearance.theme.nord"),
     "rose-pine": translate("appearance.theme.rosePine"),
+    neuraldeep: translate("appearance.theme.neuraldeep"),
   };
   return map[themeId] ?? themeId;
 }

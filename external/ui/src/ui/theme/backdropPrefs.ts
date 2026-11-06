@@ -4,6 +4,9 @@
  * in IndexedDB, dimmed by `coddy_ui_wallpaper_dim`. Legacy private blobs stay local.
  * followBackdrop applies the picture and dimming to <html> through CSS.
  */
+import { loadUiDefaults } from "./uiDefaults";
+import { galleryEnvironmentScope, readGalleryPhoto } from "./wallpaperGallery";
+
 export const WALLPAPER_DIM_COOKIE = "coddy_ui_wallpaper_dim";
 export const WALLPAPER_DIM_DEFAULT = 40;
 
@@ -231,6 +234,22 @@ export async function clearDeletedWallpaper(
 let activeMutation: AbortController | null = null;
 let writes: Promise<WallpaperResult> = Promise.resolve({ refusal: null });
 
+/** The name of the deployment wallpaper currently shown, if it is the
+ * server default rather than a pick of the person's own. */
+let appliedServerDefault: string | null = null;
+
+interface StoredClear {
+  clearedDefault: string;
+}
+
+function isStoredClear(v: unknown): v is StoredClear {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    typeof (v as StoredClear).clearedDefault === "string"
+  );
+}
+
 function beginMutation(signal?: AbortSignal) {
   const ownGeneration = ++generation;
   activeMutation?.abort();
@@ -285,6 +304,34 @@ function persistWallpaper(
       return { refusal: null };
     } catch (error) {
       // Cancellation is intentional; a real failure remains visible and retryable.
+      return mutation.current() ? storageFailure(error) : { refusal: null };
+    }
+  });
+  return writes;
+}
+
+/** Writes a tombstone for a cleared server default instead of deleting the
+ * row: the reload keeps the plain theme background, while a renamed
+ * CODDY_UI_WALLPAPER still reaches the browser (the marker names only the
+ * default it cleared). */
+function persistMarker(
+  marker: StoredClear,
+  mutation: ReturnType<typeof beginMutation>,
+) {
+  writes = writes.then(async () => {
+    if (!mutation.current()) return { refusal: null };
+    try {
+      await dbRequest(
+        "readwrite",
+        (store) => store.put(marker, DB_KEY),
+        mutation.signal,
+      );
+      if (mutation.current()) {
+        committedRevision++;
+        showWallpaper(null);
+      }
+      return { refusal: null };
+    } catch (error) {
       return mutation.current() ? storageFailure(error) : { refusal: null };
     }
   });
@@ -359,6 +406,7 @@ export async function setWallpaper(
 ): Promise<WallpaperResult> {
   const gallery = galleryIdentity(source);
   const mutation = beginMutation(signal);
+  appliedServerDefault = null;
   try {
     if (!mutation.current()) return { refusal: null };
     const validated = await validatePicture(file, mutation.signal);
@@ -375,7 +423,16 @@ export async function clearWallpaper(
   signal?: AbortSignal,
 ): Promise<WallpaperResult> {
   const mutation = beginMutation(signal);
+  const clearedDefault = appliedServerDefault;
+  appliedServerDefault = null;
   try {
+    // A cleared deployment default is kept as a tombstone so the reload keeps
+    // the plain theme background instead of re-applying it; a changed
+    // CODDY_UI_WALLPAPER still supersedes it, because the marker names the
+    // default it clears.
+    if (clearedDefault) {
+      return await persistMarker({ clearedDefault }, mutation);
+    }
     return await persistWallpaper(null, mutation);
   } finally {
     mutation.finish();
@@ -398,7 +455,15 @@ async function restoreWallpaper(): Promise<void> {
     const stored = await dbRequest<unknown>("readonly", (store) =>
       store.get(DB_KEY),
     );
-    if (committedRevision !== ownRevision || stored == null) return;
+    if (committedRevision !== ownRevision) return;
+    if (stored == null || isStoredClear(stored)) {
+      // No pick of the person's own (or a tombstone of a cleared default):
+      // the deployment's default gallery file (CODDY_UI_WALLPAPER, off
+      // GET /coddy/info) applies if it names one the clear does not block.
+      const blocked = isStoredClear(stored) ? stored.clearedDefault : null;
+      await restoreServerDefaultWallpaper(ownRevision, blocked);
+      return;
+    }
     const blob =
       stored instanceof Blob
         ? stored
@@ -417,6 +482,44 @@ async function restoreWallpaper(): Promise<void> {
     showWallpaper(blob, gallery);
   } catch (error) {
     if (committedRevision === ownRevision) storageFailure(error);
+  }
+}
+
+/**
+ * Shows the deployment's default wallpaper while the browser keeps no pick
+ * of its own. The file is read from the server's gallery and applied with
+ * its gallery identity, so a later manual pick or clear replaces it as any
+ * other selection would. It is never persisted as a pick: a Clear writes a
+ * tombstone for it and a renamed CODDY_UI_WALLPAPER still supersedes it.
+ * A name the gallery does not have, a name `blocked` tombstones, or a server
+ * that answers no defaults leaves the plain theme background.
+ */
+async function restoreServerDefaultWallpaper(
+  ownRevision: number,
+  blocked: string | null,
+): Promise<void> {
+  const { wallpaper } = await loadUiDefaults();
+  if (!wallpaper) return;
+  try {
+    const name = wallpaper.trim();
+    if (!name || name === "." || name === ".." || /[\\/\x00]/.test(name)) {
+      return;
+    }
+    if (blocked === name) {
+      showWallpaper(null);
+      return;
+    }
+    const blob = await readGalleryPhoto({ name }, new AbortController().signal);
+    // A pick, a clear or an environment switch made while the fetch was in
+    // flight wins over the default that lands last.
+    if (committedRevision !== ownRevision) return;
+    showWallpaper(blob, {
+      scope: galleryEnvironmentScope(),
+      name,
+    });
+    appliedServerDefault = name;
+  } catch {
+    // The gallery file is missing, unreadable or refused: no wallpaper.
   }
 }
 

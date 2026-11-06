@@ -50,6 +50,13 @@ Feature: Stable request prefix for provider prompt caching
     Then the second read's result carries the scoped rule again
     And every request of both turns opens with the same system message
 
+  Scenario: A Claude request marks the prefix the next request will read back
+    Given an agent session on a provider of Anthropic's shape
+    When the model calls a tool, then answers
+    Then every request carries two cache marks, one of them on the system prompt
+    And no request marks its turn context block
+    And the other mark moves to the newest turn with every request
+
   Scenario: Editing AGENTS.md during the session does not move the system message
     Given an agent session in a workspace whose AGENTS.md says "AGENTS_FIRST_TEXT"
     When the model answers straight away

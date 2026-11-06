@@ -24,6 +24,11 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  /* A wheel that runs past the end of a tab stays in the tab: on a short
+     window a long tab (System) reached its end mid-gesture and the rest of
+     the gesture scrolled the page behind the drawer away
+     (npm run check:webkit, "the page behind the panel stays still"). */
+  overscroll-behavior: contain;
   padding: 8px 8px 12px;
   box-sizing: border-box;
 }

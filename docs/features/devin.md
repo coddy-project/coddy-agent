@@ -30,6 +30,10 @@ On a machine reached over SSH there is no browser to open, and a browser on your
 
 In the console, `/login devin` runs the same sign-in and writes the same three things, then the console runs on the new models without a restart; the address of a browser on another machine is pasted into the editor ([Console](../surfaces/console.md#signing-in-to-a-provider-login)).
 
+### Sign in from settings
+
+A Devin row under **Settings → LLM providers** offers **Sign In with Devin**. It starts the same PKCE flow through `POST /coddy/providers/{name}/devin-auth/device`, using the proxy currently in the unsaved form, and opens the verification page. When the browser cannot reach Coddy's loopback callback, paste the full callback address into the field below the sign-in link. The row then shows the account and **Sign Out**. The token stays on the Coddy server at `$CODDY_HOME/providers/<name>/devin-auth.json`; **Save All** writes only the provider row, never the token.
+
 `--no-config` stores the token and leaves `config.yaml` alone. A second login only adds what is missing: rows and models already in the file stay as you wrote them.
 
 ### Reuse the Devin CLI login

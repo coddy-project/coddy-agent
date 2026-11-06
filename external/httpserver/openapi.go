@@ -1218,6 +1218,14 @@ func openAPISpec() map[string]interface{} {
 												"items":       map[string]string{"type": "string"},
 												"description": "The toolsets[] presets by name, in the order of the configuration; empty without one.",
 											},
+											"ui": map[string]interface{}{
+												"type":        "object",
+												"description": "The deployment's UI defaults, present only while CODDY_UI_THEME or CODDY_UI_WALLPAPER is set: theme names the theme a browser without its own cookie opens on, wallpaper a file of the server's wallpaper gallery shown until the person picks a background.",
+												"properties": map[string]interface{}{
+													"theme":     map[string]interface{}{"type": "string", "example": "neuraldeep"},
+													"wallpaper": map[string]interface{}{"type": "string", "example": "night.png"},
+												},
+											},
 										},
 									},
 								},
@@ -1802,6 +1810,44 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"401": errorResponseRef(),
 						"403": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/browser/setup": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "What the settings screen needs while a browser is being connected",
+					"description": "Coddy for Browser: whether the endpoint has an extension key (`browser.token`) and which browsers are on its socket right now, as each named itself in `initialize`. The Browser tab of Settings reads it while a person connects a browser, so the card can say that it is waiting for the extension, then that the browser arrived, and list the browsers connected now. Unlike the two routes below it is not gated on `browser.serve_remote`: whoever holds this server's credentials is configuring this very endpoint, and the answer carries no key, no tab and no address.",
+					"operationId": "browserSetup",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "The endpoint's state",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"key_set": map[string]interface{}{"type": "boolean", "description": "browser.token is set, so the endpoint can accept an extension."},
+											"connected": map[string]interface{}{
+												"type": "array",
+												"items": map[string]interface{}{
+													"type": "object",
+													"properties": map[string]interface{}{
+														"id":      map[string]string{"type": "string", "description": "The browser's id on this endpoint."},
+														"name":    map[string]string{"type": "string", "description": "What the extension called this browser."},
+														"version": map[string]string{"type": "string", "description": "Its version, when the extension gave one."},
+													},
+													"required": []string{"id", "name"},
+												},
+												"description": "The browsers on the socket right now.",
+											},
+										},
+										"required": []string{"key_set", "connected"},
+									},
+								},
+							},
+						},
+						"401": errorResponseRef(),
+						"404": errorResponseRef(),
 					},
 				},
 			},
@@ -2730,6 +2776,17 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/onboarding/status": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Get first-run onboarding status",
+					"description": "Reports whether config.yaml exists and whether the configured agent has providers, models, an effective default model (`agent.model`, or the alphabetically first `models[]` row when it is empty) and a credential source for that model's provider. `missing_api_keys` is informational and lists every provider row that cannot answer; it does not by itself require onboarding. No credential helper is executed and no provider request is made.",
+					"operationId": "getOnboardingStatus",
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("First-run and agent readiness status.", "#/components/schemas/OnboardingStatus"),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/providers/{name}/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List a provider's available models",
@@ -2891,6 +2948,66 @@ func openAPISpec() map[string]interface{} {
 						"409": errorResponseRef(),
 						"415": errorResponseRef(),
 						"502": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/providers/{name}/devin-auth": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Get Devin sign-in status",
+					"description": "Reports the non-secret Devin credential status: connected, source (`coddy`, `devin_cli`, `api_key`, `api_key_command`, `env`, or `none`), masked token and account email when known. A valid unsaved provider name is accepted, and a saved row being switched to Devin lends only its proxy.",
+					"operationId": "getProviderDevinAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Non-secret Devin sign-in status.", "#/components/schemas/DevinAuthStatus"),
+						"400": errorResponseRef(), "500": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Sign out of Devin",
+					"description": "Cancels pending browser sign-ins and removes only the Coddy-managed Devin credential. A separate Devin CLI login may remain available.",
+					"operationId": "deleteProviderDevinAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Connection status after sign-out.", "#/components/schemas/DevinAuthStatus"),
+						"400": errorResponseRef(), "500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/providers/{name}/devin-auth/device": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Start Devin browser authorization",
+					"description": "Starts the Devin CLI-compatible PKCE browser flow. The optional JSON body carries the current unsaved proxy. The answer contains the authorization URL and a login id; the server waits for the loopback callback, verifies the session token and stores it privately. A new start or logout cancels older attempts.",
+					"operationId": "startProviderDevinDeviceAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
+					"requestBody": map[string]interface{}{"required": false, "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"$ref": "#/components/schemas/ProviderSignInProxyRequest"}}}},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Browser authorization instructions.", "#/components/schemas/DevinAuthDeviceStart"),
+						"400": errorResponseRef(), "415": errorResponseRef(), "502": errorResponseRef(), "504": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/providers/{name}/devin-auth/device/{loginID}": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Poll Devin browser authorization",
+					"description": "Returns pending, completed, or failed, plus connected and an optional display-safe error. No session token or PKCE value is returned.",
+					"operationId": "getProviderDevinDeviceAuth",
+					"parameters":  []interface{}{codexProviderNameParameter(), map[string]interface{}{"name": "loginID", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Current browser authorization state.", "#/components/schemas/CodexAuthDeviceStatus"),
+						"400": errorResponseRef(), "404": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/providers/{name}/devin-auth/device/{loginID}/paste": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Complete Devin authorization from a pasted callback",
+					"description": "Accepts the full loopback callback address for a browser that cannot reach the Coddy machine. The state must match the pending sign-in; a bare code is refused. Returns 202 while the server completes the exchange; poll the login for the result.",
+					"operationId": "pasteProviderDevinDeviceAuth",
+					"parameters":  []interface{}{codexProviderNameParameter(), map[string]interface{}{"name": "loginID", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}},
+					"requestBody": map[string]interface{}{"required": true, "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "required": []string{"url"}, "properties": map[string]interface{}{"url": map[string]interface{}{"type": "string", "format": "uri"}}}}}},
+					"responses": map[string]interface{}{
+						"202": jsonSchemaResponse("Callback accepted for validation.", "#/components/schemas/CodexAuthDeviceStatus"),
+						"400": errorResponseRef(), "404": errorResponseRef(), "409": errorResponseRef(), "415": errorResponseRef(),
 					},
 				},
 			},
@@ -3971,6 +4088,42 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 					"required": []string{"ok", "levels", "detected"},
+				},
+				"OnboardingStatus": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"first_run":             map[string]string{"type": "boolean"},
+						"has_config":            map[string]string{"type": "boolean"},
+						"has_providers":         map[string]string{"type": "boolean"},
+						"has_models":            map[string]string{"type": "boolean"},
+						"has_agent_model":       map[string]string{"type": "boolean"},
+						"has_agent_credentials": map[string]string{"type": "boolean"},
+						"missing_api_keys": map[string]interface{}{
+							"type": "array", "items": map[string]string{"type": "string"},
+							"description": "Provider rows with no usable credential source. Informational; only the agent's own provider gates the picker.",
+						},
+					},
+					"required": []string{"first_run", "has_config", "has_providers", "has_models", "has_agent_model", "has_agent_credentials", "missing_api_keys"},
+				},
+				"DevinAuthStatus": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"connected": map[string]string{"type": "boolean"},
+						"source":    map[string]interface{}{"type": "string", "enum": []string{"coddy", "devin_cli", "api_key", "api_key_command", "env", "none"}},
+						"masked":    map[string]string{"type": "string"},
+						"email":     map[string]string{"type": "string"},
+					},
+					"required": []string{"connected", "source"},
+				},
+				"DevinAuthDeviceStart": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"login_id":         map[string]string{"type": "string"},
+						"verification_url": map[string]interface{}{"type": "string", "format": "uri"},
+						"status":           map[string]string{"type": "string", "example": "pending"},
+						"connected":        map[string]string{"type": "boolean"},
+					},
+					"required": []string{"login_id", "verification_url", "status", "connected"},
 				},
 				"CodexAuthStatus": map[string]interface{}{
 					"type": "object",

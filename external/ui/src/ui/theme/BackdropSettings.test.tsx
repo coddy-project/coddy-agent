@@ -725,7 +725,11 @@ test("offscreen thumbnails fetch only after intersection and abort on unmount", 
       String(url).includes("/wallpapers/"),
     ),
   ).toHaveLength(0);
-  expect(observers).toHaveLength(2);
+  // Only a.png was awaited above, and each thumbnail observes itself from its
+  // own effect, so the second one can land a tick later under a loaded run.
+  // Waiting tolerates the schedule without weakening the assertion: a
+  // thumbnail that fetched instead of observing never reaches two.
+  await waitFor(() => expect(observers).toHaveLength(2));
   act(() =>
     observers[0]!.callback(
       [{ isIntersecting: true } as IntersectionObserverEntry],

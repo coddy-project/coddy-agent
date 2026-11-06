@@ -132,7 +132,7 @@
         },
         "serve_remote": {
           "description": "Let a console or an editor on this machine and the nodes of the swarm drive the browsers connected here, through /coddy/browser/v1 with this server's API credential. The extension asks you before the first action of each such chat.",
-          "title": "Serve to other Coddy processes",
+          "title": "Open these browsers to other Coddy processes",
           "type": "boolean"
         },
         "token": {

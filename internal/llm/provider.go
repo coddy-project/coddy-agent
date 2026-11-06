@@ -127,6 +127,13 @@ type Message struct {
 	// turn-context block the agent appends after the history. A provider
 	// that keeps the conversation on its side (acp) sends it with the prompt
 	// and leaves it out of what it remembers having sent.
+	//
+	// Such a message is always a RoleUser one at the end of the slice, and the
+	// prompt-cache marks depend on it: trailingEphemeral counts them here and
+	// the Anthropic provider applies that count to the messages it built, one
+	// per message. An Ephemeral message of another role, or one that a
+	// provider folds into its neighbour, would move the tail mark onto a turn
+	// no later request repeats.
 	Ephemeral bool `json:"-"`
 	// AgentTools, on an assistant message, are the tool calls the agent
 	// behind an acp model ran on its own side while it wrote this answer,
@@ -159,6 +166,16 @@ type AgentToolCall struct {
 	// OutputLines is how many lines the output had when a stored message
 	// keeps only its first ones; 0 when it keeps all of it.
 	OutputLines int `json:"output_lines,omitempty"`
+	// TextOffset is how much of the answer the agent had written when it
+	// announced this call, in characters of Message.Content (runes, not
+	// bytes: a surface counts the answer in characters). An agent writes a
+	// line, runs a tool, writes the next line; the whole of it is one
+	// assistant message, so without this a surface rebuilding the turn from
+	// the transcript can only draw every call before the whole answer. A
+	// surface splits the answer at these offsets and puts each call where it
+	// happened. Zero on a call announced before any text, and on a message
+	// stored before the offsets were kept.
+	TextOffset int `json:"text_offset,omitempty"`
 }
 
 type Artifact struct {

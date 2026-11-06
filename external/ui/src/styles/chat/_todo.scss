@@ -102,10 +102,16 @@
    that folds it, one line per item with the mark the todo tool rows use. A
    folded row and a leaving card close by their grid row, so the height they
    give back can move; every movement is in the motion block below. */
+/* Its top margin is the transcript's own row gap and nothing more: the card
+   used to add 6px over it, which put it further from the row above - the live
+   line, or the one a finished turn leaves - than any two rows of the
+   transcript stand apart. The entrance and the exit still collapse a whole row
+   gap (the negative margin below), so the card comes and goes with the space
+   it occupies. */
 .message-row-todo {
   display: grid;
   grid-template-rows: 1fr;
-  margin-top: 6px;
+  margin-top: 0;
   align-self: flex-start;
   width: fit-content;
   min-width: min(320px, 100%);
@@ -133,8 +139,11 @@
   overflow: hidden;
 }
 
+/* 16px on either side, over the card's own 1px border: the marks then stand
+   on the vertical line of the folder icon on the plate over the composer
+   (composer/_workspace.scss), and the items' text on the line of its name. */
 .todo-checklist {
-  padding: 4px 14px 8px;
+  padding: 4px 16px 8px;
   border: 1px solid mix-text(10%);
   border-radius: 12px;
   background: color-mix(in srgb, var(--text) 2%, transparent);
@@ -196,10 +205,12 @@
   opacity: 0;
 }
 
+/* 6px between the mark and the item, as the plate keeps between the folder
+   icon and the name it stands for (composer/_workspace.scss). */
 .todo-checklist-row-body {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 6px;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -208,12 +219,24 @@
   line-height: 1.45;
 }
 
+/* The checklist's marks are the 14px of the plate's icons, not the 17px of a
+   tool row's preview: the card stands right over the plate, and two sizes of
+   the same square read as a misprint. The top margin centres the mark on the
+   first line of its item (13.5px x 1.45). */
+.todo-checklist .todo-tool-preview-mark {
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  border-radius: 4px;
+  font-size: 10px;
+}
+
 /* An item in progress: the accent ring with a dot in it, still. A spinning
    ring and a band running through the text drew the eye from the answer. */
 .todo-checklist .todo-tool-preview-mark--in_progress {
   border-color: var(--accent);
   border-radius: 50%;
-  background: radial-gradient(circle, var(--accent) 0 3px, transparent 3.5px);
+  background: radial-gradient(circle, var(--accent) 0 2.5px, transparent 2.9px);
 }
 
 .todo-checklist-glyph {
@@ -235,12 +258,10 @@
    way, a status changes its mark in place and pops the new glyph in, and the
    item in progress spins and shimmers while a turn runs. With reduced motion
    every state is there at once and the item in progress keeps the still
-   half-filled mark of the todo rows. */
+   half-filled mark of the todo rows. The live line used to ease a padding of
+   its own here, from when the checklist's arrival changed it; it keeps one
+   padding now, so there is nothing left to ease. */
 @media (prefers-reduced-motion: no-preference) {
-  .messages-inner > .msg-assistant-stack:not(.typing-dots-slot) > .typing-dots {
-    transition: padding-top 0.24s ease;
-  }
-
   .todo-checklist {
     transition: padding-bottom 0.22s ease;
   }

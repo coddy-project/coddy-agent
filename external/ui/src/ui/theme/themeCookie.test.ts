@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import {
   CODDY_UI_THEME_COOKIE,
@@ -36,10 +39,11 @@ test("invalid cookie value is ignored", () => {
   expect(readUiThemeCookie()).toBeNull();
 });
 
-test("UI_THEME_IDS contains exactly 7 entries", () => {
-  expect(UI_THEME_IDS).toHaveLength(7);
+test("UI_THEME_IDS contains exactly 8 entries", () => {
+  expect(UI_THEME_IDS).toHaveLength(8);
   const expected: UiThemeMode[] = [
     "dark",
+    "neuraldeep",
     "light",
     "midnight",
     "solarized-dark",
@@ -48,4 +52,15 @@ test("UI_THEME_IDS contains exactly 7 entries", () => {
     "rose-pine",
   ];
   expect(UI_THEME_IDS).toEqual(expected);
+});
+
+test("index.html bootstrap accepts every UI_THEME_IDS entry", () => {
+  const html = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "../../index.html"),
+    "utf8",
+  );
+  for (const id of UI_THEME_IDS) {
+    const entry = id.includes("-") ? `"${id}": 1` : `${id}: 1`;
+    expect(html, `index.html VALID lacks ${id}`).toContain(entry);
+  }
 });

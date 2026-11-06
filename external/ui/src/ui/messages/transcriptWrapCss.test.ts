@@ -96,6 +96,20 @@ describe("a tool row never widens the transcript", () => {
   test("the duration never shrinks", () => {
     expect(decl(rule(".thinking-head .thinking-dur"), "flex")).toBe("0 0 auto");
   });
+
+  // Regression: the row's head was inset 14px on the left, as an answer's
+  // prose is, and nothing on the right, so a label that wrapped ran to the
+  // very edge of the column while the answer beside it stopped 14px short.
+  // On a phone, where the column is the page, the transcript then read as
+  // wider on the right than on the left.
+  test("the head keeps the prose inset on both sides", () => {
+    const left = rule(".thinking-left");
+    const card = rule(".msg");
+    const prose = px((decl(card, "padding") ?? "").split(/\s+/)[1]);
+    expect(prose).toBeGreaterThan(0);
+    expect(px(decl(left, "padding-left"))).toBe(prose);
+    expect(px(decl(left, "padding-right"))).toBe(prose);
+  });
 });
 
 describe("an answer never widens the transcript", () => {

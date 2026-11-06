@@ -9,11 +9,13 @@ export type UiThemeMode =
   | "solarized-dark"
   | "monokai"
   | "nord"
-  | "rose-pine";
+  | "rose-pine"
+  | "neuraldeep";
 
 /** All valid theme identifiers, in display order. */
 export const UI_THEME_IDS: UiThemeMode[] = [
   "dark",
+  "neuraldeep",
   "light",
   "midnight",
   "solarized-dark",

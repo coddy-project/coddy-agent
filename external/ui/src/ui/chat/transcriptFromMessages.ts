@@ -282,32 +282,62 @@ export function transcriptItemsFromMessages(p: {
           ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
         });
       }
-      // The tools the agent behind an acp model ran while it wrote this
-      // answer: rows of their own, before its text, as they mostly were live.
-      for (const it of agentToolItems(m)) {
-        if (toolIdx.has(it.toolCallId)) continue;
-        toolIdx.set(it.toolCallId, next.length);
-        next.push(it);
-      }
       const content = m.content || "";
+      const acat = readMessageCreatedAtUTC(m as Record<string, unknown>);
       let textRow = -1;
-      if (joinsRow && content.trim() !== "") {
-        const row = next[joinAt] as Extract<
-          TranscriptItem,
-          { type: "assistant_message" }
-        >;
-        next[joinAt] = { ...row, content: row.content + content };
-        textRow = joinAt;
-      } else if (content.trim()) {
-        const acat = readMessageCreatedAtUTC(m as Record<string, unknown>);
+      // One run of the answer, in the place the stream drew it: the first one
+      // may go on in the bubble of a step the output limit cut off, every
+      // later one opens a bubble of its own under the call before it.
+      let joinedRun = false;
+      const pushText = (text: string) => {
+        if (text.trim() === "") return;
+        if (!joinedRun && joinsRow) {
+          joinedRun = true;
+          const row = next[joinAt] as Extract<
+            TranscriptItem,
+            { type: "assistant_message" }
+          >;
+          next[joinAt] = { ...row, content: row.content + text };
+          textRow = joinAt;
+          return;
+        }
         next.push({
           id: assistantId(abs),
           type: "assistant_message",
-          content,
+          content: text,
           ...(acat ? { createdAtUtc: acat } : {}),
         });
         textRow = next.length - 1;
+      };
+      // The tools the agent behind an acp model ran while it wrote this
+      // answer. It writes a line, runs a tool, writes the next line, and all
+      // of it is one assistant message, so the answer is split at the offsets
+      // the calls recorded (llm.AgentToolCall.TextOffset) and each call goes
+      // between the lines it stood between - where the stream drew it. A
+      // message stored before those offsets were kept has them all at zero
+      // and keeps the old order: every call, then the whole answer.
+      // The offsets count characters, as the server counts them, so the
+      // cursor walks code points rather than UTF-16 units: one astral
+      // character in the answer would otherwise move every later cut. They
+      // only grow, so the walk crosses the answer once for the whole message.
+      let cut = 0;
+      let cutChars = 0;
+      const advanceTo = (chars: number) => {
+        while (cutChars < chars && cut < content.length) {
+          const cp = content.codePointAt(cut);
+          cut += cp !== undefined && cp > 0xffff ? 2 : 1;
+          cutChars += 1;
+        }
+      };
+      for (const { item, textOffset } of agentToolItems(m)) {
+        const from = cut;
+        advanceTo(textOffset);
+        pushText(content.slice(from, cut));
+        if (toolIdx.has(item.toolCallId)) continue;
+        toolIdx.set(item.toolCallId, next.length);
+        next.push(item);
       }
+      pushText(content.slice(cut));
       const tcs = Array.isArray(m.tool_calls) ? m.tool_calls : [];
       for (const tc of tcs) {
         const id = tc?.id || "";
@@ -444,11 +474,15 @@ function agentToolKind(kind: unknown): string {
 }
 
 /** The tool rows of an assistant message's `agent_tools`: the calls the agent
- *  behind an acp model ran, with their input and the first lines of their
- *  output (the rest is GET …/tool-calls/{id}). */
-export function agentToolItems(m: RawSessionMessage): ToolCallItem[] {
+ *  behind an acp model ran, with their input, the first lines of their output
+ *  (the rest is GET …/tool-calls/{id}) and how much of the answer stood
+ *  written when each was announced (`text_offset`), which is where the row
+ *  belongs among the runs of that answer. */
+export function agentToolItems(
+  m: RawSessionMessage,
+): Array<{ item: ToolCallItem; textOffset: number }> {
   const raw: unknown[] = Array.isArray(m?.agent_tools) ? m.agent_tools : [];
-  const out: ToolCallItem[] = [];
+  const out: Array<{ item: ToolCallItem; textOffset: number }> = [];
   for (const t of raw) {
     if (!t || typeof t !== "object") continue;
     const rec = t as Record<string, unknown>;
@@ -473,7 +507,14 @@ export function agentToolItems(m: RawSessionMessage): ToolCallItem[] {
       it.resultText = rec.output;
     if (typeof rec.output_lines === "number" && rec.output_lines > 0)
       it.resultWasTruncated = true;
-    out.push(it);
+    const offset = rec.text_offset;
+    out.push({
+      item: it,
+      textOffset:
+        typeof offset === "number" && Number.isFinite(offset) && offset > 0
+          ? Math.floor(offset)
+          : 0,
+    });
   }
   return out;
 }
