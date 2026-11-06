@@ -418,13 +418,16 @@ func (s *Store) ReadHead(rel string, max int) (head []byte, more bool, err error
 	return readHead(root, name, max)
 }
 
-// readHead is ReadHead on an opened root.
+// readHead is ReadHead on an opened root. A negative bound is taken as zero.
 func readHead(root rootFS, name string, max int) (head []byte, more bool, err error) {
 	f, _, err := openNote(root, name)
 	if err != nil {
 		return nil, false, err
 	}
 	defer func() { _ = f.Close() }()
+	if max < 0 {
+		max = 0
+	}
 	buf := make([]byte, max+1)
 	n, err := io.ReadFull(f, buf)
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
