@@ -142,6 +142,9 @@ func TestKimiCatalogSnapshotDoesNotRestoreBackup(t *testing.T) {
 }
 
 func TestKimiLoginOfflineCatalog(t *testing.T) {
+	if !llm.KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	home := t.TempDir()
 	if err := os.Chmod(home, 0700); err != nil {
 		t.Fatal(err)
@@ -276,6 +279,9 @@ func TestKimiCatalogSkipsStaleExistingDefault(t *testing.T) {
 }
 
 func TestKimiCatalogIdentityChangesDuringFetch(t *testing.T) {
+	if !llm.KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	home := t.TempDir()
 	if err := os.Chmod(home, 0700); err != nil {
 		t.Fatal(err)
@@ -331,6 +337,9 @@ func TestKimiCatalogIdentityChangesDuringFetch(t *testing.T) {
 }
 
 func TestKimiCatalogLogoutDuringFetch(t *testing.T) {
+	if !llm.KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	home := t.TempDir()
 	if err := os.Chmod(home, 0700); err != nil {
 		t.Fatal(err)

@@ -11,6 +11,9 @@ import (
 )
 
 func TestKimiLoginStoresTokenLifetime(t *testing.T) {
+	if !llm.KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	home := t.TempDir()
 	if err := os.Chmod(home, 0o700); err != nil {
 		t.Fatal(err)

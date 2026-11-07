@@ -102,6 +102,9 @@ func TestKimiRefresherRejectsBadArgs(t *testing.T) {
 }
 
 func TestKimiAccessTokenFreshSkipsRemote(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
 	if err := store.saveForTest("global", kimiTestCredential("a1", "r1", time.Now().Unix()+7200)); err != nil {
@@ -119,6 +122,9 @@ func TestKimiAccessTokenFreshSkipsRemote(t *testing.T) {
 }
 
 func TestKimiAccessTokenNoExpirySkipsRemote(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
 	if err := store.saveForTest("global", kimiTestCredential("a1", "r1", 0)); err != nil {
@@ -132,6 +138,9 @@ func TestKimiAccessTokenNoExpirySkipsRemote(t *testing.T) {
 }
 
 func TestKimiAccessTokenMissingRevokedUncertain(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
 	s, srv := newKimiRefreshServer(t, okReply)
@@ -166,6 +175,9 @@ func TestKimiAccessTokenMissingRevokedUncertain(t *testing.T) {
 }
 
 func TestKimiAccessTokenRefreshSuccess(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
 	if err := store.saveForTest("global", expiringKimiCredential()); err != nil {
@@ -204,6 +216,9 @@ func TestKimiAccessTokenRefreshSuccess(t *testing.T) {
 
 // Many callers in one process must share exactly one remote rotation.
 func TestKimiAccessTokenConcurrentSingleFlight(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
 	if err := store.saveForTest("global", expiringKimiCredential()); err != nil {
@@ -240,6 +255,9 @@ func TestKimiAccessTokenConcurrentSingleFlight(t *testing.T) {
 // A second OS process holding the same store must not trigger a second
 // rotation: the file lock and the post-lock re-read make one refresh serve all.
 func TestKimiAccessTokenCrossProcessSingleRotation(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	if runtime.GOOS == "windows" {
 		t.Skip("the refresh layer fails closed on Windows; see TestKimiAccessTokenUnsupportedPlatform")
 	}
@@ -287,6 +305,9 @@ func TestKimiAccessTokenCrossProcessSingleRotation(t *testing.T) {
 // refresh sees the credential gone, or it runs after and removes the new one.
 // A stale refresh response must never resurrect a deleted credential.
 func TestKimiAccessTokenLogoutOrdering(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	if runtime.GOOS == "windows" {
 		t.Skip("the refresh layer fails closed on Windows")
 	}
@@ -321,6 +342,9 @@ func TestKimiAccessTokenLogoutOrdering(t *testing.T) {
 // A login that lands while a force-refresh waits for the lock is a peer
 // rotation: the waiter takes the newer generation instead of rotating again.
 func TestKimiAccessTokenForcePeerRotation(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
 	if err := store.saveForTest("global", expiringKimiCredential()); err != nil {
@@ -344,6 +368,9 @@ func TestKimiAccessTokenForcePeerRotation(t *testing.T) {
 
 // A forced refresh on an unchanged credential does rotate.
 func TestKimiAccessTokenForceUnchanged(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
 	if err := store.saveForTest("global", expiringKimiCredential()); err != nil {
@@ -359,6 +386,9 @@ func TestKimiAccessTokenForceUnchanged(t *testing.T) {
 // A 401/invalid_grant without a peer rotation tombstones the credential:
 // the next process sees "rejected, sign in again", not a dead refresh token.
 func TestKimiAccessTokenInvalidGrantTombstones(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
 	if err := store.saveForTest("global", expiringKimiCredential()); err != nil {
@@ -398,6 +428,9 @@ func TestKimiAccessTokenInvalidGrantTombstones(t *testing.T) {
 // A peer process that rotated while our request was in flight makes the 401 a
 // stale-token race: adopt its generation, do not tombstone its credential.
 func TestKimiAccessTokenUnauthorizedPeerRotation(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
 	if err := store.saveForTest("global", expiringKimiCredential()); err != nil {
@@ -423,6 +456,9 @@ func TestKimiAccessTokenUnauthorizedPeerRotation(t *testing.T) {
 }
 
 func TestKimiAccessTokenFailureLeavesIntent(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	for _, status := range []int{http.StatusBadGateway, http.StatusTooManyRequests} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
 			store := NewKimiCredentialStore(privateKimiTestDir(t))
@@ -448,6 +484,9 @@ func TestKimiAccessTokenFailureLeavesIntent(t *testing.T) {
 // disk outlives the call, and every later load fails closed to re-login; the
 // old refresh token is never sent again.
 func TestKimiAccessTokenPersistenceFailureUncertain(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
 	if err := store.saveForTest("global", expiringKimiCredential()); err != nil {
@@ -482,6 +521,9 @@ func TestKimiAccessTokenPersistenceFailureUncertain(t *testing.T) {
 // A directory-sync failure after the rename commits is uncertain at call time
 // but self-heals: the written generation matches the intent target.
 func TestKimiAccessTokenDirSyncFailure(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
 	if err := store.saveForTest("global", expiringKimiCredential()); err != nil {
@@ -513,6 +555,9 @@ func TestKimiAccessTokenDirSyncFailure(t *testing.T) {
 
 // A malformed success body is a hard error, not a rotation and not a tombstone.
 func TestKimiAccessTokenMalformedSuccess(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
 	if err := store.saveForTest("global", expiringKimiCredential()); err != nil {
@@ -536,6 +581,9 @@ func TestKimiAccessTokenMalformedSuccess(t *testing.T) {
 }
 
 func TestKimiAccessTokenNoRefreshToken(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
 	cred := expiringKimiCredential()
@@ -558,6 +606,20 @@ func TestKimiAccessTokenNoRefreshToken(t *testing.T) {
 func TestKimiAccessTokenUnsupportedPlatform(t *testing.T) {
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
+	if !KimiRefreshSupported() {
+		s, srv := newKimiRefreshServer(t, okReply)
+		r := newTestRefresher(t, store, srv.URL, srv.Client())
+		if _, err := r.AccessToken(context.Background()); !errors.Is(err, ErrKimiStoreUnsupported) {
+			t.Fatalf("unsupported store: %v", err)
+		}
+		if err := store.saveForTest("global", expiringKimiCredential()); !errors.Is(err, ErrKimiStoreUnsupported) {
+			t.Fatalf("unsupported mutation: %v", err)
+		}
+		if s.calls.Load() != 0 {
+			t.Fatal("unsupported storage must not contact the server")
+		}
+		return
+	}
 	if err := store.saveForTest("global", expiringKimiCredential()); err != nil {
 		t.Fatal(err)
 	}
@@ -589,6 +651,9 @@ func TestKimiAccessTokenUnsupportedPlatform(t *testing.T) {
 // The crash window itself: a process that wrote its intent and died leaves the
 // next process with an uncertain credential, never a blind retry.
 func TestKimiRefreshIntentSurvivesProcessDeath(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	if runtime.GOOS == "windows" {
 		t.Skip("the refresh layer fails closed on Windows")
 	}
@@ -648,6 +713,9 @@ func TestKimiCredentialsHelperProcess(t *testing.T) {
 }
 
 func TestKimiAccessTokenFreshWithAbandonedIntent(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	store := NewKimiCredentialStore(privateKimiTestDir(t))
 	if err := store.saveForTest("global", kimiTestCredential("a1", "r1", time.Now().Unix()+7200)); err != nil {
 		t.Fatal(err)
@@ -666,6 +734,9 @@ func TestKimiAccessTokenFreshWithAbandonedIntent(t *testing.T) {
 }
 
 func TestKimiAccessTokenLostResponseFailsClosed(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	store := NewKimiCredentialStore(privateKimiTestDir(t))
 	if err := store.saveForTest("global", expiringKimiCredential()); err != nil {
 		t.Fatal(err)
@@ -690,5 +761,42 @@ func TestKimiAccessTokenLostResponseFailsClosed(t *testing.T) {
 	}
 	if _, err := ref.AccessToken(context.Background()); !errors.Is(err, ErrKimiCredentialUncertain) {
 		t.Fatalf("expected persistent uncertainty, got %v", err)
+	}
+}
+
+func TestKimiAccessTokenFreshPeerRefreshWaitsForCommit(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
+	store := NewKimiCredentialStore(privateKimiTestDir(t))
+	if err := store.saveForTest("global", kimiTestCredential("a1", "r1", time.Now().Unix()+7200)); err != nil {
+		t.Fatal(err)
+	}
+	entered := make(chan struct{})
+	allow := make(chan struct{})
+	s, srv := newKimiRefreshServer(t, func(n int32, w http.ResponseWriter) { close(entered); <-allow; okReply(n, w) })
+	peer := newTestRefresher(t, store, srv.URL, srv.Client())
+	reader := newTestRefresher(t, store, srv.URL, srv.Client())
+	done := make(chan error, 1)
+	calls := 0
+	reader.hookAfterLoad = func() {
+		calls++
+		switch calls {
+		case 1:
+			go func() { _, err := peer.ForceAccessToken(context.Background()); done <- err }()
+			<-entered
+		case 2:
+			close(allow)
+		}
+	}
+	token, err := reader.AccessToken(context.Background())
+	if err != nil || token != "a2" {
+		t.Fatalf("reader token=%q err=%v", token, err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || s.calls.Load() != 1 {
+		t.Fatalf("hooks=%d requests=%d", calls, s.calls.Load())
 	}
 }

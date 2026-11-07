@@ -557,6 +557,9 @@ func TestProviderModelsUserAgentOverride(t *testing.T) {
 }
 
 func TestProviderModelsKimiDraftIdentity(t *testing.T) {
+	if !llm.KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	const a = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const b = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	home := t.TempDir()

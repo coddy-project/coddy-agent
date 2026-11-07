@@ -16,6 +16,9 @@ import (
 )
 
 func TestKimiRecoveryManaged401(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
@@ -68,6 +71,9 @@ func TestKimiRecoveryManaged401(t *testing.T) {
 }
 
 func TestKimiRecoveryConcurrentRejectedGeneration(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
@@ -158,6 +164,9 @@ func TestKimiRecoveryCLIAndNon401(t *testing.T) {
 }
 
 func TestKimiRecoverySecond401Stops(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)

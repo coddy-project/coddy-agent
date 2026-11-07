@@ -58,6 +58,9 @@ func TestKimiUsageWindows(t *testing.T) {
 }
 
 func TestKimiUsageFingerprintTracksCredentialsAndProxy(t *testing.T) {
+	if !llm.KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
@@ -85,6 +88,9 @@ func TestKimiUsageFingerprintTracksCredentialsAndProxy(t *testing.T) {
 }
 
 func TestKimiUsageUsesProviderProxy(t *testing.T) {
+	if !llm.KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	requests := make(chan string, 1)
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests <- r.Method + " " + r.Host
@@ -114,6 +120,9 @@ func TestKimiUsageUsesProviderProxy(t *testing.T) {
 }
 
 func TestKimiCachedUsageHidesChangedCredential(t *testing.T) {
+	if !llm.KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	stand := newUsageStand(t)
 	m := newUsageManagerWith(t, stand, &usageCapture{}, nil, func(cfg *config.Config) {
 		cfg.Providers = []config.ProviderConfig{{Name: "work", Type: "kimi", KimiIdentity: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
@@ -176,6 +185,20 @@ func TestKimiUsageCLIFallbackAndFingerprint(t *testing.T) {
 	p := config.ProviderConfig{Name: "kimi", Type: "kimi", Proxy: proxy.URL}
 	a := providerUsageFingerprint(p, dir, true)
 	_, err := (&Manager{}).fetchProviderUsage(context.Background(), p, dir, true)
+	if !llm.KimiRefreshSupported() {
+		if !errors.Is(err, llm.ErrKimiStoreUnsupported) {
+			t.Fatalf("unsupported managed store: %v", err)
+		}
+		after, readErr := os.ReadFile(path)
+		if readErr != nil || !bytes.Equal(before, after) {
+			t.Fatal("CLI credential changed")
+		}
+		write("cli-two")
+		if a != providerUsageFingerprint(p, dir, true) {
+			t.Fatal("unavailable managed store must not select CLI credentials")
+		}
+		return
+	}
 	if err == nil {
 		t.Fatal("expected proxy error")
 	}

@@ -13,6 +13,9 @@ import (
 )
 
 func TestKimiLoginAttemptsInvalidated(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	for _, action := range []string{"begin", "remove", "cancel", "complete"} {
 		t.Run(action, func(t *testing.T) {
 			s := NewKimiCredentialStore(privateKimiTestDir(t))
@@ -50,6 +53,9 @@ func TestKimiLoginAttemptsInvalidated(t *testing.T) {
 }
 
 func TestKimiLoginForceAfterLogoutDoesNotRotateNewAccount(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	s := NewKimiCredentialStore(privateKimiTestDir(t))
 	a, err := s.BeginLogin(context.Background(), "global")
 	if err != nil {
@@ -96,6 +102,9 @@ func (s *KimiCredentialStore) saveForTest(region string, credential KimiCredenti
 }
 
 func TestKimiLoginRecoversMalformedCredential(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	for _, withIntent := range []bool{false, true} {
 		t.Run(fmt.Sprint(withIntent), func(t *testing.T) {
 			s := NewKimiCredentialStore(privateKimiTestDir(t))
@@ -132,6 +141,9 @@ func TestKimiLoginRecoversMalformedCredential(t *testing.T) {
 }
 
 func TestKimiLoginRejectsUnsafeCorruptCredential(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	s := NewKimiCredentialStore(privateKimiTestDir(t))
 	outside := filepath.Join(t.TempDir(), "foreign")
 	if err := os.WriteFile(outside, []byte(`{`), 0600); err != nil {
@@ -150,6 +162,9 @@ func TestKimiLoginRejectsUnsafeCorruptCredential(t *testing.T) {
 }
 
 func TestKimiLoginRejectsGenerationOverflow(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	s := NewKimiCredentialStore(privateKimiTestDir(t))
 	data := []byte(`{"access_token":"old","generation":18446744073709551615}`)
 	if err := os.WriteFile(s.CredentialPath("global"), data, 0600); err != nil {
@@ -165,6 +180,9 @@ func TestKimiLoginRejectsGenerationOverflow(t *testing.T) {
 }
 
 func TestKimiLoginConsumeSyncFailureCannotReplay(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	s := NewKimiCredentialStore(privateKimiTestDir(t))
 	if err := os.WriteFile(s.CredentialPath("global"), []byte(`{`), 0600); err != nil {
 		t.Fatal(err)
@@ -185,6 +203,9 @@ func TestKimiLoginConsumeSyncFailureCannotReplay(t *testing.T) {
 }
 
 func TestKimiLoginRecoverCredentialWriteFailureCannotReplay(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	s := NewKimiCredentialStore(privateKimiTestDir(t))
 	if err := os.WriteFile(s.CredentialPath("global"), []byte(`{`), 0600); err != nil {
 		t.Fatal(err)
@@ -208,6 +229,9 @@ func TestKimiLoginRecoverCredentialWriteFailureCannotReplay(t *testing.T) {
 }
 
 func TestKimiLoginRecoversWrongCredentialTypes(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	s := NewKimiCredentialStore(privateKimiTestDir(t))
 	if err := os.WriteFile(s.CredentialPath("global"), []byte(`{"access_token":42,"generation":7}`), 0600); err != nil {
 		t.Fatal(err)
@@ -235,6 +259,9 @@ func TestKimiLoginRecoversWrongCredentialTypes(t *testing.T) {
 }
 
 func TestKimiLoginWrongCredentialTypesPreservesOverflow(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	s := NewKimiCredentialStore(privateKimiTestDir(t))
 	if err := os.WriteFile(s.CredentialPath("global"), []byte(`{"access_token":42,"generation":18446744073709551615}`), 0600); err != nil {
 		t.Fatal(err)

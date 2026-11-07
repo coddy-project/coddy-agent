@@ -15,6 +15,9 @@ import (
 )
 
 func TestKimiReadRecoveryManaged(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	for _, operation := range []string{"models", "usage"} {
 		t.Run(operation, func(t *testing.T) {
 			dir := t.TempDir()
@@ -121,6 +124,9 @@ func TestKimiReadRecoveryCLI401(t *testing.T) {
 }
 
 func TestKimiReadRecoveryStops(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	for _, op := range []string{"models", "usage"} {
 		for _, status := range []int{401, 429} {
 			t.Run(fmt.Sprintf("%s/%d", op, status), func(t *testing.T) {
@@ -174,6 +180,9 @@ func TestKimiReadRecoveryStops(t *testing.T) {
 }
 
 func TestKimiReadRecoveryConcurrent401(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)

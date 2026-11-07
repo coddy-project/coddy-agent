@@ -28,6 +28,16 @@ func TestKimiManagedReadiness(t *testing.T) {
 	if ProviderReady(cfg, "kimi") {
 		t.Fatal("missing credential is not ready")
 	}
+	if !llm.KimiRefreshSupported() {
+		if _, err := llm.NewKimiCredentialStore(config.KimiIdentityDir(home, id)).BeginLogin(context.Background(), "china"); !errors.Is(err, llm.ErrKimiStoreUnsupported) {
+			t.Fatalf("unsupported managed login: %v", err)
+		}
+		cfg.Providers[0].Mode = "platform"
+		if ProviderReady(cfg, "kimi") {
+			t.Fatal("platform without API key must not be ready")
+		}
+		return
+	}
 	store := llm.NewKimiCredentialStore(config.KimiIdentityDir(home, id))
 	attempt, err := store.BeginLogin(context.Background(), "china")
 	if err != nil {
@@ -121,6 +131,9 @@ func TestEnsureKimiIdentityNewChinaRow(t *testing.T) {
 }
 
 func TestKimiLoginCompletesForIdentity(t *testing.T) {
+	if !llm.KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	home := t.TempDir()
 	if err := os.Chmod(home, 0700); err != nil {
 		t.Fatal(err)
@@ -147,6 +160,9 @@ func TestKimiLoginCompletesForIdentity(t *testing.T) {
 }
 
 func TestKimiLoginStaleCompletion(t *testing.T) {
+	if !llm.KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	for _, action := range []string{"logout", "new login"} {
 		t.Run(action, func(t *testing.T) {
 			home := t.TempDir()

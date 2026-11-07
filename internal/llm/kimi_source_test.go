@@ -27,7 +27,14 @@ func TestKimiSourceSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := NewKimiCredentialStore(storeDir)
-	src, err := NewKimiSubscriptionSource(store, "subscription", "china", "none", false)
+	sourceStore := store
+	if !KimiRefreshSupported() {
+		if _, _, err := store.Load("china"); !errors.Is(err, ErrKimiStoreUnsupported) {
+			t.Fatalf("managed store: %v", err)
+		}
+		sourceStore = nil
+	}
+	src, err := NewKimiSubscriptionSource(sourceStore, "subscription", "china", "none", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,6 +48,9 @@ func TestKimiSourceSelection(t *testing.T) {
 	after, err := os.ReadFile(cli)
 	if err != nil || string(after) != string(data) {
 		t.Fatal("CLI credential changed")
+	}
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking; CLI checks passed")
 	}
 	attempt, err := store.BeginLogin(context.Background(), "china")
 	if err != nil {

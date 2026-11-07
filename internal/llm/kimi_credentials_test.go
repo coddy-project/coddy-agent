@@ -48,6 +48,9 @@ func TestKimiCanonicalRegion(t *testing.T) {
 }
 
 func TestKimiCredentialStoreSaveLoadRemove(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := filepath.Join(privateKimiTestDir(t), "providers", "demo")
 	store := NewKimiCredentialStore(dir)
 
@@ -108,6 +111,9 @@ func TestKimiCredentialStoreSaveLoadRemove(t *testing.T) {
 }
 
 func TestKimiCredentialStoreCorrupt(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
 	if err := os.WriteFile(store.CredentialPath("global"), []byte("{not json"), 0o600); err != nil {
@@ -119,6 +125,9 @@ func TestKimiCredentialStoreCorrupt(t *testing.T) {
 }
 
 func TestKimiCredentialStoreRevoked(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
 	tombstone := []byte(`{"access_token":"","refresh_token":"","expires_at":0,"token_type":"Bearer","generation":4}`)
@@ -145,6 +154,9 @@ func TestKimiCredentialStoreRejectsBadRegion(t *testing.T) {
 // An intent that outlives its writer is the crash marker: a credential whose
 // generation is not the intent's target can no longer be trusted.
 func TestKimiCredentialStoreIntentStates(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
 	cred := kimiTestCredential("a1", "r1", time.Now().Unix()+3600)
@@ -189,6 +201,9 @@ func TestKimiCredentialStoreIntentStates(t *testing.T) {
 }
 
 func TestKimiCredentialStoreSaveClearsStaleIntent(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
 	cred := kimiTestCredential("a1", "r1", time.Now().Unix()+3600)
@@ -215,6 +230,9 @@ func TestKimiCredentialStoreSaveClearsStaleIntent(t *testing.T) {
 }
 
 func TestKimiCredentialWireFormat(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
 	if err := store.saveForTest("global", kimiTestCredential("a1", "r1", 123)); err != nil {

@@ -5,11 +5,15 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestKimiCredentialsLockHonorsCancellation(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	s := NewKimiCredentialStore(privateKimiTestDir(t))
 	cred, lock, _, err := s.paths("global")
 	if err != nil {
@@ -61,6 +65,9 @@ func TestKimiCredentialsMutationsRequireDurability(t *testing.T) {
 }
 
 func TestKimiCredentialsFastPathAccountReplacement(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	s := NewKimiCredentialStore(privateKimiTestDir(t))
 	if err := s.saveForTest("global", kimiTestCredential("old", "old-r", time.Now().Unix()+7200)); err != nil {
 		t.Fatal(err)
@@ -79,6 +86,9 @@ func TestKimiCredentialsFastPathAccountReplacement(t *testing.T) {
 }
 
 func TestKimiCredentialMissingWithIntentIsUncertain(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	s := NewKimiCredentialStore(privateKimiTestDir(t))
 	if err := s.writeIntent("global", kimiRefreshIntent{Generation: 1, Target: 2}); err != nil {
 		t.Fatal(err)
@@ -97,6 +107,9 @@ func TestKimiCredentialMissingWithIntentIsUncertain(t *testing.T) {
 }
 
 func TestKimiCredentialPeerCleanupFailureReported(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	s := NewKimiCredentialStore(privateKimiTestDir(t))
 	old := kimiTestCredential("old", "old-refresh", 0)
 	if err := s.saveForTest("global", old); err != nil {
@@ -117,4 +130,109 @@ func TestKimiCredentialPeerCleanupFailureReported(t *testing.T) {
 	if _, err := r.resolveUnauthorized(old, bad); err == nil {
 		t.Fatal("cleanup error was hidden")
 	}
+}
+
+func TestKimiCredentialsLocalLockHasBoundedWait(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
+	s := NewKimiCredentialStore(privateKimiTestDir(t))
+	s.lockWait = 80 * time.Millisecond
+	cred, lock, _, err := s.paths("global")
+	if err != nil {
+		t.Fatal(err)
+	}
+	release, err := s.acquireLock(context.Background(), lock, cred)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	result := make(chan error, 1)
+	go func() {
+		unlock, err := s.acquireLock(context.Background(), lock, cred)
+		if err == nil {
+			unlock()
+		}
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		if err == nil || !strings.Contains(err.Error(), "busy over") {
+			t.Fatalf("expected bounded contention, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("local lock wait exceeded the bound")
+	}
+}
+
+func TestKimiCredentialsEarlierContextDeadlineWins(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
+	s := NewKimiCredentialStore(privateKimiTestDir(t))
+	s.lockWait = time.Second
+	cred, lock, _, err := s.paths("global")
+	if err != nil {
+		t.Fatal(err)
+	}
+	release, err := s.acquireLock(context.Background(), lock, cred)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if _, err := s.acquireLock(ctx, lock, cred); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestKimiCredentialsOneBudgetAcrossBothLocks(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
+	s := NewKimiCredentialStore(privateKimiTestDir(t))
+	s.lockWait = 600 * time.Millisecond
+	cred, lock, _, err := s.paths("global")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(lock, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := kimiTryFlock(f)
+	if err != nil || !held {
+		t.Fatalf("flock: held=%v err=%v", held, err)
+	}
+	mu := kimiIdentityLock(cred)
+	<-mu
+	type result struct {
+		err     error
+		elapsed time.Duration
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		start := time.Now()
+		unlock, err := s.acquireLock(context.Background(), lock, cred)
+		if err == nil {
+			unlock()
+		}
+		resultCh <- result{err, time.Since(start)}
+	}()
+	time.Sleep(350 * time.Millisecond)
+	mu <- struct{}{}
+	res := <-resultCh
+	kimiUnlock(f)
+	if res.err == nil || !strings.Contains(res.err.Error(), "busy over") {
+		t.Fatalf("error=%v", res.err)
+	}
+	if res.elapsed > 850*time.Millisecond {
+		t.Fatalf("two separate budgets: elapsed=%s", res.elapsed)
+	}
+	release, err := s.acquireLock(context.Background(), lock, cred)
+	if err != nil {
+		t.Fatalf("lock not released after timeout: %v", err)
+	}
+	release()
 }

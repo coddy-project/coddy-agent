@@ -1399,6 +1399,27 @@ describe("settings search", () => {
     expect(scrolledTo()[2]).toBe(boxOf("agent:llm_retry_max"));
   });
 
+  test("a direct link reveals the current row after a config copy replaces its form", async () => {
+    await drawer({
+      section: "providers",
+      item: "openai",
+      field: "providers:proxy",
+    });
+    await frames.settle();
+    const old = boxOf("providers:proxy", rowForm("openai")!)!;
+    expect(isRinged(old)).toBe(true);
+    expect(advancedOpen(rowForm("openai")!)).toBe(true);
+    act(() => noteSettingsConfigReloaded());
+    await waitFor(() =>
+      expect(boxOf("providers:proxy", rowForm("openai")!)).not.toBe(old),
+    );
+    await frames.settle();
+    const current = boxOf("providers:proxy", rowForm("openai")!)!;
+    expect(advancedOpen(rowForm("openai")!)).toBe(true);
+    expect(isRinged(current)).toBe(true);
+    expectCursor(within(current).getByLabelText("Proxy URL"));
+  });
+
   test("a stale anchor opens the tab and the row and says nothing", async () => {
     const errors = vi.spyOn(console, "error");
     const warnings = vi.spyOn(console, "warn");

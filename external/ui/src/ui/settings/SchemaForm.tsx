@@ -295,7 +295,11 @@ function SchemaField(props: {
       parentObj["name"] === undefined || parentObj["name"] === null
         ? ""
         : String(parentObj["name"]);
-    ph = providerApiKeyFieldPlaceholder(pname);
+    ph = providerApiKeyFieldPlaceholder(
+      pname,
+      String(parentObj.type ?? ""),
+      String(parentObj.mode ?? ""),
+    );
   }
 
   if (t === "object" && schema.properties) {

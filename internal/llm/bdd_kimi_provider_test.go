@@ -312,9 +312,13 @@ func (s *kimiBDDState) platformProxyVerified() error {
 
 func TestKimiProviderFeature(t *testing.T) {
 	state := &kimiBDDState{t: t}
+	paths := []string{"../../features/kimi_provider.feature"}
+	if !KimiRefreshSupported() {
+		paths = []string{"../../features/kimi_provider.feature:25"}
+	}
 	suite := godog.TestSuite{
 		Name:    "kimi-provider",
-		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/kimi_provider.feature"}, TestingT: t, Strict: true},
+		Options: &godog.Options{Format: "pretty", Paths: paths, TestingT: t, Strict: true},
 		ScenarioInitializer: func(ctx *godog.ScenarioContext) {
 			ctx.Step(`^a Kimi subscription stand in the global region$`, state.stand)
 			ctx.Step(`^the operator completes the Kimi device authorization$`, state.signIn)

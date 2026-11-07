@@ -46,6 +46,9 @@ func TestKimiTicketInferencePinsCatalogCredential(t *testing.T) {
 }
 
 func TestKimiTicketRetryRevalidatesProtocol(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
@@ -85,6 +88,9 @@ func TestKimiTicketCatalogReplacement(t *testing.T) {
 	for _, change := range []string{"cli-replace", "managed-relogin", "cli-to-managed"} {
 		for _, stream := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/%t", change, stream), func(t *testing.T) {
+				if change != "cli-replace" && !KimiRefreshSupported() {
+					t.Skip("managed Kimi storage requires secure durable locking")
+				}
 				home := t.TempDir()
 				t.Setenv("KIMI_CODE_HOME", home)
 				path := filepath.Join(home, "credentials", "kimi-code.json")
@@ -116,7 +122,11 @@ func TestKimiTicketCatalogReplacement(t *testing.T) {
 				if change == "managed-relogin" {
 					login("managed-A")
 				}
-				src, err := NewKimiSubscriptionSource(store, "subscription", "china", "none", false)
+				sourceStore := store
+				if !KimiRefreshSupported() {
+					sourceStore = nil
+				}
+				src, err := NewKimiSubscriptionSource(sourceStore, "subscription", "china", "none", false)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -166,6 +176,9 @@ func TestKimiTicketCatalogReplacement(t *testing.T) {
 }
 
 func TestKimiTicket401PeerReplacement(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	for _, valid := range []bool{false, true} {
 		for _, stream := range []bool{false, true} {
 			t.Run(fmt.Sprintf("valid=%t/stream=%t", valid, stream), func(t *testing.T) {
@@ -245,6 +258,9 @@ func TestKimiTicket401PeerReplacement(t *testing.T) {
 }
 
 func TestKimiTicketRefreshSameProtocol(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)

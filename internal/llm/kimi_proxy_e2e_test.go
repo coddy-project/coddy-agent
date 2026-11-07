@@ -204,7 +204,13 @@ func kimiProxyE2EParent(t *testing.T, region string) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	want := map[string]int{"POST " + auth + "/api/oauth/device_authorization": 1, "POST " + auth + "/api/oauth/token": 2, "GET " + api + "/coding/v1/models": 1, "GET " + api + "/coding/v1/usages": 1, "POST " + api + "/coding/v1/chat/completions": 1, "GET " + platform + "/v1/models": 1, "POST " + platform + "/v1/chat/completions": 1}
+	want := map[string]int{"POST " + auth + "/api/oauth/device_authorization": 1, "POST " + auth + "/api/oauth/token": 1, "GET " + platform + "/v1/models": 1, "POST " + platform + "/v1/chat/completions": 1}
+	if KimiRefreshSupported() {
+		want["POST "+auth+"/api/oauth/token"] = 2
+		want["GET "+api+"/coding/v1/models"] = 1
+		want["GET "+api+"/coding/v1/usages"] = 1
+		want["POST "+api+"/coding/v1/chat/completions"] = 1
+	}
 	for k, n := range want {
 		if requests[k] != n {
 			t.Errorf("upstream %s = %d, want %d", k, requests[k], n)
@@ -213,7 +219,12 @@ func kimiProxyE2EParent(t *testing.T, region string) {
 	if len(requests) != len(want) {
 		t.Errorf("unexpected upstream routes: %v", requests)
 	}
-	for host, n := range map[string]int{auth + ":443": 3, api + ":443": 3, platform + ":443": 2} {
+	hosts := map[string]int{auth + ":443": 2, platform + ":443": 2}
+	if KimiRefreshSupported() {
+		hosts[auth+":443"] = 3
+		hosts[api+":443"] = 3
+	}
+	for host, n := range hosts {
 		if connections[host] != n {
 			t.Errorf("CONNECT %s = %d, want %d", host, connections[host], n)
 		}
@@ -228,6 +239,15 @@ func kimiProxyE2EChild(t *testing.T) {
 		t.Fatal("invalid test proxy URL")
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	caPEM, err := os.ReadFile(os.Getenv("SSL_CERT_FILE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(caPEM) {
+		t.Fatal("invalid test CA")
+	}
+	transport.TLSClientConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
 	dialer := &net.Dialer{}
 	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 		if address != proxyURL.Host {
@@ -252,23 +272,28 @@ func kimiProxyE2EChild(t *testing.T) {
 	if err != nil || token.AccessToken != "access-test" || token.RefreshToken != "refresh-test" {
 		t.Fatalf("login token %#v: %v", token, err)
 	}
-	store := NewKimiCredentialStore(privateKimiTestDir(t))
-	attempt, err := store.BeginLogin(ctx, region)
-	if err != nil {
-		t.Fatal(err)
+	access := "rotated-test"
+	modes := []string{"platform"}
+	if KimiRefreshSupported() {
+		store := NewKimiCredentialStore(privateKimiTestDir(t))
+		attempt, err := store.BeginLogin(ctx, region)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.CompleteLogin(ctx, region, attempt, KimiCredential{AccessToken: token.AccessToken, RefreshToken: token.RefreshToken, ExpiresAt: time.Now().Unix() + 30, ExpiresIn: token.ExpiresIn, DeviceID: token.DeviceID}); err != nil {
+			t.Fatal(err)
+		}
+		refresher, err := NewKimiCredentialRefresherForRegion(store, region, proxy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		access, err = refresher.AccessToken(ctx)
+		if err != nil || access != "rotated-test" {
+			t.Fatalf("refresh %q: %v", access, err)
+		}
+		modes = append(modes, "subscription")
 	}
-	if err := store.CompleteLogin(ctx, region, attempt, KimiCredential{AccessToken: token.AccessToken, RefreshToken: token.RefreshToken, ExpiresAt: time.Now().Unix() + 30, ExpiresIn: token.ExpiresIn, DeviceID: token.DeviceID}); err != nil {
-		t.Fatal(err)
-	}
-	refresher, err := NewKimiCredentialRefresherForRegion(store, region, proxy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	access, err := refresher.AccessToken(ctx)
-	if err != nil || access != "rotated-test" {
-		t.Fatalf("refresh %q: %v", access, err)
-	}
-	for _, mode := range []string{"subscription", "platform"} {
+	for _, mode := range modes {
 		models, err := ListKimiModels(ctx, mode, region, access, proxy)
 		if err != nil || len(models) != 1 || models[0].ID != "model-test" || models[0].ContextWindow != 8192 {
 			t.Fatalf("%s models %#v: %v", mode, models, err)
@@ -282,8 +307,10 @@ func kimiProxyE2EChild(t *testing.T) {
 			t.Fatalf("%s inference %#v: %v", mode, response, err)
 		}
 	}
-	usage, err := FetchKimiUsage(ctx, region, access, proxy)
-	if err != nil || usage.Limit5H == nil || usage.Limit5H.UsedRatio != .25 {
-		t.Fatalf("usage %#v: %v", usage, err)
+	if KimiRefreshSupported() {
+		usage, err := FetchKimiUsage(ctx, region, access, proxy)
+		if err != nil || usage.Limit5H == nil || usage.Limit5H.UsedRatio != .25 {
+			t.Fatalf("usage %#v: %v", usage, err)
+		}
 	}
 }

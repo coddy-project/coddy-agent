@@ -83,6 +83,9 @@ func TestKimiUsageInFlightCLIReplacement(t *testing.T) {
 }
 
 func TestKimiUsageInFlightManagedAndSettingsChanges(t *testing.T) {
+	if !llm.KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	for _, change := range []string{"logout", "relogin", "region", "mode", "proxy", "identity"} {
 		t.Run(change, func(t *testing.T) {
 			entered, release := make(chan struct{}), make(chan struct{})

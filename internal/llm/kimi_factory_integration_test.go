@@ -70,6 +70,12 @@ func TestKimiDiscoveryCredentialSelection(t *testing.T) {
 	store := NewKimiCredentialStore(storeDir)
 	in := ProviderInput{Type: "kimi", Region: "china", KimiIdentity: identity, AuthPath: store.Dir(), ProxyURL: proxy.URL}
 	call := func() error { _, err := ListModels(context.Background(), in); return err }
+	if !KimiRefreshSupported() {
+		if err := call(); !errors.Is(err, ErrKimiStoreUnsupported) || hits != 0 {
+			t.Fatalf("unsupported managed store: err=%v hits=%d", err, hits)
+		}
+		return
+	}
 	if err := call(); err == nil || hits != 1 {
 		t.Fatalf("CLI fallback: err=%v hits=%d", err, hits)
 	}

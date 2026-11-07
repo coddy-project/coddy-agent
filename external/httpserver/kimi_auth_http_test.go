@@ -44,6 +44,9 @@ func TestKimiAuthHTTPStatusAndInvalidRegion(t *testing.T) {
 }
 
 func TestKimiAuthHTTPUnsavedProxy(t *testing.T) {
+	if !llm.KimiRefreshSupported() {
+		t.Skip("device login requires secure durable managed storage before contacting the proxy")
+	}
 	hits := make(chan string, 1)
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits <- r.Method + " " + r.Host; w.WriteHeader(502) }))
 	defer proxy.Close()
@@ -78,6 +81,9 @@ func TestKimiAuthHTTPUnsavedProxy(t *testing.T) {
 }
 
 func TestKimiAuthHTTPManagedLogout(t *testing.T) {
+	if !llm.KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	home := t.TempDir()
 	if err := os.Chmod(home, 0700); err != nil {
 		t.Fatal(err)

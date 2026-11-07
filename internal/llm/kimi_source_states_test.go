@@ -8,6 +8,9 @@ import (
 )
 
 func TestKimiSourceManagedFailuresDoNotFallback(t *testing.T) {
+	if !KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
 	for _, tc := range []struct {
 		name, credential, intent string
 		want                     error

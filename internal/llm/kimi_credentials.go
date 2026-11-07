@@ -129,8 +129,9 @@ const (
 // runs under an in-process mutex and an inter-process file lock so a
 // console login, a serve refresh and a logout serialize against each other.
 type KimiCredentialStore struct {
-	dir  string
-	root *os.Root
+	dir      string
+	root     *os.Root
+	lockWait time.Duration // test override; zero uses kimiLockWait
 }
 
 // NewKimiCredentialStore opens the store rooted at dir, for example the one
@@ -415,10 +416,21 @@ func (s *KimiCredentialStore) acquireScopedLock(ctx context.Context, lockPath, c
 	if !kimiDirSyncDurable {
 		return nil, nil, fmt.Errorf("%w: no durable directory flush on %s", ErrKimiStoreUnsupported, runtime.GOOS)
 	}
+	wait := s.lockWait
+	if wait <= 0 {
+		wait = kimiLockWait
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
 	mu := kimiIdentityLock(credPath)
 	select {
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()
+	case <-timer.C:
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
+		return nil, nil, fmt.Errorf("kimi credentials: lock %s busy over %s", lockPath, wait)
 	case <-mu:
 	}
 	releaseMu := true
@@ -427,6 +439,17 @@ func (s *KimiCredentialStore) acquireScopedLock(ctx context.Context, lockPath, c
 			mu <- struct{}{}
 		}
 	}()
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	select {
+	case <-timer.C:
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
+		return nil, nil, fmt.Errorf("kimi credentials: lock %s busy over %s", lockPath, wait)
+	default:
+	}
 	root, err := openKimiRoot(s.dir, true)
 	if err != nil {
 		return nil, nil, err
@@ -439,8 +462,18 @@ func (s *KimiCredentialStore) acquireScopedLock(ctx context.Context, lockPath, c
 	}()
 	scoped := *s
 	scoped.root = root
-	deadline := time.Now().Add(kimiLockWait)
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
+		select {
+		case <-timer.C:
+			if err := ctx.Err(); err != nil {
+				return nil, nil, err
+			}
+			return nil, nil, fmt.Errorf("kimi credentials: lock %s busy over %s", lockPath, wait)
+		default:
+		}
 		name := filepath.Base(lockPath)
 		if info, e := root.Lstat(name); e == nil && kimiCheckPrivateFile(info) != nil {
 			return nil, nil, errors.New("kimi credentials: unsafe lock file")
@@ -467,6 +500,19 @@ func (s *KimiCredentialStore) acquireScopedLock(ctx context.Context, lockPath, c
 			return nil, nil, err
 		}
 		if acquired {
+			if err := ctx.Err(); err != nil {
+				kimiUnlock(f)
+				return nil, nil, err
+			}
+			select {
+			case <-timer.C:
+				kimiUnlock(f)
+				if err := ctx.Err(); err != nil {
+					return nil, nil, err
+				}
+				return nil, nil, fmt.Errorf("kimi credentials: lock %s busy over %s", lockPath, wait)
+			default:
+			}
 			releaseMu = false
 			keepRoot = true
 			return &scoped, func() {
@@ -475,12 +521,14 @@ func (s *KimiCredentialStore) acquireScopedLock(ctx context.Context, lockPath, c
 				mu <- struct{}{}
 			}, nil
 		}
-		if time.Now().After(deadline) {
-			return nil, nil, fmt.Errorf("kimi credentials: lock %s busy over %s", lockPath, kimiLockWait)
-		}
 		select {
 		case <-ctx.Done():
 			return nil, nil, ctx.Err()
+		case <-timer.C:
+			if err := ctx.Err(); err != nil {
+				return nil, nil, err
+			}
+			return nil, nil, fmt.Errorf("kimi credentials: lock %s busy over %s", lockPath, wait)
 		case <-time.After(kimiLockRetry):
 		}
 	}
