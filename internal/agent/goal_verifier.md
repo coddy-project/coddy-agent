@@ -13,7 +13,3 @@ Your final message is one JSON object and nothing else:
 {"analysis": "<what you checked and found>", "checklist": [{"text": "<requirement>", "status": "met|not_met|unverified", "evidence": "<file:line or result that shows it, or what is missing>"}], "verdict": "met|not_met", "reason": "<one sentence for the operator>", "remaining": ["<what is still to do, most important first>"]}
 
 "met" only when every requirement is met by evidence you saw; anything missing, contradicted or unverifiable is "not_met" with the gap in "remaining".
-
-## Tools
-
-{{.Tools}}

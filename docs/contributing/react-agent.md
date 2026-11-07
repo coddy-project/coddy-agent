@@ -38,8 +38,6 @@ Working directory: {{.CWD}}
 ## Mode: Agent | Plan | Ask             capabilities, how to work, how to plan
                                         (plan mode lists {{.DiscardedPlans}} here)
 {{.Subagents}}                          the subagent catalog, when the session may spawn
-## Available tools
-{{.Tools}}                              MCP tools among them, as server__tool
 {{.Skills}}                             ## Slash commands: the skill catalog and the load_skill hint;
                                         a /name body rides in the user message, load_skill returns one
 {{.PlanContext}}                        agent mode: the plan an approved turn implements
@@ -60,6 +58,10 @@ Working directory: {{.CWD}}
 ```
 
 The environment block is appended outside the configurable template so OS and shell facts cannot be accidentally omitted by a custom prompt.
+
+Coddy sends complete permitted tool names, descriptions and schemas through the request's native tool definitions. Bundled mode, memory and goal-verifier templates omit the duplicate Markdown catalog from the system prompt. Custom templates can still render `{{.Tools}}`; this explicitly adds the catalog to the system prompt alongside the native definitions. Tool permissions and execution stay the same.
+
+Context estimates count the complete serialized native definitions, including names and descriptions, plus any catalog a custom template renders. Earlier estimates counted only the native input schemas in addition to the catalog. The corrected estimate can show a larger tool category even though the bundled system prompt is smaller.
 
 ### The system prompt is frozen for the turn
 
@@ -472,7 +474,7 @@ messages: [
 
 ### Agent Mode
 
-Embedded **`agent.md`** describes agent behavior (quality, shells, todos, git worktrees). Todo-related instructions reference **`coddy_todo_plan_*`** and **`coddy_todo_item_*`** tools surfaced in **`Tools`**. The **Git worktrees** block names **`.coddy/worktrees/<branch>`** as the place a worktree goes, the same directory the workspace switch of the HTTP surface uses ([Sessions](../features/sessions.md#git-worktrees)); without it the model picks a spot of its own and leaves an untracked folder at the repository root.
+Embedded **`agent.md`** describes agent behavior (quality, shells, todos, git worktrees). Todo-related instructions reference **`coddy_todo_plan_*`** and **`coddy_todo_item_*`** tools offered through the native tool definitions. The **Git worktrees** block names **`.coddy/worktrees/<branch>`** as the place a worktree goes, the same directory the workspace switch of the HTTP surface uses ([Sessions](../features/sessions.md#git-worktrees)); without it the model picks a spot of its own and leaves an untracked folder at the repository root.
 
 Representative builtins (excluding MCP-namespaced tools):
 

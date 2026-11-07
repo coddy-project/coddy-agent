@@ -210,21 +210,24 @@ func TestRenderAskPrompt(t *testing.T) {
 	}
 }
 
-func TestRenderWithSkillsToolsMemory(t *testing.T) {
+func TestRenderWithSkillsMemoryOmitsNativeCatalog(t *testing.T) {
 	result, err := prompts.Render("agent", prompts.Templates{}, prompts.TemplateData{
 		CWD:    "/project",
 		Skills: "## Active Skills\n\nstub",
-		Tools:  "- `read`: read",
+		Tools:  "- `native_catalog_fixture_marker`: complete tool description",
 		Memory: "User prefers pytest.",
 		UTCNow: fixtureUTC,
 	})
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	for _, want := range []string{"stub", "`read`", "pytest", "Session memory"} {
+	for _, want := range []string{"stub", "pytest", "Session memory"} {
 		if !strings.Contains(result, want) {
 			t.Errorf("expected %q in result", want)
 		}
+	}
+	if strings.Contains(result, "native_catalog_fixture_marker") {
+		t.Error("bundled template duplicated the native catalog")
 	}
 }
 

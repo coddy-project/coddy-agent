@@ -502,11 +502,11 @@ func TestModelToolListsTakeEffectFromTheRequestAfterAMidTurnSwitch(t *testing.T)
 	if second := sortedNames(provider.offered[1]); strings.Join(second, ",") != "grep,read" {
 		t.Fatalf("the request after the switch carried %v, want grep,read", second)
 	}
-	if listed := promptToolNames(provider.seen[1][0].Content); strings.Join(listed, ",") != "grep,read" {
-		t.Fatalf("the system message after the switch lists %v, want grep,read", listed)
+	if listed := promptToolNames(provider.seen[1][0].Content); len(listed) != 0 {
+		t.Fatalf("the system message after the switch duplicates tools %v", listed)
 	}
-	if listed := promptToolNames(provider.seen[0][0].Content); len(listed) < 30 {
-		t.Fatalf("the first system message lists only %v", listed)
+	if listed := promptToolNames(provider.seen[0][0].Content); len(listed) != 0 {
+		t.Fatalf("the first system message duplicates tools %v", listed)
 	}
 }
 
@@ -716,8 +716,8 @@ func TestModelToolListsConfigReloadTakesEffectFromTheNextRequest(t *testing.T) {
 	if system.Role != llm.RoleSystem {
 		t.Fatalf("the request after the commit starts with %s", system.Role)
 	}
-	if got := joined(promptToolNames(system.Content)); got != "grep,read" {
-		t.Fatalf("the system message after the commit lists %s, want the tools the request carries", got)
+	if got := joined(promptToolNames(system.Content)); got != "" {
+		t.Fatalf("the system message after the commit duplicates tools %s", got)
 	}
 }
 
@@ -822,7 +822,7 @@ func TestToolsetSessionPickWinsOverTheModels(t *testing.T) {
 }
 
 // A toolset picked while a turn runs (another tab, an editor) takes effect
-// from the next request, and the system message lists the new set.
+// from the next request, without duplicating the new set in the system message.
 func TestToolsetPickedMidTurnTakesEffectFromTheNextRequest(t *testing.T) {
 	ag, st, _ := modelToolsAgent(t, session.ModeAgent, "", toolRow{Model: "fake/model"})
 	ag.cfg.Toolsets = []config.Toolset{{Name: "lean", Tools: []string{"read", "grep"}}}
@@ -843,7 +843,7 @@ func TestToolsetPickedMidTurnTakesEffectFromTheNextRequest(t *testing.T) {
 	if got := joined(provider.offered[1]); got != "read,grep" && got != "grep,read" {
 		t.Fatalf("the request after the pick carried %v", provider.offered[1])
 	}
-	if got := joined(promptToolNames(provider.requests[1][0].Content)); got != "grep,read" {
-		t.Fatalf("the system message after the pick lists %s", got)
+	if got := joined(promptToolNames(provider.requests[1][0].Content)); got != "" {
+		t.Fatalf("the system message after the pick duplicates tools %s", got)
 	}
 }

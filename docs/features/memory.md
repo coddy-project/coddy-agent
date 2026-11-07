@@ -30,7 +30,7 @@ In agent and plan mode the child has the full tool set. In **ask mode** the run 
 
 The child runs on `memory.model` when that names a configured model, otherwise on the session's model. Its completions are capped at `copilot_max_tokens` and its ReAct rounds at the larger of `recall_max_turns` and `persist_max_turns`. A model that is down or overloaded need not cost the run: `memory.fallback_models` is the chain tried after `memory.model`, and the session's own model is the last resort whether or not it is listed. The chain moves to the next model when a call failed before producing any output (the model is down, unauthorised, out of quota); a stream that broke after text was already delivered follows the ordinary retry policy instead, so no answer is streamed twice ([issue #247](https://github.com/coddy-project/coddy-agent/issues/247)).
 
-The child's system prompt is the template `external/memory/prompts/memory_agent.md`, built into the binary. `memory.additional_prompt` adds a section of your own to it, **Operator instructions**, after the memory role and before the tool list: a place to pin behaviour in your words, such as "only deal with the notes; never answer the task itself", or to name the language the notes are written in. The main agent never sees that text, and ask mode renders it the same way. `memory.additional_prompt_max_chars` cuts a longer text at that many characters, with a warning in the agent log at every launch that reads the cut text and a finding in `coddy -t`; `0` keeps it whole ([issue #266](https://github.com/coddy-project/coddy-agent/issues/266)).
+The child's system prompt is the template `external/memory/prompts/memory_agent.md`, built into the binary. `memory.additional_prompt` adds a section of your own to it, **Operator instructions**, after the memory role: a place to pin behaviour in your words, such as "only deal with the notes; never answer the task itself", or to name the language the notes are written in. The main agent never sees that text, and ask mode renders it the same way. `memory.additional_prompt_max_chars` cuts a longer text at that many characters, with a warning in the agent log at every launch that reads the cut text and a finding in `coddy -t`; `0` keeps it whole ([issue #266](https://github.com/coddy-project/coddy-agent/issues/266)).
 
 ## The prompt cache
 
@@ -183,7 +183,7 @@ The field table is in the [config.yaml reference](../reference/config.md#memory)
 
 ## Cost and latency
 
-Memory costs tokens only when the model asks. A turn that never spawns the memory subagent runs no memory model at all; a turn that does pays for one child conversation: the child's own system prompt (the template, the environment block, six tool definitions) and its rounds, one model call at least, more when it uses tools. Pinning a small, fast model with `memory.model` keeps the cost of recall low while the main agent stays on the model you chose for it. A guide adds at most 8 KiB per root to the child's task on every run.
+Memory costs tokens only when the model asks. A turn that never spawns the memory subagent runs no memory model at all; a turn that does pays for one child conversation: the child's own system prompt (the template and environment block), its permitted native tool definitions and its rounds, one model call at least, more when it uses tools. Pinning a small, fast model with `memory.model` keeps the cost of recall low while the main agent stays on the model you chose for it. A guide adds at most 8 KiB per root to the child's task on every run.
 
 ## Testing
 
