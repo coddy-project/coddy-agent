@@ -4,6 +4,7 @@ import { errorMessage } from "../settings/apiError";
 import { CollapsibleFieldset } from "../settings/SchemaForm";
 import { CodexAuthField } from "../settings/CodexAuthField";
 import { NeuralDeepAuthField } from "../settings/NeuralDeepAuthField";
+import { KimiAuthField } from "../settings/KimiAuthField";
 import { OpenCodeAuthField } from "../settings/OpenCodeAuthField";
 import { useProviderModels } from "../settings/useProviderModels";
 import { DevinAuthField } from "../settings/DevinAuthField";
@@ -52,6 +53,11 @@ export function ProviderPickerDialog(props: {
   const [selected, setSelected] = useState<ProviderPresetId>(
     PROVIDER_PRESETS[0].id,
   );
+  const [kimiMode, setKimiMode] = useState<"subscription" | "platform">(
+    "subscription",
+  );
+  const [kimiIdentity, setKimiIdentity] = useState("");
+  const [kimiRegion, setKimiRegion] = useState<"global" | "china">("global");
   const [apiKey, setApiKey] = useState("");
   const [apiBase, setApiBase] = useState("");
   const [command, setCommand] = useState("");
@@ -73,6 +79,23 @@ export function ProviderPickerDialog(props: {
   // must never build from the empty stand-in - PUT /coddy/config writes the
   // lists as sent, so that would replace every saved row with this one.
   const [baseDoc, setBaseDoc] = useState<Record<string, unknown> | null>(null);
+  const [baseLoadFailed, setBaseLoadFailed] = useState(false);
+  const [statusRetry, setStatusRetry] = useState<{
+    url: string;
+    fingerprint: string;
+  } | null>(null);
+  const formFingerprint = JSON.stringify({
+    selected,
+    kimiMode,
+    kimiRegion,
+    kimiIdentity,
+    apiKey,
+    apiBase,
+    command,
+    proxy,
+  });
+  const currentForm = useRef(formFingerprint);
+  currentForm.current = formFingerprint;
   const baseLoad = useRef<Promise<Record<string, unknown>> | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const {
@@ -95,8 +118,10 @@ export function ProviderPickerDialog(props: {
   // ACP row is its command the same way.
   const apiBaseMissing = preset.id === "compatible" && !effectiveApiBase;
   const commandMissing = preset.commandTyped === true && !command.trim();
-  const incomplete = apiBaseMissing || commandMissing;
+  const incomplete =
+    apiBaseMissing || commandMissing || (selected === "kimi" && !baseDoc);
   const keyless =
+    (preset.providerType === "kimi" && kimiMode === "subscription") ||
     preset.providerType === "codex" ||
     // An ACP agent is a program this machine runs and signs itself in; the
     // row carries its command, never a key.
@@ -109,10 +134,14 @@ export function ProviderPickerDialog(props: {
     return {
       name: preset.providerName,
       type: preset.providerType,
+      ...(selected === "kimi"
+        ? { mode: kimiMode, region: kimiRegion, kimi_identity: kimiIdentity }
+        : {}),
       api_base:
         preset.commandTyped ||
         preset.providerType === "codex" ||
-        preset.providerType === "devin"
+        preset.providerType === "devin" ||
+        preset.providerType === "kimi"
           ? ""
           : effectiveApiBase,
       api_key: keyless ? "" : apiKey,
@@ -124,7 +153,18 @@ export function ProviderPickerDialog(props: {
         ? { acp: { command: words[0], args: words.slice(1) } }
         : {}),
     };
-  }, [apiKey, command, effectiveApiBase, keyless, preset, proxy]);
+  }, [
+    apiKey,
+    command,
+    effectiveApiBase,
+    keyless,
+    preset,
+    proxy,
+    selected,
+    kimiMode,
+    kimiRegion,
+    kimiIdentity,
+  ]);
   /** The current config document, one request shared by every caller in
    * flight; a failure leaves no promise behind, so Save may retry it. */
   const loadBaseDoc = useCallback((): Promise<Record<string, unknown>> => {
@@ -144,6 +184,34 @@ export function ProviderPickerDialog(props: {
     baseLoad.current = pending;
     return pending;
   }, []);
+
+  const acceptBaseDoc = useCallback((doc: Record<string, unknown>) => {
+    setBaseDoc(doc);
+    setBaseLoadFailed(false);
+    const rows = Array.isArray(doc.providers) ? doc.providers : [];
+    const row = rows.find(
+      (item: unknown) =>
+        item &&
+        typeof item === "object" &&
+        (item as Record<string, unknown>).name === "kimi" &&
+        (item as Record<string, unknown>).type === "kimi",
+    ) as Record<string, unknown> | undefined;
+    setKimiIdentity(
+      typeof row?.kimi_identity === "string" ? row.kimi_identity : "",
+    );
+  }, []);
+  const retryBaseDoc = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      acceptBaseDoc(await loadBaseDoc());
+    } catch (err) {
+      setBaseLoadFailed(true);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // Each edge of the catalog fades by what lies past it: the top one grows as
   // the first rows go under it, the bottom one thins as the end comes, and an
@@ -175,15 +243,18 @@ export function ProviderPickerDialog(props: {
     if (!props.open) return;
     setError(null);
     setBaseDoc(null);
+    setBaseLoadFailed(false);
+    setStatusRetry(null);
     loadBaseDoc()
-      .then((doc) => setBaseDoc(doc))
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : String(err)),
-      );
-  }, [props.open, loadBaseDoc]);
+      .then(acceptBaseDoc)
+      .catch((err: unknown) => {
+        setBaseLoadFailed(true);
+        setError(err instanceof Error ? err.message : String(err));
+      });
+  }, [props.open, loadBaseDoc, acceptBaseDoc]);
 
   useEffect(() => {
-    setError(null);
+    if (!baseLoadFailed) setError(null);
     setManagedLogin(false);
     setApiBase(preset.apiBase || "");
     setApiKey("");
@@ -200,6 +271,38 @@ export function ProviderPickerDialog(props: {
     return () => window.clearTimeout(timer);
   }, [props.open, managedLogin, apiKey, providerRow, fetchModels]);
 
+  const checkSavedStatus = useCallback(
+    async (attempt: { url: string; fingerprint: string }) => {
+      try {
+        const response = await fetch(attempt.url);
+        if (!response.ok) throw new Error("status unavailable");
+        const status = (await response.json()) as { connected?: boolean };
+        if (status.connected !== true) throw new Error("status unavailable");
+        setStatusRetry(null);
+        if (currentForm.current !== attempt.fingerprint) {
+          setError(t("onboarding.savedChangesRemain"));
+          return;
+        }
+        props.onSaved();
+      } catch {
+        setStatusRetry(attempt);
+        setError(t("kimiAuth.statusAfterSaveFailed"));
+      }
+    },
+    [props.onSaved, t],
+  );
+
+  const retrySavedStatus = async () => {
+    if (!statusRetry) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await checkSavedStatus(statusRetry);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const save = useCallback(async () => {
     setBusy(true);
     setError(null);
@@ -210,6 +313,25 @@ export function ProviderPickerDialog(props: {
       if (!base) {
         base = await loadBaseDoc();
         setBaseDoc(base);
+      }
+      if (preset.providerType === "kimi" && kimiMode === "subscription") {
+        const existing = Array.isArray(base.providers)
+          ? base.providers.find(
+              (row: unknown) =>
+                row !== null &&
+                typeof row === "object" &&
+                !Array.isArray(row) &&
+                (row as Record<string, unknown>).name === preset.providerName,
+            )
+          : undefined;
+        if (
+          existing &&
+          (String(existing.api_key ?? "").trim() ||
+            String(existing.api_key_command ?? "").trim())
+        ) {
+          setError(t("onboarding.kimi.existingKey"));
+          return;
+        }
       }
       // No field asks for a model any more, so Save is where the catalog is
       // learned when nothing fetched it before: without it an endpoint the
@@ -234,6 +356,9 @@ export function ProviderPickerDialog(props: {
           baseDoc: base,
           catalog,
           managedLogin,
+          kimiMode,
+          kimiRegion,
+          kimiIdentity,
         }),
       );
       const validation = await fetch("/coddy/config/validate", {
@@ -277,6 +402,24 @@ export function ProviderPickerDialog(props: {
         );
         return;
       }
+      if (
+        preset.providerType === "kimi" &&
+        kimiMode === "subscription" &&
+        kimiIdentity &&
+        managedLogin
+      ) {
+        const params = new URLSearchParams({
+          mode: kimiMode,
+          region: kimiRegion,
+          kimi_identity: kimiIdentity,
+        });
+        setBaseDoc(JSON.parse(body) as Record<string, unknown>);
+        await checkSavedStatus({
+          url: `/coddy/providers/${encodeURIComponent(preset.providerName)}/kimi-auth?${params}`,
+          fingerprint: formFingerprint,
+        });
+        return;
+      }
       props.onSaved();
     } catch (err) {
       setError(
@@ -290,10 +433,15 @@ export function ProviderPickerDialog(props: {
     baseDoc,
     command,
     effectiveApiBase,
+    checkSavedStatus,
+    formFingerprint,
     fetchModels,
     fetchedModels,
     loadBaseDoc,
     managedLogin,
+    kimiMode,
+    kimiRegion,
+    kimiIdentity,
     preset,
     providerRow,
     proxy,
@@ -375,7 +523,10 @@ export function ProviderPickerDialog(props: {
   // A key typed into the form is a decision: the person brought their own
   // credential and does not want the account flow, so the action goes back to
   // Save. An explicit key wins over a stored login everywhere else too.
-  const signInKey = apiKey.trim() ? null : signInAction;
+  const signInKey =
+    apiKey.trim() && !(selected === "kimi" && kimiMode === "subscription")
+      ? null
+      : signInAction;
 
   const card = (item: (typeof PROVIDER_PRESETS)[number]) => (
     <button
@@ -428,7 +579,60 @@ export function ProviderPickerDialog(props: {
         </div>
 
         <div className="provider-picker-form">
-          {preset.commandTyped ? null : selected === "codex" ? (
+          {selected === "kimi" ? (
+            <>
+              <label className="provider-picker-field">
+                <span>{t("onboarding.kimi.variant")}</span>
+                <select
+                  className="provider-picker-input"
+                  data-testid="kimi-variant"
+                  value={`${kimiMode}:${kimiRegion}`}
+                  onChange={(event) => {
+                    const [mode, region] = event.target.value.split(":") as [
+                      "subscription" | "platform",
+                      "global" | "china",
+                    ];
+                    setKimiMode(mode);
+                    setKimiRegion(region);
+                    resetModels();
+                  }}
+                >
+                  <option value="subscription:global">
+                    Kimi Code (kimi.ai)
+                  </option>
+                  <option value="subscription:china">
+                    Kimi Code (kimi.com)
+                  </option>
+                  <option value="platform:global">
+                    Kimi Platform (kimi.ai)
+                  </option>
+                  <option value="platform:china">
+                    Kimi Platform (kimi.com)
+                  </option>
+                </select>
+              </label>
+              {kimiMode === "subscription" && baseDoc ? (
+                <KimiAuthField
+                  providerName={preset.providerName}
+                  mode={kimiMode}
+                  region={kimiRegion}
+                  proxy={proxy}
+                  identity={kimiIdentity}
+                  onIdentity={(id, expected) => {
+                    if (kimiIdentity !== expected) return false;
+                    setKimiIdentity(id);
+                    return true;
+                  }}
+                  action={setSignInAction}
+                  onReadyChange={setManagedLogin}
+                  hideAction
+                  accountOnly
+                />
+              ) : kimiMode === "platform" ? (
+                keyField
+              ) : null}
+            </>
+          ) : preset.commandTyped ? null : selected === "codex" ? (
             <CodexAuthField
               providerName={preset.providerName}
               proxy={proxy}
@@ -569,10 +773,29 @@ export function ProviderPickerDialog(props: {
               {error}
             </div>
           ) : null}
+          {baseLoadFailed ? (
+            <button
+              type="button"
+              className="settings-btn"
+              disabled={busy}
+              onClick={() => void retryBaseDoc()}
+            >
+              {t("onboarding.retryConfig")}
+            </button>
+          ) : null}
         </div>
 
         <div className="provider-picker-actions">
-          {signInKey?.pending ? (
+          {statusRetry ? (
+            <button
+              type="button"
+              className="provider-picker-primary"
+              disabled={busy}
+              onClick={() => void retrySavedStatus()}
+            >
+              {t("onboarding.retryKimiStatus")}
+            </button>
+          ) : signInKey?.pending ? (
             // The sign-in is running and the page already says what to do
             // with the code: a disabled button repeating the wait was the
             // same words twice. The wait reads as the line it belongs to.

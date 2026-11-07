@@ -2737,3 +2737,45 @@ describe("system status", () => {
     });
   });
 });
+
+test("saving a selected Kimi model keeps its catalog metadata", async () => {
+  server.schema = AGENT_SCHEMA;
+  server.config = {
+    ...configFromSchema(AGENT_SCHEMA),
+    providers: [
+      { name: "kimi", type: "kimi", mode: "platform", region: "china" },
+    ],
+    models: [],
+  };
+  const fetch = stubServer();
+  const original = fetch.getMockImplementation()!;
+  fetch.mockImplementation(async (path, init) => {
+    if (String(path) === "/coddy/providers/models")
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ok: true,
+          models: [{ id: "m1", kimi_protocol: "kimi" }],
+        }),
+      };
+    return original(path, init);
+  });
+  render(<Settings onClose={() => {}} initialSection="providers" />);
+  fireEvent.click(await screen.findByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByTestId("provider-model-toggle-m1"));
+  fireEvent.click(screen.getByTestId("settings-save"));
+  await waitFor(() =>
+    expect(server.config.models).toEqual([
+      expect.objectContaining({
+        model: "kimi/m1",
+        kimi_metadata: {
+          model: "kimi/m1",
+          protocol: "kimi",
+          mode: "platform",
+          region: "china",
+        },
+      }),
+    ]),
+  );
+});

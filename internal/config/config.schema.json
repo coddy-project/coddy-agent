@@ -9,7 +9,7 @@
     "providers": {
       "type": "array",
       "title": "LLM providers",
-      "description": "API credentials and transport selection for upstream LLM vendors. When api_key is empty, the runtime reads the NAME_API_KEY environment variable (NAME is the provider name in uppercase with hyphens mapped to underscores); a row of type \"codex\" signs in with ChatGPT and reads no key.",
+      "description": "API credentials and transport selection for upstream LLM vendors. When api_key is empty, the runtime reads the NAME_API_KEY environment variable (NAME is the provider name in uppercase with hyphens mapped to underscores); a row of type \"codex\" signs in with ChatGPT and reads no key, and a Kimi subscription reads no API key.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -25,7 +25,7 @@
           },
           "type": {
             "type": "string",
-            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), \"opencode\" for the OpenCode Go/Console gateway (account device login or a service account key, its models served over the Responses, Anthropic, Google or OpenAI-compatible protocol per model id and gateway; api_base picks Go or Console), \"codex\" for ChatGPT OAuth against the official Codex backend (Responses API), \"devin\" for a Devin (Cognition) account signed in through the browser or the Devin CLI, served by the Devin API server (see https://coddy.dev/docs/features/devin), or \"acp\" for a local agent that speaks the Agent Client Protocol on stdio (claude-agent-acp, codex-acp, opencode acp, coddy acp), named in the acp block; see https://coddy.dev/docs/features/acp-provider.",
+            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), \"opencode\" for the OpenCode Go/Console gateway (account device login or a service account key, its models served over the Responses, Anthropic, Google or OpenAI-compatible protocol per model id and gateway; api_base picks Go or Console), \"codex\" for ChatGPT OAuth against the official Codex backend (Responses API), \"devin\" for a Devin (Cognition) account signed in through the browser or the Devin CLI, served by the Devin API server (see https://coddy.dev/docs/features/devin), \"kimi\" for Kimi Code subscription or Kimi Platform keys (see https://coddy.dev/docs/features/kimi), or \"acp\" for a local agent that speaks the Agent Client Protocol on stdio (claude-agent-acp, codex-acp, opencode acp, coddy acp), named in the acp block; see https://coddy.dev/docs/features/acp-provider.",
             "enum": [
               "openai",
               "anthropic",
@@ -33,12 +33,28 @@
               "opencode",
               "codex",
               "devin",
+              "kimi",
               "acp"
             ]
           },
+          "mode": {
+            "type": "string",
+            "enum": ["", "subscription", "platform"],
+            "description": "Kimi credential mode. Omitted means subscription."
+          },
+          "region": {
+            "type": "string",
+            "enum": ["", "global", "china"],
+            "description": "Kimi region. Omitted means global."
+          },
+          "kimi_identity": {
+            "type": "string",
+            "pattern": "^([0-9a-f]{32}|[0-9a-f]{64})$",
+            "description": "Stable random identity of this Kimi provider row, used to isolate managed credentials."
+          },
           "api_base": {
             "type": "string",
-            "description": "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com). For type \"neuraldeep\" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. For type \"opencode\" it selects the gateway: https://opencode.ai/inference/go/v1 (the Go subscription, the default) or https://opencode.ai/inference/v1 (pay-as-you-go Console); any other value falls back to the default. Ignored for types \"codex\" and \"devin\", which always use their official endpoints, and for type \"acp\", whose agent runs on this machine."
+            "description": "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com). For type \"neuraldeep\" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. For type \"opencode\" it selects the gateway: https://opencode.ai/inference/go/v1 (the Go subscription, the default) or https://opencode.ai/inference/v1 (pay-as-you-go Console); any other value falls back to the default. For type \"kimi\", subscription rejects api_base; Platform requests use the endpoint selected by region rather than api_base. Ignored for types \"codex\" and \"devin\", which always use their official endpoints, and for type \"acp\", whose agent runs on this machine."
           },
           "user_agent": {
             "type": "string",
@@ -48,11 +64,11 @@
           },
           "api_key": {
             "type": "string",
-            "description": "Provider secret. A literal key, a \"${ENV}\" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. For type \"devin\" it is a Devin session token and, when set, wins over the browser login and the Devin CLI login. For type \"opencode\" an explicit key wins over the login `coddy providers login opencode` stored. Ignored for type \"codex\", which signs in with ChatGPT, and for type \"acp\", whose agent signs in on its own."
+            "description": "Provider secret. A literal key, a \"${ENV}\" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. For type \"devin\" it is a Devin session token and, when set, wins over the browser login and the Devin CLI login. For type \"opencode\" an explicit key wins over the login `coddy providers login opencode` stored. For type \"kimi\", Platform uses a Platform API key; subscription rejects api_key and does not use NAME_API_KEY. Ignored for type \"codex\", which signs in with ChatGPT, and for type \"acp\", whose agent signs in on its own."
           },
           "api_key_command": {
             "type": "string",
-            "description": "Optional credential-helper command. When api_key is empty it runs via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and the trimmed stdout is used as the key. On failure resolution falls back to NAME_API_KEY. Never run for types \"codex\" and \"acp\", which take no key."
+            "description": "Optional credential-helper command. When api_key is empty it runs via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and the trimmed stdout is used as the key. On failure resolution falls back to NAME_API_KEY. For type \"kimi\", Platform can use this command; subscription rejects it. Never run for types \"codex\" and \"acp\", which take no key."
           },
           "proxy": {
             "type": "string",
@@ -70,7 +86,7 @@
               "boolean",
               "null"
             ],
-            "description": "Show this provider's account usage panel (the console footer line and /usage, the usage section and banner in the web UI) and read the provider's usage endpoint for it (GET /v1/limits for type neuraldeep, the Codex backend's usage endpoint for type codex, the seat-management status RPC for type devin). Omit or true keeps the panel on; false hides it and stops those reads for this row. Only providers whose type has a usage source are affected.",
+            "description": "Show this provider's account usage panel (the console footer line and /usage, the usage section and banner in the web UI) and read the provider's usage endpoint for it (GET /v1/limits for type neuraldeep, the Codex backend's usage endpoint for type codex, the seat-management status RPC for type devin). For type kimi, subscription usage reads /usages and Platform has no usage source. Omit or true keeps the panel on; false hides it and stops those reads for this row. Only providers whose type has a usage source are affected.",
             "default": true
           },
           "acp": {
@@ -174,6 +190,18 @@
             "type": "string",
             "description": "\"provider_name/api_model_id\": the first path segment must match a providers[].name; the remainder is sent to the LLM API (may itself contain slashes).",
             "pattern": "^[^/]+/.+$"
+          },
+          "kimi_metadata": {
+            "type": ["object", "null"],
+            "description": "Kimi catalog protocol bound to this model reference, provider mode and region.",
+            "additionalProperties": false,
+            "required": ["model", "protocol", "mode", "region"],
+            "properties": {
+              "model": {"type": "string", "description": "Full provider/model reference listed in the catalog."},
+              "protocol": {"type": "string", "enum": ["kimi", "anthropic", "openai_responses"], "description": "Protocol reported for this model."},
+              "mode": {"type": "string", "enum": ["subscription", "platform"], "description": "Provider mode used to list the model."},
+              "region": {"type": "string", "enum": ["global", "china"], "description": "Provider region used to list the model."}
+            }
           },
           "max_tokens": {
             "type": "integer",

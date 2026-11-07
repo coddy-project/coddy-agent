@@ -953,6 +953,40 @@
             "title": "Allow disabling reasoning",
             "type": "boolean"
           },
+          "kimi_metadata": {
+            "additionalProperties": false,
+            "description": "Protocol and provider settings captured from the model catalog.",
+            "properties": {
+              "mode": {
+                "description": "Provider mode used to list the model.",
+                "title": "Mode",
+                "type": "string"
+              },
+              "model": {
+                "description": "Full provider/model reference.",
+                "title": "Model reference",
+                "type": "string"
+              },
+              "protocol": {
+                "description": "Protocol reported by the catalog.",
+                "title": "Protocol",
+                "type": "string"
+              },
+              "region": {
+                "description": "Provider region used to list the model.",
+                "title": "Region",
+                "type": "string"
+              }
+            },
+            "title": "Kimi catalog metadata",
+            "type": "object",
+            "x-coddy-property-order": [
+              "model",
+              "protocol",
+              "mode",
+              "region"
+            ]
+          },
           "max_context_tokens": {
             "description": "The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000.",
             "title": "Context window (tokens)",
@@ -1012,6 +1046,7 @@
         "type": "object",
         "x-coddy-property-order": [
           "model",
+          "kimi_metadata",
           "max_tokens",
           "temperature",
           "max_context_tokens",
@@ -1197,6 +1232,21 @@
             "title": "API key command",
             "type": "string"
           },
+          "kimi_identity": {
+            "description": "Stable random identity of this Kimi provider row.",
+            "title": "Kimi identity",
+            "type": "string"
+          },
+          "mode": {
+            "description": "Kimi credential mode; empty selects subscription.",
+            "enum": [
+              "",
+              "subscription",
+              "platform"
+            ],
+            "title": "Kimi mode",
+            "type": "string"
+          },
           "name": {
             "default": "openai",
             "description": "Prefix of this provider's model ids, as in provider/model-id. Letters, digits, hyphen and underscore, starting with a letter.",
@@ -1207,6 +1257,16 @@
           "proxy": {
             "description": "Optional proxy for this provider only: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for this provider. Left empty, the provider follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none connects directly.",
             "title": "Proxy URL",
+            "type": "string"
+          },
+          "region": {
+            "description": "Kimi region; empty selects global.",
+            "enum": [
+              "",
+              "global",
+              "china"
+            ],
+            "title": "Kimi region",
             "type": "string"
           },
           "timeout_ms": {
@@ -1224,6 +1284,7 @@
               "opencode",
               "codex",
               "devin",
+              "kimi",
               "acp"
             ],
             "title": "Provider type",
@@ -1256,6 +1317,9 @@
         "x-coddy-property-order": [
           "name",
           "type",
+          "mode",
+          "region",
+          "kimi_identity",
           "acp",
           "api_base",
           "user_agent",

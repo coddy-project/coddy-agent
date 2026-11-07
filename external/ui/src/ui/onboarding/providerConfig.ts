@@ -8,6 +8,7 @@ export type ProviderPresetId =
   | "codex"
   | "opencode"
   | "devin"
+  | "kimi"
   | "acp";
 
 export type ProviderPreset = {
@@ -22,6 +23,7 @@ export type ProviderPreset = {
     | "codex"
     | "opencode"
     | "devin"
+    | "kimi"
     | "acp";
   apiBase?: string;
   // apiBaseExample is the placeholder of an endpoint the operator types: one
@@ -128,6 +130,15 @@ export const PROVIDER_PRESETS: [ProviderPreset, ...ProviderPreset[]] = [
     envKey: "${DEVIN_API_KEY}",
   },
   {
+    id: "kimi",
+    label: "Kimi",
+    descriptionKey: "onboarding.provider.kimi.description",
+    providerName: "kimi",
+    providerType: "kimi",
+    multimodal: false,
+    defaultModel: "kimi/kimi-for-coding",
+  },
+  {
     id: "compatible",
     label: "OpenAI-compatible",
     descriptionKey: "onboarding.provider.compatible.description",
@@ -230,6 +241,9 @@ export function buildOnboardingConfig(input: {
   baseDoc: Record<string, unknown>;
   catalog: FetchedModel[];
   managedLogin: boolean;
+  kimiMode?: "subscription" | "platform";
+  kimiRegion?: "global" | "china";
+  kimiIdentity?: string;
 }): Record<string, unknown> {
   const { preset, baseDoc } = input;
   const providers = rows(baseDoc.providers);
@@ -241,7 +255,13 @@ export function buildOnboardingConfig(input: {
     name: preset.providerName,
     type: preset.providerType,
   };
+  if (preset.providerType === "kimi") {
+    provider.mode = input.kimiMode ?? "subscription";
+    provider.region = input.kimiRegion ?? "global";
+    if (input.kimiIdentity) provider.kimi_identity = input.kimiIdentity;
+  }
   const keyless =
+    (preset.providerType === "kimi" && input.kimiMode !== "platform") ||
     preset.providerType === "codex" ||
     // An ACP agent is a program this machine runs and signs itself in; the
     // row carries its command, never a key.
@@ -292,7 +312,8 @@ export function buildOnboardingConfig(input: {
     delete provider.api_base;
   } else if (
     preset.providerType === "codex" ||
-    preset.providerType === "devin"
+    preset.providerType === "devin" ||
+    preset.providerType === "kimi"
   ) {
     delete provider.api_base;
   } else {

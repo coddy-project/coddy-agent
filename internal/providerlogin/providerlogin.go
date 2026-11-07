@@ -24,7 +24,7 @@ const DefaultType = "neuraldeep"
 
 // Types are the provider types that sign in without a key, in the order a
 // surface offers them; the first is DefaultType.
-var Types = []string{DefaultType, "codex", "devin", "opencode"}
+var Types = []string{DefaultType, "codex", "devin", "opencode", "kimi"}
 
 // Supports reports whether providerType signs in here.
 func Supports(providerType string) bool {
@@ -42,6 +42,8 @@ func Title(providerType string) string {
 		return "Devin"
 	case "opencode":
 		return "OpenCode"
+	case "kimi":
+		return "Kimi Code"
 	}
 	return providerType
 }
@@ -189,6 +191,11 @@ func rowReady(cfg *config.Config, prov *config.ProviderConfig) bool {
 		return prov.ACP != nil && strings.TrimSpace(prov.ACP.Command) != ""
 	case "codex":
 		return signInStored(cfg, prov)
+	case "kimi":
+		if prov.Mode == "platform" {
+			return keySource(prov) != ""
+		}
+		return signInStored(cfg, prov)
 	}
 	if keySource(prov) != "" {
 		return true
@@ -224,8 +231,38 @@ func signInStored(cfg *config.Config, prov *config.ProviderConfig) bool {
 	case "opencode":
 		st, err := llm.InspectOpenCodeAuth(config.OpenCodeAuthPath(home, prov.Name))
 		return err == nil && st.Connected
+	case "kimi":
+		return KimiSource(cfg, prov) != ""
 	}
 	return false
+}
+
+// KimiSource reports the usable subscription credential source without
+// refreshing a token. A damaged managed credential never falls back to CLI.
+func KimiSource(cfg *config.Config, prov *config.ProviderConfig) string {
+	if cfg == nil || prov == nil || prov.Type != "kimi" || (prov.Mode != "" && prov.Mode != "subscription") {
+		return ""
+	}
+	dir := config.KimiIdentityDir(cfg.Paths.Home, prov.KimiIdentity)
+	if dir != "" {
+		cred, state, err := llm.NewKimiCredentialStore(dir).Load(prov.Region)
+		if err != nil {
+			return ""
+		}
+		if state == llm.KimiCredentialValid {
+			if cred.AccessToken != "" && cred.RefreshToken != "" {
+				return "managed"
+			}
+			return ""
+		}
+		if state != llm.KimiCredentialMissing {
+			return ""
+		}
+	}
+	if _, err := llm.ReadKimiCLIAccessToken(prov.Mode, prov.Region, !cfg.ProviderMayUseCLILogin(prov.Name, "kimi")); err == nil {
+		return "cli"
+	}
+	return ""
 }
 
 // ProviderReady reports whether the provider row name can answer, the way
@@ -383,6 +420,8 @@ func Run(ctx context.Context, cfg *config.Config, prov *config.ProviderConfig, h
 		err = runDevin(ctx, cfg, prov, h, &res)
 	case "opencode":
 		err = runOpenCode(ctx, cfg, prov, h, &res)
+	case "kimi":
+		err = runKimi(ctx, cfg, prov, h, &res)
 	}
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil && !errors.Is(err, ctxErr) {
@@ -390,7 +429,7 @@ func Run(ctx context.Context, cfg *config.Config, prov *config.ProviderConfig, h
 		}
 		return Result{}, err
 	}
-	if res.ConfigErr == nil {
+	if res.ConfigErr == nil && prov.Type != "kimi" {
 		from, to, err := RepointAgentModel(cfg.Paths, prov.Name)
 		switch {
 		case err != nil:

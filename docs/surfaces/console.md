@@ -100,8 +100,15 @@ the same order, and the row it opens on is the same one:
 | **Anthropic** | Claude models | the API key |
 | **Codex** | your ChatGPT subscription through OAuth | the device sign-in, or nothing when this machine has one |
 | **Devin** | Devin models with browser sign-in | the browser sign-in, or nothing when this machine has one |
+| **Kimi** | Kimi Code subscription or Kimi Platform API key | the service and region, then device sign-in or an API key |
 | **OpenAI-compatible** | Ollama, LM Studio, DeepSeek, Groq or any endpoint of your own | the address of the endpoint, then the API key |
 | **ACP agent** | an agent of your own this machine runs: Claude Code, Codex, Gemini | the command that speaks ACP |
+
+Kimi offers Kimi Code and Kimi Platform in global (`kimi.ai`, the default) and China (`kimi.com`) variants. The picker asks for a Platform key. For a subscription it uses an eligible existing login or starts device sign-in. An existing `kimi` row with another mode or region is left unchanged. An eligible existing Kimi CLI login is read without modification from `KIMI_CODE_HOME` (default `~/.kimi-code`); its source is separate from a Coddy-managed login. Provider requests, including sign-in, use the row proxy.
+
+![Kimi service selector in the console](../assets/console/kimi-picker-dark-1280.png)
+
+*The console offers both services in both regions.*
 
 Arrows move, typing filters, Enter takes the row and Escape puts the picker
 away: the header keeps pointing at `/login`, which opens it again, so nothing

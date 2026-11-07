@@ -280,12 +280,16 @@ type ProviderInput struct {
 	// diagnostic only: every error the provider returns is prefixed with it
 	// and the address it reached, so a user running several providers can
 	// tell which entry of their config failed. Empty leaves errors bare.
-	Name      string
-	Type      string
-	Model     string
-	APIKey    string
-	BaseURL   string
-	UserAgent string
+	Name         string
+	Type         string
+	Mode         string
+	Region       string
+	KimiIdentity string
+	Model        string
+	KimiMetadata *config.KimiModelMetadata
+	APIKey       string
+	BaseURL      string
+	UserAgent    string
 	// ProxyURL is the row's providers[].proxy setting as written: empty or
 	// "inherit" follows the environment's proxy, "none" connects directly,
 	// and a proxy URL goes through that proxy (config.ParseProxySetting).
@@ -453,6 +457,11 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		// A Devin session token reaches the Devin API server only: api_base is
 		// ignored, and CODDY_DEVIN_API_SERVER_URL moves the process as a whole.
 		inner = newDevinProvider(p, hc)
+	case "kimi":
+		inner, err = newKimiLazyProvider(p)
+		if err != nil {
+			return nil, err
+		}
 	case "acp":
 		// A local agent over stdio: no HTTP client of Coddy's carries its
 		// requests; the row's proxy reaches the agent as its environment.

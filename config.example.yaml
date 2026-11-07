@@ -79,6 +79,22 @@ providers:
   #   type: codex
   #   # usage_limits_panel: false
 
+  # Kimi Code subscription. The default region is global (kimi.ai); use
+  # region: china for kimi.com. A provider proxy applies to sign-in, refresh,
+  # model discovery, usage, and inference.
+  # - name: kimi
+  #   type: kimi
+  #   mode: subscription
+  #   region: global
+  #   # proxy: "http://127.0.0.1:8888"
+  #
+  # Kimi Platform uses an API key and separate endpoints, not the subscription.
+  # - name: kimi-platform
+  #   type: kimi
+  #   mode: platform
+  #   region: global
+  #   api_key: "${KIMI_PLATFORM_API_KEY}"
+
   # Devin (Cognition) account. `coddy providers login devin` signs in through
   # the browser (or reuses `devin auth login` with --devin-cli), stores the
   # session token under $CODDY_HOME/providers/devin/ and adds this row plus one

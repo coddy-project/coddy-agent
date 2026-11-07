@@ -3336,7 +3336,11 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 	in := llm.ProviderInput{
 		Name:          rm.ProviderName,
 		Type:          rm.ProviderType,
+		Mode:          rm.Mode,
+		Region:        rm.Region,
+		KimiIdentity:  rm.KimiIdentity,
 		Model:         rm.Model,
+		KimiMetadata:  rm.KimiMetadata,
 		APIKey:        rm.APIKey,
 		BaseURL:       rm.BaseURL,
 		UserAgent:     rm.UserAgent,

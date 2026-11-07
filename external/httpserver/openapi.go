@@ -2809,7 +2809,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/models": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Fetch models for a provider description",
-					"description": "Fetches the model list advertised by a provider row posted in the request body (**`{name, type, api_base, user_agent, api_key, api_key_command, proxy}`** - the `providers[]` shape). Unlike the GET route, the row need not be saved in config.yaml: the settings form's provider editor sends the entry being edited, so a provider that only exists in the form (for example right after an OAuth device sign-in) lists its models the same way a stored one does. Fields the body leaves empty are inherited from the saved provider of the same name when there is one, so a sparse **`{name}`** post resolves the stored credentials without secrets travelling over the wire. The credential pair (**`api_key`** / **`api_key_command`**) is one slot: it is inherited only when the body posts neither field, and only while the resolved **`api_base`** and **`proxy`** still match the saved row, so an overridden route never receives stored credentials. The body must be **`application/json`**: any other content type (the kinds a cross-site page can send without a preflight) gets **`415`**. A posted **`api_key_command`** is executed server-side, exactly as it would be for a saved provider. A row of **`type: acp`** lists the models its agent offers (**`default`** first, the agent's own model) from the **saved** row only: its **`acp`** block names a program, and a body cannot bring one of its own - an **`acp`** row that is not saved yet is **`400`**. Returns the same **`{ok:true, models:[{id,name,context_window,catalog}]}`** / **`{ok:false, error, models:[]}`** shape as the GET (`context_window` only when the provider's listing reports one, **`catalog`** only for a model the built-in models catalog knows whose window the provider does not report or reports the same); a malformed body or an invalid provider row returns 400.",
+					"description": "Fetches the model list advertised by a provider row posted in the request body (**`{name, type, mode, region, kimi_identity, api_base, user_agent, api_key, api_key_command, proxy}`** - the `providers[]` shape). Unlike the GET route, the row need not be saved in config.yaml: the settings form's provider editor sends the entry being edited, so a provider that only exists in the form (for example right after an OAuth device sign-in) lists its models the same way a stored one does. A sparse **`{name}`** post inherits the saved row. For Kimi, an omitted identity inherits only when type, mode and region match; an explicit empty identity clears it, and an explicit ID selects only that identity. An omitted proxy inherits the saved proxy; an explicit empty proxy inherits the process proxy. The credential pair (**`api_key`** / **`api_key_command`**) is one slot: it is inherited only when the body posts neither field, and only while the resolved **`api_base`** and **`proxy`** still match the saved row, and for Kimi only while type, mode, region and identity match, so an overridden route never receives stored credentials. The body must be **`application/json`**: any other content type (the kinds a cross-site page can send without a preflight) gets **`415`**. A posted **`api_key_command`** is executed server-side, exactly as it would be for a saved provider. A row of **`type: acp`** lists the models its agent offers (**`default`** first, the agent's own model) from the **saved** row only: its **`acp`** block names a program, and a body cannot bring one of its own - an **`acp`** row that is not saved yet is **`400`**. Returns the same **`{ok:true, models:[{id,name,context_window,catalog}]}`** / **`{ok:false, error, models:[]}`** shape as the GET (`context_window` only when the provider's listing reports one, **`catalog`** only for a model the built-in models catalog knows whose window the provider does not report or reports the same); a malformed body or an invalid provider row returns 400.",
 					"operationId": "fetchProviderModels",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -2825,7 +2825,10 @@ func openAPISpec() map[string]interface{} {
 										"user_agent":      map[string]interface{}{"type": "string", "enum": []string{"", "openai", "anthropic", "coddy"}, "description": "OpenAI-compatible or Anthropic-compatible client identity; empty inherits the saved row, openai or anthropic selects the current protocol SDK identity, coddy sends Coddy/<running version>."},
 										"api_key":         map[string]string{"type": "string"},
 										"api_key_command": map[string]string{"type": "string"},
-										"proxy":           map[string]string{"type": "string"},
+										"mode":            map[string]string{"type": "string"},
+										"region":          map[string]string{"type": "string"},
+										"kimi_identity":   map[string]string{"type": "string", "description": "Kimi managed identity; omitted inherits only for matching type, mode and region, empty clears it."},
+										"proxy":           map[string]string{"type": "string", "description": "Omitted inherits the saved row; empty inherits the process proxy."},
 									},
 								},
 							},
@@ -2838,6 +2841,17 @@ func openAPISpec() map[string]interface{} {
 						"500": errorResponseRef(),
 					},
 				},
+			},
+			"/coddy/providers/{name}/kimi-auth": map[string]interface{}{
+				"get":    map[string]interface{}{"summary": "Kimi credential status", "parameters": []interface{}{codexProviderNameParameter(), map[string]interface{}{"name": "region", "in": "query", "schema": map[string]string{"type": "string"}}, map[string]interface{}{"name": "mode", "in": "query", "schema": map[string]string{"type": "string"}}}, "responses": map[string]interface{}{"200": map[string]interface{}{"description": "Non-secret source and connection status"}}},
+				"delete": map[string]interface{}{"summary": "Remove the managed Kimi credential", "parameters": []interface{}{codexProviderNameParameter(), map[string]interface{}{"name": "region", "in": "query", "schema": map[string]string{"type": "string"}}, map[string]interface{}{"name": "mode", "in": "query", "schema": map[string]string{"type": "string"}}}, "responses": map[string]interface{}{"200": map[string]interface{}{"description": "Status after removal, including any CLI fallback"}, "500": errorResponseRef()}},
+			},
+			"/coddy/providers/{name}/kimi-auth/device": map[string]interface{}{
+				"post": map[string]interface{}{"summary": "Start Kimi device login", "parameters": []interface{}{codexProviderNameParameter()}, "requestBody": map[string]interface{}{"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"proxy": map[string]string{"type": "string"}, "region": map[string]string{"type": "string"}, "mode": map[string]string{"type": "string"}, "kimi_identity": map[string]string{"type": "string"}}}}}}, "responses": map[string]interface{}{"200": map[string]interface{}{"description": "Device instructions with kimi_identity, canonical region and subscription mode; persist the identity on the provider row"}, "400": errorResponseRef(), "409": errorResponseRef(), "415": errorResponseRef(), "500": errorResponseRef(), "502": errorResponseRef()}},
+			},
+			"/coddy/providers/{name}/kimi-auth/device/{loginID}": map[string]interface{}{
+				"get":    map[string]interface{}{"summary": "Poll Kimi device login", "parameters": []interface{}{codexProviderNameParameter(), map[string]interface{}{"name": "loginID", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}}, "responses": map[string]interface{}{"200": jsonSchemaResponse("Login state", "#/components/schemas/CodexAuthDeviceStatus"), "404": errorResponseRef()}},
+				"delete": map[string]interface{}{"summary": "Cancel Kimi device login", "parameters": []interface{}{codexProviderNameParameter(), map[string]interface{}{"name": "loginID", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}}, "responses": map[string]interface{}{"200": map[string]interface{}{"description": "Attempt invalidated"}, "404": errorResponseRef(), "500": errorResponseRef()}},
 			},
 			"/coddy/providers/{name}/codex-auth": map[string]interface{}{
 				"get": map[string]interface{}{
@@ -2875,6 +2889,7 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"409": errorResponseRef(),
 						"415": errorResponseRef(),
+						"500": errorResponseRef(),
 						"502": errorResponseRef(),
 					},
 				},
@@ -2948,6 +2963,7 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"409": errorResponseRef(),
 						"415": errorResponseRef(),
+						"500": errorResponseRef(),
 						"502": errorResponseRef(),
 					},
 				},
@@ -2983,7 +2999,7 @@ func openAPISpec() map[string]interface{} {
 					"requestBody": map[string]interface{}{"required": false, "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"$ref": "#/components/schemas/ProviderSignInProxyRequest"}}}},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Browser authorization instructions.", "#/components/schemas/DevinAuthDeviceStart"),
-						"400": errorResponseRef(), "415": errorResponseRef(), "502": errorResponseRef(), "504": errorResponseRef(),
+						"400": errorResponseRef(), "415": errorResponseRef(), "500": errorResponseRef(), "502": errorResponseRef(), "504": errorResponseRef(),
 					},
 				},
 			},

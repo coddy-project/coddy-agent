@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 /** One model entry as the provider lists it. */
 export interface FetchedModel {
   id: string;
+  kimi_protocol?: string;
+  kimi_source?: { name: string; mode: string; region: string };
   name?: string;
   /** Context window the listing reports, absent when it reports none. */
   context_window?: number;
@@ -29,7 +31,7 @@ const REQUEST_FIELDS = [
 export type ProviderModelsRequest = Record<
   (typeof REQUEST_FIELDS)[number],
   string
->;
+> & { mode?: string; region?: string; kimi_identity?: string };
 
 function str(v: unknown): string {
   return v === undefined || v === null ? "" : String(v);
@@ -57,6 +59,11 @@ export function providerModelsRequest(
   const out = {} as ProviderModelsRequest;
   for (const key of REQUEST_FIELDS) {
     out[key] = str(row[key]);
+  }
+  if (str(row.type).trim() === "kimi") {
+    out.mode = str(row.mode);
+    out.region = str(row.region);
+    out.kimi_identity = str(row.kimi_identity);
   }
   if (!runCommand) {
     out.api_key_command = "";
@@ -86,6 +93,7 @@ type ModelsResponse = {
   error?: string;
   models?: {
     id?: string;
+    kimi_protocol?: string;
     name?: string;
     context_window?: number;
     catalog?: {
@@ -103,7 +111,10 @@ function tokens(v: unknown): number | undefined {
     : undefined;
 }
 
-function normalize(rows: ModelsResponse["models"]): FetchedModel[] {
+function normalize(
+  rows: ModelsResponse["models"],
+  source?: FetchedModel["kimi_source"],
+): FetchedModel[] {
   const seen = new Set<string>();
   const list: FetchedModel[] = [];
   for (const m of rows ?? []) {
@@ -112,6 +123,10 @@ function normalize(rows: ModelsResponse["models"]): FetchedModel[] {
     }
     seen.add(m.id);
     const item: FetchedModel = { id: m.id };
+    if (source && m.kimi_protocol) {
+      item.kimi_protocol = m.kimi_protocol;
+      item.kimi_source = source;
+    }
     if (m.name) {
       item.name = m.name;
     }
@@ -188,12 +203,22 @@ export function useProviderModels() {
       let list: FetchedModel[] = [];
       let failure = "";
       try {
+        const request = providerModelsRequest(
+          row,
+          options?.runCommand === true,
+        );
+        const source =
+          str(row.type).trim() === "kimi"
+            ? {
+                name: str(row.name).trim(),
+                mode: request.mode || "subscription",
+                region: request.region || "global",
+              }
+            : undefined;
         const res = await fetch("/coddy/providers/models", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            providerModelsRequest(row, options?.runCommand === true),
-          ),
+          body: JSON.stringify(request),
         });
         // A proxy or a load balancer in front can answer with an HTML page:
         // the status is the useful part then, not a JSON parse error.
@@ -201,7 +226,7 @@ export function useProviderModels() {
         if (!res.ok || !data.ok) {
           failure = data.error ?? `HTTP ${res.status}`;
         } else {
-          list = normalize(data.models);
+          list = normalize(data.models, source);
         }
       } catch (e) {
         failure = e instanceof Error ? e.message : String(e);

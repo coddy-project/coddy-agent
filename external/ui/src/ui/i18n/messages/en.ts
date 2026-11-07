@@ -1068,6 +1068,39 @@ export const messagesEn: Record<string, string> = {
     "Ollama, LM Studio, DeepSeek, Groq or any endpoint of your own",
   "onboarding.provider.acp.description":
     "An agent of your own on this machine: Claude Code, Codex, Gemini",
+  "onboarding.provider.kimi.description":
+    "Kimi Code subscription or Platform API key",
+  "onboarding.kimi.existingKey":
+    "The existing Kimi provider has an API key or key command. Keep Kimi Platform, or change its credentials in Settings before choosing Kimi Code. Nothing was saved.",
+  "kimiAuth.unsaved":
+    "Sign-in is not saved yet. Save the provider settings to keep it.",
+  "kimiAuth.rowChanged": "The provider changed during sign-in. Start again.",
+  "kimiAuth.saveRequired":
+    "Sign-in confirmed. Save the provider settings to use it.",
+  "kimiAuth.invalidPoll":
+    "The sign-in response was incomplete or contradictory. Start again.",
+  "kimiAuth.statusAfterSaveFailed":
+    "The provider was saved, but its sign-in could not be confirmed.",
+  "kimiAuth.removePlatformCredentials":
+    "Clear the existing API key and key command before saving Kimi Code. They are not removed automatically.",
+  "onboarding.retryConfig": "Retry loading configuration",
+  "onboarding.retryKimiStatus": "Retry sign-in status",
+  "onboarding.savedChangesRemain":
+    "The previous selection was saved. Your newer changes are not saved yet.",
+  "kimiAuth.signIn": "Sign in with Kimi",
+  "kimiAuth.connected": "Signed in with Coddy",
+  "kimiAuth.cli": "Using Kimi CLI credentials",
+  "kimiAuth.cliSignOutHint":
+    "CLI credentials are managed by Kimi CLI; sign out there.",
+  "kimiAuth.open": "Open verification page",
+  "kimiAuth.cancel": "Cancel",
+  "kimiAuth.signOut": "Sign out",
+  "kimiAuth.failed": "Kimi sign-in failed",
+  "kimiAuth.invalidResponse":
+    "The sign-in response contained an invalid verification URL.",
+  "onboarding.kimi.variant": "Kimi service",
+  "onboarding.kimi.loginUnavailable":
+    "Subscription sign-in is not available in this build.",
   "onboarding.provider.neuraldeep.description":
     "API key or account sign-in on either hub",
   "onboarding.provider.codex.description":

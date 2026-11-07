@@ -64,6 +64,12 @@ export function ProviderModelList(props: {
     contextWindow?: number | undefined,
     maxTokens?: number | undefined,
     multimodal?: boolean | undefined,
+    kimiMetadata?: {
+      model: string;
+      protocol: string;
+      mode: string;
+      region: string;
+    },
   ) => void;
   /** Takes provider/id out of Logical models. */
   onRemoveModel: (id: string) => void;
@@ -142,16 +148,36 @@ export function ProviderModelList(props: {
         aria-pressed={isListed}
         title={action}
         aria-label={name}
-        onClick={() =>
-          isListed
-            ? onRemoveModel(full)
-            : onAddModel(
-                full,
-                model?.context_window || model?.catalog?.context_window,
-                catalogFor(model)?.max_tokens,
-                catalogFor(model)?.multimodal,
-              )
-        }
+        onClick={() => {
+          if (isListed) {
+            onRemoveModel(full);
+            return;
+          }
+          const args = [
+            full,
+            model?.context_window || model?.catalog?.context_window,
+            catalogFor(model)?.max_tokens,
+            catalogFor(model)?.multimodal,
+          ] as const;
+          const source = model?.kimi_source;
+          if (
+            source &&
+            model?.kimi_protocol &&
+            source.name === str(provider.name).trim() &&
+            source.mode === (str(provider.mode).trim() || "subscription") &&
+            source.region === (str(provider.region).trim() || "global") &&
+            str(provider.type).trim() === "kimi"
+          ) {
+            onAddModel(...args, {
+              model: full,
+              protocol: model.kimi_protocol,
+              mode: source.mode,
+              region: source.region,
+            });
+          } else {
+            onAddModel(...args);
+          }
+        }}
       >
         {isListed ? <IconCheck /> : <IconPlus />}
       </button>

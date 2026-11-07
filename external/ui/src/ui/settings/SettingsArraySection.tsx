@@ -160,6 +160,25 @@ export function SettingsArraySection(props: {
   }, [routeItem, arr.length === 0]);
 
   const editing = view.mode === "edit";
+  const leaseCounter = useRef(0);
+  const lease = useRef<{
+    index: number;
+    replaced: number;
+    token: number;
+  } | null>(null);
+  if (!editing) {
+    lease.current = null;
+  } else if (
+    !lease.current ||
+    lease.current.index !== view.index ||
+    lease.current.replaced !== replaced
+  ) {
+    lease.current = {
+      index: view.index,
+      replaced,
+      token: ++leaseCounter.current,
+    };
+  }
   const onEditingRef = useRef(props.onEditingChange);
   useEffect(() => {
     onEditingRef.current = props.onEditingChange;
@@ -217,7 +236,7 @@ export function SettingsArraySection(props: {
       // field remembers - the proxy URL, a filter, a fold - crosses rows.
       <div
         className="settings-detail"
-        key={index}
+        key={lease.current?.token}
         data-settings-anchor={`row:${i18nDomain ?? ""}`}
         data-settings-row={labelOf(item)}
         role="group"

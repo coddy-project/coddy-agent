@@ -1094,6 +1094,40 @@ export const messagesRu: Record<string, string> = {
     "Llama.cpp, Ollama, LM Studio, DeepSeek, Groq или другой совместимый API-провайдер",
   "onboarding.provider.acp.description":
     "Свой агент на этой машине: ClaudeCode, Codex, Gemini, Cursor, Qwen...",
+  "onboarding.provider.kimi.description":
+    "Подписка Kimi Code или ключ API платформы",
+  "onboarding.kimi.existingKey":
+    "У существующего провайдера Kimi задан ключ API или команда его получения. Оставьте Kimi Platform или измените учётные данные в настройках перед выбором Kimi Code. Изменения не сохранены.",
+  "kimiAuth.unsaved":
+    "Вход ещё не сохранён. Сохраните настройки провайдера, чтобы его сохранить.",
+  "kimiAuth.rowChanged":
+    "Провайдер изменился во время входа. Начните вход заново.",
+  "kimiAuth.saveRequired":
+    "Вход подтверждён. Сохраните настройки провайдера, чтобы использовать его.",
+  "kimiAuth.invalidPoll":
+    "Ответ о входе неполный или противоречивый. Начните вход заново.",
+  "kimiAuth.statusAfterSaveFailed":
+    "Провайдер сохранён, но подтвердить вход не удалось.",
+  "kimiAuth.removePlatformCredentials":
+    "Перед сохранением Kimi Code очистите существующий ключ API и команду его получения. Автоматически они не удаляются.",
+  "onboarding.retryConfig": "Повторить загрузку конфигурации",
+  "onboarding.retryKimiStatus": "Повторить проверку входа",
+  "onboarding.savedChangesRemain":
+    "Предыдущий выбор сохранён. Новые изменения ещё не сохранены.",
+  "kimiAuth.signIn": "Войти через Kimi",
+  "kimiAuth.connected": "Вход выполнен через Coddy",
+  "kimiAuth.cli": "Используются учётные данные Kimi CLI",
+  "kimiAuth.cliSignOutHint":
+    "Учётными данными управляет Kimi CLI. Выйдите из аккаунта в нём.",
+  "kimiAuth.open": "Открыть страницу входа",
+  "kimiAuth.cancel": "Отменить",
+  "kimiAuth.signOut": "Выйти",
+  "kimiAuth.failed": "Не удалось войти в Kimi",
+  "kimiAuth.invalidResponse":
+    "В ответе указан недопустимый адрес страницы входа.",
+  "onboarding.kimi.variant": "Сервис Kimi",
+  "onboarding.kimi.loginUnavailable":
+    "Вход по подписке недоступен в этой сборке.",
   "onboarding.provider.neuraldeep.description": "Ваша подписка или API-ключ",
   "onboarding.provider.codex.description": "Ваша подписка через OAuth",
   "onboarding.provider.opencode.description": "Ваша подписка Go или Console",

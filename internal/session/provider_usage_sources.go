@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"strconv"
@@ -24,6 +25,22 @@ func providerUsageFingerprint(provider config.ProviderConfig, authPath string, c
 		return llm.CodexUsageFingerprint(provider, authPath, cliLogin)
 	case "devin":
 		return llm.DevinUsageFingerprint(provider, authPath, cliLogin)
+	case "kimi":
+		var cred llm.KimiCredential
+		state := llm.KimiCredentialMissing
+		var err error
+		if provider.KimiIdentity != "" && authPath == "" {
+			err = errors.New("invalid kimi identity")
+		} else if authPath != "" {
+			cred, state, err = llm.NewKimiCredentialStore(authPath).Load(provider.Region)
+		}
+		cliToken := ""
+		var cliErr error
+		if err == nil && state == llm.KimiCredentialMissing && cliLogin && (provider.Mode == "" || provider.Mode == "subscription") {
+			cliToken, cliErr = llm.ReadKimiCLIAccessToken(provider.Mode, provider.Region, false)
+		}
+		sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s\x00%d\x00%v\x00%+v\x00%t\x00%s\x00%v", provider.KimiIdentity, authPath, provider.Mode, provider.Region, provider.Proxy, state, err, cred, cliLogin, cliToken, cliErr)))
+		return fmt.Sprintf("%x", sum)
 	default:
 		// No usage source, no cache key: a caller that skipped the
 		// providerUsageSource gate must not get NeuralDeep's fingerprint
@@ -35,28 +52,119 @@ func providerUsageFingerprint(provider config.ProviderConfig, authPath string, c
 // fetchProviderUsage keeps transport payloads below the session layer while
 // every source shares the manager's scheduling and surface-facing snapshot.
 func (m *Manager) fetchProviderUsage(ctx context.Context, provider config.ProviderConfig, authPath string, cliLogin bool) (acp.ProviderUsageUpdate, error) {
+	u, _, err := m.fetchProviderUsageBound(ctx, provider, authPath, cliLogin)
+	return u, err
+}
+
+func (m *Manager) fetchProviderUsageBound(ctx context.Context, provider config.ProviderConfig, authPath string, cliLogin bool) (acp.ProviderUsageUpdate, string, error) {
 	switch strings.ToLower(strings.TrimSpace(provider.Type)) {
 	case "neuraldeep":
 		u, err := llm.NeuralDeepUsageForProvider(ctx, provider, authPath)
 		if err != nil {
-			return acp.ProviderUsageUpdate{}, err
+			return acp.ProviderUsageUpdate{}, "", err
 		}
-		return mapNeuralDeepUsage(u, provider.Name, m.usageNow()), nil
+		return mapNeuralDeepUsage(u, provider.Name, m.usageNow()), "", nil
 	case "codex":
 		u, err := llm.CodexUsageForProvider(ctx, provider, authPath, cliLogin)
 		if err != nil {
-			return acp.ProviderUsageUpdate{}, err
+			return acp.ProviderUsageUpdate{}, "", err
 		}
-		return mapCodexUsage(u, provider.Name, m.usageNow()), nil
+		return mapCodexUsage(u, provider.Name, m.usageNow()), "", nil
 	case "devin":
 		u, err := llm.DevinUsageForProvider(ctx, provider, authPath, cliLogin)
 		if err != nil {
-			return acp.ProviderUsageUpdate{}, err
+			return acp.ProviderUsageUpdate{}, "", err
 		}
-		return mapDevinUsage(u, provider.Name, m.usageNow()), nil
+		return mapDevinUsage(u, provider.Name, m.usageNow()), "", nil
+	case "kimi":
+		if provider.KimiIdentity != "" && authPath == "" {
+			return acp.ProviderUsageUpdate{}, "", errors.New("kimi usage: invalid credential identity")
+		}
+		var store *llm.KimiCredentialStore
+		if authPath != "" {
+			store = llm.NewKimiCredentialStore(authPath)
+		}
+		source, err := llm.NewKimiSubscriptionSource(store, provider.Mode, provider.Region, provider.Proxy, !cliLogin)
+		if err != nil {
+			return acp.ProviderUsageUpdate{}, "", err
+		}
+		var fingerprint string
+		var u *llm.KimiUsage
+		_, kind, err := source.WithCredential(ctx, func(token string) error {
+			fingerprint = providerUsageFingerprint(provider, authPath, cliLogin)
+			var cred llm.KimiCredential
+			state := llm.KimiCredentialMissing
+			var loadErr error
+			if store != nil {
+				cred, state, loadErr = store.Load(provider.Region)
+			}
+			if loadErr != nil {
+				return errUsageSuperseded
+			}
+			switch state {
+			case llm.KimiCredentialValid:
+				if cred.AccessToken != token {
+					return errUsageSuperseded
+				}
+			case llm.KimiCredentialMissing:
+				current, cliErr := llm.ReadKimiCLIAccessToken(provider.Mode, provider.Region, !cliLogin)
+				if cliErr != nil || current != token {
+					return errUsageSuperseded
+				}
+			default:
+				return errUsageSuperseded
+			}
+			if fingerprint != providerUsageFingerprint(provider, authPath, cliLogin) {
+				return errUsageSuperseded
+			}
+			var fetchErr error
+			u, fetchErr = llm.FetchKimiUsage(ctx, provider.Region, token, provider.Proxy)
+			return fetchErr
+		})
+		if err != nil {
+			if errors.Is(err, llm.ErrKimiCLILoginRequired) {
+				return acp.ProviderUsageUpdate{}, fingerprint, fmt.Errorf("%w: %w", &llm.ProviderUsageError{Kind: llm.ProviderUsageUnauthorized, Detail: "credential unavailable"}, err)
+			}
+			if errors.Is(err, llm.ErrKimiCredentialMissing) || errors.Is(err, llm.ErrKimiCredentialUnauthorized) || errors.Is(err, llm.ErrKimiCredentialUncertain) {
+				return acp.ProviderUsageUpdate{}, fingerprint, &llm.ProviderUsageError{Kind: llm.ProviderUsageUnauthorized, Detail: "credential unavailable"}
+			}
+			return acp.ProviderUsageUpdate{}, fingerprint, kimiUsageCredentialError(kind, err)
+		}
+		return mapKimiUsage(u, provider.Name, m.usageNow()), fingerprint, nil
 	default:
-		return acp.ProviderUsageUpdate{}, fmt.Errorf("provider usage: unsupported source")
+		return acp.ProviderUsageUpdate{}, "", fmt.Errorf("provider usage: unsupported source")
 	}
+}
+
+func kimiUsageCredentialError(kind llm.KimiSourceKind, err error) error {
+	var usageErr *llm.ProviderUsageError
+	if kind == llm.KimiSourceCLI && errors.As(err, &usageErr) && usageErr.Status == 401 {
+		return fmt.Errorf("%w: %w", err, llm.ErrKimiCLILoginRequired)
+	}
+	return err
+}
+
+func mapKimiUsage(u *llm.KimiUsage, provider string, now time.Time) acp.ProviderUsageUpdate {
+	out := acp.ProviderUsageUpdate{SessionUpdate: acp.UpdateTypeProviderUsage, Provider: provider, ProviderType: "kimi", FetchedAt: now.UTC().Format(time.RFC3339)}
+	for _, item := range []struct {
+		id, label string
+		window    *llm.KimiUsageWindow
+	}{{"5h", "5h", u.Limit5H}, {"7d", "7d", u.Limit7D}, {"month_total", "month total", u.MonthTotal}, {"month_code", "month code", u.MonthCode}} {
+		if item.window == nil {
+			continue
+		}
+		w := acp.UsageWindow{ID: item.id, Label: item.label, UsedPercent: clampPercent(item.window.UsedRatio * 100), Exhausted: item.window.UsedRatio >= 1}
+		if item.window.ResetAt != nil {
+			if at, err := time.Parse(time.RFC3339, strings.TrimSpace(*item.window.ResetAt)); err == nil {
+				w.ResetsAt = at.UTC().Format(time.RFC3339)
+				if seconds := int(at.Sub(now).Seconds()); seconds > 0 {
+					w.ResetInSec = seconds
+				}
+			}
+		}
+		out.Windows = append(out.Windows, w)
+	}
+	return out
 }
 
 func providerUsageFailure(err error) (string, time.Duration) {

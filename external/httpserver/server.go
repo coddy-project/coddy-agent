@@ -380,7 +380,10 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
 		Name:              rm.ProviderName,
 		Type:              rm.ProviderType,
+		Mode:              rm.Mode,
+		Region:            rm.Region,
 		Model:             rm.Model,
+		KimiMetadata:      rm.KimiMetadata,
 		APIKey:            rm.APIKey,
 		BaseURL:           rm.BaseURL,
 		UserAgent:         rm.UserAgent,
@@ -411,7 +414,10 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string, opts llm.Request
 	in := llm.ProviderInput{
 		Name:              rm.ProviderName,
 		Type:              rm.ProviderType,
+		Mode:              rm.Mode,
+		Region:            rm.Region,
 		Model:             rm.Model,
+		KimiMetadata:      rm.KimiMetadata,
 		APIKey:            rm.APIKey,
 		BaseURL:           rm.BaseURL,
 		UserAgent:         rm.UserAgent,
