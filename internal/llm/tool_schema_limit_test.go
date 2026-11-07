@@ -240,13 +240,14 @@ func TestToolSchemaLimitClassification(t *testing.T) {
 }
 
 func TestToolSchemaLimitDetailNamesOnlyAnOfferedFunction(t *testing.T) {
+	// Bare diagnostics carry no proof of what survived adapter encoding.
 	defs := []ToolDefinition{{Name: "docs__search"}, {Name: "read"}}
 	for _, tc := range []struct{ message, want string }{
-		{"Invalid schema for function 'docs__search': schema exceeds maximum allowed size", "docs__search"},
+		{"Invalid schema for function 'docs__search': schema exceeds maximum allowed size", ""},
 		{"Invalid schema for function 'not_offered': schema exceeds maximum allowed size", ""},
 		{"tools[0].function.parameters: schema exceeds maximum allowed size", ""},
 		{"tools.function.parameters: schema exceeds maximum allowed size", ""},
-		{`{"error":{"message":"Invalid schema for function \"docs__search\": schema exceeds maximum allowed size"}}`, "docs__search"},
+		{`{"error":{"message":"Invalid schema for function \"docs__search\": schema exceeds maximum allowed size"}}`, ""},
 	} {
 		d := ToolSchemaLimitDetailOf(errors.New(tc.message), defs)
 		if d.Tool != tc.want {
@@ -256,5 +257,90 @@ func TestToolSchemaLimitDetailNamesOnlyAnOfferedFunction(t *testing.T) {
 	d := ToolSchemaLimitDetailOf(errors.New("tools.function.parameters: schema depth exceeds maximum limit of 8"), defs)
 	if !strings.Contains(d.Limit, "8") {
 		t.Fatalf("reported depth limit lost: %#v", d)
+	}
+}
+
+func TestToolSchemaLimitNamedToolRequiresCapturedRequest(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		wire   string
+		caller []ToolDefinition
+		want   string
+	}{
+		{"missing capture", "", []ToolDefinition{{Name: "docs__search"}}, ""},
+		{"named tool absent from wire", `{"tools":[{"name":"other"}]}`, []ToolDefinition{{Name: "docs__search"}}, ""},
+		{"duplicate wire name", `{"tools":[{"name":"docs__search"},{"name":"docs__search"}]}`, []ToolDefinition{{Name: "docs__search"}}, ""},
+		{"duplicate caller name", `{"tools":[{"name":"docs__search"}]}`, []ToolDefinition{{Name: "docs__search"}, {Name: "docs__search"}}, ""},
+		{"unique wire and caller name", `{"tools":[{"name":"other"},{"name":"docs__search"}]}`, []ToolDefinition{{Name: "docs__search"}}, "docs__search"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cause := &httpStatusError{status: 400, body: "Invalid schema for function 'docs__search': schema depth exceeds maximum limit of 8"}
+			var err error = cause
+			if tc.wire != "" {
+				err = withToolSchemaRequest(err, json.RawMessage(tc.wire), false)
+			}
+			detail := ToolSchemaLimitDetailOf(err, tc.caller)
+			if detail.Tool != tc.want {
+				t.Errorf("tool=%q, want %q", detail.Tool, tc.want)
+			}
+			if detail.Limit != "maximum schema depth 8" || !IsToolSchemaLimit(err) || !errors.Is(err, cause) {
+				t.Fatalf("depth, classification or cause changed: detail=%#v error=%v", detail, err)
+			}
+		})
+	}
+}
+
+func TestToolSchemaLimitIndexedToolRejectsDuplicateWireName(t *testing.T) {
+	cause := &httpStatusError{status: 400, body: "tools[1].parameters: schema depth exceeds maximum limit of 8"}
+	err := withToolSchemaRequest(cause, json.RawMessage(`{"tools":[{"name":"docs__search"},{"name":"docs__search"}]}`), false)
+	detail := ToolSchemaLimitDetailOf(err, []ToolDefinition{{Name: "docs__search"}})
+	if detail.Tool != "" {
+		t.Errorf("duplicate outgoing name attributed as %q", detail.Tool)
+	}
+	if detail.Limit != "maximum schema depth 8" || !IsToolSchemaLimit(err) || !errors.Is(err, cause) {
+		t.Fatal("refusal details or cause lost")
+	}
+}
+
+func TestToolSchemaLimitNamedToolMatchesCapturedOutgoingRequest(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%v", streaming), func(t *testing.T) {
+			requestNames := make(chan []string, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var request struct {
+					Tools []struct{ Function struct{ Name string } }
+				}
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+				}
+				names := make([]string, len(request.Tools))
+				for i, tool := range request.Tools {
+					names[i] = tool.Function.Name
+				}
+				requestNames <- names
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","message":"Invalid schema for function 'docs__search': schema depth exceeds maximum limit of 8"}}`))
+			}))
+			defer server.Close()
+			tools := []ToolDefinition{{Name: "read", InputSchema: map[string]any{"type": "object"}}, {Name: "docs__search", InputSchema: map[string]any{"type": "object"}}}
+			p := openAIClient(server.URL)
+			var err error
+			if streaming {
+				_, err = p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hello"}}, tools, nil)
+			} else {
+				_, err = p.Complete(context.Background(), []Message{{Role: RoleUser, Content: "hello"}}, tools)
+			}
+			if err == nil {
+				t.Fatal("fixture refusal unexpectedly succeeded")
+			}
+			names := <-requestNames
+			if len(names) != 2 || names[0] != "read" || names[1] != "docs__search" {
+				t.Fatalf("unexpected outgoing tools: %v", names)
+			}
+			if detail := ToolSchemaLimitDetailOf(err, tools); detail.Tool != names[1] || detail.Limit != "maximum schema depth 8" {
+				t.Fatalf("actual outgoing named tool not attributed: %#v", detail)
+			}
+		})
 	}
 }

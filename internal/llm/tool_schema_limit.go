@@ -178,7 +178,8 @@ func ToolSchemaLimitDetailOf(err error, tools []ToolDefinition) ToolSchemaLimitD
 		name = m[1]
 	}
 	var request *toolSchemaRequestError
-	if name == "" && errors.As(err, &request) {
+	captured := errors.As(err, &request)
+	if name == "" && captured {
 		if m := toolSchemaIndex.FindStringSubmatch(text); m != nil {
 			index, parseErr := strconv.Atoi(firstNonEmpty(m[1], m[2]))
 			if parseErr == nil && index >= 0 && index < len(request.names) {
@@ -188,14 +189,23 @@ func ToolSchemaLimitDetailOf(err error, tools []ToolDefinition) ToolSchemaLimitD
 			name = request.names[0]
 		}
 	}
-	if toolSchemaSafeName.MatchString(name) {
+	// A provider can name a function that the adapter never sent. Every
+	// attribution needs one unambiguous match in both the actual wire names
+	// and the caller's offered definitions, including named diagnostics.
+	if captured && toolSchemaSafeName.MatchString(name) {
 		matches := 0
 		for _, tool := range tools {
 			if tool.Name == name {
 				matches++
 			}
 		}
-		if matches == 1 {
+		wireMatches := 0
+		for _, wireName := range request.names {
+			if wireName == name {
+				wireMatches++
+			}
+		}
+		if matches == 1 && wireMatches == 1 {
 			detail.Tool = name
 		}
 	}
