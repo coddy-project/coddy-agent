@@ -570,7 +570,7 @@ test("a window renders its slice of the rows, each one stamped with its id", () 
   expect(container.querySelector("[data-testid=typing-dots]")).toBeNull();
 });
 
-test("the todo checklist stands above the live line, only at the newest end of the transcript", async () => {
+test("the live line stands above the todo checklist, only at the newest end of the transcript", async () => {
   const items: TranscriptItem[] = Array.from({ length: 4 }, (_, i) => ({
     id: `a${i}`,
     type: "assistant_message" as const,
@@ -585,9 +585,11 @@ test("the todo checklist stands above the live line, only at the newest end of t
   );
   const checklist = screen.getByTestId("todo-checklist");
   const dots = screen.getByTestId("typing-dots");
-  // Under the newest answer, right above the line saying what runs now.
-  expect(checklist.previousElementSibling).toHaveAttribute("data-row-id", "a3");
-  expect(checklist.nextElementSibling).toBe(dots);
+  // The checklist is the final row, below the live line.
+  expect(dots.previousElementSibling).toHaveAttribute("data-row-id", "a3");
+  expect(dots.nextElementSibling).toBe(checklist);
+  expect(checklist.nextElementSibling).toBeNull();
+  expect(screen.getAllByTestId("typing-dots")).toHaveLength(1);
 
   // A window cut short of the newest row leaves the tail out, the list too.
   rerender(
@@ -600,6 +602,7 @@ test("the todo checklist stands above the live line, only at the newest end of t
     />,
   );
   expect(screen.queryByTestId("todo-checklist")).toBeNull();
+  expect(screen.queryByTestId("typing-dots")).toBeNull();
 
   // Idle, the list with work left stays.
   rerender(<MessageList items={items} todoPlan={todoPlan} />);

@@ -40,8 +40,8 @@ func TestTodoChecklistWebUIFeature(t *testing.T) {
 			sc.Step(`^the checklist stays while the turn that finished it runs and leaves once the turn is over$`, func() error {
 				return runVitestScenario(app, "a finished checklist stays while its turn runs and leaves once the turn is over")
 			})
-			sc.Step(`^the checklist stands above the live line and only at the newest end of the transcript$`, func() error {
-				return runVitestScenario(list, "the todo checklist stands above the live line, only at the newest end of the transcript")
+			sc.Step(`^the live line stands above the checklist and only at the newest end of the transcript$`, func() error {
+				return runVitestScenario(list, "the live line stands above the todo checklist, only at the newest end of the transcript")
 			})
 			sc.Step(`^a click on the list's head folds it to the item in progress and the choice is remembered$`, func() error {
 				return runVitestScenario(card, "a click on the head folds the list to the item in progress, and the choice is remembered")

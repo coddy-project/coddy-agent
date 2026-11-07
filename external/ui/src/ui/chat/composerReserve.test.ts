@@ -60,3 +60,26 @@ test("the empty padding over the block counts only while the card is its top", (
     host.remove();
   }
 });
+
+test("reserve uses the visible card edge, including on desktop", () => {
+  const host = document.createElement("div");
+  const wrap = document.createElement("div");
+  wrap.className = "composer-wrap";
+  wrap.style.paddingTop = "18px";
+  wrap.innerHTML = '<textarea style="padding-top: 9px"></textarea>';
+  host.append(wrap);
+  document.body.append(host);
+  try {
+    expect(blockEdgePaddingTop(host)).toBe(18);
+    expect(
+      composerReserveFor({
+        blockHeight: 166,
+        blockPaddingTop: 18,
+        rowGap: 10,
+        contentEndAboveBlockEnd: 0,
+      }),
+    ).toBe(168);
+  } finally {
+    host.remove();
+  }
+});

@@ -115,7 +115,18 @@ export function MessageList(props: {
     props.generating === true ? 0 : Math.max(0, props.runningTasks ?? 0);
   // The finished turn's line, standing last, is the live line stopped in place: it
   // says the tasks itself, and nothing else stands at the tail to move the page.
-  const lastItem = props.items[props.items.length - 1];
+  let lastVisibleIndex = props.items.length - 1;
+  while (lastVisibleIndex >= 0) {
+    const item = props.items[lastVisibleIndex]!;
+    if (
+      item.type !== "background_wake" &&
+      item.type !== "memory_run" &&
+      (item.type !== "assistant_message" || item.content.trim() !== "")
+    )
+      break;
+    lastVisibleIndex--;
+  }
+  const lastItem = props.items[lastVisibleIndex];
   const endsOnFinishedLine =
     lastItem?.type === "system_notice" && lastItem.generation !== undefined;
   const permissionWaitingToolCallIds = useMemo(
@@ -292,7 +303,17 @@ export function MessageList(props: {
           const isLast = idx === props.items.length - 1;
           // The completed frame comes a moment before the turn lets go: until
           // then the live line stands here, and the two never show together.
-          if (isLast && it.generation && props.generating === true) {
+          const summaryStart = it.id.startsWith("generation_")
+            ? Date.parse(it.id.slice("generation_".length))
+            : NaN;
+          const sameTurn =
+            Number.isFinite(summaryStart) &&
+            summaryStart === props.turnProgress?.serverStartedAtMs;
+          if (
+            it.generation &&
+            props.generating === true &&
+            (idx === lastVisibleIndex || sameTurn)
+          ) {
             return null;
           }
           return (
@@ -306,7 +327,9 @@ export function MessageList(props: {
               {...(isLast && it.level === "error" && props.onRetryLast
                 ? { onRetry: props.onRetryLast }
                 : {})}
-              {...(isLast && endsOnFinishedLine && tailTasks > 0
+              {...(idx === lastVisibleIndex &&
+              endsOnFinishedLine &&
+              tailTasks > 0
                 ? {
                     runningTasks: tailTasks,
                     ...(props.onOpenTasks
@@ -449,15 +472,6 @@ export function MessageList(props: {
       })}
       {/* The tail rows below belong under the newest message: a window cut short
           of it (the reader deep in history) leaves them out. */}
-      {/* The todo checklist sits right above the live line, so the item the
-          agent is on reads next to what it is doing now. */}
-      {renderEnd === props.items.length ? (
-        <TodoChecklistMessage
-          sessionId={(props.sessionId ?? "").trim()}
-          entries={props.todoPlan}
-          shown={todoChecklistOnScreen}
-        />
-      ) : null}
       {/* The live line stands under the transcript for the whole turn and always
           says what is happening, in general words at least. It used to vanish once
           the turn had written any text and to fall silent under a reasoning row,
@@ -501,6 +515,14 @@ export function MessageList(props: {
       !endsOnFinishedLine &&
       renderEnd === props.items.length ? (
         <TypingDotsMessage idle={true} />
+      ) : null}
+      {/* The checklist closes the transcript while the turn runs. */}
+      {renderEnd === props.items.length ? (
+        <TodoChecklistMessage
+          sessionId={(props.sessionId ?? "").trim()}
+          entries={props.todoPlan}
+          shown={todoChecklistOnScreen}
+        />
       ) : null}
     </>
   );
