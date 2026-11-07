@@ -76,7 +76,7 @@ func openAPISpec() map[string]interface{} {
 						"**`metadata`** must not carry **`model`** for direct-completion **`model`** values. " +
 						"When **stream** is true the response is **text/event-stream** in the strict OpenAI **`chat.completion.chunk`** contract a third-party client parses literally (VS Code Copilot, the openai SDKs): a first chunk with **`delta.role`** `assistant`, **`delta.content`**, **`delta.reasoning_content`** and **`delta.tool_calls`** deltas with **`finish_reason: null`**, a final chunk whose **`finish_reason`** is **`stop`** (**`length`** when the turn hit **`max_turns`** / **`max_tokens`**, **`tool_calls`** when a direct model called one of the client's tools, **`content_filter`** when the provider's content filter cut a direct answer short), a usage chunk with an empty **`choices`** array when **`stream_options.include_usage`** is true and provider counters are available, then **`data: [DONE]`**. No named **`event:`** frame is sent here (each leaves an SSE comment in its place, so the connection stays busy through a tool phase); the coddy events (**`tool_call`**, **`token_usage`**, **`coddy_meta`**, ...) belong to the profile **`POST /v1/responses`** stream and the composer relay. Otherwise JSON. " +
 						"A non-streaming JSON completion includes **`usage`** with **`prompt_tokens`**, **`completion_tokens`** and **`total_tokens`** when the provider reported token counts, summing the model calls of an agent turn's own loop (a spawned subagent and a compaction are not counted); **`prompt_tokens_details.cached_tokens`** is included when positive. If no counts were reported, **`usage`** is omitted rather than invented as zero. " +
-						"A direct **`models[].model`** id is coddy standing in for the provider: the client's **`tools`** are offered to the model as they are (**`tool_choice`** `none` withholds them, `auto` leaves the choice to the model), a call the model makes comes back as **`delta.tool_calls`** chunks (streamed) or **`message.tool_calls`** (JSON) with **`finish_reason`** **`tool_calls`**, the client replays the assistant's **`tool_calls`** and answers with **`tool`** messages, which may end the request, and **`content`** parts of type **`image_url`** reach a model configured **`multimodal`** as images (dropped otherwise; an https address is handed to the provider, never fetched). Bounds: 128 tools, 256 KiB of **`parameters`** per tool, 16 images per message, 20 MiB per image URL string, else **400**. The **agent** / **plan** / **ask** profiles run coddy's own tools and reject client tools, and take no trailing **`tool`** message. " +
+						"A direct **`models[].model`** id is coddy standing in for the provider: the client's **`tools`** are offered to the model as they are (**`tool_choice`** `none` withholds them, `auto` leaves the choice to the model), a call the model makes comes back as **`delta.tool_calls`** chunks (streamed) or **`message.tool_calls`** (JSON) with **`finish_reason`** **`tool_calls`**, the client replays the assistant's **`tool_calls`** and answers with **`tool`** messages, which may end the request, and **`content`** parts of type **`image_url`** reach a model configured **`multimodal`** as images (dropped otherwise; an https address is handed to the provider, never fetched). Bounds: 128 tools (**`httpserver.max_client_tools`**), 256 KiB of **`parameters`** per tool (**`httpserver.max_client_tool_schema_bytes`**), 16 images per message, 20 MiB per image URL string, else **400**; a broken tool bound answers **`error.param`** `tools` and **`error.code`** `too_many_tools` or `tool_parameters_too_large`. The **agent** / **plan** / **ask** profiles run coddy's own tools and reject client tools, and take no trailing **`tool`** message. " +
 						"**409** when **X-Coddy-Session-ID** names a child session spawned by **spawn_agent**: those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. " +
 						"A direct completion on a session whose turn lock is already held answers **409** before changing its transcript or contacting the provider. " +
 						"A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. " +
@@ -4335,6 +4335,33 @@ func openAPISpec() map[string]interface{} {
 									"default": map[string]string{
 										"type":        "boolean",
 										"description": "True on the one backend row a session that selects no model runs on: configured `agent.model`, or the first `models[]` row when `agent.model` names a model the configuration does not list. Omitted elsewhere, and on every row while `agent.model` is empty. The embedded UI keeps its own pick; the remote console shows this model.",
+									},
+									"limits": map[string]interface{}{
+										"type":        "object",
+										"description": "What a request on this row may carry, so a client sizes one before it sends it instead of being refused with **400**. The two tool bounds are the server's configured `httpserver.max_client_tools` and `httpserver.max_client_tool_schema_bytes`; the picture bounds are built in.",
+										"properties": map[string]interface{}{
+											"client_tools": map[string]string{
+												"type":        "boolean",
+												"description": "Whether this row takes the client's own `tools` at all. False on `agent`, `plan` and `ask`, which run coddy's tools and reject the client's; the two tool bounds are then left out rather than advertised as bounds that never apply.",
+											},
+											"tools": map[string]string{
+												"type":        "integer",
+												"description": "Most tools one request may offer. Refused with **400** and `error.code` `too_many_tools` past it. Present only when `client_tools` is true.",
+											},
+											"tool_schema_bytes": map[string]string{
+												"type":        "integer",
+												"description": "Largest `parameters` schema of one tool, in bytes. Refused with **400** and `error.code` `tool_parameters_too_large` past it. Present only when `client_tools` is true.",
+											},
+											"images_per_message": map[string]string{
+												"type":        "integer",
+												"description": "Most `image_url` parts one message may carry.",
+											},
+											"image_bytes": map[string]string{
+												"type":        "integer",
+												"description": "Longest `image_url` string, in bytes; a data URL carries the picture itself.",
+											},
+										},
+										"required": []string{"client_tools", "images_per_message", "image_bytes"},
 									},
 								},
 							},

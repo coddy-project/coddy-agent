@@ -62,13 +62,9 @@ func (s *Server) handleDirectResponses(w http.ResponseWriter, r *http.Request, r
 		writeOpenAIValidationError(w, "inline_files require a final user message", "inline_files")
 		return
 	}
-	tools, err := responsesToolsToLLM(req.Tools, req.ToolChoice)
+	tools, err := responsesToolsToLLM(req.Tools, req.ToolChoice, clientToolLimitsOf(cfg))
 	if err != nil {
-		param := "tools"
-		if strings.Contains(err.Error(), "tool_choice") {
-			param = "tool_choice"
-		}
-		writeOpenAIValidationError(w, err.Error(), param)
+		writeClientToolError(w, err)
 		return
 	}
 	opts, err := responsesGenerationOptions(cfg, req.Model, &req)
