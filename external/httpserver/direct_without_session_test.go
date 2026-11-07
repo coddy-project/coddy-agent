@@ -245,18 +245,41 @@ func TestDirectWithoutSessionStopsWhenTheClientLeaves(t *testing.T) {
 					t.Fatal(err)
 				}
 				done := make(chan struct{})
+				// Only wait closes entered, so a regression that answers the
+				// request before the provider is reached would hang the whole
+				// package until its test timeout. Every wait below is bounded
+				// and names what did not happen.
+				refused := make(chan error, 1)
 				go func() {
 					defer close(done)
-					if res, err := http.DefaultClient.Do(req); err == nil {
-						_ = res.Body.Close()
+					res, err := http.DefaultClient.Do(req)
+					if err != nil {
+						refused <- err
+						return
 					}
+					_ = res.Body.Close()
 				}()
-				<-p.entered
-				cancel()
-				if err := <-p.ended; !errors.Is(err, context.Canceled) {
-					t.Fatalf("the provider's call ended with %v", err)
+				select {
+				case <-p.entered:
+				case err := <-refused:
+					t.Fatalf("the request ended before the provider was called: %v", err)
+				case <-time.After(10 * time.Second):
+					t.Fatal("the provider was never called")
 				}
-				<-done
+				cancel()
+				select {
+				case err := <-p.ended:
+					if !errors.Is(err, context.Canceled) {
+						t.Fatalf("the provider's call ended with %v", err)
+					}
+				case <-time.After(10 * time.Second):
+					t.Fatal("the provider's call did not end after the client left")
+				}
+				select {
+				case <-done:
+				case <-time.After(10 * time.Second):
+					t.Fatal("the request did not end after the client left")
+				}
 				assertStoreEmpty(t, sessRoot)
 			})
 		}
