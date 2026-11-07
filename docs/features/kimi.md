@@ -31,6 +31,8 @@ For Platform, set `mode: platform` and supply `api_key` or `api_key_command`. Su
 
 The model catalog carries a protocol for each model. For subscription models, Coddy supports Kimi, Anthropic and OpenAI Responses transports; Platform inference currently accepts the Kimi protocol only. Catalog metadata is tied to the model, mode and region. A protocol mismatch requires validation rather than silently changing the transport.
 
+Kimi Code accepts only temperature 1 and refuses any other value with HTTP 400, whatever the model. Coddy therefore leaves a `temperature` written on a `models[]` row out of a subscription request. A temperature an API client sends on the request itself still reaches the endpoint, which refuses it unless it is 1. Platform is the Moonshot API, which takes the parameter, so a configured temperature reaches it.
+
 ## Sign-in and CLI fallback
 
 Kimi Code uses OAuth device authorization. Run `coddy providers login kimi` or sign in from the provider form. Follow the verification link and enter the displayed code. For an unsaved provider in the web UI, save the settings after signing in so the provider retains its identity. Platform mode uses a key and does not use this flow.

@@ -12,6 +12,11 @@ Feature: Kimi Code credentials serve Coddy's agent
     When Coddy sends a model request with its stored credential
     Then the model answers with the stand's response
 
+  Scenario: A model row's temperature stays out of a subscription request
+    Given a Kimi subscription stand in the global region
+    When Coddy sends a model request for a model row that configures a temperature
+    Then the subscription request carries no temperature and the model answers
+
   Scenario: Every subscription request follows the configured provider proxy
     Given a Kimi provider configured with a local proxy
     When Coddy starts authorization, polls the device and requests refresh, discovery, usage and inference

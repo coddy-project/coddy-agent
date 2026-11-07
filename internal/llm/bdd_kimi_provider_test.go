@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -24,6 +25,7 @@ type kimiBDDState struct {
 	hits   chan string
 	seen   []string
 	region string
+	body   map[string]any
 }
 
 func (s *kimiBDDState) stand() error {
@@ -49,6 +51,15 @@ func (s *kimiBDDState) stand() error {
 		case "/chat/completions":
 			if r.Header.Get("Authorization") != "Bearer "+kimiBDDToken {
 				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			s.body = nil
+			_ = json.NewDecoder(r.Body).Decode(&s.body)
+			// The subscription endpoint takes only temperature 1 and refuses
+			// any other value, whatever the model.
+			if temp, ok := s.body["temperature"]; ok && temp != float64(1) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":{"message":"invalid temperature: only 1 is allowed for this model","type":"invalid_request_error"}}`))
 				return
 			}
 			_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"Kimi stand answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":4,"completion_tokens":2}}`))
@@ -148,6 +159,29 @@ func (s *kimiBDDState) ask() error {
 	var err error
 	s.answer, err = newKimiChatProvider(transport, ProviderInput{Model: "kimi-stand"}).Complete(context.Background(), []Message{{Role: RoleUser, Content: "Hello"}}, nil)
 	return err
+}
+
+// askConfiguredTemperature runs the request of a models[] row that configures
+// a temperature, the way Coddy's own catalog import writes one.
+func (s *kimiBDDState) askConfiguredTemperature() error {
+	transport := &KimiInferenceTransport{
+		endpoint: s.server.URL + "/chat/completions", client: s.server.Client(),
+		source: func(context.Context) (string, error) { return kimiBDDToken, nil },
+	}
+	in := ProviderInput{Model: "kimi-stand", Temperature: 0.2, ReasoningEffort: "low"}
+	var err error
+	s.answer, err = newKimiChatProvider(transport, in).Complete(context.Background(), []Message{{Role: RoleUser, Content: "Hello"}}, nil)
+	return err
+}
+
+func (s *kimiBDDState) answeredWithoutTemperature() error {
+	if s.body == nil {
+		return fmt.Errorf("the stand recorded no request")
+	}
+	if _, ok := s.body["temperature"]; ok {
+		return fmt.Errorf("the request carried temperature %v", s.body["temperature"])
+	}
+	return s.answered()
 }
 
 func (s *kimiBDDState) answered() error {
@@ -314,7 +348,8 @@ func TestKimiProviderFeature(t *testing.T) {
 	state := &kimiBDDState{t: t}
 	paths := []string{"../../features/kimi_provider.feature"}
 	if !KimiRefreshSupported() {
-		paths = []string{"../../features/kimi_provider.feature:25"}
+		// The scenarios that need no managed credential store.
+		paths = []string{"../../features/kimi_provider.feature:15", "../../features/kimi_provider.feature:30"}
 	}
 	suite := godog.TestSuite{
 		Name:    "kimi-provider",
@@ -327,6 +362,8 @@ func TestKimiProviderFeature(t *testing.T) {
 			ctx.Step(`^the subscription usage contains its independent limits$`, state.usage)
 			ctx.Step(`^Coddy sends a model request with its stored credential$`, state.ask)
 			ctx.Step(`^the model answers with the stand's response$`, state.answered)
+			ctx.Step(`^Coddy sends a model request for a model row that configures a temperature$`, state.askConfiguredTemperature)
+			ctx.Step(`^the subscription request carries no temperature and the model answers$`, state.answeredWithoutTemperature)
 			ctx.Step(`^a Kimi provider configured with a local proxy$`, state.proxyStand)
 			ctx.Step(`^Coddy starts authorization, polls the device and requests refresh, discovery, usage and inference$`, state.proxyRequests)
 			ctx.Step(`^each request reaches the configured proxy$`, state.proxyVerified)

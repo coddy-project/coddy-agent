@@ -45,7 +45,17 @@ func (p *kimiChatProvider) request(ctx context.Context, messages []Message, tool
 	if p.transport == nil {
 		return nil, errors.New("kimi chat: missing transport")
 	}
-	op := newOpenAIProvider(p.input.Model, "", "", nil, 0, p.input.Temperature, "", "")
+	// Kimi Code takes only temperature 1 and refuses any other value with HTTP
+	// 400, whatever the model, so a temperature a models[] row merely
+	// configures stays out of a subscription request, as it does on this
+	// provider's Anthropic and Responses protocols. One the caller asked for
+	// on the request still travels: the endpoint answers for itself. Platform
+	// is the Moonshot API, which takes the parameter, and keeps it either way.
+	temperature := p.input.Temperature
+	if p.input.Mode != "platform" && !p.input.TemperatureSet {
+		temperature = 0
+	}
+	op := newOpenAIProvider(p.input.Model, "", "", nil, 0, temperature, "", "")
 	op.tempSet = p.input.TemperatureSet
 	op.topP = p.input.TopP
 	normalized := make([]ToolDefinition, len(tools))
@@ -91,8 +101,7 @@ func (p *kimiChatProvider) request(ctx context.Context, messages []Message, tool
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		_ = resp.Body.Close()
-		return nil, &httpStatusError{label: "kimi chat", status: resp.StatusCode, header: resp.Header.Clone()}
+		return nil, kimiStatusError("kimi chat", resp)
 	}
 	return resp, nil
 }
