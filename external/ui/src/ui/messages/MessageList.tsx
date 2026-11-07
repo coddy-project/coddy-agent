@@ -120,7 +120,6 @@ export function MessageList(props: {
     const item = props.items[lastVisibleIndex]!;
     if (
       item.type !== "background_wake" &&
-      item.type !== "memory_run" &&
       (item.type !== "assistant_message" || item.content.trim() !== "")
     )
       break;
