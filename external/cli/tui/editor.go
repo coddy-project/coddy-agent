@@ -234,7 +234,7 @@ func (e *Editor) HandleInput(data []byte) {
 				e.insertText("\t")
 			}
 			return
-		case "backspace":
+		case "backspace", "shift+backspace":
 			e.deleteCharBackward()
 			return
 		case "delete":
@@ -279,6 +279,12 @@ func (e *Editor) HandleInput(data []byte) {
 			e.moveDown()
 			return
 		}
+	}
+
+	// Encoded printable input (modifyOtherKeys / Kitty), after shortcuts.
+	if isKey && key.Text != "" {
+		e.insertText(key.Text)
+		return
 	}
 
 	// Plain printable input (including UTF-8 and pasted bodies).

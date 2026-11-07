@@ -5,19 +5,29 @@ package tui
 import (
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Key is a decoded keyboard event.
 type Key struct {
 	// Name is the canonical key name: a letter/digit/symbol, or one of
 	// enter, escape, tab, space, backspace, delete, insert, home, end,
-	// pageup, pagedown, up, down, left, right, f1..f12.
+	// pageup, pagedown, up, down, left, right, f1..f12. An event carrying only
+	// associated text has an empty Name; consumers insert Text after shortcuts.
 	Name  string
 	Shift bool
 	Alt   bool
 	Ctrl  bool
 	Super bool
+	// Text is the printable payload of an encoded key, separate from its
+	// shortcut name. Plain UTF-8 input is inserted directly by the editor.
+	Text string
 }
+
+// Shift and lock keys can accompany text; Alt, Ctrl, Super, Hyper and Meta
+// identify shortcuts instead. These are modifier bits before adding one.
+const textShortcutModifiers = 2 | 4 | 8 | 16 | 32
 
 // String renders the key back to "ctrl+shift+x" notation.
 func (k Key) String() string {
@@ -192,7 +202,8 @@ func parseCSIKey(s string) (Key, bool) {
 		if len(fields) == 0 {
 			return Key{}, false
 		}
-		cp, err := strconv.Atoi(strings.SplitN(fields[0], ":", 2)[0])
+		codes := strings.Split(fields[0], ":")
+		cp, err := strconv.Atoi(codes[0])
 		if err != nil {
 			return Key{}, false
 		}
@@ -202,11 +213,29 @@ func parseCSIKey(s string) (Key, bool) {
 			if len(modField) == 2 && modField[1] == "3" {
 				return Key{}, false // key release event
 			}
-			if m, err := strconv.Atoi(modField[0]); err == nil {
+			if modField[0] != "" {
+				m, err := strconv.Atoi(modField[0])
+				if err != nil || m < 1 {
+					return Key{}, false
+				}
 				mod = m
 			}
 		}
-		return keyFromCodepoint(cp, mod)
+		k, ok := keyFromCodepoint(cp, mod)
+		if (mod-1)&textShortcutModifiers == 0 {
+			if len(fields) >= 3 && fields[2] != "" {
+				k.Text = textCodepoints(fields[2])
+			} else if k.Text != "" && k.Shift {
+				if len(codes) >= 2 && codes[1] != "" {
+					k.Text = textCodepoints(codes[1])
+				} else {
+					// Case conversion covers letters without assuming a keyboard
+					// layout for symbols. Prefer a reported shifted key or text.
+					k.Text = strings.ToUpper(k.Text)
+				}
+			}
+		}
+		return k, ok || k.Text != ""
 	default:
 		if name, ok := letterFinals[final]; ok {
 			k := Key{Name: name}
@@ -243,6 +272,9 @@ func applyMod(k *Key, field string) {
 }
 
 func keyFromCodepoint(cp, mod int) (Key, bool) {
+	if mod < 1 {
+		return Key{}, false
+	}
 	k := Key{}
 	bits := mod - 1
 	if bits > 0 {
@@ -250,6 +282,9 @@ func keyFromCodepoint(cp, mod int) (Key, bool) {
 		k.Alt = bits&2 != 0
 		k.Ctrl = bits&4 != 0
 		k.Super = bits&8 != 0
+	}
+	if bits&textShortcutModifiers == 0 {
+		k.Text = textCodepoints(strconv.Itoa(cp))
 	}
 	switch cp {
 	case 13:
@@ -263,7 +298,7 @@ func keyFromCodepoint(cp, mod int) (Key, bool) {
 	case 127, 8:
 		k.Name = "backspace"
 	default:
-		if cp >= 0x21 && cp < 0x7f {
+		if cp >= 0x21 && cp <= utf8.MaxRune && utf8.ValidRune(rune(cp)) && unicode.IsPrint(rune(cp)) {
 			r := rune(cp)
 			k.Name = strings.ToLower(string(r))
 			if r >= 'A' && r <= 'Z' {
@@ -274,6 +309,20 @@ func keyFromCodepoint(cp, mod int) (Key, bool) {
 		}
 	}
 	return k, true
+}
+
+// textCodepoints decodes printable Unicode scalars without admitting control
+// codes or Kitty's private-use functional key numbers into the draft.
+func textCodepoints(field string) string {
+	var text strings.Builder
+	for _, part := range strings.Split(field, ":") {
+		cp, err := strconv.Atoi(part)
+		if err != nil || cp < 0 || cp > utf8.MaxRune || !utf8.ValidRune(rune(cp)) || !unicode.IsPrint(rune(cp)) {
+			return ""
+		}
+		text.WriteRune(rune(cp))
+	}
+	return text.String()
 }
 
 // MatchesKey reports whether data decodes to the key spec ("ctrl+c",
@@ -287,6 +336,7 @@ func MatchesKey(data []byte, spec string) bool {
 	if !ok {
 		return false
 	}
+	got.Text = "" // Shortcut identity does not include the printable payload.
 	return got == want
 }
 
