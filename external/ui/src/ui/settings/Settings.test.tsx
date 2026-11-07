@@ -1304,6 +1304,8 @@ describe("settings search", () => {
   });
 
   test("the System tab is a tab and a result, and choosing it opens #/settings/status", async () => {
+    // This test checks search navigation; separate tests cover the lazy load.
+    await import("./SystemSection");
     await drawer();
     expect(screen.getByTestId("settings-tab-status").textContent).toContain(
       "System",
